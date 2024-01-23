@@ -9,7 +9,7 @@ import MinkowskiFunctional as MF
 from mlreco.models.layers.common.ppnplus import PPN, PPNLonelyLoss
 from mlreco.models.uresnet import SegmentationLoss
 from collections import defaultdict
-from mlreco.models.uresnet import UResNet_Chain
+from mlreco.models.uresnet import UResNetSegmentation
 
 class UResNetPPN(nn.Module):
     """
@@ -63,19 +63,34 @@ class UResNetPPN(nn.Module):
 
     See Also
     --------
-    mlreco.models.uresnet.UResNet_Chain, mlreco.models.layers.common.ppnplus.PPN
+    mlreco.models.uresnet.UResNetSegmentation, mlreco.models.layers.common.ppnplus.PPN
     """
     MODULES = ['mink_uresnet', 'mink_uresnet_ppn_chain', 'mink_ppn']
 
-    RETURNS = dict(UResNet_Chain.RETURNS, **PPN.RETURNS)
+    RETURNS = dict(UResNetSegmentation.RETURNS, **PPN.RETURNS)
 
-    def __init__(self, cfg):
-        super(UResNetPPN, self).__init__()
-        self.model_config = cfg
-        self.ghost = cfg.get('uresnet_lonely', {}).get('ghost', False)
-        assert self.ghost == cfg.get('ppn', {}).get('ghost', False)
-        self.backbone = UResNet_Chain(cfg)
-        self.ppn = PPN(cfg)
+    def __init__(self, uresnet, ppn):
+        '''
+        Initialize the UResNet+PPN model
+
+        Parameters
+        ----------
+        uresnet : dict
+            UResNet configuration dictionary
+        ppn : dict
+            PPN configuration dictionary
+        '''
+        # Initialize the parent class
+        super().__init__()
+
+        # Initialize the UResNet backbone
+        self.uresnet = UResNetSegmentation(uresnet)
+
+        # Initialize the PPN layers
+        self.ppn = PPN(ppn)
+        
+        # Check that the UResNet and PPN configurations are compatible
+        assert self.uresnet.ghost == self.ppn.ghost
 
     def forward(self, input):
 

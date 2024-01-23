@@ -4,6 +4,22 @@ import torch
 from .globals import COORD_COLS
 
 
+def cycle(data_io):
+    '''
+    Use this function instead of itertools.cycle to avoid creating a memory
+    leak (itertools.cycle attempts to save all outputs in order to re-cycle
+    through them)
+
+    Parameters
+    ----------
+    data_io : torch.utils.data.DataLoader
+        Data loader
+    '''
+    while True:
+        for x in data_io:
+            yield x
+
+
 def to_numpy(array):
     '''
     Function which casts an array-like object
@@ -12,7 +28,8 @@ def to_numpy(array):
     Parameters
     ----------
     array : object
-        Array-like object (can be either `np.ndarray`, `torch.Tensor` or `ME.SparseTensor`)
+        Array-like object (can be either `np.ndarray`, `torch.Tensor`
+        or `ME.SparseTensor`)
 
     Returns
     -------
@@ -21,12 +38,15 @@ def to_numpy(array):
     '''
     import MinkowskiEngine as ME
 
-    if isinstance(array, np.ndarray):
+    if isinstance(array, (list, tuple)):
+        return np.array(array)
+    elif isinstance(array, np.ndarray):
         return array
     elif isinstance(array, torch.Tensor):
-        return array.cpu().detach().numpy()
-    elif isinstance(array, tuple):
-        return np.array(array)
+        if array.ndim == 0:
+            return array.item()
+        else:
+            return array.cpu().detach().numpy()
     elif isinstance(array, ME.SparseTensor):
         return torch.cat([array.C.float(), array.F], dim=1).detach().cpu().numpy()
     else:

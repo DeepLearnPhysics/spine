@@ -8,7 +8,7 @@ import MinkowskiEngine as ME
 import MinkowskiFunctional as MF
 from mlreco.models.uresnet import SegmentationLoss
 from collections import defaultdict
-from mlreco.models.uresnet import UResNet_Chain
+from mlreco.models.uresnet import UResNetSegmentation
 from mlreco.models.layers.common.vertex_ppn import VertexPPN, VertexPPNLoss
 from mlreco.models.experimental.layers.pointnet import PointNetEncoder
 
@@ -26,7 +26,7 @@ class VertexPPNChain(nn.Module):
     def __init__(self, cfg):
         super(VertexPPNChain, self).__init__()
         self.model_config = cfg
-        self.backbone = UResNet_Chain(cfg)
+        self.backbone = UResNetSegmentation(cfg)
         self.vertex_ppn = VertexPPN(cfg)
         self.num_classes = self.backbone.num_classes
         self.num_filters = self.backbone.F

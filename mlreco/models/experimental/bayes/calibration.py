@@ -17,14 +17,14 @@ def calibrator_loss_dict():
     }
     return losses
 
-def calibrator_loss_construct(name, logit_name, **kwargs):
+def construct_calibrator_loss(name, logit_name, **kwargs):
     losses = calibrator_loss_dict()
     if name not in losses:
         raise Exception("Unknown calibration loss function provided: %s" % name)
     return losses[name](logit_name, **kwargs)
 
 
-def calibrator_construct(name):
+def construct_calibrator(name):
     models = calibrator_dict()
     if name not in models:
         raise Exception("Unknown calibration model provided: %s" % name)

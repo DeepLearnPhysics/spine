@@ -7,151 +7,59 @@ import MinkowskiEngine as ME
 from .activation_normalization_factories import *
 from typing import Union
 
-# Custom Network Units/Blocks
 class Identity(nn.Module):
-    def __init__(self):
-        super(Identity, self).__init__()
-    def forward(self, input):
-        return input
-
-
-def dense_coordinates(shape: Union[list, torch.Size]):
-    """
-    coordinates = dense_coordinates(tensor.shape)
-    """
-    r"""
-    Assume the input to have BxCxD1xD2x....xDN format.
-    If the shape of the tensor do not change, use 
-    """
-    spatial_dim = len(shape) - 2
-    assert (
-        spatial_dim > 0
-    ), "Invalid shape. Shape must be batch x channel x spatial dimensions."
-
-    # Generate coordinates
-    size = [i for i in shape]
-    B = size[0]
-    coordinates = torch.from_numpy(
-        np.stack(
-            [
-                s.reshape(-1)
-                for s in np.meshgrid(
-                    np.linspace(0, B - 1, B),
-                    *(np.linspace(0, s - 1, s) for s in size[2:]),
-                    indexing="ij"
-                )
-            ],
-            1,
-        )
-    ).int()
-    return coordinates
-
-
-def to_sparse(dense_tensor: torch.Tensor, 
-              resolution: int, 
-              coordinates: torch.Tensor = None,
-              coords_key = None,
-              coords_man = None):
-    r"""Converts a (differentiable) dense tensor to a sparse tensor.
-    Assume the input to have BxCxD1xD2x....xDN format.
-    If the shape of the tensor do not change, 
-    use `dense_coordinates` to cache the coordinates.
-    Please refer to tests/python/dense.py for usage
-    Example::
-       >>> dense_tensor = torch.rand(3, 4, 5, 6, 7, 8)  # BxCxD1xD2xD3xD4
-       >>> dense_tensor.requires_grad = True
-       >>> stensor = to_sparse(dense_tensor)
-    """
-    spatial_dim = dense_tensor.ndim - 2
-    assert (
-        spatial_dim > 0
-    ), "Invalid shape. Shape must be batch x channel x spatial dimensions."
-
-    if coordinates is None:
-        coordinates = dense_coordinates(dense_tensor.shape)
-
-    coordinates[:, 1:] *= resolution
-
-    feat_tensor = dense_tensor.permute(
-        0, *(2 + i for i in range(spatial_dim)), 1)
-    return ME.SparseTensor(
-        features=feat_tensor.reshape(-1, dense_tensor.size(1)),
-        coords=coordinates,
-        force_creation=True,
-        # coords_key=coords_key,
-        coords_manager=coords_man,
-        tensor_stride=resolution
-    )
-
-
-class SparseToDense(nn.Module):
-
-    def __init__(self):
-        super(SparseToDense, self).__init__()
-
-    def forward(self, x: ME.SparseTensor):
-        x_dense, _, _ = x.dense()
-        return x_dense
-
-
-class DenseResBlock(nn.Module):
-
-    def __init__(self, 
-                 in_channels, 
-                 out_channels):
-        super(DenseResBlock, self).__init__()
-
-        self.norm_1 = nn.BatchNorm3d(in_channels)
-        self.act_1 = nn.LeakyReLU(0.2)
-        self.conv_1 = nn.Conv3d(in_channels, out_channels, 3, 1, 1)
-
-        self.norm_2 = nn.BatchNorm3d(out_channels)
-        self.act_2 = nn.LeakyReLU(0.2)
-        self.conv_2 = nn.Conv3d(out_channels, out_channels, 3, 1, 1)
-
-    def forward(self, x):
-
-        y = self.conv_1(self.act_1(self.norm_1(x)))
-        y = self.conv_2(self.act_2(self.norm_2(y)))
-        return y
-
-
-def normalize_coords(coords, spatial_size=512):
     '''
-    Utility Method for attaching normalized coordinates to
-    sparse tensor features.
-
-    INPUTS:
-        - input (scn.SparseConvNetTensor): sparse tensor to
-        attach normalized coordinates with range (-1, 1)
-
-    RETURNS:
-        - output (scn.SparseConvNetTensor): sparse tensor with
-        normalized coordinate concatenated to first three dimensions.
+    No-op torch module
     '''
-    with torch.no_grad():
-        coords = coords.float()
-        normalized_coords = (coords[:, :3] - spatial_size / 2) \
-            / (spatial_size / 2)
-        if torch.cuda.is_available():
-            normalized_coords = normalized_coords.cuda()
-    return normalized_coords
+    def __init__(self):
+        '''
+
+        '''
+        # Initialize the parent class
+        super().__init__()
+
+    def forward(self, input_data):
+        return input_data
 
 
 class ConvolutionBlock(ME.MinkowskiNetwork):
+    '''
+    Convolution block which operates a sequence of two
+    convolution + nomalization + activation steps
+    '''
+    def __init__(self, in_features, out_features, stride = 1, dilation = 1,
+            dimension = 3, activation = 'relu', activation_args = {},
+            normalization='batch_norm', normalization_args = {},
+            has_bias = False):
+        '''
+        Initialize the convolution block
 
-    def __init__(self,
-                 in_features,
-                 out_features,
-                 stride=1,
-                 dilation=1,
-                 dimension=3,
-                 activation='relu',
-                 activation_args={},
-                 normalization='batch_norm',
-                 normalization_args={},
-                 has_bias=False):
-        super(ConvolutionBlock, self).__init__(dimension)
+        Parameters
+        ----------
+        in_features : int
+            Number of input features
+        out_features : int
+            Number of output features
+        stride : int, default 1
+            Convolution kernel stride
+        dilation : int, default 1
+            Convolution kernel dilation
+        dimension : int, default 3
+            Dimension of the input image
+        activation : str, default 'relu'
+            Name of the activation function
+        activation_args : dict, optional
+            Arguments to pass to the activation function
+        normalization : str, default 'batch_norm'
+            Name of the normalization function
+        normalization_args : dict, optional
+            Arguments to pass to the normalization function
+        has_bias : bool, default False
+            Whether to add a bias term to the kernel
+        '''
+        # Initialize the parent class
+        super().__init__(dimension)
+
         assert dimension > 0
         self.act_fn1 = activations_construct(activation, **activation_args)
         self.act_fn2 = activations_construct(activation, **activation_args)
@@ -240,6 +148,33 @@ class ResNetBlock(ME.MinkowskiNetwork):
                  normalization='batch_norm',
                  normalization_args={},
                  bias=False):
+        '''
+        Initialize the convolution block
+
+        Parameters
+        ----------
+        in_features : int
+            Number of input features
+        out_features : int
+            Number of output features
+        stride : int, default 1
+            Convolution kernel stride
+        dilation : int, default 1
+            Convolution kernel dilation
+        dimension : int, default 3
+            Dimension of the input image
+        activation : str, default 'relu'
+            Name of the activation function
+        activation_args : dict, optional
+            Arguments to pass to the activation function
+        normalization : str, default 'batch_norm'
+            Name of the normalization function
+        normalization_args : dict, optional
+            Arguments to pass to the normalization function
+        bias : bool, default False
+            Whether to add a bias term to the kernel
+        '''
+        # Initialize the parent class
         super(ResNetBlock, self).__init__(dimension)
         assert dimension > 0
         self.act_fn1 = activations_construct(activation, **activation_args)

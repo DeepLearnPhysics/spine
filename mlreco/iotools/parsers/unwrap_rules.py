@@ -27,14 +27,14 @@ RULES = {
     'parse_trigger': ['list']
 }
 
-def input_unwrap_rules(schemas):
+def input_unwrap_rules(parsers):
     '''
     Translates parser schemas into unwrap rules.
 
     Parameters
     ----------
-    schemas : dict
-        Dictionary of parser schemas
+    parsers : dict
+        Dictionary of data keys and their parser schema
 
     Returns
     -------
@@ -42,12 +42,11 @@ def input_unwrap_rules(schemas):
         Dictionary of unwrapping rules
     '''
     rules = {}
-    for name, schema in schemas.items():
-        parser = schema['parser']
+    for name, (parser_fn, parser_args) in parsers.items():
+        parser = parser_fn.__name__
         assert parser in RULES, f'Unable to unwrap data from {parser}'
         rules[name] = deepcopy(RULES[parser])
         if rules[name][0] == 'tensor':
             rules[name][1] = name
 
     return rules
-

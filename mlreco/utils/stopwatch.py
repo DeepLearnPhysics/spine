@@ -1,16 +1,226 @@
 import time
+from dataclasses import dataclass
 
+@dataclass
+class Time:
+    '''
+    Simple dataclass to hold time information.
+
+    Attributes
+    ----------
+    wall : float, optional
+         Wall time
+    cpu : float, optional
+         CPU time
+    '''
+    wall : float = None
+    cpu  : float = None
+
+    def __add__(self, time):
+        '''
+        Overload the addition operator
+
+        Parameters
+        ----------
+        time : Time
+            Other Time object
+
+        Returns
+        -------
+        Time
+           Summed times
+        '''
+        return Time(wall = self.wall + time.wall,
+                    cpu  = self.cpu  + time.cpu)
+
+    def __sub__(self, time):
+        '''
+        Overload the substraction operator
+
+        Parameters
+        ----------
+        time : Time
+            Other Time object
+
+        Returns
+        -------
+        Time
+           Substracted times
+        '''
+        return Time(wall = self.wall - time.wall,
+                    cpu  = self.cpu  - time.cpu)
+
+    def __eq__(self, time):
+        '''
+        Overload the equality operator
+
+        Parameters
+        ----------
+        time : Time
+            Other Time object
+
+        Returns
+        -------
+        bool
+            True if both times are identical
+        '''
+        if isinstance(time, type(self)):
+            return self.wall == time.wall and self.cpu == time.cpu
+        else:
+            return self.wall == time and self.cpu == time
+
+    def copy(self):
+        '''
+        Returns an independant copy of the object
+
+        Returns
+        -------
+        Time
+            Copy of the object
+        '''
+        return Time(wall = self.wall, cpu = self.cpu)
+
+
+@dataclass
 class Stopwatch:
+    '''
+    Simple dataclass to hold timing information for a specific process.
+    '''
+    _start : Time = Time()
+    _stop  : Time = Time()
+    _pause : Time = Time()
+    _time  : Time = Time(0., 0.)
+    _total : Time = Time(0., 0.)
+
+    @property
+    def start(self):
+        '''
+        Time when the stopwatch was last started
+        '''
+        return self._start
+
+    @start.setter
+    def start(self, start):
+        # Check that the watch was not already started
+        if self.start != None and self._stop == None:
+            raise ValueError('Cannot restart a watch ' \
+                    'that has not been stopped')
+
+        # Start watch, reinitialize stop
+        self._start = start
+        self._stop  = Time()
+        if self._pause == None:
+            self._time  = Time(0., 0.)
+
+    @property
+    def stop(self):
+        '''
+        Time when the stopwatch was last stopped
+        '''
+        return self._stop
+
+    @stop.setter
+    def stop(self, stop):
+        # Check that the watch was started
+        if self._start == None:
+            raise ValueError('Cannot stop a watch that has not been started')
+
+        # Check that the watch was not already stopped
+        if self._stop != None:
+            raise ValueError('Cannot stop a watch more than once')
+
+        # Stop the watch, record the relevant quantities
+        self._stop   = stop
+        self._pause  = Time()
+        self._time  += self.stop - self.start
+        self._total += self.time
+
+    @property
+    def pause(self):
+        '''
+        Time when the stopwatch was last paused
+        '''
+        return self._pause
+
+    @pause.setter
+    def pause(self, pause):
+        # Check that the watch was started
+        if self._start == None:
+            raise ValueError('Cannot pause a watch that has not been started')
+
+        # Check that the watch was not already stopped
+        if self._stop != None:
+            raise ValueError('Cannot pause a watch that has been stopped')
+
+        # Increment the time, reset the start
+        self._pause  = pause
+        self._time  += self.pause - self.start
+        self._start  = Time()
+
+    @property
+    def time(self):
+        '''
+        Time between the last start and the last stop
+        '''
+        # Check that the watch was stopped
+        if self._stop == None:
+            raise ValueError('Cannot get time of watch ' \
+                    'that has not been stopped')
+
+        return self._time
+
+    @property
+    def time_sum(self):
+        '''
+        Sum of times between all watch starts en stops
+        '''
+        # Check that the watch was stopped
+        if self._stop == None:
+            raise ValueError('Cannot get time of watch ' \
+                    'that has not been stopped')
+
+        return self._total
+
+
+class StopwatchManager:
     '''
     Simple class to organize various time measurements.
     '''
+
     def __init__(self):
         '''
         Initalize the basic private stopwatch attributes.
         '''
-        # Keep track of total time and CPU-only time
         self._watch = {}
-        self._watch_cpu = {}
+
+    def keys(self):
+        '''
+        Get the list of all initialized stopwatch tags.
+        '''
+        return self._watch.keys()
+
+    def items(self):
+        '''
+        Get the list of all initialized stopwatch tags and the
+        corresponding Stopwatch object for each of them.
+        '''
+        return self._watch.items()
+
+    def initialize(self, key):
+        '''
+        Initialize one stopwatch. If it's already been initialized,
+        reset the global counters to 0.
+
+        Parameters
+        ----------
+        key : Union[str, List[str]]
+            Key or list of keys to initialize a `Stopwatch` for
+        '''
+        # Loop over keys
+        keys = [key] if isinstance(key, str) else key
+        for k in key:
+            # Initialize stopwatch
+            self._watch[k] = Stopwatch()
 
     def start(self, key):
         '''
@@ -18,21 +228,19 @@ class Stopwatch:
 
         Parameters
         ----------
-        key : str
-            Key for which to start the clock
+        key : Union[str, List[str]]
+            Key or list of keys for which to start the clock
         '''
-        self._watch[key] = [-1, time.time()]
+        # Loop over keys
+        start_time = current_time()
+        keys = [key] if isinstance(key, str) else key
+        for k in keys:
+            # If this is the first time, initialize a new Stopwatch
+            if not k in self._watch:
+                raise KeyError(f'No stopwatch initialized under the name: {k}')
 
-    def start_cpu(self, key):
-        '''
-        Starts a CPU stopwatch for a unique key.
-
-        Parameters
-        ----------
-        key : str
-            Key for which to start the clock
-        '''
-        self._watch_cpu[key] = [-1, time.process_time()]
+            # Reinitialize the watch
+            self._watch[k].start = start_time.copy()
 
     def stop(self, key):
         '''
@@ -43,53 +251,77 @@ class Stopwatch:
         key : str
             Key for which to stop the clock
         '''
-        data = self._watch[key]
-        if data[0] < 0:
-            data[0] = time.time() - data[1]
+        # Loop over keys
+        stop_time = current_time()
+        keys = [key] if isinstance(key, str) else key
+        for k in keys:
+            # Check that a stopwatch exists
+            if not k in self._watch:
+                raise KeyError(f'No stopwatch started under the name: {k}')
 
-    def stop_cpu(self, key):
+            # Stop
+            self._watch[k].stop = stop_time.copy()
+
+    def pause(self, key):
         '''
-        Stops a CPU stopwatch for a unique key.
+        Temporarily pause a watch for a unique key.
 
         Parameters
         ----------
         key : str
-            Key for which to stop the clock
+            Key for which to pause the clock
         '''
-        data = self._watch_cpu[key]
-        if data[0] < 0:
-            data[0] = time.process_time() - data[1]
+        # Loop over keys
+        pause_time = current_time()
+        keys = [key] if isinstance(key, str) else key
+        for k in keys:
+            # Check that a stopwatch exists
+            if not k in self._watch:
+                raise KeyError(f'No stopwatch started under the name: {k}')
 
-    def time(self,key):
+            # Stop
+            self._watch[k].pause = pause_time.copy()
+
+    def time(self, key):
         '''
-        Returns the time recorded or passed so far (if not stopped).
+        Returns the time recorded since the last start.
 
         Parameters
         ----------
         key : str
             Key for which to return the time
         '''
-        # If there is no measurement associated with this key, return -1
+        # Check that a stopwatch exists
         if not key in self._watch:
-            return -1.
+            raise KeyError(f'No stopwatch started under the name: {key}')
 
         # Return the time since the start
-        data = self._watch[key]
-        return data[0] if data[0] > 0 else time.time() - data[1]
+        return self._watch[key].time
 
-    def time_cpu(self,key):
+    def time_sum(self, key):
         '''
-        Returns the CPU time recorded or passed so far (if not stopped).
+        Returns the sum of times recorded between each start/stop pairs
 
         Parameters
         ----------
         key : str
             Key for which to return the time
         '''
-        # If there is no measurement associated with this key, return -1
-        if not key in self._watch_cpu:
-            return -1.
+        # Check that a stopwatch exists
+        if not key in self._watch:
+            raise KeyError(f'No stopwatch started under the name: {key}')
 
-        # Return the CPU time since the start
-        data = self._watch_cpu[key]
-        return data[0] if data[0] > 0 else time.process_time() - data[1]
+        # Return the time since the start
+        return self._watch[key].time_sum
+
+
+def current_time():
+    '''
+    Simple function which returns the current time (wall and cpu)
+
+    Returns
+    -------
+    Time
+       Current time
+    '''
+    return Time(time.time(), time.process_time())

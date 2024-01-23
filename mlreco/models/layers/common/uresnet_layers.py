@@ -18,7 +18,6 @@ class UResNetEncoder(torch.nn.Module):
     num_input: int, default 1
     allow_bias: bool, default False
     spatial_size: int, default 512
-    leakiness: float, default 0.33
     activation: dict
         For activation function, defaults to `{'name': 'lrelu', 'args': {}}`
     norm_layer: dict
@@ -44,56 +43,52 @@ class UResNetEncoder(torch.nn.Module):
     features_ppn: list of ME.SparseTensor
         list of intermediate tensors (right after encoding block + convolution)
     '''
-    def __init__(self, cfg, name='uresnet_encoder'):
-        # To allow UResNet to inherit directly from UResNetEncoder
-        super(UResNetEncoder, self).__init__()
-        #torch.nn.Module.__init__(self)
-        setup_cnn_configuration(self, cfg, name)
+    def __init__(self, cfg):
+        '''
+        Initialize the encoder
 
-        model_cfg = cfg.get(name, {})
-        # UResNet Configurations
-        self.reps = model_cfg.get('reps', 2)
-        self.depth = model_cfg.get('depth', 5)
-        self.num_filters = model_cfg.get('filters', 16)
-        self.nPlanes = [i * self.num_filters for i in range(1, self.depth+1)]
-        # self.kernel_size = cfg.get('kernel_size', 3)
-        # self.downsample = cfg.get(downsample, 2)
-        self.input_kernel = model_cfg.get('input_kernel', 3)
+        Parameters
+        ----------
+        cfg : dict
+            Encoder configuration block
+        '''
+        # Initialize the parent class
+        super().__init__()
 
-        # Initialize Input Layer
-        # print(self.num_input)
-        # print(self.input_kernel)
+        # Process the configuration
+        setup_cnn_configuration(self, **cfg)
+
+        # Initialize the input layer
         self.input_layer = ME.MinkowskiConvolution(
-            in_channels=self.num_input,
-            out_channels=self.num_filters,
-            kernel_size=self.input_kernel, stride=1, dimension=self.D,
-            bias=self.allow_bias)
+            in_channels = self.num_input, out_channels = self.num_filters,
+            kernel_size = self.input_kernel, stride = 1, dimension = self.dim,
+            bias = self.allow_bias)
 
-        # Initialize Encoder
+        # Initialize encoder
         self.encoding_conv = []
         self.encoding_block = []
         for i, F in enumerate(self.nPlanes):
             m = []
             for _ in range(self.reps):
                 m.append(ResNetBlock(F, F,
-                    dimension=self.D,
-                    activation=self.activation_name,
-                    activation_args=self.activation_args,
-                    normalization=self.norm,
-                    normalization_args=self.norm_args,
-                    bias=self.allow_bias))
+                    dimension = self.dim,
+                    activation = self.activation_name,
+                    activation_args = self.activation_args,
+                    normalization = self.norm,
+                    normalization_args = self.norm_args,
+                    bias = self.allow_bias))
             m = nn.Sequential(*m)
             self.encoding_block.append(m)
             m = []
             if i < self.depth-1:
-                m.append(normalizations_construct(self.norm, F, **self.norm_args))
+                m.append(normalizations_construct(self.norm,
+                    F, **self.norm_args))
                 m.append(activations_construct(
                     self.activation_name, **self.activation_args))
-                m.append(ME.MinkowskiConvolution(
-                    in_channels=self.nPlanes[i],
+                m.append(ME.MinkowskiConvolution(in_channels = self.nPlanes[i],
                     out_channels=self.nPlanes[i+1],
-                    kernel_size=2, stride=2, dimension=self.D,
-                    bias=self.allow_bias))
+                    kernel_size = 2, stride = 2, dimension = self.dim,
+                    bias = self.allow_bias))
             m = nn.Sequential(*m)
             self.encoding_conv.append(m)
         self.encoding_conv = nn.Sequential(*self.encoding_conv)
@@ -133,18 +128,13 @@ class UResNetEncoder(torch.nn.Module):
 
 
     def forward(self, input):
-        # coords = input[:, 0:self.D+1].int()
-        # features = input[:, self.D+1:].float()
-        #
-        # x = ME.SparseTensor(features, coordinates=coords)
+
         encoderOutput = self.encoder(input)
         encoderTensors = encoderOutput['encoderTensors']
         finalTensor = encoderOutput['finalTensor']
-        # decoderTensors = self.decoder(finalTensor, encoderTensors)
 
         res = {
             'encoderTensors': encoderTensors,
-            # 'decoderTensors': decoderTensors,
             'finalTensor': finalTensor,
             'features_ppn': encoderOutput['features_ppn']
         }
@@ -161,7 +151,6 @@ class UResNetDecoder(torch.nn.Module):
     num_input: int, default 1
     allow_bias: bool, default False
     spatial_size: int, default 512
-    leakiness: float, default 0.33
     activation: dict
         For activation function, defaults to `{'name': 'lrelu', 'args': {}}`
     norm_layer: dict
@@ -180,25 +169,13 @@ class UResNetDecoder(torch.nn.Module):
     list of ME.SparseTensor
     """
     def __init__(self, cfg, name='uresnet_decoder'):
-        super(UResNetDecoder, self).__init__()
-        setup_cnn_configuration(self, cfg, name)
+        # Initialize the parent class
+        super().__init__()
 
-        # UResNet Configurations
-        self.model_config = cfg.get(name, {})
-        self.reps = self.model_config.get('reps', 2)  # Conv block repetition factor
-        #self.kernel_size = self.model_config.get('kernel_size', 2)
-        self.depth = self.model_config.get('depth', 5)
-        self.num_filters = self.model_config.get('filters', 16)
-        self.nPlanes = [i*self.num_filters for i in range(1, self.depth+1)]
-        #self.downsample = [self.kernel_size, 2]  # [filter size, filter stride]
+        # Process the configuration
+        setup_cnn_configuration(self, **cfg)
 
-        # self.encoder_num_filters = self.model_config.get('encoder_num_filters', None)
-        # if self.encoder_num_filters is None:
-        #     self.encoder_num_filters = self.num_filters
-        # self.encoder_nPlanes = [i*self.encoder_num_filters for i in range(1, self.depth+1)]
-        # self.nPlanes[-1] = self.encoder_nPlanes[-1]
-
-        # Initialize Decoder
+        # Initialize decoder
         self.decoding_block = []
         self.decoding_conv = []
         for i in range(self.depth-2, -1, -1):
@@ -207,24 +184,21 @@ class UResNetDecoder(torch.nn.Module):
             m.append(activations_construct(
                 self.activation_name, **self.activation_args))
             m.append(ME.MinkowskiConvolutionTranspose(
-                in_channels=self.nPlanes[i+1],
-                out_channels=self.nPlanes[i],
-                kernel_size=2,
-                stride=2,
-                dimension=self.D,
-                bias=self.allow_bias))
+                in_channels = self.nPlanes[i+1], out_channels = self.nPlanes[i],
+                kernel_size = 2, stride = 2, dimension = self.dim,
+                bias = self.allow_bias))
             m = nn.Sequential(*m)
             self.decoding_conv.append(m)
             m = []
             for j in range(self.reps):
                 m.append(ResNetBlock(self.nPlanes[i] * (2 if j == 0 else 1),
                                      self.nPlanes[i],
-                                     dimension=self.D,
-                                     activation=self.activation_name,
-                                     activation_args=self.activation_args,
-                                     normalization=self.norm,
-                                     normalization_args=self.norm_args,
-                                     bias=self.allow_bias))
+                                     dimension = self.dim,
+                                     activation = self.activation_name,
+                                     activation_args = self.activation_args,
+                                     normalization = self.norm,
+                                     normalization_args = self.norm_args,
+                                     bias = self.allow_bias))
             m = nn.Sequential(*m)
             self.decoding_block.append(m)
         self.decoding_block = nn.Sequential(*self.decoding_block)
@@ -269,7 +243,6 @@ class UResNet(torch.nn.Module):
     num_input: int, default 1
     allow_bias: bool, default False
     spatial_size: int, default 512
-    leakiness: float, default 0.33
     activation: dict
         For activation function, defaults to `{'name': 'lrelu', 'args': {}}`
     norm_layer: dict
@@ -298,22 +271,20 @@ class UResNet(torch.nn.Module):
     features_ppn: list of ME.SparseTensor
         list of intermediate tensors (right after encoding block + convolution)
     '''
-    def __init__(self, cfg, name='uresnet'):
-        super(UResNet, self).__init__()
-        #UResNetEncoder.__init__(self, cfg, name=name)
-        #UResNetDecoder.__init__(self, cfg, name=name)
-        setup_cnn_configuration(self, cfg, name)
-        self.encoder = UResNetEncoder(cfg, name=name)
-        self.decoder = UResNetDecoder(cfg, name=name)
+    def __init__(self, cfg):
+        # Initialize the parent class
+        super().__init__()
 
-        self.num_filters = self.encoder.num_filters
+        # Process the configuration
+        setup_cnn_configuration(self, **cfg)
 
-        # print('Total Number of Trainable Parameters (mink/layers/uresnet) = {}'.format(
-        #             sum(p.numel() for p in self.parameters() if p.requires_grad)))
+        # Initialize the encoder/decoder blocks of the UResNet model
+        self.encoder = UResNetEncoder(cfg)
+        self.decoder = UResNetDecoder(cfg)
 
     def forward(self, input):
-        coords = input[:, 0:self.D+1].int()
-        features = input[:, self.D+1:].float()
+        coords = input[:, 0:self.dim + 1].int()
+        features = input[:, self.dim + 1:].float()
 
         x = ME.SparseTensor(features, coordinates=coords)
         encoderOutput = self.encoder(x)
@@ -327,4 +298,5 @@ class UResNet(torch.nn.Module):
             'finalTensor': finalTensor,
             'features_ppn': encoderOutput['features_ppn']
         }
+
         return res

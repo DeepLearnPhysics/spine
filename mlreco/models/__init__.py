@@ -1,1 +1,1 @@
-from .factories import construct, model_dict
+from .factories import construct_model

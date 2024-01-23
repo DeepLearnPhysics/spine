@@ -5,7 +5,7 @@ import numpy as np
 from mlreco.models.layers.common.gnn_full_chain import FullChainGNN, FullChainLoss
 from mlreco.models.layers.common.ppnplus import PPN, PPNLonelyLoss
 from mlreco.models.layers.common.cnn_encoder import SparseResidualEncoder
-from mlreco.models.uresnet import UResNet_Chain, SegmentationLoss
+from mlreco.models.uresnet import UResNetSegmentation, SegmentationLoss
 from mlreco.models.graph_spice import GraphSPICE, GraphSPICELoss
 
 from mlreco.utils.globals import *
@@ -86,7 +86,7 @@ class FullChain(FullChainGNN):
 
         # Initialize the charge rescaling module
         if self.enable_charge_rescaling:
-            self.uresnet_deghost = UResNet_Chain(cfg.get('uresnet_deghost', {}),
+            self.uresnet_deghost = UResNetSegmentation(cfg.get('uresnet_deghost', {}),
                                                  name='uresnet_lonely')
             self.deghost_input_features = self.uresnet_deghost.net.num_input
             self.RETURNS.update(self.uresnet_deghost.RETURNS)
@@ -100,7 +100,7 @@ class FullChain(FullChainGNN):
         # Initialize the UResNet+PPN modules
         self.input_features = 1
         if self.enable_uresnet:
-            self.uresnet_lonely = UResNet_Chain(cfg.get('uresnet_ppn', {}),
+            self.uresnet_lonely = UResNetSegmentation(cfg.get('uresnet_ppn', {}),
                                                 name='uresnet_lonely')
             self.input_features = self.uresnet_lonely.net.num_input
             self.RETURNS.update(self.uresnet_lonely.RETURNS)

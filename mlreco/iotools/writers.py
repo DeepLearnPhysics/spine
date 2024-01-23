@@ -84,9 +84,9 @@ class HDF5Writer:
     def __init__(self,
                  file_name: str = 'output.h5',
                  input_keys: list = None,
-                 skip_input_keys: list = [],
+                 skip_input_keys: list = None,
                  result_keys: list = None,
-                 skip_result_keys: list = [],
+                 skip_result_keys: list = None,
                  append_file: bool = False,
                  merge_groups: bool = False):
         '''
@@ -111,14 +111,20 @@ class HDF5Writer:
         '''
         # Store attributes
         self.file_name        = file_name
-        self.input_keys       = input_keys
-        self.skip_input_keys  = skip_input_keys
-        self.result_keys      = result_keys
-        self.skip_result_keys = skip_result_keys
         self.append_file      = append_file
         self.merge_groups     = merge_groups
         self.ready            = False
         self.object_dtypes    = []
+
+        # Check that the input/result keys make sense
+        assert (input_keys is None) | (skip_input_keys is None), \
+                'Should only specify one of `input_keys` or `skip_input_keys`'
+        assert (result_keys is None) | (skip_result_keys is None), \
+                'Should only specify one of `result_keys` or `skip_result_keys`'
+        self.input_keys       = input_keys
+        self.skip_input_keys  = skip_input_keys
+        self.result_keys      = result_keys
+        self.skip_result_keys = skip_result_keys
 
     def create(self, data_blob, result_blob=None, cfg=None):
         '''
@@ -137,26 +143,16 @@ class HDF5Writer:
         assert data_blob or result_blob, \
                 'Must provide a non-empty data blob or result blob'
 
-        # Initialize a dictionary to store keys and their properties (dtype and shape)
-        self.key_dict = defaultdict(lambda: {'category': None, 'dtype':None, 'width':0, 'merge':False, 'scalar':False, 'larcv':False})
+        # Initialize a dictionary to store keys and their properties
+        # (cateogry, dtype, shape, etc.)
+        self.key_dict = defaultdict(lambda: {'category': None, 'dtype': None,
+            'width': 0, 'merge': False, 'scalar': False, 'larcv': False})
 
-        # If requested, loop over input_keys and add them to what needs to be tracked
-        if self.input_keys is None: self.input_keys = data_blob.keys()
-        self.input_keys = set(self.input_keys)
-        if 'index' not in self.input_keys:
-            self.input_keys.add('index')
-        for key in self.skip_input_keys:
-            if key in self.input_keys:
-                self.input_keys.remove(key)
+        # Fetch the required keys to be stored and register them
+        self.input_keys, self.result_keys = \
+                self.get_stored_keys(data_blob, result_blob)
         for key in self.input_keys:
             self.register_key(data_blob, key, 'data')
-
-        # If requested, loop over the result_keys and add them to what needs to be tracked
-        if self.result_keys is None: self.result_keys = result_blob.keys() if result_blob is not None else []
-        self.result_keys = set(self.result_keys)
-        for key in self.skip_result_keys:
-            if key in self.result_keys:
-                self.result_keys.remove(key)
         for key in self.result_keys:
             self.register_key(result_blob, key, 'result')
 
@@ -172,6 +168,58 @@ class HDF5Writer:
 
             # Mark file as ready for use
             self.ready = True
+
+    def get_stored_keys(self, data_blob, result_blob):
+        '''
+        Use an event data/result dictionaries to figure out the keys to register
+
+        Parameters
+        ----------
+        data_blob : dict
+            Dictionary containing the input data
+        result_blob : dict
+            Dictionary containing the output of the reconstruction chain
+
+        Returns
+        -------
+        data_keys : list
+            List of data keys to store to file
+        result_keys : list
+            List of result keys to store to file
+        '''
+        # If the keys were already produced, nothing to do
+        if self.ready:
+            return self.input_keys, self.result_keys
+
+        # Translate input_keys/skip_input_keys into a single list
+        input_keys = {'index'}
+        if self.input_keys is None:
+            input_keys.update(data_blob.keys())
+            if self.skip_input_keys is not None:
+                for key in self.skip_input_keys:
+                    if key in input_keys:
+                        input_keys.remove(key)
+        else:
+            input_keys.update(self.input_keys)
+            for k in self.input_keys:
+                assert k in data_blob, f'Cannot store {k} as ' \
+                        'it does not appear in the input dictionary'
+
+        # Translate result_keys/skip_result_keys into a single list
+        result_keys = set()
+        if self.result_keys is None:
+            result_keys.update(result_blob.keys())
+            if self.skip_result_keys is not None:
+                for key in self.skip_result_keys:
+                    if key in result_keys:
+                        result_keys.remove(key)
+        else:
+            result_keys.update(self.result_keys)
+            for k in self.result_keys:
+                assert k in result_blob, f'Cannot store {k} as ' \
+                        'it does not appear in the result dictionary'
+
+        return input_keys, result_keys
 
     def register_key(self, blob, key, category):
         '''

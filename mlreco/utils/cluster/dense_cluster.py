@@ -7,7 +7,7 @@ import time
 from sklearn.metrics import adjusted_rand_score as ari
 
 from mlreco.utils.metrics import *
-from mlreco.trainval import trainval
+from mlreco.trainval import TrainVal
 from mlreco.iotools.factories import loader_factory
 from pprint import pprint
 
@@ -257,7 +257,7 @@ def main_loop_parameter_search(train_cfg, **kwargs):
     event_list = list(range(start_index, end_index))
     loader = loader_factory(inference_cfg, event_list=event_list)
     dataset = iter(cycle(loader))
-    Trainer = trainval(inference_cfg)
+    Trainer = TrainVal(inference_cfg)
     loaded_iteration = Trainer.initialize()
     output = []
 
@@ -354,7 +354,7 @@ def main_loop(train_cfg, **kwargs):
     event_list = list(range(start_index, end_index))
     loader = loader_factory(inference_cfg, event_list=event_list)
     dataset = iter(cycle(loader))
-    Trainer = trainval(inference_cfg)
+    Trainer = TrainVal(inference_cfg)
     loaded_iteration = Trainer.initialize()
     output = []
 
@@ -441,7 +441,7 @@ def main_loop_voxel_cut(train_cfg, **kwargs):
     event_list = list(range(start_index, end_index))
     loader = loader_factory(inference_cfg, event_list=event_list)
     dataset = iter(cycle(loader))
-    Trainer = trainval(inference_cfg)
+    Trainer = TrainVal(inference_cfg)
     loaded_iteration = Trainer.initialize()
     output = []
 
