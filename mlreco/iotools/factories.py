@@ -1,11 +1,12 @@
 from copy import deepcopy
-from functools import partial
 from warnings import warn
 
 from torch.utils.data import DataLoader
 
+from mlreco.utils import instantiate
 
-def loader_factory(dataset, minibatch_size, shuffle=True,
+
+def loader_factory(dataset, batch_size, shuffle=True,
         sampler=None, num_workers=0, collate_fn=None, collate=None,
         event_list=None, distributed=False, world_size=1, rank=0):
     '''
@@ -17,7 +18,7 @@ def loader_factory(dataset, minibatch_size, shuffle=True,
     ----------
     dataset : dict
         Dataset configuration dictionary
-    minibatch_size : int
+    batch_size : int
         Number of data samples to load per iteration, per process
     num_workers : bool, default 0
         Number of CPU cores to use to load data. If 0, the process which
@@ -49,7 +50,7 @@ def loader_factory(dataset, minibatch_size, shuffle=True,
 
     # Initialize the sampler
     if sampler is not None:
-        sampler['minibatch_size'] = minibatch_size
+        sampler['batch_size'] = batch_size
         sampler = sampler_factory(sampler, dataset,
                 distributed, world_size, rank)
 
@@ -62,13 +63,13 @@ def loader_factory(dataset, minibatch_size, shuffle=True,
         collate_fn = collate_factory(collate)
 
     # Initialize the loader
-    loader = DataLoader(dataset, batch_size=minibatch_size, shuffle=shuffle,
+    loader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle,
             sampler=sampler, num_workers=num_workers, collate_fn=collate_fn)
 
     return loader
 
 
-def dataset_factory(dataset_cfg, event_list=None):
+def dataset_factory(dataset_cfg, event_list = None):
     '''
     Instantiates dataset based on type specified in configuration under
     `iotool.dataset.name`. The name must match the name of a class under
@@ -90,21 +91,14 @@ def dataset_factory(dataset_cfg, event_list=None):
     ----
     Currently the choice is limited to `LArCVDataset` only.
     '''
-    # If there is no name in the dataset configuration, cannot instantiate
-    if 'name' not in dataset_cfg:
-        raise KeyError('Must specify a dataset name under the dataset block')
-
-    # Fetch dataset keyword arguments
-    kwargs = deepcopy(dataset_cfg)
-    name   = kwargs.pop('name')
+    # Append the event_list if it is provided independently
     if event_list is not None:
-        kwargs['event_list'] = event_list
+        # TODO: if it already exists: issue warning, log properly
+        dataset_cfg['event_list'] = event_list
     
     # Initialize dataset
-    import mlreco.iotools.datasets
-    dataset = getattr(mlreco.iotools.datasets, name)(**kwargs)
-
-    return dataset
+    from mlreco.iotools import datasets
+    return instantiate(datasets, dataset_cfg)
 
 
 def sampler_factory(sampler_cfg, dataset, distributed = False, num_replicas = 1, rank = 0):
@@ -131,10 +125,6 @@ def sampler_factory(sampler_cfg, dataset, distributed = False, num_replicas = 1,
     Union[torch.utils.data.Sampler, torch.utils.data.DistributedSampler]
         Initialized sampler
     '''
-    # If there is no name in the sampler configuration, cannot instantiate
-    if 'name' not in sampler_cfg:
-        raise KeyError('Must specify a sampler name under the sampler block')
-
     # Fetch sampler keyword arguments
     kwargs = deepcopy(sampler_cfg)
     name   = kwargs.pop('name')
@@ -175,6 +165,7 @@ def collate_factory(collate_cfg):
     # If there is no name in the collate configuration, cannot instantiate
     # Currently also handles deprecated nomenclature
     if 'collate_fn' in collate_cfg:
+        # TODO: log properly
         msg = ('Specify the collate function name under the `name` '
                'key of the `collate` block, not the `collate_fn` key')
         warn(msg, DeprecationWarning, stacklevel=2)
@@ -182,18 +173,13 @@ def collate_factory(collate_cfg):
     if 'name' not in collate_cfg:
         raise KeyError('Must specify a collate name under the collate block')
 
-    # Fetch collate function keyword arguments
-    kwargs = deepcopy(collate_cfg)
-    name   = kwargs.pop('name')
-
     # Initialize collate function
-    import mlreco.iotools.collates
-    collate = partial(getattr(mlreco.iotools.collates, name), **kwargs)
+    from mlreco.iotools import collates
 
-    return collate
+    return instantiate(collates, collate_cfg)
 
 
-def writer_factory(name, **writer_args):
+def writer_factory(writer_cfg):
     '''
     Instantiates writer based on type specified in configuration under
     `iotool.writer.name`. The name must match the name of a class under
@@ -201,9 +187,7 @@ def writer_factory(name, **writer_args):
 
     Parameters
     ----------
-    name : str
-        Name of the writer class
-    **writer_args : dict
+    writer_cfg : dict
         Writer configuration dictionary
 
     Returns
@@ -216,7 +200,6 @@ def writer_factory(name, **writer_args):
     Currently the choice is limited to `HDF5Writer` only.
     '''
     # Initialize writer
-    import mlreco.iotools.writers
-    writer = getattr(mlreco.iotools.writers, name)(**writer_args)
+    from mlreco.iotools import writers
 
-    return writer
+    return instantiate(writers, writer_cfg)

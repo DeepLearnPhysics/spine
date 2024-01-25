@@ -1,6 +1,7 @@
-import os
-import pathlib
+import os, pathlib
 import numpy as np
+
+from .units import pixel_to_cm, cm_to_pixel
 
 
 class Geometry:
@@ -95,7 +96,7 @@ class Geometry:
                     'There should be one list of opdets per module or TPC'
 
         # Store the ranges of each TPC in each axis
-        self.ranges = np.abs(self.boundaries[...,1]-self.boundaries[...,0])
+        self.ranges = np.abs(self.boundaries[..., 1] - self.boundaries[..., 0])
 
         # Build a list of TPCs
         self.build_tpcs()
@@ -200,8 +201,7 @@ class Geometry:
         Parameters
         ----------
         sources : np.ndarray
-            (S, 2) : List of [module ID, tpc ID] pairs that created
-            the point cloud (as defined upstream)
+            (N, 2) Array of [module ID, tpc ID] pairs, one per voxel
 
         Returns
         -------
@@ -275,6 +275,60 @@ class Geometry:
             tpc_indexes.append(np.where(argmins == t)[0])
 
         return tpc_indexes
+
+    def get_closest_module(self, points):
+        '''
+        For each point, find the ID of the closest module.
+
+        Parameters
+        ----------
+        points : np.ndarray
+            (N, 3) Set of point coordinates
+
+        Returns
+        -------
+        np.ndarray
+            (N) List of module indexes, one per input point
+        '''
+        module_ids = np.empty(len(points), dtype = np.int32)
+        for module_id, c in enumerate(self.centers):
+            # Find out the boundaries of the volume closest to this module
+            dists = self.centers - c
+            lower_pad = np.zeros(dists.shape)
+            upper_pad = np.zeros(dists.shape)
+            lower_pad[dists >= 0], upper_pad[dists <= 0] = np.inf, np.inf
+            lower = c + np.max(dists - lower_pad, axis=0) / 2
+            upper = c + np.min(dists + upper_pad, axis=0) / 2
+
+            # Assign all points within those boundaries to this module
+            mask = np.all(points > lower, axis = 1) \
+                    & np.all(points < upper, axis = 1)
+            module_ids[mask] = module_id
+
+        return module_ids
+
+    def get_closest_module_indexes(self, points):
+        '''
+        For each module, get the list of points that live closer to it
+        than any other module in the detector.
+
+        Parameters
+        ----------
+        points : np.ndarray
+            (N, 3) Set of point coordinates
+
+        Returns
+        -------
+        List[np.ndarray]
+            List of index of points that belong to each module
+        '''
+        # For each module, append the list of point indices associated with it
+        module_ids = self.get_closest_module(points)
+        module_indexes = []
+        for m in range(self.num_modules):
+            module_indexes.append(np.where(module_ids == m)[0])
+
+        return module_indexes
 
     def get_tpc_offsets(self, points, module_id, tpc_id):
         '''
@@ -358,6 +412,64 @@ class Geometry:
 
         # Translate
         return np.copy(points) + offset
+
+    def split(self, points, target_id, sources = None, meta = None):
+        '''
+        Migrate all points to a target module, organize them by module ID.
+
+        Parameters
+        ----------
+        points : np.ndarray
+            (N, 3) Set of point coordinates
+        target_id : int
+            Module ID to which to move the point cloud
+        sources : np.ndarray, optional
+            (N, 2) Array of [module ID, tpc ID] pairs, one per voxel
+        meta : Meta, optional
+            Meta information about the voxelized image. If provided, the
+            points are assumed to be provided in voxel coordinates.
+
+        Returns
+        -------
+        np.ndarray
+            (N, 3) Shifted set of points
+        List[np.ndarray]
+            List of index of points that belong to each module
+        '''
+
+        # Check that the target ID exists
+        assert target_id > -1 and target_id < len(self.modules), \
+                'Target ID should be in [0, N_modules['
+
+        # Get the module ID of each of the input points
+        convert = False
+        if sources is not None:
+            # If provided, simply use that
+            module_indexes = []
+            for m in range(self.num_modules):
+                module_indexes.append(np.where(sources[:, 0] == m)[0])
+        else:
+            # If the points are expressed in pixel coordinates, translate
+            convert = meta is not None
+            points = pixel_to_cm(points, meta, convert)
+
+            # If not provided, find module each point belongs to by proximity
+            module_indexes = self.get_closest_module_indexes(points)
+
+        # Now shifts all points that are not in the target
+        for module_id, module_index in enumerate(module_indexes):
+            # If this is the target module, nothing to do here
+            if module_id == target_id:
+                continue
+
+            # Shift the coordinates
+            points[module_index] = \
+                    self.translate(points[module_index], module_id, target_id)
+
+        # Bring the coordiantes back to pixels, if they were shifted
+        points = cm_to_pixel(points, meta, convert)
+
+        return points, module_indexes
 
     def check_containment(self, points, sources = None):
         '''

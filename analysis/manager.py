@@ -4,9 +4,11 @@ from mlreco.iotools.factories import loader_factory, \
         reader_factory, writer_factory
 from mlreco.trainval import trainval
 from mlreco.main_funcs import cycle, process_config
+
 from mlreco.iotools.writers import CSVWriter
-from mlreco.utils import pixel_to_cm
+
 from mlreco.utils.globals import COORD_COLS
+from mlreco.utils.units import pixel_to_cm
 
 from analysis.classes.builders import ParticleBuilder, \
         InteractionBuilder, FragmentBuilder
@@ -179,10 +181,7 @@ class AnaToolsManager:
             self._set_iteration(self._data_reader)
         else:
             # If no reader is provided, run the the ML chain on the fly
-            loader = loader_factory(self.config, event_list=event_list)
-            self._dataset = iter(cycle(loader))
             Trainer = trainval(self.chain_config)
-            Trainer.initialize()
             self._data_reader = Trainer
             self.reader_state = 'trainval'
             self._set_iteration(loader.dataset)
@@ -319,17 +318,17 @@ class AnaToolsManager:
                     ^ (run is not None and event is not None)
             if iteration is None:
                 iteration = self._data_reader.get_run_event_index(run, event)
-            data, res = self._data_reader.get(iteration, nested=True)
+            data, result = self._data_reader.get(iteration, nested=True)
             file_index = self._data_reader.file_index[iteration]
             data['file_index'] = [file_index]
             data['file_name'] = [self._data_reader.file_paths[file_index]]
         elif self._reader_state == 'trainval':
-            data, res = self._data_reader.forward(self._dataset)
+            data, res = self._data_reader.forward()
         else:
             raise ValueError(f'Data reader {self._reader_state} '\
                     'is not supported!')
 
-        return data, res
+        return data, result
 
     def convert_pixels_to_cm(self, data, result):
         '''Convert pixel coordinates to real world coordinates (in cm)

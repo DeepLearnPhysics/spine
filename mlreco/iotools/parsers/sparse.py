@@ -2,10 +2,11 @@ import numpy as np
 from larcv import larcv
 
 from mlreco.utils.globals import GHOST_SHP
+from mlreco.utils.data_structures import Meta
 
 
 def parse_sparse2d(sparse_event_list):
-    """
+    '''
     A function to retrieve sparse tensor input from larcv::EventSparseTensor2D object
 
     Returns the data in format to pass to SCN
@@ -32,7 +33,7 @@ def parse_sparse2d(sparse_event_list):
         Coordinates with shape (N,2)
     data: np.ndarray(float32)
         Pixel values/channels with shape (N,C)
-    """
+    '''
     meta = None
     output = []
     np_voxels = None
@@ -46,22 +47,24 @@ def parse_sparse2d(sparse_event_list):
         num_point = tensor.as_vector().size()
 
         if meta is None:
-
             meta = tensor.meta()
             np_voxels = np.empty(shape=(num_point, 2), dtype=np.int32)
             larcv.fill_2d_voxels(tensor, np_voxels)
+        else:
+            assert meta == tensor.meta()
 
-        # else:
-        #     assert meta == tensor.meta()
         np_data = np.empty(shape=(num_point, 1), dtype=np.float32)
         larcv.fill_2d_pcloud(tensor, np_data)
         output.append(np_data)
-    return np_voxels, np.concatenate(output, axis=-1)
+
+    return np_voxels, np.concatenate(output, axis=-1), \
+            Meta.from_larcv(sparse_event_list[0].meta())
 
 
 def parse_sparse3d(sparse_event_list, features=None, hit_keys=[], nhits_idx=None):
-    """
-    A function to retrieve sparse tensor input from larcv::EventSparseTensor3D object
+    '''
+    A function to retrieve sparse tensor input from
+    larcv::EventSparseTensor3D objects.
 
     Returns the data in format to pass to DataLoader
 
@@ -78,23 +81,23 @@ def parse_sparse3d(sparse_event_list, features=None, hit_keys=[], nhits_idx=None
 
     Configuration
     -------------
-    sparse_event_list: list of larcv::EventSparseTensor3D
+    sparse_event_list : list of larcv::EventSparseTensor3D
         Can be repeated to load more features (one per feature).
-    features: int, optional
+    features : int, optional
         Default is None (ignored). If a positive integer is specified,
         the sparse_event_list will be split in equal lists of length
         `features`. Each list will be concatenated along the feature
         dimension separately. Then all lists are concatenated along the
         first dimension (voxels). For example, this lets you work with
         distinct detector volumes whose input data is stored in separate
-        TTrees.`features` is required to be a divider of the `sparse_event_list`
-        length.
-    hit_keys: list of int, optional
+        TTrees.`features` is required to be a divider of the
+        `sparse_event_list` length.
+    hit_keys : list of int, optional
         Indices among the input features of the _hit_key_ TTrees that can be
         used to infer the _nhits_ quantity (doublet vs triplet point).
-    nhits_idx: int, optional
-        Index among the input features where the _nhits_ feature (doublet vs triplet)
-        should be inserted.
+    nhits_idx : int, optional
+        Index among the input features where the _nhits_ feature
+        (doublet vs triplet) should be inserted.
 
     Returns
     -------
@@ -102,7 +105,7 @@ def parse_sparse3d(sparse_event_list, features=None, hit_keys=[], nhits_idx=None
         Coordinates
     data: numpy array(float32) with shape (N,C)
         Pixel values/channels, as many channels as specified larcv::EventSparseTensor3D.
-    """
+    '''
     split_sparse_event_list = [sparse_event_list]
     if features is not None and features > 0:
         if len(sparse_event_list) % features > 0:
@@ -154,11 +157,12 @@ def parse_sparse3d(sparse_event_list, features=None, hit_keys=[], nhits_idx=None
 
         features.append(features_array)
 
-    return np.concatenate(voxels, axis=0), np.concatenate(features, axis=0)
+    return np.concatenate(voxels, axis=0), np.concatenate(features, axis=0), \
+            Meta.from_larcv(sparse_event_list[0].meta())
 
 
 def parse_sparse3d_ghost(sparse_event_semantics):
-    """
+    '''
     A function to retrieve sparse tensor input from larcv::EventSparseTensor3D object
 
     Converts the sematic class to a ghost vs non-ghost label.
@@ -180,18 +184,18 @@ def parse_sparse3d_ghost(sparse_event_semantics):
     np.ndarray
         a numpy array with the shape (N,3+1) where 3+1 represents
         (x,y,z) coordinate and 1 stored ghost labels (channels).
-    """
-    np_voxels, np_data = parse_sparse3d([sparse_event_semantics])
-    return np_voxels, (np_data==5).astype(np.float32)
+    '''
+    np_voxels, np_data, meta = parse_sparse3d([sparse_event_semantics])
+    return np_voxels, (np_data==5).astype(np.float32), meta
 
 
 def parse_sparse3d_charge_rescaled(sparse_event_list, collection_only=False):
     # Produces sparse3d_reco_rescaled on the fly on datasets that do not have it
     from mlreco.utils.ghost import compute_rescaled_charge
-    np_voxels, output = parse_sparse3d(sparse_event_list)
+    np_voxels, output, meta = parse_sparse3d(sparse_event_list)
 
     deghost_mask = np.where(output[:, -1] < GHOST_SHP)[0]
     charges = compute_rescaled_charge(output[:, :-1], deghost_mask,
             last_index=0, collection_only=collection_only, use_batch=False)
 
-    return np_voxels[deghost_mask], charges.reshape(-1,1)
+    return np_voxels[deghost_mask], charges.reshape(-1,1), meta

@@ -2,10 +2,12 @@ import numpy as np
 from larcv import larcv
 
 from mlreco.utils.globals import PDG_TO_PID
+from mlreco.utils.data_structures import Meta
 from mlreco.utils.ppn import get_ppn_labels
 
-def parse_particles(particle_event, sparse_event=None, cluster_event=None, voxel_coordinates=True):
-    """
+def parse_particles(particle_event, sparse_event = None,
+        cluster_event = None, voxel_coordinates = True):
+    '''
     A function to copy construct & return an array of larcv::Particle.
 
     If `voxel_coordinates` is set to `True`, the parser rescales the truth
@@ -33,7 +35,7 @@ def parse_particles(particle_event, sparse_event=None, cluster_event=None, voxel
     -------
     list
         a python list of larcv::Particle objects
-    """
+    '''
     particles = [larcv.Particle(p) for p in particle_event.as_vector()]
     if voxel_coordinates:
         assert (sparse_event is not None) ^ (cluster_event is not None)
@@ -51,7 +53,7 @@ def parse_particles(particle_event, sparse_event=None, cluster_event=None, voxel
 
 
 def parse_neutrinos(neutrino_event, sparse_event=None, cluster_event=None, voxel_coordinates=True):
-    """
+    '''
     A function to copy construct & return an array of larcv::Neutrino.
 
     If `voxel_coordinates` is set to `True`, the parser rescales the truth
@@ -79,7 +81,7 @@ def parse_neutrinos(neutrino_event, sparse_event=None, cluster_event=None, voxel
     -------
     list
         a python list of larcv::Neutrino objects
-    """
+    '''
     neutrinos = [larcv.Neutrino(p) for p in neutrino_event.as_vector()]
     if voxel_coordinates:
         assert (sparse_event is not None) ^ (cluster_event is not None)
@@ -97,7 +99,7 @@ def parse_neutrinos(neutrino_event, sparse_event=None, cluster_event=None, voxel
 
 
 def parse_particle_points(sparse_event, particle_event, include_point_tagging=True):
-    """
+    '''
     A function to retrieve particles ground truth points tensor, returns
     points coordinates, types and particle index.
     If include_point_tagging is true, it includes start vs end point tagging.
@@ -126,12 +128,13 @@ def parse_particle_points(sparse_event, particle_event, include_point_tagging=Tr
     np_values: np.ndarray
         a numpy array with the shape (N, 2) where 2 represents the class of the ground truth point
         and the particle data index in this order. (optionally: end/start tagging)
-    """
+    '''
     particles_v = particle_event.as_vector()
     part_labels = get_ppn_labels(particles_v, sparse_event.meta(),
             include_point_tagging=include_point_tagging)
 
-    return part_labels[:,:3], part_labels[:,3:]
+    return part_labels[:,:3], part_labels[:,3:], \
+            Meta.from_larcv(sparse_event.meta())
 
 
 def parse_particle_coords(particle_event, cluster_event):
@@ -173,11 +176,12 @@ def parse_particle_coords(particle_event, cluster_event):
         particle_feats.append(np.concatenate((start_point, last_point, [p.first_step().t(), p.shape()])))
 
     particle_feats = np.vstack(particle_feats)
-    return particle_feats[:,:3], particle_feats[:,3:]
+    return particle_feats[:,:3], particle_feats[:,3:], \
+            Meta.from_larcv(cluster_event.meta())
 
 
 def parse_particle_graph(particle_event, cluster_event=None):
-    """
+    '''
     A function to parse larcv::EventParticle to construct edges between particles (i.e. clusters)
 
     If cluster_event is provided, it also removes edges to clusters
@@ -204,7 +208,7 @@ def parse_particle_graph(particle_event, cluster_event=None):
     See Also
     --------
     parse_particle_graph_corrected: in addition, remove empty clusters.
-    """
+    '''
     particles_v   = particle_event.as_vector()
     num_particles = particles_v.size()
     if cluster_event is None:
@@ -258,7 +262,7 @@ def parse_particle_graph(particle_event, cluster_event=None):
 
 
 def parse_particle_singlep_pdg(particle_event):
-    """
+    '''
     Get each true particle's PDG code.
 
     .. code-block:: yaml
@@ -277,7 +281,7 @@ def parse_particle_singlep_pdg(particle_event):
     -------
     np.ndarray
         List of PDG codes for each particle in TTree.
-    """
+    '''
     pdgs = []
     pdg = -1
     for p in particle_event.as_vector():
@@ -287,11 +291,11 @@ def parse_particle_singlep_pdg(particle_event):
         else: pdg = -1
         return np.asarray([pdg])
 
-    return np.asarray([pdg])
+    return pdg
 
 
 def parse_particle_singlep_einit(particle_event):
-    """
+    '''
     Get each true particle's true initial energy.
 
     .. code-block:: yaml
@@ -310,7 +314,7 @@ def parse_particle_singlep_einit(particle_event):
     -------
     np.ndarray
         List of true initial energy for each particle in TTree.
-    """
+    '''
     einits = []
     einit = -1
     for p in particle_event.as_vector():
@@ -318,4 +322,4 @@ def parse_particle_singlep_einit(particle_event):
         if not p.track_id() == 1: continue
         return np.asarray([p.energy_init()])
 
-    return np.asarray([einit])
+    return enit

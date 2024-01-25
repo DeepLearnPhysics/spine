@@ -11,9 +11,9 @@ def AbstractBatchSampler(distributed=False):
         '''
         Samplers that inherit from this class should work out of the box.
         Just define the __iter__ function. __init__ defines self._num_samples
-        and self._minibatch_size as well as self._random RNG, if needed.
+        and self._batch_size as well as self._random RNG, if needed.
         '''
-        def __init__(self, dataset, minibatch_size, seed, rank = 0, **kwargs):
+        def __init__(self, dataset, batch_size, seed, rank = 0, **kwargs):
             '''
             Check and store the values passed to the initializer,
             set the seeds appropriately.
@@ -22,8 +22,8 @@ def AbstractBatchSampler(distributed=False):
             ----------
             dataset : torch.utils.data.Dataset
                 Dataset to sampler from
-            minibatch_size : int
-                Number of samples per minibatch
+            batch_size : int
+                Number of samples to load per iteration, per process
             seed : Union[int, list]
                 Seed to use for random sampling (one per process if multiple)
             rank : int, default 0
@@ -45,12 +45,12 @@ def AbstractBatchSampler(distributed=False):
                 raise ValueError('%s received negative num_samples %s',
                         (self.__class__.__name__, str(num_samples)))
 
-            # Check that the minibatch size is sound
-            self._minibatch_size = int(minibatch_size)
-            if self._minibatch_size < 0 \
-                    or self._minibatch_size > self._num_samples:
+            # Check that the batch size is sound
+            self._batch_size = int(batch_size)
+            if self._batch_size < 0 \
+                    or self._batch_size > self._num_samples:
                 raise ValueError('%s received invalid batch_size %d for num_samples %s',
-                        (self.__class__.__name__, minibatch_size, str(self._num_samples)))
+                        (self.__class__.__name__, batch_size, str(self._num_samples)))
 
         def __len__(self):
             '''
@@ -75,8 +75,8 @@ def SequentialBatchSampler(distributed=False):
             '''
             Iterates over sequential batches of data
             '''
-            num_batches = self._num_samples/self._minibatch_size
-            order       = np.arange(num_batches*self._minibatch_size)
+            num_batches = self._num_samples/self._batch_size
+            order       = np.arange(num_batches*self._batch_size)
 
             return iter(order)
 
@@ -93,9 +93,9 @@ def RandomSequenceSampler(distributed=False):
             Iterates over sequential batches of data randomly located
             in the dataset.
             '''
-            max_id  = self._num_samples + 1 - self._minibatch_size
+            max_id  = self._num_samples + 1 - self._batch_size
             starts  = self._random.randint(0, max_id, len(self))
-            batches = [np.arange(start, start+self._minibatch_size) for start in starts]
+            batches = [np.arange(start, start+self._batch_size) for start in starts]
 
             return iter(np.concatenate(batches))
 
@@ -113,9 +113,9 @@ def BootstrapBatchSampler(distributed=False):
             Iterates over bootstrapped batches of data randomly picked
             from the dataset.
             '''
-            starts = np.arange(0, self._num_samples+1 - self._minibatch_size, self._minibatch_size)
+            starts = np.arange(0, self._num_samples+1 - self._batch_size, self._batch_size)
             bootstrap_indices = np.random.choice(np.arange(self._num_samples), self._num_samples)
-            batches = [bootstrap_indices[np.arange(start, start+self._minibatch_size)] for start in starts]
+            batches = [bootstrap_indices[np.arange(start, start+self._batch_size)] for start in starts]
 
             return iter(np.concatenate(batches))
 

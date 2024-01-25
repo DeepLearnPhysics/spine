@@ -1,6 +1,6 @@
 import numpy as np
 
-from mlreco.utils import cm_to_pixel
+from mlreco.utils.units import cm_to_pixel
 from mlreco.utils.geometry import Geometry
 
 from .boxes import box_traces
@@ -19,11 +19,6 @@ def detector_traces(detector=None, boundaries=None, meta=None,
     volumes. The first column for each volume represents the lower boundary
     and the second the upper boundary. The boundaries must be ordered.
 
-    The metadata is assumed to have the following structure:
-    [lower_x, lower_y(, lower_z), upper_x, upper_y, (upper_z),
-    size_x, size_y(, size_z)], i.e. lower and upper bounds of the volume
-    and pixel/voxel size.
-
     Parameters
     ----------
     detector : str, optional
@@ -31,9 +26,8 @@ def detector_traces(detector=None, boundaries=None, meta=None,
     boundaries : str, optional
         Name of a recognized detector to get the geometry from or path
         to a `.npy` boundary file to load the boundaries from.
-    meta : np.ndarray, optional
-        (9) Array of metadata information (only needed if
-        pixel_coordinates is True)
+    meta : Meta, optional
+        Metadata information (only needed if pixel_coordinates is True)
     detector_coords : bool, default False
         If False, the coordinates are converted to pixel indices
     draw_faces : bool, default False

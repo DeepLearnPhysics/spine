@@ -1,6 +1,8 @@
 import numpy as np
 from larcv import larcv
 
+from mlreco.utils.data_structures import Meta, RunInfo
+
 
 def parse_meta2d(sparse_event, projection_id = 0):
     '''
@@ -20,36 +22,21 @@ def parse_meta2d(sparse_event, projection_id = 0):
               sparse_event: sparse2d_pcluster
               projection_id: 0
 
-    Configuration
+    Parameters
     ----------
-    sparse2d_event : larcv::EventSparseTensor2D or larcv::EventClusterVoxel2D
+    sparse2d_event : Union[larcv.EventSparseTensor2D, larcv.EventClusterVoxel2D]
+        Tensor which contains the metadata information as an attribute
     projection_id : int
+        Projection ID to get the 2D image from
 
     Returns
     -------
-    np.ndarray
-        Contains in order:
-
-        * `min_x`, `min_y` (real world coordinates)
-        * `max_x`, `max_y` (real world coordinates)
-        * `size_voxel_x`, `size_voxel_y` the size of each voxel
-        in real world units
-
-    Note
-    ----
-    TODO document how to specify projection id.
+    Meta
+        Metadata information object
     '''
-
     tensor2d = sparse_event.sparse_tensor_2d(projection_id)
-    meta = tensor2d.meta()
-    return [
-        meta.min_x(),
-        meta.min_y(),
-        meta.max_x(),
-        meta.max_y(),
-        meta.pixel_width(),
-        meta.pixel_height()
-    ]
+
+    return Meta.from_larcv(tensor2d.meta())
 
 
 def parse_meta3d(sparse_event):
@@ -69,32 +56,17 @@ def parse_meta3d(sparse_event):
             args:
               sparse_event: sparse3d_pcluster
 
-    Configuration
+    Parameters
     ----------
-    sparse_event : larcv::EventSparseTensor3D or larcv::EventClusterVoxel3D
+    sparse_event : Union[larcv.EventSparseTensor3D or larcv.EventClusterVoxel3D]
+        Tensor which contains the metadata information as an attribute
 
     Returns
     -------
-    np.ndarray
-        Contains in order:
-
-        * `min_x`, `min_y`, `min_z` (real world coordinates)
-        * `max_x`, `max_y`, `max_z` (real world coordinates)
-        * `size_voxel_x`, `size_voxel_y`, `size_voxel_z` the size of each voxel
-        in real world units
+    Meta
+        Metadata information object
     '''
-    meta = sparse_event.meta()
-    return [
-        meta.min_x(),
-        meta.min_y(),
-        meta.min_z(),
-        meta.max_x(),
-        meta.max_y(),
-        meta.max_z(),
-        meta.size_voxel_x(),
-        meta.size_voxel_y(),
-        meta.size_voxel_z()
-    ]
+    return Meta.from_larcv(sparse_event.meta())
 
 
 def parse_run_info(sparse_event):
@@ -109,19 +81,17 @@ def parse_run_info(sparse_event):
             args:
               sparse_event: sparse3d_pcluster
 
-    Configuration
+    Parameters
     ----------
-    sparse_event : larcv::EventSparseTensor3D or larcv::EventClusterVoxel3D
-        data to get run info from
+    sparse_event : Union[larcv::EventSparseTensor3D, larcv::EventClusterVoxel3D]
+        Tensor which contains the run information as attributes
 
     Returns
     -------
-    tuple
-         (run, subrun, event)
+    RunInfo
+        Run information object
     '''
-    return [dict(run    = sparse_event.run(),
-                 subrun = sparse_event.subrun(),
-                 event  = sparse_event.event())]
+    return RunInfo.from_larcv(sparse_event)
 
 
 def parse_opflash(opflash_event):
@@ -193,5 +163,5 @@ def parse_trigger(trigger_event):
     -------
     list
     '''
-    trigger = [larcv.Trigger(trigger_event)]
+    trigger = larcv.Trigger(trigger_event)
     return trigger

@@ -73,17 +73,20 @@ def get_ppn_labels(particle_v, meta, dim=3, min_voxel_count=5,
 
         # Append the start point with the rest of the particle information
         first_step = image_coordinates(meta, particle.first_step(), dim)
-        part_extra = [shape, part_index, 0] if include_point_tagging else [shape, part_index]
+        part_extra = [shape, part_index, 0] \
+                if include_point_tagging else [shape, part_index]
         part_info.append(first_step + part_extra)
 
         # Append the end point as well, for tracks only
         if shape == TRACK_SHP:
             last_step  = image_coordinates(meta, particle.last_step(), dim)
-            part_extra = [shape, part_index, 1] if include_point_tagging else [shape, part_index]
+            part_extra = [shape, part_index, 1] \
+                    if include_point_tagging else [shape, part_index]
             part_info.append(last_step + part_extra)
 
     if not len(part_info):
         return np.empty((0,6), dtype=np.float32)
+
     return np.array(part_info)
 
 

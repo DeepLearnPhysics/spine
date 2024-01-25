@@ -168,6 +168,9 @@ def prepare(cfg, rank = 0):
         # Instantiate a cyclic iterator over the dataloader
         handlers.data_io_iter = iter(cycle(handlers.data_io))
 
+        # Store the configuration dictionary
+        handlers.cfg = cfg
+
     else:
         # Instantiate the training/inference object
         handlers.trainval = TrainVal(**cfg, rank = rank)
@@ -177,6 +180,9 @@ def prepare(cfg, rank = 0):
 
         # Instantiate a cyclic iterator over the dataloader
         handlers.data_io_iter = handlers.trainval.loader_iter
+
+        # Store the configuration dictionary
+        handlers.cfg = cfg
 
     return handlers
 

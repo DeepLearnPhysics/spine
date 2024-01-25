@@ -303,7 +303,7 @@ class TrainVal(object):
         # Initialize the writer, if provided
         self.writer = None
         if writer is not None:
-            self.writer = writer_factory(**writer)
+            self.writer = writer_factory(writer)
             self.unwrap = True
 
     def initialize(self):
@@ -577,8 +577,9 @@ class TrainVal(object):
         epochs requested.
         '''
         # Loop until the requested amount of iterations/epochs is reached
+        iter_per_epoch = len(self.loader) / self.world_size
         iteration = self.start_iteration if self.train else 0
-        n_epochs = int(np.ceil(self.epochs - iteration / len(self.loader)))
+        n_epochs = int(np.ceil(self.epochs - iteration / iter_per_epoch))
         for e in range(n_epochs):
             if self.distributed:
                 self.loader.sampler.set_epoch(e)
@@ -588,7 +589,7 @@ class TrainVal(object):
                     min(self.iterations - e*len(self.loader), len(self.loader))
             for i in range(n_iterations):
                 # Update the epoch counter, start the iteration timer
-                epoch = iteration / len(self.loader)
+                epoch = iteration / iter_per_epoch
                 tstamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 self.watch.start('iteration')
 

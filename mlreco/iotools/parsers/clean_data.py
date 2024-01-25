@@ -17,10 +17,11 @@ def clean_sparse_data(cluster_voxels, cluster_data, sparse_voxels):
 
     Parameters
     ----------
-    cluster_voxels: np.ndarray
+    cluster_voxels : np.ndarray
         (N, 3) Matrix of voxel coordinates in the cluster3d tensor
-    cluster_data: np.ndarray
-        (N, F) Matrix of voxel values corresponding to each voxel in the cluster3d tensor
+    cluster_data : np.ndarray
+        (N, F) Matrix of voxel values corresponding to each voxel
+        in the cluster3d tensor
     sparse_voxels: np.ndarray
         (M, 3) Matrix of voxel coordinates in the reference sparse tensor
 
@@ -123,7 +124,8 @@ def filter_duplicate_voxels_ref(data: nb.int32[:,:],
             groups.append(temp_list)
             temp_list = nb.typed.List.empty_list(nb.int64)
 
-    # For each group, pick the voxel with the label that comes first in order of precedence
+    # For each group, pick the voxel with the label that comes first
+    # in order of precedence
     for group in groups:
         group = np.asarray(group)
         ref = np.array([precedence.index(int(r)) for r in reference[group]])
@@ -154,7 +156,8 @@ def filter_voxels_ref(data: nb.int32[:,:],
     Returns
     -------
     np.ndarray
-        (N', 3) Matrix that does not contain voxels absent from the reference matrix
+        (N', 3) Matrix that does not contain voxels absent from
+        the reference matrix
     '''
     # Try to match each voxel in the data tensor to one in the reference tensor
     n_data, n_ref = data.shape[0], reference.shape[0]

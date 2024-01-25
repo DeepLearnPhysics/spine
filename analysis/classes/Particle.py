@@ -5,7 +5,7 @@ from collections import OrderedDict
 
 from mlreco.utils.globals import SHAPE_LABELS, TRACK_SHP, \
         PID_LABELS, PID_MASSES, PID_TO_PDG
-from mlreco.utils.utils import pixel_to_cm
+from mlreco.utils.units import pixel_to_cm
 from mlreco.utils.numba_local import cdist
 
 class Particle:

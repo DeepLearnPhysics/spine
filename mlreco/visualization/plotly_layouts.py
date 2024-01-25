@@ -32,8 +32,8 @@ def plotly_layout3d(ranges=None, meta=None, detector=None, titles=None,
         and the plotting region is decided by measuring the min,max range in
         each coordinates. This last option is useful if one wants to define
         the region based on a set of points that is not same as what's plotted.
-    meta : np.ndarray, optional
-        (9) Metadata information used to infer the full image range
+    meta : Meta, optional
+        Metadata information used to infer the full image range
     detector : str
         Name of a recognized detector to get the geometry from
     titles : List[str], optional
@@ -84,13 +84,11 @@ def plotly_layout3d(ranges=None, meta=None, detector=None, titles=None,
         # If meta information is provided, make the full image the range
         assert ranges is None or None in ranges, \
                 'Should not specify both `ranges` and `meta` parameters'
-        assert len(np.asarray(meta).reshape(-1)) == 9,\
-                'Metadata should be an array of 9 values'
-        lowers, uppers, sizes = np.split(np.asarray(meta).reshape(-1), 3)
         if detector_coords:
-            ranges = np.vstack([lowers, uppers]).T
+            ranges = np.vstack([meta.lower, meta.upper]).T
         else:
-            ranges = np.vstack([[0, 0, 0], np.round((uppers-lowers)/sizes)]).T
+            ranges = np.vstack([[0, 0, 0],
+                np.round((meta.upper-meta.lower)/meta.size)]).T
 
     if detector is not None:
         # If detector geometry is provided, make the full detector the range

@@ -8,11 +8,13 @@ from .particles import parse_particles
 from .clean_data import clean_sparse_data
 
 from mlreco.utils.globals import UNKWN_SHP
-from mlreco.utils.particles import get_interaction_ids, get_nu_ids, get_particle_ids, get_shower_primary_ids, get_group_primary_ids
+from mlreco.utils.data_structures import Meta
+from mlreco.utils.particles import get_interaction_ids, get_nu_ids, \
+        get_particle_ids, get_shower_primary_ids, get_group_primary_ids
 
 
 def parse_cluster2d(cluster_event):
-    """
+    '''
     A function to retrieve a 2D clusters tensor
 
     .. code-block:: yaml
@@ -34,7 +36,7 @@ def parse_cluster2d(cluster_event):
         coordinate
     np_features: np.ndarray
         a numpy array with the shape (N,2) where 2 is pixel value and cluster id, respectively
-    """
+    '''
     cluster_event = cluster_event.as_vector().front()
     meta = cluster_event.meta()
     num_clusters = cluster_event.size()
@@ -54,7 +56,7 @@ def parse_cluster2d(cluster_event):
     np_voxels   = np.concatenate(clusters_voxels, axis=0)
     np_features = np.concatenate(clusters_features, axis=0)
 
-    return np_voxels, np_features
+    return np_voxels, np_features, Meta.from_larcv(cluster_event.meta())
 
 
 def parse_cluster3d(cluster_event,
@@ -71,7 +73,7 @@ def parse_cluster3d(cluster_event,
                     primary_include_mpr = True,
                     break_clusters = False,
                     min_size = -1):
-    """
+    '''
     a function to retrieve a 3D clusters tensor
 
     .. code-block:: yaml
@@ -127,7 +129,7 @@ def parse_cluster3d(cluster_event,
         * vtx (x,y,z),
         * momentum,
         * semantic type
-    """
+    '''
     # Temporary deprecation warning
     if add_kinematics_info:
         from warnings import warn
@@ -213,17 +215,17 @@ def parse_cluster3d(cluster_event,
     if clean_data:
         assert add_particle_info, 'Need to add particle info to fetch particle semantics for each voxel'
         assert sparse_semantics_event is not None, 'Need to provide a semantics tensor to clean up output'
-        sem_voxels, sem_features = parse_sparse3d([sparse_semantics_event])
+        sem_voxels, sem_features, _ = parse_sparse3d([sparse_semantics_event])
         np_voxels,  np_features  = clean_sparse_data(np_voxels, np_features, sem_voxels)
         np_features[:,-1] = sem_features[:,-1] # Match semantic column to semantic tensor
         np_features[sem_features[:,-1] > 3, 1:-1] = -1 # Set all cluster labels to -1 if semantic class is LE or ghost
 
         # If a value tree is provided, override value colum
         if sparse_value_event:
-            _, val_features  = parse_sparse3d([sparse_value_event])
+            _, val_features, _  = parse_sparse3d([sparse_value_event])
             np_features[:,0] = val_features[:,-1]
 
-    return np_voxels, np_features
+    return np_voxels, np_features, Meta.from_larcv(cluster_event.meta())
 
 
 def parse_cluster3d_charge_rescaled(cluster_event,
@@ -243,7 +245,7 @@ def parse_cluster3d_charge_rescaled(cluster_event,
                                     collection_only=False):
 
     # Produces cluster3d labels with sparse3d_reco_rescaled on the fly on datasets that do not have it
-    np_voxels, np_features = parse_cluster3d(cluster_event,
+    np_voxels, np_features, meta = parse_cluster3d(cluster_event,
                                              particle_event,
                                              particle_mpv_event,
                                              neutrino_event,
@@ -259,10 +261,10 @@ def parse_cluster3d_charge_rescaled(cluster_event,
                                              min_size)
 
     from .sparse import parse_sparse3d_charge_rescaled
-    _, val_features  = parse_sparse3d_charge_rescaled(sparse_value_event_list, collection_only)
+    _, val_features, _  = parse_sparse3d_charge_rescaled(sparse_value_event_list, collection_only)
     np_features[:,0] = val_features[:,-1]
 
-    return np_voxels, np_features
+    return np_voxels, np_features, meta
 
 def parse_cluster3d_2cryos(cluster_event,
                                     particle_event = None,
@@ -280,7 +282,7 @@ def parse_cluster3d_2cryos(cluster_event,
                                     min_size = -1):
 
     # Produces cluster3d labels with sparse3d_reco_rescaled on the fly on datasets that do not have it
-    np_voxels, np_features = parse_cluster3d(cluster_event,
+    np_voxels, np_features, meta = parse_cluster3d(cluster_event,
                                              particle_event,
                                              particle_mpv_event,
                                              neutrino_event,
@@ -296,9 +298,9 @@ def parse_cluster3d_2cryos(cluster_event,
                                              min_size)
 
     from .sparse import parse_sparse3d_charge_rescaled
-    _, charge0 = parse_sparse3d([sparse_value_event_list[0]])
-    _, charge1 = parse_sparse3d([sparse_value_event_list[1]])
+    _, charge0, _ = parse_sparse3d([sparse_value_event_list[0]])
+    _, charge1, _ = parse_sparse3d([sparse_value_event_list[1]])
     charge0[charge0 == 0.] = charge1[charge0 == 0.]
     np_features[:,0] = charge0.flatten()
 
-    return np_voxels, np_features
+    return np_voxels, np_features, meta

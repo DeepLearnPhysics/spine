@@ -6,8 +6,8 @@ from functools import cached_property
 
 from . import Particle
 
-from mlreco.utils import pixel_to_cm
 from mlreco.utils.globals import PID_LABELS
+from mlreco.utils.units import pixel_to_cm
 
 
 class Interaction:

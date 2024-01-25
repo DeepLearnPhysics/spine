@@ -4,8 +4,8 @@ from typing import Counter, List, Union
 
 from . import Particle
 
-from mlreco.utils import pixel_to_cm
 from mlreco.utils.globals import PDG_TO_PID, TRACK_SHP, SHAPE_LABELS, PID_LABELS
+from mlreco.utils.units import pixel_to_cm
 from mlreco.utils.decorators import inherit_docstring
 
 @inherit_docstring(Particle)

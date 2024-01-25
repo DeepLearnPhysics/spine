@@ -1,7 +1,8 @@
 import numpy as np
 import torch
 
-from .globals import COORD_COLS
+from copy import deepcopy
+from warnings import warn
 
 
 def cycle(data_io):
@@ -80,52 +81,92 @@ def local_cdist(v1, v2):
     return torch.sqrt(torch.pow(v2_2 - v1_2, 2).sum(2))
 
 
-def pixel_to_cm(coords, meta, translate=True):
+def instantiate(module, cfg, name = 'name'):
     '''
-    Converts the pixel indices in a tensor to detector coordinates
-    using the metadata information.
+    Instantiates an instance of a class based on a configuration dictionary
+    and a list of possible classes. This function supports two YAML
+    configuration structures (parsed as a dictionary):
+    
+    .. code-block:: yaml
 
-    The metadata is assumed to have the following structure:
-    [lower_x, lower_y(, lower_z), upper_x, upper_y, (upper_z), size_x, size_y(, size_z)],
-    i.e. lower and upper bounds of the volume and pixel/voxel size.
+        function:
+          name: function_name
+          kwarg_1: value_1
+          kwarg_2: value_2
+          ...
+
+    or
+
+    .. code-block:: yaml
+
+        function:
+          name: function_name
+          args:
+            kwarg_1: value_1
+            kwarg_2: value_2
+            ...
+
+    The `name` field can have a different name, as long as it is specified.
 
     Parameters
     ----------
-    coords : np.ndarray
-        (N, 2/3) Input pixel indices
-    meta : np.ndarray
-        (6/9) Array of metadata information
-    translate : bool, default True
-        If set to `False`, this function returns the input unchanged
+    module : Union[module, dict]
+        Module from which to fetch the classes or dictionary which maps
+        a function name onto an object class.
+    cfg : dict
+        Configuration dictionary
+
+    Returns
+    -------
+    object
+        Instantiated object
     '''
-    if not translate or not len(coords):
-        return coords
+    # Get the name of the class, check that it exists
+    config = deepcopy(cfg)
+    try:
+        class_name = config.pop(name)
+    except Exception as err:
+        # TODO: proper logging
+        print('Could not find the name of the function ' \
+                f'to initialize under {name}')
+        raise err
 
-    lower, upper, size = np.split(np.asarray(meta).reshape(-1), 3)
-    out = lower + (coords + .5) * size
-    return out.astype(np.float32)
+    if isinstance(module, dict) and class_name not in module:
+        valid_keys = list(module.keys())
+        raise ValueError(f'Could not find {class_name} in the dictionary ' \
+                f'which maps names to classes. Available names: {valid_keys}')
+    elif not isinstance(module, dict) and not hasattr(module, class_name):
+        raise ValueError(f'Could not find {class_name} in the provided module')
 
+    # Gather the arguments and keyword arguments to pass to the function
+    args = config.pop('args', [])
+    kwargs = config.pop('kwargs', {})
 
-def cm_to_pixel(coords, meta, translate=True):
-    '''
-    Converts the detector coordinates in a tensor to pixel indices
-    using the metadata information.
+    # If args is specified as a dictionary, append it to kwargs (deprecated)
+    if isinstance(args, dict):
+        # TODO: proper logging
+        warn('If specifying keyword arguments, should use `kwargs` instead '\
+                'of args in {class_name}', category = DeprecationWarning)
+        for key in args.keys():
+            assert key not in kwargs, f'The keyword argument {key} is ' \
+                    'provided under `args` and `kwargs`. Ambiguous.'
+        kwargs.update(args)
+        args = []
 
-    The metadata is assumed to have the following structure:
-    [lower_x, lower_y(, lower_z), upper_x, upper_y, (upper_z), size_x, size_y(, size_z)],
-    i.e. lower and upper bounds of the volume and pixel/voxel size.
+    # If some arguments were specified at the top level, append them
+    for key in config.keys():
+        assert key not in kwargs, f'The keyword argument {key} is provided ' \
+                'at the top level and under `kwargs`. Ambiguous.'
+    kwargs.update(config)
 
-    Parameters
-    ----------
-    coords : np.ndarray
-        (N, 2/3) Input detector coordinates
-    meta : np.ndarray
-        (6/9) Array of metadata information
-    translate : bool, default True
-        If set to `False`, this function returns the input unchanged
-    '''
-    if not translate or not len(coords):
-        return coords
-
-    lower, upper, size = np.split(np.asarray(meta).reshape(-1), 3)
-    return (coords - lower) / size - .5
+    # Intialize
+    try:
+        if isinstance(module, dict):
+            return module[class_name](*args, **kwargs)
+        else:
+            return getattr(module, class_name)(*args, **kwargs)
+    except Exception as err:
+        # TODO: proper logging
+        print(f'Failed to instantiate {class_name} with these arguments:\n' \
+                f'  - args: {args}\n  - kwargs: {kwargs}')
+        raise err
