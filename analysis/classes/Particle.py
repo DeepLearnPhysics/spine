@@ -5,7 +5,6 @@ from collections import OrderedDict
 
 from mlreco.utils.globals import SHAPE_LABELS, TRACK_SHP, \
         PID_LABELS, PID_MASSES, PID_TO_PDG
-from mlreco.utils.units import pixel_to_cm
 from mlreco.utils.numba_local import cdist
 
 class Particle:
@@ -465,7 +464,7 @@ class Particle:
         '''
         assert self._units == 'px'
         for attr in self._COORD_ATTRS:
-            setattr(self, attr, pixel_to_cm(getattr(self, attr), meta))
+            setattr(self, attr, meta.to_cm(getattr(self, attr)))
         self._units = 'cm'
 
     @property

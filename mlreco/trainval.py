@@ -9,7 +9,6 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.distributed import init_process_group, destroy_process_group
 
 from .iotools.factories import loader_factory, writer_factory
-from .iotools.parsers.unwrap_rules import input_unwrap_rules
 from .iotools.writers import CSVWriter, HDF5Writer
 
 from .models import construct_model
@@ -537,7 +536,9 @@ class TrainVal(object):
         Initialize the unwrapper
         '''
         # Add unwrap rules for the input data products
-        rules = input_unwrap_rules(self.loader.dataset._parsers)
+        rules = {}
+        for name, parser in self.loader.dataset.parsers.items():
+            rules[name] = parser.result
 
         # Add unwrap rules for the output of the forward function
         model = self.model if not self.distributed else self.model.module

@@ -9,9 +9,9 @@ from .globals import *
 
 
 def compute_rescaled_charge(input_data, deghost_mask, last_index,
-        collection_only=False, use_batch=True):
-    """
-    Computes rescaled charge after deghosting.
+                            collection_only=False, collection_id=2,
+                            use_batch=True):
+    """Computes rescaled charge after deghosting.
 
     Notes
     -----
@@ -27,6 +27,8 @@ def compute_rescaled_charge(input_data, deghost_mask, last_index,
         Index where hit-related features start (4+N_f)
     collection_only : bool, default False
         Only use the collection plane to estimate the rescaled charge
+    collection_id : int, default 2
+        Index of the collection plane
     use_batch : bool, default True
         If true, use the default column to seprate batches
 
@@ -54,11 +56,11 @@ def compute_rescaled_charge(input_data, deghost_mask, last_index,
             batch_mask = input_data[deghost_mask, BATCH_COL] == b
             _, inverse, counts = unique(hit_ids[batch_mask],
                     return_inverse=True, return_counts=True)
-            multiplicity[batch_mask] = counts[inverse].reshape(-1,3)
+            multiplicity[batch_mask] = counts[inverse].reshape(-1, 3)
     else:
         _, inverse, counts = unique(hit_ids,
                 return_inverse=True, return_counts=True)
-        multiplicity = counts[inverse].reshape(-1,3)
+        multiplicity = counts[inverse].reshape(-1, 3)
 
     # Rescale the charge on the basis of hit multiplicity
     hit_charges = input_data[deghost_mask, last_index  :last_index+3]
@@ -68,13 +70,13 @@ def compute_rescaled_charge(input_data, deghost_mask, last_index,
         charges = sum((hit_charges*pmask)/multiplicity)/sum(pmask)
     else:
         # Only use the collection plane measurement
-        charges = hit_charges[:,-1]/multiplicity[:,-1]
+        charges = hit_charges[:, collection_id]/multiplicity[:, collection_id]
 
     return charges
 
 
 def adapt_labels(cluster_label, segment_label, segmentation, deghost_mask=None,
-        break_classes=[SHOWR_SHP,TRACK_SHP,MICHL_SHP,DELTA_SHP]):
+                 break_classes=[SHOWR_SHP,TRACK_SHP,MICHL_SHP,DELTA_SHP]):
     """
     Adapts the cluster labels to account for the predicted semantics.
 

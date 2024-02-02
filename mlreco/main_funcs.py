@@ -1,4 +1,7 @@
-import os, time, glob, yaml
+import os
+import time
+import glob
+import yaml
 import subprocess as sc
 import numpy as np
 import torch
@@ -37,6 +40,7 @@ class Handlers:
 
     def keys(self):
         return list(self.__dict__.keys())
+
 
 def run(cfg):
     '''
@@ -105,6 +109,7 @@ def train_single(cfg, rank = 0):
 
     # Run the training process
     handlers.trainval.run()
+
 
 def inference_single(cfg, rank = 0):
     '''
@@ -268,7 +273,7 @@ def process_config(iotool, model = None, trainval = None, verbose = True):
     return cfg
 
 
-def apply_event_filter(handlers, event_list):
+def apply_event_filter(handlers, entry_list):
     '''
     Reinstantiate data loader with a restricted set of events.
 
@@ -276,11 +281,11 @@ def apply_event_filter(handlers, event_list):
     ----------
     handlers : Handlers
         Handler instances needed for training/inference
-    event_list : list
+    entry_list : list
         List of events to load
     '''
     # Instantiate DataLoader
-    handlers.cfg['iotool']['event_list'] = event_list
+    handlers.cfg['iotool']['entry_list'] = entry_list
     handlers.data_io = loader_factory(**handlers.cfg['iotool'])
 
     # IO iterator

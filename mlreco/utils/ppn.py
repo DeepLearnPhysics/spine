@@ -10,7 +10,7 @@ from mlreco.utils.globals import (BATCH_COL, COORD_COLS, PPN_RTYPE_COLS,
 
 
 def get_ppn_labels(particle_v, meta, dim=3, min_voxel_count=5,
-        min_energy_deposit=0, include_point_tagging=True):
+                   min_energy_deposit=0, include_point_tagging=True):
     '''
     Gets particle point coordinates and informations for running PPN.
 
@@ -85,7 +85,7 @@ def get_ppn_labels(particle_v, meta, dim=3, min_voxel_count=5,
             part_info.append(last_step + part_extra)
 
     if not len(part_info):
-        return np.empty((0,6), dtype=np.float32)
+        return np.empty((0, 5 + include_point_tagging), dtype=np.float32)
 
     return np.array(part_info)
 

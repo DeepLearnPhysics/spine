@@ -10,8 +10,8 @@ from . import Interaction, TruthParticle
 from .Interaction import _process_interaction_attributes
 
 from mlreco.utils.globals import PID_LABELS
-from mlreco.utils.units import pixel_to_cm
 from mlreco.utils.decorators import inherit_docstring
+
 
 @inherit_docstring(Interaction)
 class TruthInteraction(Interaction):

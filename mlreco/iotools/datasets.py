@@ -1,11 +1,24 @@
-import os, glob, inspect
+"""Contains dataset classes to be used by the model."""
+
+import os
+import glob
+import inspect
 import numpy as np
+
 from torch.utils.data import Dataset
-import mlreco.iotools.parsers
+
+from mlreco.utils.factory import module_dict, instantiate
+
+from . import parsers
+from .readers import LArCVReader
+
+PARSER_DICT  = module_dict(parsers)
+
+__all__ = ['LArCVDataset']
+
 
 class LArCVDataset(Dataset):
-    '''
-    A generic interface for LArCV data files.
+    """A generic interface for LArCV data files.
 
     This Dataset is designed to produce a batch of arbitrary number of data
     chunks (e.g. input data matrix, segmentation label, point proposal target,
@@ -14,11 +27,14 @@ class LArCVDataset(Dataset):
     configured with arbitrary number of parser functions where each function
     can take arbitrary number of LArCV event data objects. The assumption is
     that each data chunk respects the LArCV event boundary.
-    '''
-    def __init__(self, schema, data_keys, limit_num_files=0,
-            limit_num_samples=0, event_list=None, skip_event_list=None):
-        '''
-        Instantiates the LArCVDataset.
+
+    This class utilizes the :class:`LArCVReader` class. It uses it to
+    load data and to push it through the parsers.
+    """
+    name = 'larcv_dataset'
+
+    def __init__(self, schema, **kwargs):
+        """Instantiates the LArCVDataset.
 
         Parameters
         ----------
@@ -29,200 +45,42 @@ class LArCVDataset(Dataset):
               - parser: name of the parser
               - args: (key, value) pairs that correspond to parser argument
                 names and their values
-        data_keys : list
-            a list of strings that is required to be present in the file paths
-        limit_num_files : int
-            an integer limiting number of files to be taken per data directory
-        limit_num_samples : int
-            an integer limiting number of samples to be taken per data
-        event_list : list
-            a list of integers to specify which event (ttree index) to process
-        skip_event_list : list
-            a list of integers to specify which events (ttree index) to skip
-        '''
+        **kwargs : dict, optional
+            Additional arguments to pass to the LArCVReader class
+        """
+        # Loop over parsers
+        self.parsers = {}
+        tree_keys = []
+        for data_product, parser_cfg in schema.items():
+            # Instantiate parser
+            self.parsers[data_product] = instantiate(
+                    PARSER_DICT, parser_cfg, name='parser')
 
-        # Create file list
-        self._files = []
-        if isinstance(data_keys, str):
-            with open(data_keys, 'r') as f:
-                data_keys = f.read().splitlines()
-        for key in data_keys:
-            fs = sorted(glob.glob(key))
-            for f in fs:
-                self._files.append(f)
-                if limit_num_files > 0 and len(self._files) >= limit_num_files: break
-            if limit_num_files > 0 and len(self._files) >= limit_num_files: break
+            # If the parser returns a tensor, set its reference
+            if self.parsers[data_product].result == 'tensor':
+                self.parsers[data_product].result.ref_key = data_product
 
-        if len(self._files)<1:
-            raise FileNotFoundError
-        elif len(self._files)>10: print(len(self._files),'files loaded')
-        else:
-            for f in self._files: print('Loading file:',f)
+            # Append to the list of trees to load
+            for key in self.parsers[data_product].tree_keys:
+                if key not in tree_keys:
+                    tree_keys.append(key)
 
-        # Instantiate parsers
-        self._parsers = {}
-        self._trees = {}
-        for key, value in schema.items():
-            # Check that the schema is a dictionary
-            if not isinstance(value, dict):
-                raise ValueError('A data schema must be expressed as a dictionary')
-
-            # Identify the parser and its parameter names
-            assert 'parser' in value, 'A parser needs to be specified for %s' % key
-            if not hasattr(mlreco.iotools.parsers, value['parser']):
-                print('The specified parser name %s does not exist!' % value['parser'])
-            assert 'args' in value, 'Parser arguments must be provided for %s' % key
-            fn = getattr(mlreco.iotools.parsers, value['parser'])
-            keys = list(inspect.signature(fn).parameters.keys())
-            assert isinstance(value['args'], dict), 'Parser arguments must be a list or dictionary for %s' % key
-            for k in value['args'].keys():
-                assert k in keys, 'Argument %s does not exist in parser %s' % (k, value['parser'])
-
-            # Append data key and parsers
-            self._parsers[key] = \
-                    (getattr(mlreco.iotools.parsers, value['parser']),
-                            value['args'])
-            for arg_name, data_key in value['args'].items():
-                if 'event' not in arg_name: continue
-                if 'event_list' not in arg_name: data_key = [data_key]
-                for k in data_key:
-                    if k not in self._trees: self._trees[k] = None
-
-        # Prepare TTrees and load files
-        from ROOT import TChain
-        self._entries = None
-        for data_key in self._trees.keys():
-            # Check data TTree exists, and entries are identical across >1 trees.
-            # However do NOT register these TTrees in self._trees yet in order to support >1 workers by DataLoader
-            print('Loading tree',data_key)
-            chain = TChain(data_key + "_tree")
-            for f in self._files:
-                chain.AddFile(f)
-            if self._entries is not None: assert(self._entries == chain.GetEntries())
-            else: self._entries = chain.GetEntries()
-
-        # If event list is provided, register
-        event_list = self.get_event_list(event_list)
-        if event_list is None:
-            self._event_list = np.arange(0, self._entries)
-        elif isinstance(event_list, tuple):
-            event_list = np.arange(event_list[0], event_list[1])
-            self._event_list = event_list
-            self._entries = len(self._event_list)
-        else:
-            if isinstance(event_list,list): event_list = np.array(event_list).astype(np.int32)
-            assert(len(event_list.shape)==1)
-            where = np.where(event_list >= self._entries)
-            removed = event_list[where]
-            if len(removed):
-                print('WARNING: ignoring some of specified events in event_list as they do not exist in the sample.')
-                print(removed)
-            self._event_list = event_list[np.where(event_list < self._entries)]
-            self._entries = len(self._event_list)
-
-        skip_event_list = self.get_event_list(skip_event_list)
-        if skip_event_list is not None:
-            self._event_list = self._event_list[~np.isin(self._event_list, skip_event_list)]
-            self._entries = len(self._event_list)
-
-        # Set total sample size
-        if limit_num_samples > 0 and self._entries > limit_num_samples:
-            self._entries = limit_num_samples
-
-        print('Found %d events in file(s)' % len(self._event_list))
-
-        # Flag to identify if Trees are initialized or not
-        self._trees_ready = False
-
-    @staticmethod
-    def list_data(file_path):
-        '''
-        Dumps top-level information about the contents of a LArCV root file.
-
-        Parameters
-        ----------
-        file_path : str
-            Path to the file to scan
-
-        Returns
-        -------
-        dict
-            Dictionary of 
-        '''
-        from ROOT import TFile
-        f = TFile.Open(file_path, "READ")
-
-        data = {'sparse3d':[],'cluster3d':[],'particle':[]}
-        for k in f.GetListOfKeys():
-            name = k.GetName()
-            if not name.endswith('_tree'): continue
-            if not len(name.split('_')) < 3: continue
-            key = name.split('_')[0]
-            if not key in data.keys(): continue
-            data[key] = name[:name.rfind('_')]
-
-        return data
-
-    @staticmethod
-    def get_event_list(event_list):
-        '''
-        Converts event_list attribute to an understandable list.
-
-        Parameters
-        ----------
-        event_list : Union[str, List]
-            List of events:
-            - If `str`: if a file name is provided, load the list from the
-            file. The file must be a list of comma-separated numbers. If the
-            string is not a file, it is evaluated as an expression
-            - If `list`: use as is
-
-        Returns
-        -------
-        List
-           List of entries
-        '''
-        if event_list is not None:
-            if isinstance(event_list, str):
-                if os.path.isfile(event_list):
-                    event_list_file = open(event_list, 'r').read().split(',')
-                    event_list = [int(val) for val in event_list_file]
-                else:
-                    try:
-                        import ast
-                        event_list = ast.literal_eval(event_list)
-                    except SyntaxError:
-                        raise ValueError('iotool.dataset.event_list has ' \
-                        f'an invalid representation: {event_list}')
-            elif not isinstance(event_list, list):
-                raise ValueError('event_list should be a string or a list')
-
-        return event_list
-
-    def data_keys(self):
-        '''
-        Returns a list of data product names
-
-        Returns
-        -------
-        List[str]
-            List of data product names
-        '''
-        return list(self._parsers.keys()) + ['index']
+        # Instantiate the reader
+        self.reader = LArCVReader(tree_keys=tree_keys, **kwargs)
 
     def __len__(self):
-        '''
+        """
         Returns the lenght of the dataset (in number of batches)
 
         Returns
         -------
         int
             Number of entries in the dataset
-        '''
-        return self._entries
+        """
+        return len(self.reader)
 
     def __getitem__(self, idx):
-        '''
+        """
         Returns one element of the dataset
 
         Parameters
@@ -234,38 +92,48 @@ class LArCVDataset(Dataset):
         -------
         dict
             Dictionary of data product names and their associated data
-        '''
+        """
+        # Read in a specific entry
+        data_dict = self.reader[idx]
 
-        # Convert to actual index: by default, it is idx, but not if event_list provided
-        event_idx = self._event_list[idx]
-
-        # If this is the first data loading, instantiate chains
-        if not self._trees_ready:
-            from ROOT import TChain
-            for key in self._trees.keys():
-                chain = TChain(key + '_tree')
-                for f in self._files: chain.AddFile(f)
-                self._trees[key] = chain
-            self._trees_ready=True
-
-        # Move the event pointer
-        for tree in self._trees.values():
-            tree.GetEntry(event_idx)
-
-        # Create data chunks
+        # Loop over data products, execute parsers
         result = {}
-        for name, (parser, args) in self._parsers.items():
-            kwargs = {}
-            for k, v in args.items():
-                if 'event_list' in k:
-                    kwargs[k] = [getattr(self._trees[vi], vi+'_branch') \
-                            for vi in v]
-                elif 'event' in k:
-                    kwargs[k] = getattr(self._trees[v], v+'_branch')
-                else:
-                    kwargs[k] = v
+        for name, parser in self.parsers.items():
+            try:
+                result[name] = parser(data_dict)
+            except Exception as err:
+                print(f"Failed to produce {name} using {parser}")
+                raise err
 
-            result[name] = parser(**kwargs)
+        # Append the index
+        entry_idx = self.reader.entry_index[idx]
+        result['index'] = entry_idx
 
-        result['index'] = event_idx
         return result
+
+    def data_keys(self):
+        """
+        Returns a list of data product names
+
+        Returns
+        -------
+        List[str]
+            List of data product names
+        """
+        return list(self.parsers.keys()) + ['index']
+
+    @staticmethod
+    def list_data(file_path):
+        """Dumps top-level information about the contents of a LArCV root file.
+        
+        Parameters
+        ----------
+        file_path : str
+            Path to the file to scan
+
+        Returns
+        -------
+        dict
+            Dictionary which maps data types onto a list of keys
+        """
+        return self.reader.list_data(file_path)

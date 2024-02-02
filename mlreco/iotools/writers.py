@@ -1,3 +1,9 @@
+"""Contains classes used to write data to files.
+
+Supports writing the input/output of the reconstruction chain chain to
+HDF5 files or to log some inforation to CSV files.
+"""
+
 import os
 import yaml
 import h5py
@@ -7,7 +13,10 @@ from collections import defaultdict
 from larcv import larcv
 from analysis import classes as analysis
 
-from mlreco.utils.globals import SHAPE_LABELS, PID_LABELS, NU_CURR_TYPE, NU_INT_TYPE
+from mlreco.utils.globals import (SHAPE_LABELS, PID_LABELS,
+                                  NU_CURR_TYPE, NU_INT_TYPE)
+
+__all__ = ['HDF5Writer', 'CSVWriter']
 
 
 class HDF5Writer:

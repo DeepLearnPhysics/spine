@@ -77,17 +77,23 @@ class Unwrapper:
         ----------
         method : str
             Unwrapping scheme
-        ref_key : str
+        ref_key : str, optional
             Key of the data product that supplies the batch mapping
-        done : bool
+        done : bool, default False
             True if the unwrapping is done by the model internally
-        translate : tuple
-            List of column indices that correspond to coordinates to correct
+        translate : bool, default False
+            True if the coordinates of the tensor need to be shifted
+            from voxel indexes to detector coordinates
+        default : object
+            Default object to base the unwrapping on if the data product
+            for a specific event is empty.
         '''
-        method    : str = None
+        method    : str
         ref_key   : str = None
         done      : bool = False
         translate : bool = False
+        default   : object = None
+
 
     def _parse_rules(self, rules):
         '''

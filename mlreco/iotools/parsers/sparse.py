@@ -1,201 +1,389 @@
+"""Module that contains all parsers related to LArCV sparse data.
+
+Contains the following parsers:
+- :class:`Sparse2DParser`
+- :class:`Sparse3DParser`
+- :class:`Sparse3DGhostParser`
+- :class:`Sparse3DChargeRescaledParser`
+"""
+
 import numpy as np
+from warnings import warn
 from larcv import larcv
 
 from mlreco.utils.globals import GHOST_SHP
 from mlreco.utils.data_structures import Meta
+from mlreco.utils.unwrap import Unwrapper
+
+from .parser import Parser
+
+__all__ = ['Sparse2DParser', 'Sparse3DParser', 'Sparse3DGhostParser',
+           'Sparse3DChargeRescaledParser']
 
 
-def parse_sparse2d(sparse_event_list):
-    '''
-    A function to retrieve sparse tensor input from larcv::EventSparseTensor2D object
+class Sparse2DParser(Parser):
+    """Class that retrieves and parses a 2D sparse tensor.
 
-    Returns the data in format to pass to SCN
-
-    .. code-block:: yaml
+    .. code-block. yaml
 
         schema:
           input_data:
             parser: parse_sparse2d
-            args:
-              sparse_event_list:
-                - sparse2d_pcluster_0 (, 0)
-                - sparse2d_pcluster_1 (, 1)
-                - ...
+            sparse_event_list:
+              - sparse2d_pcluster_0
+              - sparse2d_pcluster_1
+              - ...
+            projection_id: 0
+    """
+    name = 'parse_sparse2d'
+    result = Unwrapper.Rule(method='tensor')
 
-    Configuration
-    -------------
-    sparse_event_list: list of larcv::EventSparseTensor2D
-        Optionally, give an array of (larcv::EventSparseTensor2D, int) for projection id
+    def __init__(self, sparse_event=None, sparse_event_list=None,
+                 projection_id=None):
+        """Initialize the parser.
 
-    Returns
-    -------
-    voxels: np.ndarray(int32)
-        Coordinates with shape (N,2)
-    data: np.ndarray(float32)
-        Pixel values/channels with shape (N,C)
-    '''
-    meta = None
-    output = []
-    np_voxels = None
-    for sparse_event in sparse_event_list:
-        projection_id = 0  # default
-        if isinstance(sparse_event, tuple):
-            projection_id = sparse_event[1]
-            sparse_event = sparse_event[0]
+        Parameters
+        ----------
+        sparse_event: larcv.EventSparseTensor2D, optional
+            Sparse tensor to get the voxel/features from
+        sparse_event_list: List[larcv.EventSparseTensor2D], optional
+            List of sparse tensors to get the voxel/features from
+        projection_id : int, optional
+            Projection ID to get the 2D images from
+        """
+        # Initialize the parent class
+        super().__init__(sparse_event=sparse_event,
+                         sparse_event_list=sparse_event_list)
 
-        tensor = sparse_event.sparse_tensor_2d(projection_id)
-        num_point = tensor.as_vector().size()
+        # Store the revelant attributes
+        self.projection_id = projection_id
 
-        if meta is None:
-            meta = tensor.meta()
-            np_voxels = np.empty(shape=(num_point, 2), dtype=np.int32)
-            larcv.fill_2d_voxels(tensor, np_voxels)
-        else:
-            assert meta == tensor.meta()
+        # Get the number of features in the output tensor
+        assert (sparse_event is not None) ^ (sparse_event_list is not None), (
+                "Must provide either `sparse_event` or `sparse_event_list`")
+        assert sparse_event_list is None or len(sparse_event_list), (
+                "Must provide as least 1 sparse_event in the list")
 
-        np_data = np.empty(shape=(num_point, 1), dtype=np.float32)
-        larcv.fill_2d_pcloud(tensor, np_data)
-        output.append(np_data)
+        self.num_features = 1
+        if sparse_event_list is not None:
+            self.num_features = len(sparse_event_list)
 
-    return np_voxels, np.concatenate(output, axis=-1), \
-            Meta.from_larcv(sparse_event_list[0].meta())
+        # Based on the parameters, define a default output
+        self.result.default = np.empty((0, 1 + 2 + self.num_features),
+                                       dtype=np.float32)
+
+    def process(self, sparse_event=None, sparse_event_list=None):
+        """Fetches one or a list of tensors, concatenate their feature vectors.
+
+        Parameters
+        -------------
+        sparse_event: larcv.EventSparseTensor2D, optional
+            Sparse tensor to get the voxel/features from
+        sparse_event_list: List[larcv.EventSparseTensor2D], optional
+            List of sparse tensors to get the voxel/features from
+
+        Returns
+        -------
+        np_voxels : np.ndarray
+            (N, 2) array of [x, y] coordinates
+        np_features : np.ndarray
+            (N, C) array of [pixel value 0, pixel value 1, ...]
+        meta : Meta
+            Metadata of the parsed images
+        """
+        # Parse input into a list
+        if sparse_event_list is None:
+            sparse_event_list = [sparse_event]
+
+        # Loop over the list of sparse events
+        np_voxels, meta, num_points = None, None, None
+        np_features = []
+        for sparse_event in sparse_event_list:
+            # Get the tensor
+            tensor = sparse_event.sparse_tensor_2d(self.projection_id)
+
+            # Get the shared information
+            if meta is None:
+                meta = tensor.meta()
+                num_points = tensor.as_vector().size()
+                np_voxels = np.empty((num_points, 2), dtype=np.int32)
+                larcv.fill_2d_voxels(tensor, np_voxels)
+            else:
+                assert meta == tensor.meta(), (
+                        "The metadata must match between tensors")
+                assert num_points == tensor.as_vector().size(), (
+                        "The number of pixels must match between tensors")
+
+            # Get the feature vector for this tensor
+            np_data = np.empty((num_points, 1), dtype=np.float32)
+            larcv.fill_2d_pcloud(tensor, np_data)
+            np_features.append(np_data)
+
+        return np_voxels, np.hstack(np_features), Meta.from_larcv(meta)
 
 
-def parse_sparse3d(sparse_event_list, features=None, hit_keys=[], nhits_idx=None):
-    '''
-    A function to retrieve sparse tensor input from
-    larcv::EventSparseTensor3D objects.
+class Sparse3DParser(Parser):
+    """Class that retrieves and parses a 3D sparse tensor.
 
-    Returns the data in format to pass to DataLoader
-
-    .. code-block:: yaml
+    .. code-block. yaml
 
         schema:
           input_data:
             parser: parse_sparse3d
-            args:
-              sparse_event_list:
-                - sparse3d_pcluster_0
-                - sparse3d_pcluster_1
-                - ...
+            sparse_event_list:
+              - sparse3d_pcluster_0
+              - sparse3d_pcluster_1
+              - ...
+    """
+    name = 'parse_sparse3d'
+    result = Unwrapper.Rule(method='tensor', translate=True)
 
-    Configuration
-    -------------
-    sparse_event_list : list of larcv::EventSparseTensor3D
-        Can be repeated to load more features (one per feature).
-    features : int, optional
-        Default is None (ignored). If a positive integer is specified,
-        the sparse_event_list will be split in equal lists of length
-        `features`. Each list will be concatenated along the feature
-        dimension separately. Then all lists are concatenated along the
-        first dimension (voxels). For example, this lets you work with
-        distinct detector volumes whose input data is stored in separate
-        TTrees.`features` is required to be a divider of the
-        `sparse_event_list` length.
-    hit_keys : list of int, optional
-        Indices among the input features of the _hit_key_ TTrees that can be
-        used to infer the _nhits_ quantity (doublet vs triplet point).
-    nhits_idx : int, optional
-        Index among the input features where the _nhits_ feature
-        (doublet vs triplet) should be inserted.
+    def __init__(self, sparse_event=None, sparse_event_list=None,
+                 num_features=None, features=None, hit_keys=None,
+                 nhits_idx=None, **kwargs):
+        """Initialize the parser.
 
-    Returns
-    -------
-    voxels: numpy array(int32) with shape (N,3)
-        Coordinates
-    data: numpy array(float32) with shape (N,C)
-        Pixel values/channels, as many channels as specified larcv::EventSparseTensor3D.
-    '''
-    split_sparse_event_list = [sparse_event_list]
-    if features is not None and features > 0:
-        if len(sparse_event_list) % features > 0:
-            raise Exception("features number in parse_sparse3d should be a divider of the sparse_event_list length.")
-        split_sparse_event_list = np.split(np.array(sparse_event_list), len(sparse_event_list) / features)
+        Parameters
+        ----------
+        sparse_event: larcv.EventSparseTensor3D, optional
+            Sparse tensor to get the voxel/features from
+        sparse_event_list: List[larcv.EventSparseTensor3D], optional
+            List of sparse tensors to get the voxel/features from
+        num_features : int, optional
+            If a positive integer is specified, the sparse_event_list will be
+            split in equal lists of length `features`. Each list will be
+            concatenated along the feature dimension separately. Then all
+            lists are concatenated along the first dimension (voxels). For
+            example, this lets you work with distinct detector volumes whose
+            input data is stored in separate TTrees.`features` is required to
+            be a divider of the `sparse_event_list` length.
+        hit_keys : list of int, optional
+            Indices among the input features of the `_hit_key_` TTrees that can
+            be used to infer the `nhits` quantity (doublet vs triplet point).
+        nhits_idx : int, optional
+            Index among the input features where the `nhits` feature
+            (doublet vs triplet) should be inserted.
+        **kwargs : dict, optional
+            Data product arguments to be passed to the `process` function
+        """
+        # Initialize the parent class
+        super().__init__(sparse_event=sparse_event,
+                         sparse_event_list=sparse_event_list)
 
-    voxels, features = [], []
-    features_count = None
-    compute_nhits = len(hit_keys) > 0
-    if compute_nhits and nhits_idx is None:
-        raise Exception("nhits_idx needs to be specified if you want to compute the _nhits_ feature.")
+        # Store the revelant attributes
+        assert (num_features is None) or (features is None), (
+                "Do not specify both `features` and `num_features`.")
+        self.num_features = num_features
+        if features is not None:
+            warn("Parameter `features` is deprecated, use `num_features` "
+                 "instead", DeprecationWarning, stacklevel=1)
+            self.num_features = features
+        self.hit_keys = hit_keys
+        self.nhits_idx = nhits_idx
 
-    for sparse_event_list in split_sparse_event_list:
-        if features_count is None:
-            features_count = len(sparse_event_list)
-        assert len(sparse_event_list) == features_count
+        # Check on the parameters
+        self.compute_nhits = hit_keys is not None
+        if self.compute_nhits and nhits_idx is None:
+            raise ValueError("The argument nhits_idx needs to be specified if "
+                             "you want to compute the nhits feature.")
 
+        # Get the number of features in the output tensor
+        assert (sparse_event is not None) ^ (sparse_event_list is not None), (
+                "Must provide either `sparse_event` or `sparse_event_list`")
+        assert sparse_event_list is None or len(sparse_event_list), (
+                "Must provide as least 1 sparse_event in the list")
+
+        num_tensors = 1 if sparse_event is not None else len(sparse_event_list)
+        if self.num_features is not None:
+            if num_tensors % self.num_features != 0:
+                raise ValueError(
+                        "The `num_features` number in parse_sparse3d should "
+                        "be a divider of the `sparse_event_list` length.")
+        else:
+            self.num_features = num_tensors
+
+        # Based on the parameters, define a default output
+        self.result.default = np.empty((0, 1 + 3 + self.num_features),
+                                       dtype=np.float32)
+
+
+    def process(self, sparse_event=None, sparse_event_list=None):
+        """Fetches one or a list of tensors, concatenate their feature vectors.
+
+        Parameters
+        -------------
+        sparse_event: larcv.EventSparseTensor3D, optional
+            Sparse tensor to get the voxel/features from
+        sparse_event_list: List[larcv.EventSparseTensor3D], optional
+            List of sparse tensors to get the voxel/features from
+
+        Returns
+        -------
+        np_voxels : np.ndarray
+            (N, 3) array of [x, y, z] coordinates
+        np_features : np.ndarray
+            (N, C) array of [pixel value 0, pixel value 1, ...]
+        meta : Meta
+            Metadata of the parsed images
+        """
+        # Parse input into a list
+        if sparse_event_list is None:
+            sparse_event_list = [sparse_event]
+
+        # If requested, split the input list into multiple lists
+        split_sparse_event_list = [sparse_event_list]
+        if self.num_features != len(sparse_event_list):
+            num_groups = len(sparse_event_list) // self.num_features
+            split_sparse_event_list = np.split(
+                    np.array(sparse_event_list), num_groups)
+
+        # Loop over the individual lists, load the voxels/features
+        all_voxels, all_features = [], []
         meta = None
-        output = []
-        np_voxels = None
-        hit_key_array = []
-        for idx, sparse_event in enumerate(sparse_event_list):
-            num_point = sparse_event.as_vector().size()
-            if meta is None:
-                meta = sparse_event.meta()
-                np_voxels = np.empty(shape=(num_point, 3), dtype=np.int32)
-                larcv.fill_3d_voxels(sparse_event, np_voxels)
-            else:
-                assert meta == sparse_event.meta()
-            np_data = np.empty(shape=(num_point, 1), dtype=np.float32)
-            larcv.fill_3d_pcloud(sparse_event, np_data)
-            output.append(np_data)
+        for sparse_event_list in split_sparse_event_list:
+            np_voxels, num_points = None, None 
+            np_features = []
+            hit_key_array = []
+            for idx, sparse_event in enumerate(sparse_event_list):
+                # Get the shared information
+                if meta is None:
+                    meta = sparse_event.meta()
+                else:
+                    assert meta == sparse_event.meta(), (
+                            "The metadata must match between tensors")
 
-            if compute_nhits:
-                if idx in hit_keys:
-                    hit_key_array.append(np_data)
+                if num_points is None:
+                    num_points = sparse_event.as_vector().size()
+                    np_voxels = np.empty((num_points, 3), dtype=np.int32)
+                    larcv.fill_3d_voxels(sparse_event, np_voxels)
+                else:
+                    assert num_points == sparse_event.as_vector().size(), (
+                            "The number of pixels must match between tensors")
 
-        voxels.append(np_voxels)
-        features_array = np.concatenate(output, axis=-1)
+                # Get the feature vector for this tensor
+                np_data = np.empty((num_points, 1), dtype=np.float32)
+                larcv.fill_3d_pcloud(sparse_event, np_data)
+                np_features.append(np_data)
 
-        if compute_nhits:
-            hit_key_array = np.concatenate(hit_key_array, axis=-1)
-            doublets = (hit_key_array < 0).any(axis=1)
-            nhits = 3. * np.ones((np_voxels.shape[0],), dtype=np.float32)
-            nhits[doublets] = 2.
-            if nhits_idx < 0 or nhits_idx > features_array.shape[1]:
-                raise Exception("nhits_idx is out of range")
-            features_array = np.concatenate([features_array[..., :nhits_idx], nhits[:, None], features_array[..., nhits_idx:]], axis=-1)
+                # If the number of hits is to be computed, keep track of the
+                # required information to do so downstream
+                if self.compute_nhits:
+                    if idx in self.hit_keys:
+                        hit_key_array.append(np_data)
 
-        features.append(features_array)
+            # If requested, add a feature related to the number of planes
+            if self.compute_nhits:
+                hit_key_array = np.hstack(hit_key_array)
+                nhits = np.sum(hit_key_array >= 0., axis=1)[:, -1]
+                if nhits_idx < 0 or nhits_idx > self.num_features:
+                    raise ValueError(
+                            f"nhits_idx ({nhits_idx}) is out of range")
+                np_features.insert(nhits_idx, nhits)
 
-    return np.concatenate(voxels, axis=0), np.concatenate(features, axis=0), \
-            Meta.from_larcv(sparse_event_list[0].meta())
+            # Append to the global list of voxel/features
+            all_voxels.append(np_voxels)
+            all_features.append(np.hstack(np_features))
+
+        return (np.vstack(all_voxels), np.vstack(all_features),
+                Meta.from_larcv(meta))
 
 
-def parse_sparse3d_ghost(sparse_event_semantics):
-    '''
-    A function to retrieve sparse tensor input from larcv::EventSparseTensor3D object
+class Sparse3DGhostParser(Sparse3DParser):
+    """Class that convert a tensor containing semantics to binary ghost labels.
 
-    Converts the sematic class to a ghost vs non-ghost label.
-
-    .. code-block:: yaml
+    .. code-block. yaml
 
         schema:
           ghost_label:
             parser: parse_sparse3d
-            args:
-              sparse_event_semantics: sparse3d_semantics
+            sparse_event_semantics: sparse3d_semantics
+    """
+    name = 'parse_sparse3d_ghost'
+    aliases = []
 
-    Configuration
-    -------------
-    sparse_event_semantics: larcv::EventSparseTensor3D
+    def process(self, sparse_event):
+        """Fetches one or a list of tensors, concatenate their feature vectors.
 
-    Returns
-    -------
-    np.ndarray
-        a numpy array with the shape (N,3+1) where 3+1 represents
-        (x,y,z) coordinate and 1 stored ghost labels (channels).
-    '''
-    np_voxels, np_data, meta = parse_sparse3d([sparse_event_semantics])
-    return np_voxels, (np_data==5).astype(np.float32), meta
+        Parameters
+        -------------
+        sparse_event: larcv.EventSparseTensor3D, optional
+            Sparse tensor to get the voxel/features from
+
+        Returns
+        -------
+        np_voxels : np.ndarray
+            (N, 3) array of [x, y, z] coordinates
+        np_features : np.ndarray
+            (N, 1) array of ghost labels (1 for ghosts, 0 otherwise)
+        meta : Meta
+            Metadata of the parsed image
+        """
+        # Convert the semantics feature to a ghost feature
+        np_voxels, np_data, meta = super().process(sparse_event)
+        np_ghosts = np_data == GHOST_SHP
+
+        return np_voxels, np_ghosts, meta
 
 
-def parse_sparse3d_charge_rescaled(sparse_event_list, collection_only=False):
-    # Produces sparse3d_reco_rescaled on the fly on datasets that do not have it
-    from mlreco.utils.ghost import compute_rescaled_charge
-    np_voxels, output, meta = parse_sparse3d(sparse_event_list)
+class Sparse3DChargeRescaledParser(Sparse3DParser):
+    """Class that convert a tensor containing semantics to binary ghost labels.
 
-    deghost_mask = np.where(output[:, -1] < GHOST_SHP)[0]
-    charges = compute_rescaled_charge(output[:, :-1], deghost_mask,
-            last_index=0, collection_only=collection_only, use_batch=False)
+    .. code-block. yaml
 
-    return np_voxels[deghost_mask], charges.reshape(-1,1), meta
+        schema:
+          input_rescaled:
+            parser: parse_sparse3d_charge_rescaled
+            sparse_event_semantics: sparse3d_semantics
+    """
+    name = 'parse_sparse3d_rescale_charge'
+    aliases = ['parse_sparse3d_charge_rescaled']
+
+    def __init__(self, collection_only=False, collection_id=2, **kwargs):
+        """Initialize the parser.
+
+        Parameters
+        ----------
+        collection_only : bool, default False
+            If True, only uses the collection plane charge
+        collection_id : int, default 2
+            Index of the collection plane
+        **kwargs : dict, optional
+            Data product arguments to be passed to the `process` function
+        """
+        # Initialize the parent class
+        super().__init__(**kwargs)
+
+        # Store the revelant attributes
+        self.collection_only = collection_only
+        self.collection_id = collection_id
+
+        # Redefine the default about (some input features are combined)
+        self.result.default = np.empty((0, 1 + 3 + 1), dtype=np.float32)
+
+    def process(self, sparse_event_list):
+        """Fetches one or a list of tensors, concatenate their feature vectors.
+
+        Parameters
+        -------------
+        sparse_event: larcv.EventSparseTensor3D, optional
+            Sparse tensor to get the voxel/features from
+
+        Returns
+        -------
+        np_voxels : np.ndarray
+            (N, 3) array of [x, y, z] coordinates
+        np_features : np.ndarray
+            (N, 1) array of ghost labels (1 for ghosts, 0 otherwise)
+        meta : Meta
+            Metadata of the parsed image
+        """
+        np_voxels, np_data, meta = super().process(
+                sparse_event_list=sparse_event_list)
+
+        deghost_mask = np.where(output[:, -1] < GHOST_SHP)[0]
+        charges = compute_rescaled_charge(
+                np_data[:, :-1], deghost_mask, last_index=0,
+                collection_only=self.collection_only, 
+                collection_id=self.collection_id, use_batch=False)
+
+        return np_voxels[deghost_mask], charges[:, None], meta

@@ -1,3 +1,5 @@
+"""Module which contains all global variables shared across the project."""
+
 import numpy as np
 from collections import defaultdict
 from larcv import larcv
@@ -13,15 +15,15 @@ VALUE_COL = 4
 
 # Columns that specify each attribute in a cluster label tensor
 CLUST_COL = 5
-GROUP_COL = 6
-INTER_COL = 7
-NU_COL    = 8
-PID_COL   = 9
-PSHOW_COL = 10
-PGRP_COL  = 11
-VTX_COLS  = np.array([12, 13, 14])
-MOM_COL   = 15
-PART_COL  = 16 # TODO: change order
+PART_COL  = 6
+GROUP_COL = 7
+INTER_COL = 8
+NU_COL    = 9
+PID_COL   = 10
+PSHOW_COL = 11
+PGRP_COL  = 12
+VTX_COLS  = np.array([13, 14, 15])
+MOM_COL   = 16
 
 # Colum which specifies the shape ID of a voxel in a label tensor
 SHAPE_COL = -1

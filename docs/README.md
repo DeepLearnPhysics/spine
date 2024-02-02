@@ -26,7 +26,6 @@ def func(arg1, arg2):
     -------
     bool
         Description of return value
-
     """
     return True
 ```

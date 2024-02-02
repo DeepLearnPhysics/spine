@@ -6,7 +6,7 @@ from .globals import SHOWR_SHP, MICHL_SHP, DELTA_SHP, INVAL_ID, INVAL_TID, PDG_T
 def get_valid_mask(particles):
     '''
     A function which checks that the particle labels have been
-    filled properly at the SUPERA level. It checks that the ancestor
+    filled properly at the Supera level. It checks that the ancestor
     track ID of each particle is not an invalid number and that
     the ancestor creation process is filled.
 
@@ -22,6 +22,7 @@ def get_valid_mask(particles):
     '''
     mask  = np.array([p.ancestor_track_id() != INVAL_TID for p in particles])
     mask &= np.array([bool(len(p.ancestor_creation_process())) for p in particles])
+
     return mask
 
 
@@ -185,7 +186,7 @@ def get_particle_ids(particles, nu_ids, include_mpr=False, include_secondary=Fal
 def get_shower_primary_ids(particles):
     '''
     Function which gets primary labels for shower fragments.
-    This could be handled somewhere else (e.g. SUPERA)
+    This could be handled somewhere else (e.g. Supera)
 
     Parameters
     ----------

@@ -1,167 +1,237 @@
+"""Module that contains parsers that do not fit in other categories.
+
+Contains the following parsers:
+- :class:`Meta2DParser`
+- :class:`Meta3DParser`
+- :class:`RunInfoParser`
+- :class:`OpFlashParser`
+- :class:`CRTHitParser`
+- :class:`TriggerParser`
+"""
+
 import numpy as np
 from larcv import larcv
 
 from mlreco.utils.data_structures import Meta, RunInfo
+from mlreco.utils.unwrap import Unwrapper
+
+from .parser import Parser
+
+__all__ = ['MetaParser', 'RunInfoParser', 'OpFlashParser',
+           'CRTHitParser', 'TriggerParser']
 
 
-def parse_meta2d(sparse_event, projection_id = 0):
-    '''
-    Get the meta information to translate into real world coordinates (2D).
+class MetaParser(Parser):
+    """Get the metadata information to translate into real world coordinates.
 
-    Each entry in a dataset is a cube, where pixel coordinates typically go
-    from 0 to some integer N in each dimension. If you wish to translate
-    these voxel coordinates back into real world coordinates, you can use
+    Each entry in a dataset is a cube, where pixel/voxel coordinates typically
+    go from 0 to some integer N in each dimension. If you wish to translate
+    these pixel/voxel coordinates back into real world coordinates, you can use
     the output of this parser to compute it.
 
-    .. code-block:: yaml
+    .. code-block. yaml
 
         schema:
           meta:
-            parser: parse_meta2d
-            args:
-              sparse_event: sparse2d_pcluster
-              projection_id: 0
+            parser: parse_meta
+            sparse_event: sparse3d_pcluster
+    """
+    name = 'parse_meta'
+    aliases = ['parse_meta2d', 'parse_meta3d']
+    result = Unwrapper.Rule(method='scalar', default=Meta())
 
-    Parameters
-    ----------
-    sparse2d_event : Union[larcv.EventSparseTensor2D, larcv.EventClusterVoxel2D]
-        Tensor which contains the metadata information as an attribute
-    projection_id : int
-        Projection ID to get the 2D image from
+    def __init__(self, projection_id=None, **kwargs):
+        """Initialize the parser.
 
-    Returns
-    -------
-    Meta
-        Metadata information object
-    '''
-    tensor2d = sparse_event.sparse_tensor_2d(projection_id)
+        Parameters
+        ----------
+        projection_id : int, optional
+            Projection ID to get the 2D image from (if fetching from 2D)
+        **kwargs : dict, optional
+            Data product arguments to be passed to the `process` function
+        """
+        # Initialize the parent class
+        super().__init__(**kwargs)
 
-    return Meta.from_larcv(tensor2d.meta())
+        # Store the revelant attributes
+        self.projection_id = projection_id
+
+    def process(self, sparse_event=None, cluster_event=None):
+        """Fetches the metadata from one object that has it.
+
+        Parameters
+        ----------
+        sparse_event : Union[larcv.EventSparseTensor2D
+                             larcv.EventSparseTensor3D], optional
+            Tensor which contains the metadata information as an attribute
+        cluster_event : Union[larcv.EventClusterPixel2D,
+                              larcv.EventClusterVoxel3D], optional
+            Cluster which contains the metadata information as an attribute
+
+        Returns
+        -------
+        Meta
+            Metadata information for one image
+        """
+        # Check on the input, pick a source for the metadata
+        assert (sparse_event is not None) ^ (cluster_event is not None), (
+                "Must specify either `sparse_event` or `cluster_event`")
+        ref_event = sparse_event if sparse_event is not None else cluster_event
+
+        # Fetch a specific projection, if needed
+        if isinstance(ref_event,
+                      (larcv.EventSparseTensor2D, larcv.EventClusterPixel2D)):
+            ref_event = ref_event.sparse_tensor_2d(self.projection_id)
+
+        return Meta.from_larcv(ref_event.meta())
 
 
-def parse_meta3d(sparse_event):
-    '''
-    Get the meta information to translate into real world coordinates (3D).
+class RunInfoParser(Parser):
+    """Parse run information (run, subrun, event number).
 
-    Each entry in a dataset is a cube, where pixel coordinates typically go
-    from 0 to some integer N in each dimension. If you wish to translate
-    these voxel coordinates back into real world coordinates, you can use
-    the output of this parser to compute it.
-
-    .. code-block:: yaml
-
-        schema:
-          meta:
-            parser: parse_meta3d
-            args:
-              sparse_event: sparse3d_pcluster
-
-    Parameters
-    ----------
-    sparse_event : Union[larcv.EventSparseTensor3D or larcv.EventClusterVoxel3D]
-        Tensor which contains the metadata information as an attribute
-
-    Returns
-    -------
-    Meta
-        Metadata information object
-    '''
-    return Meta.from_larcv(sparse_event.meta())
-
-
-def parse_run_info(sparse_event):
-    '''
-    Parse run info (run, subrun, event number)
-
-    .. code-block:: yaml
+    .. code-block. yaml
 
         schema:
           run_info:
             parser: parse_run_info
-            args:
-              sparse_event: sparse3d_pcluster
+            sparse_event: sparse3d_pcluster
+    """
+    name = 'parse_run_info'
+    result = Unwrapper.Rule(method='scalar', default=RunInfo())
 
-    Parameters
-    ----------
-    sparse_event : Union[larcv::EventSparseTensor3D, larcv::EventClusterVoxel3D]
-        Tensor which contains the run information as attributes
+    def process(self, sparse_event=None, cluster_event=None):
+        """Fetches the run information from one object that has it.
 
-    Returns
-    -------
-    RunInfo
-        Run information object
-    '''
-    return RunInfo.from_larcv(sparse_event)
+        Parameters
+        ----------
+        sparse_event : Union[larcv.EventSparseTensor2D
+                             larcv.EventSparseTensor3D], optional
+            Tensor which contains the run information as an attribute
+        cluster_event : Union[larcv.EventClusterPixel2D,
+                              larcv.EventClusterVoxel3D], optional
+            Cluster which contains the run information as an attribute
+
+        Returns
+        -------
+        RunInfo
+            Run information object
+        """
+        # Check on the input, pick a source for the run information
+        assert (sparse_event is not None) ^ (cluster_event is not None), (
+                "Must specify either `sparse_event` or `cluster_event`")
+        ref_event = sparse_event if sparse_event is not None else cluster_event
+
+        return RunInfo.from_larcv(ref_event)
 
 
-def parse_opflash(opflash_event):
-    '''
-    Copy construct OpFlash and return an array of larcv::Flash.
+class OpFlashParser(Parser):
+    """Copy construct OpFlash and return an array of larcv.Flash.
 
-    .. code-block:: yaml
+    .. code-block. yaml
         schema:
           opflash_cryoE:
             parser:parse_opflash
             opflash_event: opflash_cryoE
 
-    Configuration
-    -------------
-    opflash_event: larcv::EventFlash or list of larcv::EventFlash
+    """
+    name = 'parse_opflash'
+    result = Unwrapper.Rule(method='list', default=larcv.Flash())
 
-    Returns
-    -------
-    list
-    '''
-    if not isinstance(opflash_event, list):
-        opflash_event = [opflash_event]
+    def process(self, opflash_event=None, opflash_event_list=None):
+        """Fetches the list of optical flashes.
 
-    opflash_list = []
-    for x in opflash_event:
-        opflash_list.extend(x.as_vector())
+        Parameters
+        -------------
+        opflash_event : larcv.EventFlash, optional
+            Optical flash event which contains a list of flash objects
+        opflash_event_list : larcv.EventFlash, optional
+            List of optical flash events, each a list of flash objects
 
-    opflashes = [larcv.Flash(f) for f in opflash_list]
-    return opflashes
+        Returns
+        -------
+        List[larcv.Flash]
+            List of optical flash objects
+        """
+        # Check on the input, aggregate the sources for the optical flashes
+        assert ((opflash_event is not None) ^
+                (opflash_event_list is not None)), (
+                "Must specify either `opflash_event` or `opflash_event_list`")
+        if opflash_event is not None:
+            opflash_list = opflash_event.as_vector()
+        else:
+            opflash_list = []
+            for opflash_event in opflash_event_list:
+                opflash_list.extend(opflash_event.as_vector())
+
+        # Output as a list of LArCV optical flash objects
+        # TODO: Make a locally-defined data structure to hold what is relevant
+        opflashes = [larcv.Flash(f) for f in opflash_list]
+
+        return opflashes
 
 
-def parse_crthits(crthit_event):
-    '''
-    Copy construct CRTHit and return an array of larcv::CRTHit.
+class CRTHitParser(Parser):
+    """Copy construct CRTHit and return an array of larcv.CRTHit.
 
-    .. code-block:: yaml
+    .. code-block. yaml
         schema:
           crthits:
             parser: parse_crthits
             crthit_event: crthit_crthit
+    """
+    name = 'parse_crthit'
+    aliases = ['parse_crthits']
+    result = Unwrapper.Rule(method='list', default=larcv.CRTHit())
 
-    Configuration
-    -------------
-    crthit_event: larcv::CRTHit
+    def process(self, crthit_event):
+        """Fetches the list of CRT hits.
 
-    Returns
-    -------
-    list
-    '''
-    crthits = [larcv.CRTHit(c) for c in crthit_event.as_vector()]
-    return crthits
+        Parameters
+        ----------
+        crthit_event : larcv.CRTHitEvent
+
+        Returns
+        -------
+        List[larcv.CRTHit]
+            List of CRT hit objects
+        """
+        # Output as a list of LArCV CRT hit objects
+        # TODO: Make a locally-defined data structure to hold what is relevant
+        crthits = [larcv.CRTHit(c) for c in crthit_event.as_vector()]
+
+        return crthits
 
 
-def parse_trigger(trigger_event):
-    '''
-    Copy construct Trigger and return an array of larcv::Trigger.
+class TriggerParser(Parser):
+    """Copy construct Trigger and return a larcv.Trigger
 
-    .. code-block:: yaml
+    .. code-block. yaml
         schema:
           trigger:
             parser: parse_trigger
             trigger_event: trigger_base
+    """
+    name = 'parse_trigger'
+    # TODO: When LArCV2 is updated, remove if/else statement
+    if not hasattr(larcv, 'Trigger'):
+        result = Unwrapper.Rule(method='scalar')
+    else:
+        result = Unwrapper.Rule(method='scalar', default=larcv.Trigger())
 
-    Configuration
-    -------------
-    trigger_event: larcv::TriggerEvent
+    def process(self, trigger_event):
+        """Fetches the trigger information.
 
-    Returns
-    -------
-    list
-    '''
-    trigger = larcv.Trigger(trigger_event)
-    return trigger
+        Parameters
+        ----------
+        trigger_event : larcv.TriggerEvent
+
+        Returns
+        -------
+        larcv.Trigger
+            Trigger object
+        """
+        # Output as a trigger objects
+        # TODO: Make a locally-defined data structure to hold what is relevant
+        trigger = larcv.Trigger(trigger_event)
+
+        return trigger

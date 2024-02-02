@@ -1,325 +1,503 @@
+"""Module that contains all parsers related to LArCV particle data.
+
+Contains the following parsers:
+- :class:`ParticleParser`
+- :class:`NeutrinoParser`
+- :class:`ParticlePointParser`
+- :class:`ParticleCoordinateParser`
+- :class:`ParticleGraphParser`
+- :class:`ParticlePIDParser`
+- :class:`ParticleEnergyParser`
+"""
+
 import numpy as np
 from larcv import larcv
 
-from mlreco.utils.globals import PDG_TO_PID
+from mlreco.utils.globals import TRACK_SHP, PDG_TO_PID, PID_MASSES
 from mlreco.utils.data_structures import Meta
+from mlreco.utils.unwrap import Unwrapper
 from mlreco.utils.ppn import get_ppn_labels
 
-def parse_particles(particle_event, sparse_event = None,
-        cluster_event = None, voxel_coordinates = True):
-    '''
-    A function to copy construct & return an array of larcv::Particle.
+from .parser import Parser
 
-    If `voxel_coordinates` is set to `True`, the parser rescales the truth
-    positions (start, end, etc.) to voxel coordinates.
+__all__ = ['ParticleParser', 'NeutrinoParser', 'ParticlePointParser',
+           'ParticleCoordinateParser', 'ParticleGraphParser',
+           'SingleParticlePIDParser', 'SingleParticleEnergyParser']
 
-    .. code-block:: yaml
+
+class ParticleParser(Parser):
+    """Class that copy constructs & returns an array of larcv.Particle.
+
+    .. code-block. yaml
 
         schema:
           particles:
             parser: parse_particles
-            args:
-              particle_event: particle_pcluster
-              cluster_event: cluster3d_pcluster
-              voxel_coordinates: True
+            particle_event: particle_pcluster
+            cluster_event: cluster3d_pcluster
+            voxel_coordinates: True
+    """
+    name = 'parse_particles'
+    result = Unwrapper.Rule(method='list', default=larcv.Particle())
 
-    Configuration
-    -------------
-    particle_event: larcv::EventParticle
-    sparse_event: larcv::EventSparseTensor3D
-    cluster_event: larcv::EventClusterVoxel3D
-        to translate coordinates
-    voxel_coordinates: bool
+    def __init__(self, voxel_coordinates=True, **kwargs):
+        """Initialize the parser.
 
-    Returns
-    -------
-    list
-        a python list of larcv::Particle objects
-    '''
-    particles = [larcv.Particle(p) for p in particle_event.as_vector()]
-    if voxel_coordinates:
-        assert (sparse_event is not None) ^ (cluster_event is not None)
-        meta = sparse_event.meta() if sparse_event is not None else cluster_event.meta()
-        funcs = ['first_step', 'last_step', 'position', 'end_position', 'parent_position', 'ancestor_position']
-        for p in particles:
-            for f in funcs:
-                pos = getattr(p,f)()
-                x = (pos.x() - meta.min_x()) / meta.size_voxel_x()
-                y = (pos.y() - meta.min_y()) / meta.size_voxel_y()
-                z = (pos.z() - meta.min_z()) / meta.size_voxel_z()
-                getattr(p,f)(x,y,z,pos.t())
+        Parameters
+        ----------
+        voxel_coordinates : bool, default True
+            If set to `True`, the parser rescales the truth positions
+            (start, end, etc.) to voxel coordinates
+        **kwargs : dict, optional
+            Data product arguments to be passed to the `process` function
+        """
+        # Initialize the parent class
+        super().__init__(**kwargs)
 
-    return particles
+        # Store the revelant attributes
+        self.voxel_coordinates = voxel_coordinates
+        self.pos_attrs = [
+                'first_step', 'last_step', 'position', 'end_position',
+                'parent_position', 'ancestor_position']
 
+    def process(self, particle_event, sparse_event=None, cluster_event=None):
+        """Fetch the list of true particle objects.
 
-def parse_neutrinos(neutrino_event, sparse_event=None, cluster_event=None, voxel_coordinates=True):
-    '''
-    A function to copy construct & return an array of larcv::Neutrino.
+        Parameters
+        ----------
+        particle_event : larcv.EventParticle
+            Particle event which contains the list of true particles
+        sparse_event : larcv.EventSparseTensor3D, optional
+            Tensor which contains the metadata needed to convert the
+            positions in voxel coordinates
+        cluster_event : larcv.EventClusterVoxel3D, optional
+            Cluster which contains the metadata needed to convert the
+            positions in voxel coordinates
 
-    If `voxel_coordinates` is set to `True`, the parser rescales the truth
-    position information to voxel coordinates.
+        Returns
+        -------
+        List[larcv.Particle]
+            List of true particle objects
+        """
+        # Convert to a list of LArCV particle objects
+        # TODO: Make a locally-defined data structure to hold what is relevant
+        particles = [larcv.Particle(p) for p in particle_event.as_vector()]
+        if self.voxel_coordinates:
+            # Fetch the metadata
+            assert (sparse_event is not None) ^ (cluster_event is not None), (
+                    "Must provide either `sparse_event` or `cluster_event` to "
+                    "get the metadata and convert positions to voxel units.")
+            ref_event = sparse_event if sparse_event else cluster_event
+            meta = ref_event.meta()
 
-    .. code-block:: yaml
+            # Convert all the relevant attributes
+            for p in particles:
+                for f in self.pos_attrs:
+                    pos = getattr(p, f)()
+                    x = (pos.x() - meta.min_x()) / meta.size_voxel_x()
+                    y = (pos.y() - meta.min_y()) / meta.size_voxel_y()
+                    z = (pos.z() - meta.min_z()) / meta.size_voxel_z()
+                    getattr(p, f)(x, y, z, pos.t())
+
+        return particles
+
+class NeutrinoParser(Parser):
+    """Class that copy constructs & returns an array of larcv.Neutrino.
+
+    .. code-block. yaml
 
         schema:
           neutrinos:
             parser: parse_neutrinos
-            args:
-              neutrino_event: neutrino_mpv
-              cluster_event: cluster3d_pcluster
-              voxel_coordinates: True
+            neutrino_event: neutrino_mpv
+            cluster_event: cluster3d_pcluster
+            voxel_coordinates: True
+    """
+    name = 'parse_neutrinos'
+    result = Unwrapper.Rule(method='list', default=larcv.Neutrino())
 
-    Configuration
-    -------------
-    neutrino_pcluster: larcv::EventNeutrino
-    sparse_event: larcv::EventSparseTensor3D
-    cluster3d_pcluster: larcv::EventClusterVoxel3D
-        to translate coordinates
-    voxel_coordinates: bool
+    def __init__(self, voxel_coordinates=True, **kwargs):
+        """Initialize the parser.
 
-    Returns
-    -------
-    list
-        a python list of larcv::Neutrino objects
-    '''
-    neutrinos = [larcv.Neutrino(p) for p in neutrino_event.as_vector()]
-    if voxel_coordinates:
-        assert (sparse_event is not None) ^ (cluster_event is not None)
-        meta = sparse_event.meta() if sparse_event is not None else cluster_event.meta()
-        funcs = ['position']
-        for p in neutrinos:
-            for f in funcs:
-                pos = getattr(p,f)()
-                x = (pos.x() - meta.min_x()) / meta.size_voxel_x()
-                y = (pos.y() - meta.min_y()) / meta.size_voxel_y()
-                z = (pos.z() - meta.min_z()) / meta.size_voxel_z()
-                getattr(p,f)(x,y,z,pos.t())
+        Parameters
+        ----------
+        voxel_coordinates : bool, default True
+            If set to `True`, the parser rescales the truth positions
+            (start, end, etc.) to voxel coordinates
+        **kwargs : dict, optional
+            Data product arguments to be passed to the `process` function
+        """
+        # Initialize the parent class
+        super().__init__(**kwargs)
 
-    return neutrinos
+        # Store the revelant attributes
+        self.voxel_coordinates = voxel_coordinates
+        self.pos_attrs = ['position']
+
+    def process(self, neutrino_event, sparse_event=None, cluster_event=None):
+        """Fetch the list of true neutrino objects.
+
+        Parameters
+        ----------
+        neutrino_event : larcv.EventNeutrino
+            Neutrino event which contains the list of true neutrinos
+        sparse_event : larcv.EventSparseTensor3D, optional
+            Tensor which contains the metadata needed to convert the
+            positions in voxel coordinates
+        cluster_event : larcv.EventClusterVoxel3D, optional
+            Cluster which contains the metadata needed to convert the
+            positions in voxel coordinates
+
+        Returns
+        -------
+        List[larcv.Neutrino]
+            List of true neutrino objects
+        """
+        # Convert to a list of LArCV neutrino objects
+        # TODO: Make a locally-defined data structure to hold what is relevant
+        neutrinos = [larcv.Neutrino(p) for p in neutrino_event.as_vector()]
+        if self.voxel_coordinates:
+            # Fetch the metadata
+            assert (sparse_event is not None) ^ (cluster_event is not None), (
+                    "Must provide either `sparse_event` or `cluster_event` to "
+                    "get the metadata and convert positions to voxel units.")
+            ref_event = sparse_event if sparse_event else cluster_event
+            meta = ref_event.meta()
+
+            # Convert all the relevant attributes
+            for n in neutrinos:
+                for f in self.pos_attrs:
+                    pos = getattr(n, f)()
+                    x = (pos.x() - meta.min_x()) / meta.size_voxel_x()
+                    y = (pos.y() - meta.min_y()) / meta.size_voxel_y()
+                    z = (pos.z() - meta.min_z()) / meta.size_voxel_z()
+                    getattr(n, f)(x, y, z, pos.t())
+
+        return neutrinos
 
 
-def parse_particle_points(sparse_event, particle_event, include_point_tagging=True):
-    '''
-    A function to retrieve particles ground truth points tensor, returns
-    points coordinates, types and particle index.
-    If include_point_tagging is true, it includes start vs end point tagging.
+class ParticlePointParser(Parser):
+    """Class that retrieves the points of interests.
 
-    .. code-block:: yaml
+    It provides the coordinates of the end points, types and particle index.
+
+    .. code-block. yaml
 
         schema:
           points:
             parser: parse_particle_points
-            args:
-              sprase_event: sparse3d_pcluster
-              particle_event: particle_pcluster
-              include_point_tagging: True
+            particle_event: particle_pcluster
+            sparse_event: sparse3d_pcluster
+            include_point_tagging: True
+    """
+    name = 'parse_particle_points'
+    result = Unwrapper.Rule(method='tensor', translate=True)
 
-    Configuration
-    -------------
-    sparse3d_pcluster: larcv::EventSparseTensor3D
-    particle_pcluster: larcv::EventParticle
-    include_point_tagging: bool
+    def __init__(self, include_point_tagging=True, **kwargs):
+        """Initialize the parser.
 
-    Returns
-    -------
-    np_voxels: np.ndarray
-        a numpy array with the shape (N,3) where 3 represents (x,y,z)
-        coordinate
-    np_values: np.ndarray
-        a numpy array with the shape (N, 2) where 2 represents the class of the ground truth point
-        and the particle data index in this order. (optionally: end/start tagging)
-    '''
-    particles_v = particle_event.as_vector()
-    part_labels = get_ppn_labels(particles_v, sparse_event.meta(),
-            include_point_tagging=include_point_tagging)
+        Parameters
+        ----------
+        include_point_tagging : bool, default True
+            If `True`, includes start vs end point tagging
+        **kwargs : dict, optional
+            Data product arguments to be passed to the `process` function
+        """
+        # Initialize the parent class
+        super().__init__(**kwargs)
 
-    return part_labels[:,:3], part_labels[:,3:], \
-            Meta.from_larcv(sparse_event.meta())
+        # Store the revelant attributes
+        self.include_point_tagging = include_point_tagging
+
+        # Based on the parameters, define a default output
+        shape = (0, 6 + include_point_tagging)
+        self.result.default = np.empty(shape, dtype=np.float32)
+
+    def process(self, particle_event, sparse_event=None, cluster_event=None):
+        """Fetch the list of label points of interest.
+
+        Parameters
+        ----------
+        particle_event : larcv.EventParticle
+            Particle event which contains the list of true particles
+        sparse_event : larcv.EventSparseTensor3D, optional
+            Tensor which contains the metadata needed to convert the
+            positions in voxel coordinates
+        cluster_event : larcv.EventClusterVoxel3D, optional
+            Cluster which contains the metadata needed to convert the
+            positions in voxel coordinates
+            
+        Returns
+        -------
+        np_voxels : np.ndarray
+            (N, 3) array of [x, y, z] coordinates
+        np_features : np.ndarray
+            (N, 2/3) array of [point type, particle index(, end point tagging)]
+        meta : Meta
+            Metadata of the parsed image
+        """
+        # Fetch the metadata
+        assert (sparse_event is not None) ^ (cluster_event is not None), (
+                "Must provide either `sparse_event` or `cluster_event` to "
+                "get the metadata and convert positions to voxel units.")
+        ref_event = sparse_event if sparse_event else cluster_event
+        meta = ref_event.meta()
+
+        # Get the point labels
+        particles_v = particle_event.as_vector()
+        point_labels = get_ppn_labels(
+                particles_v, meta,
+                include_point_tagging=self.include_point_tagging)
+
+        return point_labels[:, :3], point_labels[:, 3:], Meta.from_larcv(meta)
 
 
-def parse_particle_coords(particle_event, cluster_event):
-    '''
-    Function that returns particle coordinates (start and end) and start time.
+class ParticleCoordinateParser(Parser):
+    """Class that retrieves that end points of particles.
 
-    This is used for particle clustering into interactions
+    It provides the coordinates of the end points, time and shape.
 
-    .. code-block:: yaml
+    .. code-block. yaml
 
         schema:
           coords:
-            parser: parse_particle_coords
-            args:
-              particle_event: particle_pcluster
-              cluster_event: cluster3d_pcluster
+            parser: parse_particle_coordinates
+            particle_event: particle_pcluster
+            sparse_event: sparse3d_pcluster
+    """
+    name = 'parse_particle_coords'
+    result = Unwrapper.Rule(method='tensor', translate=True,
+                            default=np.empty((0, 12), dtype=np.float32))
 
-    Configuration
-    -------------
-    particle_pcluster: larcv::EventParticle
-    cluster3d_pcluster: larcv::EventClusterVoxel3D
-        to translate coordinates
+    def process(self, particle_event, sparse_event=None, cluster_event=None):
+        """Fetch the start/end point and time of each true particle.
 
-    Returns
-    -------
-    numpy.ndarray
-        Shape (N,8) containing: [first_step_x, first_step_y, first_step_z,
-        last_step_x, last_step_y, last_step_z, first_step_t, shape_id]
-    '''
-    # Scale particle coordinates to image size
-    particles = parse_particles(particle_event, cluster_event)
+        Parameters
+        ----------
+        particle_event : larcv.EventParticle
+            Particle event which contains the list of true particles
+        sparse_event : larcv.EventSparseTensor3D, optional
+            Tensor which contains the metadata needed to convert the
+            positions in voxel coordinates
+        cluster_event : larcv.EventClusterVoxel3D, optional
+            Cluster which contains the metadata needed to convert the
+            positions in voxel coordinates
+            
+        Returns
+        -------
+        np_voxels : np.ndarray
+            (N, 3) array of [x, y, z] start point coordinates
+        np_features : np.ndarray
+            (N, 8) array of [first_step_x, first_step_y, first_step_z,
+            last_step_x, last_step_y, last_step_z, first_step_t, shape_id]
+        meta : Meta
+            Metadata of the parsed image
+        """
+        # Fetch the metadata
+        assert (sparse_event is not None) ^ (cluster_event is not None), (
+                "Must provide either `sparse_event` or `cluster_event` to "
+                "get the metadata and convert positions to voxel units.")
+        ref_event = sparse_event if sparse_event else cluster_event
+        meta = ref_event.meta()
 
-    # Make features
-    particle_feats = []
-    for i, p in enumerate(particles):
-        start_point = last_point = [p.first_step().x(), p.first_step().y(), p.first_step().z()]
-        if p.shape() == 1: # End point only meaningful and thought out for tracks
-            last_point  = [p.last_step().x(), p.last_step().y(), p.last_step().z()]
-        particle_feats.append(np.concatenate((start_point, last_point, [p.first_step().t(), p.shape()])))
+        # Scale particle coordinates to image size
+        particles = parse_particles(particle_event, ref_event)
 
-    particle_feats = np.vstack(particle_feats)
-    return particle_feats[:,:3], particle_feats[:,3:], \
-            Meta.from_larcv(cluster_event.meta())
+        # Make features
+        features = []
+        for i, p in enumerate(particles):
+            fs = p.first_step()
+            start_point = last_point = [fs.x(), fs.y(), fs.z()]
+            if p.shape() == TRACK_SHP: # End point only meaningful for tracks
+                ls = p.last_step()
+                last_point = [ls.x(), ls.y(), ls.z()]
+            extra = [fs.t(), p.shape()]
+            features.append(np.concatenate((start_point, last_point, extra)))
+
+        features = np.vstack(features)
+
+        # TODO: Should this not be just features? Collation of it will not work
+        # if the input is broken down into multiple modules.
+        return features[:, :3], features[:, 3:], Meta.from_larcv(meta)
 
 
-def parse_particle_graph(particle_event, cluster_event=None):
-    '''
-    A function to parse larcv::EventParticle to construct edges between particles (i.e. clusters)
+class ParticleGraphParser(Parser):
+    """Class that uses larcv.EventParticle to construct edges
+    between particles (i.e. clusters).
 
-    If cluster_event is provided, it also removes edges to clusters
-    that have a zero pixel count and patches subsequently broken parentage.
-
-    .. code-block:: yaml
+    .. code-block. yaml
 
         schema:
           graph:
             parser: parse_particle_graph
-            args:
-              particle_event: particle_pcluster
-              cluster_event: cluster3d_pcluster
+            particle_event: particle_pcluster
+            cluster_event: cluster3d_pcluster
 
-    Configuration
-    -------------
-    particle_pcluster: larcv::EventParticle
+    """
+    name = 'parse_particle_graph'
+    result = Unwrapper.Rule(method='tensor',
+                            default=np.empty((0, 3), dtype=np.float32))
 
-    Returns
-    -------
-    np.ndarray
-        a numpy array of directed edges where each edge is (parent,child) batch index ID.
+    def process(self, particle_event, cluster_event=None):
+        """Fetch the parentage connections from the true particle list.
 
-    See Also
-    --------
-    parse_particle_graph_corrected: in addition, remove empty clusters.
-    '''
-    particles_v   = particle_event.as_vector()
-    num_particles = particles_v.size()
-    if cluster_event is None:
-        # Fill edges (directed [parent,child] pair)
-        edges = np.empty((0,2), dtype = np.int32)
-        for cluster_id in range(num_particles):
-            p = particles_v[cluster_id]
-            if p.parent_id() != p.id():
-                edges = np.vstack((edges, [int(p.parent_id()), cluster_id]))
-            if p.parent_id() == p.id() and p.group_id() != p.id():
-                edges = np.vstack((edges, [int(p.group_id()), cluster_id]))
-    else:
-        # Check that the cluster and particle objects are consistent
-        num_clusters = cluster_event.size()
-        assert num_clusters == num_particles
+        Configuration
+        -------------
+        particle_event : larcv.EventParticle
+            Particle event which contains the list of true particles
+        cluster_event : larcv.EventClusterVoxel3D, optional
+            Cluster used to check if particles have 0 pixel in the image. If
+            so, the edges to those clusters are removed and the broken
+            parantage is subsequently patched.
 
-        # Fill edges (directed [parent,child] pair)
-        zero_nodes, zero_nodes_pid = [], []
-        edges = np.empty((0,2), dtype = np.int32)
-        for cluster_id in range(num_particles):
-            cluster = cluster_event.as_vector()[cluster_id]
-            num_points = cluster.as_vector().size()
-            p = particles_v[cluster_id]
-            if p.id() != p.group_id():
-                continue
-            if p.parent_id() != p.group_id():
-                edges = np.vstack((edges, [int(p.parent_id()),p.group_id()]))
-            if num_points == 0:
-                zero_nodes.append(p.group_id())
-                zero_nodes_pid.append(cluster_id)
+        Returns
+        -------
+        np.ndarray
+            (E, 2) Array of directed edges for each [parent, child] connection
+        """
+        particles_v   = particle_event.as_vector()
+        num_particles = particles_v.size()
+        edges         = []
+        if cluster_event is None:
+            # Fill edges (directed [parent, child] pair)
+            edges = []
+            for cluster_id in range(num_particles):
+                p = particles_v[cluster_id]
+                if p.parent_id() != p.id():
+                    edges.append([int(p.parent_id()), cluster_id])
+                if p.parent_id() == p.id() and p.group_id() != p.id():
+                    edges.append([int(p.group_id()), cluster_id])
 
-        # Remove zero pixel nodes
-        for i, zn in enumerate(zero_nodes):
-            children = np.where(edges[:, 0] == zn)[0]
-            if len(children) == 0:
-                edges = edges[edges[:, 0] != zn]
+            # Convert the list of edges to a numpy array
+            if not len(edges):
+                return np.empty((0, 2), dtype=np.int32)
+
+            edges = np.vstack(edges).astype(np.int32)
+
+        else:
+            # Check that the cluster and particle objects are consistent
+            num_clusters = cluster_event.size()
+            assert (num_particles == num_clusters or
+                    num_particles == num_clusters - 1), (
+                    f"The number of particles ({num_particles}) must be "
+                    f"aligned with the number of clusters ({num_clusters}). "
+                    f"There can me one more catch-all cluster at the end.")
+
+            # Fill edges (directed [parent, child] pair)
+            zero_nodes, zero_nodes_pid = [], []
+            for cluster_id in range(num_particles):
+                cluster = cluster_event.as_vector()[cluster_id]
+                num_points = cluster.as_vector().size()
+                p = particles_v[cluster_id]
+                if p.id() != p.group_id():
+                    continue
+                if p.parent_id() != p.group_id():
+                    edges.append([int(p.parent_id()), p.group_id()])
+                if num_points == 0:
+                    zero_nodes.append(p.group_id())
+                    zero_nodes_pid.append(cluster_id)
+
+            # Convert the list of edges to a numpy array
+            if not len(edges):
+                return np.empty((0, 2), dtype=np.int32)
+
+            edges = np.vstack(edges).astype(np.int32)
+
+            # Remove zero pixel nodes
+            for i, zn in enumerate(zero_nodes):
+                children = np.where(edges[:, 0] == zn)[0]
+                if len(children) == 0:
+                    edges = edges[edges[:, 0] != zn]
+                    edges = edges[edges[:, 1] != zn]
+                    continue
+                parent = np.where(edges[:, 1] == zn)[0]
+                assert len(parent) <= 1
+
+                # If zero node has a parent, then assign children to that parent
+                if len(parent) == 1:
+                    parent_id = edges[parent][0][0]
+                    edges[:, 0][children] = parent_id
+                else:
+                    edges = edges[edges[:, 0] != zn]
                 edges = edges[edges[:, 1] != zn]
-                continue
-            parent = np.where(edges[:, 1] == zn)[0]
-            assert len(parent) <= 1
 
-            # If zero node has a parent, then assign children to that parent
-            if len(parent) == 1:
-                parent_id = edges[parent][0][0]
-                edges[:, 0][children] = parent_id
-            else:
-                edges = edges[edges[:, 0] != zn]
-            edges = edges[edges[:, 1] != zn]
-
-    return edges
+        return edges
 
 
-def parse_particle_singlep_pdg(particle_event):
-    '''
-    Get each true particle's PDG code.
+class SingleParticlePIDParser(Parser):
+    """Get the first true particle's species.
 
-    .. code-block:: yaml
+    .. code-block. yaml
 
         schema:
           pdg_list:
-            parser: parse_particle_singlep_pdg
-            args:
-              particle_event: particle_pcluster
+            parser: parse_single_particle_pdg
+            particle_event: particle_pcluster
+    """
+    name = 'parse_single_particle_pdg'
+    aliases = ['parse_particle_singlep_pdg']
+    result = Unwrapper.Rule(method='scalar', default=np.int32)
 
-    Configuration
-    ----------
-    particle_event : larcv::EventParticle
+    def process(self, particle_event):
+        """Fetch the species of the first particle.
 
-    Returns
-    -------
-    np.ndarray
-        List of PDG codes for each particle in TTree.
-    '''
-    pdgs = []
-    pdg = -1
-    for p in particle_event.as_vector():
-        if not p.track_id() == 1: continue
-        if int(p.pdg_code()) in PDG_TO_PID.keys():
-            pdg = PDG_TO_PID[int(p.pdg_code())]
-        else: pdg = -1
-        return np.asarray([pdg])
+        Configuration
+        -------------
+        particle_event : larcv.EventParticle
+            Particle event which contains the list of true particles
 
-    return pdg
+        Returns
+        -------
+        int
+            Species of the first particle
+        """
+        pdg = -1
+        for p in particle_event.as_vector():
+            if p.track_id() == 1:
+                if int(p.pdg_code()) in PDG_TO_PID.keys():
+                    pdg = PDG_TO_PID[int(p.pdg_code())]
+
+                break
+
+        return pdg
 
 
-def parse_particle_singlep_einit(particle_event):
-    '''
-    Get each true particle's true initial energy.
+class SingleParticleEnergyParser(Parser):
+    """Get the first true particle's kinetic energy.
 
-    .. code-block:: yaml
+    .. code-block. yaml
 
         schema:
-          einit_list:
-            parser: parse_particle_singlep_pdg
-            args:
-              particle_event: particle_pcluster
+          energy_list:
+            parser: parse_single_particle_energy
+            particle_event: particle_pcluster
+    """
+    name = 'parse_single_particle_energy'
+    aliases = ['parse_particle_singlep_enit']
+    result = Unwrapper.Rule(method='scalar', default=np.float32)
 
-    Configuration
-    ----------
-    particle_event : larcv::EventParticle
+    def process(self, particle_event):
+        """Fetch the kinetic energy of the first particle.
 
-    Returns
-    -------
-    np.ndarray
-        List of true initial energy for each particle in TTree.
-    '''
-    einits = []
-    einit = -1
-    for p in particle_event.as_vector():
-        is_primary = p.track_id() == p.parent_track_id()
-        if not p.track_id() == 1: continue
-        return np.asarray([p.energy_init()])
+        Configuration
+        -------------
+        particle_event : larcv.EventParticle
+            Particle event which contains the list of true particles
 
-    return enit
+        Returns
+        -------
+        float
+            Kinetic energy of the first particle
+        """
+        ke = -1.
+        for p in particle_event.as_vector():
+            if p.track_id() == 1:
+                if int(p.pdg_code()) in PDG_TO_PID.keys():
+                    einit = p.energy_init()
+                    pid = PDG_TO_PID[int(p.pdg_code())]
+                    mass = PID_MASSES[pid]
+                    ke = einit - mass
+
+                break
+
+        return ke

@@ -7,7 +7,6 @@ from functools import cached_property
 from . import Particle
 
 from mlreco.utils.globals import PID_LABELS
-from mlreco.utils.units import pixel_to_cm
 
 
 class Interaction:
@@ -335,7 +334,7 @@ class Interaction:
         '''
         assert self._units == 'px'
         for attr in self._COORD_ATTRS:
-            setattr(self, attr, pixel_to_cm(getattr(self, attr), meta))
+            setattr(self, attr, meta.to_cm(getattr(self, attr), meta))
 
         self._units = 'cm'
 

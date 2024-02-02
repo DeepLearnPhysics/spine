@@ -1,6 +1,5 @@
 import numpy as np
 
-from mlreco.utils.units import cm_to_pixel
 from mlreco.utils.geometry import Geometry
 
 from .boxes import box_traces
@@ -52,8 +51,8 @@ def detector_traces(detector=None, boundaries=None, meta=None,
     if not detector_coords:
         assert meta is not None,\
                 'Must provide meta information to convert to pixel coordinates'
-        boundaries = cm_to_pixel(boundaries.transpose(0,2,1),
-                meta).transpose(0,2,1)
+        boundaries = meta.to_pixel(
+                boundaries.transpose(0,2,1)).transpose(0,2,1)
 
     # Get a trace per detector volume
     detectors = box_traces(boundaries[...,0], boundaries[...,1],

@@ -1,3 +1,10 @@
+"""Module which contains functions used to clean up cluster data.
+
+When loading :class:`larcv.Cluster3DVoxelTensor` objects into tensors,
+there can be duplicate voxels. These routines are used to remove these
+duplicates and ensure the ordering of the output.
+"""
+
 import numpy as np
 import numba as nb
 
@@ -5,9 +12,10 @@ from mlreco.utils.globals import SHAPE_COL, SHAPE_PREC
 
 
 def clean_sparse_data(cluster_voxels, cluster_data, sparse_voxels):
-    '''
-    Helper that factorizes common cleaning operations required
-    when trying to match cluster3d data products to sparse3d data products:
+    """Helper that factorizes common cleaning operations required when trying
+    to match cluster3d data products to sparse3d data products.
+
+    This function does the following:
     1. Lexicographically sort group data (images are lexicographically sorted)
     2. Remove voxels from group data that are not in image
     3. Choose only one group per voxel (by lexicographic order)
@@ -31,7 +39,7 @@ def clean_sparse_data(cluster_voxels, cluster_data, sparse_voxels):
         (M, 3) Ordered and filtered set of voxel coordinates
     cluster_data: np.ndarray
         (M, F) Ordered and filtered set of voxel values
-    '''
+    """
     # Lexicographically sort cluster and sparse data
     perm = np.lexsort(cluster_voxels.T)
     cluster_voxels = cluster_voxels[perm]
@@ -41,7 +49,9 @@ def clean_sparse_data(cluster_voxels, cluster_data, sparse_voxels):
     sparse_voxels = sparse_voxels[perm]
 
     # Remove duplicates
-    duplicate_mask = filter_duplicate_voxels_ref(cluster_voxels, cluster_data[:, SHAPE_COL], nb.typed.List(SHAPE_PREC))
+    duplicate_mask = filter_duplicate_voxels_ref(
+            cluster_voxels, cluster_data[:, SHAPE_COL],
+            nb.typed.List(SHAPE_PREC))
     duplicate_index = np.where(duplicate_mask)[0]
     cluster_voxels = cluster_voxels[duplicate_index]
     cluster_data = cluster_data[duplicate_index]
@@ -57,10 +67,10 @@ def clean_sparse_data(cluster_voxels, cluster_data, sparse_voxels):
 
 @nb.njit(cache=True)
 def filter_duplicate_voxels(data: nb.int32[:,:]) -> nb.boolean[:]:
-    '''
-    Returns an array with no duplicate voxel coordinates.
-    If there are multiple voxels with the same coordinates,
-    this algorithm simply picks the first one.
+    """Returns an array with no duplicate voxel coordinates.
+
+    If there are multiple voxels with the same coordinates, this algorithm
+    simply picks the first one.
 
     Parameters
     ----------
@@ -71,7 +81,7 @@ def filter_duplicate_voxels(data: nb.int32[:,:]) -> nb.boolean[:]:
     -------
     np.ndarray
         (N', 3) Matrix that does not contain duplicate voxel coordinates
-    '''
+    """
     # For each voxel, check if the next one shares its coordinates
     n = data.shape[0]
     ret = np.ones(n, dtype=np.bool_)
@@ -86,13 +96,12 @@ def filter_duplicate_voxels(data: nb.int32[:,:]) -> nb.boolean[:]:
 def filter_duplicate_voxels_ref(data: nb.int32[:,:],
                                 reference: nb.int32[:],
                                 precedence: nb.types.List(nb.int32)) -> nb.boolean[:]:
-    '''
-    Returns an array with no duplicate voxel coordinates.
-    If there are multiple voxels with the same coordinates,
-    this algorithm picks the voxel which has the shape label that
-    comes first in order of precedence. If multiple voxels
-    with the same precedence index share voxel coordinates,
-    the first one is picked.
+    """Returns an array with no duplicate voxel coordinates.
+
+    If there are multiple voxels with the same coordinates, this algorithm
+    picks the voxel which has the shape label that comes first in order of
+    precedence. If multiple voxels with the same precedence index share voxel
+    coordinates, the first one is picked.
 
     Parameters
     ----------
@@ -107,7 +116,7 @@ def filter_duplicate_voxels_ref(data: nb.int32[:,:],
     -------
     np.ndarray
         (N', 3) Matrix that does not contain duplicate voxel coordinates
-    '''
+    """
     # Find all the voxels which are duplicated and organize them in groups
     n = data.shape[0]
     ret = np.ones(n, dtype=np.bool_)
@@ -129,7 +138,7 @@ def filter_duplicate_voxels_ref(data: nb.int32[:,:],
     for group in groups:
         group = np.asarray(group)
         ref = np.array([precedence.index(int(r)) for r in reference[group]])
-        args = np.argsort(-ref, kind='mergesort') # Must preserve of order of duplicates
+        args = np.argsort(-ref, kind='mergesort') # Preserve duplicate order
         ret[group[args[:-1]]] = False
 
     return ret
@@ -138,10 +147,11 @@ def filter_duplicate_voxels_ref(data: nb.int32[:,:],
 @nb.njit(cache=True)
 def filter_voxels_ref(data: nb.int32[:,:],
                       reference: nb.int32[:,:]) -> nb.boolean[:]:
-    '''
-    Returns an array which does not contain any voxels which
-    do not belong to the reference array. The reference array must
-    contain a subset of the voxels in the array to be filtered.
+    """Removes voxels thsat do not appear in a reference tensor.
+
+    Returns an array which does not contain any voxels which do not belong to
+    the reference array. The reference array must contain a subset of the
+    voxels in the array to be filtered.
 
     Assumes both arrays are lexicographically sorted, the reference matrix
     contains no duplicates and is a subset of the matrix to be filtered.
@@ -158,7 +168,7 @@ def filter_voxels_ref(data: nb.int32[:,:],
     np.ndarray
         (N', 3) Matrix that does not contain voxels absent from
         the reference matrix
-    '''
+    """
     # Try to match each voxel in the data tensor to one in the reference tensor
     n_data, n_ref = data.shape[0], reference.shape[0]
     d, r = 0, 0
