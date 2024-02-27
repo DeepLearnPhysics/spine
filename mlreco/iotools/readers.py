@@ -59,7 +59,7 @@ class Reader:
         ----------
         file_keys : list
             List of paths to the HDF5 files to be read
-        limit_num_files : int, default -1
+        limit_num_files : int, optional
             Integer limiting number of files to be taken per data directory
         max_print_files : int, default 10
             Maximum number of loaded file names to be printed
@@ -88,12 +88,12 @@ class Reader:
             assert len(file_paths), (
                     f"File key {file_key} yielded no compatible path")
             for path in file_paths:
-                if (limit_num_files > 0 and
+                if (limit_num_files is not None and
                     len(self.file_paths) > limit_num_files):
                     break
                 self.file_paths.append(path)
 
-            if (limit_num_files > 0 and
+            if (limit_num_files is not None and
                 len(self.file_paths) >= limit_num_files):
                 break
 
@@ -341,7 +341,7 @@ class LArCVReader(Reader):
     """
     name = 'larcv_reader'
 
-    def __init__(self, file_keys, tree_keys, limit_num_files=-1,
+    def __init__(self, file_keys, tree_keys, limit_num_files=None,
                  max_print_files=10, n_entry=None, n_skip=None,
                  entry_list=None, skip_entry_list=None, run_event_list=None,
                  skip_run_event_list=None, create_run_map=False,
@@ -354,7 +354,7 @@ class LArCVReader(Reader):
             List of paths to the HDF5 files to be read
         tree_keys : List[str]
             List of data keys to load from the LArCV files
-        limit_num_files : int, default -1
+        limit_num_files : int, optional
             Integer limiting number of files to be taken per data directory
         max_print_files : int, default 10
             Maximum number of loaded file names to be printed
@@ -521,7 +521,7 @@ class HDF5Reader(Reader):
     """
     name = 'hdf5_reader'
 
-    def __init__(self, file_keys, limit_num_files=-1, max_print_files=10,
+    def __init__(self, file_keys, limit_num_files=None, max_print_files=10,
                  n_entry=None, n_skip=None, entry_list=None,
                  skip_entry_list=None, run_event_list=None,
                  skip_run_event_list=None, create_run_map=False,
@@ -532,7 +532,7 @@ class HDF5Reader(Reader):
         ----------
         file_keys : list
             List of paths to the HDF5 files to be read
-        limit_num_files : int, default -1
+        limit_num_files : int, optional
             Integer limiting number of files to be taken per data directory
         max_print_files : int, default 10
             Maximum number of loaded file names to be printed

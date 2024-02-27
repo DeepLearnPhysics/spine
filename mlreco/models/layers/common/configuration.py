@@ -1,9 +1,12 @@
+"""Function which sets up the necessary configuration for all CNNs."""
+
 def setup_cnn_configuration(self, spatial_size, reps, depth, filters,
-        input_kernel = 3, data_dim = 3, num_input = 1, allow_bias = False,
-        activation = {'name': 'lrelu'}, norm_layer = {'name': 'batch_norm'}):
-    '''
-    Base function for global network parameters (CNN-based models).
-    This avoids repeating everywhere the same base configuration.
+                            input_kernel=3, data_dim=3, num_input=1,
+                            allow_bias=False, activation='lrelu',
+                            norm_layer='batch_norm'):
+    """Base function for global network parameters (CNN-based models).
+
+    This avoids repeating the same base configuration parsing everywhere.
     For example, typical usage would be:
 
     .. code-block:: python
@@ -12,8 +15,6 @@ def setup_cnn_configuration(self, spatial_size, reps, depth, filters,
             def __init__(self, cfg):
                 super().__init__()
                 setup_cnn_configuration(self, **cfg)
-
-    Defines the following default configuration:
 
     Parameters
     ----------
@@ -33,11 +34,11 @@ def setup_cnn_configuration(self, spatial_size, reps, depth, filters,
         Number of features in the input image
     allow_bias : bool, default False
         Whether to allow biases in the convolution and linear layers
-    activation : dict, default {'name': 'lrelu'}
-        Activation function parameters
-    norm_layer : dict, default {'name': 'batch_norm'}
-        Normalization function parameters
-    '''
+    activation : union[str, dict], default 'relu'
+        activation function configuration
+    normalization : union[str, dict], default 'batch_norm'
+        normalization function configuration
+    """
     # Store the base parameters
     self.spatial_size = spatial_size
     self.reps = reps
@@ -51,36 +52,8 @@ def setup_cnn_configuration(self, spatial_size, reps, depth, filters,
     # Convert the depth to a number of filters per plane
     self.nPlanes = [i * self.num_filters for i in range(1, self.depth + 1)]
 
-    # Store activation function parameters
-    setup_activation(self, **activation)
+    # Store activation function configuration
+    self.act_cfg = activation
 
-    # Store normalization function parameters
-    setup_norm(self, **norm_layer)
-
-def setup_activation(self, name, args={}):
-    '''
-    Setup the activation function name and parameters
-
-    Parameters
-    ----------
-    name : str
-        Name of the activation function under activation_normalization_factories
-    args : dict, optional
-        Keyword arguments to pass to the activation function
-    '''
-    self.activation_name = name
-    self.activation_args = args
-
-def setup_norm(self, name, args={}):
-    '''
-    Setup the normalization function name and parameters
-
-    Parameters
-    ----------
-    name : str
-        Name of the norm function under activation_normalization_factories
-    args : dict, optional
-        Keyword arguments to pass to the norm function
-    '''
-    self.norm = name
-    self.norm_args = args
+    # Store the normalization function configuration
+    self.norm_cfg = norm_layer

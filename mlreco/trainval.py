@@ -1,4 +1,8 @@
-import os, sys, glob, warnings, psutil
+import os
+import sys
+import glob
+import warnings
+import psutil
 import numpy as np
 import torch
 from collections import defaultdict
@@ -12,22 +16,22 @@ from .iotools.factories import loader_factory, writer_factory
 from .iotools.writers import CSVWriter, HDF5Writer
 
 from .models import construct_model
-from .models.experimental.bayes.calibration \
-        import construct_calibrator, construct_calibrator_loss
+from .models.experimental.bayes.calibration import (construct_calibrator,
+                                                    construct_calibrator_loss)
 
-from .utils import cycle, to_numpy
+from .utils import cycle
+from .utils.data_structures import TensorBatch
 from .utils.stopwatch import StopwatchManager
 from .utils.adabound import AdaBound, AdaBoundW
 from .utils.unwrap import Unwrapper
+from .utils.logger import logger
 
 
 class TrainVal(object):
-    '''
-    Groups all relevant functions to run forward/backward on a network.
-    '''
+    """Groups all relevant functions to run forward/backward on a network."""
+
     def __init__(self, trainval, iotool, model, rank=0):
-        '''
-        Initializes the class attributes
+        """Initializes the class attributes.
 
         Parameters
         ----------
@@ -39,7 +43,7 @@ class TrainVal(object):
            Model configuration dictionary
         rank : int, default 0
            Rank of the GPU in the multi-GPU training process
-        '''
+        """
         # Store the rank of the training process for multi-GPU training
         self.rank = rank
         self.main_process = rank == 0
@@ -58,20 +62,20 @@ class TrainVal(object):
 
         # Initialize the timers
         self.watch = StopwatchManager()
-        self.watch.initialize(['iteration', 'io', 'forward',
-            'backward', 'unwrap', 'save', 'write'])
+        self.watch.initialize(['iteration', 'io', 'forward', 'backward',
+                               'unwrap', 'save', 'write'])
 
         # Initialize the object
         self.initialize()
 
-    def process_main(self, gpus = None, distributed = False, model_path = None,
-            weight_prefix = '', log_dir = '', iterations = None, epochs = None,
-            report_step = 1, checkpoint_step = -1, train = True, seed = -1,
-            optimizer = None, lr_scheduler = None, time_dependant_loss = False,
-            restore_optimizer = False, to_numpy = True, unwrap = False,
-            detect_anomaly = False, find_unused_parameters = False):
-        '''
-        Process the trainval configuration
+    def process_main(self, gpus=None, distributed=False, model_path=None,
+                     weight_prefix='', log_dir='', iterations=None,
+                     epochs=None, report_step=1, checkpoint_step=-1,
+                     train=True, seed=-1, optimizer=None, lr_scheduler=None,
+                     time_dependant_loss=False, restore_optimizer=False,
+                     to_numpy=True, unwrap=False, detect_anomaly=False,
+                     find_unused_parameters=False):
+        """Process the trainval configuration.
 
         Parameters
         ----------
@@ -113,7 +117,7 @@ class TrainVal(object):
             Whether to attempt to detect a torch anomaly
         find_unused_parameters : bool, default False
             Attempts to detect unused model parameters in the forward pass
-        '''
+        """
         # Store the relevant information
         self.gpus                   = gpus
         self.distributed            = distributed
@@ -149,13 +153,13 @@ class TrainVal(object):
             self.to_numpy = True
 
         # Should not specify iterations and epochs at the same time
-        assert (self.iterations is not None) ^ (self.epochs is not None), \
-                'Must either specify `iterations` or `epochs` in `trainval`'
+        assert (self.iterations is not None) ^ (self.epochs is not None), (
+                "Must either specify `iterations` or `epochs` in `trainval`")
 
         # Parse the optimizer arguments
         if self.train:
-            assert optimizer is not None, \
-                    'Must provide an optimizer configuration block to train'
+            assert optimizer is not None, (
+                    "Must provide an optimizer configuration block to train")
             self.process_optimizer(**optimizer)
             self.restore_optimizer = restore_optimizer
 
@@ -165,9 +169,8 @@ class TrainVal(object):
             if lr_scheduler is not None:
                 self.process_lr_scheduler(**lr_scheduler)
 
-    def process_optimizer(self, name, args = {}):
-        '''
-        Process the optimizer configuration
+    def process_optimizer(self, name, args={}):
+        """Process the optimizer configuration.
 
         Parameters
         ----------
@@ -175,7 +178,7 @@ class TrainVal(object):
             Name of the optimizer under `torch.optim`
         args : dict, optional
             Arguments to pass to the optimizer
-        '''
+        """
         # Fetch the relevant optimizer class, store arguments
         if name == 'AdaBound':
             self.optim_class = AdaBound
@@ -186,9 +189,8 @@ class TrainVal(object):
 
         self.optim_args = args
 
-    def process_lr_scheduler(self, name, args = {}):
-        '''
-        Process the learning rate schduler configuration
+    def process_lr_scheduler(self, name, args={}):
+        """Process the learning rate scheduler configuration.
 
         Parameters
         ----------
@@ -196,15 +198,14 @@ class TrainVal(object):
             Name of the optimizer under `torch.optim`
         args : dict, optional
             Arguments to pass to the optimizer
-        '''
+        """
         # Fetch the relevant optimizer class, store arguments
         self.lr_scheduler_class = getattr(torch.optim.lr_scheduler, name)
         self.lr_scheduler_args = args
 
-    def process_model(self, name, modules, network_input, loss_input = [],
-            keep_output = [], ignore_keys = []):
-        '''
-        Process the model configuration
+    def process_model(self, name, modules, network_input, loss_input=[],
+                      keep_output=[], ignore_keys=[]):
+        """Process the model configuration.
 
         Parameters
         ----------
@@ -220,7 +221,7 @@ class TrainVal(object):
             List of keys to provide in the model forward output
         ignore_keys : List[str], optional
             List of keys to ommit in the model forward output
-        '''
+        """
         # Fetch the relevant model, store arguments
         self.model_name = name
         self.model_cfg  = modules
@@ -233,31 +234,31 @@ class TrainVal(object):
         self.loss_dict  = loss_input
 
         if not isinstance(network_input, dict):
-            warnings.warn('Specify `network_input` as a dictionary, ' \
-                    'not a list.', DeprecationWarning)
+            warnings.warn("Specify `network_input` as a dictionary, "
+                          "not a list.", DeprecationWarning)
             fn   = self.model_class.forward
             keys = list(signature(fn).parameters.keys())[1:] # Skip `self`
-            self.input_dict = {keys[i]:network_input[i] \
-                    for i in range(len(network_input))}
+            num_input = len(network_input)
+            self.input_dict = {
+                    keys[i]:network_input[i] for i in range(num_input)}
 
         if not isinstance(loss_input, dict):
-            warnings.warn('Specify `loss_input` as a dictionary, ' \
-                    'not a list.', DeprecationWarning)
+            warnings.warn("Specify `loss_input` as a dictionary, "
+                          "not a list.", DeprecationWarning)
             fn   = self.loss_class.forward
             keys = list(signature(fn).parameters.keys())[1:] # Skip `self`
-            self.loss_dict = {keys[i]:loss_input[i] \
-                    for i in range(len(loss_input))}
+            num_input = len(loss_input)
+            self.loss_dict = {keys[i]:loss_input[i] for i in range(num_input)}
 
         # Parse the list of output to be stored
-        assert not (len(keep_output) and len(ignore_keys)), \
-                'Should not specify `keep_output` and `ignore_keys` together'
+        assert not (len(keep_output) and len(ignore_keys)), (
+                "Should not specify `keep_output` and `ignore_keys` together")
         self.output_keys = keep_output
         self.ignore_keys = ignore_keys
 
-    def process_io(self, dataset, batch_size, collate = None,
-            writer = None, **io_cfg):
-        '''
-        Initialize the dataloader
+    def process_io(self, dataset, batch_size, collate_fn=None,
+                   writer=None, **io_cfg):
+        """Initialize the dataloader.
 
         Parameters
         ----------
@@ -265,23 +266,24 @@ class TrainVal(object):
             Dataset configuration dictionary
         batch_size : int
             Number of data entries in one batch (across all GPUs)
-        collate : dict, optional
+        collate_fn : dict, optional
             Dictionary of collate function and collate parameters, if any
         writer : dict, optional
             Writer configuration dictionary
         **io_cfg : dict
             Rest of the input/output configuration dictionary
-        '''
+        """
         # Store the relevant I/O parameters
-        assert (batch_size % self.world_size) == 0, \
-                'The batch_size must be a multiple of the number of GPUs'
+        assert (batch_size % self.world_size) == 0, (
+                "The batch_size must be a multiple of the number of GPUs")
         self.batch_size = batch_size
         self.minibatch_size = batch_size // self.world_size
 
         # Initialize the dataloader
-        self.loader = loader_factory(dataset, self.minibatch_size,
-                collate = collate, distributed = self.distributed,
-                world_size = self.world_size, rank = self.rank, **io_cfg)
+        self.loader = loader_factory(
+                dataset, self.minibatch_size, collate_fn=collate_fn,
+                distributed=self.distributed, world_size=self.world_size,
+                rank=self.rank, **io_cfg)
         self.loader_iter = iter(cycle(self.loader))
 
         # Infer the total number of epochs from iterations or vice-versa
@@ -293,22 +295,24 @@ class TrainVal(object):
         else:
             self.iterations = self.epochs * len(self.loader)
 
-
-        # Get the information about the boundaries between the volumes
-        self.boundaries = collate.get('boundaries', None) if collate else None
-        self.num_volumes = 1 if not self.boundaries else \
-                np.prod([len(b)+1 for b in self.boundaries if b != 'None'])
+        # Get the number of volumes the collate function splits the input into
+        self.geo = None
+        self.num_volumes = 1
+        if (hasattr(self.loader, 'collate_fn') and
+            hasattr(self.loader.collate_fn, 'geo')):
+            self.geo = self.loader.collate_fn.geo
+            self.num_volumes = self.geo.num_modules
 
         # Initialize the writer, if provided
         self.writer = None
         if writer is not None:
+            if not self.unwrap:
+                raise ValueError(
+                        "Must set `unwrap` to True when writing to file")
             self.writer = writer_factory(writer)
-            self.unwrap = True
 
     def initialize(self):
-        '''
-        Initialize the necessary building blocks to train a model
-        '''
+        """Initialize the necessary building blocks to train a model."""
         # Initialize model and loss function
         self.model = self.model_class(**self.model_cfg)
         self.model.batch_size = self.minibatch_size * self.num_volumes
@@ -327,22 +331,23 @@ class TrainVal(object):
 
         # If multiple GPUs are used, wrap with DistributedDataParallel
         if self.distributed:
-            self.model = DDP(self.model, device_ids = [self.rank],
-                    output_device = self.rank,
-                    find_unused_parameters = self.find_unused_parameters)
+            self.model = DDP(
+                    self.model, device_ids=[self.rank],
+                    output_device=self.rank,
+                    find_unused_parameters=self.find_unused_parameters)
 
         # Set the model in train or evaluation mode
         self.model.train() if self.train else self.model.eval()
 
         # Initiliaze the optimizer
-        self.optimizer = self.optim_class(self.model.parameters(),
-                **self.optim_args)
+        self.optimizer = self.optim_class(
+                self.model.parameters(), **self.optim_args)
 
         # Initialize the learning rate scheduler
         self.lr_scheduler = None
         if self.lr_scheduler_class is not None:
-            self.lr_scheduler = self.lr_scheduler_class(self.optimizer,
-                    **self.lr_scheduler_args)
+            self.lr_scheduler = self.lr_scheduler_class(
+                    self.optimizer, **self.lr_scheduler_args)
 
         # Module-by-module parameter freezing
         self.freeze_weights()
@@ -358,12 +363,13 @@ class TrainVal(object):
         self.make_directories()
 
     def freeze_weights(self):
-        '''
+        """Freeze the weights of certain model components.
+
         Breadth-first search for `freeze_weights` parameters in the model
         configuration. If `freeze_weights` is `True` under a module block,
         `requires_grad` is set to `False` for its parameters. The batch
         normalization and dropout layers are set to evaluation mode.
-        '''
+        """
         # Loop over all the module blocks in the model configuration
         module_items = list(self.model_cfg.items())
         while len(module_items) > 0:
@@ -388,10 +394,10 @@ class TrainVal(object):
                             count += 1
 
                 # Throw if no weights were found to freeze
-                assert count, \
-                        f'Could not find any weights to freeze for {module}'
+                assert count, (
+                        f"Could not find any weights to freeze for {module}")
 
-                print(f'Froze {count} weights in module {module}')
+                logger.info(f"Froze {count} weights in module {module}")
 
             # Keep the BFS going by adding the nested blocks
             for key in config:
@@ -399,7 +405,8 @@ class TrainVal(object):
                     module_items.append((key, config[key]))
 
     def load_weights(self, model_path):
-        '''
+        """Load the weights of certain model components.
+
         Breadth-first search for `model_path` parameters in the model
         configuration. If 'model_path' is found under a module block,
         the weights are loaded for its parameters.
@@ -411,7 +418,7 @@ class TrainVal(object):
         ----------
         model_path : str
             Path to the overall weights for the model
-        '''
+        """
         # If a general model path is provided, add it to the loading list first
         model_paths = []
         if model_path:
@@ -441,11 +448,12 @@ class TrainVal(object):
                 if len(glob.glob(model_path)) and self.train:
                     continue
                 else:
-                    raise ValueError(f'Weight file not found for module ' \
-                            f'{module}: {model_path}')
+                    raise ValueError("Weight file not found for module "
+                                    f"{module}: {model_path}")
 
             # Load weight file into existing model
-            print(f'Restoring weights for module {module} from {model_path}...')
+            logger.info(f"Restoring weights for module {module} "
+                        f"from {model_path}...")
             with open(model_path, 'rb') as f:
                 # Read checkpoint. If loading weights to a non-distributed
                 # model, remove leading keyword `module` from weight names.
@@ -466,7 +474,8 @@ class TrainVal(object):
                     state_dict = {}
                     for name in self.model.state_dict():
                         if module in name:
-                            key = name.replace(f'.{module}.', f'.{model_name}.')
+                            key = name.replace(
+                                    f'.{module}.', f'.{model_name}.')
                             if key in checkpoint['state_dict'].keys():
                                 state_dict[name] = checkpoint['state_dict'][key]
                             else:
@@ -474,39 +483,43 @@ class TrainVal(object):
 
                 # If some necessary keys were not found, throw
                 if missing_keys:
-                    print('These necessary parameters could not be found:')
+                    logger.critical(
+                            "These necessary parameters could not be found:")
                     for name, key in missing_keys:
-                        print(f'Parameter {key} missing for {name}')
-                    raise ValueError('To be loaded, a set of weights ' \
-                            'must provide all necessary parameters')
+                        logger.crtical(f"Parameter {key} missing for {name}")
+                    raise ValueError("To be loaded, a set of weights "
+                                     "must provide all necessary parameters")
 
                 # Load checkpoint. Check that all weights are used
                 bad_keys = self.model.load_state_dict(state_dict, strict=False)
                 if len(bad_keys.unexpected_keys) > 0:
-                    # TODO: Change this to a warning log message
-                    print('This weight file contains parameters that could ' \
-                            'not be loaded, indicating that the weight file ' \
-                            'contains more than needed. This might be ok.')
-                    print('Unexpected keys:', bad_keys.unexpected_keys)
+                    logger.warning(
+                            "This weight file contains parameters that could "
+                            "not be loaded, indicating that the weight file "
+                            "contains more than needed. This might be ok.")
+                    logger.warning(
+                            'Unexpected keys:', bad_keys.unexpected_keys)
 
                 # Load the optimizer state from the main weight file only
-                if self.train and module == self.model_name \
-                        and self.restore_optimizer:
+                if (self.train and
+                    module == self.model_name and
+                    self.restore_optimizer):
                     self.optimizer.load_state_dict(checkpoint['optimizer'])
 
                 # Get the latest iteration from the main weight file only
                 if module == self.model_name:
                     iteration = checkpoint['global_step'] + 1
 
-            print('Done.')
+            logger.info('Done.')
 
         self.start_iteration = iteration
 
     def initialize_calibrator(self, model, name, loss,
-            loss_args = {}, logit_name = 'logits'):
-        '''
-        Switch model to calibration mode. Allows to calibrate logits to
-        respond linearly to probability, for instance.
+                              loss_args={}, logit_name='logits'):
+        """Switch model to calibration mode.
+
+        Allows to calibrate logits to respond linearly to probability,
+        for instance.
 
         Parameters
         ----------
@@ -520,43 +533,41 @@ class TrainVal(object):
             Arguments to pass to the loss function
         logit_name : str, default 'logits'
             Name of the output logits
-        '''
+        """
         # Initialize the calibrator
         calibrator         = construct_calibrator(name)
         wrapped_model      = calibrator(model, self.calibration_config)
-        calibrator_loss_fn = construct_calibrator_loss(loss,
-                logit_name, **loss_args)
+        calibrator_loss_fn = construct_calibrator_loss(
+                loss, logit_name, **loss_args)
 
         # Supersede model and loss with calibrator versions
         self.model   = wrapped_model
         self.loss_fn = calibrator_loss_fn
 
     def initialize_unwrapper(self):
-        '''
-        Initialize the unwrapper
-        '''
+        """Initialize the unwrapper."""
         # Add unwrap rules for the input data products
-        rules = {}
+        rules = {'index': Unwrapper.Rule('list')}
         for name, parser in self.loader.dataset.parsers.items():
             rules[name] = parser.result
 
         # Add unwrap rules for the output of the forward function
+        # TODO: update to syntax consistent with parsers
         model = self.model if not self.distributed else self.model.module
         if hasattr(model, 'RETURNS'):
             rules.update(model.RETURNS)
 
         # Add unwrap rules for the output of the loss function
+        # TODO: update to syntax consistent with parsers
         if hasattr(self.loss_fn, 'RETURNS'):
             rules.update(self.loss_fn.RETURNS)
 
         # Initialize the unwrapper
-        self.unwrapper = Unwrapper(self.minibatch_size, rules,
-                self.boundaries, remove_batch_col=False)
+        self.unwrapper = Unwrapper(
+                self.minibatch_size, rules, self.geo, remove_batch_col=False)
 
     def make_directories(self):
-        '''
-        Make directories as to where to store the logs and weights
-        '''
+        """Make directories as to where to store the logs and weights."""
         # Create weight save directory if it does not exist
         save_dir = os.path.dirname(self.weight_prefix)
         if save_dir and not os.path.isdir(save_dir):
@@ -573,10 +584,9 @@ class TrainVal(object):
         self.csv_logger = CSVWriter(logname)
 
     def run(self):
-        '''
-        Run the training or inference loop on the amount of iterations or
+        """Run the training or inference loop on the amount of iterations or
         epochs requested.
-        '''
+        """
         # Loop until the requested amount of iterations/epochs is reached
         iter_per_epoch = len(self.loader) / self.world_size
         iteration = self.start_iteration if self.train else 0
@@ -620,8 +630,7 @@ class TrainVal(object):
                 iteration += 1
 
     def train_step(self, iteration=None):
-        '''
-        Run one step of the training process
+        """Run one step of the training process.
 
         Parameters
         ----------
@@ -634,7 +643,7 @@ class TrainVal(object):
             Dictionary of input data product keys which each map to an input
         result : dict
             Dictionary of forward output produt keys which each map an output
-        '''
+        """
         # Run the model forward
         data, result = self.forward(iteration)
 
@@ -647,8 +656,7 @@ class TrainVal(object):
         return data, result
 
     def forward(self, iteration=None):
-        '''
-        Run the forward function once over the batch.
+        """Run the forward function once over the batch.
 
         Parameters
         ----------
@@ -661,7 +669,7 @@ class TrainVal(object):
             Dictionary of input data product keys which each map to an input
         result : dict
             Dictionary of forward output produt keys which each map an output
-        '''
+        """
         # Get the batched data
         self.watch.start('io')
         data = next(self.loader_iter)
@@ -682,8 +690,7 @@ class TrainVal(object):
         return data, result
 
     def get_data_minibatch(self, data):
-        '''
-        Fetches the necessary data products to form the input to the forward
+        """Fetches the necessary data products to form the input to the forward
         function and the input to the loss function.
 
         Parameters
@@ -698,35 +705,41 @@ class TrainVal(object):
             Input to the forward pass of the model
         loss_dict : dict
             Labels to be used in the loss computation
-        '''
+        """
         # Fetch the requested data products
+        device = self.rank if len(self.gpus) else None
         input_dict, loss_dict = {}, {}
         with torch.set_grad_enabled(self.train):
             # Load the data products for the model forward
             input_dict = {}
             for param, name in self.input_dict.items():
-                assert name in data, f'Must provide {name} in the ' \
-                        'dataloader schema to input into the model forward'
-                value = torch.as_tensor(data[name], dtype=torch.float)
-                if len(self.gpus):
-                    value = value.cuda()
+                assert name in data, (
+                        f"Must provide {name} in the dataloader schema to "
+                         "input into the model forward")
+
+                value = data[name]
+                if isinstance(value, TensorBatch):
+                    value = data[name].to_tensor(torch.float, device)
                 input_dict[param] = value
 
             # Load the data products for the loss function
             loss_dict = {}
             for param, name in self.loss_dict.items():
-                assert name in data, f'Must provide {name} in the ' \
-                        'dataloader schema to input into the loss function'
-                value = torch.as_tensor(data[name], dtype=torch.float)
-                if len(self.gpus):
-                    value = value.cuda()
+                assert name in data, (
+                        f"Must provide {name} in the dataloader schema to "
+                         "input into the loss function")
+
+                value = data[name]
+                if isinstance(value, TensorBatch):
+                    value = data[name].to_tensor(torch.float, device)
                 loss_dict[param] = value
 
         return input_dict, loss_dict
 
     def step(self, input_dict, loss_dict, iteration=None):
-        '''
-        Load one minibatch of data, pass it through the network forward
+        """Step one minibatch of data through the network.
+
+        Load one minibatch of data. pass it through the network forward
         function and the loss computation. Store the output.
 
         Parameters
@@ -735,7 +748,7 @@ class TrainVal(object):
             Input dictionary to the forward function
         loss_dict : dict
             Input dictionary to the loss function
-        '''
+        """
         # If in train mode, record the gradients for backward step
         with torch.set_grad_enabled(self.train):
 
@@ -748,33 +761,43 @@ class TrainVal(object):
                 if not self.time_dependant:
                     result.update(self.loss_fn(**loss_dict, **result))
                 else:
-                    result.update(self.loss_fn(iteration=iteration,
-                        **loss_dict, **result))
+                    result.update(self.loss_fn(
+                        iteration=iteration, **loss_dict, **result))
 
                 if self.train:
                     self.loss = result['loss']
 
             # Filter and cast the output to numpy, if requested
             for key, value in result.items():
-                if (len(self.output_keys) and key not in self.output_keys) \
-                        or key in self.ignore_keys:
+                # Skip keys that are not to be output
+                if ((len(self.output_keys) and key not in self.output_keys) or
+                    key in self.ignore_keys):
                     result.pop(key)
+
+                # Convert to numpy, if requested
                 if self.to_numpy:
-                    try:
-                        if isinstance(value, list) and len(value) \
-                                and not np.isscalar(value[0]):
-                                    result[key] = [to_numpy(v) for v in value]
-                        elif not np.isscalar(value):
-                            result[key] = to_numpy(value)
-                    except:
-                        raise ValueError(f'Cannot cast output {key} to numpy')
+                    if np.isscalar(value):
+                        # Scalar
+                        result[key] = value
+                    elif (isinstance(value, torch.Tensor) and
+                          value.numel() == 1):
+                        # Scalar tensor
+                        result[key] = value.item()
+                    elif isinstance(value, TensorBatch):
+                        # Tensor batch
+                        result[key] = value.to_numpy()
+                    elif (isinstance(value, list) and
+                          len(value) and
+                          isinstance(value[0], TensorBatch)):
+                        # List of tensor batches
+                        result[key] = [v.to_numpy() for v in value]
+                    else:
+                        raise ValueError(f"Cannot cast output {key} to numpy")
 
             return result
 
     def backward(self):
-        '''
-        Run the backward step on the model.
-        '''
+        """Run the backward step on the model."""
         # Reset the gradient accumulation
         self.optimizer.zero_grad()
 
@@ -792,11 +815,12 @@ class TrainVal(object):
         # trainable parameter updates.
         model = self.model if not self.distributed else self.model.module
         if hasattr(model, 'update_buffers'):
-            print('Updating buffers') # TODO Change to logging function
+            logger.info('Updating buffers')
             model.update_buffers()
 
     def save_state(self, iteration):
-        '''
+        """Save the model state.
+
         Save three things from the model:
         - global_step (iteration)
         - state_dict (model parameter values)
@@ -806,10 +830,10 @@ class TrainVal(object):
         ----------
         iteration : int
             Iteration step index
-        '''
+        """
         # Make sure that the weight prefix is valid
-        assert len(self.weight_prefix), \
-                'Must provide a weight prefix to store them'
+        assert len(self.weight_prefix), (
+                "Must provide a weight prefix to store them")
 
         filename = f'{self.weight_prefix}-{iteration:d}.ckpt'
         torch.save({
@@ -819,8 +843,7 @@ class TrainVal(object):
         }, filename)
 
     def write(self, data, result):
-        '''
-        Write requested input/output to file
+        """Write requested input/output to file.
 
         Parameters
         ----------
@@ -828,7 +851,7 @@ class TrainVal(object):
             Dictionary of input data product keys which each map to an input
         result : dict
             Dictionary of forward output produt keys which each map an output
-        '''
+        """
         # If the inference was distributed, gather the outptus
         if not self.distributed:
             self.writer.append(data, result, self.cfg)
@@ -869,13 +892,13 @@ class TrainVal(object):
             self.writer.append(data_dict, result_dict, self.cfg)
 
     def log(self, result, tstamp, iteration, epoch, first_id):
-        '''
-        Log relevant information to CSV files and stdout
+        """Log relevant information to CSV files and stdout.
 
         Parameters
         ----------
         result : dict
-            Output of the loss computation, which contains accuracy/loss metrics
+            Output of the loss computation, which contains
+            accuracy/loss metrics.
         iteration : int
             Iteration counter
         epoch : float
@@ -884,7 +907,7 @@ class TrainVal(object):
             ID of the first dataset entry in the batch
         tstamp : str
             Time when this iteration was run
-        '''
+        """
         # Fetch the basics
         log_dict = {
             'iter': iteration,
@@ -893,7 +916,7 @@ class TrainVal(object):
         }
 
         # Fetch the memory usage (in GB)
-        log_dict['cpu_mem'] = psutil.virtual_memory().used/1e9
+        log_dict['cpu_mem'] = psutil.virtual_memory().used/1.e9
         log_dict['cpu_mem_perc'] = psutil.virtual_memory().percent
         log_dict['gpu_mem'], log_dict['gpu_mem_perc'] = 0., 0.
         if torch.cuda.is_available():
@@ -902,12 +925,13 @@ class TrainVal(object):
             log_dict['gpu_mem_perc'] = 100 * log_dict['gpu_mem'] / gpu_total
 
         # Fetch the times
+        suff = '_time'
         for key, watch in self.watch.items():
             time, time_sum = watch.time, watch.time_sum
-            log_dict[key] = time.wall
-            log_dict[f'{key}_cpu'] = time.cpu
-            log_dict[f'{key}_sum'] = time_sum.wall
-            log_dict[f'{key}_cpu_sum'] = time_sum.cpu
+            log_dict[f'{key}{suff}'] = time.wall
+            log_dict[f'{key}{suff}_cpu'] = time.cpu
+            log_dict[f'{key}{suff}_sum'] = time_sum.wall
+            log_dict[f'{key}{suff}_sum_cpu'] = time_sum.cpu
 
         # Fetch all the scalar outputs and append them to a dictionary
         for key in result:
@@ -918,20 +942,27 @@ class TrainVal(object):
         self.csv_logger.append(log_dict)
 
         # If requested, print out basics of the training/inference process.
-        # TODO: should use the verbosity setting for this.
         report_step = ((iteration + 1) % self.report_step) == 0
         if report_step:
             # Dump general information
+            proc   = 'Train' if self.train else 'Inference'
+            keys   = [f'{proc} time', 'Memory', 'Loss', 'Accuracy']
+            widths = [20, 20, 9, 9]
+            if self.distributed:
+                keys = ['Rank'] + keys
+                widths = [5] + widths
             if self.main_process:
-                msg = f'Iter. {iteration} (epoch {epoch:.3f}) @ {tstamp}'
-                print(msg, flush = True)
+                header = '  | ' + '| '.join(
+                        [f'{keys[i]:<{widths[i]}}' for i in range(len(keys))])
+                separator = '  |' + '+'.join(['-'*(w+1) for w in widths])
+                msg  = f"Iter. {iteration} (epoch {epoch:.3f}) @ {tstamp}\n"
+                msg += header + '|\n'
+                msg += separator + '|'
+                print(msg, flush=True)
             if self.distributed:
                 torch.distributed.barrier()
 
             # Dump information pertaining to a specific process
-            prefix = '' if not self.distributed else f'<Rank {self.rank}> '
-            proc   = 'Train' if self.train else 'Forward'
-
             t_iter = self.watch.time('iteration').wall
             t_net  = self.watch.time('forward').wall \
                     + self.watch.time('backward').wall
@@ -939,17 +970,22 @@ class TrainVal(object):
             gmem, gmem_perc = log_dict['gpu_mem'], log_dict['gpu_mem_perc']
             cmem, cmem_perc = log_dict['cpu_mem'], log_dict['cpu_mem_perc']
 
-            acc  = np.mean(result.get('accuracy', -1))
-            loss = np.mean(result.get('loss',     -1))
+            acc  = np.mean(result.get('accuracy', -1.))
+            loss = np.mean(result.get('loss',     -1.))
 
-            msg  = f'  {prefix}{proc} time: {t_net:0.2f} s ' \
-                    f'({100*t_net/t_iter:0.2f} %), ' \
-                    f'memory: {gmem:0.2f} GB ({gmem_perc:0.2f} %)\n'
-            msg += f'  {prefix}Loss: {loss:0.3f}, accuracy: {acc:0.3f}'
+            values = [f'{t_net:0.2f} s ({100*t_net/t_iter:0.2f} %)',
+                      f'{gmem:0.2f} GB ({gmem_perc:0.2f} %)',
+                      f'{loss:0.3f}', f'{acc:0.3f}']
+            if self.distributed:
+                values = [f'{self.rank}'] + values
+
+            msg = '  | ' + '| '.join(
+                    [f'{values[i]:<{widths[i]}}' for i in range(len(keys))])
+            msg += '|'
             print(msg, flush=True)
 
             # Start new line once only
             if self.distributed:
                 torch.distributed.barrier()
             if self.main_process:
-                print('', flush = True)
+                print('', flush=True)

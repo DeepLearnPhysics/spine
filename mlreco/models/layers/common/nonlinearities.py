@@ -1,21 +1,35 @@
+"""Custom non-linear activation functions."""
+
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
+
 import MinkowskiEngine as ME
 
-class MinkowskiMish(nn.Module):
-    '''
-    Mish Nonlinearity: https://arxiv.org/pdf/1908.08681.pdf
-    '''
+
+class MinkowskiMish(torch.nn.Module):
+    """Mish non-linearity layer.
+
+    Reference: https://arxiv.org/pdf/1908.08681.pdf
+    """
     def __init__(self):
+        """Initialize the layer."""
         super().__init__()
 
-    def forward(self, input):
-        out = F.softplus(input.F)
-        out = torch.tanh(out)
-        out = out * input.F
-        return ME.SparseTensor(out, coords_key = input.coords_key,
-                coords_manager = input.coords_man)
+    def forward(self, input_data):
+        """Pass tensor through the layer.
 
-    def __repr__(self):
-        return self.__class__.__name__ + '()'
+        Parameters
+        ----------
+        input_data : ME.SparseTensor
+            Sparse input tensor
+
+        Return
+        ------
+        ME.SparseTensor
+            Sparse output tensor
+        """
+        out = torch.nn.functional.softplus(input_data.F)
+        out = torch.tanh(out)
+        out = out * input_data.F
+
+        return ME.SparseTensor(out, coords_key = input_data.coords_key,
+                coords_manager = input_data.coords_man)

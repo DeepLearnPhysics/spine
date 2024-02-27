@@ -20,14 +20,14 @@ __all__ = ['HDF5Writer', 'CSVWriter']
 
 
 class HDF5Writer:
-    '''
+    """
     Class which builds an HDF5 file to store the input
     and/or the output of the reconstruction chain. It
     can also be used to append an existing HDF5 file with
     information coming out of the analysis tools.
 
     More documentation to come.
-    '''
+    """
     # Analysis object attributes to be stored as enumerated types and their associated rules
     ANA_ENUM = {
         'semantic_type': {v : k for k, v in SHAPE_LABELS.items()},
@@ -98,7 +98,7 @@ class HDF5Writer:
                  skip_result_keys: list = None,
                  append_file: bool = False,
                  merge_groups: bool = False):
-        '''
+        """
         Initializes the basics of the output file
 
         Parameters
@@ -117,7 +117,7 @@ class HDF5Writer:
             Add new values to the end of an existing file
         merge_groups: bool, default False
             Merge `data` and `result` blobs in the root directory of the HDF5 file
-        '''
+        """
         # Store attributes
         self.file_name        = file_name
         self.append_file      = append_file
@@ -136,7 +136,7 @@ class HDF5Writer:
         self.skip_result_keys = skip_result_keys
 
     def create(self, data_blob, result_blob=None, cfg=None):
-        '''
+        """
         Create the output file structure based on the data and result blobs.
 
         Parameters
@@ -147,7 +147,7 @@ class HDF5Writer:
             Dictionary containing the output of the reconstruction chain
         cfg : dict
             Dictionary containing the ML chain configuration
-        '''
+        """
         # Make sure there is something to store
         assert data_blob or result_blob, \
                 'Must provide a non-empty data blob or result blob'
@@ -179,7 +179,7 @@ class HDF5Writer:
             self.ready = True
 
     def get_stored_keys(self, data_blob, result_blob):
-        '''
+        """
         Use an event data/result dictionaries to figure out the keys to register
 
         Parameters
@@ -195,7 +195,7 @@ class HDF5Writer:
             List of data keys to store to file
         result_keys : list
             List of result keys to store to file
-        '''
+        """
         # If the keys were already produced, nothing to do
         if self.ready:
             return self.input_keys, self.result_keys
@@ -231,7 +231,7 @@ class HDF5Writer:
         return input_keys, result_keys
 
     def register_key(self, blob, key, category):
-        '''
+        """
         Identify the dtype and shape objects to be dealt with.
 
         Parameters
@@ -242,7 +242,7 @@ class HDF5Writer:
             Dictionary key name
         category : string
             Data category: `data` or `result`
-        '''
+        """
         # Store the necessary information to know how to store a key
         self.key_dict[key]['category'] = category
         if np.isscalar(blob[key]):
@@ -311,7 +311,7 @@ class HDF5Writer:
                     raise TypeError(f'Do not know how to store output of type {dtype} in key {key}')
 
     def get_dict_dtype(self, obj_dict, obj=dict, is_larcv=False):
-        '''
+        """
         Loop over the keys in a dictonary to figure out what to store. This
         function assumes that the dictionary only maps tovalues that are
         either a scalar, string, larcv.Vertex, list, np.ndarrary or set.
@@ -329,7 +329,7 @@ class HDF5Writer:
         -------
         list
             List of (key, dtype) pairs
-        '''
+        """
         object_dtype = []
         for key, val in obj_dict.items():
             # Append the relevant data type
@@ -372,7 +372,7 @@ class HDF5Writer:
         return object_dtype
 
     def get_object_dtype(self, obj):
-        '''
+        """
         Loop over the members of a class to figure out what to store. This
         function assumes that the class only posseses getters that return
         either a scalar, string, larcv.Vertex, list, np.ndarrary or set.
@@ -386,7 +386,7 @@ class HDF5Writer:
         -------
         list
             List of (key, dtype) pairs
-        '''
+        """
         obj_dict = {}
         members = inspect.getmembers(obj)
         is_larcv = type(obj) in self.LARCV_OBJS
@@ -405,14 +405,14 @@ class HDF5Writer:
         return self.get_dict_dtype(obj_dict, obj, is_larcv)
 
     def initialize_datasets(self, out_file):
-        '''
+        """
         Create place hodlers for all the datasets to be filled.
 
         Parameters
         ----------
         out_file : h5py.File
             HDF5 file instance
-        '''
+        """
         self.event_dtype = []
         ref_dtype = h5py.special_dtype(ref=h5py.RegionReference)
         for key, val in self.key_dict.items():
@@ -454,7 +454,7 @@ class HDF5Writer:
         out_file.create_dataset('events', (0,), maxshape=(None,), dtype=self.event_dtype)
 
     def append(self, data_blob=None, result_blob=None, cfg=None):
-        '''
+        """
         Append the HDF5 file with the content of a batch.
 
         Parameters
@@ -465,7 +465,7 @@ class HDF5Writer:
             Dictionary containing the input data
         cfg : dict
             Dictionary containing the ML chain configuration
-        '''
+        """
         # If this function has never been called, initialiaze the HDF5 file
         if not self.ready and (not self.append_file or os.path.isfile(self.file_name)):
             self.create(data_blob, result_blob, cfg)
@@ -494,7 +494,7 @@ class HDF5Writer:
                 events_ds[event_id] = event
 
     def append_key(self, out_file, event, blob, key, batch_id):
-        '''
+        """
         Stores array in a specific dataset of an HDF5 file
 
         Parameters
@@ -509,7 +509,7 @@ class HDF5Writer:
             Dictionary key name
         batch_id : int
             Batch ID to be stored
-        '''
+        """
         val   = self.key_dict[key]
         group = out_file
         if not self.merge_groups:
@@ -551,7 +551,7 @@ class HDF5Writer:
 
     @staticmethod
     def store(group, event, key, array):
-        '''
+        """
         Stores an `ndarray` in the file and stores its mapping
         in the event dataset.
 
@@ -565,7 +565,7 @@ class HDF5Writer:
             Name of the dataset in the file
         array : np.ndarray
             Array to be stored
-        '''
+        """
         # Extend the dataset, store array
         dataset = group[key]
         current_id = len(dataset)
@@ -578,7 +578,7 @@ class HDF5Writer:
 
     @staticmethod
     def store_jagged(group, event, key, array_list):
-        '''
+        """
         Stores a jagged list of arrays in the file and stores
         an index mapping for each array element in the event dataset.
 
@@ -592,7 +592,7 @@ class HDF5Writer:
             Name of the dataset in the file
         array_list : list(np.ndarray)
             List of arrays to be stored
-        '''
+        """
         # Extend the dataset, store combined array
         region_refs = []
         for i, array in enumerate(array_list):
@@ -616,7 +616,7 @@ class HDF5Writer:
 
     @staticmethod
     def store_flat(group, event, key, array_list):
-        '''
+        """
         Stores a concatenated list of arrays in the file and stores
         its index mapping in the event dataset to break them.
 
@@ -630,7 +630,7 @@ class HDF5Writer:
             Name of the dataset in the file
         array_list : list(np.ndarray)
             List of arrays to be stored
-        '''
+        """
         # Extend the dataset, store combined array
         array = np.concatenate(array_list) if len(array_list) else []
         dataset = group[key]['elements']
@@ -655,7 +655,7 @@ class HDF5Writer:
 
     @staticmethod
     def store_objects(group, event, key, array, obj_dtype):
-        '''
+        """
         Stores a list of objects with understandable attributes in
         the file and stores its mapping in the event dataset.
 
@@ -671,7 +671,7 @@ class HDF5Writer:
             Array of objects or dictionaries to be stored
         obj_dtype : list
             List of (key, dtype) pairs which specify what's to store
-        '''
+        """
         # Convert list of objects to list of storable objects
         objects = np.empty(len(array), obj_dtype)
         for i, o in enumerate(array):
@@ -707,19 +707,19 @@ class HDF5Writer:
 
 
 class CSVWriter:
-    '''
+    """
     Class which builds a CSV file to store the output
     of analysis tools. It can only be used to store
     relatively basic quantities (scalars, strings, etc.)
 
     More documentation to come.
-    '''
+    """
 
     def __init__(self,
                  file_name: str = 'output.csv',
                  append_file: bool = False,
                  accept_missing: bool = True):
-        '''
+        """
         Initialize the basics of the output file
 
         Parameters
@@ -730,7 +730,7 @@ class CSVWriter:
             Add more rows to an existing CSV file
         accept_missing : bool, default True
             Tolerate missing keys
-        '''
+        """
         self.file_name      = file_name
         self.append_file    = append_file
         self.accept_missing = accept_missing
@@ -745,7 +745,7 @@ class CSVWriter:
                 self.result_keys = out_file.readline().split(',')
 
     def create(self, result_blob: dict):
-        '''
+        """
         Initialize the header of the CSV file,
         record the keys to be stored.
 
@@ -753,7 +753,7 @@ class CSVWriter:
         ----------
         result_blob : dict
             Dictionary containing the output of the reconstruction chain
-        '''
+        """
         # Save the list of keys to store
         self.result_keys = list(result_blob.keys())
 
@@ -763,14 +763,14 @@ class CSVWriter:
             out_file.write(header_str)
 
     def append(self, result_blob: dict):
-        '''
+        """
         Append the CSV file with the output
 
         Parameters
         ----------
         result_blob : dict
             Dictionary containing the output of the reconstruction chain
-        '''
+        """
         # If this function has never been called, initialiaze the CSV file
         if self.result_keys is None:
             self.create(result_blob)

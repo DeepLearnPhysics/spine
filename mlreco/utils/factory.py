@@ -47,8 +47,7 @@ def module_dict(module, class_name=None):
                 for al in cls.aliases:
                     if class_name is not None and class_name == al:
                         warn(f"This name ({al}) is deprecated. Use "
-                             f"{cls.name} instead.", DeprecationWarning,
-                             stacklevel=1)
+                             f"{cls.name} instead.", DeprecationWarning)
                         module_dict[al] = cls
                     else:
                         module_dict[al] = cls
@@ -56,9 +55,9 @@ def module_dict(module, class_name=None):
     return module_dict
 
 
-def instantiate(module_dict, cfg, name=None):
-    """Instantiates an instance of a class based on a configuration dictionary
-    and a list of possible classes to chose from.
+def instantiate(module_dict, cfg, alt_name=None):
+    """Instantiates a class based on a configuration dictionary and a list of
+    possible classes to chose from.
     
     This function supports two YAML configuration structures
     (parsed as a dictionary):
@@ -94,20 +93,25 @@ def instantiate(module_dict, cfg, name=None):
         Dictionary which maps a class name onto an object class.
     cfg : dict
         Configuration dictionary
-    name : str, optional
-        Key under which the class name can be specfied
+    alt_name : str, optional
+        Key under which the class name can be specfied, beside 'name' itself
 
     Returns
     -------
     object
         Instantiated object
     """
+    # If the configuration is a string, assume it is a class name with no
+    # parameters to be passed to it
+    if isinstance(cfg, str):
+        cfg = {'name': cfg}
+
     # Get the name of the class, check that it exists
     config = deepcopy(cfg)
-    if name is not None:
-        assert (name in config) ^ ('name' in config), (
-                f"Should specify one of `name` or `{name}`")
-        name = name if name in config else 'name'
+    if alt_name is not None:
+        assert (alt_name in config) ^ ('name' in config), (
+                f"Should specify one of `name` or `{alt_name}`")
+        name = alt_name if alt_name in config else 'name'
     else:
         assert 'name' in config, (
                 "Could not find the name of the class under `name`")
@@ -128,10 +132,8 @@ def instantiate(module_dict, cfg, name=None):
 
     # If args is specified as a dictionary, append it to kwargs (deprecated)
     if isinstance(args, dict):
-        # TODO: proper logging
         warn("If specifying keyword arguments, should use `kwargs` instead "
-             "of args in {class_name}", category=DeprecationWarning,
-             stacklevel=1)
+             "of args in {class_name}", category=DeprecationWarning)
         for key in args.keys():
             assert key not in kwargs, (
                     f"The keyword argument {key} is provided under "

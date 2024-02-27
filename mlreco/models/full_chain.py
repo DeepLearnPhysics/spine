@@ -295,7 +295,7 @@ class FullChain(FullChainGNN):
                 ppn_input['ghost'] = ppn_input['ghost'][0]
                 ppn_output = self.ppn(ppn_input['finalTensor'][0],
                                       ppn_input['decoderTensors'][0],
-                                      ppn_input['ghost_sptensor'][0])
+                                      ppn_input['ghost_tensor'][0])
             else:
                 ppn_output = self.ppn(ppn_input['finalTensor'][0],
                                       ppn_input['decoderTensors'][0])

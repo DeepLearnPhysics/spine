@@ -54,7 +54,7 @@ class LArCVDataset(Dataset):
         for data_product, parser_cfg in schema.items():
             # Instantiate parser
             self.parsers[data_product] = instantiate(
-                    PARSER_DICT, parser_cfg, name='parser')
+                    PARSER_DICT, parser_cfg, alt_name='parser')
 
             # If the parser returns a tensor, set its reference
             if self.parsers[data_product].result == 'tensor':
@@ -69,8 +69,7 @@ class LArCVDataset(Dataset):
         self.reader = LArCVReader(tree_keys=tree_keys, **kwargs)
 
     def __len__(self):
-        """
-        Returns the lenght of the dataset (in number of batches)
+        """Returns the lenght of the dataset (in number of batches).
 
         Returns
         -------
@@ -80,8 +79,7 @@ class LArCVDataset(Dataset):
         return len(self.reader)
 
     def __getitem__(self, idx):
-        """
-        Returns one element of the dataset
+        """Returns one element of the dataset.
 
         Parameters
         ----------
@@ -112,8 +110,7 @@ class LArCVDataset(Dataset):
         return result
 
     def data_keys(self):
-        """
-        Returns a list of data product names
+        """Returns a list of data product names.
 
         Returns
         -------

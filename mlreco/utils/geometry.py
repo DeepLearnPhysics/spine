@@ -1,20 +1,22 @@
-import os, pathlib
+import os
+import pathlib
 import numpy as np
 
 
 class Geometry:
-    """
-    Class which handles very basic geometry queries based on a file
-    which contains a list of TPC boundaries.
+    """Handles all geometry parameters.
+
+    Class which handles very basic geometry queries based on a file which
+    contains a list of TPC boundaries.
 
     Attributes
     ----------
+    TODO
     """
 
     def __init__(self, detector=None, boundaries=None,
                  sources=None, opdets=None):
-        """
-        Initializes a detector geometry object.
+        """Initializes a detector geometry object.
 
         The boundary file is a (N_m, N_t, D, 2) np.ndarray where:
         - N_m is the number of modules (or cryostat) in the detector
@@ -42,8 +44,8 @@ class Geometry:
             Path to a `.npy` opdet file to load the opdet coordinates from
         """
         # If the boundary file is not provided, fetch a default boundary file
-        assert detector is not None or boundaries is not None, \
-                'Must minimally provide a detector boundary file source'
+        assert detector is not None or boundaries is not None, (
+                "Must minimally provide a detector boundary file source")
         if boundaries is None:
             path = pathlib.Path(__file__).parent
             boundaries = os.path.join(path, 'geo',
@@ -67,31 +69,31 @@ class Geometry:
 
         # Check that the boundary file exists, load it
         if not os.path.isfile(boundaries):
-            raise FileNotFoundError('Could not find boundary ' \
-                    f'file: {boundaries}')
+            raise FileNotFoundError("Could not find boundary "
+                                   f"file: {boundaries}")
         self.boundaries = np.load(boundaries)
 
         # Check that the sources file exists, load it
         self.sources = None
         if sources is not None:
             if not os.path.isfile(sources):
-                raise FileNotFoundError('Could not find sources ' \
-                        f'file: {sources}')
+                raise FileNotFoundError("Could not find sources "
+                                       f"file: {sources}")
             self.sources = np.load(sources)
-            assert self.sources.shape[:2] == self.boundaries.shape[:2], \
-                    'There should be one list of sources per TPC'
+            assert self.sources.shape[:2] == self.boundaries.shape[:2], (
+                    "There should be one list of sources per TPC")
 
         # Check that the optical detector file exists, load it
         self.opdets = None
         if opdets is not None:
             if not os.path.isfile(opdets):
-                raise FileNotFoundError('Could not find opdets ' \
-                        f'file: {opdets}')
+                raise FileNotFoundError("Could not find opdets "
+                                       f"file: {opdets}")
             self.opdets = np.load(opdets)
-            assert self.opdets.shape[:2] == self.boundaries.shape[:2] \
-                    or (self.opdets.shape[0] == self.boundaries.shape[0] \
-                    and len(self.opdets.shape) == 3), \
-                    'There should be one list of opdets per module or TPC'
+            assert (self.opdets.shape[:2] == self.boundaries.shape[:2] or
+                    (self.opdets.shape[0] == self.boundaries.shape[0] and
+                     len(self.opdets.shape) == 3)), (
+                    "There should be one list of opdets per module or TPC")
 
         # Store the ranges of each TPC in each axis
         self.ranges = np.abs(self.boundaries[..., 1] - self.boundaries[..., 0])

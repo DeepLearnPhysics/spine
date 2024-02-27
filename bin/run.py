@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
-import os, sys, yaml, argparse
+import os
+import sys
+import yaml
+import argparse
 
 # Add parent lartpc_mlreco3d directory to the python path
 current_directory = os.path.dirname(os.path.abspath(__file__))
 current_directory = os.path.dirname(current_directory)
 sys.path.insert(0, current_directory)
+
 from mlreco.main_funcs import run
 
 
@@ -15,8 +19,7 @@ def main(config, data_keys, outfile, detect_anomaly):
     if not os.path.isfile(cfg_file):
         cfg_file = os.path.join(current_directory, 'config', config)
     if not os.path.isfile(cfg_file):
-        print(config, 'not found')
-        sys.exit(1)
+        raise FileNotFoundError(f"{config} not found")
 
     # Load the configuration file
     cfg = yaml.safe_load(open(cfg_file, 'r'))

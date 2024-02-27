@@ -1,57 +1,40 @@
+"""Module with all the backbone components of UResNet.
+
+Contains the following components:
+  - `UResNetEncoder`: Encoder component of UResNet
+  - `UResNetDecoder`: Decoder component of UResNet
+  - `UResNet`: Full encoder/decoder architecture of UResNet
+"""
+
+from typing import List
 import torch
-import torch.nn as nn
+
 import MinkowskiEngine as ME
 
-from mlreco.models.layers.common.blocks import ResNetBlock, CascadeDilationBlock, ASPP
-from mlreco.models.layers.common.activation_normalization_factories import activations_construct
-from mlreco.models.layers.common.activation_normalization_factories import normalizations_construct
+from mlreco.models.layers.common.blocks import (
+        ResNetBlock, CascadeDilationBlock, ASPP)
+from mlreco.models.layers.common.activation_normalization_factories import (
+        activations_construct)
+from mlreco.models.layers.common.activation_normalization_factories import (
+        normalizations_construct)
 from mlreco.models.layers.common.configuration import setup_cnn_configuration
+
+__all__ = ['UResNetEncoder', 'UResNetDecoder', 'UResNet']
 
 
 class UResNetEncoder(torch.nn.Module):
-    '''
-    Vanilla UResNet with access to intermediate feature planes.
+    """Vanilla UResNet encoder.
 
-    Configuration
-    -------------
-    data_dim: int, default 3
-    num_input: int, default 1
-    allow_bias: bool, default False
-    spatial_size: int, default 512
-    activation: dict
-        For activation function, defaults to `{'name': 'lrelu', 'args': {}}`
-    norm_layer: dict
-        For normalization function, defaults to `{'name': 'batch_norm', 'args': {}}`
-
-    depth : int, default 5
-        Depth of UResNet, also corresponds to how many times we down/upsample.
-    filters : int, default 16
-        Number of filters in the first convolution of UResNet.
-        Will increase linearly with depth.
-    reps : int, default 2
-        Convolution block repetition factor
-    input_kernel : int, default 3
-        Receptive field size for very first convolution after input layer.
-
-    Output
-    ------
-    encoderTensors: list of ME.SparseTensor
-        list of intermediate tensors (taken between encoding block and convolution)
-        from encoder half
-    finalTensor: ME.SparseTensor
-        feature tensor at deepest layer
-    features_ppn: list of ME.SparseTensor
-        list of intermediate tensors (right after encoding block + convolution)
-    '''
+    See :func:`setup_cnn_configuration` for available parameters.
+    """
     def __init__(self, cfg):
-        '''
-        Initialize the encoder
+        """Initialize the encoder.
 
         Parameters
         ----------
         cfg : dict
             Encoder configuration block
-        '''
+        """
         # Initialize the parent class
         super().__init__()
 
@@ -60,9 +43,9 @@ class UResNetEncoder(torch.nn.Module):
 
         # Initialize the input layer
         self.input_layer = ME.MinkowskiConvolution(
-            in_channels = self.num_input, out_channels = self.num_filters,
-            kernel_size = self.input_kernel, stride = 1, dimension = self.dim,
-            bias = self.allow_bias)
+            in_channels=self.num_input, out_channels=self.num_filters,
+            kernel_size=self.input_kernel, stride=1, dimension=self.dim,
+            bias=self.allow_bias)
 
         # Initialize encoder
         self.encoding_conv = []
@@ -70,105 +53,74 @@ class UResNetEncoder(torch.nn.Module):
         for i, F in enumerate(self.nPlanes):
             m = []
             for _ in range(self.reps):
-                m.append(ResNetBlock(F, F,
-                    dimension = self.dim,
-                    activation = self.activation_name,
-                    activation_args = self.activation_args,
-                    normalization = self.norm,
-                    normalization_args = self.norm_args,
-                    bias = self.allow_bias))
-            m = nn.Sequential(*m)
+                m.append(ResNetBlock(
+                    F, F, dimension=self.dim, activation=self.act_cfg,
+                    normalization=self.norm_cfg, bias=self.allow_bias))
+            m = torch.nn.Sequential(*m)
             self.encoding_block.append(m)
             m = []
             if i < self.depth-1:
-                m.append(normalizations_construct(self.norm,
-                    F, **self.norm_args))
-                m.append(activations_construct(
-                    self.activation_name, **self.activation_args))
-                m.append(ME.MinkowskiConvolution(in_channels = self.nPlanes[i],
+                m.append(normalizations_construct(self.norm_cfg, F))
+                m.append(activations_construct(self.act_cfg))
+                m.append(ME.MinkowskiConvolution(
+                    in_channels=self.nPlanes[i],
                     out_channels=self.nPlanes[i+1],
-                    kernel_size = 2, stride = 2, dimension = self.dim,
-                    bias = self.allow_bias))
-            m = nn.Sequential(*m)
+                    kernel_size=2, stride=2,
+                    dimension=self.dim, bias=self.allow_bias))
+            m = torch.nn.Sequential(*m)
             self.encoding_conv.append(m)
-        self.encoding_conv = nn.Sequential(*self.encoding_conv)
-        self.encoding_block = nn.Sequential(*self.encoding_block)
+        self.encoding_conv = torch.nn.Sequential(*self.encoding_conv)
+        self.encoding_block = torch.nn.Sequential(*self.encoding_block)
 
-
-    def encoder(self, x):
-        '''
-        Vanilla UResNet Encoder.
+    def forward(self, x):
+        """Pass a tensor through the encoder.
 
         Parameters
         ----------
-        x : MinkowskiEngine SparseTensor
+        x : ME.SparseTensor
+            Input sparse tensor
 
         Returns
         -------
-        dict
-        '''
-        # print('input' , self.input_layer)
-        # for name, param in self.input_layer.named_parameters():
-        #     print(name, param.shape, param)
+        encoder_tensors : List[ME.SparseTensor]
+            List of intermediate tensors (taken between encoding block and
+            convolution) from the encoder half
+        final_tensor : ME.SparseTensor
+            Feature tensor at deepest layer
+        features_ppn : List[ME.SparseTensor]
+            List of intermediate tensors (right after encoding block + convolution)
+        """
         x = self.input_layer(x)
-        encoderTensors = [x]
+        encoder_tensors = [x]
         features_ppn = [x]
         for i, layer in enumerate(self.encoding_block):
             x = self.encoding_block[i](x)
-            encoderTensors.append(x)
+            encoder_tensors.append(x)
             x = self.encoding_conv[i](x)
             features_ppn.append(x)
 
         result = {
-            "encoderTensors": encoderTensors,
-            "features_ppn": features_ppn,
-            "finalTensor": x
+            'encoder_tensors': encoder_tensors,
+            'features_ppn': features_ppn,
+            'final_tensor': x
         }
+
         return result
 
 
-    def forward(self, input):
-
-        encoderOutput = self.encoder(input)
-        encoderTensors = encoderOutput['encoderTensors']
-        finalTensor = encoderOutput['finalTensor']
-
-        res = {
-            'encoderTensors': encoderTensors,
-            'finalTensor': finalTensor,
-            'features_ppn': encoderOutput['features_ppn']
-        }
-        return res
-
-
 class UResNetDecoder(torch.nn.Module):
+    """Vanilla UResNet Decoder.
+
+    See :func:`setup_cnn_configuration` for available parameters.
     """
-    Vanilla UResNet Decoder
+    def __init__(self, cfg):
+        """Initialize the decoder.
 
-    Configuration
-    -------------
-    data_dim: int, default 3
-    num_input: int, default 1
-    allow_bias: bool, default False
-    spatial_size: int, default 512
-    activation: dict
-        For activation function, defaults to `{'name': 'lrelu', 'args': {}}`
-    norm_layer: dict
-        For normalization function, defaults to `{'name': 'batch_norm', 'args': {}}`
-
-    depth : int, default 5
-        Depth of UResNet, also corresponds to how many times we down/upsample.
-    filters : int, default 16
-        Number of filters in the first convolution of UResNet.
-        Will increase linearly with depth.
-    reps : int, default 2
-        Convolution block repetition factor
-
-    Output
-    ------
-    list of ME.SparseTensor
-    """
-    def __init__(self, cfg, name='uresnet_decoder'):
+        Parameters
+        ----------
+        cfg : dict
+            Decoder configuration block
+        """
         # Initialize the parent class
         super().__init__()
 
@@ -180,98 +132,68 @@ class UResNetDecoder(torch.nn.Module):
         self.decoding_conv = []
         for i in range(self.depth-2, -1, -1):
             m = []
-            m.append(normalizations_construct(self.norm, self.nPlanes[i+1], **self.norm_args))
-            m.append(activations_construct(
-                self.activation_name, **self.activation_args))
+            m.append(normalizations_construct(
+                self.norm_cfg, self.nPlanes[i+1]))
+            m.append(activations_construct(self.act_cfg))
             m.append(ME.MinkowskiConvolutionTranspose(
                 in_channels = self.nPlanes[i+1], out_channels = self.nPlanes[i],
                 kernel_size = 2, stride = 2, dimension = self.dim,
                 bias = self.allow_bias))
-            m = nn.Sequential(*m)
+            m = torch.nn.Sequential(*m)
             self.decoding_conv.append(m)
             m = []
             for j in range(self.reps):
                 m.append(ResNetBlock(self.nPlanes[i] * (2 if j == 0 else 1),
-                                     self.nPlanes[i],
-                                     dimension = self.dim,
-                                     activation = self.activation_name,
-                                     activation_args = self.activation_args,
-                                     normalization = self.norm,
-                                     normalization_args = self.norm_args,
-                                     bias = self.allow_bias))
-            m = nn.Sequential(*m)
+                                     self.nPlanes[i], dimension=self.dim,
+                                     activation=self.act_cfg,
+                                     normalization=self.norm_cfg,
+                                     bias=self.allow_bias))
+            m = torch.nn.Sequential(*m)
             self.decoding_block.append(m)
-        self.decoding_block = nn.Sequential(*self.decoding_block)
-        self.decoding_conv = nn.Sequential(*self.decoding_conv)
+        self.decoding_block = torch.nn.Sequential(*self.decoding_block)
+        self.decoding_conv = torch.nn.Sequential(*self.decoding_conv)
 
 
-    def decoder(self, final, encoderTensors):
-        '''
-        Vanilla UResNet Decoder
+    def forward(self, final, encoder_tensors):
+        """Pass a tensor through the decoder.
 
         Parameters
         ----------
-        encoderTensors : list of SparseTensor
-            output of encoder.
+        final : ME.SparseTensor
+            Output of the encoder
+        encoder_tensors : List[ME.SparseTensor]
+            List of tensors from each depth of the encoder
 
         Returns
         -------
-        decoderTensors : list of SparseTensor
-            list of feature tensors in decoding path at each spatial resolution.
-        '''
-        decoderTensors = []
+        List[ME.SparseTensor]
+            List of feature tensors in decoding path at each spatial resolution
+        """
+        decoder_tensors = []
         x = final
         for i, layer in enumerate(self.decoding_conv):
-            eTensor = encoderTensors[-i-2]
+            encoder_tensor = encoder_tensors[-i-2]
             x = layer(x)
-            x = ME.cat(eTensor, x)
+            x = ME.cat(encoder_tensor, x)
             x = self.decoding_block[i](x)
-            decoderTensors.append(x)
-        return decoderTensors
+            decoder_tensors.append(x)
 
-    def forward(self, final, encoderTensors):
-        return self.decoder(final, encoderTensors)
+        return decoder_tensors
 
 
 class UResNet(torch.nn.Module):
-    '''
-    Vanilla UResNet with access to intermediate feature planes.
+    """Vanilla UResNet with access to intermediate feature planes.
 
-    Configuration
-    -------------
-    data_dim: int, default 3
-    num_input: int, default 1
-    allow_bias: bool, default False
-    spatial_size: int, default 512
-    activation: dict
-        For activation function, defaults to `{'name': 'lrelu', 'args': {}}`
-    norm_layer: dict
-        For normalization function, defaults to `{'name': 'batch_norm', 'args': {}}`
-
-    depth : int, default 5
-        Depth of UResNet, also corresponds to how many times we down/upsample.
-    filters : int, default 16
-        Number of filters in the first convolution of UResNet.
-        Will increase linearly with depth.
-    reps : int, default 2
-        Convolution block repetition factor
-    input_kernel : int, default 3
-        Receptive field size for very first convolution after input layer.
-
-    Output
-    ------
-    encoderTensors: list of ME.SparseTensor
-        list of intermediate tensors (taken between encoding block and convolution)
-        from encoder half
-    decoderTensors: list of ME.SparseTensor
-        list of intermediate tensors (taken between encoding block and convolution)
-        from decoder half
-    finalTensor: ME.SparseTensor
-        feature tensor at deepest layer
-    features_ppn: list of ME.SparseTensor
-        list of intermediate tensors (right after encoding block + convolution)
-    '''
+    See :func:`setup_cnn_configuration` for available parameters.
+    """
     def __init__(self, cfg):
+        """Initialize the UResNet backbone.
+
+        Parameters
+        ----------
+        cfg : dict
+            Decoder configuration block
+        """
         # Initialize the parent class
         super().__init__()
 
@@ -282,21 +204,45 @@ class UResNet(torch.nn.Module):
         self.encoder = UResNetEncoder(cfg)
         self.decoder = UResNetDecoder(cfg)
 
-    def forward(self, input):
-        coords = input[:, 0:self.dim + 1].int()
-        features = input[:, self.dim + 1:].float()
+    def forward(self, input_data):
+        """Pass a tensor through the UResNet backbone.
 
+        Parameters
+        ----------
+        x : ME.SparseTensor
+            Input sparse tensor
+
+        Returns
+        -------
+        encoder_tensors : List[ME.SparseTensor]
+            List of intermediate tensors (taken between encoding block and
+            convolution) from the encoder half
+        decoder_tensors : List[ME.SparseTensor]
+            List of feature tensors in decoding path at each spatial resolution
+        final_tensor : ME.SparseTensor
+            Feature tensor at deepest layer
+        features_ppn : List[ME.SparseTensor]
+            List of intermediate tensors (right after encoding block + convolution)
+        """
+        # Cast the input data to a sparse tensor
+        coords = input_data[:, 0:self.dim + 1].int()
+        features = input_data[:, self.dim + 1:].float()
         x = ME.SparseTensor(features, coordinates=coords)
-        encoderOutput = self.encoder(x)
-        encoderTensors = encoderOutput['encoderTensors']
-        finalTensor = encoderOutput['finalTensor']
-        decoderTensors = self.decoder(finalTensor, encoderTensors)
 
+        # Pass it through the encoder
+        encoder_output = self.encoder(x)
+        encoder_tensors = encoder_output['encoder_tensors']
+        final_tensor = encoder_output['final_tensor']
+
+        # Pass it through the decoder
+        decoder_tensors = self.decoder(final_tensor, encoder_tensors)
+
+        # Return
         res = {
-            'encoderTensors': encoderTensors,
-            'decoderTensors': decoderTensors,
-            'finalTensor': finalTensor,
-            'features_ppn': encoderOutput['features_ppn']
+            'encoder_tensors': encoder_tensors,
+            'decoder_tensors': decoder_tensors,
+            'final_tensor': final_tensor,
+            'features_ppn': encoder_output['features_ppn']
         }
 
         return res

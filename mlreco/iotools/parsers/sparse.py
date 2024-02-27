@@ -211,7 +211,7 @@ class Sparse3DParser(Parser):
         """Fetches one or a list of tensors, concatenate their feature vectors.
 
         Parameters
-        -------------
+        ----------
         sparse_event: larcv.EventSparseTensor3D, optional
             Sparse tensor to get the voxel/features from
         sparse_event_list: List[larcv.EventSparseTensor3D], optional

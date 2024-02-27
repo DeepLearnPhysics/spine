@@ -17,7 +17,7 @@ WRITER_DICT  = module_dict(writers)
 
 
 def loader_factory(dataset, batch_size, shuffle=True,
-                   sampler=None, num_workers=0, collate_fn=None, collate=None,
+                   sampler=None, num_workers=0, collate_fn=None,
                    entry_list=None, distributed=False, world_size=1, rank=0):
     """Instantiates a DataLoader based on configuration.
 
@@ -36,9 +36,7 @@ def loader_factory(dataset, batch_size, shuffle=True,
         If True, shuffle the dataset entries
     sampler : str, optional
         Name of the function used to sample data into batches
-    collate_fn : str, optional
-        Name of the function used to collate data into batches
-    collate : dict, optional
+    collate_fn : dict, optional
         Dictionary of collate function and collate parameters, if any
     entry_list : list, optional
         List of entry numbers to include in the dataset
@@ -64,12 +62,8 @@ def loader_factory(dataset, batch_size, shuffle=True,
                                   world_size, rank)
 
     # Initialize the collate function
-    assert not (collate_fn is not None and collate is not None), (
-            "Must specify either `collate_fn` or `collate`, not both")
     if collate_fn is not None:
-        collate = {'name': collate_fn}
-    if collate is not None:
-        collate_fn = collate_factory(collate)
+        collate_fn = collate_factory(collate_fn)
 
     # Initialize the loader
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle,
@@ -109,12 +103,10 @@ def dataset_factory(dataset_cfg, entry_list=None):
     # Tolerate some deprecated arguments, for now
     # TODO: remove this possibility
     if 'data_keys' in dataset_cfg:
-        warn("Use `file_keys` instead of `data_keys`", DeprecationWarning,
-             stacklevel=1)
+        warn("Use `file_keys` instead of `data_keys`", DeprecationWarning)
         dataset_cfg['file_keys'] = dataset_cfg.pop('data_keys')
     if 'event_list' in dataset_cfg:
-        warn("Use `entry_list` instead of `event_list`", DeprecationWarning,
-             stacklevel=1)
+        warn("Use `entry_list` instead of `event_list`", DeprecationWarning)
         dataset_cfg['entry_list'] = dataset_cfg.pop('event_list')
     
     # Initialize dataset

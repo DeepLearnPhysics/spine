@@ -1,114 +1,145 @@
+"""Custom normalization layers."""
+
 import torch
-import torch.nn as nn
 
-# For MinkowskiEngine
 import MinkowskiEngine as ME
-from MinkowskiNonlinearity import MinkowskiModuleBase
 
-# Custom Normalization Layers
 
-class MinkowskiPixelNorm(nn.Module):
-    '''
-    Pixel Normalization Layer for Sparse Tensors.
+class MinkowskiPixelNorm(torch.nn.Module):
+    """Pixel Normalization Layer for Sparse Tensors.
+
     PixelNorm layers were used in NVIDIA's ProGAN.
 
     This layer normalizes the feature vector in each
     pixel to unit length, and has no trainable weights.
 
-    References:
-        - NVIDIA ProGAN: https://arxiv.org/pdf/1710.10196.pdf
-    '''
-    def __init__(self,
-                 eps=1e-8,
-                 dimension=3):
+    Original paper: https://arxiv.org/pdf/1710.10196.pdf
+    """
+
+    def __init__(self, eps=1e-8):
+        """Initialize the normalization layer.
+
+        Parameters
+        ----------
+        eps : float, default 1e-8
+            Ensures non-divergent output features
+        """
+        # Initialize the parent class
         super(MinkowskiPixelNorm, self).__init__()
-        self.dimension = dimension
+
+        # Store the parameters
         self.eps = eps
 
-    def forward(self, input):
-        features = input.F
-        coords = input.C
+    def forward(self, input_data):
+        """Pass tensor through the layer.
+
+        Parameters
+        ----------
+        input_data : ME.SparseTensor
+            Sparse input tensor
+
+        Return
+        ------
+        ME.SparseTensor
+            Sparse output tensor
+        """
+        features = input_data.F
+        coords = input_data.C
         norm = torch.sum(torch.pow(features, 2), dim=1, keepdim=True)
         out = features / (norm + self.eps).sqrt()
+
         return ME.SparseTensor(
             out,
-            coordinate_manager=input.coordinate_manager,
-            coordinate_map_key=input.coordinate_map_key)
+            coordinate_manager=input_data.coordinate_manager,
+            coordinate_map_key=input_data.coordinate_map_key)
 
     def __repr__(self):
-        s = '({}, eps={}, dimension={})'.format(
-            self.num_features, self.eps, self.dimension)
-        return self.__class__.__name__ + s
+        """Representation of the noamlization layer.
+
+        This includes the parameters of the layer.
+        """
+        suffix = f"({self.num_features}, eps={self.eps})"
+        return self.__class__.__name__ + suffix
 
 
-class MinkowskiAdaIN(nn.Module):
-    '''
-    Adaptive Instance Normalization Layer
-    Original Paper: https://arxiv.org/pdf/1703.06868.pdf
+class MinkowskiAdaIN(torch.nn.Module):
+    """Adaptive Instance Normalization Layer.
 
     Many parts of the code is borrowed from pytorch original
-    BatchNorm implementation.
+    `BatchNorm` implementation.
 
-    INPUT:
-        - input: ME.SparseTensor
+    Original paper: https://arxiv.org/pdf/1703.06868.pdf
+    """
 
-    RETURNS:
-        - out: ME.SparseTensor
-    '''
-    def __init__(self, in_channels, dimension=3, eps=1e-5):
+    def __init__(self, in_channels, eps=1e-5):
+        """Initialize the normalization layer.
+
+        Parameters
+        ----------
+        eps : float, default 1e-5
+            Ensures non-divergent output features
+        """
+        # Initialize the parent class
         super(MinkowskiAdaIN, self).__init__()
+
+        # Store parameters
         self.in_channels = in_channels
-        self.dimension = dimension
         self.eps = eps
+
+        # Initialize weights and biases
         self._weight = torch.ones(in_channels)
         self._bias = torch.zeros(in_channels)
 
     @property
     def weight(self):
+        """Weight parameter of the AdaIN layer.
+
+        Note that in AdaptIS, the parameters to the AdaIN layer
+        are trainable outputs from the controller network.
+        """
         return self._weight
 
     @weight.setter
     def weight(self, weight):
-        '''
-        Set weight and bias parameters for AdaIN Layer.
-        Note that in AdaptIS, the parameters to the AdaIN layer
-        are trainable outputs from the controller network.
-        '''
         if weight.shape[0] != self.in_channels:
-            raise ValueError('Supplied weight vector feature dimension\
-                does not match AdaIN layer definition!')
+            raise ValueError("Supplied weight vector feature dimension"
+                             "does not match AdaIN layer definition.")
         self._weight = weight
 
     @property
     def bias(self):
+        """Bias parameter of the AdaIN layer.
+
+        Note that in AdaptIS, the parameters to the AdaIN layer
+        are trainable outputs from the controller network.
+        """
         return self._bias
 
     @bias.setter
     def bias(self, bias):
         if bias.shape[0] != self.in_channels:
-            raise ValueError('Supplied bias vector feature dimension\
-                does not match AdaIN layer definition!')
+            raise ValueError("Supplied bias vector feature dimension"
+                             "does not match AdaIN layer definition.")
         self._bias = bias
 
     def forward(self, x):
-        '''
-        INPUTS:
-            - x (ME.SparseTensor)
+        """Pass tensor through the layer.
 
-        RETURNS:
-            - out (ME.SparseTensor)
-        '''
+        Parameters
+        ----------
+        input_data : ME.SparseTensor
+            Sparse input tensor
+
+        Return
+        ------
+        ME.SparseTensor
+            Sparse output tensor
+        """
         f = x.F
         norm = (f - f.mean(dim=0)) / (f.var(dim=0) + self.eps).sqrt()
         out = self.weight * norm + self.bias
+
         return ME.SparseTensor(
             out,
-            coords_key=input.coords_key,
-            coords_manager=input.coords_man)
-
-
-class MinkowskiGroupNorm(nn.Module):
-    '''
-    TODO
-    '''
-    pass
+            coords_key=input_data.coords_key,
+            coords_manager=input_data.coords_man)

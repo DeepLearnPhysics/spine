@@ -12,7 +12,7 @@ Contains the following parsers:
 import numpy as np
 from larcv import larcv
 
-from mlreco.utils.data_structures import Meta, RunInfo
+from mlreco.utils.data_structures import Meta, RunInfo, Flash, CRTHit, Trigger
 from mlreco.utils.unwrap import Unwrapper
 
 from .parser import Parser
@@ -125,7 +125,7 @@ class RunInfoParser(Parser):
 
 
 class OpFlashParser(Parser):
-    """Copy construct OpFlash and return an array of larcv.Flash.
+    """Copy construct OpFlash and return an array of `Flash`.
 
     .. code-block. yaml
         schema:
@@ -135,7 +135,7 @@ class OpFlashParser(Parser):
 
     """
     name = 'parse_opflash'
-    result = Unwrapper.Rule(method='list', default=larcv.Flash())
+    result = Unwrapper.Rule(method='list', default=Flash())
 
     def process(self, opflash_event=None, opflash_event_list=None):
         """Fetches the list of optical flashes.
@@ -149,7 +149,7 @@ class OpFlashParser(Parser):
 
         Returns
         -------
-        List[larcv.Flash]
+        List[Flash]
             List of optical flash objects
         """
         # Check on the input, aggregate the sources for the optical flashes
@@ -164,14 +164,13 @@ class OpFlashParser(Parser):
                 opflash_list.extend(opflash_event.as_vector())
 
         # Output as a list of LArCV optical flash objects
-        # TODO: Make a locally-defined data structure to hold what is relevant
-        opflashes = [larcv.Flash(f) for f in opflash_list]
+        opflashes = [Flash.from_larcv(larcv.Flash(f)) for f in opflash_list]
 
         return opflashes
 
 
 class CRTHitParser(Parser):
-    """Copy construct CRTHit and return an array of larcv.CRTHit.
+    """Copy construct CRTHit and return an array of `CRTHit`.
 
     .. code-block. yaml
         schema:
@@ -181,7 +180,7 @@ class CRTHitParser(Parser):
     """
     name = 'parse_crthit'
     aliases = ['parse_crthits']
-    result = Unwrapper.Rule(method='list', default=larcv.CRTHit())
+    result = Unwrapper.Rule(method='list', default=CRTHit())
 
     def process(self, crthit_event):
         """Fetches the list of CRT hits.
@@ -192,18 +191,18 @@ class CRTHitParser(Parser):
 
         Returns
         -------
-        List[larcv.CRTHit]
+        List[CRTHit]
             List of CRT hit objects
         """
         # Output as a list of LArCV CRT hit objects
-        # TODO: Make a locally-defined data structure to hold what is relevant
-        crthits = [larcv.CRTHit(c) for c in crthit_event.as_vector()]
+        crthit_list = crthit_event.as_vector()
+        crthits = [CRTHit.from_larcv(larcv.CRTHit(c)) for c in crthit_list]
 
         return crthits
 
 
 class TriggerParser(Parser):
-    """Copy construct Trigger and return a larcv.Trigger
+    """Copy construct Trigger and return a `Trigger`.
 
     .. code-block. yaml
         schema:
@@ -212,11 +211,7 @@ class TriggerParser(Parser):
             trigger_event: trigger_base
     """
     name = 'parse_trigger'
-    # TODO: When LArCV2 is updated, remove if/else statement
-    if not hasattr(larcv, 'Trigger'):
-        result = Unwrapper.Rule(method='scalar')
-    else:
-        result = Unwrapper.Rule(method='scalar', default=larcv.Trigger())
+    result = Unwrapper.Rule(method='scalar', default=Trigger())
 
     def process(self, trigger_event):
         """Fetches the trigger information.
@@ -227,11 +222,10 @@ class TriggerParser(Parser):
 
         Returns
         -------
-        larcv.Trigger
+        Trigger
             Trigger object
         """
         # Output as a trigger objects
-        # TODO: Make a locally-defined data structure to hold what is relevant
-        trigger = larcv.Trigger(trigger_event)
+        trigger = Trigger.from_larcv(larcv.Trigger(trigger_event))
 
         return trigger

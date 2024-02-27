@@ -3,7 +3,6 @@ import time
 import glob
 import yaml
 import subprocess as sc
-import numpy as np
 import torch
 
 from warnings import filterwarnings
@@ -15,6 +14,9 @@ from torch.distributed import init_process_group, destroy_process_group
 from .iotools.factories import loader_factory
 
 from .utils import cycle
+from .utils.logger import logger
+
+from .version import __version__
 
 from .trainval import TrainVal
 
@@ -24,43 +26,44 @@ try:
         os.environ['OMP_NUM_THREADS'] = '16'
     import MinkowskiEngine as ME
 except:
-    print('MinkowskiEngine could not be found, cannot run dependant models')
+    logger.warning(
+            "MinkowskiEngine could not be found, cannot run dependant models")
 
 
 @dataclass
 class Handlers:
-    '''
-    Simple dataclass that holds all the necessary information
+    """Simple dataclass that holds all the necessary information
     to run the training.
-    '''
-    cfg: dict               = None
-    data_io: DataLoader     = None
-    data_io_iter: iter      = None
-    trainval: TrainVal      = None
+    """
+    cfg: dict           = None
+    data_io: DataLoader = None
+    data_io_iter: iter  = None
+    trainval: TrainVal  = None
 
     def keys(self):
+        """Function which return the available attributes."""
         return list(self.__dict__.keys())
 
 
 def run(cfg):
-    '''
-    Execute a model in one or more processes
+    """Execute a model in one or more processes.
 
     Parameters
     ----------
     cfg : dict
         IO, model and training/inference configuration
-    '''
+    """
     # Process the configuration
     cfg = process_config(**cfg)
 
     # Check if we are running in training or inference mode
-    assert 'train' in cfg['trainval'], \
-            'Must specify the `train` parameter in the `trainval` block'
+    assert 'train' in cfg['trainval'], (
+            "Must specify the `train` parameter in the `trainval` block")
     train = cfg['trainval']['train']
 
     # Launch the training/inference process
-    if not cfg['trainval']['distributed']:
+    if (not 'distributed' in cfg['trainval'] or
+        not cfg['trainval']['distributed']):
         run_single(0, cfg, train)
     else:
         world_size = torch.cuda.device_count() \
@@ -69,9 +72,8 @@ def run(cfg):
                 args = (cfg, train, world_size,), nprocs = world_size)
 
 
-def run_single(rank, cfg, train, world_size = None):
-    '''
-    Execute a model on a single process
+def run_single(rank, cfg, train, world_size=None):
+    """Execute a model on a single process.
 
     Parameters
     ----------
@@ -83,7 +85,7 @@ def run_single(rank, cfg, train, world_size = None):
         Whether to train the network or simply execute it
     world_size : int, optional
         How many processes are being run in parallel
-    '''
+    """
     # Treat distributed and undistributed training/inference differently
     if world_size is None:
         train_single(cfg) if train else inference_single(cfg)
@@ -93,8 +95,8 @@ def run_single(rank, cfg, train, world_size = None):
         destroy_process_group()
 
 
-def train_single(cfg, rank = 0):
-    '''
+def train_single(cfg, rank=0):
+    """
     Train a model in a single process
 
     Parameters
@@ -103,7 +105,7 @@ def train_single(cfg, rank = 0):
         IO, model and training/inference configuration
     rank : int, default 0
         Process rank
-    '''
+    """
     # Prepare the handlers
     handlers = prepare(cfg, rank)
 
@@ -111,8 +113,8 @@ def train_single(cfg, rank = 0):
     handlers.trainval.run()
 
 
-def inference_single(cfg, rank = 0):
-    '''
+def inference_single(cfg, rank=0):
+    """
     Execute a model in inference mode in a single process
 
     Parameters
@@ -121,7 +123,7 @@ def inference_single(cfg, rank = 0):
         IO, model and training/inference configuration
     rank : int, default 0
         Process rank
-    '''
+    """
     # Prepare the handlers
     handlers = prepare(cfg, rank)
 
@@ -129,9 +131,9 @@ def inference_single(cfg, rank = 0):
     preloaded = os.path.isfile(self.model_path)
     weights = sorted(glob.glob(self.model_path))
     if not preloaded and len(weights):
-        # TODO: use logger
-        print('Looping over {len(weights)} set of weights:')
-        for w in weights: print('  -',w)
+        weight_list = "\n".join(weights)
+        logger.info(f"Looping over {len(weights)} set of weights:\n"
+                     f"{weight_list}")
     elif not len(weights):
         weights = [None]
 
@@ -144,9 +146,8 @@ def inference_single(cfg, rank = 0):
         handlers.trainval.run()
 
 
-def prepare(cfg, rank = 0):
-    '''
-    Prepares high level API handlers, namely the torch DataLoader (and an
+def prepare(cfg, rank=0):
+    """Prepares high level API handlers, namely the torch DataLoader (and an
     iterator) and a TrainVal instance.
 
     Parameters
@@ -160,7 +161,7 @@ def prepare(cfg, rank = 0):
     -------
     Handlers
         Handler instances needed for training/inference
-    '''
+    """
     # Initialize the handlers
     handlers = Handlers()
 
@@ -192,11 +193,11 @@ def prepare(cfg, rank = 0):
     return handlers
 
 
-def process_config(iotool, model = None, trainval = None, verbose = True):
-    '''
-    Do all the necessary cross-checks to ensure the that the configuration
-    can be used. Parse the necessary arguments to make them useable downstream.
-    Modifies the input in place.
+def process_config(iotool, model=None, trainval=None, verbosity='info'):
+    """Do all the necessary cross-checks to ensure the that the configuration
+    can be used.
+    
+    Parse the necessary arguments to make them useable downstream.
 
     Parameters
     ----------
@@ -206,27 +207,40 @@ def process_config(iotool, model = None, trainval = None, verbose = True):
         Model configuration dictionary
     trainval : dict, optional
         Training/inference configuration dictionary
-    verbose : bool, default True
-        Whether or not to print configuration
-        TODO: Make this a general verbosity setting for the whole process
-        TODO: and make it an enumerator rather than a boolean
-    '''
+    verbosity : int, default 'INFO'
+        Verbosity level to pass to the `logging` module. Pick one of
+        'debug', 'info', 'warning', 'error', 'critical'.
+
+    Returns
+    -------
+    cfg : dict
+        Complete, updated configuration dictionary
+    """
+    # Set the verbosity of the logger
+    if isinstance(verbosity, str):
+        verbosity = verbosity.upper()
+    logger.setLevel(verbosity)
+
     # Convert the gpus parameter to a list of GPU IDs
     distributed = False
     world_size = 1
     if trainval is not None and 'gpus' in trainval:
         # Check that the list of GPUs is a comma-separated string
         for val in trainval['gpus'].split(','):
-            assert val.isdigit(), 'The `gpus` parameter must ' \
-                    'be specified as a comma-separated string of numbers.' \
-                    f'instead, got: {trainval["gpus"]}'
+            assert not len(val) or val.isdigit(), (
+                    "The `gpus` parameter must be specified as a "
+                    "comma-separated string of numbers. "
+                   f"Instead, got: {trainval['gpus']}")
 
         # Set GPUs visible to CUDA
         os.environ['CUDA_VISIBLE_DEVICES'] = trainval['gpus']
 
         # Convert the comma-separated string to a list
-        trainval['gpus'] = list(range(len(trainval['gpus'].split(','))))
-        world_size = len(trainval['gpus'])
+        if len(trainval['gpus']):
+            trainval['gpus'] = list(range(len(trainval['gpus'].split(','))))
+            world_size = len(trainval['gpus'])
+        else:
+            trainval['gpus'] = []
 
         # If there is more than one GPU, must distribute
         if world_size > 1:
@@ -257,25 +271,27 @@ def process_config(iotool, model = None, trainval = None, verbose = True):
         else:
             trainval['seed'] = int(trainval['seed'])
 
-    # Make sure that warnings are reported once
-    # TODO: should be part of the verbosity configuration
-    # TODO: deal with vebosity properly
-    filterwarnings('once', message='Deprecated', category=DeprecationWarning)
-
-    # Report configuration
-    print('\nConfig processed at:', sc.getstatusoutput('uname -a')[1])
-    print('\n$CUDA_VISIBLE_DEVICES="%s"\n' \
-            % os.environ.get('CUDA_VISIBLE_DEVICES',None))
-
+    # Rebuild global configuration dictionary
     cfg = {'iotool': iotool, 'model': model, 'trainval': trainval}
-    print(yaml.dump(cfg, default_flow_style = None))
 
+    # Log environment information
+    logger.info(f"\nlartpc_mlreco3d version: {__version__}\n")
+
+    visible_devices = os.environ.get('CUDA_VISIBLE_DEVICES', None)
+    logger.info(f"$CUDA_VISIBLE_DEVICES={visible_devices}\n")
+
+    system_info = sc.getstatusoutput('uname -a')[1]
+    logger.info(f"Configuration processed at: {system_info}\n")
+
+    # Log configuration
+    logger.info(yaml.dump(cfg, default_flow_style=None))
+
+    # Return updated configuration
     return cfg
 
 
 def apply_event_filter(handlers, entry_list):
-    '''
-    Reinstantiate data loader with a restricted set of events.
+    """Reinstantiate data loader with a restricted set of events.
 
     Parameters
     ----------
@@ -283,7 +299,7 @@ def apply_event_filter(handlers, entry_list):
         Handler instances needed for training/inference
     entry_list : list
         List of events to load
-    '''
+    """
     # Instantiate DataLoader
     handlers.cfg['iotool']['entry_list'] = entry_list
     handlers.data_io = loader_factory(**handlers.cfg['iotool'])
@@ -293,11 +309,11 @@ def apply_event_filter(handlers, entry_list):
 
 
 def setup_ddp(rank, world_size):
-    '''
-    Sets up the DistributedDataParallel environment
-    '''
+    """Sets up the DistributedDataParallel environment."""
+    # Define the environment variables
     os.environ['MASTER_ADDR'] = 'localhost'
     os.environ['MASTER_PORT'] = '12355'
 
-    init_process_group(backend = 'nccl', rank = rank, world_size = world_size)
+    # Initialize the process group for this GPU
+    init_process_group(backend='nccl', rank=rank, world_size=world_size)
     torch.cuda.set_device(rank)
