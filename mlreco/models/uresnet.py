@@ -10,10 +10,9 @@ from mlreco.utils.data_structures import TensorBatch
 from mlreco.utils.logger import logger
 from mlreco.utils.unwrap import Unwrapper
 
-from mlreco.models.layers.common.uresnet_layers import UResNet
-from mlreco.models.layers.common.activation_normalization_factories import (
+from .layers.common.activation_normalization_factories import (
         activations_construct, normalizations_construct)
-
+from .layers.cnn.uresnet_layers import UResNet
 
 __all__ = ['UResNetSegmentation', 'SegmentationLoss']
 

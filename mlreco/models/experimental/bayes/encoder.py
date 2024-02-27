@@ -1,13 +1,14 @@
 import torch
 import torch.nn as nn
 import MinkowskiEngine as ME
+from collections import defaultdict
 
 import MinkowskiFunctional as MF
 
-from collections import defaultdict
-from mlreco.models.layers.common.activation_normalization_factories import activations_dict, activations_construct, normalizations_construct
-from mlreco.models.layers.common.configuration import setup_cnn_configuration
-from mlreco.models.layers.common.blocks import DropoutBlock, ResNetBlock, Identity
+from mlreco.models.layers.common.activation_normalization_factories import (
+        activations_construct, normalizations_construct)
+from mlreco.models.layers.cnn.configuration import setup_cnn_configuration
+from mlreco.models.layers.cnn.blocks import DropoutBlock, ResNetBlock, Identity
 
 
 class MCDropoutEncoder(torch.nn.Module):

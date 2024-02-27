@@ -3,22 +3,24 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from collections import defaultdict, Counter, OrderedDict
 
 from torch_geometric.data import Batch, Data
 
-from mlreco.models.layers.common.cnn_encoder import SparseResidualEncoder
-from mlreco.models.experimental.layers.pointnet import PointNetEncoder
-from mlreco.models.experimental.layers.pointmlp import PointMLPEncoder
+from .layers.common.activation_normalization_factories import (
+        activations_construct)
+from .layers.cnn.configuration import setup_cnn_configuration
+from .layers.cnn.cnn_encoder import SparseResidualEncoder
+from .layers.cluster_cnn.losses.lovasz import StableBCELoss
 
-from collections import defaultdict, Counter, OrderedDict
-from mlreco.models.layers.common.activation_normalization_factories import activations_construct
-from mlreco.models.layers.common.configuration import setup_cnn_configuration
-from mlreco.models.experimental.bayes.encoder import MCDropoutEncoder
-from mlreco.models.experimental.bayes.evidential import EVDLoss
-from mlreco.models.layers.cluster_cnn.losses.lovasz import StableBCELoss
+from .experimental.layers.pointnet import PointNetEncoder
+from .experimental.layers.pointmlp import PointMLPEncoder
+from .experimental.bayes.encoder import MCDropoutEncoder
+from .experimental.bayes.evidential import EVDLoss
 
 from mlreco.utils.gnn.data import split_clusts
 from mlreco.utils.gnn.cluster import form_clusters, get_cluster_label
+
 
 class ParticleImageClassifier(nn.Module):
 

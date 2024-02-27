@@ -11,13 +11,11 @@ import torch
 
 import MinkowskiEngine as ME
 
-from mlreco.models.layers.common.blocks import (
-        ResNetBlock, CascadeDilationBlock, ASPP)
 from mlreco.models.layers.common.activation_normalization_factories import (
-        activations_construct)
-from mlreco.models.layers.common.activation_normalization_factories import (
-        normalizations_construct)
-from mlreco.models.layers.common.configuration import setup_cnn_configuration
+        activations_construct, normalizations_construct)
+
+from .blocks import ResNetBlock, CascadeDilationBlock, ASPP
+from .configuration import setup_cnn_configuration
 
 __all__ = ['UResNetEncoder', 'UResNetDecoder', 'UResNet']
 

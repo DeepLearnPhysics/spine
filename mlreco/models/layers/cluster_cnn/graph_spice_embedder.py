@@ -2,10 +2,7 @@ import torch
 import torch.nn as nn
 import MinkowskiEngine as ME
 
-from mlreco.models.layers.common.uresnet_layers import UResNet
-# from mlreco.models.layers.cluster_cnn.losses.gs_embeddings import *
-
-from pprint import pprint
+from mlreco.models.layers.cnn.uresnet_layers import UResNet
 
 
 class GraphSPICEEmbedder(UResNet):

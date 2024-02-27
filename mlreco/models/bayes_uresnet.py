@@ -2,16 +2,16 @@ import torch
 import torch.nn as nn
 import MinkowskiEngine as ME
 import torch.nn.functional as F
-
 from collections import defaultdict
-from mlreco.models.layers.common.activation_normalization_factories import (activations_dict,
-                                          activations_construct,
-                                          normalizations_construct)
-from mlreco.models.layers.common.configuration import setup_cnn_configuration
-from mlreco.models.layers.common.uresnet_layers import UResNet
-from mlreco.models.experimental.bayes.encoder import MCDropoutEncoder
-from mlreco.models.experimental.bayes.decoder import MCDropoutDecoder
-from mlreco.models.experimental.bayes.evidential import EVDLoss
+
+from .layers.common.activation_normalization_factories import (
+        activations_construct, normalizations_construct)
+from .layers.cnn.configuration import setup_cnn_configuration
+from .layers.cnn.uresnet_layers import UResNet
+
+from .experimental.bayes.encoder import MCDropoutEncoder
+from .experimental.bayes.decoder import MCDropoutDecoder
+from .experimental.bayes.evidential import EVDLoss
 
 
 class BayesianUResNet(torch.nn.Module):

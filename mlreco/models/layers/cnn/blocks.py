@@ -5,30 +5,9 @@ import torch.nn as nn
 
 import MinkowskiEngine as ME
 
-from .activation_normalization_factories import *
-
-
-class Identity(nn.Module):
-    """No-op torch module."""
-    def __init__(self):
-        """Initialize the module."""
-        # Initialize the parent class
-        super().__init__()
-
-    def forward(self, input_data):
-        """Returns the input as is.
-        
-        Parameters
-        ----------
-        input_data : ME.SparseTensor
-            Input sparse tensor
-
-        Returns
-        -------
-        ME.SparseTensor
-             Input sparse tensor
-        """
-        return input_data
+from mlreco.models.layers.common.identity import Identity
+from mlreco.models.layers.common.activation_normalization_factories import (
+        activations_construct, normalizations_construct)
 
 
 class ConvolutionBlock(ME.MinkowskiNetwork):
@@ -1008,9 +987,8 @@ class MBResConvSE(MBResConv):
             self.connection = Identity()
         else:
             self.connection = nn.Sequential(
-                normalizations_construct(
-                    normalization, in_features, **normalization_args),
-                activations_construct(activation, **activation_args),
+                normalizations_construct(normalization, in_features),
+                activations_construct(activation),
                 ME.MinkowskiLinear(in_features, out_features))
 
         self.se = SEBlock(out_features, ratio=se_ratio)

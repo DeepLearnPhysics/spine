@@ -32,7 +32,7 @@ def normalizations_dict():
     """Dictionary of valid normalization functions."""
     import MinkowskiEngine as ME
     from . import normalizations
-    from .blocks import Identity
+    from .identity import Identity
 
     norm_layers = {
         'none': Identity,

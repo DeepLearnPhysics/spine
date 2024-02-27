@@ -5,13 +5,16 @@ import torch.nn as nn
 import MinkowskiEngine as ME
 import MinkowskiFunctional as MF
 
-from mlreco.models.layers.common.blocks import ResNetBlock
-from mlreco.models.layers.common.activation_normalization_factories import activations_construct
-from mlreco.models.layers.common.configuration import setup_cnn_configuration
-
+from mlreco.models.layers.cnn.blocks import ResNetBlock
+from mlreco.models.layers.cnn.configuration import setup_cnn_configuration
 from mlreco.models.layers.cluster_cnn.losses.misc import BinaryCELogDiceLoss
-from mlreco.models.layers.common.ppnplus import *
-from mlreco.utils.gnn.cluster import form_clusters, get_cluster_batch, get_cluster_label
+
+from .activation_normalization_factories import activations_construct
+from .ppnplus import *
+
+from mlreco.utils.gnn.cluster import (
+        form_clusters, get_cluster_batch, get_cluster_label)
+
 
 class VertexPPN(nn.Module):
 

@@ -5,10 +5,12 @@ import torch.nn as nn
 import MinkowskiEngine as ME
 import MinkowskiFunctional as MF
 
-from mlreco.models.layers.common.blocks import *
-from mlreco.models.layers.common.activation_normalization_factories import activations_dict, activations_construct
 from mlreco.models.layers.common.nonlinearities import MinkowskiLeakyReLU
-from mlreco.models.layers.common.configuration import setup_cnn_configuration
+from mlreco.models.layers.common.activation_normalization_factories import (
+        activations_dict, activations_construct)
+
+from .blocks import *
+from .configuration import setup_cnn_configuration
 
 
 class SENet(torch.nn.Module):

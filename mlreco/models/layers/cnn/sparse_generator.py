@@ -1,14 +1,14 @@
 import torch
 import torch.nn as nn
+from scipy.special import logit
 
 import MinkowskiEngine as ME
 
 from mlreco.models.layers.common.activation_normalization_factories import activations_dict, activations_construct, normalizations_construct
-from mlreco.models.layers.common.configuration import setup_cnn_configuration
-from mlreco.models.layers.common.blocks import ResNetBlock, ConvolutionBlock
-from scipy.special import logit
 
-# from torch_geometric.nn import BatchNorm, LayerNorm, MessageNorm
+from .configuration import setup_cnn_configuration
+from .blocks import ResNetBlock, ConvolutionBlock
+
 
 class SparseGenerator(torch.nn.Module):
 

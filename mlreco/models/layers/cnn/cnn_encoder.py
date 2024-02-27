@@ -1,15 +1,17 @@
 import numpy as np
 import torch
 import torch.nn as nn
+from collections import defaultdict
 
 import MinkowskiEngine as ME
 import MinkowskiFunctional as MF
 
-from collections import defaultdict
-from mlreco.models.layers.common.activation_normalization_factories import activations_dict, activations_construct, normalizations_construct
-from mlreco.models.layers.common.configuration import setup_cnn_configuration
-from mlreco.models.layers.common.blocks import ResNetBlock, ConvolutionBlock
-from mlreco.models.layers.common.uresnet_layers import UResNetEncoder
+from mlreco.models.layers.common.activation_normalization_factories import (
+        activations_construct, normalizations_construct)
+
+from .configuration import setup_cnn_configuration
+from .blocks import ResNetBlock, ConvolutionBlock
+from .uresnet_layers import UResNetEncoder
 
 
 class SparseResidualEncoder(UResNetEncoder):
