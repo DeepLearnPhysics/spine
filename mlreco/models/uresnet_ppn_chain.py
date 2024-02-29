@@ -2,26 +2,29 @@ import numpy as np
 import torch
 import torch.nn as nn
 import time
+from collections import defaultdict
 
 import MinkowskiEngine as ME
 import MinkowskiFunctional as MF
 
-from mlreco.models.layers.common.ppnplus import PPN, PPNLonelyLoss
-from mlreco.models.uresnet import SegmentationLoss
-from collections import defaultdict
-from mlreco.models.uresnet import UResNetSegmentation
+from .uresnet import UResNetSegmentation, SegmentationLoss
+from .layers.common.ppnplus import PPN, PPNLoss
+
+from mlreco.utils.unwrap import Unwrapper
+
 
 class UResNetPPN(nn.Module):
-    """
-    A model made of UResNet backbone and PPN layers. Typical configuration:
+    """A model made of a UResNet backbone and PPN layers.
+    
+    Typical configuration:
 
     .. code-block:: yaml
 
         model:
           name: uresnet_ppn_chain
           modules:
-            uresnet_lonely:
-              # Your uresnet config here
+            uresnet:
+              # Your backbone uresnet config here
             ppn:
               # Your ppn config here
 
@@ -47,31 +50,22 @@ class UResNetPPN(nn.Module):
     input_kernel: int, default 3
         Receptive field size for very first convolution after input layer.
 
-    num_classes: int, default 5
     score_threshold: float, default 0.5
     classify_endpoints: bool, default False
         Enable classification of points into start vs end points.
     ppn_resolution: float, default 1.0
-    ghost: bool, default False
-    downsample_ghost: bool, default True
     use_true_ghost_mask: bool, default False
-    mask_loss_name: str, default 'BCE'
-        Can be 'BCE' or 'LogDice'
-    particles_label_seg_col: int, default -2
-        Which column corresponds to particles' semantic label
-    track_label: int, default 1
 
     See Also
     --------
     mlreco.models.uresnet.UResNetSegmentation, mlreco.models.layers.common.ppnplus.PPN
     """
-    MODULES = ['mink_uresnet', 'mink_uresnet_ppn_chain', 'mink_ppn']
+    MODULES = ['uresnet', 'ppn']
 
     RETURNS = dict(UResNetSegmentation.RETURNS, **PPN.RETURNS)
 
-    def __init__(self, uresnet, ppn):
-        '''
-        Initialize the UResNet+PPN model
+    def __init__(self, uresnet, ppn, uresnet_loss=None, ppn_loss=None):
+        """Initialize the UResNet+PPN model.
 
         Parameters
         ----------
@@ -79,7 +73,11 @@ class UResNetPPN(nn.Module):
             UResNet configuration dictionary
         ppn : dict
             PPN configuration dictionary
-        '''
+        uresnet_loss : dict, optional
+            UResNet loss configuration
+        ppn_loss : dict, optional
+            PPN loss configuration
+        """
         # Initialize the parent class
         super().__init__()
 
@@ -87,86 +85,140 @@ class UResNetPPN(nn.Module):
         self.uresnet = UResNetSegmentation(uresnet)
 
         # Initialize the PPN layers
-        self.ppn = PPN(ppn)
+        self.ppn = PPN(uresnet, ppn)
         
         # Check that the UResNet and PPN configurations are compatible
         assert self.uresnet.ghost == self.ppn.ghost
+        self.ghost = self.uresnet.ghost
 
-    def forward(self, input):
+    def forward(self, input_data, segment_label=None):
+        """Run a batch of data through the foward function.
 
-        labels = None
+        Parameters
+        ----------
+        input_data : TensorBatch
+            (N, 1 + D + N_f) tensor of voxel/value pairs
+            - N is the the total number of voxels in the image
+            - 1 is the batch ID
+            - D is the number of dimensions in the input image
+            - N_f is the number of features per voxel
+        segment_label : TensorBatch, optional
+            (N, 1 + D + 1) tensor of voxel/ghost label pairs
+        """
+        # Pass the input through the backbone UResNet model
+        result = self.uresnet(input_data)
 
-        if len(input) == 1:
-            # PPN without true ghost mask propagation
-            input_tensors = [input[0]]
-        elif len(input) == 2:
-            # PPN with true ghost mask propagation
-            input_tensors = [input[0]]
-            labels = input[1]
-
-        out = defaultdict(list)
-
-        for igpu, x in enumerate(input_tensors):
-            res = self.backbone([x])
-            out.update({'ghost': res['ghost'],
-                        'segmentation': res['segmentation']})
-            if self.ghost:
-                if self.ppn.use_true_ghost_mask:
-                    res_ppn = self.ppn(res['finalTensor'][igpu],
-                                    res['decoderTensors'][igpu],
-                                    ghost=res['ghost_sptensor'][igpu],
-                                    ghost_labels=labels)
-                else:
-                    res_ppn = self.ppn(res['finalTensor'][igpu],
-                                    res['decoderTensors'][igpu],
-                                    ghost=res['ghost_sptensor'][igpu])
-
+        # Pass the decoder feature tensors to the PPN layers
+        if self.ghost:
+            # Deghost
+            if sefl.ppn.use_true_ghost_mask:
+                # Use the true ghost labels
+                assert segment_label is not None, (
+                        "If `use_true_ghost_mask` is set to `True`, must "
+                        "provide the `segment_label` tensor.")
+                result_ppn = self.ppn(
+                        result['final_tensor'], result['decoder_tensors'],
+                        result['ghost_tensor'], segment_label)
             else:
-                res_ppn = self.ppn(res['finalTensor'][igpu],
-                                   res['decoderTensors'][igpu])
-            out.update(res_ppn)
+                # Use the ghost predictions
+                result_ppn = self.ppn(
+                        result['final_tensor'], result['decoder_tensors'],
+                        result['ghost_tensor'])
+        else:
+            # No ghost
+            result_ppn = self.ppn(
+                    result['final_tensor'], result['decoder_tensors'])
 
-        return out
+        result.update(result_ppn)
+
+        return result
 
 
 class UResNetPPNLoss(nn.Module):
-    """
+    """Loss for amodel made of a UResNet backbone and PPN layers.
+
+    It includes a segmentation loss and a PPN loss.
+
+    Typical configuration:
+
+    .. code-block:: yaml
+
+        model:
+          name: uresnet_ppn_chain
+          modules:
+            uresnet:
+              # Your backbone uresnet config here
+            ppn:
+              # Your ppn config here
+            ppn_loss:
+              # Your ppn loss config here
+
     See Also
     --------
-    mlreco.models.uresnet.SegmentationLoss, mlreco.models.layers.common.ppnplus.PPNLonelyLoss
+    :class:`mlreco.models.uresnet.SegmentationLoss`,
+    :class:`mlreco.models.layers.common.ppnplus.PPNLoss`
     """
-
     RETURNS = {
-        'loss': ['scalar'],
-        'accuracy': ['scalar']
+        'loss': Unwrapper.Rule(method='scalar'),
+        'accuracy': Unwrapper.Rule(method='scalar')
     }
 
-    def __init__(self, cfg):
-        super(UResNetPPNLoss, self).__init__()
-        self.ppn_loss = PPNLonelyLoss(cfg)
-        self.segmentation_loss = SegmentationLoss(cfg)
+    def __init__(self, uresnet, ppn, ppn_loss, uresnet_loss=None):
+        """Initialize the UResNet+PPN model loss.
 
-        self.RETURNS.update({'segmentation_'+k:v for k, v in self.segmentation_loss.RETURNS.items()})
-        self.RETURNS.update({'ppn_'+k:v for k, v in self.ppn_loss.RETURNS.items()})
+        Parameters
+        ----------
+        uresnet : dict
+            UResNet configuration dictionary
+        ppn : dict
+            PPN configuration dictionary
+        uresnet_loss : dict, optional
+            UResNet loss configuration
+        ppn_loss : dict, optional
+            PPN loss configuration
+        """
+        # Initialize the parent clas
+        super().__init__()
 
-    def forward(self, outputs, segment_label, particles_label, weights=None):
+        # Initialize the segmentation loss
+        self.seg_loss = SegmentationLoss(uresnet, uresnet_loss)
+        seg_rules = self.seg_loss.RETURNS
 
-        res_segmentation = self.segmentation_loss(
-            outputs, segment_label, weights=weights)
+        # Initialize the point proposal loss
+        self.ppn_loss = PPNLoss(uresnet, ppn, ppn_loss)
+        ppn_rules = self.ppn_loss.RETURNS
 
-        res_ppn = self.ppn_loss(
-            outputs, segment_label, particles_label)
+        # Add unwrapping rules for each submodel output
+        self.RETURNS.update({'uresnet_'+k:v for k, v in seg_rules.items()})
+        self.RETURNS.update({'ppn_'+k:v for k, v in ppn_rules.items()})
 
-        res = {
-            'loss': res_segmentation['loss'] + res_ppn['loss'],
-            'accuracy': (res_segmentation['accuracy'] + res_ppn['accuracy'])/2
+    def forward(self, segment_label, ppn_label, weights=None, **result):
+        """Run a batch of data through the loss function.
+
+        Parameters
+        ----------
+        segment_label : TensorBatch
+            (N, 1 + D + 1) Tensor of segmentation labels for the batch
+        ppn_label : TensorBatch
+            (N, 1 + D + N_l) Tensor of PPN labels for the batch
+        weights : torch.Tensor, optional
+            (N) Tensor of segmentation weights for each pixel in the batch
+        **result : dict
+            Outputs of the UResNet + PPN forward function
+        """
+        # Apply the segmentation loss
+        result_seg = self.seg_loss(segment_label, weights=weights, **result)
+
+        # Apply the PPN loss
+        result_ppn = self.ppn_loss(ppn_label, **result)
+
+        # Combine the two outputs
+        result = {
+            'loss': result_seg['loss'] + result_ppn['loss'],
+            'accuracy': (result_seg['accuracy'] + result_ppn['accuracy'])/2
         }
 
-        res.update({'segmentation_'+k:v for k, v in res_segmentation.items()})
-        res.update({'ppn_'+k:v for k, v in res_ppn.items()})
+        result.update({'uresnet_'+k:v for k, v in result_seg.items()})
+        result.update({'ppn_'+k:v for k, v in result_ppn.items()})
 
-        #for key, val in res.items():
-        #    if 'ppn' in key:
-        #        print('{}: {}'.format(key, val))
-
-        return res
+        return result

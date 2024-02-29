@@ -48,7 +48,7 @@ class UResNetEncoder(torch.nn.Module):
         # Initialize encoder
         self.encoding_conv = []
         self.encoding_block = []
-        for i, F in enumerate(self.nPlanes):
+        for i, F in enumerate(self.num_planes):
             m = []
             for _ in range(self.reps):
                 m.append(ResNetBlock(
@@ -61,8 +61,8 @@ class UResNetEncoder(torch.nn.Module):
                 m.append(normalizations_construct(self.norm_cfg, F))
                 m.append(activations_construct(self.act_cfg))
                 m.append(ME.MinkowskiConvolution(
-                    in_channels=self.nPlanes[i],
-                    out_channels=self.nPlanes[i+1],
+                    in_channels=self.num_planes[i],
+                    out_channels=self.num_planes[i+1],
                     kernel_size=2, stride=2,
                     dimension=self.dim, bias=self.allow_bias))
             m = torch.nn.Sequential(*m)
@@ -85,21 +85,16 @@ class UResNetEncoder(torch.nn.Module):
             convolution) from the encoder half
         final_tensor : ME.SparseTensor
             Feature tensor at deepest layer
-        features_ppn : List[ME.SparseTensor]
-            List of intermediate tensors (right after encoding block + convolution)
         """
         x = self.input_layer(x)
         encoder_tensors = [x]
-        features_ppn = [x]
         for i, layer in enumerate(self.encoding_block):
             x = self.encoding_block[i](x)
             encoder_tensors.append(x)
             x = self.encoding_conv[i](x)
-            features_ppn.append(x)
 
         result = {
             'encoder_tensors': encoder_tensors,
-            'features_ppn': features_ppn,
             'final_tensor': x
         }
 
@@ -131,18 +126,19 @@ class UResNetDecoder(torch.nn.Module):
         for i in range(self.depth-2, -1, -1):
             m = []
             m.append(normalizations_construct(
-                self.norm_cfg, self.nPlanes[i+1]))
+                self.norm_cfg, self.num_planes[i+1]))
             m.append(activations_construct(self.act_cfg))
             m.append(ME.MinkowskiConvolutionTranspose(
-                in_channels = self.nPlanes[i+1], out_channels = self.nPlanes[i],
-                kernel_size = 2, stride = 2, dimension = self.dim,
+                in_channels=self.num_planes[i+1],
+                out_channels=self.num_planes[i],
+                kernel_size=2, stride=2, dimension=self.dim,
                 bias = self.allow_bias))
             m = torch.nn.Sequential(*m)
             self.decoding_conv.append(m)
             m = []
             for j in range(self.reps):
-                m.append(ResNetBlock(self.nPlanes[i] * (2 if j == 0 else 1),
-                                     self.nPlanes[i], dimension=self.dim,
+                m.append(ResNetBlock(self.num_planes[i] * (2 if j == 0 else 1),
+                                     self.num_planes[i], dimension=self.dim,
                                      activation=self.act_cfg,
                                      normalization=self.norm_cfg,
                                      bias=self.allow_bias))
@@ -219,8 +215,6 @@ class UResNet(torch.nn.Module):
             List of feature tensors in decoding path at each spatial resolution
         final_tensor : ME.SparseTensor
             Feature tensor at deepest layer
-        features_ppn : List[ME.SparseTensor]
-            List of intermediate tensors (right after encoding block + convolution)
         """
         # Cast the input data to a sparse tensor
         coords = input_data[:, 0:self.dim + 1].int()
@@ -239,8 +233,7 @@ class UResNet(torch.nn.Module):
         res = {
             'encoder_tensors': encoder_tensors,
             'decoder_tensors': decoder_tensors,
-            'final_tensor': final_tensor,
-            'features_ppn': encoder_output['features_ppn']
+            'final_tensor': final_tensor
         }
 
         return res

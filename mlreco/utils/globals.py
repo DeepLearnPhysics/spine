@@ -28,7 +28,11 @@ MOM_COL   = 16
 # Colum which specifies the shape ID of a voxel in a label tensor
 SHAPE_COL = -1
 
-# Columns that specify each output in a PPN output tensor
+# Columns that specify each label in a PPN label/output tensors
+PPN_LTYPE_COL  = 4                           # Class type label
+PPN_LPART_COL  = 5                           # Particle ID label
+PPN_LENDP_COL  = 6                           # Endpoint label
+
 PPN_ROFF_COLS  = np.array([0, 1, 2])         # Raw offset
 PPN_RTYPE_COLS = np.array([3, 4, 5, 6, 7])   # Raw class type scores
 PPN_RPOS_COLS  = np.array([8, 9])            # Raw positive score

@@ -185,6 +185,33 @@ class TensorBatch:
         splits = torch.as_tensor(self.splits, dtype=torch.int64, device=device)
         return TensorBatch(tensor, splits)
 
+    @classmethod
+    def from_list(cls, tensor_list):
+        """Builds a batch from a list of tensors.
+
+        Parameters
+        ----------
+        tensor_list : List[Union[np.ndarray, torch.Tensor]]
+            List of tensors, exactly one per batch
+        """
+        # Check that we are not fed an empty list of tensors
+        assert len(tensor_list), (
+                "Must provide at least one tensor to build a tensor batch")
+        is_numpy = not isinstance(tensor_list[0], torch.Tensor)
+
+        # Compute the splits from the input list
+        counts = [len(t) for t in tensor_list]
+        splits = np.cumsum(counts)
+        if not is_numpy:
+            device = tensor_list[0].device
+            splits = torch.as_tensor(splits, dtype=torch.int64, device=device)
+
+        # Concatenate input
+        if is_numpy:
+            return cls(np.concatenate(tensor_list, axis=0), splits)
+        else:
+            return cls(torch.cat(tensor_list, axis=0), splits)
+
 
 @dataclass
 class MCParticle:

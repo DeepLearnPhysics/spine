@@ -18,15 +18,16 @@ __all__ = ['UResNetSegmentation', 'SegmentationLoss']
 
 
 class UResNetSegmentation(nn.Module):
-    """
-    UResNet implementation. Typical configuration should look like:
+    """UResNet for semantic segmentation.
+    
+    Typical configuration should look like:
 
     .. code-block:: yaml
 
         model:
           name: uresnet
           modules:
-            uresnet_lonely:
+            uresnet:
               # Your config here
 
     See :func:`setup_cnn_configuration` for available parameters for the
@@ -82,7 +83,7 @@ class UResNetSegmentation(nn.Module):
         ['parse_sparse3d', (float,), (3, 1)]
     ]
 
-    MODULES = ['uresnet_lonely']
+    MODULES = ['uresnet']
 
     RETURNS = {
         'segmentation': Unwrapper.Rule(method='tensor'),
@@ -94,13 +95,14 @@ class UResNetSegmentation(nn.Module):
     }
 
     def __init__(self, uresnet, uresnet_loss=None):
-        """
-        Initializes the standalone UResNet model.
+        """Initializes the standalone UResNet model.
 
         Parameters
         ----------
         uresnet : dict
-            Dictionary of model configuration
+            Model configuration
+        uresnet_loss : dict, optional
+            Loss configuration
         """
         # Initialize the parent class
         super().__init__()
@@ -114,16 +116,16 @@ class UResNetSegmentation(nn.Module):
             activations_construct(self.net.act_cfg),
             ]
         self.output = nn.Sequential(*self.output)
-        self.linear_segmentation = ME.MinkowskiLinear(self.num_filters, self.num_classes)
+        self.linear_segmentation = ME.MinkowskiLinear(
+                self.num_filters, self.num_classes)
 
         # If needed, activate the ghost classification layer
         if self.ghost:
             logger.debug('Ghost Masking is enabled for UResNet Segmentation')
             self.linear_ghost = ME.MinkowskiLinear(self.num_filters, 2)
 
-    def process_model_config(self, num_classes, ghost = False, **backbone):
-        """
-        Initialize the underlying UResNet model
+    def process_model_config(self, num_classes, ghost=False, **backbone):
+        """Initialize the underlying UResNet model.
 
         Parameters
         ----------
@@ -143,8 +145,7 @@ class UResNetSegmentation(nn.Module):
         self.num_filters = self.net.num_filters
 
     def forward(self, input_data):
-        """
-        Run a batch of data through the forward function
+        """Run a batch of data through the forward function.
 
         Parameters
         ----------
@@ -201,8 +202,7 @@ class UResNetSegmentation(nn.Module):
 
 
 class SegmentationLoss(torch.nn.modules.loss._Loss):
-    """
-    Loss definition for UResNet.
+    """Loss definition for semantic segmentation.
 
     For a regular flavor UResNet, it is a cross-entropy loss.
     For deghosting, it depends on a configuration parameter `ghost`:
@@ -234,18 +234,17 @@ class SegmentationLoss(torch.nn.modules.loss._Loss):
         'ghost_accuracy_class_1': Unwrapper.Rule(method='scalar')
     }
 
-    def __init__(self, uresnet, uresnet_loss = {}):
+    def __init__(self, uresnet, uresnet_loss={}):
         """
         Initializes the segmentation loss
 
         Parameters
         ----------
         uresnet : dict
-            Dictionary of model configuration
-        uresnet_loss : dict
-            Dictionary of loss configuration
+            Model configuration
+        uresnet_loss : dict, optional
+            Loss configuration
         """
-
         # Initialize the parent class
         super().__init__()
 
@@ -264,8 +263,7 @@ class SegmentationLoss(torch.nn.modules.loss._Loss):
                     Unwrapper.Rule(method='scalar')
 
     def process_model_config(self, num_classes, ghost=False, **kwargs):
-        """
-        Process the parameters of the upstream model needed for in the loss
+        """Process the parameters of the upstream model needed for in the loss.
 
         Parameters
         ----------
@@ -323,7 +321,7 @@ class SegmentationLoss(torch.nn.modules.loss._Loss):
         weights : torch.Tensor, optional
             (N) Tensor of weights for each pixel in the batch
         **kwargs : dict, optional
-            Other outputs of the forward model which are not relevant here
+            Other outputs of the upstream model which are not relevant here
 
         Returns
         -------
@@ -391,7 +389,7 @@ class SegmentationLoss(torch.nn.modules.loss._Loss):
 
         return result
 
-    def loss_accuracy(self, logits, labels, weights = None):
+    def loss_accuracy(self, logits, labels, weights=None):
         """Computes the loss, global and classwise accuracy.
 
         Parameters
@@ -410,7 +408,7 @@ class SegmentationLoss(torch.nn.modules.loss._Loss):
         float
             Global accuracy
         np.ndarray
-            (N_c) Vecotr of class-wise accuracy
+            (N_c) Vector of class-wise accuracy
         """
         # If there is no input, nothing to do
         if not len(logits):

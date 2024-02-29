@@ -314,9 +314,17 @@ class TrainVal(object):
     def initialize(self):
         """Initialize the necessary building blocks to train a model."""
         # Initialize model and loss function
-        self.model = self.model_class(**self.model_cfg)
-        self.model.batch_size = self.minibatch_size * self.num_volumes
-        self.loss_fn = self.loss_class(**self.model_cfg)
+        try:
+            self.model = self.model_class(**self.model_cfg)
+        except Exception as err:
+            msg = f"Failed to instantiate {self.model_class}"
+            raise type(err)(f"{err}\n{msg}")
+
+        try:
+            self.loss_fn = self.loss_class(**self.model_cfg)
+        except Exception as err:
+            msg = f"Failed to instantiate {self.loss_class}"
+            raise type(err)(f"{err}\n{msg}")
 
         # Replace model with calibrated model on uncertainty calibration mode
         if 'calibration' in self.model_cfg:

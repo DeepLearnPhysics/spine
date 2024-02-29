@@ -133,8 +133,8 @@ class Unwrapper:
 
         # Dispatch to the correct unwrapping scheme
         if method == 'scalar':
-            # If the data is a scalar, return the same number for each entry
-            return np.full(self.batch_size, data)
+            # If the data is a scalar, return as is
+            return data
 
         elif method == 'list':
             # If the data is a list, check that it is the right length, return

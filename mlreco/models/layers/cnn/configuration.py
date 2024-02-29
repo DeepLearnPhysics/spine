@@ -50,7 +50,7 @@ def setup_cnn_configuration(self, spatial_size, reps, depth, filters,
     self.allow_bias = allow_bias
 
     # Convert the depth to a number of filters per plane
-    self.nPlanes = [i * self.num_filters for i in range(1, self.depth + 1)]
+    self.num_planes = [i * self.num_filters for i in range(1, self.depth + 1)]
 
     # Store activation function configuration
     self.act_cfg = activation

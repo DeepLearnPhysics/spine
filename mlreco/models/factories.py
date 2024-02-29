@@ -1,12 +1,12 @@
 import torch
 
 def model_dict():
-    """
-    Returns dictionary of model classes using name keys (strings).
+    """Returns dictionary of model classes using name keys (strings).
 
     Returns
     -------
     dict
+        Dictionary of available models
     """
 
     from . import full_chain
@@ -83,6 +83,6 @@ def construct_model(name):
     """
     models = model_dict()
     if name not in models:
-        raise Exception("Unknown model name provided: %s" % name)
+        raise ValueError("Unknown model name provided: %s" % name)
 
     return models[name]

@@ -3,7 +3,7 @@ import MinkowskiEngine as ME
 import numpy as np
 
 from mlreco.models.layers.common.gnn_full_chain import FullChainGNN, FullChainLoss
-from mlreco.models.layers.common.ppnplus import PPN, PPNLonelyLoss
+from mlreco.models.layers.common.ppnplus import PPN, PPNLoss
 from mlreco.models.layers.cnn.cnn_encoder import SparseResidualEncoder
 from mlreco.models.uresnet import UResNetSegmentation, SegmentationLoss
 from mlreco.models.graph_spice import GraphSPICE, GraphSPICELoss
@@ -461,7 +461,7 @@ class FullChainLoss(FullChainLoss):
         if self.enable_uresnet:
             self.uresnet_loss            = SegmentationLoss(cfg.get('uresnet_ppn', {}), batch_col=self.batch_col)
         if self.enable_ppn:
-            self.ppn_loss                = PPNLonelyLoss(cfg.get('uresnet_ppn', {}), name='ppn')
+            self.ppn_loss                = PPNLoss(cfg.get('uresnet_ppn', {}), name='ppn')
         if self.enable_cnn_clust:
             # As ME is an updated model, ME backend full chain will not support old SPICE
             # for CNN Clustering.
