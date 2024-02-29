@@ -157,6 +157,8 @@ class Unwrapper:
             for b in range(self.batch_size):
                 tensor_lists.append([l[b] for l in data_split])
 
+            return tensor_lists
+
         elif method == 'edge_tensor':
             # If the data is an edge tensor, split and offset
             # TODO: must fix

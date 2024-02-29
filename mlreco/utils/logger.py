@@ -1,9 +1,10 @@
 """Simple module which define logging module style and returns it."""
 
+import sys
 import logging
 
 # Configure the formatting of the logger
-logging.basicConfig(format='%(message)s')
+logging.basicConfig(format='%(message)s', stream=sys.stdout)
 #logging.basicConfig(format='[%(levelname)s] %(message)s')
 #logging.basicConfig(format='[%(levelname)s][%(name)s] %(message)s')
 

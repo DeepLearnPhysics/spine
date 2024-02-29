@@ -34,7 +34,7 @@ class Reader:
         int
             Number of entries in the file
         """
-        return self.num_entries
+        return len(self.entry_index)
 
     def __getitem__(self, idx):
         """Returns a specific entry in the file.
@@ -129,10 +129,10 @@ class Reader:
         if self.run_info is not None:
             self.run_map = {tuple(v):i for i, v in enumerate(self.run_info)}
 
-    def process_entry_list(self, n_entry, n_skip, entry_list,
-                           skip_entry_list, run_event_list,
-                           skip_run_event_list):
-        """Create a list of events that can be accessed by :meth:`__getitem__`.
+    def process_entry_list(self, n_entry=None, n_skip=None, entry_list=None,
+                           skip_entry_list=None, run_event_list=None,
+                           skip_run_event_list=None):
+        """Create a list of entries that can be accessed by :meth:`__getitem__`.
 
         Parameters
         ----------
@@ -140,9 +140,9 @@ class Reader:
             Maximum number of entries to load
         n_skip : int, optional
             Number of entries to skip at the beginning
-        entry_list : list
+        entry_list : list, optional
             List of integer entry IDs to add to the index
-        skip_entry_list : list
+        skip_entry_list : list, optional
             List of integer entry IDs to skip from the index
         run_event_list: list((int, int)), optional
             List of [run, event] pairs to add to the index
@@ -222,7 +222,6 @@ class Reader:
             entry_index = entry_index[entry_list]
             if self.file_index is not None:
                 self.file_index = self.file_index[entry_list]
-            self.num_entries = len(entry_list)
             if self.run_info is not None:
                 self.run_info = self.run_info[entry_list]
                 self.run_map = \
@@ -230,7 +229,7 @@ class Reader:
 
         assert len(entry_index), "Must at least have one entry to load"
 
-        return entry_index
+        self.entry_index = entry_index
 
     def get_run_event(self, run, event):
         """
@@ -430,8 +429,8 @@ class LArCVReader(Reader):
         # Process the run information
         self.process_run_info()
 
-        # Process the event list
-        self.entry_index = self.process_entry_list(
+        # Process the entry list
+        self.process_entry_list(
                 n_entry, n_skip, entry_list, skip_entry_list,
                 run_event_list, skip_run_event_list)
 
@@ -462,7 +461,7 @@ class LArCVReader(Reader):
                 self.trees[key] = chain
             self.trees_ready = True
 
-        # Move the event pointer
+        # Move the entry pointer
         for tree in self.trees.values():
             tree.GetEntry(entry_idx)
 
@@ -600,8 +599,8 @@ class HDF5Reader(Reader):
         # Process the run information
         self.process_run_info()
 
-        # Process the event list
-        self.entry_index = self.process_entry_list(
+        # Process the entry list
+        self.process_entry_list(
                 n_entry, n_skip, entry_list, skip_entry_list,
                 run_event_list, skip_run_event_list)
 
@@ -628,7 +627,7 @@ class HDF5Reader(Reader):
         entry_idx = self.entry_index[idx]
         file_idx  = self.file_index[idx]
 
-        # Use the events tree to find out what needs to be loaded
+        # Use the event tree to find out what needs to be loaded
         data_blob, result_blob = {}, {}
         with h5py.File(self.file_paths[file_idx], 'r') as in_file:
             event = in_file['events'][entry_idx]
@@ -655,7 +654,7 @@ class HDF5Reader(Reader):
         result_blob : dict
             Dictionary used to store the loaded result data
         key: str
-            Name of the dataset in the event
+            Name of the dataset in the entry
         """
         # The event-level information is a region reference: fetch it
         region_ref = event[key]

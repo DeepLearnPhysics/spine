@@ -39,7 +39,7 @@ def model_dict():
         # Graph SPICE
         "graph_spice": (graph_spice.GraphSPICE, graph_spice.GraphSPICELoss),
         # Graph neural network Particle Aggregation (GrapPA)
-        "grappa": (grappa.GNN, grappa.GNNLoss),
+        "grappa": (grappa.GrapPA, grappa.GrapPALoss),
         # Bayesian Classifier
         "bayes_singlep": (singlep.BayesianParticleClassifier,
                 singlep.ParticleTypeLoss),

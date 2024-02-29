@@ -2,7 +2,7 @@ import torch
 import numpy as np
 from warnings import warn
 
-from mlreco.models.grappa import GNN, GNNLoss
+from mlreco.models.grappa import GrapPA, GrapPALoss
 from mlreco.utils.globals import SHAPE_COL, TRACK_SHP
 from mlreco.utils.unwrap import prefix_unwrapper_rules
 from mlreco.utils.gnn.evaluation import (node_assignment_score,
@@ -37,7 +37,7 @@ class FullChainGNN(torch.nn.Module):
             if getattr(self, f'enable_gnn_{stage}'):
                 # Initialize the GNN model
                 name = f'grappa_{stage}'
-                setattr(self, name, GNN(cfg, name=name, batch_col=self.batch_col, coords_col=self.coords_col))
+                setattr(self, name, GrapPA(cfg, name=name, batch_col=self.batch_col, coords_col=self.coords_col))
 
                 # Get the relevant attributes
                 grappa_cfg = cfg.get(name, {})
@@ -541,17 +541,17 @@ class FullChainLoss(torch.nn.modules.loss._Loss):
         setup_chain_cfg(self, cfg, False)
 
         if self.enable_gnn_shower:
-            self.shower_gnn_loss         = GNNLoss(cfg, 'grappa_shower_loss', batch_col=self.batch_col, coords_col=self.coords_col)
+            self.shower_gnn_loss         = GrapPA(cfg, 'grappa_shower_loss', batch_col=self.batch_col, coords_col=self.coords_col)
         if self.enable_gnn_track:
-            self.track_gnn_loss          = GNNLoss(cfg, 'grappa_track_loss', batch_col=self.batch_col, coords_col=self.coords_col)
+            self.track_gnn_loss          = GrapPA(cfg, 'grappa_track_loss', batch_col=self.batch_col, coords_col=self.coords_col)
         if self.enable_gnn_particle:
-            self.particle_gnn_loss       = GNNLoss(cfg, 'grappa_particle_loss', batch_col=self.batch_col, coords_col=self.coords_col)
+            self.particle_gnn_loss       = GrapPA(cfg, 'grappa_particle_loss', batch_col=self.batch_col, coords_col=self.coords_col)
         if self.enable_gnn_inter:
-            self.inter_gnn_loss          = GNNLoss(cfg, 'grappa_inter_loss', batch_col=self.batch_col, coords_col=self.coords_col)
+            self.inter_gnn_loss          = GrapPA(cfg, 'grappa_inter_loss', batch_col=self.batch_col, coords_col=self.coords_col)
         if self.enable_gnn_kinematics:
-            self.kinematics_loss         = GNNLoss(cfg, 'grappa_kinematics_loss', batch_col=self.batch_col, coords_col=self.coords_col)
+            self.kinematics_loss         = GrapPA(cfg, 'grappa_kinematics_loss', batch_col=self.batch_col, coords_col=self.coords_col)
         if self.enable_cosmic:
-            self.cosmic_loss             = GNNLoss(cfg, 'cosmic_loss', batch_col=self.batch_col, coords_col=self.coords_col)
+            self.cosmic_loss             = GrapPA(cfg, 'cosmic_loss', batch_col=self.batch_col, coords_col=self.coords_col)
 
         # Initialize the loss weights
         self.loss_config = cfg.get('full_chain_loss', {})

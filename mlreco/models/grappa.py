@@ -2,22 +2,35 @@ import random
 import torch
 import numpy as np
 
-from mlreco.models.layers.common.dbscan import DBSCANFragmenter
-from mlreco.models.layers.common.momentum import DeepVertexNet, EvidentialMomentumNet, MomentumNet, VertexNet
-from mlreco.models.experimental.transformers.transformer import TransformerEncoderLayer
-from mlreco.models.layers.gnn import gnn_model_construct, node_encoder_construct, edge_encoder_construct, node_loss_construct, edge_loss_construct
+from .layers.common.dbscan import DBSCANFragmenter
+from .layers.common.momentum import (
+        DeepVertexNet, EvidentialMomentumNet, MomentumNet, VertexNet)
+from .layers.gnn import (
+        gnn_model_construct, node_encoder_construct, edge_encoder_construct,
+        node_loss_construct, edge_loss_construct)
 
-from mlreco.utils.globals import *
+from .experimental.transformers.transformer import TransformerEncoderLayer
+
+from mlreco.utils.globals import BATCH_COL, COORD_COLS, CLUST_COL, GROUP_COL
 from mlreco.utils.gnn.data import merge_batch, split_clusts, split_edge_index
-from mlreco.utils.gnn.cluster import form_clusters, get_cluster_batch, get_cluster_label, get_cluster_primary_label, get_cluster_points_label, get_cluster_directions, get_cluster_dedxs
-from mlreco.utils.gnn.network import complete_graph, delaunay_graph, mst_graph, bipartite_graph, inter_cluster_distance, knn_graph, restrict_graph
+from mlreco.utils.gnn.cluster import (
+        form_clusters, get_cluster_batch, get_cluster_label, 
+        get_cluster_primary_label, get_cluster_points_label, 
+        get_cluster_directions, get_cluster_dedxs)
+from mlreco.utils.gnn.network import (
+        complete_graph, delaunay_graph, mst_graph, bipartite_graph, 
+        inter_cluster_distance, knn_graph, restrict_graph)
 
-class GNN(torch.nn.Module):
-    """
-    Driver class for cluster node+edge prediction, assumed to be a GNN model.
+__all__ = ['GrapPA', 'GrapPALoss']
 
-    This class mostly acts as a wrapper that will hand the graph data to another model.
-    If DBSCAN is used, use the semantic label tensor as an input.
+
+class GrapPA(torch.nn.Module):
+    """Graph Particle Aggregator (GrapPA) model.
+
+    This class mostly acts as a wrapper that will hand the graph data
+    to the underlying graph neural network (GNN).
+
+    If DBSCAN is used, must use the semantic label tensor as an input.
 
     Typical configuration can look like this:
 
@@ -27,7 +40,7 @@ class GNN(torch.nn.Module):
           name: grappa
           modules:
             grappa:
-              your config goes here
+              # Your config here
 
     Configuration
     -------------
@@ -85,7 +98,7 @@ class GNN(torch.nn.Module):
             model_path      : <path to the model weights>
 
     kinematics_mlp: bool, default False
-        Whether to enable MLP-like layers after the GNN to predict
+        Whether to enable MLP-like layers after the GrapPA to predict
         momentum, particle type, etc.
     kinematics_type: bool
         Whether to add PID MLP to each node.
@@ -118,7 +131,7 @@ class GNN(torch.nn.Module):
 
     See Also
     --------
-    GNNLoss
+    GrapPALoss
     """
 
     MODULES = [('grappa', ['base', 'dbscan', 'node_encoder', 'edge_encoder', 'gnn_model']), 'grappa_loss']
@@ -139,49 +152,159 @@ class GNN(torch.nn.Module):
         'edge_pred': ['edge_tensor', ['edge_index', 'batch_ids'], True]
     }
 
-    def __init__(self, cfg, name='grappa', batch_col=0, coords_col=(1, 4)):
-        super(GNN, self).__init__()
+    def __init__(self, grappa, grappa_loss=None):
+        """Initialize the GrapPA model.
 
-        # Get the chain input parameters
-        base_config = cfg[name].get('base', {})
-        self.name = name
-        self.batch_index = batch_col
-        self.coords_index = coords_col
+        Parameters
+        ----------
+        grappa : dict
+            Model configuration
+        uresnet_loss : dict, optional
+            Loss configuration
+        """
+        # Initialize the parent class
+        super(GrapPA, self).__init__()
 
-        # Choose what type of node to use
-        self.source_col       = base_config.get('source_col', 5)
-        self.target_col       = base_config.get('target_col', 6)
-        self.node_type        = base_config.get('node_type', -1)
-        self.node_min_size    = base_config.get('node_min_size', -1)
-        self.add_points       = base_config.get('add_points', False)
-        self.add_local_dirs   = base_config.get('add_local_dirs', False)
-        self.dir_max_dist     = base_config.get('dir_max_dist', 5)
-        self.opt_dir_max_dist = self.dir_max_dist == 'optimize'
-        self.add_local_dedxs  = base_config.get('add_local_dedxs', False)
-        self.dedx_max_dist    = base_config.get('dedx_max_dist', 5)
-        self.break_clusters   = base_config.get('break_clusters', False)
-        self.shuffle_clusters = base_config.get('shuffle_clusters', False)
+        # Process the model configuration
+        self.process_model_config(**grappa)
 
-        # *Deprecated* but kept for backward compatibility:
-        if 'add_start_point'    in base_config: self.add_points = base_config['add_start_point']
-        if 'add_start_dir'      in base_config: self.add_local_dirs = 'start' if base_config['add_start_dir'] else False
-        if 'add_start_dedx'     in base_config: self.add_local_dedxs = 'start' if base_config['add_start_dedx'] else False
-        if 'start_dir_max_dist' in base_config: self.dir_max_dist = self.dedx_max_dist = base_config['start_dir_max_dist']
-        if 'start_dir_opt'      in base_config: self.opt_dir_max_dist = base_config['start_dir_opt']
+    def process_model_config(self, base, node_encoder, edge_encoder,
+                             gnn_model, dbscan=None):
+        """Process the top-level configuration block.
 
-        # Interpret node type as list of classes to cluster, -1 means all classes
-        if isinstance(self.node_type, int): self.node_type = [self.node_type]
+        This dispatches each block to its own configuration processor.
 
-        # Choose what type of network to use
-        self.network = base_config.get('network', 'complete')
-        self.edge_max_dist = base_config.get('edge_max_dist', -1)
-        self.edge_dist_metric = base_config.get('edge_dist_metric', 'voxel')
-        self.edge_dist_algorithm = base_config.get('edge_dist_algorithm', 'brute')
-        self.edge_knn_k = base_config.get('edge_knn_k', 5)
-        self.edge_max_count = base_config.get('edge_max_count', 2e6)
+        Parameters
+        ----------
+        base : dict
+            Base configuration
+        node_encoder : dict
+            Node encoder configuration
+        edge_encoder : dict
+            Edge encoder configuration
+        gnn_model : dict
+            Underlying graph neural network configuration
+        dbscan : dict
+            DBSCAN fragmentation configuration
+        """
+        # Process the base configuration
+        self.process_base_config(**base)
+
+        # Initialize node encoder
+        self.node_encoder = node_encoder_construct(node_encoder)
+
+        # Initialize edge encoder
+        self.edge_encoder = edge_encoder_construct(edge_encoder)
+
+        # Construct the underlying graph neural network
+        self.gnn_model = gnn_model_construct(gnn_model)
+
+        # Process the dbscan fragmenter configuration, if provided
+        if dbscan is not None:
+            self.process_dbscan_config(**dbscan)
+
+        # Construct the node prediction layer, if specified
+
+
+
+    def process_base_config(self, source_col=CLUST_COL, target_col=GROUP_COL,
+                            node_type=-1, node_min_size=-1, add_points=False,
+                            add_local_dirs=False, dir_max_dist=5.,
+                            add_local_dedxs=False, dedx_max_dist=5.,
+                            break_clusters=False, shuffle_clusters=False,
+                            network='complete', edge_max_dist=-1,
+                            edge_dist_metric='set',
+                            edge_dist_algorithm='brute',
+                            edge_knn_k=5, edge_max_count=2.6,
+                            merge_batch=False, merge_batch_mode='const',
+                            merge_batch_size=2):
+        """Process the base parameters of the model.
+
+        Parameters
+        ----------
+        source_col : int, default CLUST_COL
+            Column in the label tensor which contains the input cluster IDs
+        target_col : int, default TARGET_COL
+            Column in the label tensor which contains the target group IDs
+        node_type : int, default -1
+            Type of nodes to include in the input. If -1, include all types
+        node_min_size : int, default -1
+            Minimum number of voxels in a cluster to be included in the input
+        add_points : Union[bool, str], default False
+            If `True`, adds points to the node feature list. Can also be
+            specified as 'start' or 'end' to only include a specific point
+        add_local_dirs : Union[bool, str], default False
+            If `True`, adds directions to the node feature list. Can also be
+            specified as 'start' or 'end' to only include a specific direction
+        dir_max_dist : Union[float, str], default 5.
+            Neighborhood radius around the points to use to estimate direction.
+            If specified as 'optimize', will optimize the radius
+        add_local_dedxs : Union[bool, str], default False
+            If `True`, adds dE/dxs to the node feature list. Can also be
+            specified as 'start' or 'end' to only include a specific dE/dx
+        dedx_max_dist : Union[float, str], default 5.
+            Neighborhood radius around the points to use to estimate dE/dx
+            If specified as 'optimize', will optimize the radius
+        break_clusters : bool, default False
+            If `True`, runs DBSCAN on each input cluster to break it up into
+            fragments that are made of contiguous voxels (Chebyshev distance 1)
+        shuffle_clusters : bool, default False
+            If `True`, shuffles the order of input clusters randomly. This
+            is exclusively used for debugging (permutation invariance)
+        network : str, default 'complete'
+            Type of input graph to use
+        edge_max_dist : float, default -1.
+            Maximum edge length between two connected nodes
+        edge_dist_metric : str, default 'voxel'
+            Method for computing the inter-cluster distance
+        edge_knn_k : int, default 5 
+            If using the 'knn' network, specifies the number of neighbors
+        edge_max_count : int, default 2e6
+            Maximum number of edges in the input graph (memory limitation)
+        """
+        # Store the node parameters
+        self.source_col       = source_col
+        self.target_col       = target_col
+        self.node_type        = node_type
+        self.node_min_size    = node_min_size
+        self.add_points       = add_points
+        self.add_local_dirs   = add_local_dirs
+        self.dir_max_dist     = dir_max_dist
+        self.add_local_dedxs  = add_local_dedxs
+        self.dedx_max_dist    = dedx_max_dist
+        self.break_clusters   = break_clusters
+        self.shuffle_clusters = shuffle_clusters
+
+        # Interpret node type as list of classes to cluster
+        if isinstance(self.node_type, int):
+            self.node_type = [self.node_type]
+
+        # If some of the node parameters are strings, check that they are valid
+        for key in ['add_points', 'add_local_dirs','add_local_dedxs']:
+            value = getattr(self, key)
+            if isinstance(value, str):
+                assert value in ['start', 'end'],(
+                        f"If specified as a string, {key} should be "
+                         "specified as either 'start' or 'end', nothing else")
+
+        if isinstance(self.dir_max_dist, str):
+            assert self.dir_max_dist == 'optimize', (
+                    "If specified as a string, `dir_max_dist` should "
+                    "only take the value 'optimize'")
+            self.opt_dir_max_dist = True
+
+        # Store the network parameters
+        # TODO: make this its own configuration block with a factory
+        self.network             = network
+        self.edge_max_dist       = edge_max_dist
+        self.edge_dist_metric    = edge_dist_metric
+        self.edge_dist_algorithm = edge_dist_algorithm
+        self.edge_knn_k          = edge_knn_k
+        self.edge_max_count      = edge_max_count
 
         # Turn the edge_max_dist value into a matrix
-        if not isinstance(self.edge_max_dist, list): self.edge_max_dist = [self.edge_max_dist]
+        if not isinstance(self.edge_max_dist, list):
+            self.edge_max_dist = [self.edge_max_dist]
         mat_size = int((np.sqrt(8*len(self.edge_max_dist)+1)-1)/2)
         max_dist_mat = np.zeros((mat_size, mat_size), dtype=float)
         max_dist_mat[np.triu_indices(mat_size)] = self.edge_max_dist
@@ -189,6 +312,7 @@ class GNN(torch.nn.Module):
         self.edge_max_dist = max_dist_mat
 
         # If requested, merge images together within the batch
+        # TODO: make this itws configuration block with a factory
         self.merge_batch = base_config.get('merge_batch', False)
         self.merge_batch_mode = base_config.get('merge_batch_mode', 'const')
         self.merge_batch_size = base_config.get('merge_batch_size', 2)
@@ -196,13 +320,39 @@ class GNN(torch.nn.Module):
             raise ValueError('Batch merging mode not supported, must be one of const or fluc')
         self.merge_batch_fluc = self.merge_batch_mode == 'fluc'
 
-        # If requested, use DBSCAN to form clusters from semantics
-        if 'dbscan' in cfg[name]:
-            cfg[name]['dbscan']['cluster_classes'] = self.node_type if self.node_type[0] > -1 else [0,1,2,3]
-            cfg[name]['dbscan']['min_size']        = self.node_min_size
-            self.dbscan = DBSCANFragmenter(cfg[name], name='dbscan',
-                                            batch_col=self.batch_index,
-                                            coords_col=self.coords_index)
+    def process_dbscan_config(cluster_classes=None, min_size=None, **kwargs):
+        """Process the DBSCAN fragmenter configuration.
+
+        Parameters
+        ----------
+        cluster_classes : Union[int, list], optional
+            This should not be specified (fetched from the base configuration)
+        min_size : Union[int, list], optional
+            This should not be specified (fetched from the base configuration)
+        **kwargs : dict, optional
+            Rest of the DBSCAN configuration
+        """
+        # Make sure the basic parameters are not specified twice
+        assert cluster_classes is not None and min_size is not None, (
+                "Do not specify 'cluster_classes' or 'min_size' in the "
+                "`dbscan` block, it is fetched from the `base` block")
+
+        self.dbscan = DBSCANFragmenter(
+                cluster_classes=self.node_type,
+                min_size=self.min_size, **dbscan)
+
+    def process_dbscan_config(cluster_classes=None, min_size=None, **kwargs):
+        """Process the DBSCAN fragmenter configuration.
+
+        Parameters
+        ----------
+        cluster_classes : Union[int, list], optional
+            This should not be specified (fetched from the base configuration)
+        min_size : Union[int, list], optional
+            This should not be specified (fetched from the base configuration)
+        **kwargs : dict, optional
+            Rest of the DBSCAN configuration
+        """
 
         # If requested, initialize two MLPs for kinematics predictions
         self.kinematics_mlp = base_config.get('kinematics_mlp', False)
@@ -272,16 +422,10 @@ class GNN(torch.nn.Module):
             else:
                 raise ValueError('Vertex MLP {} not recognized!'.format(vertex_config['name']))
 
-        # Initialize encoders
-        self.node_encoder = node_encoder_construct(cfg[name])
-        self.edge_encoder = edge_encoder_construct(cfg[name])
-
-        # Construct the GNN
-        self.gnn_model = gnn_model_construct(cfg[name])
 
     def forward(self, data, clusts=None, groups=None, points=None, extra_feats=None, batch_size=None):
         """
-        Prepares particle clusters and feed them to the GNN model.
+        Prepares particle clusters and feed them to the GrapPA model.
 
         Args:
             array:
@@ -480,9 +624,9 @@ class GNN(torch.nn.Module):
         return result
 
 
-class GNNLoss(torch.nn.modules.loss._Loss):
+class GrapPALoss(torch.nn.modules.loss._Loss):
     """
-    Takes the output of the GNN and computes the total loss.
+    Takes the output of the GrapPA and computes the total loss.
 
     For use in config:
 
@@ -510,7 +654,7 @@ class GNNLoss(torch.nn.modules.loss._Loss):
     }
 
     def __init__(self, cfg, name='grappa_loss', batch_col=0, coords_col=(1, 4)):
-        super(GNNLoss, self).__init__()
+        super(GrapPALoss, self).__init__()
 
         self.batch_index = batch_col
         self.coords_index = coords_col

@@ -348,14 +348,16 @@ class TrainVal(object):
         self.model.train() if self.train else self.model.eval()
 
         # Initiliaze the optimizer
-        self.optimizer = self.optim_class(
-                self.model.parameters(), **self.optim_args)
+        if self.train:
+            self.optimizer = self.optim_class(
+                    self.model.parameters(), **self.optim_args)
 
         # Initialize the learning rate scheduler
-        self.lr_scheduler = None
-        if self.lr_scheduler_class is not None:
-            self.lr_scheduler = self.lr_scheduler_class(
-                    self.optimizer, **self.lr_scheduler_args)
+        if self.train:
+            self.lr_scheduler = None
+            if self.lr_scheduler_class is not None:
+                self.lr_scheduler = self.lr_scheduler_class(
+                        self.optimizer, **self.lr_scheduler_args)
 
         # Module-by-module parameter freezing
         self.freeze_weights()

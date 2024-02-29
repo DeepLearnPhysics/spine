@@ -398,7 +398,8 @@ class PPNLoss(torch.nn.modules.loss._Loss):
         'type_accuracy': Unwrapper.Rule('scalar'),
         'reg_loss': Unwrapper.Rule('scalar'),
         'classify_endpoints_loss': Unwrapper.Rule('scalar'),
-        'classify_endpoints_accuracy': Unwrapper.Rule('scalar')
+        'classify_endpoints_accuracy': Unwrapper.Rule('scalar'),
+        'mask_labels': Unwrapper.Rule('tensor_list')
     }
 
     def __init__(self, uresnet, ppn, ppn_loss, uresnet_loss=None):
@@ -448,7 +449,8 @@ class PPNLoss(torch.nn.modules.loss._Loss):
                             balance_type_loss=True,
                             type_weighting_mode='const',
                             reg_loss_weight=1., type_loss_weight=1.,
-                            mask_loss_weight=1., endpoint_loss_weight=1.):
+                            mask_loss_weight=1., endpoint_loss_weight=1.,
+                            return_mask_labels=False):
         """Process the loss function parameters.
 
         Parameters
@@ -476,6 +478,8 @@ class PPNLoss(torch.nn.modules.loss._Loss):
             Relative weight to apply to the mask loss
         endpoint_loss_weight : float, default 1.
             Relative weight to apply to the endpoint classification
+        return_mask_labels : bool, default False
+            If `True`, returns the masks used to compute the mask loss
         """
         # Store the loss parameters
         self.resolution = resolution
@@ -487,6 +491,7 @@ class PPNLoss(torch.nn.modules.loss._Loss):
         self.type_loss_weight = type_loss_weight
         self.mask_loss_weight = mask_loss_weight
         self.endpoint_loss_weight = endpoint_loss_weight
+        self.return_mask_labels = return_mask_labels
         self.point_classes = point_classes
         if point_classes is not None and isinstance(point_classes, int):
             self.point_classes = [point_classes]
@@ -556,69 +561,81 @@ class PPNLoss(torch.nn.modules.loss._Loss):
 
             ppn_label = TensorBatch.from_list(ppn_label_list)
 
-        # Loop over the PPN layers
+        # Compute the label mask for the final PPN layer. Record which
+        # label point is closest to each image voxel (defines label for it)
+        coords_final = ppn_coords[-1]
+        closest_list, positive_list = [], []
+        offset = 0
+        for b in range(batch_size):
+            # Compute the pairwise distances between each label point
+            # and all the voxels in the image.
+            points_entry = coords_final[b][:, COORD_COLS] + 0.5
+            points_label = ppn_label[b][:, COORD_COLS]
+            dist_mat = local_cdist(points_entry, points_label)
+            min_return = torch.min(dist_mat, dim=1)
+            closest_list.append(offset + min_return.indices)
+            offset += len(points_label)
+
+            # Define voxels as positive if they are within threshold
+            positive = (dist_mat < self.resolution).any(dim=1)
+            positive_list.append(positive)
+
+        closests = torch.cat(closest_list, dim=0)
+        positives = torch.cat(positive_list, dim=0).long()
+
+        # Downsample the final mask to each PPN layer, apply mask loss
+        downsample = ME.MinkowskiMaxPooling(2, 2, dimension=3) # TODO
+        mask_tensor = ME.SparseTensor(
+                positives[:, None].float(),
+                coordinates=coords_final.tensor[:, :VALUE_COL])
+
         dtype, device = ppn_label.tensor.dtype, ppn_label.tensor.device
         mask_losses = torch.zeros(num_layers, dtype=dtype, device=device)
         mask_accs = torch.zeros(num_layers, dtype=dtype, device=device)
-        type_loss, reg_loss, end_loss = 0., 0., 0.
-        type_acc, end_acc = 1., 1.
-        for layer in range(num_layers):
+        mask_label_list = []
+        for i in range(0, num_layers):
             # Narrow down outputs to this specific layer
+            layer = num_layers - 1 - i
             coords_layer = ppn_coords[layer]
             scores_layer = ppn_layers[layer]
+            mask_labels = mask_tensor.F.flatten().long()
 
-            # Get the distance matrices and positive pixels for this layer
-            scale = 2**(num_layers - layer - 1)
-            dist_threshold = scale * self.resolution
-            closest_list, positive_list = [], []
-            offset = 0
-            for b in range(batch_size):
-                # Compute the pairwise distances between each label point
-                # and all the voxels in the image.
-                points_entry = coords_layer[b][:, COORD_COLS] + 0.5*scale
-                points_label = ppn_label[b][:, COORD_COLS]
-                dist_mat = local_cdist(points_entry, points_label)
-                min_return = torch.min(dist_mat, dim=1)
-                closest_list.append(offset + min_return.indices)
-                offset += len(points_label)
-
-                # Define voxels as positive if they are within threshold
-                positive = (dist_mat < dist_threshold).any(dim=1)
-                positive_list.append(positive)
-
-            closests = torch.cat(closest_list, dim=0)
-            positives = torch.cat(positive_list, dim=0).long()
+            # If requested, store the label features in a list
+            if self.return_mask_labels:
+                mask_label_list.append(
+                        TensorBatch(mask_labels[:,None], coords_layer.splits))
 
             # Compute the mask weights over the whole batch, if requested
             mask_weight = None
             if self.balance_mask_loss:
                 mask_weight = get_class_weights(
-                        positives, 2, self.mask_weighting_mode)
+                        mask_labels, 2, self.mask_weighting_mode)
 
-            ########## Mask loss ##########
             # Compute the mask loss for this layer, increment
             mask_losses[layer] = self.mask_loss_fn(
-                    scores_layer.tensor, positives,
+                    scores_layer.tensor, mask_labels,
                     weight=mask_weight, reduction='mean')
 
             # Compute the mask accuracy for this layer/batch, increment
             with torch.no_grad():
                 num_points = len(scores_layer.tensor)
                 mask_pred = torch.argmax(scores_layer.tensor, dim=1)
-                mask_accs[layer] = (mask_pred == positives).sum()/num_points
+                mask_accs[layer] = (mask_pred == mask_labels).sum()/num_points
 
-            # If this is the last layer, narrow down to positive pixels
-            # for the rest of the predictions. Skip otherwise.
-            if layer < (num_layers - 1):
-                continue
+            # Update the mask label for the next iteration
+            if layer != 0:
+                mask_tensor = downsample(mask_tensor)
 
-            pos_mask = torch.where(positives)[0]
-            if not len(pos_mask):
-                continue
-
+        # Apply the other losses to the last layer only
+        type_loss, reg_loss, end_loss = 0., 0., 0.
+        type_acc, end_acc = 1., 1.
+        pos_mask = torch.where(positives)[0]
+        if len(pos_mask):
+            # Narrow the loss down to the true positive pixels
+            # TODO: should this be predicted positive pixels?
             closests = closests[pos_mask]
 
-            anchors = coords_layer.tensor[:, COORD_COLS] + 0.5
+            anchors = coords_final.tensor[:, COORD_COLS] + 0.5
             pixel_pos = ppn_points.tensor[:, PPN_ROFF_COLS] + anchors
             pixel_scores = ppn_points.tensor[:, PPN_RPOS_COLS]
             pixel_logits = ppn_points.tensor[:, PPN_RTYPE_COLS]
@@ -656,29 +673,26 @@ class PPNLoss(torch.nn.modules.loss._Loss):
             reg_loss = self.reg_loss_fn(pixel_pos, closest_point_labels)
 
             ########## End points loss ##########
-            # If the upstream models produced endpoint predictions, apply loss
-            if ppn_classify_endpoints is None:
-                continue
-
+            # If the upstream models produced endpoint predictions, apply loss.
             # Narrow the problem down to predictions closest to track points
             track_index = torch.where(closest_type_labels == TRACK_SHP)[0]
-            if not len(track_index):
-                continue
+            if ppn_classify_endpoints and len(track_index):
+                # Get the end point predictions
+                end_logits = ppn_classify_endpoints.tensor[pos_mask]
+                end_logits = end_logits[track_index]
 
-            end_logits = ppn_classify_endpoints.tensor[pos_mask][track_index]
+                # Compute the end point classification loss
+                # TODO: deal with having multiple valid labels (start/end)
+                end_labels = ppn_label.tensor[:, PPN_LENDP_COL].long()
+                closest_end_labels = end_labels[closests]
+                closest_end_labels = closest_end_labels[track_index]
+                end_loss = self.end_loss_fn(end_logits, closest_end_labels)
 
-            # Compute the end point classification loss
-            # TODO: deal with having multiple valid labels (start/end)
-            end_labels = ppn_label.tensor[:, PPN_LENDP_COL].long()
-            closest_end_labels = type_labels[closests]
-            closest_end_labels = closest_end_labels[track_index]
-            end_loss = self.end_loss_fn(end_logits, closest_end_labels)
-
-            # Compute the end point classification accuracy
-            with torch.no_grad():
-                num_points = len(closest_end_labels)
-                end_pred = torch.argmax(end_logits, dim=1)
-                end_acc = (end_pred == closest_end_labels).sum()/num_points
+                # Compute the end point classification accuracy
+                with torch.no_grad():
+                    num_points = len(closest_end_labels)
+                    end_pred = torch.argmax(end_logits, dim=1)
+                    end_acc = (end_pred == closest_end_labels).sum()/num_points
 
         # Combine the losses and accuracies
         mask_loss = torch.mean(mask_losses)
@@ -714,6 +728,10 @@ class PPNLoss(torch.nn.modules.loss._Loss):
             result[f'mask_loss_layer_{layer}'] = mask_losses[layer]
             result[f'mask_accuracy_layer_{layer}'] = mask_accs[layer]
 
+        # If needed, return the mask labels
+        if self.return_mask_labels:
+            result['mask_labels'] = mask_label_list[::-1]
+
         return result
 
 
@@ -721,8 +739,9 @@ class ExpandAs(nn.Module):
     """Expands a one dimensional feature tensor to a higher dimension.
 
     Given a sparse tensor with one dimensional features, expand the
-    feature map to given shape and return a newly constructed
-    ME.SparseTensor. This is used to expand a score tensor.
+    feature map to a given shape and return a newly constructed
+    ME.SparseTensor. This is used to expand a score array and apply
+    it to the entire feature tensor of the the input.
     """
 
     def forward(self, x, shape, propagate_all=False,

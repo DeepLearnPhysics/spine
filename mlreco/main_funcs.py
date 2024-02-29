@@ -165,6 +165,11 @@ def prepare(cfg, rank=0):
     # Initialize the handlers
     handlers = Handlers()
 
+    # If the configuration has not has been processed, do it
+    if not cfg.get('processed', False):
+        cfg = process_config(**cfg)
+    cfg.pop('processed', None)
+
     # If there is no `trainval` block, treat config as data loading config.
     # Otherwise, intiliaze the train/validation class
     if 'trainval' not in cfg:
@@ -179,7 +184,7 @@ def prepare(cfg, rank=0):
 
     else:
         # Instantiate the training/inference object
-        handlers.trainval = TrainVal(**cfg, rank = rank)
+        handlers.trainval = TrainVal(**cfg, rank=rank)
 
         # Expose the dataloader
         handlers.data_io = handlers.trainval.loader
@@ -193,7 +198,8 @@ def prepare(cfg, rank=0):
     return handlers
 
 
-def process_config(iotool, model=None, trainval=None, verbosity='info'):
+def process_config(iotool, model=None, trainval=None, verbosity='info',
+                   processed=None):
     """Do all the necessary cross-checks to ensure the that the configuration
     can be used.
     
@@ -210,12 +216,18 @@ def process_config(iotool, model=None, trainval=None, verbosity='info'):
     verbosity : int, default 'INFO'
         Verbosity level to pass to the `logging` module. Pick one of
         'debug', 'info', 'warning', 'error', 'critical'.
+    processed : bool, default False
+        Whether this configuration has already been seen by this function
 
     Returns
     -------
     cfg : dict
         Complete, updated configuration dictionary
     """
+    # If this configuration has already been processed, throw
+    if processed is not None and processed:
+        raise RuntimeError("Should not process a configuration twice")
+
     # Set the verbosity of the logger
     if isinstance(verbosity, str):
         verbosity = verbosity.upper()
@@ -286,12 +298,15 @@ def process_config(iotool, model=None, trainval=None, verbosity='info'):
     # Log configuration
     logger.info(yaml.dump(cfg, default_flow_style=None))
 
+    # Add an indication that this configuration has been processed
+    cfg['processed'] = True
+
     # Return updated configuration
     return cfg
 
 
 def apply_event_filter(handlers, entry_list):
-    """Reinstantiate data loader with a restricted set of events.
+    """Restrict the list of entries
 
     Parameters
     ----------
@@ -300,12 +315,8 @@ def apply_event_filter(handlers, entry_list):
     entry_list : list
         List of events to load
     """
-    # Instantiate DataLoader
-    handlers.cfg['iotool']['entry_list'] = entry_list
-    handlers.data_io = loader_factory(**handlers.cfg['iotool'])
-
-    # IO iterator
-    handlers.data_io_iter = iter(cycle(handlers.data_io))
+    # Simply change the underlying entry list
+    handlers.data_io.dataset.reader.process_entry_list(entry_list=entry_list)
 
 
 def setup_ddp(rank, world_size):
