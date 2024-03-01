@@ -259,7 +259,7 @@ class SegmentationLoss(torch.nn.modules.loss._Loss):
 
         # Append the expected output depending on how many classes there are
         for c in range(self.num_classes):
-            self.RETURNS[f'seg_accuracy_class_{c}'] = \
+            self.RETURNS[f'accuracy_class_{c}'] = \
                     Unwrapper.Rule(method='scalar')
 
     def process_model_config(self, num_classes, ghost=False, **kwargs):

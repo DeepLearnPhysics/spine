@@ -8,8 +8,8 @@ from mlreco.utils import numba_local as nbl
 from mlreco.utils.dbscan import dbscan_points
 from mlreco.utils.data_structures import TensorBatch
 from mlreco.utils.globals import (
-        BATCH_COL, COORD_COLS, PPN_RTYPE_COLS, PPN_RPOS_COLS, PPN_END_COLS,
-        TRACK_SHP, LOWES_SHP, UNKWN_SHP)
+        BATCH_COL, COORD_COLS, PPN_ROFF_COLS, PPN_RTYPE_COLS, PPN_RPOS_COLS,
+        PPN_END_COLS, TRACK_SHP, LOWES_SHP, UNKWN_SHP)
 
 
 def get_ppn_labels(particle_v, meta, dim=3, min_voxel_count=5,
@@ -216,7 +216,7 @@ def get_ppn_predictions(ppn_points, ppn_coords, ppn_masks,
             end_scores = softmax(ppn_ends_b, axis=1)
 
         # Get the PPN point predictions
-        coords = ppn_coords_b + 0.5 + ppn_raw_b[:, COORD_COLS]
+        coords = ppn_coords_b + 0.5 + ppn_raw_b[:, PPN_ROFF_COLS]
         if enforce_type:
             # Loop over the invidual classes
             seg_masks = []
