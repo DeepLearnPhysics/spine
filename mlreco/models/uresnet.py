@@ -379,13 +379,17 @@ class SegmentationLoss(torch.nn.modules.loss._Loss):
                 'ghost_accuracy': ghost_acc,
                 'ghost_accuracy_class_0': ghost_acc_class[0],
                 'ghost_accuracy_class_1': ghost_acc_class[1]})
+
+            for c in range(self.num_classes):
+                result[f'seg_accuracy_class_{c}'] = seg_acc_class[c]
+
         else:
             result.update({
                 'loss': seg_loss,
                 'accuracy': seg_acc})
 
-        for c in range(self.num_classes):
-            result[f'seg_accuracy_class_{c}'] = seg_acc_class[c]
+            for c in range(self.num_classes):
+                result[f'accuracy_class_{c}'] = seg_acc_class[c]
 
         return result
 

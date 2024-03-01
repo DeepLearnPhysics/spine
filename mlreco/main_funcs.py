@@ -172,7 +172,7 @@ def prepare(cfg, rank=0):
 
     # If there is no `trainval` block, treat config as data loading config.
     # Otherwise, intiliaze the train/validation class
-    if 'trainval' not in cfg:
+    if 'trainval' not in cfg or cfg['trainval'] is None:
         # Instantiate the data loader
         handlers.data_io = loader_factory(**cfg['iotool'])
 

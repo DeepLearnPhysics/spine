@@ -4,7 +4,7 @@ import numpy as np
 from sklearn.cluster import DBSCAN
 from scipy.spatial.distance import cdist
 import scipy
-from mlreco.utils.dbscan import dbscan_types, dbscan_points
+from mlreco.utils.dbscan import dbscan_points
 from sklearn.metrics import adjusted_rand_score
 from mlreco.utils.track_clustering import track_clustering as clustering
 from mlreco.utils.ppn import uresnet_ppn_type_point_selector
