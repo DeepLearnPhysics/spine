@@ -141,7 +141,7 @@ class TensorBatch:
             coords = self._split_fn(self.tensor.C, self.splits[:-1])
             feat = self._split_fn(self.tensor.F, self.splits[:-1])
             return [SparseTensor(
-                feats[i], coordinates=coords[i]) for i in self.batch_size]
+                feat[i], coordinates=coords[i]) for i in self.batch_size]
 
     def to_numpy(self):
         """Cast underlying tensor to a `np.ndarray` and return a new instance.
