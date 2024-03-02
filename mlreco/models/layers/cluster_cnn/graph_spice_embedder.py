@@ -19,34 +19,20 @@ class GraphSPICEEmbedder(UResNet):
         'segmentation': ['tensor', 'coordinates']
     }
 
-    def __init__(self, cfg, name='graph_spice_embedder'):
-        super(GraphSPICEEmbedder, self).__init__(cfg)
-        self.model_config = cfg.get(name, {})
-        self.feature_embedding_dim = self.model_config.get(
-            'feature_embedding_dim', 8)
-        self.spatial_embedding_dim = self.model_config.get(
-            'spatial_embedding_dim', 3)
-        self.num_classes = self.model_config.get('num_classes', 5)
-        self.coordConv = self.model_config.get('coordConv', True)
-        self.segmentationLayer = self.model_config.get('segmentationLayer', False)
+    def __init__(self, cfg):
+        """Initialize the GraphSPICEEmbedder model.
 
-        self.covariance_mode = self.model_config.get('covariance_mode', 'exp')
-
-        if self.covariance_mode == 'exp':
-            self.cov_func = torch.exp
-        elif self.covariance_mode == 'softplus':
-            self.cov_func = nn.Softplus()
-        else:
-            self.cov_func = nn.Sigmoid()
-
-        self.occupancy_mode = self.model_config.get('occupancy_mode', 'exp')
-
-        if self.occupancy_mode == 'exp':
-            self.occ_func = torch.exp
-        elif self.occupancy_mode == 'softplus':
-            self.occ_func = nn.Softplus()
-        else:
-            self.occ_func = torch.exp
+        Parameters
+        ----------
+        graph_spice_embedder : dict
+            Model configuration
+        """
+        
+        uresnet = cfg['uresnet']
+        graph_spice_embedder = cfg['graph_spice_embedder']
+        super(GraphSPICEEmbedder, self).__init__(uresnet)
+        
+        self.process_model_config(**graph_spice_embedder)
 
         # Define outputlayers
 
@@ -56,7 +42,7 @@ class GraphSPICEEmbedder(UResNet):
         self.outputFeatureEmbeddings = nn.Linear(self.num_filters,
                                                  self.feature_embedding_dim)
 
-        if self.segmentationLayer:
+        if self.predict_semantics:
             self.outputSegmentation = nn.Linear(self.num_filters,
                                                self.num_classes)
 
@@ -71,9 +57,54 @@ class GraphSPICEEmbedder(UResNet):
         self.tanh = nn.Tanh()
         self.sigmoid = nn.Sigmoid()
 
-        # print('Total Number of Trainable Parameters (graph_spice_embedder)= {}'.format(
-        #             sum(p.numel() for p in self.parameters() if p.requires_grad)))
-        # print([name for name, param in self.named_parameters()])
+    def process_model_config(self, num_classes=5, coordConv=True, 
+                             predict_semantics=False, 
+                             covariance_mode='softplus', 
+                             occupancy_mode='softplus',
+                             feature_embedding_dim=16,
+                             spatial_embedding_dim=3):
+        """Initialize the GraphSPICEEmbedder model.
+
+        Parameters
+        ----------
+        num_classes : int, default 5
+            Number of semantic classes, if predict_semantics is True.
+        coordConv : bool, default True
+            Whether to append spatial coordinates to the input features
+        predict_semantics : bool, default False
+            Whether to predict semantic labels
+        covariance_mode : str, default 'softplus'
+            Covariance layer output function
+        occupancy_mode : str, default 'softplus'
+            Occupancy layer output function
+        feature_embedding_dim : int, default 16
+            Dimension of the feature embeddings
+        spatial_embedding_dim : int, default 3
+            Dimension of the spatial embeddings
+        """
+        
+        self.num_classes = num_classes
+        self.coordConv = coordConv
+        self.predict_semantics = predict_semantics
+        self.covariance_mode = covariance_mode
+        self.occupancy_mode = occupancy_mode
+        self.feature_embedding_dim = feature_embedding_dim
+        self.spatial_embedding_dim = spatial_embedding_dim
+        
+        if self.covariance_mode == 'exp':
+            self.cov_func = torch.exp
+        elif self.covariance_mode == 'softplus':
+            self.cov_func = nn.Softplus()
+        else:
+            raise ValueError("Covariance mode not recognized")
+        
+        if self.occupancy_mode == 'exp':
+            self.occ_func = torch.exp
+        elif self.occupancy_mode == 'softplus':
+            self.occ_func = nn.Softplus()
+        else:
+            raise ValueError("Occupancy mode not recognized")
+        
 
     def get_embeddings(self, input):
         '''
