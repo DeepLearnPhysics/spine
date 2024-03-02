@@ -111,7 +111,7 @@ class UResNetPPN(nn.Module):
         # Pass the decoder feature tensors to the PPN layers
         if self.ghost:
             # Deghost
-            if sefl.ppn.use_true_ghost_mask:
+            if self.ppn.use_true_ghost_mask:
                 # Use the true ghost labels
                 assert segment_label is not None, (
                         "If `use_true_ghost_mask` is set to `True`, must "
