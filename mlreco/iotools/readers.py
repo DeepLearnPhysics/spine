@@ -104,7 +104,7 @@ class Reader:
         for i, path in enumerate(self.file_paths):
             if i < max_print_files:
                 print("  -", path)
-            elif i == self.max_print_path:
+            elif i == max_print_files:
                 print("  ...")
                 break
         print("")
