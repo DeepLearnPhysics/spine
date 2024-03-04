@@ -12,7 +12,7 @@ from mlreco.models.layers.cnn.configuration import setup_cnn_configuration
 from mlreco.models.layers.cnn.blocks import ResNetBlock, SPP, ASPP
 from mlreco.models.layers.cluster_cnn.losses.misc import BinaryCELogDiceLoss
 
-from mlreco.utils import local_cdist
+from mlreco.utils.torch_local import local_cdist
 from mlreco.utils.logger import logger
 from mlreco.utils.globals import (COORD_COLS, VALUE_COL, SHAPE_COL, TRACK_SHP,
                                   GHOST_SHP, PPN_ROFF_COLS, PPN_RPOS_COLS,

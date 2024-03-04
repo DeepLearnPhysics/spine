@@ -147,11 +147,11 @@ class UResNetPPNLoss(nn.Module):
           name: uresnet_ppn_chain
           modules:
             uresnet:
-              # Your backbone uresnet config here
+              # Your backbone uresnet config goes here
             ppn:
-              # Your ppn config here
+              # Your ppn config goes here
             ppn_loss:
-              # Your ppn loss config here
+              # Your ppn loss config goes here
 
     See Also
     --------

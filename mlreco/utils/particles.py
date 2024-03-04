@@ -1,10 +1,30 @@
+"""Particle truth information post-processors.
+
+They add/correct information stored in LArCV particles.
+"""
+
 import numpy as np
 
-from .globals import SHOWR_SHP, MICHL_SHP, DELTA_SHP, INVAL_ID, INVAL_TID, PDG_TO_PID
+from .globals import (
+        SHOWR_SHP, MICHL_SHP, DELTA_SHP, INVAL_ID, INVAL_TID, PDG_TO_PID)
+
+
+def process_particles(particles):
+    """Process Particle object list to add/correct attributes.
+
+    Does the following:
+    - Adds interaction ID information if it is not provided
+    - Adds the true neutrino ID this particle came from
+    - Adds a simplified enumerated particle species ID
+    - Adds a flag as to whether a particle is a primary within an interaction
+    - Adds a flag as to whether a particle is a primary within an EM shower
+    """
+
+
 
 
 def get_valid_mask(particles):
-    '''
+    """
     A function which checks that the particle labels have been
     filled properly at the Supera level. It checks that the ancestor
     track ID of each particle is not an invalid number and that
@@ -19,7 +39,7 @@ def get_valid_mask(particles):
     -------
     np.ndarray
         (P) Boolean list of validity, one per true particle instance
-    '''
+    """
     mask  = np.array([p.ancestor_track_id() != INVAL_TID for p in particles])
     mask &= np.array([bool(len(p.ancestor_creation_process())) for p in particles])
 
@@ -27,7 +47,7 @@ def get_valid_mask(particles):
 
 
 def get_interaction_ids(particles):
-    '''
+    """
     A function which gets the interaction ID of each of the particle in
     the input particle list. If the `interaction_id` member of the
     larcv.Particle class is filled, it simply uses that quantity.
@@ -45,7 +65,7 @@ def get_interaction_ids(particles):
     -------
     np.ndarray
         (P) List of interaction IDs, one per true particle instance
-    '''
+    """
     # If the interaction IDs are set in the particle tree, simply use that
     inter_ids = np.array([p.interaction_id() for p in particles], dtype=np.int32)
     if np.any(inter_ids != INVAL_ID):
@@ -64,7 +84,7 @@ def get_interaction_ids(particles):
 
 
 def get_nu_ids(particles, inter_ids, particles_mpv=None, neutrinos=None):
-    '''
+    """
     A function which gets the neutrino-like ID (0 for cosmic, 1 for
     neutrino) of each of the particle in the input particle list.
 
@@ -91,7 +111,7 @@ def get_nu_ids(particles, inter_ids, particles_mpv=None, neutrinos=None):
     -------
     np.ndarray
         List of neutrino IDs, one per true particle instance
-    '''
+    """
     # Make sure there is only either MPV particles or neutrinos specified, not both
     assert particles_mpv is None or neutrinos is None,\
             'Do not specify both particle_mpv_event and neutrino_event in parse_cluster3d'
@@ -134,7 +154,7 @@ def get_nu_ids(particles, inter_ids, particles_mpv=None, neutrinos=None):
 
 
 def get_particle_ids(particles, nu_ids, include_mpr=False, include_secondary=False):
-    '''
+    """
     Function which gets a particle ID (PID) for each of the particle in
     the input particle list. This function ensures:
     - Particles that do not originate from an MPV are labeled -1,
@@ -164,7 +184,7 @@ def get_particle_ids(particles, nu_ids, include_mpr=False, include_secondary=Fal
     -------
     np.ndarray
         (P) List of particle IDs, one per true particle instance
-    '''
+    """
     particle_ids = -np.ones(len(nu_ids), dtype=np.int32)
     primary_ids  = get_group_primary_ids(particles, nu_ids, include_mpr)
     for i in range(len(particle_ids)):
@@ -184,7 +204,7 @@ def get_particle_ids(particles, nu_ids, include_mpr=False, include_secondary=Fal
 
 
 def get_shower_primary_ids(particles):
-    '''
+    """
     Function which gets primary labels for shower fragments.
     This could be handled somewhere else (e.g. Supera)
 
@@ -197,7 +217,7 @@ def get_shower_primary_ids(particles):
     -------
     np.ndarray
         (P) List of particle shower primary IDs, one per true particle instance
-    '''
+    """
     # Loop over the list of particle groups
     primary_ids = np.zeros(len(particles), dtype=np.int32)
     group_ids   = np.array([p.group_id() for p in particles], dtype=np.int32)
@@ -226,7 +246,7 @@ def get_shower_primary_ids(particles):
 
 
 def get_group_primary_ids(particles, nu_ids=None, include_mpr=True):
-    '''
+    """
     Parameters
     ----------
     particles : list(larcv.Particle)
@@ -240,7 +260,7 @@ def get_group_primary_ids(particles, nu_ids=None, include_mpr=True):
     -------
     np.ndarray
         (P) List of particle primary IDs, one per true particle instance
-    '''
+    """
     # Loop over the list of particles
     primary_ids = np.empty(len(particles), dtype=np.int32)
     valid_mask  = get_valid_mask(particles)

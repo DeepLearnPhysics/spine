@@ -3,11 +3,16 @@ import numpy as np
 from .points import scatter_points
 from .plotly_layouts import HIGH_CONTRAST_COLORS
 
-from mlreco.utils.particles import get_interaction_ids, get_nu_ids, get_particle_ids, get_shower_primary_ids, get_group_primary_ids
+from mlreco.utils.particles import (
+        get_interaction_ids, get_nu_ids, get_particle_ids,
+        get_shower_primary_ids, get_group_primary_ids)
 from mlreco.utils.globals import COORD_COLS, PART_COL
 
-def scatter_particles(cluster_label, particles, particles_mpv=None, neutrinos=None, part_col=PART_COL, markersize=1, **kwargs):
-    '''
+def scatter_particles(cluster_label, particles, particles_mpv=None,
+                      neutrinos=None, part_col=PART_COL, markersize=1,
+                      **kwargs):
+    """Builds a graph of true particles in the image.
+
     Function which returns a graph object per true particle in the 
     particle list, provided that the particle deposited energy in the
     detector which appears in the cluster_label tensor.
@@ -16,11 +21,11 @@ def scatter_particles(cluster_label, particles, particles_mpv=None, neutrinos=No
     ----------
     cluster_label : np.ndarray
         (N, M) Tensor of pixel coordinates and their associated cluster ID
-    particles : List[larcv.Particle]
+    particles : List[Particle]
         (P) List of LArCV true particle objects
-    particles_mpv : List[larcv.Particle], optional
+    particles_mpv : List[Particle], optional
         (M) List of true MPV particle instances
-    neutrinos : List[larcv.Neutrino], optional
+    neutrinos : List[Neutrino], optional
         (N) List of true neutrino instances
     part_col : int
         Index of the column in the label tensor that contains the particle ID
@@ -32,7 +37,7 @@ def scatter_particles(cluster_label, particles, particles_mpv=None, neutrinos=No
     -------
     List[plotly.graph_objs.Scatter3D]
         List of particle traces
-    '''
+    """
     # Get the labels that are not immediately provided by the larcv.Particle objects
     inter_ids = get_interaction_ids(particles)
     nu_ids    = get_nu_ids(particles, inter_ids, particles_mpv, neutrinos)
