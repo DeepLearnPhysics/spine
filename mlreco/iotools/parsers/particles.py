@@ -14,7 +14,7 @@ import numpy as np
 from larcv import larcv
 
 from mlreco.utils.globals import TRACK_SHP, PDG_TO_PID, PID_MASSES
-from mlreco.utils.data_structures import Meta
+from mlreco.utils.data_structures import Meta, Particle, Neutrino
 from mlreco.utils.unwrap import Unwrapper
 from mlreco.utils.ppn import get_ppn_labels
 
@@ -26,7 +26,7 @@ __all__ = ['ParticleParser', 'NeutrinoParser', 'ParticlePointParser',
 
 
 class ParticleParser(Parser):
-    """Class that copy constructs & returns an array of larcv.Particle.
+    """Class which loads larcv.Particle objects to local Particle ones.
 
     .. code-block. yaml
 
@@ -38,7 +38,7 @@ class ParticleParser(Parser):
             voxel_coordinates: True
     """
     name = 'parse_particles'
-    result = Unwrapper.Rule(method='list', default=larcv.Particle())
+    result = Unwrapper.Rule(method='list', default=Particle())
 
     def __init__(self, voxel_coordinates=True, **kwargs):
         """Initialize the parser.
@@ -56,9 +56,6 @@ class ParticleParser(Parser):
 
         # Store the revelant attributes
         self.voxel_coordinates = voxel_coordinates
-        self.pos_attrs = [
-                'first_step', 'last_step', 'position', 'end_position',
-                'parent_position', 'ancestor_position']
 
     def process(self, particle_event, sparse_event=None, cluster_event=None):
         """Fetch the list of true particle objects.
@@ -76,33 +73,29 @@ class ParticleParser(Parser):
 
         Returns
         -------
-        List[larcv.Particle]
+        List[Particle]
             List of true particle objects
         """
         # Convert to a list of LArCV particle objects
-        # TODO: Make a locally-defined data structure to hold what is relevant
         particles = [larcv.Particle(p) for p in particle_event.as_vector()]
+        particles = [Particle.from_larcv(p) for p in particles]
         if self.voxel_coordinates:
             # Fetch the metadata
             assert (sparse_event is not None) ^ (cluster_event is not None), (
                     "Must provide either `sparse_event` or `cluster_event` to "
                     "get the metadata and convert positions to voxel units.")
             ref_event = sparse_event if sparse_event else cluster_event
-            meta = ref_event.meta()
+            meta = Meta.from_larcv(ref_event.meta())
 
             # Convert all the relevant attributes
             for p in particles:
-                for f in self.pos_attrs:
-                    pos = getattr(p, f)()
-                    x = (pos.x() - meta.min_x()) / meta.size_voxel_x()
-                    y = (pos.y() - meta.min_y()) / meta.size_voxel_y()
-                    z = (pos.z() - meta.min_z()) / meta.size_voxel_z()
-                    getattr(p, f)(x, y, z, pos.t())
+                p.to_pixel(meta)
 
         return particles
 
+
 class NeutrinoParser(Parser):
-    """Class that copy constructs & returns an array of larcv.Neutrino.
+    """Class which loads larcv.Neutrino objects to local Neutrino ones.
 
     .. code-block. yaml
 
@@ -114,7 +107,7 @@ class NeutrinoParser(Parser):
             voxel_coordinates: True
     """
     name = 'parse_neutrinos'
-    result = Unwrapper.Rule(method='list', default=larcv.Neutrino())
+    result = Unwrapper.Rule(method='list', default=Neutrino)
 
     def __init__(self, voxel_coordinates=True, **kwargs):
         """Initialize the parser.
@@ -150,28 +143,23 @@ class NeutrinoParser(Parser):
 
         Returns
         -------
-        List[larcv.Neutrino]
+        List[Neutrino]
             List of true neutrino objects
         """
         # Convert to a list of LArCV neutrino objects
-        # TODO: Make a locally-defined data structure to hold what is relevant
-        neutrinos = [larcv.Neutrino(p) for p in neutrino_event.as_vector()]
+        neutrinos = [larcv.Neutrino(n) for n in neutrino_event.as_vector()]
+        neutrinos = [Neutrino.from_larcv(n) for n in neutrinos]
         if self.voxel_coordinates:
             # Fetch the metadata
             assert (sparse_event is not None) ^ (cluster_event is not None), (
                     "Must provide either `sparse_event` or `cluster_event` to "
                     "get the metadata and convert positions to voxel units.")
             ref_event = sparse_event if sparse_event else cluster_event
-            meta = ref_event.meta()
+            meta = Meta.from_larcv(ref_event.meta())
 
             # Convert all the relevant attributes
             for n in neutrinos:
-                for f in self.pos_attrs:
-                    pos = getattr(n, f)()
-                    x = (pos.x() - meta.min_x()) / meta.size_voxel_x()
-                    y = (pos.y() - meta.min_y()) / meta.size_voxel_y()
-                    z = (pos.z() - meta.min_z()) / meta.size_voxel_z()
-                    getattr(n, f)(x, y, z, pos.t())
+                n.to_pixel(meta)
 
         return neutrinos
 

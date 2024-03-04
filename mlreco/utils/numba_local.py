@@ -1,3 +1,5 @@
+"""Extensions to the basic Numba package."""
+
 import numpy as np
 import numba as nb
 
@@ -6,8 +8,7 @@ import numba as nb
 def submatrix(x: nb.float32[:,:],
               index1: nb.int32[:],
               index2: nb.int32[:]) -> nb.float32[:,:]:
-    """
-    Numba implementation of matrix subsampling.
+    """Numba implementation of matrix subsampling.
 
     Parameters
     ----------
@@ -32,8 +33,7 @@ def submatrix(x: nb.float32[:,:],
 
 @nb.njit(cache=True)
 def unique(x: nb.int32[:]) -> (nb.int32[:], nb.int64[:]):
-    """
-    Numba implementation of `np.unique(x, return_counts=True)`.
+    """Numba implementation of `np.unique(x, return_counts=True)`.
 
     Parameters
     ----------
@@ -69,8 +69,7 @@ def unique(x: nb.int32[:]) -> (nb.int32[:], nb.int64[:]):
 @nb.njit(cache=True)
 def mean(x: nb.float32[:,:],
          axis: nb.int32) -> nb.float32[:]:
-    """
-    Numba implementation of `np.mean(x, axis)`.
+    """Numba implementation of `np.mean(x, axis)`.
 
     Parameters
     ----------
@@ -98,8 +97,7 @@ def mean(x: nb.float32[:,:],
 @nb.njit(cache=True)
 def norm(x: nb.float32[:,:],
          axis: nb.int32) -> nb.float32[:]:
-    """
-    Numba implementation of `np.linalg.norm(x, axis)`.
+    """Numba implementation of `np.linalg.norm(x, axis)`.
 
     Parameters
     ----------
@@ -127,8 +125,7 @@ def norm(x: nb.float32[:,:],
 @nb.njit(cache=True)
 def argmin(x: nb.float32[:,:],
            axis: nb.int32) -> nb.int32[:]:
-    """
-    Numba implementation of `np.argmin(x, axis)`.
+    """Numba implementation of `np.argmin(x, axis)`.
 
     Parameters
     ----------
@@ -156,8 +153,7 @@ def argmin(x: nb.float32[:,:],
 @nb.njit(cache=True)
 def argmax(x: nb.float32[:,:],
            axis: nb.int32) -> nb.int32[:]:
-    """
-    Numba implementation of `np.argmax(x, axis)`.
+    """Numba implementation of `np.argmax(x, axis)`.
 
     Parameters
     ----------
@@ -185,8 +181,7 @@ def argmax(x: nb.float32[:,:],
 @nb.njit(cache=True)
 def min(x: nb.float32[:,:],
         axis: nb.int32) -> nb.float32[:]:
-    """
-    Numba implementation of `np.max(x, axis)`.
+    """Numba implementation of `np.max(x, axis)`.
 
     Parameters
     ----------
@@ -214,8 +209,7 @@ def min(x: nb.float32[:,:],
 @nb.njit(cache=True)
 def max(x: nb.float32[:,:],
         axis: nb.int32) -> nb.float32[:]:
-    """
-    Numba implementation of `np.max(x, axis)`.
+    """Numba implementation of `np.max(x, axis)`.
 
     Parameters
     ----------
@@ -243,8 +237,7 @@ def max(x: nb.float32[:,:],
 @nb.njit(cache=True)
 def all(x: nb.float32[:,:],
         axis: nb.int32) -> nb.boolean[:]:
-    """
-    Numba implementation of `np.all(x, axis)`.
+    """Numba implementation of `np.all(x, axis)`.
 
     Parameters
     ----------
@@ -301,8 +294,7 @@ def softmax(x: nb.float32[:,:],
 @nb.njit(cache=True)
 def log_loss(label: nb.boolean[:],
              pred: nb.float32[:]) -> nb.float32:
-    """
-    Numba implementation of cross-entropy loss.
+    """Numba implementation of cross-entropy loss.
 
     Parameters
     ----------
@@ -324,8 +316,8 @@ def log_loss(label: nb.boolean[:],
 
 @nb.njit(cache=True)
 def pdist(x: nb.float32[:,:]) -> nb.float32[:,:]:
-    """
-    Numba implementation of Eucleadian `scipy.spatial.distance.pdist(x, p=2)` in 3D.
+    """Numba implementation of Eucleadian 
+    `scipy.spatial.distance.pdist(x, p=2)` in 3D.
 
     Parameters
     ----------
@@ -347,9 +339,8 @@ def pdist(x: nb.float32[:,:]) -> nb.float32[:,:]:
 @nb.njit(cache=True)
 def cdist(x1: nb.float32[:,:],
           x2: nb.float32[:,:]) -> nb.float32[:,:]:
-    """
-    Numba implementation of Eucleadian `scipy.spatial.distance.cdist(x, p=2)`
-    in 1D, 2D or 3D.
+    """Numba implementation of Eucleadian
+    `scipy.spatial.distance.cdist(x, p=2)` in 1D, 2D or 3D.
 
     Parameters
     ----------
@@ -386,8 +377,7 @@ def cdist(x1: nb.float32[:,:],
 
 @nb.njit(cache=True)
 def principal_components(x: nb.float32[:,:]) -> nb.float32[:,:]:
-    '''
-    Computes the principal components of a point cloud by computing the
+    """Computes the principal components of a point cloud by computing the
     eigenvectors of the centered covariance matrix.
 
     Parameters
@@ -399,7 +389,7 @@ def principal_components(x: nb.float32[:,:]) -> nb.float32[:,:]:
     -------
     np.ndarray
         (d, d) List of principal components (row-ordered)
-    '''
+    """
     # Get covariance matrix
     A = np.cov(x.T, ddof = len(x) - 1).astype(x.dtype) # Casting needed...
 
@@ -413,8 +403,7 @@ def principal_components(x: nb.float32[:,:]) -> nb.float32[:,:]:
 @nb.njit(cache=True)
 def farthest_pair(x: nb.float32[:,:],
                   algorithm: bool = 'brute') -> (nb.int32, nb.int32, nb.float32):
-    '''
-    Algorithm which finds the two points which are
+    """Algorithm which finds the two points which are
     farthest from each other in a set.
 
     Two algorithms:
@@ -438,7 +427,7 @@ def farthest_pair(x: nb.float32[:,:],
         ID of the second point that makes up the pair
     float
         Distance between the two points
-    '''
+    """
     if algorithm == 'brute':
         dist_mat = pdist(x)
         index = np.argmax(dist_mat)
@@ -453,7 +442,7 @@ def farthest_pair(x: nb.float32[:,:],
             dist = dists[idxs[~subidx]]
             subidx = ~subidx
     else:
-        raise ValueError('Algorithm not supported')
+        raise ValueError("Algorithm not supported")
 
     return idxs[0], idxs[1], dist
 
@@ -463,9 +452,8 @@ def closest_pair(x1: nb.float32[:,:],
                  x2: nb.float32[:,:],
                  algorithm: bool = 'brute',
                  seed: bool = True) -> (nb.int32, nb.int32, nb.float32):
-    '''
-    Algorithm which finds the two points which are
-    closest to each other from two separate sets.
+    """Algorithm which finds the two points which are closest to each other
+    from two separate sets.
 
     Two algorithms:
     - `brute`: compute cdist, use argmin
@@ -492,7 +480,7 @@ def closest_pair(x1: nb.float32[:,:],
         ID of the second point that makes up the pair
     float
         Distance between the two points
-    '''
+    """
     # Find the two points in two sets of points that are closest to each other
     if algorithm == 'brute':
         # Compute every pair-wise distances between the two sets
@@ -530,6 +518,6 @@ def closest_pair(x1: nb.float32[:,:],
             dist = dists[idxs[~set_id]]
             subidx = ~set_id
     else:
-        raise ValueError('Algorithm not supported')
+        raise ValueError("Algorithm not supported")
 
     return idxs[0], idxs[1], dist

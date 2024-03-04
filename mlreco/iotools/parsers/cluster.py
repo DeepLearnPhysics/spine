@@ -114,7 +114,8 @@ class Cluster3DParser(Parser):
     def __init__(self, particle_event=None, add_particle_info=False,
                  clean_data=False, type_include_mpr=False,
                  type_include_secondary=False, primary_include_mpr=False,
-                 break_clusters=False, min_size=-1, **kwargs):
+                 break_clusters=False, min_size=-1,
+                 voxel_coordinates=True, **kwargs):
         """Initialize the parser.
 
         Parameters
@@ -137,6 +138,9 @@ class Cluster3DParser(Parser):
             IDs to different fragments of the broken-down cluster
         min_size : int, default -1
             Minimum cluster size to be parsed in the combined tensor
+        voxel_coordinates : bool, default True
+            If set to `True`, the parser rescales the truth positions
+            (start, end, etc.) of the particles to voxel coordinates
         **kwargs : dict, optional
             Data product arguments to be passed to the `process` function
         """
@@ -154,7 +158,8 @@ class Cluster3DParser(Parser):
 
         # Intialize the sparse and particle parsers
         self.sparse_parser = Sparse3DParser(sparse_event='dummy')
-        self.particle_parser = ParticleParser()
+        self.particle_parser = ParticleParser(
+                voxel_coordinates=voxel_coordinates)
 
         # Initialize the DBSCAN algorithm, if needed
         if self.break_clusters:
@@ -255,10 +260,10 @@ class Cluster3DParser(Parser):
                     particles, labels['nu'], self.primary_include_mpr)
 
             # Store the vertex and momentum
-            anc_pos = lambda x : getattr(x, 'ancestor_position')()
-            labels['vtx_x'] = np.array([anc_pos(p).x() for p in particles_p])
-            labels['vtx_y'] = np.array([anc_pos(p).y() for p in particles_p])
-            labels['vtx_z'] = np.array([anc_pos(p).z() for p in particles_p])
+            anc_pos = lambda x : getattr(x, 'ancestor_position')
+            labels['vtx_x'] = np.array([anc_pos(p)[0] for p in particles_p])
+            labels['vtx_y'] = np.array([anc_pos(p)[1] for p in particles_p])
+            labels['vtx_z'] = np.array([anc_pos(p)[2] for p in particles_p])
             labels['p']     = np.array([p.p()/1e3 for p in particles]) # In GeV
 
             # Store the shape last (consistent with semantics tensor)

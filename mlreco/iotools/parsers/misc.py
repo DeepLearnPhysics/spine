@@ -134,7 +134,8 @@ class OpFlashParser(Parser):
             opflash_event: opflash_cryoE
 
     """
-    name = 'parse_opflash'
+    name = 'parse_opflashes'
+    aliases = ['parse_opflash']
     result = Unwrapper.Rule(method='list', default=Flash())
 
     def process(self, opflash_event=None, opflash_event_list=None):
@@ -178,8 +179,8 @@ class CRTHitParser(Parser):
             parser: parse_crthits
             crthit_event: crthit_crthit
     """
-    name = 'parse_crthit'
-    aliases = ['parse_crthits']
+    name = 'parse_crthits'
+    aliases = ['parse_crthit']
     result = Unwrapper.Rule(method='list', default=CRTHit())
 
     def process(self, crthit_event):

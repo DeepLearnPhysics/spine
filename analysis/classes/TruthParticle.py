@@ -7,6 +7,7 @@ from . import Particle
 from mlreco.utils.globals import PDG_TO_PID, TRACK_SHP, SHAPE_LABELS, PID_LABELS
 from mlreco.utils.decorators import inherit_docstring
 
+
 @inherit_docstring(Particle)
 class TruthParticle(Particle):
     '''

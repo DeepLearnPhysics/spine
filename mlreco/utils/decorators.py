@@ -7,8 +7,7 @@ from functools import wraps
 
 
 def timing(fn):
-    '''
-    Function which wraps any function and times it.
+    """Function which wraps any function and times it.
 
     Parameters
     ----------
@@ -19,7 +18,7 @@ def timing(fn):
     -------
     callable
         Timed function
-    '''
+    """
     @wraps(fn)
     def wrap(*args, **kwargs):
         ts = time()
@@ -32,8 +31,8 @@ def timing(fn):
 
 
 def inherit_docstring(parent):
-    '''
-    Inherits docstring attributes of a parent class.
+    """Inherits docstring attributes of a parent class.
+
     Only handles numpy-style docstrings.
 
     Parameters
@@ -45,7 +44,7 @@ def inherit_docstring(parent):
     -------
     callable
         Class with updated docstring
-    '''
+    """
     def inherit(obj):
         tab       = '    '
         underline = '----'
@@ -59,7 +58,8 @@ def inherit_docstring(parent):
         docstr = parent.__doc__
         substr = docstr.split(header)[-1].rstrip() + '\n'
         if len(substr.split(underline)) > 1:
-            substr = ''.join(substr.split(underline)[0].split('\n')[:-1]).rstrip()
+            substr = substr.split(underline)[0].split('\n')[:-1]
+            substr = ''.join(substr).rstrip()
 
         # Append it to the relevant block
         split_doc   = obj.__doc__.split(header)
@@ -71,8 +71,7 @@ def inherit_docstring(parent):
 
 
 def numbafy(cast_args=[], list_args=[], keep_torch=False, ref_arg=None):
-    '''
-    Function which wraps a *numba* function with some checks on the input
+    """Function which wraps a `numba` function with some checks on the input
     to make the relevant conversions to numpy where necessary.
 
     Parameters
@@ -90,23 +89,27 @@ def numbafy(cast_args=[], list_args=[], keep_torch=False, ref_arg=None):
     -------
     callable
         Wrapped function which ensures input type compatibility with numba
-    '''
+    """
     def outer(fn):
         @wraps(fn)
         def inner(*args, **kwargs):
-            # Convert the positional arguments in args into key:value pairs in kwargs
+            # Convert the positional arguments in args into
+            # key:value pairs in kwargs
             keys = list(inspect.signature(fn).parameters.keys())
             for i, val in enumerate(args):
                 kwargs[keys[i]] = val
 
             # Extract the default values for the remaining parameters
             for key, val in inspect.signature(fn).parameters.items():
-                if key not in kwargs and val.default != inspect.Parameter.empty:
+                if (key not in kwargs and 
+                    val.default != inspect.Parameter.empty):
                     kwargs[key] = val.default
 
-            # If a torch output is request, register the input dtype and device location
+            # If a torch output is request, register the input dtype and
+            # device location
             if keep_torch:
-                assert ref_arg in kwargs
+                assert ref_arg in kwargs, (
+                        "Must provide the `ref_arg` to cast back to torch")
                 dtype, device = None, None
                 if isinstance(kwargs[ref_arg], torch.Tensor):
                     dtype = kwargs[ref_arg].dtype
@@ -114,14 +117,17 @@ def numbafy(cast_args=[], list_args=[], keep_torch=False, ref_arg=None):
 
             # If the cast data is not a numpy array, cast it
             for arg in cast_args:
-                assert arg in kwargs
+                assert arg in kwargs, (
+                        "Must provide arguments in cast_args")
                 if not isinstance(kwargs[arg], np.ndarray):
-                    assert isinstance(kwargs[arg], torch.Tensor)
-                    kwargs[arg] = kwargs[arg].detach().cpu().numpy() # For now cast to CPU only
+                    assert isinstance(kwargs[arg], torch.Tensor), (
+                            "Can only convert torch.Tensor to numpy")
+                    kwargs[arg] = kwargs[arg].detach().cpu().numpy()
 
             # If there is a reflected list in the input, type it
             for arg in list_args:
-                assert arg in kwargs
+                assert arg in kwargs, (
+                        "Must provide arguments in list_args")
                 kwargs[arg] = nb.typed.List(kwargs[arg])
 
             # Get the output
@@ -130,9 +136,11 @@ def numbafy(cast_args=[], list_args=[], keep_torch=False, ref_arg=None):
                 if isinstance(ret, np.ndarray):
                     ret = torch.tensor(ret, dtype=dtype, device=device)
                 elif isinstance(ret, list):
-                    ret = [torch.tensor(r, dtype=dtype, device=device) for r in ret]
+                    ret = [torch.tensor(
+                        r, dtype=dtype, device=device) for r in ret]
                 else:
-                    raise TypeError('Return type not recognized, cannot cast to torch')
+                    raise TypeError(
+                            "Return type not recognized, cannot cast to torch")
             return ret
         return inner
     return outer
