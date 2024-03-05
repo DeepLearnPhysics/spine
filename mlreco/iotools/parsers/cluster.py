@@ -112,8 +112,8 @@ class Cluster3DParser(Parser):
     result = Unwrapper.Rule(method='tensor', translate=True)
 
     def __init__(self, particle_event=None, add_particle_info=False,
-                 clean_data=False, type_include_mpr=False,
-                 type_include_secondary=False, primary_include_mpr=False,
+                 clean_data=False, type_include_mpr=True,
+                 type_include_secondary=True, primary_include_mpr=True,
                  break_clusters=False, min_size=-1,
                  pixel_coordinates=True, **kwargs):
         """Initialize the parser.
@@ -140,7 +140,7 @@ class Cluster3DParser(Parser):
             Minimum cluster size to be parsed in the combined tensor
         pixel_coordinates : bool, default True
             If set to `True`, the parser rescales the truth positions
-            (start, end, etc.) of the particles to voxel coordinates
+            (start, end, etc.) of the particle information to voxel coordinates
         **kwargs : dict, optional
             Data product arguments to be passed to the `process` function
         """
@@ -168,6 +168,7 @@ class Cluster3DParser(Parser):
             assert particle_event is not None, (
                     "If `add_particle_info` is `True`, must provide the"
                     "`particle_event` argument")
+
             self.particle_parser = ParticleParser(
                     pixel_coordinates=pixel_coordinates, post_process=True)
 
@@ -258,6 +259,21 @@ class Cluster3DParser(Parser):
 
             # Store the shape last (consistent with semantics tensor)
             labels['shape']   = [p.shape for p in particles]
+
+            # If requested, give invalid labels to a subset of particles
+            if not self.type_include_secondary:
+                secondary_mask = np.where(np.array(labels['pgroup']) < 1)[0]
+                labels['type'] = np.asarray(labels['type'])
+                labels['type'][secondary_mask] = -1
+
+            if not self.type_include_mpr or not self.primary_include_mpr:
+                mpr_mask = np.where(np.array(labels['nu']) < 0)[0]
+                if not self.type_include_mpr:
+                    labels['type'] = np.asarray(labels['type'])
+                    labels['type'][mpr_mask] = -1
+                if not self.primary_include_mpr:
+                    labels['pgroup'] = np.asarray(labels['pgroup'])
+                    labels['pgroup'][mpr_mask] = -1
 
         # Loop over clusters, store information
         clusters_voxels, clusters_features = [], []
