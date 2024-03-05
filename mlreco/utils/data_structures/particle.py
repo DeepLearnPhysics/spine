@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from larcv import larcv
 from warnings import warn
 
-from mlreco.utils.globals import UNKWN_SHP, SHAPE_LABELS
+from mlreco.utils.globals import UNKWN_SHP, SHAPE_LABELS, PID_LABELS
 
 from .meta import Meta
 
@@ -31,6 +31,12 @@ class Particle:
         Index of the group the particle belongs to
     interaction_id : int
         Index of the interaction the partile belongs to
+    nu_id : int
+        Index of the neutrino this particle belongs to
+    interaction_primary : int
+        Whether the particle is primary in its interaction or not
+    shower_primary : int
+        If EM particle, whether it is primary in its shower group
     parent_id : int
         Index of the parent particle
     children_id : np.ndarray
@@ -57,6 +63,8 @@ class Particle:
         Creation process of the parent particle
     ancestor_creation_process : str
         Creation process of the ancestor particle
+    pid : int
+        Enumerated particle species type of the particle
     pdg_code : int
         Particle PDG code
     parent_pdg_code : int
@@ -95,11 +103,15 @@ class Particle:
     gen_id: int = -1
     group_id: int = -1
     interaction_id: int = -1
+    nu_id: int = -1
+    interaction_primary: int = -1
+    shower_primary: int = -1
     parent_id: int = -1
     children_id: int = np.empty(0, dtype=np.int64)
     track_id: int = -1
     parent_track_id: int = -1
     ancestor_track_id: int = -1
+    pid: int = -1
     pdg_code: int = -1
     parent_pdg_code: int = -1
     ancestor_pdg_code: int = -1
@@ -134,7 +146,10 @@ class Particle:
                   'ancestor_position', 'first_step', 'last_step']
 
     # Enumerated attributes
-    _enum_attrs = {'shape': {v : k for k, v in SHAPE_LABELS.items()}}
+    _enum_attrs = {
+            'shape': {v : k for k, v in SHAPE_LABELS.items()},
+            'pid': {v : k for k, v in SHAPE_LABELS.items()}
+    }
 
     def to_cm(self, meta):
         """Converts the coordinates of the positional attributes to cm.
@@ -144,7 +159,6 @@ class Particle:
         meta : Meta
             Metadata information about the rasterized image
         """
-        assert self.units != '', "Must specify units"
         assert self.units != 'cm', "Units already expressed in cm"
         self.units = 'cm'
         for attr in self._pos_attrs:
@@ -158,11 +172,32 @@ class Particle:
         meta : Meta
             Metadata information about the rasterized image
         """
-        assert self.units != '', "Must specify units"
         assert self.units != 'pixel', "Units already expressed in pixels"
-        self.units = 'cm'
+        self.units = 'pixel'
         for attr in self._pos_attrs:
             setattr(self, attr, meta.to_pixel(getattr(self, attr)))
+
+    @property
+    def p(self):
+        """Computes the magnitude of the initial momentum.
+
+        Returns
+        -------
+        float
+            Norm of the initial momentum vector
+        """
+        return np.linalg.norm(self.momentum)
+
+    @property
+    def end_p(self):
+        """Computes the magnitude of the final momentum.
+
+        Returns
+        -------
+        float
+            Norm of the final momentum vector
+        """
+        return np.linalg.norm(self.end_momentum)
 
     @classmethod
     def from_larcv(cls, particle):

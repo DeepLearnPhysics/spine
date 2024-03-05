@@ -5,7 +5,6 @@ from numba.typed import List
 from typing import List, Union
 from collections import defaultdict, OrderedDict, Counter
 
-from scipy.optimize import linear_sum_assignment
 from scipy.spatial.distance import cdist
 from . import Particle, TruthParticle, Interaction, TruthInteraction
 
@@ -269,14 +268,12 @@ def match_particles_all(particles_x : Union[List[Particle], List[TruthParticle]]
     matches = OrderedDict()
     out_counts = []
     
+    # Reset the matches
     for px in particles_x:
         px.match_overlap = OrderedDict()
-    #for py in particles_y:
-    #    py.match_overlap = OrderedDict()
 
     # For each particle in x, choose one in y
     for j, px in enumerate(particles_x):
-        #select_idx = idx[j]
         match_idxs = np.where(overlap_matrix[:,j] > min_overlap)[0]
         out_counts.append(match_idxs)
         if not len(match_idxs):
@@ -285,10 +282,11 @@ def match_particles_all(particles_x : Union[List[Particle], List[TruthParticle]]
             px.matched = False
         else:
             px.matched = True
+            overlaps   = overlap_matrix[match_idxs, j]
+            match_idxs = match_idxs[np.argsort(overlaps)][::-1]
             for idx in match_idxs:
                 matched = particles_y[idx]
-                px._match_overlap[matched.id] = overlap_matrix[idx,j]
-                # matched._match_overlap[px.id] = intersections[j]
+                px._match_overlap[matched.id] = overlap_matrix[idx, j]
                 key = (px.id, matched.id)
                 matches[key] = (px, matched)
 
@@ -316,10 +314,9 @@ def match_particles_principal(particles_x : Union[List[Particle], List[TruthPart
     matches = OrderedDict()
     out_counts = []
     
+    # Reset the matches
     for px in particles_x:
         px.match_overlap = OrderedDict()
-    #for py in particles_y:
-    #    py.match_overlap = OrderedDict()
 
     # For each particle in x, choose one in y
     for j, px in enumerate(particles_x):
@@ -380,7 +377,9 @@ def group_particles_to_interactions_fn(particles : List[Particle],
     # Sort the particles by interactions
     interactions = []
     interaction_ids = np.array([p.interaction_id for p in particles])
-    for i, int_id in enumerate(np.unique(interaction_ids)):
+    unique_ids = np.unique(interaction_ids)
+    valid_unique_ids = unique_ids[unique_ids > -1]
+    for i, int_id in enumerate(valid_unique_ids):
         # Get particles in interaction int_it
         particle_ids = np.where(interaction_ids == int_id)[0]
         parts = [particles[i] for i in particle_ids]

@@ -19,7 +19,11 @@ class MatchParticlesProcessor(PostProcessor):
                  min_overlap=0,
                  overlap_mode='iou', 
                  weight=False,
-                 list_principal_matches=True):
+                 list_principal_matches=True,
+                 fragments=False):
+        self.fragments     = fragments
+        if self.fragments:
+            self.result_cap = ['particle_fragments', 'truth_particle_fragments']
         
         self.matching_mode = matching_mode
         self.min_overlap   = min_overlap
@@ -29,9 +33,13 @@ class MatchParticlesProcessor(PostProcessor):
         
     def process(self, data_dict, result_dict):
         
-        true_particles = result_dict['truth_particles']
-        pred_particles = result_dict['particles']
-        
+        if self.fragments:
+            true_particles = result_dict['truth_particle_fragments']
+            pred_particles = result_dict['particle_fragments']
+        else:
+            true_particles = result_dict['truth_particles']
+            pred_particles = result_dict['particles']
+            
         if self.overlap_mode == 'chamfer':
             true_particles = [ia for ia in true_particles if ia.truth_size > 0]
         else:

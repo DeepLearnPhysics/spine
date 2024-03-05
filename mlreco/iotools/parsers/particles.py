@@ -16,6 +16,7 @@ from larcv import larcv
 from mlreco.utils.globals import TRACK_SHP, PDG_TO_PID, PID_MASSES
 from mlreco.utils.data_structures import Meta, Particle, Neutrino
 from mlreco.utils.unwrap import Unwrapper
+from mlreco.utils.particles import process_particles
 from mlreco.utils.ppn import get_ppn_labels
 
 from .parser import Parser
@@ -35,19 +36,21 @@ class ParticleParser(Parser):
             parser: parse_particles
             particle_event: particle_pcluster
             cluster_event: cluster3d_pcluster
-            voxel_coordinates: True
+            pixel_coordinates: True
     """
     name = 'parse_particles'
     result = Unwrapper.Rule(method='list', default=Particle())
 
-    def __init__(self, voxel_coordinates=True, **kwargs):
+    def __init__(self, pixel_coordinates=True, post_process=True, **kwargs):
         """Initialize the parser.
 
         Parameters
         ----------
-        voxel_coordinates : bool, default True
+        pixel_coordinates : bool, default True
             If set to `True`, the parser rescales the truth positions
             (start, end, etc.) to voxel coordinates
+        post_process : bool, default True
+            Processes particles to add/correct missing attributes
         **kwargs : dict, optional
             Data product arguments to be passed to the `process` function
         """
@@ -55,9 +58,11 @@ class ParticleParser(Parser):
         super().__init__(**kwargs)
 
         # Store the revelant attributes
-        self.voxel_coordinates = voxel_coordinates
+        self.pixel_coordinates = pixel_coordinates
+        self.post_process = post_process
 
-    def process(self, particle_event, sparse_event=None, cluster_event=None):
+    def process(self, particle_event, sparse_event=None, cluster_event=None,
+                particle_mpv_event=None, neutrino_event=None):
         """Fetch the list of true particle objects.
 
         Parameters
@@ -70,16 +75,35 @@ class ParticleParser(Parser):
         cluster_event : larcv.EventClusterVoxel3D, optional
             Cluster which contains the metadata needed to convert the
             positions in voxel coordinates
+        particle_mpv_event : larcv.EventParticle, optional
+            Particle event which contains the list of true MPV particles
+        neutrino_event : larcv.EventNeutrino, optional
+            Neutrino event which contains the list of true neutrinos
 
         Returns
         -------
         List[Particle]
             List of true particle objects
         """
-        # Convert to a list of LArCV particle objects
-        particles = [larcv.Particle(p) for p in particle_event.as_vector()]
-        particles = [Particle.from_larcv(p) for p in particles]
-        if self.voxel_coordinates:
+        # Convert to a list of particle objects
+        particle_list = particle_event.as_vector()
+        particles = [Particle.from_larcv(p) for p in particle_list]
+
+        # If requested, post-process the particle list
+        if self.post_process:
+            # Fetch the secondary information
+            particles_mpv, neutrinos = None, None
+            if particle_mpv_event is not None:
+                particle_mpv_list = particle_mpv_event.as_vector()
+                particles = [Particle.from_larcv(p) for p in particle_mpv_list]
+            if neutrino_event is not None:
+                neutrino_list = neutrino_event.as_vector()
+                neutrinos = [Neutrino.from_larcv(n) for n in neutrino_list]
+
+            process_particles(particles, particles_mpv, neutrinos)
+
+        # If requested, convert the point positions to pixel coordinates
+        if self.pixel_coordinates:
             # Fetch the metadata
             assert (sparse_event is not None) ^ (cluster_event is not None), (
                     "Must provide either `sparse_event` or `cluster_event` to "
@@ -104,17 +128,17 @@ class NeutrinoParser(Parser):
             parser: parse_neutrinos
             neutrino_event: neutrino_mpv
             cluster_event: cluster3d_pcluster
-            voxel_coordinates: True
+            pixel_coordinates: True
     """
     name = 'parse_neutrinos'
-    result = Unwrapper.Rule(method='list', default=Neutrino)
+    result = Unwrapper.Rule(method='list', default=Neutrino())
 
-    def __init__(self, voxel_coordinates=True, **kwargs):
+    def __init__(self, pixel_coordinates=True, **kwargs):
         """Initialize the parser.
 
         Parameters
         ----------
-        voxel_coordinates : bool, default True
+        pixel_coordinates : bool, default True
             If set to `True`, the parser rescales the truth positions
             (start, end, etc.) to voxel coordinates
         **kwargs : dict, optional
@@ -124,8 +148,7 @@ class NeutrinoParser(Parser):
         super().__init__(**kwargs)
 
         # Store the revelant attributes
-        self.voxel_coordinates = voxel_coordinates
-        self.pos_attrs = ['position']
+        self.pixel_coordinates = pixel_coordinates
 
     def process(self, neutrino_event, sparse_event=None, cluster_event=None):
         """Fetch the list of true neutrino objects.
@@ -146,10 +169,12 @@ class NeutrinoParser(Parser):
         List[Neutrino]
             List of true neutrino objects
         """
-        # Convert to a list of LArCV neutrino objects
-        neutrinos = [larcv.Neutrino(n) for n in neutrino_event.as_vector()]
-        neutrinos = [Neutrino.from_larcv(n) for n in neutrinos]
-        if self.voxel_coordinates:
+        # Convert to a list of neutrino objects
+        neutrino_list = neutrino_event.as_vector()
+        neutrinos = [Neutrino.from_larcv(n) for n in neutrino_list]
+
+        # If requested, convert the point positions to pixel coordinates
+        if self.pixel_coordinates:
             # Fetch the metadata
             assert (sparse_event is not None) ^ (cluster_event is not None), (
                     "Must provide either `sparse_event` or `cluster_event` to "

@@ -121,7 +121,6 @@ class Neutrino:
         meta : Meta
             Metadata information about the rasterized image
         """
-        assert self.units != '', "Must specify units"
         assert self.units != 'cm', "Units already expressed in cm"
         self.units = 'cm'
         for attr in self._pos_attrs:
@@ -135,7 +134,6 @@ class Neutrino:
         meta : Meta
             Metadata information about the rasterized image
         """
-        assert self.units != '', "Must specify units"
         assert self.units != 'pixel', "Units already expressed in pixels"
         self.units = 'pixel'
         for attr in self._pos_attrs:

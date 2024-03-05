@@ -83,7 +83,7 @@ class Interaction:
         self.nu_id        = int(nu_id)
         self.volume_id    = int(volume_id)
         self.image_id     = int(image_id)
-        self.vertex       = vertex
+        self.vertex       = np.copy(vertex)
         self.vertex_mode  = vertex_mode
         self.is_neutrino  = is_neutrino
         self._units       = units
@@ -232,7 +232,7 @@ class Interaction:
                 points_list.append(p.points)
                 sources_list.append(p.sources)
                 depositions_list.append(p.depositions)
-                if p.pid >= 0:
+                if p.pid > -1:
                     self._particle_counts[p.pid] += 1
                     self._primary_counts[p.pid] += int(p.is_primary)
                 else:
@@ -252,7 +252,7 @@ class Interaction:
         self._primary_counts  = np.zeros(len(PID_LABELS)+1, dtype=np.int64)
         for p in self.particles:
             if not p.is_valid: continue
-            if p.pid >= 0:
+            if p.pid > -1:
                 self._particle_counts[p.pid] += 1
                 self._primary_counts[p.pid] += int(p.is_primary)
             else:

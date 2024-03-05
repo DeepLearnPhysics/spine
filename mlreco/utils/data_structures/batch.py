@@ -11,8 +11,10 @@ import torch
 from dataclasses import dataclass
 from typing import Union, List
 
-from mlreco.utils.globals import BATCH_COL
+from mlreco.utils.globals import BATCH_COL, COORD_COLS
 from mlreco.utils.torch_local import unique_index
+
+from .meta import Meta
 
 
 @dataclass
@@ -214,6 +216,28 @@ class TensorBatch:
         tensor = torch.as_tensor(self.tensor, dtype=dtype, device=device)
         splits = torch.as_tensor(self.splits, dtype=torch.int64, device=device)
         return TensorBatch(tensor, splits)
+
+    def to_cm(self, meta):
+        """Converts the coordinates of the tensor to cm.
+
+        Parameters
+        ----------
+        meta : Meta
+            Metadata information about the rasterized image
+        """
+        assert self._is_numpy, "Can only convert units of numpy arrays"
+        self.tensor[:, COORD_COLS] = meta.to_cm(self.tensor[:, COORD_COLS])
+
+    def to_pixel(self, meta):
+        """Converts the coordinates of the tensor to pixel indexes.
+
+        Parameters
+        ----------
+        meta : Meta
+            Metadata information about the rasterized image
+        """
+        assert self._is_numpy, "Can only convert units of numpy arrays"
+        self.tensor[:, COORD_COLS] = meta.to_pixel(self.tensor[:, COORD_COLS])
 
     @classmethod
     def from_list(cls, tensor_list):
