@@ -9,7 +9,7 @@ from copy import deepcopy
 from warnings import warn
 
 
-def module_dict(module, class_name=None):
+def module_dict(module, class_name=None, pattern=None):
     """Converts module into a dictionary which maps class names onto classes.
 
     Parameters
@@ -18,6 +18,8 @@ def module_dict(module, class_name=None):
         Module from which to fetch the classes
     class_name : str, optional
         If specified, only allow aliases that match it
+    pattern : str, optional
+        If specified, looks for a specific pattern in the class name
 
     Returns
     -------
@@ -31,10 +33,15 @@ def module_dict(module, class_name=None):
         if cls_name[0] == '_':
             continue
 
-        # Only consider classes which belong to the module of intest
+        # If a pattern is specified, check for it in the class name
+        if pattern is not None and pattern not in cls.__name__:
+            continue
+
+        # Only consider classes which belong to the module of interest
         cls = getattr(module, cls_name)
         if (hasattr(cls, '__module__') and
             module.__name__ in cls.__module__):
+
             # Store the class name as an option to fetch it
             module_dict[cls_name] = cls
 
@@ -149,11 +156,12 @@ def instantiate(module_dict, cfg, alt_name=None):
     kwargs.update(config)
 
     # Intialize
+    cls = module_dict[class_name]
     try:
-        return module_dict[class_name](*args, **kwargs)
+        return cls(*args, **kwargs)
 
     except Exception as err:
         # TODO: proper logging
-        print(f"Failed to instantiate {class_name} with these arguments:\n"
+        print(f"Failed to instantiate {cls.__name__} with these arguments:\n"
               f"  - args: {args}\n  - kwargs: {kwargs}")
         raise err

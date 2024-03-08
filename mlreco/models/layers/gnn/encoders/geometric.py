@@ -1,14 +1,14 @@
 import torch
-import numpy as np
-from torch_scatter import scatter_min
 
-from mlreco.utils import local_cdist
+from mlreco.utils.torch_local import local_cdist
 from mlreco.utils.globals import COORD_COLS, VALUE_COL, SHAPE_COL
 from mlreco.utils.gnn.data import cluster_features, cluster_edge_features
 
+__all__ = ['ClustGeoNodeEncoder', 'ClustGeoEdgeEncoder']
+
+
 class ClustGeoNodeEncoder(torch.nn.Module):
-    """
-    Produces geometric cluster node features.
+    """Produces geometric cluster node features.
 
     The first 19 features are composed of:
         - Center (3)
@@ -26,7 +26,8 @@ class ClustGeoNodeEncoder(torch.nn.Module):
     Total of 28 hand-engineered features
 
     """
-    def __init__(self, model_config):
+    def __init__(self, use_numpy=True, add_value=False, add_shape=False):
+        # Initialize the parent class
         super(ClustGeoNodeEncoder, self).__init__()
 
         # Initialize the encoder parameters

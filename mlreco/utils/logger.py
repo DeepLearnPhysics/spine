@@ -2,6 +2,7 @@
 
 import sys
 import logging
+import warnings
 
 # Configure the formatting of the logger
 logging.basicConfig(format='%(message)s', stream=sys.stdout)
@@ -13,3 +14,6 @@ logging.captureWarnings(True)
 
 # Initialize logger
 logger = logging.getLogger('mlreco')
+
+# Configure the warnings package to only issue warnings once
+warnings.simplefilter('once')

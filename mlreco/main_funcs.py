@@ -13,7 +13,7 @@ from torch.distributed import init_process_group, destroy_process_group
 
 from .iotools.factories import loader_factory
 
-from .utils import cycle
+from .utils.torch_local import cycle
 from .utils.logger import logger
 
 from .version import __version__

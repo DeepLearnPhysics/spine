@@ -1,6 +1,6 @@
 import numpy as np
 
-from mlreco.utils.globals import TRACK_SHP
+from mlreco.utils.globals import TRACK_SHP, PID_LABELS
 from mlreco.utils.geometry import Geometry
 from mlreco.utils.gnn.cluster import cluster_direction
 
@@ -20,7 +20,8 @@ class DirectionProcessor(PostProcessor):
                  neighborhood_radius = -1,
                  optimize = True,
                  truth_point_mode = 'points',
-                 run_mode = 'both'):
+                 run_mode = 'both',
+                 fragments=False):
         '''
         Store the particle direction recosntruction parameters
 
@@ -32,6 +33,9 @@ class DirectionProcessor(PostProcessor):
             Optimizes the number of points involved in the estimate
         '''
         # Initialize the parent class
+        if fragments:
+            self.result_cap = ['particle_fragments']
+            self.result_cap_opt = ['truth_particle_fragments']
         super().__init__(run_mode, truth_point_mode)
 
         # Store the direction reconstruction parameters
@@ -87,8 +91,11 @@ class ContainmentProcessor(PostProcessor):
                  boundary_file = None,
                  source_file = None,
                  mode = 'module',
+                 allow_multi_module = False,
+                 min_particle_sizes = 0,
                  truth_point_mode = 'points',
-                 run_mode = 'both'):
+                 run_mode = 'both',
+                 fragments=False):
         '''
         Initialize the containment conditions.
 
@@ -122,13 +129,38 @@ class ContainmentProcessor(PostProcessor):
               outermost walls
             - If 'source', use the origin of voxels to determine which TPC(s)
               contributed to them, and define volumes accordingly
+        allow_multi_module : bool, default False
+            Whether to allow particles/interactions to span multiple modules
+        min_particle_sizes : Union[int, dict], default 0
+            When checking interaction containment, ignore particles below the
+            size (in voxel count) specified by this parameter. If specified
+            as a dictionary, it maps a specific particle type to its own cut.
         '''
+        if fragments:
+            self.result_cap = ['particle_fragments']
+            self.result_cap_opt = ['truth_particle_fragments']
         # Initialize the parent class
         super().__init__(run_mode, truth_point_mode)
 
         # Initialize the geometry
         self.geo = Geometry(detector, boundary_file, source_file)
         self.geo.define_containment_volumes(margin, cathode_margin, mode)
+
+        # Store parameters
+        self.allow_multi_module = allow_multi_module
+
+        # Store the particle size thresholds in a dictionary
+        if np.isscalar(min_particle_sizes):
+            min_particle_sizes = {'default': min_particle_sizes}
+
+        self.min_particle_sizes = {}
+        for pid in PID_LABELS.keys():
+            if pid in min_particle_sizes:
+                self.min_particle_sizes[pid] = min_particle_sizes[pid]
+            elif 'default' in min_particle_sizes:
+                self.min_particle_sizes[pid] = min_particle_sizes['default']
+            else:
+                self.min_particle_sizes[pid] = 0
 
     def process(self, data_dict, result_dict):
         '''
@@ -141,20 +173,36 @@ class ContainmentProcessor(PostProcessor):
         result_dict : dict
             Chain output dictionary
         '''
-        # Loop over partcile/interaction objects
-        for k in self.all_keys:
+        # Loop over particle objects
+        for k in self.part_keys:
             for p in result_dict[k]:
-                # Make sure the particle/interaction coordinates are
-                # expressed in cm
+                # Make sure the particle coordinates are expressed in cm
                 self.check_units(p)
 
                 # Get point coordinates
                 points = self.get_points(p)
                 if not len(points):
+                    p.is_contained = True
                     continue
 
-                # Check containment
-                p.is_contained = self.geo.check_containment(points, p.sources)
+                # Check particle containment
+                p.is_contained = self.geo.check_containment(points,
+                        p.sources, self.allow_multi_module)
+
+        # Loop over interaction objects
+        for k in self.inter_keys:
+            for ii in result_dict[k]:
+                # Check that all the particles in the interaction are contained
+                ii.is_contained = True
+                for p in ii.particles:
+                    if not p.is_contained:
+                        # Do not account for particles below a certain size
+                        if p.pid > -1 \
+                                and p.size < self.min_particle_sizes[p.pid]:
+                            continue
+
+                        ii.is_contained = False
+                        break
 
         return {}, {}
 
@@ -239,5 +287,96 @@ class FiducialProcessor(PostProcessor):
 
                 # Check containment
                 ia.is_fiducial = self.geo.check_containment(vertex)
+
+        return {}, {}
+
+
+class SimpleContainmentProcessor(PostProcessor):
+    '''
+    Check whether a particle or interaction comes within some distance
+    of the boundaries of the image. Only does simple containment check 
+    using pre-defined image size.
+    '''
+    name = 'check_simple_containment'
+    data_cap = ['meta']
+    result_cap = ['particles', 'interactions']
+    result_cap_opt = ['truth_particles', 'truth_interactions']
+
+    def __init__(self,
+                 margin,
+                 image_size,
+                 fragments=False,
+                 truth_point_mode = 'points',
+                 run_mode = 'both',):
+        '''
+        Initialize the containment conditions.
+
+        If the `source` method is used, the cut will be based on the source of
+        the point cloud, i.e. if a point cloud was produced by TPCs i and j, it
+        must be contained within the volume bound by the set of TPCs i and j,
+        and whichever volume is present between them.
+
+        Parameters
+        ----------
+        margin : float
+            Minimum distance from a detector wall to be considered contained:
+        image_size: 
+            Size of the image in pixels
+        '''
+        if fragments:
+            self.result_cap = ['particle_fragments']
+            self.result_cap_opt = ['truth_particle_fragments']
+        # Initialize the parent class
+        super().__init__(run_mode, truth_point_mode)
+
+        self.margin = margin
+        self.image_size = image_size
+
+    def process(self, data_dict, result_dict):
+        '''
+        Check the containment of all particles/interactions in one entry
+
+        Parameters
+        ----------
+        data_dict : dict
+            Input data dictionary
+        result_dict : dict
+            Chain output dictionary
+        '''
+        lower, upper, size = np.split(np.asarray(data_dict['meta'][0]).reshape(-1), 3)
+        # Loop over particle objects
+        for k in self.part_keys:
+            for p in result_dict[k]:
+                # Make sure the particle coordinates are expressed in cm
+                self.check_units(p)
+
+                # Get point coordinates
+                points = self.get_points(p)
+                if not len(points):
+                    p.is_contained = True
+                    continue
+
+                # Check particle containment
+                p.is_contained = (points[:, 0] > lower[0] + self.margin).all() and \
+                                 (points[:, 0] < upper[0] - self.margin).all() and \
+                                 (points[:, 1] > lower[1] + self.margin).all() and \
+                                 (points[:, 1] < upper[1] - self.margin).all() and \
+                                 (points[:, 2] > lower[2] + self.margin).all() and \
+                                 (points[:, 2] < upper[2] - self.margin).all()
+
+        # Loop over interaction objects
+        for k in self.inter_keys:
+            for ii in result_dict[k]:
+                # Check that all the particles in the interaction are contained
+                ii.is_contained = True
+                for p in ii.particles:
+                    if not p.is_contained:
+                        # Do not account for particles below a certain size
+                        if p.pid > -1 \
+                                and p.size < self.min_particle_sizes[p.pid]:
+                            continue
+
+                        ii.is_contained = False
+                        break
 
         return {}, {}

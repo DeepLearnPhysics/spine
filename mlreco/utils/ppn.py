@@ -1,3 +1,9 @@
+"""Module which contains utility function to process PPN information.
+
+It contains functions to produce PPN labels and functions to process the
+PPN predictions into something human-readable.
+"""
+
 import numpy as np
 import torch
 from scipy.special import softmax

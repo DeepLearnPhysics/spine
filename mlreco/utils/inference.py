@@ -1,8 +1,13 @@
+"""Module with helper functions to run inference on a model configuration."""
+
 import yaml
 
-def get_inference_cfg(cfg_path, dataset_path=None, weights_path=None, batch_size=None, num_workers=None, cpu=False):
-    '''
-    Turns a training configuration into an inference configuration:
+
+def get_inference_cfg(cfg_path, dataset_path=None, weights_path=None,
+                      batch_size=None, num_workers=None, cpu=False):
+    """Turns a training configuration into an inference configuration.
+
+    This script does the following:
     - Turn `train` to `False`
     - Set sequential sampling
     - Load the specified validation dataset_path, if requested
@@ -15,22 +20,22 @@ def get_inference_cfg(cfg_path, dataset_path=None, weights_path=None, batch_size
     ----------
     cfg_path : str
         Path to the configuration file
-    dataset_path : str
+    dataset_path : str, optional
         Path to the dataset to use for inference
-    weights_path : str
+    weights_path : str, optional
         Path to the weigths to use for inference
-    batch_size: int
+    batch_size : int, optional
         Number of data samples per batch
-    num_workers:
+    num_workers : int, optional
         Number of workers that load data
-    cpu: bool
+    cpu : bool, default False
         Whether or not to execute the inference on CPU
 
     Returns
     -------
     dict
         Dictionary of parameters to initialize handlers
-    '''
+    """
     # Get the config file from the train file
     cfg = open(cfg_path)
 
@@ -56,7 +61,8 @@ def get_inference_cfg(cfg_path, dataset_path=None, weights_path=None, batch_size
         cfg['trainval']['model_path'] = weights_path
 
     # Change the batch_size, if requested
-    cfg['iotool']['batch_size'] = batch_size
+    if batch_size is not None:
+        cfg['iotool']['batch_size'] = batch_size
 
     # Set the number of workers, if requested
     if num_workers is not None:

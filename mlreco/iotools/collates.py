@@ -23,7 +23,8 @@ class CollateSparse:
     """
     name = 'collate_sparse'
 
-    def __init__(self, split=False, target_id=0, detector=None, boundary=None):
+    def __init__(self, split=False, target_id=0, detector=None,
+                 boundary=None, overlay=None):
         """
         Initialize the parameters needed to collate sparse tensors
 
@@ -38,6 +39,8 @@ class CollateSparse:
             Name of a recognized detector to the geometry from
         boundary : str, optional
             Path to a `.npy` boundary file to load the boundaries from
+        overlay : dict, optional
+            Image overlay configuration
         """
         # Initialize the geometry, if required
         self.split = split
@@ -47,6 +50,23 @@ class CollateSparse:
 
             self.target_id = target_id
             self.geo = Geometry(detector, boundary)
+
+        if overlay is not None:
+            self.process_overlay_config(**overlay)
+
+    def process_overlay(self, mode='const', size=2):
+        """Process the image overlay configuration
+
+        Parameters
+        ----------
+        mode : str, default 'const'
+            Method used to from overlay indexes ('const' or 'poisson')
+        size : int, default 2
+            Number of images to merge to produce each new image
+        """
+        # TODO: start with merge_batch under self.utils.gnn.data
+        # Initialize the batch merger here...
+        raise NotImplementedError("Work in progress...")
 
     def __call__(self, batch):
         """

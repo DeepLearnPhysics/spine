@@ -28,7 +28,7 @@ class UResNetSegmentation(nn.Module):
           name: uresnet
           modules:
             uresnet:
-              # Your config here
+              # Your config goes here
 
     See :func:`setup_cnn_configuration` for available parameters for the
     backbone UResNet architecture.

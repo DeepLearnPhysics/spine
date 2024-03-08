@@ -466,7 +466,45 @@ class EdgeOnlyLoss(torch.nn.modules.loss._Loss):
                                                    **self.edge_loss_cfg)
         self.acc_fn             = IoUScore()
         self.use_cluster_labels = use_cluster_labels
+        self.equal_sampling     = kwargs.get('sample_edges', False)
+        self.min_sampled_edges  = kwargs.get('min_sampled_edges', 1000)
 
+        # # print("CFG + ", cfg)
+        # self.loss_config = cfg #[name]
+        # # self.loss_fn = GraphSPICEEmbeddingLoss(cfg)
+        # self.edge_loss_cfg = self.loss_config.get('edge_loss_cfg', {})
+        # self.invert = cfg.get('invert', True)
+        # self.edge_loss = WeightedEdgeLoss(invert=self.invert, **self.edge_loss_cfg)
+        # # self.is_eval = cfg['eval']
+        # self.acc_fn = IoUScore()
+        # self.use_cluster_labels = cfg.get('use_cluster_labels', True)
+        # self.equal_sampling = cfg.get('sample_edges', False)
+        # self.min_sampled_edges = cfg.get('min_sampled_edges', 1000)
+        
+        
+    def sample_edges(self, edge_score, edge_truth):
+        
+        with torch.no_grad():
+            num_gaps, num_bridges = torch.bincount(edge_truth)
+            n = max(num_gaps, self.min_sampled_edges)
+        
+        perm = torch.randperm(n).cuda()
+            
+        index = torch.arange(edge_truth.shape[0], dtype=torch.long).cuda()
+        
+        if num_gaps == 0:
+            mask = index[perm]
+            sampled_score, sampled_truth = edge_score[mask], edge_truth[mask]
+        else:
+            gap_indices = index[edge_truth == 0]
+            brg_indices = index[edge_truth == 1]
+            
+            sampled_brgs = brg_indices[perm]
+            index = torch.cat([gap_indices, brg_indices])
+            
+            sampled_score, sampled_truth = edge_score[index], edge_truth[index]
+        
+        return sampled_score, sampled_truth
 
     def forward(self, result, segment_label, cluster_label):
 
@@ -480,12 +518,21 @@ class EdgeOnlyLoss(torch.nn.modules.loss._Loss):
 
         iou, edge_loss = 0, 0
 
+        # Flag for using true edge labels during training.
         if self.use_cluster_labels:
             edge_truth = result['edge_label'][0].squeeze()
-            # print(edge_score.squeeze(), edge_truth, edge_score.shape, edge_truth.shape)
-            edge_loss = self.edge_loss(edge_score, edge_truth.float())
+        
+            if self.equal_sampling:
+                sampled_score, sampled_truth = self.sample_edges(edge_score, edge_truth)
+                edge_loss = self.edge_loss(sampled_score, sampled_truth)
+            else:
+                edge_loss = self.edge_loss(edge_score, edge_truth.float())
+                
             edge_loss = edge_loss.mean()
 
+            # Inverting the labels for accuracy logging purposes.
+            # The inverting operation that affects the loss is done within
+            # the WeightedEdgeLoss function.
             if self.invert:
                 edge_truth = torch.logical_not(edge_truth.long())
 

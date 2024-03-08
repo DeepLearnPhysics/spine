@@ -413,7 +413,7 @@ class Geometry:
         # Translate
         return np.copy(points) + offset
 
-    def split(self, points, target_id, sources = None, meta = None):
+    def split(self, points, target_id, sources=None, meta=None):
         """
         Migrate all points to a target module, organize them by module ID.
 
@@ -471,7 +471,8 @@ class Geometry:
 
         return points, module_indexes
 
-    def check_containment(self, points, sources = None):
+    def check_containment(self, points, sources=None,
+                          allow_multi_module=False):
         """
         Check whether a point cloud comes within some distance of the
         boundaries of a certain subset of detector volumes, depending on
@@ -484,6 +485,8 @@ class Geometry:
         sources : np.ndarray, optional
             (S, 2) : List of [module ID, tpc ID] pairs that created the
             point cloud
+        allow_multi_module : bool, default False
+            Whether to allow particles/interactions to span multiple modules
 
         Returns
         -------
@@ -496,11 +499,16 @@ class Geometry:
 
         # If sources are provided, only consider source volumes
         if self.cont_use_source:
+            # Get the contributing TPCs
             assert len(points) == len(sources), \
                     'Need to provide sources to make a source-based check'
             contributors = self.get_contributors(sources)
-            index = contributors[0]*self.boundaries.shape[1] + contributors[1]
-            volume  = self.merge_volumes(self.cont_volumes[index])
+            if not allow_multi_module and len(np.unique(contributors[0])) > 1:
+                return False
+
+            # Define the smallest box containing all contributing TPCs
+            index = contributors[0] * self.boundaries.shape[1] + contributors[1]
+            volume = self.merge_volumes(self.cont_volumes[index])
             volumes = [volume]
         else:
             volumes = self.cont_volumes
@@ -514,8 +522,8 @@ class Geometry:
 
         return contained
 
-    def define_containment_volumes(self, margin, \
-            cathode_margin = None, mode = 'module'):
+    def define_containment_volumes(self, margin, cathode_margin=None,
+                                   mode ='module'):
         """
         This function defines a list of volumes to check containment against.
         If the containment is checked against a constant volume, it is more
@@ -576,8 +584,8 @@ class Geometry:
 
         self.cont_volumes = np.array(self.cont_volumes)
 
-    def adapt_volume(self, ref_volume, margin, cathode_margin = None,
-            module_id = None, tpc_id = None):
+    def adapt_volume(self, ref_volume, margin, cathode_margin=None,
+                     module_id=None, tpc_id=None):
         """
         Apply margins from a given volume. Takes care of subtleties
         associated with the cathode, if requested.

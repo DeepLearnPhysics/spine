@@ -233,6 +233,30 @@ class GraphSPICE(nn.Module):
                         self.skip_classes)
         x = [point_cloud[mask], label[mask]]
         return x
+    
+
+    def construct_fragments(self, input):
+        
+        frags = {}
+        
+        device = input[0].device
+        semantic_labels = input[1][:, SHAPE_COL]
+        filtered_semantic = ~(semantic_labels[..., None] == \
+                                torch.tensor(self.skip_classes, device=device)).any(-1)
+        graphs = self.gs_manager.fit_predict()
+        perm = torch.argsort(graphs.voxel_id)
+        cluster_predictions = graphs.node_pred[perm]
+        filtered_input = torch.cat([input[0][filtered_semantic][:, :4],
+                                    semantic_labels[filtered_semantic].view(-1, 1),
+                                    cluster_predictions.view(-1, 1)], dim=1)
+
+        fragments = self._gspice_fragment_manager(filtered_input, input[0], filtered_semantic)
+        frags['filtered_input'] = [filtered_input]
+        frags['fragment_batch_ids'] = [np.array(fragments[1])]
+        frags['fragment_clusts'] = [np.array(fragments[0])]
+        frags['fragment_seg'] = [np.array(fragments[2]).astype(int)]
+        
+        return frags
 
 
     def forward(self, input_data, cluster_label=None):
@@ -258,6 +282,10 @@ class GraphSPICE(nn.Module):
                                 self.kernel_fn,
                                 labels,
                                 invert=self.invert)
+        
+        if self.make_fragments:
+            frags = self.construct_fragments(input)
+            res.update(frags)
         
         graph_state = self.gs_manager.save_state(unwrapped=False)
         res.update(graph_state)

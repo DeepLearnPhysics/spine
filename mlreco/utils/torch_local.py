@@ -1,13 +1,16 @@
-import numpy as np
+"""Simple local extensions to the current torch package."""
+
 import torch
 
 
 def cycle(data_io):
-    """Cycles over a torch DataLoader.
+    """Cycles over a an iterable indefinitely.
 
     Use this function instead of itertools.cycle to avoid creating a memory
     leak (itertools.cycle attempts to save all outputs in order to re-cycle
-    through them)
+    through them more cheaply).
+
+    This is typically used for a torch.utils.data.DataLoader
 
     Parameters
     ----------
@@ -71,4 +74,3 @@ def unique_index(x, dim=None):
     index = inverse.new_empty(unique.size(0)).scatter_(0, inverse, perm)
 
     return unique.long(), index
-            

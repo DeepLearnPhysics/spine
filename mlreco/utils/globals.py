@@ -104,7 +104,8 @@ PID_LABELS = {
     MUON_PID: 'Muon',
     PION_PID: 'Pion',
     PROT_PID: 'Proton',
-    KAON_PID: 'Kaon'
+    KAON_PID: 'Kaon',
+    -1: 'Unknown'
 }
 
 # Map between shape and allowed PID/primary labels

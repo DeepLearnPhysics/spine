@@ -16,10 +16,10 @@ from .iotools.factories import loader_factory, writer_factory
 from .iotools.writers import CSVWriter, HDF5Writer
 
 from .models import construct_model
-from .models.experimental.bayes.calibration import (construct_calibrator,
-                                                    construct_calibrator_loss)
+from .models.experimental.bayes.calibration import (
+        construct_calibrator, construct_calibrator_loss)
 
-from .utils import cycle
+from .utils.torch_local import cycle
 from .utils.data_structures import TensorBatch
 from .utils.stopwatch import StopwatchManager
 from .utils.adabound import AdaBound, AdaBoundW

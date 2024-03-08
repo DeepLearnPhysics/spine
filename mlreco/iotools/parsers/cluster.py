@@ -112,9 +112,10 @@ class Cluster3DParser(Parser):
     result = Unwrapper.Rule(method='tensor', translate=True)
 
     def __init__(self, particle_event=None, add_particle_info=False,
-                 clean_data=False, type_include_mpr=False,
-                 type_include_secondary=False, primary_include_mpr=False,
-                 break_clusters=False, min_size=-1, **kwargs):
+                 clean_data=False, type_include_mpr=True,
+                 type_include_secondary=True, primary_include_mpr=True,
+                 break_clusters=False, min_size=-1,
+                 pixel_coordinates=True, **kwargs):
         """Initialize the parser.
 
         Parameters
@@ -137,6 +138,9 @@ class Cluster3DParser(Parser):
             IDs to different fragments of the broken-down cluster
         min_size : int, default -1
             Minimum cluster size to be parsed in the combined tensor
+        pixel_coordinates : bool, default True
+            If set to `True`, the parser rescales the truth positions
+            (start, end, etc.) of the particle information to voxel coordinates
         **kwargs : dict, optional
             Data product arguments to be passed to the `process` function
         """
@@ -154,7 +158,6 @@ class Cluster3DParser(Parser):
 
         # Intialize the sparse and particle parsers
         self.sparse_parser = Sparse3DParser(sparse_event='dummy')
-        self.particle_parser = ParticleParser()
 
         # Initialize the DBSCAN algorithm, if needed
         if self.break_clusters:
@@ -165,6 +168,9 @@ class Cluster3DParser(Parser):
             assert particle_event is not None, (
                     "If `add_particle_info` is `True`, must provide the"
                     "`particle_event` argument")
+
+            self.particle_parser = ParticleParser(
+                    pixel_coordinates=pixel_coordinates, post_process=True)
 
         # Based on the parameters, define a default output
         if not self.add_particle_info:
@@ -228,41 +234,46 @@ class Cluster3DParser(Parser):
                     f"There can me one more catch-all cluster at the end.")
 
             # Load up the particle/meutrino objects as lists
-            particles = list(particle_event.as_vector())
-            particles_p = self.particle_parser.process(
-                    particle_event, cluster_event)
-
-            particles_mpv, neutrinos = None, None
-            if particle_mpv_event is not None:
-                particles_mpv = list(particle_mpv_event.as_vector())
-            if neutrino_event is not None:
-                neutrinos = list(neutrino_event.as_vector())
+            particles = self.particle_parser.process(
+                    particle_event, cluster_event,
+                    particle_mpv_event=particle_mpv_event,
+                    neutrino_event=neutrino_event)
 
             # Store the cluster ID information
-            labels['cluster']  = np.array([p.id() for p in particles])
-            labels['particle'] = np.array([p.id() for p in particles])
-            labels['group']    = np.array([p.group_id() for p in particles])
-            labels['inter']    = get_interaction_ids(particles)
-            labels['nu']       = get_nu_ids(particles, labels['inter'],
-                                            particles_mpv, neutrinos)
+            labels['cluster'] = [p.id for p in particles]
+            labels['part']    = [p.id for p in particles]
+            labels['group']   = [p.group_id for p in particles]
+            labels['inter']   = [p.interaction_id for p in particles]
+            labels['nu']      = [p.nu_id for p in particles]
 
             # Store the type/primary status
-            labels['type']    = get_particle_ids(
-                    particles, labels['nu'], self.type_include_mpr,
-                    self.type_include_secondary)
-            labels['pshower'] = get_shower_primary_ids(particles)
-            labels['pgroup']  = get_group_primary_ids(
-                    particles, labels['nu'], self.primary_include_mpr)
+            labels['type']    = [p.pid for p in particles]
+            labels['pshower'] = [p.shower_primary for p in particles]
+            labels['pgroup']  = [p.interaction_primary for p in particles]
 
             # Store the vertex and momentum
-            anc_pos = lambda x : getattr(x, 'ancestor_position')()
-            labels['vtx_x'] = np.array([anc_pos(p).x() for p in particles_p])
-            labels['vtx_y'] = np.array([anc_pos(p).y() for p in particles_p])
-            labels['vtx_z'] = np.array([anc_pos(p).z() for p in particles_p])
-            labels['p']     = np.array([p.p()/1e3 for p in particles]) # In GeV
+            labels['vtx_x']   = [p.ancestor_position[0] for p in particles]
+            labels['vtx_y']   = [p.ancestor_position[1] for p in particles]
+            labels['vtx_z']   = [p.ancestor_position[2] for p in particles]
+            labels['p']       = [p.p for p in particles]
 
             # Store the shape last (consistent with semantics tensor)
-            labels['shape'] = np.array([p.shape() for p in particles])
+            labels['shape']   = [p.shape for p in particles]
+
+            # If requested, give invalid labels to a subset of particles
+            if not self.type_include_secondary:
+                secondary_mask = np.where(np.array(labels['pgroup']) < 1)[0]
+                labels['type'] = np.asarray(labels['type'])
+                labels['type'][secondary_mask] = -1
+
+            if not self.type_include_mpr or not self.primary_include_mpr:
+                mpr_mask = np.where(np.array(labels['nu']) < 0)[0]
+                if not self.type_include_mpr:
+                    labels['type'] = np.asarray(labels['type'])
+                    labels['type'][mpr_mask] = -1
+                if not self.primary_include_mpr:
+                    labels['pgroup'] = np.asarray(labels['pgroup'])
+                    labels['pgroup'][mpr_mask] = -1
 
         # Loop over clusters, store information
         clusters_voxels, clusters_features = [], []
@@ -283,12 +294,8 @@ class Cluster3DParser(Parser):
                 # Append the cluster-wise information
                 features = [value]
                 for k, l in labels.items():
-                    if i < len(l):
-                        value = l[i]
-                    else:
-                        value = -1 if k != 'shape' else UNKWN_SHP
                     features.append(
-                            np.full(num_points, value, dtype=np.float32))
+                            np.full(num_points, l[i], dtype=np.float32))
 
                 # If requested, break cluster into detached pieces
                 if self.break_clusters:
@@ -312,7 +319,6 @@ class Cluster3DParser(Parser):
         # match the semantics to those of the provided reference
         if ((sparse_semantics_event is not None) or
             (sparse_value_event is not None)):
-            # TODO: use proper logging
             if not self.clean_data:
                 from warnings import warn
                 warn("You must set `clean_data` to `True` if you specify a"
