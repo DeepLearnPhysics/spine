@@ -581,11 +581,11 @@ class TrainVal(object):
         # Create weight save directory if it does not exist
         save_dir = os.path.dirname(self.weight_prefix)
         if save_dir and not os.path.isdir(save_dir):
-            os.makedirs(save_dir)
+            os.makedirs(save_dir, exist_ok=True)
 
         # Create log save directory if it does not exist, initialize logger
         if self.log_dir and not os.path.exists(self.log_dir):
-            os.makedirs(self.log_dir)
+            os.makedirs(self.log_dir, exist_ok=True)
         prefix   = 'train' if self.train else 'inference'
         suffix   = '' if not self.distributed else f'_proc{self.rank}'
         logname  = f'{self.log_dir}/'

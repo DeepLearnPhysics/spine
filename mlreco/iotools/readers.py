@@ -104,7 +104,7 @@ class Reader:
         for i, path in enumerate(self.file_paths):
             if i < max_print_files:
                 print("  -", path)
-            elif i == self.max_print_path:
+            elif i == max_print_files:
                 print("  ...")
                 break
         print("")
@@ -400,7 +400,7 @@ class LArCVReader(Reader):
                 assert self.num_entries == chain.GetEntries(), (
                         f"Mismatch between the number of entries for {key} "
                         f"({chain.GetEntries()}) and the number of entries "
-                         "in other data products")
+                        f"in other data products ({self.num_entries})")
             else:
                 self.num_entries = chain.GetEntries()
 

@@ -140,7 +140,7 @@ def instantiate(module_dict, cfg, alt_name=None):
     # If args is specified as a dictionary, append it to kwargs (deprecated)
     if isinstance(args, dict):
         warn("If specifying keyword arguments, should use `kwargs` instead "
-             "of args in {class_name}", category=DeprecationWarning)
+            f"of `args` in {class_name}", category=DeprecationWarning)
         for key in args.keys():
             assert key not in kwargs, (
                     f"The keyword argument {key} is provided under "

@@ -178,48 +178,63 @@ def _get_edge_distances(voxels: nb.float32[:,:],
 
 
 @numbafy(cast_args=['voxels'], list_args=['clusts'])
-def inter_cluster_distance(voxels, clusts, batch_ids=None, mode='voxel', algorithm='brute', return_index=False):
-    """
-    Finds the inter-cluster distance between every pair of clusters within
+def inter_cluster_distance(voxels, clusts, batch_ids=None, method='voxel',
+                           algorithm='brute', return_index=False):
+    """Finds the inter-cluster distance between every pair of clusters within
     each batch, returned as a block-diagonal matrix.
 
     Parameters
     ----------
-        voxels (torch.tensor) : (N,3) Tensor of voxel coordinates
-        clusts ([np.ndarray]) : (C) List of arrays of voxel IDs in each cluster
-        batch_ids (np.ndarray): (C) List of cluster batch IDs
-        mode (str)            : Eiher use closest voxel distance (`voxel`) or centroid distance (`centroid`)
-        algorithm (str)       : `brute` is exact but slow, `recursive` uses a fast but approximate proxy
-        return_index (bool)   : If True, returns the combined index of the closest voxel pair
+    voxels : Union[np.ndarray, torch.Tensor]
+        (N, D) Tensor of voxel coordinates
+    clusts : List[np.ndarray]
+        (C) List of cluster indexes
+    batch_ids : np.ndarray
+        (C) List of cluster batch IDs
+    method : str, default 'voxel'
+        Either the closest voxel distance ('voxel') of the cluster centroid
+        distance ('centroid')
+    algorithm : str, default 'brute'
+        Algorithm used to compute the 'voxel' distance. The 'brute' method
+        is exact but slow, 'recursive' uses a fast but approximate method.
+    return_index : bool, default True
+        Returns a combined index of the closest pair of voxels for each
+        cluster, if the 'voxel' distance method is used
+
     Returns
     -------
-        torch.tensor: (C,C) Tensor of pair-wise cluster distances
+    Union[np.ndarray, torch.Tensor]
+        (C, C) Tensor of pair-wise cluster distances
+    Union[np.ndarray, torch.Tensor], optional
+        (C, C) Tensor of pair-wise closest voxel pair
     """
     # If there is no batch_ids provided, assign 0 to all clusters
     if batch_ids is None:
         batch_ids = np.zeros(len(clusts), dtype=np.int64) 
 
     if not return_index:
-        return _inter_cluster_distance(voxels, clusts, batch_ids, mode, algorithm)
+        return _inter_cluster_distance(
+                voxels, clusts, batch_ids, method, algorithm)
     else:
-        assert mode == 'voxel', 'Cannot return index for centroid method'
-        return _inter_cluster_distance_index(voxels, clusts, batch_ids, algorithm)
+        assert method == 'voxel', 'Cannot return index for centroid method'
+        return _inter_cluster_distance_index(
+                voxels, clusts, batch_ids, algorithm)
 
 @nb.njit(parallel=True, cache=True)
 def _inter_cluster_distance(voxels: nb.float32[:,:],
                             clusts: nb.types.List(nb.int64[:]),
                             batch_ids: nb.int64[:],
-                            mode: str = 'voxel',
+                            method: str = 'voxel',
                             algorithm: str = 'brute') -> nb.float32[:,:]:
 
     assert len(clusts) == len(batch_ids)
     dist_mat = np.zeros((len(batch_ids), len(batch_ids)), dtype=voxels.dtype)
     indxi, indxj = complete_graph(batch_ids, directed=True)
-    if mode == 'voxel':
+    if method == 'voxel':
         for k in nb.prange(len(indxi)):
             i, j = indxi[k], indxj[k]
             dist_mat[i,j] = dist_mat[j,i] = nbl.closest_pair(voxels[clusts[i]], voxels[clusts[j]], algorithm)[-1]
-    elif mode == 'centroid':
+    elif method == 'centroid':
         centroids = np.empty((len(batch_ids), voxels.shape[1]), dtype=voxels.dtype)
         for i in nb.prange(len(batch_ids)):
             centroids[i] = nbl.mean(voxels[clusts[i]], axis=0)
@@ -227,7 +242,7 @@ def _inter_cluster_distance(voxels: nb.float32[:,:],
             i, j = indxi[k], indxj[k]
             dist_mat[i,j] = dist_mat[j,i] = np.sqrt(np.sum((centroids[j]-centroids[i])**2))
     else:
-        raise ValueError('Inter-cluster distance mode not supported')
+        raise ValueError('Inter-cluster distance method not supported')
 
     return dist_mat
 

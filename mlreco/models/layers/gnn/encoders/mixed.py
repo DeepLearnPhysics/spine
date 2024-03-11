@@ -9,12 +9,12 @@ import torch
 from .geometric import ClustGeoNodeEncoder, ClustGeoEdgeEncoder
 from .cnn import ClustCNNNodeEncoder, ClustCNNEdgeEncoder
 
-__all__ = ['ClusterMixNodeEncoder', 'ClustMixEdgeEncoder']
+__all__ = ['ClustGeoCNNMixNodeEncoder', 'ClustGeoCNNMixEdgeEncoder']
 
 
 class ClustGeoCNNMixNodeEncoder(torch.nn.Module):
-    """Produces node features using both geometric and CNN encoders."""
-    self.name = 'geo_cnn_mix'
+    """Produces cluster node features using both geometric and CNN encoders."""
+    name = 'geo_cnn_mix'
 
     def __init__(self, geo_encoder, cnn_encoder):
         """Initialize the mixed encoder.
@@ -38,54 +38,99 @@ class ClustGeoCNNMixNodeEncoder(torch.nn.Module):
         self.cnn_encoder = ClustCNNNodeEncoder(**cnn_encoder)
 
         # Get the number of features coming out of the encoder
+        num_geo = self.geo_encoder.feature_size
+        num_cnn = self.cnn_encoder.feature_size
+        self.feature_size = num_geo + num_cnn
 
-        if self.geo_encoder.more_feats:
-            node_feats = 19
-        else:
-            node_feats = 16
-
-        self.num_features = node_feats + self.cnn_encoder.encoder.latent_size
-        self.linear = torch.nn.Linear(self.num_features, self.num_features)
-        self.elu = torch.nn.functional.elu
-
+        # Initialize the final activation/linear layer
+        self.elu = torch.nn.functional.elu # TODO: why ELU?
+        self.linear = torch.nn.Linear(self.features_size, self.feature_size)
 
     def forward(self, data, clusts):
+        """Generate mixed cluster node features for one batch of data.
+
+        Parameters
+        ----------
+        data : TensorBatch
+            (N, 1 + D + N_f) Batch of sparse tensors
+        clusts : IndexBatch
+            (C) List of list of indexes that make up each cluster
+        
+        Returns
+        -------
+        TensorBatch
+            (C, N_c) Set of N_c features per cluster
+        """
+        # Get the features
         features_geo = self.geo_encoder(data, clusts)
         features_cnn = self.cnn_encoder(data, clusts)
         features_mix = torch.cat([features_geo, features_cnn], dim=1)
-        out = self.elu(features_mix)
-        out = self.linear(out)
-        print("mixed node = ", out.shape)
-        return out
+
+        # Push features through the final activation/linear layer
+        result = self.elu(features_mix)
+        result = self.linear(result)
+
+        return TensorBatch(result, clusts.list_counts)
 
 
 class ClustGeoCNNMixEdgeEncoder(torch.nn.Module):
-    """
-    Produces edge features using both geometric and cnn encoder based feature extraction
-    """
-    def __init__(self, model_config, **kwargs):
-        super(ClustMixEdgeEncoder, self).__init__()
-        # print(model_config)
-        self.normalize = model_config.get('normalize', True)
-        # require sub-config key
-        if 'geo_encoder' not in model_config:
-            raise ValueError("Require geo_encoder config!")
-        if 'cnn_encoder' not in model_config:
-            raise ValueError("Require cnn_encoder config!")
+    """Produces cluster edge features using both geometric and CNN encoders."""
+    name = 'geo_cnn_mix'
 
-        self.geo_encoder = edge_encoder_construct(model_config, model_name='geo_encoder', **kwargs)
-        self.cnn_encoder = edge_encoder_construct(model_config, model_name='cnn_encoder', **kwargs)
+    def __init__(self, geo_encoder, cnn_encoder):
+        """Initialize the mixed encoder.
 
-        node_feats = 19
-        self.num_features = node_feats + self.cnn_encoder.encoder.latent_size
-        self.linear = torch.nn.Linear(self.num_features, self.num_features)
-        self.elu = torch.nn.functional.elu
+        Initializes the two underlying encoders:
+        - :class:`ClustGeoEdgeEncoder``
+        - :class:`ClustCNNEdgeEncoder`
+        
+        Parameters
+        ----------
+        geo_encoder : dict
+            Geometric edge encoder configuration
+        cnn_encoder : dict,
+            CNN edge encoder configuration
+        """
+        # Initialize the parent class
+        super().__init__()
+
+        # Initialize the two underlying encoder
+        self.geo_encoder = ClustGeoEdgeEncoder(**geo_encoder)
+        self.cnn_encoder = ClustCNNEdgeEncoder(**cnn_encoder)
+
+        # Get the number of features coming out of the encoder
+        num_geo = self.geo_encoder.feature_size
+        num_cnn = self.cnn_encoder.feature_size
+        self.feature_size = num_geo + num_cnn
+
+        # Initialize the final activation/linear layer
+        self.elu = torch.nn.functional.elu # TODO: why ELU?
+        self.linear = torch.nn.Linear(self.features_size, self.feature_size)
 
     def forward(self, data, clusts, edge_index):
-        features_geo = self.geo_encoder(data, clusts, edge_index)
-        features_cnn = self.cnn_encoder(data, clusts, edge_index)
+        """Generate mixed cluster edge features for one batch of data.
+
+        Parameters
+        ----------
+        data : TensorBatch
+            (N, 1 + D + N_f) Batch of sparse tensors
+        clusts : IndexBatch
+            (C) List of list of indexes that make up each cluster
+        edge_index : EdgeIndexBatch
+            Incidence map between clusters
+        
+        Returns
+        -------
+        TensorBatch
+            (C, N_e) Set of N_e features per edge
+        """
+        # Get the features
+        features_geo = self.geo_encoder(data, clusts).tensor
+        features_cnn = self.cnn_encoder(data, clusts).tensor
         features_mix = torch.cat([features_geo, features_cnn], dim=1)
-        out = self.elu(features_mix)
-        out = self.linear(out)
-        print("mixed edge = ", out.shape)
-        return out
+
+        # Push features through the final activation/linear layer
+        result = self.elu(features_mix)
+        result = self.linear(result)
+
+        return TensorBatch(result, edge_index.counts)

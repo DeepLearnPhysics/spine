@@ -22,7 +22,8 @@ def main(config, data_keys, outfile, detect_anomaly):
         raise FileNotFoundError(f"{config} not found")
 
     # Load the configuration file
-    cfg = yaml.safe_load(open(cfg_file, 'r'))
+    with open(cfg_file, 'r') as cfg_yaml:
+        cfg = yaml.safe_load(cfg_yaml)
 
     # Override the input/output command-line information into the configuration
     if data_keys is not None:

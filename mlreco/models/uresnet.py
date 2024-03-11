@@ -170,7 +170,7 @@ class UResNetSegmentation(nn.Module):
         seg   = self.linear_segmentation(feats)
 
         # Store the output as tensor batches
-        segmentation = TensorBatch(seg.F, input_data.splits)
+        segmentation = TensorBatch(seg.F, input_data.counts)
 
         batch_size = input_data.batch_size
         final_tensor = TensorBatch(
@@ -194,9 +194,9 @@ class UResNetSegmentation(nn.Module):
         if self.ghost:
             ghost = self.linear_ghost(feats)
 
-            result['ghost'] = TensorBatch(ghost.F, input_data.splits)
+            result['ghost'] = TensorBatch(ghost.F, input_data.counts)
             result['ghost_tensor'] = TensorBatch(
-                    ghost, input_data.splits, sparse=True)
+                    ghost, input_data.counts, sparse=True)
 
         return result
 

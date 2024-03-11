@@ -1,6 +1,5 @@
 """Graph construction classes for GNNs."""
 
-import inspect
 import numpy as np
 import numba as nb
 import torch
@@ -11,221 +10,83 @@ from scipy.sparse.csgraph import minimum_spanning_tree
 
 import mlreco.utils.numba_local as nbl
 from mlreco.utils.globals import COORD_COLS
-from mlreco.utils.data_structures import TensorBatch
+from mlreco.utils.data_structures import TensorBatch, IndexBatch
+
+from .base import GraphBase
 
 __all__ = ['LoopGraph', 'CompleteGraph', 'DelaunayGraph', 'MSTGraph',
            'KNNGraph', 'BipartiteGraph']
 
 
-class GraphConstructor:
-    """Parent class for all graph constructors."""
-
-    def __init__(self, directed=False, max_length=None, classes=None,
-                 max_count=None, dist_metric='set', dist_algorithm='brute'):
-        """Initializes attributes shared accross all graph constructors.
-        
-        Parameters
-        ----------
-        directed : bool, default False
-            If `True`, direct the edges from lower to higher rank only
-        max_length : Union[float, np.ndarray], optional
-            Length limitation to be applied to the edges. Can be:
-            - Sclar: Constant threshold 
-            - Array: N*(N-1)/2 elements which correspond to the upper triangle
-                     of an adjacency matrix providing cuts for each class pairs
-        classes : Union[int, List[int]], optional
-            List of classes that are involved in the graph
-        max_count : int, optional
-            Maximum number of edges that can be produced (memory limitation)
-        dist_metric : str, default 'set'
-            Method used to compute inter-node distance ('set' or 'centroid')
-        dist_algorithm : str, default 'brute'
-            Algorithm used to comppute inter-node distance
-            ('brute' or 'recursive')
-        """
-        # Store attributes
-        self.directed = directed
-        self.max_count = max_count
-        self.dist_metric = dist_metric
-        self.dist_algorithm = dist_algorithm
-
-        # Convert `max_length` to a matrix, if provided as a `triu`
-        self.max_length = max_length
-        if isinstance(max_length, list):
-            assert classes is not None, (
-                    "If specifying the edge length cut per class, "
-                    "must provide the list of classes")
-
-            num_classes = np.max(classes) + 1
-            assert len(max_length) == num_classes*(num_classes + 1)/2, (
-                    "If provided as a list, the maximum edge length should be "
-                    "given for each upper triangular element of a matrix of "
-                    "size num_classes*num_classes")
-
-            max_length_mat = np.zeros((num_classes, num_classes), dtype=float)
-            max_length_mat[np.triu_indices(num_classes)] = max_length
-            max_length_mat += (max_length_mat.T - 
-                               np.diag(np.diag(max_length_mat)))
-
-            self.max_length = max_length
-
-        # If if the inter-cluster distance matrix must be evaluated
-        self.compute_dist = (max_length is not None or 
-                             self.name in ['mst', 'knn'])
-
-    def __call__(self, counts, dist_mat=None,
-                 classes=None, groups=None, **kwargs):
-        """Filters input to keep only what is needed to generate a graph.
-
-        Parameters
-        ----------
-        counts : np.ndarray
-            (B) Number of nodes in each batch
-        dist_mat : np.ndarray, optional
-            (C, C) Tensor of pair-wise cluster distances
-        classes : np.ndarray, optional
-            (C) List of cluster semantic class used to define the max length
-        groups : np.ndarray, optional
-            (C) List of cluster groups which should not be mixed
-        **kwargs : dict, optional
-            Dictionary of parameters to pass to the graph constructor
-
-        Returns
-        -------
-        np.ndarray
-            (2, E) Tensor of edges
-        """
-        # Fetch the required argument to generate the edge index
-        exp_kwargs = dict(inspect.signature(self.generate).parameters)
-        exp_kwargs.pop('counts')
-        proc_kwargs = {}
-        for key, value in exp_kwargs.items():
-            if key not in kwargs:
-                if (value.default == inspect.Parameter.empty):
-                    raise TypeError(f"Must provide {key} to generate graph")
-            else:
-                proc_kwargs[key] = value
-
-        # Generate the inter-cluster distsnce matrix, if needed
-        dist_mat = None
-        if self.compute_dist:
-            pass
-
-        # Generate the edge index
-        edge_index, splits = self.generate(counts, **proc_kwargs)
-
-        # Cut on the edge length, if specified
-        if self.max_length is not None:
-            assert dist_mat is not None, (
-                    "Must provide `dist_mat` to restrict edge length.")
-            edge_index = self.restrict(edge_index, dist_mat, classes)
-
-        # Disconnect nodes from separate groups, if specified
-        if groups is not None:
-            index = np.where(groups[edge_index[0]] == groups[edge_index[1]])[0]
-            edge_index = edge_index[:, index]
-
-        # Get the offsets, initialize the TensorBatch
-        offsets = np.zeros(len(counts), dtype=counts.dtype)
-        offsets[1:] = np.cumsum(counts[:-1])
-        edge_index = TensorBatch(edge_index.T, splits, offsets)
-
-        return edge_index, dist_mat
-
-    def generate(self):
-        """This function must be overridden in the constructor definition."""
-        raise NotImplementedError("Must define the `generate` function")
-
-    def restrict(edge_index, dist_mat, classes=None):
-        """Function that restricts an incidence matrix of a graph
-        to the edges below a certain length.
-
-        If `classes` are specified, the maximum edge length must be provided
-        for each possible combination of node classes.
-
-        Parameters
-        ----------
-        edge_index : np.ndarray
-            (2,E) Tensor of edges
-        dist_mat : np.ndarray
-            (C,C) Tensor of pair-wise cluster distances
-        classes : np.ndarray, optional
-            (C) List of class for each cluster in the graph
-
-        Returns
-        -------
-        np.ndarray
-            (2,E) Restricted tensor of edges
-        """
-        # Restrict the input set of edges based on a edge length cut
-        if classes is None:
-            # If classes are not provided, apply a static cut to all edges
-            dists = dist_mat[(edge_index[0], edge_index[1])]
-
-            return edge_index[dists < max_length]
-
-        else:
-            # If classes are provided, apply the cut based on the class
-            dists = dist_mat[(edge_index[0], edge_index[1])]
-            edge_classes = classes[edge_index]
-            max_lengths = self.max_length[(edge_classes[0], edge_classes[1])]
-
-            return edge_index[:, dists < max_lengths]
-
-
-class LoopGraph(GraphConstructor):
+class LoopGraph(GraphBase):
     """Generates loop-only graphs.
 
     Connects every node in the graph with itself but nothing else.
+
+    See :class:`GraphBase` for attributes/methods shared
+    across all graph constructors.
     """
     name = 'loop'
 
-    def generate(self, counts):
+    def generate(self, clusts, **kwargs):
         """Generate a loop-graph on a set of N nodes.
 
         Parameters
         ----------
-        counts : np.ndarray
-            (B) Number of nodes in each batch
-
-        Returns
-        -------
-        np.ndarray
-            (2, C) Tensor of edges
-        """
-        num_nodes = np.sum(counts)
-        splits = np.cumsum(counts)
-        return np.repeat(np.arange(num_nodes)[None,:], 2, axis=0), splits
-
-
-class CompleteGraph(GraphConstructor):
-    """Generates graphs that connect each node with every other node.
-
-    If two nodes belong to separate batches, they are not connected.
-
-    See :class:`GraphConstructor` for attributes/methods shared
-    across all graph constructors.
-    """
-    name = 'complete'
-
-    def generate(self, counts, **kwargs):
-        """Generates a complete graph on a set of batched nodes.
-
-        Parameters
-        ----------
-        counts : np.ndarray
-            (B) Number of nodes in each batch
+        clusts : IndexBatch
+            (C) Cluster indexes
+        **kwargs : dict, optional
+            Unused graph generation arguments
 
         Returns
         -------
         np.ndarray
             (2, E) Tensor of edges
+        np.ndarray
+            (B) Number of edges in each entry of the batch
         """
-        return self._generate(counts, self.directed)
+        # There is exactly one edge per cluster
+        edge_counts = clusts.list_counts
+
+        # Define the loop graph
+        num_nodes = np.sum(edge_counts)
+        edge_index = np.repeat(np.arange(num_nodes)[None, :], 2, axis=0)
+
+        return edge_index, edge_counts
+
+
+class CompleteGraph(GraphBase):
+    """Generates graphs that connect each node with every other node.
+
+    If two nodes belong to separate batches, they cannot be connected.
+
+    See :class:`GraphBase` for attributes/methods shared
+    across all graph constructors.
+    """
+    name = 'complete'
+
+    def generate(self, clusts, **kwargs):
+        """Generates a complete graph on a set of batched nodes.
+
+        Parameters
+        ----------
+        clusts : IndexBatch
+            (C) Cluster indexes
+        **kwargs : dict, optional
+            Unused graph generation arguments
+
+        Returns
+        -------
+        np.ndarray
+            (2, E) Tensor of edges
+        np.ndarray
+            (B) Number of edges in each entry of the batch
+        """
+        return self._generate(clusts.list_counts)
 
     @staticmethod
     @nb.njit(cache=True)
-    def _generate(counts: nb.int64[:], directed: nb.bool_) -> nb.int64[:,:]:
+    def _generate(counts: nb.int64[:]) -> (nb.int64[:,:], nb.int64[:]):
         # Loop over the batches, define the adjacency matrix for each
         edge_list, offset = [], 0
         edge_counts = np.zeros(len(counts), dtype=counts.dtype)
@@ -233,29 +94,25 @@ class CompleteGraph(GraphConstructor):
             # Build a list of edges
             c = counts[b]
             adj_mat = np.triu(np.ones((c, c)), k=1)
-            edge_index = np.vstack(np.where(adj_mat))
+            edges = np.vstack(np.where(adj_mat))
 
-            # Add reciprocal edges if the graph is undirected
-            if not directed:
-                edge_index = np.hstack((edge_index, edge_index[::-1]))
-
-            edge_list.append(offset + edge_index)
-            edge_counts[b] = edge_index.shape[-1]
+            edge_list.append(offset + edges)
+            edge_counts[b] = edges.shape[-1]
             offset += c
 
         # Merge the blocks together
         num_edges = np.sum(edge_counts)
-        result = np.empty((2, E), dtype=np.int64)
+        edge_index = np.empty((2, num_edges), dtype=np.int64)
         offset = 0
-        for edge_index in edge_list:
-            num_block = edge_index.shape[1]
-            result[:, offset:offset + num_block] = edge_index
+        for edges in edge_list:
+            num_block = edges.shape[1]
+            edge_index[:, offset:offset + num_block] = edges
             offset += num_block
 
-        return result, np.cumsum(edge_counts)
+        return edge_index, edge_counts
 
 
-class DelaunayGraph(GraphConstructor):
+class DelaunayGraph(GraphBase):
     """Generates graphs based on the Delaunay triangulation of the input
     node locations.
 
@@ -348,7 +205,7 @@ class DelaunayGraph(GraphConstructor):
         return result
 
 
-class MSTGraph(GraphConstructor):
+class MSTGraph(GraphBase):
     """Generates graphs based on the minimum-spanning tree (MST) of the input
     node locations.
 
@@ -396,7 +253,7 @@ def mst_graph(batch_ids: nb.int64[:],
 
     return ret.T
 
-class KNNGraph(GraphConstructor):
+class KNNGraph(GraphBase):
     """Generates graphs based on the k nearest-neighbor (kNN) graph of the
     input node locations.
 
@@ -448,7 +305,7 @@ def knn_graph(batch_ids: nb.int64[:],
 
     return ret.T
 
-class BipartiteGraph(GraphConstructor):
+class BipartiteGraph(GraphBase):
     """Generates graphs that connect primary nodes to secondary nodes. """
     name = 'bipartite'
 

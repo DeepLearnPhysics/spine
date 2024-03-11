@@ -5,7 +5,9 @@ import torch.nn as nn
 from torch.nn import Sequential as Seq, Linear as Lin, ReLU, BatchNorm1d, LeakyReLU
 import torch.nn.functional as F
 from torch_geometric.utils import softmax
-from mlreco.models.layers.gnn.normalizations import BatchNorm, InstanceNorm
+
+from .normalizations import BatchNorm, InstanceNorm
+
 
 class MetaLayerModel(nn.Module):
     '''

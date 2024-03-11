@@ -6,8 +6,8 @@ from .layers.common.dbscan import DBSCANFragmenter
 from .layers.common.momentum import (
         DeepVertexNet, EvidentialMomentumNet, MomentumNet, VertexNet)
 from .layers.gnn import (
-        gnn_model_construct, node_encoder_construct, edge_encoder_construct,
-        node_loss_construct, edge_loss_construct)
+        graph_construct, gnn_model_construct, node_encoder_construct,
+        edge_encoder_construct, node_loss_construct, edge_loss_construct)
 
 from .experimental.transformers.transformer import TransformerEncoderLayer
 
@@ -16,9 +16,7 @@ from mlreco.utils.globals import (
 from mlreco.utils.gnn.data import merge_batch, split_clusts, split_edge_index
 from mlreco.utils.gnn.cluster import (
         form_clusters, get_cluster_batch, get_cluster_label, 
-        get_cluster_primary_label, get_cluster_points_label, 
-        get_cluster_directions, get_cluster_dedxs)
-from mlreco.utils.gnn.network import graph_construct
+        get_cluster_primary_label)
 
 __all__ = ['GrapPA', 'GrapPALoss']
 
@@ -196,7 +194,7 @@ class GrapPA(torch.nn.Module):
         self.graph_constructor = graph_construct(graph)
 
         # Process the node encoder configuration
-        self.process_node_encoder_config(**node_encoder)
+        self.node_encoder = node_encoder_construct(node_encoder)
 
         # Initialize edge encoder
         self.edge_encoder = edge_encoder_construct(edge_encoder)
@@ -236,52 +234,6 @@ class GrapPA(torch.nn.Module):
             else:
                 self.node_type = [semantic_class]
 
-#    def process_graph_config(dist_metric='set', dist_algorithm='brute', 
-#                             max_count=None, **kwargs):
-#        # TODO TODO must go
-#        """Process the graph configuration.
-#
-#        Parameters
-#        ----------
-#        max_count : int, optional
-#            Limit the number of edges in a batch. If the number exceeds the
-#            threshold, the batch returns empty outputs (no predictions)
-#        **kwargs : dict, optional
-#            Keyword arguments to pass to the graph constructor class
-#        """
-#        # Initialize the graph constructor
-#        self.graph_constructor = graph_construct(**kwargs)
-#
-#        # Save the inter-cluster distance computation paramters
-#        self.edge_dist_metric = dist_metric
-#        self.edge_dist_algorithm = dist_algorithm
-#        self.edge_max_count = max_count
-
-    def process_node_encoder_config(
-            self, add_points=False, add_local_dirs=False, dir_max_dist=5.,
-            add_local_dedxs=False, dedx_max_dist=5., **kwargs):
-        """Process the node encoder configuration.
-
-        Parameters
-        ----------
-        add_points : Union[bool, str], default False
-            If `True`, adds points to the node feature list. Can also be
-            specified as 'start' or 'end' to only include a specific point
-        add_local_dirs : Union[bool, str], default False
-            If `True`, adds directions to the node feature list. Can also be
-            specified as 'start' or 'end' to only include a specific direction
-        dir_max_dist : Union[float, str], default 5.
-            Neighborhood radius around the points to use to estimate direction.
-            If specified as 'optimize', will optimize the radius
-        add_local_dedxs : Union[bool, str], default False
-            If `True`, adds dE/dxs to the node feature list. Can also be
-            specified as 'start' or 'end' to only include a specific dE/dx
-        dedx_max_dist : Union[float, str], default 5.
-            Neighborhood radius around the points to use to estimate dE/dx
-            If specified as 'optimize', will optimize the radius
-        **kwargs : dict, optional
-            Keyword arguments to pass to the node encoder class
-        """
         # Initialize the node encoder class
         self.node_encoder = node_encoder_construct(kwargs)
 
@@ -441,7 +393,7 @@ class GrapPA(torch.nn.Module):
 
         Returns
         -------
-        clusts : IndexListBatch
+        clusts : IndexBatch
             (C, N_c, N_{c,i}) Cluster indexes
         edge_index : TensorBatch
             (E, 2) Incidence matrix
@@ -483,56 +435,20 @@ class GrapPA(torch.nn.Module):
 
         # Initialize the input graph
         edge_index, dist_mat, closest_index = self.graph_constructor(
-                clust_data_np, clusts, counts, classes, groups)
+                input_data, clusts, classes, groups)
 
         # Obtain node and edge features
+        # TODO: Make kwargs out of non-None variables
         x = self.node_encoder(cluster_data, clusts)
         e = self.edge_encoder(
                 cluster_data, clusts, edge_index, closest_index=closest_index)
-
-        # If extra features are provided separately, add them
-        if extra_feats is not None:
-            x = torch.cat([x, extra_feats.float()], dim=1)
-
-        # Add end points and/or local directions to node features, if requested
-        if self.add_points or points is not None:
-            if points is None:
-                points = get_cluster_points_label(cluster_data, particles, clusts)
-            x = torch.cat([x, points.float()], dim=1)
-            result['start_points'] = [np.hstack([batch_ids[:,None], points[:,:3].detach().cpu().numpy()])]
-            result['end_points'] = [np.hstack([batch_ids[:,None], points[:,3:].detach().cpu().numpy()])]
-            if self.add_local_dirs:
-                dirs_start = get_cluster_directions(cluster_data[:, self.coords_index[0]:self.coords_index[1]], points[:,:3], clusts, self.dir_max_dist, self.opt_dir_max_dist)
-                if self.add_local_dirs != 'start':
-                    dirs_end = get_cluster_directions(cluster_data[:, self.coords_index[0]:self.coords_index[1]], points[:,3:6], clusts, self.dir_max_dist, self.opt_dir_max_dist)
-                    x = torch.cat([x, dirs_start.float(), dirs_end.float()], dim=1)
-                else:
-                    x = torch.cat([x, dirs_start.float()], dim=1)
-            if self.add_local_dedxs:
-                dedxs_start = get_cluster_dedxs(cluster_data[:, self.coords_index[0]:self.coords_index[1]], cluster_data[:,4], points[:,:3], clusts, self.dedx_max_dist)
-                if self.add_local_dedxs != 'start':
-                    dedxs_end = get_cluster_dedxs(cluster_data[:, self.coords_index[0]:self.coords_index[1]], cluster_data[:,4], points[:,3:6], clusts, self.dedx_max_dist)
-                    x = torch.cat([x, dedxs_start.reshape(-1,1).float(), dedxs_end.reshape(-1,1).float()], dim=1)
-                else:
-                    x = torch.cat([x, dedxs_start.reshape(-1,1).float()], dim=1)
 
         # Bring edge_index and batch_ids to device
         index = torch.tensor(edge_index, device=cluster_data.device, dtype=torch.long)
         xbatch = torch.tensor(batch_ids, device=cluster_data.device)
 
-        result['node_features'] = [[x[b] for b in cbids]]
-        result['edge_features'] = [[e[b] for b in ebids]]
-
         # Pass through the model, update results
         out = self.gnn_model(x, index, e, xbatch)
-        result['node_pred'] = [[out['node_pred'][0][b] for b in cbids]]
-        result['edge_pred'] = [[out['edge_pred'][0][b] for b in ebids]]
-
-        result = {
-            'clusts': clusts,
-            'edge_index': edge_index,
-            'node_features': node_features
-        }
 
         # If requested, pass the node features through two MLPs for kinematics predictions
         if self.kinematics_mlp:
@@ -562,41 +478,17 @@ class GrapPA(torch.nn.Module):
                 node_pred_vtx = self.vertex_net(out['node_features'][0])
             result['node_pred_vtx'] = [[node_pred_vtx[b] for b in cbids]]
 
+        # Build the result dictionary
+        result = {
+            "clusts": clusts,
+            "edge_index": edge_index,
+            "node_features": node_features,
+            "edge_features": edge_features,
+            "node_pred": out['node_pred'],
+            "edge_pred": out['edge_pred']
+        }
+
         return result
-
-    def get_node_features(self, input_data, clusts):
-        """Fetch the node features
-        """
-
-        # Fetch the basic node features
-        x = self.node_encoder(cluster_data, clusts)
-
-        # If extra features are provided separately, add them
-        if extra_feats is not None:
-            x = torch.cat([x, extra_feats.float()], dim=1)
-
-        # Add end points and/or local directions to node features, if requested
-        if self.add_points or points is not None:
-            if points is None:
-                points = get_cluster_points_label(cluster_data, particles, clusts)
-            x = torch.cat([x, points.float()], dim=1)
-            result['start_points'] = [np.hstack([batch_ids[:,None], points[:,:3].detach().cpu().numpy()])]
-            result['end_points'] = [np.hstack([batch_ids[:,None], points[:,3:].detach().cpu().numpy()])]
-            if self.add_local_dirs:
-                dirs_start = get_cluster_directions(cluster_data[:, self.coords_index[0]:self.coords_index[1]], points[:,:3], clusts, self.dir_max_dist, self.opt_dir_max_dist)
-                if self.add_local_dirs != 'start':
-                    dirs_end = get_cluster_directions(cluster_data[:, self.coords_index[0]:self.coords_index[1]], points[:,3:6], clusts, self.dir_max_dist, self.opt_dir_max_dist)
-                    x = torch.cat([x, dirs_start.float(), dirs_end.float()], dim=1)
-                else:
-                    x = torch.cat([x, dirs_start.float()], dim=1)
-            if self.add_local_dedxs:
-                dedxs_start = get_cluster_dedxs(cluster_data[:, self.coords_index[0]:self.coords_index[1]], cluster_data[:,4], points[:,:3], clusts, self.dedx_max_dist)
-                if self.add_local_dedxs != 'start':
-                    dedxs_end = get_cluster_dedxs(cluster_data[:, self.coords_index[0]:self.coords_index[1]], cluster_data[:,4], points[:,3:6], clusts, self.dedx_max_dist)
-                    x = torch.cat([x, dedxs_start.reshape(-1,1).float(), dedxs_end.reshape(-1,1).float()], dim=1)
-                else:
-                    x = torch.cat([x, dedxs_start.reshape(-1,1).float()], dim=1)
-
 
 
 class GrapPALoss(torch.nn.modules.loss._Loss):

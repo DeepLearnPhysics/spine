@@ -14,7 +14,7 @@ from .layers.cnn.cnn_encoder import SparseResidualEncoder
 from .layers.cluster_cnn.losses.lovasz import StableBCELoss
 
 from .experimental.layers.pointnet import PointNetEncoder
-from .experimental.layers.pointmlp import PointMLPEncoder
+#from .experimental.layers.pointmlp import PointMLPEncoder
 from .experimental.bayes.encoder import MCDropoutEncoder
 from .experimental.bayes.evidential import EVDLoss
 

@@ -317,10 +317,10 @@ class PPN(torch.nn.Module):
             mask = softmax.F[:, 1:] > self.mask_score_threshold
 
             # Store the coordinates, raw score logits and score mask
-            splits = decoder_tensors[i].splits
-            ppn_coords.append(TensorBatch(scores.C, splits))
-            ppn_layers.append(TensorBatch(scores.F, splits))
-            ppn_masks.append(TensorBatch(mask, splits))
+            counts = decoder_tensors[i].counts
+            ppn_coords.append(TensorBatch(scores.C, counts))
+            ppn_layers.append(TensorBatch(scores.F, counts))
+            ppn_masks.append(TensorBatch(mask, counts))
 
             # Expand the score mask 
             s_expanded = self.expand_as(
@@ -334,8 +334,8 @@ class PPN(torch.nn.Module):
         assert x.C.shape[0] == decoder_tensors[-1].tensor.shape[0], (
                 "The output of the last PPN layer should be consistent "
                 "with the length of the last UResNet decoder layer")
-        final_splits = decoder_tensors[-1].splits
-        ppn_output_coords = TensorBatch(x.C, final_splits)
+        final_counts = decoder_tensors[-1].counts
+        ppn_output_coords = TensorBatch(x.C, final_counts)
 
         # Pass the final PPN tensor through the individual predictions, combine
         x = self.final_block(x)
@@ -348,7 +348,7 @@ class PPN(torch.nn.Module):
         ppn_points = TensorBatch(
                 torch.cat(
                     [pixel_pos.F, ppn_type.F, ppn_layers[-1].tensor], dim=1),
-                final_splits)
+                final_counts)
 
         result = {
             'ppn_points': ppn_points,
@@ -359,7 +359,7 @@ class PPN(torch.nn.Module):
         }
         if self.classify_endpoints:
             result['ppn_classify_endpoints'] = TensorBatch(
-                    ppn_endpoint.F, final_splits)
+                    ppn_endpoint.F, final_counts)
 
         return result
 
@@ -603,7 +603,7 @@ class PPNLoss(torch.nn.modules.loss._Loss):
             # If requested, store the label features in a list
             if self.return_mask_labels:
                 mask_label_list.append(
-                        TensorBatch(mask_labels[:,None], coords_layer.splits))
+                        TensorBatch(mask_labels[:,None], coords_layer.counts))
 
             # Compute the mask weights over the whole batch, if requested
             mask_weight = None
