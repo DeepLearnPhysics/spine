@@ -6,7 +6,7 @@ from . import graphs, encoders, message_passing, losses
 
 
 def graph_construct(cfg):
-    """Instantiates a graoh constructor from a configuration dictionary.
+    """Instantiates a graph constructor from a configuration dictionary.
 
     Parameters
     ----------

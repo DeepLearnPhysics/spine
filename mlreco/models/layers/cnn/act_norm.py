@@ -78,12 +78,4 @@ def normalizations_construct(cfg, num_features=None):
     object
         Instantiated normalization layer
     """
-    if isinstance(cfg, str):
-        cfg = {'name': cfg}
-
-    if num_features is not None:
-        cfg = deepcopy(cfg)
-        cfg['kwargs'] = cfg.get('kwargs', {})
-        cfg['kwargs']['num_features'] = num_features
-
-    return instantiate(normalizations_dict(), cfg)
+    return instantiate(normalizations_dict(), cfg, num_features=num_features)

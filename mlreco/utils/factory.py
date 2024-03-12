@@ -62,7 +62,7 @@ def module_dict(module, class_name=None, pattern=None):
     return module_dict
 
 
-def instantiate(module_dict, cfg, alt_name=None):
+def instantiate(module_dict, cfg, alt_name=None, **kwargs):
     """Instantiates a class based on a configuration dictionary and a list of
     possible classes to chose from.
     
@@ -102,6 +102,8 @@ def instantiate(module_dict, cfg, alt_name=None):
         Configuration dictionary
     alt_name : str, optional
         Key under which the class name can be specfied, beside 'name' itself
+    **kwargs : dict, optional
+        Additional parameters to pass to the function
 
     Returns
     -------
@@ -135,7 +137,7 @@ def instantiate(module_dict, cfg, alt_name=None):
 
     # Gather the arguments and keyword arguments to pass to the function
     args = config.pop('args', [])
-    kwargs = config.pop('kwargs', {})
+    kwargs = dict(config.pop('kwargs', {}), **kwargs)
 
     # If args is specified as a dictionary, append it to kwargs (deprecated)
     if isinstance(args, dict):

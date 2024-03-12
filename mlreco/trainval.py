@@ -22,8 +22,8 @@ from .models.experimental.bayes.calibration import (
 from .utils.torch_local import cycle
 from .utils.data_structures import TensorBatch
 from .utils.stopwatch import StopwatchManager
-from .utils.adabound import AdaBound, AdaBoundW
 from .utils.unwrap import Unwrapper
+from .utils.train import optim_construct, lr_sched_construct
 from .utils.logger import logger
 
 
@@ -156,52 +156,16 @@ class TrainVal(object):
         assert (self.iterations is not None) ^ (self.epochs is not None), (
                 "Must either specify `iterations` or `epochs` in `trainval`")
 
-        # Parse the optimizer arguments
+        # Store the optimizer configuration
         if self.train:
             assert optimizer is not None, (
                     "Must provide an optimizer configuration block to train")
-            self.process_optimizer(**optimizer)
+            self.optim_cfg = optimizer
             self.restore_optimizer = restore_optimizer
 
-        # Parse the learning rate sechuduler arguments
+        # Store the learning-rate scheduler configuration
         if self.train:
-            self.lr_scheduler_class = None
-            if lr_scheduler is not None:
-                self.process_lr_scheduler(**lr_scheduler)
-
-    def process_optimizer(self, name, args={}):
-        """Process the optimizer configuration.
-
-        Parameters
-        ----------
-        name : str
-            Name of the optimizer under `torch.optim`
-        args : dict, optional
-            Arguments to pass to the optimizer
-        """
-        # Fetch the relevant optimizer class, store arguments
-        if name == 'AdaBound':
-            self.optim_class = AdaBound
-        elif name == 'AdaBoundW':
-            self.optim_class = AdaBoundW
-        else:
-            self.optim_class = getattr(torch.optim, name)
-
-        self.optim_args = args
-
-    def process_lr_scheduler(self, name, args={}):
-        """Process the learning rate scheduler configuration.
-
-        Parameters
-        ----------
-        name : str
-            Name of the optimizer under `torch.optim`
-        args : dict, optional
-            Arguments to pass to the optimizer
-        """
-        # Fetch the relevant optimizer class, store arguments
-        self.lr_scheduler_class = getattr(torch.optim.lr_scheduler, name)
-        self.lr_scheduler_args = args
+            self.lr_sched_cfg = lr_scheduler
 
     def process_model(self, name, modules, network_input, loss_input=[],
                       keep_output=[], ignore_keys=[]):
@@ -350,15 +314,15 @@ class TrainVal(object):
 
         # Initiliaze the optimizer
         if self.train:
-            self.optimizer = self.optim_class(
-                    self.model.parameters(), **self.optim_args)
+            self.optimizer = optim_construct(
+                    self.optim_cfg, self.model.parameters())
 
         # Initialize the learning rate scheduler
         if self.train:
             self.lr_scheduler = None
-            if self.lr_scheduler_class is not None:
-                self.lr_scheduler = self.lr_scheduler_class(
-                        self.optimizer, **self.lr_scheduler_args)
+            if self.lr_sched_cfg is not None:
+                self.lr_scheduler = lr_sched_construct(
+                        self.lr_sched_cfg, self.optimizer)
 
         # Module-by-module parameter freezing
         self.freeze_weights()
