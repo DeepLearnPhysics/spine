@@ -9,8 +9,8 @@ from mlreco.models.layers.cnn.blocks import ResNetBlock
 from mlreco.models.layers.cnn.configuration import setup_cnn_configuration
 from mlreco.models.layers.cluster_cnn.losses.misc import BinaryCELogDiceLoss
 
-from .activation_normalization_factories import activations_construct
-from .ppnplus import *
+from .act_norm import activations_construct
+from .ppn import *
 
 from mlreco.utils.gnn.cluster import (
         form_clusters, get_cluster_batch, get_cluster_label)

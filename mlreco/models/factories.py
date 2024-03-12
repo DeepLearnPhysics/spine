@@ -11,7 +11,7 @@ def model_dict():
 
     from . import full_chain
     from . import uresnet
-    from . import uresnet_ppn_chain
+    from . import uresnet_ppn
     from . import singlep
     from . import spice
     from . import graph_spice
@@ -27,8 +27,7 @@ def model_dict():
         # UresNet
         "uresnet": (uresnet.UResNetSegmentation, uresnet.SegmentationLoss),
         # UResNet + PPN
-        'uresnet_ppn_chain': (uresnet_ppn_chain.UResNetPPN,
-                uresnet_ppn_chain.UResNetPPNLoss),
+        'uresnet_ppn': (uresnet_ppn.UResNetPPN, uresnet_ppn.UResNetPPNLoss),
         # Single Particle Classifier
         "singlep": (singlep.ParticleImageClassifier, singlep.ParticleTypeLoss),
         # Multi Particle Classifier

@@ -6,6 +6,9 @@ from mlreco.utils.gnn.cluster import get_cluster_label, get_momenta_label
 from mlreco.models.experimental.bayes.evidential import EDLRegressionLoss, EVDLoss
 from torch_scatter import scatter
 
+__all__ = ['NodeKinematicsLoss']
+
+
 class LogRMSE(torch.nn.modules.loss._Loss):
 
     def __init__(self, reduction='none', eps=1e-7):
@@ -64,6 +67,7 @@ class NodeKinematicsLoss(torch.nn.Module):
             reduction       : <loss reduction method: 'mean' or 'sum' (default 'sum')>
             balance_classes : <balance loss per class: True or False (default False)>
     """
+    name = 'kinematics'
 
     RETURNS = {
         'loss': ['scalar'],

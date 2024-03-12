@@ -133,10 +133,9 @@ class CollateSparse:
                     features = np.vstack(features_v)
                     batch_ids = np.concatenate(batch_ids_v)
 
-                # Stack the coordinates with the features, compute splits
+                # Stack the coordinates with the features
                 tensor = np.hstack([batch_ids[:, None], voxels, features])
-                splits = np.cumsum(counts)
-                data[key] = TensorBatch(tensor, splits)
+                data[key] = TensorBatch(tensor, counts)
 
             elif isinstance(batch[0][key], np.ndarray):
                 # Case where the output of the parser is a single np.ndarray
@@ -150,10 +149,9 @@ class CollateSparse:
                 counts    = [len(sample[key]) for sample in batch]
                 batch_ids = np.repeat(np.arange(batch_size), counts)
 
-                # Stack the batch_ids with the features, compute splits
+                # Stack the batch_ids with the features
                 tensor = np.hstack([batch_ids[:, None], tensor])
-                splits = np.cumsum(counts)
-                data[key] = TensorBatch(tensor, splits)
+                data[key] = TensorBatch(tensor, counts)
 
             else:
                 # In all other cases, just stick them a list of size batch_size

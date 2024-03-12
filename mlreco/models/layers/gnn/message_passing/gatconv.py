@@ -3,15 +3,14 @@ import torch
 import torch.nn as nn
 from torch.nn import Sequential as Seq, Linear as Lin, ReLU, BatchNorm1d, LeakyReLU
 import torch.nn.functional as F
-from mlreco.models.layers.gnn.normalizations import BatchNorm, InstanceNorm
 
-class NNConvModel(nn.Module):
+class GATConvModel(nn.Module):
     '''
-    NNConv GNN Module for extracting node/edge/global features
+    GATConv GNN Module for extracting node/edge/global features
     '''
     def __init__(self, cfg):
-        super(NNConvModel, self).__init__()
-        from torch_geometric.nn import MetaLayer, NNConv
+        super(GATConvModel, self).__init__()
+        from torch_geometric.nn import MetaLayer, GATConv
         
         self.model_config = cfg
         self.node_input     = self.model_config.get('node_feats', 16)
@@ -23,8 +22,7 @@ class NNConvModel(nn.Module):
         self.aggr           = self.model_config.get('aggr', 'add')
         self.leakiness      = self.model_config.get('leakiness', 0.1)
 
-        self.edge_mlps = torch.nn.ModuleList()
-        self.nnConvs = torch.nn.ModuleList()
+        self.gatConvs = torch.nn.ModuleList()
         self.edge_updates = torch.nn.ModuleList()
 
         # perform batch normalization
@@ -38,23 +36,9 @@ class NNConvModel(nn.Module):
         edge_input  = self.edge_input
         edge_output = self.edge_output
         for i in range(self.num_mp):
-            self.edge_mlps.append(
-                Seq(
-                    BatchNorm1d(edge_output),
-                    Lin(edge_output, node_input),
-                    LeakyReLU(self.leakiness),
-                    BatchNorm1d(node_input),
-                    Lin(node_input, node_input),
-                    LeakyReLU(self.leakiness),
-                    BatchNorm1d(node_input),
-                    Lin(node_input, node_input*node_output)
-                )
-            )
-            # print(i, self.edge_mlps[i])
-            self.bn_node.append(BatchNorm(node_input))
-            self.nnConvs.append(
-                NNConv(node_input, node_output, self.edge_mlps[i], aggr=self.aggr))
-            # self.bn_node.append(BatchNorm(node_output))
+            self.bn_node.append(BatchNorm1d(node_input))
+            self.gatConvs.append(GATConv(node_input, node_output))
+            # self.bn_node.append(BatchNorm1d(node_output))
             # print(node_input, node_output)
             self.edge_updates.append(
                 MetaLayer(edge_model=EdgeLayer(node_input, edge_input, edge_output,
@@ -74,13 +58,6 @@ class NNConvModel(nn.Module):
         self.edge_predictor = nn.Linear(edge_output, self.edge_classes)
 
     def forward(self, node_features, edge_indices, edge_features, xbatch):
-
-        if node_features.shape[1] != self.node_input:
-            raise ValueError("Node feature dimension must be {} instead of {}".format(node_features.shape[1], self.node_input))
-
-        if edge_features.shape[1] != self.edge_input:
-            raise ValueError("Edge feature dimension must be {} instead of {}".format(edge_features.shape[1], self.edge_input))
-
         x = node_features.view(-1, self.node_input)
         e = edge_features.view(-1, self.edge_input)
 
@@ -88,7 +65,7 @@ class NNConvModel(nn.Module):
             x = self.bn_node[i](x)
             # add u and batch arguments for not having error in some old version
             _, e, _ = self.edge_updates[i](x, edge_indices, e, u=None, batch=xbatch)
-            x = self.nnConvs[i](x, edge_indices, e)
+            x = self.gatConvs[i](x, edge_indices)
             # x = self.bn_node(x)
             x = F.leaky_relu(x, negative_slope=self.leakiness)
         # print(edge_indices.shape)
@@ -97,9 +74,7 @@ class NNConvModel(nn.Module):
 
         res = {
             'node_pred': [x_pred],
-            'edge_pred': [e_pred],
-            'node_features': [x],
-            'edge_features': [e]
+            'edge_pred': [e_pred]
             }
 
         return res

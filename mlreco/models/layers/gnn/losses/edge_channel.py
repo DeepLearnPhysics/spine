@@ -7,6 +7,9 @@ from mlreco.utils.gnn.network import get_fragment_edges
 from mlreco.utils.gnn.evaluation import edge_assignment, edge_assignment_from_graph, edge_purity_mask
 from mlreco.models.experimental.bayes.evidential import EVDLoss
 
+__all__ = ['EdgeChannelLoss']
+
+
 class EdgeChannelLoss(torch.nn.Module):
     """
     Takes the two-channel edge output of the GNN and optimizes
@@ -28,6 +31,7 @@ class EdgeChannelLoss(torch.nn.Module):
             target          : <type of target adjacency matrix: 'group', 'forest', 'particle_forest' (default 'group')>
             high_purity     : <only penalize loss on groups with a primary (default False)>
     """
+    name = 'channel'
 
     RETURNS = {
         'loss': ['scalar'],
@@ -35,24 +39,43 @@ class EdgeChannelLoss(torch.nn.Module):
         'n_edges': ['scalar']
     }
 
-    def __init__(self, loss_config, batch_col=0, coords_col=(1, 4)):
-        super(EdgeChannelLoss, self).__init__()
+    def __init__(self, target=GROUP_COL, balance_loss=False, high_purity=False,
+                 use_group_pred=False, group_pred_alg='score',
+                 loss='CE', reduction='sum'):
+        """Initialize the primary identification loss function.
 
-        # Set the source and target for the loss
-        self.batch_col = batch_col
-        self.coords_col = coords_col
+        Parameters
+        ----------
+        target : int, default GROUP_COL
+            Column in the label tensor specifying the aggregation target
+        balance_loss : bool, default False
+            Whether to weight the loss to account for class imbalance
+        high_purity : bool, default False
+            Only apply loss to nodes which belong to a sensible group, i.e.
+            one with exactly one primary in it (not 0, not > 1)
+        use_group_pred : bool, default False
+            Use predicted group to check for high purity
+        group_pred_alg : str, default 'score'
+            Method used to form a predicted group ('threshold' or 'score')
+        loss : str, default 'CE'
+            Name of the loss function to apply
+        reduction : str, default 'sum'
+            Reduction method used in the loss function
+        """
+        # Initialize the parent class
+        super().__init__()
 
-        self.target_col = loss_config.get('target_col', GROUP_COL)
-        self.primary_col = loss_config.get('primary_col', PSHOW_COL)
-        self.particle_col = loss_config.get('particle_col', PART_COL)
+        # Initialize basic parameters
+        self.target = target
+        self.balance_loss = balance_loss
+        self.high_purity = high_purity
+        self.use_group_pred = use_group_pred
+        self.group_pred_alg = group_pred_alg
 
         # Set the loss
-        self.loss = loss_config.get('loss', 'CE')
-        self.reduction = loss_config.get('reduction', 'sum')
-        self.balance_classes = loss_config.get('balance_classes', False)
-        self.target = loss_config.get('target', 'group')
-        self.high_purity = loss_config.get('high_purity', False)
-
+        # TODO: change this to a general loss initialization
+        self.loss = loss
+        self.reduction = reduction # Probably can get rid of this
         if self.loss == 'CE':
             self.lossfn = torch.nn.CrossEntropyLoss(reduction=self.reduction)
         elif self.loss == 'MM':

@@ -2,11 +2,11 @@
 
 from mlreco.utils.factory import module_dict, instantiate
 
-from . import graphs, encoders, models, losses
+from . import graphs, encoders, message_passing, losses
 
 
 def graph_construct(cfg):
-    """Instantiates a graoh constructor from a configuration dictionary.
+    """Instantiates a graph constructor from a configuration dictionary.
 
     Parameters
     ----------
@@ -35,7 +35,7 @@ def gnn_model_construct(cfg):
     object
         Instantiated GNN model
     """
-    gnn_model_dict = module_dict(models)
+    gnn_model_dict = module_dict(message_passing)
     return instantiate(gnn_model_dict, cfg)
 
 

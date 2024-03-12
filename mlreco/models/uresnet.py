@@ -10,7 +10,7 @@ from mlreco.utils.data_structures import TensorBatch
 from mlreco.utils.logger import logger
 from mlreco.utils.unwrap import Unwrapper
 
-from .layers.common.activation_normalization_factories import (
+from .layers.cnn.act_norm import (
         activations_construct, normalizations_construct)
 from .layers.cnn.uresnet_layers import UResNet
 
@@ -58,7 +58,7 @@ class UResNetSegmentation(nn.Module):
     num_classes: int, default 5
     ghost: bool, default False
     ghost_label: int, default -1
-    weight_loss: bool, default False
+    balance_loss: bool, default False
         Whether to weight the loss using class counts.
     alpha: float, default 1.0
         Weight for UResNet semantic segmentation loss.
@@ -170,18 +170,18 @@ class UResNetSegmentation(nn.Module):
         seg   = self.linear_segmentation(feats)
 
         # Store the output as tensor batches
-        segmentation = TensorBatch(seg.F, input_data.splits)
+        segmentation = TensorBatch(seg.F, input_data.counts)
 
         batch_size = input_data.batch_size
         final_tensor = TensorBatch(
                 result_backbone['final_tensor'],
-                batch_size=batch_size, sparse=True)
+                batch_size=batch_size, is_sparse=True)
         encoder_tensors = [TensorBatch(
             t, batch_size=batch_size,
-            sparse=True) for t in result_backbone['encoder_tensors']]
+            is_sparse=True) for t in result_backbone['encoder_tensors']]
         decoder_tensors = [TensorBatch(
             t, batch_size=batch_size,
-            sparse=True) for t in result_backbone['decoder_tensors']]
+            is_sparse=True) for t in result_backbone['decoder_tensors']]
 
         result = {
             'segmentation': segmentation,
@@ -194,9 +194,9 @@ class UResNetSegmentation(nn.Module):
         if self.ghost:
             ghost = self.linear_ghost(feats)
 
-            result['ghost'] = TensorBatch(ghost.F, input_data.splits)
+            result['ghost'] = TensorBatch(ghost.F, input_data.counts)
             result['ghost_tensor'] = TensorBatch(
-                    ghost, input_data.splits, sparse=True)
+                    ghost, input_data.counts, is_sparse=True)
 
         return result
 
@@ -255,6 +255,7 @@ class SegmentationLoss(torch.nn.modules.loss._Loss):
         self.process_loss_config(**uresnet_loss)
 
         # Initialize the cross-entropy loss
+        # TODO: Make it configurable
         self.xe = torch.nn.functional.cross_entropy
 
         # Append the expected output depending on how many classes there are
@@ -279,7 +280,7 @@ class SegmentationLoss(torch.nn.modules.loss._Loss):
         self.ghost = ghost
 
     def process_loss_config(self, ghost_label=-1, alpha=1.0, beta=1.0,
-                            weight_loss=False):
+                            balance_loss=False):
         """Process the loss function parameters.
 
         Parameters
@@ -290,14 +291,14 @@ class SegmentationLoss(torch.nn.modules.loss._Loss):
             Classification loss prefactor
         beta : float, default 1.0
             Ghost mask loss prefactor
-        weight_loss : bool, default False
-            Weather to weight the loss to account for class imbalance
+        balance_loss : bool, default False
+            Whether to weight the loss to account for class imbalance
         """
         # Store the loss configuration
-        self.ghost_label = ghost_label
-        self.alpha       = alpha
-        self.beta        = beta
-        self.weight_loss = weight_loss
+        self.ghost_label  = ghost_label
+        self.alpha        = alpha
+        self.beta         = beta
+        self.balance_loss = balance_loss
 
         # If a ghost label is provided, it cannot be in conjecture with
         # having a dedicated ghost masking layer
@@ -339,7 +340,7 @@ class SegmentationLoss(torch.nn.modules.loss._Loss):
                 'The ghost output length and its labels do not match'
 
         # If the loss is to be class-weighted, cannot also provide weights
-        assert not self.weight_loss or weights is None, \
+        assert not self.balance_loss or weights is None, \
                 'If weights are provided, cannot class-weight loss'
 
         # Check that the labels have sensible values
@@ -426,7 +427,7 @@ class SegmentationLoss(torch.nn.modules.loss._Loss):
             counts[c] = torch.sum(labels == c).item()
 
         # Compute the loss
-        if self.weight_loss and torch.all(counts):
+        if self.balance_loss and torch.all(counts):
             class_weight = len(labels)/num_classes/counts
             loss = self.xe(logits, labels, weight=class_weight)
         else:

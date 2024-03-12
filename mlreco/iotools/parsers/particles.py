@@ -282,6 +282,24 @@ class ParticleCoordinateParser(Parser):
     result = Unwrapper.Rule(method='tensor', translate=True,
                             default=np.empty((0, 12), dtype=np.float32))
 
+    def __init__(self, pixel_coordinates=True, **kwargs):
+        """Initialize the parser.
+
+        Parameters
+        ----------
+        pixel_coordinates : bool, default True
+            If set to `True`, the parser rescales the truth positions
+            (start, end, etc.) of the particle information to voxel coordinates
+        **kwargs : dict, optional
+            Data product arguments to be passed to the `process` function
+        """
+        # Initialize the parent class
+        super().__init__(**kwargs)
+
+        # Initialize the particle parser
+        self.particle_parser = ParticleParser(
+                pixel_coordinates=pixel_coordinates, post_process=False)
+
     def process(self, particle_event, sparse_event=None, cluster_event=None):
         """Fetch the start/end point and time of each true particle.
 
@@ -314,17 +332,15 @@ class ParticleCoordinateParser(Parser):
         meta = ref_event.meta()
 
         # Scale particle coordinates to image size
-        particles = parse_particles(particle_event, ref_event)
+        particles = self.particle_parser.process(particle_event, ref_event)
 
         # Make features
         features = []
         for i, p in enumerate(particles):
-            fs = p.first_step()
-            start_point = last_point = [fs.x(), fs.y(), fs.z()]
-            if p.shape() == TRACK_SHP: # End point only meaningful for tracks
-                ls = p.last_step()
-                last_point = [ls.x(), ls.y(), ls.z()]
-            extra = [fs.t(), p.shape()]
+            start_point = last_point = p.first_step
+            if p.shape == TRACK_SHP: # End point only meaningful for tracks
+                last_point = p.last_step
+            extra = [p.t, p.shape]
             features.append(np.concatenate((start_point, last_point, extra)))
 
         features = np.vstack(features)

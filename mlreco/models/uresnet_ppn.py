@@ -8,7 +8,7 @@ import MinkowskiEngine as ME
 import MinkowskiFunctional as MF
 
 from .uresnet import UResNetSegmentation, SegmentationLoss
-from .layers.common.ppnplus import PPN, PPNLoss
+from .layers.cnn.ppn import PPN, PPNLoss
 
 from mlreco.utils.unwrap import Unwrapper
 
@@ -58,7 +58,7 @@ class UResNetPPN(nn.Module):
 
     See Also
     --------
-    mlreco.models.uresnet.UResNetSegmentation, mlreco.models.layers.common.ppnplus.PPN
+    mlreco.models.uresnet.UResNetSegmentation, mlreco.models.layers.cnn.ppn.PPN
     """
     MODULES = ['uresnet', 'ppn']
 
@@ -156,7 +156,7 @@ class UResNetPPNLoss(nn.Module):
     See Also
     --------
     :class:`mlreco.models.uresnet.SegmentationLoss`,
-    :class:`mlreco.models.layers.common.ppnplus.PPNLoss`
+    :class:`mlreco.models.layers.cnn.ppn.PPNLoss`
     """
     RETURNS = {
         'loss': Unwrapper.Rule(method='scalar'),

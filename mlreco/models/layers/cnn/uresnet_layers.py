@@ -11,9 +11,7 @@ import torch
 
 import MinkowskiEngine as ME
 
-from mlreco.models.layers.common.activation_normalization_factories import (
-        activations_construct, normalizations_construct)
-
+from .act_norm import activations_construct, normalizations_construct
 from .blocks import ResNetBlock, CascadeDilationBlock, ASPP
 from .configuration import setup_cnn_configuration
 

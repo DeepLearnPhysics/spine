@@ -6,11 +6,9 @@ from collections import Counter
 import MinkowskiEngine as ME
 import MinkowskiFunctional as MF
 
-from mlreco.models.layers.common.activation_normalization_factories import (
-        activations_construct)
-from mlreco.models.layers.cnn.configuration import setup_cnn_configuration
-from mlreco.models.layers.cnn.blocks import ResNetBlock, SPP, ASPP
-from mlreco.models.layers.cluster_cnn.losses.misc import BinaryCELogDiceLoss
+from .configuration import setup_cnn_configuration
+from .act_norm import activations_construct
+from .blocks import ResNetBlock, SPP, ASPP
 
 from mlreco.utils.torch_local import local_cdist
 from mlreco.utils.logger import logger
@@ -317,10 +315,10 @@ class PPN(torch.nn.Module):
             mask = softmax.F[:, 1:] > self.mask_score_threshold
 
             # Store the coordinates, raw score logits and score mask
-            splits = decoder_tensors[i].splits
-            ppn_coords.append(TensorBatch(scores.C, splits))
-            ppn_layers.append(TensorBatch(scores.F, splits))
-            ppn_masks.append(TensorBatch(mask, splits))
+            counts = decoder_tensors[i].counts
+            ppn_coords.append(TensorBatch(scores.C, counts))
+            ppn_layers.append(TensorBatch(scores.F, counts))
+            ppn_masks.append(TensorBatch(mask, counts))
 
             # Expand the score mask 
             s_expanded = self.expand_as(
@@ -334,8 +332,8 @@ class PPN(torch.nn.Module):
         assert x.C.shape[0] == decoder_tensors[-1].tensor.shape[0], (
                 "The output of the last PPN layer should be consistent "
                 "with the length of the last UResNet decoder layer")
-        final_splits = decoder_tensors[-1].splits
-        ppn_output_coords = TensorBatch(x.C, final_splits)
+        final_counts = decoder_tensors[-1].counts
+        ppn_output_coords = TensorBatch(x.C, final_counts)
 
         # Pass the final PPN tensor through the individual predictions, combine
         x = self.final_block(x)
@@ -348,7 +346,7 @@ class PPN(torch.nn.Module):
         ppn_points = TensorBatch(
                 torch.cat(
                     [pixel_pos.F, ppn_type.F, ppn_layers[-1].tensor], dim=1),
-                final_splits)
+                final_counts)
 
         result = {
             'ppn_points': ppn_points,
@@ -359,7 +357,7 @@ class PPN(torch.nn.Module):
         }
         if self.classify_endpoints:
             result['ppn_classify_endpoints'] = TensorBatch(
-                    ppn_endpoint.F, final_splits)
+                    ppn_endpoint.F, final_counts)
 
         return result
 
@@ -443,7 +441,7 @@ class PPNLoss(torch.nn.modules.loss._Loss):
         # Store the semantic segmentation configuration
         self.depth = depth
 
-    def process_loss_config(self, mask_loss_name='BCE', resolution=5.,
+    def process_loss_config(self, mask_loss='CE', resolution=5.,
                             point_classes=None, balance_mask_loss=True,
                             mask_weighting_mode='const',
                             balance_type_loss=True,
@@ -458,7 +456,7 @@ class PPNLoss(torch.nn.modules.loss._Loss):
         resolution : float, default 5.
             Distance from a label point in pixels within which a voxel is
             considered positive (pixel of interest)
-        mask_loss_name : str, default 'BCE'
+        mask_loss : str, default 'CE'
             Name of the loss function to use
         point_classes : Union[int, list], optional
             If provided, restricts the loss to points of (a) certain shape(s)
@@ -506,12 +504,12 @@ class PPNLoss(torch.nn.modules.loss._Loss):
         self.end_loss_fn = torch.nn.functional.cross_entropy
 
         # Instantiate the mask loss function
-        self.mask_loss_name = mask_loss_name
-        if mask_loss_name == 'CE':
+        self.mask_loss = mask_loss
+        if mask_loss == 'CE':
             self.mask_loss_fn = torch.nn.functional.cross_entropy
         else:
             raise ValueError(
-                    f"Mask loss name not recognized: {mask_loss_name}")
+                    f"Mask loss name not recognized: {mask_loss}")
 
     def forward(self, ppn_label, ppn_points, ppn_masks, ppn_layers, ppn_coords,
                 ppn_output_coords, ppn_classify_endpoints=None, **kwargs):
@@ -603,7 +601,7 @@ class PPNLoss(torch.nn.modules.loss._Loss):
             # If requested, store the label features in a list
             if self.return_mask_labels:
                 mask_label_list.append(
-                        TensorBatch(mask_labels[:,None], coords_layer.splits))
+                        TensorBatch(mask_labels[:,None], coords_layer.counts))
 
             # Compute the mask weights over the whole batch, if requested
             mask_weight = None

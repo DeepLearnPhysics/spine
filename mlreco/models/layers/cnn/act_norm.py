@@ -1,4 +1,7 @@
-"""Functions which initialize activation and normalization layers."""
+"""Functions which initialize activation and normalization layers
+used by CNNs. These factories build activations and normalizations layers
+are based on the MinkowskiEngine package.
+"""
 
 from copy import deepcopy
 
@@ -75,12 +78,4 @@ def normalizations_construct(cfg, num_features=None):
     object
         Instantiated normalization layer
     """
-    if isinstance(cfg, str):
-        cfg = {'name': cfg}
-
-    if num_features is not None:
-        cfg = deepcopy(cfg)
-        cfg['kwargs'] = cfg.get('kwargs', {})
-        cfg['kwargs']['num_features'] = num_features
-
-    return instantiate(normalizations_dict(), cfg)
+    return instantiate(normalizations_dict(), cfg, num_features=num_features)

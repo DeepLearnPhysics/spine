@@ -1,4 +1,3 @@
-
 import numpy as np
 import torch
 import torch.nn as nn
@@ -9,7 +8,7 @@ import MinkowskiFunctional as MF
 from mlreco.models.uresnet import SegmentationLoss
 from collections import defaultdict
 from mlreco.models.uresnet import UResNetSegmentation
-from mlreco.models.layers.common.vertex_ppn import VertexPPN, VertexPPNLoss
+from mlreco.models.layers.cnn.vertex_ppn import VertexPPN, VertexPPNLoss
 from mlreco.models.experimental.layers.pointnet import PointNetEncoder
 
 from mlreco.utils.gnn.data import split_clusts
@@ -64,7 +63,7 @@ class UResNetVertexLoss(nn.Module):
     """
     See Also
     --------
-    mlreco.models.uresnet.SegmentationLoss, mlreco.models.layers.common.ppnplus.PPNLonelyLoss
+    mlreco.models.uresnet.SegmentationLoss, mlreco.models.layers.common.ppn.PPNLonelyLoss
     """
     def __init__(self, cfg):
         super(UResNetVertexLoss, self).__init__()

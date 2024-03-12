@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import MinkowskiEngine as ME
 
-from mlreco.models.layers.common.activation_normalization_factories import (
+from mlreco.models.layers.cnn.act_norm import (
         activations_construct, normalizations_construct)
 from mlreco.models.layers.cnn.configuration import setup_cnn_configuration
 from mlreco.models.layers.cnn.blocks import DropoutBlock, ResNetBlock

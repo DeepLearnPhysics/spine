@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 from torch.nn import Sequential as Seq, Linear as Lin, ELU, BatchNorm1d
 import torch.nn.functional as F
-from mlreco.models.layers.gnn.normalizations import BatchNorm, InstanceNorm
+
 
 class NNConvModel(nn.Module):
     '''
@@ -50,10 +50,10 @@ class NNConvModel(nn.Module):
                     Lin(node_input, node_input*node_output)
                 )
             )
-            self.bn_node.append(BatchNorm(node_input))
+            self.bn_node.append(BatchNorm1d(node_input))
             self.nnConvs.append(
                 NNConv(node_input, node_output, self.edge_mlps[i], aggr=self.aggr))
-            # self.bn_node.append(BatchNorm(node_output))
+            # self.bn_node.append(BatchNorm1d(node_output))
             # print(node_input, node_output)
             self.edge_updates.append(
                 MetaLayer(edge_model=EdgeLayer(node_output, edge_input, edge_output,

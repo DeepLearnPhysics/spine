@@ -3,7 +3,7 @@ import MinkowskiEngine as ME
 import numpy as np
 
 from mlreco.models.layers.common.gnn_full_chain import FullChainGNN, FullChainLoss
-from mlreco.models.layers.common.ppnplus import PPN, PPNLoss
+from mlreco.models.layers.cnn.ppn import PPN, PPNLoss
 from mlreco.models.layers.cnn.cnn_encoder import SparseResidualEncoder
 from mlreco.models.uresnet import UResNetSegmentation, SegmentationLoss
 from mlreco.models.graph_spice import GraphSPICE, GraphSPICELoss

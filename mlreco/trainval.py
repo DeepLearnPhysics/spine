@@ -22,8 +22,8 @@ from .models.experimental.bayes.calibration import (
 from .utils.torch_local import cycle
 from .utils.data_structures import TensorBatch
 from .utils.stopwatch import StopwatchManager
-from .utils.adabound import AdaBound, AdaBoundW
 from .utils.unwrap import Unwrapper
+from .utils.train import optim_construct, lr_sched_construct
 from .utils.logger import logger
 
 
@@ -156,52 +156,16 @@ class TrainVal(object):
         assert (self.iterations is not None) ^ (self.epochs is not None), (
                 "Must either specify `iterations` or `epochs` in `trainval`")
 
-        # Parse the optimizer arguments
+        # Store the optimizer configuration
         if self.train:
             assert optimizer is not None, (
                     "Must provide an optimizer configuration block to train")
-            self.process_optimizer(**optimizer)
+            self.optim_cfg = optimizer
             self.restore_optimizer = restore_optimizer
 
-        # Parse the learning rate sechuduler arguments
+        # Store the learning-rate scheduler configuration
         if self.train:
-            self.lr_scheduler_class = None
-            if lr_scheduler is not None:
-                self.process_lr_scheduler(**lr_scheduler)
-
-    def process_optimizer(self, name, args={}):
-        """Process the optimizer configuration.
-
-        Parameters
-        ----------
-        name : str
-            Name of the optimizer under `torch.optim`
-        args : dict, optional
-            Arguments to pass to the optimizer
-        """
-        # Fetch the relevant optimizer class, store arguments
-        if name == 'AdaBound':
-            self.optim_class = AdaBound
-        elif name == 'AdaBoundW':
-            self.optim_class = AdaBoundW
-        else:
-            self.optim_class = getattr(torch.optim, name)
-
-        self.optim_args = args
-
-    def process_lr_scheduler(self, name, args={}):
-        """Process the learning rate scheduler configuration.
-
-        Parameters
-        ----------
-        name : str
-            Name of the optimizer under `torch.optim`
-        args : dict, optional
-            Arguments to pass to the optimizer
-        """
-        # Fetch the relevant optimizer class, store arguments
-        self.lr_scheduler_class = getattr(torch.optim.lr_scheduler, name)
-        self.lr_scheduler_args = args
+            self.lr_sched_cfg = lr_scheduler
 
     def process_model(self, name, modules, network_input, loss_input=[],
                       keep_output=[], ignore_keys=[]):
@@ -287,13 +251,14 @@ class TrainVal(object):
         self.loader_iter = iter(cycle(self.loader))
 
         # Infer the total number of epochs from iterations or vice-versa
+        iter_per_epoch = len(self.loader) / self.world_size
         if self.iterations is not None:
             if self.iterations < 0:
                 self.epochs = 1
             else:
-                self.epochs = self.iterations / len(self.loader)
+                self.epochs = self.iterations / iter_per_epoch
         else:
-            self.iterations = self.epochs * len(self.loader)
+            self.iterations = self.epochs * iter_per_epoch
 
         # Get the number of volumes the collate function splits the input into
         self.geo = None
@@ -349,15 +314,15 @@ class TrainVal(object):
 
         # Initiliaze the optimizer
         if self.train:
-            self.optimizer = self.optim_class(
-                    self.model.parameters(), **self.optim_args)
+            self.optimizer = optim_construct(
+                    self.optim_cfg, self.model.parameters())
 
         # Initialize the learning rate scheduler
         if self.train:
             self.lr_scheduler = None
-            if self.lr_scheduler_class is not None:
-                self.lr_scheduler = self.lr_scheduler_class(
-                        self.optimizer, **self.lr_scheduler_args)
+            if self.lr_sched_cfg is not None:
+                self.lr_scheduler = lr_sched_construct(
+                        self.lr_sched_cfg, self.optimizer)
 
         # Module-by-module parameter freezing
         self.freeze_weights()
@@ -581,11 +546,11 @@ class TrainVal(object):
         # Create weight save directory if it does not exist
         save_dir = os.path.dirname(self.weight_prefix)
         if save_dir and not os.path.isdir(save_dir):
-            os.makedirs(save_dir)
+            os.makedirs(save_dir, exist_ok=True)
 
         # Create log save directory if it does not exist, initialize logger
         if self.log_dir and not os.path.exists(self.log_dir):
-            os.makedirs(self.log_dir)
+            os.makedirs(self.log_dir, exist_ok=True)
         prefix   = 'train' if self.train else 'inference'
         suffix   = '' if not self.distributed else f'_proc{self.rank}'
         logname  = f'{self.log_dir}/'
@@ -600,8 +565,8 @@ class TrainVal(object):
         # Loop until the requested amount of iterations/epochs is reached
         iter_per_epoch = len(self.loader) / self.world_size
         iteration = self.start_iteration if self.train else 0
-        n_epochs = int(np.ceil(self.epochs - iteration / iter_per_epoch))
-        for e in range(n_epochs):
+        num_epochs = int(np.ceil(self.epochs - iteration / iter_per_epoch))
+        for e in range(num_epochs):
             if self.distributed:
                 self.loader.sampler.set_epoch(e)
 

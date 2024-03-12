@@ -7,14 +7,13 @@ from collections import defaultdict, Counter, OrderedDict
 
 from torch_geometric.data import Batch, Data
 
-from .layers.common.activation_normalization_factories import (
-        activations_construct)
+from .layers.cnn.act_norm import activations_construct
 from .layers.cnn.configuration import setup_cnn_configuration
 from .layers.cnn.cnn_encoder import SparseResidualEncoder
 from .layers.cluster_cnn.losses.lovasz import StableBCELoss
 
 from .experimental.layers.pointnet import PointNetEncoder
-from .experimental.layers.pointmlp import PointMLPEncoder
+#from .experimental.layers.pointmlp import PointMLPEncoder
 from .experimental.bayes.encoder import MCDropoutEncoder
 from .experimental.bayes.evidential import EVDLoss
 
