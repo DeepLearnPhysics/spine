@@ -35,9 +35,9 @@ def setup_cnn_configuration(self, spatial_size, reps, depth, filters,
     allow_bias : bool, default False
         Whether to allow biases in the convolution and linear layers
     activation : union[str, dict], default 'relu'
-        activation function configuration
+        Activation function configuration
     normalization : union[str, dict], default 'batch_norm'
-        normalization function configuration
+        Normalization function configuration
     """
     # Store the base parameters
     self.spatial_size = spatial_size

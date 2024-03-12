@@ -40,7 +40,7 @@ class ClustGeoNodeEncoder(torch.nn.Module):
     - End dEdx (1)
     """
     name = 'geometric'
-    alt_names = ['geo']
+    aliases = ['geo']
 
     def __init__(self, use_numpy=True, add_value=False, add_shape=False,
                  add_points=False, add_local_dirs=False, dir_max_dist=5.,
@@ -67,7 +67,7 @@ class ClustGeoNodeEncoder(torch.nn.Module):
             Readius around the end points incldued to estimate the dE/dx
         """
         # Initialize the parent class
-        super(ClustGeoNodeEncoder, self).__init__()
+        super().__init__()
 
         # Store the paramters
         self.use_numpy = use_numpy
@@ -78,6 +78,14 @@ class ClustGeoNodeEncoder(torch.nn.Module):
         self.dir_max_dist = dir_max_dist
         self.add_local_dedxs = add_local_dedxs
         self.dedx_max_dist = dedx_max_dist
+
+        # If the maximum distance is specified as `optimize`, optimize it
+        self.opt_dir_max_dist = False
+        if isinstance(self.dir_max_dist, str):
+            assert self.dir_max_dist == 'optimize', (
+                    "If specified as a string, `dir_max_dist` should "
+                    "only take the value 'optimize'")
+            self.opt_dir_max_dist = True
 
         # Sanity check
         assert (self.add_points or 
@@ -280,7 +288,7 @@ class ClustGeoEdgeEncoder(torch.nn.Module):
     - Outer product of the displacement vector (9)
     """
     name = 'geometric'
-    alt_names = ['geo']
+    aliases = ['geo']
 
     def __init__(self, use_numpy=True):
         """Initializes the geometric-based node encoder.
@@ -291,7 +299,7 @@ class ClustGeoEdgeEncoder(torch.nn.Module):
             Generate the features on CPU
         """
         # Initialize the parent class
-        super(ClustGeoNodeEncoder, self).__init__()
+        super().__init__()
 
         # Store the paramters
         self.use_numpy = use_numpy

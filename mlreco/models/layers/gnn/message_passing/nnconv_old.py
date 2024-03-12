@@ -1,10 +1,8 @@
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.nn import Sequential as Seq, Linear as Lin, ELU, BatchNorm1d
+from torch.nn import Sequential as Seq, Linear as Lin, ReLU, BatchNorm1d, LeakyReLU
 import torch.nn.functional as F
-
-from .normalizations import BatchNorm, InstanceNorm
 
 
 class NNConvModel(nn.Module):
@@ -44,18 +42,18 @@ class NNConvModel(nn.Module):
                 Seq(
                     BatchNorm1d(edge_input),
                     Lin(edge_input, node_input),
-                    ELU(),
+                    LeakyReLU(self.leakiness),
                     BatchNorm1d(node_input),
                     Lin(node_input, node_input),
-                    ELU(),
+                    LeakyReLU(self.leakiness),
                     BatchNorm1d(node_input),
                     Lin(node_input, node_input*node_output)
                 )
             )
-            self.bn_node.append(BatchNorm(node_input))
+            self.bn_node.append(BatchNorm1d(node_input))
             self.nnConvs.append(
                 NNConv(node_input, node_output, self.edge_mlps[i], aggr=self.aggr))
-            # self.bn_node.append(BatchNorm(node_output))
+            # self.bn_node.append(BatchNorm1d(node_output))
             # print(node_input, node_output)
             self.edge_updates.append(
                 MetaLayer(edge_model=EdgeLayer(node_output, edge_input, edge_output,
@@ -82,7 +80,7 @@ class NNConvModel(nn.Module):
             x = self.bn_node[i](x)
             x = self.nnConvs[i](x, edge_indices, e)
             # x = self.bn_node(x)
-            x = F.elu(x)
+            x = F.leaky_relu(x, negative_slope=self.leakiness)
             # add u and batch arguments for not having error in some old version
             _, e, _ = self.edge_updates[i](x, edge_indices, e, u=None, batch=xbatch)
         # print(edge_indices.shape)
@@ -95,6 +93,7 @@ class NNConvModel(nn.Module):
             'node_features': [x],
             'edge_features': [e]
             }
+
 
         return res
 
@@ -139,10 +138,10 @@ class EdgeLayer(nn.Module):
         self.edge_mlp = nn.Sequential(
             BatchNorm1d(2 * node_in + edge_in),
             nn.Linear(2 * node_in + edge_in, edge_out),
-            nn.ELU(),
+            nn.LeakyReLU(negative_slope=leakiness),
             BatchNorm1d(edge_out),
             nn.Linear(edge_out, edge_out),
-            nn.ELU(),
+            nn.LeakyReLU(negative_slope=leakiness),
             BatchNorm1d(edge_out),
             nn.Linear(edge_out, edge_out)
         )
@@ -192,10 +191,10 @@ class NodeLayer(nn.Module):
         self.node_mlp_1 = nn.Sequential(
             BatchNorm1d(node_in + edge_in),
             nn.Linear(node_in + edge_in, node_out),
-            nn.ELU(),
+            nn.LeakyReLU(negative_slope=leakiness),
             BatchNorm1d(node_out),
             nn.Linear(node_out, node_out),
-            nn.ELU(),
+            nn.LeakyReLU(negative_slope=leakiness),
             BatchNorm1d(node_out),
             nn.Linear(node_out, node_out)
         )
@@ -203,10 +202,10 @@ class NodeLayer(nn.Module):
         self.node_mlp_2 = nn.Sequential(
             BatchNorm1d(node_in + node_out),
             nn.Linear(node_in + node_out, node_out),
-            nn.ELU(),
+            nn.LeakyReLU(negative_slope=leakiness),
             BatchNorm1d(node_out),
             nn.Linear(node_out, node_out),
-            nn.ELU(),
+            nn.LeakyReLU(negative_slope=leakiness),
             BatchNorm1d(node_out),
             nn.Linear(node_out, node_out)
         )
@@ -264,10 +263,10 @@ class GlobalModel(nn.Module):
         self.global_mlp = nn.Sequential(
             BatchNorm1d(node_in + batch_size),
             nn.Linear(node_in + batch_size, global_out),
-            nn.ELU(),
+            nn.LeakyReLU(negative_slope=leakiness),
             BatchNorm1d(global_out),
             nn.Linear(global_out, global_out),
-            nn.ELU(),
+            nn.LeakyReLU(negative_slope=leakiness),
             BatchNorm1d(global_out),
             nn.Linear(global_out, global_out)
         )

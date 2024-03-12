@@ -34,11 +34,11 @@ def module_dict(module, class_name=None, pattern=None):
             continue
 
         # If a pattern is specified, check for it in the class name
+        cls = getattr(module, cls_name)
         if pattern is not None and pattern not in cls.__name__:
             continue
 
         # Only consider classes which belong to the module of interest
-        cls = getattr(module, cls_name)
         if (hasattr(cls, '__module__') and
             module.__name__ in cls.__module__):
 
@@ -129,7 +129,7 @@ def instantiate(module_dict, cfg, alt_name=None):
     # Check that the class we are looking for exists
     if class_name not in module_dict:
         valid_keys = list(module_dict.keys())
-        raise ValueError(f"Could not find {class_name} in the dictionary "
+        raise ValueError(f"Could not find '{class_name}' in the dictionary "
                          f"which maps names to classes. Available names: "
                          f"{valid_keys}")
 

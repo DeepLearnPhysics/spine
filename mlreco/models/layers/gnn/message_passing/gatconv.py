@@ -4,8 +4,6 @@ import torch.nn as nn
 from torch.nn import Sequential as Seq, Linear as Lin, ReLU, BatchNorm1d, LeakyReLU
 import torch.nn.functional as F
 
-from .normalizations import BatchNorm, InstanceNorm
-
 class GATConvModel(nn.Module):
     '''
     GATConv GNN Module for extracting node/edge/global features
@@ -38,9 +36,9 @@ class GATConvModel(nn.Module):
         edge_input  = self.edge_input
         edge_output = self.edge_output
         for i in range(self.num_mp):
-            self.bn_node.append(BatchNorm(node_input))
+            self.bn_node.append(BatchNorm1d(node_input))
             self.gatConvs.append(GATConv(node_input, node_output))
-            # self.bn_node.append(BatchNorm(node_output))
+            # self.bn_node.append(BatchNorm1d(node_output))
             # print(node_input, node_output)
             self.edge_updates.append(
                 MetaLayer(edge_model=EdgeLayer(node_input, edge_input, edge_output,

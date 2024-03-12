@@ -3,6 +3,8 @@ import torch.nn as nn
 
 from mlreco.models.layers.cluster_cnn.losses.lovasz import mean, lovasz_hinge_flat, StableBCELoss, iou_binary
 
+__all__ = ['GNNGroupingLoss']
+
 
 def bc_distance(gauss1, gauss2, eps=1e-6, debug=False):
     '''
@@ -25,6 +27,7 @@ def bc_distance(gauss1, gauss2, eps=1e-6, debug=False):
 
 
 class GNNGroupingLoss(nn.Module):
+    name = 'grouping'
 
     def __init__(self, cfg, name='gnn_grouping_loss', batch_col=0, coords_col=(1, 4)):
         super(GNNGroupingLoss, self).__init__()

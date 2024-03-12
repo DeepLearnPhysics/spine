@@ -1,4 +1,7 @@
-"""Functions which initialize activation and normalization layers."""
+"""Functions which initialize activation and normalization layers
+used by CNNs. These factories build activations and normalizations layers
+are based on the MinkowskiEngine package.
+"""
 
 from copy import deepcopy
 

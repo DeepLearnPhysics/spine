@@ -6,11 +6,9 @@ from collections import Counter
 import MinkowskiEngine as ME
 import MinkowskiFunctional as MF
 
-from mlreco.models.layers.common.activation_normalization_factories import (
-        activations_construct)
-from mlreco.models.layers.cnn.configuration import setup_cnn_configuration
-from mlreco.models.layers.cnn.blocks import ResNetBlock, SPP, ASPP
-from mlreco.models.layers.cluster_cnn.losses.misc import BinaryCELogDiceLoss
+from .configuration import setup_cnn_configuration
+from .act_norm import activations_construct
+from .blocks import ResNetBlock, SPP, ASPP
 
 from mlreco.utils.torch_local import local_cdist
 from mlreco.utils.logger import logger
@@ -443,7 +441,7 @@ class PPNLoss(torch.nn.modules.loss._Loss):
         # Store the semantic segmentation configuration
         self.depth = depth
 
-    def process_loss_config(self, mask_loss_name='BCE', resolution=5.,
+    def process_loss_config(self, mask_loss='CE', resolution=5.,
                             point_classes=None, balance_mask_loss=True,
                             mask_weighting_mode='const',
                             balance_type_loss=True,
@@ -458,7 +456,7 @@ class PPNLoss(torch.nn.modules.loss._Loss):
         resolution : float, default 5.
             Distance from a label point in pixels within which a voxel is
             considered positive (pixel of interest)
-        mask_loss_name : str, default 'BCE'
+        mask_loss : str, default 'CE'
             Name of the loss function to use
         point_classes : Union[int, list], optional
             If provided, restricts the loss to points of (a) certain shape(s)
@@ -506,12 +504,12 @@ class PPNLoss(torch.nn.modules.loss._Loss):
         self.end_loss_fn = torch.nn.functional.cross_entropy
 
         # Instantiate the mask loss function
-        self.mask_loss_name = mask_loss_name
-        if mask_loss_name == 'CE':
+        self.mask_loss = mask_loss
+        if mask_loss == 'CE':
             self.mask_loss_fn = torch.nn.functional.cross_entropy
         else:
             raise ValueError(
-                    f"Mask loss name not recognized: {mask_loss_name}")
+                    f"Mask loss name not recognized: {mask_loss}")
 
     def forward(self, ppn_label, ppn_points, ppn_masks, ppn_layers, ppn_coords,
                 ppn_output_coords, ppn_classify_endpoints=None, **kwargs):

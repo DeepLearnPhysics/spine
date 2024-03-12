@@ -8,7 +8,7 @@ import MinkowskiEngine as ME
 import MinkowskiFunctional as MF
 
 from .uresnet import UResNetSegmentation, SegmentationLoss
-from .layers.common.ppnplus import PPN, PPNLoss
+from .layers.cnn.ppn import PPN, PPNLoss
 
 from mlreco.utils.unwrap import Unwrapper
 
@@ -58,7 +58,7 @@ class UResNetPPN(nn.Module):
 
     See Also
     --------
-    mlreco.models.uresnet.UResNetSegmentation, mlreco.models.layers.common.ppnplus.PPN
+    mlreco.models.uresnet.UResNetSegmentation, mlreco.models.layers.cnn.ppn.PPN
     """
     MODULES = ['uresnet', 'ppn']
 
@@ -111,7 +111,7 @@ class UResNetPPN(nn.Module):
         # Pass the decoder feature tensors to the PPN layers
         if self.ghost:
             # Deghost
-            if sefl.ppn.use_true_ghost_mask:
+            if self.ppn.use_true_ghost_mask:
                 # Use the true ghost labels
                 assert segment_label is not None, (
                         "If `use_true_ghost_mask` is set to `True`, must "
@@ -156,7 +156,7 @@ class UResNetPPNLoss(nn.Module):
     See Also
     --------
     :class:`mlreco.models.uresnet.SegmentationLoss`,
-    :class:`mlreco.models.layers.common.ppnplus.PPNLoss`
+    :class:`mlreco.models.layers.cnn.ppn.PPNLoss`
     """
     RETURNS = {
         'loss': Unwrapper.Rule(method='scalar'),

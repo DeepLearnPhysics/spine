@@ -4,6 +4,9 @@ from mlreco.utils.globals import *
 from mlreco.utils.gnn.cluster import get_cluster_label
 from mlreco.models.experimental.bayes.evidential import EVDLoss
 
+__all__ = ['NodeTypeLoss']
+
+
 class NodeTypeLoss(torch.nn.Module):
     """
     Takes the c-channel node output of the GNN and optimizes
@@ -23,6 +26,7 @@ class NodeTypeLoss(torch.nn.Module):
             reduction       : <loss reduction method: 'mean' or 'sum' (default 'sum')>
             balance_classes : <balance loss per class: True or False (default False)>
     """
+    name = 'type'
 
     RETURNS = {
         'loss': ['scalar'],

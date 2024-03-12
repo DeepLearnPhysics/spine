@@ -184,7 +184,7 @@ def get_nu_ids(particles, inter_ids, particles_mpv=None, neutrinos=None):
              "not an exact method and might lead to unexpected results.")
              
         # Loop over the interactions
-        primary_ids = get_group_primary_ids(particles)
+        primary_ids = get_group_primary_ids(particles, inter_ids > -1)
         nu_id = 0
         for i in np.unique(inter_ids):
             # If the interaction ID is invalid, skip

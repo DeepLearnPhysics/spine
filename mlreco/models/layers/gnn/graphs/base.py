@@ -15,14 +15,14 @@ class GraphBase:
     def __init__(self, directed=False, max_length=None, classes=None,
                  max_count=None, dist_method='voxel', dist_algorithm='brute'):
         """Initializes attributes shared accross all graph constructors.
-        
+
         Parameters
         ----------
         directed : bool, default False
             If `True`, direct the edges from lower to higher rank only
-        max_length : Union[float, np.ndarray], optional
+        max_length : Union[float, List[float]], optional
             Length limitation to be applied to the edges. Can be:
-            - Sclar: Constant threshold 
+            - Sclar: Constant threshold
             - Array: N*(N-1)/2 elements which correspond to the upper triangle
                      of an adjacency matrix providing cuts for each class pairs
         classes : Union[int, List[int]], optional
@@ -56,13 +56,13 @@ class GraphBase:
 
             max_length_mat = np.zeros((num_classes, num_classes), dtype=float)
             max_length_mat[np.triu_indices(num_classes)] = max_length
-            max_length_mat += (max_length_mat.T - 
+            max_length_mat += (max_length_mat.T -
                                np.diag(np.diag(max_length_mat)))
 
-            self.max_length = max_length
+            self.max_length = max_length_mat
 
         # Store whether the inter-cluster distance matrix must be evaluated
-        self.compute_dist = (max_length is not None or 
+        self.compute_dist = (max_length is not None or
                              self.name in ['mst', 'knn'])
 
         # If this is a loop graph, simply set as undirected
@@ -93,25 +93,28 @@ class GraphBase:
         if self.compute_dist:
             dist_mat, closest_index = inter_cluster_distance(
                     data.tensor[:, COORD_COLS], clusts.index_list,
-                    clusts.batch_ids, method=self.dist_method,
+                    clusts.counts, method=self.dist_method,
                     algorithm=self.dist_algorithm, return_index=True)
 
         # Generate the edge index
-        edge_index, edge_counts = self.generate(data=data, clusts=clusts)
+        edge_index, edge_counts = self.generate(
+                data=data, clusts=clusts, dist_mat=dist_mat)
 
         # Cut on the edge length, if specified
         if self.max_length is not None:
             assert dist_mat is not None, (
                     "Must provide `dist_mat` to restrict edge length.")
-            edge_index = self.restrict(edge_index, dist_mat, classes)
+            edge_index, edge_counts = self.restrict(
+                    edge_index, edge_counts, dist_mat, classes)
 
         # Disconnect nodes from separate groups, if specified
         if groups is not None:
-            index = np.where(groups[edge_index[0]] == groups[edge_index[1]])[0]
-            edge_index = edge_index[:, index]
+            mask = np.where(groups[edge_index[0]] == groups[edge_index[1]])[0]
+            edge_index = edge_index[:, mask]
+            edge_counts = self.update_counts(edge_counts, mask)
 
         # Get the offsets, initialize an EdgeIndexBatch obejct
-        offsets = clusts.list_edges[:-1]
+        offsets = clusts.edges[:-1]
         edge_index = EdgeIndexBatch(
                 edge_index, edge_counts, offsets, self.directed)
 
@@ -121,7 +124,7 @@ class GraphBase:
         """This function must be overridden in the constructor definition."""
         raise NotImplementedError("Must define the `generate` function")
 
-    def restrict(edge_index, dist_mat, classes=None):
+    def restrict(self, edge_index, edge_counts, dist_mat, classes=None):
         """Function that restricts an incidence matrix of a graph
         to the edges below a certain length.
 
@@ -131,9 +134,11 @@ class GraphBase:
         Parameters
         ----------
         edge_index : np.ndarray
-            (2,E) Tensor of edges
+            (2, E) Tensor of edges
+        edge_counts : np.ndarray
+            (B) : Number of edges in each entry of the batch
         dist_mat : np.ndarray
-            (C,C) Tensor of pair-wise cluster distances
+            (C, C) Tensor of pair-wise cluster distances
         classes : np.ndarray, optional
             (C) List of class for each cluster in the graph
 
@@ -146,15 +151,45 @@ class GraphBase:
         if classes is None:
             # If classes are not provided, apply a static cut to all edges
             dists = dist_mat[(edge_index[0], edge_index[1])]
-
-            return edge_index[dists < max_length]
+            mask = np.where(dists < self.max_length)[0]
 
         else:
             # If classes are provided, apply the cut based on the class
             dists = dist_mat[(edge_index[0], edge_index[1])]
             edge_classes = classes[edge_index]
             max_lengths = self.max_length[(edge_classes[0], edge_classes[1])]
+            mask = np.where(dists < max_lengths)[0]
 
-            return edge_index[:, dists < max_lengths]
+        # Update the number of edges in each entry of the batch
+        edge_counts = self.update_counts(edge_counts, mask)
 
+        return edge_index[:,mask], edge_counts
 
+    def update_counts(self, counts, mask):
+        """Updates the number of elements per entry in the batch, provided
+        a mask which restricts the number of valid elements in the batch.
+
+        Parameters
+        ----------
+        counts : np.ndarray
+            (B) : Number of elements in each entry of the batch
+        mask : np.ndarray
+            Mask to apply to the list of elements
+
+        Returns
+        -------
+        np.ndarray
+            (B) Updated number of elements in each entry of the batch
+        """
+        # Get the batch ID of each elemnt in the input
+        batch_size = len(counts)
+        batch_ids = np.repeat(np.arange(batch_size), counts)[mask]
+
+        # Get the new count list
+        counts = np.zeros(batch_size, dtype=np.int64)
+        if len(batch_ids):
+            # Find the length of each batch ID in the input index
+            uni, cnts = np.unique(batch_ids, return_counts=True)
+            counts[uni.astype(int)] = cnts
+
+        return counts

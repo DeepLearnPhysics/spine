@@ -1,70 +1,120 @@
-from functools import reduce
-import numpy as np
+"""Defines the Metalayer message passing modeet"""
+
 import torch
-import torch.nn as nn
-from torch.nn import Sequential as Seq, Linear as Lin, ReLU, BatchNorm1d, LeakyReLU
-import torch.nn.functional as F
+from torch import nn
+
+from torch_geometric.nn import MetaLayer
 from torch_geometric.utils import softmax
 
-from .normalizations import BatchNorm, InstanceNorm
+from .act_norm import act_construct, norm_construct
 
 
-class MetaLayerModel(nn.Module):
-    '''
-    MetaLayer GNN Module for extracting node/edge/global features
-    '''
-    def __init__(self, cfg):
-        super(MetaLayerModel, self).__init__()
-        from torch_geometric.nn import MetaLayer
+class MetaLayerModel(torch.nn.Module):
+    """MetaLayer GNN Module for extracting node/edge/global features."""
+    name = 'meta'
 
-        self.model_config = cfg
-        self.node_input     = self.model_config.get('node_feats', 16)
-        self.edge_input     = self.model_config.get('edge_feats', 19)
-        self.global_input   = self.model_config.get('global_feats', 16)
-        self.node_output    = self.model_config.get('node_output_feats', 32)
-        self.edge_output    = self.model_config.get('edge_output_feats', self.edge_input)
-        self.global_output  = self.model_config.get('global_output_feats', 32)
-        self.aggr           = self.model_config.get('aggr', 'mean')
-        self.attn           = self.model_config.get('attn', False)
-        self.leakiness      = self.model_config.get('leakiness', 0.1)
+    def __init__(self, node_feats, node_output_feats, node_classes,
+                 edge_feats, edge_output_feats, edge_classes,
+                 global_feats=None, global_output_feats=None,
+                 global_classes=None, reduction='mean', attention=False,
+                 num_mp=3, activation={'name':'lrelu', 'negative_slope':0.1},
+                 normalization='batch_norm', apply_softplus=False,
+                 softplus_shift=1e-4):
+        """Initializes the message passing block.
 
-        self.edge_updates = torch.nn.ModuleList()
+        Parameters
+        ----------
+        node_feats : int
+            Number of node features
+        node_output_feats : int
+            Number of features in the hidden representation of the node
+        node_classes : int
+            Number of categories to classify the nodes into
+        edge_feats : int
+            Number of edge features
+        edge_output_feats : int
+            Number of features in the hidden representation of the edge
+        edge_classes : int
+            Number of categories to classify the global state into
+        global_feats : int, optional
+            Number of global features
+        global_output_feats : int, optional
+            Number of features in the hidden representation of the global state
+        global_classes : int, optional
+            Number of categories to classify the edges into
+        num_mp : int, default 3
+            Number of message passing steps
+        reduction : str, default 'mean'
+            Method for node features aggregation (one of 'mean', 'max' or 'min')
+        attention : bool, default False
+            Wether to use features to gate the messages of each edge in the
+            node aggregation process of the message passing.
+        activation : dict, default {'name':'lrelu', 'negative_slope':0.1}
+            Activation function configuration
+        normalization : union[str, dict], default 'batch_norm'
+            Normalization function configuration
+        apply_softplus : bool, default False
+            Whether to apply softplus on the final node and edge predictions
+        softplus_shift : float, default 1-e4
+            Shift to apply to the softplus output
+        """
+        # Initialize the parent class
+        super().__init__()
 
-        # perform batch normalization
-        self.bn_node = torch.nn.ModuleList()
-        self.bn_edge = BatchNorm1d(self.edge_input)
+        # Store the attributes
+        self.node_feats     = node_feats
+        self.node_output    = node_output_feats
+        self.node_classes   = node_classes
+        self.edge_feats     = edge_feats
+        self.edge_output    = edge_output_feats
+        self.edge_classes   = edge_classes
+        self.global_feats   = global_feats
+        self.global_output  = global_output_feats
+        self.global_classes = global_classes
 
-        self.num_mp = self.model_config.get('num_mp', 3)
+        self.num_mp    = num_mp
+        self.reduction = reduction
+        self.attention = attention
+        self.act_cfg   = activation
+        self.norm_cfg  = normalization
 
-        self.logit_mode = self.model_config.get('logit_mode', 'logits')
-        if self.logit_mode == 'evidential':
+        # Initialize a softplus layer if need be
+        self.apply_softplus = apply_softplus
+        if apply_softplus:
             self.softplus = nn.Softplus()
-            self.softplus_shift = self.model_config.get('softplus_shift', 0.0001)
+            self.softplus_offset = softplus_offset
 
-        node_input  = self.node_input
-        node_output = self.node_output
-        edge_input  = self.edge_input
-        edge_output = self.edge_output
+        # Loop over the number of message passing steps, initialize the
+        # metalayer which updates the features it at each step
+        self.edge_updates = nn.ModuleList()
+        self.bn_node = nn.ModuleList() # REDUNDANT, REMOVE
+        self.bn_edge = norm_construct(normalization, self.edge_feats) # DOESN'T DO SHIT
+        node_input, edge_input = self.node_feats, self.edge_feats
         for i in range(self.num_mp):
-            self.bn_node.append(BatchNorm(node_input))
-            # self.bn_node.append(BatchNorm(node_output))
-            # print(node_input, node_output)
+            # MUST GO
+            #self.bn_node.append(BatchNorm1d(node_input)) # HOW IS THIS DIFFERENT FROM BATCHNORM1D??? IT ISN'T
+            self.bn_node.append(norm_construct(normalization, node_input)) 
+
+            # Initialize the layer
             self.edge_updates.append(
-                MetaLayer(edge_model=EdgeLayer(node_input, edge_input, edge_output,
-                                    leakiness=self.leakiness),
-                          node_model=NodeLayer(node_input, node_output, edge_output,
-                                                leakiness=self.leakiness, reduction=self.aggr, attention=self.attn)
-                          #global_model=GlobalModel(node_output, 1, 32)
-                         )
-            )
-            node_input = node_output
-            edge_input = edge_output
+                MetaLayer(
+                    edge_model=EdgeLayer(
+                        node_input, edge_input, self.edge_output,
+                        activation, normalization),
+                    node_model=NodeLayer(
+                        node_input, self.edge_output, self.node_output,
+                        activation, reduction, reduction, attention),
+                    #global_model=GlobalModel(
+                    #    node_output, node_output, global_output)
+                    )
+                )
 
-        self.node_classes = self.model_config.get('node_classes', 2)
-        self.edge_classes = self.model_config.get('edge_classes', 2)
+            # Update the current number of node/edge features
+            node_input = self.node_output
+            edge_input = self.edge_output
 
-        self.node_predictor = nn.Linear(node_output, self.node_classes)
-        self.edge_predictor = nn.Linear(edge_output, self.edge_classes)
+        self.node_predictor = nn.Linear(self.node_output, self.node_classes)
+        self.edge_predictor = nn.Linear(self.edge_output, self.edge_classes)
 
     def forward(self, node_features, edge_indices, edge_features, xbatch):
 
@@ -94,7 +144,7 @@ class MetaLayerModel(nn.Module):
 
 
 class EdgeLayer(nn.Module):
-    '''
+    """
     An EdgeModel for predicting edge features.
 
     Example: Parent-Child Edge prediction and EM primary assignment prediction.
@@ -126,18 +176,19 @@ class EdgeLayer(nn.Module):
     RETURNS:
 
         - output: [E, F_o] Tensor with F_o output edge features.
-    '''
-    def __init__(self, node_in, edge_in, edge_out, leakiness=0.0):
+    """
+    def __init__(self, node_in, edge_in, edge_out, activation, normalization):
         super(EdgeLayer, self).__init__()
         # TODO: Construct Edge MLP
+        leakiness = activation['negative_slope']# TMP TMP
         self.edge_mlp = nn.Sequential(
-            BatchNorm1d(2 * node_in + edge_in),
+            nn.BatchNorm1d(2 * node_in + edge_in),
             nn.Linear(2 * node_in + edge_in, edge_out),
             nn.LeakyReLU(negative_slope=leakiness),
-            BatchNorm1d(edge_out),
+            nn.BatchNorm1d(edge_out),
             nn.Linear(edge_out, edge_out),
             nn.LeakyReLU(negative_slope=leakiness),
-            BatchNorm1d(edge_out),
+            nn.BatchNorm1d(edge_out),
             nn.Linear(edge_out, edge_out)
         )
 
@@ -147,7 +198,7 @@ class EdgeLayer(nn.Module):
 
 
 class NodeLayer(nn.Module):
-    '''
+    """
     NodeModel for node feature prediction.
 
     Example: Particle Classification using node-level features.
@@ -179,31 +230,32 @@ class NodeLayer(nn.Module):
     RETURNS:
 
         - output: [C, F_o] Tensor with F_o output node feature
-    '''
-    def __init__(self, node_in, node_out, edge_in, leakiness=0.0, reduction='mean', attention=False):
+    """
+    def __init__(self, node_in, edge_in, node_out, activation, normalization, reduction, attention):
         super(NodeLayer, self).__init__()
+        leakiness = activation['negative_slope']# TMP TMP
 
         self.node_mlp_1 = nn.Sequential(
-            BatchNorm1d(node_in + edge_in),
+            nn.BatchNorm1d(node_in + edge_in),
             nn.Linear(node_in + edge_in, node_out),
             nn.LeakyReLU(negative_slope=leakiness),
-            BatchNorm1d(node_out),
+            nn.BatchNorm1d(node_out),
             nn.Linear(node_out, node_out),
             nn.LeakyReLU(negative_slope=leakiness),
-            BatchNorm1d(node_out),
+            nn.BatchNorm1d(node_out),
             nn.Linear(node_out, node_out)
         )
 
         self.reduction = reduction
 
         self.node_mlp_2 = nn.Sequential(
-            BatchNorm1d(node_in + node_out),
+            nn.BatchNorm1d(node_in + node_out),
             nn.Linear(node_in + node_out, node_out),
             nn.LeakyReLU(negative_slope=leakiness),
-            BatchNorm1d(node_out),
+            nn.BatchNorm1d(node_out),
             nn.Linear(node_out, node_out),
             nn.LeakyReLU(negative_slope=leakiness),
-            BatchNorm1d(node_out),
+            nn.BatchNorm1d(node_out),
             nn.Linear(node_out, node_out)
         )
 
@@ -225,7 +277,7 @@ class NodeLayer(nn.Module):
 
 
 class GlobalModel(nn.Module):
-    '''
+    """
     Global Model for global feature prediction.
 
     Example: event classification (graph classification) over the whole image
@@ -260,18 +312,18 @@ class GlobalModel(nn.Module):
     RETURNS:
 
         - output: [C, F_o] Tensor with F_o output node feature
-    '''
+    """
     def __init__(self, node_in, batch_size, global_out, leakiness=0.0, reduction='mean'):
         super(GlobalModel, self).__init__()
 
         self.global_mlp = nn.Sequential(
-            BatchNorm1d(node_in + batch_size),
+            nn.BatchNorm1d(node_in + batch_size),
             nn.Linear(node_in + batch_size, global_out),
             nn.LeakyReLU(negative_slope=leakiness),
-            BatchNorm1d(global_out),
+            nn.BatchNorm1d(global_out),
             nn.Linear(global_out, global_out),
             nn.LeakyReLU(negative_slope=leakiness),
-            BatchNorm1d(global_out),
+            nn.BatchNorm1d(global_out),
             nn.Linear(global_out, global_out)
         )
 

@@ -5,6 +5,9 @@ from mlreco.utils.globals import GROUP_COL, PSHOW_COL
 from mlreco.utils.gnn.cluster import get_cluster_label
 from mlreco.utils.gnn.evaluation import node_assignment, node_assignment_score, node_purity_mask
 
+__all__ = ['NodePrimaryLoss']
+
+
 class NodePrimaryLoss(torch.nn.Module):
     """
     Takes the two-channel node output of the GNN and optimizes
@@ -26,6 +29,7 @@ class NodePrimaryLoss(torch.nn.Module):
             use_group_pred  : <redifines group ids according to edge predictions (default False)>
             group_pred_alg  : <algorithm used to predict cluster labels: 'threshold' or 'score' (default 'score')>
     """
+    name = 'primary'
 
     RETURNS = {
         'loss': ['scalar'],
@@ -33,28 +37,45 @@ class NodePrimaryLoss(torch.nn.Module):
         'n_clusts': ['scalar']
     }
 
-    def __init__(self, loss_config, batch_col=0, coords_col=(1, 4)):
-        super(NodePrimaryLoss, self).__init__()
+    def __init__(self, balance_loss=False, high_purity=False,
+                 use_group_pred=False, group_pred_alg='score',
+                 loss='CE', reduction='sum'):
+        """Initialize the primary identification loss function.
+
+        Parameters
+        ----------
+        balance_loss : bool, default False
+            Whether to weight the loss to account for class imbalance
+        high_purity : bool, default False
+            Only apply loss to nodes which belong to a sensible group, i.e.
+            one with exactly one primary in it (not 0, not > 1)
+        use_group_pred : bool, default False
+            Use predicted group to check for high purity
+        group_pred_alg : str, default 'score'
+            Method used to form a predicted group ('threshold' or 'score')
+        loss : str, default 'CE'
+            Name of the loss function to apply
+        reduction : str, default 'sum'
+            Reduction method used in the loss function
+        """
+        # Initialize the parent class
+        super().__init__()
+
+        # Initialize basic parameters
+        self.balance_loss = balance_loss
+        self.high_purity = high_purity
+        self.use_group_pred = use_group_pred
+        self.group_pred_alg = group_pred_alg
 
         # Set the loss
-        self.batch_col = batch_col
-        self.coords_col = coords_col
-        self.group_col = loss_config.get('group_col', GROUP_COL)
-        self.primary_col = loss_config.get('primary_col', PSHOW_COL)
-
-        self.loss = loss_config.get('loss', 'CE')
-        self.reduction = loss_config.get('reduction', 'sum')
-        self.balance_classes = loss_config.get('balance_classes', False)
-        self.high_purity = loss_config.get('high_purity', False)
-        self.use_group_pred = loss_config.get('use_group_pred', False)
-        self.group_pred_alg = loss_config.get('group_pred_alg', 'score')
-
+        # TODO: change this to a general loss initialization
+        self.loss = loss
+        self.reduction = reduction # Probably can get rid of this
         if self.loss == 'CE':
             self.lossfn = torch.nn.CrossEntropyLoss(reduction=self.reduction)
         elif self.loss == 'MM':
             p = loss_config.get('p', 1)
-            margin = loss_config.get('margin', 1.0)
-            self.lossfn = torch.nn.MultiMarginLoss(p=p, margin=margin, reduction=self.reduction)
+            self.loss_fn = torch.nn.MultiMarginLoss(p=p, margin=margin, reduction=self.reduction)
         else:
             raise ValueError('Loss not recognized: ' + self.loss)
 
@@ -126,9 +147,9 @@ class NodePrimaryLoss(torch.nn.Module):
                     vals, counts = torch.unique(node_assn, return_counts=True)
                     weights = len(node_assn)/len(counts)/counts
                     for k, v in enumerate(vals):
-                        total_loss += weights[k] * self.lossfn(node_pred[node_assn==v], node_assn[node_assn==v])
+                        total_loss += weights[k] * self.loss_fn(node_pred[node_assn==v], node_assn[node_assn==v])
                 else:
-                    total_loss += self.lossfn(node_pred, node_assn)
+                    total_loss += self.loss_fn(node_pred, node_assn)
 
                 # Compute accuracy of assignment (fraction of correctly assigned nodes)
                 total_acc += torch.sum(torch.argmax(node_pred, dim=1) == node_assn).float()

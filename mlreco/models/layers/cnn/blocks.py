@@ -5,9 +5,8 @@ import torch.nn as nn
 
 import MinkowskiEngine as ME
 
-from mlreco.models.layers.common.identity import Identity
-from mlreco.models.layers.common.activation_normalization_factories import (
-        activations_construct, normalizations_construct)
+from .identity import Identity
+from .act_norm import activations_construct, normalizations_construct
 
 
 class ConvolutionBlock(ME.MinkowskiNetwork):

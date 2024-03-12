@@ -4,29 +4,38 @@ import torch.nn as nn
 from torch.nn import Sequential as Seq, Linear as Lin, ReLU, BatchNorm1d, LeakyReLU
 import torch.nn.functional as F
 
-from .normalizations import BatchNorm, InstanceNorm
 
+class AGNNConvModel(torch.nn.Module):
+    """AGNNConv module for extracting node/edge/global features.
+    """
+    name = 'agnnconv'
+    aliases = ['agnn']
 
-class NNConvModel(nn.Module):
-    '''
-    NNConv GNN Module for extracting node/edge/global features
-    '''
     def __init__(self, cfg):
-        super(NNConvModel, self).__init__()
-        from torch_geometric.nn import MetaLayer, NNConv
+        """Initializes the message passing block.
+
+        Parameters
+        ----------
+        node_feats : int
+            Number of node features
+        edge_feats : int
+            Number of edges features
+        global_feats : int, optional
+            Number of global features
+        """
+        # Initialize the parent class
+        super().__init__()
         
         self.model_config = cfg
         self.node_input     = self.model_config.get('node_feats', 16)
         self.edge_input     = self.model_config.get('edge_feats', 19)
-        self.global_input   = self.model_config.get('global_feats', 16)
         self.node_output    = self.model_config.get('node_output_feats', 32)
         self.edge_output    = self.model_config.get('edge_output_feats', self.edge_input)
         self.global_output  = self.model_config.get('global_output_feats', 32)
         self.aggr           = self.model_config.get('aggr', 'add')
         self.leakiness      = self.model_config.get('leakiness', 0.1)
 
-        self.edge_mlps = torch.nn.ModuleList()
-        self.nnConvs = torch.nn.ModuleList()
+        self.agnnConvs = torch.nn.ModuleList()
         self.edge_updates = torch.nn.ModuleList()
 
         # perform batch normalization
@@ -40,23 +49,9 @@ class NNConvModel(nn.Module):
         edge_input  = self.edge_input
         edge_output = self.edge_output
         for i in range(self.num_mp):
-            self.edge_mlps.append(
-                Seq(
-                    BatchNorm1d(edge_output),
-                    Lin(edge_output, node_input),
-                    LeakyReLU(self.leakiness),
-                    BatchNorm1d(node_input),
-                    Lin(node_input, node_input),
-                    LeakyReLU(self.leakiness),
-                    BatchNorm1d(node_input),
-                    Lin(node_input, node_input*node_output)
-                )
-            )
-            # print(i, self.edge_mlps[i])
-            self.bn_node.append(BatchNorm(node_input))
-            self.nnConvs.append(
-                NNConv(node_input, node_output, self.edge_mlps[i], aggr=self.aggr))
-            # self.bn_node.append(BatchNorm(node_output))
+            self.bn_node.append(BatchNorm1d(node_input))
+            self.agnnConvs.append(AGNNConv())
+            # self.bn_node.append(BatchNorm1d(node_output))
             # print(node_input, node_output)
             self.edge_updates.append(
                 MetaLayer(edge_model=EdgeLayer(node_input, edge_input, edge_output,
@@ -66,23 +61,15 @@ class NNConvModel(nn.Module):
                           #global_model=GlobalModel(node_output, 1, 32)
                          )
             )
-            node_input = node_output
             edge_input = edge_output
 
         self.node_classes = self.model_config.get('node_classes', 2)
         self.edge_classes = self.model_config.get('edge_classes', 2)
 
-        self.node_predictor = nn.Linear(node_output, self.node_classes)
-        self.edge_predictor = nn.Linear(edge_output, self.edge_classes)
+        self.node_predictor = torch.nn.Linear(node_input, self.node_classes)
+        self.edge_predictor = torch.nn.Linear(edge_output, self.edge_classes)
 
     def forward(self, node_features, edge_indices, edge_features, xbatch):
-
-        if node_features.shape[1] != self.node_input:
-            raise ValueError("Node feature dimension must be {} instead of {}".format(node_features.shape[1], self.node_input))
-
-        if edge_features.shape[1] != self.edge_input:
-            raise ValueError("Edge feature dimension must be {} instead of {}".format(edge_features.shape[1], self.edge_input))
-
         x = node_features.view(-1, self.node_input)
         e = edge_features.view(-1, self.edge_input)
 
@@ -90,7 +77,7 @@ class NNConvModel(nn.Module):
             x = self.bn_node[i](x)
             # add u and batch arguments for not having error in some old version
             _, e, _ = self.edge_updates[i](x, edge_indices, e, u=None, batch=xbatch)
-            x = self.nnConvs[i](x, edge_indices, e)
+            x = self.agnnConvs[i](x, edge_indices)
             # x = self.bn_node(x)
             x = F.leaky_relu(x, negative_slope=self.leakiness)
         # print(edge_indices.shape)
@@ -99,16 +86,14 @@ class NNConvModel(nn.Module):
 
         res = {
             'node_pred': [x_pred],
-            'edge_pred': [e_pred],
-            'node_features': [x],
-            'edge_features': [e]
+            'edge_pred': [e_pred]
             }
 
         return res
 
 
 class EdgeLayer(nn.Module):
-    '''
+    """
     An EdgeModel for predicting edge features.
 
     Example: Parent-Child Edge prediction and EM primary assignment prediction.
@@ -140,7 +125,7 @@ class EdgeLayer(nn.Module):
     RETURNS:
 
         - output: [E, F_o] Tensor with F_o output edge features.
-    '''
+    """
     def __init__(self, node_in, edge_in, edge_out, leakiness=0.0):
         super(EdgeLayer, self).__init__()
         # TODO: Construct Edge MLP
@@ -161,7 +146,7 @@ class EdgeLayer(nn.Module):
 
 
 class NodeLayer(nn.Module):
-    '''
+    """
     NodeModel for node feature prediction.
 
     Example: Particle Classification using node-level features.
@@ -193,7 +178,7 @@ class NodeLayer(nn.Module):
     RETURNS:
 
         - output: [C, F_o] Tensor with F_o output node feature
-    '''
+    """
     def __init__(self, node_in, node_out, edge_in, leakiness=0.0):
         super(NodeLayer, self).__init__()
 
@@ -230,7 +215,7 @@ class NodeLayer(nn.Module):
 
 
 class GlobalModel(nn.Module):
-    '''
+    """
     Global Model for global feature prediction.
 
     Example: event classification (graph classification) over the whole image
@@ -265,7 +250,7 @@ class GlobalModel(nn.Module):
     RETURNS:
 
         - output: [C, F_o] Tensor with F_o output node feature
-    '''
+    """
     def __init__(self, node_in, batch_size, global_out, leakiness=0.0):
         super(GlobalModel, self).__init__()
 

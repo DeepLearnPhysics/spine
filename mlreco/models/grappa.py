@@ -156,11 +156,11 @@ class GrapPA(torch.nn.Module):
         ----------
         grappa : dict
             Model configuration
-        uresnet_loss : dict, optional
+        grappa_loss : dict, optional
             Loss configuration
         """
         # Initialize the parent class
-        super(GrapPA, self).__init__()
+        super().__init__()
 
         # Process the model configuration
         self.process_model_config(**grappa)
@@ -234,30 +234,6 @@ class GrapPA(torch.nn.Module):
             else:
                 self.node_type = [semantic_class]
 
-        # Initialize the node encoder class
-        self.node_encoder = node_encoder_construct(kwargs)
-
-        # Store the extra node encoder parameters
-        self.add_points = add_points
-        self.add_local_dirs = add_local_dirs
-        self.dir_max_dist = dir_max_dist
-        self.add_local_dedxs = add_local_dedxs
-        self.dedx_max_dist = dedx_max_dist
-
-        # If some of the node parameters are strings, check that they are valid
-        for key in ['add_points', 'add_local_dirs','add_local_dedxs']:
-            value = getattr(self, key)
-            if isinstance(value, str):
-                assert value in ['start', 'end'],(
-                        f"If specified as a string, {key} should be "
-                         "specified as either 'start' or 'end', nothing else")
-
-        if isinstance(self.dir_max_dist, str):
-            assert self.dir_max_dist == 'optimize', (
-                    "If specified as a string, `dir_max_dist` should "
-                    "only take the value 'optimize'")
-            self.opt_dir_max_dist = True
-
     def process_dbscan_config(cluster_classes=None, min_size=None, **kwargs):
         """Process the DBSCAN fragmenter configuration.
 
@@ -278,7 +254,7 @@ class GrapPA(torch.nn.Module):
         # Initialize DBSCAN fragmenter
         self.dbscan = DBSCANFragmenter(
                 cluster_classes=self.node_type,
-                min_size=self.min_size, **dbscan)
+                min_size=self.min_size, **kwargs)
 
     def process_(cluster_classes=None, min_size=None, **kwargs):
         """Process the DBSCAN fragmenter configuration.
@@ -363,13 +339,13 @@ class GrapPA(torch.nn.Module):
                 raise ValueError('Vertex MLP {} not recognized!'.format(vertex_config['name']))
 
 
-    def forward(self, input_data, part_coords=None, clusts=None, classes=None,
+    def forward(self, data, part_coords=None, clusts=None, classes=None,
                 groups=None, points=None, extra_feats=None):
         """Prepares particle clusters and feed them to the GNN model.
 
         Parameters
         ----------
-        input_data : TensorBatch
+        data : TensorBatch
             (N, 1 + D + N_f) Tensor of voxel/value pairs
             - N is the the total number of voxels in the image
             - 1 is the batch ID
@@ -405,7 +381,7 @@ class GrapPA(torch.nn.Module):
         TODO: CONTINUE
         """
         # Cast the labels to numpy for the functions run on CPU
-        input_data_np = input_data.to_numpy()
+        data_np = data.to_numpy()
         part_coords_np = None
         if part_coords is not None:
             part_coords_np = part_coords.to_numpy()
@@ -415,27 +391,30 @@ class GrapPA(torch.nn.Module):
         if clusts is None:
             if hasattr(self, 'dbscan'):
                 # Use the DBSCAN fragmenter to build the clusters
-                clusts = self.dbscan(input_data_np, part_coords_np)
+                clusts = self.dbscan(data_np, part_coords_np)
             else:
                 # Use the label tensor to build the clusters
                 clusts = form_clusters(
-                        input_data_np.split(), self.node_min_size,
+                        data_np, self.node_min_size,
                         self.node_source, cluster_classes=self.node_type)
 
         # If the graph edge length cut is class-specific, get the class labels
-        if (classes is None and
-            isinstance(self.graph_constructor.max_length, list)):
+        if (classes is None and 
+            hasattr(self.graph_constructor.max_length, '__len__')):
             if self.node_source == GROUP_COL:
                 # For groups, use primary shape to handle Michel/Delta properly
                 classes = get_cluster_primary_label(
-                        input_data_np, clusts, SHAPE_COL)
+                        data_np.tensor, clusts.index_list, SHAPE_COL)
             else:
                 # Just use the shape of the cluster itself otherwise
-                classes = get_cluster_label(input_data_np, clusts, SHAPE_COL)
+                classes = get_cluster_label(
+                        data_np.tensor, clusts.index_list, SHAPE_COL)
+
+            classes = classes.astype(np.int64)
 
         # Initialize the input graph
         edge_index, dist_mat, closest_index = self.graph_constructor(
-                input_data, clusts, classes, groups)
+                data_np, clusts, classes, groups)
 
         # Obtain node and edge features
         # TODO: Make kwargs out of non-None variables
@@ -444,13 +423,23 @@ class GrapPA(torch.nn.Module):
                 cluster_data, clusts, edge_index, closest_index=closest_index)
 
         # Bring edge_index and batch_ids to device
-        index = torch.tensor(edge_index, device=cluster_data.device, dtype=torch.long)
-        xbatch = torch.tensor(batch_ids, device=cluster_data.device)
+        index = torch.tensor(edge_index, device=data.tensor.device, dtype=torch.long)
+        xbatch = torch.tensor(clusts.batch_ids, device=data.tensor.device)
 
         # Pass through the model, update results
         out = self.gnn_model(x, index, e, xbatch)
 
-        # If requested, pass the node features through two MLPs for kinematics predictions
+        # Build the result dictionary
+        result = {
+            "clusts": clusts,
+            "edge_index": edge_index,
+            "node_features": node_features,
+            "edge_features": edge_features,
+            "node_pred": out['node_pred'],
+            "edge_pred": out['edge_pred']
+        }
+
+        # If requested, pass the node features through additional MLPs
         if self.kinematics_mlp:
             if self.kinematics_type:
                 node_pred_type = self.type_net(out['node_features'][0])
@@ -478,15 +467,6 @@ class GrapPA(torch.nn.Module):
                 node_pred_vtx = self.vertex_net(out['node_features'][0])
             result['node_pred_vtx'] = [[node_pred_vtx[b] for b in cbids]]
 
-        # Build the result dictionary
-        result = {
-            "clusts": clusts,
-            "edge_index": edge_index,
-            "node_features": node_features,
-            "edge_features": edge_features,
-            "node_pred": out['node_pred'],
-            "edge_pred": out['edge_pred']
-        }
 
         return result
 
@@ -520,22 +500,52 @@ class GrapPALoss(torch.nn.modules.loss._Loss):
         'edge_accuracy': ['scalar']
     }
 
-    def __init__(self, cfg, name='grappa_loss', batch_col=0, coords_col=(1, 4)):
-        super(GrapPALoss, self).__init__()
+    def __init__(self, grappa, grappa_loss):
+        """Initialize the GrapPA loss function.
 
-        self.batch_index = batch_col
-        self.coords_index = coords_col
+        Parameters
+        ----------
+        grappa : dict
+            Model configuration
+        grappa_loss : dict, optional
+            Loss configuration
+        """
+        # Initialize the parent class
+        super().__init__()
 
-        # Initialize the node and edge losses, if requested
+        # Process the model configuration
+        #self.process_model_config(**grappa)
+
+        # Process the loss configuration
+        self.process_loss_config(**grappa_loss)
+
+    def process_loss_config(self, node_loss=None, edge_loss=None):
+        """Process the loss configuration.
+
+        Parameters
+        ----------
+        node_loss : Union[dict, Dict[dict]], optional
+            Node loss configuration
+        edge_loss : Union[dict, Dict[dict]], optional
+            Edge loss configuration
+        """
+        # Check that there is at least one loss to apply
+        assert node_loss is not None or edge_loss is not None, (
+                "Must provide either a `node_loss` or `edge_loss` to the "
+                "GrapPA loss function.")
+
+        # Initialize the loss components
+        # TODO: add support for a dictionary of losses!
         self.apply_node_loss, self.apply_edge_loss = False, False
-        if 'node_loss' in cfg[name]:
+        if node_loss is not None:
             self.apply_node_loss = True
-            self.node_loss = node_loss_construct(cfg[name], batch_col=batch_col, coords_col=coords_col)
-            self.RETURNS.update(self.node_loss.RETURNS)
-        if 'edge_loss' in cfg[name]:
+            self.node_loss = node_loss_construct(node_loss)
+            self.RETURNS.update(self.node_loss.RETURNS) # TODO remove
+
+        if edge_loss is not None:
             self.apply_edge_loss = True
-            self.edge_loss = edge_loss_construct(cfg[name], batch_col=batch_col, coords_col=coords_col)
-            self.RETURNS.update(self.edge_loss.RETURNS)
+            self.edge_loss = edge_loss_construct(edge_loss)
+            self.RETURNS.update(self.edge_loss.RETURNS) # TODO remove
 
 
     def forward(self, result, clust_label, graph=None, node_label=None, iteration=None):
