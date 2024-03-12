@@ -287,13 +287,14 @@ class TrainVal(object):
         self.loader_iter = iter(cycle(self.loader))
 
         # Infer the total number of epochs from iterations or vice-versa
+        iter_per_epoch = len(self.loader) / self.world_size
         if self.iterations is not None:
             if self.iterations < 0:
                 self.epochs = 1
             else:
-                self.epochs = self.iterations / len(self.loader)
+                self.epochs = self.iterations / iter_per_epoch
         else:
-            self.iterations = self.epochs * len(self.loader)
+            self.iterations = self.epochs * iter_per_epoch
 
         # Get the number of volumes the collate function splits the input into
         self.geo = None
@@ -600,8 +601,8 @@ class TrainVal(object):
         # Loop until the requested amount of iterations/epochs is reached
         iter_per_epoch = len(self.loader) / self.world_size
         iteration = self.start_iteration if self.train else 0
-        n_epochs = int(np.ceil(self.epochs - iteration / iter_per_epoch))
-        for e in range(n_epochs):
+        num_epochs = int(np.ceil(self.epochs - iteration / iter_per_epoch))
+        for e in range(num_epochs):
             if self.distributed:
                 self.loader.sampler.set_epoch(e)
 

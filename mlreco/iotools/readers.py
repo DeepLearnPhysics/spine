@@ -295,9 +295,11 @@ class Reader:
         elif isinstance(list_source, str):
             assert os.path.isfile(list_source), (
                     "The list source file does not exist")
-            lines = open(list_source, 'r').read().splitlines()
-            list_source = \
-                    [w for l in lines for w in l.replace(',', ' ').split()]
+            with open(list_source, 'r') as f:
+                lines = f.read().splitlines()
+                list_source = \
+                        [w for l in lines for w in l.replace(',', ' ').split()]
+
             return np.array(list_source, dtype=np.int64)
         else:
             raise ValueError("List format not recognized")
@@ -326,8 +328,10 @@ class Reader:
         elif isinstance(list_source, str):
             assert os.path.isfile(list_source), (
                     "The list source file does not exist")
-            lines = open(list_source, 'r').read().splitlines()
-            list_source = [l.replace(',', ' ').split() for l in lines]
+            with open(list_source, 'r') as f:
+                lines = f.read().splitlines()
+                list_source = [l.replace(',', ' ').split() for l in lines]
+
             return np.array(list_source, dtype=np.int64)
         else:
             raise ValueError("List format not recognized")
