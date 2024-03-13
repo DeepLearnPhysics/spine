@@ -128,8 +128,8 @@ def inference_single(cfg, rank=0):
     handlers = prepare(cfg, rank)
 
     # Find the set of weights to run the inference on
-    preloaded = os.path.isfile(self.model_path)
-    weights = sorted(glob.glob(self.model_path))
+    preloaded = os.path.isfile(handlers.trainval.model_path)
+    weights = sorted(glob.glob(handlers.trainval.model_path))
     if not preloaded and len(weights):
         weight_list = "\n".join(weights)
         logger.info(f"Looping over {len(weights)} set of weights:\n"
@@ -140,8 +140,8 @@ def inference_single(cfg, rank=0):
     # Loop over the weights, run the inference loop
     for weight in weights:
         if weight is not None and not preloaded:
-            handlers.load_weights(model_path)
-            handlers.make_diretories()
+            handlers.trainval.load_weights(weight)
+            handlers.trainval.make_directories()
 
         handlers.trainval.run()
 
