@@ -411,8 +411,8 @@ class TrainVal(object):
                     module_items.append((key, config[key]))
 
         # If no pre-trained weights are requested, nothing to do here
+        self.start_iteration = 0
         if not len(model_paths):
-            self.start_iteration = 0
             return
 
         # Loop over provided model paths
@@ -420,7 +420,7 @@ class TrainVal(object):
             # Check that the requested weight file can be found. If the path
             # points at > 1 file, skip for now (loaded in a loop later)
             if not os.path.isfile(model_path):
-                if len(glob.glob(model_path)) and self.train:
+                if len(glob.glob(model_path)) and not self.train:
                     continue
                 else:
                     raise ValueError("Weight file not found for module "
@@ -461,9 +461,9 @@ class TrainVal(object):
                     logger.critical(
                             "These necessary parameters could not be found:")
                     for name, key in missing_keys:
-                        logger.crtical(f"Parameter {key} missing for {name}")
+                        logger.critical(f"Parameter {key} missing for {name}")
                     raise ValueError("To be loaded, a set of weights "
-                                     "must provide all necessary parameters")
+                                     "must provide all necessary parameters.")
 
                 # Load checkpoint. Check that all weights are used
                 bad_keys = self.model.load_state_dict(state_dict, strict=False)
@@ -483,11 +483,9 @@ class TrainVal(object):
 
                 # Get the latest iteration from the main weight file only
                 if module == self.model_name:
-                    iteration = checkpoint['global_step'] + 1
+                    self.start_iteration = checkpoint['global_step'] + 1
 
             logger.info('Done.')
-
-        self.start_iteration = iteration
 
     def initialize_calibrator(self, model, name, loss,
                               loss_args={}, logit_name='logits'):
