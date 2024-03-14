@@ -7,10 +7,12 @@ from .layers.common.momentum import (
         DeepVertexNet, EvidentialMomentumNet, MomentumNet, VertexNet)
 from .layers.gnn import (
         graph_construct, gnn_model_construct, node_encoder_construct,
-        edge_encoder_construct, node_loss_construct, edge_loss_construct)
+        edge_encoder_construct, global_encoder_construct, node_loss_construct,
+        edge_loss_construct, global_loss_construct)
 
 from .experimental.transformers.transformer import TransformerEncoderLayer
 
+from mlreco.utils.data_structures import TensorBatch
 from mlreco.utils.globals import (
         BATCH_COL, COORD_COLS, CLUST_COL, GROUP_COL, SHAPE_COL, LOWES_SHP)
 from mlreco.utils.gnn.data import merge_batch, split_clusts, split_edge_index
@@ -165,8 +167,8 @@ class GrapPA(torch.nn.Module):
         # Process the model configuration
         self.process_model_config(**grappa)
 
-    def process_model_config(self, nodes, graph, node_encoder,
-                             edge_encoder, gnn_model, dbscan=None):
+    def process_model_config(self, nodes, graph, gnn_model, node_encoder,
+                             edge_encoder, global_encoder=None, dbscan=None):
         """Process the top-level configuration block.
 
         This dispatches each block to its own configuration processor.
@@ -176,14 +178,16 @@ class GrapPA(torch.nn.Module):
         nodes : dict
             Input node configuration
         graph : dict
-            Graph configuration
+            Input graph configuration
+        gnn_model : dict
+            Underlying graph neural network configuration
         node_encoder : dict
             Node encoder configuration
         edge_encoder : dict
             Edge encoder configuration
-        gnn_model : dict
-            Underlying graph neural network configuration
-        dbscan : dict
+        global_encoder : dict, optional
+            Global encoder configuration
+        dbscan : dict, optional
             DBSCAN fragmentation configuration
         """
         # Process the node configuration
@@ -193,16 +197,22 @@ class GrapPA(torch.nn.Module):
         graph['classes'] = self.node_type
         self.graph_constructor = graph_construct(graph)
 
+        # Construct the underlying graph neural network
+        self.gnn_model = gnn_model_construct(gnn_model)
+
         # Process the node encoder configuration
         self.node_encoder = node_encoder_construct(node_encoder)
 
         # Initialize edge encoder
         self.edge_encoder = edge_encoder_construct(edge_encoder)
 
-        # Construct the underlying graph neural network
-        self.gnn_model = gnn_model_construct(gnn_model)
+        # Initialize the global encoder
+        self.global_encoder = None
+        if global_encoder is not None:
+            self.global_encoder = global_encoder_construct(global_encoder)
 
         # Process the dbscan fragmenter configuration, if provided
+        self.dbscan = None
         if dbscan is not None:
             self.process_dbscan_config(dbscan)
 
@@ -339,8 +349,8 @@ class GrapPA(torch.nn.Module):
                 raise ValueError('Vertex MLP {} not recognized!'.format(vertex_config['name']))
 
 
-    def forward(self, data, part_coords=None, clusts=None, classes=None,
-                groups=None, points=None, extra_feats=None):
+    def forward(self, data, coord_label=None, clusts=None, classes=None,
+                groups=None, points=None, extra=None):
         """Prepares particle clusters and feed them to the GNN model.
 
         Parameters
@@ -352,7 +362,7 @@ class GrapPA(torch.nn.Module):
             - D is the number of dimensions in the input image
             - N_f is 1 (charge/energy) if the clusters (`clusts`) are provided,
               or it needs to contain cluster labels to build them on the fly
-        part_coords : TensorBatch, optional
+        coord_label : TensorBatch, optional
             (P, 1 + 2*D + 2) Tensor of label points (start/end/time/shape)
         clusts : IndexListBatch, optional
             (C) List of indexes corresponding to each cluster
@@ -362,10 +372,9 @@ class GrapPA(torch.nn.Module):
             (C) List of node groups, one per cluster. If specified, will
                 remove connections between nodes of a separate group.
         points : TensorBatch, optional
-            (C, 3/6) Tensor of start (and end) points (TODO: merge with part_coords?)
-        extra_feats : TensorBatch, optional
+            (C, 3/6) Tensor of start (and end) points
+        extra : TensorBatch, optional
             (C, N_f) Batch of features to append to the existing node features
-            extra_feats: (N,F) tensor of features to add to the encoded features
 
         Returns
         -------
@@ -382,16 +391,16 @@ class GrapPA(torch.nn.Module):
         """
         # Cast the labels to numpy for the functions run on CPU
         data_np = data.to_numpy()
-        part_coords_np = None
-        if part_coords is not None:
-            part_coords_np = part_coords.to_numpy()
+        coord_label_np = None
+        if coord_label is not None:
+            coord_label_np = coord_label.to_numpy()
 
         # If not provided, form the clusters: a list of list of voxel indices,
         # one list per cluster matching the list of requested class
         if clusts is None:
-            if hasattr(self, 'dbscan'):
+            if self.dbscan is not None:
                 # Use the DBSCAN fragmenter to build the clusters
-                clusts = self.dbscan(data_np, part_coords_np)
+                clusts = self.dbscan(data_np, coord_label_np)
             else:
                 # Use the label tensor to build the clusters
                 clusts = form_clusters(
@@ -416,28 +425,36 @@ class GrapPA(torch.nn.Module):
         edge_index, dist_mat, closest_index = self.graph_constructor(
                 data_np, clusts, classes, groups)
 
-        # Obtain node and edge features
-        # TODO: Make kwargs out of non-None variables
-        x = self.node_encoder(cluster_data, clusts)
-        e = self.edge_encoder(
-                cluster_data, clusts, edge_index, closest_index=closest_index)
+        # Fetch the node features
+        node_features = self.node_encoder(
+                data, clusts,
+                coord_label=coord_label, points=points, extra=extra)
+        if isinstance(node_features, tuple):
+            # If the output of the node encoder is a tuple, separate points
+            node_features, points = node_features
+
+        # Fetch the edge features
+        edge_features = self.edge_encoder(
+                data, clusts, edge_index,
+                closest_index=closest_index)
+
+        # Feath the global_features
+        global_features = None
+        if self.global_encoder is not None:
+            global_features = self.global_encoder(data, clusts)
 
         # Bring edge_index and batch_ids to device
-        index = torch.tensor(edge_index, device=data.tensor.device, dtype=torch.long)
+        # TODO: try to keep everything (apart from clusts) on GPU?
+        index = torch.tensor(edge_index.full_index, device=data.tensor.device)
         xbatch = torch.tensor(clusts.batch_ids, device=data.tensor.device)
 
         # Pass through the model, update results
-        out = self.gnn_model(x, index, e, xbatch)
+        out = self.gnn_model(
+                node_features, index, edge_features, global_features, xbatch)
 
-        # Build the result dictionary
-        result = {
-            "clusts": clusts,
-            "edge_index": edge_index,
-            "node_features": node_features,
-            "edge_features": edge_features,
-            "node_pred": out['node_pred'],
-            "edge_pred": out['edge_pred']
-        }
+        print(out)
+        print(out['node_features'].tensor.shape)
+        print(out['edge_features'].tensor.shape)
 
         # If requested, pass the node features through additional MLPs
         if self.kinematics_mlp:
@@ -467,6 +484,20 @@ class GrapPA(torch.nn.Module):
                 node_pred_vtx = self.vertex_net(out['node_features'][0])
             result['node_pred_vtx'] = [[node_pred_vtx[b] for b in cbids]]
 
+        # Build the result dictionary and return it
+        result = {
+            "clusts": clusts,
+            "edge_index": edge_index,
+            "node_features": node_features,
+            "edge_features": edge_features,
+            "node_pred": out['node_pred'],
+            "edge_pred": out['edge_pred']
+        }
+
+        if points is not None:
+            start_points, end_points = points.tensor.reshape(2, -1, 3)
+            result['start_points'] = TensorBatch(start_points, points.counts)
+            result['end_points'] = TensorBatch(end_points, points.counts)
 
         return result
 

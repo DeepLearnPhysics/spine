@@ -1,0 +1,79 @@
+"""Defines a very generic multi-layer perceptron with configurable parameters
+to be used elsewhere.
+"""
+
+import numpy as np
+import torch
+from torch import nn
+from typing import Union, List
+
+from .act_norm import act_construct, norm_construct
+
+__all__ = ['MLP']
+
+
+class MLP(nn.Module):
+    """Generic multi-layer perceptron to be used as a feature extractor."""
+    name = 'mlp'
+
+    def __init__(self, num_input, depth, width, activation, normalization):
+        """Initialize the MLP.
+
+        Parameters
+        ----------
+        num_input : int
+            Number of input features
+        depth : int
+            Number of hidden layers
+        width : Union[int, List[int]]
+            Number of neurons in each hidden layer
+        activation : Union[str, dict]
+            Activation function configuration
+        normalization : Union[str, dict]
+            Normalization function configuration
+        """
+        # Initialize the parent class
+        super().__init__()
+
+        # Store the attribtues
+        self.num_input = num_input
+        self.depth = depth
+        self.act_cfg = activation
+        self.norm_cfg = normalization
+
+        # Process the width
+        if isinstance(width, int):
+            self.width = [width] * depth
+        else:
+            assert len(width) == depth, (
+                    "If provided as an array, the `width` must be given "
+                    "once for each hidden layer (specified in `depth`)")
+            self.width = width
+
+        self.feature_size = self.width[-1]
+
+        # Initialize the model
+        self.model = nn.Sequential()
+        num_feats = num_input
+        for i in range(depth):
+            # Add a layer of hidden neurons
+            self.model.append(nn.Linear(num_feats, self.width[i]))
+            self.model.append(norm_construct(normalization, self.width[i]))
+            self.model.append(act_construct(activation))
+
+            num_feats = self.width[i]
+
+    def forward(self, x):
+        """Pass a tensor of features through the MLP.
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            (N, F) Tensor of features
+
+        Paramters
+        ---------
+        torch.Tensor
+            (N, W) Updated tensor of features
+        """
+        return self.model(x)

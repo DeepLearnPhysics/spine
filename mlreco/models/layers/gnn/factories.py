@@ -2,7 +2,7 @@
 
 from mlreco.utils.factory import module_dict, instantiate
 
-from . import graphs, encoders, message_passing, losses
+from . import graphs, encoders, models, losses
 
 
 def graph_construct(cfg):
@@ -35,7 +35,7 @@ def gnn_model_construct(cfg):
     object
         Instantiated GNN model
     """
-    gnn_model_dict = module_dict(message_passing)
+    gnn_model_dict = module_dict(models)
     return instantiate(gnn_model_dict, cfg)
 
 
@@ -73,6 +73,23 @@ def edge_encoder_construct(cfg):
     return instantiate(edge_encoder_dict, cfg)
 
 
+def global_encoder_construct(cfg):
+    """Instantiates a global graph encoder from a configuration dictionary.
+
+    Parameters
+    ----------
+    cfg : dict
+        Global graph encoder configuration
+
+    Returns
+    -------
+    object
+        Instantiated global graph encoder
+    """
+    global_encoder_dict = module_dict(encoders, pattern='Global')
+    return instantiate(global_encoder_dict, cfg)
+
+
 def node_loss_construct(cfg):
     """Instantiates a node loss from a configuration dictionary.
 
@@ -105,3 +122,20 @@ def edge_loss_construct(cfg):
     """
     edge_loss_dict = module_dict(losses, pattern='Edge')
     return instantiate(edge_loss_dict, cfg)
+
+
+def global_loss_construct(cfg):
+    """Instantiates a global graph loss from a configuration dictionary.
+
+    Parameters
+    ----------
+    cfg : dict
+        Global graph loss configuration
+
+    Returns
+    -------
+    object
+        Instantiated global graph loss
+    """
+    global_loss_dict = module_dict(losses, pattern='Global')
+    return instantiate(global_loss_dict, cfg)

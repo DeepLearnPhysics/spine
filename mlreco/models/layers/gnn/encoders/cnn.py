@@ -32,7 +32,7 @@ class ClustCNNNodeEncoder(torch.nn.Module):
         self.encoder = SparseResidualEncoder(**cfg)
         self.feature_size = self.encoder.feature_size
 
-    def forward(self, data, clusts):
+    def forward(self, data, clusts, **kwargs):
         """Generate CNN cluster node features for one batch of data.
 
         Parameters
@@ -41,6 +41,8 @@ class ClustCNNNodeEncoder(torch.nn.Module):
             (N, 1 + D + N_f) Batch of sparse tensors
         clusts : IndexBatch
             Indexes that make up each cluster
+        **kwargs : dict, optional
+            Additional objects no used by this encoder
         
         Returns
         -------
@@ -86,7 +88,7 @@ class ClustCNNEdgeEncoder(torch.nn.Module):
         self.encoder = SparseResidualEncoder(**cfg)
         self.feature_size = self.encoder.feature_size
 
-    def forward(self, data, clusts, edge_index):
+    def forward(self, data, clusts, edge_index, **kwargs):
         """Generate CNN cluster edge features for one batch of data.
 
         Parameters
@@ -97,6 +99,8 @@ class ClustCNNEdgeEncoder(torch.nn.Module):
             Indexes that make up each cluster
         edge_index : EdgeIndexBatch
             Incidence map between clusters
+        **kwargs : dict, optional
+            Additional objects no used by this encoder
         
         Returns
         -------

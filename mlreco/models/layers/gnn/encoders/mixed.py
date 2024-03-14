@@ -43,10 +43,11 @@ class ClustGeoCNNMixNodeEncoder(torch.nn.Module):
         self.feature_size = num_geo + num_cnn
 
         # Initialize the final activation/linear layer
+        # TODO: make this configurable
         self.elu = torch.nn.functional.elu # TODO: why ELU?
         self.linear = torch.nn.Linear(self.features_size, self.feature_size)
 
-    def forward(self, data, clusts):
+    def forward(self, data, clusts, **kwargs):
         """Generate mixed cluster node features for one batch of data.
 
         Parameters
@@ -55,6 +56,8 @@ class ClustGeoCNNMixNodeEncoder(torch.nn.Module):
             (N, 1 + D + N_f) Batch of sparse tensors
         clusts : IndexBatch
             (C) List of list of indexes that make up each cluster
+        **kwargs : dict, optional
+            Additional objects no used by this encoder
         
         Returns
         -------
@@ -62,8 +65,8 @@ class ClustGeoCNNMixNodeEncoder(torch.nn.Module):
             (C, N_c) Set of N_c features per cluster
         """
         # Get the features
-        features_geo = self.geo_encoder(data, clusts)
-        features_cnn = self.cnn_encoder(data, clusts)
+        features_geo = self.geo_encoder(data, clusts, **kwargs).tensor
+        features_cnn = self.cnn_encoder(data, clusts, **kwargs).tensor
         features_mix = torch.cat([features_geo, features_cnn], dim=1)
 
         # Push features through the final activation/linear layer
@@ -107,7 +110,7 @@ class ClustGeoCNNMixEdgeEncoder(torch.nn.Module):
         self.elu = torch.nn.functional.elu # TODO: why ELU?
         self.linear = torch.nn.Linear(self.features_size, self.feature_size)
 
-    def forward(self, data, clusts, edge_index):
+    def forward(self, data, clusts, edge_index, **kwargs):
         """Generate mixed cluster edge features for one batch of data.
 
         Parameters
@@ -118,6 +121,8 @@ class ClustGeoCNNMixEdgeEncoder(torch.nn.Module):
             (C) List of list of indexes that make up each cluster
         edge_index : EdgeIndexBatch
             Incidence map between clusters
+        **kwargs : dict, optional
+            Additional objects no used by this encoder
         
         Returns
         -------
@@ -125,8 +130,8 @@ class ClustGeoCNNMixEdgeEncoder(torch.nn.Module):
             (C, N_e) Set of N_e features per edge
         """
         # Get the features
-        features_geo = self.geo_encoder(data, clusts).tensor
-        features_cnn = self.cnn_encoder(data, clusts).tensor
+        features_geo = self.geo_encoder(data, clusts, **kwargs).tensor
+        features_cnn = self.cnn_encoder(data, clusts, **kwargs).tensor
         features_mix = torch.cat([features_geo, features_cnn], dim=1)
 
         # Push features through the final activation/linear layer

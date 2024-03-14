@@ -21,10 +21,8 @@ class Neutrino:
     ----------
     id : int
         Index of the neutrino in the list
-    event_id : int
-        Index of the event in which this neutrino was generate
-    vertex_id : int
-        Index of the
+    gen_id : int
+        Index of the neutrino at the generator stage (e.g. Genie)
     mct_index : int
         Index in the original MCTruth array from whence it came
     track_id : int
@@ -33,6 +31,8 @@ class Neutrino:
         Geant4 track ID of the lepton (if CC)
     pdg_code : int
         PDG code of the neutrino
+    lepton_pdg_code : int
+        PDF code of the outgoing lepton
     current_type : int
         Enumerated current type of the neutrino interaction
     interaction_mode : int
@@ -59,6 +59,8 @@ class Neutrino:
         Magnitude of the momentum transfer (Q3) in GeV/c
     energy_transfer : float
         Energy transfer (Q0) in GeV
+    lepton_p : float
+        Absolute momentum of the lepton
     theta : float
         Angle between incoming and outgoing leptons in radians
     creation_process : str
@@ -73,8 +75,7 @@ class Neutrino:
     """
     # Attributes
     id: int = -1
-    event_id: int = -1
-    vertex_id: int = -1
+    gen_id: int = -1
     mct_index: int = -1
     track_id: int = -1
     lepton_track_id: int = -1
@@ -93,15 +94,15 @@ class Neutrino:
     momentum_transfer: float = -1.
     momentum_transfer_mag: float = -1.
     energy_transfer: float = -1.
+    lepton_p: float = -1
     theta: float = -1.
     creation_process: str = ''
     position: np.ndarray = np.full(3, -np.inf, dtype=np.float32)
     momentum: np.ndarray = np.full(3, -np.inf, dtype=np.float32)
-    lepton_momentum: np.ndarray = np.full(3, -np.inf, dtype=np.float32)
     units: str = 'cm'
 
     # Fixed-length attributes
-    _fixed_length_attrs = ['position', 'momentum', 'lepton_momentum']
+    _fixed_length_attrs = ['position', 'momentum']
 
     # Attributes specifying coordinates
     _pos_attrs = ['position']
@@ -157,18 +158,21 @@ class Neutrino:
         obj_dict = {}
 
         # Load the scalar attributes
-        for key in ['id', 'event_id', 'vertex_id', 'mct_index', 'track_id',
+        for key in ['id', 'gen_id', 'mct_index', 'nu_track_id',
                     'lepton_track_id', 'pdg_code', 'lepton_pdg_code',
                     'current_type', 'interaction_mode', 'interaction_type',
                     'target', 'nucleon', 'quark', 'energy_init',
                     'hadronic_invariant_mass', 'bjorken_x', 'inelasticity',
                     'momentum_transfer', 'momentum_transfer_mag',
-                    'energy_transfer', 'theta', 'creation_process']:
+                    'energy_transfer', 'lepton_p', 'theta', 'creation_process']:
             if not hasattr(neutrino, key):
                 warn(f"The LArCV Neutrino object is missing the {key} "
                       "attribute. It will miss from the Neutrino object.")
                 continue
-            obj_dict[key] = getattr(neutrino, key)()
+            if key != 'nu_track_id':
+                obj_dict[key] = getattr(neutrino, key)()
+            else:
+                obj_dict['track_id'] = getattr(neutrino, key)()
 
         # Load the positional attribute
         pos_attrs = ['x', 'y', 'z']
@@ -177,16 +181,14 @@ class Neutrino:
             obj_dict[key] = np.asarray(
                     [getattr(vector, a)() for a in pos_attrs], dtype=np.float32)
             
-        # Load the other array attributes (special care needed)
+        # Load the momentum attribute (special care needed)
         mom_attrs = ['px', 'py', 'pz']
-        for prefix in ['', 'lepton_']:
-            key = prefix + 'momentum'
-            if not hasattr(neutrino, key):
-                warn(f"The LArCV Neutrino object is missing the {key} "
-                      "attribute. It will miss from the Neutrino object.")
-                continue
-            obj_dict[key] = np.asarray(
-                    [getattr(neutrino, prefix + a)() for a in mom_attrs],
+        if not hasattr(neutrino, 'momentum'):
+            warn(f"The LArCV Neutrino object is missing the momentum "
+                  "attribute. It will miss from the Neutrino object.")
+        else:
+            obj_dict['momentum'] = np.asarray(
+                    [getattr(neutrino, a)() for a in mom_attrs],
                     dtype=np.float32)
 
         return cls(**obj_dict)

@@ -56,8 +56,11 @@ class BatchBase:
         self.is_sparse = is_sparse
         self.is_list = is_list
 
+        # Store the datatype
+        self.dtype = data.dtype
+
         # Store the device
-        self.device=None
+        self.device = None
         if not self.is_numpy:
             ref = data if not is_sparse else data.F
             self.device = ref.device
@@ -93,7 +96,8 @@ class BatchBase:
             (B) Length of each entry
         """
         # Get the count list
-        counts = self._zeros(batch_size)
+        device = None if self.is_numpy else batch_ids.device
+        counts = self._zeros(batch_size, device)
         if len(batch_ids):
             # Find the length of each batch ID in the input index
             uni, cnts = self._unique(batch_ids)
@@ -115,7 +119,8 @@ class BatchBase:
             (B+1) Edges of successive entries in the batch
         """
         # Get the edge list
-        edges = self._zeros(len(counts)+1)
+        device = None if self.is_numpy else counts.device
+        edges = self._zeros(len(counts)+1, device)
         cumsum = self._cumsum(counts)
         edges[1:] = cumsum
 
@@ -127,11 +132,11 @@ class BatchBase:
         else:
             return torch.empty(x, dtype=torch.long, device=self.device)
 
-    def _zeros(self, x):
+    def _zeros(self, x, device=None):
         if self.is_numpy:
             return np.zeros(x, dtype=np.int64)
         else:
-            return torch.zeros(x, dtype=torch.long, device=self.device)
+            return torch.zeros(x, dtype=torch.long, device=device)
 
     def _ones(self, x):
         if self.is_numpy:
@@ -143,7 +148,9 @@ class BatchBase:
         if self.is_numpy:
             return np.asarray(x, dtype=np.int64)
         else:
-            return torch.as_tensor(x, dtype=torch.long, device=self.device)
+            # Always on CPU. This is because splits are supposed to be on
+            # CPU regardless of the location of the underlying data
+            return torch.as_tensor(x, dtype=torch.long, device='cpu')
 
     def _unique(self, x):
         if self.is_numpy:
@@ -175,17 +182,17 @@ class BatchBase:
         else:
             return torch.cat(x, dim=0)
 
-    def _split(self, x):
+    def _split(self, *x):
         if self.is_list:
-            return np.split(x)
+            return np.split(*x)
         else:
-            return np.split(x) if self.is_numpy else torch.tensor_split(x)
+            return np.split(*x) if self.is_numpy else torch.tensor_split(*x)
 
     def _stack(self, x):
         return np.vstack(x) if self.is_numpy else torch.stack(x)
 
-    def _repeat(self, x):
-        return np.repeat(x) if self.is_numpy else torch.repeat(x)
+    def _repeat(self, *x):
+        return np.repeat(*x) if self.is_numpy else torch.repeat(*x)
 
 
 @dataclass
@@ -541,7 +548,7 @@ class IndexBatch(BatchBase):
         Union[np.ndarray, torch.Tensor]
             (I) Batch ID array, one per index in the list
         """
-        self._repeat(self._arange(self.batch_size), self.counts)
+        return self._repeat(self._arange(self.batch_size), self.counts)
 
     @property
     def full_batch_ids(self):
@@ -705,9 +712,20 @@ class EdgeIndexBatch(BatchBase):
         Returns
         -------
         Union[np.ndarray, torch.Tensor]
-            Underlying tensor of data
+            (2, E) Underlying batch of edge indexes
         """
         return self.data
+
+    @property
+    def index_t(self):
+        """Alias for the underlying data stored, transposed
+
+        Returns
+        -------
+        Union[np.ndarray, torch.Tensor]
+            (E, 2) Underlying batch of edge indexes, transposed
+        """
+        return self._transpose(self.data)
 
     @property
     def batch_ids(self):
@@ -721,6 +739,22 @@ class EdgeIndexBatch(BatchBase):
         return self._repeat(self._arange(self.batch_size), self.counts)
 
     @property
+    def full_counts(self):
+        """Returns the counts.
+
+        Returns
+        -------
+        Union[np.ndarray, torch.Tensor]
+            (N) Complete batch ID array, one per element
+        """
+        # If the graph is directed, the counts are exact
+        if self.directed:
+            return self.counts
+
+        # Otherwise, indexes are twice as long
+        return 2*self.counts
+
+    @property
     def full_batch_ids(self):
         """Returns the batch ID of each element in the full index list.
 
@@ -729,7 +763,7 @@ class EdgeIndexBatch(BatchBase):
         Union[np.ndarray, torch.Tensor]
             (N) Complete batch ID array, one per element
         """
-        return self._repeat(self._arange(self.batch_size), 2*self.counts)
+        return self._repeat(self._arange(self.batch_size), self.full_counts)
 
     @property
     def full_index(self):

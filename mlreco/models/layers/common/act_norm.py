@@ -11,9 +11,10 @@ __all__ = ['act_construct', 'norm_construct']
 
 
 def act_dict():
-    """Dictionary of valid activation functions."""
+    """Dictionary of recognized activation functions."""
 
     activations = {
+        'none': nn.Identity,
         'elu': nn.ELU,
         'relu': nn.ReLU,
         'lrelu': nn.LeakyReLU,
@@ -31,7 +32,7 @@ def act_dict():
 
 
 def norm_dict():
-    """Dictionary of valid normalization functions."""
+    """Dictionary of recognized normalization functions."""
 
     normalizations = {
         'none': nn.Identity,
