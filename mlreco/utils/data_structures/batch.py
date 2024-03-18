@@ -70,6 +70,20 @@ class BatchBase:
         return self.batch_size
 
     @property
+    def shape(self):
+        """Shape of the underlying data.
+
+        Returns
+        -------
+        tuple
+            Tuple of sizes in each dimension
+        """
+        if not self.is_list:
+            return self.data.shape
+        else:
+            return len(self.data)
+
+    @property
     def splits(self):
         """Boundaries needed to split the data into its constituents.
 
@@ -164,6 +178,12 @@ class BatchBase:
         else:
             return torch.transpose(x, 0, 1)
 
+    def _sum(self, x):
+        if self.is_numpy:
+            return np.sum(x)
+        else:
+            return torch.sum(x)
+
     def _cumsum(self, x):
         if self.is_numpy:
             return np.cumsum(x)
@@ -233,6 +253,8 @@ class TensorBatch(BatchBase):
 
         # Cast
         counts = self._as_long(counts)
+        assert self._sum(counts) == len(data), (
+                "The `counts` provided do not add up to the tensor length")
 
         # Get the boundaries between entries in the batch
         edges = self.get_edges(counts)
@@ -302,8 +324,9 @@ class TensorBatch(BatchBase):
         TensorBatch
             New `TensorBatch` object with an underlying np.ndarray tensor.
         """
-        assert not self.is_numpy, (
-                "Must be a `torch.Tensor` to be cast to `np.ndarray`")
+        # If the underlying data is of the right type, nothing to do
+        if self.is_numpy:
+            return self
 
         data = self.data
         if self.is_sparse:
@@ -330,8 +353,9 @@ class TensorBatch(BatchBase):
         TensorBatch
             New `TensorBatch` object with an underlying np.ndarray tensor.
         """
-        assert self.is_numpy, (
-                "Must be a `np.ndarray` to be cast to `torch.Tensor`")
+        # If the underlying data is of the right type, nothing to do
+        if not self.is_numpy:
+            return self
 
         to_tensor = lambda x: torch.as_tensor(x, dtype=dtype, device=device)
         data = to_tensor(self.data)
@@ -444,8 +468,8 @@ class IndexBatch(BatchBase):
         if counts is None:
             assert batch_ids is not None and batch_size is not None, (
                     "Must provide `batch_size` alongside `batch_ids`.")
-
             counts = self.get_counts(batch_ids, batch_size)
+
         else:
             batch_size = len(counts)
 
@@ -459,6 +483,12 @@ class IndexBatch(BatchBase):
         counts = self._as_long(counts)
         full_counts = self._as_long(full_counts)
         offsets = self._as_long(offsets)
+
+        # Do a couple of basic sanity checks
+        assert self._sum(counts) == len(data), (
+                "The `counts` provided do not add up to the index length")
+        assert len(counts) == len(offsets), (
+                "The number of `offsets` does not match the number of `counts`")
 
         # Get the boundaries between successive index using the counts
         edges = self.get_edges(counts)
@@ -583,8 +613,9 @@ class IndexBatch(BatchBase):
         TensorBatch
             New `TensorBatch` object with an underlying np.ndarray tensor.
         """
-        assert not self.is_numpy, (
-                "Must be a `torch.Tensor` to be cast to `np.ndarray`")
+        # If the underlying data is of the right type, nothing to do
+        if self.is_numpy:
+            return self
 
         to_numpy = lambda x: x.cpu().detach().numpy()
         if not self.is_list:
@@ -615,8 +646,9 @@ class IndexBatch(BatchBase):
         TensorBatch
             New `TensorBatch` object with an underlying np.ndarray tensor.
         """
-        assert self.is_numpy, (
-                "Must be a `np.ndarray` to be cast to `torch.Tensor`")
+        # If the underlying data is of the right type, nothing to do
+        if not self.is_numpy:
+            return self
 
         to_tensor = lambda x: torch.as_tensor(x, dtype=dtype, device=device)
         if not self.is_list:
@@ -651,6 +683,14 @@ class EdgeIndexBatch(BatchBase):
     def __init__(self, data, counts, offsets, directed):
         """Initialize the attributes of the class.
 
+        If the edge index corresponds to an undirected graph, each edge
+        should have its reciprocal edge immediately after, e.g.
+
+        .. code-block:: python
+
+            [[0,1,0,2,0,3,...],
+             [1,0,2,0,3,0,...]]
+
         Parameters
         ----------
         data : Union[np.ndarray, torch.Tensor]
@@ -668,6 +708,16 @@ class EdgeIndexBatch(BatchBase):
         # Cast
         counts = self._as_long(counts)
         offsets = self._as_long(offsets)
+
+        # Do a couple of basic sanity checks
+        assert self._sum(counts) == data.shape[1], (
+                "The `counts` provided do not add up to the index length")
+        assert len(counts) == len(offsets), (
+                "The number of `offsets` es not match the number of `counts`")
+        if not directed:
+            assert data.shape[1]%2 == 0, (
+                    "If the edge index is undirected, it should have an "
+                    "even number of edge")
 
         # Get the boundaries between successive index using the counts
         edges = self.get_edges(counts)
@@ -700,10 +750,7 @@ class EdgeIndexBatch(BatchBase):
         # Return
         lower, upper = self.edges[batch_id], self.edges[batch_id + 1]
         index = self.data[:, lower:upper] - self.offsets[batch_id]
-        if directed:
-            return self._transpose(index)
-        else:
-            return self._transpose(self._stack(index, index[::-1]))
+        return self._transpose(index)
 
     @property
     def index(self):
@@ -739,55 +786,61 @@ class EdgeIndexBatch(BatchBase):
         return self._repeat(self._arange(self.batch_size), self.counts)
 
     @property
-    def full_counts(self):
-        """Returns the counts.
+    def directed_index(self):
+        """Index of the directed graph. If a graph is undirected, it only
+        returns one of the two edges corresponding to a connection.
 
         Returns
         -------
         Union[np.ndarray, torch.Tensor]
-            (N) Complete batch ID array, one per element
+            (2, E//2) Underlying batch of edge indexes
+        """
+        # If the graph is directed, nothing to do
+        if self.directed:
+            return self.data
+
+        # Otherwise, skip every second edge in the index
+        return self.data[:,::2]
+
+    @property
+    def directed_index_t(self):
+        """Index of the directed graph, transposed. If the graph is undirected,
+        it only returns one of the two edges corresponding to a connection.
+
+        Returns
+        -------
+        Union[np.ndarray, torch.Tensor]
+            (E//2, 2) Underlying batch of edge indexes, transposed
+        """
+        return self._transpose(self.directed_index)
+
+    @property
+    def directed_counts(self):
+        """Returns the number of edges per entry, counting edges once even
+        if they are bidirectional.
+
+        Returns
+        -------
+        Union[np.ndarray, torch.Tensor]
+            (B) Complete batch ID array, one per element
         """
         # If the graph is directed, the counts are exact
         if self.directed:
             return self.counts
 
         # Otherwise, indexes are twice as long
-        return 2*self.counts
+        return self.counts//2
 
     @property
-    def full_batch_ids(self):
-        """Returns the batch ID of each element in the full index list.
+    def directed_batch_ids(self):
+        """Returns the batch ID of each element in the directed index.
 
         Returns
         -------
         Union[np.ndarray, torch.Tensor]
             (N) Complete batch ID array, one per element
         """
-        return self._repeat(self._arange(self.batch_size), self.full_counts)
-
-    @property
-    def full_index(self):
-        """For undirectly graph, adds reciprocal edges to the underlying index.
-
-        Returns
-        -------
-        Union[np.ndarray, torch.Tensor]
-            (N) Complete batch ID array, one per element
-        """
-        # If the graph is directed, nothing to do
-        if self.directed:
-            return self.data
-
-        # Otherwise, add reciprocal edges to each entry in the batch
-        full_index = self._empty((self.data.shape[0], 2*self.data.shape[1]))
-        for batch_id in range(self.batch_size):
-            offset = 0 if batch_id < 1 else 2*self.edges[batch_id]
-            mask = offset + self._arange(self.counts[batch_id])
-            lower, upper = self.edges[batch_id], self.edges[batch_id + 1]
-            full_index[:,mask] = self.data[:, lower:upper]
-            full_index[:,len(mask) + mask] = self.data[:, lower:upper][::-1]
-
-        return full_index
+        return self._repeat(self._arange(self.batch_size), self.directed_counts)
 
     def split(self):
         """Breaks up the index batch into its constituents.
@@ -797,7 +850,7 @@ class EdgeIndexBatch(BatchBase):
         List[Union[np.ndarray, torch.Tensor]]
             List of one index per entry in the batch
         """
-        indexes = self._split(self._transpose(self.full_index), self.splits)
+        indexes = self._split(self._transpose(self.index), self.splits)
         for batch_id in range(self.batch_size):
             indexes[i] = indexes[i] - self._offsets[batch_id]
 
@@ -811,8 +864,9 @@ class EdgeIndexBatch(BatchBase):
         TensorBatch
             New `TensorBatch` object with an underlying np.ndarray tensor.
         """
-        assert not self.is_numpy, (
-                "Must be a `torch.Tensor` to be cast to `np.ndarray`")
+        # If the underlying data is of the right type, nothing to do
+        if self.is_numpy:
+            return self
 
         to_numpy = lambda x: x.cpu().detach().numpy()
         data = to_numpy(self.data)
@@ -836,8 +890,9 @@ class EdgeIndexBatch(BatchBase):
         TensorBatch
             New `TensorBatch` object with an underlying np.ndarray tensor.
         """
-        assert self.is_numpy, (
-                "Must be a `np.ndarray` to be cast to `torch.Tensor`")
+        # If the underlying data is of the right type, nothing to do
+        if not self.is_numpy:
+            return self
 
         to_tensor = lambda x: torch.as_tensor(x, dtype=dtype, device=device)
         data = to_tensor(self.data)

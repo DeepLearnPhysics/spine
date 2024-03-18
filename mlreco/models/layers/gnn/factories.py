@@ -4,14 +4,21 @@ from mlreco.utils.factory import module_dict, instantiate
 
 from . import graphs, encoders, models, losses
 
+__all__ = ['graph_construct', 'gnn_model_construct', 'node_encoder_construct',
+           'edge_encoder_construct', 'global_encoder_construct', 
+           'node_loss_construct', 'edge_loss_construct', 
+           'global_loss_construct']
 
-def graph_construct(cfg):
+
+def graph_construct(cfg, classes):
     """Instantiates a graph constructor from a configuration dictionary.
 
     Parameters
     ----------
     cfg : dict
         Graph constructor configuration
+    classes : Union[int, list]
+        List of classes to build a graph on
 
     Returns
     -------
@@ -19,7 +26,7 @@ def graph_construct(cfg):
         Instantiated graph constructor
     """
     graph_dict = module_dict(graphs)
-    return instantiate(graph_dict, cfg)
+    return instantiate(graph_dict, cfg, classes=classes)
 
 
 def gnn_model_construct(cfg):

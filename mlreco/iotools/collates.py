@@ -6,7 +6,7 @@ to :class:`torch.utils.data.DataLoader` as the `collate_fn` argumement.
 import numpy as np
 
 from mlreco.utils.geometry import Geometry
-from mlreco.utils.data_structures import TensorBatch
+from mlreco.utils.data_structures import TensorBatch, IndexBatch, EdgeIndexBatch
 
 __all__ = ['CollateSparse']
 
@@ -21,7 +21,7 @@ class CollateSparse:
        rows [batch_id, *features]
     3. Scalars/list/objects which simply get put in a single list
     """
-    name = 'collate_sparse'
+    name = 'sparse'
 
     def __init__(self, split=False, target_id=0, detector=None,
                  boundary=None, overlay=None):
@@ -96,16 +96,9 @@ class CollateSparse:
         batch_size = len(batch)
         data = {}
         for key in batch[0].keys():
-            if (isinstance(batch[0][key], tuple) and
-                isinstance(batch[0][key][0], np.ndarray) and
-                len(batch[0][key][0].shape) == 2):
-                # Case where a coordinates tensor and a features tensor
+            if isinstance(batch[0][key], tuple) and len(batch[0][key]) == 3:
+                # Case where a coordinates tensor and a feature tensor
                 # are provided, along with the metadata information
-                assert len(batch[0][key]) == 3, (
-                        "Expecting a voxel tensor, a feature tensor and "
-                        "a Meta object")
-
-                # Stack the voxel and feature tensors in the batch
                 if not self.split:
                     # If not split, simply stack everything
                     voxels    = np.vstack([sample[key][0] for sample in batch])
@@ -137,24 +130,29 @@ class CollateSparse:
                 tensor = np.hstack([batch_ids[:, None], voxels, features])
                 data[key] = TensorBatch(tensor, counts)
 
+            elif isinstance(batch[0][key], tuple) and len(batch[0][key]) == 2:
+                # Case where an index and an offset is provided per batch
+                # Stack the indexes, do not add a batch column
+                tensor  = np.concatenate(
+                        [sample[key][0] for sample in batch], axis-1)
+                counts  = [len(sample[key][0]) for sample in batch]
+                offsets = [sample[key][1] for sample in batch]
+                if len(tensor.shape) == 1:
+                    data[key] = IndexBatch(tensor, counts, offsets)
+                else:
+                    data[key] = EdgeIndexBatch(
+                            tensor, counts, offsets, directed=True)
+
             elif isinstance(batch[0][key], np.ndarray):
                 # Case where the output of the parser is a single np.ndarray
-                # Stack the tensors vertically, create and append batch column
-                if batch[0][key].shape < 2:
-                    tensor = np.concatenate([sample[key] for sample in batch])
-                    tensor = tensor[:, None]
-                else:
-                    tensor = np.vstack([sample[key] for sample in batch])
-
+                # Stack the tensors, do not add a batch column
+                tensor    = np.concatenate(
+                        [sample[key] for sample in batch], axis=0)
                 counts    = [len(sample[key]) for sample in batch]
-                batch_ids = np.repeat(np.arange(batch_size), counts)
-
-                # Stack the batch_ids with the features
-                tensor = np.hstack([batch_ids[:, None], tensor])
                 data[key] = TensorBatch(tensor, counts)
 
             else:
-                # In all other cases, just stick them a list of size batch_size
+                # In all other cases, just make a list of size batch_size
                 data[key] = [sample[key] for sample in batch]
 
         return data

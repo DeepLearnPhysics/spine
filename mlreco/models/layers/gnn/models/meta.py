@@ -58,7 +58,7 @@ class MetaLayerGNN(nn.Module):
         # Loop over the number of message passing steps, initialize the
         # metalayer which updates the features at each step
         self.mp_layers = nn.ModuleList()
-        node_in, edge_in, glob_in = (
+        node_nf, edge_nf, glob_nf = (
                 node_feats, edge_feats, global_feats)
 
         for l in range(self.num_mp):
@@ -66,25 +66,30 @@ class MetaLayerGNN(nn.Module):
             edge_model = None
             if edge_layer is not None:
                 edge_model = edge_layer_construct(
-                        edge_layer, node_in, edge_in, glob_in)
-                edge_in = edge_model.feature_size
+                        edge_layer, node_nf, edge_nf, glob_nf)
+                edge_nf = edge_model.feature_size
 
             # Initialize the node update layer
             if node_layer is not None:
                 node_model = node_layer_construct(
-                        node_layer, node_in, edge_in, glob_in)
-                node_in = node_model.feature_size
+                        node_layer, node_nf, edge_nf, glob_nf)
+                node_nf = node_model.feature_size
 
             # Initialize the global update layer
             global_model = None
             if global_layer is not None:
                 global_model = global_layer_construct(
-                        global_layer, node_in, glob_in)
-                glob_in = global_model.feature_size
+                        global_layer, node_nf, glob_nf)
+                glob_nf = global_model.feature_size
 
             # Build the complete metalayer
             self.mp_layers.append(
                     MetaLayer(edge_model, node_model, global_model))
+
+        # Store the feature size of each of the outputs
+        self.node_feature_size = node_nf
+        self.edge_feature_size = edge_nf
+        self.global_feature_size = glob_nf
 
     def forward(self, node_feats, edge_index, edge_feats, glob_feats, batch):
         """Run the message passing steps on one batch of data.

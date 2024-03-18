@@ -313,11 +313,11 @@ class SegmentationLoss(torch.nn.modules.loss._Loss):
 
         Parameters
         ----------
-        segment_label : torch.Tensor
-            (N, 1 + D + 1) Tensor of labels for the batch
-        segmentation : torch.Tensor
+        segment_label : TensorBatch
+            (N, 1 + D + 1) Tensor of segmentation labels for the batch
+        segmentation : TensorBatch
             (N, N_c) Tensor of logits from the segmentation model
-        ghost : torch.Tensor, optional
+        ghost : TensorBatch
             (N, 2) Tensor of ghost logits from the segmentation model
         weights : torch.Tensor, optional
             (N) Tensor of weights for each pixel in the batch

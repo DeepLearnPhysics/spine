@@ -12,6 +12,14 @@ __all__ = ['NNConvNodeLayer']
 class NNConvNodeLayer(nn.Module):
     """NNConv module for extracting graph node features.
 
+    This model starts by passing the edge feature vectors (N_e) through a
+    multi-layer perceptron (MLP) and outputs a (N_c, N_o) matrix per edge. For
+    each edge connected to a specific node, this matrix is multiplied with the
+    source node features (N_c) to form an (N_o) feature per edge. These
+    messages are aggregated using a summary statistic. This aggregated message
+    is then added to the original node features, which have been updated by
+    a weight matrix to a feature vector of size (N_o).
+
     Source: https://arxiv.org/abs/1704.02901
     """
     name = 'nnconv'

@@ -12,11 +12,13 @@ __all__ = ['activations_construct', 'normalizations_construct']
 
 def activations_dict():
     """Dictionary of valid activation functions."""
+    from torch.nn import Identity
     import MinkowskiEngine as ME
     import MinkowskiEngine.MinkowskiNonlinearity as MENL
     from . import nonlinearities
 
     activations = {
+        'none': Identity,
         'relu': ME.MinkowskiReLU,
         'prelu': ME.MinkowskiPReLU,
         'selu': ME.MinkowskiSELU,
@@ -33,9 +35,9 @@ def activations_dict():
 
 def normalizations_dict():
     """Dictionary of valid normalization functions."""
+    from torch.nn import Identity
     import MinkowskiEngine as ME
     from . import normalizations
-    from .identity import Identity
 
     norm_layers = {
         'none': Identity,

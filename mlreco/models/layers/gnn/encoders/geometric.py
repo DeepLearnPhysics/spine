@@ -157,7 +157,7 @@ class ClustGeoNodeEncoder(torch.nn.Module):
             if points is None:
                 points = get_cluster_points_label(
                         data.tensor, coord_label.tensor, clusts.index_list)
-                points = TensorBatch(points, coord_label.counts)
+                points = TensorBatch(points, clusts.counts)
 
             feats = torch.cat((feats, points.tensor), dim=1)
 
@@ -334,27 +334,31 @@ class ClustGeoEdgeEncoder(torch.nn.Module):
         if self.use_numpy:
             # If numpy is to be used, pass it through the Numba function
             feats = cluster_edge_features(
-                    data.tensor, clusts.index_list, edge_index.index_t,
-                    closest_index=closest_index)
+                    data.tensor, clusts.index_list,
+                    edge_index.directed_index_t, closest_index=closest_index)
         else:
             # Otherwise, use the local torch method
             feats = self.get_base_features(
                     data, clusts, edge_index, closest_index)
 
         # If the graph is undirected, infer reciprocal features
-        feats = TensorBatch(feats, edge_index.counts)
         if not edge_index.directed:
-            edge_index_list = []
-            for feats_block in feats.split():
-                feats_flip = feats_block.clone()
-                feats_flip[:,:3] = feats_block[:,3:6]
-                feats_flip[:,3:6] = feats_block[:,:3]
-                feats_flip[:,6:9] = -feats_block[:,6:9]
-                edge_index_list.append(torch.cat((feats_block, feats_flip)))
+            # Create the feature tensor of reciprocal edges
+            feats_flip = feats.clone()
+            feats_flip[:,  :3] =  feats[:, 3:6]
+            feats_flip[:, 3:6] =  feats[:,  :3]
+            feats_flip[:, 6:9] = -feats[:, 6:9]
 
-            feats = TensorBatch.from_list(edge_index_list)
+            # Create the full feature tensor
+            full_feats = torch.empty(
+                    (2*feats.shape[0], feats.shape[1]),
+                    dtype=feats.dtype, device=feats.device)
+            full_feats[::2] = feats
+            full_feats[1::2] = feats_flip
 
-        return feats
+            feats = full_feats
+
+        return TensorBatch(feats, edge_index.counts)
 
     def get_base_features(data, clusts, edge_index, closest_index=None):
         """Generate base geometric cluster node features for one batch of data.
@@ -376,7 +380,7 @@ class ClustGeoEdgeEncoder(torch.nn.Module):
 
         # Here is a torch-based implementation of cluster_edge_features
         feats = []
-        for e in edge_index.index_t:
+        for e in edge_index.directed_index_t:
 
             # Get the voxels in the clusters connected by the edge
             x1 = voxels[clusts.index_list[e[0]]]

@@ -78,9 +78,9 @@ class GraphBase:
             (N, 1 + D + N_f) Tensor of voxel/value pairs
         clusts : IndexBatch
             (C) Cluster indexes
-        classes : np.ndarray, optional
+        classes : TensorBatch, optional
             (C) List of cluster semantic class used to define the max length
-        groups : np.ndarray, optional
+        groups : TensorBatch, optional
             (C) List of cluster groups which should not be mixed
 
         Returns
@@ -109,9 +109,19 @@ class GraphBase:
 
         # Disconnect nodes from separate groups, if specified
         if groups is not None:
+            groups = groups.tensor
             mask = np.where(groups[edge_index[0]] == groups[edge_index[1]])[0]
             edge_index = edge_index[:, mask]
             edge_counts = self.update_counts(edge_counts, mask)
+
+        # If the graph is directed, add reciprocal edges
+        if not self.directed:
+            full_index = np.empty((2, 2*edge_index.shape[1]), dtype=np.int64) 
+            full_index[:,  ::2] = edge_index
+            full_index[:, 1::2] = np.flip(edge_index, axis=0)
+
+            edge_index = full_index
+            edge_counts = 2*edge_counts
 
         # Get the offsets, initialize an EdgeIndexBatch obejct
         offsets = clusts.edges[:-1]
@@ -139,7 +149,7 @@ class GraphBase:
             (B) : Number of edges in each entry of the batch
         dist_mat : np.ndarray
             (C, C) Tensor of pair-wise cluster distances
-        classes : np.ndarray, optional
+        classes : TensorBatch, optional
             (C) List of class for each cluster in the graph
 
         Returns
@@ -156,7 +166,7 @@ class GraphBase:
         else:
             # If classes are provided, apply the cut based on the class
             dists = dist_mat[(edge_index[0], edge_index[1])]
-            edge_classes = classes[edge_index]
+            edge_classes = classes.tensor[edge_index]
             max_lengths = self.max_length[(edge_classes[0], edge_classes[1])]
             mask = np.where(dists < max_lengths)[0]
 

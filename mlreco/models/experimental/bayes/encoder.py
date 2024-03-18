@@ -8,7 +8,7 @@ import MinkowskiFunctional as MF
 from mlreco.models.layers.cnn.act_norm import (
         activations_construct, normalizations_construct)
 from mlreco.models.layers.cnn.configuration import setup_cnn_configuration
-from mlreco.models.layers.cnn.blocks import DropoutBlock, ResNetBlock, Identity
+from mlreco.models.layers.cnn.blocks import DropoutBlock, ResNetBlock
 
 
 class MCDropoutEncoder(torch.nn.Module):
@@ -121,7 +121,7 @@ class MCDropoutEncoder(torch.nn.Module):
                 ME.MinkowskiMaxPooling(final_tensor_shape, stride=final_tensor_shape),
                 ME.MinkowskiGlobalPooling())
         elif self.pool_mode == 'no_pooling':
-            self.pool = Identity()
+            self.pool = nn.Identity()
         else:
             raise NotImplementedError
 
@@ -130,7 +130,7 @@ class MCDropoutEncoder(torch.nn.Module):
                 ME.MinkowskiReLU(),
                 ME.MinkowskiLinear(self.nPlanes[-1], self.latent_size))
         else:
-            self.linear1 = Identity()
+            self.linear1 = nn.Identity()
 
 
     def encoder(self, x):

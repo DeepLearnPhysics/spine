@@ -12,8 +12,7 @@ from mlreco.models.layers.cluster_cnn.losses.misc import BinaryCELogDiceLoss
 from .act_norm import activations_construct
 from .ppn import *
 
-from mlreco.utils.gnn.cluster import (
-        form_clusters, get_cluster_batch, get_cluster_label)
+from mlreco.utils.gnn.cluster import form_clusters, get_cluster_label
 
 
 class VertexPPN(nn.Module):

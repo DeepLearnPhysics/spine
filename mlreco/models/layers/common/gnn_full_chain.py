@@ -8,7 +8,6 @@ from mlreco.utils.unwrap import prefix_unwrapper_rules
 from mlreco.utils.gnn.evaluation import (node_assignment_score,
                                          primary_assignment)
 from mlreco.utils.gnn.cluster import (form_clusters,
-                                      get_cluster_batch,
                                       get_cluster_label)
 
 class FullChainGNN(torch.nn.Module):

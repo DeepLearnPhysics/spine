@@ -1,5 +1,5 @@
-"""Defines a very generic multi-layer perceptron with configurable parameters
-to be used elsewhere.
+"""Module which defines a very generic multi-layer perceptron with
+fully configurable parameters to be used elsewhere.
 """
 
 import numpy as np
@@ -16,12 +16,12 @@ class MLP(nn.Module):
     """Generic multi-layer perceptron to be used as a feature extractor."""
     name = 'mlp'
 
-    def __init__(self, num_input, depth, width, activation, normalization):
+    def __init__(self, in_channels, depth, width, activation, normalization):
         """Initialize the MLP.
 
         Parameters
         ----------
-        num_input : int
+        in_channels : int
             Number of input features
         depth : int
             Number of hidden layers
@@ -36,7 +36,7 @@ class MLP(nn.Module):
         super().__init__()
 
         # Store the attribtues
-        self.num_input = num_input
+        self.in_channels = in_channels
         self.depth = depth
         self.act_cfg = activation
         self.norm_cfg = normalization
@@ -54,7 +54,7 @@ class MLP(nn.Module):
 
         # Initialize the model
         self.model = nn.Sequential()
-        num_feats = num_input
+        num_feats = in_channels
         for i in range(depth):
             # Add a layer of hidden neurons
             self.model.append(nn.Linear(num_feats, self.width[i]))

@@ -107,16 +107,10 @@ class ClustCNNEdgeEncoder(torch.nn.Module):
         TensorBatch
            (C, N_e) Set of N_e features per edge
         """
-        # Use edge ID as a batch ID, pass through CNN
-        full_index = clusts.full_index
-        num_voxels = len(full_index)
-        shape = (num_voxels, data.tensor.shape[1])
-        cnn_data = data.tensor[clusts.full_index].clone()
-        cnn_data[:, BATCH_COL] = clusts.full_batch_ids
-
-        # Use edge ID as a batch ID, pass through CNN
+        # Use edge ID as a batch ID, pass through CNN. For undirected graph,
+        # only do it on half of the edges to save time (same features).
         cnn_data = []
-        for i, e in enumerate(edge_index.index):
+        for i, e in enumerate(edge_index.directed_index):
             ci, cj = clusts.data[e[0]], clusts.data[e[1]]
             edge_data = torch.cat((data.tensor[ci], data.tensor[cj]))
             edge_data[:, BATCH_COL] = i
@@ -129,14 +123,15 @@ class ClustCNNEdgeEncoder(torch.nn.Module):
             feats = torch.empty((0, self.feature_size),
                                 dtype=data.tensor.dtype,
                                 device=data.tensor.device)
-
-        # Initialize a tensor batch
-        feats = TensorBatch(feats, edge_index.counts)
+        
+        # If the graph is undirected, add reciprocal features
         if not edge_index.directed:
-            edge_index_list = []
-            for feats_block in feats.split():
-                edge_index_list.append(torch.cat((feats_block, feats_block)))
+            full_feats = torch.empty(
+                    (2*feats.shape[0], feats.shape[1]),
+                    dtype=feats.dtype, device=feats.device)
+            full_feats[::2] = feats
+            full_feats[1::2] = feats
 
-            feats = TensorBatch.from_list(edge_index_list)
+            feats = full_feats
 
-        return feats
+        return TensorBatch(feats, edge_index.counts)

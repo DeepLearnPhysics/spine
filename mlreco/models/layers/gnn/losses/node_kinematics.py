@@ -2,7 +2,7 @@ import torch
 import numpy as np
 from mlreco.utils.globals import *
 from mlreco.utils.metrics import unique_label
-from mlreco.utils.gnn.cluster import get_cluster_label, get_momenta_label
+from mlreco.utils.gnn.cluster import get_cluster_label
 from mlreco.models.experimental.bayes.evidential import EDLRegressionLoss, EVDLoss
 from torch_scatter import scatter
 
@@ -238,7 +238,7 @@ class NodeKinematicsLoss(torch.nn.Module):
                 if compute_momentum and out['node_pred_p'][i][j].shape[0]:
                     # Get the momentum predictions and true momenta from the specified columns
                     node_pred_p = out['node_pred_p'][i][j]
-                    node_assn_p = get_momenta_label(labels, clusts)
+                    node_assn_p = get_cluster_label(labels, clusts, column=MOM_COL)
 
                     # Do not apply loss to nodes labeled -1 (unknown class)
                     valid_mask_p = node_assn_p.detach().cpu().numpy() > -1

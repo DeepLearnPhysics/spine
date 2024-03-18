@@ -25,10 +25,15 @@ PGRP_COL  = 12
 VTX_COLS  = np.array([13, 14, 15])
 MOM_COL   = 16
 
-# Colum which specifies the shape ID of a voxel in a label tensor
+# Column which specifies the shape ID of a voxel in a label tensor
 SHAPE_COL = -1
 
-# Columns that specify each label in a PPN label/output tensors
+# Columns that specify each value type in the coordinate label tensor
+COORD_START_COLS = COORD_COLS
+COORD_END_COLS   = np.array([4, 5, 6])
+COORD_TIME_COL   = 7
+
+# Columns that specify each value type in a PPN label/output tensors
 PPN_LTYPE_COL  = 4                           # Class type label
 PPN_LPART_COL  = 5                           # Particle ID label
 PPN_LENDP_COL  = 6                           # Endpoint label

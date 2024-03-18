@@ -53,9 +53,9 @@ class EmptyClusterEdgeEncoder(torch.nn.Module):
         TensorBatch
             (E, 0) Empty set of features per edge
         """
-        feats = torch.empty((edge_index.full_index.shape[1], 0),
-                           dtype=data.dtype, device=data.device)
-        return TensorBatch(feats, edge_index.full_counts)
+        feats = torch.empty((edge_index.full.shape[1], 0),
+                            dtype=data.dtype, device=data.device)
+        return TensorBatch(feats, edge_index.counts)
 
 
 class EmptyClusterGlobalEncoder(torch.nn.Module):

@@ -1,20 +1,18 @@
-"""
-Various metrics used for evaluating clustering
-"""
+"""Various metrics used to evaluate clustering."""
 
 import numpy as np
 
 
 def unique_with_batch(label, bid):
-    """
-    merge 1D arrays of label and bid into array of new labels for unique (label, bid) pairs
+    """Merge 1D arrays of label and bid into array of new labels for unique
+    (label, bid) pairs
 
     Parameters
     ----------
-    label : array_like
-        input labels
-    bid : array_like
-        input batch ids
+    label : np.ndarray
+        Labels
+    bid : np.ndarray
+        Batch IDs
 
     Returns
     -------

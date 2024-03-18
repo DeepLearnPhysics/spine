@@ -5,7 +5,6 @@ import torch.nn as nn
 
 import MinkowskiEngine as ME
 
-from .identity import Identity
 from .act_norm import activations_construct, normalizations_construct
 
 
@@ -191,7 +190,7 @@ class ResNetBlock(ME.MinkowskiNetwork):
             self.residual = ME.MinkowskiLinear(in_features, out_features, 
                                                bias=bias)
         else:
-            self.residual = Identity()
+            self.residual = nn.Identity()
 
         self.conv1 = ME.MinkowskiConvolution(
             in_features, out_features, kernel_size=3,
@@ -264,7 +263,7 @@ class AtrousIIBlock(ME.MinkowskiNetwork):
         if in_features != out_features:
             self.residual = ME.MinkowskiLinear(in_features, out_features)
         else:
-            self.residual = Identity()
+            self.residual = nn.Identity()
 
         self.conv1 = ME.MinkowskiConvolution(
             in_features, out_features,
@@ -408,7 +407,7 @@ class ResNeXtBlock(ME.MinkowskiNetwork):
         if in_features != out_features:
             self.residual = ME.MinkowskiLinear(in_features, out_features)
         else:
-            self.residual = Identity()
+            self.residual = nn.Identity()
 
     def forward(self, x):
         """Pass a tensor through the ResNeXt block.
@@ -789,7 +788,7 @@ class MBResConv(ME.MinkowskiNetwork):
                  normalization=normalization,
                  bias=bias)
         if in_features == out_features:
-            self.connection = Identity()
+            self.connection = nn.Identity()
         else:
             self.connection = nn.Sequential(
                 normalizations_construct(normalization, in_features),
@@ -902,7 +901,7 @@ class SEResNetBlock(ME.MinkowskiNetwork):
         if in_features != out_features:
             self.residual = ME.MinkowskiLinear(in_features, out_features)
         else:
-            self.residual = Identity()
+            self.residual = nn.Identity()
 
         self.conv1 = ME.MinkowskiConvolution(
             in_features, out_features, kernel_size=3,
@@ -983,7 +982,7 @@ class MBResConvSE(MBResConv):
                          bias=bias)
 
         if in_features == out_features:
-            self.connection = Identity()
+            self.connection = nn.Identity()
         else:
             self.connection = nn.Sequential(
                 normalizations_construct(normalization, in_features),

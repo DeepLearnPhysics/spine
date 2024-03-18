@@ -1,62 +1,371 @@
+"""Module used to label or evaluate GNNs.
+
+It contains two classes of functions:
+- Functions used in GNN losses
+- Functions used to quantify the performance of GNNs
+"""
+
 import numpy as np
 import numba as nb
 
+from scipy.sparse import csr_array
+from scipy.sparse.csgraph import minimum_spanning_tree
+
 import mlreco.utils.numba_local as nbl
 from mlreco.utils.metrics import SBD, AMI, ARI, purity_efficiency
+from mlreco.utils.data_structures import TensorBatch, IndexBatch, EdgeIndexBatch
 
 int_array = nb.int64[:]
 
 
-@nb.njit(cache=True)
-def edge_assignment(edge_index: nb.int64[:,:],
-                    groups: nb.int64[:]) -> nb.int64[:]:
+def edge_assignment_batch(edge_index, group_ids):
+    """Batched version of :func:`edge_assignment`.
+
+    Parameters
+    ----------
+    edge_index: EdgeIndexBatch
+        (2, E) Sparse incidence matrix
+    group_ids : TensorBatch
+        (C) Cluster group IDs
+
+    Returns
+    -------
+    TensorBatch
+        (E) Array specifying on/off edges
     """
-    Function that determines which edges are turned on based
-    on the group ids of the clusters they are connecting.
+    edge_assn = edge_assignment(edge_index.index.T, group_ids.tensor)
 
-    Args:
-        edge_index (np.ndarray): (E,2) Incidence matrix
-        groups (np.ndarray)    : (C) List of group ids
-    Returns:
-        np.ndarray: (E) Array specifying on/off edges
+    return TensorBatch(edge_assn, edge_index.counts)
+
+
+def edge_assignment_from_graph_batch(edge_index, true_edge_index, part_ids):
+    """Batched version of :func:`edge_assignment_from_graph`.
+
+    Parameters
+    ----------
+    edge_index : EdgeIndexBatch
+        (2, E) Input sparse incidence matrix (on clusters)
+    truth_edge_index : TensorBatch
+        (2, E') Label sparse incidence matrix (on particles)
+    part_ids : TensorBatch
+        (C) Particle IDs of the clusters
+
+    Returns
+    -------
+    TensorBatch
+        (E) Array specifying on/off edges
     """
-    # Set the edge as true if it connects two nodes that belong to the same batch and the same group
-    return groups[edge_index[:,0]] == groups[edge_index[:,1]]
+    # Convert the cluster IDs in the original edge index to particle IDs
+    edge_index_part = TensorBatch(
+            part_ids.tensor[edge_index.index].T, edge_index.counts)
+
+    # Loop over the list of entries in the batch
+    edge_assn = np.zeros(edge_index.index.shape[1], dtype=np.int64)
+    for b in range(clust_label.batch_size):
+        lower, upper = edge_index.edges[b], edge_index.edges[b+1]
+        edge_assn[lower:upper] = edge_assignment_from_graph(
+                edge_index_part[b], true_index[b])
+
+    return TensorBatch(edge_assn, edge_index.counts)
 
 
-@nb.njit(cache=True)
-def edge_assignment_from_graph(edge_index: nb.int64[:,:],
-                               true_edge_index: nb.int64[:,:]) -> nb.int64[:]:
+def edge_assignment_forest_batch(edge_index, edge_pred, group_ids):
+    """Batched version of :func:`edge_assignment_forest`.
+
+    Parameters
+    ----------
+    edge_index : EdgeIndexBatch
+        (2, E) Input sparse incidence matrix (on clusters)
+    edge_pred : TensorBatch
+        (E, 2) Logits associated with each edge
+    group_ids : TensorBatch
+        (C) Cluster group IDs
+
+    Returns
+    -------
+    TensorBatch
+        (E) Array specifying on/off edges
+    TensorBatch
+        (E) Array specifying edges to apply the loss to
     """
-    Function that determines which edges are turned on based
-    on the group ids of the clusters they are connecting.
+    # Loop over the list of entries in the batch
+    edge_assn = np.empty(edge_index.index.shape[1], dtype=np.int64)
+    valid_mask = np.empty(edge_index.index.shape[1], dtype=bool)
+    for b in range(clust_label.batch_size):
+        # Get the list of labels and the list of nodes to apply the loss to
+        lower, upper = edge_index.edges[b], edge_index.edges[b+1]
+        edge_assn_b, edge_valid_b = edge_assignment_forest(
+                edge_index[b], edge_pred[b], group_ids[b])
 
-    Args:
-        edge_index (np.ndarray): (E,2) Constructed incidence matrix
-        edge_index (np.ndarray): (E,2) True incidence matrix
-    Returns:
-        np.ndarray: (E) Array specifying on/off edges
+        edge_assn[lower:upper] = edge_assn_b
+        edge_valid[lower:upper] = edge_valid_b
+
+    return (TensorBatch(edge_assn, counts=edge_index.counts),
+            TensorBatch(edge_valid, counts=edge_valid.counts))
+
+
+def edge_assignment_score_batch(edge_index, edge_pred, clusts):
+    """Batched version of :func:`edge_assignment_score`.
+
+    Parameters
+    ----------
+    edge_index : EdgeIndexBatch
+        (2, E) Sparse incidence matrix
+    edge_pred : TensorBatch
+        (E, 2) Logits associated with each edge
+    clusts : IndexBatch
+        (C) List of cluster indexes
+
+    Returns
+    -------
+    np.ndarray
+        (E', 2) Optimal incidence matrix
+    np.ndarray
+        (C) Optimal group ID for each node
+    float
+        Score of the optimal incidence matrix
     """
-    # Set the edge as true if it connects two nodes that are connected by a true dependency
-    edge_assn = np.empty(len(edge_index), dtype=np.int64)
-    for k, e in enumerate(edge_index):
-        edge_assn[k] = (e == true_edge_index).any()
+    edge_index_list = []
+    group_ids = np.empty(len(clusts.index_list), dtype=np.int64)
+    scores = np.empty(edge_index.batch_size, dtype=edge_pred.dtype)
+    edge_counts = np.empty(edge_index.batch_size, dtype=np.int64)
+    for b in range(edge_index.batch_size):
+        lower, upper = clusts.edges[b], clusts.edges[b+1]
+        edge_index_b, group_ids_b, score_b = edge_assignment_score(
+                edge_index[b], edge_pred[b], clusts.counts[b])
 
-    return edge_assn
+        edge_index_list.append(edge_index_b + edge_index.offsets[b])
+        group_ids[lower:upper] = group_ids_b
+        scores[b] = score_b
+        edge_counts[b] = len(edge_index_b)
+
+    # Make a new EdgeIndexBatch out of the selected edges
+    new_edge_index = EdgeIndexBatch(
+            np.vstack(edge_index_list).T, edge_counts,
+            edge_index.offsets, directed=True)
+
+    return new_edge_index, TensorBatch(group_ids, clusts.counts), scores
+
+
+def node_assignment_batch(edge_index, edge_pred, clusts):
+    """Batched version of :func:`node_assignment`.
+
+    Parameters
+    ----------
+    edge_index : EdgeIndexBatch
+        (2, E) Sparse incidence matrix
+    edge_pred : TensorBatch
+        (E, 2) Logits associated with each edge
+    clusts : IndexBatch
+        (C) List of cluster indexes
+
+    Returns
+    -------
+        np.ndarray: (C) List of group ids
+    """
+    # Loop over on edges, reset the group IDs of connected node
+    group_ids = np.empty(len(clusts.index_list), dtype=np.int64)
+    for b in range(edge_index.batch_size):
+        lower, upper = clusts.edges[b], clusts.edges[b+1]
+        group_ids[lower:upper] = node_assignment(
+                edge_index[b], edge_pred[b], clusts.counts[b])
+
+    return group_ids
+
+
+def node_assignment_score_batch(edge_index, edge_pred, clusts):
+    """Finds the graph that produces the lowest grouping score and use
+    union-find to find group IDs for each of the nodes in the graph.
+
+    Parameters
+    ----------
+    edge_index : EdgeIndexBatch
+        (2, E) Sparse incidence matrix
+    edge_pred : TensorBatch
+        (E, 2) Logits associated with each edge
+    clusts : IndexBatch
+        (C) List of cluster indexes
+
+    Returns
+    -------
+    np.ndarray
+        (C) Optimal group ID for each node
+    """
+    return edge_assignment_score_batch(edge_index, edge_pred, clusts)[1]
+
+
+def edge_purity_mask_batch(edge_index, part_ids, group_ids, primary_ids):
+    """Batch version of :func:`edge_purity_mask`.
+
+    Parameters
+    ----------
+    edge_index : EdgeIndexBatch
+        (2, E) Sparse incidence matrix
+    part_ids : TensorBatch
+        (C) Array of cluster particle IDs
+    group_ids : TensorBatch
+        (C) Array of cluster group IDs
+    primary_ids : TensorBatch
+        (C) Array of cluster primary IDs
+
+    Returns
+    -------
+    np.ndarray
+i       (E) High purity edge mask
+    """
+    # Loop over the entries in the batch
+    valid_mask = np.empty(edge_index.index.shape[1], dtype=bool)
+    for b in range(edge_index.batch_size):
+        lower, upper = edge_index.edges[b], edge_index.edges[b+1]
+        valid_mask[lower:upper] = edge_purity_mask(
+                edge_index[b], part_ids[b], group_ids[b], primary_ids[b])
+
+    return valid_mask
+
+
+def node_purity_mask_batch(group_ids, primary_ids):
+    """Batch version of :func:`node_purity_mask`.
+
+    Parameters
+    ----------
+    group_ids : TensorBatch
+        (C) Array of cluster group IDs
+    primary_ids : TensorBatch
+        (C) Cluster of cluster primary IDs
+
+    Returns
+    -------
+    np.ndarray
+        (C) High purity node mask
+    """
+    return node_purity_mask(group_ids.tensor, primary_ids.tensor)
+
+
+def edge_assignment(edge_index, group_ids):
+    """Determines which edges are turned on based on the group ID of the 
+    clusters they are connecting. 
+    
+    Parameters
+    ----------
+    edge_index: np.ndarray
+        (E, 2) Sparse incidence matrix
+    group_ids : np.ndarray
+        (C) Cluster group IDs
+
+    Returns
+    -------
+    np.ndarray:
+        (E) Array specifying on/off edges
+    """
+    # Set the edge as true if it connects two nodes that belong to the same 
+    # entry (free; no edges between entries) and the same group
+    mask = (group_ids[edge_index[:, 0]] == group_ids[edge_index[:, 1]])
+
+    return mask.astype(np.int64)
+
+
+def edge_assignment_from_graph(edge_index, true_edge_index, part_ids):
+    """Determines which edges are turned on based on whether they appear in
+    a reference list of true edges or not.
+
+    Parameters
+    ----------
+    edge_index : EdgeIndexBatch
+        (E, 2) Input sparse incidence matrix (on clusters)
+    truth_edge_index : TensorBatch
+        (E', 2) Label sparse incidence matrix (on particles)
+    part_ids : np.ndarray
+        (C) Particle IDs of the clusters
+
+    Returns
+    -------
+    np.ndarray:
+        (E) Array specifying on/off edges
+    """
+    # Convert the cluster IDs in the original edge index to particle IDs
+    edge_index_part = part_ids[edge_index]
+
+    # Compare with the reference sparse incidence matrix
+    compare_index = lambda x, y: (x.T == y[..., None]).all(axis=1).any(axis=1)
+    
+    return compare_index(edge_index_part, true_edge_index)
+
+
+def edge_assignment_forest(edge_index, edge_pred, group_ids):
+    """Determines which edges must be turned on based on to form a
+    minimum-spanning tree (MST) for each node group. 
+
+    For each group, find the most likely spanning tree, label the edges in the
+    tree as 1. For all other edges, apply loss only if in separate groups. If
+    undirected, also assign symmetric path. This method enforces that the
+    network minmally forms a forest graph on the input nodes, with each tree
+    in the forest spanning a target node group.
+
+    Parameters
+    ----------
+    edge_index : np.ndarray
+        (E, 2) Input sparse incidence matrix (on clusters)
+    edge_pred : np.ndarray
+        (E, 2) Logits associated with each edge
+    group_ids : np.ndarray
+        (C) Cluster group IDs
+
+    Returns
+    -------
+    np.ndarray:
+        (E) Array specifying on/off edges
+    np.ndarray
+        (E) Valid edge mask (edges to apply the loss to)
+    """
+    # If there are no edges, nothing to do here
+    edge_assn = np.zeros(len(edge_index), dtype=np.int64)
+    valid_mask = np.ones(len(edge_index), dtype=bool)
+    if not len(edge_index):
+        return edge_assn, valid_mask
+
+    # Convert the sparse incidence matrix scores to a CSR matrix
+    n = len(group_ids)
+    off_scores = nbl.softmax(edge_pred, axis=1)[:, 0]
+    score_mat = csr_array((off_scores, edge_index.T), shape=(n,n))
+
+    # Build the MST graph to minimize off scores
+    mst_mat = minimum_spanning_tree(score_mat)
+    mst_index = np.vstack(np.where(mst_mat.toarray() > 0.))
+
+    # Loop over the groups, turn edges on if they appear in the MST
+    # TODO: understand the impact of having an undirected graph
+    compare_index = lambda x, y: (x.T == y[..., None]).all(axis=1).any(axis=1)
+    for g in np.unique(group_ids):
+        group_index == np.where(group_ids == g)[0]
+        edge_assn_g = compare_index(edge_index_b[group_index], tree_index)
+        edge_assn[group_index[edge_assn_g]] = True
+        edge_valid[group_index[~edge_assn_g]] = False
+
+    return edge_assn, edge_valid
 
 
 @nb.njit(cache=True)
 def union_find(edge_index: nb.int64[:,:],
-               n: nb.int64) -> (nb.int64[:], nb.types.DictType(nb.int64, nb.int64[:])):
-    """
-    Implementation of the Union-Find algorithm.
+               num_nodes: nb.int64) -> (
+                       nb.int64[:], nb.types.DictType(nb.int64, nb.int64[:])):
+    """Implementation of the Union-Find algorithm.
 
-    Args:
-        edge_index (np.ndarray): (E,2) Edges in the graph
-        n (int)                : Total number of clusters C
-    Returns:
-        np.ndarray: (C) Updated list of group ids
-        np.ndarray: (C) Updated dictionary of partition groups
+    This algorithm forms group based on the connectivity of its consistuents.
+    If two entities are connected, they belong to the same group.
+
+    Parameters
+    ----------
+    edge_index : np.ndarray
+        (2, E) Sparse incidence matrix
+    num_nodes : int
+        Number of nodes in the graph, C
+
+    Returns
+    -------
+    np.ndarray
+        (C) Node group IDs
+    Dict[int, np.ndarray]
+        Dictionary which maps group IDs onto constituent cluster IDs
     """
     # Find the group_ids by merging groups when they are connected
     group_ids = np.arange(n, dtype=np.int64)
@@ -74,46 +383,60 @@ def union_find(edge_index: nb.int64[:,:],
 
 @nb.njit(cache=True)
 def node_assignment(edge_index: nb.int64[:,:],
-                    edge_label: nb.int64[:],
-                    n: nb.int64) -> nb.int64[:]:
-    """
-    Function that assigns each node to a group, based
-    on the edge assigment provided. This uses a local
-    union find implementation.
+                    edge_pred: nb.int64[:,:],
+                    num_nodes: nb.int64) -> nb.int64[:]:
+    """Assigns each node to a group, based on the edge assigment provided.
 
-    Args:
-        edge_index (np.ndarray): (E,2) Incidence matrix
-        edge_assn (np.ndarray) : (E) Boolean array (1 if edge is on)
-        n (int)                : Total number of clusters C
-    Returns:
-        np.ndarray: (C) List of group ids
+    This uses the locally-defined union find implementation.
+
+    Parameters
+    ----------
+    edge_index : np.ndarray
+        (2, E) Sparse incidence matrix
+    edge_pred : np.ndarray
+        (E, 2) Logits associated with each edge
+    num_nodes : int
+        Number of nodes in the graph, C
+
+    Returns
+    -------
+    np.ndarray
+        (C) Assigned node group IDs
     """
     # Loop over on edges, reset the group IDs of connected node
-    on_edges = edge_index[np.where(edge_label)[0]]
-    return union_find(on_edges, n)[0]
+    on_edges = edge_index[np.where(edge_pred[:,1] > edge_pred[:,0])[0]]
+
+    return union_find(on_edges, num_nodes)[0]
 
 
 @nb.njit(cache=True)
 def node_assignment_bipartite(edge_index: nb.int64[:,:],
                               edge_label: nb.int64[:],
                               primaries: nb.int64[:],
-                              n: nb.int64) -> nb.int64[:]:
-    """
-    Function that assigns each node to a group represented
-    by a primary node. This function loops over secondaries and
-    associates it to the primary with that is connected to it
-    with the strongest edge.
+                              num_nodes: nb.int64) -> nb.int64[:]:
+    """Assigns each node to a group represented by a primary node.
+    
+    This function loops over secondaries and associates it to the primary with
+    that is connected to it with the strongest edge.
 
-    Args:
-        edge_index (np.ndarray): (E,2) Incidence matrix
-        edge_label (np.ndarray): (E) Array of edge scores
-        primaries (np.ndarray) : (P) List of primary ids
-        n (int)                : Total number of clusters C
-    Returns:
-        np.ndarray: (C) List of group ids
+    Parameters
+    ----------
+    edge_index : np.ndarray
+        (2, E) Sparse incidence matrix
+    edge_pred : np.ndarray
+        (E, 2) Logits associated with each edge
+    primaries : np.ndarray
+        (P) List of primary IDs
+    num_nodes : int
+        Number of nodes in the graph, C
+
+    Returns
+    -------
+    np.ndarray
+        (C) Assigned node group IDs
     """
-    group_ids = np.arange(n, dtype=np.int64)
-    others = [i for i in range(n) if i not in primaries]
+    group_ids = np.arange(num_nodes, dtype=np.int64)
+    others = [i for i in range(num_nodes) if i not in primaries]
     for i in others:
         inds = edge_index[:,1] == i
         if np.sum(inds) == 0:
@@ -125,26 +448,31 @@ def node_assignment_bipartite(edge_index: nb.int64[:,:],
 
 
 @nb.njit(cache=True)
-def primary_assignment(node_scores: nb.float32[:,:],
+def primary_assignment(node_pred: nb.float32[:,:],
                        group_ids: nb.int64[:] = None) -> nb.boolean[:]:
-    """
-    Function that select shower primary fragments based
-    on the node-score (and optionally an a priori grouping).
+    """Select shower primary fragments based on the node-score
+    (and optionally an a priori grouping).
 
-    Args:
-        node_scores (np.ndarray): (C,2) Node scores
-        group_ids (array)       : (C) List of group ids
-    Returns:
-        np.ndarray: (C) Primary labels
+    Parameters
+    ----------
+    node_pred : np.ndarray
+        (C, 2) Logits associated with each node
+    group_ids : np.ndarray
+        (C) List of node group IDs
+
+    Returns
+    -------
+    np.ndarray
+        (C) Primary labels
     """
     if group_ids is None:
-        return nbl.argmax(node_scores, axis=1).astype(np.bool_)
+        return nbl.argmax(nodes_pred, axis=1).astype(np.bool_)
 
-    primary_labels = np.zeros(len(node_scores), dtype=np.bool_)
-    node_scores = nbl.softmax(node_scores, axis=1)
+    primary_labels = np.zeros(len(node_pred), dtype=np.bool_)
+    node_pred = nbl.softmax(node_pred, axis=1)
     for g in np.unique(group_ids):
         mask = np.where(group_ids == g)[0]
-        idx  = np.argmax(node_scores[mask][:,1])
+        idx  = np.argmax(node_pred[mask][:,1])
         primary_labels[mask[idx]] = True
 
     return primary_labels
@@ -153,19 +481,26 @@ def primary_assignment(node_scores: nb.float32[:,:],
 @nb.njit(cache=True)
 def adjacency_matrix(edge_index: nb.int64[:,:],
                      n: nb.int64) -> nb.boolean[:,:]:
-    """
-    Function that creates an adjacency matrix from a list
-    of connected edges in a graph (densify adjacency).
+    """Creates a dense adjacency matrix from a list of connected edges in a
+    graph, i.e. densify the graph incidence matrix.
 
-    Args:
-        edge_index (np.ndarray): (E,2) Incidence matrix
-        n (int)                : Total number of clusters C
-    Returns:
-        np.ndarray: (C,C) Adjacency matrix
+    Parameters
+    ----------
+    edge_index : np.ndarray
+        (2, E) Sparse incidence matrix
+    num_nodes : int
+        Number of nodes in the graph, C
+
+    Returns
+    -------
+    np.ndarray
+        (C, C) Adjacency matrix
     """
+    # Cannot use double array indexing to fill the matrix
     adj_mat = np.eye(n, dtype=np.bool_)
-    for e in edge_index:
-        adj_mat[e[0],e[1]] = True
+    for i, j in edge_index:
+        adj_mat[i, j] = True
+
     return adj_mat
 
 
@@ -173,18 +508,24 @@ def adjacency_matrix(edge_index: nb.int64[:,:],
 def grouping_loss(pred_mat: nb.float32[:],
                   target_mat: nb.boolean[:],
                   loss: str = 'ce') -> np.float32:
-    """
-    Function that defines the graph clustering score.
-    Given a target adjacency matrix A and a predicted
-    adjacency P, the score is evaluated the average CE,
-    L1 or L2 distance between truth and prediction.
+    """Defines the graph clustering score.
 
-    Args:
-        pred_mat (np.ndarray)  : (C*C) Predicted adjacency matrix scores (flattened)
-        target_mat (np.ndarray): (C*C) Target adjacency matrix (flattened)
-        loss (str)             : Loss used to compute the graph score
-    Returns:
-        int: Graph grouping loss
+    Given a target adjacency matrix A and a predicted adjacency P, the score is
+    evaluated the average CE, L1 or L2 distance between truth and prediction.
+
+    Parameters
+    ----------
+    pred_mat : np.ndarray
+        (C*C) Predicted adjacency matrix scores (flattened)
+    target_mat : np.ndarray
+        (C*C) Target adjacency matrix scores (flattened)
+    loss : str, default 'ce'
+        Loss mode used to compute the graph score
+
+    Returns
+    -------
+    float
+        Graph grouping loss
     """
     if loss == 'ce':
         return nbl.log_loss(target_mat, pred_mat)
@@ -198,57 +539,74 @@ def grouping_loss(pred_mat: nb.float32[:],
 
 @nb.njit(cache=True)
 def edge_assignment_score(edge_index: nb.int64[:,:],
-                          edge_scores: nb.float32[:,:],
-                          n: nb.int64) -> (nb.int64[:,:], nb.int64[:], nb.float32):
-    """
-    Function that finds the graph that produces the lowest
-    grouping score iteratively adding the most likely edges,
-    if they improve the the score (builds a spanning tree).
+                          edge_pred: nb.float32[:,:],
+                          num_nodes: nb.int64) -> (
+                                  nb.int64[:,:], nb.int64[:], nb.float32):
+    """Finds the graph that produces the lowest grouping score by iteratively
+    adding the next most likely edge, if it improves the the score. This method
+    effectively builds a spanning tree.
 
-    Args:
-        edge_index (np.ndarray) : (E,2) Incidence matrix
-        edge_scores (np.ndarray): (E,2) Two-channel edge score
-        n (int)                 : Total number of clusters C
-    Returns:
-        np.ndarray: (E',2) Optimal incidence matrix
-        np.ndarray: (C) Optimal group ID for each node
-        float     : Score for the optimal incidence matrix
+    Parameters
+    ----------
+    edge_index : np.ndarray
+        (2, E) Sparse incidence matrix
+    edge_pred : np.ndarray
+        (E, 2) Logits associated with each edge
+    num_nodes : int
+        Number of nodes in the graph, C
+
+    Returns
+    -------
+    np.ndarray
+        (E', 2) Optimal incidence matrix
+    np.ndarray
+        (C) Optimal group ID for each node
+    float
+        Score of the optimal incidence matrix
     """
     # If there is no edge, do not bother
     if not len(edge_index):
-        return np.empty((0,2), dtype=np.int64), np.arange(n, dtype=np.int64), 0.
+        return (np.empty((0,2), dtype=np.int64), 
+                np.arange(num_nodes, dtype=np.int64), 0.)
 
-    # Build an input adjacency matrix to constrain the edge selection to the input graph
-    adj_mat = adjacency_matrix(edge_index, n)
+    # Build an input adjacency matrix to constrain the edge selection to
+    # the input graph
+    adj_mat = adjacency_matrix(edge_index, num_nodes)
 
     # Interpret the softmax score as a dense adjacency matrix probability
-    edge_scores = nbl.softmax(edge_scores, axis=1)
-    pred_mat    = np.eye(n, dtype=np.float32)
-    for k, e in enumerate(edge_index):
-        pred_mat[e[0],e[1]] = edge_scores[k,1]
+    edge_scores = nbl.softmax(edge_pred, axis=1)
+    pred_adj    = np.eye(num_nodes, dtype=edge_pred.dtype)
+    for k, (i, j) in enumerate(edge_index):
+        pred_adj[i, j] = edge_scores[k, 1]
 
-    # Remove edges with a score < 0.5 and sort the remainder by increasing order of OFF score
-    on_mask   = edge_scores[:,1] >= 0.5
-    args      = np.argsort(edge_scores[on_mask,0])
+    # Remove edges with a score < 0.5 and sort the remainder by increasing
+    # order of OFF score
+    on_mask   = edge_scores[:, 1] >= 0.5
+    args      = np.argsort(edge_scores[on_mask, 0])
     ord_index = edge_index[on_mask][args]
 
-    # Now iteratively identify the best edges, until the total score cannot be improved any longer
+    # Now iteratively identify the best edges, until the total score cannot
+    # be improved any longer
+    empty_adj   = np.eye(num_nodes, dtype=np.bool_)
     best_ids    = np.empty(0, dtype=np.int64)
-    best_groups = np.arange(n, dtype=np.int64)
-    best_loss   = grouping_loss(pred_mat.flatten(), np.eye(n, dtype=np.bool_).flatten())
+    best_groups = np.arange(num_nodes, dtype=np.int64)
+    best_loss   = grouping_loss(pred_adj.flatten(), empty_adj.flatten())
     for k, e in enumerate(ord_index):
         # If the edge connect two nodes already in the same group, proceed
         group_a, group_b = best_groups[e[0]], best_groups[e[1]]
         if group_a == group_b:
             continue
 
-        # Restrict the adjacency matrix and the predictions to the nodes in the two candidate groups
-        node_mask = np.where((best_groups == group_a) | (best_groups == group_b))[0]
-        sub_pred = nbl.submatrix(pred_mat, node_mask, node_mask).flatten()
+        # Restrict the adjacency matrix and the predictions to the nodes in
+        # the two candidate groups
+        node_mask = np.where(
+            (best_groups == group_a) | (best_groups == group_b))[0]
+        sub_pred = nbl.submatrix(pred_adj, node_mask, node_mask).flatten()
         sub_adj  = nbl.submatrix(adj_mat, node_mask, node_mask).flatten()
 
         # Compute the current adjacency matrix between the two groups
-        current_adj = (best_groups[node_mask] == best_groups[node_mask].reshape(-1,1)).flatten()
+        current_adj = (best_groups[node_mask] ==
+                       best_groups[node_mask].reshape(-1, 1)).flatten()
 
         # Join the two groups if it minimizes the loss
         current_loss  = grouping_loss(sub_pred, sub_adj*current_adj)
@@ -266,70 +624,60 @@ def edge_assignment_score(edge_index: nb.int64[:,:],
 
 @nb.njit(cache=True)
 def node_assignment_score(edge_index: nb.int64[:,:],
-                          edge_scores: nb.float32[:,:],
+                          edge_pred: nb.float32[:,:],
                           n: nb.int64) -> nb.int64[:]:
+    """Finds the graph that produces the lowest grouping score and use
+    union-find to find group IDs for each of the nodes in the graph.
+
+    Parameters
+    ----------
+    edge_index : np.ndarray
+        (2, E) Sparse incidence matrix
+    edge_pred : TensorBatch
+        (E, 2) Logits associated with each edge
+    num_nodes : int
+        Number of nodes in the graph, C
+
+    Returns
+    -------
+    np.ndarray
+        (C) Optimal group ID for each node
     """
-    Function that finds the graph that produces the lowest
-    grouping score by building a score MST and by
-    iteratively removing edges that improve the score.
-
-    Args:
-        edge_index (np.ndarray) : (E,2) Incidence matrix
-        edge_scores (np.ndarray): (E,2) Two-channel edge score
-        n (int)                : Total number of clusters C
-    Returns:
-        np.ndarray: (E',2) Optimal incidence matrix
-    """
-    return edge_assignment_score(edge_index, edge_scores, n)[1]
-
-
-#@nb.njit(cache=True)
-def cluster_to_voxel_label(clusts: nb.types.List(nb.int64[:]),
-                           node_label: nb.int64[:]) -> nb.int64[:]:
-    """
-    Function that turns a list of labels on clusters
-    to an array of labels on voxels.
-
-    Args:
-        clusts ([np.ndarray])  : (C) List of arrays of voxel IDs in each cluster
-        node_label (np.ndarray): (C) List of node labels
-    Returns:
-        np.ndarray: (N) List of voxel labels
-    """
-    nvoxels = np.sum([len(c) for c in clusts])
-    vlabel = np.empty(nvoxels, dtype=np.int64)
-    stptr = 0
-    for i, c in enumerate(clusts):
-        endptr = stptr + len(c)
-        vlabel[stptr:endptr] = node_label[i]
-        stptr = endptr
-
-    return vlabel
+    return edge_assignment_score(edge_index, edge_pred, num_nodes)[1]
 
 
 @nb.njit(cache=True)
 def node_purity_mask(group_ids: nb.int64[:],
                      primary_ids: nb.int64[:]) -> nb.boolean[:]:
-    """
-    Function which creates a mask that is False only for nodes
-    which belong to a group with more than a single clear primary.
+    """Creates a mask that is `True` only for node which belong to a group
+    with more exactly one primary.
 
-    Note: It is possible that the single true primary has been
-    broken into several nodes. In that case, the primary is
-    also ambiguous, skip. TODO: pick the most sensible primary
-    in that case, too restrictive otherwise.
+    This is useful for shower clustering only, for which there can be no or
+    multiple primaries in the group, making the primary identification
+    ill-defined.
 
-    Args:
-        group_ids (np.ndarray)  : (C) Array of cluster group IDs
-        primary_ids (np.ndarray): (C) Array of cluster primary IDs
-    Returns:
-        np.ndarray: (E) High purity node mask
+    Note: It is possible that the single true primary has been broken into
+    several nodes. In that case, the primary is also ambiguous, skip. 
+    TODO: pick the most sensible primary in that case, too restrictive
+    otherwise (complicated, though).
+
+    Parameters
+    ----------
+    group_ids : np.ndarray
+        (C) Array of cluster group IDs
+    primary_ids : np.ndarray
+        (C) Cluster of cluster primary IDs
+
+    Returns
+    -------
+    np.ndarray
+        (C) High purity node mask
     """
-    purity_mask = np.zeros(len(group_ids), dtype=np.bool_)
+    purity_mask = np.ones(len(group_ids), dtype=np.bool_)
     for g in np.unique(group_ids):
-        group_mask = group_ids == g
-        if np.sum(group_mask) > 1 and np.sum(primary_ids[group_mask] == 1) == 1:
-            purity_mask[group_mask] = np.ones(np.sum(group_mask))
+        group_mask = np.where(group_ids == g)[0]
+        if np.sum(primary_ids[group_mask] == 1) != 1:
+            purity_mask[group_mask] = False
 
     return purity_mask
 
@@ -339,49 +687,75 @@ def edge_purity_mask(edge_index: nb.int64[:,:],
                      part_ids: nb.int64[:],
                      group_ids: nb.int64[:],
                      primary_ids: nb.int64[:]) -> nb.boolean[:]:
-    """
-    Function which creates a mask that is False only for edges
-    which connect two nodes that both belong to a common group
-    without a single clear primary.
+    """Creates a mask that is `True` only for edges which connect two nodes
+    that both belong to a common group which has a single clear primary. 
+    
+    This is useful for shower clustering only, for which there can be no or
+    multiple primaries in the group, making the the edge classification
+    ill-defined (no primary typically indicates a shower which originates
+    outside of the active volume).
 
-    Note: It is possible that the single true primary has been
-    broken into several nodes.
+    Note: It is possible that the single true primary has been broken into
+    several nodes; that is acceptable.
 
-    Args:
-        edge_index (np.ndarray) : (E,2) Incidence matrix
-        part_ids (np.ndarray)   : (C) Array of cluster particle IDs
-        group_ids (np.ndarray)  : (C) Array of cluster group IDs
-        primary_ids (np.ndarray): (C) Array of cluster primary IDs
-    Returns:
-        np.ndarray: (E) High purity edge mask
+    Parameters
+    ----------
+    edge_index : np.ndarray
+        (2, E) Sparse incidence matrix
+    part_ids : np.ndarray
+        (C) Array of cluster particle IDs
+    group_ids : np.ndarray
+        (C) Array of cluster group IDs
+    primary_ids : np.ndarray
+        (C) Array of cluster primary IDs
+
+    Returns
+    -------
+    np.ndarray
+        (E) High purity edge mask
     """
-    purity_mask = np.ones(len(edge_index), dtype=np.bool_)
+    # Start by building a mask of valid nodes
+    node_purity_mask = np.ones(len(group_ids), dtype=np.bool_)
     for g in np.unique(group_ids):
         group_mask = np.where(group_ids == g)[0]
-        if np.sum(primary_ids[group_mask]) != 1 and len(np.unique(part_ids[group_mask][primary_ids[group_mask] == 1])) != 1:
-            edge_mask = np.empty(len(edge_index), dtype=np.bool_)
-            for k, e in enumerate(edge_index):
-                edge_mask[k] = (e[0] == group_mask).any() & (e[1] == group_mask).any()
-            purity_mask[edge_mask] = np.zeros(np.sum(edge_mask))
+        primary_ids_g = primary_ids[group_mask]
+        part_ids_g = part_ids[group_mask]
+        if len(np.unique(part_ids_g[primary_ids_g == 1]) != 1):
+            # If there not exactly one one primary particle ID, the group
+            # is not valid
+            node_purity_mask[group_mask] = False
+
+    # Edges that connect two invalid nodes are invalid
+    purity_mask = (node_purity_mask[edge_index[:, 0]] |
+                   node_purity_mask[edge_index[:, 1]])
 
     return purity_mask
 
 
 def clustering_metrics(clusts, node_assn, node_pred):
-    """
-    Function that assigns each node to a group, based
-    on the edge assigment provided.
+    """Computes several clustering metrics for a set of clusters.
 
-    Args:
-        clusts ([np.ndarray]) : (C) List of arrays of voxel IDs in each cluster
-        node_assn (np.ndarray): (C) List of true node group labels
-        node_pred (np.ndarray): (C) List of predicted node group labels
-    Returns:
-        double: Adjusted Rand Index
-        double: Adjusted Mutual Information
-        double: Symmetric Best Dice
-        double: Purity
-        double: Efficiency
+    Parameters
+    ----------
+    clusts : List[np.ndarray]
+        (C) List of cluster indexes
+    node_assn : np.ndarray
+        (C) True node groups labels
+    node_pred : np.ndarray
+        (C) Predicted node group labels
+
+    Returns
+    -------
+    float
+        Adjusted Rand Index (ARI)
+    float
+        Adjusted Mutual information (AMI)
+    float
+        Symetric Best Dice (SBD)
+    float
+        Purity
+    float
+        Efficiency
     """
     pred_vox = cluster_to_voxel_label(clusts, node_pred)
     true_vox = cluster_to_voxel_label(clusts, node_assn)
@@ -389,23 +763,55 @@ def clustering_metrics(clusts, node_assn, node_pred):
     ami = AMI(pred_vox, true_vox)
     sbd = SBD(pred_vox, true_vox)
     pur, eff = purity_efficiency(pred_vox, true_vox)
+
     return ari, ami, sbd, pur, eff
 
 
 def voxel_efficiency_bipartite(clusts, node_assn, node_pred, primaries):
-    """
-    Function that evaluates the fraction of secondary
-    voxels that are associated to the corresct primary.
+    """Computes the fraction of secondary voxels that are associated to the
+    correct primary.
 
-    Args:
-        clusts ([np.ndarray]) : (C) List of arrays of voxel IDs in each cluster
-        node_assn (np.ndarray): (C) List of true node group labels
-        node_pred (np.ndarray): (C) List of predicted node group labels
-        primaries (np.ndarray): (P) List of primary ids
-    Returns:
-        double: Fraction of correctly assigned secondary voxels
+    Parameters
+    ----------
+    clusts : List[np.ndarray]
+        (C) List of cluster indexes
+    node_assn : np.ndarray
+        (C) True node groups labels
+    node_pred : np.ndarray
+        (C) Predicted node group labels
+    node_pred : np.ndarray
+        (P) List of primary IDs
+
+    Returns
+    -------
+    float
+        Fraction of correctly assigned secondary voxels
     """
     others = [i for i in range(n) if i not in primaries]
     tot_vox = np.sum([len(clusts[i]) for i in others])
-    int_vox = np.sum([len(clusts[i]) for i in others if node_pred[i] == node_assn[i]])
-    return int_vox * 1.0 / tot_vox
+    int_vox = np.sum(
+            [len(clusts[i]) for i in others if node_pred[i] == node_assn[i]])
+
+    return int_vox / tot_vox
+
+
+@nb.njit(cache=True)
+def cluster_to_voxel_label(clusts: nb.types.List(nb.int64[:]),
+                           node_labels: nb.int64[:]) -> nb.int64[:]:
+    """Turns a list of labels on clusters to an array of labels on voxels.
+
+    Parameters
+    ----------
+    clusts : List[np.ndarray]
+        (C) List of cluster indexes
+    node_labels : np.ndarray
+        (C) Node labels
+
+    Returns
+    -------
+    np.ndarray
+        (N) Voxel labels
+    """
+    counts = [len(c) for c in clusts]
+
+    return np.repeat(node_labels, counts)

@@ -1,45 +1,44 @@
+"""Module that defines an EM shower primary classification."""
+
 import torch
 import numpy as np
 
+from mlreco.models.layers.factories import loss_fn_construct
+
 from mlreco.utils.globals import GROUP_COL, PSHOW_COL
-from mlreco.utils.gnn.cluster import get_cluster_label
-from mlreco.utils.gnn.evaluation import node_assignment, node_assignment_score, node_purity_mask
+from mlreco.utils.gnn.cluster import get_cluster_label_batch
+from mlreco.utils.gnn.evaluation import (
+        node_assignment_batch, node_assignment_score_batch,
+        node_purity_mask_batch)
 
 __all__ = ['NodePrimaryLoss']
 
 
 class NodePrimaryLoss(torch.nn.Module):
     """
-    Takes the two-channel node output of the GNN and optimizes
-    node-wise scores such that nodes that initiate a particle
-    cascade are given a high score (typically for showers).
+    Takes the two-channel node output of the GNN and optimizes node-wise scores
+    such that nodes that initiate a particle cascade are given a high score
+    (exclusively relevant for showers for now).
 
     For use in config:
-    model:
-      name: cluster_gnn
-      modules:
-        grappa_loss:
-          node_loss:
-            name:           : primary
-            batch_col       : <column in the label data that specifies the batch ids of each voxel (default 3)>
-            loss            : <loss function: 'CE' or 'MM' (default 'CE')>
-            reduction       : <loss reduction method: 'mean' or 'sum' (default 'sum')>
-            balance_classes : <balance loss per class: True or False (default False)>
-            high_purity     : <only penalize loss on groups with a single primary (default False)>
-            use_group_pred  : <redifines group ids according to edge predictions (default False)>
-            group_pred_alg  : <algorithm used to predict cluster labels: 'threshold' or 'score' (default 'score')>
+
+    ..  code-block:: yaml
+
+        model:
+          name: grappa
+          modules:
+            grappa_loss:
+              node_loss:
+                name: primary
+                <dictionary of arguments to pass to the loss>
+
+    See configuration files prefixed with `grappa_` under the `config`
+    directory for detailed examples of working configurations.
     """
     name = 'primary'
 
-    RETURNS = {
-        'loss': ['scalar'],
-        'accuracy': ['scalar'],
-        'n_clusts': ['scalar']
-    }
-
     def __init__(self, balance_loss=False, high_purity=False,
-                 use_group_pred=False, group_pred_alg='score',
-                 loss='CE', reduction='sum'):
+                 use_group_pred=False, group_pred_alg='score', loss='ce'):
         """Initialize the primary identification loss function.
 
         Parameters
@@ -55,8 +54,6 @@ class NodePrimaryLoss(torch.nn.Module):
             Method used to form a predicted group ('threshold' or 'score')
         loss : str, default 'CE'
             Name of the loss function to apply
-        reduction : str, default 'sum'
-            Reduction method used in the loss function
         """
         # Initialize the parent class
         super().__init__()
@@ -68,97 +65,90 @@ class NodePrimaryLoss(torch.nn.Module):
         self.group_pred_alg = group_pred_alg
 
         # Set the loss
-        # TODO: change this to a general loss initialization
-        self.loss = loss
-        self.reduction = reduction # Probably can get rid of this
-        if self.loss == 'CE':
-            self.lossfn = torch.nn.CrossEntropyLoss(reduction=self.reduction)
-        elif self.loss == 'MM':
-            p = loss_config.get('p', 1)
-            self.loss_fn = torch.nn.MultiMarginLoss(p=p, margin=margin, reduction=self.reduction)
-        else:
-            raise ValueError('Loss not recognized: ' + self.loss)
+        self.loss_fn = loss_fn_construct(loss, functional=True)
 
-    def forward(self, out, clusters):
+    def forward(self, clust_label, clusts, node_pred, edge_index=None,
+                edge_pred=None, group_ids=None, **kwargs):
+        """Applies the shower primary loss to a batch of data.
+
+        Parameters
+        ----------
+        clust_label : TensorBatch
+            (N, 1 + D + N_f) Tensor of cluster labels for the batch
+        clusts : IndexBatch
+            (C) Index which maps each cluster to a list of voxel IDs
+        node_pred : TensorBatch
+            (C, 2) Node prediction logits (binary output)
+        edge_index : EdgeIndexBatch, optional
+            (2, E) Incidence matrix between clusters
+        edge_pred : TensorBatch, optional
+            (E, 2) Edge prediction logits (binary output)
+        group_ids : TensorBatch, optional
+            (C)  Group to which each node belongs to
+        **kwargs : dict, optional
+            Other labels/outputs of the model which are not relevant here
+
+        Returns
+        -------
+        loss : torch.Tensor
+            Value of the loss
+        accuracy : float
+            Value of the node-wise classification accuracy
+        num_nodes : int
+            Number of nodes the loss was applied to
         """
-        Applies the requested loss on the node prediction.
+        # Fetch the primary and group IDs
+        primary_ids = get_cluster_label_batch(
+                clust_label, clusts, column=PSHOW_COL)
+        if group_ids is None:
+            if not self.use_group_pred:
+                group_ids = get_cluster_label_batch(
+                        clust_label, clusts, column=GROUP_COL)
+            else:
+                if self.group_pred_alg == 'threshold':
+                    edge_pred_np = edge_pred.to_numpy()
+                    group_ids = node_assignment_batch(
+                            edge_index, edge_pred_np, clusts)
 
-        Args:
-            out (dict):
-                'node_pred' (torch.tensor) : (C,2) Two-channel node predictions
-                'clusts' ([np.ndarray])    : [(N_0), (N_1), ..., (N_C)] Cluster ids
-                ('edge_pred' (torch.tensor): (C,2) Two-channel edge predictions, optional)
-                ('edge_index' (np.ndarray) : (E,2) Incidence matrix, optional)
-            clusters ([torch.tensor])      : (N,8) [x, y, z, batchid, value, id, groupid, shape]
-        Returns:
-            double: loss, accuracy, cluster count
-        """
-        total_loss, total_acc = 0., 0.
-        n_clusts = 0
-        for i in range(len(clusters)):
+                elif self.group_pred_alg == 'score':
+                    edge_pred_np = edge_pred.to_numpy()
+                    group_ids = node_assignment_score_batch(
+                            edge_index, edge_pred_np, clusts)
 
-            # If the input did not have any node, proceed
-            if 'node_pred' not in out:
-                continue
-
-            # Get the list of batch ids, loop over individual batches
-            batches = clusters[i][:,self.batch_col]
-            nbatches = len(batches.unique())
-            for j in range(nbatches):
-
-                # Narrow down the label tensor and other predictions to the batch at hand
-                labels = clusters[i][batches==j]
-                if not labels.shape[0]:
-                    continue
-                node_pred = out['node_pred'][i][j]
-                if not node_pred.shape[0]:
-                    continue
-                clusts = out['clusts'][i][j]
-                group_ids = get_cluster_label(labels, clusts, column=self.group_col)
-                primary_ids = get_cluster_label(labels, clusts, column=self.primary_col)
-
-                # If requested, relabel the group ids in the batch according to the group predictions
-                if self.use_group_pred:
-                    if self.group_pred_alg == 'threshold':
-                        group_ids = node_assignment(out['edge_index'][i][j], np.argmax(out['edge_pred'][i][j].detach().cpu().numpy(), axis=1), len(clusts))
-                    elif self.group_pred_alg == 'score':
-                        group_ids = node_assignment_score(out['edge_index'][i][j], out['edge_pred'][i][j].detach().cpu().numpy(), len(clusts))
-                    else:
-                        raise ValueError('Group prediction algorithm not recognized: '+self.group_pred_alg)
-
-                # If a cluster target is -1, ignore the loss associated with it
-                valid_mask = primary_ids > -1
-
-                # If requested, remove groups that do not contain exactly one primary from the loss
-                if self.high_purity:
-                    valid_mask &= node_purity_mask(group_ids, primary_ids)
-
-                # Apply valid mask to nodes and their predictions
-                if not valid_mask.any(): continue
-                clusts      = clusts[valid_mask]
-                primary_ids = primary_ids[valid_mask]
-                node_pred   = node_pred[np.where(valid_mask)[0]]
-
-                # If the majority cluster ID agrees with the majority group ID, assign as primary
-                node_assn = torch.tensor(primary_ids, dtype=torch.long, device=node_pred.device, requires_grad=False)
-
-                # Increment the loss, balance classes if requested
-                if self.balance_classes:
-                    vals, counts = torch.unique(node_assn, return_counts=True)
-                    weights = len(node_assn)/len(counts)/counts
-                    for k, v in enumerate(vals):
-                        total_loss += weights[k] * self.loss_fn(node_pred[node_assn==v], node_assn[node_assn==v])
                 else:
-                    total_loss += self.loss_fn(node_pred, node_assn)
+                    raise ValueError("Group prediction algorithm not "
+                                     "recognized:", self.group_pred_alg)
+        # Create a mask for valid nodes (-1 indicates an invalid primary ID)
+        valid_mask = primary_ids.tensor > -1
 
-                # Compute accuracy of assignment (fraction of correctly assigned nodes)
-                total_acc += torch.sum(torch.argmax(node_pred, dim=1) == node_assn).float()
-                # print(i, j, torch.sum(torch.argmax(node_pred, dim=1) == node_assn).float()/len(node_assn))
-                # Increment the number of nodes
-                n_clusts += len(clusts)
+        # If requested, remove groups that do not contain exactly one primary
+        if self.high_purity:
+            valid_mask &= node_purity_mask_batch(group_ids, primary_ids)
+
+        # Apply the valid mask and convert the labels to a torch.Tensor
+        valid_index = np.where(valid_mask)[0]
+        node_assn = primary_ids.to_tensor(
+                dtype=torch.long, device=node_pred.device)
+        node_assn = node_assn.tensor[valid_index]
+        node_pred = node_pred.tensor[valid_index]
+
+        # Compute the loss. Balance classes if requested
+        weights = None
+        if self.balance_loss:
+            weights = get_class_weights(node_assn, num_classes=2)
+
+        loss = self.loss_fn(
+                node_pred, node_assn, weight=weights, reduction='none').sum()
+        if len(valid_mask):
+            loss /= len(valid_mask)
+
+        # Compute accuracy of assignment (fraction of correctly assigned edges)
+        acc = torch.sum(torch.argmax(node_pred, dim=1) == node_assn).float()
+        if len(valid_mask):
+            acc /= len(valid_mask)
 
         return {
-            'accuracy': total_acc/n_clusts if n_clusts else 1.,
-            'loss': total_loss/n_clusts if n_clusts else torch.tensor(0., requires_grad=True, device=clusters[0].device),
-            'n_clusts': n_clusts
+            'accuracy': acc,
+            'loss': loss,
+            'count': len(valid_mask)
         }

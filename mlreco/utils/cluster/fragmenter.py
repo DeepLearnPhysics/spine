@@ -1,12 +1,11 @@
 from abc import abstractmethod
-from mlreco.utils.gnn.cluster import form_clusters, get_cluster_batch, get_cluster_label
+from mlreco.utils.gnn.cluster import form_clusters, get_cluster_label
 
 import torch
 import torch.nn as nn
 import numpy as np
 
 from mlreco.utils.cluster.dense_cluster import fit_predict, gaussian_kernel_cuda
-# from mlreco.models.layers.common.dbscan import DBSCANFragmenter
 from mlreco.models.layers.common.dbscan import DBSCANFragmenter
 
 

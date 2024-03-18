@@ -365,7 +365,7 @@ class ParticleGraphParser(Parser):
     """
     name = 'parse_particle_graph'
     result = Unwrapper.Rule(method='tensor',
-                            default=np.empty((0, 3), dtype=np.float32))
+                            default=np.empty((0, 2), dtype=np.int32))
 
     def process(self, particle_event, cluster_event=None):
         """Fetch the parentage connections from the true particle list.
@@ -382,7 +382,9 @@ class ParticleGraphParser(Parser):
         Returns
         -------
         np.ndarray
-            (E, 2) Array of directed edges for each [parent, child] connection
+            (2, E) Array of directed edges for each [parent, child] connection
+        int
+            Number of particles in the input
         """
         particles_v   = particle_event.as_vector()
         num_particles = particles_v.size()
@@ -450,7 +452,7 @@ class ParticleGraphParser(Parser):
                     edges = edges[edges[:, 0] != zn]
                 edges = edges[edges[:, 1] != zn]
 
-        return edges
+        return edges.T, num_particles
 
 
 class SingleParticlePIDParser(Parser):

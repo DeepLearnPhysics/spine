@@ -20,7 +20,7 @@ from .models.experimental.bayes.calibration import (
         construct_calibrator, construct_calibrator_loss)
 
 from .utils.torch_local import cycle
-from .utils.data_structures import TensorBatch
+from .utils.data_structures import TensorBatch, IndexBatch, EdgeIndexBatch
 from .utils.stopwatch import StopwatchManager
 from .utils.unwrap import Unwrapper
 from .utils.train import optim_construct, lr_sched_construct
@@ -756,8 +756,9 @@ class TrainVal(object):
                           value.numel() == 1):
                         # Scalar tensor
                         result[key] = value.item()
-                    elif isinstance(value, TensorBatch):
-                        # Tensor batch
+                    elif isinstance(
+                            value, (TensorBatch, IndexBatch, EdgeIndexBatch)):
+                        # Batch of data
                         result[key] = value.to_numpy()
                     elif (isinstance(value, list) and
                           len(value) and
