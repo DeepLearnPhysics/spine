@@ -14,16 +14,16 @@ COORD_COLS = np.array([1, 2, 3])
 VALUE_COL = 4
 
 # Columns that specify each attribute in a cluster label tensor
-CLUST_COL = 5
-PART_COL  = 6
-GROUP_COL = 7
-INTER_COL = 8
-NU_COL    = 9
-PID_COL   = 10
-PSHOW_COL = 11
-PGRP_COL  = 12
-VTX_COLS  = np.array([13, 14, 15])
-MOM_COL   = 16
+CLUST_COL = 5                      # Fragment ID
+PART_COL  = 6                      # Particle ID
+GROUP_COL = 7                      # Group ID
+INTER_COL = 8                      # Interaction ID
+NU_COL    = 9                      # Neutrino ID
+PID_COL   = 10                     # Particle species
+PRGRP_COL = 11                     # Group primary flag
+PRINT_COL = 12                     # Interaction primary flag
+VTX_COLS  = np.array([13, 14, 15]) # Interaction vertex location
+MOM_COL   = 16                     # Absolute momentum in GeV
 
 # Column which specifies the shape ID of a voxel in a label tensor
 SHAPE_COL = -1
@@ -104,13 +104,13 @@ PID_TO_PDG = {v : abs(k) for k, v in PDG_TO_PID.items()}
 
 # Particle type labels
 PID_LABELS = {
+    -1: 'Unknown',
     PHOT_PID: 'Photon',
     ELEC_PID: 'Electron',
     MUON_PID: 'Muon',
     PION_PID: 'Pion',
     PROT_PID: 'Proton',
-    KAON_PID: 'Kaon',
-    -1: 'Unknown'
+    KAON_PID: 'Kaon'
 }
 
 # Map between shape and allowed PID/primary labels

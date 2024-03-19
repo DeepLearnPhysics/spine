@@ -1,21 +1,23 @@
-"""Module that defines an EM shower primary classification."""
+"""Module that defines an EM shower primary identification loss."""
 
 import torch
 import numpy as np
 
 from mlreco.models.layers.factories import loss_fn_construct
 
-from mlreco.utils.globals import GROUP_COL, PSHOW_COL
+from mlreco.utils.globals import GROUP_COL, PRGRP_COL
+from mlreco.utils.weighting import get_class_weights
 from mlreco.utils.gnn.cluster import get_cluster_label_batch
 from mlreco.utils.gnn.evaluation import (
         node_assignment_batch, node_assignment_score_batch,
         node_purity_mask_batch)
 
-__all__ = ['NodePrimaryLoss']
+__all__ = ['NodeShowerPrimaryLoss']
 
 
-class NodePrimaryLoss(torch.nn.Module):
-    """
+class NodeShowerPrimaryLoss(torch.nn.Module):
+    """Loss used to train the EM shower primary identification.
+
     Takes the two-channel node output of the GNN and optimizes node-wise scores
     such that nodes that initiate a particle cascade are given a high score
     (exclusively relevant for showers for now).
@@ -29,17 +31,17 @@ class NodePrimaryLoss(torch.nn.Module):
           modules:
             grappa_loss:
               node_loss:
-                name: primary
+                name: shower_primary
                 <dictionary of arguments to pass to the loss>
 
     See configuration files prefixed with `grappa_` under the `config`
     directory for detailed examples of working configurations.
     """
-    name = 'primary'
+    name = 'shower_primary'
 
     def __init__(self, balance_loss=False, high_purity=False,
                  use_group_pred=False, group_pred_alg='score', loss='ce'):
-        """Initialize the primary identification loss function.
+        """Initialize the EM shower primary identification loss function.
 
         Parameters
         ----------
@@ -52,7 +54,7 @@ class NodePrimaryLoss(torch.nn.Module):
             Use predicted group to check for high purity
         group_pred_alg : str, default 'score'
             Method used to form a predicted group ('threshold' or 'score')
-        loss : str, default 'CE'
+        loss : str, default 'ce'
             Name of the loss function to apply
         """
         # Initialize the parent class
@@ -94,12 +96,12 @@ class NodePrimaryLoss(torch.nn.Module):
             Value of the loss
         accuracy : float
             Value of the node-wise classification accuracy
-        num_nodes : int
+        count : int
             Number of nodes the loss was applied to
         """
         # Fetch the primary and group IDs
         primary_ids = get_cluster_label_batch(
-                clust_label, clusts, column=PSHOW_COL)
+                clust_label, clusts, column=PRGRP_COL)
         if group_ids is None:
             if not self.use_group_pred:
                 group_ids = get_cluster_label_batch(
@@ -118,6 +120,7 @@ class NodePrimaryLoss(torch.nn.Module):
                 else:
                     raise ValueError("Group prediction algorithm not "
                                      "recognized:", self.group_pred_alg)
+
         # Create a mask for valid nodes (-1 indicates an invalid primary ID)
         valid_mask = primary_ids.tensor > -1
 
@@ -138,17 +141,18 @@ class NodePrimaryLoss(torch.nn.Module):
             weights = get_class_weights(node_assn, num_classes=2)
 
         loss = self.loss_fn(
-                node_pred, node_assn, weight=weights, reduction='none').sum()
-        if len(valid_mask):
-            loss /= len(valid_mask)
+                node_pred, node_assn, weight=weights, reduction='sum')
+        if len(valid_index):
+            loss /= len(valid_index)
 
-        # Compute accuracy of assignment (fraction of correctly assigned edges)
-        acc = torch.sum(torch.argmax(node_pred, dim=1) == node_assn).float()
-        if len(valid_mask):
-            acc /= len(valid_mask)
+        # Compute accuracy of assignment (fraction of correctly assigned nodes)
+        acc = 1.
+        if len(valid_index):
+            acc = float(torch.sum(torch.argmax(node_pred, dim=1) == node_assn))
+            acc /= len(valid_index)
 
         return {
             'accuracy': acc,
             'loss': loss,
-            'count': len(valid_mask)
+            'count': len(valid_index)
         }

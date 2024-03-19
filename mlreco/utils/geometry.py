@@ -1,6 +1,9 @@
+"""Module with a general-purpose geometry class."""
+
 import os
 import pathlib
 import numpy as np
+from typing import Union, List
 
 
 class Geometry:
@@ -116,16 +119,14 @@ class Geometry:
         self.cont_use_source = False
 
     def build_tpcs(self):
-        """
-        Flatten out the geometry array to a simple list of TPCs. Also store
+        """Flattens out the geometry array to a simple list of TPCs. Also store
         the total number of TPCs.
         """
         self.tpcs = self.boundaries.reshape(-1, 3, 2)
         self.num_tpcs = len(self.tpcs)
 
     def build_modules(self):
-        """
-        Convert the list of boundaries of TPCs that make up the modules into
+        """Converts the list of boundaries of TPCs that make up the modules into
         a list of boundaries that encompass each module. Also store the center
         of each module and the total number of moudules.
         """
@@ -138,15 +139,13 @@ class Geometry:
         self.num_modules = len(self.modules)
 
     def build_detector(self):
-        """
-        Convert the list of boundaries of TPCs that make up the detector
+        """Converts the list of boundaries of TPCs that make up the detector
         into a single set of overall detector boundaries.
         """
         self.detector = self.merge_volumes(self.tpcs)
 
     def build_planes(self):
-        """
-        Convert the list of boundaries of TPCs that make up the modules and
+        """Converts the list of boundaries of TPCs that make up the modules and
         tpcs into a list of cathode plane positions for each module and anode
         plane positions for each TPC. The cathode/anode positions are expressed
         as a simple number pair [axis, position] with axis the drift axis and
@@ -194,8 +193,7 @@ class Geometry:
                 self.drift_dirs[m, t] = (-1)**side * drift_dir
 
     def get_contributors(self, sources):
-        """
-        Get the list of [module ID, tpc ID] pairs that contributed to a
+        """Gets the list of [module ID, tpc ID] pairs that contributed to a
         particle or interaction object, as defined in this geometry.
 
         Parameters
@@ -221,8 +219,7 @@ class Geometry:
         return np.where(contributor_mask)
 
     def get_tpc_index(self, sources, module_id, tpc_id):
-        """
-        Get the list of indices of points that belong to a specify
+        """Gets the list of indices of points that belong to a specify
         [module ID, tpc ID] pair.
 
         Parameters
@@ -247,8 +244,7 @@ class Geometry:
         return np.where(mask)[0]
 
     def get_closest_tpc_indexes(self, points):
-        """
-        For each TPC, get the list of points that live closer to it
+        """For each TPC, get the list of points that live closer to it
         than any other TPC in the detector.
 
         Parameters
@@ -277,8 +273,7 @@ class Geometry:
         return tpc_indexes
 
     def get_closest_module(self, points):
-        """
-        For each point, find the ID of the closest module.
+        """For each point, find the ID of the closest module.
 
         Parameters
         ----------
@@ -308,8 +303,7 @@ class Geometry:
         return module_ids
 
     def get_closest_module_indexes(self, points):
-        """
-        For each module, get the list of points that live closer to it
+        """For each module, get the list of points that live closer to it
         than any other module in the detector.
 
         Parameters
@@ -331,8 +325,7 @@ class Geometry:
         return module_indexes
 
     def get_tpc_offsets(self, points, module_id, tpc_id):
-        """
-        Compute how far each point is from a TPC volume.
+        """Compute how far each point is from a TPC volume.
 
         Parameters
         ----------
@@ -361,8 +354,7 @@ class Geometry:
         return offsets
 
     def get_min_tpc_offset(self, points, module_id, tpc_id):
-        """
-        Get the minimum offset to apply to a point cloud to bring it
+        """Get the minimum offset to apply to a point cloud to bring it
         within the boundaries of a TPC.
 
         Parameters
@@ -386,8 +378,7 @@ class Geometry:
         return offsets
 
     def translate(self, points, source_id, target_id):
-        """
-        Moves a point cloud from one module to another one
+        """Moves a point cloud from one module to another one
 
         Parameters
         ----------
@@ -414,8 +405,7 @@ class Geometry:
         return np.copy(points) + offset
 
     def split(self, points, target_id, sources=None, meta=None):
-        """
-        Migrate all points to a target module, organize them by module ID.
+        """Migrate all points to a target module, organize them by module ID.
 
         Parameters
         ----------
@@ -472,11 +462,10 @@ class Geometry:
         return points, module_indexes
 
     def check_containment(self, points, sources=None,
-                          allow_multi_module=False):
-        """
-        Check whether a point cloud comes within some distance of the
-        boundaries of a certain subset of detector volumes, depending on
-        the mode.
+                          allow_multi_module=False, summarize=True):
+        """Check whether a point cloud comes within some distance of the
+        boundaries of a certain subset of detector volumes, depending on the
+        mode.
 
         Parameters
         ----------
@@ -485,12 +474,15 @@ class Geometry:
         sources : np.ndarray, optional
             (S, 2) : List of [module ID, tpc ID] pairs that created the
             point cloud
-        allow_multi_module : bool, default False
+        allow_multi_module : bool, default `False`
             Whether to allow particles/interactions to span multiple modules
+        summarize : bool, default `True`
+            If `True`, only returns a single flag for the whole cloud.
+            Otherwise, returns a boolean array corresponding to each point.
 
         Returns
         -------
-        bool
+        Union[bool, np.ndarray]
             `True` if the particle is contained, `False` if not
         """
         # If the containment volumes are not defined, throw
@@ -514,18 +506,24 @@ class Geometry:
             volumes = self.cont_volumes
 
         # Loop over volumes, make sure the cloud is contained in at least one
-        contained = False
-        for v in volumes:
-            if (points > v[:,0]).all() and (points < v[:,1]).all():
-                contained = True
-                break
+        if summarize:
+            contained = False
+            for v in volumes:
+                if (points > v[:, 0]).all() and (points < v[:, 1]).all():
+                    contained = True
+                    break
+        else:
+            contained = np.zeros(len(points), dtype=bool)
+            for v in volumes:
+                contained |= ((points > v[:, 0]).all(axis=1) &
+                              (points < v[:, 1]).all(axis=1))
 
         return contained
 
     def define_containment_volumes(self, margin, cathode_margin=None,
                                    mode ='module'):
-        """
-        This function defines a list of volumes to check containment against.
+        """This function defines a list of volumes to check containment against.
+
         If the containment is checked against a constant volume, it is more
         efficient to call this function once and call `check_containment`
         reapitedly after.
@@ -586,8 +584,7 @@ class Geometry:
 
     def adapt_volume(self, ref_volume, margin, cathode_margin=None,
                      module_id=None, tpc_id=None):
-        """
-        Apply margins from a given volume. Takes care of subtleties
+        """Apply margins from a given volume. Takes care of subtleties
         associated with the cathode, if requested.
 
         Parameters
@@ -625,8 +622,7 @@ class Geometry:
 
     @staticmethod
     def merge_volumes(volumes):
-        """
-        Given a list of volumes and their boundaries, find the smallest box
+        """Given a list of volumes and their boundaries, find the smallest box
         that encompass all volumes combined.
 
         Parameters

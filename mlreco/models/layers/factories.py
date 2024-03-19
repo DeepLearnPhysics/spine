@@ -26,7 +26,7 @@ def final_construct(in_channels, **cfg):
     return instantiate(final_layers, cfg, in_channels=in_channels)
 
 
-def loss_fn_construct(cfg, functional=False):
+def loss_fn_construct(cfg, functional=False, **kwargs):
     """Instantiates a loss function from a configuration dictionary.
 
     Parameters
@@ -35,7 +35,8 @@ def loss_fn_construct(cfg, functional=False):
         Final layer configuration
     functional : bool, default False
         Whether to return the loss function as a functional
-        
+    **kwargs : dict, optional
+        Additional parameters to pass to the loss function
 
     Returns
     -------
@@ -43,7 +44,9 @@ def loss_fn_construct(cfg, functional=False):
         Instantiated loss function
     """
     from torch import nn
-    from mlreco.models.experimental.bayes.evidential import EVDLoss
+    from .common.losses import LogRMSE, BerHuLoss
+    from mlreco.models.experimental.bayes.evidential import (
+            EVDLoss, EDLRegressionLoss)
 
     loss_dict = {
         'ce': nn.CrossEntropyLoss,
@@ -53,7 +56,10 @@ def loss_fn_construct(cfg, functional=False):
         'l1': nn.L1Loss,
         'l2': nn.MSELoss,
         'mse': nn.MSELoss,
-        'evd': EVDLoss
+        'log_rmse': LogRMSE,
+        'berhu': BerHuLoss,
+        'evd': EVDLoss,
+        'edl': EDLRegressionLoss
     }
 
     loss_dict_func = {
@@ -67,7 +73,7 @@ def loss_fn_construct(cfg, functional=False):
     }
 
     if not functional:
-        return instantiate(loss_dict, cfg)
+        return instantiate(loss_dict, cfg, **kwargs)
     else:
         assert (isinstance(cfg, str) or
                 ('name' in cfg and len(cfg) == 1)), (

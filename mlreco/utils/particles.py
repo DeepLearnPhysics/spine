@@ -18,8 +18,8 @@ def process_particles(particles, particles_mpv, neutrinos):
     - Adds interaction ID information if it is not provided
     - Adds the true neutrino ID this particle came from
     - Adds a simplified enumerated particle species ID
-    - Adds a flag as to whether a particle is a primary within an interaction
-    - Adds a flag as to whether a particle is a primary within an EM shower
+    - Adds a flag as to whether a particle is a primary within its interaction
+    - Adds a flag as to whether a particle is a primary within its group
 
     Parameters
     ----------
@@ -43,11 +43,11 @@ def process_particles(particles, particles_mpv, neutrinos):
     # Get the neutrino ID of each particle
     nu_ids = get_nu_ids(particles, interaction_ids, particles_mpv, neutrinos)
 
-    # Get the shower primary status of each particle
-    shower_primary_ids = get_shower_primary_ids(particles, valid_mask)
+    # Get the group primary status of each particle
+    group_primary_ids = get_group_primary_ids(particles, valid_mask)
 
     # Get the interaction primary status of each particle
-    group_primary_ids = get_group_primary_ids(particles, valid_mask)
+    inter_primary_ids = get_inter_primary_ids(particles, valid_mask)
 
     # Get the particle species (PID) of each particle
     pids = get_particle_ids(particles, valid_mask)
@@ -56,8 +56,8 @@ def process_particles(particles, particles_mpv, neutrinos):
     for i, p in enumerate(particles):
         p.interaction_id = interaction_ids[i]
         p.nu_id = nu_ids[i]
-        p.shower_primary = shower_primary_ids[i]
-        p.interaction_primary = group_primary_ids[i]
+        p.group_primary = group_primary_ids[i]
+        p.interaction_primary = inter_primary_ids[i]
         p.pid = pids[i]
 
 
@@ -184,7 +184,7 @@ def get_nu_ids(particles, inter_ids, particles_mpv=None, neutrinos=None):
              "not an exact method and might lead to unexpected results.")
              
         # Loop over the interactions
-        primary_ids = get_group_primary_ids(particles, inter_ids > -1)
+        primary_ids = get_inter_primary_ids(particles, inter_ids > -1)
         nu_id = 0
         for i in np.unique(inter_ids):
             # If the interaction ID is invalid, skip
@@ -222,8 +222,8 @@ def get_nu_ids(particles, inter_ids, particles_mpv=None, neutrinos=None):
 
 
 
-def get_shower_primary_ids(particles, valid_mask):
-    """Gets the shower primary status of shower fragments.
+def get_group_primary_ids(particles, valid_mask):
+    """Gets the group primary status of particle fragments.
 
     This could be handled somewhere else (e.g. Supera).
 
@@ -237,30 +237,27 @@ def get_shower_primary_ids(particles, valid_mask):
     Results
     -------
     np.ndarray
-        (P) List of particle shower primary IDs, one per true particle instance
+        (P) List of particle group primary IDs, one per true particle instance
     """
     # Loop over the list of particle groups
     primary_ids = np.zeros(len(particles), dtype=int)
     group_ids   = np.array([p.group_id for p in particles], dtype=int)
     for g in np.unique(group_ids):
-        # If the particle group has invalid labeling or if it is a track
-        # group, the concept of shower primary is ill-defined
-        if (g == INVAL_ID or
-            not valid_mask[g] or
-            particles[g].shape == TRACK_SHP):
-            group_index = np.where(group_ids == g)[0]
+        # If the particle group has invalid labeling, the concept of group
+        # primary is ill-defined
+        p = particles[g]
+        group_index = np.where(group_ids == g)[0]
+        if g == INVAL_ID or not valid_mask[g]:
             primary_ids[group_index] = -1
             continue
 
         # If a group originates from a Delta or a Michel, it has a primary
-        p = particles[g]
         if p.shape == MICHL_SHP or p.shape == DELTA_SHP:
             primary_ids[g] = 1
             continue
 
-        # If a shower group's parent fragment the first in time,
+        # If a particle group's parent fragment is the first in time,
         # it is a valid primary
-        group_index = np.where(group_ids == g)[0]
         clust_times = np.array([particles[i].t for i in group_index])
         min_id = np.argmin(clust_times)
         if group_index[min_id] == g:
@@ -269,7 +266,7 @@ def get_shower_primary_ids(particles, valid_mask):
     return primary_ids
 
 
-def get_group_primary_ids(particles, valid_mask):
+def get_inter_primary_ids(particles, valid_mask):
     """Gets the interaction primary ID for each particle.
 
     Parameters

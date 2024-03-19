@@ -204,7 +204,7 @@ class GrapPA(torch.nn.Module):
             setattr(self, f'{prefix}_pred_keys', [])
             return
 
-        # If the final layer is specified as a number, use a linear layer
+        # If the final layer is specified as a number, use linear layer
         if isinstance(final, int):
             final = {'name':'linear', 'out_channels':final}
 
@@ -218,9 +218,12 @@ class GrapPA(torch.nn.Module):
             setattr(self, out_key, final_construct(in_channels, **final))
         else:
             # Otherwise, initialzie one final layer per prediction type
-            for key, cfg in final:
+            for key, cfg in final.items():
+                # If the final layer is specified as a number, use linear layer
                 out_key = f'{prefix}_{key}_pred'
                 out_keys.append(out_key)
+                if isinstance(cfg, int):
+                    cfg = {'name':'linear', 'out_channels':cfg}
                 setattr(self, out_key, final_construct(in_channels, **cfg))
 
         setattr(self, f'{prefix}_pred_keys', out_keys)
@@ -471,7 +474,7 @@ class GrapPALoss(torch.nn.modules.loss._Loss):
             setattr(self, loss_key, constructor(loss))
         else:
             # Otherwise, initialzie one loss per prediction type
-            for key, cfg in loss:
+            for key, cfg in loss.items():
                 loss_key = f'{prefix}_{key}_loss'
                 loss_keys.append(loss_key)
                 setattr(self, loss_key, constructor(cfg))
@@ -506,11 +509,19 @@ class GrapPALoss(torch.nn.modules.loss._Loss):
         num_losses = 0
         loss, accuracy = 0., 0.
         for t in self.out_types:
-            for key in getattr(self, f'{t}_loss_keys'):
+            loss_keys = getattr(self, f'{t}_loss_keys')
+            for key in loss_keys:
+                # If the number of loss keys is > 1 for this type of
+                # prediction, must rename the prediction appropriately
+                extra = {}
+                if len(loss_keys) > 1:
+                    extra[f'{t}_pred'] = output[key.replace('loss', 'pred')]
+
                 # Compute the loss
                 out = getattr(self, key)(
                         clust_label=clust_label, coord_label=coord_label,
-                        graph_label=graph_label, iteration=iteration, **output)
+                        graph_label=graph_label, iteration=iteration, 
+                        **output, **extra)
 
                 # Increment the loss and accuracy
                 loss += out['loss']
@@ -524,6 +535,6 @@ class GrapPALoss(torch.nn.modules.loss._Loss):
 
         # Append the total loss and total accuracy
         result['loss'] = torch.sum(loss)/num_losses
-        result['accuracy'] = torch.sum(accuracy)/num_losses
+        result['accuracy'] = np.sum(accuracy)/num_losses
 
         return result

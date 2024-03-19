@@ -16,7 +16,7 @@ from mlreco.utils.globals import (BATCH_COL,
                                   NU_COL,
                                   TRACK_SHP,
                                   SHAPE_COL,
-                                  PGRP_COL,
+                                  PRINT_COL,
                                   PID_COL)
 from analysis.classes import (Particle,
                               TruthParticle,
@@ -859,7 +859,7 @@ def get_truth_particle_labels(labels_nonghost, mask, id=-1, verbose=False):
         nu_id = nu_id[0]
 
     # Primary ID
-    primary_id, primary_counts = np.unique(labels_nonghost[mask][:, PGRP_COL].astype(int),
+    primary_id, primary_counts = np.unique(labels_nonghost[mask][:, PRINT_COL].astype(int),
                                 return_counts=True)
     if primary_id.shape[0] > 1:
         if verbose:

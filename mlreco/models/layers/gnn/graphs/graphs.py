@@ -9,7 +9,7 @@ from scipy.spatial import Delaunay
 from scipy.sparse.csgraph import minimum_spanning_tree
 
 import mlreco.utils.numba_local as nbl
-from mlreco.utils.globals import COORD_COLS, PGRP_COL
+from mlreco.utils.globals import COORD_COLS, PRINT_COL
 from mlreco.utils.data_structures import TensorBatch, IndexBatch
 from mlreco.utils.gnn.cluster import get_cluster_label
 from mlreco.utils.gnn.network import complete_graph
@@ -375,7 +375,7 @@ class BipartiteGraph(GraphBase):
         """
         # Get the primary status of each node
         primaries = get_cluster_label(
-                data.tensor, clusts.index_list, column=PGRP_COL)
+                data.tensor, clusts.index_list, column=PRINT_COL)
 
         return self._generate(
                 clusts.batch_ids, primaries, self.directed, self.directed_to)

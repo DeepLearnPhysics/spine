@@ -18,9 +18,6 @@ from .clean_data import clean_sparse_data
 from mlreco.utils.globals import SHAPE_COL, DELTA_SHP, UNKWN_SHP
 from mlreco.utils.data_structures import Meta
 from mlreco.utils.unwrap import Unwrapper
-from mlreco.utils.particles import (get_interaction_ids, get_nu_ids,
-                                    get_particle_ids, get_shower_primary_ids,
-                                    get_group_primary_ids)
 
 __all__ = ['Cluster2DParser', 'Cluster3DParser',
            'Cluster3DChargeRescaledParser', 'Cluster3DMultiModuleParser']
@@ -214,7 +211,7 @@ class Cluster3DParser(Parser):
             (N, 2/14) array of features, minimally [voxel value, cluster ID].
             If `add_particle_info` is `True`, the additonal columns are
             [particle ID, group ID, interaction ID, neutrino ID, particle type,
-            shower primary bool, primary group bool, vertex x, vertex y,
+            group primary bool, interaction primary bool, vertex x, vertex y,
             vertex z, momentum, semantic type]
         meta : Meta
             Metadata of the parsed image
@@ -248,8 +245,8 @@ class Cluster3DParser(Parser):
 
             # Store the type/primary status
             labels['type']    = [p.pid for p in particles]
-            labels['pshower'] = [p.shower_primary for p in particles]
-            labels['pgroup']  = [p.interaction_primary for p in particles]
+            labels['pgroup']  = [p.group_primary for p in particles]
+            labels['pinter']  = [p.interaction_primary for p in particles]
 
             # Store the vertex and momentum
             labels['vtx_x']   = [p.ancestor_position[0] for p in particles]
@@ -262,7 +259,7 @@ class Cluster3DParser(Parser):
 
             # If requested, give invalid labels to a subset of particles
             if not self.type_include_secondary:
-                secondary_mask = np.where(np.array(labels['pgroup']) < 1)[0]
+                secondary_mask = np.where(np.array(labels['pinter']) < 1)[0]
                 labels['type'] = np.asarray(labels['type'])
                 labels['type'][secondary_mask] = -1
 
@@ -272,8 +269,8 @@ class Cluster3DParser(Parser):
                     labels['type'] = np.asarray(labels['type'])
                     labels['type'][mpr_mask] = -1
                 if not self.primary_include_mpr:
-                    labels['pgroup'] = np.asarray(labels['pgroup'])
-                    labels['pgroup'][mpr_mask] = -1
+                    labels['pinter'] = np.asarray(labels['pinter'])
+                    labels['pinter'][mpr_mask] = -1
 
         # Loop over clusters, store information
         clusters_voxels, clusters_features = [], []
@@ -399,7 +396,7 @@ class Cluster3DChargeRescaledParser(Cluster3DParser):
             (N, 2/14) array of features, minimally [voxel value, cluster ID].
             If `add_particle_info` is `True`, the additonal columns are
             [group ID, interaction ID, neutrino ID, particle type,
-            shower primary bool, primary group bool, vertex x, vertex y,
+            group primary bool, interaction primary bool, vertex x, vertex y,
             vertex z, momentum, semantic type, particle ID]
         meta : Meta
             Metadata of the parsed image
@@ -439,7 +436,7 @@ class Cluster3DMultiModuleParser(Cluster3DParser):
             (N, 2/14) array of features, minimally [voxel value, cluster ID].
             If `add_particle_info` is `True`, the additonal columns are
             [group ID, interaction ID, neutrino ID, particle type,
-            shower primary bool, primary group bool, vertex x, vertex y,
+            group primary bool, interaction primary bool, vertex x, vertex y,
             vertex z, momentum, semantic type, particle ID]
         meta : Meta
             Metadata of the parsed image

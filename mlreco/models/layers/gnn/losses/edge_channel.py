@@ -5,7 +5,8 @@ import numpy as np
 
 from mlreco.models.layers.factories import loss_fn_construct
 
-from mlreco.utils.globals import CLUST_COL, GROUP_COL, PART_COL, PSHOW_COL
+from mlreco.utils.globals import CLUST_COL, GROUP_COL, PART_COL, PRGRP_COL
+from mlreco.utils.weighting import get_class_weights
 from mlreco.utils.gnn.cluster import get_cluster_label_batch
 from mlreco.utils.gnn.evaluation import (
         edge_assignment_batch, edge_assignment_from_graph_batch,
@@ -36,13 +37,13 @@ class EdgeChannelLoss(torch.nn.Module):
     """
     name = 'channel'
 
-    def __init__(self, target=GROUP_COL, mode='group', balance_loss=False,
+    def __init__(self, target, mode='group', balance_loss=False,
                  high_purity=False, loss='ce'):
         """Initialize the primary identification loss function.
 
         Parameters
         ----------
-        target : int, default GROUP_COL
+        target : int
             Column in the label tensor specifying the aggregation target
         mode : str, default 'group'
             Loss mode, one of 'group', 'forest' or 'particle_forest'
@@ -112,7 +113,7 @@ class EdgeChannelLoss(torch.nn.Module):
                     "building shower groups.")
 
             part_ids = get_cluster_label_batch(clust_label, clusts, PART_COL)
-            prim_ids = get_cluster_label_batch(clust_label, clusts, PSHOW_COL)
+            prim_ids = get_cluster_label_batch(clust_label, clusts, PRGRP_COL)
             valid_mask &= edge_purity_mask_batch(
                     edge_index, part_ids, group_ids, prim_ids)
 
@@ -145,7 +146,7 @@ class EdgeChannelLoss(torch.nn.Module):
         # Apply the mask and convert the labels to a torch.Tensor
         valid_index = np.where(valid_mask)[0]
         edge_assn = edge_assn.to_tensor(
-                dtype = torch.long, device=edge_pred.device)
+                dtype=torch.long, device=edge_pred.device)
         edge_pred = edge_pred.tensor[valid_index]
         edge_assn = edge_assn.tensor[valid_index]
 
@@ -155,17 +156,18 @@ class EdgeChannelLoss(torch.nn.Module):
             weights = get_class_weights(edge_assn, num_classes=2)
 
         loss = self.loss_fn(
-                edge_pred, edge_assn, weight=weights, reduction='none').sum()
-        if len(valid_mask):
-            loss /= len(valid_mask)
+                edge_pred, edge_assn, weight=weights, reduction='sum')
+        if len(valid_index):
+            loss /= len(valid_index)
 
         # Compute accuracy of assignment (fraction of correctly assigned edges)
-        acc = torch.sum(torch.argmax(edge_pred, dim=1) == edge_assn).float()
-        if len(valid_mask):
-            acc /= len(valid_mask)
+        acc = 1.
+        if len(valid_index):
+            acc = float(torch.sum(torch.argmax(edge_pred, dim=1) == edge_assn))
+            acc /= len(valid_index)
 
         return {
             'accuracy': acc,
             'loss': loss,
-            'count': len(valid_mask)
+            'count': len(valid_index)
         }

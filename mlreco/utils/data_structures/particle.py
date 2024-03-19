@@ -35,8 +35,8 @@ class Particle:
         Index of the neutrino this particle belongs to
     interaction_primary : int
         Whether the particle is primary in its interaction or not
-    shower_primary : int
-        If EM particle, whether it is primary in its shower group
+    group_primary : int
+        Whether this particle is primary in its group or not
     parent_id : int
         Index of the parent particle
     children_id : np.ndarray
@@ -105,7 +105,7 @@ class Particle:
     interaction_id: int = -1
     nu_id: int = -1
     interaction_primary: int = -1
-    shower_primary: int = -1
+    group_primary: int = -1
     parent_id: int = -1
     children_id: int = np.empty(0, dtype=np.int64)
     track_id: int = -1

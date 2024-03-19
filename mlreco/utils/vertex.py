@@ -2,7 +2,7 @@ import numpy as np
 import numba as nb
 
 from . import numba_local as nbl
-from .globals import TRACK_SHP, INTER_COL, PGRP_COL, VTX_COLS
+from .globals import TRACK_SHP, INTER_COL, PRINT_COL, VTX_COLS
 
 
 def get_vertex(start_points,
@@ -283,7 +283,7 @@ def get_truth_vertex(cluster_label,
         True vertex coordinates. Shape (3,)
     """
     inter_mask = cluster_label[data_idx][:, INTER_COL] == inter_idx
-    primary_mask = cluster_label[data_idx][:, PGRP_COL] == primary_label
+    primary_mask = cluster_label[data_idx][:, PRINT_COL] == primary_label
     mask = inter_mask if (inter_mask & primary_mask).sum() == 0 else inter_mask & primary_mask
     vtx, counts = np.unique(cluster_label[data_idx][mask][:, [VTX_COLS[0], VTX_COLS[1], VTX_COLS[2]]], axis=0, return_counts=True)
     vtx = vtx[np.argmax(counts)]

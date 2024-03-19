@@ -16,4 +16,4 @@ logging.captureWarnings(True)
 logger = logging.getLogger('mlreco')
 
 # Configure the warnings package to only issue warnings once
-warnings.simplefilter('once')
+warnings.simplefilter('default')
