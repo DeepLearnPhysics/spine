@@ -389,18 +389,25 @@ class NodeEdgeHybridLoss(torch.nn.modules.loss._Loss):
         'edge_accuracy' : ['scalar']
     }
 
-    def __init__(self, cfg, name='graph_spice_loss'):
+    def __init__(self, 
+                 invert=True, 
+                 edge_loss_cfg=None, 
+                 use_cluster_labels=True, 
+                 embedding_loss_weight=1.0,
+                 **kwargs):
         super(NodeEdgeHybridLoss, self).__init__()
-        # print("CFG + ", cfg)
-        self.loss_config = cfg #[name]
-        self.loss_fn = GraphSPICEEmbeddingLoss(cfg)
-        self.edge_loss_cfg = self.loss_config.get('edge_loss_cfg', {})
-        self.invert = cfg.get('invert', True)
-        self.edge_loss = WeightedEdgeLoss(invert=self.invert, **self.edge_loss_cfg)
-        # self.is_eval = cfg['eval']
+        
+        self.loss_fn = GraphSPICEEmbeddingLoss(kwargs)
+        if edge_loss_cfg is None:
+            edge_loss_cfg = {}
+        self.edge_loss_cfg = edge_loss_cfg
+        self.invert = invert
+        self.edge_loss = WeightedEdgeLoss(invert=self.invert, 
+                                          **self.edge_loss_cfg)
+
         self.acc_fn = IoUScore()
-        self.use_cluster_labels = cfg.get('use_cluster_labels', True)
-        self.embedding_loss_weight = cfg.get('embedding_loss_weight', 1.0)
+        self.use_cluster_labels = use_cluster_labels
+        self.embedding_loss_weight = embedding_loss_weight
 
         self.RETURNS.update(self.loss_fn.RETURNS)
 
@@ -409,8 +416,6 @@ class NodeEdgeHybridLoss(torch.nn.modules.loss._Loss):
         group_label = [cluster_label[0][:, [0, 1, 2, 3, 5]]]
 
         res = self.loss_fn(result, segment_label, group_label)
-        # print(result)
-        # edge_score = result['edge_score'][0].squeeze()
         edge_score = result['edge_attr'][0].squeeze()
         x = edge_score
         pred = x >= 0
@@ -448,19 +453,33 @@ class EdgeOnlyLoss(torch.nn.modules.loss._Loss):
         'edge_accuracy' : ['scalar']
     }
 
-    def __init__(self, cfg, name='graph_spice_loss'):
+    def __init__(self, edge_loss_cfg=None, invert=True, 
+                 use_cluster_labels=True, **kwargs):
         super(EdgeOnlyLoss, self).__init__()
-        # print("CFG + ", cfg)
-        self.loss_config = cfg #[name]
-        # self.loss_fn = GraphSPICEEmbeddingLoss(cfg)
-        self.edge_loss_cfg = self.loss_config.get('edge_loss_cfg', {})
-        self.invert = cfg.get('invert', True)
-        self.edge_loss = WeightedEdgeLoss(invert=self.invert, **self.edge_loss_cfg)
-        # self.is_eval = cfg['eval']
-        self.acc_fn = IoUScore()
-        self.use_cluster_labels = cfg.get('use_cluster_labels', True)
-        self.equal_sampling = cfg.get('sample_edges', False)
-        self.min_sampled_edges = cfg.get('min_sampled_edges', 1000)
+
+        if edge_loss_cfg is None:
+            edge_loss_cfg = {}
+        self.edge_loss_cfg      = edge_loss_cfg
+        
+        self.invert             = invert
+        self.edge_loss          = WeightedEdgeLoss(invert=self.invert, 
+                                                   **self.edge_loss_cfg)
+        self.acc_fn             = IoUScore()
+        self.use_cluster_labels = use_cluster_labels
+        self.equal_sampling     = kwargs.get('sample_edges', False)
+        self.min_sampled_edges  = kwargs.get('min_sampled_edges', 1000)
+
+        # # print("CFG + ", cfg)
+        # self.loss_config = cfg #[name]
+        # # self.loss_fn = GraphSPICEEmbeddingLoss(cfg)
+        # self.edge_loss_cfg = self.loss_config.get('edge_loss_cfg', {})
+        # self.invert = cfg.get('invert', True)
+        # self.edge_loss = WeightedEdgeLoss(invert=self.invert, **self.edge_loss_cfg)
+        # # self.is_eval = cfg['eval']
+        # self.acc_fn = IoUScore()
+        # self.use_cluster_labels = cfg.get('use_cluster_labels', True)
+        # self.equal_sampling = cfg.get('sample_edges', False)
+        # self.min_sampled_edges = cfg.get('min_sampled_edges', 1000)
         
         
     def sample_edges(self, edge_score, edge_truth):

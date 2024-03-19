@@ -9,8 +9,9 @@ from mlreco.models.layers.cluster_cnn.graph_spice_embedder import GraphSPICEEmbe
 
 from pprint import pprint
 from mlreco.utils.cluster.cluster_graph_constructor import ClusterGraphConstructor
-from mlreco.utils.cluster.fragmenter import GraphSPICEFragmentManager
-from mlreco.utils.globals import SHAPE_COL
+from mlreco.utils.unwrap import Unwrapper
+from mlreco.utils.globals import *
+from mlreco.utils.data_structures import TensorBatch
 
 class GraphSPICE(nn.Module):
     '''
@@ -128,81 +129,114 @@ class GraphSPICE(nn.Module):
 
     MODULES = ['constructor_cfg', 'embedder_cfg', 'kernel_cfg', 'gspice_fragment_manager']
 
+    # RETURNS = {
+    #     'image_id'     : ['tensor'],
+    #     'coordinates'  : ['tensor'],
+    #     'batch'        : ['tensor', 'image_id'],
+    #     'x'            : ['tensor', 'image_id'],
+    #     'pos'          : ['tensor', 'image_id'],
+    #     'node_truth'   : ['tensor', 'image_id'],
+    #     'voxel_id'     : ['tensor', 'image_id'],
+    #     'graph_key'    : ['tensor'],
+    #     'graph_id'     : ['tensor', 'graph_key'],
+    #     'semantic_id'  : ['tensor', 'image_id'],
+    #     'full_edge_index'   : ['edge_tensor', ['full_edge_index', 'image_id']],
+    #     'edge_index'   : ['edge_tensor', ['full_edge_index', 'image_id']],
+    #     'edge_batch'   : ['edge_tensor', ['full_edge_index', 'image_id']],
+    #     'edge_image_id': ['edge_tensor', ['full_edge_index', 'image_id']],
+    #     'edge_label'   : ['edge_tensor', ['full_edge_index', 'image_id']],
+    #     'edge_attr'    : ['edge_tensor', ['full_edge_index', 'image_id']],
+    #     'edge_pred'    : ['edge_tensor', ['full_edge_index', 'image_id']],
+    #     'edge_prob'    : ['edge_tensor', ['full_edge_index', 'image_id']]
+    # }
+    
     RETURNS = {
-        'image_id'     : ['tensor'],
-        'coordinates'  : ['tensor'],
-        'batch'        : ['tensor', 'image_id'],
-        'x'            : ['tensor', 'image_id'],
-        'pos'          : ['tensor', 'image_id'],
-        'node_truth'   : ['tensor', 'image_id'],
-        'voxel_id'     : ['tensor', 'image_id'],
-        'graph_key'    : ['tensor'],
-        'graph_id'     : ['tensor', 'graph_key'],
-        'semantic_id'  : ['tensor', 'image_id'],
-        'full_edge_index'   : ['edge_tensor', ['full_edge_index', 'image_id']],
-        'edge_index'   : ['edge_tensor', ['full_edge_index', 'image_id']],
-        'edge_batch'   : ['edge_tensor', ['full_edge_index', 'image_id']],
-        'edge_image_id': ['edge_tensor', ['full_edge_index', 'image_id']],
-        'edge_label'   : ['edge_tensor', ['full_edge_index', 'image_id']],
-        'edge_attr'    : ['edge_tensor', ['full_edge_index', 'image_id']],
-        'edge_pred'    : ['edge_tensor', ['full_edge_index', 'image_id']],
-        'edge_prob'    : ['edge_tensor', ['full_edge_index', 'image_id']],
-        'filtered_input': ['tensor'],
-        'gspice_output': ['tensor'],
-        'fragment_batch_ids' : ['tensor'],
-        'fragment_clusts': ['tensor', 'fragment_batch_ids'],
-        'fragment_seg' : ['tensor', 'fragment_batch_ids'],
+        'image_id': Unwrapper.Rule(method='tensor'),
+        'coordinates': Unwrapper.Rule(method='tensor'),
+        'batch': Unwrapper.Rule(method='tensor', ref_key='image_id'),
+        'x': Unwrapper.Rule(method='tensor', ref_key='image_id'),
+        'pos': Unwrapper.Rule(method='tensor', ref_key='image_id'),
+        'node_truth': Unwrapper.Rule(method='tensor', ref_key='image_id'),
+        'voxel_id': Unwrapper.Rule(method='tensor', ref_key='image_id'),
+        'graph_key': Unwrapper.Rule(method='tensor'),
+        'graph_id': Unwrapper.Rule(method='tensor', ref_key='graph_key'),
+        'semantic_id': Unwrapper.Rule(method='tensor', ref_key='image_id'),
+        # TODO: Add other returns when unwrapper rules are implemented
     }
 
-    def __init__(self, cfg, name='graph_spice'):
+    def __init__(self, graph_spice, graph_spice_loss=None):
+        """Initialize the S3C (Supervised Conn. Components Clustering) Model
+
+        Parameters
+        ----------
+        graph_spice : dict
+            GraphSPICE configuration dictionary
+        name : str, optional
+            _description_, by default 'graph_spice'
+        """
         super(GraphSPICE, self).__init__()
-        self.model_config = cfg.get(name, {})
-        self.skip_classes = self.model_config.get('skip_classes', [2, 3, 4])
-        self.dimension = self.model_config.get('dimension', 3)
-        self.embedder_name = self.model_config.get('embedder', 'graph_spice_embedder')
-        self.embedder = GraphSPICEEmbedder(self.model_config.get('embedder_cfg', {}))
-        self.node_dim = self.model_config.get('node_dim', 16)
-
-        self.kernel_cfg = self.model_config.get('kernel_cfg', {})
-        self.kernel_fn = gs_kernel_construct(self.kernel_cfg)
-        self.invert = self.model_config.get('invert', True)
-
-        constructor_cfg = self.model_config.get('constructor_cfg', {})
-
-        self.use_raw_features = self.model_config.get('use_raw_features', False)
-
-        # Cluster Graph Manager
-        # `training` needs to be set at forward time.
-        # Before that, self.training is always True.
-        self.gs_manager = ClusterGraphConstructor(constructor_cfg)
         
-        self.make_fragments = self.model_config.get('make_fragments', False)
-        self.batch_col = 0
-        if self.make_fragments:
-            self._gspice_fragment_manager = GraphSPICEFragmentManager(
-                cfg.get('graph_spice', {}).get('gspice_fragment_manager', {}), 
-                batch_col=self.batch_col)
-
+        self.process_model_config(**graph_spice)
         self.RETURNS.update(self.embedder.RETURNS)
+        
+        
+    def process_model_config(self, 
+                             skip_classes=[4], 
+                             dimension=3, 
+                             min_points=3, 
+                             node_dim=22,
+                             use_raw_features=False, 
+                             constructor_cfg=None, 
+                             embedder_cfg=None,
+                             kernel_cfg=None,
+                             invert=True,
+                             use_true_labels=False,
+                             make_fragments=False):
+        
+        if constructor_cfg is None:
+            constructor_cfg = {}
+        if embedder_cfg is None:
+            embedder_cfg = {}
+        if kernel_cfg is None:
+            kernel_cfg = {}
+        
+        self.skip_classes     = skip_classes
+        self.dimension        = dimension
+        self.node_dim         = node_dim
+        self.min_points       = min_points
+        self.use_raw_features = use_raw_features
+        self.use_true_labels  = use_true_labels
+        self.make_fragments   = make_fragments
+        self.invert           = invert
+        
+        self.embedder   = GraphSPICEEmbedder(embedder_cfg)
+        self.gs_manager = ClusterGraphConstructor(constructor_cfg)
+        self.kernel_fn  = gs_kernel_construct(kernel_cfg)
 
 
     def weight_initialization(self):
         for m in self.modules():
             if isinstance(m, ME.MinkowskiConvolution):
-                ME.utils.kaiming_normal_(m.kernel, mode="fan_out", nonlinearity="relu")
+                ME.utils.kaiming_normal_(m.kernel, 
+                                         mode="fan_out", 
+                                         nonlinearity="relu")
 
             if isinstance(m, ME.MinkowskiBatchNorm):
                 nn.init.constant_(m.bn.weight, 1)
                 nn.init.constant_(m.bn.bias, 0)
 
-    def filter_class(self, input):
+
+    def filter_class(self, input_tensors):
         '''
         Filter classes according to segmentation label.
         '''
-        point_cloud, label = input
-        mask = ~np.isin(label[:, -1].detach().cpu().numpy(), self.skip_classes)
-        x = [point_cloud[mask], label[mask]]
-        return x
+        point_cloud, label = input_tensors
+        mask = ~np.isin(label.tensor[:, -1].detach().cpu().numpy(), 
+                        self.skip_classes)
+        # valid_points, labels = point_cloud[mask], label[mask]
+        valid_points = TensorBatch(point_cloud.tensor[mask], batch_size=input_tensors[0].batch_size)
+        labels = TensorBatch(label.tensor[mask], batch_size=input_tensors[1].batch_size)
+        return valid_points, labels
     
 
     def construct_fragments(self, input):
@@ -229,16 +263,36 @@ class GraphSPICE(nn.Module):
         return frags
 
 
-    def forward(self, input):
-        '''
+    def forward(self, input_data, cluster_label=None):
+        '''Run a batch of data through the forward function.
+        
+        Parameters
+        ----------
+        input_data : TensorBatch
+            (N, 1 + D + N_f) tensor of voxel/value pairs
+            - N is the the total number of voxels in the image
+            - 1 is the batch ID
+            - D is the number of dimensions in the input image
+            - N_f is the number of features per voxel
+            
+        cluster_label : TensorBatch, optional
+            (N, 1 + D + 1 + N_labels) tensor of voxel/cluster label pairs. 
 
         '''
+        
         # Pass input through the model
+        
+        input_tensors = [input_data, cluster_label]
+        
         self.gs_manager.training = self.training
-        point_cloud, labels = self.filter_class(input)
-        res = self.embedder([point_cloud])
+        
+        valid_points, labels = self.filter_class(input_tensors)
+        
+        res = self.embedder(valid_points)
 
-        res['coordinates'] = [point_cloud[:, :4]]
+        res['coordinates'] = TensorBatch(valid_points.tensor[:, :COORD_COLS[-1]+1], 
+                                         batch_size=input_data.batch_size)
+        
         if self.use_raw_features:
             res['hypergraph_features'] = res['features']
 
@@ -249,7 +303,7 @@ class GraphSPICE(nn.Module):
                                 invert=self.invert)
         
         if self.make_fragments:
-            frags = self.construct_fragments(input)
+            frags = self.construct_fragments(valid_points)
             res.update(frags)
         
         graph_state = self.gs_manager.save_state(unwrapped=False)
@@ -296,45 +350,54 @@ class GraphSPICELoss(nn.Module):
     GraphSPICE
     """
 
-    RETURNS = {}
+    RETURNS = {
+        'loss': Unwrapper.Rule(method='scalar'),
+        'accuracy': Unwrapper.Rule(method='scalar'),
+    }
 
-    def __init__(self, cfg, name='graph_spice_loss'):
+    def __init__(self, graph_spice, graph_spice_loss=None):
         super(GraphSPICELoss, self).__init__()
-        self.model_config = cfg.get('graph_spice', {})
-        self.loss_config = cfg.get(name, {})
 
-        self.loss_name = self.loss_config.get('name', 'se_lovasz_inter')
-        self.skip_classes = self.model_config.get('skip_classes', [2, 3, 4])
-        # We use the semantic label -1 to account
-        # for semantic prediction mistakes.
-        # self.skip_classes += [-1]
-        # self.eval_mode = self.loss_config.get('eval', False)
-        self.loss_fn = spice_loss_construct(self.loss_name)(self.loss_config)
+        self.process_model_config(**graph_spice)
+        self.process_loss_config(**graph_spice_loss)
 
         self.RETURNS.update(self.loss_fn.RETURNS)
-
-        constructor_cfg = self.model_config.get('constructor_cfg', {})
+        
+        
+    def process_model_config(self, skip_classes, invert=True, 
+                             constructor_cfg=None, **kwargs):
+        
+        if constructor_cfg is None:
+            constructor_cfg = {}
+            
         self.gs_manager = ClusterGraphConstructor(constructor_cfg)
+        self.skip_classes = skip_classes
+        self.invert = invert
 
-        self.invert = self.loss_config.get('invert', True)
-        self.evaluate_true_accuracy = self.loss_config.get('evaluate_true_accuracy', False)
-        # print("LOSS FN = ", self.loss_fn)
+        
+    def process_loss_config(self, evaluate_true_accuracy=False,
+                            name='se_lovasz_inter', **kwargs):
+
+        self.evaluate_true_accuracy = evaluate_true_accuracy
+        self.loss_fn = spice_loss_construct(name)(**kwargs)
+
 
     def filter_class(self, segment_label, cluster_label):
         '''
         Filter classes according to segmentation label.
         '''
-        mask = ~np.isin(segment_label[0][:, -1].cpu().numpy(), self.skip_classes)
+        mask = ~np.isin(segment_label[0][:, -1].cpu().numpy(), 
+                        self.skip_classes)
         slabel = [segment_label[0][mask]]
         clabel = [cluster_label[0][mask]]
         return slabel, clabel
 
 
-    def forward(self, result, segment_label, cluster_label):
+    def forward(self, segment_label, cluster_label, **result):
         '''
 
         '''
-        # self.gs_manager.replace_state(result)
+        
         self.gs_manager.load_state(result, unwrapped=False)
 
         # if self.invert:
@@ -342,8 +405,11 @@ class GraphSPICELoss(nn.Module):
         # else:
         #     pred_labels = result['edge_score'][0] >= 0.0
         # edge_diff = pred_labels != (result['edge_truth'][0] > 0.5)
+        
+        slabel_tensor = [segment_label.tensor]
+        clabel_tensor = [cluster_label.tensor]
 
-        slabel, clabel = self.filter_class(segment_label, cluster_label)
+        slabel, clabel = self.filter_class(slabel_tensor, clabel_tensor)
         res = self.loss_fn(result, slabel, clabel)
         
         if self.evaluate_true_accuracy:

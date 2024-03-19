@@ -852,7 +852,7 @@ class EdgeIndexBatch(BatchBase):
         """
         indexes = self._split(self._transpose(self.index), self.splits)
         for batch_id in range(self.batch_size):
-            indexes[i] = indexes[i] - self._offsets[batch_id]
+            indexes[batch_id] = indexes[batch_id] - self._offsets[batch_id]
 
         return indexes
 

@@ -18,6 +18,7 @@ from mlreco.utils.globals import *
 from torch_geometric.data import Data, Batch
 
 from mlreco.utils.metrics import ARI, SBD, purity, efficiency
+from mlreco.utils.data_structures import TensorBatch, IndexBatch, EdgeIndexBatch
 from .helpers import ConnectedComponents, knn_sklearn
 import sys
 
@@ -137,23 +138,27 @@ class ClusterGraphConstructor:
             return self._initialize_graph_unwrapped(res, labels, kernel_fn,
                                                     invert=invert)
 
-        features = res['hypergraph_features'][0]
-        batch_indices = res['coordinates'][0][:, BATCH_COL].int()
-        coordinates = res['coordinates'][0][:, COORD_COLS]
-        voxel_indices = torch.arange(coordinates.shape[0]).long().to(coordinates.device)
+        # features = res['hypergraph_features'].tensor
+        # batch_indices = res['coordinates'].tensor[:, BATCH_COL].int()
+        # coordinates = res['coordinates'].tensor[:, COORD_COLS]
         
+        coordinates = res['coordinates']
+        features = res['hypergraph_features']
+        
+        voxel_indices = TensorBatch(torch.arange(coordinates.tensor.shape[0]).long().to(coordinates.device), 
+                                    counts=coordinates.counts)
+
         data_list = []
         graph_id  = 0
 
-        for i, bidx in enumerate(torch.unique(batch_indices)):
-            mask = batch_indices == bidx
-            coords_batch = coordinates[mask]
-            features_batch = features[mask]
-            labels_batch = labels[mask].int()
-            voxel_indices_batch = voxel_indices[mask]
+        for i in range(coordinates.batch_size):
+            coords_batch = coordinates[i]
+            features_batch = features[i]
+            labels_batch = labels[i].int()
+            voxel_indices_batch = voxel_indices[i]
 
             for c in torch.unique(labels_batch[:, SHAPE_COL]):
-                data = self._construct_graph_data(int(bidx),
+                data = self._construct_graph_data(int(i),
                                     int(c),
                                     graph_id,
                                     coords_batch,
@@ -170,7 +175,10 @@ class ClusterGraphConstructor:
     def initialize_graph_unwrapped(self, res, labels, kernel_fn,
                                    invert=False):
         """Same as initialize_graph, but for unwrapped results.
+        
+        TODO: Fix unwrapped behavior for DDP
         """
+        raise NotImplementedError("Unwrapped behavior not yet implemented for DDP!")
         self.clear_data()
         
         features    = res['hypergraph_features']
@@ -336,6 +344,7 @@ class ClusterGraphConstructor:
         
         state_dict = defaultdict(list)
         perm = torch.argsort(self._data.voxel_id)
+
         batch = self._data.batch
         edge_index = self._data.edge_index
         image_id = self._data.image_id
@@ -354,19 +363,44 @@ class ClusterGraphConstructor:
             return state_dict
         else:
             state_dict_wrapped = {}
-            state_dict_wrapped['batch'] = [batch]
-            # assert (image_id == torch.cat(state_dict['image_id'], dim=0)).all()
-            state_dict_wrapped['edge_batch'] = [batch[edge_index[0, :]]]
-            # assert image_id[self._data.edge_index[0, :]] == image_id[self._data.edge_index[1, :]]
-            state_dict_wrapped['edge_image_id'] = [image_id[edge_index[0, :]]]
-            state_dict_wrapped['full_edge_index'] = [edge_index.T]
+
             for key, val in state_dict.items():
                 if isinstance(val[0], torch.Tensor):
                     state_dict_wrapped[key] = [torch.cat(val, dim=0)]
                 else:
                     state_dict_wrapped[key] = [np.array(val).astype(int)]
+                    
+            batch_size = int(image_id.max()) + 1
             
-            return state_dict_wrapped
+            # Convert to TensorBatch
+            out = {}
+            
+            # Nodes
+            out['pos'] = TensorBatch(state_dict_wrapped['pos'][0], batch_size=batch_size)
+
+            # Edges
+            edge_image_id = image_id[edge_index[0, :]].view(-1, 1)
+            out['edge_image_id'] = TensorBatch(edge_image_id, batch_size=batch_size)
+            
+            # Graphs
+            graph_key =  state_dict_wrapped['graph_key'][0]
+            out['graph_key'] = TensorBatch(torch.tensor(graph_key), batch_size=batch_size)
+            
+            # Node Index
+            node_index = torch.cat([batch.view(-1, 1), self._data.voxel_id.view(-1, 1)], dim=1)
+            out['node_index'] = TensorBatch(node_index, counts=out['pos'].counts)
+            
+            for key, val in state_dict_wrapped.items():
+                if val[0].shape[0] == out['pos'].tensor.shape[0]:
+                    out[key] = TensorBatch(val[0], counts=out['pos'].counts)
+                elif val[0].shape[0] == out['edge_image_id'].tensor.shape[0]:
+                    out[key] = TensorBatch(val[0], counts=out['edge_image_id'].counts)
+                elif val[0].shape[0] == out['graph_key'].tensor.shape[0]:
+                    out[key] = TensorBatch(val[0], counts=out['graph_key'].counts)
+                else:
+                    raise ValueError(f"Shape mismatch for {key}!")
+            
+            return out
 
     
     def _load_state_wrapped(self, state_dict):
@@ -375,7 +409,10 @@ class ClusterGraphConstructor:
         optionals = ['node_pred', 'node_truth', 
                      'edge_label', 'edge_pred']
         
-        num_graphs = len(np.unique(state_dict['graph_id'][0]))
+        num_graphs = len(state_dict['graph_id'].tensor)
+        for key, val in state_dict.items():
+            print(key, val)
+        assert False
         for graph_id in range(num_graphs):
             node_mask = state_dict['batch'][0] == graph_id
             edge_mask = state_dict['edge_batch'][0] == graph_id
@@ -405,6 +442,7 @@ class ClusterGraphConstructor:
         if not unwrapped:
             self._load_state_wrapped(state_dict)
         else:
+            raise NotImplementedError("Unwrapped state loading not yet implemented!")
             self.clear_data()
             data_list = []
             optionals  = ['node_pred', 'node_truth', 
