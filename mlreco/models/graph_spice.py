@@ -10,6 +10,8 @@ from mlreco.models.layers.cluster_cnn.graph_spice_embedder import GraphSPICEEmbe
 from pprint import pprint
 from mlreco.utils.cluster.cluster_graph_constructor import ClusterGraphConstructor
 from mlreco.utils.unwrap import Unwrapper
+from mlreco.utils.globals import *
+from mlreco.utils.data_structures import TensorBatch
 
 class GraphSPICE(nn.Module):
     '''
@@ -224,15 +226,17 @@ class GraphSPICE(nn.Module):
                 nn.init.constant_(m.bn.bias, 0)
 
 
-    def filter_class(self, input):
+    def filter_class(self, input_tensors):
         '''
         Filter classes according to segmentation label.
         '''
-        point_cloud, label = input
-        mask = ~np.isin(label[:, -1].detach().cpu().numpy(), 
+        point_cloud, label = input_tensors
+        mask = ~np.isin(label.tensor[:, -1].detach().cpu().numpy(), 
                         self.skip_classes)
-        x = [point_cloud[mask], label[mask]]
-        return x
+        # valid_points, labels = point_cloud[mask], label[mask]
+        valid_points = TensorBatch(point_cloud.tensor[mask], batch_size=input_tensors[0].batch_size)
+        labels = TensorBatch(label.tensor[mask], batch_size=input_tensors[1].batch_size)
+        return valid_points, labels
     
 
     def construct_fragments(self, input):
@@ -260,20 +264,35 @@ class GraphSPICE(nn.Module):
 
 
     def forward(self, input_data, cluster_label=None):
-        '''
+        '''Run a batch of data through the forward function.
+        
+        Parameters
+        ----------
+        input_data : TensorBatch
+            (N, 1 + D + N_f) tensor of voxel/value pairs
+            - N is the the total number of voxels in the image
+            - 1 is the batch ID
+            - D is the number of dimensions in the input image
+            - N_f is the number of features per voxel
+            
+        cluster_label : TensorBatch, optional
+            (N, 1 + D + 1 + N_labels) tensor of voxel/cluster label pairs. 
 
         '''
-        
-        print(input_data)
-        print(cluster_label)
-        assert False
         
         # Pass input through the model
+        
+        input_tensors = [input_data, cluster_label]
+        
         self.gs_manager.training = self.training
-        point_cloud, labels = self.filter_class(input)
-        res = self.embedder([point_cloud])
+        
+        valid_points, labels = self.filter_class(input_tensors)
+        
+        res = self.embedder(valid_points)
 
-        res['coordinates'] = [point_cloud[:, :4]]
+        res['coordinates'] = TensorBatch(valid_points.tensor[:, :COORD_COLS[-1]+1], 
+                                         batch_size=input_data.batch_size)
+        
         if self.use_raw_features:
             res['hypergraph_features'] = res['features']
 
@@ -284,7 +303,7 @@ class GraphSPICE(nn.Module):
                                 invert=self.invert)
         
         if self.make_fragments:
-            frags = self.construct_fragments(input)
+            frags = self.construct_fragments(valid_points)
             res.update(frags)
         
         graph_state = self.gs_manager.save_state(unwrapped=False)
@@ -374,10 +393,11 @@ class GraphSPICELoss(nn.Module):
         return slabel, clabel
 
 
-    def forward(self, result, segment_label, cluster_label):
+    def forward(self, segment_label, cluster_label, **result):
         '''
 
         '''
+        
         self.gs_manager.load_state(result, unwrapped=False)
 
         # if self.invert:
@@ -385,8 +405,11 @@ class GraphSPICELoss(nn.Module):
         # else:
         #     pred_labels = result['edge_score'][0] >= 0.0
         # edge_diff = pred_labels != (result['edge_truth'][0] > 0.5)
+        
+        slabel_tensor = [segment_label.tensor]
+        clabel_tensor = [cluster_label.tensor]
 
-        slabel, clabel = self.filter_class(segment_label, cluster_label)
+        slabel, clabel = self.filter_class(slabel_tensor, clabel_tensor)
         res = self.loss_fn(result, slabel, clabel)
         
         if self.evaluate_true_accuracy:

@@ -3,7 +3,9 @@ import torch.nn as nn
 import MinkowskiEngine as ME
 
 from mlreco.models.layers.cnn.uresnet_layers import UResNet
+from mlreco.utils.globals import *
 
+from mlreco.utils.data_structures import TensorBatch
 
 class GraphSPICEEmbedder(UResNet):
 
@@ -62,7 +64,8 @@ class GraphSPICEEmbedder(UResNet):
                              covariance_mode='softplus', 
                              occupancy_mode='softplus',
                              feature_embedding_dim=16,
-                             spatial_embedding_dim=3):
+                             spatial_embedding_dim=3,
+                             dimension=3):
         """Initialize the GraphSPICEEmbedder model.
 
         Parameters
@@ -90,6 +93,7 @@ class GraphSPICEEmbedder(UResNet):
         self.occupancy_mode = occupancy_mode
         self.feature_embedding_dim = feature_embedding_dim
         self.spatial_embedding_dim = spatial_embedding_dim
+        self.D = dimension
         
         if self.covariance_mode == 'exp':
             self.cov_func = torch.exp
@@ -106,21 +110,25 @@ class GraphSPICEEmbedder(UResNet):
             raise ValueError("Occupancy mode not recognized")
         
 
-    def get_embeddings(self, input):
+    def get_embeddings(self, tensorbatch):
         '''
-        point_cloud is a list of length minibatch size (assumes mbs = 1)
-        point_cloud[0] has 3 spatial coordinates + 1 batch coordinate + 1 feature
-        label has shape (point_cloud.shape[0] + 5*num_labels, 1)
-        label contains segmentation labels for each point + coords of gt points
-
-        RETURNS:
-            - feature_enc: encoder features at each spatial resolution.
-            - feature_dec: decoder features at each spatial resolution.
+        Forward function for computing GraphSPICE embeddings.
+        
+        Inputs
+        ------
+        tensorbatch : TensorBatch
+            Input TensorBatch object
+            
+        Returns
+        -------
+        res : dict
+            Dict[TensorBatch] of output embeddings
         '''
-        point_cloud, = input
-        # print("Point Cloud: ", point_cloud)
-        coords = point_cloud[:, 0:self.D+1].int()
-        features = point_cloud[:, self.D+1:].float()
+        
+        coords = tensorbatch.tensor[:, BATCH_COL:COORD_COLS[-1]+1].int()
+        features = tensorbatch.tensor[:, VALUE_COL].float().view(-1, 1)
+        
+        counts = tensorbatch.counts
 
         normalized_coords = (coords[:, 1:self.D+1] - float(self.spatial_size) / 2) \
                     / (float(self.spatial_size) / 2)
@@ -130,11 +138,11 @@ class GraphSPICEEmbedder(UResNet):
         x = ME.SparseTensor(features, coordinates=coords)
 
         encoder_res = self.encoder(x)
-        encoderTensors = encoder_res['encoderTensors']
-        finalTensor = encoder_res['finalTensor']
-        decoderTensors = self.decoder(finalTensor, encoderTensors)
+        encoder_tensors = encoder_res['encoder_tensors']
+        final_tensor = encoder_res['final_tensor']
+        decoder_tensors = self.decoder(final_tensor, encoder_tensors)
 
-        output_features = decoderTensors[-1].F
+        output_features = decoder_tensors[-1].F
 
         # Spatial Embeddings
         out = self.outputSpatialEmbeddings(output_features)
@@ -152,7 +160,7 @@ class GraphSPICEEmbedder(UResNet):
         occupancy = self.occ_func(out)
 
         # Segmentation
-        if self.segmentationLayer:
+        if self.predict_semantics:
             segmentation = self.outputSegmentation(output_features)
 
         hypergraph_features = torch.cat([
@@ -162,23 +170,22 @@ class GraphSPICEEmbedder(UResNet):
             occupancy], dim=1)
 
         res = {
-            "spatial_embeddings": [spatial_embeddings + normalized_coords],
-            "covariance": [covariance],
-            "feature_embeddings": [feature_embeddings],
-            "occupancy": [occupancy],
-            "features": [output_features],
-            "hypergraph_features": [hypergraph_features],
+            "spatial_embeddings": TensorBatch(spatial_embeddings + normalized_coords, counts=counts),
+            "covariance": TensorBatch(covariance, counts=counts),
+            "feature_embeddings": TensorBatch(feature_embeddings, counts=counts),
+            "occupancy": TensorBatch(occupancy, counts=counts),
+            "features": TensorBatch(output_features, counts=counts),
+            "hypergraph_features": TensorBatch(hypergraph_features, counts=counts)
         }
-        if self.segmentationLayer:
-            res["segmentation"] = [segmentation]
+        if self.predict_semantics:
+            res["segmentation"] = TensorBatch(segmentation, counts=counts)
 
         return res
 
-    def forward(self, input):
+    def forward(self, tensorbatch):
         '''
         Train time forward
         '''
-        point_cloud, = input
-        out = self.get_embeddings([point_cloud])
+        out = self.get_embeddings(tensorbatch)
 
         return out

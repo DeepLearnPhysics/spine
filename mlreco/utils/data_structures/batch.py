@@ -693,7 +693,7 @@ class EdgeIndexBatch(BatchBase):
         # Return
         lower, upper = self.edges[batch_id], self.edges[batch_id + 1]
         index = self.data[:, lower:upper] - self.offsets[batch_id]
-        if directed:
+        if self.directed:
             return self._transpose(index)
         else:
             return self._transpose(self._stack(index, index[::-1]))
@@ -765,7 +765,7 @@ class EdgeIndexBatch(BatchBase):
         """
         indexes = self._split(self._transpose(self.full_index), self.splits)
         for batch_id in range(self.batch_size):
-            indexes[i] = indexes[i] - self._offsets[batch_id]
+            indexes[batch_id] = indexes[batch_id] - self._offsets[batch_id]
 
         return indexes
 

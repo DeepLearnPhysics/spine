@@ -80,7 +80,7 @@ def SequentialBatchSampler(distributed=False):
         def __iter__(self):
             """Iterates over sequential batches of data."""
             num_batches = self._num_samples/self._batch_size
-            order       = np.arange(num_batches*self._batch_size)
+            order       = np.arange(num_batches*self._batch_size, dtype=np.int64)
 
             return iter(order)
 
@@ -98,7 +98,7 @@ def RandomSequenceSampler(distributed=False):
             """
             max_id  = self._num_samples + 1 - self._batch_size
             starts  = self._random.randint(0, max_id, len(self))
-            batches = [np.arange(start, start+self._batch_size) for start in starts]
+            batches = [np.arange(start, start+self._batch_size, dtype=np.int64) for start in starts]
 
             return iter(np.concatenate(batches))
 
