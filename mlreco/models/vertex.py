@@ -11,7 +11,6 @@ from mlreco.models.uresnet import UResNetSegmentation
 from mlreco.models.layers.cnn.vertex_ppn import VertexPPN, VertexPPNLoss
 from mlreco.models.experimental.layers.pointnet import PointNetEncoder
 
-from mlreco.utils.gnn.data import split_clusts
 from mlreco.utils.globals import INTER_COL, BATCH_COL, VTX_COLS, NU_COL
 from mlreco.utils.gnn.cluster import form_clusters, get_cluster_label
 from torch_geometric.data import Batch, Data

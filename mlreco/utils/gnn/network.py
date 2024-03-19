@@ -6,35 +6,61 @@ import numba as nb
 import mlreco.utils.numba_local as nbl
 from mlreco.utils.decorators import numbafy
 from mlreco.utils.globals import COORD_COLS
+from mlreco.utils.data_structures import TensorBatch
 
 
-@nb.njit(cache=True)
-def complete_graph(counts: nb.int64[:]) -> nb.int64[:,:]:
-    """Creates a list of edges corresponding to a directed complete graph
-    in a batch of nodes (nodes from separate entries).
+def get_cluster_edge_features_batch(data, clusts, edge_index,
+                                    closest_index=True, algorithm='brute'):
+    """Batched version of :func:`get_cluster_edge_features`.
 
     Parameters
     ----------
-    counts : np.ndarray, optional
-        (B) Number of nodes in each entry of the batch
+    data : TensorBatch
+        Batch of cluster label data tensor
+    clusts : IndexBatch
+        (C) List of cluster indexes
+    edge_index : EdgeIndexBatch
+        (2, E) Sparse incidence matrix
+    closest_index : Union[np.ndarray, torch.Tensor], optional
+        (C, C) : Combined index of the closest pair of voxels per edge
+    algorithm : str, default 'brute'
+        Method used to compute the inter-cluster distance
+
+    Returns
+    -------
+    TensorBatch
+        (E, N_e) List of edge features between clusters
     """
-    # Loop over the batches, define the adjacency matrix for each
-    num_edges = np.sum((counts*(counts - 1))//2)
-    edge_index = np.empty((2, num_edges), dtype=np.int64)
-    offset, index = 0, 0
-    for b in range(len(counts)):
-        # Build a list of edges
-        c = counts[b]
-        adj_mat = np.triu(np.ones((c, c)), k=1)
-        edges = np.vstack(np.where(adj_mat))
-        num_edges_b = edges.shape[1]
+    directed = edge_index.directed
+    index = edge_index.index_t if directed else edge_index.directed_index_t
+    counts = edge_index.counts if directed else edge_index.directed_counts
+    feats = get_cluster_edge_features(
+            data.tensor, clusts.index_list, index, closest_index, algorithm)
 
-        # Append
-        edge_index[:, index:index + num_edges_b] = offset + edges
-        index += num_edges_b
-        offset += c
+    return TensorBatch(feats, counts)
 
-    return edge_index
+
+def get_voxel_edge_features_batch(data, edge_index, max_dist=5.0):
+    """Batched version of :func:`get_voxel_edge_features`.
+
+    Parameters
+    ----------
+    data : TensorBatch
+        Batch of cluster label data tensor
+    edge_index : EdgeIndexBatch
+        (2, E) Sparse incidence matrix
+
+    Returns
+    -------
+    TensorBatch
+        (E, N_e) List of edge features between voxels.
+    """
+    directed = edge_index.directed
+    index = edge_index.index_t if directed else edge_index.directed_index_t
+    counts = edge_index.counts if directed else edge_index.directed_counts
+    feats = get_voxel_edge_features(data.tensor, index)
+
+    return TensorBatch(feats, counts)
 
 
 @numbafy(cast_args=['data'], list_args=['clusts'],
@@ -400,3 +426,32 @@ def _get_fragment_edges(graph: nb.int64[:,:],
                 true_edges, np.array([[n1[0], n2[0]]], dtype=np.int64)))
 
     return true_edges
+
+
+@nb.njit(cache=True)
+def complete_graph(counts: nb.int64[:]) -> nb.int64[:,:]:
+    """Creates a list of edges corresponding to a directed complete graph
+    in a batch of nodes (nodes from separate entries).
+
+    Parameters
+    ----------
+    counts : np.ndarray, optional
+        (B) Number of nodes in each entry of the batch
+    """
+    # Loop over the batches, define the adjacency matrix for each
+    num_edges = np.sum((counts*(counts - 1))//2)
+    edge_index = np.empty((2, num_edges), dtype=np.int64)
+    offset, index = 0, 0
+    for b in range(len(counts)):
+        # Build a list of edges
+        c = counts[b]
+        adj_mat = np.triu(np.ones((c, c)), k=1)
+        edges = np.vstack(np.where(adj_mat))
+        num_edges_b = edges.shape[1]
+
+        # Append
+        edge_index[:, index:index + num_edges_b] = offset + edges
+        index += num_edges_b
+        offset += c
+
+    return edge_index

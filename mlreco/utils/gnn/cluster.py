@@ -129,18 +129,19 @@ def get_cluster_points_label_batch(data, coord_label, clusts,
     np.ndarray
         (C, 6) Cluster-wise start and end points (in random order if requested)
     """
+    num_clusts = len(clusts.index_list)
     if isinstance(data.tensor, torch.Tensor):
-        empty = lambda x: torch.empty(x, dtype=data.dtype, device=data.device)
+        points = torch.empty(
+                (num_clusts, 6), dtype=data.dtype, device=data.device)
     else:
-        empty = lambda x: np.empty(x, dtype=data.dtype)
+        points = np.empty((num_clusts, 6), dtype=data.dtype)
 
-    points = empty((len(clusts), 6))
     for b in range(data.batch_size):
         lower, upper = clusts.edges[b], clusts.edges[b+1]
         points[lower:upper] = get_cluster_points_label(
                 data[b], coord_label[b], clusts[b], random_order)
 
-    return points
+    return TensorBatch(points, clusts.counts)
 
 
 def get_cluster_directions_batch(data, starts, clusts,
@@ -167,7 +168,7 @@ def get_cluster_directions_batch(data, starts, clusts,
         (C, 3) List of cluster directions
     """
     dirs = get_cluster_directions(
-            data.tensor, starts.tensor, clusts.index_list, column)
+            data.tensor, starts.tensor, clusts.index_list)
 
     return TensorBatch(dirs, clusts.counts)
 
@@ -192,9 +193,33 @@ def get_cluster_dedxs_batch(data, starts, clusts, max_dist=-1):
         (C) List of cluster dE/dx value close to the start points
     """
     dedxs = get_cluster_dedxs(
-            data.tensor, starts.tensor, clusts.index_list, column)
+            data.tensor, starts.tensor, clusts.index_list)
 
     return TensorBatch(dedxs, clusts.counts)
+
+def get_cluster_features_batch(data, clusts, add_value=False, add_shape=False):
+    """Batched version of :func:`get_cluster_features`.
+
+    Parameters
+    ----------
+    data : TensorBatch
+        Batch of cluster label data tensor
+    starts : TensorBatch
+        (C, 3) Start points w.r.t. which to estimate the direction
+    clusts : IndexBatch
+        (C) List of cluster indexes
+    max_dist : float, default -1
+        Neighborhood radius around the point used t compute the dE/dx
+
+    Returns
+    -------
+    TensorBatch
+        (C) List of cluster dE/dx value close to the start points
+    """
+    feats = get_cluster_features(
+            data.tensor, clusts.index_list, add_value, add_shape)
+
+    return TensorBatch(feats, clusts.counts)
 
 
 def form_clusters(data, min_size=-1, column=CLUST_COL, cluster_classes=None):
@@ -447,8 +472,46 @@ def _get_cluster_energies(data: nb.float64[:,:],
 
 @numbafy(cast_args=['data'], list_args=['clusts'],
          keep_torch=True, ref_arg='data')
-def get_cluster_features(data: nb.float64[:,:],
-                         clusts: nb.types.List(nb.int64[:])) -> nb.float64[:,:]:
+def get_cluster_features(data, clusts, add_value=False, add_shape=False):
+    """Returns an array of features for each cluster.
+
+    The basic 16 geometric features are composed of:
+    - Center (3)
+    - Covariance matrix (9)
+    - Principal axis (3)
+    - Voxel count (1)
+
+    The flag `add_value` adds the following 2 features:
+    - Mean energy (1)
+    - RMS energy (1)
+
+    The flag `add_shape` adds the particle shape information:
+    - Semantic type (1), i.e. most represented type in cluster
+
+    Parameters
+    ----------
+    data : np.ndarray
+        Cluster label data tensor
+    clusts : List[np.ndarray]
+        (C) List of cluster indexes
+
+    Returns
+    -------
+    np.ndarray
+        (C, N_c) Tensor of cluster features
+    """
+    feats = _get_cluster_features_base(data, clusts)
+    if add_value or add_shape:
+        feats_ext = _get_cluster_features_extended(
+                data, clusts, add_value, add_shape)
+        feats = np.hstack((feats, feats_ext))
+
+    return feats
+
+
+@numbafy(cast_args=['data'], list_args=['clusts'],
+         keep_torch=True, ref_arg='data')
+def get_cluster_features_base(data, clusts):
     """Returns an array of 16 geometric features for each of cluster.
 
     The 16 geometric features are composed of:
@@ -472,11 +535,12 @@ def get_cluster_features(data: nb.float64[:,:],
     if not len(clusts):
         return np.empty((0, 16), dtype=data.dtype) # Cannot type empty list
 
-    return _get_cluster_features(data, clusts)
+    return _get_cluster_features_base(data, clusts)
 
 @nb.njit(parallel=True, cache=True)
-def _get_cluster_features(data: nb.float64[:,:],
-                          clusts: nb.types.List(nb.int64[:])) -> nb.float64[:,:]:
+def _get_cluster_features_base(data: nb.float64[:,:],
+                               clusts: nb.types.List(nb.int64[:])) -> (
+                                   nb.float64[:,:]):
 
     # Loop over the clusters (parallelize). The `prange` function creates a
     # uint64 iterator which is cast to int64 to access a list, and throws a
@@ -659,15 +723,15 @@ def _get_cluster_points_label(data: nb.float64[:,:],
     return points
 
 
-@numbafy(cast_args=['voxels', 'starts'], list_args=['clusts'], 
-         keep_torch=True, ref_arg='voxels')
-def get_cluster_directions(voxels, starts, clusts, max_dist=-1, optimize=False):
+@numbafy(cast_args=['data', 'starts'], list_args=['clusts'], 
+         keep_torch=True, ref_arg='data')
+def get_cluster_directions(data, starts, clusts, max_dist=-1, optimize=False):
     """Estimates the direction of each cluster.
 
     Parameters
     ----------
-    voxels : np.ndarray
-        (C, 3) Voxel coordinates
+    data : np.ndarray
+        Cluster label data tensor
     starts : np.ndarray
         (C, 3) Start points w.r.t. which to estimate the direction
     clusts : List[np.ndarray]
@@ -684,9 +748,10 @@ def get_cluster_directions(voxels, starts, clusts, max_dist=-1, optimize=False):
         (C, 3) Direction vector of each cluster
     """
     if not len(clusts):
-        return np.empty(starts.shape, dtype=voxels.dtype)
+        return np.empty(starts.shape, dtype=data.dtype)
 
-    return _get_cluster_directions(voxels, starts, clusts, max_dist, optimize)
+    return _get_cluster_directions(
+            data[:, COORD_COLS], starts, clusts, max_dist, optimize)
 
 @nb.njit(parallel=True, cache=True)
 def _get_cluster_directions(voxels: nb.float64[:,:],
@@ -798,17 +863,15 @@ def cluster_direction(voxels: nb.float64[:,:],
     return mean
 
 
-@numbafy(cast_args=['voxels', 'values', 'starts'], list_args=['clusts'],
-         keep_torch=True, ref_arg='voxels')
-def get_cluster_dedxs(voxels, values, starts, clusts, max_dist=-1):
+@numbafy(cast_args=['data', 'starts'], list_args=['clusts'],
+         keep_torch=True, ref_arg='data')
+def get_cluster_dedxs(data, starts, clusts, max_dist=-1):
     """Computes the initial local dE/dxs of each cluster.
 
     Parameters
     ----------
-    voxels : np.ndarray
-        (N, 3) Voxel coordinates
-    values : np.ndarray
-        (N) Voxel values
+    data : np.ndarray
+        Cluster label data tensor
     starts : np.ndarray
         (C, 3) Start points w.r.t. which to estimate the local dE/dxs
     clusts : List[np.ndarray]
@@ -822,9 +885,10 @@ def get_cluster_dedxs(voxels, values, starts, clusts, max_dist=-1):
         (C) Local dE/dx values for each cluster
     """
     if not len(clusts):
-        return np.empty(0, dtype=voxels.dtype)
+        return np.empty(0, dtype=data.dtype)
 
-    return _get_cluster_dedxs(voxels, values, starts, clusts, max_dist)
+    return _get_cluster_dedxs(
+            data[:, COORD_COLS], data[:, VALUE_COL], starts, clusts, max_dist)
 
 @nb.njit(parallel=True, cache=True)
 def _get_cluster_dedxs(voxels: nb.float64[:,:],
@@ -847,7 +911,7 @@ def _get_cluster_dedxs(voxels: nb.float64[:,:],
 def cluster_dedx(voxels: nb.float64[:,:],
                  values: nb.float64[:],
                  start: nb.float64[:],
-                 max_dist: nb.float64 = 5) -> nb.float64[:]:
+                 max_dist: nb.float64=5.0) -> nb.float64[:]:
     """Computes the initial local dE/dx of a cluster.
 
     Parameters
@@ -858,7 +922,7 @@ def cluster_dedx(voxels: nb.float64[:,:],
         (N) Voxel values
     starts : np.ndarray
         (3) Start point w.r.t. which to compute the local dE/dx
-    max_dist : float, default -1
+    max_dist : float, default 5.0
         Neighborhood radius around the point used to compute the dE/dx
 
     Returns
@@ -879,6 +943,9 @@ def cluster_dedx(voxels: nb.float64[:,:],
         dist_mat = dist_mat[dist_mat <= max_dist]
 
     # Compute the total energy in the neighborhood and the max distance, return ratio
+    if np.max(dist_mat) == 0.:
+        return 0.
+
     return np.sum(values)/np.max(dist_mat)
 
 

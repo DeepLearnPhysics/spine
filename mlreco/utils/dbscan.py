@@ -1,5 +1,5 @@
 """Simple wrapper for sklearn's DBSCAN to turn its label output into
-a list of clusters in the form of point index lists."""
+a list of clusters in the form of a point index list."""
 
 import numpy as np
 from typing import List

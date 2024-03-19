@@ -4,9 +4,10 @@ import torch
 from mlreco.utils.torch_local import local_cdist
 from mlreco.utils.globals import COORD_COLS, VALUE_COL, SHAPE_COL
 from mlreco.utils.data_structures import TensorBatch
-from mlreco.utils.gnn.data import cluster_features, cluster_edge_features
 from mlreco.utils.gnn.cluster import (
-        get_cluster_points_label, get_cluster_directions, get_cluster_dedxs)
+        get_cluster_features_batch, get_cluster_points_label_batch,
+        get_cluster_directions_batch, get_cluster_dedxs_batch)
+from mlreco.utils.gnn.network import get_cluster_edge_features_batch
 
 __all__ = ['ClustGeoNodeEncoder', 'ClustGeoEdgeEncoder']
 
@@ -141,12 +142,12 @@ class ClustGeoNodeEncoder(torch.nn.Module):
         # Extract the base geometric features
         if self.use_numpy:
             # If numpy is to be used, pass it through the Numba function
-            feats = cluster_features(
-                    data.tensor, clusts.index_list, add_value, add_shape)
+            feats = get_cluster_features_batch(
+                    data, clusts, add_value, add_shape).tensor
         else:
             # Otherwise, use the local torch method
             feats = self.get_base_features(
-                    data, clusts, add_value, add_shape)
+                    data, clusts, add_value, add_shape).tensor
 
         # Add the extra features if they were provided independantly
         if extra is not None:
@@ -155,29 +156,27 @@ class ClustGeoNodeEncoder(torch.nn.Module):
         # Add the points
         if self.add_points:
             if points is None:
-                points = get_cluster_points_label(
-                        data.tensor, coord_label.tensor, clusts.index_list)
-                points = TensorBatch(points, clusts.counts)
+                points = get_cluster_points_label_batch(
+                        data, coord_label, clusts)
 
             feats = torch.cat((feats, points.tensor), dim=1)
 
         # Add the local directions
         if self.add_local_dirs:
             for cols in np.arange(points.tensor.shape[1]).reshape(-1, 3):
-                dirs = get_cluster_directions(
-                        data.tensor[:, COORD_COLS], points.tensor[:, cols],
-                        clusts.index_list, self.dir_max_dist,
+                starts = TensorBatch(points.tensor[:, cols], points.counts)
+                dirs = get_cluster_directions_batch(
+                        data, starts, clusts, self.dir_max_dist,
                         self.opt_dir_max_dist)
-                feats = torch.cat((feats, dirs), dim=1)
+                feats = torch.cat((feats, dirs.tensor), dim=1)
 
         # Add the local dE/dx information
         if self.add_local_dedxs:
             for cols in np.arange(points.tensor.shape[1]).reshape(-1, 3):
-                dedxs = get_cluster_dedxs(
-                        data.tensor[:, COORD_COLS], data.tensor[:, VALUE_COL],
-                        points.tensor[:, cols], clusts.index_list,
-                        self.dedx_max_dist)
-                feats = torch.cat((feats, dedxs[:, None]), dim=1)
+                starts = TensorBatch(points.tensor[:, cols], points.counts)
+                dedxs = get_cluster_dedxs_batch(
+                        data, starts, clusts, self.dedx_max_dist)
+                feats = torch.cat((feats, dedxs.tensor[:, None]), dim=1)
 
         feats = TensorBatch(feats, clusts.counts)
 
@@ -276,9 +275,9 @@ class ClustGeoNodeEncoder(torch.nn.Module):
 
         # Return
         if len(feats):
-            return torch.stack(feats, dim=0)
+            return TensorBatch(torch.stack(feats, dim=0), clusts.counts)
         else:
-            return zeros((0, 16))
+            return TensorBatch(zeros((0, 16)), clusts.counts)
 
 
 class ClustGeoEdgeEncoder(torch.nn.Module):
@@ -333,13 +332,13 @@ class ClustGeoEdgeEncoder(torch.nn.Module):
         # Extract the base geometric features
         if self.use_numpy:
             # If numpy is to be used, pass it through the Numba function
-            feats = cluster_edge_features(
-                    data.tensor, clusts.index_list,
-                    edge_index.directed_index_t, closest_index=closest_index)
+            feats = get_cluster_edge_features_batch(
+                    data, clusts, edge_index,
+                    closest_index=closest_index).tensor
         else:
             # Otherwise, use the local torch method
             feats = self.get_base_features(
-                    data, clusts, edge_index, closest_index)
+                    data, clusts, edge_index, closest_index).tensor
 
         # If the graph is undirected, infer reciprocal features
         if not edge_index.directed:
@@ -410,4 +409,7 @@ class ClustGeoEdgeEncoder(torch.nn.Module):
 
             feats.append(torch.cat([v1, v2, disp, lend.reshape(1), B]))
 
-        feats = torch.stack(feats, dim=0)
+        if len(feats):
+            return TensorBatch(torch.stack(feats, dim=0), edge_index.counts)
+        else:
+            return TensorBatch(zeros((0, 19)), edge_index.counts)

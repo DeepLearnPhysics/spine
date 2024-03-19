@@ -24,7 +24,7 @@ def timing(fn):
         ts = time()
         result = fn(*args, **kwargs)
         te = time()
-        print('func:%r args:[%r, %r] took: %2.f sec' % \
+        print("func:%r args:[%r, %r] took: %2.f sec" % \
           (fn.__name__, args, kwargs, te-ts))
         return result
     return wrap

@@ -1,3 +1,8 @@
+"""Module of functions that approximate the energy loss of particles through
+matter. It includes function to compute the CSDA KE of particles given their
+range and vice-versa.
+"""
+
 import os
 import pathlib
 import numpy as np
@@ -16,9 +21,8 @@ from .globals import MUON_PID, PION_PID, KAON_PID, PROT_PID, \
 
 
 def csda_table_spline(particle_type, table_dir='csda_tables'):
-    '''
-    Interpolates a CSDA table to form a spline which maps
-    a range to a kinematic energy estimate.
+    """Interpolates a CSDA table to form a spline which maps a range to a
+    kinematic energy estimate.
 
     Parameters
     ----------
@@ -32,7 +36,7 @@ def csda_table_spline(particle_type, table_dir='csda_tables'):
     -------
     callable
         Function mapping range (cm) to Kinetic E (MeV)
-    '''
+    """
     # Check that the table for the requested PID exists
     path = pathlib.Path(__file__).parent
     suffix = 'E_liquid_argon'
@@ -59,8 +63,7 @@ def csda_table_spline(particle_type, table_dir='csda_tables'):
 
 
 def csda_ke_lar(R, M, z = 1, T_max=1e6, epsrel=1e-3, epsabs=1e-3):
-    '''
-    Numerically optimizes the kinetic energy necessary to observe the
+    """Numerically optimizes the kinetic energy necessary to observe the
     range of a particle that has been measured, under the CSDA.
 
     Parameters
@@ -82,14 +85,13 @@ def csda_ke_lar(R, M, z = 1, T_max=1e6, epsrel=1e-3, epsabs=1e-3):
     -------
     float
         CSDA kinetic energy in MeV
-    '''
+    """
     func = lambda x: csda_range_lar(x, M, z, epsrel, epsabs) - R
     return brentq(func, 0., T_max, rtol=epsrel, xtol=epsabs)
 
 
 def csda_range_lar(T0, M, z = 1, epsrel=1e-3, epsabs=1e-3):
-    '''
-    Numerically integrates the inverse Bethe-Bloch formula to find the
+    """Numerically integrates the inverse Bethe-Bloch formula to find the
     CSDA range of a particle for a given initial kinetic energy.
 
     Parameters
@@ -109,7 +111,7 @@ def csda_range_lar(T0, M, z = 1, epsrel=1e-3, epsabs=1e-3):
     -------
     float
         CSDA range in cm
-    '''
+    """
     if T0 <= 0.:
         return 0.
 
@@ -119,10 +121,9 @@ def csda_range_lar(T0, M, z = 1, epsrel=1e-3, epsabs=1e-3):
 
 @nb.njit(cache=True)
 def step_energy_loss_lar(T0, M, dx, z = 1, num_steps=None):
-    '''
-    Steps the initial energy of a particle down by pushing it through
-    steps of dx of liquid argon. If `num_steps` is not specified, it
-    will iterate until the particle kinetic energy reaches 0.
+    """Steps the initial energy of a particle down by pushing it through
+    steps of dx of liquid argon. If `num_steps` is not specified, it will
+    iterate until the particle kinetic energy reaches 0.
 
     Parameters
     ----------
@@ -141,7 +142,7 @@ def step_energy_loss_lar(T0, M, dx, z = 1, num_steps=None):
     -------
     np.array
         Array of kinetic energies at each step
-    '''
+    """
     # Initialize the list
     assert T0 > 0., 'Must start with positive kinetic energy'
     ke_list = [T0]
@@ -164,7 +165,7 @@ def step_energy_loss_lar(T0, M, dx, z = 1, num_steps=None):
 
 @nb.njit(cache=True)
 def inv_bethe_bloch_lar(T, M, z = 1):
-    '''
+    """
     Inverse Bethe-Bloch energy loss function for liquid argon
 
     Parameters
@@ -180,18 +181,21 @@ def inv_bethe_bloch_lar(T, M, z = 1):
     -------
     float
        Value of the inverse energy loss rate in liquid argon in MeV/cm
-    '''
+    """
     return 1./bethe_bloch_lar(T, M, z)
 
 
 @nb.njit(cache=True)
 def bethe_bloch_lar(T, M, z = 1):
-    '''
-    Bethe-Bloch energy loss function for liquid argon
+    """Bethe-Bloch energy loss function for liquid argon.
+
+    Reference:
 
     https://pdg.lbl.gov/2019/reviews/rpp2018-rev-passage-particles-matter.pdf
 
-    Corrections taken from https://pdg.lbl.gov/2023/AtomicNuclearProperties/adndt.pdf
+    Corrections taken from:
+
+    https://pdg.lbl.gov/2023/AtomicNuclearProperties/adndt.pdf
 
     Parameters
     ----------
@@ -206,7 +210,7 @@ def bethe_bloch_lar(T, M, z = 1):
     -------
     float
        Value of the energy loss rate in liquid argon in MeV/cm
-    '''
+    """
     # Constants
     K = 0.307075 # Bethe-Bloch constant [MeV/mol/cm^2]
 
@@ -241,8 +245,7 @@ def bethe_bloch_lar(T, M, z = 1):
 
 @nb.njit(cache=True)
 def W_max(beta, gamma, M):
-    '''
-    Maximum energy transfer in a single colision
+    """Maximum energy transfer in a single colision.
 
     Parameters
     ----------
@@ -257,7 +260,7 @@ def W_max(beta, gamma, M):
     -------
     float
         Maximum energy transferred in a single colision
-    '''
+    """
     bg = beta*gamma
     return (2 * ELEC_MASS * bg**2) / \
             (1. + 2*gamma*ELEC_MASS/M + (ELEC_MASS/M)**2)
@@ -265,7 +268,7 @@ def W_max(beta, gamma, M):
 
 @nb.njit(cache=True)
 def delta_lar(bg):
-    '''
+    """
     Density correction
 
     Parameters
@@ -277,7 +280,7 @@ def delta_lar(bg):
     -------
     float
         Density correction to the Bethe-Bloch function
-    '''
+    """
     x = np.log10(bg)
     if x < LAR_x0:
         return LAR_delta0 * 10**(2 * (x - LAR_x0))
@@ -289,8 +292,7 @@ def delta_lar(bg):
 
 #@nb.njit(cache=True) # Find an alternative to scipy's digamma to support njit
 def le_corr_lar(beta, z = 1):
-    '''
-    Low energy corrections to the Bethe-Bloch formula
+    """Low energy corrections to the Bethe-Bloch formula.
 
     Parameters
     ----------
@@ -303,7 +305,7 @@ def le_corr_lar(beta, z = 1):
     -------
     float
         Low energy correction to the energy loss function
-    '''
+    """
     # Shell corrections (tabulated, ignored for now)
     C = 0.
 

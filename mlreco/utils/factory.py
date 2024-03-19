@@ -8,6 +8,8 @@ with appropriate arguments.
 from copy import deepcopy
 from warnings import warn
 
+from .logger import logger
+
 
 def module_dict(module, class_name=None, pattern=None):
     """Converts module into a dictionary which maps class names onto classes.
@@ -163,7 +165,8 @@ def instantiate(module_dict, cfg, alt_name=None, **kwargs):
         return cls(*args, **kwargs)
 
     except Exception as err:
-        # TODO: proper logging
-        print(f"Failed to instantiate {cls.__name__} with these arguments:\n"
-              f"  - args: {args}\n  - kwargs: {kwargs}")
+        logger.error(
+                f"Failed to instantiate {cls.__name__} with these arguments:\n"
+                f"  - args: {args}\n  - kwargs: {kwargs}")
+
         raise err

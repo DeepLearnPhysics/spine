@@ -4,18 +4,65 @@ import os
 import pathlib
 import numpy as np
 from typing import Union, List
+from dataclasses import dataclass
 
 
+@dataclass
 class Geometry:
-    """Handles all geometry parameters.
-
-    Class which handles very basic geometry queries based on a file which
-    contains a list of TPC boundaries.
+    """Handles all geometry functions for a collection of box-shaped TPCs.
 
     Attributes
     ----------
-    TODO
+    boundaries : np.ndarray
+        (N_m, N_t, D, 2) Array of TPC boundaries
+        - N_m is the number of modules (or cryostat) in the detector
+        - N_t is the number of TPCs per module (or cryostat)
+        - D is the number of dimension (always 3)
+        - 2 corresponds to the lower/upper boundaries along that axis
+    sources : np.ndarray
+        (N, m, N_t, N_s, 2) Array of contributing logical TPCs to each TPC
+        - N_s is the number of contributing logical TPCs to a geometry TPC
+        - 2 corresponds to the [module ID, tpc ID] of a contributing pair
+    opdets : np.ndarray
+        (N_m[, N_t], N_p, 3) Array of optical detector locations
+        - N_p is the number of optical detectors per module or TPC
+        - 3 corresponds to the [x, y, z] optical detector coordinates
+    ranges : np.ndarray
+        (N_m, N_t, D) Array of TPC ranges
+    tpcs : np.ndarray
+        (N_m*N_t, D, 2) Array of individual TPC boundaries
+    num_tpcs : int
+        Number of TPC volumes in the detector, N_m*N_t
+    modules :  np.ndarray
+        (N_m, D, 2) Array of detector module boundaries
+    num_modules : int
+        Number of modules in the detector, N_m
+    detector : np.ndarray
+        (D, 2) Boundaries of the detector as a whole
+    centers : np.ndarray
+        (N_m, 3) Centers of the detector modules
+    anodes : np.ndarray
+        (N_m, N_t, 2) List of (axis, position) pairs of each anode
+    cathodes : np.ndarray
+        (N_m, 2) List of (axis, position) pairs of each cathode
+    anode_wall_ids : np.ndarray
+        (N_m, N_t, 2) Maps each (module, tpc) pair onto a specific anode
+    cathode_wall_ids : np.ndarray
+        (N_m, N_t, 2) Maps each (module, tpc) pair onto a specific cathode
+    drift_dirs : np.ndarray
+        (N_m, N_t, D) Drift direction in each TPC
     """
+    boundaries: np.ndarray
+    modules: np.ndarray
+    detector: np.ndarray
+    sources: np.ndarray
+    opdets: np.ndarray
+    centers: np.ndarray
+    anodes: np.ndarray
+    cathodes: np.ndarray
+    anode_wall_ids: np.ndarray
+    cathode_wall_ids: np.ndarray
+    drift_dirs: np.ndarray
 
     def __init__(self, detector=None, boundaries=None,
                  sources=None, opdets=None):
@@ -98,12 +145,6 @@ class Geometry:
                      len(self.opdets.shape) == 3)), (
                     "There should be one list of opdets per module or TPC")
 
-        # Store the ranges of each TPC in each axis
-        self.ranges = np.abs(self.boundaries[..., 1] - self.boundaries[..., 0])
-
-        # Build a list of TPCs
-        self.build_tpcs()
-
         # Build a list of modules
         self.build_modules()
 
@@ -115,15 +156,52 @@ class Geometry:
             self.build_planes()
 
         # Containment volumes to be defined by the user
-        self.cont_volumes = None
-        self.cont_use_source = False
+        self._cont_volumes = None
+        self._cont_use_source = False
 
-    def build_tpcs(self):
-        """Flattens out the geometry array to a simple list of TPCs. Also store
-        the total number of TPCs.
+    @property
+    def tpcs(self):
+        """Single list of all TPCs.
+
+        Returns
+        -------
+        np.ndarray
+            (N_m*N_t, D, 2) Array of TPC boundaries
         """
-        self.tpcs = self.boundaries.reshape(-1, 3, 2)
-        self.num_tpcs = len(self.tpcs)
+        return self.boundaries.reshape(-1, 3, 2)
+
+    @property
+    def ranges(self):
+        """Range of each TPC.
+
+        Returns
+        -------
+        np.ndarray
+            (N_m, N_t, D) Array of TPC ranges
+        """
+        return np.abs(self.boundaries[..., 1] - self.boundaries[...,0])
+
+    @property
+    def num_tpcs(self):
+        """Number of TPC volumes.
+
+        Returns
+        -------
+        int
+            Number of TPC volumes, N_m*N_t
+        """
+        return len(self.tpcs)
+
+    @property
+    def num_modules(self):
+        """Number of detector modules.
+
+        Returns
+        -------
+        int
+            Number of detector modules, N_m
+        """
+        return len(self.modules)
 
     def build_modules(self):
         """Converts the list of boundaries of TPCs that make up the modules into
@@ -135,8 +213,6 @@ class Geometry:
         for m, module in enumerate(self.boundaries):
             self.modules[m] = self.merge_volumes(module)
             self.centers[m] = np.mean(self.modules[m], axis=1)
-
-        self.num_modules = len(self.modules)
 
     def build_detector(self):
         """Converts the list of boundaries of TPCs that make up the detector
@@ -486,7 +562,7 @@ class Geometry:
             `True` if the particle is contained, `False` if not
         """
         # If the containment volumes are not defined, throw
-        if self.cont_volumes is None:
+        if self._cont_volumes is None:
             raise ValueError('Must call `define_containment_volumes` first')
 
         # If sources are provided, only consider source volumes
@@ -500,10 +576,10 @@ class Geometry:
 
             # Define the smallest box containing all contributing TPCs
             index = contributors[0] * self.boundaries.shape[1] + contributors[1]
-            volume = self.merge_volumes(self.cont_volumes[index])
+            volume = self.merge_volumes(self._cont_volumes[index])
             volumes = [volume]
         else:
-            volumes = self.cont_volumes
+            volumes = self._cont_volumes
 
         # Loop over volumes, make sure the cloud is contained in at least one
         if summarize:
@@ -560,27 +636,27 @@ class Geometry:
             margin = np.copy(margin)
 
         # Establish the volumes to check against
-        self.cont_volumes = []
+        self._cont_volumes = []
         if mode in ['tpc', 'source']:
             for m, module in enumerate(self.boundaries):
                 for t, tpc in enumerate(module):
                     vol = self.adapt_volume(tpc, margin, \
                             cathode_margin, m, t)
-                    self.cont_volumes.append(vol)
+                    self._cont_volumes.append(vol)
             self.cont_use_source = mode == 'source'
         elif mode == 'module':
             for m in self.modules:
                 vol = self.adapt_volume(m, margin)
-                self.cont_volumes.append(vol)
+                self._cont_volumes.append(vol)
             self.cont_use_source = False
         elif mode == 'detector':
             vol = self.adapt_volume(self.detector, margin)
-            self.cont_volumes.append(vol)
+            self._cont_volumes.append(vol)
             self.cont_use_source = False
         else:
             raise ValueError(f'Containement check mode not recognized: {mode}')
 
-        self.cont_volumes = np.array(self.cont_volumes)
+        self._cont_volumes = np.array(self._cont_volumes)
 
     def adapt_volume(self, ref_volume, margin, cathode_margin=None,
                      module_id=None, tpc_id=None):

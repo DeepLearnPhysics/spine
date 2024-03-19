@@ -17,7 +17,6 @@ from .experimental.layers.pointnet import PointNetEncoder
 from .experimental.bayes.encoder import MCDropoutEncoder
 from .experimental.bayes.evidential import EVDLoss
 
-from mlreco.utils.gnn.data import split_clusts
 from mlreco.utils.gnn.cluster import form_clusters, get_cluster_label
 from mlreco.utils.globals import PID_COL
 

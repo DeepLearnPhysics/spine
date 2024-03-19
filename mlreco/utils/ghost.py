@@ -77,8 +77,7 @@ def compute_rescaled_charge(input_data, deghost_mask, last_index,
 
 def adapt_labels(cluster_label, segment_label, segmentation, deghost_mask=None,
                  break_classes=[SHOWR_SHP,TRACK_SHP,MICHL_SHP,DELTA_SHP]):
-    """
-    Adapts the cluster labels to account for the predicted semantics.
+    """Adapts the cluster labels to account for the predicted semantics.
 
     Points predicted as wrongly predicted get the cluster
     label of the closest touching cluster, if there is one. Points that are

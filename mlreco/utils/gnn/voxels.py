@@ -1,21 +1,68 @@
+"""Module with functions that operate on single voxels in the context of GNNs.
+"""
+
 import numpy as np
 import numba as nb
 
 import mlreco.utils.numba_local as nbl
+from mlreco.utils.globals import COORD_COLS
+from mlreco.utils.data_structures import TensorBatch
 from mlreco.utils.decorators import numbafy
+
+
+def get_voxel_features_batch(data, max_dist=5.0):
+    """Returns an array of features for each voxel.
+
+    The basic 16 geometric features are composed of:
+    - Voxel coordinates
+    - Covariance matrix of its neighborhood (3)
+    - Principal axis of its neighborhood (3)
+    - Voxel count in its neighborhood (1)
+
+    The neighborhood of the voxel i defined as all voxels within some distance
+    of the voxel to get features for.
+
+    Parameters
+    ----------
+    data : TensorBatch
+        Batch of cluster label data tensor
+    max_dist : float, default 5.0
+        Neighborhood radius
+
+    Returns
+    -------
+    np.ndarray
+        (C, N_c) Tensor of voxels features
+    """
+    feats = get_voxel_features(data.tensor, max_dist)
+
+    return TensorBatch(feats, data.counts)
 
 
 @numbafy(cast_args=['data'], keep_torch=True, ref_arg='data')
 def get_voxel_features(data, max_dist=5.0):
-    """
-    Function that returns the an array of 16 features for
-    each of the voxels in the provided tensor.
+    """Returns an array of features for each voxel.
 
-    Args:
-        data (np.ndarray)    : (N,8) [x, y, z, batchid, value, id, groupid, shape]
-        max_dist (float)     : Defines "local", i.e. max distance to look at
-    Returns:
-        np.ndarray: (N,16) tensor of voxel features (coords, local orientation, local direction, local count)
+    The basic 16 geometric features are composed of:
+    - Voxel coordinates
+    - Covariance matrix of its neighborhood (3)
+    - Principal axis of its neighborhood (3)
+    - Voxel count in its neighborhood (1)
+
+    The neighborhood of the voxel i defined as all voxels within some distance
+    of the voxel to get features for.
+
+    Parameters
+    ----------
+    data : np.ndarray
+        Cluster label data tensor
+    max_dist : float, default 5.0
+        Neighborhood radius
+
+    Returns
+    -------
+    np.ndarray
+        (C, N_c) Tensor of voxels features
     """
     return _get_voxel_features(voxels, max_dist)
 
@@ -23,7 +70,7 @@ def get_voxel_features(data, max_dist=5.0):
 def _get_voxel_features(data: nb.float32[:,:], max_dist=5.0):
 
     # Compute intervoxel distance matrix
-    voxels = data[:,:3]
+    voxels = data[:, COORD_COLS]
     dist_mat = nbl.cdist(voxels, voxels)
 
     # Get local geometrical features for each voxel
@@ -32,41 +79,43 @@ def _get_voxel_features(data: nb.float32[:,:], max_dist=5.0):
 
         # Restrict the points to the neighborood of the voxel
         voxel = voxels[k]
-        x = voxels[dist_mat[k] < max_dist,:3]
+        x = voxels[dist_mat[k] < max_dist]
 
-        # Do not waste time with computations with size 1 clusters, default to zeros
-        if len(x) < 2:
-            feats[k] = np.concatenate((voxel, np.zeros(12), np.array([len(x)])))
-            continue
+        # Get orientation matrix
+        A = np.cov(x.T, ddof = len(x) - 1).astype(x.dtype)
 
         # Center data around voxel
         x = x - voxel
 
-        # Get orientation matrix
-        A = x.T.dot(x)
-
-        # Get eigenvectors, normalize orientation matrix and eigenvalues to largest
-        # This step assumes points are not superimposed, i.e. that largest eigenvalue != 0
+        # Get eigenvectors, normalize orientation matrix and eigenvalues to
+        # largest. If points are superimposed, i.e. if the largest eigenvalue
+        # != 0, no need to keep going
         w, v = np.linalg.eigh(A)
+        if w[2] == 0.:
+            feats[k] = np.concatenate(
+                    (center, np.zeros(12), np.array([len(clust)])))
+            continue
         dirwt = 1.0 - w[1] / w[2]
         B = A / w[2]
 
-        # get direction - look at direction of spread orthogonal to v[:,maxind]
+        # Get the principal direction, identify the direction of the spread
         v0 = v[:,2]
 
-        # Projection of x along v0
+        # Projection all points, x, along the principal axis
         x0 = x.dot(v0)
 
-        # Projection orthogonal to v0
+        # Evaluate the distance from the points to the principal axis
         xp0 = x - np.outer(x0, v0)
         np0 = np.empty(len(xp0), dtype=data.dtype)
         for i in range(len(xp0)):
             np0[i] = np.linalg.norm(xp0[i])
 
-        # Flip the principal direction if it is not pointing towards the maximum spread
+        # Flip the principal direction if it is not pointing towards the
+        # maximum spread
         sc = np.dot(x0, np0)
         if sc < 0:
-            v0 = np.zeros(3, dtype=data.dtype)-v0 # (-)/negative doesn't work with numba for now...
+            # Numba does not support unary `-`, have to flip manually
+            v0 = np.zeros(3, dtype=data.dtype)-v0 
 
         # Weight direction
         v0 = dirwt * v0
