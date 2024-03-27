@@ -4,7 +4,7 @@ from torch import nn
 import numpy as np
 from typing import Union, List, Dict
 
-from .layers.common.dbscan import DBSCANFragmenter
+from .layers.common.dbscan import DBSCAN
 from .layers.factories import final_construct
 from .layers.gnn.factories import *
 
@@ -62,7 +62,7 @@ class GrapPA(torch.nn.Module):
     --------
     :class:`GrapPALoss`
     """
-    # TODO
+    # TODO: update
     MODULES = [('grappa',
                 ['base', 'dbscan', 'node_encoder',
                  'edge_encoder', 'gnn_model']),
@@ -246,8 +246,8 @@ class GrapPA(torch.nn.Module):
                 "`dbscan` block, it is shared with the `node` block")
 
         # Initialize DBSCAN fragmenter
-        self.dbscan = DBSCANFragmenter(cluster_classes=self.node_type,
-                                       min_size=self.min_size, **kwargs)
+        self.dbscan = DBSCAN(
+                classes=self.node_type, min_size=self.min_size, **kwargs)
 
     def forward(self, data, coord_label=None, clusts=None, classes=None,
                 groups=None, points=None, extra=None):

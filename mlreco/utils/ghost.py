@@ -220,6 +220,7 @@ def adapt_labels(cluster_label, segment_label, segmentation, deghost_mask=None,
             tagged_voxels_count = 1
             while tagged_voxels_count > 0 and X_pred.shape[0] > 0:
                 # Find the nearest neighbor to each predicted point
+                # TODO: Should do distance once... Done twice here
                 d = compute_neighbor(X_true, X_pred)
 
                 # Compute Chebyshev distance between predicted and closest true.

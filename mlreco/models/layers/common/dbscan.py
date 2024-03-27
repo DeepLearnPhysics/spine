@@ -1,145 +1,221 @@
-import torch
+"""Module which does connected-components (dense) clustering using DBSCAN."""
+
 import numpy as np
-import sklearn
-from larcv import larcv
-from mlreco.utils.track_clustering import track_clustering
+import torch
+from sklearn.cluster import DBSCAN as sklearn_dbscan
+
+from mlreco.utils.globals import (
+        SHOWR_SHP, TRACK_SHP, MICHL_SHP, DELTA_SHP, COORD_COLS, PPN_SHAPE_COL,
+        COORD_START_COLS, COORD_END_COLS)
+from mlreco.utils.data_structures import TensorBatch, IndexBatch
+from mlreco.utils.ppn import PPNPredictor
+from mlreco.utils.point_break_clustering import PointBreakClusterer
 
 
-class DBSCANFragmenter(torch.nn.Module):
-    """
-    DBSCAN Layer that uses sklearn's DBSCAN implementation
-    to fragment each of the particle classes into dense instances.
-    Runs DBSCAN on each requested class separately, in one of three ways:
+class DBSCAN(torch.nn.Module):
+    """Uses DBSCAN to find locally-dense particle fragments.
+
+    It uses sklearn's DBSCAN implementation to fragment each of the particle
+    classes into dense instances. Runs DBSCAN on each requested semantic class
+    separately, in one of three ways:
     - Run pure DBSCAN on all the voxels in that class
-    - Runs DBSCAN on PPN point-masked voxels, associates leftovers based on proximity
-    - Use a graph-based method to cluster tracks based on PPN vertices (track only)
-
-    Args:
-        data ([np.array]): (N,5) [x, y, z, batchid, sem_type]
-        output (dict)    : Dictionary that contains the UResNet+PPN output
-    Returns:
-        (torch.tensor): [(C_0^0, C_0^1, ..., C_0^N_0), ...] List of list of clusters (one per class)
+    - Runs DBSCAN on PPN point-masked voxels and then associates the 
+      leftovers based on proximity to existing instances.
+    - Use a graph-based method to cluster tracks based on PPN vertices. This
+      technique can only be used on tracks.
     """
 
-    def __init__(self, cfg, name='dbscan_frag', batch_col=0, coords_col=(1, 4)):
-        super(DBSCANFragmenter, self).__init__()
+    def __init__(self, eps=1.8, min_samples=1, min_size=3, metric='euclidean', 
+                 classes=[SHOWR_SHP, TRACK_SHP, MICHL_SHP, DELTA_SHP],
+                 break_classes=[TRACK_SHP], break_mask_radius=5.0,
+                 break_track_method='masked_dbscan', 
+                 use_label_break_points=False, track_include_delta=False,
+                 ppn_predictor={}):
+        """Initialize the DBSCAN clustering algorithm.
 
-        model_cfg = cfg[name]
+        Parameters
+        ----------
+        eps : float, default 1.8
+            The maximum distance between two samples for one to be considered
+            as in the neighborhood of the other.
+        min_samples : int, default 1
+            The number of samples (or total weight) in a neighborhood for a
+            point to be considered as a core point.
+        min_size : int, default 3
+            Minimum cluster size to stored in the final list of DBSCAN clusters
+        metric : str, default 'euclidean'
+            Metric used to compute the pair-wise distances between space points
+        classes : List[int], default [0, 1, 2, 3]
+            List of semantic classes to run DBSCAN on
+        break_classes : List[int], default [1]
+            List of semantic classes for which to use PPN to break down
+        break_mask_radius : str, default 5.0
+            If using particle points to break up instances further, specifies
+            the radius around each particle point which gets masked
+        break_track_method : str, default 'masked_dbscan'
+            If using particle points to break up tracks, specifies the method
+        use_label_break_points : bool, default False
+            Whether to use label points to break instances
+        track_include_delta : bool, default False
+            If `True`, include delta points along with track point when
+            running DBSCAN on track points (limits artificial track breaks)
+        ppn_predictor : cfg, optional
+            PPN post-processing configuration
+        """
+        # Initialize the parent class
+        super().__init__()
 
-        self.batch_col = batch_col
-        self.coords_col = coords_col
+        # Store the DBSCAN clustering parameters
+        self.eps = eps
+        self.min_samples = min_samples
+        self.min_size = min_size
+        self.metric = metric
+        self.classes = classes
+        self.break_classes = break_classes
+        self.break_mask_radius = break_mask_radius
+        self.break_track_method = break_track_method
+        self.track_include_delta = track_include_delta
 
-        # Global DBSCAN clustering parameters
-        self.dim             = model_cfg.get('dim', 3)
-        self.eps             = model_cfg.get('eps', 1.999)
-        self.metric          = model_cfg.get('metric', 'euclidean')
-        self.min_samples     = model_cfg.get('min_samples', 1)
-        self.min_size        = model_cfg.get('min_size', 3)
-        self.num_classes     = model_cfg.get('num_classes', 4)
-        self.cluster_classes = model_cfg.get('cluster_classes', list(np.arange(self.num_classes)))
+        # If the constants are provided as scalars, turn them into lists
+        assert not np.isscalar(classes), (
+                "Semantic classes should be provided as a list.")
+        for attr in ['eps', 'min_samples', 'min_size', 'break_mask_radius']:
+            if np.isscalar(getattr(self, attr)):
+                setattr(self, attr, np.full(len(classes), getattr(self, attr)))
+            else:
+                assert len(getattr(self, attr)) == len(classes), (
+                        f"The number of `{attr}` values does not match the "
+                         "number classes to cluster.")
 
-        # Instance breaking parameters
-        self.break_classes            = model_cfg.get('break_classes', [1])
-        self.track_include_delta      = model_cfg.get('track_include_delta', False)
-        self.track_clustering_method  = model_cfg.get('track_clustering_method', 'masked_dbscan')
-        self.ppn_score_threshold      = model_cfg.get('ppn_score_threshold', 0.5)
-        self.ppn_type_threshold       = model_cfg.get('ppn_type_threshold', 1.999)
-        self.ppn_type_score_threshold = model_cfg.get('ppn_type_score_threshold', 0.5)
-        self.ppn_mask_radius          = model_cfg.get('ppn_mask_radius', 5)
+        # Instantiate the PPN post-processor, if needed
+        self.use_label_break_points = use_label_break_points
+        assert not np.isscalar(break_classes), (
+                "Semantic classes to break should be provided as a list.")
+        if len(break_classes) and not use_label_break_points:
+            assert ppn_predictor is not None, (
+                    "If classes are to be broken up using PPN points, "
+                    "must provide a PPN predictor configuration.")
+            self.ppn_predictor = PPNPredictor(**ppn_predictor)
 
-        # Assert consistency between parameter sizes
-        if 'break_tracks' in model_cfg: # Deprecated, only kept for backward compatibility
-            assert 'break_classes' not in model_cfg, 'break_tracks is deprecated, only specify break_classes'
-            self.break_classes = model_cfg['break_tracks']*[1]
-        if not isinstance(self.cluster_classes, list):
-            self.cluster_classes = [self.cluster_classes]
-        if not isinstance(self.eps, list):
-            self.eps = [self.eps for _ in self.cluster_classes]
-        if not isinstance(self.min_samples, list):
-            self.min_samples = [self.min_samples for _ in self.cluster_classes]
-        if not isinstance(self.min_size, list):
-            self.min_size = [self.min_size for _ in self.cluster_classes]
-        if not isinstance(self.break_classes, list):
-            self.break_classes = [self.break_classes]
+        # Initialize one clustering algorithm per class
+        self.clusterers = []
+        for k, c in enumerate(classes):
+            if c not in break_classes:
+                dbscan = sklearn_dbscan(
+                        eps=self.eps[k], min_samples=self.min_samples[k],
+                        metric=self.metric[k])
+                clusterer = lambda x, _: dbscan.fit(x).labels_
+            else:
+                method = break_track_method
+                if c != TRACK_SHP:
+                    method = 'masked_dbscan'
+                clusterer = PointBreakClusterer(
+                        eps=self.eps[k], min_samples=self.min_samples[k],
+                        metric=self.metric[k], method=method,
+                        mask_radius=self.break_mask_radius[k])
 
-        assert len(self.eps) == len(self.min_samples) == len(self.min_size) == len(self.cluster_classes)
+            self.clusterers.append(clusterer)
 
+    def forward(self, data, segmentation, coord_label=None, **ppn_result):
+        """Pass a batch of data through DBSCAN to form space clusters.
 
-    def get_clusts(self, data, bids, segmentation, break_points=None):
-        # Loop over batch and semantic classes
-        clusts = []
-        for bid in bids:
-            # Batch mask
-            batch_mask = data[:, self.batch_col] == bid
-            for k, s in enumerate(self.cluster_classes):
-                # Batch and segmentation mask
-                mask = batch_mask & (segmentation == s)
-                if self.track_include_delta and s == larcv.kShapeTrack and s in self.break_classes:
-                    mask = batch_mask & ((segmentation == s) | (segmentation == larcv.kShapeDelta))
+        Parameters
+        ----------
+        data : TensorBatch
+            (N, 1 + D + N_f) Tensor of voxel/value pairs
+            - N is the the total number of voxels in the image
+            - 1 is the batch ID
+            - D is the number of dimensions in the input image
+            - N_f is 1 (charge/energy) if the clusters (`clusts`) are provided,
+              or it needs to contain cluster labels to build them on the fly
+        segmentation : TensorBatch
+            (N) Segmentation value for each data point
+        coord_label : TensorBatch, optional
+            Location of the true particle points
+        **ppn_result : dict, optional
+            Dictionary of outputs from the PPN model
+        """
+        # If some classes must be broken up at their points of interest,
+        # fetch them from the relevant location.
+        points, point_shapes = None, None
+        if len(self.break_classes):
+            if self.use_label_break_points:
+                assert coord_label is not None, (
+                        "If label points are to be used to break instance, "
+                        "must provide them.")
+                points = torch.cat(
+                        (coord_label.tensor[:, COORD_START_COLS],
+                         coord_label.tensor[:, COORD_END_COLS]),
+                        dim=1).reshape(-1, 3)
+                point_shapes = torch.repeat_interleave(
+                        coord_label.tensor[:, SHAPE_COL], 2)
+                points = TensorBatch(points, 2*coord_label.counts)
+                point_shapes = TensorBatch(points, 2*coord_label.counts)
+            else:
+                ppn_points = self.ppn_predictor(**ppn_result)
+                points = TensorBatch(
+                        ppn_points.tensor[:, COORD_COLS], ppn_points.counts)
+                point_shapes = TensorBatch(
+                        ppn.points[:, PPN_SHAPE_COL], ppn_points.counts)
+
+        # Bring everything to numpy (DBSCAN cannot run on tensors)
+        data_np = data.to_numpy()
+        segmentation_np = segmentation.to_numpy()
+        if points is not None:
+            points_np = points.to_numpy()
+            point_shapes_np = point_shapes.to_numpy()
+
+        # Loop over the entries in the batch
+        clusts, counts, full_counts = [], [], []
+        for b in range(data.batch_size):
+            # Fetch the necessary data products, in numpy format
+            voxels_b = data_np[b][:, COORD_COLS]
+            segmentation_b = segmentation_np[b]
+            if points is not None:
+                points_b = points_np[b]
+                point_shapes_b = point_shapes_np[b]
+
+                # Exclude delta points, they do not help with clustering
+                points_b = points_b[point_shapes_b != DELTA_SHP]
+
+            # Loop over the classes to cluster
+            clusts_b = []
+            for k, s in enumerate(self.classes):
+                # Restrict the voxels to the current class
+                break_class = s in self.break_classes
+                shape_mask = segmentation_b == s
+                if s == TRACK_SHP and break_class and self.track_include_delta:
+                    shape_mask &= segmentation_b == DELTA_SHP
+
                 selection = np.where(mask)[0]
                 if not len(selection):
                     continue
 
-                # Restrict voxel set, run clustering
-                voxels = data[selection, self.coords_col[0]:self.coords_col[1]]
-                if s in self.break_classes:
-                    assert break_points is not None
-                    points_mask = break_points[:, self.batch_col] == bid
-                    breaking_method = self.track_clustering_method if s==larcv.kShapeTrack else 'masked_dbscan'
-                    labels = track_clustering(voxels      = voxels,
-                                              points      = break_points[points_mask, self.coords_col[0]:self.coords_col[1]],
-                                              method      = breaking_method,
-                                              eps         = self.eps[k],
-                                              min_samples = self.min_samples[k],
-                                              metric      = self.metric,
-                                              mask_radius = self.ppn_mask_radius)
-                else:
-                    labels = sklearn.cluster.DBSCAN(eps=self.eps[k],
-                                                    min_samples=self.min_samples[k],
-                                                    metric=self.metric).fit(voxels).labels_
+                # Run clustering
+                voxels_b_s = voxels_b[selection]
+                self.clusterer[k](voxels_b_s, points_b)
+
+                # If delta points were added to track points, remove them
+                if s == TRACK_SHP and break_class and self.track_include_delta:
+                    labels[segmentation_b[selection] == DELTA_SHP] = -1
 
                 # Build clusters for this class
-                if self.track_include_delta and s == larcv.kShapeTrack and s in self.break_classes:
-                    labels[segmentation[selection] == larcv.kShapeDelta] = -1
-                cls_idx = [selection[np.where(labels == i)[0]] \
-                    for i in np.unique(labels) \
-                    if (i > -1 and np.sum(labels == i) >= self.min_size[k])]
-                clusts.extend(cls_idx)
+                clusts_b_s = []
+                for c in np.unique(labels):
+                    clust = np.where(labels == c)[0]
+                    if c > -1 and len(clust) > self.min_size[k]:
+                        clusts_b_s.append(clust)
 
+                clusts_b.extend(clusts_b_s)
+
+            # Update the output
+            clusts.extend(clusts_b)
+            counts.append(len(clusts_b))
+            full_counts.append(np.sum([len(c) for c in clusts_b]))
+
+        # Initialize an IndexBatch and return it
         clusts_nb    = np.empty(len(clusts), dtype=object)
         clusts_nb[:] = clusts
+        offsets      = data.edges[:-1]
 
-        return clusts_nb
-
-
-    def forward(self, data, output=None, points=None):
-
-        # If instances are to be broken up, either provide a set of points or get them from the PPN output
-        break_points = None
-        if isinstance(data, torch.Tensor): data = data.detach().cpu().numpy()
-        if points is not None and isinstance(points, torch.Tensor): points = points.detach().cpu().numpy()
-        if len(self.break_classes):
-            assert output is not None or points is not None
-            if points is None:
-                from mlreco.utils.ppn import get_ppn_predictions
-                numpy_output = {'segmentation': [output['segmentation'][0].detach().cpu().numpy()],
-                                'ppn_points'  : [output['ppn_points'][0].detach().cpu().numpy()],
-                                'ppn_masks'   : [x.detach().cpu().numpy() for x in output['ppn_masks'][0]],
-                                'ppn_coords'  : [x.detach().cpu().numpy() for x in output['ppn_coords'][0]]}
-
-                points =  get_ppn_predictions(data, numpy_output,
-                                              score_threshold      = self.ppn_score_threshold,
-                                              type_threshold       = self.ppn_type_threshold,
-                                              type_score_threshold = self.ppn_type_score_threshold)
-                point_labels = points[:, 12]
-            else:
-                point_labels = points[:, -1]
-            break_points = points[point_labels != larcv.kShapeDelta, :self.dim+1] # Do not include delta points
-
-        # Break down the input data to its components
-        bids = np.unique(data[:, self.batch_col].astype(int))
-        segmentation = data[:,-1]
-        data = data[:,:-1]
-
-        clusts = self.get_clusts(data, bids, segmentation, break_points)
-        return clusts
+        return IndexBatch(clusts_nb, offsets, counts, full_counts)

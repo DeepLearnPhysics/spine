@@ -6,7 +6,6 @@ import torch.nn as nn
 import numpy as np
 
 from mlreco.utils.cluster.dense_cluster import fit_predict, gaussian_kernel_cuda
-from mlreco.models.layers.common.dbscan import DBSCANFragmenter
 
 
 def format_fragments(fragments, frag_batch_ids, frag_seg, batch_column, batch_size=None):
@@ -82,59 +81,6 @@ class FragmentManager(nn.Module):
         raise NotImplementedError
 
 
-class DBSCANFragmentManager(FragmentManager):
-    '''
-    Full chain model fragment mananger for DBSCAN Clustering
-    '''
-    def __init__(self, frag_cfg: dict, mode='mink', **kwargs):
-        super(DBSCANFragmentManager, self).__init__(frag_cfg, **kwargs)
-        dbscan_frag = {'dbscan_frag': frag_cfg}
-        if mode == 'mink':
-            self._batch_column = 0
-            self.dbscan_fragmenter = DBSCANFragmenter(dbscan_frag)
-        # elif mode == 'scn':
-        #     self._batch_column = 3
-        #     self.dbscan_fragmenter = DBSCANFragmenter(dbscan_frag)
-        else:
-            raise Exception('Invalid sparse CNN backend name {}'.format(mode))
-
-
-    def forward(self, input, cnn_result, semantic_labels=None):
-        '''
-        Inputs:
-            - input (torch.Tensor): N x 6 (coords, edep, semantic_labels)
-            - cnn_result: dict of List[torch.Tensor], containing:
-                - segmentation
-                - ppn_points
-                - ppn_masks
-
-        Returns:
-            - fragments
-            - frag_batch_ids
-            - frag_seg
-
-        '''
-        if self._use_segmentation_prediction:
-            assert semantic_labels is None
-            semantic_labels = torch.argmax(cnn_result['segmentation'][0],
-                                           dim=1).flatten()
-
-        semantic_data = torch.cat([input[:, :4],
-                                   semantic_labels.reshape(-1, 1)], dim=1)
-
-        fragments = self.dbscan_fragmenter(semantic_data,
-                                           cnn_result)
-
-        frag_batch_ids = get_cluster_batch(input[:, :5], fragments)
-        frag_seg = np.empty(len(fragments), dtype=np.int32)
-        for i, f in enumerate(fragments):
-            vals, counts = semantic_labels[f].unique(return_counts=True)
-            assert len(vals) == 1
-            frag_seg[i] = vals[torch.argmax(counts)].item()
-
-        return fragments, frag_batch_ids, frag_seg
-
-
 class SPICEFragmentManager(FragmentManager):
     '''
     Full chain model fragment mananger for SPICE Clustering
@@ -198,7 +144,7 @@ class SPICEFragmentManager(FragmentManager):
             assert len(vals) == 1
             frag_seg[i] = vals[torch.argmax(cnts)].item()
 
-        return fragemnts_np, frag_batch_ids, frag_seg
+        return fragments_np, frag_batch_ids, frag_seg
             
 
 class GraphSPICEFragmentManager(FragmentManager):

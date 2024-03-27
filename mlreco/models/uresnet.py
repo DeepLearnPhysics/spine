@@ -8,7 +8,6 @@ from collections import defaultdict
 from mlreco.utils.globals import BATCH_COL, VALUE_COL, GHOST_SHP
 from mlreco.utils.data_structures import TensorBatch
 from mlreco.utils.logger import logger
-from mlreco.utils.unwrap import Unwrapper
 
 from .layers.cnn.act_norm import (
         activations_construct, normalizations_construct)
@@ -33,50 +32,8 @@ class UResNetSegmentation(nn.Module):
     See :func:`setup_cnn_configuration` for available parameters for the
     backbone UResNet architecture.
 
-    Configuration
-    -------------
-    data_dim: int, default 3
-    num_input: int, default 1
-    allow_bias: bool, default False
-    spatial_size: int, default 512
-    leakiness: float, default 0.33
-    activation: dict
-        For activation function, defaults to `{'name': 'lrelu', 'args': {}}`
-    norm_layer: dict
-        For normalization function, defaults to `{'name': 'batch_norm', 'args': {}}`
-
-    depth : int, default 5
-        Depth of UResNet, also corresponds to how many times we down/upsample.
-    filters : int, default 16
-        Number of filters in the first convolution of UResNet.
-        Will increase linearly with depth.
-    reps : int, default 2
-        Convolution block repetition factor
-    input_kernel : int, default 3
-        Receptive field size for very first convolution after input layer.
-
-    num_classes: int, default 5
-    ghost: bool, default False
-    ghost_label: int, default -1
-    balance_loss: bool, default False
-        Whether to weight the loss using class counts.
-    alpha: float, default 1.0
-        Weight for UResNet semantic segmentation loss.
-    beta: float, default 1.0
-        Weight for ghost/non-ghost segmentation loss.
-
-    Returns
-    ------
-    segmentation : torch.Tensor
-    final_tensor : torch.Tensor
-    encoder_tensors : list of torch.Tensor
-    decoder_tensors : list of torch.Tensor
-    ghost : torch.Tensor
-    ghost_tensor : torch.Tensor
-
-    See Also
-    --------
-    SegmentationLoss, mlreco.models.layers.common.uresnet_layers
+    See configuration file(s) prefixed with `uresnet_` under the `config`
+    directory for detailed examples of working configurations.
     """
 
     INPUT_SCHEMA = [
@@ -84,15 +41,6 @@ class UResNetSegmentation(nn.Module):
     ]
 
     MODULES = ['uresnet']
-
-    RETURNS = {
-        'segmentation': Unwrapper.Rule(method='tensor'),
-        'final_tensor': Unwrapper.Rule(method='tensor'),
-        'encoder_tensors': Unwrapper.Rule(method='tensor_list'),
-        'decoder_tensors': Unwrapper.Rule(method='tensor_list'),
-        'ghost': Unwrapper.Rule(method='tensor'),
-        'ghost_tensor': Unwrapper.Rule(method='tensor')
-    }
 
     def __init__(self, uresnet, uresnet_loss=None):
         """Initializes the standalone UResNet model.
@@ -112,8 +60,8 @@ class UResNetSegmentation(nn.Module):
 
         # Initialize the output layer
         self.output = [
-            normalizations_construct(self.net.norm_cfg, self.num_filters),
-            activations_construct(self.net.act_cfg),
+            normalizations_construct(self.backbone.norm_cfg, self.num_filters),
+            activations_construct(self.backbone.act_cfg),
             ]
         self.output = nn.Sequential(*self.output)
         self.linear_segmentation = ME.MinkowskiLinear(
@@ -141,8 +89,8 @@ class UResNetSegmentation(nn.Module):
         self.ghost = ghost
 
         # Initialize the UResNet backbone, store the relevant parameters
-        self.net = UResNet(backbone) # TODO: Change this name, will break things
-        self.num_filters = self.net.num_filters
+        self.backbone = UResNet(backbone)
+        self.num_filters = self.backbone.num_filters
 
     def forward(self, input_data):
         """Run a batch of data through the forward function.
@@ -162,7 +110,7 @@ class UResNetSegmentation(nn.Module):
             Dictionary of outputs
         """
         # Pass the input data through the UResNet backbone
-        result_backbone = self.net(input_data.tensor)
+        result_backbone = self.backbone(input_data.tensor)
 
         # Pass the output features through the output layer
         feats = result_backbone['decoder_tensors'][-1]
@@ -223,18 +171,7 @@ class SegmentationLoss(torch.nn.modules.loss._Loss):
         ['parse_sparse3d', (int,), (3, 1)]
     ]
 
-    RETURNS = {
-        'loss': Unwrapper.Rule(method='scalar'),
-        'accuracy': Unwrapper.Rule(method='scalar'),
-        'seg_loss': Unwrapper.Rule(method='scalar'),
-        'seg_accuracy': Unwrapper.Rule(method='scalar'),
-        'ghost_loss': Unwrapper.Rule(method='scalar'),
-        'ghost_accuracy': Unwrapper.Rule(method='scalar'),
-        'ghost_accuracy_class_0': Unwrapper.Rule(method='scalar'),
-        'ghost_accuracy_class_1': Unwrapper.Rule(method='scalar')
-    }
-
-    def __init__(self, uresnet, uresnet_loss={}):
+    def __init__(self, uresnet, uresnet_loss):
         """
         Initializes the segmentation loss
 
@@ -242,7 +179,7 @@ class SegmentationLoss(torch.nn.modules.loss._Loss):
         ----------
         uresnet : dict
             Model configuration
-        uresnet_loss : dict, optional
+        uresnet_loss : dict
             Loss configuration
         """
         # Initialize the parent class
@@ -257,11 +194,6 @@ class SegmentationLoss(torch.nn.modules.loss._Loss):
         # Initialize the cross-entropy loss
         # TODO: Make it configurable
         self.xe = torch.nn.functional.cross_entropy
-
-        # Append the expected output depending on how many classes there are
-        for c in range(self.num_classes):
-            self.RETURNS[f'accuracy_class_{c}'] = \
-                    Unwrapper.Rule(method='scalar')
 
     def process_model_config(self, num_classes, ghost=False, **kwargs):
         """Process the parameters of the upstream model needed for in the loss.
