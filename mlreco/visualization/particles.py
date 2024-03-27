@@ -65,6 +65,7 @@ def scatter_particles(cluster_label, particles, part_col=PART_COL,
                           'Anc. process': p.ancestor_creation_process,
                           'Initial E': f'{p.energy_init:0.1f} MeV',
                           'Deposited E': f'{p.energy_deposit:0.1f} MeV',
+                          'Time': f'{p.t} ns',
                           'Position': pos_str,
                           'Start point': start_str,
                           'Anc. start point': anc_pos_str}

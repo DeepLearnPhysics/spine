@@ -257,7 +257,7 @@ def get_group_primary_ids(particles, valid_mask):
             continue
 
         # If a particle group's parent fragment is the first in time,
-        # it is a valid primary
+        # it is a valid primary. TODO: use first step time.
         clust_times = np.array([particles[i].t for i in group_index])
         min_id = np.argmin(clust_times)
         if group_index[min_id] == g:
