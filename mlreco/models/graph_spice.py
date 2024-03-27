@@ -129,41 +129,6 @@ class GraphSPICE(nn.Module):
 
     MODULES = ['constructor_cfg', 'embedder_cfg', 'kernel_cfg', 'gspice_fragment_manager']
 
-    # RETURNS = {
-    #     'image_id'     : ['tensor'],
-    #     'coordinates'  : ['tensor'],
-    #     'batch'        : ['tensor', 'image_id'],
-    #     'x'            : ['tensor', 'image_id'],
-    #     'pos'          : ['tensor', 'image_id'],
-    #     'node_truth'   : ['tensor', 'image_id'],
-    #     'voxel_id'     : ['tensor', 'image_id'],
-    #     'graph_key'    : ['tensor'],
-    #     'graph_id'     : ['tensor', 'graph_key'],
-    #     'semantic_id'  : ['tensor', 'image_id'],
-    #     'full_edge_index'   : ['edge_tensor', ['full_edge_index', 'image_id']],
-    #     'edge_index'   : ['edge_tensor', ['full_edge_index', 'image_id']],
-    #     'edge_batch'   : ['edge_tensor', ['full_edge_index', 'image_id']],
-    #     'edge_image_id': ['edge_tensor', ['full_edge_index', 'image_id']],
-    #     'edge_label'   : ['edge_tensor', ['full_edge_index', 'image_id']],
-    #     'edge_attr'    : ['edge_tensor', ['full_edge_index', 'image_id']],
-    #     'edge_pred'    : ['edge_tensor', ['full_edge_index', 'image_id']],
-    #     'edge_prob'    : ['edge_tensor', ['full_edge_index', 'image_id']]
-    # }
-    
-    RETURNS = {
-        'image_id': Unwrapper.Rule(method='tensor'),
-        'coordinates': Unwrapper.Rule(method='tensor'),
-        'batch': Unwrapper.Rule(method='tensor', ref_key='image_id'),
-        'x': Unwrapper.Rule(method='tensor', ref_key='image_id'),
-        'pos': Unwrapper.Rule(method='tensor', ref_key='image_id'),
-        'node_truth': Unwrapper.Rule(method='tensor', ref_key='image_id'),
-        'voxel_id': Unwrapper.Rule(method='tensor', ref_key='image_id'),
-        'graph_key': Unwrapper.Rule(method='tensor'),
-        'graph_id': Unwrapper.Rule(method='tensor', ref_key='graph_key'),
-        'semantic_id': Unwrapper.Rule(method='tensor', ref_key='image_id'),
-        # TODO: Add other returns when unwrapper rules are implemented
-    }
-
     def __init__(self, graph_spice, graph_spice_loss=None):
         """Initialize the S3C (Supervised Conn. Components Clustering) Model
 
@@ -349,11 +314,6 @@ class GraphSPICELoss(nn.Module):
     --------
     GraphSPICE
     """
-
-    RETURNS = {
-        'loss': Unwrapper.Rule(method='scalar'),
-        'accuracy': Unwrapper.Rule(method='scalar'),
-    }
 
     def __init__(self, graph_spice, graph_spice_loss=None):
         super(GraphSPICELoss, self).__init__()

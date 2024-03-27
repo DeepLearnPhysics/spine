@@ -519,25 +519,8 @@ class TrainVal(object):
 
     def initialize_unwrapper(self):
         """Initialize the unwrapper."""
-        # Add unwrap rules for the input data products
-        rules = {'index': Unwrapper.Rule('list')}
-        for name, parser in self.loader.dataset.parsers.items():
-            rules[name] = parser.result
-
-        # Add unwrap rules for the output of the forward function
-        # TODO: update to syntax consistent with parsers
-        model = self.model if not self.distributed else self.model.module
-        if hasattr(model, 'RETURNS'):
-            rules.update(model.RETURNS)
-
-        # Add unwrap rules for the output of the loss function
-        # TODO: update to syntax consistent with parsers
-        if hasattr(self.loss_fn, 'RETURNS'):
-            rules.update(self.loss_fn.RETURNS)
-
         # Initialize the unwrapper
-        self.unwrapper = Unwrapper(
-                self.minibatch_size, rules, self.geo, remove_batch_col=False)
+        self.unwrapper = Unwrapper(self.geo, remove_batch_col=True)
 
     def make_directories(self):
         """Make directories as to where to store the logs and weights."""

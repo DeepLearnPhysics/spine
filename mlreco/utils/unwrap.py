@@ -17,28 +17,20 @@ class Unwrapper:
     into single tensors/arrays for faster processing; this class breaks the
     output down event-wise to be human-readable.
     """
-    def __init__(self, batch_size, rules={}, geometry=None,
-                 remove_batch_col=False):
-        """Translate rule arrays and boundaries into instructions.
+    def __init__(self, geometry=None, remove_batch_col=False):
+        """Initialize the unwrapper.
 
         Parameters
         ----------
-        batch_size : int
-             Number of events in the batch
-        rules : dict
-             Dictionary which contains a set of unwrapping rules for each
-             output key of the reconstruction chain. If there is no rule
-             associated with a key, the list is concatenated.
         geometry : Geometry
-             Detector geometry (needed if the input was split)
+             Detector geometry (needed if the input was split in
+             different volumes)
         remove_batch_col : bool
              Remove column which specifies batch ID from the unwrapped tensors
         """
-        self.batch_size = batch_size
         self.remove_batch_col = remove_batch_col
         self.geo = geometry
         self.num_volumes = self.geo.num_modules if self.geo else 1
-        self.rules = self._process_rules(rules)
 
     def __call__(self, data_dict, result_dict):
         """Main unwrapping function.
@@ -68,55 +60,6 @@ class Unwrapper:
 
         return data_unwrapped, result_unwrapped
 
-    @dataclass
-    class Rule:
-        """Simple dataclass which stores the relevant unwrapping rule
-        attributes for a speicific data product human-readable names.
-
-        Attributes
-        ----------
-        method : str
-            Unwrapping scheme
-        ref_key : str, optional
-            Key of the data product that supplies the batch mapping
-        done : bool, default False
-            True if the unwrapping is done by the model internally
-        translate : bool, default False
-            True if the coordinates of the tensor need to be shifted
-            from voxel indexes to detector coordinates
-        default : object
-            Default object to base the unwrapping on if the data product
-            for a specific event is empty.
-        """
-        method    : str
-        ref_key   : str = None
-        done      : bool = False
-        translate : bool = False
-        default   : object = None
-
-    def _process_rules(self, rules):
-        """Check that the ruls provided are valid.
-
-        Parameters
-        ----------
-        rules : dict
-             Dictionary which contains a set of unwrapping rules for each
-             output key of the reconstruction chain. If there is no rule
-             associated with a key, the list is concatenated.
-        """
-        valid_methods = ['scalar', 'list', 'tensor', 'tensor_list',
-                         'edge_tensor', 'index_tensor', 'index_list']
-        for key, rule in rules.items():
-            if not rules[key].ref_key:
-                rules[key].ref_key = key
-
-            assert rules[key].method in valid_methods, (
-                    f"Unwrapping method {rules[key].method} "
-                    f"for {key} not recognized. Should be one of "
-                    f"{valid_methods}")
-
-        return rules
-
     def _unwrap(self, key, data):
         """Routes set of data to the appropriate unwrapping scheme.
 
@@ -127,13 +70,9 @@ class Unwrapper:
         data : list
             Data product
         """
-        # Check that unwrapping rules exist for this key
-        assert key in self.rules, f"Must provide unwrapping rule for {key}"
-        method = self.rules[key].method
-
         # Dispatch to the correct unwrapping scheme
         if method == 'scalar':
-            # If the data is a scalar, return as is
+            # If the batch consists of one scalar per entry, return as is
             return data
 
         elif method == 'list':

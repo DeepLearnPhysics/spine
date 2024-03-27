@@ -12,8 +12,8 @@ Contains the following parsers:
 import numpy as np
 from larcv import larcv
 
-from mlreco.utils.data_structures import Meta, RunInfo, Flash, CRTHit, Trigger
-from mlreco.utils.unwrap import Unwrapper
+from mlreco.utils.data_structures import (
+        Meta, RunInfo, Flash, CRTHit, Trigger, ObjectList)
 
 from .parser import Parser
 
@@ -38,7 +38,6 @@ class MetaParser(Parser):
     """
     name = 'parse_meta'
     aliases = ['parse_meta2d', 'parse_meta3d']
-    result = Unwrapper.Rule(method='scalar', default=Meta())
 
     def __init__(self, projection_id=None, **kwargs):
         """Initialize the parser.
@@ -97,7 +96,6 @@ class RunInfoParser(Parser):
             sparse_event: sparse3d_pcluster
     """
     name = 'parse_run_info'
-    result = Unwrapper.Rule(method='scalar', default=RunInfo())
 
     def process(self, sparse_event=None, cluster_event=None):
         """Fetches the run information from one object that has it.
@@ -136,7 +134,6 @@ class OpFlashParser(Parser):
     """
     name = 'parse_opflashes'
     aliases = ['parse_opflash']
-    result = Unwrapper.Rule(method='list', default=Flash())
 
     def process(self, opflash_event=None, opflash_event_list=None):
         """Fetches the list of optical flashes.
@@ -167,7 +164,7 @@ class OpFlashParser(Parser):
         # Output as a list of LArCV optical flash objects
         opflashes = [Flash.from_larcv(larcv.Flash(f)) for f in opflash_list]
 
-        return opflashes
+        return ObjectList(opflashes, Flash)
 
 
 class CRTHitParser(Parser):
@@ -181,7 +178,6 @@ class CRTHitParser(Parser):
     """
     name = 'parse_crthits'
     aliases = ['parse_crthit']
-    result = Unwrapper.Rule(method='list', default=CRTHit())
 
     def process(self, crthit_event):
         """Fetches the list of CRT hits.
@@ -199,7 +195,7 @@ class CRTHitParser(Parser):
         crthit_list = crthit_event.as_vector()
         crthits = [CRTHit.from_larcv(larcv.CRTHit(c)) for c in crthit_list]
 
-        return crthits
+        return ObjectList(crthits, CRTHit)
 
 
 class TriggerParser(Parser):
@@ -212,7 +208,6 @@ class TriggerParser(Parser):
             trigger_event: trigger_base
     """
     name = 'parse_trigger'
-    result = Unwrapper.Rule(method='scalar', default=Trigger())
 
     def process(self, trigger_event):
         """Fetches the trigger information.

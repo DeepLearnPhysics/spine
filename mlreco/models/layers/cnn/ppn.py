@@ -16,7 +16,6 @@ from mlreco.utils.globals import (COORD_COLS, VALUE_COL, SHAPE_COL, TRACK_SHP,
                                   GHOST_SHP, PPN_ROFF_COLS, PPN_RPOS_COLS,
                                   PPN_RTYPE_COLS, PPN_LTYPE_COL, PPN_LENDP_COL)
 from mlreco.utils.data_structures import TensorBatch
-from mlreco.utils.unwrap import Unwrapper
 from mlreco.utils.weighting import get_class_weights
 
 __all__ = ['PPN', 'PPNLoss']
@@ -85,17 +84,8 @@ class PPN(torch.nn.Module):
 
     See Also
     --------
-    PPNLoss, mlreco.models.uresnet_ppn_chain
+    :class:`PPNLoss`, :class:`mlreco.models.uresnet_ppn_chain`
     """
-
-    RETURNS = {
-        'ppn_points': Unwrapper.Rule('tensor'),
-        'ppn_masks': Unwrapper.Rule('tensor_list'),
-        'ppn_layers': Unwrapper.Rule('tensor_list'),
-        'ppn_coords': Unwrapper.Rule('tensor_list'),
-        'ppn_output_coords': Unwrapper.Rule('tensor'),
-        'ppn_classify_endpoints': Unwrapper.Rule('tensor'),
-    }
 
     def __init__(self, uresnet, ppn, uresnet_loss=None, ppn_loss=None):
         """Initializes the standalone PPN network.
@@ -387,19 +377,6 @@ class PPNLoss(torch.nn.modules.loss._Loss):
     PPN, mlreco.models.uresnet_ppn_chain
     """
 
-    RETURNS = {
-        'accuracy': Unwrapper.Rule('scalar'),
-        'loss': Unwrapper.Rule('scalar'),
-        'mask_loss': Unwrapper.Rule('scalar'),
-        'mask_accuracy': Unwrapper.Rule('scalar'),
-        'type_loss': Unwrapper.Rule('scalar'),
-        'type_accuracy': Unwrapper.Rule('scalar'),
-        'reg_loss': Unwrapper.Rule('scalar'),
-        'classify_endpoints_loss': Unwrapper.Rule('scalar'),
-        'classify_endpoints_accuracy': Unwrapper.Rule('scalar'),
-        'mask_labels': Unwrapper.Rule('tensor_list')
-    }
-
     def __init__(self, uresnet, ppn, ppn_loss, uresnet_loss=None):
         """Initializes the standalone PPN loss.
 
@@ -422,11 +399,6 @@ class PPNLoss(torch.nn.modules.loss._Loss):
 
         # Initialize the loss configuration
         self.process_loss_config(**ppn_loss)
-
-        # Initialize the individual masks output depending on the depth
-        for d in range(self.depth - 1):
-            self.RETURNS[f'mask_loss_layer_{d}'] = Unwrapper.Rule('scalar')
-            self.RETURNS[f'mask_accuracy_layer_{d}'] = Unwrapper.Rule('scalar')
 
     def process_backbone_config(self, depth, **kwargs):
         """Process the parameters of the backbone model needed for in the loss.

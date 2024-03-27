@@ -36,17 +36,12 @@ def scatter_particles(cluster_label, particles, part_col=PART_COL,
     colors = HIGH_CONTRAST_COLORS
     for i in range(len(particles)):
         # Get a mask that corresponds to the particle entry, skip if empty
-        mask = cluster_label[:, part_col] == i
-        if not np.sum(mask):
+        index = np.where(cluster_label[:, part_col] == i)[0]
+        if not len(index):
             continue
             
         # Initialize the information string
         p = particles[i]
-        pos_str = ', '.join([f'{p.position[i]:0.3e}' for i in range(3)])
-        start_str = ', '.join([f'{p.first_step[i]:0.3e}' for i in range(3)])
-        anc_pos_str = ', '.join(
-                [f'{p.ancestor_position[i]:0.3e}' for i in range(3)])
-        
         label = f'Particle {p.id}'
         hovertext_dict = {'Particle ID': p.id,
                           'Group ID': p.group_id,
@@ -54,7 +49,7 @@ def scatter_particles(cluster_label, particles, part_col=PART_COL,
                           'Inter. ID': p.interaction_id,
                           'Neutrino ID': p.nu_id,
                           'Type ID': p.pid,
-                          'Shower primary': p.shower_primary,
+                          'Group primary': p.group_primary,
                           'Inter. primary': p.interaction_primary,
                           'Shape ID': p.shape,
                           'PDG code': p.pdg_code,
@@ -65,17 +60,17 @@ def scatter_particles(cluster_label, particles, part_col=PART_COL,
                           'Anc. process': p.ancestor_creation_process,
                           'Initial E': f'{p.energy_init:0.1f} MeV',
                           'Deposited E': f'{p.energy_deposit:0.1f} MeV',
-                          'Time': f'{p.t} ns',
-                          'Position': pos_str,
-                          'Start point': start_str,
-                          'Anc. start point': anc_pos_str}
+                          'Time': f'{p.t:0.1f} ns',
+                          'First step': p.first_step,
+                          'Creation point': p.position,
+                          'Anc. creation point': p.ancestor_position}
 
         hovertext = ''.join(
                 [f'{l}:   {v}<br>' for l, v in hovertext_dict.items()])
         
         # Append a scatter plot trace
         trace = scatter_points(
-                cluster_label[mask][:, COORD_COLS],
+                cluster_label[index][:, COORD_COLS],
                 color=str(colors[i%len(colors)]), hovertext=hovertext,
                 markersize=markersize, **kwargs)
         trace[0]['name'] = label

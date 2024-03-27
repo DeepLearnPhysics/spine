@@ -57,12 +57,12 @@ class UResNetPPN(torch.nn.Module):
         assert self.uresnet.ghost == self.ppn.ghost
         self.ghost = self.uresnet.ghost
 
-    def forward(self, input_data, segment_label=None):
+    def forward(self, data, segment_label=None):
         """Run a batch of data through the foward function.
 
         Parameters
         ----------
-        input_data : TensorBatch
+        data : TensorBatch
             (N, 1 + D + N_f) tensor of voxel/value pairs
             - N is the the total number of voxels in the image
             - 1 is the batch ID
@@ -72,7 +72,7 @@ class UResNetPPN(torch.nn.Module):
             (N, 1 + D + 1) tensor of voxel/ghost label pairs
         """
         # Pass the input through the backbone UResNet model
-        result = self.uresnet(input_data)
+        result = self.uresnet(data)
 
         # Pass the decoder feature tensors to the PPN layers
         if self.ghost:

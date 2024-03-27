@@ -12,8 +12,7 @@ def get_track_deposition_chi2(coordinates, values, end_point, pid,
                               segment_length=5.0, method='step_next',
                               anchor_point=True, min_count=10, use_table=False,
                               use_mpv=False):
-    '''
-    Computes the Chi-squared measure of the agreement between dE/dxs
+    """Computes the Chi-squared measure of the agreement between dE/dxs
     measurements taken from track segment and the expected dE/dx for those.
 
     Parameters
@@ -51,7 +50,7 @@ def get_track_deposition_chi2(coordinates, values, end_point, pid,
        (S) Array of uncertainties on the energy/charge deposition rate
     seg_rrs : np.ndarray
        (S) Array of residual ranges (center of the segment w.r.t. end point)
-    '''
+    """
     # No tabulated dE/dx for MPV, throw if needed
     assert not use_table or not use_mpv, (
             "No available tabulated dE/dx for MPV values.")

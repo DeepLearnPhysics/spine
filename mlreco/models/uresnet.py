@@ -92,12 +92,12 @@ class UResNetSegmentation(nn.Module):
         self.backbone = UResNet(backbone)
         self.num_filters = self.backbone.num_filters
 
-    def forward(self, input_data):
+    def forward(self, data):
         """Run a batch of data through the forward function.
 
         Parameters
         ----------
-        input_data: TensorBatch
+        data: TensorBatch
             (N, 1 + D + N_f) tensor of voxel/value pairs
             - N is the the total number of voxels in the image
             - 1 is the batch ID
@@ -110,7 +110,7 @@ class UResNetSegmentation(nn.Module):
             Dictionary of outputs
         """
         # Pass the input data through the UResNet backbone
-        result_backbone = self.backbone(input_data.tensor)
+        result_backbone = self.backbone(data.tensor)
 
         # Pass the output features through the output layer
         feats = result_backbone['decoder_tensors'][-1]
@@ -118,9 +118,9 @@ class UResNetSegmentation(nn.Module):
         seg   = self.linear_segmentation(feats)
 
         # Store the output as tensor batches
-        segmentation = TensorBatch(seg.F, input_data.counts)
+        segmentation = TensorBatch(seg.F, data.counts)
 
-        batch_size = input_data.batch_size
+        batch_size = data.batch_size
         final_tensor = TensorBatch(
                 result_backbone['final_tensor'],
                 batch_size=batch_size, is_sparse=True)
@@ -142,9 +142,9 @@ class UResNetSegmentation(nn.Module):
         if self.ghost:
             ghost = self.linear_ghost(feats)
 
-            result['ghost'] = TensorBatch(ghost.F, input_data.counts)
+            result['ghost'] = TensorBatch(ghost.F, data.counts)
             result['ghost_tensor'] = TensorBatch(
-                    ghost, input_data.counts, is_sparse=True)
+                    ghost, data.counts, is_sparse=True)
 
         return result
 

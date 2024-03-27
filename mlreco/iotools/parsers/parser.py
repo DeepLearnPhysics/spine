@@ -11,7 +11,6 @@ class Parser:
     """
     name = None
     aliases = []
-    unwrap_rule = None
 
     def __init__(self, **kwargs):
         """Loops over data product names, stores them.

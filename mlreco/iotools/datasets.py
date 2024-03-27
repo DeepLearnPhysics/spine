@@ -56,10 +56,6 @@ class LArCVDataset(Dataset):
             self.parsers[data_product] = instantiate(
                     PARSER_DICT, parser_cfg, alt_name='parser')
 
-            # If the parser returns a tensor, set its reference
-            if self.parsers[data_product].result == 'tensor':
-                self.parsers[data_product].result.ref_key = data_product
-
             # Append to the list of trees to load
             for key in self.parsers[data_product].tree_keys:
                 if key not in tree_keys:

@@ -78,10 +78,6 @@ class EdgeIndexBatch(BatchBase):
         self.directed = directed
         self.batch_size = len(counts)
 
-    def __len__(self):
-        """Returns the number of entries that make up the batch."""
-        return self.batch_size
-
     def __getitem__(self, batch_id):
         """Returns a subset of the index corresponding to one entry.
 

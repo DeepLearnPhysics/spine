@@ -69,9 +69,8 @@ class CollateSparse:
         raise NotImplementedError("Work in progress...")
 
     def __call__(self, batch):
-        """
-        Takes a list of parsed information, one per event in a batch, and
-        collates them into a single object per batch
+        """Takes a list of parsed information, one per event in a batch, and
+        collates them into a single object per entry in the batch.
 
         Parameters
         ----------
@@ -96,7 +95,8 @@ class CollateSparse:
         batch_size = len(batch)
         data = {}
         for key in batch[0].keys():
-            if isinstance(batch[0][key], tuple) and len(batch[0][key]) == 3:
+            ref_obj = batch[0][key]
+            if isinstance(ref_obj, tuple) and len(ref_obj) == 3:
                 # Case where a coordinates tensor and a feature tensor
                 # are provided, along with the metadata information
                 if not self.split:
@@ -130,8 +130,8 @@ class CollateSparse:
                 tensor = np.hstack([batch_ids[:, None], voxels, features])
                 data[key] = TensorBatch(tensor, counts)
 
-            elif isinstance(batch[0][key], tuple) and len(batch[0][key]) == 2:
-                # Case where an index and an offset is provided per batch
+            elif isinstance(ref_obj, tuple) and len(ref_obj) == 2:
+                # Case where an index and an offset is provided per entry.
                 # Stack the indexes, do not add a batch column
                 tensor  = np.concatenate(
                         [sample[key][0] for sample in batch], axis-1)
@@ -142,14 +142,6 @@ class CollateSparse:
                 else:
                     data[key] = EdgeIndexBatch(
                             tensor, counts, offsets, directed=True)
-
-            elif isinstance(batch[0][key], np.ndarray):
-                # Case where the output of the parser is a single np.ndarray
-                # Stack the tensors, do not add a batch column
-                tensor    = np.concatenate(
-                        [sample[key] for sample in batch], axis=0)
-                counts    = [len(sample[key]) for sample in batch]
-                data[key] = TensorBatch(tensor, counts)
 
             else:
                 # In all other cases, just make a list of size batch_size

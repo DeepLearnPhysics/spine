@@ -12,7 +12,7 @@ class BatchBase:
 
     Attributes
     ----------
-    data : Union[np.ndarray, torch.Tensor]
+    data : Union[list, np.ndarray, torch.Tensor]
         Batched data
     counts : Union[np.ndarray, torch.Tensor]
         (B) Number of data elements in each entry of the batch
