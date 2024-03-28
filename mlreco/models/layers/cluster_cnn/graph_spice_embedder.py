@@ -170,15 +170,21 @@ class GraphSPICEEmbedder(UResNet):
             occupancy], dim=1)
 
         res = {
-            "spatial_embeddings": TensorBatch(spatial_embeddings + normalized_coords, counts=counts),
-            "covariance": TensorBatch(covariance, counts=counts),
-            "feature_embeddings": TensorBatch(feature_embeddings, counts=counts),
-            "occupancy": TensorBatch(occupancy, counts=counts),
-            "features": TensorBatch(output_features, counts=counts),
-            "hypergraph_features": TensorBatch(hypergraph_features, counts=counts)
+            "spatial_embeddings": TensorBatch(spatial_embeddings + normalized_coords, counts=counts, 
+                                              batch_col=None),
+            "covariance": TensorBatch(covariance, counts=counts,
+                                      batch_col=None),
+            "feature_embeddings": TensorBatch(feature_embeddings, counts=counts,
+                                              batch_col=None),
+            "occupancy": TensorBatch(occupancy, counts=counts,
+                                     batch_col=None),
+            "features": TensorBatch(output_features, counts=counts,
+                                    batch_col=None),
+            "hypergraph_features": TensorBatch(hypergraph_features, counts=counts,
+                                               batch_col=None)
         }
         if self.predict_semantics:
-            res["segmentation"] = TensorBatch(segmentation, counts=counts)
+            res["segmentation"] = TensorBatch(segmentation, counts=counts, batch_col=None)
 
         return res
 

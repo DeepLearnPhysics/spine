@@ -140,7 +140,9 @@ class TensorBatch(BatchBase):
         data = to_numpy(data)
         counts = to_numpy(self.counts)
 
-        return TensorBatch(data, counts)
+        return TensorBatch(data, counts, 
+                           batch_col=self.batch_col, 
+                           coord_cols=self.coord_cols)
 
     def to_tensor(self, dtype=None, device=None):
         """Cast underlying tensor to a `torch.tensor` and return a new instance.
@@ -165,7 +167,9 @@ class TensorBatch(BatchBase):
         data = to_tensor(self.data)
         counts = to_tensor(self.counts)
 
-        return TensorBatch(data, counts)
+        return TensorBatch(data, counts, 
+                           batch_col=self.batch_col, 
+                           coord_cols=self.coord_cols)
 
     def to_cm(self, meta):
         """Converts the coordinates of the tensor to cm.

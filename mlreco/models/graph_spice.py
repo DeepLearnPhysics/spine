@@ -206,6 +206,8 @@ class GraphSPICE(nn.Module):
 
     def construct_fragments(self, input):
         
+        raise NotImplementedError('Fragment construction not implemented.')
+        
         frags = {}
         
         device = input[0].device
@@ -369,4 +371,7 @@ class GraphSPICELoss(nn.Module):
             acc_out = self.gs_manager.evaluate()
             for key, val in acc_out.items():
                 res[key] = val
+                
+        if 'ari' in res:
+            res['accuracy'] = res['ari']
         return res

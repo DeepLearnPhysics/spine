@@ -3,7 +3,7 @@ import numpy as np
 from scipy.spatial.distance import cdist
 
 from mlreco.utils.globals import COORD_COLS, PPN_SHAPE_COL
-from mlreco.utils.ppn import get_ppn_predictions
+# from mlreco.utils.ppn import get_ppn_predictions
 
 from analysis.post_processing import PostProcessor
 
