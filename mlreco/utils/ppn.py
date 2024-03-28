@@ -6,276 +6,221 @@ PPN predictions into something human-readable.
 
 import numpy as np
 import torch
+from typing import Union, List
+
 from scipy.special import softmax
 from scipy.spatial.distance import cdist
 
-# TODO: remove utils.py so that we can do local imports
-from mlreco.utils import numba_local as nbl
-from mlreco.utils.dbscan import dbscan_points
-from mlreco.utils.data_structures import TensorBatch
-from mlreco.utils.globals import (
+from . import numba_local as nbl
+from .dbscan import dbscan_points
+from .data_structures import TensorBatch
+from .globals import (
         BATCH_COL, COORD_COLS, PPN_ROFF_COLS, PPN_RTYPE_COLS, PPN_RPOS_COLS,
-        PPN_END_COLS, TRACK_SHP, LOWES_SHP, UNKWN_SHP)
+        PPN_END_COLS, SHOWR_SHP, TRACK_SHP, MICHL_SHP, DELTA_SHP, LOWES_SHP,
+        UNKWN_SHP)
 
 
-def get_ppn_labels(particle_v, meta, dim=3, min_voxel_count=5,
-                   min_energy_deposit=0, include_point_tagging=True):
-    """Gets particle point coordinates and informations for running PPN.
+class PPNPredictor:
+    """PPN post-processing class to convert PPN raw predictions into points."""
 
-    We skip some particles under specific conditions (e.g. low energy deposit,
-    low voxel count, nucleus track, etc.)
+    def __init__(self, score_threshold=0.5, type_score_threshold=0.5,
+                 type_dist_threshold=1.999, pool_score_fn='max',
+                 pool_dist=1.999, enforce_type=True,
+                 classes=[SHOWR_SHP, TRACK_SHP, MICHL_SHP, DELTA_SHP],
+                 apply_deghosting=False):
+        """Initialize the PPN post-processor.
 
-    Parameters
-    ----------
-    particle_v : List[larcv.Particle]
-        List of LArCV particle objects in the image
-    meta : larcv::Voxel3DMeta or larcv::ImageMeta
-        Metadata information
-    dim : int, default 3
-        Number of dimensions of the image
-    min_voxel_count : int, default 5
-        Minimum number of voxels associated with a particle to be included
-    min_energy_deposit : float, default 0
-        Minimum energy deposition associated with a particle to be included
-    include_point_tagging : bool, default True
-        If True, include an a label of 0 for start points and 1 for end points
+        Parameters
+        ----------
+        score_threshold : float, default 0.5
+             Score above which a point is considered to be active
+        type_score_threshold : float, default 0.5
+             Score above which a type prediction must be to be considered
+        type_dist_threshold : float, default 1.999
+             Distance threshold for matching with semantic type predictions
+        pool_score_fn : str, default 'max'
+             Which operation to use to pool PPN points scores ('max' or 'mean')
+        pool_dist : float, default 1.999
+             Distance below which PPN points should be merged into one (DBSCAN)
+        enforce_type : bool, default True
+             Whether to force PPN points predicted of type X to be within N
+             voxels of a voxel with same predicted semantic type
+        classes : List[int], default [0, 1, 2, 3]
+             Number of semantic classes
+        apply_deghosting : bool, default False
+             Whether to deghost the input, if a `ghost` tensor is provided
+        """
+        # Store the parameters
+        self.score_threshold = score_threshold
+        self.type_score_threshold = type_score_threshold
+        self.type_dist_threshold = type_dist_threshold
+        self.enfore_type = enforce_type
+        self.classes = classes
+        self.apply_deghosting = apply_deghosting
 
-    Returns
-    -------
-    np.array
-        Array of points of shape (N, 5/6) where 5/6 = x,y,z + point type
-        + particle index [+ start (0) or end (1) point tagging]
-    """
-    # Check on dimension
-    if dim not in [2, 3]:
-        raise ValueError("The image dimension must be either 2 or 3, "
-                        f"got {dim} instead.")
-
-    # Loop over true particles
-    part_info = []
-    for part_index, particle in enumerate(particle_v):
-        # Check that the particle has the expected index
-        assert part_index == particle.id()
-
-        # If the particle does not meet minimum energy/size requirements, skip
-        if (particle.energy_deposit() < min_energy_deposit or
-            particle.num_voxels() < min_voxel_count):
-            continue
-
-        # If the particle is a nucleus, skip.
-        # TODO: check if it's useful
-        pdg_code = abs(particle.pdg_code())
-        if pdg_code > 1000000000:  # Skipping nucleus trackid
-            continue
-
-        # If a shower has its first step outside of detector boundaries, skip
-        # TODO: check if it's useful
-        if pdg_code == 11 or pdg_code == 22:
-            if not image_contains(meta, particle.first_step(), dim):
-                continue
-
-        # Skip low energy scatters and unknown shapes
-        shape = particle.shape()
-        if particle.shape() in [LOWES_SHP, UNKWN_SHP]:
-            continue
-
-        # Append the start point with the rest of the particle information
-        first_step = image_coordinates(meta, particle.first_step(), dim)
-        part_extra = [shape, part_index, 0] \
-                if include_point_tagging else [shape, part_index]
-        part_info.append(first_step + part_extra)
-
-        # Append the end point as well, for tracks only
-        if shape == TRACK_SHP:
-            last_step  = image_coordinates(meta, particle.last_step(), dim)
-            part_extra = [shape, part_index, 1] \
-                    if include_point_tagging else [shape, part_index]
-            part_info.append(last_step + part_extra)
-
-    if not len(part_info):
-        return np.empty((0, 5 + include_point_tagging), dtype=np.float32)
-
-    return np.array(part_info)
-
-
-def get_ppn_predictions(ppn_points, ppn_coords, ppn_masks,
-                        ppn_classify_endpoints=None, segmentation=None,
-                        ghost=None, score_threshold=0.5,
-                        type_score_threshold=0.5, type_dist_threshold=1.999,
-                        entry=None, pool_score_fn='max', pool_dist=1.999,
-                        enforce_type=True, selection=None, num_classes=5, 
-                        apply_deghosting=False):
-    """Converts the raw output of PPN to a discrete set of proposed points.
-
-    Parameters
-    ----------
-    ppn_points : Union[TensorBatch, List[np.ndarray]
-         Raw output of PPN
-    ppn_coords : Union[List[TensorBatch], List[List[np.ndarray]]
-         Coordinates of the image at each PPN layer
-    ppn_masks : Union[List[TensorBatch], List[List[np.ndarray]]
-         Predicted masks of at each PPN layer
-    ppn_classify_endpoints : Union[TensorBatch, List[np.ndarray]], optional
-         Raw logits from the end point classification layer of PPN
-    segmentation : Union[TensorBatch, List[np.ndarray]], optional
-         Raw logits from the semantic segmentation network output
-    ghost : Union[TensorBatch, List[np.ndarray]], optional
-         Raw logits from the ghost segmentation network output
-    score_threshold : float, default 0.5
-         Score above which a point is considered to be active
-    type_score_threshold : float, default 0.5
-         Score above which a type prediction must be to be considered
-    type_dist_threshold : float, default 1.999
-         Distance threshold for matching with semantic type predictions
-    entry : int, optional
-         Entry in the batch for which to compute the point predictions
-    pool_score_fn : str, default 'max'
-         Which operation to use to pool PPN points scores ('max' or 'mean')
-    pool_dist : float, default 1.999
-         Distance below which PPN points should be merged into one (DBSCAN)
-    enforce_type : bool, default True
-         Whether to force PPN points predicted of type X to be within N voxels
-         of a voxel with same predicted semantic type
-    selection : List[List[int]], optional
-         List of list of indices to consider exclusively (eg to get PPN 
-         redictions within a cluster)
-    num_classes : int, default 5
-         Number of semantic classes
-    apply_deghosting : bool, default False
-         Whether to deghost the input, if a `ghost` tensor is provided
-
-    Returns
-    -------
-    Union[np.ndarry, torch.Tensor]
-        (N, P) Tensor of predicted points with P divided between
-        [batch_id, x, y, z, validity scores (2), occupancy, type scores (5),
-         predicted type, endpoint type]
-    """
-    # Fetch the segmentation tensor, if needed
-    if enforce_type:
-        assert segmentation is not None, (
-                "Must provide the segmentation tensor to enforce types")
-        if ghost is not None and apply_deghosting:
-            mask_ghost = np.where(np.argmax(ghost, axis=1) == 0)[0]
-            dist_segmentation = segmentation[mask_ghost]
-
-    # Process the score pooling function
-    if pool_score_fn == 'max':
-        pool_fn = lambda x: np.max(x, axis=0)
-    elif poof_score_fn == 'mean':
-        pool_fn = lambda x: np.mean(x, axis=0)
-    else:
-        raise ValueError(
-                f"Score pooling function not recognized: {score_pool}. "
-                 "Should be one of 'max' or 'mean'")
-
-    # Set the list of entries to loop over
-    entries = range(len(ppn_points))
-    if entry is not None:
-        assert isinstance(entry, int), "If entry is specified, must be integer"
-        entries = [entry]
-
-    #  Loop over the entries in the batch
-    classify_ends = ppn_classify_endpoints is not None
-    output_list = []
-    for b in entries:
-        # Narrow down input to a specific entry
-        ppn_raw_b = ppn_points[b]
-        if isinstance(ppn_points, TensorBatch):
-            ppn_mask_b = ppn_masks[-1][b].astype(bool).flatten()
-            ppn_coords_b = ppn_coords[-1][b][:, COORD_COLS]
+        # Process the score pooling function
+        self.pool_dist = pool_dist
+        if pool_score_fn == 'max':
+            self.pool_fn = lambda x: np.max(x, axis=0)
+        elif poof_score_fn == 'mean':
+            self.pool_fn = lambda x: np.mean(x, axis=0)
         else:
-            ppn_mask_b = ppn_masks[b][-1].astype(bool).flatten()
-            ppn_coords_b = ppn_coords[b][-1][:, COORD_COLS]
-        if classify_ends:
-            ppn_ends_b = ppn_classify_endpoints[b]
+            raise ValueError(
+                    f"Score pooling function not recognized: {score_pool}. "
+                     "Should be one of 'max' or 'mean'")
 
-        # Restrict the PPN output to positive points above the score threshold
-        scores = softmax(ppn_raw_b[:, PPN_RPOS_COLS], axis=1)
-        mask = ppn_mask_b & (scores[:, -1] > score_threshold)
+    def __call__(ppn_points, ppn_coords, ppn_masks,
+                 ppn_classify_endpoints=None, segmentation=None, ghost=None,
+                 entry=None, selection=None, **kwargs):
+        """Converts the raw output of PPN to a discrete set of proposed points.
 
-        # Restrict the PPN output to a subset of points, if requested
-        if selection is not None:
-            mask_update = np.zeros(mask.shape, dtype=bool)
-            if entry is not None:
-                assert (len(selection) == len(ppn_points) and
-                        not np.issclar(selection[0]))
-                mask_update[selection[b]] = True
+        Parameters
+        ----------
+        ppn_points : Union[TensorBatch, List[np.ndarray]]
+             Raw output of PPN
+        ppn_coords : Union[List[TensorBatch], List[List[np.ndarray]]
+             Coordinates of the image at each PPN layer
+        ppn_masks : Union[List[TensorBatch], List[List[np.ndarray]]
+             Predicted masks of at each PPN layer
+        ppn_classify_endpoints : Union[TensorBatch, List[np.ndarray]], optional
+             Raw logits from the end point classification layer of PPN
+        segmentation : Union[TensorBatch, List[np.ndarray]], optional
+             Raw logits from the semantic segmentation network output
+        ghost : Union[TensorBatch, List[np.ndarray]], optional
+             Raw logits from the ghost segmentation network output
+        entry : int, optional
+             Entry in the batch for which to compute the point predictions
+        selection : List[np.array], optional
+             List of indexes to consider exclusively (e.g. to get PPN 
+             predictions within a list of clusters)
+        **kwargs : dict, optional
+             Extraneous outputs not used in this post-processor
+
+        Returns
+        -------
+        Union[np.ndarry, torch.Tensor]
+            (N, P) Tensor of predicted points with P divided between
+            [batch_id, x, y, z, validity scores (2), occupancy, type scores (5),
+             predicted type, endpoint type]
+        """
+        # Fetch the segmentation tensor, if needed
+        if self.enforce_type:
+            assert segmentation is not None, (
+                    "Must provide the segmentation tensor to enforce types")
+            if ghost is not None and apply_deghosting:
+                mask_ghost = np.where(np.argmax(ghost, axis=1) == 0)[0]
+                dist_segmentation = segmentation[mask_ghost]
+
+        # Set the list of entries to loop over
+        if entry is not None:
+            assert isinstance(entry, int), (
+                    "If entry is specified, must be integer")
+            entries = [entry]
+        else:
+            enrties = range(len(ppn_points))
+
+        #  Loop over the entries in the batch
+        classify_ends = ppn_classify_endpoints is not None
+        output_list = []
+        for b in entries:
+            # Narrow down input to a specific entry
+            ppn_raw_b = ppn_points[b]
+            if isinstance(ppn_points, TensorBatch):
+                ppn_mask_b = ppn_masks[-1][b].astype(bool).flatten()
+                ppn_coords_b = ppn_coords[-1][b][:, COORD_COLS]
             else:
-                assert len(selection) and np.issclar(selection[0])
-                mask_update[selection] = True
-
-            mask &= mask_update
-
-        # Apply the mask
-        mask = np.where(mask)[0]
-        scores = scores[mask]
-        ppn_raw_b = ppn_raw_b[mask]
-        ppn_coords_b = ppn_coords_b[mask]
-        if classify_ends:
-            ppn_ends_b = ppn_ends_b[mask]
-
-        # Get the type predictions
-        type_scores = softmax(ppn_raw_b[:, PPN_RTYPE_COLS], axis=1)
-        type_pred = np.argmax(type_scores, axis=1)
-        if classify_ends:
-            end_scores = softmax(ppn_ends_b, axis=1)
-
-        # Get the PPN point predictions
-        coords = ppn_coords_b + 0.5 + ppn_raw_b[:, PPN_ROFF_COLS]
-        if enforce_type:
-            # Loop over the invidual classes
-            seg_masks = []
-            for c in range(num_classes):
-                # Restrict the points to a specific class
-                seg_pred = np.argmax(segmentation[b][mask], axis=1)
-                seg_mask = seg_pred == c
-                seg_mask &= type_scores[:, c] > type_score_threshold
-                seg_mask = np.where(seg_mask)[0]
-
-                # Make sure the points are within range of compatible class
-                dist_mat = cdist(coords[seg_mask], ppn_coords_b[seg_mask])
-                dist_mask = (dist_mat < type_dist_threshold).any(axis=1)
-                seg_mask = seg_mask[dist_mask]
-
-                seg_masks.append(seg_mask)
-
-            # Restrict the available points further
-            seg_mask = np.concatenate(seg_masks)
-
-            coords = coords[seg_mask]
-            scores = scores[seg_mask]
-            type_pred = type_pred[seg_mask]
-            type_scores = type_scores[seg_mask]
-            end_scores = end_scores[seg_mask]
-
-        # At this point, if there are no valid proposed points left, abort
-        if not len(coords):
-            output_list.append(
-                    np.empty((0, 13 + 2*classify_ends), dtype=np.float32))
-
-        # Cluster nearby points together
-        clusts = dbscan_points(coords, eps=pool_dist, min_samples=1)
-        output_list_b = []
-        for c in clusts:
-            types, cnts = np.unique(type_pred[c], return_counts=True)
-            type_c = types[np.argmax(cnts)]
-            output = [b, np.mean(coords[c], axis=0), pool_fn(scores[c]), 
-                      len(c), pool_fn(type_scores[c]), type_c]
+                ppn_mask_b = ppn_masks[b][-1].astype(bool).flatten()
+                ppn_coords_b = ppn_coords[b][-1][:, COORD_COLS]
             if classify_ends:
-                output.append(pool_fn(end_scores[c]))
+                ppn_ends_b = ppn_classify_endpoints[b]
 
-            output_list_b.append(np.hstack(output))
+            # Restrict the PPN output to points above the score threshold
+            scores = softmax(ppn_raw_b[:, PPN_RPOS_COLS], axis=1)
+            mask = ppn_mask_b & (scores[:, -1] > self.score_threshold)
 
-        output_list.append(np.vstack(output_list_b))
+            # Restrict the PPN output to a subset of points, if requested
+            if selection is not None:
+                mask_update = np.zeros(mask.shape, dtype=bool)
+                if entry is not None:
+                    assert (len(selection) == len(ppn_points) and
+                            not np.issclar(selection[0]))
+                    mask_update[selection[b]] = True
+                else:
+                    assert len(selection) and np.issclar(selection[0])
+                    mask_update[selection] = True
 
-    if entry is not None:
-        return output_list[0]
-    else:
-        return TensorBatch.from_list(output_list)
+                mask &= mask_update
+
+            # Apply the mask
+            mask = np.where(mask)[0]
+            scores = scores[mask]
+            ppn_raw_b = ppn_raw_b[mask]
+            ppn_coords_b = ppn_coords_b[mask]
+            if classify_ends:
+                ppn_ends_b = ppn_ends_b[mask]
+
+            # Get the type predictions
+            type_scores = softmax(ppn_raw_b[:, PPN_RTYPE_COLS], axis=1)
+            type_pred = np.argmax(type_scores, axis=1)
+            if classify_ends:
+                end_scores = softmax(ppn_ends_b, axis=1)
+
+            # Get the PPN point predictions
+            coords = ppn_coords_b + 0.5 + ppn_raw_b[:, PPN_ROFF_COLS]
+            if self.enforce_type:
+                # Loop over the invidual classes
+                seg_masks = []
+                for c in self.classes:
+                    # Restrict the points to a specific class
+                    seg_pred = np.argmax(segmentation[b][mask], axis=1)
+                    seg_mask = seg_pred == c
+                    seg_mask &= type_scores[:, c] > self.type_score_threshold
+                    seg_mask = np.where(seg_mask)[0]
+
+                    # Make sure the points are within range of compatible class
+                    dist_mat = cdist(coords[seg_mask], ppn_coords_b[seg_mask])
+                    dist_mask = (dist_mat < type_dist_threshold).any(axis=1)
+                    seg_mask = seg_mask[dist_mask]
+
+                    seg_masks.append(seg_mask)
+
+                # Restrict the available points further
+                seg_mask = np.concatenate(seg_masks)
+
+                coords = coords[seg_mask]
+                scores = scores[seg_mask]
+                type_pred = type_pred[seg_mask]
+                type_scores = type_scores[seg_mask]
+                end_scores = end_scores[seg_mask]
+
+            # At this point, if there are no valid proposed points left, abort
+            if not len(coords):
+                output_list.append(
+                        np.empty((0, 13 + 2*classify_ends), dtype=np.float32))
+
+            # Cluster nearby points together
+            clusts = dbscan_points(coords, eps=self.pool_dist, min_samples=1)
+            output_list_b = []
+            for c in clusts:
+                types, cnts = np.unique(type_pred[c], return_counts=True)
+                type_c = types[np.argmax(cnts)]
+                output = [b, np.mean(coords[c], axis=0),
+                          self.pool_fn(scores[c]), len(c),
+                          self.pool_fn(type_scores[c]), type_c]
+                if classify_ends:
+                    output.append(self.pool_fn(end_scores[c]))
+
+                output_list_b.append(np.hstack(output))
+
+            output_list.append(np.vstack(output_list_b))
+
+        if entry is not None:
+            return output_list[0]
+        else:
+            return TensorBatch.from_list(output_list)
 
 
-def get_particle_points(coords, clusts, clusts_seg, ppn_points, classes=None,
+def get_particle_points(coords, clusts, clusts_shape, ppn_points, 
                         anchor_points=True, enhance_track_points=False,
                         approx_farthest_points=True):
     """Associate PPN points with particle clusters.
@@ -292,7 +237,7 @@ def get_particle_points(coords, clusts, clusts_seg, ppn_points, classes=None,
         Array of coordinates of voxels in the image
     clusts : List[numpy.ndarray]
         List of clusters representing the fragment or particle objects
-    clusts_seg : numpy.ndarray
+    clusts_shape : numpy.ndarray
         Array of cluster semantic types
     ppn_points : numpy.ndarray
         Raw output of PPN
@@ -315,7 +260,7 @@ def get_particle_points(coords, clusts, clusts_seg, ppn_points, classes=None,
         clust_coords = coords[c]
 
         # Deal with tracks
-        if clusts_seg[i] == TRACK_SHP:
+        if clusts_shape[i] == TRACK_SHP:
             # Get the two most separated points in the cluster
             idxs = [0, 0]
             method = 'brute' if not approx_farthest_points else 'recursive'
@@ -407,6 +352,86 @@ def check_track_orientation_ppn(start_point, end_point, ppn_candidates):
     # point with the lowest end score
     end_scores = end_scores[argmins, -1]
     return end_scores[0] < end_scores[1]
+
+
+def get_ppn_labels(particle_v, meta, dim=3, min_voxel_count=5,
+                   min_energy_deposit=0, include_point_tagging=True):
+    """Gets particle point coordinates and informations for running PPN.
+
+    We skip some particles under specific conditions (e.g. low energy deposit,
+    low voxel count, nucleus track, etc.)
+
+    Parameters
+    ----------
+    particle_v : List[larcv.Particle]
+        List of LArCV particle objects in the image
+    meta : larcv::Voxel3DMeta or larcv::ImageMeta
+        Metadata information
+    dim : int, default 3
+        Number of dimensions of the image
+    min_voxel_count : int, default 5
+        Minimum number of voxels associated with a particle to be included
+    min_energy_deposit : float, default 0
+        Minimum energy deposition associated with a particle to be included
+    include_point_tagging : bool, default True
+        If True, include an a label of 0 for start points and 1 for end points
+
+    Returns
+    -------
+    np.array
+        Array of points of shape (N, 5/6) where 5/6 = x,y,z + point type
+        + particle index [+ start (0) or end (1) point tagging]
+    """
+    # Check on dimension
+    if dim not in [2, 3]:
+        raise ValueError("The image dimension must be either 2 or 3, "
+                        f"got {dim} instead.")
+
+    # Loop over true particles
+    part_info = []
+    for part_index, particle in enumerate(particle_v):
+        # Check that the particle has the expected index
+        assert part_index == particle.id()
+
+        # If the particle does not meet minimum energy/size requirements, skip
+        if (particle.energy_deposit() < min_energy_deposit or
+            particle.num_voxels() < min_voxel_count):
+            continue
+
+        # If the particle is a nucleus, skip.
+        # TODO: check if it's useful
+        pdg_code = abs(particle.pdg_code())
+        if pdg_code > 1000000000:  # Skipping nucleus trackid
+            continue
+
+        # If a shower has its first step outside of detector boundaries, skip
+        # TODO: check if it's useful
+        if pdg_code == 11 or pdg_code == 22:
+            if not image_contains(meta, particle.first_step(), dim):
+                continue
+
+        # Skip low energy scatters and unknown shapes
+        shape = particle.shape()
+        if particle.shape() in [LOWES_SHP, UNKWN_SHP]:
+            continue
+
+        # Append the start point with the rest of the particle information
+        first_step = image_coordinates(meta, particle.first_step(), dim)
+        part_extra = [shape, part_index, 0] \
+                if include_point_tagging else [shape, part_index]
+        part_info.append(first_step + part_extra)
+
+        # Append the end point as well, for tracks only
+        if shape == TRACK_SHP:
+            last_step  = image_coordinates(meta, particle.last_step(), dim)
+            part_extra = [shape, part_index, 1] \
+                    if include_point_tagging else [shape, part_index]
+            part_info.append(last_step + part_extra)
+
+    if not len(part_info):
+        return np.empty((0, 5 + include_point_tagging), dtype=np.float32)
+
+    return np.array(part_info)
 
 
 def image_contains(meta, point, dim=3):

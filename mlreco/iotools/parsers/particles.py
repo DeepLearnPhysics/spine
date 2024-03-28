@@ -14,8 +14,7 @@ import numpy as np
 from larcv import larcv
 
 from mlreco.utils.globals import TRACK_SHP, PDG_TO_PID, PID_MASSES
-from mlreco.utils.data_structures import Meta, Particle, Neutrino
-from mlreco.utils.unwrap import Unwrapper
+from mlreco.utils.data_structures import Meta, Particle, Neutrino, ObjectList
 from mlreco.utils.particles import process_particles
 from mlreco.utils.ppn import get_ppn_labels
 
@@ -39,7 +38,6 @@ class ParticleParser(Parser):
             pixel_coordinates: True
     """
     name = 'parse_particles'
-    result = Unwrapper.Rule(method='list', default=Particle())
 
     def __init__(self, pixel_coordinates=True, post_process=True, **kwargs):
         """Initialize the parser.
@@ -115,7 +113,7 @@ class ParticleParser(Parser):
             for p in particles:
                 p.to_pixel(meta)
 
-        return particles
+        return ObjectList(particles, Particle)
 
 
 class NeutrinoParser(Parser):
@@ -131,7 +129,6 @@ class NeutrinoParser(Parser):
             pixel_coordinates: True
     """
     name = 'parse_neutrinos'
-    result = Unwrapper.Rule(method='list', default=Neutrino())
 
     def __init__(self, pixel_coordinates=True, **kwargs):
         """Initialize the parser.
@@ -186,7 +183,7 @@ class NeutrinoParser(Parser):
             for n in neutrinos:
                 n.to_pixel(meta)
 
-        return neutrinos
+        return ObjectList(neutrinos, Neutrino)
 
 
 class ParticlePointParser(Parser):
@@ -204,7 +201,6 @@ class ParticlePointParser(Parser):
             include_point_tagging: True
     """
     name = 'parse_particle_points'
-    result = Unwrapper.Rule(method='tensor', translate=True)
 
     def __init__(self, include_point_tagging=True, **kwargs):
         """Initialize the parser.
@@ -221,10 +217,6 @@ class ParticlePointParser(Parser):
 
         # Store the revelant attributes
         self.include_point_tagging = include_point_tagging
-
-        # Based on the parameters, define a default output
-        shape = (0, 6 + include_point_tagging)
-        self.result.default = np.empty(shape, dtype=np.float32)
 
     def process(self, particle_event, sparse_event=None, cluster_event=None):
         """Fetch the list of label points of interest.
@@ -279,8 +271,6 @@ class ParticleCoordinateParser(Parser):
             sparse_event: sparse3d_pcluster
     """
     name = 'parse_particle_coords'
-    result = Unwrapper.Rule(method='tensor', translate=True,
-                            default=np.empty((0, 12), dtype=np.float32))
 
     def __init__(self, pixel_coordinates=True, **kwargs):
         """Initialize the parser.
@@ -364,8 +354,6 @@ class ParticleGraphParser(Parser):
 
     """
     name = 'parse_particle_graph'
-    result = Unwrapper.Rule(method='tensor',
-                            default=np.empty((0, 2), dtype=np.int32))
 
     def process(self, particle_event, cluster_event=None):
         """Fetch the parentage connections from the true particle list.
@@ -401,7 +389,7 @@ class ParticleGraphParser(Parser):
 
             # Convert the list of edges to a numpy array
             if not len(edges):
-                return np.empty((0, 2), dtype=np.int32)
+                return np.empty((0, 2), dtype=np.int32), num_particles
 
             edges = np.vstack(edges).astype(np.int32)
 
@@ -430,7 +418,7 @@ class ParticleGraphParser(Parser):
 
             # Convert the list of edges to a numpy array
             if not len(edges):
-                return np.empty((0, 2), dtype=np.int32)
+                return np.empty((0, 2), dtype=np.int32), num_particles
 
             edges = np.vstack(edges).astype(np.int32)
 
@@ -467,7 +455,6 @@ class SingleParticlePIDParser(Parser):
     """
     name = 'parse_single_particle_pdg'
     aliases = ['parse_particle_singlep_pdg']
-    result = Unwrapper.Rule(method='scalar', default=np.int32)
 
     def process(self, particle_event):
         """Fetch the species of the first particle.
@@ -505,7 +492,6 @@ class SingleParticleEnergyParser(Parser):
     """
     name = 'parse_single_particle_energy'
     aliases = ['parse_particle_singlep_enit']
-    result = Unwrapper.Rule(method='scalar', default=np.float32)
 
     def process(self, particle_event):
         """Fetch the kinetic energy of the first particle.

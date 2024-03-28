@@ -12,7 +12,7 @@ class BatchBase:
 
     Attributes
     ----------
-    data : Union[np.ndarray, torch.Tensor]
+    data : Union[list, np.ndarray, torch.Tensor]
         Batched data
     counts : Union[np.ndarray, torch.Tensor]
         (B) Number of data elements in each entry of the batch
@@ -199,4 +199,4 @@ class BatchBase:
         return np.vstack(x) if self.is_numpy else torch.stack(x)
 
     def _repeat(self, *x):
-        return np.repeat(*x) if self.is_numpy else torch.repeat(*x)
+        return np.repeat(*x) if self.is_numpy else torch.repeat_interleave(*x)

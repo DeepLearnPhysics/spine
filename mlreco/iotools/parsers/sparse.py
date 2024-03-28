@@ -13,7 +13,6 @@ from larcv import larcv
 
 from mlreco.utils.globals import GHOST_SHP
 from mlreco.utils.data_structures import Meta
-from mlreco.utils.unwrap import Unwrapper
 
 from .parser import Parser
 
@@ -36,7 +35,6 @@ class Sparse2DParser(Parser):
             projection_id: 0
     """
     name = 'parse_sparse2d'
-    result = Unwrapper.Rule(method='tensor')
 
     def __init__(self, sparse_event=None, sparse_event_list=None,
                  projection_id=None):
@@ -67,10 +65,6 @@ class Sparse2DParser(Parser):
         self.num_features = 1
         if sparse_event_list is not None:
             self.num_features = len(sparse_event_list)
-
-        # Based on the parameters, define a default output
-        self.result.default = np.empty((0, 1 + 2 + self.num_features),
-                                       dtype=np.float32)
 
     def process(self, sparse_event=None, sparse_event_list=None):
         """Fetches one or a list of tensors, concatenate their feature vectors.
@@ -136,7 +130,6 @@ class Sparse3DParser(Parser):
               - ...
     """
     name = 'parse_sparse3d'
-    result = Unwrapper.Rule(method='tensor', translate=True)
 
     def __init__(self, sparse_event=None, sparse_event_list=None,
                  num_features=None, features=None, hit_keys=None,
@@ -201,11 +194,6 @@ class Sparse3DParser(Parser):
                         "be a divider of the `sparse_event_list` length.")
         else:
             self.num_features = num_tensors
-
-        # Based on the parameters, define a default output
-        self.result.default = np.empty((0, 1 + 3 + self.num_features),
-                                       dtype=np.float32)
-
 
     def process(self, sparse_event=None, sparse_event_list=None):
         """Fetches one or a list of tensors, concatenate their feature vectors.
@@ -356,9 +344,6 @@ class Sparse3DChargeRescaledParser(Sparse3DParser):
         # Store the revelant attributes
         self.collection_only = collection_only
         self.collection_id = collection_id
-
-        # Redefine the default about (some input features are combined)
-        self.result.default = np.empty((0, 1 + 3 + 1), dtype=np.float32)
 
     def process(self, sparse_event_list):
         """Fetches one or a list of tensors, concatenate their feature vectors.

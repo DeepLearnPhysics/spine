@@ -1,259 +1,262 @@
-import torch
-import MinkowskiEngine as ME
+"""Module with the core full reconstruction chain."""
+
+import yaml
 import numpy as np
+import torch
+from typing import Union, List
 
-from mlreco.models.layers.common.gnn_full_chain import FullChainGNN, FullChainLoss
-from mlreco.models.layers.cnn.ppn import PPN, PPNLoss
-from mlreco.models.layers.cnn.cnn_encoder import SparseResidualEncoder
-from mlreco.models.uresnet import UResNetSegmentation, SegmentationLoss
-from mlreco.models.graph_spice import GraphSPICE, GraphSPICELoss
+from .uresnet import UResNetSegmentation, SegmentationLoss
+from .uresnet_ppn import UResNetPPN, UResNetPPNLoss
+from .graph_spice import GraphSPICE, GraphSPICELoss
+from .grappa import GrapPA, GrapPALoss
+from .layers.common.dbscan import DBSCAN
 
-from mlreco.utils.globals import *
+#from mlreco.models.layers.cnn.cnn_encoder import SparseResidualEncoder ??
+# TODO: replace this with MultiParticleImageClassifier
+# TODO: raname it something more generic like ParticleClusterImageClassifier?
+
 from mlreco.utils.cluster.cluster_graph_constructor import ClusterGraphConstructor
 from mlreco.utils.ppn import get_particle_points
 from mlreco.utils.ghost import compute_rescaled_charge, adapt_labels
-from mlreco.utils.cluster.fragmenter import (DBSCANFragmentManager,
-                                             GraphSPICEFragmentManager,
-                                             format_fragments)
+from mlreco.utils.cluster.fragmenter import (
+        GraphSPICEFragmentManager, format_fragments)
 from mlreco.utils.gnn.cluster import get_cluster_features_extended
-from mlreco.utils.unwrap import prefix_unwrapper_rules
+from mlreco.utils.logger import logger
 
 
+class FullChain(torch.nn.Module):
+    """Full reconstruction in all its glory.
 
-class FullChain(FullChainGNN):
-    '''
-    Full Chain with MinkowskiEngine implementations for CNNs.
-
-    Modular, End-to-end LArTPC Reconstruction Chain
-
+    Modular, end-to-end particle imaging detector reconstruction chain:
     - Deghosting for 3D tomographic reconstruction artifiact removal
-    - UResNet for voxel-wise semantic segmentation
-    - PPN for point proposal
-    - DBSCAN/GraphSPICE for dense particle clustering
-    - GrapPA(s) for particle/interaction aggregation and identification
+    - Voxel-wise semantic segmentation
+    - Point proposal
+    - Particle clustering
+    - Shower primary identification
+    - Interaction clustering
+    - Particle type classification
+    - Primary identification
+    - Track orientation
 
-    Configuration goes under the ``modules`` section.
-    The full chain-related sections (as opposed to each
-    module-specific configuration) look like this:
+    Typical configuration can look like this:
 
-    ..  code-block:: yaml
+    .. code-block:: yaml
 
+        model:
+          name: grappa
           modules:
             chain:
-              enable_uresnet: True
-              enable_ppn: True
-              enable_cnn_clust: True
-              enable_gnn_shower: True
-              enable_gnn_track: True
-              enable_gnn_particle: False
-              enable_gnn_inter: True
-              enable_gnn_kinematics: False
-              enable_cosmic: False
-              enable_ghost: True
-              use_ppn_in_gnn: True
-              verbose: True
+               <dictionary of arguments to specify chain-wide configuration>
+            uresnet_deghost:
+               name: <name of the model used to deghost
+               <dictionary of arguments to specify the deghosting module>
+            uresnet_segmentation:
+               name: <name of the model used to do segmentation>
+               <dictionary of arguments to specify the segmentation module>
+            dbscan:
+               TODO
+            graph_spice:
+               name: <name of the model used to do segmentation>
+               <dictionary of arguments to specify the segmentation module>
+            grappa_shower:
+               name: <name of the model used to do segmentation>
+               <dictionary of arguments to specify the segmentation module>
+            grappa_track:
+               name: <name of the model used to do segmentation>
+               <dictionary of arguments to specify the segmentation module>
+            grappa_inter:
+              TODO
+            calibration:
+              TODO
 
-    The ``chain`` section enables or disables specific
-    stages of the full chain. When a module is disabled
-    through this section, it will not even be constructed.
-    The configuration blocks for each enabled module should
+    See configuration file(s) prefixed with `full_chain_` under the `config`
+    directory for detailed examples of working configurations.
+
+    The ``chain`` section enables or disables specific stages of the full
+    chain. When a module is disabled through this section, it will not be
+    constructed. The configuration blocks for each enabled module should
     also live under the `modules` section of the configuration.
-
-    To see an example of full chain configuration, head over to
-    https://github.com/DeepLearnPhysics/lartpc_mlreco3d_tutorials/blob/master/book/data/inference.cfg
-
-    See Also
-    --------
-    mlreco.models.layers.common.gnn_full_chain.FullChainGNN, FullChainLoss
-    '''
+    """
+    # TODO: update
     MODULES = ['grappa_shower', 'grappa_track', 'grappa_inter',
                'grappa_shower_loss', 'grappa_track_loss', 'grappa_inter_loss',
-               'full_chain_loss', 'mink_graph_spice', 'graph_spice_loss',
+               'full_chain_loss', 'graph_spice', 'graph_spice_loss',
                'fragment_clustering',  'chain', 'dbscan_frag',
-               ('mink_uresnet_ppn', ['mink_uresnet', 'mink_ppn'])]
+               ('uresnet_ppn', ['uresnet', 'ppn'])]
 
-    RETURNS = { # TODO
-        'fragment_clusts': ['index_list', ['input_data', 'fragment_batch_ids'], True],
-        'fragment_seg' : ['tensor', 'fragment_batch_ids', True],
-        'fragment_batch_ids' : ['tensor'],
-        'particle_seg': ['tensor', 'particle_batch_ids', True],
-        'segment_label_tmp': ['tensor', 'input_data'], # Will get rid of this
-        'cluster_label_adapted': ['tensor', 'cluster_label_adapted', False, True]
+    # Store the valid chain modes
+    modes = {
+            'deghosting': ['uresnet'],
+            'charge_rescaling': ['uresnet'],
+            'segmentation': ['uresnet'],
+            'point_proposal': ['ppn'],
+            'dense_clustering': ['dbscan', 'graph_spice', 'dbscan_graph_spice'],
+            'shower_aggregation': ['grappa'],
+            'shower_primary': ['grappa'],
+            'track_aggregation': ['grappa'],
+            'particle_aggregation': ['grappa'],
+            'inter_aggregation': ['grappa'],
+            'particle_identification': ['grappa', 'image'],
+            'primary_identification': ['grappa'],
+            'orientation_identification': ['grappa'],
+            'calibration': ['default']
     }
 
-    def __init__(self, cfg):
-        super(FullChain, self).__init__(cfg)
-
-        # Initialize the charge rescaling module
-        if self.enable_charge_rescaling:
-            self.uresnet_deghost = UResNetSegmentation(cfg.get('uresnet_deghost', {}),
-                                                 name='uresnet_lonely')
-            self.deghost_input_features = self.uresnet_deghost.net.num_input
-            self.RETURNS.update(self.uresnet_deghost.RETURNS)
-            self.RETURNS['input_rescaled'] = ['tensor', 'input_rescaled', False, True]
-            self.RETURNS['input_rescaled_coll'] = ['tensor', 'input_rescaled', False, True]
-            self.RETURNS['input_rescaled_source'] = ['tensor', 'input_rescaled']
-            self.RETURNS['segmentation'][1] = 'input_rescaled'
-            self.RETURNS['segment_label_tmp'][1] = 'input_rescaled'
-            self.RETURNS['fragment_clusts'][1][0] = 'input_rescaled'
-
-        # Initialize the UResNet+PPN modules
-        self.input_features = 1
-        if self.enable_uresnet:
-            self.uresnet_lonely = UResNetSegmentation(cfg.get('uresnet_ppn', {}),
-                                                name='uresnet_lonely')
-            self.input_features = self.uresnet_lonely.net.num_input
-            self.RETURNS.update(self.uresnet_lonely.RETURNS)
-
-        if self.enable_ppn:
-            self.ppn            = PPN(cfg.get('uresnet_ppn', {}))
-            self.RETURNS.update(self.ppn.RETURNS)
-
-        # Initialize the CNN dense clustering module
-        # We will only use GraphSPICE for CNN based clustering, as it is
-        # superior to SPICE.
-        self.cluster_classes = []
-        if self.enable_cnn_clust:
-            self._enable_graph_spice       = 'graph_spice' in cfg
-            self.graph_spice               = GraphSPICE(cfg)
-            self.gs_manager                = ClusterGraphConstructor(cfg.get('graph_spice', {}).get('constructor_cfg', {}),
-                                                                    # batch_col=self.batch_col,
-                                                                     training=False) # for downstream, need to run prediction in inference mode
-            # edge cut threshold is usually 0. (unspecified) during training, but 0.1 at inference
-            self.gs_manager.ths = cfg.get('graph_spice', {}).get('constructor_cfg', {}).get('edge_cut_threshold', 0.1)
-
-            self._gspice_skip_classes         = cfg.get('graph_spice', {}).get('skip_classes', [])
-            self._gspice_invert               = cfg.get('graph_spice_loss', {}).get('invert', True)
-            self._gspice_fragment_manager     = GraphSPICEFragmentManager(cfg.get('graph_spice', {}).get('gspice_fragment_manager', {}), batch_col=self.batch_col)
-            self._gspice_min_points           = cfg.get('graph_spice', {}).get('min_points', 1)
-
-            self.RETURNS.update(prefix_unwrapper_rules(self.graph_spice.RETURNS, 'graph_spice'))
-            self.RETURNS['graph_spice_label'] = ['tensor', 'graph_spice_label', False, True]
-
-
-        if self.enable_dbscan:
-            self.frag_cfg = cfg.get('dbscan', {}).get('dbscan_fragment_manager', {})
-            self.dbscan_fragment_manager = DBSCANFragmentManager(self.frag_cfg,
-                                                                 mode='mink')
-
-        # Initialize the interaction classifier module
-        if self.enable_cosmic:
-            cosmic_cfg = cfg.get('cosmic_discriminator', {})
-            self.cosmic_discriminator = SparseResidualEncoder(cosmic_cfg)
-            self._cosmic_use_input_data = cosmic_cfg.get('use_input_data', True)
-            self._cosmic_use_true_interactions = cosmic_cfg.get('use_true_interactions', False)
-
-        # print('Total Number of Trainable Parameters (mink_full_chain)= {}'.format(
-        #             sum(p.numel() for p in self.parameters() if p.requires_grad)))
-
-    @staticmethod
-    def get_extra_gnn_features(data, result, clusts, clusts_seg, classes,
-            add_points=True, add_value=True, add_shape=True):
-        '''
-        Extracting extra features to feed into the GNN particle aggregators
+    def __init__(self, chain, uresnet_deghost=None, uresnet=None,
+                 uresnet_ppn=None, graph_spice=None, dbscan=None,
+                 grappa_shower=None, grappa_track=None, grappa_particle=None,
+                 grappa_inter=None, calibration=None, uresnet_deghost_loss=None,
+                 uresnet_loss=None, uresnet_ppn_loss=None,
+                 graph_spice_loss=None, grappa_shower_loss=None,
+                 grappa_track_loss=None, grappa_particle_loss=None,
+                 grappa_inter_loss=None):
+        """Initialize the full chain model.
 
         Parameters
-        ==========
-        data : torch.Tensor
-            Tensor of input voxels to the particle aggregator
-        result : dict
-            Dictionary of output of the CNN stages
-        clusts : List[numpy.ndarray]
-            List of clusters representing the fragment or particle objects
-        clusts_seg : numpy.ndarray
-            Array of cluster semantic types
-        classes : List, optional
-            List of semantic classes to include in the output set of particles
-        add_points : bool, default True
-            If `True`, add particle points as node features
-        add_value : bool, default True
-            If `True`, add mean and std voxel values as node features
-        add_shape : bool, default True
-            If `True`, add cluster semantic shape as a node feature
+        ----------
+        chain : dict
+            Dictionary of parameters used to configure the chain
+        uresnet_deghost : dict, optional
+            Deghosting model configuration
+        uresnet_ppn : dict, optional
+            Segmentation and point proposal model configuration
+        dbscan : dict, optional
+            Connected component clustering configuration
+        graph_spice : dict, optional
+            Supervised connected component clustering model configuration
+        grappa_shower : dict, optional
+            Shower aggregation model configuration
+        grappa_track : dict, optional
+            Track aggregation model configuration
+        grappa_particle : dict, optional
+            Global particle aggregation configuration
+        grappa_inter : dict, optional
+            Interaction aggregation model configuration
+        calibration : dict, optional
+            Calibration configuration
+        """
+        # Initialize the parent class
+        super().__init__()
 
-        Returns
-        =======
-        index : np.ndarray
-            Index to select fragments belonging to one of the requested classes
-        kwargs : dict
-            Keys can include `points` (if `add_points` is `True`)
-            and `extra_feats` (if `add_value` or `add_shape` is True).
-        '''
-        # If needed, build a particle mask based on semantic classes
-        if classes is not None:
-            mask = np.zeros(len(clusts_seg), dtype=bool)
-            for c in classes:
-                mask |= (clusts_seg == c)
-            index = np.where(mask)[0]
-        else:
-            index = np.arange(len(clusts))
+        # Process the main chain configureation
+        process_chain_config(self, **chain, dump_config=True)
 
-        # Get the particle end points, if requested
-        kwargs = {}
-        if add_points:
-            coords     = data[0][:, COORD_COLS].detach().cpu().numpy()
-            ppn_points = result['ppn_points'][0].detach().cpu().numpy()
-            points     = get_particle_points(coords, clusts[index],
-                    clusts_seg[index], ppn_points)
+        # Initialize the deghosting model
+        if self.deghosting is not None and self.deghosting == 'uresnet':
+            assert uresnet_deghost is not None, (
+                    "If the deghosting is using UResNet, must provide the "
+                    "`uresnet_deghost` configuration block.")
+            self.uresnet_deghost = UResNetSegmentation(uresnet_deghost)
+            self.deghost_num_input = self.uresnet_deghost.backbone.num_input
 
-            kwargs['points'] = torch.tensor(points,
-                    dtype=torch.float, device=data[0].device)
+        # Initialize the semantic segmentation model (+ point proposal)
+        if self.segmentation is not None and self.segmentation == 'uresnet':
+            assert (uresnet is not None) ^ (uresnet_ppn is not None), (
+                    "If the segmentation is using UResNet, must provide the "
+                    "`uresnet` or `uresnet_ppn` configuration block.")
+            if uresnet is not None:
+                self.uresnet = UResNetSegmentation(uresnet)
+                self.seg_num_input = self.uresnet.backbone.num_input
+            else:
+                self.uresnet_ppn = UResNetPPN(**uresnet_ppn)
+                self.seg_num_input = self.uresnet_ppn.uresnet.backbone.num_input
 
-        # Get the supplemental information, if requested
-        if add_value or add_shape:
-            extra_feats = torch.empty((len(index), 2*add_value + add_shape),
-                    dtype=torch.float, device=data[0].device)
-            if add_value:
-                extra_feats[:,:2] = get_cluster_features_extended(data[0],
-                        clusts[index], add_value=True, add_shape=False)
-            if add_shape:
-                extra_feats[:,-1] = torch.tensor(clusts_seg[index],
-                        dtype=torch.float, device=data[0].device)
+        # Initialize the dense clustering model
+        self.fragment_classes = []
+        if self.dense_clustering is not None:
+            if 'dbscan' in self.dense_clustering:
+                assert dbscan is not None, (
+                        "If the fragmentation is done using DBSCAN, must "
+                        "provide the `dbscan` configuration block.")
+                self.dbscan = DBSCAN(**dbscan)
+                self.fragment_classes.extend(self.dbscan.classes)
+            if 'graph_spice' in self.dense_clustering:
+                assert graph_spice is not None, (
+                        "If the fragmentation is done using Graph-SPICE, must "
+                        "provide the `graph_spice` configuration block.")
+                self.graph_spice = GraphSPICE(graph_spice)
+                self.fragment_classes.extend(self.graph_spice.classes)
 
-            kwargs['extra_feats'] = torch.tensor(extra_feats,
-                    dtype=torch.float, device=data[0].device)
+            # Check that there is no redundancy between the fragmenters
+            uniques, counts = np.unique(
+                    self.fragment_classes, return_counts=True)
+            assert np.all(uniques == np.arange(4)), (
+                    "All four expected semantic classes should be fragmented "
+                    "by either DBSCAN or Graph-SPICE.")
+            assert np.all(counts) == 1, (
+                    "Some of the classes appear in both the DBSCAN and the "
+                    "Graph-SPICE based fragmentation. Ambiguous.")
 
-        return index, kwargs
+        # Initialize the graph-based aggregator modules
+        grappa_configs = {'shower': grappa_shower, 'track': grappa_track,
+                          'particle': grappa_particle, 'inter': grappa_inter}
+        for stage, config in grappa_configs.items():
+            if getattr(self, f'{stage}_aggregation') == 'grappa':
+                name = f'grappa_{stage}'
+                assert config is not None, (
+                        f"If the {stage} aggregation is done using GrapPA, "
+                        f"must provide the {name} configuration block.")
+                setattr(self, name, GrapPA(config))
 
+        # Initialize the interaction-classification module
+        # TODO (could be done by either CNN or graph-level GNN)
 
-    def full_chain_cnn(self, input):
-        '''
-        Run the CNN portion of the full chain.
+    def forward(self, data, segment_label=None, clust_label=None):
+        """Run a batch of data through the full chain.
 
         Parameters
-        ==========
-        input:
-
-        result:
+        ----------
+        data : TensorBatch
+            (N, 1 + D + N_f) tensor of voxel/value pairs
+            - N is the the total number of voxels in the image
+            - 1 is the batch ID
+            - D is the number of dimensions in the input image
+            - N_f is the number of features per voxel
+        segment_label : TensorBatch
+            (N, 1 + D + 1) Tensor of segmentation labels for the batch
+        clust_label : TensorBatch
+            (N, 1 + D + N_f) Tensor of voxel/value pairs
+            - N is the the total number of voxels in the image
+            - 1 is the batch ID
+            - D is the number of dimensions in the input image
+            - N_f is is the number of cluster labels
 
         Returns
-        =======
-        result: dict
-            dictionary of all network outputs from cnns.
-        '''
-        device = input[0].device
-        if not len(input[0]):
-            # TODO: move empty case handling elsewhere
-            return {}, input
-
-        label_seg, label_clustering, coords = None, None, None
-        if len(input) == 3:
-            input, label_seg, label_clustering = input
-            input = [input]
-            label_seg = [label_seg]
-            label_clustering = [label_clustering]
-        elif len(input) == 2:
-            input, label_clustering = input
-            input = [input]
-            label_clustering = [label_clustering]
-
-        # If not availabel, store batch size for GNN formatting
-        if not hasattr(self, 'batch_size'):
-            batches = torch.unique(input[0][:, self.batch_col])
-            assert len(batches) == batches.max().int().item() + 1
-            self.batch_size = len(batches)
-
+        -------
+        TODO
+        """
+        # Initialize the full chain output dictionary
         result = {}
+
+        # Run the deghosting
+        deghost_result = self.run_deghosting(data, segment_label)
+        result.update(self.run_deghosting())
+
+    def run_deghosting(self, data, segment_label=None):
+        """Run the deghosting algorithm.
+
+        Parameters
+        ----------
+        data : TensorBatch
+            (N, 1 + D + N_f) tensor of voxel/value pairs
+        segment_label : TensorBatch
+            (N, 1 + D + 1) Tensor of segmentation labels for the batch
+
+        Returns
+        -------
+        ghost : TensorBatch
+        """
+        if self.deghosting == 'uresnet':
+            # Restrict the input to the required number of features
+            pass
+        elif self.deghosting == 'label':
+            # Use ghost labels to remove ghost voxels from the input
+            assert segment_label is not None, (
+                    "Must provide `segment_label` to deghost using the it.")
+        else:
+            # If there is no deghosting to do, return an empty dictionary
+            return {}
+
 
         deghost = None
         if self.enable_charge_rescaling:
@@ -442,29 +445,186 @@ class FullChain(FullChainGNN):
 
         return cnn_result, input
 
+    @staticmethod
+    def get_extra_gnn_features(data, result, clusts, clusts_seg, classes,
+            add_points=True, add_value=True, add_shape=True):
+        """
+        Extracting extra features to feed into the GNN particle aggregators
 
-class FullChainLoss(FullChainLoss):
-    '''
+        Parameters
+        ----------
+        data : torch.Tensor
+            Tensor of input voxels to the particle aggregator
+        result : dict
+            Dictionary of output of the CNN stages
+        clusts : List[numpy.ndarray]
+            List of clusters representing the fragment or particle objects
+        clusts_seg : numpy.ndarray
+            Array of cluster semantic types
+        classes : List, optional
+            List of semantic classes to include in the output set of particles
+        add_points : bool, default True
+            If `True`, add particle points as node features
+        add_value : bool, default True
+            If `True`, add mean and std voxel values as node features
+        add_shape : bool, default True
+            If `True`, add cluster semantic shape as a node feature
+
+        Returns
+        -------
+        index : np.ndarray
+            Index to select fragments belonging to one of the requested classes
+        kwargs : dict
+            Keys can include `points` (if `add_points` is `True`)
+            and `extra_feats` (if `add_value` or `add_shape` is True).
+        """
+        # If needed, build a particle mask based on semantic classes
+        if classes is not None:
+            mask = np.zeros(len(clusts_seg), dtype=bool)
+            for c in classes:
+                mask |= (clusts_seg == c)
+            index = np.where(mask)[0]
+        else:
+            index = np.arange(len(clusts))
+
+        # Get the particle end points, if requested
+        kwargs = {}
+        if add_points:
+            coords     = data[0][:, COORD_COLS].detach().cpu().numpy()
+            ppn_points = result['ppn_points'][0].detach().cpu().numpy()
+            points     = get_particle_points(coords, clusts[index],
+                    clusts_seg[index], ppn_points)
+
+            kwargs['points'] = torch.tensor(points,
+                    dtype=torch.float, device=data[0].device)
+
+        # Get the supplemental information, if requested
+        if add_value or add_shape:
+            extra_feats = torch.empty((len(index), 2*add_value + add_shape),
+                    dtype=torch.float, device=data[0].device)
+            if add_value:
+                extra_feats[:,:2] = get_cluster_features_extended(data[0],
+                        clusts[index], add_value=True, add_shape=False)
+            if add_shape:
+                extra_feats[:,-1] = torch.tensor(clusts_seg[index],
+                        dtype=torch.float, device=data[0].device)
+
+            kwargs['extra_feats'] = torch.tensor(extra_feats,
+                    dtype=torch.float, device=data[0].device)
+
+        return index, kwargs
+
+
+class FullChainLoss(torch.nn.Module):
+    """
     Loss function for the full chain.
 
     See Also
     --------
-    FullChain, mlreco.models.layers.common.gnn_full_chain.FullChainLoss
-    '''
+    FullChain
+    """
+    modes = FullChain.modes
 
-    def __init__(self, cfg):
-        super(FullChainLoss, self).__init__(cfg)
+    def __init__(self, chain, uresnet_deghost=None, uresnet_deghost_loss=None,
+                 uresnet=None, uresnet_loss=None, uresnet_ppn=None,
+                 uresnet_ppn_loss=None, graph_spice_loss=None,
+                 grappa_shower_loss=None, grappa_track_loss=None,
+                 grappa_particle_loss=None, grappa_inter_loss=None, **kwargs):
+        """Initialize the full chain model.
 
-        # Initialize loss components
-        if self.enable_charge_rescaling:
-            self.deghost_loss            = SegmentationLoss(cfg.get('uresnet_deghost', {}), batch_col=self.batch_col)
-        if self.enable_uresnet:
-            self.uresnet_loss            = SegmentationLoss(cfg.get('uresnet_ppn', {}), batch_col=self.batch_col)
-        if self.enable_ppn:
-            self.ppn_loss                = PPNLoss(cfg.get('uresnet_ppn', {}), name='ppn')
-        if self.enable_cnn_clust:
-            # As ME is an updated model, ME backend full chain will not support old SPICE
-            # for CNN Clustering.
-            # assert self._enable_graph_spice
-            self._enable_graph_spice = True
-            self.spatial_embeddings_loss = GraphSPICELoss(cfg, name='graph_spice_loss')
+        Parameters
+        ----------
+        chain : dict
+            Dictionary of parameters used to configure the chain
+        uresnet_deghost : dict, optional
+            Deghosting model configuration
+        uresnet_deghost_loss : dict, optional
+            Deghosting loss configuration
+        uresnet : dict, optional
+            Segmentation model configuration
+        uresnet_loss : dict, optional
+            Segmentation loss configuration
+        uresnet_ppn: dict, optional
+            Segmentation and point proposal model configuration
+        uresnet_ppn_loss : dict, optional
+            Segmentation and point proposal loss configuration
+        graph_spice_loss : dict, optional
+            Supervised connected component clustering loss configuration
+        grappa_shower : dict, optional
+            Shower aggregation model configuration
+        grappa_track : dict, optional
+            Track aggregation model configuration
+        grappa_particle : dict, optional
+            Global particle aggregation configuration
+        grappa_inter : dict, optional
+            Interaction aggregation model configuration
+        """
+        # Initialize the parent class
+        super().__init__()
+
+        # Process the main chain configureation
+        process_chain_config(self, **chain)
+
+        # Initialize the deghosting loss
+        if self.deghosting == 'uresnet':
+            self.deghost_loss = SegmentationLoss(
+                    uresnet_deghost, uresnet_deghost_loss)
+
+        # Initialize the segmentation/PPN losses
+        if self.segmentation == 'uresnet':
+            assert ((uresnet_loss is not None) ^ 
+                    (uresnet_ppn_loss is not None)), (
+                    "If the segmentation is using UResNet, must provide the "
+                    "`uresnet_loss` or `uresnet_ppn_loss` configuration block.")
+            if uresnet_loss is not None:
+                self.uresnet_loss = SegmentationLoss(uresnet, uresnet_loss)
+            else:
+                self.uresnet_ppn_loss = UResNetPPNLoss(
+                        **uresnet_ppn, **uresnet_ppn_loss)
+
+        # Initialize the graph-SPICE loss
+        if 'graph_spice' in self.dense_clustering:
+            self.graph_spice_loss = GraphSPICELoss(graph_spice_loss)
+
+        # TODO Add the GrapPA losses
+
+def process_chain_config(self, dump_config=False, **parameters):
+    """Process the full chain configuration and dump it.
+
+    Parameters
+    ----------
+    dump_config : bool, default False
+        Whether to print out the chain configuration or not
+    **parameters : dict
+        Dictionary of chain configuration parameters
+    """
+    # Store the modes for each step of the reconstruction. Make sure that
+    # that the configuration is recognized.
+    for module, valid_modes in self.modes.items():
+        valid_modes = [None, 'label'] + valid_modes
+        assert module in parameters, (
+                f"Must configure the {module} stage in the `chain` block. "
+                f"The {module} mode should be one of {valid_modes}.")
+        assert parameters[module] in valid_modes, (
+                f"The {module} mode should be one of {valid_modes}.")
+        setattr(self, module, parameters[module])
+
+    # Do some logic checks on the chain parameters
+    assert not self.charge_rescaling or self.deghosting, (
+            "Charge rescaling is meaningless without deghosting")
+    assert (not self.point_proposal == 'ppn' or
+            self.segmentation == 'uresnet'), (
+            "For PPN to work, need the UResNet segmentation backbone")
+    assert (not self.shower_primary == 'gnn' or
+            self.shower_aggregation == 'gnn'), (
+            "To use GNN for shower primaries, must aggregate showers with it")
+    assert (not self.particle_aggregation or
+            (not self.shower_aggregation and not self.track_aggregation)), (
+            "Use particle aggregator or shower/track aggregators, not both")
+
+    if dump_config:
+        logger.info(f"Full chain configuration:")
+        for k, v in parameters.items():
+            v = v if v is not None else "null"
+            logger.info(f"  {k:<27}: {v}")
+        logger.info("")

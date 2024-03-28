@@ -17,7 +17,6 @@ from .clean_data import clean_sparse_data
 
 from mlreco.utils.globals import SHAPE_COL, DELTA_SHP, UNKWN_SHP
 from mlreco.utils.data_structures import Meta
-from mlreco.utils.unwrap import Unwrapper
 
 __all__ = ['Cluster2DParser', 'Cluster3DParser',
            'Cluster3DChargeRescaledParser', 'Cluster3DMultiModuleParser']
@@ -34,8 +33,6 @@ class Cluster2DParser(Parser):
             cluster_event: cluster2d_pcluster
     """
     name = 'parse_cluster2d'
-    result = Unwrapper.Rule(method='tensor',
-                            default=np.empty((0, 1 + 2 + 2), dtype=np.float32))
 
     def process(self, cluster_event):
         """Converts a 2D clusters tensor into a single tensor.
@@ -106,7 +103,6 @@ class Cluster3DParser(Parser):
             min_size: -1
     """
     name = 'parse_cluster3d'
-    result = Unwrapper.Rule(method='tensor', translate=True)
 
     def __init__(self, particle_event=None, add_particle_info=False,
                  clean_data=False, type_include_mpr=True,
@@ -168,14 +164,6 @@ class Cluster3DParser(Parser):
 
             self.particle_parser = ParticleParser(
                     pixel_coordinates=pixel_coordinates, post_process=True)
-
-        # Based on the parameters, define a default output
-        if not self.add_particle_info:
-            self.result.default = np.empty((0, 1 + 3 + 2),
-                                           dtype=np.float32)
-        else:
-            self.result.default = np.empty((0, 1 + 3 + 12),
-                                           dtype=np.float32)
 
     def process(self, cluster_event, particle_event=None,
                 particle_mpv_event=None, neutrino_event=None,
@@ -408,6 +396,7 @@ class Cluster3DChargeRescaledParser(Cluster3DParser):
         _, val_features, _  = self.sparse_parser.process(
                 sparse_value_event_list)
         np_features[:, 0] = val_features[:, -1]
+
         return np_voxels, np_features, meta
 
 

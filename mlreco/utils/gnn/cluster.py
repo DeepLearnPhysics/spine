@@ -61,7 +61,8 @@ def form_clusters_batch(data, min_size=-1, column=CLUST_COL,
     clusts_np[:] = clusts
     is_numpy = data.is_numpy
 
-    return IndexBatch(clusts, offsets, counts, full_counts, is_numpy=is_numpy)
+    return IndexBatch(
+            clusts_np, offsets, counts, full_counts, is_numpy=is_numpy)
 
 
 def get_cluster_label_batch(data, clusts, column=CLUST_COL):
