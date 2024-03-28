@@ -2,13 +2,13 @@ import time, os, yaml
 
 from mlreco.iotools.factories import loader_factory, \
         reader_factory, writer_factory
-from mlreco.trainval import trainval
+from mlreco.trainval import TrainVal
 from mlreco.main_funcs import cycle, process_config
 
 from mlreco.iotools.writers import CSVWriter
 
 from mlreco.utils.globals import COORD_COLS
-from mlreco.utils.units import pixel_to_cm
+from mlreco.utils import pixel_to_cm
 
 from analysis.classes.builders import ParticleBuilder, InteractionBuilder
 from analysis.classes.FragmentBuilder import FragmentBuilder
@@ -185,7 +185,10 @@ class AnaToolsManager:
             self._set_iteration(self._data_reader)
         else:
             # If no reader is provided, run the the ML chain on the fly
-            Trainer = trainval(self.chain_config)
+            loader = loader_factory(self.chain_config, event_list=self.event_list)
+            self._dataset = iter(cycle(loader))
+            Trainer = TrainVal(self.chain_config)
+            Trainer.initialize()
             self._data_reader = Trainer
             self.reader_state = 'trainval'
             self._set_iteration(loader.dataset)
@@ -328,7 +331,7 @@ class AnaToolsManager:
             file_index = self._data_reader.file_index[iteration]
             data['file_index'] = [file_index]
             data['file_name'] = [self._data_reader.file_paths[file_index]]
-        elif self._reader_state == 'trainval':
+        elif self._reader_state == 'TrainVal':
             data, res = self._data_reader.forward()
         else:
             raise ValueError(f'Data reader {self.reader_state} '\

@@ -74,8 +74,8 @@ class Unwrapper:
                 "Batch has length 0, should not happen.")
 
         # Dispatch to the correct unwrapping scheme
-        if (np.isscalar(data) or 
-            (isinstance(data, list) and np.isscalar(data[0]))):
+        if (np.isscalar(data) or                                                                                                            
+            (isinstance(data, list) and not isinstance(data[0], TensorBatch))):
             # If there is a single scalar for the entire batch or a list
             # of scalars (one per entry), return as is
             return data

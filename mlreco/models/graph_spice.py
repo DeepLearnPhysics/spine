@@ -142,7 +142,7 @@ class GraphSPICE(nn.Module):
         super(GraphSPICE, self).__init__()
         
         self.process_model_config(**graph_spice)
-        self.RETURNS.update(self.embedder.RETURNS)
+        # self.RETURNS.update(self.embedder.RETURNS)
         
         
     def process_model_config(self, 
@@ -320,8 +320,6 @@ class GraphSPICELoss(nn.Module):
 
         self.process_model_config(**graph_spice)
         self.process_loss_config(**graph_spice_loss)
-
-        self.RETURNS.update(self.loss_fn.RETURNS)
         
         
     def process_model_config(self, skip_classes, invert=True, 
@@ -359,12 +357,6 @@ class GraphSPICELoss(nn.Module):
         '''
         
         self.gs_manager.load_state(result, unwrapped=False)
-
-        # if self.invert:
-        #     pred_labels = result['edge_score'][0] < 0.0
-        # else:
-        #     pred_labels = result['edge_score'][0] >= 0.0
-        # edge_diff = pred_labels != (result['edge_truth'][0] > 0.5)
         
         slabel_tensor = [segment_label.tensor]
         clabel_tensor = [cluster_label.tensor]

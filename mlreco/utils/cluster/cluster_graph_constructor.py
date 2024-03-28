@@ -395,6 +395,13 @@ class ClusterGraphConstructor:
             # Everything else
             for key, val in state_dict_wrapped.items():
                 if key not in out:
+                    if len(val.shape) < 2:
+                        if type(val) is np.ndarray:
+                            val = val.reshape(-1, 1)
+                        elif type(val) is torch.Tensor:
+                            val = val.view(-1, 1)
+                        else:
+                            raise ValueError(f"Unsupported type for {key}!")
                     if val.shape[0] == out['pos'].tensor.shape[0]:
                         out[key] = TensorBatch(val, counts=out['pos'].counts)
                     elif val.shape[0] == out['edge_image_id'].tensor.shape[0]:
