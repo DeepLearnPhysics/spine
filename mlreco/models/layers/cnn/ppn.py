@@ -306,7 +306,7 @@ class PPN(torch.nn.Module):
 
             # Store the coordinates, raw score logits and score mask
             counts = decoder_tensors[i].counts
-            ppn_coords.append(TensorBatch(scores.C, counts))
+            ppn_coords.append(TensorBatch(scores.C, counts, has_batch_col=True))
             ppn_layers.append(TensorBatch(scores.F, counts))
             ppn_masks.append(TensorBatch(mask, counts))
 
@@ -323,7 +323,7 @@ class PPN(torch.nn.Module):
                 "The output of the last PPN layer should be consistent "
                 "with the length of the last UResNet decoder layer")
         final_counts = decoder_tensors[-1].counts
-        ppn_output_coords = TensorBatch(x.C, final_counts)
+        ppn_output_coords = TensorBatch(x.C, final_counts, has_batch_col=True)
 
         # Pass the final PPN tensor through the individual predictions, combine
         x = self.final_block(x)

@@ -18,7 +18,7 @@ class TensorBatch(BatchBase):
     """Batched tensor with the necessary methods to slice it."""
 
     def __init__(self, data, counts=None, batch_size=None, is_sparse=False, 
-                 batch_col=BATCH_COL, coord_cols=[COORD_COLS]):
+                 has_batch_col=None, coord_cols=None):
         """Initialize the attributes of the class.
 
         Parameters
@@ -31,9 +31,9 @@ class TensorBatch(BatchBase):
             Number of entries that make up the batched data
         is_sparse : bool, default False
             If initializing from an ME sparse data, flip to True
-        batch_col : int, default `BATCH_COL`
+        has_batch_col : bool, default False
             Column specifying the batch ID of each row
-        coord_cols : Union[List[int], List[List[int]]], default `[COORD_COLS]`
+        coord_cols : Union[List[int], np.ndarray], optional
             List of columns specifying coordinates
         """
         # Initialize the base class
@@ -58,6 +58,11 @@ class TensorBatch(BatchBase):
         assert self._sum(counts) == len(data), (
                 "The `counts` provided do not add up to the tensor length")
 
+        # If the data is sparse, it must have a batch column and coordinates
+        if is_sparse:
+            has_batch_col = True
+            coord_cols = COORD_COLS
+
         # Get the boundaries between entries in the batch
         edges = self.get_edges(counts)
 
@@ -66,7 +71,7 @@ class TensorBatch(BatchBase):
         self.counts = counts
         self.edges = edges
         self.batch_size = batch_size
-        self.batch_col = batch_col
+        self.has_batch_col = has_batch_col
         self.coord_cols = coord_cols
 
     def __getitem__(self, batch_id):

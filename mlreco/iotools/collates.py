@@ -112,8 +112,9 @@ class CollateSparse:
                     counts = np.empty(batch_size, dtype=np.int64)
                     for s, sample in enumerate(batch):
                         voxels, features, meta = sample[key]
-                        voxels, module_indexes = self.geo.split(voxels,
-                                self.target_id, meta = meta)
+                        voxels, module_indexes = self.geo.split(
+                                voxels.reshape(-1, 3), self.target_id,
+                                meta = meta).reshape(-1, voxels.shape[1])
                         for m, module_index in enumerate(module_indexes):
                             voxels_v.append(voxels[module_index])
                             features_v.append(features[module_index])
@@ -128,7 +129,9 @@ class CollateSparse:
 
                 # Stack the coordinates with the features
                 tensor = np.hstack([batch_ids[:, None], voxels, features])
-                data[key] = TensorBatch(tensor, counts)
+                coord_cols = np.arange(1, 1+voxels.shape[1])
+                data[key] = TensorBatch(tensor, counts, has_batch_col=True,
+                                        coord_cols=coord_cols)
 
             elif isinstance(ref_obj, tuple) and len(ref_obj) == 2:
                 # Case where an index and an offset is provided per entry.

@@ -4,6 +4,7 @@ import numpy as np
 from dataclasses import dataclass
 from copy import deepcopy
 
+from .globals import BATCH_COL
 from .data_structures import TensorBatch, IndexBatch, EdgeIndexBatch
 from .geometry import Geometry
 
@@ -88,7 +89,8 @@ class Unwrapper:
             # If the data is a tensor list, split each between its constituents
             data_split = [self._unwrap_tensor(t) for t in data]
             tensor_lists = []
-            for b in range(self.batch_size):
+            batch_size = data[0].batch_size//self.num_volumes
+            for b in range(batch_size):
                 tensor_lists.append([l[b] for l in data_split])
 
             return tensor_lists
@@ -111,11 +113,11 @@ class Unwrapper:
         """
         # If there is one volume, trivial
         if self.num_volumes == 1:
-            if not self.remove_batch_col or data.batch_col is None:
+            if not self.remove_batch_col or not data.has_batch_col:
                 return data.split()
             else:
                 data_nobc = TensorBatch(
-                        data.tensor[:, data.batch_col+1:], data.counts)
+                        data.tensor[:, BATCH_COL+1:], data.counts)
                 return data_nobc.split()
 
         # Otherwise, must shift coordinates back
@@ -126,11 +128,11 @@ class Unwrapper:
                 idx = b*self.num_volumes + v
                 tensor = data[idx]
                 if v > 0 and data.coord_cols is not None:
-                    for cols in data.coord_cols:
+                    for cols in data.coord_cols.reshape(-1, 3):
                         tensor[:, cols] = self.geo.translate(
                                 tensor[:, cols], 0, v)
-                if self.remove_batch_col and data.batch_col is not None:
-                    tensor = tensor[:, data.batch_col+1:]
+                if self.remove_batch_col and data.has_batch_col:
+                    tensor = tensor[:, BATCH_COL+1:]
 
                 tensors.append(tensor)
 

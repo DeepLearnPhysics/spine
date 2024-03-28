@@ -335,9 +335,7 @@ class ParticleCoordinateParser(Parser):
 
         features = np.vstack(features)
 
-        # TODO: Should this not be just features? Collation of it will not work
-        # if the input is broken down into multiple modules.
-        return features[:, :3], features[:, 3:], Meta.from_larcv(meta)
+        return features[:, :6], features[:, 6:], Meta.from_larcv(meta)
 
 
 class ParticleGraphParser(Parser):

@@ -142,7 +142,7 @@ def get_cluster_points_label_batch(data, coord_label, clusts,
         points[lower:upper] = get_cluster_points_label(
                 data[b], coord_label[b], clusts[b], random_order)
 
-    return TensorBatch(points, clusts.counts)
+    return TensorBatch(points, clusts.counts, coord_cols=points.shape[1])
 
 
 def get_cluster_directions_batch(data, starts, clusts,
