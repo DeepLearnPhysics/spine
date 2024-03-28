@@ -332,7 +332,7 @@ class TrainVal(object):
 
         # Initialize the unwrapper
         if self.unwrap:
-            self.initialize_unwrapper()
+            self.unwrapper = Unwrapper(self.geo, remove_batch_col=True)
 
         # Create the output log/checkpoint directories
         self.make_directories()
@@ -516,11 +516,6 @@ class TrainVal(object):
         # Supersede model and loss with calibrator versions
         self.model   = wrapped_model
         self.loss_fn = calibrator_loss_fn
-
-    def initialize_unwrapper(self):
-        """Initialize the unwrapper."""
-        # Initialize the unwrapper
-        self.unwrapper = Unwrapper(self.geo, remove_batch_col=True)
 
     def make_directories(self):
         """Make directories as to where to store the logs and weights."""
