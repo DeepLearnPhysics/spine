@@ -9,6 +9,8 @@ from typing import Union
 from dataclasses import dataclass
 from larcv import larcv
 
+__all__ = ['Meta']
+
 
 @dataclass
 class Meta:

@@ -113,7 +113,7 @@ class ParticleParser(Parser):
             for p in particles:
                 p.to_pixel(meta)
 
-        return ObjectList(particles, Particle)
+        return ObjectList(particles, Particle())
 
 
 class NeutrinoParser(Parser):
@@ -183,7 +183,7 @@ class NeutrinoParser(Parser):
             for n in neutrinos:
                 n.to_pixel(meta)
 
-        return ObjectList(neutrinos, Neutrino)
+        return ObjectList(neutrinos, Neutrino())
 
 
 class ParticlePointParser(Parser):

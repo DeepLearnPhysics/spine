@@ -12,6 +12,8 @@ from mlreco.utils.globals import NU_CURR_TYPE, NU_INT_TYPE
 
 from .meta import Meta
 
+__all__ = ['Neutrino']
+
 
 @dataclass
 class Neutrino:
@@ -113,6 +115,20 @@ class Neutrino:
             'interaction_mode': {v : k for k, v in NU_INT_TYPE.items()},
             'interaction_type': {v : k for k, v in NU_INT_TYPE.items()}
     }
+
+    # String attributes
+    _str_attrs = ['creation_process', 'units']
+
+    def __post_init__(self):
+        """Immediately called after building the class attributes.
+
+        Used to type cast strings when they are provided as binary. Could
+        also be used to check other inputs.
+        """
+        # Make sure  the strings are not binary
+        for attr in self._str_attrs:
+            if isinstance(getattr(self, attr), bytes):
+                setattr(self, attr, getattr(self, attr).decode())
 
     def to_cm(self, meta):
         """Converts the coordinates of the positional attributes to cm.

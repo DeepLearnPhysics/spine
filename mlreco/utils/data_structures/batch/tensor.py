@@ -11,6 +11,8 @@ from mlreco.utils.decorators import inherit_docstring
 
 from .base import BatchBase
 
+__all__ = ['TensorBatch']
+
 
 @dataclass
 @inherit_docstring(BatchBase)

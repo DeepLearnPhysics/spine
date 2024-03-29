@@ -164,7 +164,7 @@ class OpFlashParser(Parser):
         # Output as a list of LArCV optical flash objects
         opflashes = [Flash.from_larcv(larcv.Flash(f)) for f in opflash_list]
 
-        return ObjectList(opflashes, Flash)
+        return ObjectList(opflashes, Flash())
 
 
 class CRTHitParser(Parser):
@@ -195,7 +195,7 @@ class CRTHitParser(Parser):
         crthit_list = crthit_event.as_vector()
         crthits = [CRTHit.from_larcv(larcv.CRTHit(c)) for c in crthit_list]
 
-        return ObjectList(crthits, CRTHit)
+        return ObjectList(crthits, CRTHit())
 
 
 class TriggerParser(Parser):

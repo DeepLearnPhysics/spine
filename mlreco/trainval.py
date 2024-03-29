@@ -69,12 +69,12 @@ class TrainVal(object):
         self.initialize()
 
     def process_main(self, gpus=None, distributed=False, model_path=None,
-                     weight_prefix='', log_dir='', iterations=None,
-                     epochs=None, report_step=1, checkpoint_step=-1,
-                     train=True, seed=-1, optimizer=None, lr_scheduler=None,
-                     time_dependant_loss=False, restore_optimizer=False,
-                     to_numpy=True, unwrap=False, detect_anomaly=False,
-                     find_unused_parameters=False):
+                     weight_prefix='weights/snapshot-', log_dir='logs',
+                     iterations=None, epochs=None, report_step=1,
+                     checkpoint_step=-1, train=True, seed=-1, optimizer=None,
+                     lr_scheduler=None, time_dependant_loss=False,
+                     restore_optimizer=False, to_numpy=True, unwrap=False,
+                     detect_anomaly=False, find_unused_parameters=False):
         """Process the trainval configuration.
 
         Parameters
@@ -85,9 +85,9 @@ class TrainVal(object):
             Whether to distribute the training/inference process to > 1 GPU
         model_path : str, optional
             Path to the model weights to restore
-        weight_prefix : str, optional
+        weight_prefix : str, default 'weights/snapshot-'
             Path prefix to the location where to store the weights
-        log_dir : str, optional
+        log_dir : str, default 'logs'
             Path to the directory in which to store the training/inference log
         iterations : int, optional
             Number of iterations to run through (-1: whole dataset once)

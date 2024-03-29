@@ -128,13 +128,15 @@ def inference_single(cfg, rank=0):
     handlers = prepare(cfg, rank)
 
     # Find the set of weights to run the inference on
-    preloaded = os.path.isfile(handlers.trainval.model_path)
-    weights = sorted(glob.glob(handlers.trainval.model_path))
-    if not preloaded and len(weights):
-        weight_list = "\n".join(weights)
-        logger.info(f"Looping over {len(weights)} set of weights:\n"
-                     f"{weight_list}")
-    elif not len(weights):
+    preloaded, weights = False, []
+    if handlers.trainval.model_path is not None:
+        preloaded = os.path.isfile(handlers.trainval.model_path)
+        weights = sorted(glob.glob(handlers.trainval.model_path))
+        if not preloaded and len(weights):
+            weight_list = "\n".join(weights)
+            logger.info(f"Looping over {len(weights)} set of weights:\n"
+                        f"{weight_list}")
+    if not len(weights):
         weights = [None]
 
     # Loop over the weights, run the inference loop

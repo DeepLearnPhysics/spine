@@ -10,6 +10,8 @@ import glob
 import warnings
 import numpy as np
 
+from mlreco.utils import data_structures
+
 __all__ = ['LArCVReader', 'HDF5Reader']
 
 
@@ -232,8 +234,7 @@ class Reader:
         self.entry_index = entry_index
 
     def get_run_event(self, run, event):
-        """
-        Returns an entry corresponding to a specific (run, event) pair
+        """Returns an entry corresponding to a specific (run, event) pair.
 
         Parameters
         ----------
@@ -252,8 +253,7 @@ class Reader:
         return self.get(self.get_run_event_index(run, event))
 
     def get_run_event_index(self, run, event):
-        """
-        Returns an entry index corresponding to a specific (run, event) pair
+        """Returns an entry index corresponding to a specific (run, event) pair.
 
         Parameters
         ----------
@@ -342,7 +342,7 @@ class LArCVReader(Reader):
 
     More documentation to come.
     """
-    name = 'larcv_reader'
+    name = 'larcv'
 
     def __init__(self, file_keys, tree_keys, limit_num_files=None,
                  max_print_files=10, n_entry=None, n_skip=None,
@@ -522,12 +522,13 @@ class HDF5Reader(Reader):
 
     More documentation to come.
     """
-    name = 'hdf5_reader'
+    name = 'hdf5'
 
     def __init__(self, file_keys, limit_num_files=None, max_print_files=10,
                  n_entry=None, n_skip=None, entry_list=None,
                  skip_entry_list=None, run_event_list=None,
                  skip_run_event_list=None, create_run_map=False,
+                 split_categories=True, build_classes=True,
                  run_info_key='run_info'):
         """Initalize the HDF5 file reader.
 
@@ -554,8 +555,12 @@ class HDF5Reader(Reader):
         create_run_map : bool, default False
             Initialize a map between [run, event] pairs and entries. For large
             files, this can be quite expensive (must load every entry).
-        to_larcv : bool, default False
-            Convert dictionary of LArCV object properties to LArCV objects
+        split_categories : bool, default True
+            Split the data into the `data` and `result` dictionaries
+        build_classes : bool, default True
+            If the stored object is a class, build it back
+        run_info_key : str, default 'run_info'
+            Name of the data product which contains the run info of the event
         """
         # Process the list of files
         self.process_file_paths(file_keys, limit_num_files, max_print_files)
@@ -565,28 +570,20 @@ class HDF5Reader(Reader):
             create_run_map = True
 
         # Loop over the input files, build a map from index to file ID
-        self.num_entries  = 0
-        self.file_index   = []
-        self.run_info     = None if not create_run_map else []
-        self.split_groups = None
+        self.num_entries = 0
+        self.file_index  = []
+        self.run_info    = None if not create_run_map else []
         for i, path in enumerate(self.file_paths):
             with h5py.File(path, 'r') as in_file:
-                # Check that there are events in the file and the storage mode
+                # Check that there are events in the file
                 assert 'events' in in_file, (
                         "File does not contain an event tree")
 
-                split_groups = 'data' in in_file and 'result' in in_file
-                assert (self.split_groups is None or 
-                        self.split_groups == split_groups), (
-                        "Cannot load files with different storing schemes")
-                self.split_groups = split_groups
-
                 # If requested, register the [run, event] information pair
                 if create_run_map:
-                    source = in_file['data'] if split_groups else in_file
-                    assert run_info_key in source, (
+                    assert run_info_key in in_file, (
                             f"Must provide {run_info_key} to create run map")
-                    run_info = source['run_info']
+                    run_info = in_file[run_info_key]
                     for r, e in zip(run_info['run'], run_info['event']):
                         self.run_info.append([r, e])
 
@@ -608,8 +605,9 @@ class HDF5Reader(Reader):
                 n_entry, n_skip, entry_list, skip_entry_list,
                 run_event_list, skip_run_event_list)
 
-        # Set whether or not to initialize LArCV objects as such
-        self.to_larcv = to_larcv
+        # Store other attributes
+        self.split_categories = split_categories
+        self.build_classes = build_classes
 
     def get(self, idx):
         """Returns a specific entry in the file.
@@ -638,14 +636,13 @@ class HDF5Reader(Reader):
             for key in event.dtype.names:
                 self.load_key(in_file, event, data_blob, result_blob, key)
 
-        if self.split_groups:
+        if self.split_categories:
             return data_blob, result_blob
         else:
             return dict(data_blob, **result_blob)
 
     def load_key(self, in_file, event, data_blob, result_blob, key):
-        """
-        Fetch a specific key for a specific event.
+        """Fetch a specific key for a specific event.
 
         Parameters
         ----------
@@ -662,124 +659,45 @@ class HDF5Reader(Reader):
         """
         # The event-level information is a region reference: fetch it
         region_ref = event[key]
-        group = in_file
-        blob  = result_blob
-        if self.split_groups:
-            cat   = 'data' if key in in_file['data'] else 'result'
-            blob  = data_blob if cat == 'data' else result_blob
-            group = in_file[cat]
-        if isinstance(group[key], h5py.Dataset):
-            if not group[key].dtype.names:
+        cat = in_file[key].attrs['category']
+        blob = data_blob if cat == 'data' else result_blob
+        if isinstance(in_file[key], h5py.Dataset):
+            if not in_file[key].dtype.names:
                 # If the reference points at a simple dataset, return
-                blob[key] = group[key][region_ref]
-                if 'scalar' in group[key].attrs and group[key].attrs['scalar']:
+                blob[key] = in_file[key][region_ref]
+                if in_file[key].attrs['scalar']:
                     blob[key] = blob[key][0]
-                if len(group[key].shape) > 1:
-                    blob[key] = blob[key].reshape(-1, group[key].shape[1])
+                if len(in_file[key].shape) > 1:
+                    blob[key] = blob[key].reshape(-1, in_file[key].shape[1])
             else:
                 # If the dataset has multiple attributes, it contains an object
-                array = group[key][region_ref]
+                array = in_file[key][region_ref]
+                class_name = in_file[key].attrs['class_name']
+                obj_class = getattr(data_structures, class_name)
                 names = array.dtype.names
-                if (self.to_larcv and 
-                    ('larcv' not in group[key].attrs or
-                     group[key].attrs['larcv'])):
-                    blob[key] = self.make_larcv_objects(array, names)
-                else:
-                    blob[key] = []
-                    for i in range(len(array)):
-                        blob[key].append(dict(zip(names, array[i])))
-                        for k in blob[key][-1].keys():
-                            if isinstance(blob[key][-1][k], bytes):
-                                blob[key][-1][k] = blob[key][-1][k].decode()
+                blob[key] = []
+                for i in range(len(array)):
+                    obj_dict = dict(zip(names, array[i]))
+                    if self.build_classes:
+                        blob[key].append(obj_class(**obj_dict))
+                    else:
+                        blob[key].append(obj_dict)
+                if in_file[key].attrs['scalar']:
+                    blob[key] = blob[key][0]
         else:
             # If the reference points at a group, unpack
-            el_refs = group[key]['index'][region_ref].flatten()
-            if len(group[key]['index'].shape) == 1:
+            el_refs = in_file[key]['index'][region_ref].flatten()
+            if len(in_file[key]['index'].shape) == 1:
                 ret = np.empty(len(el_refs), dtype=np.object)
-                ret[:] = [group[key]['elements'][r] for r in el_refs]
-                if len(group[key]['elements'].shape) > 1:
+                ret[:] = [in_file[key]['elements'][r] for r in el_refs]
+                if len(in_file[key]['elements'].shape) > 1:
                     for i in range(len(el_refs)):
                         ret[i] = ret[i].reshape(
-                                -1, group[key]['elements'].shape[1])
+                                -1, in_file[key]['elements'].shape[1])
             else:
-                ret = [group[key][f'element_{i}'][r] for i, r in enumerate(el_refs)]
+                ret = [in_file[key][f'element_{i}'][r] for i, r in enumerate(el_refs)]
                 for i in range(len(el_refs)):
-                    if len(group[key][f'element_{i}'].shape) > 1:
-                        ret[i] = ret[i].reshape(-1, group[key][f'element_{i}'].shape[1])
+                    if len(in_file[key][f'element_{i}'].shape) > 1:
+                        ret[i] = ret[i].reshape(
+                                -1, in_file[key][f'element_{i}'].shape[1])
             blob[key] = ret
-
-    @staticmethod
-    def make_larcv_objects(array, names):
-        """Rebuild `larcv` objects from the stored information.
-        
-        Supports `larcv.Particle`, `larcv.Neutrino`, `larcv.Flash`,
-        `larcv.CRTHit` and `larcv.Trigger`.
-
-        Parameters
-        ----------
-        array : list
-            List of dictionary of larcv object attributes
-        names:
-            List of class attribute names
-
-        Returns
-        -------
-        list
-            List of filled `larcv` objects
-        """
-        from larcv import larcv
-        if len(array):
-            obj_class = larcv.Particle
-            if 'bjorken_x' in names: obj_class = larcv.Neutrino
-            elif 'TotalPE' in names: obj_class = larcv.Flash
-            elif 'tagger'  in names: obj_class = larcv.CRTHit
-            elif 'time_ns' in names: obj_class = larcv.Trigger
-
-        ret = []
-        for i in range(len(array)):
-            # Initialize new larcv.Particle or larcv.Neutrino object
-            obj_dict = array[i]
-            obj = obj_class()
-
-            # Momentum is particular, deal with it first
-            if isinstance(obj, (larcv.Particle, larcv.Neutrino)):
-                obj.momentum(*[obj_dict[f'p{k}'] for k in ['x', 'y', 'z']])
-
-            # Trajectory for neutrino is also particular, deal with it
-            if isinstance(obj, larcv.Neutrino):
-                traj_keys = ['x', 'y', 'z', 't', 'px', 'py', 'pz', 'e']
-                obj.add_trajectory_point(
-                        *[obj_dict[f'traj_{k}'] for k in traj_keys])
-
-            # Now deal with the rest
-            for name in names:
-                if (name in ['px', 'py', 'pz', 'p', 'TotalPE'] or 
-                    name[:5] == 'traj_'):
-                    continue # Addressed by other setters
-                if 'position' in name or 'step' in name:
-                    getattr(obj, name)(*obj_dict[name])
-                else:
-                    getattr(obj, name)(self.cast_scalar(obj_dict[name]))
-
-            ret.append(obj)
-
-        return ret
-
-    @staticmethod
-    def cast_scalar(value):
-        """Convert object to scalar, if pssible.
-
-        Parameters
-        ----------
-        value : object
-            Object to be cast to scalar
-
-        Returns
-        -------
-        object
-            Object as is or scalar
-        """
-        if type(value) != bytes and not isinstance(value, np.ndarray):
-            return value.item()
-        else:
-            return value

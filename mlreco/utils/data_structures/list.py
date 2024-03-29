@@ -2,6 +2,8 @@
 
 from typing import List
 
+__all__ = ['ObjectList']
+
 
 class ObjectList(list):
     """List with a default object used to type it when it is empty.

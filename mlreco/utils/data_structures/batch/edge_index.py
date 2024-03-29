@@ -12,6 +12,8 @@ from mlreco.utils.decorators import inherit_docstring
 
 from .base import BatchBase
 
+__all__ = ['EdgeIndexBatch']
+
 
 @dataclass
 @inherit_docstring(BatchBase)

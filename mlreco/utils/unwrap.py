@@ -76,9 +76,9 @@ class Unwrapper:
 
         # Dispatch to the correct unwrapping scheme
         if (np.isscalar(data) or 
-            (isinstance(data, list) and np.isscalar(data[0]))):
-            # If there is a single scalar for the entire batch or a list
-            # of scalars (one per entry), return as is
+            (isinstance(data, list) and not isinstance(data[0], TensorBatch))):
+            # If there is a single scalar for the entire batch or a simple list
+            # of objects (one per entry), return as is
             return data
 
         elif isinstance(data, TensorBatch):
@@ -148,7 +148,7 @@ class Unwrapper:
         """
         # If there is only one volume, trivial
         if self.num_volumes == 1:
-            return data.split()
+            indexes = data.split()
 
         # If there is more than one volume, merge them together
         batch_size = data.batch_size // self.num_volumes
@@ -161,5 +161,10 @@ class Unwrapper:
                 index_list.append(offset + data[idx])
             
             indexes.append(np.concatenate(index_list))
+
+        # Cast the indexes to ObjectList, in case they are empty
+        for i, index in enumerate(indexes):
+            shape = (0, data.shape[1]) if len(data.shape) == 2 else 0
+            index = ObjectList(index, default=np.empty(shape, dtype=np.int64))
 
         return indexes

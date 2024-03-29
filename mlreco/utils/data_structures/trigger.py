@@ -6,6 +6,8 @@ This copies the internal structure of :class:`larcv.Trigger`.
 from dataclasses import dataclass
 from larcv import larcv
 
+__all__ = ['Trigger']
+
 
 @dataclass
 class Trigger:

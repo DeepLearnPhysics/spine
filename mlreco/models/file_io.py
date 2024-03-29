@@ -4,24 +4,20 @@ import torch
 import torch.nn as nn
 
 class FileIOPlaceHolder(nn.Module):
-    def __init__(self, cfg, name='file_io'):
+    def __init__(self):
         super(FileIOPlaceHolder, self).__init__()
-        self.cfg = cfg
         self.w = nn.Parameter(torch.tensor(1.0))
 
-    def forward(self, x):
-        out = {
-            # 'x': x
-        }
+    def forward(self):
+        out = {}
         return out
     
 class FileIOPlaceHolderLoss(nn.Module):
     
-    def __init__(self, cfg):
+    def __init__(self):
         super(FileIOPlaceHolderLoss, self).__init__()
-        self.cfg = cfg
         
-    def forward(self, result, labels):
+    def forward(self, **kwargs):
         
         output = {
             'accuracy': 0.0,

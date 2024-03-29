@@ -12,6 +12,8 @@ from mlreco.utils.globals import UNKWN_SHP, SHAPE_LABELS, PID_LABELS
 
 from .meta import Meta
 
+__all__ = ['Particle']
+
 
 @dataclass
 class Particle:
@@ -150,6 +152,21 @@ class Particle:
             'shape': {v : k for k, v in SHAPE_LABELS.items()},
             'pid': {v : k for k, v in SHAPE_LABELS.items()}
     }
+
+    # String attributes
+    _str_attrs = ['creation_process', 'parent_creation_process',
+                  'ancestor_creation_process', 'units']
+
+    def __post_init__(self):
+        """Immediately called after building the class attributes.
+
+        Used to type cast strings when they are provided as binary. Could
+        also be used to check other inputs.
+        """
+        # Make sure  the strings are not binary
+        for attr in self._str_attrs:
+            if isinstance(getattr(self, attr), bytes):
+                setattr(self, attr, getattr(self, attr).decode())
 
     def to_cm(self, meta):
         """Converts the coordinates of the positional attributes to cm.

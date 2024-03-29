@@ -7,6 +7,8 @@ import numpy as np
 from dataclasses import dataclass
 from larcv import larcv
 
+__all__ = ['CRTHit']
+
 
 @dataclass
 class CRTHit:
@@ -63,6 +65,20 @@ class CRTHit:
 
     # Attributes specifying coordinates
     _pos_attrs = ['position']
+
+    # String attributes
+    _str_attrs = ['tagger', 'units']
+
+    def __post_init__(self):
+        """Immediately called after building the class attributes.
+
+        Used to type cast strings when they are provided as binary. Could
+        also be used to check other inputs.
+        """
+        # Make sure  the strings are not binary
+        for attr in self._str_attrs:
+            if isinstance(getattr(self, attr), bytes):
+                setattr(self, attr, getattr(self, attr).decode())
 
     def to_cm(self, meta):
         """Converts the coordinates of the positional attributes to cm.
