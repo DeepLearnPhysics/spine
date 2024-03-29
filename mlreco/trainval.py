@@ -23,7 +23,7 @@ from .utils.torch_local import cycle
 from .utils.data_structures import TensorBatch, IndexBatch, EdgeIndexBatch
 from .utils.stopwatch import StopwatchManager
 from .utils.unwrap import Unwrapper
-from .utils.train import optim_construct, lr_sched_construct
+from .utils.train import optim_factory, lr_sched_factory
 from .utils.logger import logger
 
 
@@ -314,14 +314,14 @@ class TrainVal(object):
 
         # Initiliaze the optimizer
         if self.train:
-            self.optimizer = optim_construct(
+            self.optimizer = optim_factory(
                     self.optim_cfg, self.model.parameters())
 
         # Initialize the learning rate scheduler
         if self.train:
             self.lr_scheduler = None
             if self.lr_sched_cfg is not None:
-                self.lr_scheduler = lr_sched_construct(
+                self.lr_scheduler = lr_sched_factory(
                         self.lr_sched_cfg, self.optimizer)
 
         # Module-by-module parameter freezing

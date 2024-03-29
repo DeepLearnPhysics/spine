@@ -4,7 +4,7 @@ from scipy.special import logit
 
 import MinkowskiEngine as ME
 
-from .act_norm import activations_construct, normalizations_construct
+from .act_norm import act_factory, norm_factory
 from .configuration import setup_cnn_configuration
 from .blocks import ResNetBlock, ConvolutionBlock
 
@@ -35,8 +35,8 @@ class SparseGenerator(torch.nn.Module):
             self.layer_limit = len(self.nPlanes) + 1
 
         self.linear = nn.Sequential(
-            normalizations_construct(self.norm, self.latent_size, **self.norm_args),
-            activations_construct(
+            norm_factory(self.norm, self.latent_size, **self.norm_args),
+            act_factory(
                 self.activation_name, **self.activation_args),
             ME.MinkowskiConvolutionTranspose(
                 in_channels=self.latent_size,
@@ -53,8 +53,8 @@ class SparseGenerator(torch.nn.Module):
         self.layer_cls = []
         for i in range(self.depth-2, -1, -1):
             m = []
-            m.append(normalizations_construct(self.norm, self.nPlanes[i+1], **self.norm_args))
-            m.append(activations_construct(
+            m.append(norm_factory(self.norm, self.nPlanes[i+1], **self.norm_args))
+            m.append(act_factory(
                 self.activation_name, **self.activation_args))
             m.append(ME.MinkowskiConvolutionTranspose(
                 in_channels=self.nPlanes[i+1],
@@ -168,8 +168,8 @@ class SparseGeneratorSimple(torch.nn.Module):
             self.layer_limit = len(self.nPlanes) + 1
 
         self.linear = nn.Sequential(
-            normalizations_construct(self.norm, self.latent_size, **self.norm_args),
-            activations_construct(
+            norm_factory(self.norm, self.latent_size, **self.norm_args),
+            act_factory(
                 self.activation_name, **self.activation_args),
             ME.MinkowskiConvolutionTranspose(
                 in_channels=self.latent_size,
@@ -186,8 +186,8 @@ class SparseGeneratorSimple(torch.nn.Module):
         self.layer_cls = []
         for i in range(self.depth-2, -1, -1):
             m = []
-            m.append(normalizations_construct(self.norm, self.nPlanes[i+1], **self.norm_args))
-            m.append(activations_construct(
+            m.append(norm_factory(self.norm, self.nPlanes[i+1], **self.norm_args))
+            m.append(act_factory(
                 self.activation_name, **self.activation_args))
             m.append(ME.MinkowskiConvolutionTranspose(
                 in_channels=self.nPlanes[i+1],

@@ -92,7 +92,7 @@ def evd_loss_dict():
     return loss_fn
 
 
-def evd_loss_construct(name):
+def evd_loss_factory(name):
     losses = evd_loss_dict()
     if name not in losses:
         raise Exception("Unknown evd loss algorithm name provided: %s" % name)
@@ -109,7 +109,7 @@ class EVDLoss(nn.Module):
                  one_hot=True, num_classes=5, mode='concentration'):
         super(EVDLoss, self).__init__()
         self.T = T  # Total epoch counts for which to anneal kld component. 
-        self.evd_loss = evd_loss_construct(evd_loss_name)
+        self.evd_loss = evd_loss_factory(evd_loss_name)
         self.kld_loss = evd_kl_divergence
         self.reduction = reduction
         self.one_hot = one_hot

@@ -3,7 +3,7 @@
 import torch
 import numpy as np
 
-from mlreco.models.layers.factories import loss_fn_construct
+from mlreco.models.layers.factories import loss_fn_factory
 
 from mlreco.utils.globals import GROUP_COL, PRGRP_COL
 from mlreco.utils.weighting import get_class_weights
@@ -67,7 +67,7 @@ class NodeShowerPrimaryLoss(torch.nn.Module):
         self.group_pred_alg = group_pred_alg
 
         # Set the loss
-        self.loss_fn = loss_fn_construct(loss, functional=True)
+        self.loss_fn = loss_fn_factory(loss, functional=True)
 
     def forward(self, clust_label, clusts, node_pred, edge_index=None,
                 edge_pred=None, group_ids=None, **kwargs):

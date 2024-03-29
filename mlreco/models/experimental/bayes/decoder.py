@@ -2,10 +2,10 @@ import torch
 import torch.nn as nn
 import MinkowskiEngine as ME
 
-from mlreco.models.layers.cnn.act_norm import (
-        activations_construct, normalizations_construct)
+from mlreco.models.layers.cnn.act_norm import act_factory, norm_factory
 from mlreco.models.layers.cnn.configuration import setup_cnn_configuration
 from mlreco.models.layers.cnn.blocks import DropoutBlock, ResNetBlock
+
 
 class MCDropoutDecoder(torch.nn.Module):
     """
@@ -50,10 +50,10 @@ class MCDropoutDecoder(torch.nn.Module):
         self.decoding_conv = []
         for i in range(self.depth-2, -1, -1):
             m = []
-            m.append(normalizations_construct(self.norm,
+            m.append(norm_factory(self.norm,
                                               self.nPlanes[i+1],
                                               **self.norm_args))
-            m.append(activations_construct(self.activation_name,
+            m.append(act_factory(self.activation_name,
                                            **self.activation_args))
             m.append(ME.MinkowskiConvolutionTranspose(
                 in_channels=self.nPlanes[i+1],

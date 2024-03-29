@@ -4,11 +4,11 @@ from mlreco.utils.factory import module_dict, instantiate
 
 from . import layers
 
-__all__ = ['node_layer_construct', 'edge_layer_construct',
-           'global_layer_construct']
+__all__ = ['node_layer_factory', 'edge_layer_factory',
+           'global_layer_factory']
 
 
-def node_layer_construct(cfg, node_in, edge_in, glob_in):
+def node_layer_factory(cfg, node_in, edge_in, glob_in):
     """Instantiates a GNN node update layer from a configuration dictionary.
 
     Parameters
@@ -32,7 +32,7 @@ def node_layer_construct(cfg, node_in, edge_in, glob_in):
             layer_dict, cfg, node_in=node_in, edge_in=edge_in, glob_in=glob_in)
 
 
-def edge_layer_construct(cfg, node_in, edge_in, glob_in):
+def edge_layer_factory(cfg, node_in, edge_in, glob_in):
     """Instantiates a GNN edge update layer from a configuration dictionary.
 
     Parameters
@@ -56,7 +56,7 @@ def edge_layer_construct(cfg, node_in, edge_in, glob_in):
             layer_dict, cfg, node_in=node_in, edge_in=edge_in, glob_in=glob_in)
 
 
-def global_layer_construct(cfg, node_in, glob_in):
+def global_layer_factory(cfg, node_in, glob_in):
     """Instantiates a GNN global update layer from a configuration dictionary.
 
     Parameters

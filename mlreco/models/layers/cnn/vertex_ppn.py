@@ -9,7 +9,7 @@ from mlreco.models.layers.cnn.blocks import ResNetBlock
 from mlreco.models.layers.cnn.configuration import setup_cnn_configuration
 from mlreco.models.layers.cluster_cnn.losses.misc import BinaryCELogDiceLoss
 
-from .act_norm import activations_construct
+from .act_norm import act_factory
 from .ppn import *
 
 from mlreco.utils.gnn.cluster import form_clusters, get_cluster_label
@@ -37,7 +37,7 @@ class VertexPPN(nn.Module):
         for i in range(self.depth-2, -1, -1):
             m = []
             m.append(ME.MinkowskiBatchNorm(self.nPlanes[i+1]))
-            m.append(activations_construct(
+            m.append(act_factory(
                 self.activation_name, **self.activation_args))
             m.append(ME.MinkowskiConvolutionTranspose(
                 in_channels=self.nPlanes[i+1],

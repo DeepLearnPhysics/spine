@@ -4,7 +4,7 @@ import torch
 import numpy as np
 from warnings import warn
 
-from mlreco.models.layers.factories import loss_fn_construct
+from mlreco.models.layers.factories import loss_fn_factory
 
 from mlreco.utils.globals import MOM_COL
 from mlreco.utils.gnn.cluster import get_cluster_label_batch
@@ -53,7 +53,7 @@ class NodeRegressionLoss(torch.nn.Module):
         self.target = target
 
         # Set the loss
-        self.loss_fn = loss_fn_construct(loss, reduction='sum')
+        self.loss_fn = loss_fn_factory(loss, reduction='sum')
 
     def forward(self, clust_label, clusts, node_pred, **kwargs):
         """Applies the node regression loss to a batch of data.

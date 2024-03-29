@@ -4,10 +4,10 @@ from mlreco.utils.factory import module_dict, instantiate
 
 from .common import final
 
-__all__ = ['final_construct', 'loss_fn_construct']
+__all__ = ['final_factory', 'loss_fn_factory']
 
 
-def final_construct(in_channels, **cfg):
+def final_factory(in_channels, **cfg):
     """Instantiates a final layer from a configuration dictionary.
 
     Parameters
@@ -26,7 +26,7 @@ def final_construct(in_channels, **cfg):
     return instantiate(final_layers, cfg, in_channels=in_channels)
 
 
-def loss_fn_construct(cfg, functional=False, **kwargs):
+def loss_fn_factory(cfg, functional=False, **kwargs):
     """Instantiates a loss function from a configuration dictionary.
 
     Parameters

@@ -5,8 +5,7 @@ from collections import defaultdict
 
 import MinkowskiFunctional as MF
 
-from mlreco.models.layers.cnn.act_norm import (
-        activations_construct, normalizations_construct)
+from mlreco.models.layers.cnn.act_norm import act_factory, norm_factory
 from mlreco.models.layers.cnn.configuration import setup_cnn_configuration
 from mlreco.models.layers.cnn.blocks import DropoutBlock, ResNetBlock
 
@@ -87,8 +86,8 @@ class MCDropoutEncoder(torch.nn.Module):
             self.encoding_block.append(m)
             m = []
             if i < self.depth-1:
-                m.append(normalizations_construct(self.norm, F, **self.norm_args))
-                m.append(activations_construct(
+                m.append(norm_factory(self.norm, F, **self.norm_args))
+                m.append(act_factory(
                     self.activation_name, **self.activation_args))
                 m.append(ME.MinkowskiConvolution(
                     in_channels=self.nPlanes[i],

@@ -5,7 +5,7 @@ import torch.nn as nn
 import MinkowskiEngine as ME
 import MinkowskiFunctional as MF
 
-from mlreco.models.layers.cnn.act_norm import activations_construct
+from mlreco.models.layers.cnn.act_norm import act_factory
 from mlreco.models.layers.cnn.configuration import setup_cnn_configuration
 from mlreco.models.layers.cnn.blocks import ResNetBlock
 from mlreco.models.layers.cnn.uresnet_layers import (

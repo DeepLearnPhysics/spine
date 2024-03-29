@@ -7,7 +7,7 @@ import MinkowskiEngine as ME
 import MinkowskiFunctional as MF
 
 from .configuration import setup_cnn_configuration
-from .act_norm import activations_construct
+from .act_norm import act_factory
 from .blocks import ResNetBlock, SPP, ASPP
 
 from mlreco.utils.torch_local import local_cdist
@@ -170,7 +170,7 @@ class PPN(torch.nn.Module):
         for i in range(self.depth-2, -1, -1):
             m = []
             m.append(ME.MinkowskiBatchNorm(self.num_planes[i+1]))
-            m.append(activations_construct(self.act_cfg))
+            m.append(act_factory(self.act_cfg))
             m.append(ME.MinkowskiConvolutionTranspose(
                 in_channels=self.num_planes[i+1],
                 out_channels=self.num_planes[i],

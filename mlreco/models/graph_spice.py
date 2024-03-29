@@ -3,7 +3,7 @@ import numpy as np
 import MinkowskiEngine as ME
 
 from mlreco.models.layers.cluster_cnn.losses.gs_embeddings import *
-from mlreco.models.layers.cluster_cnn import gs_kernel_construct, spice_loss_construct
+from mlreco.models.layers.cluster_cnn import gs_kernel_factory, spice_loss_factory
 
 from mlreco.models.layers.cluster_cnn.graph_spice_embedder import GraphSPICEEmbedder
 
@@ -176,7 +176,7 @@ class GraphSPICE(nn.Module):
         
         self.embedder   = GraphSPICEEmbedder(embedder_cfg)
         self.gs_manager = ClusterGraphConstructor(constructor_cfg)
-        self.kernel_fn  = gs_kernel_construct(kernel_cfg)
+        self.kernel_fn  = gs_kernel_factory(kernel_cfg)
 
 
     def weight_initialization(self):
@@ -339,7 +339,7 @@ class GraphSPICELoss(nn.Module):
                             name='se_lovasz_inter', **kwargs):
 
         self.evaluate_true_accuracy = evaluate_true_accuracy
-        self.loss_fn = spice_loss_construct(name)(**kwargs)
+        self.loss_fn = spice_loss_factory(name)(**kwargs)
 
 
     def filter_class(self, segment_label, cluster_label):

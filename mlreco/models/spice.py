@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 from mlreco.models.layers.cluster_cnn.embeddings import SPICE as SPICE_base # TODO why does this live out of this module?
-from mlreco.models.layers.cluster_cnn import spice_loss_construct
+from mlreco.models.layers.cluster_cnn import spice_loss_factory
 
 class SPICE(SPICE_base):
 
@@ -24,7 +24,7 @@ class SPICELoss(nn.Module):
 
         self.loss_config = cfg.get(name, {})
         self.loss_func_name = self.loss_config.get('name', 'se_lovasz_inter')
-        self.loss_func = spice_loss_construct(self.loss_func_name)
+        self.loss_func = spice_loss_factory(self.loss_func_name)
         self.loss_func = self.loss_func(cfg)
         #print(self.loss_func)
 

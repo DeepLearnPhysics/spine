@@ -68,7 +68,7 @@ class BatchBase:
         if not self.is_list:
             return self.data.shape
         else:
-            return len(self.data)
+            return len(self.data),
 
     @property
     def splits(self):

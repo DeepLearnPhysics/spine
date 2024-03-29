@@ -4,7 +4,7 @@ from torch import nn
 
 from torch_geometric.nn import GATConv
 
-from mlreco.models.layers.common.act_norm import norm_construct, act_construct
+from mlreco.models.layers.common.act_norm import norm_factory, act_factory
 
 __all__ = ['GATConvNodeLayer']
 
@@ -47,8 +47,8 @@ class GATConvNodeLayer(nn.Module):
         # Initialize the 
         self.feature_size = out_channels
         self.gatconv = GATConv(node_in, out_channels, **kwargs)
-        self.bn = norm_construct(normalization, out_channels)
-        self.act = act_construct(activation)
+        self.bn = norm_factory(normalization, out_channels)
+        self.act = act_factory(activation)
 
     def forward(self, node_feats, edge_index, *args):
         """Pass a batch of node/edges through the edge update layer.

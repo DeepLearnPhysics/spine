@@ -11,7 +11,7 @@ import torch
 
 import MinkowskiEngine as ME
 
-from .act_norm import activations_construct, normalizations_construct
+from .act_norm import act_factory, norm_factory
 from .blocks import ResNetBlock, CascadeDilationBlock, ASPP
 from .configuration import setup_cnn_configuration
 
@@ -56,8 +56,8 @@ class UResNetEncoder(torch.nn.Module):
             self.encoding_block.append(m)
             m = []
             if i < self.depth-1:
-                m.append(normalizations_construct(self.norm_cfg, F))
-                m.append(activations_construct(self.act_cfg))
+                m.append(norm_factory(self.norm_cfg, F))
+                m.append(act_factory(self.act_cfg))
                 m.append(ME.MinkowskiConvolution(
                     in_channels=self.num_planes[i],
                     out_channels=self.num_planes[i+1],
@@ -123,9 +123,9 @@ class UResNetDecoder(torch.nn.Module):
         self.decoding_conv = []
         for i in range(self.depth-2, -1, -1):
             m = []
-            m.append(normalizations_construct(
+            m.append(norm_factory(
                 self.norm_cfg, self.num_planes[i+1]))
-            m.append(activations_construct(self.act_cfg))
+            m.append(act_factory(self.act_cfg))
             m.append(ME.MinkowskiConvolutionTranspose(
                 in_channels=self.num_planes[i+1],
                 out_channels=self.num_planes[i],

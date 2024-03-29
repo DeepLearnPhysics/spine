@@ -6,7 +6,7 @@ import MinkowskiEngine as ME
 import MinkowskiFunctional as MF
 
 from .configuration import setup_cnn_configuration
-from .act_norm import activations_dict, activations_construct
+from .act_norm import act_factory
 from .blocks import *
 
 
@@ -58,7 +58,7 @@ class UResNeXt(torch.nn.Module):
             m = []
             if i < self.depth - 1:
                 m.append(ME.MinkowskiBatchNorm(F))
-                m.append(activations_construct(activation, **activation_args))
+                m.append(act_factory(activation, **activation_args))
                 m.append(ME.MinkowskiConvolution(
                     in_channels=self.nPlanes[i],
                     out_channels=self.nPlanes[i + 1],
@@ -74,7 +74,7 @@ class UResNeXt(torch.nn.Module):
         for i in range(self.depth - 2, -1, -1):
             m = []
             m.append(ME.MinkowskiBatchNorm(self.nPlanes[i + 1]))
-            m.append(activations_construct(activation, **activation_args))
+            m.append(act_factory(activation, **activation_args))
             m.append(ME.MinkowskiConvolutionTranspose(
                 in_channels=self.nPlanes[i + 1],
                 out_channels=self.nPlanes[i],

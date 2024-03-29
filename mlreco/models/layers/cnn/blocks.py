@@ -5,7 +5,7 @@ import torch.nn as nn
 
 import MinkowskiEngine as ME
 
-from .act_norm import activations_construct, normalizations_construct
+from .act_norm import act_factory, norm_factory
 
 
 class ConvolutionBlock(ME.MinkowskiNetwork):
@@ -45,14 +45,14 @@ class ConvolutionBlock(ME.MinkowskiNetwork):
         self.conv1 = ME.MinkowskiConvolution(
             in_features, out_features, kernel_size=3,
             stride=1, dilation=dilation, dimension=dimension, bias=bias)
-        self.norm1 = normalizations_construct(normalization, out_features)
-        self.act_fn1 = activations_construct(activation)
+        self.norm1 = norm_factory(normalization, out_features)
+        self.act_fn1 = act_factory(activation)
 
         self.conv2 = ME.MinkowskiConvolution(
             out_features, out_features, kernel_size=3,
             stride=1, dilation=dilation, dimension=dimension, bias=bias)
-        self.norm2 = normalizations_construct(normalization, out_features)
-        self.act_fn2 = activations_construct(activation)
+        self.norm2 = norm_factory(normalization, out_features)
+        self.act_fn2 = act_factory(activation)
 
     def forward(self, x):
         """Pass a tensor through the convolution block.
@@ -118,15 +118,15 @@ class DropoutBlock(ME.MinkowskiNetwork):
             in_features, out_features, kernel_size=3,
             stride=1, dilation=dilation, dimension=dimension, bias=bias)
         self.dropout1 = ME.MinkowskiDropout(p=p)
-        self.norm1 = normalizations_construct(normalization, out_features)
-        self.act_fn1 = activations_construct(activation)
+        self.norm1 = norm_factory(normalization, out_features)
+        self.act_fn1 = act_factory(activation)
 
         self.conv2 = ME.MinkowskiConvolution(
             out_features, out_features, kernel_size=3,
             stride=1, dilation=dilation, dimension=dimension, bias=bias)
         self.dropout2 = ME.MinkowskiDropout(p=p)
-        self.norm2 = normalizations_construct(normalization, out_features)
-        self.act_fn2 = activations_construct(activation)
+        self.norm2 = norm_factory(normalization, out_features)
+        self.act_fn2 = act_factory(activation)
 
     def forward(self, x):
         """Pass a tensor through the dropout block.
@@ -195,14 +195,14 @@ class ResNetBlock(ME.MinkowskiNetwork):
         self.conv1 = ME.MinkowskiConvolution(
             in_features, out_features, kernel_size=3,
             stride=stride, dilation=dilation, dimension=dimension, bias=bias)
-        self.norm1 = normalizations_construct(normalization, in_features)
-        self.act_fn1 = activations_construct(activation)
+        self.norm1 = norm_factory(normalization, in_features)
+        self.act_fn1 = act_factory(activation)
 
         self.conv2 = ME.MinkowskiConvolution(
             out_features, out_features, kernel_size=3,
             stride=stride, dilation=dilation, dimension=dimension, bias=bias)
-        self.norm2 = normalizations_construct(normalization, out_features)
-        self.act_fn2 = activations_construct(activation)
+        self.norm2 = norm_factory(normalization, out_features)
+        self.act_fn2 = act_factory(activation)
 
     def forward(self, x):
         """Pass a tensor through the ResNet block.
@@ -268,14 +268,14 @@ class AtrousIIBlock(ME.MinkowskiNetwork):
         self.conv1 = ME.MinkowskiConvolution(
             in_features, out_features,
             kernel_size=3, stride=1, dilation=1, dimension=self.D)
-        self.norm1 = normalizations_construct(normalization, out_features)
-        self.act_fn1 = activations_construct(activation)
+        self.norm1 = norm_factory(normalization, out_features)
+        self.act_fn1 = act_factory(activation)
 
         self.conv2 = ME.MinkowskiConvolution(
             out_features, out_features,
             kernel_size=3, stride=1, dilation=3, dimension=self.D)
-        self.norm2 = normalizations_construct(normalization, out_features)
-        self.act_fn2 = activations_construct(activation)
+        self.norm2 = norm_factory(normalization, out_features)
+        self.act_fn2 = act_factory(activation)
 
     def forward(self, x):
         """Pass a tensor through the AtrousII block.
@@ -396,8 +396,8 @@ class ResNeXtBlock(ME.MinkowskiNetwork):
                     in_channels=in_C, out_channels=num_output,
                     kernel_size=self.kernels[i], stride=self.strides[i],
                     dilation=self.dilations[i], dimension=self.D))
-                m.append(normalizations_construct(normalization, num_output))
-                m.append(activations_construct(activation))
+                m.append(norm_factory(normalization, num_output))
+                m.append(act_factory(activation))
             m = nn.Sequential(*m)
             self.paths.append(m)
         self.paths = nn.Sequential(*self.paths)
@@ -691,28 +691,28 @@ class MBConv(ME.MinkowskiNetwork):
 
         if expand_ratio == 1:
             self.m = nn.Sequential(
-                normalizations_construct(
+                norm_factory(
                     normalization, in_features),
-                activations_construct(activation),
+                act_factory(activation),
                 ME.MinkowskiConvolution(
                     in_features, out_features,
                     kernel_size=3, stride=1, dilation=1,
                     dimension=self.D, bias=bias))
         else:
             self.m = nn.Sequential(
-                normalizations_construct(normalization, in_features),
-                activations_construct(activation),
+                norm_factory(normalization, in_features),
+                act_factory(activation),
                 ME.MinkowskiLinear(in_features, self.hidden_dim),
-                normalizations_construct(normalization, self.hidden_dim),
-                activations_construct(activation),
+                norm_factory(normalization, self.hidden_dim),
+                act_factory(activation),
                 ME.MinkowskiChannelwiseConvolution(self.hidden_dim, 
                     kernel_size=kernel_size, 
                     stride=stride, 
                     dilation=dilation,
                     bias=bias, 
                     dimension=self.D),
-                normalizations_construct(normalization, self.hidden_dim),
-                activations_construct(activation),
+                norm_factory(normalization, self.hidden_dim),
+                act_factory(activation),
                 ME.MinkowskiLinear(self.hidden_dim, out_features)
             )
 
@@ -791,8 +791,8 @@ class MBResConv(ME.MinkowskiNetwork):
             self.connection = nn.Identity()
         else:
             self.connection = nn.Sequential(
-                normalizations_construct(normalization, in_features),
-                activations_construct(activation),
+                norm_factory(normalization, in_features),
+                act_factory(activation),
                 ME.MinkowskiLinear(in_features, out_features))
 
     def forward(self, x):
@@ -906,14 +906,14 @@ class SEResNetBlock(ME.MinkowskiNetwork):
         self.conv1 = ME.MinkowskiConvolution(
             in_features, out_features, kernel_size=3,
             stride=1, dilation=dilation, dimension=dimension)
-        self.norm1 = normalizations_construct(normalization, out_features)
-        self.act_fn1 = activations_construct(activation)
+        self.norm1 = norm_factory(normalization, out_features)
+        self.act_fn1 = act_factory(activation)
 
         self.conv2 = ME.MinkowskiConvolution(
             out_features, out_features, kernel_size=3,
             stride=1, dilation=dilation, dimension=dimension)
-        self.norm2 = normalizations_construct(normalization, out_features)
-        self.act_fn2 = activations_construct(activation)
+        self.norm2 = norm_factory(normalization, out_features)
+        self.act_fn2 = act_factory(activation)
 
         self.se_block = SEBlock(
                 out_features, ratio=se_ratio, dimension=dimension)
@@ -985,8 +985,8 @@ class MBResConvSE(MBResConv):
             self.connection = nn.Identity()
         else:
             self.connection = nn.Sequential(
-                normalizations_construct(normalization, in_features),
-                activations_construct(activation),
+                norm_factory(normalization, in_features),
+                act_factory(activation),
                 ME.MinkowskiLinear(in_features, out_features))
 
         self.se = SEBlock(out_features, ratio=se_ratio)

@@ -7,7 +7,7 @@ import torch
 from torch import nn
 from typing import Union, List
 
-from .act_norm import act_construct, norm_construct
+from .act_norm import act_factory, norm_factory
 
 __all__ = ['MLP']
 
@@ -58,8 +58,8 @@ class MLP(nn.Module):
         for i in range(depth):
             # Add a layer of hidden neurons
             self.model.append(nn.Linear(num_feats, self.width[i]))
-            self.model.append(norm_construct(normalization, self.width[i]))
-            self.model.append(act_construct(activation))
+            self.model.append(norm_factory(normalization, self.width[i]))
+            self.model.append(act_factory(activation))
 
             num_feats = self.width[i]
 

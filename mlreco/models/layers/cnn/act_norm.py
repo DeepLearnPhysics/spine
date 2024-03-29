@@ -7,10 +7,10 @@ from copy import deepcopy
 
 from mlreco.utils.factory import instantiate
 
-__all__ = ['activations_construct', 'normalizations_construct']
+__all__ = ['act_factory', 'norm_factory']
 
 
-def activations_dict():
+def act_dict():
     """Dictionary of valid activation functions."""
     from torch.nn import Identity
     import MinkowskiEngine as ME
@@ -33,7 +33,7 @@ def activations_dict():
     return activations
 
 
-def normalizations_dict():
+def norm_dict():
     """Dictionary of valid normalization functions."""
     from torch.nn import Identity
     import MinkowskiEngine as ME
@@ -49,7 +49,7 @@ def normalizations_dict():
     return norm_layers
 
 
-def activations_construct(cfg):
+def act_factory(cfg):
     """Instantiates an activation layer.
 
     Parameters
@@ -62,10 +62,10 @@ def activations_construct(cfg):
     object
         Instantiated activation layer
     """
-    return instantiate(activations_dict(), cfg)
+    return instantiate(act_dict(), cfg)
 
 
-def normalizations_construct(cfg, num_features=None):
+def norm_factory(cfg, num_features=None):
     """Instantiates a normalization layer.
 
     Parameters
@@ -80,4 +80,4 @@ def normalizations_construct(cfg, num_features=None):
     object
         Instantiated normalization layer
     """
-    return instantiate(normalizations_dict(), cfg, num_features=num_features)
+    return instantiate(norm_dict(), cfg, num_features=num_features)

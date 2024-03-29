@@ -27,7 +27,7 @@ def gs_kernel_dict():
     return kernels
 
 
-def gs_kernel_construct(cfg):
+def gs_kernel_factory(cfg):
     models = gs_kernel_dict()
     name = cfg.get('name', 'default')
     num_features = cfg.get('num_features', 1)
@@ -89,21 +89,21 @@ def spice_loss_dict():
     return loss
 
 
-def backbone_construct(name):
+def backbone_factory(name):
     models = backbone_dict()
     if not name in models:
         raise Exception("Unknown backbone architecture name provided")
     return models[name]
 
 
-def cluster_model_construct(cfg, name):
+def cluster_model_factory(cfg, name):
     models = cluster_model_dict()
     if not name in models:
         raise Exception("Unknown clustering model name provided")
     return models[name](cfg)
 
 
-def spice_loss_construct(name):
+def spice_loss_factory(name):
     loss_fns = spice_loss_dict()
     if not name in loss_fns:
         raise Exception("Unknown clustering loss function name provided")

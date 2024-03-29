@@ -9,8 +9,7 @@ from mlreco.utils.globals import BATCH_COL, VALUE_COL, GHOST_SHP
 from mlreco.utils.data_structures import TensorBatch
 from mlreco.utils.logger import logger
 
-from .layers.cnn.act_norm import (
-        activations_construct, normalizations_construct)
+from .layers.cnn.act_norm import act_factory, norm_factory
 from .layers.cnn.uresnet_layers import UResNet
 
 __all__ = ['UResNetSegmentation', 'SegmentationLoss']
@@ -60,8 +59,8 @@ class UResNetSegmentation(nn.Module):
 
         # Initialize the output layer
         self.output = [
-            normalizations_construct(self.backbone.norm_cfg, self.num_filters),
-            activations_construct(self.backbone.act_cfg),
+            norm_factory(self.backbone.norm_cfg, self.num_filters),
+            act_factory(self.backbone.act_cfg),
             ]
         self.output = nn.Sequential(*self.output)
         self.linear_segmentation = ME.MinkowskiLinear(

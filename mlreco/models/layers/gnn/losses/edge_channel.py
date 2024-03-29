@@ -3,7 +3,7 @@
 import torch
 import numpy as np
 
-from mlreco.models.layers.factories import loss_fn_construct
+from mlreco.models.layers.factories import loss_fn_factory
 
 from mlreco.utils.globals import CLUST_COL, GROUP_COL, PART_COL, PRGRP_COL
 from mlreco.utils.weighting import get_class_weights
@@ -71,7 +71,7 @@ class EdgeChannelLoss(torch.nn.Module):
         self.high_purity = high_purity
 
         # Set the loss
-        self.loss_fn = loss_fn_construct(loss, functional=True)
+        self.loss_fn = loss_fn_factory(loss, functional=True)
 
     def forward(self, clust_label, clusts, edge_index, edge_pred, 
                 true_edge_index=None, **kwargs):

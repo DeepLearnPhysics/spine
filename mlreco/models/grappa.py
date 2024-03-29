@@ -5,7 +5,7 @@ import numpy as np
 from typing import Union, List, Dict
 
 from .layers.common.dbscan import DBSCAN
-from .layers.factories import final_construct
+from .layers.factories import final_factory
 from .layers.gnn.factories import *
 
 from mlreco.utils.data_structures import (
@@ -118,20 +118,20 @@ class GrapPA(torch.nn.Module):
         self.process_gnn_config(**gnn_model)
 
         # Process the graph configuration
-        self.graph_constructor = graph_construct(graph, self.node_type)
+        self.graph_constructor = graph_factory(graph, self.node_type)
 
         # Process the encoder configurations
-        self.node_encoder = node_encoder_construct(node_encoder)
+        self.node_encoder = node_encoder_factory(node_encoder)
 
         # Initialize edge encoder
         self.edge_encoder = None
         if edge_encoder is not None:
-            self.edge_encoder = edge_encoder_construct(edge_encoder)
+            self.edge_encoder = edge_encoder_factory(edge_encoder)
 
         # Initialize the global encoder
         self.global_encoder = None
         if global_encoder is not None:
-            self.global_encoder = global_encoder_construct(global_encoder)
+            self.global_encoder = global_encoder_factory(global_encoder)
 
         # Process the dbscan fragmenter configuration, if provided
         self.dbscan = None
@@ -182,7 +182,7 @@ class GrapPA(torch.nn.Module):
             Paramters to initialize the GNN backbone
         """
         # Initialize the GNN backbone
-        self.gnn = gnn_model_construct(gnn_model)
+        self.gnn = gnn_model_factory(gnn_model)
 
         # Initialize output layers based on the configuration
         self.process_final_config(node_pred, 'node')
@@ -215,7 +215,7 @@ class GrapPA(torch.nn.Module):
             # Initialize a single final layer (single prediction of this type)
             out_key = f'{prefix}_pred'
             out_keys.append(out_key)
-            setattr(self, out_key, final_construct(in_channels, **final))
+            setattr(self, out_key, final_factory(in_channels, **final))
         else:
             # Otherwise, initialzie one final layer per prediction type
             for key, cfg in final.items():
@@ -224,7 +224,7 @@ class GrapPA(torch.nn.Module):
                 out_keys.append(out_key)
                 if isinstance(cfg, int):
                     cfg = {'name':'linear', 'out_channels':cfg}
-                setattr(self, out_key, final_construct(in_channels, **cfg))
+                setattr(self, out_key, final_factory(in_channels, **cfg))
 
         setattr(self, f'{prefix}_pred_keys', out_keys)
 
@@ -442,11 +442,11 @@ class GrapPALoss(torch.nn.modules.loss._Loss):
 
         # Initialize the node/edge/global losses
         self.process_single_loss_config(
-                'node', node_loss, node_loss_construct)
+                'node', node_loss, node_loss_factory)
         self.process_single_loss_config(
-                'edge', edge_loss, edge_loss_construct)
+                'edge', edge_loss, edge_loss_factory)
         self.process_single_loss_config(
-                'global', global_loss, global_loss_construct)
+                'global', global_loss, global_loss_factory)
 
     def process_single_loss_config(self, prefix, loss, constructor):
         """Process a loss configuration.

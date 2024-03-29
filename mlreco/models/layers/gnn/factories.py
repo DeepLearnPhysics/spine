@@ -4,13 +4,13 @@ from mlreco.utils.factory import module_dict, instantiate
 
 from . import graphs, encoders, models, losses
 
-__all__ = ['graph_construct', 'gnn_model_construct', 'node_encoder_construct',
-           'edge_encoder_construct', 'global_encoder_construct', 
-           'node_loss_construct', 'edge_loss_construct', 
-           'global_loss_construct']
+__all__ = ['graph_factory', 'gnn_model_factory', 'node_encoder_factory',
+           'edge_encoder_factory', 'global_encoder_factory', 
+           'node_loss_factory', 'edge_loss_factory', 
+           'global_loss_factory']
 
 
-def graph_construct(cfg, classes):
+def graph_factory(cfg, classes):
     """Instantiates a graph constructor from a configuration dictionary.
 
     Parameters
@@ -29,7 +29,7 @@ def graph_construct(cfg, classes):
     return instantiate(graph_dict, cfg, classes=classes)
 
 
-def gnn_model_construct(cfg):
+def gnn_model_factory(cfg):
     """Instantiates a GNN model from a configuration dictionary.
 
     Parameters
@@ -46,7 +46,7 @@ def gnn_model_construct(cfg):
     return instantiate(gnn_model_dict, cfg)
 
 
-def node_encoder_construct(cfg):
+def node_encoder_factory(cfg):
     """Instantiates a node encoder from a configuration dictionary.
 
     Parameters
@@ -63,7 +63,7 @@ def node_encoder_construct(cfg):
     return instantiate(node_encoder_dict, cfg)
 
 
-def edge_encoder_construct(cfg):
+def edge_encoder_factory(cfg):
     """Instantiates an edge encoder from a configuration dictionary.
 
     Parameters
@@ -80,7 +80,7 @@ def edge_encoder_construct(cfg):
     return instantiate(edge_encoder_dict, cfg)
 
 
-def global_encoder_construct(cfg):
+def global_encoder_factory(cfg):
     """Instantiates a global graph encoder from a configuration dictionary.
 
     Parameters
@@ -97,7 +97,7 @@ def global_encoder_construct(cfg):
     return instantiate(global_encoder_dict, cfg)
 
 
-def node_loss_construct(cfg):
+def node_loss_factory(cfg):
     """Instantiates a node loss from a configuration dictionary.
 
     Parameters
@@ -114,7 +114,7 @@ def node_loss_construct(cfg):
     return instantiate(node_loss_dict, cfg)
 
 
-def edge_loss_construct(cfg):
+def edge_loss_factory(cfg):
     """Instantiates an edge loss from a configuration dictionary.
 
     Parameters
@@ -131,7 +131,7 @@ def edge_loss_construct(cfg):
     return instantiate(edge_loss_dict, cfg)
 
 
-def global_loss_construct(cfg):
+def global_loss_factory(cfg):
     """Instantiates a global graph loss from a configuration dictionary.
 
     Parameters

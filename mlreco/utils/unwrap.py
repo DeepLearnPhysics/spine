@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from copy import deepcopy
 
 from .globals import BATCH_COL
-from .data_structures import TensorBatch, IndexBatch, EdgeIndexBatch
+from .data_structures import TensorBatch, IndexBatch, EdgeIndexBatch, ObjectList
 from .geometry import Geometry
 
 
@@ -146,25 +146,29 @@ class Unwrapper:
         data : IndexBatch
             Index batch product
         """
-        # If there is only one volume, trivial
+        # Unwrap
         if self.num_volumes == 1:
+            # If there is only one volume, trivial
             indexes = data.split()
 
-        # If there is more than one volume, merge them together
-        batch_size = data.batch_size // self.num_volumes
-        indexes = []
-        for b in range(batch_size):
-            index_list = []
-            for v in range(self.num_volumes):
-                idx = b*self.num_volumes + v
-                offset = self.offsets[idx] - self.offsets[b*self.num_volumes]
-                index_list.append(offset + data[idx])
-            
-            indexes.append(np.concatenate(index_list))
+        else:
+            # If there is more than one volume, merge them together
+            batch_size = data.batch_size // self.num_volumes
+            indexes = []
+            for b in range(batch_size):
+                index_list = []
+                for v in range(self.num_volumes):
+                    idx = b*self.num_volumes + v
+                    offset = data.offsets[idx] - data.offsets[b*self.num_volumes]
+                    index_list.append(offset + data[idx])
+                
+                indexes.append(np.concatenate(index_list))
 
         # Cast the indexes to ObjectList, in case they are empty
-        for i, index in enumerate(indexes):
+        if isinstance(data, IndexBatch):
             shape = (0, data.shape[1]) if len(data.shape) == 2 else 0
-            index = ObjectList(index, default=np.empty(shape, dtype=np.int64))
+            default = np.empty(shape, dtype=np.int64)
+            for i, index in enumerate(indexes):
+                indexes[i] = ObjectList(index, default=default)
 
         return indexes

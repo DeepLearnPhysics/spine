@@ -3,7 +3,7 @@
 from .factory import module_dict, instantiate
 from .adabound import AdaBound, AdaBoundW
 
-__all__ = ['optim_construct', 'lr_shed_construct']
+__all__ = ['optim_factory', 'lr_shed_factory']
 
 
 def optim_dict():
@@ -22,7 +22,7 @@ def optim_dict():
     return optimizers
 
 
-def optim_construct(cfg, params):
+def optim_factory(cfg, params):
     """Instantiates an optimizer from a configuration dictionary.
 
     Parameters
@@ -40,7 +40,7 @@ def optim_construct(cfg, params):
     return instantiate(optim_dict(), cfg, params=params)
 
 
-def lr_sched_construct(cfg, optimizer):
+def lr_sched_factory(cfg, optimizer):
     """Instantiates a learning-rate scheduler from a configuration dictionary.
 
     Parameters

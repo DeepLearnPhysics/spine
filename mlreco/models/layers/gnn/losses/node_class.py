@@ -4,7 +4,7 @@ import torch
 import numpy as np
 from warnings import warn
 
-from mlreco.models.layers.factories import loss_fn_construct
+from mlreco.models.layers.factories import loss_fn_factory
 
 from mlreco.utils.weighting import get_class_weights
 from mlreco.utils.gnn.cluster import get_cluster_label_batch
@@ -56,7 +56,7 @@ class NodeClassificationLoss(torch.nn.Module):
         self.balance_loss = balance_loss
 
         # Set the loss
-        self.loss_fn = loss_fn_construct(loss, functional=True)
+        self.loss_fn = loss_fn_factory(loss, functional=True)
 
     def forward(self, clust_label, clusts, node_pred, **kwargs):
         """Applies the node classification  loss to a batch of data.

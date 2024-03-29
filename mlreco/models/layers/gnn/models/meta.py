@@ -3,12 +3,12 @@
 from torch import nn
 from torch_geometric.nn import MetaLayer
 
-from mlreco.models.layers.common.act_norm import norm_construct
+from mlreco.models.layers.common.act_norm import norm_factory
 
 from mlreco.utils.data_structures.batch import TensorBatch
 
 from .factories import (
-        edge_layer_construct, node_layer_construct, global_layer_construct)
+        edge_layer_factory, node_layer_factory, global_layer_factory)
 
 __all__ = ['MetaLayerGNN']
 
@@ -51,9 +51,9 @@ class MetaLayerGNN(nn.Module):
         self.num_mp       = num_mp
 
         # Intialize the input normalization layers
-        self.node_bn   = norm_construct(input_normalization, node_feats)
-        self.edge_bn   = norm_construct(input_normalization, edge_feats)
-        self.global_bn = norm_construct(input_normalization, global_feats)
+        self.node_bn   = norm_factory(input_normalization, node_feats)
+        self.edge_bn   = norm_factory(input_normalization, edge_feats)
+        self.global_bn = norm_factory(input_normalization, global_feats)
 
         # Loop over the number of message passing steps, initialize the
         # metalayer which updates the features at each step
@@ -65,20 +65,20 @@ class MetaLayerGNN(nn.Module):
             # Initialize the edge update layer
             edge_model = None
             if edge_layer is not None:
-                edge_model = edge_layer_construct(
+                edge_model = edge_layer_factory(
                         edge_layer, node_nf, edge_nf, glob_nf)
                 edge_nf = edge_model.feature_size
 
             # Initialize the node update layer
             if node_layer is not None:
-                node_model = node_layer_construct(
+                node_model = node_layer_factory(
                         node_layer, node_nf, edge_nf, glob_nf)
                 node_nf = node_model.feature_size
 
             # Initialize the global update layer
             global_model = None
             if global_layer is not None:
-                global_model = global_layer_construct(
+                global_model = global_layer_factory(
                         global_layer, node_nf, glob_nf)
                 glob_nf = global_model.feature_size
 

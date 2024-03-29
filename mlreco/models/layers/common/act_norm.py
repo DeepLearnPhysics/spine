@@ -7,7 +7,7 @@ from torch import nn
 
 from mlreco.utils.factory import instantiate
 
-__all__ = ['act_construct', 'norm_construct']
+__all__ = ['act_factory', 'norm_factory']
 
 
 def act_dict():
@@ -45,7 +45,7 @@ def norm_dict():
     return normalizations
 
 
-def act_construct(cfg):
+def act_factory(cfg):
     """Instantiates an activation layer.
 
     Parameters
@@ -61,7 +61,7 @@ def act_construct(cfg):
     return instantiate(act_dict(), cfg)
 
 
-def norm_construct(cfg, num_features=None):
+def norm_factory(cfg, num_features=None):
     """Instantiates a normalization layer.
 
     Parameters
