@@ -18,7 +18,7 @@ from mlreco.utils.globals import (
 
 
 def form_clusters_batch(data, min_size=-1, column=CLUST_COL,
-                        cluster_classes=None):
+                        cluster_classes=None, batch_size=None):
     """Batched version of :func:`form_clusters`.
 
     Parameters
@@ -62,7 +62,7 @@ def form_clusters_batch(data, min_size=-1, column=CLUST_COL,
     is_numpy = data.is_numpy
 
     return IndexBatch(
-            clusts_np, offsets, counts, full_counts, is_numpy=is_numpy)
+            clusts_np, offsets, counts, full_counts, is_numpy=is_numpy, batch_size=batch_size)
 
 
 def get_cluster_label_batch(data, clusts, column=CLUST_COL):

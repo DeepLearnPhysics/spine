@@ -389,10 +389,12 @@ class ClusterGraphConstructor:
             
             # Clusts
             batch_np = TensorBatch(batch.cpu().numpy().reshape(-1, 1), counts=out['pos'].counts)
-            out['node_clusts'] = form_clusters_batch(batch_np, column=0)
+            out['node_clusts'] = form_clusters_batch(batch_np, column=0, min_size=2)
+            
             edge_batch_np = TensorBatch(batch[edge_index[0, :]].cpu().numpy().reshape(-1, 1),
                                         counts=out['edge_index'].counts)
-            out['edge_clusts'] = form_clusters_batch(edge_batch_np, column=0)
+            
+            out['edge_clusts'] = form_clusters_batch(edge_batch_np, column=0, batch_size=batch_size)
             
             # Graphs
             graph_key = torch.tensor(state_dict_wrapped['graph_key'])
@@ -439,7 +441,8 @@ class ClusterGraphConstructor:
         for i in range(batch_size):
             nclusts = node_clusts[i]
             eclusts = edge_clusts[i]
-            assert len(nclusts) == len(eclusts)
+            if len(nclusts) != len(eclusts):
+                raise AssertionError(f"Number of node and edge clusters do not match! {len(nclusts)} != {len(eclusts)}")
             graph_ids = state_dict['graph_id'][i]
             for j, nodes in enumerate(nclusts):
                 subgraph = Data(x=state_dict['x'][i][nodes],
