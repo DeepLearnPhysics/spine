@@ -22,14 +22,14 @@ class IndexBatch(BatchBase):
     ----------
     offsets : Union[np.ndarray, torch.Tensor]
         (B) Offsets between successive indexes in the batch
-    full_counts : Union[np.ndarray, torch.Tensor]
-        (B) Number of index elements per entry in the batch. This
+    single_counts : Union[np.ndarray, torch.Tensor]
+        (I) Number of index elements per index in the index list. This
         is the same as counts if the underlying data is a single index
     """
     offsets: Union[np.ndarray, torch.Tensor]
-    full_counts: Union[np.ndarray, torch.Tensor]
+    single_counts: Union[np.ndarray, torch.Tensor]
 
-    def __init__(self, data, offsets, counts=None, full_counts=None,
+    def __init__(self, data, offsets, counts=None, single_counts=None,
                  batch_ids=None, batch_size=None, is_numpy=True):
         """Initialize the attributes of the class.
 
@@ -42,8 +42,8 @@ class IndexBatch(BatchBase):
             (B) Offsets between successive indexes in the batch
         counts : Union[List[int], np.ndarray, torch.Tensor], optional
             (B) Number of indexes in the batch
-        full_counts : Union[List[int], np.ndarray, torch.Tensor], optional
-            (B) Number of index elements per entry in the batch. This
+        single_counts : Union[List[int], np.ndarray, torch.Tensor], optional
+            (I) Number of index elements per index in the index list. This
             is the same as counts if the underlying data is a single index
         batch_ids : Union[List[int], np.ndarray, torch.Tensor], optional
             (I) Batch index of each of the clusters. If not specified, the
@@ -78,21 +78,24 @@ class IndexBatch(BatchBase):
             batch_size = len(counts)
 
         # Get the number of index elements per entry in the batch
-        if full_counts is None:
+        if single_counts is None:
             assert not self.is_list, (
-                    "When initializing an index list, provide `full_counts`")
-            full_counts = counts
+                    "When initializing an index list, provide `single_counts`.")
+            single_counts = counts
+        else:
+            assert len(single_counts) == len(data), (
+                    "The must be one single count per index in the list.")
 
         # Cast
         counts = self._as_long(counts)
-        full_counts = self._as_long(full_counts)
+        single_counts = self._as_long(single_counts)
         offsets = self._as_long(offsets)
 
         # Do a couple of basic sanity checks
         assert self._sum(counts) == len(data), (
-                "The `counts` provided do not add up to the index length")
+                "The `counts` provided must add up to the index length.")
         assert len(counts) == len(offsets), (
-                "The number of `offsets` does not match the number of `counts`")
+                "The number of `offsets` must match the number of `counts`.")
 
         # Get the boundaries between successive index using the counts
         edges = self.get_edges(counts)
@@ -100,7 +103,7 @@ class IndexBatch(BatchBase):
         # Store the attributes
         self.data = data
         self.counts = counts
-        self.full_counts = full_counts
+        self.single_counts = single_counts
         self.edges = edges
         self.offsets = offsets
         self.batch_size = batch_size
@@ -170,6 +173,39 @@ class IndexBatch(BatchBase):
             return self._cat(self.data) if len(self.data) else self._empty(0)
 
     @property
+    def index_ids(self):
+        """Returns the ID of the index in the list each element belongs to.
+
+        Returns
+        -------
+        Union[np.ndarray, torch.Tensor]
+            (M) List of index IDs for each element
+        """
+        assert self.is_list, (
+                "Underlying data must be a list of index")
+
+        return self._repeat(self._arange(len(self.data)), self.single_counts)
+
+    @property
+    def full_counts(self):
+        """Returns the total number of elements in each batch entry.
+
+        Returns
+        -------
+        Union[np.ndarray, torch.Tensor]
+            (B) Number of elements in each batch entry
+        """
+        if not self.is_list:
+            return self.counts
+        else:
+            full_counts = self._empty(self.batch_size)
+            for b in range(self.batch_size):
+                lower, upper = self.edges[b], self.edges[b+1]
+                full_counts = self._sum(self.single_counts[lower:upper])
+
+            return self._as_long(full_counts)
+
+    @property
     def batch_ids(self):
         """Returns the batch ID of each index in the list.
 
@@ -205,6 +241,50 @@ class IndexBatch(BatchBase):
 
         return indexes
 
+    def merge(self, index_batch):
+        """Merge this index batch with another.
+
+        Parameters
+        ----------
+        index_batch : IndexBatch
+            Other index batch object to merge with
+
+        Returns
+        -------
+        IndexBatch
+            Merged index batch
+        """
+        # Basic cross-checks
+        assert (self.offsets == index_batch.offsets).all(), (
+                "Both index batches should point to the same tensor.")
+
+        # Stack the indexes entry-wise in the batch
+        indexes, single_counts = [], []
+        for b in range(self.batch_size):
+            if self.is_list:
+                lower, upper = self.edges[b], self.edges[b+1]
+                indexes.extend(self.index_list[lower:upper])
+                single_counts.extend(self.single_counts[lower:upper])
+
+                lower, upper = index_batch.edges[b], index_batch.edges[b+1]
+                indexes.extend(index_batch.index_list[lower:upper])
+                single_counts.extend(index_batch.single_counts[lower:upper])
+
+            else:
+                lower, upper = self.edges[b], self.edges[b+1]
+                indexes.append(self.index[lower:upper])
+
+                lower, upper = index_batch.edges[b], index_batch.edges[b+1]
+                indexes.append(index_batch.index[lower:upper])
+
+        counts = self.counts + index_batch.counts
+
+        if self.is_list:
+            return IndexBatch(indexes, self.offsets, counts, single_counts)
+        else:
+            return IndexBatch(indexes, self.offsets, counts)
+
+
     def to_numpy(self):
         """Cast underlying index to a `np.ndarray` and return a new instance.
 
@@ -227,9 +307,9 @@ class IndexBatch(BatchBase):
 
         offsets = to_numpy(self.offsets)
         counts = to_numpy(self.counts)
-        full_counts = to_numpy(self.full_counts)
+        single_counts = to_numpy(self.single_counts)
 
-        return IndexBatch(data, offsets, counts, full_counts)
+        return IndexBatch(data, offsets, counts, single_counts)
 
     def to_tensor(self, dtype=None, device=None):
         """Cast underlying index to a `torch.tensor` and return a new instance.
@@ -260,6 +340,6 @@ class IndexBatch(BatchBase):
 
         offsets = to_tensor(self.offsets)
         counts = to_tensor(self.counts)
-        full_counts = to_tensor(self.full_counts)
+        single_counts = to_tensor(self.single_counts)
 
-        return IndexBatch(index, offsets, counts, full_counts)
+        return IndexBatch(index, offsets, counts, single_counts)

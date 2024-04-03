@@ -8,49 +8,6 @@ import numpy as np
 from mlreco.utils.cluster.dense_cluster import fit_predict, gaussian_kernel_cuda
 
 
-def format_fragments(fragments, frag_batch_ids, frag_seg, batch_column, batch_size=None):
-    """
-    INPUTS:
-        - fragments
-        - frag_batch_ids
-        - frag_seg
-        - batch_column
-    """
-    fragments_np      = np.empty(len(fragments), dtype=object)
-    fragments_np[:]   = fragments
-    frag_batch_ids_np = np.array(frag_batch_ids)
-    frag_seg_np       = np.array(frag_seg)
-
-    batches, counts = torch.unique(batch_column, return_counts=True)
-    # In case one of the events is "missing" and len(counts) < batch_size
-    if batch_size is not None:
-        new_counts = torch.zeros(batch_size, dtype=torch.int64, device=counts.device)
-        new_counts[batches.long()] = counts
-        counts = new_counts
-        # `batches` does not matter after this
-
-    vids = np.concatenate([np.arange(n.item()) for n in counts])
-    bcids = [np.where(frag_batch_ids_np == b)[0] for b in range(len(counts))]
-    frags = [np.empty(len(b), dtype=object) for b in bcids]
-    for idx, b in enumerate(bcids):
-        frags[idx][:] = [vids[c].astype(np.int64) for c in fragments_np[b]]
-
-    frags_seg = [frag_seg_np[b].astype(np.int32) for idx, b in enumerate(bcids)]
-
-    out = {
-        'frags'             : [fragments_np],
-        'frag_seg'          : [frag_seg_np],
-        'frag_batch_ids'    : [frag_batch_ids_np],
-        'fragment_clusts'   : [frags],
-        'fragment_seg'      : [frags_seg],
-        'fragment_batch_ids': [frag_batch_ids_np],
-        'vids'              : [vids],
-        'counts'            : [counts]
-    }
-
-    return out
-
-
 class FragmentManager(nn.Module):
     """
     Base class for fragmenters

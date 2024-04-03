@@ -3,6 +3,7 @@
 import yaml
 import numpy as np
 import torch
+from torch_scatter import scatter_mean, scatter_std
 from typing import Union, List
 
 from .uresnet import UResNetSegmentation, SegmentationLoss
@@ -16,12 +17,19 @@ from .layers.common.dbscan import DBSCAN
 # TODO: raname it something more generic like ParticleClusterImageClassifier?
 
 from mlreco.utils.cluster.cluster_graph_constructor import ClusterGraphConstructor
-from mlreco.utils.ppn import get_particle_points
-from mlreco.utils.ghost import compute_rescaled_charge, adapt_labels
-from mlreco.utils.cluster.fragmenter import (
-        GraphSPICEFragmentManager, format_fragments)
-from mlreco.utils.gnn.cluster import get_cluster_features_extended
+
+from mlreco.utils.globals import (
+        VALUE_COL, CLUST_COL, SHAPE_COL, SHOWR_SHP, TRACK_SHP,
+        MICHL_SHP, DELTA_SHP, GHOST_SHP)
+from mlreco.utils.data_structures import TensorBatch, IndexBatch
 from mlreco.utils.logger import logger
+from mlreco.utils.ppn import get_particle_points
+from mlreco.utils.cluster.fragmenter import GraphSPICEFragmentManager
+from mlreco.utils.ghost import (
+        compute_rescaled_charge_batch, adapt_labels_batch)
+from mlreco.utils.gnn.cluster import (
+        form_clusters_batch, get_cluster_label_batch)
+from mlreco.utils.gnn.evaluation import primary_assignment_batch
 
 
 class FullChain(torch.nn.Module):
@@ -72,7 +80,7 @@ class FullChain(torch.nn.Module):
     See configuration file(s) prefixed with `full_chain_` under the `config`
     directory for detailed examples of working configurations.
 
-    The ``chain`` section enables or disables specific stages of the full
+    The `chain` section enables or disables specific stages of the full
     chain. When a module is disabled through this section, it will not be
     constructed. The configuration blocks for each enabled module should
     also live under the `modules` section of the configuration.
@@ -87,14 +95,14 @@ class FullChain(torch.nn.Module):
     # Store the valid chain modes
     modes = {
             'deghosting': ['uresnet'],
-            'charge_rescaling': ['uresnet'],
+            'charge_rescaling': ['collection', 'average'],
             'segmentation': ['uresnet'],
             'point_proposal': ['ppn'],
-            'dense_clustering': ['dbscan', 'graph_spice', 'dbscan_graph_spice'],
-            'shower_aggregation': ['grappa'],
-            'shower_primary': ['grappa'],
-            'track_aggregation': ['grappa'],
-            'particle_aggregation': ['grappa'],
+            'fragmentation': ['dbscan', 'graph_spice', 'dbscan_graph_spice'],
+            'shower_aggregation': ['skip', 'grappa'],
+            'shower_primary': ['skip', 'grappa'],
+            'track_aggregation': ['skip', 'grappa'],
+            'particle_aggregation': ['skip', 'grappa'],
             'inter_aggregation': ['grappa'],
             'particle_identification': ['grappa', 'image'],
             'primary_identification': ['grappa'],
@@ -147,7 +155,9 @@ class FullChain(torch.nn.Module):
                     "If the deghosting is using UResNet, must provide the "
                     "`uresnet_deghost` configuration block.")
             self.uresnet_deghost = UResNetSegmentation(uresnet_deghost)
-            self.deghost_num_input = self.uresnet_deghost.backbone.num_input
+
+        # Initialize the calibration model
+        # TODO
 
         # Initialize the semantic segmentation model (+ point proposal)
         if self.segmentation is not None and self.segmentation == 'uresnet':
@@ -156,21 +166,20 @@ class FullChain(torch.nn.Module):
                     "`uresnet` or `uresnet_ppn` configuration block.")
             if uresnet is not None:
                 self.uresnet = UResNetSegmentation(uresnet)
-                self.seg_num_input = self.uresnet.backbone.num_input
             else:
                 self.uresnet_ppn = UResNetPPN(**uresnet_ppn)
-                self.seg_num_input = self.uresnet_ppn.uresnet.backbone.num_input
 
         # Initialize the dense clustering model
         self.fragment_classes = []
-        if self.dense_clustering is not None:
-            if 'dbscan' in self.dense_clustering:
+        if ('dbscan' in self.fragmentation or
+            'graph_spice' in self.fragmentation):
+            if 'dbscan' in self.fragmentation:
                 assert dbscan is not None, (
                         "If the fragmentation is done using DBSCAN, must "
                         "provide the `dbscan` configuration block.")
                 self.dbscan = DBSCAN(**dbscan)
                 self.fragment_classes.extend(self.dbscan.classes)
-            if 'graph_spice' in self.dense_clustering:
+            if 'graph_spice' in self.fragmentation:
                 assert graph_spice is not None, (
                         "If the fragmentation is done using Graph-SPICE, must "
                         "provide the `graph_spice` configuration block.")
@@ -197,11 +206,13 @@ class FullChain(torch.nn.Module):
                         f"If the {stage} aggregation is done using GrapPA, "
                         f"must provide the {name} configuration block.")
                 setattr(self, name, GrapPA(config))
+                assert getattr(self, name).make_groups == True, (
+                        "The aggregators should have `make_groups: true`")
 
         # Initialize the interaction-classification module
         # TODO (could be done by either CNN or graph-level GNN)
 
-    def forward(self, data, segment_label=None, clust_label=None):
+    def forward(self, data, seg_label=None, clust_label=None, coord_label=None):
         """Run a batch of data through the full chain.
 
         Parameters
@@ -212,307 +223,661 @@ class FullChain(torch.nn.Module):
             - 1 is the batch ID
             - D is the number of dimensions in the input image
             - N_f is the number of features per voxel
-        segment_label : TensorBatch
+        seg_label : TensorBatch
             (N, 1 + D + 1) Tensor of segmentation labels for the batch
+            - 1 is the segmentation label
         clust_label : TensorBatch
-            (N, 1 + D + N_f) Tensor of voxel/value pairs
-            - N is the the total number of voxels in the image
-            - 1 is the batch ID
-            - D is the number of dimensions in the input image
-            - N_f is is the number of cluster labels
+            (N, 1 + D + N_c) Tensor of cluster labels
+            - N_c is is the number of cluster labels
+        coord_label : TensorBatch
+            (N, 1 + D + N_p) Tensor point of interest labels
+            - N_p is the number point labels
 
         Returns
         -------
         TODO
         """
         # Initialize the full chain output dictionary
-        result = {}
+        self.result = {}
 
-        # Run the deghosting
-        deghost_result = self.run_deghosting(data, segment_label)
-        result.update(self.run_deghosting())
+        # Run the deghosting step
+        data = self.run_deghosting(data, seg_label, clust_label)
 
-    def run_deghosting(self, data, segment_label=None):
+        # Run the calibration step
+        # TODO
+
+        # Run the semantic segmentation (and point proposal) stage
+        clust_label = self.run_segmentation_ppn(data, seg_label, clust_label)
+
+        # Run the fragmentation stage
+        self.run_fragmentation(data, clust_label)
+
+        # Run the particle aggregation
+        self.run_part_aggregation(data, clust_label, coord_label)
+
+        # Run the interaction aggregation
+        self.run_inter_aggregation(data, clust_label, coord_label)
+
+        # Run the interaction classification
+        # TODO
+
+        # Return
+        print(self.result.keys())
+        return self.result
+
+    def run_deghosting(self, data, seg_label=None, clust_label=None):
         """Run the deghosting algorithm.
+
+        This removes points that are artifacts of the tomographic
+        reconstruction. This is only relevant for detectors producing 2D
+        projections of an event. If requested, charge is rescaled according
+        to the deghosting mask.
 
         Parameters
         ----------
         data : TensorBatch
             (N, 1 + D + N_f) tensor of voxel/value pairs
-        segment_label : TensorBatch
+        seg_label : TensorBatch, optional
             (N, 1 + D + 1) Tensor of segmentation labels for the batch
+        clust_label : TensorBatch, optional
+            (N, 1 + D + N_c) Tensor of cluster labels
 
         Returns
         -------
-        ghost : TensorBatch
+        TensorBatch
+            (N, 1 + D + N_f) tensor of deghosted voxel/value pairs
         """
         if self.deghosting == 'uresnet':
-            # Restrict the input to the required number of features
-            pass
+            # Pass the data through the model
+            res_deghost = self.uresnet_deghost(data)
+
+            # Store the ghost scores and the ghost mask
+            ghost_tensor = res_deghost['segmentation'].tensor
+            ghost_pred = torch.argmax(ghost_tensor, dim=1)
+            data_deghost = TensorBatch(
+                    data.tensor[ghost_pred == 0], batch_size=data.batch_size)
+            ghost_pred = TensorBatch(ghost_pred, data.counts)
+
+            # Rescale the charge, if requested
+            if self.charge_rescaling is not None:
+                charges = compute_rescaled_charge_batch(
+                        data_deghost, self.charge_rescaling == 'collection')
+                tensor_deghost = data_deghost.tensor[:, :-6]
+                tensor_deghost[:, VALUE_COL] = charges
+                data_deghost = TensorBatch(tensor_deghost, data_deghost.counts)
+
+            self.result['ghost'] = res_deghost['segmentation']
+            self.result['ghost_pred'] = ghost_pred
+            self.result['data_deghost'] = data_deghost
+
+            return data_deghost
+
         elif self.deghosting == 'label':
             # Use ghost labels to remove ghost voxels from the input
-            assert segment_label is not None, (
-                    "Must provide `segment_label` to deghost using the it.")
-        else:
-            # If there is no deghosting to do, return an empty dictionary
-            return {}
+            assert seg_label is not None, (
+                    "Must provide `seg_label` to deghost with it.")
+            ghost_pred = (seg_label.tensor[:, SHAPE_COL] == GHOST_SHP).long
+            tensor_deghost = data.tensor[ghost_pred == 0]
 
+            # Use the label rescaled charge, if requested
+            if self.charge_rescaling is not None:
+                assert clust_label is not None, (
+                        "Must provide `clust_label` to fetch the true "
+                        "rescaled charge.")
+                tensor_deghost[:, VALUE_COL] = clust_label[:, VALUE_COL]
 
-        deghost = None
-        if self.enable_charge_rescaling:
-            # Pass through the deghosting
-            assert self.enable_ghost
-            last_index = 4 + self.deghost_input_features
-            result.update(self.uresnet_deghost([input[0][:,:last_index]]))
-            result['ghost'] = result['segmentation']
-            deghost = result['ghost'][0][:, 0] > result['ghost'][0][:,1]
-            del result['segmentation']
+            # Store and return
+            ghost_pred = TensorBatch(ghost_pred, data.counts)
+            data_deghost = TensorBatch(
+                    tensor_deghost, batch_size=data.batch_size)
+            self.result['ghost_pred'] = ghost_pred
+            self.result['data_deghost'] = data_deghost
 
-            # Rescale the charge column, store it
-            charges = compute_rescaled_charge(input[0], deghost, last_index=last_index, collection_only=self.collection_charge_only)
-            input[0][deghost, VALUE_COL] = charges
-
-            input_rescaled = input[0][deghost,:5].clone()
-            input_rescaled[:, VALUE_COL] = charges
-
-            result.update({'input_rescaled':[input_rescaled]})
-            if input[0].shape[1] == (last_index + 6 + 2):
-                result.update({'input_rescaled_source':[input[0][deghost,-2:]]})
-
-        if self.enable_uresnet:
-            if not self.enable_charge_rescaling:
-                result.update(self.uresnet_lonely([input[0][:, :4+self.input_features]]))
-            else:
-                if torch.sum(deghost):
-                    result.update(self.uresnet_lonely([input[0][deghost, :4+self.input_features]]))
-                else:
-                    # TODO: move empty case handling elsewhere
-                    seg = torch.zeros((input[0][deghost,:5].shape[0], 5), device=input[0].device, dtype=input[0].dtype) # DUMB
-                    result['segmentation'] = [seg]
-                    return result, input
-
-        if self.enable_ppn:
-            ppn_input = {}
-            ppn_input.update(result)
-            if 'ghost' in ppn_input and not self.enable_charge_rescaling:
-                ppn_input['ghost'] = ppn_input['ghost'][0]
-                ppn_output = self.ppn(ppn_input['finalTensor'][0],
-                                      ppn_input['decoderTensors'][0],
-                                      ppn_input['ghost_tensor'][0])
-            else:
-                ppn_output = self.ppn(ppn_input['finalTensor'][0],
-                                      ppn_input['decoderTensors'][0])
-            result.update(ppn_output)
-
-        # The rest of the chain only needs 1 input feature
-        if self.input_features > 1:
-            input[0] = input[0][:, :-self.input_features+1]
-
-        cnn_result = {}
-
-        if label_seg is not None and label_clustering is not None:
-            label_clustering = [adapt_labels(label_clustering[0],
-                                             label_seg[0],
-                                             result['segmentation'][0],
-                                             deghost)]
-
-        if self.enable_ghost:
-            # Update input based on deghosting results
-            # if self.cheat_ghost:
-            #     assert label_seg is not None
-            #     deghost = label_seg[0][:, self.uresnet_lonely.ghost_label] == \
-            #               self.uresnet_lonely.num_classes
-            #     print(deghost, deghost.shape)
-            # else:
-            deghost = result['ghost'][0][:,0] > result['ghost'][0][:,1]
-
-            input = [input[0][deghost]]
-
-            deghost_result = {}
-            deghost_result.update(result)
-            deghost_result.pop('ghost')
-            if self.enable_ppn and not self.enable_charge_rescaling:
-                deghost_result['ppn_points'] = [result['ppn_points'][0][deghost]]
-                deghost_result['ppn_masks'][0][-1]  = result['ppn_masks'][0][-1][deghost]
-                deghost_result['ppn_coords'][0][-1] = result['ppn_coords'][0][-1][deghost]
-                deghost_result['ppn_layers'][0][-1] = result['ppn_layers'][0][-1][deghost]
-                if 'ppn_classify_endpoints' in deghost_result:
-                    deghost_result['ppn_classify_endpoints'] = [result['ppn_classify_endpoints'][0][deghost]]
-            cnn_result.update(deghost_result)
-            cnn_result['ghost'] = result['ghost']
+            return data_deghost
 
         else:
-            cnn_result.update(result)
+            # Nothing to do
+            return data
 
+    def run_segmentation_ppn(self, data, seg_label=None, clust_label=None):
+        """Run the semantic segmentation and the point proposal algorithms.
 
-        # ---
-        # 1. Clustering w/ CNN or DBSCAN will produce
-        # - fragments (list of list of integer indexing the input data)
-        # - fragments_batch_ids (list of batch ids for each fragment)
-        # - fragments_seg (list of integers, semantic label for each fragment)
-        # ---
-
-        cluster_result = {
-            'fragment_clusts': [],
-            'fragment_batch_ids': [],
-            'fragment_seg': []
-        }
-        if self._gspice_use_true_labels:
-            semantic_labels = label_seg[0][:, -1]
-        else:
-            semantic_labels = torch.argmax(cnn_result['segmentation'][0], dim=1).flatten()
-            if not self.enable_charge_rescaling and 'ghost' in cnn_result:
-                deghost = result['ghost'][0].argmax(dim=1) == 0
-                semantic_labels = semantic_labels[deghost]
-
-        if self.enable_cnn_clust:
-            if label_clustering is None and self.training:
-                raise Exception("Cluster labels from parse_cluster3d_clean_full are needed at this time for training.")
-
-            filtered_semantic = ~(semantic_labels[..., None] == \
-                                    torch.tensor(self._gspice_skip_classes, device=device)).any(-1)
-
-            # If there are voxels to process in the given semantic classes
-            if torch.count_nonzero(filtered_semantic) > 0:
-                if label_clustering is not None:
-                    # If labels are present, compute loss and accuracy
-                    graph_spice_label = torch.cat((label_clustering[0][:, :-1],
-                                                    semantic_labels.reshape(-1,1)), dim=1)
-                else:
-                #     # Otherwise run in data inference mode (will not compute loss and accuracy)
-                    graph_spice_label = torch.cat((input[0][:, :4],
-                                                    semantic_labels.reshape(-1, 1)), dim=1)
-                cnn_result['graph_spice_label'] = [graph_spice_label]
-                spatial_embeddings_output = self.graph_spice((input[0][:,:5],
-                                                              graph_spice_label))
-                cnn_result.update({f'graph_spice_{k}':v for k, v in spatial_embeddings_output.items()})
-
-                if self.process_fragments:
-
-                    self.gs_manager.load_state(spatial_embeddings_output)   
-                    
-                    graphs = self.gs_manager.fit_predict(min_points=self._gspice_min_points)
-                    
-                    perm = torch.argsort(graphs.voxel_id)
-                    cluster_predictions = graphs.node_pred[perm]
-
-                    filtered_input = torch.cat([input[0][filtered_semantic][:, :4],
-                                                semantic_labels[filtered_semantic].view(-1, 1),
-                                                cluster_predictions.view(-1, 1)], dim=1)
-                    
-                    # For the record - (self.gs_manager._node_pred.pos == input[0][filtered_semantic][:, 1:4]).all()
-                    # ie ordering of voxels is NOT the same in node predictions and (filtered) input data
-                    # It is likely that input data is lexsorted while node predictions 
-                    # (and anything that are concatenated through Batch.from_data_list) are not. 
-
-                    fragment_data = self._gspice_fragment_manager(filtered_input, input[0], filtered_semantic)
-                    cluster_result['fragment_clusts'].extend(fragment_data[0])
-                    cluster_result['fragment_batch_ids'].extend(fragment_data[1])
-                    cluster_result['fragment_seg'].extend(fragment_data[2])
-
-        if self.enable_dbscan and self.process_fragments:
-            # Get the fragment predictions from the DBSCAN fragmenter
-            fragment_data = self.dbscan_fragment_manager(input[0], cnn_result)
-            cluster_result['fragment_clusts'].extend(fragment_data[0])
-            cluster_result['fragment_batch_ids'].extend(fragment_data[1])
-            cluster_result['fragment_seg'].extend(fragment_data[2])
-
-        # Format Fragments
-        fragments_result = format_fragments(cluster_result['fragment_clusts'],
-                                            cluster_result['fragment_batch_ids'],
-                                            cluster_result['fragment_seg'],
-                                            input[0][:, self.batch_col],
-                                            batch_size=self.batch_size)
-
-        cnn_result.update({'frag_dict':fragments_result})
-
-        cnn_result.update({
-            'fragment_clusts': fragments_result['fragment_clusts'],
-            'fragment_seg': fragments_result['fragment_seg'],
-            'fragment_batch_ids': fragments_result['fragment_batch_ids']
-        })
-
-        if self.enable_cnn_clust or self.enable_dbscan:
-            cnn_result.update({'segment_label_tmp': [semantic_labels] })
-            if label_clustering is not None:
-                if 'input_rescaled' in cnn_result:
-                    label_clustering[0][:, VALUE_COL] = input[0][:, VALUE_COL]
-                cnn_result.update({'cluster_label_adapted': label_clustering })
-
-        # if self.use_true_fragments and coords is not None:
-        #     print('adding true points info')
-        #     cnn_result['true_points'] = coords
-
-        return cnn_result, input
-
-    @staticmethod
-    def get_extra_gnn_features(data, result, clusts, clusts_seg, classes,
-            add_points=True, add_value=True, add_shape=True):
-        """
-        Extracting extra features to feed into the GNN particle aggregators
+        This classifies each individual voxel in the image into different
+        particle topological categories and identifies poins of interest,
+        namely track end points and shower fragment start points.
 
         Parameters
         ----------
-        data : torch.Tensor
-            Tensor of input voxels to the particle aggregator
-        result : dict
-            Dictionary of output of the CNN stages
-        clusts : List[numpy.ndarray]
-            List of clusters representing the fragment or particle objects
-        clusts_seg : numpy.ndarray
-            Array of cluster semantic types
-        classes : List, optional
-            List of semantic classes to include in the output set of particles
-        add_points : bool, default True
-            If `True`, add particle points as node features
-        add_value : bool, default True
-            If `True`, add mean and std voxel values as node features
-        add_shape : bool, default True
-            If `True`, add cluster semantic shape as a node feature
+        data : TensorBatch
+            (N, 1 + D + N_f) tensor of voxel/value pairs
+        seg_label : TensorBatch, optional
+            (N, 1 + D + 1) Tensor of segmentation labels for the batch
+        clust_label : TensorBatch, optional
+            (N, 1 + D + N_c) Tensor of cluster labels
+        """
+        if self.segmentation == 'uresnet':
+            # Run the data through the appropriate model
+            if hasattr(self, 'uresnet'):
+                res_seg = self.uresnet(data)
+            else:
+                res_seg = self.uresnet_ppn(data)
+
+            # If the deghosting is done as part of this step, process it
+            if 'ghost' in res_seg:
+                # Store the ghost scores and the ghost mask
+                ghost_tensor = res_deghost['host'].tensor
+                ghost_pred = torch.argmax(ghost_tensor, dim=1)
+                data_deghost = TensorBatch(
+                        data.tensor[ghost_pred == 0],
+                        batch_size=data.batch_size)
+                ghost_pred = TensorBatch(ghost_pred, data.counts)
+
+                self.result['ghost_pred'] = ghost_pred
+                self.result['data_deghost'] = data_deghost
+
+                # If there are PPN outputs, deghost them
+                if 'ppn_points' in res_seg:
+                    deghost_index = torch.where(shower_pred == 0)[0]
+                    res_seg['ppn_points'] = res_seg['ppn_points'][deghost_index]
+                    for key in ['ppn_masks', 'ppn_coords',
+                                'ppn_layers', 'ppn_classify_endpoints']:
+                        if key in res_seg:
+                            res_seg[key][-1] = res_seg[key][-1][deghost_index]
+
+            # Update the result dictionary
+            self.result.update(res_seg)
+            seg_pred = torch.argmax(res_seg['segmentation'].tensor, dim=1)
+
+            self.result['seg_pred'] = TensorBatch(seg_pred, data.counts)
+
+            # If the rest of the chain is run, must adapt cluster labels now
+            if (seg_label is not None and clust_label is not None and
+                self.fragmentation is not None):
+                seg_pred = self.result['seg_pred']
+                ghost_pred = self.result.get('ghost_pred', None)
+                clust_label = adapt_labels_batch(
+                        clust_label, seg_label, seg_pred, ghost_pred)
+
+                self.result['clust_label_adapted'] = clust_label
+
+        elif self.segmentation == 'label':
+            # Use the segmentation labels
+            assert seg_label is not None, (
+                    "Must provide `seg_label` to segment with it.")
+            seg_pred = seg_label.tensor[:, SHAPE_COL]
+
+            self.result['seg_pred'] = TensorBatch(seg_pred, data.counts)
+
+        return clust_label
+
+    def run_fragmentation(self, data, clust_label=None):
+        """Run the fragmentation algorithm, i.e. the dense clustering step.
+
+        This breaks down each topological class individually into a set of
+        fragments, each composed of contiguous voxels which belong to a single
+        particle instance, but do not necessarily make up the whole instance.
+
+        Parameters
+        ----------
+        data : TensorBatch
+            (N, 1 + D + N_f) tensor of voxel/value pairs
+        clust_label : TensorBatch, optional
+            (N, 1 + D + N_c) Tensor of cluster labels
+        """
+        fragments, fragment_shapes = None, None
+        if 'dbscan' in self.fragmentation:
+            fragments, fragment_shapes = self.dbscan(data, **self.result)
+
+        if 'graph_spice' in self.fragmentation:
+            raise NotImplementedError
+            # Run Graph-SPICE + post-processor
+            # TODO
+
+            # If there are existing fragments from DBSCAN, merge
+            # TODO
+
+        if self.fragmentation == 'label':
+            assert clust_label is not None, (
+                    "Must provide `clust_label` to use it for fragmentation.")
+            fragments = form_clusters_batch(
+                    clust_label.to_numpy(), column=CLUST_COL)
+            fragment_shapes = get_cluster_label_batch(clust_label, fragments)
+
+        if fragments is not None:
+            self.result['fragments'] = fragments
+            self.result['fragment_shapes'] = fragment_shapes
+
+    def run_part_aggregation(self, data, clust_label=None, coord_label=None):
+        """Run the particle aggreation step.
+
+        This step gathers particle fragments into complete particle instances.
+        It either aggregates shower and track fragments independently or
+        jointly into a single step.
+
+        In the process of shower aggregation, shower primaries can
+        be identified.
+
+        Parameters
+        ----------
+        data : TensorBatch
+            (N, 1 + D + N_f) tensor of voxel/value pairs
+        clust_label : TensorBatch, optional
+            (N, 1 + D + N_c) Tensor of cluster labels
+        coord_label : TensorBatch, optional
+            (N, 1 + D + 6) Array of label particle end points
+        """
+        # Fetch the list of fragments and semantic classes
+        if 'fragments' not in self.result:
+            return
+
+        fragments = self.result['fragments']
+        fragment_shapes = self.result['fragment_shapes']
+
+        # Initialize the particle-level output
+        counts = np.zeros(fragments.batch_size, dtype=np.int64)
+        particles = IndexBatch([], fragments.offsets, counts, [])
+        particle_shapes = TensorBatch(np.empty(0, dtype=np.int64), counts)
+        particle_primaries = IndexBatch([], fragments.offsets, counts, [])
+
+        # Loop over GraPA models, append the particle list
+        shapes = {'shower': [SHOWR_SHP, MICHL_SHP, DELTA_SHP],
+                  'track': [TRACK_SHP], 'particle': self.fragment_classes}
+        use_primary = {'shower': True, 'track': False, 'particle': True}
+        for name in ['shower', 'track', 'particle']:
+            # Dispatch the input to the right aggregation method
+            switch = getattr(self, f'{name}_aggregation')
+
+            if switch == 'grappa':
+                # Use GraPA to aggregate instances
+                prefix = f'{name}_fragment'
+                model = getattr(self, f'grappa_{name}')
+                groups, group_shapes, group_primaries = self.run_grappa(
+                        prefix, model, data, fragments, fragment_shapes,
+                        coord_label, aggregate_shapes=True,
+                        shape_use_primary=use_primary[name],
+                        retain_primaries=True)
+
+            elif switch == 'label':
+                # Use cluster labels to aggregate instances
+                groups, group_shapes, group_primaries = self.group_labels(
+                        shapes[name], data, fragments, fragment_shapes,
+                        aggregate_shapes=True,
+                        shape_use_primary=use_primary[name],
+                        retain_primaries=True)
+
+            elif switch == 'skip':
+                # Leave the shower fragments as is
+                groups, group_shapes = self.restrict_clusts(
+                        fragments, fragment_shapes, shapes[name])
+                group_primaries = groups
+
+            else:
+                # Skip if there nothing to do
+                continue
+
+            # Append
+            particles = particles.merge(groups)
+            particle_shapes = particle_shapes.merge(group_shapes)
+            particle_primaries = particle_primaries.merge(group_primaries)
+
+        # Store particle objects
+        self.result['particles'] = particles
+        self.result['particle_shapes'] = particle_shapes
+        self.result['particle_primaries'] = particle_primaries
+
+    def run_inter_aggregation(self, data, clust_label=None, coord_label=None):
+        """Run the interaction aggreation step.
+
+        This step gathers particles into complete interaction instances.
+
+        In the process of interaction aggregation, other tasks may be performed:
+        - Particle identification
+        - Primary tagging (particle coming from the interaction vertex)
+        - Orientation tagging (order start/end points of particles)
+        - Vertex reconstruction
+
+        Parameters
+        ----------
+        data : TensorBatch
+            (N, 1 + D + N_f) tensor of voxel/value pairs
+        clust_label : TensorBatch, optional
+            (N, 1 + D + N_c) Tensor of cluster labels
+        coord_label : TensorBatch, optional
+            (N, 1 + D + 6) Array of label particle end points
+        """
+        # Fetch the list of particles and semantic classes
+        if 'particles' not in self.result:
+            return
+
+        particles = self.result['particles']
+        particle_shapes = self.result['particle_shapes']
+        particle_primaries = self.result['particle_primaries']
+
+        # Append the interaction list
+        if self.inter_aggregation == 'grappa':
+            # Use GraPA to aggregate instances
+            interactions, _, _ = self.run_grappa(
+                    'particle', self.grappa_inter, data, particles,
+                    particle_shapes, particle_primaries, coord_label,
+                    point_use_primary=True)
+
+        elif self.inter_aggregation == 'label':
+            # Use cluster labels to aggregate instances
+            interactions, _, _ = self.group_labels(
+                    shapes[name], data, particles, particle_shapes)
+
+        # Store interaction objects
+        self.result['interactions'] = interactions
+
+    def run_grappa(self, prefix, model, data, clusts, clust_shapes,
+                   clust_primaries=None, coord_label=None,
+                   aggregate_shapes=False, shape_use_primary=False, 
+                   point_use_primary=False, retain_primaries=False):
+        """Run the GNN-based particle aggregator.
+
+        Parameters
+        ----------
+        prefix : str
+            Name of the aggregation step
+        model : GraPA
+            GraPA model to execute for this aggregation step
+        data : TensorBatch
+            (N, 1 + D + N_f) tensor of voxel/value pairs
+        clusts : IndexBatch
+            List of clusters to aggregate using GrapPA
+        clust_shapes : TensorBatch
+            Semantic type of each of the clusters
+        clust_primaries : IndexBatch
+            List of primary fragments associated with each input cluster
+        coord_label : TensorBatch, optional
+            (N, 1 + D + 6) Array of label particle end points
+        aggregate_shapes : bool, default False
+            Combine shapes to give a shape to the aggregated object
+        shape_use_primary : bool, default False
+            Use primary shape as the group shape
+        point_use_primary : bool, default False
+            Use the primary fragment to get the points
+        retain_primaries : bool, default False
+            Retain the primary cluster in the aggregated group
 
         Returns
         -------
-        index : np.ndarray
-            Index to select fragments belonging to one of the requested classes
-        kwargs : dict
-            Keys can include `points` (if `add_points` is `True`)
-            and `extra_feats` (if `add_value` or `add_shape` is True).
+        groups : IndexBatch
+            List of cluster groups aggregated using GrapPA
+        group_shapes : TensorBatch
+            Semantic type of each of the cluster groups
+        group_primaries : IndexBatch
+            List of primary clusters for each group
         """
-        # If needed, build a particle mask based on semantic classes
-        if classes is not None:
-            mask = np.zeros(len(clusts_seg), dtype=bool)
+        # Restrict the clusters to those in the input of the model
+        clusts, clust_shapes = self.restrict_clusts(
+                clusts, clust_shapes, model.node_type)
+
+        # Prepare the input to the aggregation stage
+        grappa_input = self.prepare_grappa_input(
+                model, data, clusts, clust_shapes,
+                clust_primaries, coord_label, point_use_primary)
+
+        # Pass it through GrapPA, produce shower instances
+        res_grappa = model(**grappa_input)
+        self.result.update({f'{prefix}_{k}':v for k, v in res_grappa.items()})
+
+        # If requested, convert the node predictions to a primary mask
+        group_pred = res_grappa['group_pred']
+        primary_mask = None
+        if shape_use_primary or retain_primaries:
+            assert 'node_pred' in res_grappa, (
+                    "Must provide node predictions to use primary shape "
+                    "or preserve the list of primary clusters.")
+            node_pred = res_grappa['node_pred'].to_numpy()
+            primary_mask = primary_assignment_batch(node_pred, group_pred)
+
+        # Build shower instances, get their semantic type
+        return self.build_groups(
+                clusts, clust_shapes, group_pred, primary_mask,
+                aggregate_shapes, shape_use_primary, retain_primaries)
+
+    def group_labels(self, data, clusts, clust_shapes, aggregate_shapes=False,
+                     shape_use_primary=False, retain_primaries=False):
+        """Aggregate particles using labels.
+
+        Parameters
+        ----------
+        data : TensorBatch
+            (N, 1 + D + N_f) tensor of voxel/value pairs
+        clusts : IndexBatch
+            List of clusters to aggregate using GrapPA
+        clust_shapes : TensorBatch
+            Semantic type of each of the clusters
+        aggregate_shapes : bool, default False
+            Combine shapes to give a shape to the aggregated object
+        shape_use_primary : bool, default False
+            Use primary shape as the group shape
+        retain_primaries : bool, default False
+            Retain the primary cluster
+
+        Returns
+        -------
+        groups : IndexBatch
+            List of cluster groups aggregated using labels
+        group_shapes : TensorBatch
+            Semantic type of each of the cluster groups
+        group_primaries : IndexBatch
+            List of primary clusters for each group
+        """
+        # Restrict the clusters to those in the input of the model
+        clusts, clust_shapes = self.restrict_clusts(
+                clusts, clust_shapes, model.node_type)
+
+        # If requested, convert the node predictions to a primary mask
+        group_ids = get_cluster_label_batch(data, clusts, GROUP_COL)
+        primary_mask = None
+        if shape_use_primary:
+            primary_mask = get_cluster_label_batch(data, clusts, PRGRP_COL)
+            primary_mask = primary_mask.astype(bool)
+
+        # Build shower instances, get their semantic type
+        return self.build_groups(
+                clusts, clust_shapes, group_ids, primary_mask,
+                aggregate_shapes, shape_use_primary, retain_primaries)
+
+    def restrict_clusts(self, clusts, clust_shapes, classes):
+        """Restricts a cluster list against a list of classes.
+
+        Parameters
+        ----------
+        clusts : IndexBatch
+            List of clusters to aggregate using GrapPA
+        clust_shapes : TensorBatch
+            Semantic type of each of the clusters
+        classes : List[int]
+            List of semantic classes to restrict to
+
+        Returns
+        -------
+        clusts : IndexBatch
+            Restricted list of clusters
+        clust_shapes : TensorBatch
+            Restricted list of semantic types
+        """
+        # Restrict the clusters to those in the input of the model
+        if classes != self.fragment_classes:
+            mask = np.zeros(len(clust_shapes.tensor), dtype=bool)
             for c in classes:
-                mask |= (clusts_seg == c)
+                mask |= (clust_shapes.tensor == c)
             index = np.where(mask)[0]
-        else:
-            index = np.arange(len(clusts))
+
+            batch_ids = clusts.batch_ids[index]
+            clusts = IndexBatch(
+                    clusts.index_list[index], offsets=clusts.offsets,
+                    single_counts=clusts.single_counts[index],
+                    batch_ids=batch_ids, batch_size=clusts.batch_size)
+            clust_shapes = TensorBatch(
+                    clust_shapes.tensor[index], clusts.counts)
+
+        return clusts, clust_shapes
+
+    def prepare_grappa_input(self, model, data, clusts, clust_shapes,
+                             clust_primaries=None, coord_label=None,
+                             point_use_primaries=False):
+        """Prepares the input to a GrapPA model.
+
+        It builds the following input to GrpPA:
+        - points: end points of fragments/particles
+        - value: mean/std of charge distribution in each cluster
+        - shape: shape of each fragment/particle
+
+        Parameters
+        ----------
+        model : torch.nn.Module
+            GrapPA model to feed information to
+        data : TensorBatch
+            (N, 1 + D + N_f) tensor of voxel/value pairs
+        clusts : IndexBatch
+            List of clusters to aggregate using GrapPA
+        clust_shapes : TensorBatch
+            Semantic type of each of the clusters
+        clust_primaries : IndexBatch, optional
+            List of primary fragment within each cluster to aggregate
+        coord_label : TensorBatch, optional
+            (N, 1 + D + 6) Array of label particle end points
+        point_use_primaries:
+            Use the primary fragment only to infer primaries
+
+        Returns
+        -------
+        data : TensorBatch
+            (N, 1 + D + N_f) tensor of voxel/value pairs
+        clusts : IndexBatch
+            Input clusters to the model
+        classes : TensorBatch
+            List of semantic type of each clusters
+        points : TensorBatch
+            List of start/end points associated with each cluster
+        extra : TensorBatch
+            List of additional features to pass to the GrapPA model
+        """
+        # Store the basics
+        grappa_input = {}
+        grappa_input['data'] = data
+        grappa_input['clusts'] = clusts
+        grappa_input['classes'] = clust_shapes
+        if coord_label is not None:
+            grappa_input['coord_label'] = coord_label
 
         # Get the particle end points, if requested
-        kwargs = {}
-        if add_points:
-            coords     = data[0][:, COORD_COLS].detach().cpu().numpy()
-            ppn_points = result['ppn_points'][0].detach().cpu().numpy()
-            points     = get_particle_points(coords, clusts[index],
-                    clusts_seg[index], ppn_points)
+        if (hasattr(model.node_encoder, 'add_points') and
+            model.node_encoder.add_points):
+            # Fetch the cluster list to use to get points
+            ref_clusts = clusts
+            if point_use_primaries:
+                assert clust_primaries is not None, (
+                        "If using primaries to get points, must provide them.")
+                ref_clusts = clust_primaries
 
-            kwargs['points'] = torch.tensor(points,
-                    dtype=torch.float, device=data[0].device)
+            # Get and store the points
+            points = get_particle_points(
+                    data, ref_clusts, clust_shapes, self.result['ppn_points'])
+
+            grappa_input['points'] = points
 
         # Get the supplemental information, if requested
-        if add_value or add_shape:
-            extra_feats = torch.empty((len(index), 2*add_value + add_shape),
-                    dtype=torch.float, device=data[0].device)
-            if add_value:
-                extra_feats[:,:2] = get_cluster_features_extended(data[0],
-                        clusts[index], add_value=True, add_shape=False)
-            if add_shape:
-                extra_feats[:,-1] = torch.tensor(clusts_seg[index],
-                        dtype=torch.float, device=data[0].device)
+        if (hasattr(model.node_encoder, 'add_value') and
+            (model.node_encoder.add_value or model.node_envoder.add_shape)):
+            extra = []
+            if model.node_encoder.add_value:
+                values = data.tensor[clusts.full_index, VALUE_COL]
+                index_ids = torch.tensor(
+                        clusts.index_ids, dtype=torch.long, device=data.device)
+                extra.append(scatter_mean(values, index_ids))
+                extra.append(scatter_std(values, index_ids))
 
-            kwargs['extra_feats'] = torch.tensor(extra_feats,
-                    dtype=torch.float, device=data[0].device)
+            if model.node_encoder.add_shape:
+                shapes = torch.tensor(clust_shapes.tensor, dtype=data.dtype,
+                                      device=data.device)
+                extra.append(shapes)
 
-        return index, kwargs
+            grappa_input['extra'] = TensorBatch(
+                    torch.stack(extra).t(), clusts.counts)
+
+        return grappa_input
+
+    def build_groups(self, clusts, clust_shapes, group_pred, primary_mask=None,
+                     aggregate_shapes=False, shape_use_primary=False, 
+                     retain_primaries=False):
+        """Use groups predictions from GrapPA to build superstructures.
+
+        Parameters
+        ----------
+        clusts : IndexBatch
+            List of clusters to aggregate using GrapPA
+        clust_shapes : TensorBatch
+            Semantic type of each of the clusters
+        group_pred : TensorBatch
+            Group ID of each node in the GraPA output
+        primary_mask : TensorBatch
+            Binary mask as to whether a node is a group primary or not
+        aggregate_shapes : bool, default False
+            Combine shapes to give a shape to the aggregated object
+        shape_use_primary : bool, default False
+            Use primary shape as the group shape
+        retain_primaries : bool, default False
+            Retain the primary cluster in the aggregated group
+
+        Returns
+        -------
+        groups : IndexBatch
+            List of cluster groups aggregated using GrapPA
+        group_shapes : TensorBatch
+            Semantic type of each of the cluster groups
+        group_primaries : IndexBatch
+            List of primary clusters for each group
+        """
+        # Cast node_pred to numpy if it is provided
+        groups, group_shapes, group_primaries = [], [], []
+        counts, single_counts, single_primary_counts = [], [], []
+        for b in range(group_pred.batch_size):
+            # Fetch the subset of data for this batch
+            clusts_b = clusts[b]
+            offset_b = clusts.offsets[b]
+            group_pred_b = group_pred[b]
+            if aggregate_shapes:
+                clust_shapes_b = clust_shapes[b]
+            if primary_mask is not None:
+                primary_mask_b = primary_mask[b]
+
+            # Loop over unique group IDs
+            group_ids = np.unique(group_pred_b)
+            counts.append(len(group_ids))
+            for g in group_ids:
+                # Build the set of groups made up of input clusters
+                group_index = np.where(group_pred_b == g)[0]
+                groups.append(offset_b + np.concatenate(clusts_b[group_index]))
+                single_counts.append(len(groups[-1]))
+
+                # Extract the shape and primary ID for this group
+                if primary_mask is not None:
+                    primary_id = group_index[primary_mask_b[group_index]][0]
+                    if aggregate_shapes:
+                        group_shapes.append(clust_shapes_b[primary_id])
+                    if retain_primaries:
+                        group_primaries.append(offset_b + clusts_b[primary_id])
+                        single_primary_counts.append(len(group_primaries[-1]))
+
+                elif aggregate_shapes:
+                    shapes, shape_counts = np.unique(
+                            clust_shapes_b[group_index], return_counts=True)
+                    group_shapes.append(shapes[np.argmax(shape_counts)])
+
+        groups = IndexBatch(groups, clusts.offsets, counts, single_counts)
+        if aggregate_shapes:
+            group_shapes = np.array(group_shapes, dtype=np.int64)
+            group_shapes = TensorBatch(group_shapes, counts)
+        if retain_primaries:
+            group_primaries = IndexBatch(
+                group_primaries, clusts.offsets, counts, single_primary_counts)
+
+        return groups, group_shapes, group_primaries
 
 
 class FullChainLoss(torch.nn.Module):
@@ -572,7 +937,7 @@ class FullChainLoss(torch.nn.Module):
 
         # Initialize the segmentation/PPN losses
         if self.segmentation == 'uresnet':
-            assert ((uresnet_loss is not None) ^ 
+            assert ((uresnet_loss is not None) ^
                     (uresnet_ppn_loss is not None)), (
                     "If the segmentation is using UResNet, must provide the "
                     "`uresnet_loss` or `uresnet_ppn_loss` configuration block.")
@@ -583,10 +948,57 @@ class FullChainLoss(torch.nn.Module):
                         **uresnet_ppn, **uresnet_ppn_loss)
 
         # Initialize the graph-SPICE loss
-        if 'graph_spice' in self.dense_clustering:
+        if 'graph_spice' in self.fragmentation:
             self.graph_spice_loss = GraphSPICELoss(graph_spice_loss)
 
-        # TODO Add the GrapPA losses
+        # Initialize the GraPA lossses
+        grappa_losses = {
+                'shower': grappa_shower_loss, 'track': grappa_track_loss,
+                'particle': grappa_particle_loss, 'inter': grappa_inter_loss
+        }
+        for stage, config in grappa_losses.items():
+            if getattr(self, f'{stage}_aggregation') == 'grappa':
+                name = f'grappa_{stage}_loss'
+                assert config is not None, (
+                        f"If the {stage} aggregation is done using GrapPA, "
+                        f"must provide the {name} configuration block.")
+                setattr(self, name, GrapPALoss(config))
+
+    def forward(self, seg_label=None, clust_label=None, ghost=None,
+                segmentation=None, **kwargs):
+                
+        """Run the full chain output through the full chain loss.
+
+        Parameters
+        ----------
+        data : TensorBatch
+            (N, 1 + D + N_f) tensor of voxel/value pairs
+            - N is the the total number of voxels in the image
+            - 1 is the batch ID
+            - D is the number of dimensions in the input image
+            - N_f is the number of features per voxel
+        seg_label : TensorBatch
+            (N, 1 + D + 1) Tensor of segmentation labels for the batch
+            - 1 is the segmentation label
+        clust_label : TensorBatch
+            (N, 1 + D + N_c) Tensor of cluster labels
+            - N_c is is the number of cluster labels
+        ghost : TensorBatch
+            (N, 2) Tensor of logits from the deghosting model
+        segmentation : TensorBatch
+            (N, N_c) Tensor of logits from the segmentation model
+        """
+        # Initialize the loss output
+        result = {}
+        accuracy, loss, count = 1., 0., 0
+
+        # Apply the deghosting loss
+        if self.deghosting == 'uresnet':
+            print(ghost.shape)
+            res_deghost = self.deghost_loss(
+                    seg_label=seg_label, segmentation=ghost)
+            print(res_deghost)
+
 
 def process_chain_config(self, dump_config=False, **parameters):
     """Process the full chain configuration and dump it.
@@ -606,21 +1018,31 @@ def process_chain_config(self, dump_config=False, **parameters):
                 f"Must configure the {module} stage in the `chain` block. "
                 f"The {module} mode should be one of {valid_modes}.")
         assert parameters[module] in valid_modes, (
-                f"The {module} mode should be one of {valid_modes}.")
+                f"The {module} mode should be one of {valid_modes}. "
+                f"Received '{parameters[module]}' instead.")
         setattr(self, module, parameters[module])
 
     # Do some logic checks on the chain parameters
     assert not self.charge_rescaling or self.deghosting, (
-            "Charge rescaling is meaningless without deghosting")
+            "Charge rescaling cannot be done without deghosting.")
+    assert (self.charge_rescaling == self.deghosting or
+            (self.deghosting == 'uresnet' and
+             self.charge_rescaling != 'label')), (
+            "Label-based charge rescaling can only be done in conjunction "
+            "with label-based deghosting.")
+    assert (not self.segmentation == 'label' or
+            self.deghosting in [None, 'label']), (
+            "Can only use labels for segmentation if labels are also used for "
+            "remove ghost points.")
     assert (not self.point_proposal == 'ppn' or
             self.segmentation == 'uresnet'), (
-            "For PPN to work, need the UResNet segmentation backbone")
+            "For PPN to work, need the UResNet segmentation backbone.")
     assert (not self.shower_primary == 'gnn' or
             self.shower_aggregation == 'gnn'), (
-            "To use GNN for shower primaries, must aggregate showers with it")
+            "To use GNN for shower primaries, must aggregate showers with it.")
     assert (not self.particle_aggregation or
             (not self.shower_aggregation and not self.track_aggregation)), (
-            "Use particle aggregator or shower/track aggregators, not both")
+            "Use particle aggregator or shower/track aggregators, not both.")
 
     if dump_config:
         logger.info(f"Full chain configuration:")

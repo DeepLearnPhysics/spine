@@ -127,6 +127,30 @@ class TensorBatch(BatchBase):
             return [SparseTensor(
                 feats[i], coordinates=coords[i]) for i in self.batch_size]
 
+    def merge(self, tensor_batch):
+        """Merge this tensor batch with another.
+
+        Parameters
+        ----------
+        tensor_batch : TensorBatch
+            Other tensor batch object to merge with
+
+        Returns
+        -------
+        TensorBatch
+            Merged tensor batch
+        """
+        # Stack the tensors entry-wise in the batch
+        entries = []
+        for b in range(self.batch_size):
+            entries.append(self[b])
+            entries.append(tensor_batch[b])
+
+        tensor = self._cat(entries)
+        counts = self.counts + tensor_batch.counts
+
+        return TensorBatch(tensor, counts)
+
     def to_numpy(self):
         """Cast underlying tensor to a `np.ndarray` and return a new instance.
 

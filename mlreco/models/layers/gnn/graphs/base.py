@@ -158,7 +158,7 @@ class GraphBase:
             (2,E) Restricted tensor of edges
         """
         # Restrict the input set of edges based on a edge length cut
-        if classes is None:
+        if classes is None or np.isscalar(self.max_length):
             # If classes are not provided, apply a static cut to all edges
             dists = dist_mat[(edge_index[0], edge_index[1])]
             mask = np.where(dists < self.max_length)[0]

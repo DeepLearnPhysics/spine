@@ -79,9 +79,10 @@ class DBSCAN(torch.nn.Module):
         # If the constants are provided as scalars, turn them into lists
         assert not np.isscalar(classes), (
                 "Semantic classes should be provided as a list.")
-        for attr in ['eps', 'min_samples', 'min_size', 'break_mask_radius']:
+        for attr in ['eps', 'min_samples', 'min_size',
+                     'metric', 'break_mask_radius']:
             if np.isscalar(getattr(self, attr)):
-                setattr(self, attr, np.full(len(classes), getattr(self, attr)))
+                setattr(self, attr, len(classes)*[getattr(self, attr)])
             else:
                 assert len(getattr(self, attr)) == len(classes), (
                         f"The number of `{attr}` values does not match the "
@@ -116,7 +117,7 @@ class DBSCAN(torch.nn.Module):
 
             self.clusterers.append(clusterer)
 
-    def forward(self, data, segmentation, coord_label=None, **ppn_result):
+    def forward(self, data, seg_pred, coord_label=None, **ppn_result):
         """Pass a batch of data through DBSCAN to form space clusters.
 
         Parameters
@@ -128,7 +129,7 @@ class DBSCAN(torch.nn.Module):
             - D is the number of dimensions in the input image
             - N_f is 1 (charge/energy) if the clusters (`clusts`) are provided,
               or it needs to contain cluster labels to build them on the fly
-        segmentation : TensorBatch
+        seg_pred : TensorBatch
             (N) Segmentation value for each data point
         coord_label : TensorBatch, optional
             Location of the true particle points
@@ -150,27 +151,28 @@ class DBSCAN(torch.nn.Module):
                 point_shapes = torch.repeat_interleave(
                         coord_label.tensor[:, SHAPE_COL], 2)
                 points = TensorBatch(points, 2*coord_label.counts)
-                point_shapes = TensorBatch(points, 2*coord_label.counts)
+                point_shapes = TensorBatch(point_shapes, 2*coord_label.counts)
             else:
                 ppn_points = self.ppn_predictor(**ppn_result)
                 points = TensorBatch(
                         ppn_points.tensor[:, COORD_COLS], ppn_points.counts)
                 point_shapes = TensorBatch(
-                        ppn.points[:, PPN_SHAPE_COL], ppn_points.counts)
+                        ppn_points.tensor[:, PPN_SHAPE_COL], ppn_points.counts)
 
         # Bring everything to numpy (DBSCAN cannot run on tensors)
         data_np = data.to_numpy()
-        segmentation_np = segmentation.to_numpy()
+        seg_pred_np = seg_pred.to_numpy()
         if points is not None:
             points_np = points.to_numpy()
             point_shapes_np = point_shapes.to_numpy()
 
         # Loop over the entries in the batch
-        clusts, counts, full_counts = [], [], []
+        offsets = data.edges[:-1]
+        clusts, classes, counts, single_counts = [], [], [], []
         for b in range(data.batch_size):
             # Fetch the necessary data products, in numpy format
             voxels_b = data_np[b][:, COORD_COLS]
-            segmentation_b = segmentation_np[b]
+            seg_pred_b = seg_pred_np[b]
             if points is not None:
                 points_b = points_np[b]
                 point_shapes_b = point_shapes_np[b]
@@ -179,43 +181,48 @@ class DBSCAN(torch.nn.Module):
                 points_b = points_b[point_shapes_b != DELTA_SHP]
 
             # Loop over the classes to cluster
-            clusts_b = []
+            clusts_b, counts_b, classes_b = [], [], []
             for k, s in enumerate(self.classes):
                 # Restrict the voxels to the current class
                 break_class = s in self.break_classes
-                shape_mask = segmentation_b == s
+                shape_mask = seg_pred_b == s
                 if s == TRACK_SHP and break_class and self.track_include_delta:
-                    shape_mask &= segmentation_b == DELTA_SHP
+                    shape_mask |= seg_pred_b == DELTA_SHP
 
-                selection = np.where(mask)[0]
-                if not len(selection):
+                shape_index = np.where(shape_mask)[0]
+                if not len(shape_index):
                     continue
 
                 # Run clustering
-                voxels_b_s = voxels_b[selection]
-                self.clusterer[k](voxels_b_s, points_b)
+                voxels_b_s = voxels_b[shape_index]
+                labels = self.clusterers[k](voxels_b_s, points_b)
 
                 # If delta points were added to track points, remove them
                 if s == TRACK_SHP and break_class and self.track_include_delta:
-                    labels[segmentation_b[selection] == DELTA_SHP] = -1
+                    labels[seg_pred_b[shape_index] == DELTA_SHP] = -1
 
                 # Build clusters for this class
                 clusts_b_s = []
                 for c in np.unique(labels):
                     clust = np.where(labels == c)[0]
                     if c > -1 and len(clust) > self.min_size[k]:
-                        clusts_b_s.append(clust)
-
+                        clusts_b_s.append(int(offsets[b]) + clust)
+                        counts_b.append(len(clust))
+ 
                 clusts_b.extend(clusts_b_s)
+                classes_b.append(s * np.ones(len(clusts_b_s), dtype=np.int64))
 
             # Update the output
             clusts.extend(clusts_b)
+            classes.extend(classes_b)
             counts.append(len(clusts_b))
-            full_counts.append(np.sum([len(c) for c in clusts_b]))
+            single_counts.extend(counts_b)
 
         # Initialize an IndexBatch and return it
         clusts_nb    = np.empty(len(clusts), dtype=object)
         clusts_nb[:] = clusts
-        offsets      = data.edges[:-1]
 
-        return IndexBatch(clusts_nb, offsets, counts, full_counts)
+        index = IndexBatch(clusts_nb, offsets, counts, single_counts)
+        classes = TensorBatch(np.concatenate(classes), counts)
+
+        return index, classes

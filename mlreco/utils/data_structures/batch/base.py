@@ -185,7 +185,7 @@ class BatchBase:
 
     def _cat(self, x):
         if self.is_numpy:
-            return np.conctenate(x)
+            return np.concatenate(x)
         else:
             return torch.cat(x, dim=0)
 

@@ -241,6 +241,33 @@ def node_purity_mask_batch(group_ids, primary_ids):
     return node_purity_mask(group_ids.tensor, primary_ids.tensor)
 
 
+def primary_assignment_batch(node_pred, group_ids=None):
+    """Batch version of :func:`primary_assignment`.
+
+    Parameters
+    ----------
+    node_pred : TensorBatch
+        (C, 2) Logits associated with each node
+    group_ids : TensorBatch, optional
+        (C) List of node group IDs
+
+    Returns
+    -------
+    TensorBatch
+        (C) Primary labels
+    """
+    if group_ids is None:
+        primary_ids = primary_assignment(node_pred.tensor)
+    else:
+        primary_ids = np.empty(len(node_pred.tensor), dtype=bool)
+        for b in range(node_pred.batch_size):
+            lower, upper = node_pred.edges[b], node_pred.edges[b+1]
+            primary_ids[lower:upper] = primary_assignment(
+                    node_pred[b], group_ids[b])
+
+    return TensorBatch(primary_ids, node_pred.counts)
+
+
 def edge_assignment(edge_index, group_ids):
     """Determines which edges are turned on based on the group ID of the 
     clusters they are connecting. 
@@ -450,14 +477,16 @@ def node_assignment_bipartite(edge_index: nb.int64[:,:],
 @nb.njit(cache=True)
 def primary_assignment(node_pred: nb.float32[:,:],
                        group_ids: nb.int64[:] = None) -> nb.boolean[:]:
-    """Select shower primary fragments based on the node-score
-    (and optionally an a priori grouping).
+    """Select shower primary fragments based on the node-score.
+
+    If node groupings are provided, selects a single primary per node
+    group: the one that is most likely.
 
     Parameters
     ----------
     node_pred : np.ndarray
         (C, 2) Logits associated with each node
-    group_ids : np.ndarray
+    group_ids : np.ndarray, optional
         (C) List of node group IDs
 
     Returns
@@ -466,16 +495,16 @@ def primary_assignment(node_pred: nb.float32[:,:],
         (C) Primary labels
     """
     if group_ids is None:
-        return nbl.argmax(nodes_pred, axis=1).astype(np.bool_)
+        return nbl.argmax(node_pred, axis=1).astype(np.bool_)
 
-    primary_labels = np.zeros(len(node_pred), dtype=np.bool_)
+    primary_ids = np.zeros(len(node_pred), dtype=np.bool_)
     node_pred = nbl.softmax(node_pred, axis=1)
     for g in np.unique(group_ids):
         mask = np.where(group_ids == g)[0]
         idx  = np.argmax(node_pred[mask][:,1])
-        primary_labels[mask[idx]] = True
+        primary_ids[mask[idx]] = True
 
-    return primary_labels
+    return primary_ids
 
 
 @nb.njit(cache=True)

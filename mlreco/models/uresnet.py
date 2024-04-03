@@ -108,8 +108,12 @@ class UResNetSegmentation(nn.Module):
         dict
             Dictionary of outputs
         """
-        # Pass the input data through the UResNet backbone
-        result_backbone = self.backbone(data.tensor)
+        # Restrict the input to the requested number of features
+        num_cols = 1 + self.backbone.dim + self.backbone.num_input
+        input_tensor = data.tensor[:, :num_cols]
+
+        # Pass the data through the UResNet backbone
+        result_backbone = self.backbone(input_tensor)
 
         # Pass the output features through the output layer
         feats = result_backbone['decoder_tensors'][-1]
@@ -233,18 +237,18 @@ class SegmentationLoss(torch.nn.modules.loss._Loss):
 
         # If a ghost label is provided, it cannot be in conjecture with
         # having a dedicated ghost masking layer
-        assert not (self.ghost and self.ghost_label > -1), \
-                'Cannot classify ghost exclusively (ghost_label) and ' \
-                'have a dedicated ghost masking layer at the same time'
+        assert not (self.ghost and self.ghost_label > -1), (
+                "Cannot classify ghost exclusively (ghost_label) and "
+                "have a dedicated ghost masking layer at the same time.")
 
-    def forward(self, segment_label, segmentation, ghost=None, 
+    def forward(self, seg_label, segmentation, ghost=None, 
                 weights=None, **kwargs):
         """Computes the cross-entropy loss of the semantic segmentation
         predictions. 
 
         Parameters
         ----------
-        segment_label : TensorBatch
+        seg_label : TensorBatch
             (N, 1 + D + 1) Tensor of segmentation labels for the batch
         segmentation : TensorBatch
             (N, N_c) Tensor of logits from the segmentation model
@@ -261,27 +265,31 @@ class SegmentationLoss(torch.nn.modules.loss._Loss):
             Dictionary of accuracies and losses
         """
         # Get the underlying tensor in each TensorBatch
-        segment_label = segment_label.tensor
+        seg_label = seg_label.tensor
         segmentation = segmentation.tensor
 
         # Make sure that the segmentation output and labels have the same length
-        assert len(segment_label) == len(segmentation), \
-                'The segmentation output length and its labels do not match'
-        assert not self.ghost or len(segment_label) == len(ghost), \
-                'The ghost output length and its labels do not match'
+        print(len(seg_label), len(segmentation))
+        assert len(seg_label) == len(segmentation), (
+                f"The `segmentation` output length ({len(segmentation)}) and "
+                f"its labels ({len(seg_label)}) do not match.")
+        assert not self.ghost or len(seg_label) == len(ghost), (
+                f"The `ghost` output length ({len(ghost)}) and "
+                f"its labels ({len(seg_label)}) do not match.")
 
         # If the loss is to be class-weighted, cannot also provide weights
-        assert not self.balance_loss or weights is None, \
-                'If weights are provided, cannot class-weight loss'
+        assert not self.balance_loss or weights is None, (
+                "If weights are provided, cannot class-weight loss.")
 
         # Check that the labels have sensible values
         if self.ghost_label > -1:
-            labels = (segment_label[:, VALUE_COL] == self.ghost_label).long()
+            labels = (seg_label[:, VALUE_COL] == self.ghost_label).long()
         else:
-            labels = segment_label[:, VALUE_COL].long()
+            labels = seg_label[:, VALUE_COL].long()
             if torch.any(labels > self.num_classes):
-                raise ValueError('The segmentation labels do not match ' \
-                        'the number of classes output by the model')
+                raise ValueError(
+                        "The segmentation labels contain labels larger than "
+                        "the number of logits output by the model.")
 
         # If there is a dedicated ghost layer, apply the mask first
         if self.ghost:

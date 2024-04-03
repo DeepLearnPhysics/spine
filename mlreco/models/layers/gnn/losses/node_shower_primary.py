@@ -8,9 +8,7 @@ from mlreco.models.layers.factories import loss_fn_factory
 from mlreco.utils.globals import GROUP_COL, PRGRP_COL
 from mlreco.utils.weighting import get_class_weights
 from mlreco.utils.gnn.cluster import get_cluster_label_batch
-from mlreco.utils.gnn.evaluation import (
-        node_assignment_batch, node_assignment_score_batch,
-        node_purity_mask_batch)
+from mlreco.utils.gnn.evaluation import node_purity_mask_batch
 
 __all__ = ['NodeShowerPrimaryLoss']
 
@@ -70,7 +68,7 @@ class NodeShowerPrimaryLoss(torch.nn.Module):
         self.loss_fn = loss_fn_factory(loss, functional=True)
 
     def forward(self, clust_label, clusts, node_pred, edge_index=None,
-                edge_pred=None, group_ids=None, **kwargs):
+                edge_pred=None, group_pred=None, **kwargs):
         """Applies the shower primary loss to a batch of data.
 
         Parameters
@@ -85,8 +83,8 @@ class NodeShowerPrimaryLoss(torch.nn.Module):
             (2, E) Incidence matrix between clusters
         edge_pred : TensorBatch, optional
             (E, 2) Edge prediction logits (binary output)
-        group_ids : TensorBatch, optional
-            (C)  Group to which each node belongs to
+        group_pred : TensorBatch, optional
+            (C) Predicted group to which each node belongs to
         **kwargs : dict, optional
             Other labels/outputs of the model which are not relevant here
 
@@ -99,33 +97,22 @@ class NodeShowerPrimaryLoss(torch.nn.Module):
         count : int
             Number of nodes the loss was applied to
         """
-        # Fetch the primary and group IDs
+        # Create a mask for valid nodes (-1 indicates an invalid primary ID)
         primary_ids = get_cluster_label_batch(
                 clust_label, clusts, column=PRGRP_COL)
-        if group_ids is None:
-            if not self.use_group_pred:
-                group_ids = get_cluster_label_batch(
-                        clust_label, clusts, column=GROUP_COL)
-            else:
-                if self.group_pred_alg == 'threshold':
-                    edge_pred_np = edge_pred.to_numpy()
-                    group_ids = node_assignment_batch(
-                            edge_index, edge_pred_np, clusts)
-
-                elif self.group_pred_alg == 'score':
-                    edge_pred_np = edge_pred.to_numpy()
-                    group_ids = node_assignment_score_batch(
-                            edge_index, edge_pred_np, clusts)
-
-                else:
-                    raise ValueError("Group prediction algorithm not "
-                                     "recognized:", self.group_pred_alg)
-
-        # Create a mask for valid nodes (-1 indicates an invalid primary ID)
         valid_mask = primary_ids.tensor > -1
 
         # If requested, remove groups that do not contain exactly one primary
         if self.high_purity:
+            # Fetch the group IDs
+            if self.use_group_pred:
+                assert group_pred is not None, (
+                        "If using group predictions, must provide them.")
+                group_ids = group_pred
+            else:
+                group_ids = get_cluster_label_batch(
+                        clust_label, clusts, column=GROUP_COL)
+
             valid_mask &= node_purity_mask_batch(group_ids, primary_ids)
 
         # Apply the valid mask and convert the labels to a torch.Tensor
