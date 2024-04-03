@@ -32,14 +32,15 @@ class HDF5Writer:
     ANA_FIXED_LENGTH = [
         'start_point', 'end_point', 'start_dir', 'truth_start_dir', 'end_dir',
         'start_position', 'end_position', 'vertex', 'truth_vertex', 'momentum',
-        'truth_momentum', 'pid_scores', 'primary_scores', 'particle_counts',
-        'primary_counts'
+        'truth_momentum', 'truth_end_momentum', 'pid_scores', 'primary_scores',
+        'particle_counts', 'primary_counts'
     ]
 
     # Object attributes that do not need to be stored to HDF5
     LARCV_SKIP_ATTRS = [
-        'add_trajectory_point', 'dump', 'momentum', 'boundingbox_2d', 'boundingbox_3d',
-        *[k + a for k in ['', 'parent_', 'ancestor_'] for a in ['x', 'y', 'z', 't']]
+        'add_trajectory_point', 'dump', 'momentum', 'end_momentum', 'boundingbox_2d',
+        'traj_x', 'traj_y', 'traj_z', 'traj_t', 'traj_px', 'traj_py', 'traj_pz', 'traj_e',
+        'boundingbox_3d', *[k + a for k in ['', 'parent_', 'ancestor_'] for a in ['x', 'y', 'z', 't']]
     ]
 
     ANA_SKIP_ATTRS = [

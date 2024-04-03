@@ -478,14 +478,16 @@ class HDF5Reader:
             # Momentum is particular, deal with it first
             if isinstance(obj, (larcv.Particle, larcv.Neutrino)):
                 obj.momentum(*[obj_dict[f'p{k}'] for k in ['x', 'y', 'z']])
+            if hasattr(obj, 'end_momentum'):
+                obj.end_momentum(*[obj_dict[f'end_p{k}'] for k in ['x', 'y', 'z']])
 
             # Trajectory for neutrino is also particular, deal with it
-            if isinstance(obj, larcv.Neutrino):
+            if isinstance(obj, larcv.Neutrino) and 'traj_x' in obj_dict:
                 obj.add_trajectory_point(*[obj_dict[f'traj_{k}'] for k in ['x', 'y', 'z', 't', 'px', 'py', 'pz', 'e']])
 
             # Now deal with the rest
             for name in names:
-                if name in ['px', 'py', 'pz', 'p', 'TotalPE'] or name[:5] == 'traj_':
+                if name in ['px', 'py', 'pz', 'p', 'end_px', 'end_py', 'end_pz', 'end_p', 'TotalPE'] or name[:5] == 'traj_':
                     continue # Addressed by other setters
                 if 'position' in name or 'step' in name:
                     getattr(obj, name)(*obj_dict[name])

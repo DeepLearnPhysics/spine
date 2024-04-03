@@ -56,6 +56,7 @@ class TruthParticle(Particle):
                  sed_points: np.ndarray = np.empty((0, 3), dtype=np.float32),
                  sed_depositions_MeV: np.ndarray = np.empty(0, dtype=np.float32),
                  truth_momentum: np.ndarray = np.full(3, -np.inf, dtype=np.float32),
+                 truth_end_momentum: np.ndarray = np.full(3, -np.inf, dtype=np.float32),
                  truth_start_dir: np.ndarray = np.full(3, -np.inf, dtype=np.float32),
                  particle_asis: object = larcv.Particle(),
                  children_counts: np.ndarray = np.zeros(len(SHAPE_LABELS), dtype=np.int64),
@@ -82,6 +83,7 @@ class TruthParticle(Particle):
 
         # Load truth information from the true particle object
         self.truth_momentum = np.copy(truth_momentum)
+        self.truth_end_momentum = np.copy(truth_end_momentum)
         self.truth_start_dir = np.copy(truth_start_dir)
         if particle_asis is not None:
             self.register_larcv_particle(particle_asis)
@@ -135,6 +137,8 @@ class TruthParticle(Particle):
 
         # Load up the 3-momentum (stored in a peculiar way) and the direction
         self.truth_momentum = np.array([getattr(particle, f'p{a}')() for a in ['x', 'y', 'z']])
+        if hasattr(particle, f'end_px'):
+            self.truth_end_momentum = np.array([getattr(particle, f'end_p{a}')() for a in ['x', 'y', 'z']])
         self.truth_start_dir = np.full(3, -np.inf, dtype=np.float32)
         if np.linalg.norm(self.truth_momentum):
             self.truth_start_dir = \
