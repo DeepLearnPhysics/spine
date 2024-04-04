@@ -197,6 +197,8 @@ class TruthParticle(Particle):
         # TODO: Move this to main list once this is in every LArCV file
         if 'gen_id' in particle_dict:
             setattr(self, 'gen_id', particle_dict['gen_id'])
+        if 'truth_interaction_id' in particle_dict:
+            setattr(self, 'truth_interaction_id', particle_dict['truth_interaction_id'])
         if 'ke_init' in particle_dict:
             setattr(self, 'ke_init', particle_dict['ke_init'])
 
