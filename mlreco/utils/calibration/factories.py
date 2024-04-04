@@ -9,8 +9,7 @@ for module in [gain, lifetime, transparency, recombination, field]:
 
 
 def calibrator_factory(name, cfg, parent_path=''):
-    '''
-    Instantiates calibrator based on name specified in configuration under
+    """Instantiates calibrator based on name specified in configuration under
     the `calibrator` config block.
 
     Parameters
@@ -27,10 +26,10 @@ def calibrator_factory(name, cfg, parent_path=''):
     -------
     object
          Initialized calibrator object
-    '''
+    """
     # Check that the calibrator is known
     if name not in CALIBRATOR_DICT:
-        raise KeyError(f'Calibrator name not recognized: {name}')
+        raise KeyError(f"Calibrator name not recognized: {name}")
 
     # Set the parent path
     CALIBRATOR_DICT[name].parent_path = parent_path

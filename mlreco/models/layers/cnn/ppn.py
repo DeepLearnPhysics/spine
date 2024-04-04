@@ -220,7 +220,7 @@ class PPN(torch.nn.Module):
             self.ghost_mask = MinkGhostMask(self.dim)
 
     def forward(self, final_tensor, decoder_tensors, ghost=None,
-                segment_label=None):
+                seg_label=None):
         """Compute the PPN loss for a batch of data.
 
         The PPN loss comprises three components:
@@ -236,7 +236,7 @@ class PPN(torch.nn.Module):
             Feature tensors of each of the decoding blocks
         ghost : TensorBatch, optional
             Logits of the ghost predictions of the backbone UResNet
-        segment_label : TensorBatch, optional
+        seg_label : TensorBatch, optional
             Segmentation label tensor
 
         Returns
@@ -252,11 +252,11 @@ class PPN(torch.nn.Module):
             with torch.no_grad():
                 if self.use_true_ghost_mask:
                     # If using the true ghost mask, use the label tensor
-                    assert segment_label is not None, (
+                    assert seg_label is not None, (
                             "If `use_true_ghost_mask` is set to `True`, must "
-                            "provide the `segment_label` tensor.")
+                            "provide the `seg_label` tensor.")
 
-                    labels = segment_label.tensor
+                    labels = seg_label.tensor
                     assert (labels.shape[0] == 
                             decoder_tensors[-1].tensor.shape[0]), (
                                     "The label tensor length must match that "

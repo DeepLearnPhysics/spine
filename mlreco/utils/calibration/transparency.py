@@ -6,18 +6,16 @@ from mlreco.utils.geometry import Geometry
 
 
 class TransparencyCalibrator:
-    '''
-    Applies a correction on the amount of charge observed in a space point
+    """Applies a correction on the amount of charge observed in a space point
     based on its position in the plane of the sensitive wires/pixels (yz).
-    '''
+    """
     name = 'transparency'
 
     def __init__(self,
                  transparency_db,
                  num_tpcs,
                  value_key='scale'):
-        '''
-        Load the calibration maps
+        """Load the calibration maps.
 
         Parameters
         ----------
@@ -28,14 +26,13 @@ class TransparencyCalibrator:
             Number of TPCs in the detector
         value_key: str, default 'scale'
             Database key which provides the calibration factor
-        '''
+        """
         # Load the transparency database
         self.transparency = CalibrationDatabase(transparency_db,
                 num_tpcs=num_tpcs, db_type='map', value_key=value_key)
 
     def process(self, points, values, tpc_id, run_id):
-        '''
-        Apply the transparency correction.
+        """Apply the transparency correction.
 
         Parameters
         ----------
@@ -52,7 +49,7 @@ class TransparencyCalibrator:
         -------
         np.ndarray
             (N) array of corrected values
-        '''
+        """
         # Get the appropriate transparency map for this run
         transparency_lut = self.transparency[run_id]
 

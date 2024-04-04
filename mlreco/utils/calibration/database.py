@@ -5,18 +5,16 @@ from pathlib import Path
 
 
 class CalibrationDatabase:
-    '''
-    Wraps basic SQLite loading/querying functions to provide a more
+    """Wraps basic SQLite loading/querying functions to provide a more
     user-friendly API to the calibration classes.
 
     Notes
     -----
     This class assumes that the structure of the SQLite libraries used
     is that of ICARUS calibration databases, for now.
-    '''
+    """
     def __init__(self, db_path, num_tpcs, db_type='value', value_key='scale'):
-        '''
-        Given a path to a calibration data base, load the information
+        """Given a path to a calibration data base, load the information
         into a dictionary.
 
         Parameters
@@ -39,11 +37,12 @@ class CalibrationDatabase:
         -----
         This makes assumptions about how the database is structured for
         ICARUS calibration for now as of the time of implementation.
-        '''
+        """
         # Make sure the type of database is recognized
         if db_type not in ['value', 'map']:
-            raise ValueError(f'Type of database not recognized: {db_type}. ' \
-                    'Must be either `value` or `map`.')
+            raise ValueError(
+                    f"Type of database not recognized: {db_type}. "
+                     "Must be either 'value' or 'map'.")
 
         # Load the database into a pandas dataframe
         stem = Path(db_path).stem
@@ -72,8 +71,7 @@ class CalibrationDatabase:
         self.runs = np.sort(list(self.dict.keys()))
 
     def load_values(self, df_run, quantity):
-        '''
-        Loads one value per TPC
+        """Loads one value per TPC.
 
         Parameters
         ----------
@@ -86,10 +84,10 @@ class CalibrationDatabase:
         -------
         np.ndarray
             (N_tpc) Array of calibration values
-        '''
+        """
         # Check that there is exactly one value per tpc
-        assert len(df_run) == self.num_tpcs, \
-                'There should be one quantity specified per TPC'
+        assert len(df_run) == self.num_tpcs, (
+                "There should be one quantity specified per TPC")
 
         # Store the values into an array
         array = np.empty(self.num_tpcs)
@@ -101,8 +99,7 @@ class CalibrationDatabase:
         return array
 
     def load_tables(self, df_run, quantity):
-        '''
-        Loads one look-up table per TPC
+        """Loads one look-up table per TPC.
 
         Parameters
         ----------
@@ -115,7 +112,7 @@ class CalibrationDatabase:
         -------
         np.ndarray
             (N_tpc) Array of calibration look-up tables
-        '''
+        """
         tpc_luts = []
         tpc_keys = ['EE', 'EW', 'WE', 'WW']
         for tpc_id, tpc_key in enumerate(tpc_keys):
@@ -133,8 +130,7 @@ class CalibrationDatabase:
         return tpc_luts
 
     def __getitem__(self, run_id):
-        '''
-        Mirrors the `query` function.
+        """Mirrors the `query` function.
 
         Parameters
         ----------
@@ -145,12 +141,11 @@ class CalibrationDatabase:
         -------
         np.ndarray
             List of values per channel
-        '''
+        """
         return self.query(run_id)
 
     def query(self, run_id):
-        '''
-        Gets the database information for a given run. If the run does not
+        """Gets the database information for a given run. If the run does not
         exist in the list, pick the one closest but earlier than it.
 
         Parameters
@@ -162,11 +157,12 @@ class CalibrationDatabase:
         -------
         np.ndarray
             List of values per channel
-        '''
+        """
         # Identify the closest run that is before the queried run
         if run_id < self.runs[0]:
-            raise IndexError('No calibration information for run ' \
-                    f'{run_id} < {self.runs[0]}')
+            raise IndexError(
+                     "No calibration information for run "
+                    f"{run_id} < {self.runs[0]}")
 
         closest_run = self.runs[np.where(self.runs <= run_id)[0][-1]]
 
@@ -174,13 +170,12 @@ class CalibrationDatabase:
 
 
 class CalibrationLUT:
-    '''
-    Look-up table for calibration values. Given a set of coordinates,
+    """Look-up table for calibration values. Given a set of coordinates,
     returns a calibration value.
-    '''
+    """
+
     def __init__(self, dims, bins, range, values):
-        '''
-        Initialize the calibration map
+        """Initialize the calibration map.
 
         Parameters
         ----------
@@ -192,23 +187,22 @@ class CalibrationLUT:
             Axis range in each dimension
         values : np.ndarray
             Values in each bin
-        '''
+        """
         # Store metadata information
-        assert len(range) == len(dims) and len(bins) == len(dims), \
-                'Must provide a bin count and range per dimension'
+        assert len(range) == len(dims) and len(bins) == len(dims), (
+                "Must provide a bin count and range per dimension")
         self.dims = dims
         self.range = np.array(range)
         self.bins = np.array(bins)
         self.bin_sizes = (self.range[:,1]-self.range[:,0])/self.bins
 
         # Store the values in each bin. Should be a dense matrix
-        assert np.all(values.shape == self.bins), \
-                'Must provide one calibration value per bin'
+        assert np.all(values.shape == self.bins), (
+                "Must provide one calibration value per bin")
         self.values = values
 
     def query(self, points):
-        '''
-        Queries the LUT to get the calibration values for a set of points.
+        """Queries the LUT to get the calibration values for a set of points.
 
         Parameters
         ----------
@@ -219,14 +213,14 @@ class CalibrationLUT:
         -------
         np.ndarray
             Calibration constants
-        '''
+        """
         # Get the bin the position belongs to:
         offsets = points[:,self.dims] - self.range[:,0]
         bin_ids = (offsets/self.bin_sizes).astype(int)
 
         # Collapse to the closest bin if it is outisde of range
-        #assert np.all(bin_ids > -1) and np.all(bin_ids < self.bins), \
-        #        'Some of the points fall outside of the look-up table'
+        #assert np.all(bin_ids > -1) and np.all(bin_ids < self.bins), (
+        #        "Some of the points fall outside of the look-up table")
         bad_mask = np.where(bin_ids < 0)
         bin_ids[bad_mask] = 0
         bad_mask = np.where(bin_ids >= self.bins)

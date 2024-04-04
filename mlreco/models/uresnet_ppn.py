@@ -57,7 +57,7 @@ class UResNetPPN(torch.nn.Module):
         assert self.uresnet.ghost == self.ppn.ghost
         self.ghost = self.uresnet.ghost
 
-    def forward(self, data, segment_label=None):
+    def forward(self, data, seg_label=None):
         """Run a batch of data through the foward function.
 
         Parameters
@@ -68,7 +68,7 @@ class UResNetPPN(torch.nn.Module):
             - 1 is the batch ID
             - D is the number of dimensions in the input image
             - N_f is the number of features per voxel
-        segment_label : TensorBatch, optional
+        seg_label : TensorBatch, optional
             (N, 1 + D + 1) tensor of voxel/ghost label pairs
         """
         # Pass the input through the backbone UResNet model
@@ -79,12 +79,12 @@ class UResNetPPN(torch.nn.Module):
             # Deghost
             if self.ppn.use_true_ghost_mask:
                 # Use the true ghost labels
-                assert segment_label is not None, (
+                assert seg_label is not None, (
                         "If `use_true_ghost_mask` is set to `True`, must "
-                        "provide the `segment_label` tensor.")
+                        "provide the `seg_label` tensor.")
                 result_ppn = self.ppn(
                         result['final_tensor'], result['decoder_tensors'],
-                        result['ghost_tensor'], segment_label)
+                        result['ghost_tensor'], seg_label)
             else:
                 # Use the ghost predictions
                 result_ppn = self.ppn(
@@ -148,12 +148,12 @@ class UResNetPPNLoss(torch.nn.Module):
         # Initialize the point proposal loss
         self.ppn_loss = PPNLoss(uresnet, ppn, ppn_loss)
 
-    def forward(self, segment_label, ppn_label, weights=None, **result):
+    def forward(self, seg_label, ppn_label, weights=None, **result):
         """Run a batch of data through the loss function.
 
         Parameters
         ----------
-        segment_label : TensorBatch
+        seg_label : TensorBatch
             (N, 1 + D + 1) Tensor of segmentation labels for the batch
         ppn_label : TensorBatch
             (N, 1 + D + N_l) Tensor of PPN labels for the batch
@@ -167,7 +167,7 @@ class UResNetPPNLoss(torch.nn.Module):
         TODO
         """
         # Apply the segmentation loss
-        result_seg = self.seg_loss(segment_label, weights=weights, **result)
+        result_seg = self.seg_loss(seg_label, weights=weights, **result)
 
         # Apply the PPN loss
         result_ppn = self.ppn_loss(ppn_label, **result)

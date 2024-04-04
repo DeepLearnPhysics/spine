@@ -6,10 +6,9 @@ from mlreco.utils.geometry import Geometry
 
 
 class LifetimeCalibrator:
-    '''
-    Applies a correction based on drift electron lifetime and the distance
+    """Applies a correction based on drift electron lifetime and the distance
     from the ionization point to the closest readout plane.
-    '''
+    """
     name = 'lifetime'
 
     def __init__(self,
@@ -18,8 +17,7 @@ class LifetimeCalibrator:
                  driftv = None,
                  lifetime_db = None,
                  driftv_db = None):
-        '''
-        Load the information needed to make a lifetime correction.
+        """Load the information needed to make a lifetime correction.
 
         Parameters
         ----------
@@ -37,12 +35,12 @@ class LifetimeCalibrator:
         driftv_db : str, optional
             Path to a SQLite db file which maps [run, cryo, tpc] sets onto
             a specific electron drift velocity value in cm/us.
-        '''
+        """
         # Load the database, which maps run numbers onto a lifetime/drift v
-        assert (lifetime is not None and driftv is not None) \
-                ^ (lifetime_db is not None and driftv_db is not None), \
-                'Must specify static values of the lifetime and drift ' \
-                'velocity or paths to databases that provide it.'
+        assert ((lifetime is not None and driftv is not None) ^
+                (lifetime_db is not None and driftv_db is not None)), (
+                "Must specify static values of the lifetime and drift "
+                "velocity or paths to databases that provide it.")
 
         # If static values are specified, store them
         if lifetime:
@@ -53,16 +51,16 @@ class LifetimeCalibrator:
             if np.issclar(lifetime):
                 self.lifetime = np.full(num_tpcs, lifetime)
             else:
-                assert len(lifetime) == num_tpcs, \
-                        '`lifetime` list must provide one value per TPC'
+                assert len(lifetime) == num_tpcs, (
+                        "`lifetime` list must provide one value per TPC")
                 self.lifetime = lifetime
 
             # Initialize electron drift velocity
             if np.isscalar(driftv):
                 self.driftv = np.full(num_tpcs, driftv)
             else:
-                assert len(driftv) == num_tpcs, \
-                        '`driftv` list must provide one value per TPC'
+                assert len(driftv) == num_tpcs, (
+                        "`driftv` list must provide one value per TPC")
                 self.drift = driftv
 
         # If databases are provided, load them in
@@ -77,7 +75,7 @@ class LifetimeCalibrator:
             self.driftv = CalibrationDatabase(driftv_db, num_tpcs)
 
     def process(self, points, values, geo, tpc_id, run_id=None):
-        '''
+        """
         Apply the lifetime correction.
 
         Parameters
@@ -97,13 +95,13 @@ class LifetimeCalibrator:
         -------
         np.ndarray
             (N) array of corrected values
-        '''
+        """
         # Get the corrections lifetimes/drift velocities
         lifetime = self.lifetime
         driftv = self.driftv
         if self.use_db:
-            assert run_id is not None, \
-                    'When using the database, must provide a run ID'
+            assert run_id is not None, (
+                    "When using the database, must provide a run ID")
             lifetime = self.lifetime[run_id]
             driftv = self.driftv[run_id]
 

@@ -19,9 +19,10 @@ from .layers.common.dbscan import DBSCAN
 from mlreco.utils.cluster.cluster_graph_constructor import ClusterGraphConstructor
 
 from mlreco.utils.globals import (
-        VALUE_COL, CLUST_COL, SHAPE_COL, SHOWR_SHP, TRACK_SHP,
+        COORD_COLS, VALUE_COL, CLUST_COL, SHAPE_COL, SHOWR_SHP, TRACK_SHP,
         MICHL_SHP, DELTA_SHP, GHOST_SHP)
-from mlreco.utils.data_structures import TensorBatch, IndexBatch
+from mlreco.utils.data_structures import TensorBatch, IndexBatch, RunInfo
+from mlreco.utils.calibration import CalibrationManager
 from mlreco.utils.logger import logger
 from mlreco.utils.ppn import get_particle_points
 from mlreco.utils.cluster.fragmenter import GraphSPICEFragmentManager
@@ -107,13 +108,13 @@ class FullChain(torch.nn.Module):
             'particle_identification': ['grappa', 'image'],
             'primary_identification': ['grappa'],
             'orientation_identification': ['grappa'],
-            'calibration': ['default']
+            'calibration': ['apply']
     }
 
     def __init__(self, chain, uresnet_deghost=None, uresnet=None,
                  uresnet_ppn=None, graph_spice=None, dbscan=None,
                  grappa_shower=None, grappa_track=None, grappa_particle=None,
-                 grappa_inter=None, calibration=None, uresnet_deghost_loss=None,
+                 grappa_inter=None, calibrator=None, uresnet_deghost_loss=None,
                  uresnet_loss=None, uresnet_ppn_loss=None,
                  graph_spice_loss=None, grappa_shower_loss=None,
                  grappa_track_loss=None, grappa_particle_loss=None,
@@ -140,8 +141,8 @@ class FullChain(torch.nn.Module):
             Global particle aggregation configuration
         grappa_inter : dict, optional
             Interaction aggregation model configuration
-        calibration : dict, optional
-            Calibration configuration
+        calibrator : dict, optional
+            Calibration manager configuration
         """
         # Initialize the parent class
         super().__init__()
@@ -156,8 +157,12 @@ class FullChain(torch.nn.Module):
                     "`uresnet_deghost` configuration block.")
             self.uresnet_deghost = UResNetSegmentation(uresnet_deghost)
 
-        # Initialize the calibration model
-        # TODO
+        # Initialize the calibrater manager
+        if self.calibration == 'apply':
+            assert calibrator is not None, (
+                    "If the calibration is to be applied, must provide the "
+                    "`calibrator` configuration block.")
+            self.calibrator = CalibrationManager(**calibrator)
 
         # Initialize the semantic segmentation model (+ point proposal)
         if self.segmentation is not None and self.segmentation == 'uresnet':
@@ -212,7 +217,8 @@ class FullChain(torch.nn.Module):
         # Initialize the interaction-classification module
         # TODO (could be done by either CNN or graph-level GNN)
 
-    def forward(self, data, seg_label=None, clust_label=None, coord_label=None):
+    def forward(self, data, sources=None, seg_label=None, clust_label=None,
+                coord_label=None, energy_label=None, run_info=None):
         """Run a batch of data through the full chain.
 
         Parameters
@@ -223,15 +229,22 @@ class FullChain(torch.nn.Module):
             - 1 is the batch ID
             - D is the number of dimensions in the input image
             - N_f is the number of features per voxel
-        seg_label : TensorBatch
+        sources : TensorBatch, optional
+            (N, 2) tensor of module/tpc pair for each voxel
+        seg_label : TensorBatch, optional
             (N, 1 + D + 1) Tensor of segmentation labels for the batch
             - 1 is the segmentation label
-        clust_label : TensorBatch
+        clust_label : TensorBatch, optional
             (N, 1 + D + N_c) Tensor of cluster labels
             - N_c is is the number of cluster labels
-        coord_label : TensorBatch
-            (N, 1 + D + N_p) Tensor point of interest labels
+        coord_label : TensorBatch, optional
+            (N, 1 + D + N_p) Tensor of point of interest labels
             - N_p is the number point labels
+        energy_label : TensorBatch, optional
+            (N, 1 + D + 1) Tensor of true energy deposition values
+            - 1 is the energy deposition value in each voxel
+        run_info : List[RunInfo], optional
+            Object containing information about the run, subrun and event
 
         Returns
         -------
@@ -244,7 +257,7 @@ class FullChain(torch.nn.Module):
         data = self.run_deghosting(data, seg_label, clust_label)
 
         # Run the calibration step
-        # TODO
+        data = self.run_calibration(data, sources, energy_label, run_info)
 
         # Run the semantic segmentation (and point proposal) stage
         clust_label = self.run_segmentation_ppn(data, seg_label, clust_label)
@@ -262,7 +275,6 @@ class FullChain(torch.nn.Module):
         # TODO
 
         # Return
-        print(self.result.keys())
         return self.result
 
     def run_deghosting(self, data, seg_label=None, clust_label=None):
@@ -294,23 +306,23 @@ class FullChain(torch.nn.Module):
             # Store the ghost scores and the ghost mask
             ghost_tensor = res_deghost['segmentation'].tensor
             ghost_pred = torch.argmax(ghost_tensor, dim=1)
-            data_deghost = TensorBatch(
+            data_adapted = TensorBatch(
                     data.tensor[ghost_pred == 0], batch_size=data.batch_size)
             ghost_pred = TensorBatch(ghost_pred, data.counts)
 
             # Rescale the charge, if requested
             if self.charge_rescaling is not None:
                 charges = compute_rescaled_charge_batch(
-                        data_deghost, self.charge_rescaling == 'collection')
-                tensor_deghost = data_deghost.tensor[:, :-6]
+                        data_adapted, self.charge_rescaling == 'collection')
+                tensor_deghost = data_adapted.tensor[:, :-6]
                 tensor_deghost[:, VALUE_COL] = charges
-                data_deghost = TensorBatch(tensor_deghost, data_deghost.counts)
+                data_adapted = TensorBatch(tensor_deghost, data_adapted.counts)
 
             self.result['ghost'] = res_deghost['segmentation']
             self.result['ghost_pred'] = ghost_pred
-            self.result['data_deghost'] = data_deghost
+            self.result['data_adapted'] = data_adapted
 
-            return data_deghost
+            return data_adapted
 
         elif self.deghosting == 'label':
             # Use ghost labels to remove ghost voxels from the input
@@ -328,16 +340,65 @@ class FullChain(torch.nn.Module):
 
             # Store and return
             ghost_pred = TensorBatch(ghost_pred, data.counts)
-            data_deghost = TensorBatch(
+            data_adapted = TensorBatch(
                     tensor_deghost, batch_size=data.batch_size)
             self.result['ghost_pred'] = ghost_pred
-            self.result['data_deghost'] = data_deghost
+            self.result['data_adapted'] = data_adapted
 
-            return data_deghost
+            return data_adapted
 
         else:
             # Nothing to do
             return data
+
+    def run_calibration(self, data, sources=None, energy_label=None,
+                        run_info=None):
+        """Run the calibration algorithm.
+
+        This converts the raw charge values in ADC to energy depositions
+        expressed in MeV. It applies gain, recombination, transparency
+        and electron lifetime corrections.
+
+        Parameters
+        ----------
+        data : TensorBatch
+            (N, 1 + D + N_f) tensor of voxel/value pairs
+        sources : TensorBatch, optional
+            (N, 2) tensor of module/tpc pair for each voxel
+        energy_label : TensorBatch, optional
+            (N, 1 + D + 1) Tensor of true energy deposition values
+            - 1 is the energy deposition value in each voxel
+        run_info : List[RunInfo], optional
+            Object containing information about the run, subrun and event
+
+        Returns
+        -------
+        TensorBatch
+            (N, 1 + D + N_f) tensor of calibrated voxel/value pairs
+        """
+        if self.calibration == 'apply':
+            # Apply calibration routines
+            voxels = data.to_numpy().tensor[:, COORD_COLS]
+            values = data.to_numpy().tensor[:, VALUE_COL]
+            sources = sources.to_numpy().tensor if sources is not None else None
+            run_info = run_info[0] if run_info is not None else None
+ 
+            # TODO: remove hard-coded value of dE/dx
+            values = self.calibrator(voxels, values, sources, run_info, 2.2)
+            data.data[:, VALUE_COL] = torch.tensor(
+                    values, dtype=data.dtype, device=data.device)
+
+            self.result['data_adapted'] = data
+
+        elif self.calibration == 'label':
+            # Use energy labels to give values to each voxel
+            assert energy_label is not None, (
+                    "Must provide `seg_label` to deghost with it.")
+            data.value[:, VALUE_COL] = energy_label.tensor[:, VALUE_COL]
+
+            self.result['data_adapted'] = data
+
+        return data
 
     def run_segmentation_ppn(self, data, seg_label=None, clust_label=None):
         """Run the semantic segmentation and the point proposal algorithms.
@@ -367,17 +428,17 @@ class FullChain(torch.nn.Module):
                 # Store the ghost scores and the ghost mask
                 ghost_tensor = res_deghost['host'].tensor
                 ghost_pred = torch.argmax(ghost_tensor, dim=1)
-                data_deghost = TensorBatch(
+                data_adapted = TensorBatch(
                         data.tensor[ghost_pred == 0],
                         batch_size=data.batch_size)
                 ghost_pred = TensorBatch(ghost_pred, data.counts)
 
                 self.result['ghost_pred'] = ghost_pred
-                self.result['data_deghost'] = data_deghost
+                self.result['data_adapted'] = data_adapted
 
                 # If there are PPN outputs, deghost them
                 if 'ppn_points' in res_seg:
-                    deghost_index = torch.where(shower_pred == 0)[0]
+                    deghost_index = torch.where(ghost_pred == 0)[0]
                     res_seg['ppn_points'] = res_seg['ppn_points'][deghost_index]
                     for key in ['ppn_masks', 'ppn_coords',
                                 'ppn_layers', 'ppn_classify_endpoints']:
@@ -952,11 +1013,11 @@ class FullChainLoss(torch.nn.Module):
             self.graph_spice_loss = GraphSPICELoss(graph_spice_loss)
 
         # Initialize the GraPA lossses
-        grappa_losses = {
+        self.grappa_losses = {
                 'shower': grappa_shower_loss, 'track': grappa_track_loss,
                 'particle': grappa_particle_loss, 'inter': grappa_inter_loss
         }
-        for stage, config in grappa_losses.items():
+        for stage, config in self.grappa_losses.items():
             if getattr(self, f'{stage}_aggregation') == 'grappa':
                 name = f'grappa_{stage}_loss'
                 assert config is not None, (
@@ -964,40 +1025,137 @@ class FullChainLoss(torch.nn.Module):
                         f"must provide the {name} configuration block.")
                 setattr(self, name, GrapPALoss(config))
 
-    def forward(self, seg_label=None, clust_label=None, ghost=None,
-                segmentation=None, **kwargs):
+    def forward(self, seg_label=None, ppn_label=None, clust_label=None,
+                clust_label_adapted=None, coord_label=None, graph_label=None,
+                ghost=None, ghost_pred=None, segmentation=None, **kwargs):
                 
         """Run the full chain output through the full chain loss.
 
         Parameters
         ----------
-        data : TensorBatch
-            (N, 1 + D + N_f) tensor of voxel/value pairs
-            - N is the the total number of voxels in the image
-            - 1 is the batch ID
-            - D is the number of dimensions in the input image
-            - N_f is the number of features per voxel
-        seg_label : TensorBatch
+        seg_label : TensorBatch, optional
             (N, 1 + D + 1) Tensor of segmentation labels for the batch
             - 1 is the segmentation label
-        clust_label : TensorBatch
+        ppn_label : TensorBatch, optional
+            (N, 1 + D + N_l) Tensor of PPN labels for the batch
+        clust_label : TensorBatch, optional
             (N, 1 + D + N_c) Tensor of cluster labels
             - N_c is is the number of cluster labels
-        ghost : TensorBatch
+        clust_label_adapted : TensorBatch, optional
+            (N, 1 + D + N_c) Tensor of cluster labels adapted to seg predictions
+            - N_c is is the number of cluster labels
+        coord_label : TensorBatch, optional
+            (P, 1 + D + 8) Tensor of start/end point labels for each
+            true particle in the image
+        graph_label : EdgeIndexTensor, optional
+            (2, E) Tensor of edges that correspond to physical
+            connections between true particle in the image
+        ghost : TensorBatch, optional
             (N, 2) Tensor of logits from the deghosting model
-        segmentation : TensorBatch
+        ghost_pred : TensorBatch, optional
+            (N,) Tensor of ghost predictions
+        segmentation : TensorBatch, optional
             (N, N_c) Tensor of logits from the segmentation model
+        **kwargs : dict, optional
+            Additional outputs of the reconstruction chain
         """
         # Initialize the loss output
-        result = {}
-        accuracy, loss, count = 1., 0., 0
+        self.result = {'accuracy': 1., 'loss': 0., 'num_losses': 0}
 
         # Apply the deghosting loss
         if self.deghosting == 'uresnet':
-            print(ghost.shape)
+            # Convert segmentation labels to ghost labels
+            ghost_label_tensor = seg_label.tensor.clone() 
+            ghost_label_tensor[:, SHAPE_COL] = (
+                    seg_label.tensor[:, SHAPE_COL] == GHOST_SHP)
+            ghost_label = TensorBatch(ghost_label_tensor, seg_label.counts)
+
+            # Store the loss dictionary
             res_deghost = self.deghost_loss(
-                    seg_label=seg_label, segmentation=ghost)
-            print(res_deghost)
+                    seg_label=ghost_label, segmentation=ghost)
+            self.update_result(res_deghost, 'ghost')
+
+            # Restrict the segmentation labels and segmentation outputs
+            # to true non-ghosts (do not apply deghosting loss twice)
+            if segmentation is not None:
+                # Find the index of true non-ghosts in the pred non-ghosts
+                deghost_index = ghost_pred.tensor == 0
+                seg_label_t = seg_label.tensor[deghost_index]
+                index = seg_label_t[:, SHAPE_COL] < GHOST_SHP
+
+                seg_label = TensorBatch(
+                        seg_label_t[index], batch_size=seg_label.batch_size)
+                segmentation = TensorBatch(
+                        segmentation.tensor[index], seg_label.counts)
+
+        # Apply the segmentation and point proposal loss
+        if self.segmentation == 'uresnet':
+            # Store the loss dictionary
+            if hasattr(self, 'uresnet_loss'):
+                res_seg = self.uresnet_loss(
+                        seg_label=seg_label, segmentation=segmentation)
+                self.update_result(res_seg, 'uresnet')
+
+            else:
+                res_seg = self.uresnet_ppn_loss(
+                        seg_label=seg_label, ppn_label=ppn_label,
+                        segmentation=segmentation, **kwargs)
+
+                self.result['uresnet_ppn_loss'] = res_seg['loss']
+                self.result['uresnet_ppn_accuracy'] = res_seg['accuracy']
+                self.update_result(res_seg)
+
+            # Adapt the cluster labels to those corresponding to the
+            # reconstructed semantic segmentation of the image
+            clust_label = clust_label_adapted
+
+        # Apply the Graph-SPICE loss
+        if 'graph_spice' in self.fragmentation:
+            raise NotImplementedError
+
+        # Apply the aggregation losses
+        for stage in self.grappa_losses.keys():
+            if getattr(self, f'{stage}_aggregation') == 'grappa':
+                # Prepare the input to the loss function
+                name = f'grappa_{stage}_loss'
+                prefix = f'{stage}_fragment' if stage != 'inter' else 'particle'
+                loss_dict = {}
+                for k, v in kwargs.items():
+                    if f'{prefix}_' in k:
+                        loss_dict[k.split(f'{prefix}_')[-1]] = v
+
+                # Store the loss dictionaru
+                res_grappa = getattr(self, name)(
+                        clust_label=clust_label, coord_label=coord_label,
+                        graph_label=graph_label, **loss_dict)
+                self.update_result(res_grappa, f'grappa_{stage}')
+
+        return self.result
+
+    def update_result(self, result, prefix=None):
+        """Update loss and accuracy using the output of one of the module.
+
+        Parameters
+        ----------
+        result : dict
+            Dictionary output of the module
+        prefix : str, optional
+            Prefix to preface the loss output keys with
+        """
+        # Update the loss, accuracy and count
+        self.result['loss'] += result['loss']
+        self.result['accuracy'] = (
+                self.result['accuracy'] * self.result['num_losses']
+                + result['accuracy'])/(self.result['num_losses'] + 1)
+        self.result['num_losses'] += 1
+
+        # Store the results
+        if prefix is None:
+            result.pop('loss')
+            result.pop('accuracy')
+            self.result.update(result)
+        else:
+            self.result.update({f'{prefix}_{k}':v for k, v in result.items()})
 
 
 def process_chain_config(self, dump_config=False, **parameters):
@@ -1006,7 +1164,7 @@ def process_chain_config(self, dump_config=False, **parameters):
     Parameters
     ----------
     dump_config : bool, default False
-        Whether to print out the chain configuration or not
+        Whether to dump the chain configuration in the log file or not
     **parameters : dict
         Dictionary of chain configuration parameters
     """

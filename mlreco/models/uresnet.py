@@ -269,7 +269,6 @@ class SegmentationLoss(torch.nn.modules.loss._Loss):
         segmentation = segmentation.tensor
 
         # Make sure that the segmentation output and labels have the same length
-        print(len(seg_label), len(segmentation))
         assert len(seg_label) == len(segmentation), (
                 f"The `segmentation` output length ({len(segmentation)}) and "
                 f"its labels ({len(seg_label)}) do not match.")

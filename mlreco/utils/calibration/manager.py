@@ -1,60 +1,59 @@
 import numpy as np
 
 from mlreco.utils.geometry import Geometry
+from mlreco.utils.stopwatch import StopwatchManager
 
 from .factories import calibrator_factory
 
 
 class CalibrationManager:
-    '''
-    Manager in charge of applying all calibration-related corrections onto
+    """Manager in charge of applying all calibration-related corrections onto
     a set of 3D space points and their associated measured charge depositions.
-    '''
-    def __init__(self, cfg, parent_path=''):
-        '''
-        Initialize the manager
+    """
+
+    def __init__(self, geometry, parent_path='', **cfg):
+        """Initialize the manager.
 
         Parameters
         ----------
-        cfg : dict
-            Calibrator configurations
+        geometry : dict
+            Geometry configuration
         parent_path : str, optional
             Path to the analysis tools configuration file
-        '''
+        **cfg : dict, optional
+            Calibrator configurations
+        """
         # Initialize the geometry model shared across all modules
-        assert 'geometry' in cfg, \
-                'Must provide a geometry configuration to apply calibrations'
-        self.geo = Geometry(**cfg.pop('geometry'))
+        self.geo = Geometry(**geometry)
 
         # Make sure the essential calibration modules are present
-        assert 'gain' in cfg, \
-                'Must provide an ADC to number electrons conversion factor'
-        assert 'recombination' in cfg, \
-                'Must provide a recombination model to convert from number ' \
-                'of electrons to an energy deposition in MeV'
+        assert 'gain' in cfg, (
+                "Must provide an ADC to number electrons conversion factor.")
+        assert 'recombination' in cfg, (
+                "Must provide a recombination model to convert from number "
+                "of electrons to an energy deposition in MeV.")
 
         # Add the modules to a processor list in decreasing order of priority
-        self.modules   = {}
-        self.profilers = {} # TODO: Replace this with StopWatchManager
-        for k in cfg.keys():
+        self.modules = {}
+        self.watch   = StopwatchManager()
+        for key in cfg.keys():
             # If requested, profile the module (default True)
-            profile = cfg[k].pop('profile') if 'profile' in cfg[k] else True
+            profile = cfg[key].pop('profile') if 'profile' in cfg[key] else True
             if profile:
-                self.profilers[k] = 0.
+                self.watch.initialize(key)
 
             # Add necessary geometry information
-            if k != 'recombination':
-                cfg[k]['num_tpcs'] = self.geo.num_tpcs
+            if key != 'recombination':
+                cfg[key]['num_tpcs'] = self.geo.num_tpcs
             else:
-                cfg[k]['drift_dir'] = self.geo.drift_dirs[0, 0]
+                cfg[key]['drift_dir'] = self.geo.drift_dirs[0, 0]
 
             # Append
-            self.modules[k] = calibrator_factory(k, cfg[k], parent_path)
+            self.modules[key] = calibrator_factory(key, cfg[key], parent_path)
 
-    def process(self, points, values, sources=None, run_id=None,
-            dedx=None, track=None):
-        '''
-        Main calibration driver
+    def __call__(self, points, values, sources=None, run_id=None,
+                 dedx=None, track=None):
+        """Main calibration driver.
 
         Parameters
         ----------
@@ -79,11 +78,7 @@ class CalibrationManager:
         -------
         np.ndarray
             (N) array of calibrated depositions in MeV
-        '''
-        # Reset the profilers
-        for key in self.profilers:
-            self.profilers[key] = 0.
-
+        """
         # Create a mask for each of the TPC volume in the detector
         if sources is not None:
             tpc_indexes = []
@@ -94,8 +89,8 @@ class CalibrationManager:
                 tpc_index = self.geo.get_tpc_index(sources, module_id, tpc_id)
                 tpc_indexes.append(tpc_index)
         else:
-            assert points is not None, \
-                    'If sources are not given, must provide points instead'
+            assert points is not None, (
+                    "If sources are not given, must provide points instead.")
             tpc_indexes = self.geo.get_closest_tpc_indexes(points)
 
         # Loop over the TPCs, apply the relevant calibration corrections
@@ -109,8 +104,8 @@ class CalibrationManager:
 
             # Apply the transparency correction
             if 'transparency' in self.modules:
-                assert run_id is not None, \
-                        'Must provide a run ID to get the transparency map'
+                assert run_id is not None, (
+                        "Must provide a run ID to get the transparency map.")
                 tpc_values = self.modules['transparency'].process(tpc_points,
                         tpc_values, t, run_id) # ADC
 

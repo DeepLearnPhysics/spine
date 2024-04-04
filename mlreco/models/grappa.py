@@ -518,8 +518,8 @@ class GrapPALoss(torch.nn.modules.loss._Loss):
         coord_label : TensorBatch, optional
             (P, 1 + D + 8) Tensor of start/end point labels for each
             true particle in the image
-        graph_label : TensorBatch, optional
-            (E, 1 + 2) Tensor of edges that correspond to physical
+        graph_label : EdgeIndexTensor, optional
+            (2, E) Tensor of edges that correspond to physical
             connections between true particle in the image
         iteration : int, optional
             Iteration index
