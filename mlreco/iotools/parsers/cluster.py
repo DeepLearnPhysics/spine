@@ -17,6 +17,7 @@ from .clean_data import clean_sparse_data
 from mlreco.utils.globals import SHAPE_COL, DELTA_SHP, UNKWN_SHP
 from mlreco.utils.data_structures import Meta
 from mlreco.utils.particles import process_particle_event
+from mlreco.utils.ppn import image_coordinates
 
 __all__ = ['Cluster2DParser', 'Cluster3DParser',
            'Cluster3DChargeRescaledParser', 'Cluster3DMultiModuleParser']
@@ -236,9 +237,11 @@ class Cluster3DParser(Parser):
             labels['pinter']  = inter_primaries
 
             # Store the vertex and momentum
-            labels['vtx_x']   = [p.ancestor_position().x() for p in particles]
-            labels['vtx_y']   = [p.ancestor_position().y() for p in particles]
-            labels['vtx_z']   = [p.ancestor_position().z() for p in particles]
+            anc_pos = lambda p: image_coordinates(meta, p.ancestor_position())
+            anc_positions = np.vstack([anc_pos(p) for p in particles])
+            labels['vtx_x']   = anc_positions[:, 0]
+            labels['vtx_y']   = anc_positions[:, 1]
+            labels['vtx_z']   = anc_positions[:, 2]
             labels['p']       = [p.p() for p in particles]
 
             # Store the shape last (consistent with semantics tensor)
