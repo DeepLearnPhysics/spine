@@ -12,11 +12,11 @@ from sklearn.cluster import DBSCAN
 
 from .parser import Parser
 from .sparse import Sparse3DParser
-from .particles import ParticleParser
 from .clean_data import clean_sparse_data
 
 from mlreco.utils.globals import SHAPE_COL, DELTA_SHP, UNKWN_SHP
 from mlreco.utils.data_structures import Meta
+from mlreco.utils.particles import process_particle_event
 
 __all__ = ['Cluster2DParser', 'Cluster3DParser',
            'Cluster3DChargeRescaledParser', 'Cluster3DMultiModuleParser']
@@ -162,9 +162,6 @@ class Cluster3DParser(Parser):
                     "If `add_particle_info` is `True`, must provide the"
                     "`particle_event` argument")
 
-            self.particle_parser = ParticleParser(
-                    pixel_coordinates=pixel_coordinates, post_process=True)
-
     def process(self, cluster_event, particle_event=None,
                 particle_mpv_event=None, neutrino_event=None,
                 sparse_semantics_event=None, sparse_value_event=None):
@@ -218,32 +215,34 @@ class Cluster3DParser(Parser):
                     f"aligned with the number of clusters ({num_clusters}). "
                     f"There can me one more catch-all cluster at the end.")
 
-            # Load up the particle/meutrino objects as lists
-            particles = self.particle_parser.process(
-                    particle_event, cluster_event,
-                    particle_mpv_event=particle_mpv_event,
-                    neutrino_event=neutrino_event)
+            # Load up the particle list
+            particles = list(particle_event.as_vector())
+
+            # Fetch the variables missing from the larcv objects
+            (inter_ids, nu_ids, group_primaries,
+             inter_primaries, types) = process_particle_event(
+                        particle_event, particle_mpv_event, neutrino_event)
 
             # Store the cluster ID information
-            labels['cluster'] = [p.id for p in particles]
-            labels['part']    = [p.id for p in particles]
-            labels['group']   = [p.group_id for p in particles]
-            labels['inter']   = [p.interaction_id for p in particles]
-            labels['nu']      = [p.nu_id for p in particles]
+            labels['cluster'] = [p.id() for p in particles]
+            labels['part']    = [p.id() for p in particles]
+            labels['group']   = [p.group_id() for p in particles]
+            labels['inter']   = inter_ids
+            labels['nu']      = nu_ids
 
             # Store the type/primary status
-            labels['type']    = [p.pid for p in particles]
-            labels['pgroup']  = [p.group_primary for p in particles]
-            labels['pinter']  = [p.interaction_primary for p in particles]
+            labels['type']    = types
+            labels['pgroup']  = group_primaries
+            labels['pinter']  = inter_primaries
 
             # Store the vertex and momentum
-            labels['vtx_x']   = [p.ancestor_position[0] for p in particles]
-            labels['vtx_y']   = [p.ancestor_position[1] for p in particles]
-            labels['vtx_z']   = [p.ancestor_position[2] for p in particles]
-            labels['p']       = [p.p for p in particles]
+            labels['vtx_x']   = [p.ancestor_position().x() for p in particles]
+            labels['vtx_y']   = [p.ancestor_position().y() for p in particles]
+            labels['vtx_z']   = [p.ancestor_position().z() for p in particles]
+            labels['p']       = [p.p() for p in particles]
 
             # Store the shape last (consistent with semantics tensor)
-            labels['shape']   = [p.shape for p in particles]
+            labels['shape']   = [p.shape() for p in particles]
 
             # If requested, give invalid labels to a subset of particles
             if not self.type_include_secondary:
@@ -306,8 +305,8 @@ class Cluster3DParser(Parser):
             (sparse_value_event is not None)):
             if not self.clean_data:
                 from warnings import warn
-                warn("You must set `clean_data` to `True` if you specify a"
-                     "sparse tensor in parse_cluster3d")
+                warn("You must set `clean_data` to `True` if you specify a "
+                     "sparse tensor in `parse_cluster3d`.")
                 self.clean_data = True
 
             # Extract voxels and features
@@ -315,7 +314,7 @@ class Cluster3DParser(Parser):
                     "Need to add particle info to fetch particle "
                     "semantics for each voxel.")
             assert sparse_semantics_event is not None, (
-                    "Need to provide a semantics tensor to clean up output")
+                    "Need to provide a semantics tensor to clean up output.")
             sem_voxels, sem_features, _ = (
                     self.sparse_parser.process(sparse_semantics_event))
             np_voxels, np_features = (

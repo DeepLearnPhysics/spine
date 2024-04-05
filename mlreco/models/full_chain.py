@@ -1100,9 +1100,6 @@ class FullChainLoss(torch.nn.Module):
                 res_seg = self.uresnet_ppn_loss(
                         seg_label=seg_label, ppn_label=ppn_label,
                         segmentation=segmentation, **kwargs)
-
-                self.result['uresnet_ppn_loss'] = res_seg['loss']
-                self.result['uresnet_ppn_accuracy'] = res_seg['accuracy']
                 self.update_result(res_seg)
 
             # Adapt the cluster labels to those corresponding to the

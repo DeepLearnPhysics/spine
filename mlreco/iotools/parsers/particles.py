@@ -16,7 +16,7 @@ from larcv import larcv
 from mlreco.utils.globals import TRACK_SHP, PDG_TO_PID, PID_MASSES
 from mlreco.utils.data_structures import Meta, Particle, Neutrino, ObjectList
 from mlreco.utils.particles import process_particles
-from mlreco.utils.ppn import get_ppn_labels
+from mlreco.utils.ppn import get_ppn_labels, image_coordinates
 
 from .parser import Parser
 
@@ -35,11 +35,14 @@ class ParticleParser(Parser):
             parser: parse_particles
             particle_event: particle_pcluster
             cluster_event: cluster3d_pcluster
+            asis: False
             pixel_coordinates: True
+            post_process: True
     """
     name = 'parse_particles'
 
-    def __init__(self, pixel_coordinates=True, post_process=True, **kwargs):
+    def __init__(self, pixel_coordinates=True, post_process=True,
+                 asis=False, **kwargs):
         """Initialize the parser.
 
         Parameters
@@ -49,6 +52,8 @@ class ParticleParser(Parser):
             (start, end, etc.) to voxel coordinates
         post_process : bool, default True
             Processes particles to add/correct missing attributes
+        asis : bool, default False
+            Load the objects as larcv objects, do not build local data class
         **kwargs : dict, optional
             Data product arguments to be passed to the `process` function
         """
@@ -58,6 +63,7 @@ class ParticleParser(Parser):
         # Store the revelant attributes
         self.pixel_coordinates = pixel_coordinates
         self.post_process = post_process
+        self.asis = asis
 
     def process(self, particle_event, sparse_event=None, cluster_event=None,
                 particle_mpv_event=None, neutrino_event=None):
@@ -83,22 +89,23 @@ class ParticleParser(Parser):
         List[Particle]
             List of true particle objects
         """
+        # If asis is true, return larcv objects
+        particle_list = list(particle_event.as_vector())
+        if self.asis:
+            assert not self.pixel_coordinates, (
+                    "If `asis` is True, `pixel_coordinates` must be False.")
+            assert not self.post_process, (
+                    "If `asis` is True, `post_process` must be False.")
+
+            return ObjectList(particle_list, larcv.Particle())
+
         # Convert to a list of particle objects
-        particle_list = particle_event.as_vector()
         particles = [Particle.from_larcv(p) for p in particle_list]
 
         # If requested, post-process the particle list
         if self.post_process:
-            # Fetch the secondary information
-            particles_mpv, neutrinos = None, None
-            if particle_mpv_event is not None:
-                particle_mpv_list = particle_mpv_event.as_vector()
-                particles = [Particle.from_larcv(p) for p in particle_mpv_list]
-            if neutrino_event is not None:
-                neutrino_list = neutrino_event.as_vector()
-                neutrinos = [Neutrino.from_larcv(n) for n in neutrino_list]
-
-            process_particles(particles, particles_mpv, neutrinos)
+            process_particles(particles, particle_event,
+                              particle_mpv_event, neutrino_event)
 
         # If requested, convert the point positions to pixel coordinates
         if self.pixel_coordinates:
@@ -127,10 +134,11 @@ class NeutrinoParser(Parser):
             neutrino_event: neutrino_mpv
             cluster_event: cluster3d_pcluster
             pixel_coordinates: True
+            asis: False
     """
     name = 'parse_neutrinos'
 
-    def __init__(self, pixel_coordinates=True, **kwargs):
+    def __init__(self, pixel_coordinates=True, asis=False, **kwargs):
         """Initialize the parser.
 
         Parameters
@@ -138,6 +146,8 @@ class NeutrinoParser(Parser):
         pixel_coordinates : bool, default True
             If set to `True`, the parser rescales the truth positions
             (start, end, etc.) to voxel coordinates
+        asis : bool, default False
+            Load the objects as larcv objects, do not build local data class
         **kwargs : dict, optional
             Data product arguments to be passed to the `process` function
         """
@@ -146,6 +156,7 @@ class NeutrinoParser(Parser):
 
         # Store the revelant attributes
         self.pixel_coordinates = pixel_coordinates
+        self.asis = False
 
     def process(self, neutrino_event, sparse_event=None, cluster_event=None):
         """Fetch the list of true neutrino objects.
@@ -166,8 +177,17 @@ class NeutrinoParser(Parser):
         List[Neutrino]
             List of true neutrino objects
         """
+        # If asis is true, return larcv objects
+        neutrino_list = list(neutrino_event.as_vector())
+        if self.asis:
+            assert not self.pixel_coordinates, (
+                    "If `asis` is True, `pixel_coordinates` must be False.")
+            assert not self.post_process, (
+                    "If `asis` is True, `post_process` must be False.")
+
+            return ObjectList(neutrino_list, larcv.Neutrino())
+
         # Convert to a list of neutrino objects
-        neutrino_list = neutrino_event.as_vector()
         neutrinos = [Neutrino.from_larcv(n) for n in neutrino_list]
 
         # If requested, convert the point positions to pixel coordinates
@@ -286,10 +306,6 @@ class ParticleCoordinateParser(Parser):
         # Initialize the parent class
         super().__init__(**kwargs)
 
-        # Initialize the particle parser
-        self.particle_parser = ParticleParser(
-                pixel_coordinates=pixel_coordinates, post_process=False)
-
     def process(self, particle_event, sparse_event=None, cluster_event=None):
         """Fetch the start/end point and time of each true particle.
 
@@ -322,15 +338,15 @@ class ParticleCoordinateParser(Parser):
         meta = ref_event.meta()
 
         # Scale particle coordinates to image size
-        particles = self.particle_parser.process(particle_event, ref_event)
+        particles_v = particle_event.as_vector()
 
         # Make features
         features = []
-        for i, p in enumerate(particles):
-            start_point = last_point = p.first_step
-            if p.shape == TRACK_SHP: # End point only meaningful for tracks
-                last_point = p.last_step
-            extra = [p.t, p.shape]
+        for i, p in enumerate(particles_v):
+            start_point = last_point = image_coordinates(meta, p.first_step())
+            if p.shape() == TRACK_SHP: # End point only meaningful for tracks
+                last_point = image_coordinates(meta, p.last_step())
+            extra = [p.t(), p.shape()]
             features.append(np.concatenate((start_point, last_point, extra)))
 
         features = np.vstack(features)
