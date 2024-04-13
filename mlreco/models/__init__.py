@@ -1,1 +1,1 @@
-from .factories import construct_model
+from .factories import model_factory

@@ -156,6 +156,28 @@ class Neutrino:
         for attr in self._pos_attrs:
             setattr(self, attr, meta.to_pixel(getattr(self, attr)))
 
+    @property
+    def fixed_length_attrs(self):
+        """Fetches the list of fixes-length array attributes.
+
+        Returns
+        -------
+        List[str]
+            List of fixed length array attribute names
+        """
+        return self._fixed_length_attrs
+
+    @property
+    def enum_attrs(self):
+        """Fetches the list of enumerated arguments.
+
+        Returns
+        -------
+        Dict[int, Dict[int, str]]
+            Dictionary which maps names onto enumerator descriptors
+        """
+        return self._enum_attrs
+
     @classmethod
     def from_larcv(cls, neutrino):
         """Builds and returns a Neutrino object from a LArCV Neutrino object.

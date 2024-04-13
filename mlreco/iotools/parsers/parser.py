@@ -1,13 +1,24 @@
 """Contains Parser class which all parsers inherit from."""
 
-class Parser:
-    """Parent class of all parser classes.
+from abc import ABC, abstractmethod
+
+
+class Parser(ABC):
+    """Abstract parent class of all parser classes.
 
     Provides basic functionality shared by all parsers:
     1. Defines a :meth:`__call__` function shared by all classes
 
     Attributes
     ----------
+    name : str
+        Name of the parser
+    aliases : List[str]
+        Aliases of the parser (allowed but disfavored names)
+    data_map : dict[str, str]
+        Maps function parameter names onto a file data product name
+    tree_keys : List[str]
+        List of file data product name
     """
     name = None
     aliases = []
@@ -73,9 +84,10 @@ class Parser:
 
         return self.process(**data_dict)
 
+    @abstractmethod
     def process(self):
         """Parse one entry.
 
-        This is a place-holder, must be defined in inheriting class
+        This is a place-holder, must be defined in inheriting class.
         """
-        raise NotImplementedError("Must define `process` method")
+        raise NotImplementedError("Must define `process` method.")

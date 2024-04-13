@@ -1031,7 +1031,7 @@ def cluster_end_points(voxels: nb.float64[:,:]) -> (
 
 @nb.njit(cache=True)
 def umbrella_curv(voxels: nb.float64[:,:],
-                  voxid: nb.int64) -> nb.float64:
+                  vox_id: nb.int64) -> nb.float64:
     """Computes the umbrella curvature as in equation 9 of "Umbrella Curvature:
     A New Curvature Estimation Method for Point Clouds" by A.Foorginejad and
     K.Khalili
@@ -1052,11 +1052,14 @@ def umbrella_curv(voxels: nb.float64[:,:],
     # Find the mean direction from that point
     refvox = voxels[vox_id]
     diffs = voxels - refvox
-    axis = nbl.mean(voxels - refvox, axis=1)
-    axis /= np.linalg.norm(axis, axis=1)
+    axis = nbl.mean(voxels - refvox, axis=0)
+    axis /= np.linalg.norm(axis)
 
     # Compute the dot product of every displacement vector w.r.t. the axis
-    dots = np.dot(diffs/nbl.norm(diffs, axis=1), axis)
+    dots = np.zeros(len(diffs), dtype=diffs.dtype)
+    for i, diff in enumerate(diffs):
+        if i != vox_id:
+            dots[i] = np.dot(diff/np.linalg.norm(diff), axis)
 
     # Find the umbrella curvature (mean angle from the mean direction)
     return abs(np.mean(dots))

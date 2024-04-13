@@ -75,7 +75,7 @@ def loader_factory(dataset, batch_size, shuffle=True,
 
 def dataset_factory(dataset_cfg, entry_list=None):
     """Instantiates a Dataset based on a configuration.
-    
+
     The Dataset type is specified in configuration under `iotool.dataset.name`.
     The name must match the name of a class under `mlreco.iotools.datasets`.
 
@@ -97,18 +97,10 @@ def dataset_factory(dataset_cfg, entry_list=None):
     """
     # Append the entry_list if it is provided independently
     if entry_list is not None:
-        # TODO: if it already exists: issue warning, log properly
+        warn("You are manually overwriting the existing `entry_list` "
+             "argument provided in the configuration file.")
         dataset_cfg['entry_list'] = entry_list
 
-    # Tolerate some deprecated arguments, for now
-    # TODO: remove this possibility
-    if 'data_keys' in dataset_cfg:
-        warn("Use `file_keys` instead of `data_keys`", DeprecationWarning)
-        dataset_cfg['file_keys'] = dataset_cfg.pop('data_keys')
-    if 'event_list' in dataset_cfg:
-        warn("Use `entry_list` instead of `event_list`", DeprecationWarning)
-        dataset_cfg['entry_list'] = dataset_cfg.pop('event_list')
-    
     # Initialize dataset
     return instantiate(DATASET_DICT, dataset_cfg)
 

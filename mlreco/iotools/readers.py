@@ -4,10 +4,11 @@ Data readers are used to extract specific entries from files and store their
 data products into dictionaries to be used downstream.
 """
 import os
-import yaml
-import h5py
 import glob
-import warnings
+from warnings import warn
+
+import h5py
+import ROOT
 import numpy as np
 
 from mlreco.utils import data_structures
@@ -25,8 +26,26 @@ class Reader:
        provided parameters, checks that they exist (throws if they do not)
     3. Essential `__len__` and `__getitem__` methods. Must define the
        `get` function in the inheriting class for both of them to work.
+
+    Attributes
+    ----------
+    name : str
+        Name of the reader, as defined in the configuration
+    num_entries : str
+        Total number of entries in the files provided
+    file_paths : List[str]
+        List of files to read data from
+    entry_index : List[int]
+        
+
     """
     name = ''
+    num_entries = None
+    file_paths = None
+    entry_index = None
+    file_index = None
+    run_info = None
+    run_map = None
 
     def __len__(self):
         """Returns the number of entries in the file(s).
@@ -53,6 +72,10 @@ class Reader:
         """
         return self.get(idx)
 
+    def get(self, idx):
+        """Placeholder to be defined by the daughter class."""
+        raise NotImplementedError
+
     def process_file_paths(self, file_keys, limit_num_files=None,
                            max_print_files=10):
         """Process list of files.
@@ -72,13 +95,13 @@ class Reader:
 
         # If the file_keys points to a single text file, it must be a text
         # file containing a list of file paths. Parse it to a list.
-        if (isinstance(file_keys, str) and 
+        if (isinstance(file_keys, str) and
             os.path.splitext(file_keys)[-1] == '.txt'):
             # If the file list is a text file, extract the list of paths
             assert os.path.isfile(file_keys), (
                     "If the `file_keys` are specified as a single string, "
                     "it must be the path to a text file with a file list")
-            with open(file_keys, 'r') as f:
+            with open(file_keys, 'r', encoding='utf-8') as f:
                 file_keys = f.read().splitlines()
 
         # Convert the file keys to a list of file paths with glob
@@ -87,7 +110,7 @@ class Reader:
             file_keys = [file_keys]
         for file_key in file_keys:
             file_paths = glob.glob(file_key)
-            assert len(file_paths), (
+            assert file_paths, (
                     f"File key {file_key} yielded no compatible path")
             for path in file_paths:
                 if (limit_num_files is not None and
@@ -123,8 +146,7 @@ class Reader:
             has_duplicates = not np.all(np.unique(self.run_info,
                 axis = 0, return_counts=True)[-1] == 1)
             if has_duplicates:
-                warnings.warn("There are duplicated [run, event] pairs",
-                              RuntimeWarning, stacklevel=1)
+                warn("There are duplicated [run, event] pairs")
 
         # If run_info is set, flip it into a map from info to entry
         self.run_map = None
@@ -195,26 +217,36 @@ class Reader:
         # Create a list of entries to be loaded
         if n_entry or n_skip:
             entry_list = np.arange(self.num_entries)
-            if n_skip > 0: entry_list = entry_list[n_skip:]
-            if n_entry > 0: entry_list = entry_list[:n_entry]
+            if n_skip > 0:
+                entry_list = entry_list[n_skip:]
+            if n_entry > 0:
+                entry_list = entry_list[:n_entry]
+
         elif entry_list:
             entry_list = self.parse_entry_list(entry_list)
             assert np.all(entry_list < self.num_entries), (
                     "Values in entry_list outside of bounds")
+
         elif run_event_list:
             run_event_list = self.parse_run_event_list(run_event_list)
-            entry_list = [self.get_run_event_index(r, e) \
-                    for r, e in run_event_list]
+            entry_list = np.empty(len(run_event_list), dtype=np.int64)
+            for i, (r, e) in enumerate(run_event_list):
+                entry_list[i] = self.get_run_event_index(r, e)
+
         elif skip_entry_list or skip_run_event_list:
             if skip_entry_list:
                 skip_entry_list = self.parse_entry_list(skip_entry_list)
                 assert np.all(skip_entry_list < self.num_entries), (
                         "Values in skip_entry_list outside of bounds")
+
             else:
                 skip_run_event_list = \
                         self.parse_run_event_list(skip_run_event_list)
-                skip_entry_list = [self.get_run_event_index(r, e) \
-                        for r, e in skip_run_event_list]
+                skip_entry_list = np.empty(
+                        len(skip_run_event_list), dtype=np.int64)
+                for i, (r, e) in enumerate(skip_run_event_list):
+                    skip_entry_list[i] = self.get_run_event_index(r, e)
+
             entry_mask = np.ones(self.num_entries, dtype=bool)
             entry_mask[skip_entry_list] = False
             entry_list = np.where(entry_mask)[0]
@@ -224,6 +256,7 @@ class Reader:
             entry_index = entry_index[entry_list]
             if self.file_index is not None:
                 self.file_index = self.file_index[entry_list]
+
             if self.run_info is not None:
                 self.run_info = self.run_info[entry_list]
                 self.run_map = \
@@ -290,19 +323,21 @@ class Reader:
         """
         if list_source is None:
             return np.empty(0, dtype=np.int64)
-        elif not np.isscalar(list_source):
+
+        if not np.isscalar(list_source):
             return np.asarray(list_source, dtype=np.int64)
-        elif isinstance(list_source, str):
+
+        if isinstance(list_source, str):
             assert os.path.isfile(list_source), (
                     "The list source file does not exist")
-            with open(list_source, 'r') as f:
+            with open(list_source, 'r', encoding='utf-8') as f:
                 lines = f.read().splitlines()
                 list_source = \
                         [w for l in lines for w in l.replace(',', ' ').split()]
 
             return np.array(list_source, dtype=np.int64)
-        else:
-            raise ValueError("List format not recognized")
+
+        raise ValueError("List format not recognized")
 
     @staticmethod
     def parse_run_event_list(list_source):
@@ -323,18 +358,20 @@ class Reader:
         """
         if list_source is None:
             return np.empty((0, 2), dtype=np.int64)
-        elif not np.isscalar(list_source):
+
+        if not np.isscalar(list_source):
             return np.asarray(list_source, dtype=np.int64).reshape(-1, 2)
-        elif isinstance(list_source, str):
+
+        if isinstance(list_source, str):
             assert os.path.isfile(list_source), (
                     "The list source file does not exist")
-            with open(list_source, 'r') as f:
+            with open(list_source, 'r', encoding='utf-8') as f:
                 lines = f.read().splitlines()
                 list_source = [l.replace(',', ' ').split() for l in lines]
 
             return np.array(list_source, dtype=np.int64)
-        else:
-            raise ValueError("List format not recognized")
+
+        raise ValueError("List format not recognized")
 
 
 class LArCVReader(Reader):
@@ -387,8 +424,6 @@ class LArCVReader(Reader):
             create_run_map = True
 
         # Prepare TTrees and load files
-        from ROOT import TChain
-        self.num_entries = None
         self.trees = {}
         self.trees_ready = False
         for key in tree_keys:
@@ -396,7 +431,7 @@ class LArCVReader(Reader):
             # trees. Do not register these TTrees in yet in order to support
             # > 1 workers by the DataLoader object downstrean.
             print("Loading tree", key)
-            chain = TChain(f'{key}_tree')
+            chain = ROOT.TChain(f'{key}_tree') # pylint: disable=E1101
             for f in self.file_paths:
                 chain.AddFile(f)
 
@@ -404,7 +439,7 @@ class LArCVReader(Reader):
                 assert self.num_entries == chain.GetEntries(), (
                         f"Mismatch between the number of entries for {key} "
                         f"({chain.GetEntries()}) and the number of entries "
-                        f"in other data products ({self.num_entries})")
+                        f"in other data products ({self.num_entries}).")
             else:
                 self.num_entries = chain.GetEntries()
 
@@ -419,7 +454,7 @@ class LArCVReader(Reader):
             assert run_info_key is not None and run_info_key in tree_keys, (
                     "Must provide the `run_info_key` if a run maps is needed. "
                     "The key must appear in the list of `tree_keys`")
-            chain = TChain(f'{run_info_key}_tree')
+            chain = ROOT.TChain(f'{run_info_key}_tree') # pylint: disable=E1101
             for f in self.file_paths:
                 chain.AddFile(f)
 
@@ -457,9 +492,8 @@ class LArCVReader(Reader):
 
         # If this is the first data loading, instantiate chains
         if not self.trees_ready:
-            from ROOT import TChain
-            for key in self.trees.keys():
-                chain = TChain(f'{key}_tree')
+            for key in self.trees:
+                chain = ROOT.TChain(f'{key}_tree') # pylint: disable=E1101
                 for f in self.file_paths:
                     chain.AddFile(f)
                 self.trees[key] = chain
@@ -479,7 +513,7 @@ class LArCVReader(Reader):
     @staticmethod
     def list_data(file_path):
         """Dumps top-level information about the contents of a LArCV root file.
-        
+
         Parameters
         ----------
         file_path : str
@@ -491,8 +525,7 @@ class LArCVReader(Reader):
             Dictionary which maps data types onto a list of keys
         """
         # Load up the file
-        from ROOT import TFile
-        f = TFile.Open(file_path, 'r')
+        f = ROOT.TFile.Open(file_path, 'r') # pylint: disable=E1101
 
         # Loop over the list of keys
         data = {'sparse3d':[], 'cluster3d':[], 'particle':[]}
@@ -508,7 +541,7 @@ class LArCVReader(Reader):
 
             # Get the data type name, skip if not recognized
             key = name.split('_')[0]
-            if not key in data.keys():
+            if key not in data:
                 continue
 
             # Append this specific tree name
@@ -636,10 +669,11 @@ class HDF5Reader(Reader):
             for key in event.dtype.names:
                 self.load_key(in_file, event, data_blob, result_blob, key)
 
+        # Return
         if self.split_categories:
             return data_blob, result_blob
-        else:
-            return dict(data_blob, **result_blob)
+
+        return dict(data_blob, **result_blob)
 
     def load_key(self, in_file, event, data_blob, result_blob, key):
         """Fetch a specific key for a specific event.
@@ -676,8 +710,8 @@ class HDF5Reader(Reader):
                 obj_class = getattr(data_structures, class_name)
                 names = array.dtype.names
                 blob[key] = []
-                for i in range(len(array)):
-                    obj_dict = dict(zip(names, array[i]))
+                for i, el in enumerate(array):
+                    obj_dict = dict(zip(names, el))
                     if self.build_classes:
                         blob[key].append(obj_class(**obj_dict))
                     else:

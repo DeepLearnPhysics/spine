@@ -9,7 +9,6 @@ Contains the following parsers:
 - :class:`TriggerParser`
 """
 
-import numpy as np
 from larcv import larcv
 
 from mlreco.utils.data_structures import (

@@ -201,6 +201,22 @@ class CalibrationLUT:
                 "Must provide one calibration value per bin")
         self.values = values
 
+    @property
+    def edges(self):
+        """Returns the bin edges in each axis.
+
+        Returns
+        -------
+        np.ndarray
+            (D) List of (N_i + 1) edges per dimension, with N_i the number
+            of bins in the the ith dimension
+        """
+        edges = []
+        for i, ran in enumerate(self.range):
+            edges.append(np.arange(ran[0], ran[1] + 1e-9, self.bin_sizes[i]))
+
+        return edges
+
     def query(self, points):
         """Queries the LUT to get the calibration values for a set of points.
 

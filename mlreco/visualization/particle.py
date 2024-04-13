@@ -1,16 +1,18 @@
+"""Tools to draw true particles information."""
+
 import numpy as np
 
-from .points import scatter_points
-from .plotly_layouts import HIGH_CONTRAST_COLORS
+from mlreco.utils.globals import PART_COL
 
-from mlreco.utils.globals import COORD_COLS, PART_COL
+from .point import scatter_points
+from .layout import HIGH_CONTRAST_COLORS
 
 
 def scatter_particles(cluster_label, particles, part_col=PART_COL,
                       markersize=1, **kwargs):
     """Builds a graph of true particles in the image.
 
-    Function which returns a graph object per true particle in the 
+    Function which returns a graph object per true particle in the
     particle list, provided that the particle deposited energy in the
     detector which appears in the cluster_label tensor.
 
@@ -34,14 +36,13 @@ def scatter_particles(cluster_label, particles, part_col=PART_COL,
     # Initialize one graph per particle
     traces = []
     colors = HIGH_CONTRAST_COLORS
-    for i in range(len(particles)):
+    for i, p in enumerate(particles):
         # Get a mask that corresponds to the particle entry, skip if empty
         index = np.where(cluster_label[:, part_col] == i)[0]
-        if not len(index):
+        if not index.shape[0]:
             continue
-            
+
         # Initialize the information string
-        p = particles[i]
         label = f'Particle {p.id}'
         hovertext_dict = {'Particle ID': p.id,
                           'Group ID': p.group_id,
@@ -68,14 +69,13 @@ def scatter_particles(cluster_label, particles, part_col=PART_COL,
 
         hovertext = ''.join(
                 [f'{l}:   {v}<br>' for l, v in hovertext_dict.items()])
-        
+
         # Append a scatter plot trace
         trace = scatter_points(
-                cluster_label[index][:, COORD_COLS],
+                cluster_label[index],
                 color=str(colors[i%len(colors)]), hovertext=hovertext,
-                markersize=markersize, **kwargs)
-        trace[0]['name'] = label
-        
+                markersize=markersize, name=label, **kwargs)
+
         traces += trace
-        
+
     return traces

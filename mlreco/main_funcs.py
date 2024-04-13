@@ -1,12 +1,18 @@
+"""Main functions.
+
+This is the first module caleld when launching a binary script under the
+`bin` directory. It takes care setting up the environment and the
+`TrainVal` object(s) used to train/validate ML models.
+"""
+
 import os
 import time
 import glob
-import yaml
 import subprocess as sc
-import torch
-
-from warnings import filterwarnings
 from dataclasses import dataclass
+
+import yaml
+import torch
 
 from torch.utils.data import DataLoader
 from torch.distributed import init_process_group, destroy_process_group
@@ -25,7 +31,7 @@ try:
     if os.environ.get('OMP_NUM_THREADS') is None:
         os.environ['OMP_NUM_THREADS'] = '16'
     import MinkowskiEngine as ME
-except:
+except ModuleNotFoundError:
     logger.warning(
             "MinkowskiEngine could not be found, cannot run dependant models")
 
@@ -88,10 +94,17 @@ def run_single(rank, cfg, train, world_size=None):
     """
     # Treat distributed and undistributed training/inference differently
     if world_size is None:
-        train_single(cfg) if train else inference_single(cfg)
+        if train:
+            train_single(cfg)
+        else:
+            inference_single(cfg)
+
     else:
         setup_ddp(rank, world_size)
-        train_single(cfg, rank) if train else inference_single(cfg, rank)
+        if train:
+            train_single(cfg, rank)
+        else:
+            inference_single(cfg, rank)
         destroy_process_group()
 
 
@@ -134,9 +147,9 @@ def inference_single(cfg, rank=0):
         weights = sorted(glob.glob(handlers.trainval.model_path))
         if not preloaded and len(weights):
             weight_list = "\n".join(weights)
-            logger.info(f"Looping over {len(weights)} set of weights:\n"
-                        f"{weight_list}")
-    if not len(weights):
+            logger.info("Looping over %d set of weights:\n"
+                        "%s", len(weights), weight_list)
+    if not weights:
         weights = [None]
 
     # Loop over the weights, run the inference loop
@@ -241,7 +254,7 @@ def process_config(iotool, model=None, trainval=None, verbosity='info',
     if trainval is not None and 'gpus' in trainval:
         # Check that the list of GPUs is a comma-separated string
         for val in trainval['gpus'].split(','):
-            assert not len(val) or val.isdigit(), (
+            assert not val or val.isdigit(), (
                     "The `gpus` parameter must be specified as a "
                     "comma-separated string of numbers. "
                    f"Instead, got: {trainval['gpus']}")
@@ -253,12 +266,14 @@ def process_config(iotool, model=None, trainval=None, verbosity='info',
         if len(trainval['gpus']):
             trainval['gpus'] = list(range(len(trainval['gpus'].split(','))))
             world_size = len(trainval['gpus'])
+
         else:
             trainval['gpus'] = []
 
         # If there is more than one GPU, must distribute
         if world_size > 1:
             trainval['distributed'] = True
+
         elif 'distributed' not in trainval:
             trainval['distributed'] = False
         distributed = trainval['distributed']
@@ -269,6 +284,7 @@ def process_config(iotool, model=None, trainval=None, verbosity='info',
             current = int(time.time())
             if not distributed:
                 iotool['sampler']['seed'] = current
+
             else:
                 iotool['sampler']['seed'] = \
                         [current + i for i in range(world_size)]
@@ -282,6 +298,7 @@ def process_config(iotool, model=None, trainval=None, verbosity='info',
     if trainval is not None:
         if 'seed' not in trainval or trainval['seed'] < 0:
             trainval['seed'] = int(time.time())
+
         else:
             trainval['seed'] = int(trainval['seed'])
 
@@ -289,13 +306,13 @@ def process_config(iotool, model=None, trainval=None, verbosity='info',
     cfg = {'iotool': iotool, 'model': model, 'trainval': trainval}
 
     # Log environment information
-    logger.info(f"\nlartpc_mlreco3d version: {__version__}\n")
+    logger.info("\nlartpc_mlreco3d version: %s\n", __version__)
 
     visible_devices = os.environ.get('CUDA_VISIBLE_DEVICES', None)
-    logger.info(f"$CUDA_VISIBLE_DEVICES={visible_devices}\n")
+    logger.info("$CUDA_VISIBLE_DEVICES=%s\n", visible_devices)
 
     system_info = sc.getstatusoutput('uname -a')[1]
-    logger.info(f"Configuration processed at: {system_info}\n")
+    logger.info("Configuration processed at: %s\n", system_info)
 
     # Log configuration
     logger.info(yaml.dump(cfg, default_flow_style=None))

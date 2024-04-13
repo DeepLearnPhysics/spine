@@ -14,7 +14,7 @@ def AbstractBatchSampler(distributed=False):
     Parent = Sampler if not distributed else DistributedSampler
     class AbstractBatchSampler(Parent):
         """Abstract sampler class.
-        
+
         Samplers that inherit from this class should work out of the box.
         Just define the __iter__ function. __init__ defines self._num_samples
         and self._batch_size as well as self._random RNG, if needed.
@@ -100,7 +100,7 @@ def RandomSequenceSampler(distributed=False):
             max_id  = self._num_samples + 1 - self._batch_size
             starts  = self._random.randint(0, max_id, len(self))
             batches = [np.arange(
-                start, start + self._batch_size, 
+                start, start + self._batch_size,
                 dtype=np.int64) for start in starts]
 
             return iter(np.concatenate(batches))
@@ -111,7 +111,7 @@ def RandomSequenceSampler(distributed=False):
 def BootstrapBatchSampler(distributed=False):
     class BootstrapBatchSampler(AbstractBatchSampler(distributed)):
         """Sampler used for bootstrap sampling of the entire dataset.
-        
+
         This is particularly useful for training an ensemble of networks
         (bagging).
         """

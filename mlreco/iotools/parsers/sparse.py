@@ -7,12 +7,14 @@ Contains the following parsers:
 - :class:`Sparse3DChargeRescaledParser`
 """
 
-import numpy as np
 from warnings import warn
+
+import numpy as np
 from larcv import larcv
 
 from mlreco.utils.globals import GHOST_SHP
 from mlreco.utils.data_structures import Meta
+from mlreco.utils.ghost import compute_rescaled_charge
 
 from .parser import Parser
 
@@ -229,7 +231,7 @@ class Sparse3DParser(Parser):
         all_voxels, all_features = [], []
         meta = None
         for sparse_event_list in split_sparse_event_list:
-            np_voxels, num_points = None, None 
+            np_voxels, num_points = None, None
             np_features = []
             hit_key_array = []
             for idx, sparse_event in enumerate(sparse_event_list):
@@ -263,10 +265,10 @@ class Sparse3DParser(Parser):
             if self.compute_nhits:
                 hit_key_array = np.hstack(hit_key_array)
                 nhits = np.sum(hit_key_array >= 0., axis=1)[:, -1]
-                if nhits_idx < 0 or nhits_idx > self.num_features:
+                if self.nhits_idx < 0 or self.nhits_idx > self.num_features:
                     raise ValueError(
-                            f"nhits_idx ({nhits_idx}) is out of range")
-                np_features.insert(nhits_idx, nhits)
+                            f"`nhits_idx` ({self.nhits_idx}) is out of range.")
+                np_features.insert(self.nhits_idx, nhits)
 
             # Append to the global list of voxel/features
             all_voxels.append(np_voxels)
@@ -365,10 +367,10 @@ class Sparse3DChargeRescaledParser(Sparse3DParser):
         np_voxels, np_data, meta = super().process(
                 sparse_event_list=sparse_event_list)
 
-        deghost_mask = np.where(output[:, -1] < GHOST_SHP)[0]
+        deghost_mask = np.where(np_data[:, -1] < GHOST_SHP)[0]
         charges = compute_rescaled_charge(
-                np_data[:, :-1], deghost_mask, last_index=0,
-                collection_only=self.collection_only, 
-                collection_id=self.collection_id, use_batch=False)
+                np_data[deghost_mask, :-1],
+                collection_only=self.collection_only,
+                collection_id=self.collection_id)
 
         return np_voxels[deghost_mask], charges[:, None], meta

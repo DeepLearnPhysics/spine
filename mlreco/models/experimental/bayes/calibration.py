@@ -2,33 +2,59 @@ import numpy as np
 import torch
 import torch.nn as nn
 
+from mlreco.utils.factory import instantiate
+
 
 def calibrator_dict():
 
     models = {
         "temperature_scaling": TemperatureScaling
     }
+
     return models
+
 
 def calibrator_loss_dict():
 
     losses = {
         "CalibrationNLLLoss": CalibrationNLLLoss
     }
+
     return losses
 
-def construct_calibrator_loss(name, logit_name, **kwargs):
-    losses = calibrator_loss_dict()
-    if name not in losses:
-        raise Exception("Unknown calibration loss function provided: %s" % name)
-    return losses[name](logit_name, **kwargs)
+
+def calibrator_factory(cfg):
+    """Instantiates a calibrator from a configuration dictionary.
+
+    Parameters
+    ----------
+    cfg : dict
+        Calibrator configuration
+
+    Returns
+    -------
+    object
+        Instantiated calibrator
+    """
+    calibrators = calibrator_dict()
+    return instantiate(calibrators, cfg)
 
 
-def construct_calibrator(name):
-    models = calibrator_dict()
-    if name not in models:
-        raise Exception("Unknown calibration model provided: %s" % name)
-    return models[name]
+def calibrator_loss_factory(cfg):
+    """Instantiates a calibrator loss from a configuration dictionary.
+
+    Parameters
+    ----------
+    cfg : dict
+        Calibrator loss configuration
+
+    Returns
+    -------
+    object
+        Instantiated calibrator loss
+    """
+    calibrator_losses = calibrator_loss_dict()
+    return instantiate(calibrator_losses, cfg)
 
 
 class CalibrationNLLLoss(nn.Module):

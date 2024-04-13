@@ -5,19 +5,21 @@ Contains the following parsers:
 - :class:`Cluster3DParser`
 """
 
-import numpy as np
+from warnings import warn
 from collections import OrderedDict
+
+import numpy as np
 from larcv import larcv
 from sklearn.cluster import DBSCAN
 
-from .parser import Parser
-from .sparse import Sparse3DParser
-from .clean_data import clean_sparse_data
-
-from mlreco.utils.globals import SHAPE_COL, DELTA_SHP, UNKWN_SHP
+from mlreco.utils.globals import DELTA_SHP
 from mlreco.utils.data_structures import Meta
 from mlreco.utils.particles import process_particle_event
 from mlreco.utils.ppn import image_coordinates
+
+from .parser import Parser
+from .sparse import Sparse3DParser, Sparse3DChargeRescaledParser
+from .clean_data import clean_sparse_data
 
 __all__ = ['Cluster2DParser', 'Cluster3DParser',
            'Cluster3DChargeRescaledParser', 'Cluster3DMultiModuleParser']
@@ -70,7 +72,7 @@ class Cluster2DParser(Parser):
                 clusters_features.append(np.column_stack([value, cluster_id]))
 
         # If there are no non-empty clusters, return. Concatenate otherwise
-        if not len(clusters_voxels):
+        if not clusters_voxels:
             return (np.empty((0, 2), dtype=np.float32),
                     np.empty((0, 2), dtype=np.float32),
                     Meta.from_larcv(meta))
@@ -108,8 +110,7 @@ class Cluster3DParser(Parser):
     def __init__(self, particle_event=None, add_particle_info=False,
                  clean_data=False, type_include_mpr=True,
                  type_include_secondary=True, primary_include_mpr=True,
-                 break_clusters=False, min_size=-1,
-                 pixel_coordinates=True, **kwargs):
+                 break_clusters=False, min_size=-1, **kwargs):
         """Initialize the parser.
 
         Parameters
@@ -132,9 +133,6 @@ class Cluster3DParser(Parser):
             IDs to different fragments of the broken-down cluster
         min_size : int, default -1
             Minimum cluster size to be parsed in the combined tensor
-        pixel_coordinates : bool, default True
-            If set to `True`, the parser rescales the truth positions
-            (start, end, etc.) of the particle information to voxel coordinates
         **kwargs : dict, optional
             Data product arguments to be passed to the `process` function
         """
@@ -210,8 +208,7 @@ class Cluster3DParser(Parser):
         if self.add_particle_info:
             # Check that that particle objects are of the expected length
             num_particles = particle_event.size()
-            assert (num_particles == num_clusters or
-                    num_particles == num_clusters - 1), (
+            assert num_particles in (num_clusters, num_clusters - 1), (
                     f"The number of particles ({num_particles}) must be "
                     f"aligned with the number of clusters ({num_clusters}). "
                     f"There can me one more catch-all cluster at the end.")
@@ -237,11 +234,12 @@ class Cluster3DParser(Parser):
             labels['pinter']  = inter_primaries
 
             # Store the vertex and momentum
-            anc_pos = lambda p: image_coordinates(meta, p.ancestor_position())
-            anc_positions = np.vstack([anc_pos(p) for p in particles])
-            labels['vtx_x']   = anc_positions[:, 0]
-            labels['vtx_y']   = anc_positions[:, 1]
-            labels['vtx_z']   = anc_positions[:, 2]
+            anc_pos = np.empty((len(particles), 3), dtype=np.float32)
+            for i, p in enumerate(particles):
+                anc_pos[i] = image_coordinates(meta, p.ancestor_position())
+            labels['vtx_x']   = anc_pos[:, 0]
+            labels['vtx_y']   = anc_pos[:, 1]
+            labels['vtx_z']   = anc_pos[:, 2]
             labels['p']       = [p.p() for p in particles]
 
             # Store the shape last (consistent with semantics tensor)
@@ -280,7 +278,7 @@ class Cluster3DParser(Parser):
 
                 # Append the cluster-wise information
                 features = [value]
-                for k, l in labels.items():
+                for l in labels.values():
                     features.append(
                             np.full(num_points, l[i], dtype=np.float32))
 
@@ -294,7 +292,7 @@ class Cluster3DParser(Parser):
                 clusters_features.append(np.column_stack(features))
 
         # If there are no non-empty clusters, return. Concatenate otherwise
-        if not len(clusters_voxels):
+        if not clusters_voxels:
             return (np.empty((0, 3), dtype=np.float32),
                     np.empty((0, len(labels) + 1), dtype=np.float32),
                     Meta.from_larcv(meta))
@@ -307,7 +305,6 @@ class Cluster3DParser(Parser):
         if ((sparse_semantics_event is not None) or
             (sparse_value_event is not None)):
             if not self.clean_data:
-                from warnings import warn
                 warn("You must set `clean_data` to `True` if you specify a "
                      "sparse tensor in `parse_cluster3d`.")
                 self.clean_data = True
@@ -328,7 +325,7 @@ class Cluster3DParser(Parser):
 
             # Set all cluster labels to -1 if semantic class is LE or ghost
             shape_mask = sem_features[:, -1] > DELTA_SHP
-            np_features[shape_mask, 1:-1] = -1 
+            np_features[shape_mask, 1:-1] = -1
 
             # If a value tree is provided, override value colum
             if sparse_value_event:
@@ -341,12 +338,12 @@ class Cluster3DParser(Parser):
 
 class Cluster3DChargeRescaledParser(Cluster3DParser):
     """Identical to :class:`Cluster3DParser`, but computes rescaled charges
-    on the fly. 
+    on the fly.
     """
     name = 'parse_cluster3d_rescale_charge'
     aliases = ['parse_cluster3d_charge_rescaled']
 
-    def __init__(self, **kwargs):
+    def __init__(self, collection_only=False, collection_id=2, **kwargs):
         """Initialize the parser.
 
         Parameters
@@ -362,7 +359,6 @@ class Cluster3DChargeRescaledParser(Cluster3DParser):
         super().__init__(**kwargs)
 
         # Initialize the sparse parser which computes the rescaled charge
-        from .sparse import Sparse3DChargeRescaledParser
         self.sparse_parser = Sparse3DChargeRescaledParser(
                 collection_only, collection_id)
 

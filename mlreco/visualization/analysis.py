@@ -1,97 +1,10 @@
+"""Draw analysis-level objects (RecoParticle, TruthParticle)."""
+
 import plotly
 import plotly.graph_objs as go
 import numpy as np
 
 from mlreco.utils.globals import COORD_COLS, PID_LABELS, SHAPE_LABELS
-
-from analysis.classes.data import *
-
-def scatter_points(points, color=None, colorscale=None, cmin=None, cmax=None, opacity=None, markersize=None, hovertext=None, dim=3, **kwargs):
-    '''
-    Produces plotly.graph_objs.Scatter3d or plotly.graph_objs.Scatter
-    trace object to be drawn in plotly. The object is nested to be fed
-    directly to a plotly.graph_objs.Figure or plotly.offline.iplot. All
-    of the regular plotly attribute are available.
-
-    Parameters
-    ----------
-    points : np.ndarray
-        (N, 2+) array of N points of (..., x, y, [z],...) coordinate information
-    dim : int, default 3
-        Dimension (can either be 2 or 3)
-    color : Union[str, np.ndarray], optional
-        Color of markers or (N) list of color of markers
-    colorscale : Union[str, List[str], List[List[float, str]], optional
-        Plotly colorscale specifier for the markers
-    cmin : Union[int, float], optional
-        Minimum of the color range
-    cmax : Union[int, float], optional
-        Maximum of the color range
-    opacity : float
-        Marker opacity
-    markersize : int, optional
-        Specified marker size
-    hovertext : Union[List[str], List[int], optional
-        (N) List of labels associated with each marker
-    **kwargs : dict, optional
-        List of additional arguments to pass to plotly.graph_objs.Scatter3D
-
-    Returns
-    -------
-    List[go.Scatter3d]
-        (1) List with one graph of the input points
-    '''
-    # Check the dimension for compatibility
-    if not dim in [2, 3]:
-        print('This function only supports dimension be 2 or 3')
-        raise ValueError
-    if points.shape[1] == 2:
-        dim = 2
-
-    # Get the coordinate column locations in the input tensor
-    coord_cols = COORD_COLS
-    if dim == 2:
-        coord_cols = COORD_COLS[:2]
-    if points.shape[1] == dim:
-        coord_cols = np.arange(dim)
-
-    # If there is hovertext, print the color as part of the hovertext
-    if hovertext is None and color is not None and type(color) != str:
-        hovertext = color
-
-    # Update hoverinfo
-    kwargs['hoverinfo'] = ['x', 'y', 'z'] if dim == 3 else ['x', 'y']
-    if hovertext is not None:
-        kwargs['hoverinfo'] += ['text']
-
-    # If only cmin or cmax is defined, must figure out the other
-    if (cmin is None) ^ (cmax is None) and color is not None and not np.isscalar(color):
-        if not cmin: cmin = min(np.min(color), cmax*(1-1e-6))
-        if not cmax: cmax = max(np.max(color), cmin*(1+1e-6))
-
-    # Initialize and return
-    trace_dict = dict(
-            x = points[:,coord_cols[0]],
-            y = points[:,coord_cols[1]],
-            mode = 'markers',
-            marker = dict(
-                size = markersize,
-                color = color,
-                colorscale = colorscale,
-                opacity = opacity,
-                cmin = cmin,
-                cmax = cmax
-            ),
-            text = hovertext,
-            **kwargs
-            )
-
-    if dim == 3:
-        trace_dict['z'] = points[:,coord_cols[2]]
-        return [go.Scatter3d(**trace_dict)]
-    else:
-        return [go.Scatter(**trace_dict)]
-
 
 class Scatter3D:
 
@@ -224,9 +137,9 @@ class Scatter3D:
         if color not in attr_list:
             raise ValueError(f'"{color}" is not a valid attribute for object type {type(objects[0])}!')
 
-    def __call__(self, objects, color='id', mode='points', colorscale='rainbow', 
+    def __call__(self, objects, color='id', mode='points', colorscale='rainbow',
                  legend_name=None,
-                 cmin=None, cmax=None, size=1, scatter_start_points=False, 
+                 cmin=None, cmax=None, size=1, scatter_start_points=False,
                  scatter_end_points=False, scatter_vertices=False, **kwargs):
 
         if not len(objects):
@@ -242,7 +155,7 @@ class Scatter3D:
                 continue
             c = self._colors[int(entry.id)].tolist()
             hovertext = [f'{color}: {ci}' for ci in c]
-            
+
             if legend_name is None:
                 name = type(entry).__name__
             else:
@@ -264,8 +177,3 @@ class Scatter3D:
             self.scatter_vertices(objects)
 
         return self._traces
-
-get_event_displays = Scatter3D()
-# Legacy
-trace_particles = Scatter3D()
-trace_interactions = Scatter3D()

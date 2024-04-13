@@ -105,6 +105,17 @@ class Flash:
         for attr in self._pos_attrs:
             setattr(self, attr, meta.to_pixel(getattr(self, attr)))
 
+    @property
+    def fixed_length_attrs(self):
+        """Fetches the list of fixes-length array attributes.
+
+        Returns
+        -------
+        List[str]
+            List of fixed length array attribute names
+        """
+        return self._fixed_length_attrs
+
     @classmethod
     def from_larcv(cls, flash):
         """Builds and returns a Flash object from a LArCV Flash object.

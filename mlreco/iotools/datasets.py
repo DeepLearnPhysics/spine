@@ -1,10 +1,5 @@
 """Contains dataset classes to be used by the model."""
 
-import os
-import glob
-import inspect
-import numpy as np
-
 from torch.utils.data import Dataset
 
 from mlreco.utils.factory import module_dict, instantiate
@@ -117,7 +112,7 @@ class LArCVDataset(Dataset):
 
     @staticmethod
     def list_data(file_path):
-        """Dumps top-level information about the contents of a LArCV root file.
+        """Dumps top-level information about the contents of the LArCV root file.
         
         Parameters
         ----------
@@ -129,4 +124,4 @@ class LArCVDataset(Dataset):
         dict
             Dictionary which maps data types onto a list of keys
         """
-        return self.reader.list_data(file_path)
+        return LArCVReader.list_data(file_path)

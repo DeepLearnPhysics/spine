@@ -195,6 +195,28 @@ class Particle:
             setattr(self, attr, meta.to_pixel(getattr(self, attr)))
 
     @property
+    def fixed_length_attrs(self):
+        """Fetches the list of fixes-length array attributes.
+
+        Returns
+        -------
+        List[str]
+            List of fixed length array attribute names
+        """
+        return self._fixed_length_attrs
+
+    @property
+    def enum_attrs(self):
+        """Fetches the list of enumerated arguments.
+
+        Returns
+        -------
+        Dict[int, Dict[int, str]]
+            Dictionary which maps names onto enumerator descriptors
+        """
+        return self._enum_attrs
+
+    @property
     def p(self):
         """Computes the magnitude of the initial momentum.
 

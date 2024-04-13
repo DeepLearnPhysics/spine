@@ -1,23 +1,34 @@
+"""Main driver class to train/validate/execute ML models.
+
+Takes care of everything in one centralized place:
+    - Data loading
+    - Forward path
+    - Backward path, optimization
+    - Logging
+    - Model parameter saving
+    - Unwrapping (entry-wise breaking of batches)
+    - Writing output to file
+"""
+
 import os
-import sys
 import glob
-import warnings
-import psutil
-import numpy as np
-import torch
 from collections import defaultdict
+from warnings import warn
 from datetime import datetime
 from inspect import signature
 
+import psutil
+import numpy as np
+import torch
+
 from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.distributed import init_process_group, destroy_process_group
 
 from .iotools.factories import loader_factory, writer_factory
-from .iotools.writers import CSVWriter, HDF5Writer
+from .iotools.writers import CSVWriter
 
-from .models import construct_model
+from .models import model_factory
 from .models.experimental.bayes.calibration import (
-        construct_calibrator, construct_calibrator_loss)
+        calibrator_factory, calibrator_loss_factory)
 
 from .utils.torch_local import cycle
 from .utils.data_structures import TensorBatch, IndexBatch, EdgeIndexBatch
@@ -27,7 +38,7 @@ from .utils.train import optim_factory, lr_sched_factory
 from .utils.logger import logger
 
 
-class TrainVal(object):
+class TrainVal:
     """Groups all relevant functions to run forward/backward on a network."""
 
     def __init__(self, trainval, iotool, model, rank=0):
@@ -167,8 +178,8 @@ class TrainVal(object):
         if self.train:
             self.lr_sched_cfg = lr_scheduler
 
-    def process_model(self, name, modules, network_input, loss_input=[],
-                      keep_output=[], ignore_keys=[]):
+    def process_model(self, name, modules, network_input, loss_input=None,
+                      keep_output=None, ignore_keys=None, calibration=None):
         """Process the model configuration.
 
         Parameters
@@ -185,11 +196,16 @@ class TrainVal(object):
             List of keys to provide in the model forward output
         ignore_keys : List[str], optional
             List of keys to ommit in the model forward output
+        calibration : dict, optional
+            Model score calibration configuration
         """
         # Fetch the relevant model, store arguments
-        self.model_name = name
-        self.model_cfg  = modules
-        self.model_class, self.loss_class = construct_model(name)
+        self.model_name  = name
+        self.model_cfg   = modules
+        self.model_class, self.loss_class = model_factory(name)
+
+        # Store the score calibration configuration
+        self.calibration = calibration
 
         # Store the list of input keys to the forward/loss functions. These
         # should be specified as a dictionary mapping the name of the argument
@@ -198,25 +214,25 @@ class TrainVal(object):
         self.loss_dict  = loss_input
 
         if not isinstance(network_input, dict):
-            warnings.warn("Specify `network_input` as a dictionary, "
-                          "not a list.", DeprecationWarning)
+            warn("Specify `network_input` as a dictionary, not a list.",
+                 DeprecationWarning)
             fn   = self.model_class.forward
             keys = list(signature(fn).parameters.keys())[1:] # Skip `self`
             num_input = len(network_input)
             self.input_dict = {
                     keys[i]:network_input[i] for i in range(num_input)}
 
-        if not isinstance(loss_input, dict):
-            warnings.warn("Specify `loss_input` as a dictionary, "
-                          "not a list.", DeprecationWarning)
+        if loss_input is not None and not isinstance(loss_input, dict):
+            warn("Specify `loss_input` as a dictionary, not a list.",
+                 DeprecationWarning)
             fn   = self.loss_class.forward
             keys = list(signature(fn).parameters.keys())[1:] # Skip `self`
             num_input = len(loss_input)
             self.loss_dict = {keys[i]:loss_input[i] for i in range(num_input)}
 
         # Parse the list of output to be stored
-        assert not (len(keep_output) and len(ignore_keys)), (
-                "Should not specify `keep_output` and `ignore_keys` together")
+        assert not (keep_output and ignore_keys), (
+                "Should not specify `keep_output` and `ignore_keys` together.")
         self.output_keys = keep_output
         self.ignore_keys = ignore_keys
 
@@ -292,10 +308,8 @@ class TrainVal(object):
             raise type(err)(f"{err}\n{msg}")
 
         # Replace model with calibrated model on uncertainty calibration mode
-        if 'calibration' in self.model_cfg:
-            calib_cfg = self.model_cfg['calibration']
-            model = self.model
-            self.initialize_calibrator(model, **calib_cfg)
+        if self.calibration is not None:
+            self.initialize_calibrator(**self.calibration)
 
         # If GPUs are available, move the model and loss function
         if len(self.gpus):
@@ -310,7 +324,10 @@ class TrainVal(object):
                     find_unused_parameters=self.find_unused_parameters)
 
         # Set the model in train or evaluation mode
-        self.model.train() if self.train else self.model.eval()
+        if self.train:
+            self.model.train()
+        else:
+            self.model.eval()
 
         # Initiliaze the optimizer
         if self.train:
@@ -372,14 +389,14 @@ class TrainVal(object):
                 assert count, (
                         f"Could not find any weights to freeze for {module}")
 
-                logger.info(f"Froze {count} weights in module {module}")
+                logger.info("Froze %d weights in module %s", count, module)
 
             # Keep the BFS going by adding the nested blocks
             for key in config:
                 if isinstance(config[key], dict):
                     module_items.append((key, config[key]))
 
-    def load_weights(self, model_path):
+    def load_weights(self, full_model_path):
         """Load the weights of certain model components.
 
         Breadth-first search for `model_path` parameters in the model
@@ -391,13 +408,13 @@ class TrainVal(object):
 
         Parameters
         ----------
-        model_path : str
-            Path to the overall weights for the model
+        full_model_path : str
+            Path to the weights for the full model
         """
         # If a general model path is provided, add it to the loading list first
         model_paths = []
-        if model_path:
-            model_paths = [(self.model_name, model_path, '')]
+        if full_model_path:
+            model_paths = [(self.model_name, full_model_path, '')]
 
         # Find the list of sub-module weights to subsequently load
         module_items = list(self.model_cfg.items())
@@ -412,7 +429,7 @@ class TrainVal(object):
 
         # If no pre-trained weights are requested, nothing to do here
         self.start_iteration = 0
-        if not len(model_paths):
+        if not model_paths:
             return
 
         # Loop over provided model paths
@@ -420,15 +437,15 @@ class TrainVal(object):
             # Check that the requested weight file can be found. If the path
             # points at > 1 file, skip for now (loaded in a loop later)
             if not os.path.isfile(model_path):
-                if len(glob.glob(model_path)) and not self.train:
+                if not self.train and glob.glob(model_path):
                     continue
-                else:
-                    raise ValueError("Weight file not found for module "
-                                    f"{module}: {model_path}")
+
+                raise ValueError("Weight file not found for module "
+                                f"{module}: {model_path}")
 
             # Load weight file into existing model
-            logger.info(f"Restoring weights for module {module} "
-                        f"from {model_path}...")
+            logger.info("Restoring weights for module %s "
+                        "from %s...", module, model_path)
             with open(model_path, 'rb') as f:
                 # Read checkpoint. If loading weights to a non-distributed
                 # model, remove leading keyword `module` from weight names.
@@ -443,7 +460,7 @@ class TrainVal(object):
                 if module == self.model_name:
                     for name in self.model.state_dict():
                         if not name in state_dict.keys():
-                            missing_keys.append((name, key))
+                            missing_keys.append((name, name))
                 else:
                     # Update the key names according to the name used to store
                     state_dict = {}
@@ -461,7 +478,8 @@ class TrainVal(object):
                     logger.critical(
                             "These necessary parameters could not be found:")
                     for name, key in missing_keys:
-                        logger.critical(f"Parameter {key} missing for {name}")
+                        logger.critical(
+                                "Parameter %s is missing for %s.", key, name)
                     raise ValueError("To be loaded, a set of weights "
                                      "must provide all necessary parameters.")
 
@@ -473,7 +491,7 @@ class TrainVal(object):
                             "not be loaded, indicating that the weight file "
                             "contains more than needed. This might be ok.")
                     logger.warning(
-                            'Unexpected keys:', bad_keys.unexpected_keys)
+                            'Unexpected keys: %s', bad_keys.unexpected_keys)
 
                 # Load the optimizer state from the main weight file only
                 if (self.train and
@@ -487,8 +505,7 @@ class TrainVal(object):
 
             logger.info('Done.')
 
-    def initialize_calibrator(self, model, name, loss,
-                              loss_args={}, logit_name='logits'):
+    def initialize_calibrator(self, calibrator, calibrator_loss):
         """Switch model to calibration mode.
 
         Allows to calibrate logits to respond linearly to probability,
@@ -496,26 +513,14 @@ class TrainVal(object):
 
         Parameters
         ----------
-        model : torch.nn.Module
-            Model to calibrate
-        name : str
-            Name of the model to calibrate
-        loss : str
-            Name of the loss function to perform calibration
-        loss_args : dict, optional
-            Arguments to pass to the loss function
-        logit_name : str, default 'logits'
-            Name of the output logits
+        calibrator : dict
+            Calibrator configuration dictionary
+        calibrator_loss : dict
+            Calibrator loss configuration dictionary
         """
-        # Initialize the calibrator
-        calibrator         = construct_calibrator(name)
-        wrapped_model      = calibrator(model, self.calibration_config)
-        calibrator_loss_fn = construct_calibrator_loss(
-                loss, logit_name, **loss_args)
-
-        # Supersede model and loss with calibrator versions
-        self.model   = wrapped_model
-        self.loss_fn = calibrator_loss_fn
+        # Switch to calibration mode
+        self.model = calibrator_factory(model=self.model, **calibrator)
+        self.loss_fn = calibrator_loss_factory(**calibrator_loss)
 
     def make_directories(self):
         """Make directories as to where to store the logs and weights."""
@@ -546,10 +551,10 @@ class TrainVal(object):
             if self.distributed:
                 self.loader.sampler.set_epoch(e)
 
-            data_iter = iter(self.loader)
+            self.loader_iter = iter(self.loader)
             n_iterations = \
                     min(self.iterations - e*len(self.loader), len(self.loader))
-            for i in range(n_iterations):
+            for _ in range(n_iterations):
                 # Update the epoch counter, start the iteration timer
                 epoch = iteration / iter_per_epoch
                 tstamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -658,7 +663,7 @@ class TrainVal(object):
             Labels to be used in the loss computation
         """
         # Fetch the requested data products
-        device = self.rank if len(self.gpus) else None
+        device = self.rank if self.gpus else None
         input_dict, loss_dict = {}, {}
         with torch.set_grad_enabled(self.train):
             # Load the data products for the model forward
@@ -675,15 +680,16 @@ class TrainVal(object):
 
             # Load the data products for the loss function
             loss_dict = {}
-            for param, name in self.loss_dict.items():
-                assert name in data, (
-                        f"Must provide {name} in the dataloader schema to "
-                         "input into the loss function")
+            if self.loss_dict is not None:
+                for param, name in self.loss_dict.items():
+                    assert name in data, (
+                            f"Must provide {name} in the dataloader schema to "
+                             "input into the loss function")
 
-                value = data[name]
-                if isinstance(value, TensorBatch):
-                    value = data[name].to_tensor(torch.float, device)
-                loss_dict[param] = value
+                    value = data[name]
+                    if isinstance(value, TensorBatch):
+                        value = data[name].to_tensor(torch.float, device)
+                    loss_dict[param] = value
 
         return input_dict, loss_dict
 
@@ -708,7 +714,7 @@ class TrainVal(object):
 
             # Compute the loss if one is specified, append results
             self.loss = 0.
-            if len(self.loss_dict):
+            if self.loss_dict:
                 if not self.time_dependant:
                     result.update(self.loss_fn(**loss_dict, **result))
                 else:
@@ -721,8 +727,8 @@ class TrainVal(object):
             # Filter and cast the output to numpy, if requested
             for key, value in result.items():
                 # Skip keys that are not to be output
-                if ((len(self.output_keys) and key not in self.output_keys) or
-                    key in self.ignore_keys):
+                if ((self.output_keys and key not in self.output_keys) or
+                    (self.ignore_keys and key in self.ignore_keys)):
                     result.pop(key)
 
                 # Convert to numpy, if requested
@@ -784,7 +790,7 @@ class TrainVal(object):
             Iteration step index
         """
         # Make sure that the weight prefix is valid
-        assert len(self.weight_prefix), (
+        assert self.weight_prefix, (
                 "Must provide a weight prefix to store them")
 
         filename = f'{self.weight_prefix}-{iteration:d}.ckpt'
@@ -898,7 +904,8 @@ class TrainVal(object):
         if report_step:
             # Dump general information
             proc   = 'Train' if self.train else 'Inference'
-            keys   = [f'{proc} time', 'Memory', 'Loss', 'Accuracy']
+            device = 'GPU' if self.gpus else 'CPU'
+            keys   = [f'{proc} time', f'{device} memory', 'Loss', 'Accuracy']
             widths = [20, 20, 9, 9]
             if self.distributed:
                 keys = ['Rank'] + keys
@@ -919,14 +926,16 @@ class TrainVal(object):
             t_net  = self.watch.time('forward').wall \
                     + self.watch.time('backward').wall
 
-            gmem, gmem_perc = log_dict['gpu_mem'], log_dict['gpu_mem_perc']
-            cmem, cmem_perc = log_dict['cpu_mem'], log_dict['cpu_mem_perc']
+            if self.gpus:
+                mem, mem_perc = log_dict['gpu_mem'], log_dict['gpu_mem_perc']
+            else:
+                mem, mem_perc = log_dict['cpu_mem'], log_dict['cpu_mem_perc']
 
             acc  = np.mean(result.get('accuracy', -1.))
             loss = np.mean(result.get('loss',     -1.))
 
             values = [f'{t_net:0.2f} s ({100*t_net/t_iter:0.2f} %)',
-                      f'{gmem:0.2f} GB ({gmem_perc:0.2f} %)',
+                      f'{mem:0.2f} GB ({mem_perc:0.2f} %)',
                       f'{loss:0.3f}', f'{acc:0.3f}']
             if self.distributed:
                 values = [f'{self.rank}'] + values

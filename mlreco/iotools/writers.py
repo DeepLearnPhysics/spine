@@ -5,15 +5,13 @@ HDF5 files or to log some inforation to CSV files.
 """
 
 import os
+from dataclasses import dataclass, asdict
+
 import yaml
 import h5py
-import inspect
 import numpy as np
-from dataclasses import dataclass, asdict
-from typing import Union, List
 
 from mlreco.version import __version__
-from mlreco.utils import data_structures
 
 __all__ = ['HDF5Writer', 'CSVWriter']
 
@@ -65,16 +63,21 @@ class HDF5Writer:
         append_file: bool, default False
             Add new values to the end of an existing file
         """
-        # Store attributes
-        self.file_name        = file_name
-        self.append_file      = append_file
-        self.ready            = False
-        self.object_dtypes    = []
+        # Store persistent attributes
+        self.file_name     = file_name
+        self.append_file   = append_file
+        self.ready         = False
+        self.object_dtypes = []
 
         self.input_keys       = input_keys
         self.skip_input_keys  = skip_input_keys
         self.result_keys      = result_keys
         self.skip_result_keys = skip_result_keys
+
+        # Initialize attributes to be stored when the output file is created
+        self.batch_size  = None
+        self.type_dict   = None
+        self.event_dtype = None
 
     @dataclass
     class DataFormat:
@@ -275,11 +278,11 @@ class HDF5Writer:
                 elif isinstance(ref_obj, np.ndarray):
                     # List containing a list/array of ndarrays per batch ID
                     widths = []
-                    for i in range(len(ref_obj)):
+                    for el in ref_obj:
                         width, same_width = 0, 0
                         same_width = True
-                        if len(ref_obj[i].shape) == 2:
-                            width = ref_obj[i].shape[1]
+                        if len(el.shape) == 2:
+                            width = el.shape[1]
                         widths.append(width)
                         same_width &= width == widths[0]
 
@@ -316,10 +319,10 @@ class HDF5Writer:
                 # String
                 object_dtype.append((key, h5py.string_dtype()))
 
-            elif hasattr(obj, '_enum_attrs') and key in obj._enum_attrs:
+            elif hasattr(obj, 'enum_attrs') and key in obj.enum_attrs:
                 # Recognized enumerated list
                 enum_dtype = h5py.enum_dtype(
-                        obj._enum_attrs[key], basetype=type(val))
+                        obj.enum_attrs[key], basetype=type(val))
                 object_dtype.append((key, enum_dtype))
 
             elif np.isscalar(val):
@@ -327,8 +330,8 @@ class HDF5Writer:
                 dtype = type(val) if not isinstance(val, bool) else np.uint8
                 object_dtype.append((key, dtype))
 
-            elif (hasattr(obj, '_fixed_length_attrs') and
-                  key in obj._fixed_length_attrs):
+            elif (hasattr(obj, 'fixed_length_attrs') and
+                  key in obj.fixed_length_attrs):
                 # Fixed-length array of scalars
                 object_dtype.append((key, val.dtype, len(val)))
 
@@ -440,10 +443,10 @@ class HDF5Writer:
                     self.append_key(out_file, event, result_blob, key, batch_id)
 
                 # Append event
-                event_id  = len(out_file['events'])
-                events_ds = out_file['events']
-                events_ds.resize(event_id + 1, axis=0)
-                events_ds[event_id] = event
+                event_id = len(out_file['events'])
+                event_ds = out_file['events']
+                event_ds.resize(event_id + 1, axis=0) # pylint: disable=E1101
+                event_ds[event_id] = event
 
     def append_key(self, out_file, event, blob, key, batch_id):
         """Stores data key in a specific dataset of an HDF5 file.
@@ -665,11 +668,11 @@ class CSVWriter:
         if self.append_file:
             if not os.path.isfile(file_name):
                 raise FileNotFoundError(
-                        f"File not found at path: {file_path}. When using "
+                        f"File not found at path: {file_name}. When using "
                          "`append=True` in CSVWriter, the file must exist at "
                          "the prescribed path before data is written to it.")
 
-            with open(self.file_name, 'r') as out_file:
+            with open(self.file_name, 'r', encoding='utf-8') as out_file:
                 self.result_keys = out_file.readline().split(',')
 
     def create(self, result_blob):
@@ -684,7 +687,7 @@ class CSVWriter:
         self.result_keys = list(result_blob.keys())
 
         # Create a header and write it to file
-        with open(self.file_name, 'w') as out_file:
+        with open(self.file_name, 'w', encoding='utf-8') as out_file:
             header_str = ','.join(self.result_keys)
             out_file.write(header_str + '\n')
 
@@ -703,29 +706,50 @@ class CSVWriter:
 
         else:
             # If it has, check that the list of keys is identical
-            if not (list(result_blob.keys()) == self.result_keys):
-                # If it is not identical, check the discrepancies 
-                diff = lambda x, y: set(x).difference(set(y))
-                missing = diff(self.result_keys, result_blob.keys())
-                excess  = diff(result_blob.keys(), self.result_keys)
+            if list(result_blob.keys()) != self.result_keys:
+                # If it is not identical, check the discrepancies
+                missing = self.array_diff(self.result_keys, result_blob.keys())
+                excess  = self.array_diff(result_blob.keys(), self.result_keys)
                 if len(excess):
                     raise AssertionError(
                              "There are keys in this entry which were not "
                              "present when the CSV file was initialized. "
                             f"New keys: {list(excess)}")
-                elif not self.accept_missing:
+
+                if not self.accept_missing:
                     raise AssertionError(
                              "There are keys missing in this entry which were "
                              "present when the CSV file was initialized. "
                             f"Missing keys: {list(missing)}")
-                else:
-                    new_result_blob = {k:-1 for k in self.result_keys}
-                    for k, v in result_blob.items():
-                        new_result_blob[k] = v
-                    result_blob = new_result_blob
+
+                new_result_blob = {k:-1 for k in self.result_keys}
+                for k, v in result_blob.items():
+                    new_result_blob[k] = v
+                result_blob = new_result_blob
 
         # Append file
-        with open(self.file_name, 'a') as out_file:
+        with open(self.file_name, 'a', encoding='utf-8') as out_file:
             result_str = ','.join(
                     [str(result_blob[k]) for k in self.result_keys])
             out_file.write(result_str + '\n')
+
+    @staticmethod
+    def array_diff(array_x, array_y):
+        """Compare the content of two arrays.
+
+        This functions returns the elemnts of the first array that
+        do not appear in the second array.
+
+        Parameters
+        ----------
+        array_x : List[str]
+            First array of strings
+        array_y : List[str]
+            Second array of strings
+
+        Returns
+        -------
+        Set[str]
+            Set of keys that appear in `array_x` but not in `array_y`.
+        """
+        return set(array_x).difference(set(array_y))

@@ -125,11 +125,11 @@ def filter_duplicate_voxels_ref(data: nb.int32[:,:],
     for i in range(1, n):
         same = np.all(data[i-1] == data[i])
         if same:
-            if not len(temp_list):
+            if not temp_list:
                 temp_list.extend([i-1, i])
             else:
                 temp_list.append(i)
-        if len(temp_list) and (not same or i == n-1):
+        if temp_list and (not same or i == n-1):
             groups.append(temp_list)
             temp_list = nb.typed.List.empty_list(nb.int64)
 

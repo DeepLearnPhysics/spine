@@ -1,16 +1,15 @@
-import numpy as np
+"""Draw detectors based on their geometry definition."""
 
 from mlreco.utils.geometry import Geometry
 
-from .boxes import box_traces
+from .box import box_traces
 
 
 def detector_traces(detector=None, boundaries=None, meta=None,
-        detector_coords=True, draw_faces=False, shared_legend=True,
-        legend_prefix='Detector', color='rgba(0,0,0,0.150)',
-        linewidth=2, **kwargs):
-    '''
-    Function which takes loads a file with detector boundaries and
+                    detector_coords=True, draw_faces=False, shared_legend=True,
+                    name='Detector', color='rgba(0,0,0,0.150)',
+                    linewidth=2, **kwargs):
+    """Function which takes loads a file with detector boundaries and
     produces a list of traces which represent them in a 3D event display.
 
     The detector boundary file is a `.npy` or `.npz` file which contains
@@ -34,7 +33,7 @@ def detector_traces(detector=None, boundaries=None, meta=None,
     shared_legend : bool, default True
         If True, the legend entry in plotly is shared between all the
         detector volumes
-    legend_prefix : Union[str, List[str]], default 'Detector'
+    name : Union[str, List[str]], default 'Detector'
         Name(s) of the detector volumes
     color : Union[int, str, np.ndarray]
         Color of boxes or list of color of boxes
@@ -43,26 +42,22 @@ def detector_traces(detector=None, boundaries=None, meta=None,
     **kwargs : dict, optional
         List of additional arguments to pass to
         mlreco.viusalization.boxes.box_traces
-    '''
+    """
     # Load the list of boundaries
     boundaries = Geometry(detector, boundaries).tpcs
 
     # If required, convert to pixel coordinates
     if not detector_coords:
-        assert meta is not None,\
-                'Must provide meta information to convert to pixel coordinates'
+        assert meta is not None, (
+                "Must provide meta information to convert the detector "
+                "boundaries to pixel coordinates.")
         boundaries = meta.to_pixel(
                 boundaries.transpose(0,2,1)).transpose(0,2,1)
 
     # Get a trace per detector volume
-    detectors = box_traces(boundaries[...,0], boundaries[...,1],
-            draw_faces=draw_faces, color=color, linewidth=linewidth, **kwargs)
-
-    # Update the trace names
-    for i, d in enumerate(detectors):
-        d['name'] = legend_prefix if shared_legend else f'{legend_prefix}_{i}'
-        if shared_legend:
-            d['legendgroup'] = 'group2'
-            d['showlegend'] = i == 0
+    detectors = box_traces(
+            boundaries[..., 0], boundaries[..., 1], draw_faces=draw_faces,
+            color=color, linewidth=linewidth, shared_legend=shared_legend,
+            name=name, **kwargs)
 
     return detectors

@@ -1,12 +1,12 @@
+"""Routines to produce reconstruction performance metric plots."""
+
 import numpy as np
 import matplotlib.pyplot as plt
-
 from matplotlib.ticker import Formatter
 
 
 class UncertaintyFormatter(Formatter):
-    """
-    Use a new-style format string (as used by `str.format`) to format the tick.
+    """Use a new-style format string (as used by `str.format`) to format the tick.
 
     The field used for the tick value must be labeled *x* and the field used
     for the tick position must be labeled *pos*.
@@ -24,10 +24,8 @@ class UncertaintyFormatter(Formatter):
         return self.fmt.format(*x)
 
 
-def heatmap(data, row_labels, col_labels, ax=None,
-            cbar_kw={}, cbarlabel="", **kwargs):
-    """
-    Create a heatmap from a numpy array and two lists of labels.
+def heatmap(data, row_labels, col_labels, ax=None, **kwargs):
+    """Create a heatmap from a numpy array and two lists of labels.
 
     Parameters
     ----------
@@ -40,10 +38,6 @@ def heatmap(data, row_labels, col_labels, ax=None,
     ax
         A `matplotlib.axes.Axes` instance to which the heatmap is plotted.  If
         not provided, use current axes or create a new one.  Optional.
-    cbar_kw
-        A dictionary with arguments to `matplotlib.Figure.colorbar`.  Optional.
-    cbarlabel
-        The label for the colorbar.  Optional.
     **kwargs
         All other arguments are forwarded to `imshow`.
     """
@@ -83,8 +77,7 @@ def heatmap(data, row_labels, col_labels, ax=None,
 def annotate_heatmap(im, data=None, unc=None, valfmt="{x:.2f}",
                      textcolors=("black", "white"),
                      threshold=None, **textkw):
-    """
-    A function to annotate a heatmap.
+    """A function to annotate a heatmap.
 
     Parameters
     ----------
@@ -119,8 +112,8 @@ def annotate_heatmap(im, data=None, unc=None, valfmt="{x:.2f}",
 
     # Set default alignment to center, but allow it to be
     # overwritten by textkw.
-    kw = dict(horizontalalignment="center",
-              verticalalignment="center")
+    kw = {'horizontalalignment': 'center',
+          'verticalalignment': 'center'}
     kw.update(textkw)
 
     # Get the formatter in case a string is supplied

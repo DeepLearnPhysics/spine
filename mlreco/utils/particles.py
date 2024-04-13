@@ -407,7 +407,7 @@ def get_particle_ids(particles, valid_mask):
 
         # If the particle type exists in the predefined list, assign
         group_id = p.group_id()
-        t = particles[group_id].pdg_code
+        t = particles[group_id].pdg_code()
         if t in PDG_TO_PID.keys():
             particle_ids[i] = PDG_TO_PID[t]
 

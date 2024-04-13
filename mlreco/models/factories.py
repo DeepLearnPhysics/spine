@@ -67,7 +67,7 @@ def model_dict():
     return models
 
 
-def construct_model(name):
+def model_factory(name):
     """
     Returns an instance of a model class based on its name key (string).
 

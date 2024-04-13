@@ -63,6 +63,17 @@ class Meta:
 
         return (coords - self.lower) / self.size - .5
 
+    @property
+    def fixed_length_attrs(self):
+        """Fetches the list of fixes-length array attributes.
+
+        Returns
+        -------
+        List[str]
+            List of fixed length array attribute names
+        """
+        return self._fixed_length_attrs
+
     @classmethod
     def from_larcv(cls, meta):
         """Builds and returns a Meta object from a LArCV 2D metadata object.

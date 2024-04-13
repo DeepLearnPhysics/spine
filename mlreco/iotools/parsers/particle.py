@@ -156,7 +156,7 @@ class NeutrinoParser(Parser):
 
         # Store the revelant attributes
         self.pixel_coordinates = pixel_coordinates
-        self.asis = False
+        self.asis = asis
 
     def process(self, neutrino_event, sparse_event=None, cluster_event=None):
         """Fetch the list of true neutrino objects.
@@ -182,8 +182,6 @@ class NeutrinoParser(Parser):
         if self.asis:
             assert not self.pixel_coordinates, (
                     "If `asis` is True, `pixel_coordinates` must be False.")
-            assert not self.post_process, (
-                    "If `asis` is True, `post_process` must be False.")
 
             return ObjectList(neutrino_list, larcv.Neutrino())
 
@@ -292,20 +290,6 @@ class ParticleCoordinateParser(Parser):
     """
     name = 'parse_particle_coords'
 
-    def __init__(self, pixel_coordinates=True, **kwargs):
-        """Initialize the parser.
-
-        Parameters
-        ----------
-        pixel_coordinates : bool, default True
-            If set to `True`, the parser rescales the truth positions
-            (start, end, etc.) of the particle information to voxel coordinates
-        **kwargs : dict, optional
-            Data product arguments to be passed to the `process` function
-        """
-        # Initialize the parent class
-        super().__init__(**kwargs)
-
     def process(self, particle_event, sparse_event=None, cluster_event=None):
         """Fetch the start/end point and time of each true particle.
 
@@ -342,7 +326,7 @@ class ParticleCoordinateParser(Parser):
 
         # Make features
         features = []
-        for i, p in enumerate(particles_v):
+        for p in particles_v:
             start_point = last_point = image_coordinates(meta, p.first_step())
             if p.shape() == TRACK_SHP: # End point only meaningful for tracks
                 last_point = image_coordinates(meta, p.last_step())
@@ -402,7 +386,7 @@ class ParticleGraphParser(Parser):
                     edges.append([int(p.group_id()), cluster_id])
 
             # Convert the list of edges to a numpy array
-            if not len(edges):
+            if not edges:
                 return np.empty((0, 2), dtype=np.int32), num_particles
 
             edges = np.vstack(edges).astype(np.int32)
@@ -431,13 +415,13 @@ class ParticleGraphParser(Parser):
                     zero_nodes_pid.append(cluster_id)
 
             # Convert the list of edges to a numpy array
-            if not len(edges):
+            if not edges:
                 return np.empty((0, 2), dtype=np.int32), num_particles
 
             edges = np.vstack(edges).astype(np.int32)
 
             # Remove zero pixel nodes
-            for i, zn in enumerate(zero_nodes):
+            for zn in zero_nodes:
                 children = np.where(edges[:, 0] == zn)[0]
                 if len(children) == 0:
                     edges = edges[edges[:, 0] != zn]
