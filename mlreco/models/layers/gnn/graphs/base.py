@@ -4,8 +4,8 @@ import inspect
 import numpy as np
 from typing import List, Union
 
+from mlreco import EdgeIndexBatch
 from mlreco.utils.globals import COORD_COLS
-from mlreco.utils.data_structures import EdgeIndexBatch
 from mlreco.utils.gnn.network import inter_cluster_distance
 
 

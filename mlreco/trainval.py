@@ -23,6 +23,8 @@ import torch
 
 from torch.nn.parallel import DistributedDataParallel as DDP
 
+from . import TensorBatch, IndexBatch, EdgeIndexBatch
+
 from .iotools.factories import loader_factory, writer_factory
 from .iotools.writers import CSVWriter
 
@@ -31,7 +33,6 @@ from .models.experimental.bayes.calibration import (
         calibrator_factory, calibrator_loss_factory)
 
 from .utils.torch_local import cycle
-from .utils.data_structures import TensorBatch, IndexBatch, EdgeIndexBatch
 from .utils.stopwatch import StopwatchManager
 from .utils.unwrap import Unwrapper
 from .utils.train import optim_factory, lr_sched_factory

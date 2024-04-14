@@ -4,10 +4,10 @@ import numpy as np
 import torch
 from sklearn.cluster import DBSCAN as sklearn_dbscan
 
+from mlreco import TensorBatch, IndexBatch
 from mlreco.utils.globals import (
         SHOWR_SHP, TRACK_SHP, MICHL_SHP, DELTA_SHP, COORD_COLS, PPN_SHAPE_COL,
         COORD_START_COLS, COORD_END_COLS)
-from mlreco.utils.data_structures import TensorBatch, IndexBatch
 from mlreco.utils.ppn import PPNPredictor
 from mlreco.utils.point_break_clustering import PointBreakClusterer
 

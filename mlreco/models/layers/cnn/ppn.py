@@ -10,12 +10,12 @@ from .configuration import setup_cnn_configuration
 from .act_norm import act_factory
 from .blocks import ResNetBlock, SPP, ASPP
 
+from mlreco import TensorBatch
 from mlreco.utils.torch_local import local_cdist
 from mlreco.utils.logger import logger
 from mlreco.utils.globals import (COORD_COLS, VALUE_COL, SHAPE_COL, TRACK_SHP,
                                   GHOST_SHP, PPN_ROFF_COLS, PPN_RPOS_COLS,
                                   PPN_RTYPE_COLS, PPN_LTYPE_COL, PPN_LENDP_COL)
-from mlreco.utils.data_structures import TensorBatch
 from mlreco.utils.weighting import get_class_weights
 
 __all__ = ['PPN', 'PPNLoss']

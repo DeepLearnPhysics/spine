@@ -8,11 +8,11 @@ from typing import List, Union
 from scipy.spatial import Delaunay
 from scipy.sparse.csgraph import minimum_spanning_tree
 
-import mlreco.utils.numba_local as nbl
+from mlreco import TensorBatch, IndexBatch
 from mlreco.utils.globals import COORD_COLS, PRINT_COL
-from mlreco.utils.data_structures import TensorBatch, IndexBatch
 from mlreco.utils.gnn.cluster import get_cluster_label
 from mlreco.utils.gnn.network import complete_graph
+import mlreco.utils.numba_local as nbl
 
 from .base import GraphBase
 

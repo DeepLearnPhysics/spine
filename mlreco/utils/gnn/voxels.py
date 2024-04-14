@@ -4,10 +4,10 @@
 import numpy as np
 import numba as nb
 
-import mlreco.utils.numba_local as nbl
+from mlreco import TensorBatch
 from mlreco.utils.globals import COORD_COLS
-from mlreco.utils.data_structures import TensorBatch
 from mlreco.utils.decorators import numbafy
+import mlreco.utils.numba_local as nbl
 
 
 def get_voxel_features_batch(data, max_dist=5.0):

@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 
 
-class Parser(ABC):
+class ParserBase(ABC):
     """Abstract parent class of all parser classes.
 
     Provides basic functionality shared by all parsers:
@@ -85,7 +85,7 @@ class Parser(ABC):
         return self.process(**data_dict)
 
     @abstractmethod
-    def process(self):
+    def process(self, *args, **kwargs):
         """Parse one entry.
 
         This is a place-holder, must be defined in inheriting class.

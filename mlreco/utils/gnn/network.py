@@ -3,10 +3,10 @@
 import numpy as np
 import numba as nb
 
-import mlreco.utils.numba_local as nbl
+from mlreco import TensorBatch
 from mlreco.utils.decorators import numbafy
 from mlreco.utils.globals import COORD_COLS
-from mlreco.utils.data_structures import TensorBatch
+import mlreco.utils.numba_local as nbl
 
 
 def get_cluster_edge_features_batch(data, clusts, edge_index,

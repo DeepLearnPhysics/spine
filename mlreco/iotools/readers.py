@@ -11,7 +11,7 @@ import h5py
 import ROOT
 import numpy as np
 
-from mlreco.utils import data_structures
+from mlreco import data_structures
 
 __all__ = ['LArCVReader', 'HDF5Reader']
 

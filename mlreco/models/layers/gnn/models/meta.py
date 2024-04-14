@@ -3,9 +3,9 @@
 from torch import nn
 from torch_geometric.nn import MetaLayer
 
-from mlreco.models.layers.common.act_norm import norm_factory
+from mlreco import TensorBatch
 
-from mlreco.utils.data_structures.batch import TensorBatch
+from mlreco.models.layers.common.act_norm import norm_factory
 
 from .factories import (
         edge_layer_factory, node_layer_factory, global_layer_factory)

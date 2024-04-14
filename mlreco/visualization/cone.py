@@ -70,8 +70,8 @@ def cone_trace(points, fraction=0.5, num_samples=10, color=None,
     r = np.linspace(0, 1, num=num_samples)
     phi = np.linspace(0, 2*np.pi, num=num_samples)
     r, phi = np.meshgrid(r, phi)
-    x = r * np.sin(theta) * np.cos(phi)
-    y = r * np.sin(theta) * np.sin(phi)
+    x = r * np.tan(theta) * np.cos(phi)
+    y = r * np.tan(theta) * np.sin(phi)
     z = r
     unit_points = np.vstack((x.flatten(), y.flatten(), z.flatten())).T
 

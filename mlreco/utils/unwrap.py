@@ -4,8 +4,9 @@ import numpy as np
 from dataclasses import dataclass
 from copy import deepcopy
 
+from mlreco import TensorBatch, IndexBatch, EdgeIndexBatch, ObjectList
+
 from .globals import BATCH_COL
-from .data_structures import TensorBatch, IndexBatch, EdgeIndexBatch, ObjectList
 from .geometry import Geometry
 
 

@@ -85,18 +85,17 @@ class LArCVDataset(Dataset):
         # Read in a specific entry
         data_dict = self.reader[idx]
 
+        # Get the index
+        entry_idx = self.reader.entry_index[idx]
+        result = {'index': entry_idx}
+
         # Loop over data products, execute parsers
-        result = {}
         for name, parser in self.parsers.items():
             try:
                 result[name] = parser(data_dict)
             except Exception as err:
                 print(f"Failed to produce {name} using {parser}")
                 raise err
-
-        # Append the index
-        entry_idx = self.reader.entry_index[idx]
-        result['index'] = entry_idx
 
         return result
 

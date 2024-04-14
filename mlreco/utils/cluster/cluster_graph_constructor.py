@@ -8,19 +8,20 @@ from typing import Union, Callable, Tuple, List
 # import warnings
 # warnings.filterwarnings("ignore", category=UserWarning)
 
+import sys
+
 import numpy as np
 import torch
-
 from torch_cluster import knn_graph, radius_graph
 
 from mlreco.utils.metrics import *
 from mlreco.utils.globals import *
 from torch_geometric.data import Data, Batch
 
+from mlreco import TensorBatch, IndexBatch, EdgeIndexBatch
 from mlreco.utils.metrics import ARI, SBD, purity, efficiency
-from mlreco.utils.data_structures import TensorBatch, IndexBatch, EdgeIndexBatch
+
 from .helpers import ConnectedComponents, knn_sklearn
-import sys
 
 class ClusterGraphConstructor:
     """Manager class for handling per-batch, per-semantic type predictions

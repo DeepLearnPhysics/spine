@@ -2,10 +2,10 @@ import torch
 import torch.nn as nn
 import MinkowskiEngine as ME
 
+from mlreco import TensorBatch
 from mlreco.models.layers.cnn.uresnet_layers import UResNet
 from mlreco.utils.globals import *
 
-from mlreco.utils.data_structures import TensorBatch
 
 class GraphSPICEEmbedder(UResNet):
 

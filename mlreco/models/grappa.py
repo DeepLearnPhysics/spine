@@ -8,8 +8,7 @@ from .layers.common.dbscan import DBSCAN
 from .layers.factories import final_factory
 from .layers.gnn.factories import *
 
-from mlreco.utils.data_structures import (
-        TensorBatch, IndexBatch, EdgeIndexBatch)
+from mlreco import TensorBatch, IndexBatch, EdgeIndexBatch
 from mlreco.utils.globals import (
         BATCH_COL, COORD_COLS, CLUST_COL, GROUP_COL, SHAPE_COL, LOWES_SHP)
 from mlreco.utils.gnn.cluster import (

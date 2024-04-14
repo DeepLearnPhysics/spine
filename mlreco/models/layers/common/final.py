@@ -4,10 +4,10 @@ feature extractor networks and produces the required type of output.
 
 from torch import nn
 
+from mlreco import TensorBatch
+
 from .mlp import MLP
 from .evidential import EvidentialModel
-
-from mlreco.utils.data_structures import TensorBatch
 
 __all__ = ['FinalLinear', 'FinalMLP', 'FinalEvidential']
 

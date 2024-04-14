@@ -7,11 +7,10 @@ from mlreco.models.layers.cluster_cnn import gs_kernel_factory, spice_loss_facto
 
 from mlreco.models.layers.cluster_cnn.graph_spice_embedder import GraphSPICEEmbedder
 
-from pprint import pprint
+from mlreco import TensorBatch
 from mlreco.utils.cluster.cluster_graph_constructor import ClusterGraphConstructor
 from mlreco.utils.unwrap import Unwrapper
 from mlreco.utils.globals import *
-from mlreco.utils.data_structures import TensorBatch
 
 class GraphSPICE(nn.Module):
     '''

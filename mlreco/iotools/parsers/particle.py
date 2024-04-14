@@ -13,19 +13,19 @@ Contains the following parsers:
 import numpy as np
 from larcv import larcv
 
+from mlreco import Meta, Particle, Neutrino, ObjectList
 from mlreco.utils.globals import TRACK_SHP, PDG_TO_PID, PID_MASSES
-from mlreco.utils.data_structures import Meta, Particle, Neutrino, ObjectList
 from mlreco.utils.particles import process_particles
 from mlreco.utils.ppn import get_ppn_labels, image_coordinates
 
-from .parser import Parser
+from .base import ParserBase
 
 __all__ = ['ParticleParser', 'NeutrinoParser', 'ParticlePointParser',
            'ParticleCoordinateParser', 'ParticleGraphParser',
            'SingleParticlePIDParser', 'SingleParticleEnergyParser']
 
 
-class ParticleParser(Parser):
+class ParticleParser(ParserBase):
     """Class which loads larcv.Particle objects to local Particle ones.
 
     .. code-block. yaml
@@ -123,7 +123,7 @@ class ParticleParser(Parser):
         return ObjectList(particles, Particle())
 
 
-class NeutrinoParser(Parser):
+class NeutrinoParser(ParserBase):
     """Class which loads larcv.Neutrino objects to local Neutrino ones.
 
     .. code-block. yaml
@@ -204,7 +204,7 @@ class NeutrinoParser(Parser):
         return ObjectList(neutrinos, Neutrino())
 
 
-class ParticlePointParser(Parser):
+class ParticlePointParser(ParserBase):
     """Class that retrieves the points of interests.
 
     It provides the coordinates of the end points, types and particle index.
@@ -275,7 +275,7 @@ class ParticlePointParser(Parser):
         return point_labels[:, :3], point_labels[:, 3:], Meta.from_larcv(meta)
 
 
-class ParticleCoordinateParser(Parser):
+class ParticleCoordinateParser(ParserBase):
     """Class that retrieves that end points of particles.
 
     It provides the coordinates of the end points, time and shape.
@@ -338,7 +338,7 @@ class ParticleCoordinateParser(Parser):
         return features[:, :6], features[:, 6:], Meta.from_larcv(meta)
 
 
-class ParticleGraphParser(Parser):
+class ParticleGraphParser(ParserBase):
     """Class that uses larcv.EventParticle to construct edges
     between particles (i.e. clusters).
 
@@ -441,7 +441,7 @@ class ParticleGraphParser(Parser):
         return edges.T, num_particles
 
 
-class SingleParticlePIDParser(Parser):
+class SingleParticlePIDParser(ParserBase):
     """Get the first true particle's species.
 
     .. code-block. yaml
@@ -478,7 +478,7 @@ class SingleParticlePIDParser(Parser):
         return pdg
 
 
-class SingleParticleEnergyParser(Parser):
+class SingleParticleEnergyParser(ParserBase):
     """Get the first true particle's kinetic energy.
 
     .. code-block. yaml

@@ -11,16 +11,15 @@ Contains the following parsers:
 
 from larcv import larcv
 
-from mlreco.utils.data_structures import (
-        Meta, RunInfo, Flash, CRTHit, Trigger, ObjectList)
+from mlreco import Meta, RunInfo, Flash, CRTHit, Trigger, ObjectList
 
-from .parser import Parser
+from .base import ParserBase
 
 __all__ = ['MetaParser', 'RunInfoParser', 'OpFlashParser',
            'CRTHitParser', 'TriggerParser']
 
 
-class MetaParser(Parser):
+class MetaParser(ParserBase):
     """Get the metadata information to translate into real world coordinates.
 
     Each entry in a dataset is a cube, where pixel/voxel coordinates typically
@@ -84,7 +83,7 @@ class MetaParser(Parser):
         return Meta.from_larcv(ref_event.meta())
 
 
-class RunInfoParser(Parser):
+class RunInfoParser(ParserBase):
     """Parse run information (run, subrun, event number).
 
     .. code-block. yaml
@@ -121,7 +120,7 @@ class RunInfoParser(Parser):
         return RunInfo.from_larcv(ref_event)
 
 
-class OpFlashParser(Parser):
+class OpFlashParser(ParserBase):
     """Copy construct OpFlash and return an array of `Flash`.
 
     .. code-block. yaml
@@ -166,7 +165,7 @@ class OpFlashParser(Parser):
         return ObjectList(opflashes, Flash())
 
 
-class CRTHitParser(Parser):
+class CRTHitParser(ParserBase):
     """Copy construct CRTHit and return an array of `CRTHit`.
 
     .. code-block. yaml
@@ -197,7 +196,7 @@ class CRTHitParser(Parser):
         return ObjectList(crthits, CRTHit())
 
 
-class TriggerParser(Parser):
+class TriggerParser(ParserBase):
     """Copy construct Trigger and return a `Trigger`.
 
     .. code-block. yaml

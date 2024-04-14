@@ -5,8 +5,8 @@ import MinkowskiEngine as ME
 
 from collections import defaultdict
 
+from mlreco import TensorBatch
 from mlreco.utils.globals import BATCH_COL, VALUE_COL, GHOST_SHP
-from mlreco.utils.data_structures import TensorBatch
 from mlreco.utils.logger import logger
 
 from .layers.cnn.act_norm import act_factory, norm_factory

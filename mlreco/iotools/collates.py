@@ -6,8 +6,8 @@ to :class:`torch.utils.data.DataLoader` as the `collate_fn` argumement.
 
 import numpy as np
 
+from mlreco import TensorBatch, IndexBatch, EdgeIndexBatch
 from mlreco.utils.geometry import Geometry
-from mlreco.utils.data_structures import TensorBatch, IndexBatch, EdgeIndexBatch
 
 __all__ = ['CollateSparse']
 

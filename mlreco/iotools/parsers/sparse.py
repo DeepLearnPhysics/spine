@@ -12,17 +12,17 @@ from warnings import warn
 import numpy as np
 from larcv import larcv
 
+from mlreco import Meta
 from mlreco.utils.globals import GHOST_SHP
-from mlreco.utils.data_structures import Meta
 from mlreco.utils.ghost import compute_rescaled_charge
 
-from .parser import Parser
+from .base import ParserBase
 
 __all__ = ['Sparse2DParser', 'Sparse3DParser', 'Sparse3DGhostParser',
            'Sparse3DChargeRescaledParser']
 
 
-class Sparse2DParser(Parser):
+class Sparse2DParser(ParserBase):
     """Class that retrieves and parses a 2D sparse tensor.
 
     .. code-block. yaml
@@ -118,7 +118,7 @@ class Sparse2DParser(Parser):
         return np_voxels, np.hstack(np_features), Meta.from_larcv(meta)
 
 
-class Sparse3DParser(Parser):
+class Sparse3DParser(ParserBase):
     """Class that retrieves and parses a 3D sparse tensor.
 
     .. code-block. yaml

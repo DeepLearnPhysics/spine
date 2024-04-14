@@ -9,12 +9,12 @@ import numba as nb
 import torch
 from typing import List
 
-import mlreco.utils.numba_local as nbl
+from mlreco import TensorBatch, IndexBatch
 from mlreco.utils.decorators import numbafy
-from mlreco.utils.data_structures import TensorBatch, IndexBatch
 from mlreco.utils.globals import (
         BATCH_COL, COORD_COLS, VALUE_COL, CLUST_COL, PART_COL, GROUP_COL,
         MOM_COL, SHAPE_COL, COORD_START_COLS, COORD_END_COLS, COORD_TIME_COL)
+import mlreco.utils.numba_local as nbl
 
 
 def form_clusters_batch(data, min_size=-1, column=CLUST_COL,

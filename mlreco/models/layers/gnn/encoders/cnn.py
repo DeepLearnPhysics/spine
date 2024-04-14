@@ -4,8 +4,8 @@ import torch
 
 from mlreco.models.layers.cnn.cnn_encoder import SparseResidualEncoder
 
+from mlreco import TensorBatch, IndexBatch
 from mlreco.utils.globals import BATCH_COL
-from mlreco.utils.data_structures import TensorBatch, IndexBatch
 
 __all__ = ['ClustCNNNodeEncoder', 'ClustCNNEdgeEncoder']
 

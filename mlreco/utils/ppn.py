@@ -11,10 +11,11 @@ from typing import Union, List
 from scipy.special import softmax as softmax_sp
 from scipy.spatial.distance import cdist as cdist_sp
 
+from mlreco import TensorBatch
+
 from . import numba_local as nbl
 from .dbscan import dbscan_points
 from .torch_local import local_cdist
-from .data_structures import TensorBatch
 from .globals import (
         BATCH_COL, COORD_COLS, PPN_ROFF_COLS, PPN_RTYPE_COLS, PPN_RPOS_COLS,
         PPN_SCORE_COLS, PPN_OCC_COL, PPN_CLASS_COLS, PPN_SHAPE_COL,

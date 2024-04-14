@@ -13,7 +13,7 @@ from scipy.sparse.csgraph import minimum_spanning_tree
 
 import mlreco.utils.numba_local as nbl
 from mlreco.utils.metrics import SBD, AMI, ARI, purity_efficiency
-from mlreco.utils.data_structures import TensorBatch, IndexBatch, EdgeIndexBatch
+from mlreco import TensorBatch, IndexBatch, EdgeIndexBatch
 
 int_array = nb.int64[:]
 

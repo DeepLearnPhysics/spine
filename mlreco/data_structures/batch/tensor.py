@@ -5,8 +5,8 @@ import torch
 from dataclasses import dataclass
 from typing import Union, List
 
+from mlreco.data_structures.meta import Meta
 from mlreco.utils.globals import BATCH_COL, COORD_COLS
-from mlreco.utils.data_structures.meta import Meta
 from mlreco.utils.decorators import inherit_docstring
 
 from .base import BatchBase

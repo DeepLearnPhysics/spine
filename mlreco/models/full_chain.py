@@ -18,10 +18,10 @@ from .layers.common.dbscan import DBSCAN
 
 from mlreco.utils.cluster.cluster_graph_constructor import ClusterGraphConstructor
 
+from mlreco import TensorBatch, IndexBatch, RunInfo
 from mlreco.utils.globals import (
         COORD_COLS, VALUE_COL, CLUST_COL, SHAPE_COL, SHOWR_SHP, TRACK_SHP,
         MICHL_SHP, DELTA_SHP, GHOST_SHP)
-from mlreco.utils.data_structures import TensorBatch, IndexBatch, RunInfo
 from mlreco.utils.calibration import CalibrationManager
 from mlreco.utils.logger import logger
 from mlreco.utils.ppn import get_particle_points

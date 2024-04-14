@@ -12,12 +12,12 @@ import numpy as np
 from larcv import larcv
 from sklearn.cluster import DBSCAN
 
+from mlreco import Meta
 from mlreco.utils.globals import DELTA_SHP
-from mlreco.utils.data_structures import Meta
 from mlreco.utils.particles import process_particle_event
 from mlreco.utils.ppn import image_coordinates
 
-from .parser import Parser
+from .base import ParserBase
 from .sparse import Sparse3DParser, Sparse3DChargeRescaledParser
 from .clean_data import clean_sparse_data
 
@@ -25,7 +25,7 @@ __all__ = ['Cluster2DParser', 'Cluster3DParser',
            'Cluster3DChargeRescaledParser', 'Cluster3DMultiModuleParser']
 
 
-class Cluster2DParser(Parser):
+class Cluster2DParser(ParserBase):
     """Class that retrieves and parses a 2D cluster list.
 
     .. code-block. yaml
@@ -83,7 +83,7 @@ class Cluster2DParser(Parser):
         return np_voxels, np_features, Meta.from_larcv(meta)
 
 
-class Cluster3DParser(Parser):
+class Cluster3DParser(ParserBase):
     """Class that retrieves and parses a 3D cluster list.
 
     .. code-block. yaml

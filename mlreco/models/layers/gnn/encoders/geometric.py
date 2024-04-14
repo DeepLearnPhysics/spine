@@ -1,9 +1,9 @@
 import numpy as np
 import torch
 
+from mlreco import TensorBatch
 from mlreco.utils.torch_local import local_cdist
 from mlreco.utils.globals import COORD_COLS, VALUE_COL, SHAPE_COL
-from mlreco.utils.data_structures import TensorBatch
 from mlreco.utils.gnn.cluster import (
         get_cluster_features_batch, get_cluster_points_label_batch,
         get_cluster_directions_batch, get_cluster_dedxs_batch)
