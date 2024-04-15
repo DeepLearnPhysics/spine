@@ -307,10 +307,10 @@ class ParticleCoordinateParser(ParserBase):
         Returns
         -------
         np_voxels : np.ndarray
-            (N, 3) array of [x, y, z] start point coordinates
+            (N, 6) array of [x_s, y_s, z_s, x_e, y_e, z_e] start and end 
+            point coordinates
         np_features : np.ndarray
-            (N, 8) array of [first_step_x, first_step_y, first_step_z,
-            last_step_x, last_step_y, last_step_z, first_step_t, shape_id]
+            (N, 2) array of [first_step_t, shape_id]
         meta : Meta
             Metadata of the parsed image
         """
@@ -325,15 +325,13 @@ class ParticleCoordinateParser(ParserBase):
         particles_v = particle_event.as_vector()
 
         # Make features
-        features = []
-        for p in particles_v:
+        features = np.empty((len(particles_v), 8), dtype=np.float32)
+        for i, p in enumerate(particles_v):
             start_point = last_point = image_coordinates(meta, p.first_step())
             if p.shape() == TRACK_SHP: # End point only meaningful for tracks
                 last_point = image_coordinates(meta, p.last_step())
             extra = [p.t(), p.shape()]
-            features.append(np.concatenate((start_point, last_point, extra)))
-
-        features = np.vstack(features)
+            features[i] = np.concatenate((start_point, last_point, extra))
 
         return features[:, :6], features[:, 6:], Meta.from_larcv(meta)
 
@@ -387,7 +385,7 @@ class ParticleGraphParser(ParserBase):
 
             # Convert the list of edges to a numpy array
             if not edges:
-                return np.empty((0, 2), dtype=np.int32), num_particles
+                return np.empty((2, 0), dtype=np.int32), num_particles
 
             edges = np.vstack(edges).astype(np.int32)
 
@@ -416,7 +414,7 @@ class ParticleGraphParser(ParserBase):
 
             # Convert the list of edges to a numpy array
             if not edges:
-                return np.empty((0, 2), dtype=np.int32), num_particles
+                return np.empty((2, 0), dtype=np.int32), num_particles
 
             edges = np.vstack(edges).astype(np.int32)
 

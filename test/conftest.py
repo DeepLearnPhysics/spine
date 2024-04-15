@@ -1,5 +1,8 @@
+"""Sets up the pytest configuration"""
+
 import pytest
 import os
+
 os.environ['CUDA_VISIBLE_DEVICES'] = ''
 
 
@@ -33,4 +36,5 @@ def data(tmp_path, datafile):
     datafile_url = datafile
     data_path = os.path.join(tmp_path, filename + '.root')
     urllib.request.urlretrieve(datafile_url, data_path)
+
     return filename

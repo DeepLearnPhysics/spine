@@ -15,7 +15,7 @@ from mlreco import Meta, RunInfo, Flash, CRTHit, Trigger, ObjectList
 
 from .base import ParserBase
 
-__all__ = ['MetaParser', 'RunInfoParser', 'OpFlashParser',
+__all__ = ['MetaParser', 'RunInfoParser', 'FlashParser',
            'CRTHitParser', 'TriggerParser']
 
 
@@ -120,27 +120,27 @@ class RunInfoParser(ParserBase):
         return RunInfo.from_larcv(ref_event)
 
 
-class OpFlashParser(ParserBase):
-    """Copy construct OpFlash and return an array of `Flash`.
+class FlashParser(ParserBase):
+    """Copy construct Flash and return an array of `Flash`.
 
     .. code-block. yaml
         schema:
-          opflash_cryoE:
-            parser:parse_opflash
-            opflash_event: opflash_cryoE
+          flashes_cryoE:
+            parser: parse_flash
+            flash_event: flash_cryoE
 
     """
-    name = 'parse_opflashes'
-    aliases = ['parse_opflash']
+    name = 'parse_flashes'
+    aliases = ['parse_opflash', 'parse_opflashes']
 
-    def process(self, opflash_event=None, opflash_event_list=None):
+    def process(self, flash_event=None, flash_event_list=None):
         """Fetches the list of optical flashes.
 
         Parameters
         -------------
-        opflash_event : larcv.EventFlash, optional
+        flash_event : larcv.EventFlash, optional
             Optical flash event which contains a list of flash objects
-        opflash_event_list : larcv.EventFlash, optional
+        flash_event_list : List[larcv.EventFlash], optional
             List of optical flash events, each a list of flash objects
 
         Returns
@@ -149,20 +149,20 @@ class OpFlashParser(ParserBase):
             List of optical flash objects
         """
         # Check on the input, aggregate the sources for the optical flashes
-        assert ((opflash_event is not None) ^
-                (opflash_event_list is not None)), (
-                "Must specify either `opflash_event` or `opflash_event_list`")
-        if opflash_event is not None:
-            opflash_list = opflash_event.as_vector()
+        assert ((flash_event is not None) ^
+                (flash_event_list is not None)), (
+                "Must specify either `flash_event` or `flash_event_list`")
+        if flash_event is not None:
+            flash_list = flash_event.as_vector()
         else:
-            opflash_list = []
-            for opflash_event in opflash_event_list:
-                opflash_list.extend(opflash_event.as_vector())
+            flash_list = []
+            for flash_event in flash_event_list:
+                flash_list.extend(flash_event.as_vector())
 
         # Output as a list of LArCV optical flash objects
-        opflashes = [Flash.from_larcv(larcv.Flash(f)) for f in opflash_list]
+        flashes = [Flash.from_larcv(larcv.Flash(f)) for f in flash_list]
 
-        return ObjectList(opflashes, Flash())
+        return ObjectList(flashes, Flash())
 
 
 class CRTHitParser(ParserBase):

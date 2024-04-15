@@ -45,7 +45,7 @@ class ParserBase(ABC):
                     "and must point to an existing tree in the LArCV file.")
             if value is not None:
                 self.data_map[key] = value
-                if isinstance(value, str):
+                if not isinstance(value, list):
                     if value not in self.tree_keys:
                         self.tree_keys.append(value)
                 else:

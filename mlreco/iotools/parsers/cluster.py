@@ -37,6 +37,22 @@ class Cluster2DParser(ParserBase):
     """
     name = 'parse_cluster2d'
 
+    def __init__(self, cluster_event, projection_id):
+        """Initialize the parser.
+
+        Parameters
+        ----------
+        cluster_event : larcv.EventClusterPixel2D
+            Event which contains the 2D clusters
+        projection_id : int
+            Projection ID to get the 2D images from
+        """
+        # Initialize the parent class
+        super().__init__(cluster_event=cluster_event)
+
+        # Store the revelant attributes
+        self.projection_id = projection_id
+
     def process(self, cluster_event):
         """Converts a 2D clusters tensor into a single tensor.
 
@@ -54,13 +70,15 @@ class Cluster2DParser(ParserBase):
         meta : Meta
             Metadata of the parsed image
         """
+        # Get the cluster from the appropriate projection
+        cluster_event_p = cluster_event.cluster_pixel_2d(self.projection_id)
+
         # Loop over clusters, store information
-        cluster_event = cluster_event.as_vector().front()
-        meta = cluster_event.meta()
-        num_clusters = cluster_event.size()
+        meta = cluster_event_p.meta()
+        num_clusters = cluster_event_p.size()
         clusters_voxels, clusters_features = [], []
         for i in range(num_clusters):
-            cluster = cluster_event.as_vector()[i]
+            cluster = cluster_event_p.as_vector()[i]
             num_points = cluster.as_vector().size()
             if num_points > 0:
                 x = np.empty(num_points, dtype=np.int32)
@@ -103,14 +121,13 @@ class Cluster3DParser(ParserBase):
             type_include_secondary: false
             primary_include_mpr: true
             break_clusters: false
-            min_size: -1
     """
     name = 'parse_cluster3d'
 
     def __init__(self, particle_event=None, add_particle_info=False,
                  clean_data=False, type_include_mpr=True,
                  type_include_secondary=True, primary_include_mpr=True,
-                 break_clusters=False, min_size=-1, **kwargs):
+                 break_clusters=False, **kwargs):
         """Initialize the parser.
 
         Parameters
@@ -131,8 +148,6 @@ class Cluster3DParser(ParserBase):
         break_clusters : bool, default False
             If `True`, runs DBSCAN on each cluster, assigns different cluster
             IDs to different fragments of the broken-down cluster
-        min_size : int, default -1
-            Minimum cluster size to be parsed in the combined tensor
         **kwargs : dict, optional
             Data product arguments to be passed to the `process` function
         """
@@ -146,7 +161,6 @@ class Cluster3DParser(ParserBase):
         self.type_include_secondary = type_include_secondary
         self.primary_include_mpr = primary_include_mpr
         self.break_clusters = break_clusters
-        self.min_size = max(min_size, 1)
 
         # Intialize the sparse and particle parsers
         self.sparse_parser = Sparse3DParser(sparse_event='dummy')
@@ -266,7 +280,7 @@ class Cluster3DParser(ParserBase):
         for i in range(num_clusters):
             cluster = cluster_event.as_vector()[i]
             num_points = cluster.as_vector().size()
-            if num_points >= self.min_size:
+            if num_points > 0:
                 # Get the position and pixel value from EventSparseTensor3D
                 x = np.empty(num_points, dtype=np.int32)
                 y = np.empty(num_points, dtype=np.int32)
@@ -343,11 +357,17 @@ class Cluster3DChargeRescaledParser(Cluster3DParser):
     name = 'parse_cluster3d_rescale_charge'
     aliases = ['parse_cluster3d_charge_rescaled']
 
-    def __init__(self, collection_only=False, collection_id=2, **kwargs):
+    def __init__(self, sparse_value_event_list, collection_only=False,
+                 collection_id=2, **kwargs):
         """Initialize the parser.
 
         Parameters
         ----------
+        sparse_value_event_list : List[larcv.EventSparseTensor3D]
+            (7) List of sparse tensors used to compute the rescaled charge
+            - Charge value of each of the contributing planes (3)
+            - Index of the plane hit contributing to the space point (3)
+            - Semantic labels (1)
         collection_only : bool, default False
             If True, only uses the collection plane charge
         collection_id : int, default 2
@@ -359,8 +379,9 @@ class Cluster3DChargeRescaledParser(Cluster3DParser):
         super().__init__(**kwargs)
 
         # Initialize the sparse parser which computes the rescaled charge
-        self.sparse_parser = Sparse3DChargeRescaledParser(
-                collection_only, collection_id)
+        self.sparse_rescale_parser = Sparse3DChargeRescaledParser(
+                sparse_event_list=sparse_value_event_list,
+                collection_only=collection_only, collection_id=collection_id)
 
     def process(self, sparse_value_event_list, **kwargs):
         """Parse a list of 3D clusters into a single tensor.
@@ -368,9 +389,10 @@ class Cluster3DChargeRescaledParser(Cluster3DParser):
         Parameters
         ----------
         sparse_value_event_list : List[larcv.EventSparseTensor3D]
-            (6) List of sparse tensors used to compute the rescaled charge
+            (7) List of sparse tensors used to compute the rescaled charge
             - Charge value of each of the contributing planes (3)
             - Index of the plane hit contributing to the space point (3)
+            - Semantic labels (1)
         **kwargs : dict, optional
             Extra data products to pass to the parent Cluster3DParser
 
@@ -391,7 +413,7 @@ class Cluster3DChargeRescaledParser(Cluster3DParser):
         np_voxels, np_features, meta = super().process(**kwargs)
 
         # Modify the value column using the charge rescaled on the fly
-        _, val_features, _  = self.sparse_parser.process(
+        _, val_features, _  = self.sparse_rescale_parser.process(
                 sparse_value_event_list)
         np_features[:, 0] = val_features[:, -1]
 
@@ -400,7 +422,7 @@ class Cluster3DChargeRescaledParser(Cluster3DParser):
 
 class Cluster3DMultiModuleParser(Cluster3DParser):
     """Identical to :class:`Cluster3DParser`, but fetches charge information
-    from multiple modules independantly.
+    from multiple detector modules independantly.
     """
     name = 'parse_cluster3d_multi_module'
     aliases = ['parse_cluster3d_2cryos']

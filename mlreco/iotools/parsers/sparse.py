@@ -38,18 +38,18 @@ class Sparse2DParser(ParserBase):
     """
     name = 'parse_sparse2d'
 
-    def __init__(self, sparse_event=None, sparse_event_list=None,
-                 projection_id=None):
+    def __init__(self, projection_id, sparse_event=None,
+                 sparse_event_list=None):
         """Initialize the parser.
 
         Parameters
         ----------
+        projection_id : int
+            Projection ID to get the 2D images from
         sparse_event: larcv.EventSparseTensor2D, optional
             Sparse tensor to get the voxel/features from
         sparse_event_list: List[larcv.EventSparseTensor2D], optional
             List of sparse tensors to get the voxel/features from
-        projection_id : int, optional
-            Projection ID to get the 2D images from
         """
         # Initialize the parent class
         super().__init__(sparse_event=sparse_event,
@@ -95,7 +95,7 @@ class Sparse2DParser(ParserBase):
         np_voxels, meta, num_points = None, None, None
         np_features = []
         for sparse_event in sparse_event_list:
-            # Get the tensor
+            # Get the tensor from the appropriate projection
             tensor = sparse_event.sparse_tensor_2d(self.projection_id)
 
             # Get the shared information
@@ -134,8 +134,7 @@ class Sparse3DParser(ParserBase):
     name = 'parse_sparse3d'
 
     def __init__(self, sparse_event=None, sparse_event_list=None,
-                 num_features=None, features=None, hit_keys=None,
-                 nhits_idx=None, **kwargs):
+                 num_features=None, hit_keys=None, nhits_idx=None, **kwargs):
         """Initialize the parser.
 
         Parameters
@@ -150,8 +149,8 @@ class Sparse3DParser(ParserBase):
             concatenated along the feature dimension separately. Then all
             lists are concatenated along the first dimension (voxels). For
             example, this lets you work with distinct detector volumes whose
-            input data is stored in separate TTrees.`features` is required to
-            be a divider of the `sparse_event_list` length.
+            input data is stored in separate TTrees. `num_features` is required
+            to be a divider of the `sparse_event_list` length.
         hit_keys : list of int, optional
             Indices among the input features of the `_hit_key_` TTrees that can
             be used to infer the `nhits` quantity (doublet vs triplet point).
@@ -166,13 +165,7 @@ class Sparse3DParser(ParserBase):
                          sparse_event_list=sparse_event_list)
 
         # Store the revelant attributes
-        assert (num_features is None) or (features is None), (
-                "Do not specify both `features` and `num_features`.")
         self.num_features = num_features
-        if features is not None:
-            warn("Parameter `features` is deprecated, use `num_features` "
-                 "instead", DeprecationWarning, stacklevel=1)
-            self.num_features = features
         self.hit_keys = hit_keys
         self.nhits_idx = nhits_idx
 
@@ -310,7 +303,7 @@ class Sparse3DGhostParser(Sparse3DParser):
         """
         # Convert the semantics feature to a ghost feature
         np_voxels, np_data, meta = super().process(sparse_event)
-        np_ghosts = np_data == GHOST_SHP
+        np_ghosts = (np_data == GHOST_SHP).astype(np_voxels.dtype)
 
         return np_voxels, np_ghosts, meta
 
@@ -352,8 +345,11 @@ class Sparse3DChargeRescaledParser(Sparse3DParser):
 
         Parameters
         -------------
-        sparse_event: larcv.EventSparseTensor3D, optional
-            Sparse tensor to get the voxel/features from
+        sparse_event_list: List[larcv.EventSparseTensor3D]
+            (7) List of sparse tensors used to compute the rescaled charge
+            - Charge value of each of the contributing planes (3)
+            - Index of the plane hit contributing to the space point (3)
+            - Semantic labels (1)
 
         Returns
         -------
