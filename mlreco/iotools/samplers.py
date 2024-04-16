@@ -6,7 +6,7 @@ import torch
 from torch.utils.data import Sampler
 from torch.utils.data.distributed import DistributedSampler
 
-__all__ = ['SequentialBatchSampler', 'RandomSequenceSampler',
+__all__ = ['SequentialBatchSampler', 'RandomSequenceBatchSampler',
            'BootstrapBatchSampler']
 
 
@@ -76,14 +76,13 @@ class SequentialBatchSampler(AbstractBatchSampler):
 
     def __iter__(self):
         """Iterates over sequential batches of data."""
-        num_batches = self._num_samples/self._batch_size
-        order       = np.arange(
-                num_batches*self._batch_size, dtype=np.int64)
+        num_batches = self._num_samples//self._batch_size
+        order = np.arange(num_batches*self._batch_size, dtype=np.int64)
 
         return iter(order)
 
 
-class RandomSequenceSampler(AbstractBatchSampler):
+class RandomSequenceBatchSampler(AbstractBatchSampler):
     """Samples sequential batches randomly within the dataset."""
     name = 'random_sequence'
 
@@ -91,8 +90,17 @@ class RandomSequenceSampler(AbstractBatchSampler):
         """Iterates over sequential batches of data randomly located
         in the dataset.
         """
-        max_id  = self._num_samples + 1 - self._batch_size
-        starts  = self._random.randint(0, max_id, len(self)//self._batch_size)
+        # Pick a general offset and produce sequence starts with respect to it
+        offset = self._random.randint(0, self._batch_size)
+        num_batches = (self._num_samples - offset)//self._batch_size
+        starts = np.arange(
+                offset, num_batches*self._batch_size,
+                self._batch_size, dtype=np.int64)
+
+        # Randomly pick the starts
+        self._random.shuffle(starts)
+
+        # Produce a sequence for each start
         batches = [np.arange(
             start, start + self._batch_size,
             dtype=np.int64) for start in starts]
@@ -112,7 +120,7 @@ class BootstrapBatchSampler(AbstractBatchSampler):
         """Iterates over bootstrapped batches of data randomly picked
         from the dataset.
         """
-        max_id  = self._num_samples - self._batch_size
+        max_id  = self._num_samples + 1 - self._batch_size
         starts = np.arange(
                 0, max_id, self._batch_size, dtype=np.int64)
         bootstrap_indices = np.random.choice(np.arange(

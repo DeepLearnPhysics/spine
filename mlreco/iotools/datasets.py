@@ -111,7 +111,8 @@ class LArCVDataset(Dataset):
 
     @staticmethod
     def list_data(file_path):
-        """Dumps top-level information about the contents of the LArCV root file.
+        """Dumps top-level information about the contents of the LArCV root
+        file.
         
         Parameters
         ----------
