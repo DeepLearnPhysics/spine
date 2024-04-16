@@ -98,7 +98,7 @@ def test_parse_sparse3d_ghost(sparse3d_seg_event):
     parser = Sparse3DGhostParser(sparse_event=sparse3d_seg_event)
 
     # Parse the data
-    result = parser.process(sparse_event=sparse3d_seg_event)
+    result = parser.process_ghost(sparse_event=sparse3d_seg_event)
 
     # There should be 3 components of the output
     # - The first has all 3 coordinates for each point
@@ -129,7 +129,7 @@ def test_parse_spars3d_rescale(sparse3d_event_list, sparse3d_seg_event,
             collection_only=collection_only)
 
     # Parse the data
-    result = parser.process(sparse_event_list=sparse3d_event_list)
+    result = parser.process_rescale(sparse_event_list=sparse3d_event_list)
 
     # There should be 3 components of the output
     # - The first has all 3 coordinates for each point

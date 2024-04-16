@@ -97,7 +97,7 @@ def test_parse_cluster3d_rescale(cluster3d_event, particle_event,
             add_particle_info=add_particle_info, break_clusters=break_clusters)
 
     # Parse the data
-    result = parser.process(
+    result = parser.process_rescale(
             cluster_event=cluster3d_event, particle_event=particle_event,
             neutrino_event=neutrino_event,
             sparse_value_event_list=sparse3d_event_list,
@@ -137,7 +137,7 @@ def test_parse_cluster3d_multi(cluster3d_event, particle_event,
             add_particle_info=add_particle_info, break_clusters=break_clusters)
 
     # Parse the data
-    result = parser.process(
+    result = parser.process_multi(
             cluster_event=cluster3d_event, particle_event=particle_event,
             neutrino_event=neutrino_event,
             sparse_value_event_list=sparse3d_event_list,

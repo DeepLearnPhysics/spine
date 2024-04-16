@@ -444,7 +444,7 @@ class Cluster3DChargeRescaledParser(Cluster3DParser):
         np_voxels, np_features, meta = self.process(**kwargs)
 
         # Modify the value column using the charge rescaled on the fly
-        _, val_features, _  = self.sparse_rescale_parser.process(
+        _, val_features, _  = self.sparse_rescale_parser.process_rescale(
                 sparse_value_event_list)
         np_features[:, 0] = val_features[:, -1]
 
