@@ -53,6 +53,16 @@ class Cluster2DParser(ParserBase):
         # Store the revelant attributes
         self.projection_id = projection_id
 
+    def __call__(self, trees):
+        """Parse one entry.
+
+        Parameters
+        ----------
+        trees : dict
+            Dictionary which maps each data product name to a LArCV object
+        """
+        return self.process(**self.get_input_data(trees))
+
     def process(self, cluster_event):
         """Converts a 2D clusters tensor into a single tensor.
 
@@ -172,8 +182,18 @@ class Cluster3DParser(ParserBase):
         # Do basic sanity checks
         if self.add_particle_info:
             assert particle_event is not None, (
-                    "If `add_particle_info` is `True`, must provide the"
+                    "If `add_particle_info` is `True`, must provide the "
                     "`particle_event` argument")
+
+    def __call__(self, trees):
+        """Parse one entry.
+
+        Parameters
+        ----------
+        trees : dict
+            Dictionary which maps each data product name to a LArCV object
+        """
+        return self.process(**self.get_input_data(trees))
 
     def process(self, cluster_event, particle_event=None,
                 particle_mpv_event=None, neutrino_event=None,
@@ -383,8 +403,19 @@ class Cluster3DChargeRescaledParser(Cluster3DParser):
                 sparse_event_list=sparse_value_event_list,
                 collection_only=collection_only, collection_id=collection_id)
 
-    def process(self, sparse_value_event_list, **kwargs):
-        """Parse a list of 3D clusters into a single tensor.
+    def __call__(self, trees):
+        """Parse one entry.
+
+        Parameters
+        ----------
+        trees : dict
+            Dictionary which maps each data product name to a LArCV object
+        """
+        return self.process_rescale(**self.get_input_data(trees))
+
+    def process_rescale(self, sparse_value_event_list, **kwargs):
+        """Parse a list of 3D clusters into a single tensor and reset
+        the value column by rescaling the charge coming from 3 wire planes.
 
         Parameters
         ----------
@@ -410,7 +441,7 @@ class Cluster3DChargeRescaledParser(Cluster3DParser):
             Metadata of the parsed image
         """
         # Process the input using the main parser
-        np_voxels, np_features, meta = super().process(**kwargs)
+        np_voxels, np_features, meta = self.process(**kwargs)
 
         # Modify the value column using the charge rescaled on the fly
         _, val_features, _  = self.sparse_rescale_parser.process(
@@ -427,8 +458,19 @@ class Cluster3DMultiModuleParser(Cluster3DParser):
     name = 'parse_cluster3d_multi_module'
     aliases = ['parse_cluster3d_2cryos']
 
-    def process(self, sparse_value_event_list, **kwargs):
-        """Parse a list of 3D clusters into a single tensor.
+    def __call__(self, trees):
+        """Parse one entry.
+
+        Parameters
+        ----------
+        trees : dict
+            Dictionary which maps each data product name to a LArCV object
+        """
+        return self.process_multi(**self.get_input_data(trees))
+
+    def process_multi(self, sparse_value_event_list, **kwargs):
+        """Parse a list of 3D clusters into a single tensor and fetch the
+        value column from multiple sparse tensors.
 
         Parameters
         ----------
@@ -451,7 +493,7 @@ class Cluster3DMultiModuleParser(Cluster3DParser):
             Metadata of the parsed image
         """
         # Process the input using the main parser
-        np_voxels, np_features, meta = super().process(**kwargs)
+        np_voxels, np_features, meta = self.process(**kwargs)
 
         # Fetch the charge information
         charges = np.zeros((len(np_voxels), 1), dtype=np.float32)

@@ -65,6 +65,16 @@ class ParticleParser(ParserBase):
         self.post_process = post_process
         self.asis = asis
 
+    def __call__(self, trees):
+        """Parse one entry.
+
+        Parameters
+        ----------
+        trees : dict
+            Dictionary which maps each data product name to a LArCV object
+        """
+        return self.process(**self.get_input_data(trees))
+
     def process(self, particle_event, sparse_event=None, cluster_event=None,
                 particle_mpv_event=None, neutrino_event=None):
         """Fetch the list of true particle objects.
@@ -158,6 +168,16 @@ class NeutrinoParser(ParserBase):
         self.pixel_coordinates = pixel_coordinates
         self.asis = asis
 
+    def __call__(self, trees):
+        """Parse one entry.
+
+        Parameters
+        ----------
+        trees : dict
+            Dictionary which maps each data product name to a LArCV object
+        """
+        return self.process(**self.get_input_data(trees))
+
     def process(self, neutrino_event, sparse_event=None, cluster_event=None):
         """Fetch the list of true neutrino objects.
 
@@ -236,6 +256,16 @@ class ParticlePointParser(ParserBase):
         # Store the revelant attributes
         self.include_point_tagging = include_point_tagging
 
+    def __call__(self, trees):
+        """Parse one entry.
+
+        Parameters
+        ----------
+        trees : dict
+            Dictionary which maps each data product name to a LArCV object
+        """
+        return self.process(**self.get_input_data(trees))
+
     def process(self, particle_event, sparse_event=None, cluster_event=None):
         """Fetch the list of label points of interest.
 
@@ -289,6 +319,16 @@ class ParticleCoordinateParser(ParserBase):
             sparse_event: sparse3d_pcluster
     """
     name = 'parse_particle_coords'
+
+    def __call__(self, trees):
+        """Parse one entry.
+
+        Parameters
+        ----------
+        trees : dict
+            Dictionary which maps each data product name to a LArCV object
+        """
+        return self.process(**self.get_input_data(trees))
 
     def process(self, particle_event, sparse_event=None, cluster_event=None):
         """Fetch the start/end point and time of each true particle.
@@ -350,6 +390,16 @@ class ParticleGraphParser(ParserBase):
 
     """
     name = 'parse_particle_graph'
+
+    def __call__(self, trees):
+        """Parse one entry.
+
+        Parameters
+        ----------
+        trees : dict
+            Dictionary which maps each data product name to a LArCV object
+        """
+        return self.process(**self.get_input_data(trees))
 
     def process(self, particle_event, cluster_event=None):
         """Fetch the parentage connections from the true particle list.
@@ -452,6 +502,16 @@ class SingleParticlePIDParser(ParserBase):
     name = 'parse_single_particle_pdg'
     aliases = ['parse_particle_singlep_pdg']
 
+    def __call__(self, trees):
+        """Parse one entry.
+
+        Parameters
+        ----------
+        trees : dict
+            Dictionary which maps each data product name to a LArCV object
+        """
+        return self.process(**self.get_input_data(trees))
+
     def process(self, particle_event):
         """Fetch the species of the first particle.
 
@@ -488,6 +548,16 @@ class SingleParticleEnergyParser(ParserBase):
     """
     name = 'parse_single_particle_energy'
     aliases = ['parse_particle_singlep_enit']
+
+    def __call__(self, trees):
+        """Parse one entry.
+
+        Parameters
+        ----------
+        trees : dict
+            Dictionary which maps each data product name to a LArCV object
+        """
+        return self.process(**self.get_input_data(trees))
 
     def process(self, particle_event):
         """Fetch the kinetic energy of the first particle.

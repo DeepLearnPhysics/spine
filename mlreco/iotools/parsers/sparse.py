@@ -7,8 +7,6 @@ Contains the following parsers:
 - :class:`Sparse3DChargeRescaledParser`
 """
 
-from warnings import warn
-
 import numpy as np
 from larcv import larcv
 
@@ -67,6 +65,16 @@ class Sparse2DParser(ParserBase):
         self.num_features = 1
         if sparse_event_list is not None:
             self.num_features = len(sparse_event_list)
+
+    def __call__(self, trees):
+        """Parse one entry.
+
+        Parameters
+        ----------
+        trees : dict
+            Dictionary which maps each data product name to a LArCV object
+        """
+        return self.process(**self.get_input_data(trees))
 
     def process(self, sparse_event=None, sparse_event_list=None):
         """Fetches one or a list of tensors, concatenate their feature vectors.
@@ -190,6 +198,16 @@ class Sparse3DParser(ParserBase):
         else:
             self.num_features = num_tensors
 
+    def __call__(self, trees):
+        """Parse one entry.
+
+        Parameters
+        ----------
+        trees : dict
+            Dictionary which maps each data product name to a LArCV object
+        """
+        return self.process(**self.get_input_data(trees))
+
     def process(self, sparse_event=None, sparse_event_list=None):
         """Fetches one or a list of tensors, concatenate their feature vectors.
 
@@ -284,7 +302,17 @@ class Sparse3DGhostParser(Sparse3DParser):
     name = 'parse_sparse3d_ghost'
     aliases = []
 
-    def process(self, sparse_event):
+    def __call__(self, trees):
+        """Parse one entry.
+
+        Parameters
+        ----------
+        trees : dict
+            Dictionary which maps each data product name to a LArCV object
+        """
+        return self.process_ghost(**self.get_input_data(trees))
+
+    def process_ghost(self, sparse_event):
         """Fetches one or a list of tensors, concatenate their feature vectors.
 
         Parameters
@@ -302,7 +330,7 @@ class Sparse3DGhostParser(Sparse3DParser):
             Metadata of the parsed image
         """
         # Convert the semantics feature to a ghost feature
-        np_voxels, np_data, meta = super().process(sparse_event)
+        np_voxels, np_data, meta = self.process(sparse_event)
         np_ghosts = (np_data == GHOST_SHP).astype(np_voxels.dtype)
 
         return np_voxels, np_ghosts, meta
@@ -340,7 +368,17 @@ class Sparse3DChargeRescaledParser(Sparse3DParser):
         self.collection_only = collection_only
         self.collection_id = collection_id
 
-    def process(self, sparse_event_list):
+    def __call__(self, trees):
+        """Parse one entry.
+
+        Parameters
+        ----------
+        trees : dict
+            Dictionary which maps each data product name to a LArCV object
+        """
+        return self.process_rescale(**self.get_input_data(trees))
+
+    def process_rescale(self, sparse_event_list):
         """Fetches one or a list of tensors, concatenate their feature vectors.
 
         Parameters
@@ -360,7 +398,7 @@ class Sparse3DChargeRescaledParser(Sparse3DParser):
         meta : Meta
             Metadata of the parsed image
         """
-        np_voxels, np_data, meta = super().process(
+        np_voxels, np_data, meta = self.process(
                 sparse_event_list=sparse_event_list)
 
         deghost_mask = np.where(np_data[:, -1] < GHOST_SHP)[0]

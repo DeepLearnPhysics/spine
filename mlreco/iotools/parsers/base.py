@@ -53,7 +53,7 @@ class ParserBase(ABC):
                         if v not in self.tree_keys:
                             self.tree_keys.append(v)
 
-    def __call__(self, trees):
+    def get_input_data(self, trees):
         """Fetches the required data products from the LArCV data trees, pass
         them to the parser function.
 
@@ -82,12 +82,17 @@ class ParserBase(ABC):
                                 f"Must provide {v} for parser {self.name}")
                 data_dict[key] = [trees[v] for v in value]
 
-        return self.process(**data_dict)
+        return data_dict
 
     @abstractmethod
-    def process(self, *args, **kwargs):
+    def __call__(self, trees):
         """Parse one entry.
 
         This is a place-holder, must be defined in inheriting class.
+
+        Parameters
+        ----------
+        trees : dict
+            Dictionary which maps each data product name to a LArCV object
         """
-        raise NotImplementedError("Must define `process` method.")
+        raise NotImplementedError("Must define `__call__` method.")

@@ -37,6 +37,16 @@ class MetaParser(ParserBase):
     name = 'parse_meta'
     aliases = ['parse_meta2d', 'parse_meta3d']
 
+    def __call__(self, trees):
+        """Parse one entry.
+
+        Parameters
+        ----------
+        trees : dict
+            Dictionary which maps each data product name to a LArCV object
+        """
+        return self.process(**self.get_input_data(trees))
+
     def __init__(self, projection_id=None, **kwargs):
         """Initialize the parser.
 
@@ -95,6 +105,16 @@ class RunInfoParser(ParserBase):
     """
     name = 'parse_run_info'
 
+    def __call__(self, trees):
+        """Parse one entry.
+
+        Parameters
+        ----------
+        trees : dict
+            Dictionary which maps each data product name to a LArCV object
+        """
+        return self.process(**self.get_input_data(trees))
+
     def process(self, sparse_event=None, cluster_event=None):
         """Fetches the run information from one object that has it.
 
@@ -132,6 +152,16 @@ class FlashParser(ParserBase):
     """
     name = 'parse_flashes'
     aliases = ['parse_opflash', 'parse_opflashes']
+
+    def __call__(self, trees):
+        """Parse one entry.
+
+        Parameters
+        ----------
+        trees : dict
+            Dictionary which maps each data product name to a LArCV object
+        """
+        return self.process(**self.get_input_data(trees))
 
     def process(self, flash_event=None, flash_event_list=None):
         """Fetches the list of optical flashes.
@@ -177,6 +207,16 @@ class CRTHitParser(ParserBase):
     name = 'parse_crthits'
     aliases = ['parse_crthit']
 
+    def __call__(self, trees):
+        """Parse one entry.
+
+        Parameters
+        ----------
+        trees : dict
+            Dictionary which maps each data product name to a LArCV object
+        """
+        return self.process(**self.get_input_data(trees))
+
     def process(self, crthit_event):
         """Fetches the list of CRT hits.
 
@@ -206,6 +246,16 @@ class TriggerParser(ParserBase):
             trigger_event: trigger_base
     """
     name = 'parse_trigger'
+
+    def __call__(self, trees):
+        """Parse one entry.
+
+        Parameters
+        ----------
+        trees : dict
+            Dictionary which maps each data product name to a LArCV object
+        """
+        return self.process(**self.get_input_data(trees))
 
     def process(self, trigger_event):
         """Fetches the trigger information.
