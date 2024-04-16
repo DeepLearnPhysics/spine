@@ -1,8 +1,6 @@
 """Functions that instantiate IO tools classes from configuration blocks."""
 
-from copy import deepcopy
 from warnings import warn
-from inspect import isfunction
 
 from torch.utils.data import DataLoader
 
@@ -11,6 +9,7 @@ from mlreco.utils.factory import module_dict, instantiate
 from . import datasets, samplers, collates, readers, writers
 
 DATASET_DICT = module_dict(datasets)
+SAMPLER_DICT = module_dict(samplers)
 COLLATE_DICT = module_dict(collates)
 READER_DICT  = module_dict(readers)
 WRITER_DICT  = module_dict(writers)
@@ -130,35 +129,16 @@ def sampler_factory(sampler_cfg, dataset, distributed=False,
     Union[torch.utils.data.Sampler, torch.utils.data.DistributedSampler]
         Initialized sampler
     """
-    # Get the list of available samplers (must inherit from the right class)
-    sampler_dict = {}
-    for sampler in dir(samplers):
-        if 'Sampler' in sampler:
-            cls = getattr(samplers, sampler)
-            if isfunction(cls):
-                sampler_dict[sampler] = cls(distributed)
-                if hasattr(sampler_dict[sampler], 'name'):
-                    name = sampler_dict[sampler].name
-                    sampler_dict[name] = sampler_dict[sampler]
-            else:
-                sampler_dict[sampler] = cls
-
-    # Fetch sampler keyword arguments
-    config = deepcopy(sampler_cfg)
-
-    # Add the dataset to the arguments
-    config['dataset'] = dataset
-
-    # If distributed, provide additional arguments
-    if distributed:
-        config['num_replicas'] = num_replicas
-        config['rank'] = rank
-    else:
-        config['data_source'] = None # Vestigial, will break with pytorch 2.2
-
     # Initialize sampler
-    return instantiate(sampler_dict, config)
+    sampler = instantiate(SAMPLER_DICT, sampler_cfg, dataset=dataset)
 
+    # If we are working a distributed environment, wrap the sampler
+    if distributed:
+        sampler = samplers.DistributedProxySampler(
+                sampler, num_replicas, rank)
+
+    # Return
+    return sampler
 
 def collate_factory(collate_cfg):
     """

@@ -26,7 +26,7 @@ class LArCVDataset(Dataset):
     This class utilizes the :class:`LArCVReader` class. It uses it to
     load data and to push it through the parsers.
     """
-    name = 'larcv_dataset'
+    name = 'larcv'
 
     def __init__(self, schema, **kwargs):
         """Instantiates the LArCVDataset.
