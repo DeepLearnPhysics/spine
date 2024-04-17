@@ -123,7 +123,8 @@ class ParticleParser(ParserBase):
             assert (sparse_event is not None) ^ (cluster_event is not None), (
                     "Must provide either `sparse_event` or `cluster_event` to "
                     "get the metadata and convert positions to voxel units.")
-            ref_event = sparse_event if sparse_event else cluster_event
+            ref_event = (
+                    sparse_event if sparse_event is not None else cluster_event)
             meta = Meta.from_larcv(ref_event.meta())
 
             # Convert all the relevant attributes
@@ -214,7 +215,8 @@ class NeutrinoParser(ParserBase):
             assert (sparse_event is not None) ^ (cluster_event is not None), (
                     "Must provide either `sparse_event` or `cluster_event` to "
                     "get the metadata and convert positions to voxel units.")
-            ref_event = sparse_event if sparse_event else cluster_event
+            ref_event = (
+                    sparse_event if sparse_event is not None else cluster_event)
             meta = Meta.from_larcv(ref_event.meta())
 
             # Convert all the relevant attributes
@@ -293,7 +295,7 @@ class ParticlePointParser(ParserBase):
         assert (sparse_event is not None) ^ (cluster_event is not None), (
                 "Must provide either `sparse_event` or `cluster_event` to "
                 "get the metadata and convert positions to voxel units.")
-        ref_event = sparse_event if sparse_event else cluster_event
+        ref_event = sparse_event if sparse_event is not None else cluster_event
         meta = ref_event.meta()
 
         # Get the point labels
@@ -358,7 +360,7 @@ class ParticleCoordinateParser(ParserBase):
         assert (sparse_event is not None) ^ (cluster_event is not None), (
                 "Must provide either `sparse_event` or `cluster_event` to "
                 "get the metadata and convert positions to voxel units.")
-        ref_event = sparse_event if sparse_event else cluster_event
+        ref_event = sparse_event if sparse_event is not None else cluster_event
         meta = ref_event.meta()
 
         # Scale particle coordinates to image size

@@ -89,8 +89,8 @@ def scatter_clusters(points, clusts, color=None, hovertext=None,
         hovertext = [f'Cluster ID: {i:.0f}' for i in clust_ids]
         if has_labels and len(color) and np.isscalar(color[0]):
             for i, hc in enumerate(hovertext):
-                fmt = '0.0f' if float(color[i]).is_integer() else '0.2f'
-                hovertext[i] = f'{hc}<br>Label: {color[i]:{fmt}}'
+                fmt = '.0f' if float(color[i]).is_integer() else '.2f'
+                hovertext[i] += f'<br>Label: {color[i]:{fmt}}'
 
     # If requested, combine all clusters into a single trace
     if single_trace:
@@ -109,7 +109,8 @@ def scatter_clusters(points, clusts, color=None, hovertext=None,
 
             return scatter_points(
                     centroids, name=name, color=color, markersize=sizes,
-                    hovertext=hovertext, hoverinfo=hoverinfo, **kwargs)
+                    hovertext=hovertext, hoverinfo=hoverinfo,
+                    cmin=cmin, cmax=cmax, **kwargs)
 
         else:
             coords = np.vstack(coords)
@@ -126,7 +127,8 @@ def scatter_clusters(points, clusts, color=None, hovertext=None,
 
             return scatter_points(
                     coords, color=color, hovertext=hovertext,
-                    hoverinfo=hoverinfo, name=name, **kwargs)
+                    hoverinfo=hoverinfo, name=name,
+                    cmin=cmin, cmax=cmax, **kwargs)
 
     # If cmin/cmax are not provided, must build them so that all clusters
     # share the same colorscale range (not guaranteed otherwise)
