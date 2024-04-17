@@ -14,6 +14,9 @@ COLLATE_DICT = module_dict(collates)
 READER_DICT  = module_dict(readers)
 WRITER_DICT  = module_dict(writers)
 
+__all__ = ['loader_factory', 'dataset_factory', 'sampler_factory',
+           'collate_factory', 'reader_factory', 'writer_factory']
+
 
 def loader_factory(dataset, batch_size, shuffle=True,
                    sampler=None, num_workers=0, collate_fn=None,
@@ -139,6 +142,7 @@ def sampler_factory(sampler_cfg, dataset, distributed=False,
 
     # Return
     return sampler
+
 
 def collate_factory(collate_cfg):
     """

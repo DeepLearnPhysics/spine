@@ -43,6 +43,7 @@ class Reader:
     num_entries = None
     file_paths = None
     entry_index = None
+    file_offsets = None
     file_index = None
     run_info = None
     run_map = None
@@ -205,15 +206,6 @@ class Reader:
                 "Cannot specify both `run_event_list` and "
                 "`skip_run_event_list` at the same time")
 
-        # Create a list of entry indices within each file in the file list
-        if self.file_index is not None:
-            entry_index = np.empty(self.num_entries, dtype=np.int64)
-            for i in np.unique(self.file_index):
-                file_mask = np.where(self.file_index==i)[0]
-                entry_index[file_mask] = np.arange(len(file_mask))
-        else:
-            entry_index = np.arange(self.num_entries, dtype=np.int64)
-
         # Create a list of entries to be loaded
         if n_entry or n_skip:
             entry_list = np.arange(self.num_entries)
@@ -240,8 +232,8 @@ class Reader:
                         "Values in skip_entry_list outside of bounds")
 
             else:
-                skip_run_event_list = \
-                        self.parse_run_event_list(skip_run_event_list)
+                skip_run_event_list = self.parse_run_event_list(
+                        skip_run_event_list)
                 skip_entry_list = np.empty(
                         len(skip_run_event_list), dtype=np.int64)
                 for i, (r, e) in enumerate(skip_run_event_list):
@@ -252,15 +244,13 @@ class Reader:
             entry_list = np.where(entry_mask)[0]
 
         # Apply entry list to the indexes
+        entry_index = np.arange(self.num_entries, dtype=np.int64)
         if entry_list is not None:
             entry_index = entry_index[entry_list]
-            if self.file_index is not None:
-                self.file_index = self.file_index[entry_list]
 
             if self.run_info is not None:
-                self.run_info = self.run_info[entry_list]
-                self.run_map = \
-                        {tuple(v):i for i, v in enumerate(self.run_info)}
+                run_info = self.run_info[entry_list]
+                self.run_map = {tuple(v):i for i, v in enumerate(run_info)}
 
         assert len(entry_index), "Must at least have one entry to load"
 
@@ -296,12 +286,60 @@ class Reader:
             Event number
         """
         # Get the appropriate entry index
-        assert self.run_map is not None, \
-                'Must build a run map to get entries by [run, event]'
-        assert (run, event) in self.run_map, \
-                f'Could not find (run={run}, event={event}) pair'
+        assert self.run_map is not None, (
+                "Must build a run map to get entries by [run, event].")
+        assert (run, event) in self.run_map, (
+                f"Could not find (run={run}, event={event}) pair.")
 
         return self.run_map[(run, event)]
+
+    def get_file_path(self, idx):
+        """Returns the path to the file corresponding to a specific entry.
+
+        Parameters
+        ----------
+        idx : int
+            Integer entry ID to access
+
+        Returns
+        -------
+        str
+            Path to the file
+        """
+        return self.file_paths[self.get_file_index(idx)]
+
+    def get_file_index(self, idx):
+        """Returns the index of the file corresponding to a specific entry.
+
+        Parameters
+        ----------
+        idx : int
+            Integer entry ID to access
+
+        Returns
+        -------
+        int
+            Index of the file in the file list
+        """
+        return self.file_index[self.entry_index[idx]]
+
+    def get_file_entry_index(self, idx):
+        """Returns the index of an entry within the file it lives in,
+        provided a global index over the list of files.
+
+        Parameters
+        ----------
+        idx : int
+            Integer entry ID to access
+
+        Returns
+        -------
+        int
+            Index of the entry in the file
+        """
+        file_idx = self.get_file_index(idx)
+        offset = self.file_offsets[file_idx]
+        return self.entry_index[idx] - offset
 
     @staticmethod
     def parse_entry_list(list_source):
@@ -332,8 +370,8 @@ class Reader:
                     "The list source file does not exist")
             with open(list_source, 'r', encoding='utf-8') as f:
                 lines = f.read().splitlines()
-                list_source = \
-                        [w for l in lines for w in l.replace(',', ' ').split()]
+                list_source = [
+                        w for l in lines for w in l.replace(',', ' ').split()]
 
             return np.array(list_source, dtype=np.int64)
 
@@ -426,14 +464,18 @@ class LArCVReader(Reader):
         # Prepare TTrees and load files
         self.trees = {}
         self.trees_ready = False
+        file_counts = []
+        offset = 0
         for key in tree_keys:
             # Check data TTree exists, and entries are identical across all
             # trees. Do not register these TTrees in yet in order to support
             # > 1 workers by the DataLoader object downstrean.
             print("Loading tree", key)
             chain = ROOT.TChain(f'{key}_tree') # pylint: disable=E1101
-            for f in self.file_paths:
+            for i, f in enumerate(self.file_paths):
                 chain.AddFile(f)
+                if key == tree_keys[0]:
+                    file_counts.append(chain.GetEntries() - offset)
 
             if self.num_entries is not None:
                 assert self.num_entries == chain.GetEntries(), (
@@ -446,9 +488,11 @@ class LArCVReader(Reader):
             self.trees[key] = None
         print("")
 
+        # Build a file index
+        self.file_index = np.repeat(
+                np.arange(len(self.file_paths)), file_counts)
+
         # If requested, must extract the run information for each entry
-        self.file_index = None
-        self.run_info = None
         if create_run_map:
             # Initialize the TChain object
             assert run_info_key is not None and run_info_key in tree_keys, (
@@ -459,11 +503,11 @@ class LArCVReader(Reader):
                 chain.AddFile(f)
 
             # Loop over entries
-            run_info = np.empty((0, 2), dtype=np.int64)
+            self.run_info = np.empty((self.num_entries, 2), dtype=np.int64)
             for i in range(self.num_entries):
                 chain.GetEntry(i)
                 source = getattr(chain, f'{run_info_key}_branch')
-                run_info[i] = [source.run(), source.event()]
+                self.run_info[i] = [source.run(), source.event()]
 
         # Process the run information
         self.process_run_info()
@@ -603,9 +647,10 @@ class HDF5Reader(Reader):
             create_run_map = True
 
         # Loop over the input files, build a map from index to file ID
-        self.num_entries = 0
-        self.file_index  = []
-        self.run_info    = None if not create_run_map else []
+        self.num_entries  = 0
+        self.file_index   = []
+        self.file_offsets = np.empty(len(self.file_paths), dtype=np.int64)
+        self.run_info     = None if not create_run_map else []
         for i, path in enumerate(self.file_paths):
             with h5py.File(path, 'r') as in_file:
                 # Check that there are events in the file
@@ -622,11 +667,14 @@ class HDF5Reader(Reader):
 
                 # Update the total number of entries
                 num_entries = len(in_file['events'])
+                self.file_index.append(i*np.ones(num_entries, dtype=np.int64))
+                self.file_offsets[i] = self.num_entries
                 self.num_entries += num_entries
-                self.file_index.append(i*np.ones(num_entries, dtype=np.int32))
+
+        # Concatenate the file indexes into one
+        self.file_index = np.concatenate(self.file_index)
 
         # Turn file index and run info into np.ndarray
-        self.file_index = np.concatenate(self.file_index)
         if self.run_info is not None:
             self.run_info = np.vstack(self.run_info)
 
@@ -659,8 +707,8 @@ class HDF5Reader(Reader):
         """
         # Get the appropriate entry index
         assert idx < len(self.entry_index)
-        entry_idx = self.entry_index[idx]
-        file_idx  = self.file_index[idx]
+        file_idx  = self.get_file_index(idx)
+        entry_idx = self.get_file_entry_index(idx)
 
         # Use the event tree to find out what needs to be loaded
         data_blob, result_blob = {}, {}

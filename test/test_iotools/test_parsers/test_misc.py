@@ -9,11 +9,6 @@ import numpy as np
 from mlreco import Meta, RunInfo, Flash, CRTHit, Trigger
 from mlreco.iotools.parsers.misc import *
 
-from test.test_iotools.test_parsers.fixtures import (
-        fixture_sparse2d_event, fixture_sparse3d_event,
-        fixture_flash_event, fixture_flash_event_list,
-        fixture_crthit_event, fixture_trigger_event)
-
 
 @pytest.mark.parametrize('projection_id', [0, 1, 2])
 def test_parse_meta2d(sparse2d_event, projection_id):

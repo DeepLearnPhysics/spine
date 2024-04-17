@@ -7,10 +7,6 @@ from larcv import larcv
 from mlreco import Meta, Particle, Neutrino
 from mlreco.iotools.parsers.particle import *
 
-from test.test_iotools.test_parsers.fixtures import (
-        fixture_sparse3d_event, fixture_cluster3d_event,
-        fixture_particle_event, fixture_neutrino_event)
-
 
 @pytest.mark.parametrize(
         'asis, pixel_coordinates, post_process',

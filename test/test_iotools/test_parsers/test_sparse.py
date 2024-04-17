@@ -5,11 +5,6 @@ import pytest
 from mlreco import Meta
 from mlreco.iotools.parsers.sparse import *
 
-from test.test_iotools.test_parsers.fixtures import (
-        fixture_sparse2d_event, fixture_sparse2d_event_list,
-        fixture_sparse3d_event, fixture_sparse3d_event_list,
-        fixture_sparse3d_seg_event)
-
 
 @pytest.mark.parametrize('projection_id', [0, 1, 2])
 def test_parse_sparse2d(sparse2d_event, projection_id):

@@ -2,13 +2,11 @@
 
 import pytest
 
+import numpy as np
+from larcv import larcv
+
 from mlreco import Meta
 from mlreco.iotools.parsers.cluster import *
-
-from test.test_iotools.test_parsers.fixtures import (
-        fixture_cluster2d_event, fixture_cluster3d_event,
-        fixture_particle_event, fixture_neutrino_event,
-        cluster3d_to_sparse3d)
 
 
 @pytest.mark.parametrize('projection_id', [0, 1, 2])
@@ -151,3 +149,59 @@ def test_parse_cluster3d_multi(cluster3d_event, particle_event,
     assert result[0].shape[1] == 3
     assert result[1].shape[1] == (14 if add_particle_info else 2)
     assert isinstance(result[2], Meta)
+
+
+def cluster3d_to_sparse3d(cluster3d_event, segmentation=False, ghost=True):
+    """Merge all clusters in a cluster3d object into a single sparse object.
+
+    Parameters
+    ----------
+    larcv.EventClusterVoxel3D
+        Cluster of 3D sparse tensor
+    segmentation : bool, default True
+        If `True`, create dummy segmentation labels for the output tensor
+    ghost : bool, default True
+        If `True`, include ghost labels in the dummy segmentation labels
+
+    Returns
+    -------
+    larcv.EventSparseTensor3D
+        Event containing one 3D larcv sparse tensor
+    """
+    # Set the random seed so that there are no surprises
+    np.random.seed(seed=0)
+
+    # Loop over the clusters, append the data needed to build a sparse tensor
+    meta = cluster3d_event.meta()
+    voxels, values = [], []
+    for cluster in cluster3d_event.as_vector():
+        num_points = cluster.size()
+        if num_points:
+            # Load data from this cluster
+            x = np.empty(num_points, dtype=np.int32)
+            y = np.empty(num_points, dtype=np.int32)
+            z = np.empty(num_points, dtype=np.int32)
+            value = np.empty(num_points, dtype=np.float32)
+            larcv.as_flat_arrays(cluster, meta, x, y, z, value)
+
+            voxels.append(np.vstack((x, y, z)).T)
+            if not segmentation:
+                values.append(value)
+            else:
+                values.append(np.random.randint(
+                    0, 5 + int(ghost), size=num_points).astype(np.float32))
+
+    # Generate tensor
+    if len(voxels):
+        voxels = np.vstack(voxels)
+        values = np.concatenate(values)
+    else:
+        voxels = np.empty((0, 3), dtype=np.int32)
+        values = np.empty(0, dtype=np.float32)
+
+    # Build a SparseTensor3D, set it
+    voxel_set = larcv.as_tensor3d(voxels, values, meta, -0.01)
+    event = larcv.EventSparseTensor3D()
+    event.set(voxel_set, meta)
+
+    return event
