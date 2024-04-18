@@ -18,7 +18,7 @@ __all__ = ['loader_factory', 'dataset_factory', 'sampler_factory',
            'collate_factory', 'reader_factory', 'writer_factory']
 
 
-def loader_factory(dataset, batch_size, shuffle=True,
+def loader_factory(dataset, batch_size=None, minibatch_size=None, shuffle=True,
                    sampler=None, num_workers=0, collate_fn=None,
                    entry_list=None, distributed=False, world_size=1, rank=0):
     """Instantiates a DataLoader based on configuration.
@@ -29,7 +29,9 @@ def loader_factory(dataset, batch_size, shuffle=True,
     ----------
     dataset : dict
         Dataset configuration dictionary
-    batch_size : int
+    batch_size : int, optional
+        Number of data samples to load per iteration
+    minibatch_size : int, optional
         Number of data samples to load per iteration, per process
     num_workers : bool, default 0
         Number of CPU cores to use to load data. If 0, the process which
@@ -54,23 +56,31 @@ def loader_factory(dataset, batch_size, shuffle=True,
     torch.utils.data.DataLoader
         Initialized dataloader
     """
+    # Process the batch size, make sure it is sensible
+    assert (batch_size is not None) ^ (minibatch_size is not None), (
+            "Provide either `batch_size` or `minibatch_size`, not both.")
+
+    if batch_size is not None:
+        assert (batch_size % world_size) == 0, (
+                "The batch_size must be a multiple of the number of GPUs.")
+        minibatch_size = batch_size//world_size
+
     # Initialize the dataset
     dataset = dataset_factory(dataset, entry_list)
 
     # Initialize the sampler
     if sampler is not None:
-        sampler['batch_size'] = batch_size
-        sampler = sampler_factory(sampler, dataset, distributed,
-                                  world_size, rank)
+        sampler = sampler_factory(
+                sampler, dataset, minibatch_size, distributed, world_size, rank)
 
     # Initialize the collate function
     if collate_fn is not None:
         collate_fn = collate_factory(collate_fn)
 
     # Initialize the loader
-    loader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle,
-                        sampler=sampler, num_workers=num_workers,
-                        collate_fn=collate_fn)
+    loader = DataLoader(
+            dataset, batch_size=minibatch_size, shuffle=shuffle,
+            sampler=sampler, num_workers=num_workers, collate_fn=collate_fn)
 
     return loader
 
@@ -107,7 +117,7 @@ def dataset_factory(dataset_cfg, entry_list=None):
     return instantiate(DATASET_DICT, dataset_cfg)
 
 
-def sampler_factory(sampler_cfg, dataset, distributed=False,
+def sampler_factory(sampler_cfg, dataset, minibatch_size, distributed=False,
                     num_replicas=1, rank=0):
     """
     Instantiates sampler based on type specified in configuration under
@@ -120,6 +130,8 @@ def sampler_factory(sampler_cfg, dataset, distributed=False,
         Sampler configuration dictionary
     dataset : torch.utils.data.Dataset
         Dataset to sample from
+    minibatch_size : int
+        Number of data samples to load per iteration, per process
     distributed: bool, default False
         If True, initialize as a DistributedSampler
     num_replicas : int, default 1
@@ -133,7 +145,9 @@ def sampler_factory(sampler_cfg, dataset, distributed=False,
         Initialized sampler
     """
     # Initialize sampler
-    sampler = instantiate(SAMPLER_DICT, sampler_cfg, dataset=dataset)
+    sampler = instantiate(
+            SAMPLER_DICT, sampler_cfg, dataset=dataset,
+            batch_size=minibatch_size)
 
     # If we are working a distributed environment, wrap the sampler
     if distributed:

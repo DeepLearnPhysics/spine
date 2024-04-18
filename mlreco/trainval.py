@@ -237,16 +237,11 @@ class TrainVal:
         self.output_keys = keep_output
         self.ignore_keys = ignore_keys
 
-    def process_io(self, dataset, batch_size, collate_fn=None,
-                   writer=None, **io_cfg):
+    def process_io(self, collate_fn=None, writer=None, **io_cfg):
         """Initialize the dataloader.
 
         Parameters
         ----------
-        dataset : dict
-            Dataset configuration dictionary
-        batch_size : int
-            Number of data entries in one batch (across all GPUs)
         collate_fn : dict, optional
             Dictionary of collate function and collate parameters, if any
         writer : dict, optional
@@ -254,17 +249,10 @@ class TrainVal:
         **io_cfg : dict
             Rest of the input/output configuration dictionary
         """
-        # Store the relevant I/O parameters
-        assert (batch_size % self.world_size) == 0, (
-                "The batch_size must be a multiple of the number of GPUs")
-        self.batch_size = batch_size
-        self.minibatch_size = batch_size // self.world_size
-
         # Initialize the dataloader
         self.loader = loader_factory(
-                dataset, self.minibatch_size, collate_fn=collate_fn,
-                distributed=self.distributed, world_size=self.world_size,
-                rank=self.rank, **io_cfg)
+                collate_fn=collate_fn, distributed=self.distributed,
+                world_size=self.world_size, rank=self.rank, **io_cfg)
         self.loader_iter = iter(cycle(self.loader))
 
         # Infer the total number of epochs from iterations or vice-versa

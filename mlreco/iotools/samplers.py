@@ -1,5 +1,7 @@
 """Used to define which dataset entries to load at each iteration"""
 
+import time
+
 import numpy as np
 import torch
 
@@ -17,7 +19,8 @@ class AbstractBatchSampler(Sampler):
     Just define the __iter__ function. __init__ defines self._num_samples
     and self._batch_size as well as self._random RNG, if needed.
     """
-    def __init__(self, dataset, batch_size, seed, **kwargs):
+
+    def __init__(self, dataset, batch_size, seed=None, **kwargs):
         """Check and store the values passed to the initializer,
         set the seeds appropriately.
 
@@ -27,18 +30,22 @@ class AbstractBatchSampler(Sampler):
             Dataset to sampler from
         batch_size : int
             Number of samples to load per iteration, per process
-        seed : int
+        seed : int, optional
             Seed to use for random sampling
         **kwargs : dict, optional
             Additional arguments to pass to the parent Sampler class
         """
         # Initialize parent class
-        # `data_source` id deprecated, will need to remove with newer
+        # TODO: `data_source` id deprecated, will need to remove with newer
         # version of pytorch
         super().__init__(data_source=None, **kwargs)
+
+        # Initialize the random number generator with a seed
+        if seed is None:
+            seed = int(time.time())
         self._random = np.random.RandomState(seed=seed) # pylint: disable=E1101
 
-        # Check that the number of samples is sound
+        # Check that there is at least one sample in the dataset
         self._num_samples = len(dataset)
         if self._num_samples < 0:
             class_name = self.__class__.__name__
@@ -46,14 +53,14 @@ class AbstractBatchSampler(Sampler):
                     f"{class_name} received negative num_samples ("
                     f"{self._num_samples}).")
 
-        # Check that the batch size is sound
+        # Check that the batch_size is not larger than the number of samples
         self._batch_size = int(batch_size)
         if self._batch_size < 0 \
                 or self._batch_size > self._num_samples:
             class_name = self.__class__.__name__
             raise ValueError(
                     f"{class_name} received invalid batch_size ({batch_size}) "
-                    f"for num_samples ({self._num_samples}).")
+                    f"> num_samples ({self._num_samples}).")
 
     def __len__(self):
         """Provides the full length of the sampler (number of entries)

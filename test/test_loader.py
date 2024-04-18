@@ -1,37 +1,44 @@
-import os, sys, yaml, time
+"""Test that the loading of data using a full-fledged configuration."""
+
+import os
+import yaml
+import time
 import pytest
 
+import numpy as np
 
-@pytest.mark.parametrize("cfg_file", ["test_loader.cfg", "test_loader_scn.cfg"])
-def test_loader(cfg_file, quiet=True, csv=False):
-    """
-    Tests the loading of data using parse_sparse3d and parse_spars3d_scn.
-    """
-    TOP_DIR = os.path.dirname(os.path.abspath(__file__))
-    TOP_DIR = os.path.dirname(TOP_DIR)
-    sys.path.insert(0, TOP_DIR)
-    # import
-    import numpy as np
-    from mlreco.iotools.factories import loader_factory
-    # find config file
-    if not os.path.isfile(str(cfg_file)):
-        cfg_file = os.path.join(TOP_DIR, 'config', cfg_file)
+from mlreco.iotools.factories import loader_factory
+from mlreco.iotools.writers import CSVWriter
+
+MAX_ITER = 10
+
+
+@pytest.mark.parametrize('cfg_file', ['test_loader.cfg'])
+def test_loader(cfg_file, larcv_data, quiet=True, csv=False):
+    """Tests the loading of data using a full IO configuration."""
+    # Find the top-level directory of the package
+    main_dir = os.path.dirname(os.path.abspath(__file__))
+    main_dir = os.path.dirname(main_dir)
+
+    # Fetch the configuration
     if not os.path.isfile(cfg_file):
-        print(cfg_file, 'not found...')
-        return 0
-    if csv:
-        from mlreco.utils.utils import CSVData
-        csv = CSVData('csv.txt')
-    # check if batch is specified (1st integer value in sys.argv)
-    MAX_BATCH_ID = 20
+        cfg_file = os.path.join(main_dir, 'config', cfg_file)
+    if not os.path.isfile(cfg_file):
+        raise ValueError(f"Configuration file not found: {cfg_file}")
 
-    # configure
-    cfg = yaml.load(open(cfg_file, 'r'), Loader=yaml.Loader)
-    try:
-        loader = loader_factory(cfg)
-    except FileNotFoundError:
-        pytest.skip('File not found to test the loader.')
-    if not quiet: print(len(loader), 'batches loaded')
+    # If requested, intialize a CSV output
+    if csv:
+        csv = CSVWriter('test.csv')
+
+    # Initialize the loader
+    with open(cfg_file, 'r', encoding='utf-8') as cfg_str:
+        # Load configuration dictionary
+        cfg = yaml.safe_load(cfg_str)
+
+        # Update the path to the file
+        cfg['iotool']['dataset']['file_keys'] = larcv_data
+
+    loader = loader_factory(**cfg['iotool'])
 
     # Loop
     tstart = time.time()
@@ -50,12 +57,11 @@ def test_loader(cfg_file, quiet=True, csv=False):
         if csv:
             csv.record(['iter', 't'], [batch_id, titer])
             csv.write()
-        if (batch_id+1) == MAX_BATCH_ID:
+        if (batch_id + 1) == MAX_ITER:
             break
         tstart = time.time()
+
     if not quiet:
         print('Total time:',tsum,'[s] ... Average time:',tsum/MAX_BATCH_ID,'[s]')
         if MAX_BATCH_ID>1:
             print('First iter:',t0,'[s] ... Average w/o first iter:',(tsum - t0)/(MAX_BATCH_ID-1),'[s]')
-    if csv: csv.close()
-    return True

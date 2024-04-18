@@ -40,9 +40,11 @@ class ParserBase(ABC):
         self.data_map = {}
         self.tree_keys = []
         for key, value in kwargs.items():
-            assert '_event' in key, (
-                    "Data arguments must contain `_event` or `_event_list` "
-                    "and must point to an existing tree in the LArCV file.")
+            if '_event' not in key:
+                class_name = self.__class__.__name__
+                raise TypeError(
+                        f"{class_name} got an unexpected argument: {key}.")
+
             if value is not None:
                 self.data_map[key] = value
                 if not isinstance(value, list):
