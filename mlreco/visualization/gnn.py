@@ -53,6 +53,7 @@ def network_topology(voxels, clusters, edge_index=[], clust_labels=[], edge_labe
     if voxels.shape[1] > 3:
         voxels = voxels[:, c1:c2]
     # Define the arrays of node positions (barycenter of voxels in the cluster)
+    
     pos = np.array([voxels[c].mean(0) for c in clusters])
 
     # Define the node features (label, color)

@@ -20,7 +20,7 @@ from torch_geometric.data import Data, Batch
 from mlreco.utils.metrics import ARI, SBD, purity, efficiency
 from mlreco.utils.data_structures import TensorBatch, IndexBatch, EdgeIndexBatch
 from mlreco.utils.gnn.cluster import form_clusters_batch, form_clusters
-from .helpers import ConnectedComponents, knn_sklearn
+from .helpers import ConnectedComponentsDeprecated, knn_sklearn
 import sys
 
 class ClusterGraphConstructor:
@@ -97,7 +97,7 @@ class ClusterGraphConstructor:
         self._data = None
         self._key_to_graph = {}
         self._graph_to_key = {}
-        self._cc_predictor = ConnectedComponents()
+        self._cc_predictor = ConnectedComponentsDeprecated()
         
     
     def clear_data(self):
@@ -522,7 +522,6 @@ class ClusterGraphConstructor:
         """
         if min_points is None:
             min_points = self._min_points
-        print(self._data)
         graphs = self._cc_predictor.forward(self._data, edge_mode=edge_mode,
                                             min_points=min_points,
                                             orphans_radius=self._orphans_radius,

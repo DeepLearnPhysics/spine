@@ -8,7 +8,7 @@ from mlreco.models.layers.cluster_cnn import gs_kernel_construct, spice_loss_con
 from mlreco.models.layers.cluster_cnn.graph_spice_embedder import GraphSPICEEmbedder
 
 from pprint import pprint
-from mlreco.utils.cluster.cluster_graph_constructor import ClusterGraphConstructor
+from mlreco.utils.cluster.graph_manager import ClusterGraphConstructor
 from mlreco.utils.unwrap import Unwrapper
 from mlreco.utils.globals import *
 from mlreco.utils.data_structures import TensorBatch
@@ -264,16 +264,23 @@ class GraphSPICE(nn.Module):
             res['hypergraph_features'] = res['features']
 
         # Build the graph
-        graph = self.gs_manager(res,
-                                self.kernel_fn,
-                                labels,
-                                invert=self.invert)
+        # graph = self.gs_manager(res,
+        #                         self.kernel_fn,
+        #                         labels,
+        #                         invert=self.invert)
+        graph = self.gs_manager.initialize(res,
+                                           labels,
+                                           self.kernel_fn,
+                                           invert=self.invert)
         
-        if self.make_fragments:
-            frags = self.construct_fragments(valid_points)
-            res.update(frags)
+        print(graph.keys())
+        assert False
         
-        graph_state = self.gs_manager.save_state(unwrapped=False)
+        # if self.make_fragments:
+        #     frags = self.construct_fragments(valid_points)
+        #     res.update(frags)
+        
+        graph_state = self.gs_manager.save_state()
         res.update(graph_state)
 
         return res
@@ -357,8 +364,8 @@ class GraphSPICELoss(nn.Module):
         '''
 
         '''
-        
-        self.gs_manager.load_state(result, unwrapped=False)
+        print(result.keys())
+        self.gs_manager.load_state(result)
         
         slabel_tensor = [segment_label.tensor]
         clabel_tensor = [cluster_label.tensor]

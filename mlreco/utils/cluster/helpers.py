@@ -17,6 +17,9 @@ from torch_geometric.transforms import BaseTransform
 from torch_geometric.utils import to_scipy_sparse_matrix
 from torch_geometric.data import Data, Batch
 from sklearn.cluster import DBSCAN
+
+from mlreco.utils.data_structures import TensorBatch
+
 import copy
 # -------------------------- Helper Functions--------------------------------
 
@@ -194,11 +197,131 @@ class RadiusNeighborsIterativeAssigner(StrayAssigner):
             if not self._orphans_iterate: break
             
         return self._pred
-            
-            
     
     
-class ConnectedComponents(BaseTransform):
+class ConnectedComponents:
+    def __init__(self, graph_state, orphan_mode='radius_neighbors'):
+        self._graph_state = graph_state
+        self.orphan_mode = orphan_mode
+
+    def fit_predict_one(self, 
+                        one_graph, 
+                        edge_mode='edge_pred', 
+                        offset=0, **kwargs):
+        
+        edge_index = one_graph['edge_index'].T
+        assert edge_index.shape[0] == 2, 'Edge Index must be of shape (2, E)'
+        labels = one_graph[edge_mode]
+
+        connected_mask = (labels == 1).squeeze()
+        connected_edges = edge_index[:, connected_mask]
+        nodes = one_graph['node_coordinates']
+        node_features = one_graph['node_features']
+            
+        if isinstance(edge_index, torch.Tensor):
+            adj = to_scipy_sparse_matrix(connected_edges, num_nodes=len(nodes))
+        else:
+            edges, N = np.ones(len(connected_edges[0])), len(nodes)
+            adj = sp.coo_matrix((edges, (connected_edges[0], connected_edges[1])), (N, N))
+
+        num_components, component = sp.csgraph.connected_components(
+            adj, connection='weak')
+        
+        component = component.astype(np.int64)
+        
+        if isinstance(nodes, torch.Tensor):
+            assigner = RadiusNeighborsIterativeAssigner(nodes, component, **kwargs)
+        else:
+            assigner = RadiusNeighborsIterativeAssigner(nodes, component, **kwargs)
+        node_pred = assigner.assign_orphans()
+
+        if isinstance(node_features, torch.Tensor):
+            device = node_features.device
+            node_pred = torch.tensor(node_pred).long().to(device)
+
+        node_pred[node_pred != -1] += offset
+        return node_pred
+
+    def __repr__(self) -> str:
+        return f'{self.__class__.__name__}({self.connection})'
+    
+    def get_entry(self, batch_id, semantic_id):
+        assert hasattr(self, '_graph_state')
+        
+        graph = {}
+        node_clusts = self._graph_state['node_clusts'][batch_id][semantic_id]
+        edge_clusts = self._graph_state['edge_clusts'][batch_id][semantic_id]
+        
+        for key, tensorbatch in self._graph_state.items():
+            val = tensorbatch[batch_id]
+            if isinstance(val, torch.Tensor):
+                nclusts = torch.tensor(node_clusts, dtype=torch.long, device=val.device)
+                eclusts = torch.tensor(edge_clusts, dtype=torch.long, device=val.device)
+            else:
+                nclusts = node_clusts
+                eclusts = edge_clusts
+            if key == 'node_clusts':
+                continue
+            if key == 'edge_clusts':
+                continue
+            if 'node' in key:
+                graph[key] = val[nclusts]
+            elif 'edge' in key:
+                graph[key] = val[eclusts]
+            else:
+                graph[key] = val
+        return graph
+    
+    @property
+    def graph_state(self):
+        return self._graph_state
+    
+    def forward(self,
+                edge_mode='edge_pred', 
+                **kwargs):
+        assert hasattr(self, 'graph_state')
+        
+        node_coordinates = self._graph_state['node_coordinates']
+        batch_size = node_coordinates.batch_size
+        device = node_coordinates.device
+        
+        node_pred_all = []
+        
+        for batch_id in range(batch_size):
+            offset = 0
+            node_pred_batch = []
+            node_clusts = self._graph_state['node_clusts'][batch_id]
+            edge_clusts = self._graph_state['edge_clusts'][batch_id]
+            assert len(node_clusts) == len(edge_clusts)
+            
+            if isinstance(node_coordinates.tensor, torch.Tensor):
+                node_pred_batch = torch.ones(node_coordinates[batch_id].shape[0], dtype=torch.long, device=device)
+            else:
+                node_pred_batch = np.ones(node_coordinates[batch_id].shape[0], dtype=int)
+
+            for semantic_id, nclusts in enumerate(node_clusts):
+                one_graph = self.get_entry(batch_id, semantic_id)
+                
+                node_pred = self.fit_predict_one(one_graph,
+                                                 edge_mode=edge_mode,
+                                                 offset=offset,
+                                                 **kwargs)
+                nclusts_torch = torch.tensor(nclusts, dtype=torch.long, device=device)
+                node_pred_batch[nclusts_torch] = node_pred
+                
+                offset = int(node_pred.max()) + 1
+            
+            node_pred_all.append(node_pred_batch)
+        
+        if isinstance(node_coordinates.tensor, torch.Tensor):
+            node_pred_all = torch.hstack(node_pred_all)
+        else:
+            node_pred_all = np.hstack(node_pred_all)
+
+        return TensorBatch(node_pred_all, counts=node_coordinates.counts)
+            
+    
+class ConnectedComponentsDeprecated(BaseTransform):
     def __init__(self, connection: str = 'weak'):
         assert connection in ['strong', 'weak'], 'Unknown connection type'
         self.connection = connection
