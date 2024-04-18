@@ -90,7 +90,7 @@ def scatter_clusters(points, clusts, color=None, hovertext=None,
         if has_labels and len(color) and np.isscalar(color[0]):
             for i, hc in enumerate(hovertext):
                 fmt = '.0f' if float(color[i]).is_integer() else '.2f'
-                hovertext[i] += f'<br>Label: {color[i]:{fmt}}'
+                hovertext[i] = hc + f'<br>Label: {color[i]:{fmt}}'
 
     # If requested, combine all clusters into a single trace
     if single_trace:

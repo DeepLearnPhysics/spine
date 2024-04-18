@@ -69,6 +69,12 @@ def test_larcv_reader(larcv_data):
     for i in range(len(reader)):
         reader[i]
 
+    # Check that the internal indexing makes sense
+    assert len(reader.file_index) == reader.num_entries
+    assert len(reader.file_offsets) == 2
+    assert reader.file_offsets[0] == 0
+    assert reader.file_offsets[1] == num_entries
+
     # Check that the internals do not get compromised on sequential
     # restrictions when using a file list
     reader.process_entry_list(n_entry=2)
@@ -136,6 +142,12 @@ def test_hdf5_reader(hdf5_data):
     assert reader.num_entries == 2*num_entries
     for i in range(len(reader)):
         reader[i]
+
+    # Check that the internal indexing makes sense
+    assert len(reader.file_index) == reader.num_entries
+    assert len(reader.file_offsets) == 2
+    assert reader.file_offsets[0] == 0
+    assert reader.file_offsets[1] == num_entries
 
     # Check that the internals do not get compromised on sequential
     # restrictions when using a file list

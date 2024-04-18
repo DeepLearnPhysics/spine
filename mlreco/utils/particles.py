@@ -305,26 +305,33 @@ def get_group_primary_ids(particles, valid_mask):
     # Loop over the list of particle groups
     primary_ids = np.zeros(len(particles), dtype=int)
     group_ids   = np.array([p.group_id() for p in particles], dtype=int)
-    for g in np.unique(group_ids):
+    for group_id in np.unique(group_ids):
+        # Check that the group ID is within the expected range
+        group_index = np.where(group_ids == group_id)[0]
+        if group_id != INVAL_ID and group_id > len(particles) - 1:
+            warn(f"Bad group ID ({group_id}) not matching INVAL_ID "
+                 f"({INVAL_ID}). This may happen for old files.")
+            primary_ids[group_index] = -1
+            continue
+
         # If the particle group has invalid labeling, the concept of group
         # primary is ill-defined
-        p = particles[g]
-        group_index = np.where(group_ids == g)[0]
-        if g == INVAL_ID or not valid_mask[g]:
+        if group_id == INVAL_ID or not valid_mask[group_id]:
             primary_ids[group_index] = -1
             continue
 
         # If a group originates from a Delta or a Michel, it has a primary
-        if p.shape() == MICHL_SHP or p.shape() == DELTA_SHP:
-            primary_ids[g] = 1
+        group_p = particles[group_id]
+        if group_p.shape() == MICHL_SHP or group_p.shape() == DELTA_SHP:
+            primary_ids[group_id] = 1
             continue
 
         # If a particle group's parent fragment is the first in time,
         # it is a valid primary. TODO: use first step time.
         clust_times = np.array([particles[i].t() for i in group_index])
         min_id = np.argmin(clust_times)
-        if group_index[min_id] == g:
-            primary_ids[g] = 1
+        if group_index[min_id] == group_id:
+            primary_ids[group_id] = 1
 
     return primary_ids
 
@@ -352,12 +359,19 @@ def get_inter_primary_ids(particles, valid_mask):
     primary_ids = -np.ones(len(particles), dtype=int)
     for i, p in enumerate(particles):
         # If the particle has invalid labeling, it has invalid primary status
-        if p.group_id() == INVAL_ID or not valid_mask[i]:
+        group_id = p.group_id()
+        if group_id == INVAL_ID or not valid_mask[i]:
+            continue
+
+        # Check that the group ID is within the expected range
+        if group_id > len(particles) - 1:
+            warn(f"Bad group ID ({group_id}) not matching INVAL_ID "
+                 f"({INVAL_ID}). This may happen for old files.")
             continue
 
         # If the particle originates from a primary pi0, label as primary
         # Small issue with photo-nuclear activity here, but very rare
-        group_p = particles[p.group_id()]
+        group_p = particles[group_id]
         if group_p.ancestor_pdg_code() == 111:
             primary_ids[i] = 1
             continue
@@ -403,10 +417,17 @@ def get_particle_ids(particles, valid_mask):
     particle_ids = -np.ones(len(particles), dtype=int)
     for i, p in enumerate(particles):
         # If the primary ID is invalid, skip
-        if not valid_mask[i]: continue
+        group_id = p.group_id()
+        if group_id == INVAL_ID or not valid_mask[i]:
+            continue
+
+        # Check that the group ID is within the expected range
+        if group_id > len(particles) - 1:
+            warn(f"Bad group ID ({group_id}) not matching INVAL_ID "
+                 f"({INVAL_ID}). This may happen for old files.")
+            continue
 
         # If the particle type exists in the predefined list, assign
-        group_id = p.group_id()
         t = particles[group_id].pdg_code()
         if t in PDG_TO_PID.keys():
             particle_ids[i] = PDG_TO_PID[t]

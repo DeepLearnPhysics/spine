@@ -464,8 +464,8 @@ class LArCVReader(Reader):
         # Prepare TTrees and load files
         self.trees = {}
         self.trees_ready = False
+        self.file_offsets = np.empty(len(self.file_paths), dtype=np.int64)
         file_counts = []
-        offset = 0
         for key in tree_keys:
             # Check data TTree exists, and entries are identical across all
             # trees. Do not register these TTrees in yet in order to support
@@ -473,9 +473,11 @@ class LArCVReader(Reader):
             print("Loading tree", key)
             chain = ROOT.TChain(f'{key}_tree') # pylint: disable=E1101
             for i, f in enumerate(self.file_paths):
+                self.file_offsets[i] = chain.GetEntries()
                 chain.AddFile(f)
                 if key == tree_keys[0]:
-                    file_counts.append(chain.GetEntries() - offset)
+                    count = chain.GetEntries() - self.file_offsets[i]
+                    file_counts.append(count)
 
             if self.num_entries is not None:
                 assert self.num_entries == chain.GetEntries(), (
@@ -580,7 +582,7 @@ class LArCVReader(Reader):
             # Only look at tree names
             if not name.endswith('_tree'):
                 continue
-            if not len(name.split('_')) < 3:
+            if len(name.split('_')) < 3:
                 continue
 
             # Get the data type name, skip if not recognized
