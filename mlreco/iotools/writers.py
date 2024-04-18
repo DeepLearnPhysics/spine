@@ -252,14 +252,23 @@ class HDF5Writer:
                 # List containing a list/array of objects per batch ID
                 ref_obj = blob[key][0]
                 if isinstance(blob[key][0], list):
+                    # If simple list, check if it is empty
                     if len(blob[key][0]):
-                        ref_obj = blob[key][0][0]
+                        # If it contains simple objects, use the first
+                        if not hasattr(blob[key][0][0], '__len__'):
+                            ref_obj = blob[key][0][0]
                     else:
+                        # If it is empty, must contain a default value
                         assert hasattr(blob[key][0], 'default'), (
                                f"Failed to find type of {key}. Lists that can "
                                 "be empty should be initialized as an "
                                 "ObjectList with a default object type.")
                         ref_obj = blob[key][0].default
+
+                        # If the default value is an array, unwrap as such
+                        if isinstance(ref_obj, np.ndarray):
+                            self.type_dict[key].width = [0]
+                            self.type_dict[key].merge = True
 
                 if not hasattr(ref_obj, '__len__'):
                     # List containing a single list of objects per batch ID
@@ -275,7 +284,7 @@ class HDF5Writer:
                     if len(ref_obj.shape) == 2:
                         self.type_dict[key].width = ref_obj.shape[1]
 
-                elif isinstance(ref_obj, np.ndarray):
+                elif isinstance(ref_obj, (list, np.ndarray)):
                     # List containing a list/array of ndarrays per batch ID
                     widths = []
                     for el in ref_obj:
@@ -286,7 +295,7 @@ class HDF5Writer:
                         widths.append(width)
                         same_width &= width == widths[0]
 
-                    self.type_dict[key].dtype = ref_obj.dtype
+                    self.type_dict[key].dtype = ref_obj[0].dtype
                     self.type_dict[key].width = widths
                     self.type_dict[key].merge = same_width
 

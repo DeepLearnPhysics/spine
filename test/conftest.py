@@ -46,7 +46,7 @@ def pytest_generate_tests(metafunc):
 
 @pytest.fixture(name='larcv_data')
 def fixture_larcv_data(tmp_path, larcv_datafile):
-    """Downloading the LArCV ROOT datafile here and cache it.
+    """Download a LArCV ROOT datafile here and cache it.
 
     Parameters
     ----------
@@ -65,7 +65,7 @@ def fixture_larcv_data(tmp_path, larcv_datafile):
 
 @pytest.fixture(name='hdf5_data')
 def fixture_hdf5_data(tmp_path, hdf5_datafile):
-    """Downloading the HDF5 datafile here and cache it.
+    """Download an HDF5 datafile here and cache it.
 
     Parameters
     ----------
