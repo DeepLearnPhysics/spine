@@ -395,6 +395,8 @@ class HDF5Writer:
                 subgroup.create_dataset('elements', shape, maxshape=maxshape, dtype=val['dtype'])
                 subgroup.create_dataset('index', (0,), maxshape=(None,), dtype=ref_dtype)
 
+            group[key].attrs['category'] = val['category']
+
         out_file.create_dataset('events', (0,), maxshape=(None,), dtype=self.event_dtype)
 
     def append(self, data_blob=None, result_blob=None, cfg=None):
