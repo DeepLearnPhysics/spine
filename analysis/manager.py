@@ -181,7 +181,8 @@ class AnaToolsManager:
         # Initialize the data loading scheme
         if reader is not None:
             # If there is a reader configuration, load reconstructed data
-            reader['to_larcv'] = True # Expected by post-processors
+            if 'to_larcv' not in reader:
+                reader['to_larcv'] = True # Expected by post-processors
             self._data_reader   = reader_factory(reader)
             self.reader_state  = 'file'
             self._set_iteration(self._data_reader)

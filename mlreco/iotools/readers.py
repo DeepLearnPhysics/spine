@@ -64,6 +64,8 @@ class HDF5Reader:
                         'File does not contain an event tree'
 
                 split_groups = 'data' in in_file and 'result' in in_file
+                if not split_groups and 'category' in in_file['index'].attrs:
+                    split_groups = True
                 assert self.split_groups is None \
                         or self.split_groups == split_groups, \
                         'Cannot load files with different storing schemes'
@@ -339,9 +341,14 @@ class HDF5Reader:
         group = in_file
         blob  = result_blob
         if self.split_groups:
-            cat   = 'data' if key in in_file['data'] else 'result'
+            if 'data' in in_file:
+                cat   = 'data' if key in in_file['data'] else 'result'
+                blob  = data_blob if cat == 'data' else result_blob
+                group = in_file[cat]
+            else:
+                cat = in_file[key].attrs['category']
             blob  = data_blob if cat == 'data' else result_blob
-            group = in_file[cat]
+
         if isinstance(group[key], h5py.Dataset):
             if not group[key].dtype.names:
                 # If the reference points at a simple dataset, return
