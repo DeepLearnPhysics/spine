@@ -1,11 +1,16 @@
 import os
+import sys
 import yaml
 import h5py
 import inspect
 import numpy as np
 from collections import defaultdict
-from larcv import larcv
 from analysis import classes as analysis
+
+try:
+    from larcv import larcv
+except:
+    print("Failed to import larcv, cannot store those products.")
 
 from mlreco.utils.globals import SHAPE_LABELS, PID_LABELS, NU_CURR_TYPE, NU_INT_TYPE
 
@@ -50,10 +55,6 @@ class HDF5Writer:
     ]
 
     SKIP_ATTRS = {
-        larcv.Particle: LARCV_SKIP_ATTRS,
-        larcv.Neutrino: LARCV_SKIP_ATTRS,
-        larcv.Flash:    ['wireCenters', 'wireWidths'],
-        larcv.CRTHit:   ['feb_id', 'pesmap'],
         analysis.ParticleFragment:      ANA_SKIP_ATTRS,
         analysis.TruthParticleFragment: ANA_SKIP_ATTRS,
         analysis.Particle:              ANA_SKIP_ATTRS,
@@ -61,8 +62,15 @@ class HDF5Writer:
         analysis.Interaction:           ANA_SKIP_ATTRS + ['index', 'truth_index', 'sed_index'],
         analysis.TruthInteraction:      ANA_SKIP_ATTRS + ['index', 'truth_index', 'sed_index']
     }
-    if hasattr(larcv, 'Trigger'): # TMP until a new singularity
-        SKIP_ATTRS.update({larcv.Trigger:  ['clear']})
+    if 'larcv' in sys.modules:
+        SKIP_ATTRS.update({
+            larcv.Particle: LARCV_SKIP_ATTRS,
+            larcv.Neutrino: LARCV_SKIP_ATTRS,
+            larcv.Flash:    ['wireCenters', 'wireWidths'],
+            larcv.CRTHit:   ['feb_id', 'pesmap']
+        })
+        if hasattr(larcv, 'Trigger'): # TMP until a new singularity
+            SKIP_ATTRS.update({larcv.Trigger:  ['clear']})
 
     # Output with default types. TODO: move this, make it not name-dependant
     DEFAULT_OBJS = {
@@ -77,9 +85,11 @@ class HDF5Writer:
 
     # List of recognized objects
     DATA_OBJS  = tuple(list(SKIP_ATTRS.keys()))
-    LARCV_OBJS = [larcv.Particle, larcv.Neutrino, larcv.Flash, larcv.CRTHit]
-    if hasattr(larcv, 'Trigger'): # TMP until a new singularity
-        LARCV_OBJS.append(larcv.Trigger)
+    LARCV_OBJS = []
+    if 'larcv' in sys.modules:
+        LARCV_OBJS = [larcv.Particle, larcv.Neutrino, larcv.Flash, larcv.CRTHit]
+        if hasattr(larcv, 'Trigger'): # TMP until a new singularity
+            LARCV_OBJS.append(larcv.Trigger)
     LARCV_OBJS = tuple(LARCV_OBJS)
 
     def __init__(self,
