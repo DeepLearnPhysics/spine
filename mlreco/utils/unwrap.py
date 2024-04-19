@@ -9,6 +9,8 @@ from mlreco import TensorBatch, IndexBatch, EdgeIndexBatch, ObjectList
 from .globals import BATCH_COL
 from .geometry import Geometry
 
+__all__ = ['Unwrapper']
+
 
 class Unwrapper:
     """Unwraps batched data to its constituent entries.
