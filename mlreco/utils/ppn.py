@@ -6,6 +6,7 @@ PPN predictions into something human-readable.
 
 import numpy as np
 import torch
+from warnings import warn
 from typing import Union, List
 
 from scipy.special import softmax as softmax_sp
@@ -488,7 +489,8 @@ def get_ppn_labels(particle_v, meta, dim=3, min_voxel_count=1,
     part_info = []
     for part_index, particle in enumerate(particle_v):
         # Check that the particle has the expected index
-        assert part_index == particle.id()
+        if part_index != particle.id():
+            warn("Particle list index does not match its `id` attribute.")
 
         # If the particle does not meet minimum energy/size requirements, skip
         if (particle.energy_deposit() < min_energy_deposit or

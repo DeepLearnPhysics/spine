@@ -3,6 +3,7 @@ language: python
 branches:
   only:
     - develop
+    - ddp_overhaul
 services:
 - docker
 before_script:
