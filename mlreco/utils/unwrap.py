@@ -398,7 +398,7 @@ def input_unwrap_rules(schemas):
     for name, schema in schemas.items():
         parser = schema['parser']
         assert parser in INPUT_RULES, f'Unable to unwrap data from {parser}'
-        rules[name] = deepcopy(RULES[parser])
+        rules[name] = deepcopy(INPUT_RULES[parser])
         if rules[name][0] == 'tensor':
             rules[name][1] = name
 
