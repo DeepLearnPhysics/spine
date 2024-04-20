@@ -1,9 +1,10 @@
 """Module with a base class for all batched data structures."""
 
+from typing import Union
+from dataclasses import dataclass
+
 import numpy as np
 import torch
-from dataclasses import dataclass
-from typing import Union
 
 
 @dataclass
@@ -200,3 +201,9 @@ class BatchBase:
 
     def _repeat(self, *x):
         return np.repeat(*x) if self.is_numpy else torch.repeat_interleave(*x)
+
+    def _to_numpy(self, x):
+        return x.cpu().detach().numpy()
+
+    def _to_tensor(self, x, dtype=None, device=None):
+        return torch.as_tensor(x, dtype=dtype, device=device)

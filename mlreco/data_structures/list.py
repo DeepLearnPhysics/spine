@@ -1,7 +1,5 @@
 """Module with a class object which represent object lists."""
 
-from typing import List
-
 __all__ = ['ObjectList']
 
 

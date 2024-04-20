@@ -26,20 +26,20 @@ class RunInfo:
     event: int  = -1
 
     @classmethod
-    def from_larcv(cls, tensor):
+    def from_larcv(cls, larcv_event):
         """
         Builds and returns a Meta object from a LArCV 2D metadata object
 
         Parameters
         ----------
-        larcv_class : object
-             LArCV tensor which contains the run information as attributes
+        larcv_event : larcv.EventBase
+             LArCV event object which contains the run information as attributes
 
         Returns
         -------
         Meta
             Metadata object
         """
-        return cls(run=tensor.run(),
-                   subrun=tensor.subrun(),
-                   event=tensor.event())
+        return cls(run=larcv_event.run(),
+                   subrun=larcv_event.subrun(),
+                   event=larcv_event.event())

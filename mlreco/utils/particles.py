@@ -3,13 +3,11 @@
 They add/correct information stored in LArCV particles.
 """
 
-import larcv
-import numpy as np
-from typing import List
 from warnings import warn
 
-from .globals import (SHOWR_SHP, TRACK_SHP, MICHL_SHP, DELTA_SHP,
-                      INVAL_ID, INVAL_TID, PDG_TO_PID)
+import numpy as np
+
+from .globals import MICHL_SHP, DELTA_SHP, INVAL_ID, INVAL_TID, PDG_TO_PID
 
 
 def process_particles(particles, particle_event, particle_mpv_event=None,
@@ -35,7 +33,7 @@ def process_particles(particles, particle_event, particle_mpv_event=None,
         (N) List of true neutrino instances
     """
     # If the list is empty, there is nothing to do
-    if not len(particles):
+    if len(particles) == 0:
         return
 
     # Get the additional attributes
@@ -133,7 +131,7 @@ def get_valid_mask(particles):
         (P) Boolean list of validity, one per true particle instance
     """
     # If there are no particles, nothing to do here
-    if not len(particles):
+    if len(particles) == 0:
         return np.empty(0, dtype=bool)
 
     # If the interaction IDs are set in the particle tree, simply use that
@@ -171,7 +169,7 @@ def get_interaction_ids(particles, valid_mask=None):
         (P) List of interaction IDs, one per true particle instance
     """
     # If there are no particles, nothing to do here
-    if not len(particles):
+    if len(particles) == 0:
         return np.empty(0, dtype=int)
 
     # Compute the validity mask if it is not provided
@@ -181,7 +179,7 @@ def get_interaction_ids(particles, valid_mask=None):
     # If the interaction IDs are set in the particle tree, simply use that
     inter_ids = np.array([p.interaction_id() for p in particles], dtype=int)
     if np.any(inter_ids != INVAL_ID):
-        inter_ids[~valid_mask] = -1
+        inter_ids[~valid_mask] = -1 # pylint: disable=E1130
         return inter_ids
 
     # Otherwise, define interaction IDs on the basis of sharing
@@ -190,7 +188,7 @@ def get_interaction_ids(particles, valid_mask=None):
     inter_ids = np.unique(anc_pos, axis=0, return_inverse=True)[-1]
 
     # Now set the interaction ID of particles with an undefined ancestor to -1
-    inter_ids[~valid_mask] = -1
+    inter_ids[~valid_mask] = -1 # pylint: disable=E1130
 
     return inter_ids
 
@@ -225,7 +223,7 @@ def get_nu_ids(particles, inter_ids, particles_mpv=None, neutrinos=None):
         (P) List of neutrino IDs, one per true particle instance
     """
     # If there are no particles, nothing to do here
-    if not len(particles):
+    if len(particles) == 0:
         return np.empty(0, dtype=int)
 
     # Make sure there is only either MPV particles or neutrinos specified, not both
@@ -240,13 +238,14 @@ def get_nu_ids(particles, inter_ids, particles_mpv=None, neutrinos=None):
         warn("Neutrino IDs are being produced on the basis of interaction "
              "multiplicity (i.e. neutrino if >= 2 primaries). This is "
              "not an exact method and might lead to unexpected results.")
-             
+
         # Loop over the interactions
         primary_ids = get_inter_primary_ids(particles, inter_ids > -1)
         nu_id = 0
         for i in np.unique(inter_ids):
             # If the interaction ID is invalid, skip
-            if i < 0: continue
+            if i < 0:
+                continue
 
             # If there are at least two primaries, the interaction is nu-like
             inter_index = np.where(inter_ids == i)[0]
@@ -257,11 +256,11 @@ def get_nu_ids(particles, inter_ids, particles_mpv=None, neutrinos=None):
         # Find the reference positions to gauge if a particle comes from a
         # nu-like interaction
         ref_pos = None
-        if particles_mpv and len(particles_mpv):
+        if particles_mpv and len(particles_mpv) > 0:
             ref_pos = np.vstack(
                     [get_coords(p.position()) for p in particles_mpv])
             ref_pos = np.unique(ref_pos, axis=0)
-        elif neutrinos and len(neutrinos):
+        elif neutrinos and len(neutrinos) > 0:
             ref_pos = np.vstack([get_coords(n.position()) for n in neutrinos])
 
         # If any particle in an interaction shares its ancestor position with
@@ -271,7 +270,11 @@ def get_nu_ids(particles, inter_ids, particles_mpv=None, neutrinos=None):
             anc_pos = np.vstack(
                     [get_coords(p.ancestor_position()) for p in particles])
             for i in np.unique(inter_ids):
-                if i < 0: continue
+                # If the interaction is invalid, skip
+                if i < 0:
+                    continue
+
+                # Loop over positions in the interaction find a reference match
                 inter_index = np.where(inter_ids == i)[0]
                 for ref_id, pos in enumerate(ref_pos):
                     if np.any((anc_pos[inter_index] == pos).all(axis=1)):
@@ -387,7 +390,7 @@ def get_inter_primary_ids(particles, valid_mask):
 
 def get_particle_ids(particles, valid_mask):
     """Gets a particle species ID (PID) for each particle.
-    
+
     This function ensures:
     - All shower daughters are labeled the same as their primary. This
       makes sense as otherwise an electron primary gets overruled by

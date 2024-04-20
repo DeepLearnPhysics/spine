@@ -3,14 +3,12 @@
 This copies the internal structure of :class:`larcv.Neutrino`.
 """
 
-import numpy as np
 from dataclasses import dataclass
-from larcv import larcv
 from warnings import warn
 
-from mlreco.utils.globals import NU_CURR_TYPE, NU_INT_TYPE
+import numpy as np
 
-from .meta import Meta
+from mlreco.utils.globals import NU_CURR_TYPE, NU_INT_TYPE
 
 __all__ = ['Neutrino']
 
@@ -122,8 +120,9 @@ class Neutrino:
     def __post_init__(self):
         """Immediately called after building the class attributes.
 
-        Used to type cast strings when they are provided as binary. Could
-        also be used to check other inputs.
+        Used to type cast strings when they are provided as binary (typically
+        how a string is loaded from an HDF5 file). Could also be used to check
+        other inputs.
         """
         # Make sure  the strings are not binary
         for attr in self._str_attrs:
@@ -218,12 +217,12 @@ class Neutrino:
             vector = getattr(neutrino, key)()
             obj_dict[key] = np.asarray(
                     [getattr(vector, a)() for a in pos_attrs], dtype=np.float32)
-            
+
         # Load the momentum attribute (special care needed)
         mom_attrs = ['px', 'py', 'pz']
         if not hasattr(neutrino, 'momentum'):
-            warn(f"The LArCV Neutrino object is missing the momentum "
-                  "attribute. It will miss from the Neutrino object.")
+            warn("The LArCV Neutrino object is missing the momentum "
+                 "attribute. It will miss from the Neutrino object.")
         else:
             obj_dict['momentum'] = np.asarray(
                     [getattr(neutrino, a)() for a in mom_attrs],

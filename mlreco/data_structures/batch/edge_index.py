@@ -3,10 +3,11 @@
 An edge index is a sparse representation of a graph incidence matrix.
 """
 
+from typing import Union
+from dataclasses import dataclass
+
 import numpy as np
 import torch
-from dataclasses import dataclass
-from typing import Union, List
 
 from mlreco.utils.decorators import inherit_docstring
 
@@ -214,10 +215,9 @@ class EdgeIndexBatch(BatchBase):
         if self.is_numpy:
             return self
 
-        to_numpy = lambda x: x.cpu().detach().numpy()
-        data = to_numpy(self.data)
-        counts = to_numpy(self.counts)
-        offsets = to_numpy(self.offsets)
+        data = self._to_numpy(self.data)
+        counts = self._to_numpy(self.counts)
+        offsets = self._to_numpy(self.offsets)
 
         return EdgeIndexBatch(data, counts, offsets, self.directed)
 
@@ -240,9 +240,8 @@ class EdgeIndexBatch(BatchBase):
         if not self.is_numpy:
             return self
 
-        to_tensor = lambda x: torch.as_tensor(x, dtype=dtype, device=device)
-        data = to_tensor(self.data)
-        counts = to_tensor(self.counts)
-        offsets = to_tensor(self.offsets)
+        data = self._to_tensor(self.data, dtype, device)
+        counts = self._to_tensor(self.counts, dtype, device)
+        offsets = self._to_tensor(self.offsets, dtype, device)
 
         return EdgeIndexBatch(data, counts, offsets, self.directed)

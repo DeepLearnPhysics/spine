@@ -4,10 +4,9 @@ This copies the internal structure of either :class:`larcv.ImageMeta` for 2D
 images or :class:`larcv.Voxel3DMeta` for 3D images.
 """
 
-import numpy as np
-from typing import Union
 from dataclasses import dataclass
-from larcv import larcv
+
+import numpy as np
 
 __all__ = ['Meta']
 
@@ -42,7 +41,7 @@ class Meta:
         translate : bool, default True
             If set to `False`, this function returns the input unchanged
         """
-        if not translate or not len(coords):
+        if not translate or len(coords) == 0:
             return coords
 
         out = self.lower + (coords + .5) * self.size
@@ -58,7 +57,7 @@ class Meta:
         translate : bool, default True
             If set to `False`, this function returns the input unchanged
         """
-        if not translate or not len(coords):
+        if not translate or len(coords) == 0:
             return coords
 
         return (coords - self.lower) / self.size - .5
@@ -88,17 +87,15 @@ class Meta:
         Meta
             Metadata object
         """
-        if isinstance(meta, larcv.ImageMeta):
-            lower = np.array([meta.min_x(), meta.min_y()])
-            upper = np.array([meta.max_x(), meta.max_y()])
-            size  = np.array([meta.pixel_width(), meta.pixel_height()])
-        elif isinstance(meta, larcv.Voxel3DMeta):
+        if hasattr(meta, 'pos_z'):
             lower = np.array([meta.min_x(), meta.min_y(), meta.min_z()])
             upper = np.array([meta.max_x(), meta.max_y(), meta.max_z()])
             size  = np.array([meta.size_voxel_x(),
                               meta.size_voxel_y(),
                               meta.size_voxel_z()])
         else:
-            raise ValueError('Did not recognize metadata:', meta)
+            lower = np.array([meta.min_x(), meta.min_y()])
+            upper = np.array([meta.max_x(), meta.max_y()])
+            size  = np.array([meta.pixel_width(), meta.pixel_height()])
 
         return cls(lower=lower, upper=upper, size=size)

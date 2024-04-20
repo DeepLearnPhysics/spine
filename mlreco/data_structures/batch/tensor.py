@@ -1,11 +1,14 @@
 """Module with a dataclass targeted at batched matrix/tensors."""
 
+from dataclasses import dataclass
+
 import numpy as np
 import torch
-from dataclasses import dataclass
-from typing import Union, List
+try:
+    from MinkowskiEngine import SparseTensor
+except ImportError:
+    pass
 
-from mlreco.data_structures.meta import Meta
 from mlreco.utils.globals import BATCH_COL, COORD_COLS
 from mlreco.utils.decorators import inherit_docstring
 
@@ -19,7 +22,7 @@ __all__ = ['TensorBatch']
 class TensorBatch(BatchBase):
     """Batched tensor with the necessary methods to slice it."""
 
-    def __init__(self, data, counts=None, batch_size=None, is_sparse=False, 
+    def __init__(self, data, counts=None, batch_size=None, is_sparse=False,
                  has_batch_col=None, coord_cols=None):
         """Initialize the attributes of the class.
 
@@ -94,7 +97,6 @@ class TensorBatch(BatchBase):
         if not self.is_sparse:
             return self.data[lower:upper]
         else:
-            from MinkowskiEngine import SparseTensor
             return SparseTensor(
                     self.data.F[lower:upper],
                     coordinates=self.data.C[lower:upper])
@@ -121,7 +123,6 @@ class TensorBatch(BatchBase):
         if not self.is_sparse:
             return self._split(self.data, self.splits)
         else:
-            from MinkowskiEngine import SparseTensor
             coords = self._split(self.data.C, self.splits)
             feats = self._split(self.data.F, self.splits)
             return [SparseTensor(
@@ -167,9 +168,8 @@ class TensorBatch(BatchBase):
         if self.is_sparse:
             data = torch.cat([self.data.C.float(), self.data.F], dim=1)
 
-        to_numpy = lambda x: x.cpu().detach().numpy()
-        data = to_numpy(data)
-        counts = to_numpy(self.counts)
+        data = self._to_numpy(data)
+        counts = self._to_numpy(self.counts)
 
         return TensorBatch(data, counts)
 
@@ -192,9 +192,8 @@ class TensorBatch(BatchBase):
         if not self.is_numpy:
             return self
 
-        to_tensor = lambda x: torch.as_tensor(x, dtype=dtype, device=device)
-        data = to_tensor(self.data)
-        counts = to_tensor(self.counts)
+        data = self._to_tensor(self.data, dtype, device)
+        counts = self._to_tensor(self.counts, dtype, device)
 
         return TensorBatch(data, counts)
 

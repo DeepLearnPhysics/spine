@@ -1,10 +1,11 @@
 """Module with a dataclass targeted at a batch index or list of indexes."""
 
+from typing import Union
+from warnings import warn
+from dataclasses import dataclass
+
 import numpy as np
 import torch
-from dataclasses import dataclass
-from warnings import warn
-from typing import Union, List
 
 from mlreco.utils.decorators import inherit_docstring
 
@@ -30,7 +31,7 @@ class IndexBatch(BatchBase):
     single_counts: Union[np.ndarray, torch.Tensor]
 
     def __init__(self, data, offsets, counts=None, single_counts=None,
-                 batch_ids=None, batch_size=None, is_numpy=True):
+                 batch_ids=None, batch_size=None, default=None):
         """Initialize the attributes of the class.
 
         Parameters
@@ -51,8 +52,7 @@ class IndexBatch(BatchBase):
         batch_size : int, optional
             Number of entries in the batch. Must be specified along batch_ids
         is_numpy : bool, default True
-            Weather the underlying representation is `np.ndarray` or
-            `torch.Tensor`. Must specify if the input list is empty
+            Default type of index. Provide if `data` may be empty
         """
         # Check weather the input is a single index or a list
         is_list = isinstance(data, (list, tuple)) or data.dtype == object
@@ -60,11 +60,17 @@ class IndexBatch(BatchBase):
         # Initialize the base class
         if not is_list:
             init_data = data
+
         elif len(data):
             init_data = data[0]
+
         else:
-            warn("The input list is empty, underlying data type arbitrary.")
-            init_data = np.empty(0, dtype=np.int64)
+            if default is None:
+                warn("The input index data is an empty list without a default "
+                     "index. Will use numpy as an underlying representation.")
+                default = np.empty(0, dtype=np.int64)
+
+            init_data = default
 
         super().__init__(init_data, is_list=is_list)
 
@@ -297,17 +303,16 @@ class IndexBatch(BatchBase):
         if self.is_numpy:
             return self
 
-        to_numpy = lambda x: x.cpu().detach().numpy()
         if not self.is_list:
-            data = to_numpy(self.data)
+            data = self._to_numpy(self.data)
         else:
             data = np.empty(len(data), dtype=object)
-            for i in range(len(self.data)):
-                data[i] = to_numpy(self.data[i])
+            for i, d in enumerate(self.data):
+                data[i] = self._to_numpy(d)
 
-        offsets = to_numpy(self.offsets)
-        counts = to_numpy(self.counts)
-        single_counts = to_numpy(self.single_counts)
+        offsets = self._to_numpy(self.offsets)
+        counts = self._to_numpy(self.counts)
+        single_counts = self._to_numpy(self.single_counts)
 
         return IndexBatch(data, offsets, counts, single_counts)
 
@@ -330,16 +335,15 @@ class IndexBatch(BatchBase):
         if not self.is_numpy:
             return self
 
-        to_tensor = lambda x: torch.as_tensor(x, dtype=dtype, device=device)
         if not self.is_list:
-            data = to_tensor(self.data)
+            data = self._to_tensor(self.data, dtype, device)
         else:
             data = np.empty(len(data), dtype=object)
-            for i in range(len(self.data)):
-                data[i] = to_tensor(self.data[i])
+            for i, d in enumerate(self.data):
+                data[i] = self._to_tensor(d, dtype, device)
 
-        offsets = to_tensor(self.offsets)
-        counts = to_tensor(self.counts)
-        single_counts = to_tensor(self.single_counts)
+        offsets = self._to_tensor(self.offsets, dtype, device)
+        counts = self._to_tensor(self.counts, dtype, device)
+        single_counts = self._to_tensor(self.single_counts, dtype, device)
 
-        return IndexBatch(index, offsets, counts, single_counts)
+        return IndexBatch(data, offsets, counts, single_counts)

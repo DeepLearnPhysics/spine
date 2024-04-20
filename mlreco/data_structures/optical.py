@@ -3,9 +3,9 @@
 This copies the internal structure of :class:`larcv.Flash`.
 """
 
-import numpy as np
 from dataclasses import dataclass
-from larcv import larcv
+
+import numpy as np
 
 __all__ = ['Flash']
 
@@ -69,8 +69,9 @@ class Flash:
     def __post_init__(self):
         """Immediately called after building the class attributes.
 
-        Used to type cast strings when they are provided as binary. Could
-        also be used to check other inputs.
+        Used to type cast strings when they are provided as binary (typically
+        how a string is loaded from an HDF5 file). Could also be used to check
+        other inputs.
         """
         # Make sure  the strings are not binary
         for attr in self._str_attrs:
