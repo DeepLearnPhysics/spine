@@ -219,6 +219,9 @@ class HDF5Writer:
                 if len(index):
                     ref_id  = index[0]
                     ref_obj = blob[key][ref_id][0]
+                elif isinstance(blob[key][0], np.ndarray):
+                    ref_id = 0
+                    ref_obj = blob[key][ref_id]
                 elif key in self.DEFAULT_OBJS.keys():
                     ref_obj = self.DEFAULT_OBJS[key]
                 else:
