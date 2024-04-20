@@ -589,7 +589,6 @@ class FullChain(torch.nn.Module):
     def run_inter_aggregation(self, data, clust_label=None, coord_label=None):
         """Run the interaction aggreation step.
 
-<<<<<<< HEAD
         This step gathers particles into complete interaction instances.
 
         In the process of interaction aggregation, other tasks may be performed:
