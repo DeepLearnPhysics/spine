@@ -43,18 +43,18 @@ class Flash:
     units : str
         Units in which the position coordinates are expressed
     """
-    id: int               = -1
-    frame: int            = -1
-    in_beam_frame: bool   = False
-    on_beam_time: bool    = False
-    time: float           = -1.0
-    time_width: float     = -1.0
-    time_abs: float       = -1.0
-    total_pe: float       = -1.0
-    fast_to_total: float  = -1.0
-    pe_per_ch: np.ndarray = np.empty(0, dtype=np.float32)
-    center: np.ndarray    = np.full(3, -np.inf, dtype=np.float32)
-    width: np.ndarray     = np.full(3, -np.inf, dtype=np.float32)
+    id: int = -1
+    frame: int = -1
+    in_beam_frame: bool = False
+    on_beam_time: bool = False
+    time: float = -1.0
+    time_width: float = -1.0
+    time_abs: float = -1.0
+    total_pe: float = -1.0
+    fast_to_total: float = -1.0
+    pe_per_ch: np.ndarray = None
+    center: np.ndarray = None
+    width: np.ndarray = None
     units: str = 'cm'
 
     # Fixed-length attributes
@@ -69,10 +69,21 @@ class Flash:
     def __post_init__(self):
         """Immediately called after building the class attributes.
 
-        Used to type cast strings when they are provided as binary (typically
-        how a string is loaded from an HDF5 file). Could also be used to check
-        other inputs.
+        Provides two functions:
+        - Gives default values to array-like attributes. If a default value was
+          provided in the attribute definition, all instances of this class
+          would point to the same memory location.
+        - Casts strings when they are provided as binary objects, which is the
+          format one gets when loading string from HDF5 files.
         """
+        # Provide default values to the array-like attributes
+        if self.pe_per_ch is None:
+            self.pe_per_ch = np.empty(0, dtype=np.float32)
+
+        for attr in self._fixed_length_attrs:
+            if getattr(self, attr) is None:
+                setattr(self, attr, np.full(3, -np.inf, dtype=np.float32))
+
         # Make sure  the strings are not binary
         for attr in self._str_attrs:
             if isinstance(getattr(self, attr), bytes):

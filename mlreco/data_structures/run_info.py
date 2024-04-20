@@ -21,9 +21,9 @@ class RunInfo:
     event : int
         Event ID
     """
-    run: int    = -1
+    run: int = -1
     subrun: int = -1
-    event: int  = -1
+    event: int = -1
 
     @classmethod
     def from_larcv(cls, larcv_event):

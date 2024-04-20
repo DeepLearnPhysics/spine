@@ -23,10 +23,10 @@ class Trigger:
     type : int
         DAQ-specific trigger type
     """
-    id: int       = -1
-    time_s: int   = -1
-    time_ns: int  = -1
-    type: int     = -1
+    id: int = -1
+    time_s: int = -1
+    time_ns: int = -1
+    type: int = -1
 
     @classmethod
     def from_larcv(cls, trigger):

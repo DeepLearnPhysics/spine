@@ -45,19 +45,19 @@ class CRTHit:
     units : str
         Units in which the position coordinates are expressed
     """
-    id: int               = -1
-    plane: int            = -1
-    tagger: str           = ''
-    feb_id: np.ndarray    = np.empty(0, dtype=np.ubyte)
-    ts0_s: int            = -1
-    ts0_ns: float         = -1.0
-    ts0_s_corr: float     = -1.0
-    ts0_ns_corr: float    = -1.0
-    ts1_ns: float         = -1.0
-    total_pe: float       = -1.0
-    #pe_per_ch: np.ndarray = np.empty(0, dtype=np.float32)
-    center: np.ndarray    = np.full(3, -np.inf, dtype=np.float32)
-    width: np.ndarray     = np.full(3, -np.inf, dtype=np.float32)
+    id: int = -1
+    plane: int = -1
+    tagger: str = ''
+    feb_id: np.ndarray = None
+    ts0_s: int = -1
+    ts0_ns: float = -1.0
+    ts0_s_corr: float = -1.0
+    ts0_ns_corr: float = -1.0
+    ts1_ns: float = -1.0
+    total_pe: float = -1.0
+    # pe_per_ch: np.ndarray = None
+    center: np.ndarray = None
+    width: np.ndarray = None
     units: str = 'cm'
 
     # Fixed-length attributes
@@ -72,11 +72,22 @@ class CRTHit:
     def __post_init__(self):
         """Immediately called after building the class attributes.
 
-        Used to type cast strings when they are provided as binary (typically
-        how a string is loaded from an HDF5 file). Could also be used to check
-        other inputs.
+        Provides two functions:
+        - Gives default values to array-like attributes. If a default value was
+          provided in the attribute definition, all instances of this class
+          would point to the same memory location.
+        - Casts strings when they are provided as binary objects, which is the
+          format one gets when loading string from HDF5 files.
         """
-        # Make sure  the strings are not binary
+        # Provide default values to the array-like attributes
+        if self.feb_id is None:
+            self.feb_id = np.empty(0, dtype=np.ubyte)
+
+        for attr in self._fixed_length_attrs:
+            if getattr(self, attr) is None:
+                setattr(self, attr, np.full(3, -np.inf, dtype=np.float32))
+
+        # Make sure the strings are not binary
         for attr in self._str_attrs:
             if isinstance(getattr(self, attr), bytes):
                 setattr(self, attr, getattr(self, attr).decode())

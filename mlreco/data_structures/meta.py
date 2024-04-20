@@ -24,12 +24,24 @@ class Meta:
     size : np.ndarray
         (2/3) Array of pixel/voxel size in each dimension (cm)
     """
-    lower: np.ndarray = np.full(3, -np.inf, dtype=np.float32)
-    upper: np.ndarray = np.full(3, -np.inf, dtype=np.float32)
-    size: np.ndarray  = np.full(3, -np.inf, dtype=np.float32)
+    lower: np.ndarray = None
+    upper: np.ndarray = None
+    size: np.ndarray = None
 
     # Fixed-length attributes
     _fixed_length_attrs = ['lower', 'upper', 'size']
+
+    def __post_init__(self):
+        """Immediately called after building the class attributes.
+
+        Gives default values to array-like attributes. If a default value was
+        provided in the attribute definition, all instances of this class
+        would point to the same memory location.
+        """
+        # Provide default values to the array-like attributes
+        for attr in self._fixed_length_attrs:
+            if getattr(self, attr) is None:
+                setattr(self, attr, np.full(3, -np.inf, dtype=np.float32))
 
     def to_cm(self, coords, translate=True):
         """Converts pixel indexes in a tensor to detector coordinates in cm.

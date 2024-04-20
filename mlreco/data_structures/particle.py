@@ -107,7 +107,7 @@ class Particle:
     interaction_primary: int = -1
     group_primary: int = -1
     parent_id: int = -1
-    children_id: int = np.empty(0, dtype=np.int64)
+    children_id: int = None
     track_id: int = -1
     parent_track_id: int = -1
     ancestor_track_id: int = -1
@@ -126,14 +126,14 @@ class Particle:
     t: float = -np.inf
     parent_t: float = -np.inf
     ancestor_t: float = -np.inf
-    position: np.ndarray = np.full(3, -np.inf, dtype=np.float32)
-    end_position: np.ndarray = np.full(3, -np.inf, dtype=np.float32)
-    parent_position: np.ndarray = np.full(3, -np.inf, dtype=np.float32)
-    ancestor_position: np.ndarray = np.full(3, -np.inf, dtype=np.float32)
-    first_step: np.ndarray = np.full(3, -np.inf, dtype=np.float32)
-    last_step: np.ndarray = np.full(3, -np.inf, dtype=np.float32)
-    momentum: np.ndarray = np.full(3, -np.inf, dtype=np.float32)
-    end_momentum: np.ndarray = np.full(3, -np.inf, dtype=np.float32)
+    position: np.ndarray = None
+    end_position: np.ndarray = None
+    parent_position: np.ndarray = None
+    ancestor_position: np.ndarray = None
+    first_step: np.ndarray = None
+    last_step: np.ndarray = None
+    momentum: np.ndarray = None
+    end_momentum: np.ndarray = None
     units: str = 'cm'
 
     # Fixed-length attributes
@@ -158,10 +158,21 @@ class Particle:
     def __post_init__(self):
         """Immediately called after building the class attributes.
 
-        Used to type cast strings when they are provided as binary (typically
-        how a string is loaded from an HDF5 file). Could also be used to check
-        other inputs.
+        Provides two functions:
+        - Gives default values to array-like attributes. If a default value was
+          provided in the attribute definition, all instances of this class
+          would point to the same memory location.
+        - Casts strings when they are provided as binary objects, which is the
+          format one gets when loading string from HDF5 files.
         """
+        # Provide default values to the array-like attributes
+        if self.children_id is None:
+            self.children_id = np.empty(0, dtype=np.int64)
+
+        for attr in self._fixed_length_attrs:
+            if getattr(self, attr) is None:
+                setattr(self, attr, np.full(3, -np.inf, dtype=np.float32))
+
         # Make sure  the strings are not binary
         for attr in self._str_attrs:
             if isinstance(getattr(self, attr), bytes):

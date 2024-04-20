@@ -97,8 +97,8 @@ class Neutrino:
     lepton_p: float = -1
     theta: float = -1.
     creation_process: str = ''
-    position: np.ndarray = np.full(3, -np.inf, dtype=np.float32)
-    momentum: np.ndarray = np.full(3, -np.inf, dtype=np.float32)
+    position: np.ndarray = None
+    momentum: np.ndarray = None
     units: str = 'cm'
 
     # Fixed-length attributes
@@ -120,10 +120,18 @@ class Neutrino:
     def __post_init__(self):
         """Immediately called after building the class attributes.
 
-        Used to type cast strings when they are provided as binary (typically
-        how a string is loaded from an HDF5 file). Could also be used to check
-        other inputs.
+        Provides two functions:
+        - Gives default values to array-like attributes. If a default value was
+          provided in the attribute definition, all instances of this class
+          would point to the same memory location.
+        - Casts strings when they are provided as binary objects, which is the
+          format one gets when loading string from HDF5 files.
         """
+        # Provide default values to the array-like attributes
+        for attr in self._fixed_length_attrs:
+            if getattr(self, attr) is None:
+                setattr(self, attr, np.full(3, -np.inf, dtype=np.float32))
+
         # Make sure  the strings are not binary
         for attr in self._str_attrs:
             if isinstance(getattr(self, attr), bytes):
