@@ -79,6 +79,9 @@ class HDF5Writer:
         'interactions':       analysis.Interaction(),
         'truth_interactions': analysis.TruthInteraction(),
     }
+    if 'larcv' in sys.modules:
+        DEFAULT_OBJS['truth_particles'] = analysis.TruthParticle(particle_asis=larcv.Particle())
+        DEFAULT_OBJS['truth_interactions'] = analysis.TruthInteraction(neutrino=larcv.Neutrino())
 
     # Outputs that have a fixed number of tensors. #TODO: Inherit from unwrap rules
     TENSOR_LISTS = ['encoderTensors', 'decoderTensors', 'ppn_masks', 'ppn_layers', 'ppn_coords']
