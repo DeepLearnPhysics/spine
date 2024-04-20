@@ -221,6 +221,9 @@ class HDF5Writer:
                     ref_obj = blob[key][ref_id][0]
                 elif key in self.DEFAULT_OBJS.keys():
                     ref_obj = self.DEFAULT_OBJS[key]
+                elif isinstance(blob[key][0], np.ndarray):
+                    ref_id = 0
+                    ref_obj = blob[key][ref_id]
                 else:
                     msg = f'Cannot infer the dtype of a list of empty lists ({key}) and hence cannot initialize the output HDF5 file'
                     raise AssertionError(msg) # TODO: In this case, fall back on a default dtype specified elsewhere
