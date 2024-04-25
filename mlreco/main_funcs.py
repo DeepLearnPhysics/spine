@@ -26,15 +26,6 @@ from .version import __version__
 
 from .trainval import TrainVal
 
-# If MinkowskiEngine is available, load it with the right number of threads
-try:
-    if os.environ.get('OMP_NUM_THREADS') is None:
-        os.environ['OMP_NUM_THREADS'] = '16'
-    import MinkowskiEngine as ME
-except ModuleNotFoundError:
-    logger.warning(
-            "MinkowskiEngine could not be found, cannot run dependant models")
-
 
 @dataclass
 class Handlers:
@@ -45,6 +36,7 @@ class Handlers:
     data_io: DataLoader = None
     data_io_iter: iter  = None
     trainval: TrainVal  = None
+    #analyzer: Analyzer  = None
 
     def keys(self):
         """Function which return the available attributes."""
@@ -305,8 +297,17 @@ def process_config(iotool, model=None, trainval=None, verbosity='info',
     # Rebuild global configuration dictionary
     cfg = {'iotool': iotool, 'model': model, 'trainval': trainval}
 
+    # Log package logo
+    ascii_logo = (
+    " ██████████   ███████████   ███   ███       ██   ███████████\n"
+    "███        █  ██       ███   |    ██████    ██   ██         \n"
+    "  ████████    ██       ███  ███   ██   ███  ██   ██████████ \n"
+    "█        ███  ██████████     |    ██     █████   ██         \n"
+    " ██████████   ██            ███   ██       ███   ███████████\n")
+    logger.info(f"\n%s", ascii_logo)
+
     # Log environment information
-    logger.info("\nlartpc_mlreco3d version: %s\n", __version__)
+    logger.info("Release version: %s\n", __version__)
 
     visible_devices = os.environ.get('CUDA_VISIBLE_DEVICES', None)
     logger.info("$CUDA_VISIBLE_DEVICES=%s\n", visible_devices)

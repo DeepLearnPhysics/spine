@@ -9,13 +9,13 @@ from warnings import warn
 from collections import OrderedDict
 
 import numpy as np
-from larcv import larcv
 from sklearn.cluster import DBSCAN
 
 from mlreco import Meta
 from mlreco.utils.globals import DELTA_SHP
 from mlreco.utils.particles import process_particle_event
 from mlreco.utils.ppn import image_coordinates
+from mlreco.utils.conditional import larcv
 
 from .base import ParserBase
 from .sparse import Sparse3DParser, Sparse3DChargeRescaledParser
@@ -239,6 +239,7 @@ class Cluster3DParser(ParserBase):
         num_clusters = cluster_event.as_vector().size()
         labels = OrderedDict()
         labels['cluster'] = np.arange(num_clusters)
+        num_particles = num_clusters
         if self.add_particle_info:
             # Check that that particle objects are of the expected length
             num_particles = particle_event.size()
@@ -313,8 +314,9 @@ class Cluster3DParser(ParserBase):
                 # Append the cluster-wise information
                 features = [value]
                 for l in labels.values():
+                    val = l[i] if i < num_particles else -1
                     features.append(
-                            np.full(num_points, l[i], dtype=np.float32))
+                            np.full(num_points, val, dtype=np.float32))
 
                 # If requested, break cluster into detached pieces
                 if self.break_clusters:

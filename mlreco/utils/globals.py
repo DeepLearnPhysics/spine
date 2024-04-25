@@ -61,13 +61,13 @@ SHAPE_PREC = [TRACK_SHP, MICHL_SHP, SHOWR_SHP, DELTA_SHP, LOWES_SHP, UNKWN_SHP]
 
 # Shape labels
 SHAPE_LABELS = {
+   -1: 'Unknown',
    SHOWR_SHP: 'Shower',
    TRACK_SHP: 'Track',
    MICHL_SHP: 'Michel',
    DELTA_SHP: 'Delta',
    LOWES_SHP: 'Low Energy',
    GHOST_SHP: 'Ghost',
-   UNKWN_SHP: 'Unknown'
 }
 
 # Invalid larcv.Particle labels

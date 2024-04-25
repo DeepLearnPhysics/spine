@@ -32,7 +32,6 @@ from .models import model_factory
 from .models.experimental.bayes.calibration import (
         calibrator_factory, calibrator_loss_factory)
 
-from .utils.torch_local import cycle
 from .utils.stopwatch import StopwatchManager
 from .utils.unwrap import Unwrapper
 from .utils.train import optim_factory, lr_sched_factory
@@ -541,8 +540,8 @@ class TrainVal:
                 self.loader.sampler.set_epoch(e)
 
             self.loader_iter = iter(self.loader)
-            n_iterations = \
-                    min(self.iterations - e*len(self.loader), len(self.loader))
+            n_iterations = min(
+                    self.iterations - e*len(self.loader), len(self.loader))
             for _ in range(n_iterations):
                 # Update the epoch counter, start the iteration timer
                 epoch = iteration / iter_per_epoch

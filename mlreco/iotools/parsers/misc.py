@@ -9,9 +9,10 @@ Contains the following parsers:
 - :class:`TriggerParser`
 """
 
-from larcv import larcv
 
 from mlreco import Meta, RunInfo, Flash, CRTHit, Trigger, ObjectList
+
+from mlreco.utils.conditional import larcv
 
 from .base import ParserBase
 

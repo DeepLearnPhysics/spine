@@ -8,11 +8,13 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from .base import DataStructBase
+
 __all__ = ['Meta']
 
 
 @dataclass
-class Meta:
+class Meta(DataStructBase):
     """Meta information about a rasterized image.
 
     Attributes
@@ -29,19 +31,7 @@ class Meta:
     size: np.ndarray = None
 
     # Fixed-length attributes
-    _fixed_length_attrs = ['lower', 'upper', 'size']
-
-    def __post_init__(self):
-        """Immediately called after building the class attributes.
-
-        Gives default values to array-like attributes. If a default value was
-        provided in the attribute definition, all instances of this class
-        would point to the same memory location.
-        """
-        # Provide default values to the array-like attributes
-        for attr in self._fixed_length_attrs:
-            if getattr(self, attr) is None:
-                setattr(self, attr, np.full(3, -np.inf, dtype=np.float32))
+    _fixed_length_attrs = {'lower': 3, 'upper': 3, 'size': 3}
 
     def to_cm(self, coords, translate=True):
         """Converts pixel indexes in a tensor to detector coordinates in cm.
@@ -73,17 +63,6 @@ class Meta:
             return coords
 
         return (coords - self.lower) / self.size - .5
-
-    @property
-    def fixed_length_attrs(self):
-        """Fetches the list of fixes-length array attributes.
-
-        Returns
-        -------
-        List[str]
-            List of fixed length array attribute names
-        """
-        return self._fixed_length_attrs
 
     @classmethod
     def from_larcv(cls, meta):

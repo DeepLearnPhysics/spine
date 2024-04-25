@@ -40,7 +40,6 @@ class TruthParticle(Particle):
     sed_depositions_MeV : np.ndarray, default np.array([])
         (N_s) Array of energy deposition values for each SED voxel in MeV
     '''
-
     # Attributes that specify coordinates
     _COORD_ATTRS = Particle._COORD_ATTRS +\
 	['truth_points', 'sed_points', 'position', 'end_position',\

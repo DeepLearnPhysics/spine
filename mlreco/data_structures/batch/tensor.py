@@ -4,13 +4,10 @@ from dataclasses import dataclass
 
 import numpy as np
 import torch
-try:
-    from MinkowskiEngine import SparseTensor
-except ImportError:
-    pass
 
 from mlreco.utils.globals import BATCH_COL, COORD_COLS
 from mlreco.utils.decorators import inherit_docstring
+from mlreco.utils.conditional import ME
 
 from .base import BatchBase
 
@@ -97,7 +94,7 @@ class TensorBatch(BatchBase):
         if not self.is_sparse:
             return self.data[lower:upper]
         else:
-            return SparseTensor(
+            return ME.SparseTensor(
                     self.data.F[lower:upper],
                     coordinates=self.data.C[lower:upper])
 
@@ -125,7 +122,7 @@ class TensorBatch(BatchBase):
         else:
             coords = self._split(self.data.C, self.splits)
             feats = self._split(self.data.F, self.splits)
-            return [SparseTensor(
+            return [ME.SparseTensor(
                 feats[i], coordinates=coords[i]) for i in self.batch_size]
 
     def merge(self, tensor_batch):

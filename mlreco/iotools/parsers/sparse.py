@@ -8,11 +8,11 @@ Contains the following parsers:
 """
 
 import numpy as np
-from larcv import larcv
 
 from mlreco import Meta
 from mlreco.utils.globals import GHOST_SHP
 from mlreco.utils.ghost import compute_rescaled_charge
+from mlreco.utils.conditional import larcv
 
 from .base import ParserBase
 

@@ -11,12 +11,12 @@ Contains the following parsers:
 """
 
 import numpy as np
-from larcv import larcv
 
 from mlreco import Meta, Particle, Neutrino, ObjectList
 from mlreco.utils.globals import TRACK_SHP, PDG_TO_PID, PID_MASSES
 from mlreco.utils.particles import process_particles
 from mlreco.utils.ppn import get_ppn_labels, image_coordinates
+from mlreco.utils.conditional import larcv
 
 from .base import ParserBase
 

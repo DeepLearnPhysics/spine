@@ -31,7 +31,7 @@ class IndexBatch(BatchBase):
     single_counts: Union[np.ndarray, torch.Tensor]
 
     def __init__(self, data, offsets, counts=None, single_counts=None,
-                 batch_ids=None, batch_size=None, default=None):
+                 batch_ids=None, batch_size=None, default=None, is_numpy=True): # TODO is_numpy does nothing
         """Initialize the attributes of the class.
 
         Parameters

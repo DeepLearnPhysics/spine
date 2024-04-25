@@ -21,7 +21,7 @@ SUPPORTED_BUILDERS = [
         'ParticleBuilder', 'InteractionBuilder', 'FragmentBuilder']
 
 
-class AnaToolsManager:
+class AnaManager:
     '''
     Chain of responsibility mananger for running analysis related tasks
     on full chain output.

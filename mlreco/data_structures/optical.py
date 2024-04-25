@@ -7,11 +7,13 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from .base import PosDataStructBase
+
 __all__ = ['Flash']
 
 
 @dataclass
-class Flash:
+class Flash(PosDataStructBase):
     """Optical flash information.
 
     Attributes
@@ -58,75 +60,13 @@ class Flash:
     units: str = 'cm'
 
     # Fixed-length attributes
-    _fixed_length_attrs = ['center', 'width']
+    _fixed_length_attrs = {'center': 3, 'width': 3}
+
+    # Variable-length attributes
+    _var_length_attrs = {'pe_per_ch': np.float32}
 
     # Attributes specifying coordinates
     _pos_attrs = ['center']
-
-    # String attributes
-    _str_attrs = ['units']
-
-    def __post_init__(self):
-        """Immediately called after building the class attributes.
-
-        Provides two functions:
-        - Gives default values to array-like attributes. If a default value was
-          provided in the attribute definition, all instances of this class
-          would point to the same memory location.
-        - Casts strings when they are provided as binary objects, which is the
-          format one gets when loading string from HDF5 files.
-        """
-        # Provide default values to the array-like attributes
-        if self.pe_per_ch is None:
-            self.pe_per_ch = np.empty(0, dtype=np.float32)
-
-        for attr in self._fixed_length_attrs:
-            if getattr(self, attr) is None:
-                setattr(self, attr, np.full(3, -np.inf, dtype=np.float32))
-
-        # Make sure  the strings are not binary
-        for attr in self._str_attrs:
-            if isinstance(getattr(self, attr), bytes):
-                setattr(self, attr, getattr(self, attr).decode())
-
-    def to_cm(self, meta):
-        """Converts the coordinates of the positional attributes to cm.
-
-        Parameters
-        ----------
-        meta : Meta
-            Metadata information about the rasterized image
-        """
-        assert self.units != '', "Must specify units"
-        assert self.units != 'cm', "Units already expressed in cm"
-        self.units = 'cm'
-        for attr in self._pos_attrs:
-            setattr(self, attr, meta.to_cm(getattr(self, attr)))
-
-    def to_pixel(self, meta):
-        """Converts the coordinates of the positional attributes to pixel.
-
-        Parameters
-        ----------
-        meta : Meta
-            Metadata information about the rasterized image
-        """
-        assert self.units != '', "Must specify units"
-        assert self.units != 'pixel', "Units already expressed in pixels"
-        self.units = 'cm'
-        for attr in self._pos_attrs:
-            setattr(self, attr, meta.to_pixel(getattr(self, attr)))
-
-    @property
-    def fixed_length_attrs(self):
-        """Fetches the list of fixes-length array attributes.
-
-        Returns
-        -------
-        List[str]
-            List of fixed length array attribute names
-        """
-        return self._fixed_length_attrs
 
     @classmethod
     def from_larcv(cls, flash):

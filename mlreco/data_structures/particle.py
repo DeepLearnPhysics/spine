@@ -10,11 +10,13 @@ import numpy as np
 
 from mlreco.utils.globals import UNKWN_SHP, SHAPE_LABELS, PID_LABELS
 
+from .base import PosDataStructBase
+
 __all__ = ['Particle']
 
 
 @dataclass
-class Particle:
+class Particle(PosDataStructBase):
     """Particle truth information.
 
     Attributes
@@ -94,7 +96,7 @@ class Particle:
     end_momentum : np.ndarray
         3-momentum of the particle at where it stops or exits the detector
     units : str
-        Units in which the position coordinates are expressed
+        Units in which the position attributes are expressed
     """
     # Attributes
     id: int = -1
@@ -137,9 +139,13 @@ class Particle:
     units: str = 'cm'
 
     # Fixed-length attributes
-    _fixed_length_attrs = ['position', 'end_position', 'parent_position',
-                           'ancestor_position', 'first_step', 'last_step',
-                           'momentum', 'end_momentum']
+    _fixed_length_attrs = {'position': 3, 'end_position': 3,
+                           'parent_position': 3, 'ancestor_position': 3,
+                           'first_step': 3, 'last_step': 3, 'momentum': 3,
+                           'end_momentum': 3}
+
+    # Variable-length attributes
+    _var_length_attrs = {'children_id': np.int64}
 
     # Attributes specifying coordinates
     _pos_attrs = ['position', 'end_position', 'parent_position',
@@ -153,78 +159,7 @@ class Particle:
 
     # String attributes
     _str_attrs = ['creation_process', 'parent_creation_process',
-                  'ancestor_creation_process', 'units']
-
-    def __post_init__(self):
-        """Immediately called after building the class attributes.
-
-        Provides two functions:
-        - Gives default values to array-like attributes. If a default value was
-          provided in the attribute definition, all instances of this class
-          would point to the same memory location.
-        - Casts strings when they are provided as binary objects, which is the
-          format one gets when loading string from HDF5 files.
-        """
-        # Provide default values to the array-like attributes
-        if self.children_id is None:
-            self.children_id = np.empty(0, dtype=np.int64)
-
-        for attr in self._fixed_length_attrs:
-            if getattr(self, attr) is None:
-                setattr(self, attr, np.full(3, -np.inf, dtype=np.float32))
-
-        # Make sure  the strings are not binary
-        for attr in self._str_attrs:
-            if isinstance(getattr(self, attr), bytes):
-                setattr(self, attr, getattr(self, attr).decode())
-
-    def to_cm(self, meta):
-        """Converts the coordinates of the positional attributes to cm.
-
-        Parameters
-        ----------
-        meta : Meta
-            Metadata information about the rasterized image
-        """
-        assert self.units != 'cm', "Units already expressed in cm"
-        self.units = 'cm'
-        for attr in self._pos_attrs:
-            setattr(self, attr, meta.to_cm(getattr(self, attr)))
-
-    def to_pixel(self, meta):
-        """Converts the coordinates of the positional attributes to pixel.
-
-        Parameters
-        ----------
-        meta : Meta
-            Metadata information about the rasterized image
-        """
-        assert self.units != 'pixel', "Units already expressed in pixels"
-        self.units = 'pixel'
-        for attr in self._pos_attrs:
-            setattr(self, attr, meta.to_pixel(getattr(self, attr)))
-
-    @property
-    def fixed_length_attrs(self):
-        """Fetches the list of fixes-length array attributes.
-
-        Returns
-        -------
-        List[str]
-            List of fixed length array attribute names
-        """
-        return self._fixed_length_attrs
-
-    @property
-    def enum_attrs(self):
-        """Fetches the list of enumerated arguments.
-
-        Returns
-        -------
-        Dict[int, Dict[int, str]]
-            Dictionary which maps names onto enumerator descriptors
-        """
-        return self._enum_attrs
+                  'ancestor_creation_process']
 
     @property
     def p(self):

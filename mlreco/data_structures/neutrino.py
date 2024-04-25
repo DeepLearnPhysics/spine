@@ -10,11 +10,13 @@ import numpy as np
 
 from mlreco.utils.globals import NU_CURR_TYPE, NU_INT_TYPE
 
+from .base import PosDataStructBase
+
 __all__ = ['Neutrino']
 
 
 @dataclass
-class Neutrino:
+class Neutrino(PosDataStructBase):
     """Neutrino truth information.
 
     Attributes
@@ -71,7 +73,6 @@ class Neutrino:
         3-momentum of the neutrino at its interaction point
     units : str
         Units in which the position coordinates are expressed
-    units: str = 'cm'
     """
     # Attributes
     id: int = -1
@@ -102,7 +103,7 @@ class Neutrino:
     units: str = 'cm'
 
     # Fixed-length attributes
-    _fixed_length_attrs = ['position', 'momentum']
+    _fixed_length_attrs = {'position': 3, 'momentum': 3}
 
     # Attributes specifying coordinates
     _pos_attrs = ['position']
@@ -115,75 +116,7 @@ class Neutrino:
     }
 
     # String attributes
-    _str_attrs = ['creation_process', 'units']
-
-    def __post_init__(self):
-        """Immediately called after building the class attributes.
-
-        Provides two functions:
-        - Gives default values to array-like attributes. If a default value was
-          provided in the attribute definition, all instances of this class
-          would point to the same memory location.
-        - Casts strings when they are provided as binary objects, which is the
-          format one gets when loading string from HDF5 files.
-        """
-        # Provide default values to the array-like attributes
-        for attr in self._fixed_length_attrs:
-            if getattr(self, attr) is None:
-                setattr(self, attr, np.full(3, -np.inf, dtype=np.float32))
-
-        # Make sure  the strings are not binary
-        for attr in self._str_attrs:
-            if isinstance(getattr(self, attr), bytes):
-                setattr(self, attr, getattr(self, attr).decode())
-
-    def to_cm(self, meta):
-        """Converts the coordinates of the positional attributes to cm.
-
-        Parameters
-        ----------
-        meta : Meta
-            Metadata information about the rasterized image
-        """
-        assert self.units != 'cm', "Units already expressed in cm"
-        self.units = 'cm'
-        for attr in self._pos_attrs:
-            setattr(self, attr, meta.to_cm(getattr(self, attr)))
-
-    def to_pixel(self, meta):
-        """Converts the coordinates of the positional attributes to pixel.
-
-        Parameters
-        ----------
-        meta : Meta
-            Metadata information about the rasterized image
-        """
-        assert self.units != 'pixel', "Units already expressed in pixels"
-        self.units = 'pixel'
-        for attr in self._pos_attrs:
-            setattr(self, attr, meta.to_pixel(getattr(self, attr)))
-
-    @property
-    def fixed_length_attrs(self):
-        """Fetches the list of fixes-length array attributes.
-
-        Returns
-        -------
-        List[str]
-            List of fixed length array attribute names
-        """
-        return self._fixed_length_attrs
-
-    @property
-    def enum_attrs(self):
-        """Fetches the list of enumerated arguments.
-
-        Returns
-        -------
-        Dict[int, Dict[int, str]]
-            Dictionary which maps names onto enumerator descriptors
-        """
-        return self._enum_attrs
+    _str_attrs = ['creation_process']
 
     @classmethod
     def from_larcv(cls, neutrino):
