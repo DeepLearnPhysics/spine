@@ -36,6 +36,7 @@ from .utils.stopwatch import StopwatchManager
 from .utils.unwrap import Unwrapper
 from .utils.train import optim_factory, lr_sched_factory
 from .utils.logger import logger
+from .utils.torch_local import cycle # TODO: get rid of this
 
 
 class TrainVal:

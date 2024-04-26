@@ -8,9 +8,10 @@ from mlreco.models.layers.cluster_cnn import gs_kernel_factory, spice_loss_facto
 from mlreco.models.layers.cluster_cnn.graph_spice_embedder import GraphSPICEEmbedder
 
 from mlreco import TensorBatch
-from mlreco.utils.cluster.cluster_graph_constructor import ClusterGraphConstructor
+from mlreco.utils.cluster.graph_manager import ClusterGraphConstructor
 from mlreco.utils.unwrap import Unwrapper
 from mlreco.utils.globals import *
+
 
 class GraphSPICE(nn.Module):
     '''
@@ -141,7 +142,7 @@ class GraphSPICE(nn.Module):
         super(GraphSPICE, self).__init__()
         
         self.process_model_config(**graph_spice)
-        self.RETURNS.update(self.embedder.RETURNS)
+        # self.RETURNS.update(self.embedder.RETURNS)
         
         
     def process_model_config(self, 
@@ -198,12 +199,14 @@ class GraphSPICE(nn.Module):
         mask = ~np.isin(label.tensor[:, -1].detach().cpu().numpy(), 
                         self.skip_classes)
         # valid_points, labels = point_cloud[mask], label[mask]
-        valid_points = TensorBatch(point_cloud.tensor[mask], batch_size=input_tensors[0].batch_size)
-        labels = TensorBatch(label.tensor[mask], batch_size=input_tensors[1].batch_size)
+        valid_points = TensorBatch(point_cloud.tensor[mask], batch_size=input_tensors[0].batch_size, has_batch_col=True)
+        labels = TensorBatch(label.tensor[mask], batch_size=input_tensors[1].batch_size, has_batch_col=True)
         return valid_points, labels
     
 
     def construct_fragments(self, input):
+        
+        raise NotImplementedError('Fragment construction not implemented.')
         
         frags = {}
         
@@ -255,22 +258,26 @@ class GraphSPICE(nn.Module):
         res = self.embedder(valid_points)
 
         res['coordinates'] = TensorBatch(valid_points.tensor[:, :COORD_COLS[-1]+1], 
-                                         batch_size=input_data.batch_size)
+                                         batch_size=input_data.batch_size, has_batch_col=True)
         
         if self.use_raw_features:
             res['hypergraph_features'] = res['features']
 
         # Build the graph
-        graph = self.gs_manager(res,
-                                self.kernel_fn,
-                                labels,
-                                invert=self.invert)
+        # graph = self.gs_manager(res,
+        #                         self.kernel_fn,
+        #                         labels,
+        #                         invert=self.invert)
+        graph = self.gs_manager.initialize(res,
+                                           labels,
+                                           self.kernel_fn,
+                                           invert=self.invert)
         
-        if self.make_fragments:
-            frags = self.construct_fragments(valid_points)
-            res.update(frags)
+        # if self.make_fragments:
+        #     frags = self.construct_fragments(valid_points)
+        #     res.update(frags)
         
-        graph_state = self.gs_manager.save_state(unwrapped=False)
+        graph_state = self.gs_manager.save_state()
         res.update(graph_state)
 
         return res
@@ -319,8 +326,6 @@ class GraphSPICELoss(nn.Module):
 
         self.process_model_config(**graph_spice)
         self.process_loss_config(**graph_spice_loss)
-
-        self.RETURNS.update(self.loss_fn.RETURNS)
         
         
     def process_model_config(self, skip_classes, invert=True, 
@@ -356,19 +361,13 @@ class GraphSPICELoss(nn.Module):
         '''
 
         '''
-        
-        self.gs_manager.load_state(result, unwrapped=False)
-
-        # if self.invert:
-        #     pred_labels = result['edge_score'][0] < 0.0
-        # else:
-        #     pred_labels = result['edge_score'][0] >= 0.0
-        # edge_diff = pred_labels != (result['edge_truth'][0] > 0.5)
+        self.gs_manager.load_state(result)
         
         slabel_tensor = [segment_label.tensor]
         clabel_tensor = [cluster_label.tensor]
 
         slabel, clabel = self.filter_class(slabel_tensor, clabel_tensor)
+        
         res = self.loss_fn(result, slabel, clabel)
         
         if self.evaluate_true_accuracy:
@@ -376,4 +375,7 @@ class GraphSPICELoss(nn.Module):
             acc_out = self.gs_manager.evaluate()
             for key, val in acc_out.items():
                 res[key] = val
+                
+        if 'ari' in res:
+            res['accuracy'] = res['ari']
         return res

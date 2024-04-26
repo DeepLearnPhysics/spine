@@ -4,7 +4,6 @@ import os
 import time
 from collections import OrderedDict
 
-from mlreco.utils.ppn import uresnet_ppn_type_point_selector
 from mlreco.utils.metrics import unique_label
 
 from scipy.special import softmax

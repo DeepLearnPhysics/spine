@@ -18,7 +18,7 @@ import mlreco.utils.numba_local as nbl
 
 
 def form_clusters_batch(data, min_size=-1, column=CLUST_COL,
-                        cluster_classes=None):
+                        cluster_classes=None, batch_size=None):
     """Batched version of :func:`form_clusters`.
 
     Parameters
@@ -197,6 +197,7 @@ def get_cluster_dedxs_batch(data, starts, clusts, max_dist=-1):
             data.tensor, starts.tensor, clusts.index_list)
 
     return TensorBatch(dedxs, clusts.counts)
+
 
 def get_cluster_features_batch(data, clusts, add_value=False, add_shape=False):
     """Batched version of :func:`get_cluster_features`.

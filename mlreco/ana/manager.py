@@ -2,20 +2,20 @@ import time, os, yaml, pathlib
 
 from mlreco.iotools.factories import loader_factory, \
         reader_factory, writer_factory
-from mlreco.trainval import trainval
+from mlreco.trainval import TrainVal
 from mlreco.main_funcs import cycle, process_config
 
 from mlreco.iotools.writers import CSVWriter
 
 from mlreco.utils.globals import COORD_COLS
-from mlreco.utils.units import pixel_to_cm
-
-from analysis.classes.builders import ParticleBuilder, InteractionBuilder
-from analysis.classes.FragmentBuilder import FragmentBuilder
+# from mlreco.utils import pixel_to_cm
 from analysis.post_processing.manager import PostProcessorManager
 from analysis.producers import scripts
 from analysis.producers.common import ScriptProcessor
 from analysis.classes.matching import generate_match_pairs
+
+from analysis.classes.builders import ParticleBuilder, InteractionBuilder
+from analysis.classes.FragmentBuilder import FragmentBuilder
 
 SUPPORTED_BUILDERS = [
         'ParticleBuilder', 'InteractionBuilder', 'FragmentBuilder']
@@ -151,9 +151,9 @@ class AnaManager:
         # Load the full chain configuration, if it is provided
         self.chain_config = chain_config
         if chain_config is not None:
-            #cfg = yaml.safe_load(open(chain_config, 'r').read())
-            process_config(chain_config, verbose=False)
-            self.chain_config = chain_config
+            cfg = yaml.safe_load(open(chain_config, 'r').read())
+            process_config(cfg, verbosity='info')
+            self.chain_config = cfg
 
         # Initialize data product builders
         self.builders = {}
@@ -191,9 +191,15 @@ class AnaManager:
             self._file_list = self._data_reader.file_paths
         else:
             # If no reader is provided, run the the ML chain on the fly
-            Trainer = trainval(self.chain_config)
+            cfg = self.chain_config['iotool']
+            loader = loader_factory(**cfg)
+            self._dataset = iter(cycle(loader))
+            Trainer = TrainVal(self.chain_config['trainval'],
+                               self.chain_config['iotool'],
+                               self.chain_config['model'])
+            Trainer.initialize()
             self._data_reader = Trainer
-            self.reader_state = 'trainval'
+            self.reader_state = 'TrainVal'
             self._set_iteration(loader.dataset)
             self._file_list = loader.dataset._files
 
@@ -336,17 +342,17 @@ class AnaManager:
                     ^ (run is not None and event is not None)
             if iteration is None:
                 iteration = self._data_reader.get_run_event_index(run, event)
-            data, result = self._data_reader.get(iteration, nested=True)
+            data, res = self._data_reader.get(iteration, nested=True)
             file_index = self._data_reader.file_index[iteration]
             data['file_index'] = [file_index]
             data['file_name'] = [self._data_reader.file_paths[file_index]]
-        elif self._reader_state == 'trainval':
+        elif self.reader_state == 'TrainVal':
             data, res = self._data_reader.forward()
         else:
             raise ValueError(f'Data reader {self.reader_state} '\
                     'is not supported!')
 
-        return data, result
+        return data, res
 
     def convert_pixels_to_cm(self, data, result):
         '''Convert pixel coordinates to real world coordinates (in cm)
@@ -386,12 +392,12 @@ class AnaManager:
 
         print('Converting units from px to cm...')
 
-        for key, val in data.items():
-            if key in data_has_voxels:
-                data[key] = [self._pixel_to_cm(arr, meta) for arr in val]
+        # for key, val in data.items():
+        #     if key in data_has_voxels:
+        #         data[key] = [self._pixel_to_cm(arr, meta) for arr in val]
         for key, val in result.items():
-            if key in result_has_voxels:
-                result[key] = [self._pixel_to_cm(arr, meta) for arr in val]
+        #     if key in result_has_voxels:
+        #         result[key] = [self._pixel_to_cm(arr, meta) for arr in val]
             if key in data_products:
                 for plist in val:
                     for p in plist:
@@ -627,7 +633,7 @@ class AnaManager:
             self.csv_writers = {}
 
         for script_name, fname_to_update_list in ana_output.items():
-            append  = self.scripts[script_name]['logger'].get('append', False)
+            append  = self.scripts[script_name].get('append', False)
             filenames = list(fname_to_update_list.keys())
             if len(filenames) != len(set(filenames)):
                 msg = f'Duplicate filenames: {str(filenames)} in {script_name} '\

@@ -1,8 +1,7 @@
 import numpy as np
 
-from typing import Counter, List, Union, Dict
-from collections import OrderedDict, Counter, defaultdict
-from functools import cached_property
+from typing import List
+from collections import OrderedDict, defaultdict
 
 from . import Particle
 

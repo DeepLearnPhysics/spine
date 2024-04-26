@@ -21,7 +21,10 @@ from torch_geometric.data import Data, Batch
 from mlreco import TensorBatch, IndexBatch, EdgeIndexBatch
 from mlreco.utils.metrics import ARI, SBD, purity, efficiency
 
-from .helpers import ConnectedComponents, knn_sklearn
+from mlreco import TensorBatch, IndexBatch, EdgeIndexBatch
+from mlreco.utils.gnn.cluster import form_clusters_batch, form_clusters
+from .helpers import ConnectedComponentsDeprecated, knn_sklearn
+import sys
 
 class ClusterGraphConstructor:
     """Manager class for handling per-batch, per-semantic type predictions
@@ -97,7 +100,7 @@ class ClusterGraphConstructor:
         self._data = None
         self._key_to_graph = {}
         self._graph_to_key = {}
-        self._cc_predictor = ConnectedComponents()
+        self._cc_predictor = ConnectedComponentsDeprecated()
         
     
     def clear_data(self):
@@ -147,7 +150,8 @@ class ClusterGraphConstructor:
         features = res['hypergraph_features']
         
         voxel_indices = TensorBatch(torch.arange(coordinates.tensor.shape[0]).long().to(coordinates.device), 
-                                    counts=coordinates.counts)
+                                    counts=coordinates.counts,
+                                    batch_col=None)
 
         data_list = []
         graph_id  = 0
@@ -344,7 +348,6 @@ class ClusterGraphConstructor:
     def save_state(self, unwrapped=False):
         
         state_dict = defaultdict(list)
-        perm = torch.argsort(self._data.voxel_id)
 
         batch = self._data.batch
         edge_index = self._data.edge_index
@@ -367,39 +370,58 @@ class ClusterGraphConstructor:
 
             for key, val in state_dict.items():
                 if isinstance(val[0], torch.Tensor):
-                    state_dict_wrapped[key] = [torch.cat(val, dim=0)]
+                    state_dict_wrapped[key] = torch.cat(val, dim=0)
                 else:
-                    state_dict_wrapped[key] = [np.array(val).astype(int)]
+                    state_dict_wrapped[key] = np.array(val).astype(int)
                     
             batch_size = int(image_id.max()) + 1
             
             # Convert to TensorBatch
             out = {}
             
-            # Nodes
-            out['pos'] = TensorBatch(state_dict_wrapped['pos'][0], batch_size=batch_size)
-
-            # Edges
+            # Reference Tensor (Nodes)
+            out['pos'] = TensorBatch(state_dict_wrapped['pos'], 
+                                     batch_size=batch_size, 
+                                     batch_col=BATCH_COL)
+            # Reference Tensor (Edges)
             edge_image_id = image_id[edge_index[0, :]].view(-1, 1)
-            out['edge_image_id'] = TensorBatch(edge_image_id, batch_size=batch_size)
+            edge_index_with_batch = torch.cat([edge_image_id, 
+                                               state_dict_wrapped['edge_index']], dim=1)
+            out['edge_index'] = TensorBatch(edge_index_with_batch, 
+                                               batch_size=batch_size)
+            
+            # Clusts
+            batch_np = TensorBatch(batch.cpu().numpy().reshape(-1, 1), counts=out['pos'].counts)
+            out['node_clusts'] = form_clusters_batch(batch_np, column=0, min_size=2)
+            
+            edge_batch_np = TensorBatch(batch[edge_index[0, :]].cpu().numpy().reshape(-1, 1),
+                                        counts=out['edge_index'].counts)
+            
+            out['edge_clusts'] = form_clusters_batch(edge_batch_np, column=0, batch_size=batch_size)
             
             # Graphs
-            graph_key =  state_dict_wrapped['graph_key'][0]
-            out['graph_key'] = TensorBatch(torch.tensor(graph_key), batch_size=batch_size)
+            graph_key = torch.tensor(state_dict_wrapped['graph_key'])
+            graph_key = torch.cat([graph_key[:, 0].view(-1, 1), graph_key], dim=1)
+            out['graph_key'] = TensorBatch(graph_key, batch_size=batch_size, batch_col=BATCH_COL)
             
-            # Node Index
-            node_index = torch.cat([batch.view(-1, 1), self._data.voxel_id.view(-1, 1)], dim=1)
-            out['node_index'] = TensorBatch(node_index, counts=out['pos'].counts)
-            
+            # Everything else
             for key, val in state_dict_wrapped.items():
-                if val[0].shape[0] == out['pos'].tensor.shape[0]:
-                    out[key] = TensorBatch(val[0], counts=out['pos'].counts)
-                elif val[0].shape[0] == out['edge_image_id'].tensor.shape[0]:
-                    out[key] = TensorBatch(val[0], counts=out['edge_image_id'].counts)
-                elif val[0].shape[0] == out['graph_key'].tensor.shape[0]:
-                    out[key] = TensorBatch(val[0], counts=out['graph_key'].counts)
-                else:
-                    raise ValueError(f"Shape mismatch for {key}!")
+                if key not in out:
+                    if len(val.shape) < 2:
+                        if type(val) is np.ndarray:
+                            val = val.reshape(-1, 1)
+                        elif type(val) is torch.Tensor:
+                            val = val.view(-1, 1)
+                        else:
+                            raise ValueError(f"Unsupported type for {key}!")
+                    if val.shape[0] == out['pos'].tensor.shape[0]:
+                        out[key] = TensorBatch(val, counts=out['pos'].counts, batch_col=None)
+                    elif val.shape[0] == out['edge_index'].tensor.shape[0]:
+                        out[key] = TensorBatch(val, counts=out['edge_index'].counts, batch_col=None)
+                    elif val.shape[0] == out['graph_key'].tensor.shape[0]:
+                        out[key] = TensorBatch(val, counts=out['graph_key'].counts, batch_col=None)
+                    else:
+                        raise ValueError(f"Shape mismatch for {key}!")
             
             return out
 
@@ -411,30 +433,40 @@ class ClusterGraphConstructor:
                      'edge_label', 'edge_pred']
         
         num_graphs = len(state_dict['graph_id'].tensor)
-        for key, val in state_dict.items():
-            print(key, val)
-        assert False
-        for graph_id in range(num_graphs):
-            node_mask = state_dict['batch'][0] == graph_id
-            edge_mask = state_dict['edge_batch'][0] == graph_id
-            subgraph = Data(x=state_dict['x'][0][node_mask],
-                            pos=state_dict['pos'][0][node_mask],
-                            edge_index=state_dict['edge_index'][0].T[:, edge_mask],
-                            edge_attr=state_dict['edge_attr'][0][edge_mask],
-                            edge_pred=state_dict['edge_pred'][0][edge_mask],
-                            edge_prob=state_dict['edge_prob'][0][edge_mask],
-                            image_id=state_dict['image_id'][0][node_mask],
-                            voxel_id=state_dict['voxel_id'][0][node_mask],
-                            semantic_id=state_dict['semantic_id'][0][node_mask])
-            for name in optionals:
-                if name in state_dict and name.startswith('node'):
-                    setattr(subgraph, name, state_dict[name][0][node_mask])
-                if name in state_dict and name.startswith('edge'):
-                    setattr(subgraph, name, state_dict[name][0][edge_mask])
-            subgraph.graph_id = graph_id
-            subgraph.graph_key = tuple(state_dict['graph_key'][0][graph_id])
-            data_list.append(subgraph)
-            
+        
+        node_clusts = state_dict['node_clusts']
+        edge_clusts = state_dict['edge_clusts']
+
+        assert len(node_clusts) == len(edge_clusts)
+
+        batch_size = len(node_clusts)
+        
+        for i in range(batch_size):
+            nclusts = node_clusts[i]
+            eclusts = edge_clusts[i]
+            if len(nclusts) != len(eclusts):
+                raise AssertionError(f"Number of node and edge clusters do not match! {len(nclusts)} != {len(eclusts)}")
+            graph_ids = state_dict['graph_id'][i]
+            for j, nodes in enumerate(nclusts):
+                subgraph = Data(x=state_dict['x'][i][nodes],
+                                pos=state_dict['pos'][i][nodes, 1:],
+                                edge_index=state_dict['edge_index'][i].T[1:, eclusts[j]],
+                                edge_attr=state_dict['edge_attr'][i][eclusts[j]],
+                                edge_pred=state_dict['edge_pred'][i][eclusts[j]],
+                                edge_prob=state_dict['edge_prob'][i][eclusts[j]],
+                                image_id=state_dict['image_id'][i][nodes],
+                                voxel_id=state_dict['voxel_id'][i][nodes],
+                                semantic_id=state_dict['semantic_id'][i][nodes])
+                for name in optionals:
+                    if name in state_dict and name.startswith('node'):
+                        setattr(subgraph, name, state_dict[name][i][nodes])
+                    if name in state_dict and name.startswith('edge'):
+                        setattr(subgraph, name, state_dict[name][i][eclusts[j]])
+                subgraph.graph_id = int(graph_ids[j])
+                subgraph.graph_key = (int(state_dict['graph_key'][i][j][1]), 
+                                      int(state_dict['graph_key'][i][j][2]))
+                data_list.append(subgraph)
+                
         self._data = Batch.from_data_list(data_list)
 
     
@@ -509,16 +541,16 @@ class ClusterGraphConstructor:
     def evaluate(self):
         
         out = {
-            'ARI': [],
-            'PUR': [],
-            'EFF': []
+            'ari': [],
+            'purity': [],
+            'efficiency': []
         }
         
         for c in SHAPE_LABELS:
             if c < 4:
-                out[f'ARI_{c}'] = []
-                out[f'PUR_{c}'] = []
-                out[f'EFF_{c}'] = []
+                out[f'ari_{c}'] = []
+                out[f'purity_{c}'] = []
+                out[f'efficiency_{c}'] = []
         
         with torch.no_grad():
             
@@ -537,13 +569,13 @@ class ClusterGraphConstructor:
                 pur = purity(node_pred, node_truth)
                 eff = efficiency(node_pred, node_truth)
                 
-                out['ARI'].append(ari)
-                out['PUR'].append(pur)
-                out['EFF'].append(eff)
+                out['ari'].append(ari)
+                out['purity'].append(pur)
+                out['efficiency'].append(eff)
                 
-                out[f'ARI_{semantic_type}'].append(ari)
-                out[f'PUR_{semantic_type}'].append(pur)
-                out[f'EFF_{semantic_type}'].append(eff)
+                out[f'ari_{semantic_type}'].append(ari)
+                out[f'purity_{semantic_type}'].append(pur)
+                out[f'efficiency_{semantic_type}'].append(eff)
                 
         for key, l in out.items():
             if len(l) == 0:

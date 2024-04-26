@@ -20,13 +20,13 @@ class TensorBatch(BatchBase):
     """Batched tensor with the necessary methods to slice it."""
 
     def __init__(self, data, counts=None, batch_size=None, is_sparse=False,
-                 has_batch_col=None, coord_cols=None):
+                 has_batch_col=False, coord_cols=None):
         """Initialize the attributes of the class.
 
         Parameters
         ----------
         data : Union[np.ndarray, torch.Tensor, ME.SparseTensor]
-            (N, C) Batched data where the batch column is `BATCH_COL`
+            (N, C) Batched tensors
         counts : Union[List[int], np.ndarray, torch.Tensor]
             (B) Number of data rows in each entry
         batch_size : int, optional
@@ -34,7 +34,7 @@ class TensorBatch(BatchBase):
         is_sparse : bool, default False
             If initializing from an ME sparse data, flip to True
         has_batch_col : bool, default False
-            Column specifying the batch ID of each row
+            Wheather the tensor has a column specifying the batch ID
         coord_cols : Union[List[int], np.ndarray], optional
             List of columns specifying coordinates
         """
@@ -43,7 +43,12 @@ class TensorBatch(BatchBase):
 
         # Should provide either the counts, or the batch size
         assert (counts is not None) ^ (batch_size is not None), (
-                "Provide either `counts` or `batch_size`, not both")
+                "Provide either `counts` or `batch_size`, not both.")
+
+        # If the data is sparse, it must have a batch column and coordinates
+        if is_sparse:
+            has_batch_col = True
+            coord_cols = COORD_COLS
 
         # If the number of batches is not provided, get it from the counts
         if batch_size is None:
@@ -52,18 +57,15 @@ class TensorBatch(BatchBase):
         # If the counts are not provided, must build them once
         if counts is None:
             # Define the array functions depending on the input type
+            assert has_batch_col, (
+                    "Cannot get the counts without a batch column.")
             ref = data if not is_sparse else data.C
             counts = self.get_counts(ref[:, BATCH_COL], batch_size)
 
         # Cast
         counts = self._as_long(counts)
         assert self._sum(counts) == len(data), (
-                "The `counts` provided do not add up to the tensor length")
-
-        # If the data is sparse, it must have a batch column and coordinates
-        if is_sparse:
-            has_batch_col = True
-            coord_cols = COORD_COLS
+                "The `counts` provided do not add up to the tensor length.")
 
         # Get the boundaries between entries in the batch
         edges = self.get_edges(counts)
@@ -168,7 +170,9 @@ class TensorBatch(BatchBase):
         data = self._to_numpy(data)
         counts = self._to_numpy(self.counts)
 
-        return TensorBatch(data, counts)
+        return TensorBatch(data, counts, 
+                           has_batch_col=self.has_batch_col, 
+                           coord_cols=self.coord_cols)
 
     def to_tensor(self, dtype=None, device=None):
         """Cast underlying tensor to a `torch.tensor` and return a new instance.
@@ -192,7 +196,9 @@ class TensorBatch(BatchBase):
         data = self._to_tensor(self.data, dtype, device)
         counts = self._to_tensor(self.counts, dtype, device)
 
-        return TensorBatch(data, counts)
+        return TensorBatch(data, counts, 
+                           has_batch_col=self.has_batch_col, 
+                           coord_cols=self.coord_cols)
 
     def to_cm(self, meta):
         """Converts the coordinates of the tensor to cm.
