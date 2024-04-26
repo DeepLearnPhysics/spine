@@ -11,7 +11,7 @@ import h5py
 import ROOT
 import numpy as np
 
-from mlreco import data_structures
+import mlreco.data
 
 __all__ = ['LArCVReader', 'HDF5Reader']
 
@@ -757,7 +757,7 @@ class HDF5Reader(Reader):
                 # If the dataset has multiple attributes, it contains an object
                 array = in_file[key][region_ref]
                 class_name = in_file[key].attrs['class_name']
-                obj_class = getattr(data_structures, class_name)
+                obj_class = getattr(mlreco.data, class_name)
                 names = array.dtype.names
                 blob[key] = []
                 for i, el in enumerate(array):

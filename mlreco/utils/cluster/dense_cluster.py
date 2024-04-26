@@ -8,7 +8,7 @@ from sklearn.metrics import adjusted_rand_score as ari
 
 from mlreco.utils.metrics import *
 from mlreco.trainval import TrainVal
-from mlreco.iotools.factories import loader_factory
+from mlreco.io.factories import loader_factory
 from pprint import pprint
 
 
@@ -53,8 +53,8 @@ def make_inference_cfg(train_cfg, gpu=1, snapshot=None, batch_size=1, model_path
     inference_cfg = cfg.copy()
 
     # Change batch size to 1 since no need for batching during validation
-    inference_cfg['iotool']['batch_size'] = batch_size
-    inference_cfg['iotool'].pop('minibatch_size', None)
+    inference_cfg['io']['batch_size'] = batch_size
+    inference_cfg['io'].pop('minibatch_size', None)
     inference_cfg['trainval']['gpus'] = str(gpu)
     inference_cfg['trainval']["train"] = False
 

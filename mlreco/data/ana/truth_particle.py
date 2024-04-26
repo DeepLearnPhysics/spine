@@ -8,7 +8,7 @@ from mlreco.utils.globals import TRACK_SHP, SHAPE_LABELS, PID_LABELS, PID_MASSES
 from mlreco.utils.numba_local import cdist
 from mlreco.utils.decorators import inherit_docstring
 
-from mlreco.data_structures import Particle
+from mlreco.data import Particle
 
 from .particle_base import ParticleBase
 

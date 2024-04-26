@@ -1,11 +1,11 @@
 import time, os, yaml, pathlib
 
-from mlreco.iotools.factories import loader_factory, \
+from mlreco.io.factories import loader_factory, \
         reader_factory, writer_factory
 from mlreco.trainval import TrainVal
 from mlreco.main_funcs import cycle, process_config
 
-from mlreco.iotools.writers import CSVWriter
+from mlreco.io.writers import CSVWriter
 
 from mlreco.utils.globals import COORD_COLS
 # from mlreco.utils import pixel_to_cm
@@ -191,11 +191,11 @@ class AnaManager:
             self._file_list = self._data_reader.file_paths
         else:
             # If no reader is provided, run the the ML chain on the fly
-            cfg = self.chain_config['iotool']
+            cfg = self.chain_config['io']
             loader = loader_factory(**cfg)
             self._dataset = iter(cycle(loader))
             Trainer = TrainVal(self.chain_config['trainval'],
-                               self.chain_config['iotool'],
+                               self.chain_config['io'],
                                self.chain_config['model'])
             Trainer.initialize()
             self._data_reader = Trainer

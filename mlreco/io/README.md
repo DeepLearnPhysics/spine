@@ -11,7 +11,7 @@ You can write your own sampling function in `samplers.py`.
 ### 1. Writing and Reading HDF5 Files
 
 ```yaml
-iotool:
+io:
   writer:
     name: HDF5Writer
     file_name: output.h5

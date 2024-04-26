@@ -52,12 +52,12 @@ def get_inference_cfg(cfg, file_keys=None, weights_path=None,
     cfg['trainval']['unwrap'] = True
 
     # Delete the random sampler
-    if 'sampler' in cfg['iotool']:
-        del cfg['iotool']['sampler']
+    if 'sampler' in cfg['io']:
+        del cfg['io']['sampler']
 
     # Change dataset, if requested
     if dataset_path is not None:
-        cfg['iotool']['dataset']['file_keys'] = [dataset_path]
+        cfg['io']['dataset']['file_keys'] = [dataset_path]
 
     # Change weights, if requested
     if weights_path is not None:
@@ -65,11 +65,11 @@ def get_inference_cfg(cfg, file_keys=None, weights_path=None,
 
     # Change the batch_size, if requested
     if batch_size is not None:
-        cfg['iotool']['batch_size'] = batch_size
+        cfg['io']['batch_size'] = batch_size
 
     # Set the number of workers, if requested
     if num_workers is not None:
-        cfg['iotool']['num_workers'] = num_workers
+        cfg['io']['num_workers'] = num_workers
 
     # Put the network in CPU mode, if requested
     if cpu:

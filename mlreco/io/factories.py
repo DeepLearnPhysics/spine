@@ -88,8 +88,8 @@ def loader_factory(dataset, batch_size=None, minibatch_size=None, shuffle=True,
 def dataset_factory(dataset_cfg, entry_list=None):
     """Instantiates a Dataset based on a configuration.
 
-    The Dataset type is specified in configuration under `iotool.dataset.name`.
-    The name must match the name of a class under `mlreco.iotools.datasets`.
+    The Dataset type is specified in configuration under `io.dataset.name`.
+    The name must match the name of a class under `mlreco.io.datasets`.
 
     Parameters
     ----------
@@ -121,8 +121,8 @@ def sampler_factory(sampler_cfg, dataset, minibatch_size, distributed=False,
                     num_replicas=1, rank=0):
     """
     Instantiates sampler based on type specified in configuration under
-    `iotool.sampler.name`. The name must match the name of a class under
-    `mlreco.iotools.samplers`.
+    `io.sampler.name`. The name must match the name of a class under
+    `mlreco.io.samplers`.
 
     Parameters
     ----------
@@ -161,8 +161,8 @@ def sampler_factory(sampler_cfg, dataset, minibatch_size, distributed=False,
 def collate_factory(collate_cfg):
     """
     Instantiates collate function based on type specified in configuration
-    under `iotool.collate.name`. The name must match the name of a class
-    under `mlreco.iotools.collates`.
+    under `io.collate.name`. The name must match the name of a class
+    under `mlreco.io.collates`.
 
     Parameters
     ----------
@@ -181,8 +181,8 @@ def collate_factory(collate_cfg):
 def reader_factory(reader_cfg):
     """
     Instantiates reader based on type specified in configuration under
-    `iotool.reader.name`. The name must match the name of a class under
-    `mlreco.iotools.readers`.
+    `io.reader.name`. The name must match the name of a class under
+    `mlreco.io.readers`.
 
     Parameters
     ----------
@@ -205,8 +205,8 @@ def reader_factory(reader_cfg):
 def writer_factory(writer_cfg):
     """
     Instantiates writer based on type specified in configuration under
-    `iotool.writer.name`. The name must match the name of a class under
-    `mlreco.iotools.writers`.
+    `io.writer.name`. The name must match the name of a class under
+    `mlreco.io.writers`.
 
     Parameters
     ----------

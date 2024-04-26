@@ -17,7 +17,7 @@ import torch
 from torch.utils.data import DataLoader
 from torch.distributed import init_process_group, destroy_process_group
 
-from .iotools.factories import loader_factory
+from .io.factories import loader_factory
 
 from .utils.torch_local import cycle
 from .utils.logger import logger
@@ -64,8 +64,9 @@ def run(cfg):
         not cfg['trainval']['distributed']):
         run_single(0, cfg, train)
     else:
-        world_size = torch.cuda.device_count() \
-                if torch.cuda.is_available() else 1
+        world_size = 1
+        if torch.cuda.is_available:
+            world_size = torch.cuda.is_avaialble()
         torch.multiprocessing.spawn(run_single,
                 args = (cfg, train, world_size,), nprocs = world_size)
 
@@ -181,7 +182,7 @@ def prepare(cfg, rank=0):
     # Otherwise, intiliaze the train/validation class
     if 'trainval' not in cfg or cfg['trainval'] is None:
         # Instantiate the data loader
-        handlers.data_io = loader_factory(**cfg['iotool'])
+        handlers.data_io = loader_factory(**cfg['io'])
 
         # Instantiate a cyclic iterator over the dataloader
         handlers.data_io_iter = iter(cycle(handlers.data_io))
@@ -205,7 +206,7 @@ def prepare(cfg, rank=0):
     return handlers
 
 
-def process_config(iotool, model=None, trainval=None, verbosity='info',
+def process_config(io, model=None, trainval=None, verbosity='info',
                    processed=None):
     """Do all the necessary cross-checks to ensure the that the configuration
     can be used.
@@ -214,7 +215,7 @@ def process_config(iotool, model=None, trainval=None, verbosity='info',
 
     Parameters
     ----------
-    iotool : dict
+    io : dict
         I/O configuration dictionary
     model : dict, optional
         Model configuration dictionary
@@ -271,20 +272,18 @@ def process_config(iotool, model=None, trainval=None, verbosity='info',
         distributed = trainval['distributed']
 
     # If the seed is not set for the sampler, randomize it
-    if 'sampler' in iotool:
-        if 'seed' not in iotool['sampler'] or iotool['sampler']['seed'] < 0:
+    if 'sampler' in io:
+        if 'seed' not in io['sampler'] or io['sampler']['seed'] < 0:
             current = int(time.time())
             if not distributed:
-                iotool['sampler']['seed'] = current
+                io['sampler']['seed'] = current
 
             else:
-                iotool['sampler']['seed'] = \
-                        [current + i for i in range(world_size)]
+                io['sampler']['seed'] = [current + i for i in range(world_size)]
         else:
             if distributed:
-                seed = int(iotool['sampler']['seed'])
-                iotool['sampler']['seed'] = \
-                        [seed + i for i in range(world_size)]
+                seed = int(io['sampler']['seed'])
+                io['sampler']['seed'] = [seed + i for i in range(world_size)]
 
     # If the seed is not set for the training/inference process, randomize it
     if trainval is not None:
@@ -295,7 +294,7 @@ def process_config(iotool, model=None, trainval=None, verbosity='info',
             trainval['seed'] = int(trainval['seed'])
 
     # Rebuild global configuration dictionary
-    cfg = {'iotool': iotool, 'model': model, 'trainval': trainval}
+    cfg = {'io': io, 'model': model, 'trainval': trainval}
 
     # Log package logo
     ascii_logo = (

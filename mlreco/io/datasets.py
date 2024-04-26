@@ -18,7 +18,7 @@ class LArCVDataset(Dataset):
     This Dataset is designed to produce a batch of arbitrary number of data
     chunks (e.g. input data matrix, segmentation label, point proposal target,
     clustering labels, etc.). Each data chunk is processed by parser functions
-    defined in the iotools.parsers module. LArCVDataset object can be
+    defined in the io.parsers module. LArCVDataset object can be
     configured with arbitrary number of parser functions where each function
     can take arbitrary number of LArCV event data objects. The assumption is
     that each data chunk respects the LArCV event boundary.

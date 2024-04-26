@@ -1,6 +1,6 @@
 """I/O parsers are used to read data products from a LArCV ROOT file.
 
-Parsers are listed under :mod:`iotools.dataset.schema` in the configuration.
+Parsers are listed under :mod:`io.dataset.schema` in the configuration.
 `schema` is a list of named values. Each name is arbitrary and will be
 used as a key to access the output of the parser in a dictionary.
 
@@ -83,7 +83,7 @@ How do I know what my ROOT file contains?
 To be completed.
 """
 
-from mlreco.iotools.parsers.sparse import *
-from mlreco.iotools.parsers.cluster import *
-from mlreco.iotools.parsers.particle import *
-from mlreco.iotools.parsers.misc import *
+from mlreco.io.parsers.sparse import *
+from mlreco.io.parsers.cluster import *
+from mlreco.io.parsers.particle import *
+from mlreco.io.parsers.misc import *

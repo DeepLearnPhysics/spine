@@ -1,13 +1,11 @@
-"""Main driver class to train/validate/execute ML models.
+"""Main driver class for SPICE.
 
-Takes care of everything in one centralized place:
+Takes care of everything in one centralized location:
     - Data loading
-    - Forward path
-    - Backward path, optimization
-    - Logging
-    - Model parameter saving
-    - Unwrapping (entry-wise breaking of batches)
-    - Writing output to file
+    - ML model initialization/forward path
+    - Representation building
+    - Post-processing
+    - Writing
 """
 
 import os
@@ -23,7 +21,7 @@ import torch
 
 from torch.nn.parallel import DistributedDataParallel as DDP
 
-from . import TensorBatch, IndexBatch, EdgeIndexBatch
+from .data import TensorBatch, IndexBatch, EdgeIndexBatch
 
 from .io.factories import loader_factory, writer_factory
 from .io.writers import CSVWriter
@@ -39,19 +37,19 @@ from .utils.logger import logger
 from .utils.torch_local import cycle # TODO: get rid of this
 
 
-class TrainVal:
-    """Groups all relevant functions to run forward/backward on a network."""
+class SPICEManager(TrainVal):
+    """Groups all relevant functions to drive SPICE.""" 
 
-    def __init__(self, trainval, io, model, rank=0):
+    def __init__(self, io, trainval, model, rank=0):
         """Initializes the class attributes.
 
         Parameters
         ----------
-        io_cfg : dict
+        io : dict
            Input/output configuration dictionary
-        main_cfg : dict
+        trainval : dict
            Main configuration dictionary
-        model_cfg : dict
+        model : dict
            Model configuration dictionary
         rank : int, default 0
            Rank of the GPU in the multi-GPU training process
@@ -81,7 +79,7 @@ class TrainVal:
         self.initialize()
 
     def process_main(self, gpus=None, distributed=False, model_path=None,
-                     weight_prefix='weights/snapshot-', log_dir='logs',
+                     weight_prefix='weights/snapshot', log_dir='logs',
                      iterations=None, epochs=None, report_step=1,
                      checkpoint_step=-1, train=True, seed=-1, optimizer=None,
                      lr_scheduler=None, time_dependant_loss=False,
@@ -97,7 +95,7 @@ class TrainVal:
             Whether to distribute the training/inference process to > 1 GPU
         model_path : str, optional
             Path to the model weights to restore
-        weight_prefix : str, default 'weights/snapshot-'
+        weight_prefix : str, default 'weights/snapshot'
             Path prefix to the location where to store the weights
         log_dir : str, default 'logs'
             Path to the directory in which to store the training/inference log

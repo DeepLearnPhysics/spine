@@ -7,7 +7,7 @@ import numpy as np
 from mlreco.utils.globals import TRACK_SHP, SHAPE_LABELS, PID_LABELS, PID_MASSES
 from mlreco.utils.numba_local import cdist
 
-from mlreco.data_structures.base import PosDataStructBase
+from mlreco.data.base import PosDataStructBase
 
 
 @dataclass

@@ -27,7 +27,7 @@ class HDF5Writer:
 
     .. code-block:: yaml
 
-        iotool:
+        io:
           ...
           writer:
             name: hdf5
@@ -649,7 +649,7 @@ class CSVWriter:
 
     .. code-block:: yaml
 
-        iotool:
+        io:
           ...
           writer:
             name: csv
