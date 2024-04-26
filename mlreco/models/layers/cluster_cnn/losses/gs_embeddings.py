@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -507,12 +508,13 @@ class EdgeOnlyLoss(torch.nn.modules.loss._Loss):
         return sampled_score, sampled_truth
 
     def forward(self, result, segment_label, cluster_label):
+        
 
         group_label = [cluster_label[0][:, [0, 1, 2, 3, 5]]]
         
         res = {}
         
-        edge_score = result['gs_edge_attr'][0].squeeze()
+        edge_score = result['gs_edge_attr'].tensor.squeeze()
         x = edge_score
         pred = x >= 0
 
@@ -520,7 +522,7 @@ class EdgeOnlyLoss(torch.nn.modules.loss._Loss):
 
         # Flag for using true edge labels during training.
         if self.use_cluster_labels:
-            edge_truth = result['gs_edge_label'][0].squeeze()
+            edge_truth = result['gs_edge_label'].tensor.squeeze()
         
             if self.equal_sampling:
                 sampled_score, sampled_truth = self.sample_edges(edge_score, edge_truth)

@@ -273,9 +273,6 @@ class GraphSPICE(nn.Module):
                                            self.kernel_fn,
                                            invert=self.invert)
         
-        print(graph.keys())
-        assert False
-        
         # if self.make_fragments:
         #     frags = self.construct_fragments(valid_points)
         #     res.update(frags)
@@ -364,13 +361,13 @@ class GraphSPICELoss(nn.Module):
         '''
 
         '''
-        print(result.keys())
         self.gs_manager.load_state(result)
         
         slabel_tensor = [segment_label.tensor]
         clabel_tensor = [cluster_label.tensor]
 
         slabel, clabel = self.filter_class(slabel_tensor, clabel_tensor)
+        
         res = self.loss_fn(result, slabel, clabel)
         
         if self.evaluate_true_accuracy:

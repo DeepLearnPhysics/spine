@@ -139,6 +139,7 @@ class ClusterGraphConstructor:
         
         coordinates = res['coordinates']
         features    = res['hypergraph_features']
+        
         batch_size = coordinates.batch_size
         
         slabels = self.prune_labels(semantic_labels, self._skip_classes)
@@ -167,7 +168,7 @@ class ClusterGraphConstructor:
         node_clusts = form_clusters_batch(slabels.to_numpy(), min_size=2, column=SHAPE_COL)
         
         for i in range(coordinates.batch_size):
-            coords_i = coordinates[i]
+            coords_i = coordinates[i][:, COORD_COLS]
             features_i = features[i]
             labels_i = slabels[i]
             clusts_i = node_clusts[i]
@@ -251,27 +252,43 @@ class ClusterGraphConstructor:
         edge_index_batch = []
         edge_shape_batch = []
         edge_truth_batch = []
+        edge_attr_batch  = []
+        
+        shape_ids = torch.unique(labels_i[:, SHAPE_COL]).int()
+        
+        assert len(shape_ids) == len(clusts_i)
         
         # Loop over each semantic class
-        for shape_id in torch.unique(labels_i[:, SHAPE_COL]):
-            shape_mask = labels_i[:, SHAPE_COL] == shape_id
-            coords_slice = coords_i[shape_mask]
-            # Build edges
-            e = self._make_graph(x=coords_slice, 
+        for i, shape_id in enumerate(shape_ids):
+            
+            clust = clusts_i[i]
+            
+            if len(clust) == 0:
+                continue
+            
+            coords_class = coords_i[clust]
+            features_class = features_i[clust]
+            
+            e = self._make_graph(x=coords_class,
                                  **self._graph_params)
+            
+            e_attr = kernel_fn(features_class[e[0, :]],
+                               features_class[e[1, :]])
+            
             edge_index_batch.append(e)
             edge_shape_batch.append(
                 torch.full((e.shape[1], ), 
                             shape_id, 
                             device=e.device, 
                             dtype=torch.long))
-            # Only during training: compute edge truth labels
+            edge_attr_batch.append(e_attr)
             if self.use_cluster_labels:
-                node_truth = labels_i[shape_mask, self.target_col]
+                node_truth = labels_i[clust, self.target_col]
                 e_truth = self.get_edge_truth(e, node_truth)
                 edge_truth_batch.append(e_truth)
-            
+                
         edge_index_batch = torch.hstack(edge_index_batch)
+        edge_attr_batch = torch.vstack(edge_attr_batch)
         edge_shape_batch = torch.hstack(edge_shape_batch)
         
         # Compute true edges, if labels are provided
@@ -281,10 +298,6 @@ class ClusterGraphConstructor:
             edge_truth_batch = torch.Tensor([], 
                                             device=coords_i.device, 
                                             dtype=torch.long)
-        
-        edge_attr_batch = kernel_fn(
-            features_i[edge_index_batch[0, :]],
-            features_i[edge_index_batch[1, :]])
         
         # Compute predicted edges
         edge_pred_batch, edge_prob_batch = self.predict_edges(edge_attr_batch, 
@@ -300,6 +313,7 @@ class ClusterGraphConstructor:
         }
         
         return out
+    
     
     def predict_edges(self, edge_attr_batch, invert=True):
         """Predict edges based on edge attributes.
