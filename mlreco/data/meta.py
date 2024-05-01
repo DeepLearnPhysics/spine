@@ -24,14 +24,59 @@ class Meta(DataStructBase):
     upper : np.ndarray
         (2/3) Array of image upper bounds in detector coordinates (cm)
     size : np.ndarray
-        (2/3) Array of pixel/voxel size in each dimension (cm)
+        (2/3) Array of pixel size in each dimension (cm)
+    count : np.ndarray
+        (2/3) Array of pixel count in each dimension
     """
     lower: np.ndarray = None
     upper: np.ndarray = None
     size: np.ndarray = None
+    count: np.ndarray = None
 
     # Fixed-length attributes
-    _fixed_length_attrs = {'lower': 3, 'upper': 3, 'size': 3}
+    _fixed_length_attrs = {'lower': 3, 'upper': 3, 'size': 3,
+                           'count': (3, np.int64)}
+
+    @property
+    def dimension(self):
+        """Number of dimensions in the image.
+
+        Returns
+        -------
+        int
+            Number of dimensions in the image
+        """
+        return len(lower)
+
+    @property
+    def num_elements(self):
+        """Total number of pixel in the image.
+
+        Returns
+        -------
+        int
+            Total number of pixel in the image.
+        """
+        return int(np.prod(self.count))
+
+    def index(self, coords):
+        """Unique pix associated with individual axis indexes.
+
+        Parameters
+        ----------
+        coords : np.ndarray
+            (N, 2/3) Input pixel indices
+
+        Returns
+        -------
+        np.ndarray
+            (N) Unique pixel index per input pixel
+        """
+        mult = np.empty(self.dimension, dtype=self.count.dtype)
+        for i in range(self.dimension):
+            mult = np.prod(self.count[i+1:])
+
+        return np.dot(coords, mult)
 
     def to_cm(self, coords, translate=True):
         """Converts pixel indexes in a tensor to detector coordinates in cm.
@@ -79,14 +124,22 @@ class Meta(DataStructBase):
             Metadata object
         """
         if hasattr(meta, 'pos_z'):
-            lower = np.array([meta.min_x(), meta.min_y(), meta.min_z()])
-            upper = np.array([meta.max_x(), meta.max_y(), meta.max_z()])
+            lower = np.array([meta.min_x(), meta.min_y(),
+                              meta.min_z()], dtype=np.float32)
+            upper = np.array([meta.max_x(), meta.max_y(),
+                              meta.max_z()], dtype=np.float32)
             size  = np.array([meta.size_voxel_x(),
                               meta.size_voxel_y(),
-                              meta.size_voxel_z()])
-        else:
-            lower = np.array([meta.min_x(), meta.min_y()])
-            upper = np.array([meta.max_x(), meta.max_y()])
-            size  = np.array([meta.pixel_width(), meta.pixel_height()])
+                              meta.size_voxel_z()], dtype=np.float32)
+            count = np.array([meta.num_voxel_x(),
+                              meta.num_voxel_y(),
+                              meta.num_voxel_z()], dtype=np.int64)
 
-        return cls(lower=lower, upper=upper, size=size)
+        else:
+            lower = np.array([meta.min_x(), meta.min_y()], dtype=np.float32)
+            upper = np.array([meta.max_x(), meta.max_y()], dtype=np.float32)
+            size  = np.array([meta.pixel_height(),
+                              meta.pixel_width()], dtype=np.float32)
+            size  = np.array([meta.rows(), meta.cols()], dtype=np.int64)
+
+        return cls(lower=lower, upper=upper, size=size, count=count)

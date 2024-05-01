@@ -296,7 +296,7 @@ class TrainVal:
             msg = f"Failed to instantiate {self.loss_class}"
             raise type(err)(f"{err}\n{msg}")
 
-        # Replace model with calibrated model on uncertainty calibration mode
+        # Replace model with calibrated model in uncertainty calibration mode
         if self.calibration is not None:
             self.initialize_calibrator(**self.calibration)
 

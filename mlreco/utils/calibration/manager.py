@@ -27,20 +27,15 @@ class CalibrationManager:
         self.geo = Geometry(**geometry)
 
         # Make sure the essential calibration modules are present
-        assert 'gain' in cfg, (
-                "Must provide an ADC to number electrons conversion factor.")
-        assert 'recombination' in cfg, (
-                "Must provide a recombination model to convert from number "
-                "of electrons to an energy deposition in MeV.")
+        assert 'recombination' not in cfg or 'gain' in cfg, (
+                "Must provide gain configuration if recombination is applied."
 
         # Add the modules to a processor list in decreasing order of priority
         self.modules = {}
         self.watch   = StopwatchManager()
         for key in cfg.keys():
-            # If requested, profile the module (default True)
-            profile = cfg[key].pop('profile') if 'profile' in cfg[key] else True
-            if profile:
-                self.watch.initialize(key)
+            # Profile the module
+            self.watch.initialize(key)
 
             # Add necessary geometry information
             if key != 'recombination':
@@ -77,7 +72,7 @@ class CalibrationManager:
         Returns
         -------
         np.ndarray
-            (N) array of calibrated depositions in MeV
+            (N) array of calibrated depositions in ADC, e- or MeV
         """
         # Create a mask for each of the TPC volume in the detector
         if sources is not None:
@@ -106,20 +101,30 @@ class CalibrationManager:
             if 'transparency' in self.modules:
                 assert run_id is not None, (
                         "Must provide a run ID to get the transparency map.")
+                self.watch.start('transparency')
                 tpc_values = self.modules['transparency'].process(tpc_points,
                         tpc_values, t, run_id) # ADC
+                self.watch.stop('transparency')
 
             # Apply the lifetime correction
             if 'lifetime' in self.modules:
+                self.watch.start('lifetime')
                 tpc_values = self.modules['lifetime'].process(tpc_points,
                         tpc_values, self.geo, t, run_id) # ADC
+                self.watch.stop('lifetime')
 
             # Apply the gain correction
-            tpc_values = self.modules['gain'].process(tpc_values, t) # e-
+            if 'gain' in self.modules:
+                self.watch.start('gain')
+                tpc_values = self.modules['gain'].process(tpc_values, t) # e-
+                self.watch.stop('gain')
 
             # Apply the recombination
-            tpc_values = self.modules['recombination'].process(tpc_values,
-                    tpc_points, dedx, track) # MeV
+            if 'recombination' in self.modules:
+                self.watch.start('recombination')
+                tpc_values = self.modules['recombination'].process(tpc_values,
+                        tpc_points, dedx, track) # MeV
+                self.watch.stop('recombination')
 
             # Append
             new_values[tpc_indexes[t]] = tpc_values

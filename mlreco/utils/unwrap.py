@@ -20,6 +20,7 @@ class Unwrapper:
     into single tensors/arrays for faster processing; this class breaks the
     output down event-wise to be human-readable.
     """
+
     def __init__(self, geometry=None, remove_batch_col=False):
         """Initialize the unwrapper.
 

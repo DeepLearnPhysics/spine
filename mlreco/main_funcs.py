@@ -25,6 +25,7 @@ from .utils.logger import logger
 from .version import __version__
 
 from .trainval import TrainVal
+from .driver import Driver
 
 
 @dataclass
@@ -69,6 +70,24 @@ def run(cfg):
             world_size = torch.cuda.is_avaialble()
         torch.multiprocessing.spawn(run_single,
                 args = (cfg, train, world_size,), nprocs = world_size)
+
+
+def run_tmp(cfg):
+    """Execute a model in one or more processes.
+
+    Parameters
+    ----------
+    cfg : dict
+        IO, model and training/inference configuration
+    """
+    # Process the configuration
+    cfg = process_config(**cfg)
+
+    # Intialize the driver
+    driver = Driver(**cfg)
+
+    # Run the driver
+    driver.run()
 
 
 def run_single(rank, cfg, train, world_size=None):

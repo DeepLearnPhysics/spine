@@ -1,4 +1,5 @@
-"""Top-level module of the reconstruction package source code."""
+"""Top-level module of the SPICE source code."""
 
-from .version import __version__
 from .data import *
+from .driver import Driver
+from .version import __version__

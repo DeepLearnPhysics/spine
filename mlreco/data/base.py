@@ -43,7 +43,11 @@ class DataStructBase:
         # Provide default values to the fixed-length array attributes
         for attr, size in self._fixed_length_attrs.items():
             if getattr(self, attr) is None:
-                setattr(self, attr, np.full(size, -np.inf, dtype=np.float32))
+                if not isinstance(size, tuple):
+                    dtype = np.float32
+                else:
+                    size, dtype = size
+                setattr(self, attr, np.full(size, -np.inf, dtype=dtype))
 
         # Provide default values to the variable-length array attributes
         for attr, dtype in self._var_length_attrs.items():
@@ -51,8 +55,8 @@ class DataStructBase:
                 if not isinstance(dtype, tuple):
                     setattr(self, attr, np.empty(0, dtype=dtype))
                 else:
-                    size, dtype = dtype
-                    setattr(self, attr, np.empty((0, size), dtype=dtype))
+                    width, dtype = dtype
+                    setattr(self, attr, np.empty((0, width), dtype=dtype))
 
         # Make sure the strings are not binary
         for attr in self._str_attrs:

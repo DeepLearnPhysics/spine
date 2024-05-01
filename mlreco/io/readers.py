@@ -36,6 +36,8 @@ class Reader:
     file_paths : List[str]
         List of files to read data from
     entry_index : List[int]
+
+    TODO
         
 
     """
@@ -189,22 +191,22 @@ class Reader:
                     bool(run_event_list or skip_run_event_list)), (
                     "Cannot specify `n_entry` or `n_skip` at the same time "
                     "as `entry_list` or `skip_entry_list` or at the same time "
-                    "as `run_event_list` or `skip_run_event_list`")
+                    "as `run_event_list` or `skip_run_event_list`.")
 
         if n_entry is not None or n_skip is not None:
             n_skip = n_skip if n_skip else 0
             n_entry = n_entry if n_entry else self.num_entries - n_skip
             assert n_skip + n_entry <= self.num_entries, (
                 f"Mismatch between `n_entry` ({n_entry}), `n_skip` ({n_skip}) "
-                f"and the number of entries in the files ({self.num_entries})")
+                f"and the number of entries in the files ({self.num_entries}).")
 
         assert not entry_list or not skip_entry_list, (
                 "Cannot specify both `entry_list` and "
-                "`skip_entry_list` at the same time")
+                "`skip_entry_list` at the same time.")
 
         assert not run_event_list or not skip_run_event_list, (
                 "Cannot specify both `run_event_list` and "
-                "`skip_run_event_list` at the same time")
+                "`skip_run_event_list` at the same time.")
 
         # Create a list of entries to be loaded
         if n_entry or n_skip:
@@ -217,7 +219,7 @@ class Reader:
         elif entry_list:
             entry_list = self.parse_entry_list(entry_list)
             assert np.all(entry_list < self.num_entries), (
-                    "Values in entry_list outside of bounds")
+                    "Values in entry_list outside of bounds.")
 
         elif run_event_list:
             run_event_list = self.parse_run_event_list(run_event_list)
@@ -229,7 +231,7 @@ class Reader:
             if skip_entry_list:
                 skip_entry_list = self.parse_entry_list(skip_entry_list)
                 assert np.all(skip_entry_list < self.num_entries), (
-                        "Values in skip_entry_list outside of bounds")
+                        "Values in skip_entry_list outside of bounds.")
 
             else:
                 skip_run_event_list = self.parse_run_event_list(
@@ -252,7 +254,7 @@ class Reader:
                 run_info = self.run_info[entry_list]
                 self.run_map = {tuple(v):i for i, v in enumerate(run_info)}
 
-        assert len(entry_index), "Must at least have one entry to load"
+        assert len(entry_index), "Must at least have one entry to load."
 
         self.entry_index = entry_index
 
