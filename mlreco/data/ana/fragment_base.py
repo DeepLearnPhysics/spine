@@ -89,6 +89,9 @@ class FragmentBase(PosDataStructBase):
     # Attributes specifying coordinates
     _pos_attrs = ['start_point', 'end_point']
 
+    # Attributes specifying vector components
+    _vec_attrs = ['start_dir', 'end_dir']
+
     # Enumerated attributes
     _enum_attrs = {
             'shape': {v : k for k, v in SHAPE_LABELS.items()}

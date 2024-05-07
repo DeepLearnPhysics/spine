@@ -68,6 +68,9 @@ class Flash(PosDataStructBase):
     # Attributes specifying coordinates
     _pos_attrs = ['center']
 
+    # Attributes specifying vector components
+    _vec_attrs = ['width']
+
     @classmethod
     def from_larcv(cls, flash):
         """Builds and returns a Flash object from a LArCV Flash object.

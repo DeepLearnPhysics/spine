@@ -1,6 +1,6 @@
 """Module with a parent class of all data structures."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 
 import numpy as np
 
@@ -24,11 +24,17 @@ class DataStructBase:
     # Attributes specifying coordinates
     _pos_attrs = []
 
+    # Attributes specifying vector components
+    _vec_attrs = []
+
     # String attributes
     _str_attrs = []
 
-    # Attributes that should not be stored to file
+    # Attributes that should not be stored to file (long-form attributes)
     _skip_attrs = []
+
+    # Euclidean axis labels
+    _axes = ['x', 'y', 'z']
 
     def __post_init__(self):
         """Immediately called after building the class attributes.
@@ -62,6 +68,54 @@ class DataStructBase:
         for attr in self._str_attrs:
             if isinstance(getattr(self, attr), bytes):
                 setattr(self, attr, getattr(self, attr).decode())
+
+    def scalar_dict(self, attrs=None):
+        """Returns the data class attributes as a dictionary of scalars.
+
+        This is useful when storing data classes in CSV files, which expect
+        a single scalar per column in the table.
+
+        Parameters
+        ----------
+        attrs : List[str], optional
+            List of attribute names to include in the dictionary. If not
+            specified, all the keys are included.
+        """
+        # Loop over the attributes of the data class
+        scalar_dict, found = {}, []
+        for attr, value in asdict(self).items():
+            # If the attribute is not requested, skip
+            if attrs is not None and attr not in attrs:
+                continue
+            else:
+                found.append(attr)
+
+            # If the attribute is long-form attribute, skip it
+            if attr in self._skip_attrs or attr in self._var_length_attrs:
+                continue
+
+            # Dispatch
+            if np.isscalar(value):
+                # If the attribute is a scalar, store as is
+                scalar_dict[attr] = value
+
+            elif attr in (self._pos_attrs + self._vec_attrs):
+                # If the attribute is a position or vector, expand with axis
+                for i, v in enumerate(value):
+                    scalar_dict[f'{attr}_{self._axes[i]}'] = v
+
+            elif attr in self._fixed_length_attrs:
+                # If the attribute is a fixed length array, expand with index
+                for i, v in enumerate(value):
+                    scalar_dict[f'{attr}_{i}'] = v
+
+        if attrs is not None and len(attrs) != len(found):
+            class_name = self.__class__.__name__
+            miss = list(set(attrs).difference(set(found)))
+            raise AttributeError(
+                    f"Attribute(s) {miss} do(es) not appear in {class_name}.")
+
+        return scalar_dict
 
     @property
     def fixed_length_attrs(self):
@@ -148,7 +202,7 @@ class PosDataStructBase(DataStructBase):
         for attr in self._pos_attrs:
             setattr(self, attr, meta.to_cm(getattr(self, attr)))
 
-    def to_pixel(self, meta):
+    def to_px(self, meta):
         """Converts the coordinates of the positional attributes to pixel.
 
         Parameters

@@ -1,18 +1,17 @@
-from analysis.producers.decorator import write_to
-from analysis.classes.TruthParticleFragment import TruthParticleFragment
-from analysis.classes.ParticleFragment import ParticleFragment
-from analysis.producers.logger import ParticleLogger
 from collections import OrderedDict
 import numpy as np
 
 from scipy.spatial.distance import cosine
 from sklearn.metrics import adjusted_rand_score
-from analysis.utils import twopoint_iou
 import sys
+
+from mlreco.ana.base import AnaBase
 
 from collections import Counter
 
-@write_to(['particle_pairs_t2r', 'particle_pairs_r2t'])
+__all__ = []
+
+#@write_to(['particle_pairs_t2r', 'particle_pairs_r2t'])
 def select_particle_pairs(data_blob, res, **kwargs):
     """
     Select particle pairs for logging (only for mpv/nu interactions)

@@ -83,7 +83,7 @@ How do I know what my ROOT file contains?
 To be completed.
 """
 
-from mlreco.io.parsers.sparse import *
-from mlreco.io.parsers.cluster import *
-from mlreco.io.parsers.particle import *
-from mlreco.io.parsers.misc import *
+from .sparse import *
+from .cluster import *
+from .particle import *
+from .misc import *

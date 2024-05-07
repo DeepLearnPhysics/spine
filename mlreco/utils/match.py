@@ -10,16 +10,16 @@ __all__ = ['overlap_counts', 'overlap_iou', 'overlap_weighted_iou',
 
 
 @nb.njit(cache=True)
-def overlap_count(index_x: List[nb.int64[:]],
-                  index_y: List[nb.int64[:]]) -> nb.int64[:,:]:
+def overlap_count(index_x: nb.types.List(nb.int64[:]),
+                  index_y: nb.types.List(nb.int64[:])) -> nb.int64[:,:]:
     """Computes a set overlap matrix by overlap count.
 
     Parameters
     ----------
-    index_x: List[np.ndarray]
-        (N) List of tensor index, one per object to match
-    index_y: List[np.ndarray]
-        (M) List of tensor index, one per object to be matched to
+    index_x: nb.types.List[np.ndarray]
+        (N) nb.types.List of tensor index, one per object to match
+    index_y: nb.types.List[np.ndarray]
+        (M) nb.types.List of tensor index, one per object to be matched to
 
     Returns
     -------
@@ -37,18 +37,18 @@ def overlap_count(index_x: List[nb.int64[:]],
 
 
 @nb.njit(cache=True)
-def overlap_iou(index_x: List[nb.int64[:]],
-                index_y: List[nb.int64[:]]) -> nb.float32[:,:]:
+def overlap_iou(index_x: nb.types.List(nb.int64[:]),
+                index_y: nb.types.List(nb.int64[:])) -> nb.float32[:,:]:
     """Computes a set overlap matrix by IoU.
 
     IoU stands for Intersection-over-Union.
 
     Parameters
     ----------
-    index_x: List[np.ndarray]
-        (N) List of tensor index, one per object to match
-    index_y: List[np.ndarray]
-        (M) List of tensor index, one per object to be matched to
+    index_x: nb.types.List[np.ndarray]
+        (N) nb.types.List of tensor index, one per object to match
+    index_y: nb.types.List[np.ndarray]
+        (M) nb.types.List of tensor index, one per object to be matched to
 
     Returns
     -------
@@ -68,8 +68,8 @@ def overlap_iou(index_x: List[nb.int64[:]],
 
 
 @nb.njit(cache=True)
-def overlap_weighted_iou(index_x: List[nb.int64[:]],
-                         index_y: List[nb.int64[:]]) -> nb.float32[:,:]:
+def overlap_weighted_iou(index_x: nb.types.List(nb.int64[:]),
+                         index_y: nb.types.List(nb.int64[:])) -> nb.float32[:,:]:
     """Computes a set overlap matrix by IoU, weighted by the set sizes.
 
     IoU stands for Intersection-over-Union. The weighting scheme is as follows:
@@ -77,10 +77,10 @@ def overlap_weighted_iou(index_x: List[nb.int64[:]],
 
     Parameters
     ----------
-    index_x: List[np.ndarray]
-        (N) List of tensor index, one per object to match
-    index_y: List[np.ndarray]
-        (M) List of tensor index, one per object to be matched to
+    index_x: nb.types.List[np.ndarray]
+        (N) nb.types.List of tensor index, one per object to match
+    index_y: nb.types.List[np.ndarray]
+        (M) nb.types.List of tensor index, one per object to be matched to
 
     Returns
     -------
@@ -101,8 +101,8 @@ def overlap_weighted_iou(index_x: List[nb.int64[:]],
 
 
 @nb.njit(cache=True)
-def overlap_dice(index_x: List[nb.int64[:]],
-                 index_y: List[nb.int64[:]]) -> nb.float32[:,:]:
+def overlap_dice(index_x: nb.types.List(nb.int64[:]),
+                 index_y: nb.types.List(nb.int64[:])) -> nb.float32[:,:]:
     """Computes a set overlap matrix by Dice coefficient.
 
     The Dice coefficient corresponds to the 2 times the intersection of two
@@ -110,10 +110,10 @@ def overlap_dice(index_x: List[nb.int64[:]],
 
     Parameters
     ----------
-    index_x: List[np.ndarray]
-        (N) List of tensor index, one per object to match
-    index_y: List[np.ndarray]
-        (M) List of tensor index, one per object to be matched to
+    index_x: nb.types.List[np.ndarray]
+        (N) nb.types.List of tensor index, one per object to match
+    index_y: nb.types.List[np.ndarray]
+        (M) nb.types.List of tensor index, one per object to be matched to
 
     Returns
     -------
@@ -134,8 +134,8 @@ def overlap_dice(index_x: List[nb.int64[:]],
 
 
 @nb.njit(cache=True)
-def overlap_weighted_dice(index_x: List[nb.int64[:]],
-                          index_y: List[nb.int64[:]]) -> nb.float32[:,:]:
+def overlap_weighted_dice(index_x: nb.types.List(nb.int64[:]),
+                          index_y: nb.types.List(nb.int64[:])) -> nb.float32[:,:]:
     """Computes a set overlap matrix by Dice coefficient, weighted by the
     set sizes.
 
@@ -145,10 +145,10 @@ def overlap_weighted_dice(index_x: List[nb.int64[:]],
 
     Parameters
     ----------
-    index_x: List[np.ndarray]
-        (N) List of tensor index, one per object to match
-    index_y: List[np.ndarray]
-        (M) List of tensor index, one per object to be matched to
+    index_x: nb.types.List[np.ndarray]
+        (N) nb.types.List of tensor index, one per object to match
+    index_y: nb.types.List[np.ndarray]
+        (M) nb.types.List of tensor index, one per object to be matched to
 
     Returns
     -------
@@ -170,8 +170,8 @@ def overlap_weighted_dice(index_x: List[nb.int64[:]],
 
 
 @nb.njit(cache=True)
-def overlap_chamfer(points_x: List[nb.int64[:]],
-                    points_y: List[nb.int64[:]]) -> nb.float32[:,:]:
+def overlap_chamfer(points_x: nb.types.List(nb.int64[:]),
+                    points_y: nb.types.List(nb.int64[:])) -> nb.float32[:,:]:
     """Computes a set overlap matrix by Chamfer distance.
 
     This function can match two arbitrary points clouds, hence there is no need
@@ -179,10 +179,10 @@ def overlap_chamfer(points_x: List[nb.int64[:]],
 
     Parameters
     ----------
-    points_x: List[np.ndarray]
-        (N, 3) List of coordinates, one per object to match
-    points_y: List[np.ndarray]
-        (M, 3) List of coordinates, one per object to be matched to
+    points_x: nb.types.List[np.ndarray]
+        (N, 3) nb.types.List of coordinates, one per object to match
+    points_y: nb.types.List[np.ndarray]
+        (M, 3) nb.types.List of coordinates, one per object to be matched to
 
     Returns
     -------

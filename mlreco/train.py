@@ -26,7 +26,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from . import TensorBatch, IndexBatch, EdgeIndexBatch
 
 from .io.factories import loader_factory, writer_factory
-from .io.writers import CSVWriter
+from .io.write import CSVWriter
 
 from .models import model_factory
 from .models.experimental.bayes.calibration import (
@@ -39,7 +39,7 @@ from .utils.logger import logger
 from .utils.torch_local import cycle # TODO: get rid of this
 
 
-class TrainVal:
+class Trainer:
     """Groups all relevant functions to run forward/backward on a network."""
 
     def __init__(self, trainval, io, model, rank=0):
@@ -633,54 +633,6 @@ class TrainVal:
         self.watch.stop('unwrap')
 
         return data, result
-
-    def get_data_minibatch(self, data):
-        """Fetches the necessary data products to form the input to the forward
-        function and the input to the loss function.
-
-        Parameters
-        ----------
-        data : dict
-            Dictionary of input data product keys which each map to its
-            associated data product
-
-        Returns
-        -------
-        input_dict : dict
-            Input to the forward pass of the model
-        loss_dict : dict
-            Labels to be used in the loss computation
-        """
-        # Fetch the requested data products
-        device = self.rank if self.gpus else None
-        input_dict, loss_dict = {}, {}
-        with torch.set_grad_enabled(self.train):
-            # Load the data products for the model forward
-            input_dict = {}
-            for param, name in self.input_dict.items():
-                assert name in data, (
-                        f"Must provide {name} in the dataloader schema to "
-                         "input into the model forward")
-
-                value = data[name]
-                if isinstance(value, TensorBatch):
-                    value = data[name].to_tensor(torch.float, device)
-                input_dict[param] = value
-
-            # Load the data products for the loss function
-            loss_dict = {}
-            if self.loss_dict is not None:
-                for param, name in self.loss_dict.items():
-                    assert name in data, (
-                            f"Must provide {name} in the dataloader schema to "
-                             "input into the loss function")
-
-                    value = data[name]
-                    if isinstance(value, TensorBatch):
-                        value = data[name].to_tensor(torch.float, device)
-                    loss_dict[param] = value
-
-        return input_dict, loss_dict
 
     def step(self, input_dict, loss_dict, iteration=None):
         """Step one minibatch of data through the network.

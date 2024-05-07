@@ -1,4 +1,4 @@
-"""Submodule which defines the analysis tools data structures."""
+"""Submodule which defines the local data structures."""
 
 from .reco_fragment import *
 from .truth_fragment import *

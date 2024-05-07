@@ -48,7 +48,7 @@ class PostBase:
 
         # Make a list of object keys to process
         req_keys = self.result_cap + self.result_cap_opt
-        for name in self._obj_type:
+        for name in self._obj_types:
             # Initialize one list per object type
             setattr(self, f'{name}_keys', [])
 
@@ -62,7 +62,7 @@ class PostBase:
                 if key in req_keys:
                     getattr(self, f'{name}_keys').append(key)
 
-        self.all_keys = (self.fragment_leys 
+        self.all_keys = (self.fragment_keys 
                          + self.particle_keys 
                          + self.interaction_keys)
 

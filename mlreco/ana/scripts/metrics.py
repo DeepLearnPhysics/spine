@@ -1,10 +1,10 @@
 from collections import OrderedDict
 
-from analysis.producers.decorator import write_to
-from analysis.classes.data import *
-from analysis.producers.logger import ParticleLogger, InteractionLogger
+from mlreco.ana.base import AnaBase
 
-@write_to(['pid_metrics'])
+__all__ = []
+
+#@write_to(['pid_metrics'])
 def pid_metrics(data_dict, result_dict,
                 iteration=-1,
                 logger=None,

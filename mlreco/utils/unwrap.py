@@ -36,33 +36,27 @@ class Unwrapper:
         self.num_volumes = self.geo.num_modules if self.geo else 1
         self.remove_batch_col = remove_batch_col
 
-    def __call__(self, data_dict, result_dict):
+    def __call__(self, data):
         """Main unwrapping function.
         
-        Loops over the data and result keys and applies the unwrapping rules.
-        Returns the unwrapped versions of the two dictionaries.
+        Loops over the data keys and applies the unwrapping rules. Returns the
+        unwrapped versions of the dictionary
 
         Parameters
         ----------
-        data_dict : dict
-            Dictionary of input data (key, batched input)
-        result_dict : dict
-            Dictionary of output of trainval.forward (key, batched output)
+        data : dict
+            Dictionary of data products
 
         Returns
         -------
         dict
-            Dictionary of unwrapped input data (key, [batch_size])
-        dict
-            Dictionary of unwrapped output data (key, [batch_size])
+            Dictionary of unwrapped data products
         """
-        data_unwrapped, result_unwrapped = {}, {}
-        for key, value in data_dict.items():
+        data_unwrappped = {}
+        for key, value in data.items():
             data_unwrapped[key] = self._unwrap(key, value)
-        for key, value in result_dict.items():
-            result_unwrapped[key] = self._unwrap(key, value)
 
-        return data_unwrapped, result_unwrapped
+        return data_unwrapped
 
     def _unwrap(self, key, data):
         """Routes set of data to the appropriate unwrapping scheme.

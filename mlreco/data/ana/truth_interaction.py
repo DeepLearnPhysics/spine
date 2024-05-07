@@ -51,24 +51,18 @@ class TruthInteraction(Neutrino, InteractionBase):
     points_g4: np.ndarray = None
     depositions_g4: np.ndarray = None
 
-    # Fixed-length attributes
-    _fixed_length_attrs = {
-            **Interaction._fixed_length_attrs,
-            **InteractionBase._fixed_length_attrs}
-
     # Variable-length attributes
     _var_length_attrs = {
             'index_adapt': np.int64, 'index_g4': np.int64,
             'depositions_adapt': np.float32, 'depositions_g4': np.float32,
             'points_adapt': (3, np.float32), 'points_g4': (3, np.float32),
             'sources_adapt': (2, np.int64),
-            **Interaction._var_length_attrs,
             **InteractionBase._var_length_attrs}
 
     # Attributes that should not be stored
     _skip_attrs = [
             'points_adapt', 'sources_adapt', 'depositions_adapt',
-            'points_g4', 'depositions_g4', **InteractionBase._skip_attrs]
+            'points_g4', 'depositions_g4', *InteractionBase._skip_attrs]
 
     def __str__(self):
         """Human-readable string representation of the interaction object.

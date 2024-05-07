@@ -151,6 +151,9 @@ class Particle(PosDataStructBase):
     _pos_attrs = ['position', 'end_position', 'parent_position',
                   'ancestor_position', 'first_step', 'last_step']
 
+    # Attributes specifying vector components
+    _vec_attrs = ['momentum', 'end_momentum']
+
     # Enumerated attributes
     _enum_attrs = {
             'shape': {v : k for k, v in SHAPE_LABELS.items()},

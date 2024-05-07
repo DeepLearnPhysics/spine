@@ -108,6 +108,9 @@ class Neutrino(PosDataStructBase):
     # Attributes specifying coordinates
     _pos_attrs = ['position']
 
+    # Attributes specifying vector components
+    _vec_attrs = ['momentum']
+
     # Enumerated attributes
     _enum_attrs = {
             'current_type': {v : k for k, v in NU_CURR_TYPE.items()},

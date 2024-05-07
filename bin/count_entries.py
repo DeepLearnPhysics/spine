@@ -38,7 +38,7 @@ if __name__ == "__main__":
     argparse.add_argument('tree_name',
                           help='TTree name used to count the entries.',
                           type=str)
-    argparse.add_argument('source',
+    argparse.add_argument('source', '-s',
                           help='Path or list of paths to data files',
                           type=str, nargs="+")
     args = argparse.parse_args()

@@ -62,7 +62,7 @@ class TruthParticle(Particle, ParticleBase):
     # Attributes that should not be stored
     _skip_attrs = [
             'points_adapt', 'sources_adapt', 'depositions_adapt',
-            'points_g4', 'depositions_g4', **ParticleBase._skip_attrs]
+            'points_g4', 'depositions_g4', *ParticleBase._skip_attrs]
 
     def __str__(self):
         """Human-readable string representation of the particle object.

@@ -1,19 +1,17 @@
-"""Manages the operation of post-processors."""
+"""Manages the operation of analysis scripts."""
+
+from collections import OrderedDict
 
 import numpy as np
-from warnings import warn
-from collections import defaultdict, OrderedDict
-
-from .factories import post_processor_factory
 
 from mlreco.utils.stopwatch import StopwatchManager
 
+from .scripts import *
 
-class PostManager:
-    """Manager in charge of handling post-processing scripts.
-    
-    It loads all the post-processor objects once and feeds them data.
-    """
+
+class AnaManager:
+    """Manager class to initialize and execute analysis scripts."""
+
 
     def __init__(self, cfg, parent_path=''):
         """Initialize the post-processing manager.
@@ -43,7 +41,7 @@ class PostManager:
             # Append
             self.modules[k] = post_processor_factory(k, cfg[k], parent_path)
 
-    def run(self, data_dict, result_dict):
+    def run(self, data):
         """Pass one batch of data through the post-processors.
 
         Parameters

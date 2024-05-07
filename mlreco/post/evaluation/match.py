@@ -65,10 +65,10 @@ class MatchProcessor(PostBase):
         weight_overlap: bool = False
 
         # Valid match modes
-        self._match_modes = ['reco_to_truth', 'truth_to_reco', 'both', 'all']
+        _match_modes = ['reco_to_truth', 'truth_to_reco', 'both', 'all']
 
         # Valid overlap modes
-        self._overlap_modes = ['count', 'iou', 'dice', 'chamfer']
+        _overlap_modes = ['count', 'iou', 'dice', 'chamfer']
 
         def __post_init__(self):
             """Check that the values provided are valid."""

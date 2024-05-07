@@ -1,10 +1,10 @@
-"""Module with a data class object which represents a truth fragement."""
+"""Module with a data class object which represents a truth fragment."""
 
 from dataclasses import dataclass
 
 from mlreco.utils.decorators import inherit_docstring
 
-from .fragement_base import FragmentBase
+from .fragment_base import FragmentBase
 
 __all__ = ['TruthFragment']
 
@@ -12,7 +12,7 @@ __all__ = ['TruthFragment']
 @dataclass
 @inherit_docstring(FragmentBase)
 class TruthFragment(FragmentBase):
-    """Truthnstructed fragement information.
+    """Truthnstructed fragment information.
 
     Parameters
     ----------
@@ -20,11 +20,11 @@ class TruthFragment(FragmentBase):
     """
 
     def __str__(self):
-        """Human-readable string representation of the fragement object.
+        """Human-readable string representation of the fragment object.
 
         Results
         -------
         str
-            Basic information about the fragement properties
+            Basic information about the fragment properties
         """
         return 'Truth' + super().__str__()

@@ -1,15 +1,15 @@
 """Main functions.
 
-This is the first module caleld when launching a binary script under the
-`bin` directory. It takes care setting up the environment and the
-`TrainVal` object(s) used to train/validate ML models.
+This is the first module called when launching a binary script under the
+`bin` directory. It takes care of setting up the environment and the
+`Driver`/`Trainer` object(s) used to execute/train ML models, post-processors,
+and analysis scripts.
 """
 
 import os
 import time
 import glob
 import subprocess as sc
-from dataclasses import dataclass
 
 import yaml
 import torch
@@ -17,31 +17,12 @@ import torch
 from torch.utils.data import DataLoader
 from torch.distributed import init_process_group, destroy_process_group
 
-from .io.factories import loader_factory
-
-from .utils.torch_local import cycle
 from .utils.logger import logger
 
 from .version import __version__
 
-from .trainval import TrainVal
 from .driver import Driver
-
-
-@dataclass
-class Handlers:
-    """Simple dataclass that holds all the necessary information
-    to run the training.
-    """
-    cfg: dict           = None
-    data_io: DataLoader = None
-    data_io_iter: iter  = None
-    trainval: TrainVal  = None
-    #analyzer: Analyzer  = None
-
-    def keys(self):
-        """Function which return the available attributes."""
-        return list(self.__dict__.keys())
+from .train import Trainer
 
 
 def run(cfg):
@@ -50,44 +31,28 @@ def run(cfg):
     Parameters
     ----------
     cfg : dict
-        IO, model and training/inference configuration
+        Full driver/trainer configuration
     """
     # Process the configuration
     cfg = process_config(**cfg)
 
-    # Check if we are running in training or inference mode
-    assert 'train' in cfg['trainval'], (
-            "Must specify the `train` parameter in the `trainval` block")
-    train = cfg['trainval']['train']
+    # Dispatch
+    if 'train' not in cfg:
+        # If this is not a training process, use the driver
+        driver = Driver(**cfg)
+        driver.run()
 
-    # Launch the training/inference process
-    if (not 'distributed' in cfg['trainval'] or
-        not cfg['trainval']['distributed']):
-        run_single(0, cfg, train)
     else:
-        world_size = 1
-        if torch.cuda.is_available:
-            world_size = torch.cuda.is_avaialble()
-        torch.multiprocessing.spawn(run_single,
-                args = (cfg, train, world_size,), nprocs = world_size)
-
-
-def run_tmp(cfg):
-    """Execute a model in one or more processes.
-
-    Parameters
-    ----------
-    cfg : dict
-        IO, model and training/inference configuration
-    """
-    # Process the configuration
-    cfg = process_config(**cfg)
-
-    # Intialize the driver
-    driver = Driver(**cfg)
-
-    # Run the driver
-    driver.run()
+        # Launch the training/inference process
+        if (not 'distributed' in cfg['train'] or
+            not cfg['train']['distributed']):
+            run_single(0, cfg, train)
+        else:
+            world_size = 1
+            if torch.cuda.is_available:
+                world_size = torch.cuda.is_avaialble()
+            torch.multiprocessing.spawn(run_single,
+                    args = (cfg, train, world_size,), nprocs = world_size)
 
 
 def run_single(rank, cfg, train, world_size=None):
@@ -98,7 +63,7 @@ def run_single(rank, cfg, train, world_size=None):
     rank : int
         Process rank
     cfg : dict
-        IO, model and training/inference configuration
+        Full driver/trainer configuration
     train : bool
         Whether to train the network or simply execute it
     world_size : int, optional
@@ -127,15 +92,15 @@ def train_single(cfg, rank=0):
     Parameters
     ----------
     cfg : dict
-        IO, model and training/inference configuration
+        Full driver/trainer configuration
     rank : int, default 0
         Process rank
     """
-    # Prepare the handlers
-    handlers = prepare(cfg, rank)
+    # Prepare the trainer
+    trainer = Trainer(**cfg, rank=rank)
 
     # Run the training process
-    handlers.trainval.run()
+    trainer.run()
 
 
 def inference_single(cfg, rank=0):
@@ -145,18 +110,18 @@ def inference_single(cfg, rank=0):
     Parameters
     ----------
     cfg : dict
-        IO, model and training/inference configuration
+        Full driver/trainer configuration
     rank : int, default 0
         Process rank
     """
-    # Prepare the handlers
-    handlers = prepare(cfg, rank)
+    # Prepare the trainer
+    trainer = Trainer(**cfg, rank=rank)
 
     # Find the set of weights to run the inference on
     preloaded, weights = False, []
-    if handlers.trainval.model_path is not None:
-        preloaded = os.path.isfile(handlers.trainval.model_path)
-        weights = sorted(glob.glob(handlers.trainval.model_path))
+    if trainer.model.model_path is not None:
+        preloaded = os.path.isfile(trainer.model.model_path)
+        weights = sorted(glob.glob(trainer.model.model_path))
         if not preloaded and len(weights):
             weight_list = "\n".join(weights)
             logger.info("Looping over %d set of weights:\n"
@@ -167,84 +132,38 @@ def inference_single(cfg, rank=0):
     # Loop over the weights, run the inference loop
     for weight in weights:
         if weight is not None and not preloaded:
-            handlers.trainval.load_weights(weight)
-            handlers.trainval.make_directories()
+            trainer.model.load_weights(weight)
+            trainer.make_directories()
 
-        handlers.trainval.run()
-
-
-def prepare(cfg, rank=0):
-    """Prepares high level API handlers, namely the torch DataLoader (and an
-    iterator) and a TrainVal instance.
-
-    Parameters
-    ----------
-    cfg : dict
-        IO, model and training/infernece configuration
-    rank : int, default 0
-        Process rank
-
-    Returns
-    -------
-    Handlers
-        Handler instances needed for training/inference
-    """
-    # Initialize the handlers
-    handlers = Handlers()
-
-    # If the configuration has not has been processed, do it
-    if not cfg.get('processed', False):
-        cfg = process_config(**cfg)
-    cfg.pop('processed', None)
-
-    # If there is no `trainval` block, treat config as data loading config.
-    # Otherwise, intiliaze the train/validation class
-    if 'trainval' not in cfg or cfg['trainval'] is None:
-        # Instantiate the data loader
-        handlers.data_io = loader_factory(**cfg['io'])
-
-        # Instantiate a cyclic iterator over the dataloader
-        handlers.data_io_iter = iter(cycle(handlers.data_io))
-
-        # Store the configuration dictionary
-        handlers.cfg = cfg
-
-    else:
-        # Instantiate the training/inference object
-        handlers.trainval = TrainVal(**cfg, rank=rank)
-
-        # Expose the dataloader
-        handlers.data_io = handlers.trainval.loader
-
-        # Instantiate a cyclic iterator over the dataloader
-        handlers.data_io_iter = handlers.trainval.loader_iter
-
-        # Store the configuration dictionary
-        handlers.cfg = cfg
-
-    return handlers
+        trainer.run()
 
 
-def process_config(io, model=None, trainval=None, verbosity='info',
-                   processed=None):
-    """Do all the necessary cross-checks to ensure the that the configuration
+def process_config(base, io, model=None, train=None, build=None, post=None,
+                   ana=None, verbosity='info', processed=False):
+    """Do all the necessary cross-checks to ensure that the configuration
     can be used.
     
     Parse the necessary arguments to make them useable downstream.
 
     Parameters
     ----------
+    base : dict
+        Base driver configuration dictionary
     io : dict
         I/O configuration dictionary
     model : dict, optional
         Model configuration dictionary
-    trainval : dict, optional
-        Training/inference configuration dictionary
-    verbosity : int, default 'INFO'
+    train : dict, optional
+        Training configuration dictionary
+    build : dict, optional
+        Representation building configuration dictionary
+    post : dict, optional
+        Post-processor configutation dictionary
+    ana : dict, optional
+        Analysis script configurationdictionary
+    verbosity : int, default 'info'
         Verbosity level to pass to the `logging` module. Pick one of
         'debug', 'info', 'warning', 'error', 'critical'.
-    processed : bool, default False
-        Whether this configuration has already been seen by this function
 
     Returns
     -------
@@ -252,8 +171,10 @@ def process_config(io, model=None, trainval=None, verbosity='info',
         Complete, updated configuration dictionary
     """
     # If this configuration has already been processed, throw
-    if processed is not None and processed:
-        raise RuntimeError("Should not process a configuration twice")
+    if 'processed' in base and base['processed']:
+        raise RuntimeError("Must not process a configuration twice.")
+    else:
+        base['processed'] = True
 
     # Set the verbosity of the logger
     if isinstance(verbosity, str):
@@ -263,57 +184,70 @@ def process_config(io, model=None, trainval=None, verbosity='info',
     # Convert the gpus parameter to a list of GPU IDs
     distributed = False
     world_size = 1
-    if trainval is not None and 'gpus' in trainval:
+    if train is not None and 'gpus' in train:
         # Check that the list of GPUs is a comma-separated string
-        for val in trainval['gpus'].split(','):
+        for val in train['gpus'].split(','):
             assert not val or val.isdigit(), (
                     "The `gpus` parameter must be specified as a "
                     "comma-separated string of numbers. "
-                   f"Instead, got: {trainval['gpus']}")
+                   f"Instead, got: {train['gpus']}")
 
         # Set GPUs visible to CUDA
-        os.environ['CUDA_VISIBLE_DEVICES'] = trainval['gpus']
+        os.environ['CUDA_VISIBLE_DEVICES'] = train['gpus']
 
         # Convert the comma-separated string to a list
-        if len(trainval['gpus']):
-            trainval['gpus'] = list(range(len(trainval['gpus'].split(','))))
-            world_size = len(trainval['gpus'])
+        if len(train['gpus']):
+            train['gpus'] = list(range(len(train['gpus'].split(','))))
+            world_size = len(train['gpus'])
 
         else:
-            trainval['gpus'] = []
+            train['gpus'] = []
 
         # If there is more than one GPU, must distribute
         if world_size > 1:
-            trainval['distributed'] = True
+            train['distributed'] = True
 
-        elif 'distributed' not in trainval:
-            trainval['distributed'] = False
-        distributed = trainval['distributed']
+        elif 'distributed' not in train:
+            train['distributed'] = False
+        distributed = train['distributed']
 
-    # If the seed is not set for the sampler, randomize it
-    if 'sampler' in io:
-        if 'seed' not in io['sampler'] or io['sampler']['seed'] < 0:
+    # If the seed is not set for the sampler, randomize it. This is done
+    # here to keep a record of the seeds provided to the samplers
+    if 'loader' in io and 'sampler' in io['loader']:
+        if ('seed' not in io['loader']['sampler'] or
+            io['loader']['sampler']['seed'] < 0):
             current = int(time.time())
             if not distributed:
-                io['sampler']['seed'] = current
-
+                io['loader']['sampler']['seed'] = current
             else:
-                io['sampler']['seed'] = [current + i for i in range(world_size)]
+                io['loader']['sampler']['seed'] = [
+                        current + i for i in range(world_size)]
+
         else:
             if distributed:
-                seed = int(io['sampler']['seed'])
-                io['sampler']['seed'] = [seed + i for i in range(world_size)]
+                seed = int(io['loader']['sampler']['seed'])
+                io['loader']['sampler']['seed'] = [
+                        seed + i for i in range(world_size)]
 
     # If the seed is not set for the training/inference process, randomize it
-    if trainval is not None:
-        if 'seed' not in trainval or trainval['seed'] < 0:
-            trainval['seed'] = int(time.time())
-
+    if train is not None:
+        if 'seed' not in train or train['seed'] < 0:
+            train['seed'] = int(time.time())
         else:
-            trainval['seed'] = int(trainval['seed'])
+            train['seed'] = int(train['seed'])
 
     # Rebuild global configuration dictionary
-    cfg = {'io': io, 'model': model, 'trainval': trainval}
+    cfg = {'base': base, 'io': io}
+    if model is not None:
+        cfg['model'] = model
+    if train is not None:
+        cfg['train'] = train
+    if build is not None:
+        cfg['build'] = build
+    if post is not None:
+        cfg['post'] = post
+    if ana is not None:
+        cfg['ana'] = ana
 
     # Log package logo
     ascii_logo = (
@@ -334,27 +268,24 @@ def process_config(io, model=None, trainval=None, verbosity='info',
     logger.info("Configuration processed at: %s\n", system_info)
 
     # Log configuration
-    logger.info(yaml.dump(cfg, default_flow_style=None))
-
-    # Add an indication that this configuration has been processed
-    cfg['processed'] = True
+    logger.info(yaml.dump(cfg, default_flow_style=None, sort_keys=False))
 
     # Return updated configuration
     return cfg
 
 
-def apply_event_filter(handlers, entry_list):
+def apply_event_filter(driver, entry_list):
     """Restrict the list of entries
 
     Parameters
     ----------
-    handlers : Handlers
-        Handler instances needed for training/inference
+    driver : Driver
+        Driver instance
     entry_list : list
         List of events to load
     """
     # Simply change the underlying entry list
-    handlers.data_io.dataset.reader.process_entry_list(entry_list=entry_list)
+    driver.reader.process_entry_list(entry_list)
 
 
 def setup_ddp(rank, world_size):

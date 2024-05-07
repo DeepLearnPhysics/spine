@@ -4,10 +4,10 @@ from torch.utils.data import Dataset
 
 from mlreco.utils.factory import module_dict, instantiate
 
-from . import parsers
-from .readers import LArCVReader
+from . import parse
+from .read import LArCVReader
 
-PARSER_DICT  = module_dict(parsers)
+PARSER_DICT  = module_dict(parse)
 
 __all__ = ['LArCVDataset']
 

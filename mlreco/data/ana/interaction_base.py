@@ -1,5 +1,6 @@
 """Module with a base class for both reconstruction and true interactions."""
 
+from typing import List
 from dataclasses import dataclass
 
 import numpy as np
@@ -61,6 +62,7 @@ class InteractionBase(PosDataStructBase):
         Units in which coordinates are expressed
     """
     id: int = -1
+    particles: List[object] = None
     particle_ids: np.ndarray = None
     index: np.ndarray = None
     points: np.ndarray = None
@@ -163,7 +165,7 @@ class InteractionBase(PosDataStructBase):
         # Fill unique attributes which must be shared between particles
         unique_attrs = ['is_truth', 'units']
         for attr in unique_attrs:
-            assert len(np.unique([getattr(p, attr) for p in particles])) == 1, (
+            assert len(np.unique([getattr(p, attr) for p in particles])) < 2, (
                     f"{attr} must be unique in the list of particles.")
 
         # Attach particle list

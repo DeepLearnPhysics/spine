@@ -56,6 +56,22 @@ class Model:
         # If requested, load the some/all the model weights
         self.load_model(model_path)
 
+    def __call__(self, data):
+        """Calls the forward function on the provided batch of data.
+
+        Parameters
+        ----------
+        data : dict
+            Dictionary of input data product keys which each map to its
+            associated batched data product
+
+        Returns
+        -------
+        dict
+            Dictionary of model and loss outputs
+        """
+        return self.forward(data)
+
     def clean_config(self, config):
         """Remove model loading/freezing keys from all level of a dictionary.
 
@@ -226,7 +242,55 @@ class Model:
 
             logger.info('Done.')
 
-    def forward(self, input_dict, loss_dict, iteration=None):
+    def prepare_data(self, data):
+        """Fetches the necessary data products to form the input to the forward
+        function and the input to the loss function.
+
+        Parameters
+        ----------
+        data : dict
+            Dictionary of input data product keys which each map to its
+            associated batched data product
+
+        Returns
+        -------
+        input_dict : dict
+            Input to the forward pass of the model
+        loss_dict : dict
+            Labels to be used in the loss computation
+        """
+        # Fetch the requested data products
+        device = self.rank if self.gpus else None
+        input_dict, loss_dict = {}, {}
+        with torch.set_grad_enabled(self.train):
+            # Load the data products for the model forward
+            input_dict = {}
+            for param, name in self.input_dict.items():
+                assert name in data, (
+                        f"Must provide {name} in the dataloader schema to "
+                         "input into the model forward")
+
+                value = data[name]
+                if isinstance(value, TensorBatch):
+                    value = data[name].to_tensor(torch.float, device)
+                input_dict[param] = value
+
+            # Load the data products for the loss function
+            loss_dict = {}
+            if self.loss_dict is not None:
+                for param, name in self.loss_dict.items():
+                    assert name in data, (
+                            f"Must provide {name} in the dataloader schema to "
+                             "input into the loss function")
+
+                    value = data[name]
+                    if isinstance(value, TensorBatch):
+                        value = data[name].to_tensor(torch.float, device)
+                    loss_dict[param] = value
+
+        return input_dict, loss_dict
+
+    def forward(self, data, iteration=None):
         """Pass one minibatch of data through the network and the loss.
 
         Load one minibatch of data. pass it through the network forward
@@ -234,11 +298,18 @@ class Model:
 
         Parameters
         ----------
-        input_dict : dict
-            Input dictionary to the network function
-        loss_dict : dict
-            Input dictionary to the loss function
+        data : dict
+            Dictionary of input data product keys which each map to its
+            associated batched data product
+
+        Returns
+        -------
+        dict
+            Dictionary of model and loss outputs
         """
+        # Prepare the input to the forward and loss functions
+        input_dict, loss_dict = self.prepare_data(data)
+
         # If in train mode, record the gradients for backward step
         with torch.set_grad_enabled(self.train):
 

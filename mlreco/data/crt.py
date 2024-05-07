@@ -71,6 +71,9 @@ class CRTHit(PosDataStructBase):
     # Attributes specifying coordinates
     _pos_attrs = ['position']
 
+    # Attributes specifying vector components
+    _vec_attrs = ['width']
+
     # String attributes
     _str_attrs = ['tagger', 'units']
 

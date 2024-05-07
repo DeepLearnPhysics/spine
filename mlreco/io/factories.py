@@ -6,13 +6,13 @@ from torch.utils.data import DataLoader
 
 from mlreco.utils.factory import module_dict, instantiate
 
-from . import datasets, samplers, collates, readers, writers
+from . import dataset, sample, collate, read, write
 
-DATASET_DICT = module_dict(datasets)
-SAMPLER_DICT = module_dict(samplers)
-COLLATE_DICT = module_dict(collates)
-READER_DICT  = module_dict(readers)
-WRITER_DICT  = module_dict(writers)
+DATASET_DICT = module_dict(dataset)
+SAMPLER_DICT = module_dict(sample)
+COLLATE_DICT = module_dict(collate)
+READER_DICT  = module_dict(read)
+WRITER_DICT  = module_dict(write)
 
 __all__ = ['loader_factory', 'dataset_factory', 'sampler_factory',
            'collate_factory', 'reader_factory', 'writer_factory']
