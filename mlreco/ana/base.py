@@ -7,9 +7,20 @@ class AnaBase:
     """Parent class of all analysis scripts.
 
     This base class performs the following functions:
-      - Ensures that the necessary method exist
-      - Checks that the script is provided the necessary information
-      - Writes the output of the analysis to CSV
+    - Ensures that the necessary methods exist
+    - Checks that the script is provided the necessary information
+    - Writes the output of the analysis to CSV
+
+    Attributes
+    ----------
+    name : str
+        Name of the analysis script (to call it from a configuration file)
+    req_keys : List[str]
+        Data products needed to run the analysis script
+    opt_keys : List[str]
+        Optional data products which will be used only if they are provided
+    units : str
+        Units in which the coordinates are expressed
     """
     name = ''
     req_keys = []

@@ -95,6 +95,9 @@ def get_cluster_edge_features(data, clusts, edge_index,
     np.ndarray
         (E, N_e) Tensor of edge features
     """
+    if not len(clusts):
+        return np.empty((0, 19), dtype=data.dtype) # Cannot type empty list
+
     return _get_cluster_edge_features(
             data, clusts, edge_index, closest_index, algorithm)
     # return _get_cluster_edge_features_vec(
@@ -328,10 +331,20 @@ def inter_cluster_distance(voxels, clusts, counts=None, method='voxel',
         counts = np.array([len(clusts)], dtype=np.int64)
 
     if not return_index:
+        # If there are no clusters, return empty
+        if len(clusts) == 0:
+            return np.empty((0, 0), dtype=voxels.dtype)
+
         return _inter_cluster_distance(
                 voxels, clusts, counts, method, algorithm)
+
     else:
-        assert method == 'voxel', 'Cannot return index for centroid method'
+        # If there are no clusters, return empty
+        assert method == 'voxel', "Cannot return index for centroid method."
+        if len(clusts) == 0:
+            return (np.empty((0, 0), dtype=voxels.dtype),
+                    np.empty((0, 0), dtype=np.int64))
+
         return _inter_cluster_distance_index(
                 voxels, clusts, counts, algorithm)
 
@@ -365,7 +378,7 @@ def _inter_cluster_distance(voxels: nb.float32[:,:],
             dist_mat[i,j] = dist_mat[j,i] = np.sqrt(
                     np.sum((centroids[j]-centroids[i])**2))
     else:
-        raise ValueError('Inter-cluster distance method not supported')
+        raise ValueError("Inter-cluster distance method not supported.")
 
     return dist_mat
 

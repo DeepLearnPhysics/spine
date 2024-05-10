@@ -13,6 +13,7 @@ import subprocess as sc
 
 import yaml
 import torch
+import numpy as np
 
 from torch.utils.data import DataLoader
 from torch.distributed import init_process_group, destroy_process_group
@@ -213,28 +214,34 @@ def process_config(base, io, model=None, train=None, build=None, post=None,
 
     # If the seed is not set for the sampler, randomize it. This is done
     # here to keep a record of the seeds provided to the samplers
-    if 'loader' in io and 'sampler' in io['loader']:
-        if ('seed' not in io['loader']['sampler'] or
-            io['loader']['sampler']['seed'] < 0):
-            current = int(time.time())
-            if not distributed:
-                io['loader']['sampler']['seed'] = current
-            else:
-                io['loader']['sampler']['seed'] = [
-                        current + i for i in range(world_size)]
+    if 'loader' in io:
+        io['loader']['distributed'] = distributed
+        io['loader']['world_size'] = world_size
+        if 'sampler' in io['loader']:
+            if ('seed' not in io['loader']['sampler'] or
+                io['loader']['sampler']['seed'] < 0):
+                current = int(time.time())
+                if not distributed:
+                    io['loader']['sampler']['seed'] = current
+                else:
+                    io['loader']['sampler']['seed'] = [
+                            current + i for i in range(world_size)]
 
-        else:
-            if distributed:
-                seed = int(io['loader']['sampler']['seed'])
-                io['loader']['sampler']['seed'] = [
-                        seed + i for i in range(world_size)]
+            else:
+                if distributed:
+                    seed = int(io['loader']['sampler']['seed'])
+                    io['loader']['sampler']['seed'] = [
+                            seed + i for i in range(world_size)]
 
     # If the seed is not set for the training/inference process, randomize it
-    if train is not None:
-        if 'seed' not in train or train['seed'] < 0:
-            train['seed'] = int(time.time())
-        else:
-            train['seed'] = int(train['seed'])
+    if 'seed' not in base or base['seed'] < 0:
+        base['seed'] = int(time.time())
+    else:
+        base['seed'] = int(base['seed'])
+
+    # Set the seed of random number generators
+    np.random.seed(base['seed'])
+    torch.manual_seed(base['seed'])
 
     # Rebuild global configuration dictionary
     cfg = {'base': base, 'io': io}
@@ -252,8 +259,8 @@ def process_config(base, io, model=None, train=None, build=None, post=None,
     # Log package logo
     ascii_logo = (
     " ██████████   ███████████   ███   ███       ██   ███████████\n"
-    "███        █  ██       ███   |    ██████    ██   ██         \n"
-    "  ████████    ██       ███  ███   ██   ███  ██   ██████████ \n"
+    "███        █  ██       ███   |    █████     ██   ██         \n"
+    "  ████████    ██       ███  ███   ██  ████  ██   ██████████ \n"
     "█        ███  ██████████     |    ██     █████   ██         \n"
     " ██████████   ██            ███   ██       ███   ███████████\n")
     logger.info(f"\n%s", ascii_logo)

@@ -12,7 +12,6 @@ from .scripts import *
 class AnaManager:
     """Manager class to initialize and execute analysis scripts."""
 
-
     def __init__(self, cfg, parent_path=''):
         """Initialize the post-processing manager.
 

@@ -268,6 +268,9 @@ class FullChain(torch.nn.Module):
         # Run the particle aggregation
         self.run_part_aggregation(data, clust_label, coord_label)
 
+        # Run the particle classification stage
+        # TODO
+
         # Run the interaction aggregation
         self.run_inter_aggregation(data, clust_label, coord_label)
 
@@ -459,7 +462,7 @@ class FullChain(torch.nn.Module):
                 clust_label = adapt_labels_batch(
                         clust_label, seg_label, seg_pred, ghost_pred)
 
-                self.result['clust_label_adapted'] = clust_label
+                self.result['clust_label_adapt'] = clust_label
 
         elif self.segmentation == 'label':
             # Use the segmentation labels
@@ -505,7 +508,7 @@ class FullChain(torch.nn.Module):
             fragment_shapes = get_cluster_label_batch(clust_label, fragments)
 
         if fragments is not None:
-            self.result['fragments'] = fragments
+            self.result['fragment_clusts'] = fragments
             self.result['fragment_shapes'] = fragment_shapes
 
     def run_part_aggregation(self, data, clust_label=None, coord_label=None):
@@ -528,11 +531,22 @@ class FullChain(torch.nn.Module):
             (N, 1 + D + 6) Array of label particle end points
         """
         # Fetch the list of fragments and semantic classes
-        if 'fragments' not in self.result:
+        if 'fragment_clusts' not in self.result:
             return
 
-        fragments = self.result['fragments']
+        fragments = self.result['fragment_clusts']
         fragment_shapes = self.result['fragment_shapes']
+
+        # If GrapPA is run on track/shower separately, prepare merged products
+        merge = {}
+        if (self.shower_aggregation == 'grappa' or 
+            self.track_aggregation == 'grappa'):
+            num_clusts = len(fragments.index_list)
+            kwargs = {'dtype': data.dtype, 'device': data.device}
+            merge['start_points'] = torch.full((num_clusts, 3), -np.inf, **kwargs)
+            merge['end_points'] = torch.full((num_clusts, 3), -np.inf, **kwargs)
+            merge['node_pred'] = -torch.full((num_clusts, 2), -np.inf, **kwargs)
+            merge['group_pred'] = -np.ones(num_clusts, dtype=np.int64)
 
         # Initialize the particle-level output
         counts = np.zeros(fragments.batch_size, dtype=np.int64)
@@ -550,17 +564,29 @@ class FullChain(torch.nn.Module):
 
             if switch == 'grappa':
                 # Use GraPA to aggregate instances
-                prefix = f'{name}_fragment'
+                prefix = f'{name}_fragment' if name != 'particle' else 'fragment'
                 model = getattr(self, f'grappa_{name}')
-                groups, group_shapes, group_primaries = self.run_grappa(
+                (groups, group_shapes, group_primaries,
+                 shape_index) = self.run_grappa(
                         prefix, model, data, fragments, fragment_shapes,
                         coord_label, aggregate_shapes=True,
                         shape_use_primary=use_primary[name],
                         retain_primaries=True)
 
+                if merge and shape_index is not None:
+                    for key in merge:
+                        if key != 'group_pred':
+                            merge[key][shape_index] = (
+                                    self.result[f'{prefix}_{key}'].tensor)
+                        else:
+                            max_id = np.max(merge[key]) + 1
+                            merge[key][shape_index] = (
+                                    self.result[f'{prefix}_{key}'].tensor + max_id)
+
             elif switch == 'label':
                 # Use cluster labels to aggregate instances
-                groups, group_shapes, group_primaries = self.group_labels(
+                (groups, group_shapes, group_primaries,
+                 shape_index) = self.group_labels(
                         shapes[name], data, fragments, fragment_shapes,
                         aggregate_shapes=True,
                         shape_use_primary=use_primary[name],
@@ -568,7 +594,7 @@ class FullChain(torch.nn.Module):
 
             elif switch == 'skip':
                 # Leave the shower fragments as is
-                groups, group_shapes = self.restrict_clusts(
+                groups, group_shapes, shape_index = self.restrict_clusts(
                         fragments, fragment_shapes, shapes[name])
                 group_primaries = groups
 
@@ -581,8 +607,14 @@ class FullChain(torch.nn.Module):
             particle_shapes = particle_shapes.merge(group_shapes)
             particle_primaries = particle_primaries.merge(group_primaries)
 
+        # Store merged fragment properties, if needed
+        if merge:
+            for key, value in merge.items():
+                self.result[f'fragment_{key}'] = TensorBatch(
+                        value, counts=fragments.counts)
+
         # Store particle objects
-        self.result['particles'] = particles
+        self.result['particle_clusts'] = particles
         self.result['particle_shapes'] = particle_shapes
         self.result['particle_primaries'] = particle_primaries
 
@@ -607,28 +639,28 @@ class FullChain(torch.nn.Module):
             (N, 1 + D + 6) Array of label particle end points
         """
         # Fetch the list of particles and semantic classes
-        if 'particles' not in self.result:
+        if 'particle_clusts' not in self.result:
             return
 
-        particles = self.result['particles']
+        particles = self.result['particle_clusts']
         particle_shapes = self.result['particle_shapes']
         particle_primaries = self.result['particle_primaries']
 
         # Append the interaction list
         if self.inter_aggregation == 'grappa':
             # Use GraPA to aggregate instances
-            interactions, _, _ = self.run_grappa(
+            interactions, _, _, _ = self.run_grappa(
                     'particle', self.grappa_inter, data, particles,
                     particle_shapes, particle_primaries, coord_label,
                     point_use_primary=True)
 
         elif self.inter_aggregation == 'label':
             # Use cluster labels to aggregate instances
-            interactions, _, _ = self.group_labels(
+            interactions, _, _, _ = self.group_labels(
                     shapes[name], data, particles, particle_shapes)
 
         # Store interaction objects
-        self.result['interactions'] = interactions
+        self.result['interaction_clusts'] = interactions
 
     def run_grappa(self, prefix, model, data, clusts, clust_shapes,
                    clust_primaries=None, coord_label=None,
@@ -669,9 +701,11 @@ class FullChain(torch.nn.Module):
             Semantic type of each of the cluster groups
         group_primaries : IndexBatch
             List of primary clusters for each group
+        shape_index : np.ndarray
+            List of indexes used to restrict the original cluster list
         """
         # Restrict the clusters to those in the input of the model
-        clusts, clust_shapes = self.restrict_clusts(
+        clusts, clust_shapes, shape_index = self.restrict_clusts(
                 clusts, clust_shapes, model.node_type)
 
         # Prepare the input to the aggregation stage
@@ -694,9 +728,10 @@ class FullChain(torch.nn.Module):
             primary_mask = primary_assignment_batch(node_pred, group_pred)
 
         # Build shower instances, get their semantic type
-        return self.build_groups(
+        return (*self.build_groups(
                 clusts, clust_shapes, group_pred, primary_mask,
-                aggregate_shapes, shape_use_primary, retain_primaries)
+                aggregate_shapes, shape_use_primary, retain_primaries),
+                shape_index)
 
     def group_labels(self, data, clusts, clust_shapes, aggregate_shapes=False,
                      shape_use_primary=False, retain_primaries=False):
@@ -725,9 +760,11 @@ class FullChain(torch.nn.Module):
             Semantic type of each of the cluster groups
         group_primaries : IndexBatch
             List of primary clusters for each group
+        shape_index : np.ndarray
+            List of indexes used to restrict the original cluster list
         """
         # Restrict the clusters to those in the input of the model
-        clusts, clust_shapes = self.restrict_clusts(
+        clusts, clust_shapes, shape_index = self.restrict_clusts(
                 clusts, clust_shapes, model.node_type)
 
         # If requested, convert the node predictions to a primary mask
@@ -738,9 +775,10 @@ class FullChain(torch.nn.Module):
             primary_mask = primary_mask.astype(bool)
 
         # Build shower instances, get their semantic type
-        return self.build_groups(
+        return (*self.build_groups(
                 clusts, clust_shapes, group_ids, primary_mask,
-                aggregate_shapes, shape_use_primary, retain_primaries)
+                aggregate_shapes, shape_use_primary, retain_primaries),
+                shape_index)
 
     def restrict_clusts(self, clusts, clust_shapes, classes):
         """Restricts a cluster list against a list of classes.
@@ -760,23 +798,26 @@ class FullChain(torch.nn.Module):
             Restricted list of clusters
         clust_shapes : TensorBatch
             Restricted list of semantic types
+        shape_index : np.ndarray
+            List of indexes used to restrict the original cluster list
         """
         # Restrict the clusters to those in the input of the model
+        shape_index = False
         if classes != self.fragment_classes:
             mask = np.zeros(len(clust_shapes.tensor), dtype=bool)
             for c in classes:
                 mask |= (clust_shapes.tensor == c)
-            index = np.where(mask)[0]
+            shape_index = np.where(mask)[0]
 
-            batch_ids = clusts.batch_ids[index]
+            batch_ids = clusts.batch_ids[shape_index]
             clusts = IndexBatch(
-                    clusts.index_list[index], offsets=clusts.offsets,
-                    single_counts=clusts.single_counts[index],
+                    clusts.index_list[shape_index], offsets=clusts.offsets,
+                    single_counts=clusts.single_counts[shape_index],
                     batch_ids=batch_ids, batch_size=clusts.batch_size)
             clust_shapes = TensorBatch(
-                    clust_shapes.tensor[index], clusts.counts)
+                    clust_shapes.tensor[shape_index], clusts.counts)
 
-        return clusts, clust_shapes
+        return clusts, clust_shapes, shape_index
 
     def prepare_grappa_input(self, model, data, clusts, clust_shapes,
                              clust_primaries=None, coord_label=None,
@@ -1025,7 +1066,7 @@ class FullChainLoss(torch.nn.Module):
                 setattr(self, name, GrapPALoss(config))
 
     def forward(self, seg_label=None, ppn_label=None, clust_label=None,
-                clust_label_adapted=None, coord_label=None, graph_label=None,
+                clust_label_adapt=None, coord_label=None, graph_label=None,
                 ghost=None, ghost_pred=None, segmentation=None, **kwargs):
                 
         """Run the full chain output through the full chain loss.
@@ -1040,7 +1081,7 @@ class FullChainLoss(torch.nn.Module):
         clust_label : TensorBatch, optional
             (N, 1 + D + N_c) Tensor of cluster labels
             - N_c is is the number of cluster labels
-        clust_label_adapted : TensorBatch, optional
+        clust_label_adapt : TensorBatch, optional
             (N, 1 + D + N_c) Tensor of cluster labels adapted to seg predictions
             - N_c is is the number of cluster labels
         coord_label : TensorBatch, optional
@@ -1103,7 +1144,7 @@ class FullChainLoss(torch.nn.Module):
 
             # Adapt the cluster labels to those corresponding to the
             # reconstructed semantic segmentation of the image
-            clust_label = clust_label_adapted
+            clust_label = clust_label_adapt
 
         # Apply the Graph-SPICE loss
         if 'graph_spice' in self.fragmentation:

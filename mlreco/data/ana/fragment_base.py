@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from mlreco.utils.globals import TRACK_SHP, SHAPE_LABELS, PID_LABELS, PID_MASSES
+from mlreco.utils.globals import SHAPE_LABELS
 from mlreco.utils.numba_local import cdist
 
 from mlreco.data.base import PosDataStructBase
@@ -109,7 +109,6 @@ class FragmentBase(PosDataStructBase):
             Basic information about the fragment properties
         """
         shape_label = SHAPE_LABELS[self.shape]
-        pid_label = PID_LABELS[self.pid]
         match = self.match[0] if len(self.match) > 0 else -1
         return (f"Fragment(ID: {self.id:<3} | Shape: {shape_label:<11} "
                 f"| Primary: {self.is_primary:<2} "

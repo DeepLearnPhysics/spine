@@ -28,8 +28,7 @@ class HDF5Reader(ReaderBase):
                  n_entry=None, n_skip=None, entry_list=None,
                  skip_entry_list=None, run_event_list=None,
                  skip_run_event_list=None, create_run_map=False,
-                 split_categories=True, build_classes=True,
-                 run_info_key='run_info'):
+                 build_classes=True, run_info_key='run_info'):
         """Initalize the HDF5 file reader.
 
         Parameters
@@ -55,8 +54,6 @@ class HDF5Reader(ReaderBase):
         create_run_map : bool, default False
             Initialize a map between [run, event] pairs and entries. For large
             files, this can be quite expensive (must load every entry).
-        split_categories : bool, default True
-            Split the data into the `data` and `result` dictionaries
         build_classes : bool, default True
             If the stored object is a class, build it back
         run_info_key : str, default 'run_info'
@@ -110,7 +107,6 @@ class HDF5Reader(ReaderBase):
                 run_event_list, skip_run_event_list)
 
         # Store other attributes
-        self.split_categories = split_categories
         self.build_classes = build_classes
 
     def get(self, idx):
@@ -123,10 +119,8 @@ class HDF5Reader(ReaderBase):
 
         Returns
         -------
-        data_blob : dict
-            Ditionary of input data products corresponding to one event
-        result_blob : dict
-            Ditionary of result data products corresponding to one event
+        data : dict
+            Ditionary of data products corresponding to one event
         """
         # Get the appropriate entry index
         assert idx < len(self.entry_index)
@@ -134,19 +128,15 @@ class HDF5Reader(ReaderBase):
         entry_idx = self.get_file_entry_index(idx)
 
         # Use the event tree to find out what needs to be loaded
-        data_blob, result_blob = {}, {}
+        data = {}
         with h5py.File(self.file_paths[file_idx], 'r') as in_file:
             event = in_file['events'][entry_idx]
             for key in event.dtype.names:
-                self.load_key(in_file, event, data_blob, result_blob, key)
+                self.load_key(in_file, event, data, key)
 
-        # Return
-        if self.split_categories:
-            return data_blob, result_blob
+        return data
 
-        return dict(data_blob, **result_blob)
-
-    def load_key(self, in_file, event, data_blob, result_blob, key):
+    def load_key(self, in_file, event, data, key):
         """Fetch a specific key for a specific event.
 
         Parameters
@@ -155,40 +145,37 @@ class HDF5Reader(ReaderBase):
             HDF5 file instance
         event : dict
             Dictionary of objects that make up one event
-        data_blob : dict
-            Dictionary used to store the loaded input data
-        result_blob : dict
-            Dictionary used to store the loaded result data
+        data : dict
+            Dictionary of data products corresponding to one event
         key: str
             Name of the dataset in the entry
         """
         # The event-level information is a region reference: fetch it
         region_ref = event[key]
-        cat = in_file[key].attrs['category']
-        blob = data_blob if cat == 'data' else result_blob
         if isinstance(in_file[key], h5py.Dataset):
             if not in_file[key].dtype.names:
                 # If the reference points at a simple dataset, return
-                blob[key] = in_file[key][region_ref]
+                data[key] = in_file[key][region_ref]
                 if in_file[key].attrs['scalar']:
-                    blob[key] = blob[key][0]
+                    data[key] = data[key][0]
                 if len(in_file[key].shape) > 1:
-                    blob[key] = blob[key].reshape(-1, in_file[key].shape[1])
+                    data[key] = data[key].reshape(-1, in_file[key].shape[1])
+
             else:
                 # If the dataset has multiple attributes, it contains an object
                 array = in_file[key][region_ref]
                 class_name = in_file[key].attrs['class_name']
                 obj_class = getattr(mlreco.data, class_name)
                 names = array.dtype.names
-                blob[key] = []
+                data[key] = []
                 for i, el in enumerate(array):
                     obj_dict = dict(zip(names, el))
                     if self.build_classes:
-                        blob[key].append(obj_class(**obj_dict))
+                        data[key].append(obj_class(**obj_dict))
                     else:
-                        blob[key].append(obj_dict)
+                        data[key].append(obj_dict)
                 if in_file[key].attrs['scalar']:
-                    blob[key] = blob[key][0]
+                    data[key] = data[key][0]
 
         else:
             # If the reference points at a group, unpack
@@ -200,10 +187,12 @@ class HDF5Reader(ReaderBase):
                     for i in range(len(el_refs)):
                         ret[i] = ret[i].reshape(
                                 -1, in_file[key]['elements'].shape[1])
+
             else:
                 ret = [in_file[key][f'element_{i}'][r] for i, r in enumerate(el_refs)]
                 for i in range(len(el_refs)):
                     if len(in_file[key][f'element_{i}'].shape) > 1:
                         ret[i] = ret[i].reshape(
                                 -1, in_file[key][f'element_{i}'].shape[1])
-            blob[key] = ret
+
+            data[key] = ret

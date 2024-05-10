@@ -213,4 +213,4 @@ class PosDataStructBase(DataStructBase):
         assert self.units != 'px', "Units already expressed in pixels"
         self.units = 'px'
         for attr in self._pos_attrs:
-            setattr(self, attr, meta.to_pixel(getattr(self, attr)))
+            setattr(self, attr, meta.to_px(getattr(self, attr)))

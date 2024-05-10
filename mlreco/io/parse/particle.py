@@ -129,7 +129,7 @@ class ParticleParser(ParserBase):
 
             # Convert all the relevant attributes
             for p in particles:
-                p.to_pixel(meta)
+                p.to_px(meta)
 
         return ObjectList(particles, Particle())
 
@@ -221,7 +221,7 @@ class NeutrinoParser(ParserBase):
 
             # Convert all the relevant attributes
             for n in neutrinos:
-                n.to_pixel(meta)
+                n.to_px(meta)
 
         return ObjectList(neutrinos, Neutrino())
 

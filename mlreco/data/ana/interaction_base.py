@@ -173,7 +173,7 @@ class InteractionBase(PosDataStructBase):
         interaction.particle_ids = [p.id for p in particles]
 
         # Build long-form attributes
-        for attr in self._skip_attrs:
+        for attr in cls._skip_attrs:
             val_list = [getattr(p, attr) for p in particles]
             setattr(interaction, attr, np.concatenate(val_list))
 

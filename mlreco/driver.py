@@ -12,7 +12,10 @@ Takes care of everything in one centralized place:
 
 import os
 
+import pathlib
+
 from .io import loader_factory, reader_factory, writer_factory
+from .io.write import CSVWriter
 
 from .model import Model
 from .build import BuildManager
@@ -39,7 +42,7 @@ class Driver:
     """
 
     def __init__(self, base, io, model=None, build=None, post=None,
-                 ana=None, rank=0):
+                 ana=None, rank=None):
         """Initializes the class attributes.
 
         Parameters
@@ -62,7 +65,7 @@ class Driver:
         self.watch.initialize('iteration')
 
         # Initialize the base driver configuration parameters
-        self.initialize_base(rank=rank, **base)
+        self.initialize_base(**base, rank=rank)
 
         # Initialize the input/output
         self.initialize_io(**io)
@@ -72,13 +75,16 @@ class Driver:
         if model is not None:
             assert self.loader is not None, (
                     "The model can only be used in conjunction with a loader.")
-            self.model = Model(**model)
+            self.watch.initialize('model')
+            self.model = Model(**model, rank=rank)
 
         # Initialize the data representation builder
         self.builder = None
         if build is not None:
             assert self.model is None or self.unwrap, (
                     "Must unwrap the model output to build representations.")
+            assert self.model is None or self.model.to_numpy, (
+                    "Must cast model output to numpy to build representations.")
             self.watch.initialize('build')
             self.builder = BuildManager(**build)
 
@@ -103,7 +109,7 @@ class Driver:
 
     def initialize_base(self, log_dir='logs', prefix_log=False,
                         parent_path=None, iterations=-1, unwrap=False,
-                        rank=0, gpus='', processed=False):
+                        rank=None, gpus='', processed=False, seed=None):
         """Initialize the base driver parameters.
 
         Parameters
@@ -118,10 +124,12 @@ class Driver:
             Number of times to iterate over the data (-1 means all entries)
         unwrap : bool, default False
             Wheather to unwrap batched data (only relevant when using loader)
-        rank : int, default 0
-           Rank of the GPU in the multi-GPU training process
+        rank : int, optional
+            Rank of the GPU in the multi-GPU training process
         processed : bool, default False
-           Whether this configuration has been pre-processed (must be true)
+            Whether this configuration has been pre-processed (must be true)
+        seed : int, optional
+            Random number generator seed
         """
         # Check that the configuration has been processed
         assert processed, (
@@ -130,10 +138,12 @@ class Driver:
 
         # Store general parameters
         self.log_dir = log_dir
+        self.prefix_log = prefix_log
         self.parent_path = parent_path
         self.iterations = iterations
         self.unwrap = unwrap
         self.rank = rank
+        self.seed = seed
 
     def initialize_io(self, loader=None, reader=None, writer=None):
         """Initializes the input/output scripts.
@@ -151,26 +161,32 @@ class Driver:
         assert (loader is not None) ^ (reader is not None), (
                 "Must provide either a loader or a reader configuration.")
 
-        # Initialize the data loader, if provided
+        # Initialize the data loader/reader
         self.loader = None
         if loader is not None:
-            self.loader = loader_factory(
-                    distributed=self.distributed, world_size=self.world_size,
-                    rank=self.rank, **io_cfg)
+            # Initialize the torch data loader
+            self.watch.initialize('load')
+            self.loader = loader_factory(**loader, rank=self.rank)
             self.loader_iter = iter(self.loader)
             self.reader = self.loader.dataset.reader
 
             # If needed, initialize the unwrapper
             if self.unwrap:
-                self.unwrapper = Unwrapper(geometry=self.loader.collate_fn.geo)
+                geometry = None
+                if (hasattr(self.loader, 'collate_fn') and
+                    hasattr(self.loader.collate_fn, 'geo')):
+                    geometry = self.loader.collate_fn.geo
+
+                self.watch.initialize('unwrap')
+                self.unwrapper = Unwrapper(geometry=geometry)
 
             # If needed, set the number of iterations
             if self.iterations < 0:
                 self.iterations = len(self.loader.dataset)
 
-        # Initialize the data reader, if provided
-        self.reader = None
-        if reader is not None:
+        else:
+            # Initialize the reader
+            self.watch.initialize('read')
             self.reader = reader_factory(reader)
 
             # If needed, set the number of iterations
@@ -180,7 +196,14 @@ class Driver:
         # Initialize the data writer, if provided
         self.writer = None
         if writer is not None:
+            self.watch.initialize('write')
             self.writer = writer_factory(writer)
+
+        # If requested, extract the name of the input file to prefix logs
+        if self.prefix_log:
+            assert len(self.reader.file_paths) == 1, (
+                    "To prefix log, there should be a single input file name.")
+            self.log_prefix = pathlib.Path(self.reader.file_paths[0]).stem
 
     def initialize_log(self):
         """Initialize the output log for this driver process."""
@@ -189,11 +212,20 @@ class Driver:
             os.makedirs(self.log_dir, exist_ok=True)
 
         # Determine the log name, initialize it
-        # TODO: Add option to not suffix it with a number
-        start_iteration = self.model.start_iteration if self.model else 0
-        prefix  = 'train' if self.model.train else 'inference'
-        suffix  = '' if not self.model.distributed else f'_proc{self.rank}'
-        logname = f'{prefix}{suffix}_log-{start_iteration:07d}.csv'
+        if self.model is None:
+            # If running the driver with a model, give a generic name
+            logname = f'spine_log.csv'
+        else:
+            # If running the driver within a training/validation process,
+            # follow a specific pattern of log names.
+            start_iteration = self.model.start_iteration if self.model else 0
+            prefix  = 'train' if self.model.train else 'inference'
+            suffix  = '' if not self.model.distributed else f'_proc{self.rank}'
+            logname = f'{prefix}{suffix}_log-{start_iteration:07d}.csv'
+
+        # If requested, prefix the log name with the input file name
+        if self.prefix_log:
+            logname = f'{self.log_prefix}_{logname}'
 
         self.logger = CSVWriter(logname)
 
@@ -225,25 +257,28 @@ class Driver:
             Either one combined data dictionary, or one per entry in the batch
         """
         # 0. Start the timer for the iteration
+        print(self.watch.keys())
         self.watch.start('iteration')
 
         # 1. Load data
-        self.watch.start('read')
         data = self.load(iteration, run, event)
-        self.watch.stop('read')
+        print('INDEX', data['index'])
 
         # 2. Pass data through the model
         if self.model is not None:
             self.watch.start('model')
             result = self.model(data)
             data.update(**result)
-            self.watch.end('model')
+            self.watch.stop('model')
 
         # 3. Unwrap
         if self.unwrap:
             self.watch.start('unwrap')
             data = self.unwrapper(data)
-            self.watch.start('unwrap')
+            self.watch.stop('unwrap')
+
+        print(data.keys())
+        print(data['fragment_group_pred'])
 
         # 4. Build representations
         if self.builder is not None:
@@ -315,7 +350,9 @@ class Driver:
                     (run is None and event is None)), (
                            "Provide the iteration number only.")
 
-            return next(self.loader_iter)
+            self.watch.start('load')
+            data = next(self.loader_iter)
+            self.watch.stop('load')
 
         else:
             # Must provide either iteration or both run and event numbers
@@ -324,10 +361,14 @@ class Driver:
                            "Provide either the iteration number or both the "
                            "run number and the event number to load.")
 
+            self.watch.start('read')
             if iteration is not None:
-                return self.reader.get(iteration)
+                data = self.reader.get(iteration)
             else:
-                return self.reader.get_run_event(run, event)
+                data = self.reader.get_run_event(run, event)
+            self.watch.stop('read')
+
+        return data
 
     def log(self, iteration):
         '''

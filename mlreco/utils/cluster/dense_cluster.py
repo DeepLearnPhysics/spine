@@ -7,7 +7,7 @@ import time
 from sklearn.metrics import adjusted_rand_score as ari
 
 from mlreco.utils.metrics import *
-from mlreco.trainval import TrainVal
+from mlreco.driver import Driver
 from mlreco.io.factories import loader_factory
 from pprint import pprint
 
@@ -107,7 +107,7 @@ def ellipsoidal_kernel(centroid, sigma):
     return f
 
 def find_cluster_means(features, labels):
-    '''
+    r'''
     For a given image, compute the centroids \mu_c for each
     cluster label in the embedding space.
 
@@ -134,7 +134,7 @@ def find_cluster_means(features, labels):
 
 
 def find_cluster_means_cuda(features, labels):
-    '''
+    r'''
     For a given image, compute the centroids \mu_c for each
     cluster label in the embedding space.
 
@@ -257,8 +257,7 @@ def main_loop_parameter_search(train_cfg, **kwargs):
     event_list = list(range(start_index, end_index))
     loader = loader_factory(inference_cfg, event_list=event_list)
     dataset = iter(cycle(loader))
-    Trainer = TrainVal(inference_cfg)
-    loaded_iteration = Trainer.initialize()
+    driver = Driver(inference_cfg)
     output = []
 
     inference_cfg['trainval']['iterations'] = len(event_list)
@@ -277,7 +276,7 @@ def main_loop_parameter_search(train_cfg, **kwargs):
         print("Iteration: %d" % i)
 
         start = time.time()
-        data_blob, res = Trainer.forward(dataset)
+        data_blob, res = driver.forward(dataset)
         end = time.time()
         forward_time = float(end - start)
         # segmentation = res['segmentation'][0]
@@ -354,8 +353,7 @@ def main_loop(train_cfg, **kwargs):
     event_list = list(range(start_index, end_index))
     loader = loader_factory(inference_cfg, event_list=event_list)
     dataset = iter(cycle(loader))
-    Trainer = TrainVal(inference_cfg)
-    loaded_iteration = Trainer.initialize()
+    driver = Driver(inference_cfg)
     output = []
 
     inference_cfg['trainval']['iterations'] = len(event_list)
@@ -368,7 +366,7 @@ def main_loop(train_cfg, **kwargs):
         print("Iteration: %d" % i)
 
         start = time.time()
-        data_blob, res = Trainer.forward(dataset)
+        data_blob, res = driver.forward(dataset)
         end = time.time()
         forward_time = float(end - start)
         # segmentation = res['segmentation'][0]
@@ -441,8 +439,7 @@ def main_loop_voxel_cut(train_cfg, **kwargs):
     event_list = list(range(start_index, end_index))
     loader = loader_factory(inference_cfg, event_list=event_list)
     dataset = iter(cycle(loader))
-    Trainer = TrainVal(inference_cfg)
-    loaded_iteration = Trainer.initialize()
+    driver = Driver(inference_cfg)
     output = []
 
     inference_cfg['trainval']['iterations'] = len(event_list)
@@ -461,7 +458,7 @@ def main_loop_voxel_cut(train_cfg, **kwargs):
         print("Iteration: %d" % i)
 
         start = time.time()
-        data_blob, res = Trainer.forward(dataset)
+        data_blob, res = driver.forward(dataset)
         end = time.time()
         forward_time = float(end - start)
         # segmentation = res['segmentation'][0]

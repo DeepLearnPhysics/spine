@@ -66,9 +66,10 @@ def adapt_labels_batch(clust_label, seg_label, seg_pred, ghost_pred=None,
             shape, dtype=clust_label.dtype, device=clust_label.device)
     for b in range(clust_label.batch_size):
         lower, upper = seg_pred.edges[b], seg_pred.edges[b+1]
+        ghost_pred_b = ghost_pred[b] if ghost_pred is not None else None
         clust_label_adapted[lower:upper] = adapt_labels(
                 clust_label[b], seg_label[b], seg_pred[b],
-                ghost_pred[b], break_classes)
+                ghost_pred_b, break_classes)
 
     return TensorBatch(clust_label_adapted, seg_pred.counts)
 

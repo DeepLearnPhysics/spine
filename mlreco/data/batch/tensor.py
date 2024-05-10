@@ -125,7 +125,7 @@ class TensorBatch(BatchBase):
             coords = self._split(self.data.C, self.splits)
             feats = self._split(self.data.F, self.splits)
             return [ME.SparseTensor(
-                feats[i], coordinates=coords[i]) for i in self.batch_size]
+                feats[i], coordinates=coords[i]) for i in range(self.batch_size)]
 
     def merge(self, tensor_batch):
         """Merge this tensor batch with another.
@@ -211,7 +211,7 @@ class TensorBatch(BatchBase):
         assert self.is_numpy, "Can only convert units of numpy arrays"
         self.data[:, COORD_COLS] = meta.to_cm(self.data[:, COORD_COLS])
 
-    def to_pixel(self, meta):
+    def to_px(self, meta):
         """Converts the coordinates of the tensor to pixel indexes.
 
         Parameters
@@ -220,7 +220,7 @@ class TensorBatch(BatchBase):
             Metadata information about the rasterized image
         """
         assert self.is_numpy, "Can only convert units of numpy arrays"
-        self.data[:, COORD_COLS] = meta.to_pixel(self.data[:, COORD_COLS])
+        self.data[:, COORD_COLS] = meta.to_px(self.data[:, COORD_COLS])
 
     @classmethod
     def from_list(cls, data_list):

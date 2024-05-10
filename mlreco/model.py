@@ -1,17 +1,29 @@
 """Centralize all methods associated with a machine-learning model."""
 
+import os
+import glob
 from copy import deepcopy
 
-from .models import model_factory
+import numpy as np
+import torch
+from torch.nn.parallel import DistributedDataParallel as DDP
 
+from .models import model_factory
+from .models.experimental.bayes.calibration import (
+        calibrator_factory, calibrator_loss_factory)
+
+from .data import TensorBatch, IndexBatch, EdgeIndexBatch
 from .utils.logger import logger
 
 
 class Model:
     """Groups all relevant functions to construct a model and its loss."""
 
-    def __init__(self, name, modules, model_path=None, train=False,
-                 distributed=False):
+    def __init__(self, name, modules, network_input, model_path=None,
+                 loss_input=None, calibration=None, train=False,
+                 to_numpy=False, time_dependent=False, dtype=torch.float,
+                 distributed=False, rank=None, detect_anomaly=False,
+                 find_unused_parameters=False):
         """Process the model configuration.
 
         Parameters
@@ -20,41 +32,126 @@ class Model:
             Name of the model as specified under mlreco.models.factories
         modules : dict
             Dictionary of modules that make up the model
+        network_input : List[str]
+            List of keys of parsed objects to input into the model forward
         model_path : str, optional
             Path to global model weights to load
+        loss_input : List[str], optional
+            List of keys of parsed objects to input into the loss forward
+        calibration : dict, optional
+            Model score calibration configuration
+        to_numpy : int, default False
+            Cast model output to numpy ndarray
+        time_dependant : bool, default False
+            Handles time-dependant loss, such as KL divergence annealing
         train : bool, default False
             If True, enable autograd
+        dtype : torch.dtype
+            Data type of the model parameters and input data 
         distributed : bool, default False
             Whether the model is part of a distributed training process
+        rank : int, optional
+            Process rank in a torch distributed process
+        detect_anomaly : bool, default False
+            Whether to attempt to detect a torch anomaly
+        find_unused_parameters : bool, default False
+            Attempts to detect unused model parameters in the forward pass
         """
         # Save parameters
         self.train = train
+        self.to_numpy = to_numpy
+        self.time_dependant = time_dependent
+        self.dtype = dtype
         self.distributed = distributed
+        self.rank = rank
+
+        # If anomaly detection is requested, set it
+        if detect_anomaly:
+            torch.autograd.set_detect_anomaly(True, check_nan=True)
 
         # Deepcopy the model configuration, remove the weight loading/freezing
         self.model_name = name
         self.model_cfg = deepcopy(modules)
-        modules = self.clean_config(modules)
+        self.clean_config(modules)
 
         # Initialize the model network and loss functions
-        network_cls, loss_cls = model_factory(name)
+        net_cls, loss_cls = model_factory(name)
         try:
-            self.net = self.net_cls(**modules)
+            self.net = net_cls(**modules)
+            print('RANK', rank)
+            self.net.to(device=rank, dtype=dtype)
         except Exception as err:
-            msg = f"Failed to instantiate {network_cls}"
+            msg = f"Failed to instantiate {net_cls}"
             raise type(err)(f"{err}\n{msg}")
 
         try:
-            self.loss_fn = self.loss_class(**modules)
+            self.loss_fn = loss_cls(**modules)
+            self.loss_fn.to(device=rank, dtype=dtype)
         except Exception as err:
             msg = f"Failed to instantiate {loss_cls}"
             raise type(err)(f"{err}\n{msg}")
+
+        # If the execution is distributed, wrap with DDP
+        if self.distributed:
+            self.model = DDP(
+                    self.model, device_ids=[rank], output_device=self.rank,
+                    find_unused_parameters=find_unused_parameters)
+
+        # Put the model in evaluation mode if requested
+        if train:
+            self.net.train()
+        else:
+            self.net.eval()
+
+        # If requested, put the model in calibration mode
+        if calibration is not None:
+            self.initialize_calibrator(**calibration)
+
+        # Store the list of input keys to the forward/loss functions. These
+        # should be specified as a dictionary mapping the name of the argument
+        # in the forward/loss function to a data product name.
+        self.input_dict = network_input
+        self.loss_dict  = loss_input
+
+        if not isinstance(network_input, dict):
+            warn("Specify `network_input` as a dictionary, not a list.",
+                 DeprecationWarning)
+            fn   = self.model_class.forward
+            keys = list(signature(fn).parameters.keys())[1:] # Skip `self`
+            num_input = len(network_input)
+            self.input_dict = {
+                    keys[i]:network_input[i] for i in range(num_input)}
+
+        if loss_input is not None and not isinstance(loss_input, dict):
+            warn("Specify `loss_input` as a dictionary, not a list.",
+                 DeprecationWarning)
+            fn   = self.loss_class.forward
+            keys = list(signature(fn).parameters.keys())[1:] # Skip `self`
+            num_input = len(loss_input)
+            self.loss_dict = {keys[i]:loss_input[i] for i in range(num_input)}
 
         # If requested, freeze some/all the model weights
         self.freeze_weights()
 
         # If requested, load the some/all the model weights
-        self.load_model(model_path)
+        self.load_weights(model_path)
+
+    def initialize_calibrator(self, calibrator, calibrator_loss):
+        """Switch model to calibration mode.
+
+        Allows to calibrate logits to respond linearly to probability,
+        for instance.
+
+        Parameters
+        ----------
+        calibrator : dict
+            Calibrator configuration dictionary
+        calibrator_loss : dict
+            Calibrator loss configuration dictionary
+        """
+        # Switch to calibration mode
+        self.net = calibrator_factory(model=self.net, **calibrator)
+        self.loss_fn = calibrator_loss_factory(**calibrator_loss)
 
     def __call__(self, data):
         """Calls the forward function on the provided batch of data.
@@ -89,7 +186,7 @@ class Model:
                 if k in config:
                     del config[k]
             for val in config.values():
-                clean_config(val)
+                self.clean_config(val)
 
     def freeze_weights(self):
         """Freeze the weights of certain model components.
@@ -260,19 +357,19 @@ class Model:
             Labels to be used in the loss computation
         """
         # Fetch the requested data products
-        device = self.rank if self.gpus else None
         input_dict, loss_dict = {}, {}
         with torch.set_grad_enabled(self.train):
             # Load the data products for the model forward
             input_dict = {}
             for param, name in self.input_dict.items():
                 assert name in data, (
-                        f"Must provide {name} in the dataloader schema to "
-                         "input into the model forward")
+                        f"Must provide `{name}` in the dataloader schema to "
+                         "input into the model forward.")
 
                 value = data[name]
                 if isinstance(value, TensorBatch):
-                    value = data[name].to_tensor(torch.float, device)
+                    value = data[name].to_tensor(
+                            device=self.rank, dtype=self.dtype)
                 input_dict[param] = value
 
             # Load the data products for the loss function
@@ -280,12 +377,13 @@ class Model:
             if self.loss_dict is not None:
                 for param, name in self.loss_dict.items():
                     assert name in data, (
-                            f"Must provide {name} in the dataloader schema to "
-                             "input into the loss function")
+                            f"Must provide `{name}` in the dataloader schema to "
+                             "input into the loss function.")
 
                     value = data[name]
                     if isinstance(value, TensorBatch):
-                        value = data[name].to_tensor(torch.float, device)
+                        value = data[name].to_tensor(
+                            device=self.rank, dtype=self.dtype)
                     loss_dict[param] = value
 
         return input_dict, loss_dict
@@ -314,7 +412,7 @@ class Model:
         with torch.set_grad_enabled(self.train):
 
             # Apply the model forward
-            result = self.model(**input_dict)
+            result = self.net(**input_dict)
 
             # Compute the loss if one is specified, append results
             self.loss = 0.
@@ -328,15 +426,9 @@ class Model:
                 if self.train:
                     self.loss = result['loss']
 
-            # Filter and cast the output to numpy, if requested
-            for key, value in result.items():
-                # Skip keys that are not to be output
-                if ((self.output_keys and key not in self.output_keys) or
-                    (self.ignore_keys and key in self.ignore_keys)):
-                    del result[key]
-
-                # Convert to numpy, if requested
-                if self.to_numpy:
+            # Convert to numpy, if requested
+            if self.to_numpy:
+                for key, value in result.items():
                     if np.isscalar(value):
                         # Scalar
                         result[key] = value

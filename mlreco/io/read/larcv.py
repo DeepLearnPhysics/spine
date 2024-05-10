@@ -1,5 +1,6 @@
 """Contains a reader class dedicated to loading data from LArCV files."""
 
+import numpy as np
 import ROOT
 
 from mlreco.utils.decorators import inherit_docstring

@@ -22,7 +22,7 @@ class TruthInteraction(Neutrino, InteractionBase):
 
     Attributes
     ----------
-    truth_id : int
+    orig_id : int
         Unaltered index of the interaction in the MC truth
     nu_id : int
         Index of the neutrino attached to this interaction
@@ -41,7 +41,7 @@ class TruthInteraction(Neutrino, InteractionBase):
     depositions_g4 : np.ndarray
         (N) Array of true Geant4 energy depositions per voxel
     """
-    truth_id: int = -1
+    orig_id: int = -1
     nu_id: int = -1
     index_adapt: np.ndarray = None
     points_adapt: np.ndarray = None

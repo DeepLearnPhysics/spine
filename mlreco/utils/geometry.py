@@ -533,7 +533,7 @@ class Geometry:
                     self.translate(points[module_index], module_id, target_id)
 
         # Bring the coordiantes back to pixels, if they were shifted
-        points = meta.to_pixel(points, convert)
+        points = meta.to_px(points, convert)
 
         return points, module_indexes
 

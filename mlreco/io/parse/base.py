@@ -75,13 +75,14 @@ class ParserBase(ABC):
             if isinstance(value, str):
                 if value not in trees:
                     raise ValueError(
-                            f"Must provide {value} for parser {self.name}")
+                            f"Must provide {value} for parser `{self.name}`.")
                 data_dict[key] = trees[value]
+
             elif isinstance(value, list):
                 for v in value:
                     if v not in trees:
                         raise ValueError(
-                                f"Must provide {v} for parser {self.name}")
+                                f"Must provide {v} for parser `{self.name}`.")
                 data_dict[key] = [trees[v] for v in value]
 
         return data_dict

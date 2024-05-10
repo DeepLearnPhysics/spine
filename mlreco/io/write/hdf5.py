@@ -28,15 +28,14 @@ class HDF5Writer:
           writer:
             name: hdf5
             file_name: output.h5
-            req_keys:
+            keys:
               - input_data
               - segmentation
               - ...
     """
     name = 'hdf5'
 
-    def __init__(self, file_name='output.h5', input_keys=None,
-                 skip_input_keys=None, result_keys=None, skip_result_keys=None,
+    def __init__(self, file_name='output.h5', keys=None, skip_keys=None,
                  append_file=False):
         """Initializes the basics of the output file.
 
@@ -44,32 +43,23 @@ class HDF5Writer:
         ----------
         file_name : str, default 'output.h5'
             Name of the output HDF5 file
-        input_keys : List[str], optional
-            List of input keys to store. If not specified, stores all of the
-            input keys
-        skip_input_keys: List[str], optional
-            List of input keys to skip
-        result_keys : List[str], optional
-            List of result keys to store. If not specified, stores all of the
-            result keys
-        skip_result_keys: List[str], optional
-            List of result keys to skip
+        keys : List[str], optional
+            List of data product keys to store. If not specified, store everything
+        skip_keys: List[str], optionl
+            List of data product keys to skip
         append_file: bool, default False
             Add new values to the end of an existing file
         """
         # Store persistent attributes
-        self.file_name     = file_name
-        self.append_file   = append_file
-        self.ready         = False
-        self.object_dtypes = []
+        self.file_name = file_name
+        self.append_file = append_file
+        self.ready = False
+        self.object_dtypes = [] # TODO: make this a set
 
-        self.input_keys       = input_keys
-        self.skip_input_keys  = skip_input_keys
-        self.result_keys      = result_keys
-        self.skip_result_keys = skip_result_keys
+        self.keys = keys
+        self.skip_keys = skip_keys
 
         # Initialize attributes to be stored when the output file is created
-        self.batch_size  = None
         self.type_dict   = None
         self.event_dtype = None
 
@@ -79,8 +69,6 @@ class HDF5Writer:
 
         Attributes
         ----------
-        category : str, optional
-            Category of data to store ('data' or 'result')
         dtype : type, optional
             Data type
         class_name : str, optional
@@ -92,7 +80,6 @@ class HDF5Writer:
         scalar : bool, default False
             Whether the data is a scalar object or not
         """
-        category: str = None
         dtype: str = None
         class_name: str = None
         width: int = 0
@@ -115,12 +102,9 @@ class HDF5Writer:
         self.type_dict = {}
 
         # Fetch the required keys to be stored and register them
-        self.input_keys, self.result_keys = self.get_stored_keys(
-                data_blob, result_blob)
-        for key in self.input_keys:
-            self.register_key(data_blob, key, 'data')
-        for key in self.result_keys:
-            self.register_key(result_blob, key, 'result')
+        self.keys = self.get_stored_keys(data)
+        for key in self.keys:
+            self.register_key(data, key)
 
         # Initialize the output HDF5 file
         with h5py.File(self.file_name, 'w') as out_file:
@@ -137,15 +121,13 @@ class HDF5Writer:
             # Mark file as ready for use
             self.ready = True
 
-    def get_stored_keys(self, data_blob, result_blob):
-        """Get the list of data and or result keys to store.
+    def get_stored_keys(self, data):
+        """Get the list of data product keys to store.
 
         Parameters
         ----------
-        data_blob : dict
-            Dictionary containing the input data
-        result_blob : dict
-            Dictionary containing the output of the reconstruction chain
+        data : dict
+            Dictionary of data products
 
         Returns
         -------
@@ -156,31 +138,31 @@ class HDF5Writer:
         """
         # If the keys were already produced, nothing to do
         if self.ready:
-            return self.input_keys, self.result_keys
+            return self.keys
 
-        # Make sure there is something to store
-        assert data_blob, "Must provide a non-empty `data_blob`."
-
-        # Check that the input/result keys make sense,
-        assert (self.input_keys is None) | (self.skip_input_keys is None), (
-                "Must only specify one of `input_keys` or `skip_input_keys`")
-        assert (self.result_keys is None) | (self.skip_result_keys is None), (
-                "Must only specify one of `result_keys` or `skip_result_keys`")
+        # Check that the required/ keys make sense,
+        assert (self.keys is None) | (self.skip_keys is None), (
+                "Must not specify both `keys` or `skip_keys`.")
 
         # Translate input_keys/skip_input_keys into a single list
         input_keys = {'index'}
-        if self.input_keys is None:
-            input_keys.update(data_blob.keys())
-            if self.skip_input_keys is not None:
-                for key in self.skip_input_keys:
-                    if key in input_keys:
+        if self.keys is None:
+            keys.update(data_blob.keys())
+            if self.skip_keys is not None:
+                for key in self.skip_keys:
+                    if key in self.keys:
                         input_keys.remove(key)
+                    else:
+                       raise KeyError(
+                                f"Key {key} appears in `skip_keys` but does not "
+                                 "appear in the dictionary of data products.")
+
         else:
             input_keys.update(self.input_keys)
             for k in self.input_keys:
                 assert k in data_blob, (
                         f"Cannot store {k} as it does not appear "
-                         "in the input dictionary")
+                         "in the input dictionary.")
 
         # Translate result_keys/skip_result_keys into a single list
         result_keys = set()
@@ -201,7 +183,7 @@ class HDF5Writer:
 
         return input_keys, result_keys
 
-    def register_key(self, blob, key, category):
+    def register_key(self, blob, key):
         """Identify the dtype and shape objects to be dealt with.
 
         Parameters
@@ -210,11 +192,9 @@ class HDF5Writer:
             Dictionary containing the information to be stored
         key : string
             Dictionary key name
-        category : string
-            Data category: `data` or `result`
         """
         # Initialize a type object for this output key
-        self.type_dict[key] = self.DataFormat(category)
+        self.type_dict[key] = self.DataFormat()
 
         # Store the necessary information to know how to store a key
         if np.isscalar(blob[key]):
@@ -406,7 +386,6 @@ class HDF5Writer:
                         'elements', shape, maxshape=maxshape, dtype=val.dtype)
 
             # Give relevant attributes to the dataset
-            out_file[key].attrs['category'] = val.category
             out_file[key].attrs['scalar'] = val.scalar
 
         out_file.create_dataset(
@@ -431,10 +410,10 @@ class HDF5Writer:
             self.ready = True
 
         # Append file
-        self.batch_size = len(data_blob['index'])
+        batch_size = len(data_blob['index'])
         with h5py.File(self.file_name, 'a') as out_file:
             # Loop over batch IDs
-            for batch_id in range(self.batch_size):
+            for batch_id in range(batch_size):
                 # Initialize a new event
                 event = np.empty(1, self.event_dtype)
 

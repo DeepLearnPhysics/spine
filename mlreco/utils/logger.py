@@ -17,3 +17,7 @@ logger = logging.getLogger('mlreco')
 
 # Configure the warnings package to only issue warnings once
 warnings.simplefilter('default')
+
+# Suppress MinkowskiEngine internal problems (nothing we can do about it)
+warnings.filterwarnings('ignore', category=DeprecationWarning,
+                        message='<class \'Minkowski')

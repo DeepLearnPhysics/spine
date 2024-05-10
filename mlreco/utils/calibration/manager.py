@@ -28,7 +28,7 @@ class CalibrationManager:
 
         # Make sure the essential calibration modules are present
         assert 'recombination' not in cfg or 'gain' in cfg, (
-                "Must provide gain configuration if recombination is applied."
+                "Must provide gain configuration if recombination is applied.")
 
         # Add the modules to a processor list in decreasing order of priority
         self.modules = {}

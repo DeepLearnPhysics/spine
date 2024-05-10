@@ -51,7 +51,7 @@ def detector_traces(detector=None, boundaries=None, meta=None,
         assert meta is not None, (
                 "Must provide meta information to convert the detector "
                 "boundaries to pixel coordinates.")
-        boundaries = meta.to_pixel(
+        boundaries = meta.to_px(
                 boundaries.transpose(0,2,1)).transpose(0,2,1)
 
     # Get a trace per detector volume

@@ -52,7 +52,7 @@ class Unwrapper:
         dict
             Dictionary of unwrapped data products
         """
-        data_unwrappped = {}
+        data_unwrapped = {}
         for key, value in data.items():
             data_unwrapped[key] = self._unwrap(key, value)
 
@@ -69,11 +69,12 @@ class Unwrapper:
             Data product
         """
         # Data should never be an empty list
-        assert np.isscalar(data) or len(data), (
+        dim = len(getattr(data, 'shape', [0]))
+        assert np.isscalar(data) or dim == 0  or len(data), (
                 "Batch has length 0, should not happen.")
 
         # Dispatch to the correct unwrapping scheme
-        if (np.isscalar(data) or 
+        if (np.isscalar(data) or dim == 0 or
             (isinstance(data, list) and not isinstance(data[0], TensorBatch))):
             # If there is a single scalar for the entire batch or a simple list
             # of objects (one per entry), return as is

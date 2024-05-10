@@ -97,7 +97,7 @@ class Meta(DataStructBase):
         out = self.lower + (coords + .5) * self.size
         return out.astype(np.float32)
 
-    def to_pixel(self, coords, translate=True):
+    def to_px(self, coords, translate=True):
         """Converts detector coordinates in cm in a tensor to pixel indexes.
 
         Parameters

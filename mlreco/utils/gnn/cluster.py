@@ -57,12 +57,8 @@ def form_clusters_batch(data, min_size=-1, column=CLUST_COL,
             offsets.append(offsets[-1] + len(data_b))
 
     # Make an IndexBatch out of the list
-    clusts_np = np.empty(len(clusts), dtype=object)
-    clusts_np[:] = clusts
-    is_numpy = data.is_numpy
-
     return IndexBatch(
-            clusts_np, offsets, counts, single_counts, is_numpy=is_numpy)
+            clusts, offsets, counts, single_counts, is_numpy=data.is_numpy)
 
 
 def get_cluster_label_batch(data, clusts, column=CLUST_COL):
@@ -472,8 +468,6 @@ def _get_cluster_energies(data: nb.float64[:,:],
     return energies
 
 
-@numbafy(cast_args=['data'], list_args=['clusts'],
-         keep_torch=True, ref_arg='data')
 def get_cluster_features(data, clusts, add_value=False, add_shape=False):
     """Returns an array of features for each cluster.
 
@@ -502,9 +496,9 @@ def get_cluster_features(data, clusts, add_value=False, add_shape=False):
     np.ndarray
         (C, N_c) Tensor of cluster features
     """
-    feats = _get_cluster_features_base(data, clusts)
+    feats = get_cluster_features_base(data, clusts)
     if add_value or add_shape:
-        feats_ext = _get_cluster_features_extended(
+        feats_ext = get_cluster_features_extended(
                 data, clusts, add_value, add_shape)
         feats = np.hstack((feats, feats_ext))
 

@@ -223,6 +223,9 @@ class DBSCAN(torch.nn.Module):
         clusts_nb[:] = clusts
 
         index = IndexBatch(clusts_nb, offsets, counts, single_counts)
-        classes = TensorBatch(np.concatenate(classes), counts)
+        if len(classes):
+            classes = TensorBatch(np.concatenate(classes), counts)
+        else:
+            classes = TensorBatch(np.empty(0, dtype=np.int64), counts)
 
         return index, classes

@@ -105,6 +105,10 @@ class BerHuLoss(nn.modules.loss._Loss):
         # Compute the L1 loss
         norm = torch.abs(inputs - targets)
 
+        # If the norm array is of length 0, nothing to do
+        if len(norm) == 0:
+            return norm.sum()
+
         # Apply different losses below and above the threshold
         c = norm.max() * self.threshold
         out = torch.where(norm <= c, norm, (norm**2 + c**2) / (2.0 * c))

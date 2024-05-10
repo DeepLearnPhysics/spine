@@ -241,7 +241,15 @@ class IndexBatch(BatchBase):
         List[List[Union[np.ndarray, torch.Tensor]]]
             List of list of indexes per entry in the batch
         """
-        indexes = self._split(self.data, self.splits)
+        # Cast to numpy object array to be able to use split
+        if self.is_list and not isinstance(self.data, np.ndarray):
+            data_np = np.empty(len(self.data), dtype=object)
+            data_np[:] = self.data
+        else:
+            data_np = self.data
+
+        # Split, offset
+        indexes = np.split(data_np, self.splits)
         for batch_id in range(self.batch_size):
             indexes[batch_id] = indexes[batch_id] - self.offsets[batch_id]
 
