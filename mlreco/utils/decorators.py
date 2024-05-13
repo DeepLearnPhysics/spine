@@ -30,15 +30,15 @@ def timing(fn):
     return wrap
 
 
-def inherit_docstring(parent):
+def inherit_docstring(*parents):
     """Inherits docstring attributes of a parent class.
 
     Only handles numpy-style docstrings.
 
     Parameters
     ----------
-    parent : object
-        Parent class to inherit attributes from
+    *parents : List[object]
+        Parent class(es) to inherit attributes from
 
     Returns
     -------
@@ -55,15 +55,19 @@ def inherit_docstring(parent):
             obj.__doc__ += f'\n\n{tab}{header}'
 
         # Get the parent attribute docstring block
-        docstr = parent.__doc__
-        substr = docstr.split(header)[-1].rstrip() + '\n'
-        if len(substr.split(underline)) > 1:
-            substr = substr.split(underline)[0].split('\n')[:-1]
-            substr = ''.join(substr).rstrip()
+        prestr = ''
+        for parent in parents:
+            docstr = parent.__doc__
+            substr = docstr.split(header)[-1].rstrip() + '\n'
+            if len(substr.split(underline)) > 1:
+                substr = substr.split(underline)[0].split('\n')[:-1]
+                substr = ''.join(substr).rstrip()
+
+            prestr += substr
 
         # Append it to the relevant block
         split_doc   = obj.__doc__.split(header)
-        obj.__doc__ = split_doc[0] + header + substr + split_doc[1]
+        obj.__doc__ = split_doc[0] + header + prestr + split_doc[1]
 
         return obj
 

@@ -254,7 +254,7 @@ class FullChain(torch.nn.Module):
         self.result = {}
 
         # Run the deghosting step
-        data = self.run_deghosting(data, seg_label, clust_label)
+        data, sources = self.run_deghosting(data, sources, seg_label, clust_label)
 
         # Run the calibration step
         data = self.run_calibration(data, sources, energy_label, run_info)
@@ -268,7 +268,7 @@ class FullChain(torch.nn.Module):
         # Run the particle aggregation
         self.run_part_aggregation(data, clust_label, coord_label)
 
-        # Run the particle classification stage
+        # Run the independant particle classification stage
         # TODO
 
         # Run the interaction aggregation
@@ -280,7 +280,8 @@ class FullChain(torch.nn.Module):
         # Return
         return self.result
 
-    def run_deghosting(self, data, seg_label=None, clust_label=None):
+    def run_deghosting(self, data, sources=None, seg_label=None,
+                       clust_label=None):
         """Run the deghosting algorithm.
 
         This removes points that are artifacts of the tomographic
@@ -292,6 +293,8 @@ class FullChain(torch.nn.Module):
         ----------
         data : TensorBatch
             (N, 1 + D + N_f) tensor of voxel/value pairs
+        sources : TensorBatch, optional
+            (N, 2) tensor of module/tpc pair for each voxel
         seg_label : TensorBatch, optional
             (N, 1 + D + 1) Tensor of segmentation labels for the batch
         clust_label : TensorBatch, optional
@@ -309,23 +312,36 @@ class FullChain(torch.nn.Module):
             # Store the ghost scores and the ghost mask
             ghost_tensor = res_deghost['segmentation'].tensor
             ghost_pred = torch.argmax(ghost_tensor, dim=1)
-            data_adapted = TensorBatch(
+            data_adapt = TensorBatch(
                     data.tensor[ghost_pred == 0], batch_size=data.batch_size)
             ghost_pred = TensorBatch(ghost_pred, data.counts)
 
             # Rescale the charge, if requested
             if self.charge_rescaling is not None:
                 charges = compute_rescaled_charge_batch(
-                        data_adapted, self.charge_rescaling == 'collection')
-                tensor_deghost = data_adapted.tensor[:, :-6]
+                        data_adapt, self.charge_rescaling == 'collection')
+                tensor_deghost = data_adapt.tensor[:, :-6]
                 tensor_deghost[:, VALUE_COL] = charges
-                data_adapted = TensorBatch(tensor_deghost, data_adapted.counts)
+                data_adapt = TensorBatch(tensor_deghost, data_adapt.counts)
 
             self.result['ghost'] = res_deghost['segmentation']
             self.result['ghost_pred'] = ghost_pred
-            self.result['data_adapted'] = data_adapted
+            self.result['data_adapt'] = data_adapt
 
-            return data_adapted
+            # If sources are provided, narrow them down to non-ghosts
+            sources_adapt = None
+            if sources is not None:
+                sources_adapt = TensorBatch(
+                        sources.tensor[ghost_pred.tensor == 0],
+                        data_adapt.counts)
+                self.result['sources_adapt'] = sources_adapt
+                if seg_label is not None:
+                    ghost_label = seg_label.tensor[:, SHAPE_COL] < GHOST_SHP
+                    sources_label = TensorBatch(
+                            source.tensor[ghost_label], seg_label.counts)
+                    self.result['sources_label'] = sources_label
+
+            return data_adapt, sources_adapt
 
         elif self.deghosting == 'label':
             # Use ghost labels to remove ghost voxels from the input
@@ -343,16 +359,33 @@ class FullChain(torch.nn.Module):
 
             # Store and return
             ghost_pred = TensorBatch(ghost_pred, data.counts)
-            data_adapted = TensorBatch(
+            data_adapt = TensorBatch(
                     tensor_deghost, batch_size=data.batch_size)
             self.result['ghost_pred'] = ghost_pred
-            self.result['data_adapted'] = data_adapted
+            self.result['data_adapt'] = data_adapt
 
-            return data_adapted
+            # If sources are provided, narrow them down to non-ghosts
+            sources_adapt = None
+            if sources is not None:
+                sources_adapt = TensorBatch(
+                        sources.tensor[ghost_pred.tensor == 0],
+                        data_adapt.counts)
+                self.result['sources_adapt'] = sources_adapt
+                if seg_label is not None:
+                    self.result['sources_label'] = sources_adapt
+
+            return data_adapt, sources_adapt
 
         else:
+            # If sources are provided, set the expected output
+            sources_adapt = None
+            if sources is not None:
+                self.result['sources_adapt'] = sources
+                if seg_label is not None:
+                    self.result['sources_label'] = sources
+
             # Nothing to do
-            return data
+            return data, sources_adapt
 
     def run_calibration(self, data, sources=None, energy_label=None,
                         run_info=None):
@@ -388,18 +421,18 @@ class FullChain(torch.nn.Module):
  
             # TODO: remove hard-coded value of dE/dx
             values = self.calibrator(voxels, values, sources, run_info, 2.2)
-            data.data[:, VALUE_COL] = torch.tensor(
+            data.tensor[:, VALUE_COL] = torch.tensor(
                     values, dtype=data.dtype, device=data.device)
 
-            self.result['data_adapted'] = data
+            self.result['data_adapt'] = data
 
         elif self.calibration == 'label':
             # Use energy labels to give values to each voxel
             assert energy_label is not None, (
                     "Must provide `seg_label` to deghost with it.")
-            data.value[:, VALUE_COL] = energy_label.tensor[:, VALUE_COL]
+            data.tensor[:, VALUE_COL] = energy_label.tensor[:, VALUE_COL]
 
-            self.result['data_adapted'] = data
+            self.result['data_adapt'] = data
 
         return data
 
@@ -431,13 +464,13 @@ class FullChain(torch.nn.Module):
                 # Store the ghost scores and the ghost mask
                 ghost_tensor = res_deghost['host'].tensor
                 ghost_pred = torch.argmax(ghost_tensor, dim=1)
-                data_adapted = TensorBatch(
+                data_adapt = TensorBatch(
                         data.tensor[ghost_pred == 0],
                         batch_size=data.batch_size)
                 ghost_pred = TensorBatch(ghost_pred, data.counts)
 
                 self.result['ghost_pred'] = ghost_pred
-                self.result['data_adapted'] = data_adapted
+                self.result['data_adapt'] = data_adapt
 
                 # If there are PPN outputs, deghost them
                 if 'ppn_points' in res_seg:

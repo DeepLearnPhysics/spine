@@ -70,25 +70,25 @@ def main(config, source, source_list, output, n, nskip, detect_anomaly):
 
     # Override the input/output command-line information into the configuration
     if source is not None or source_list is not None:
-        if 'reader' in cfg:
+        if 'reader' in cfg['io']:
             cfg['io']['reader']['file_keys'] = source or source_list
-        elif 'loader' in cfg:
+        elif 'loader' in cfg['io']:
             cfg['io']['loader']['dataset']['file_keys'] = source or source_list
         else:
             raise KeyError("Must specify `loader` or `reader` in the `io` block.")
 
     if n is not None:
-        if 'reader' in cfg:
+        if 'reader' in cfg['io']:
             cfg['io']['reader']['n_entry'] = n
-        elif 'loader' in cfg:
+        elif 'loader' in cfg['io']:
             cfg['io']['loader']['dataset']['n_entry'] = n
         else:
             raise KeyError("Must specify `loader` or `reader` in the `io` block.")
 
     if nskip is not None:
-        if 'reader' in cfg:
+        if 'reader' in cfg['io']:
             cfg['io']['reader']['n_skip'] = nskip
-        elif 'loader' in cfg:
+        elif 'loader' in cfg['io']:
             cfg['io']['loader']['dataset']['n_skip'] = nskip
         else:
             raise KeyError("Must specify `loader` or `reader` in the `io` block.")

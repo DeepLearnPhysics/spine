@@ -6,7 +6,7 @@ import numpy as np
 
 
 @dataclass
-class DataStructBase:
+class DataBase:
     """Base class of all data structures.
 
     Defines basic methods shared by all data structures.
@@ -29,6 +29,9 @@ class DataStructBase:
 
     # String attributes
     _str_attrs = []
+
+    # Attributes to concatenate when merging objects
+    _cat_attrs = []
 
     # Attributes that should not be stored to file (long-form attributes)
     _skip_attrs = []
@@ -163,8 +166,8 @@ class DataStructBase:
 
 
 @dataclass
-class PosDataStructBase(DataStructBase):
-    """Base class of for data structes with positional attributes.
+class PosDataBase(DataBase):
+    """Base class of for data structures with positional attributes.
 
     Includes method to convert positional attributes
 

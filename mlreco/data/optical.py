@@ -7,13 +7,13 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .base import PosDataStructBase
+from .base import PosDataBase
 
 __all__ = ['Flash']
 
 
 @dataclass
-class Flash(PosDataStructBase):
+class Flash(PosDataBase):
     """Optical flash information.
 
     Attributes

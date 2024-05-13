@@ -10,13 +10,13 @@ import numpy as np
 
 from mlreco.utils.globals import UNKWN_SHP, SHAPE_LABELS, PID_LABELS
 
-from .base import PosDataStructBase
+from .base import PosDataBase
 
 __all__ = ['Particle']
 
 
 @dataclass
-class Particle(PosDataStructBase):
+class Particle(PosDataBase):
     """Particle truth information.
 
     Attributes

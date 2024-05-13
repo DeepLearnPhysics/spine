@@ -1,8 +1,9 @@
 """Contains base class of all post-processors."""
-import time
+
+from abc import ABC, abstractmethod
 
 
-class PostBase:
+class PostBase(ABC):
     """Base class of all post-processors.
     
     This base class performs the following functions:
@@ -11,20 +12,33 @@ class PostBase:
         to do its job
       - Fetches the appropriate coordinate attributes
       - Ensures that the appropriate units are provided
+
+    Attributes
+    ----------
+    name : str
+        Name of the post-processor as defined in the configuration file
+    aliases : []
+        Alternative acceptable names for a post-processor
+    parent_path : str
+        Path to the main configuration file (to access relative configurations)
+    keys : Dict[str, bool]
+        List of data product keys used to operate the post-processor
+    truth_point_mode : str
+        Type of `points` attribute to use for the truth particles
+    units : str
+        Units in which the objects must be expressed (one of 'px' or 'cm')
     """
     name = ''
+    aliases = []
     parent_path = ''
-    data_cap = []
-    data_cap_opt = []
-    result_cap = []
-    result_cap_opt = []
+    keys = []
     truth_point_mode = 'points'
     units = 'cm'
 
     # List of recognized run modes
     _run_modes = ['reco', 'truth', 'both', 'all']
     
-    # List of recognized obejct types
+    # List of recognized object types
     _obj_types = ['fragment', 'particle', 'interaction']
 
     def __init__(self, run_mode=None, truth_point_mode=None):
@@ -47,19 +61,18 @@ class PostBase:
                     f"{self._run_modes}.")
 
         # Make a list of object keys to process
-        req_keys = self.result_cap + self.result_cap_opt
         for name in self._obj_types:
             # Initialize one list per object type
             setattr(self, f'{name}_keys', [])
 
             # Loop over the requisite keys, store them
-            if run_mode in ['reco', 'both', 'all']:
-                key = f'reco_{name}'
-                if key in req_keys:
+            if run_mode != 'truth':
+                key = f'reco_{name}s'
+                if key in self.keys:
                     getattr(self, f'{name}_keys').append(key)
-            if run_mode in ['truth', 'both', 'all']:
-                key = f'truth_{name}'
-                if key in req_keys:
+            if run_mode != 'reco':
+                key = f'truth_{name}s'
+                if key in self.keys:
                     getattr(self, f'{name}_keys').append(key)
 
         self.all_keys = (self.fragment_keys 
@@ -70,76 +83,37 @@ class PostBase:
         if truth_point_mode is not None:
             self.truth_point_mode = truth_point_mode
 
-    def run(self, data_dict, result_dict, image_id):
-        """Runs the post processor on one entry.
+    def __call__(self, data, entry=None):
+        """Calls the post processor on one entry.
 
         Parameters
         ----------
-        data_dict : dict
-            Input data dictionary
-        result_dict : dict
-            Chain output dictionary
-        image_id : int
-            Entry number in the input/output dictionaries
+        data : dict
+            Dicitionary of data products
+        entry : int, optional
+            Entry in the batch
 
         Returns
         -------
-        data_update : dict
+        dict
             Update to the input dictionary
-        result_update : dict
-            Update to the result dictionary
-        time : float
-            Post-processor execution time
         """
-        # Fetch the necessary information
-        data_single, result_single = {}, {}
-        for data_key in self.data_cap:
-            if data_key in data_dict.keys():
-                if data_key == 'meta':
-                    data_single[data_key] = data_dict[data_key]
-                else:
-                    data_single[data_key] = data_dict[data_key][image_id]
-            else:
-                raise KeyError(
-                        f"Unable to find {data_key} in data dictionary while "
-                        f"running post-processor {self.name}.")
+        # Fetch the input dictionary
+        input_data = {}
+        for key, req in self.keys.items():
+            # If this key is needed, check that it exists
+            assert not req or key in data, (
+                    f"Post-processor `{self.name}` if missing an essential "
+                    f"input to be used: `{key}`.")
 
-        for result_key in self.result_cap:
-            if result_key in result_dict.keys():
-                result_single[result_key] = result_dict[result_key][image_id]
-            else:
-                raise KeyError(
-                        f"Unable to find {result_key} in result dictionary "
-                        f"while running post-processor {self.name}.")
-
-        # Fetch the optional information, if available
-        for data_key in self.data_cap_opt:
-            if data_key in data_dict.keys():
-                data_single[data_key] = data_dict[data_key][image_id]
-
-        for result_key in self.result_cap_opt:
-            if result_key in result_dict.keys():
-                result_single[result_key] = result_dict[result_key][image_id]
+            # Append
+            if key in data:
+                input_data[key] = data[key]
+                if entry is not None:
+                    input_data[key] = data[key][entry]
 
         # Run the post-processor
-        start = time.time()
-        data_update, result_update = self.process(data_single, result_single)
-        end = time.time()
-        process_time = end-start
-
-        return data_update, result_update, process_time
-
-    def process(self, data_dict, result_dict):
-        """Function which needs to be defined for each post-processor.
-
-        Parameters
-        ----------
-        data_dict : dict
-            Input data dictionary
-        result_dict : dict
-            Chain output dictionary
-        """
-        raise NotImplementedError('Must define the `process` function')
+        return self.process(input_data)
 
     def get_points(self, obj):
         """Get a certain pre-defined point attribute of an object.
@@ -179,4 +153,15 @@ class PostBase:
         if obj.units != self.units:
             raise ValueError(
                     f"Coordinates must be expressed in "
-                    f"{self.units}, currently in {obj.units} instead.")
+                    f"{self.units}; currently in {obj.units} instead.")
+
+    @abstractmethod
+    def process(self, data):
+        """Place-holder function to be defined for each post-processor.
+
+        Parameters
+        ----------
+        data : dict
+            Dictionary of processed data products
+        """
+        raise NotImplementedError("Must define the `process` function.")

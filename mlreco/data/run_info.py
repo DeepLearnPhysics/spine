@@ -5,13 +5,13 @@ It can extract run attributes from any event-level LArCV object.
 
 from dataclasses import dataclass
 
-from .base import DataStructBase
+from .base import DataBase
 
 __all__ = ['RunInfo']
 
 
 @dataclass
-class RunInfo(DataStructBase):
+class RunInfo(DataBase):
     """Run information related to a specific event.
 
     Attributes

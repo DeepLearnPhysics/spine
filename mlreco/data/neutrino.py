@@ -10,13 +10,13 @@ import numpy as np
 
 from mlreco.utils.globals import NU_CURR_TYPE, NU_INT_TYPE
 
-from .base import PosDataStructBase
+from .base import PosDataBase
 
 __all__ = ['Neutrino']
 
 
 @dataclass
-class Neutrino(PosDataStructBase):
+class Neutrino(PosDataBase):
     """Neutrino truth information.
 
     Attributes

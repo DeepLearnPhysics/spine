@@ -5,13 +5,13 @@ This copies the internal structure of :class:`larcv.Trigger`.
 
 from dataclasses import dataclass
 
-from .base import DataStructBase
+from .base import DataBase
 
 __all__ = ['Trigger']
 
 
 @dataclass
-class Trigger(DataStructBase):
+class Trigger(DataBase):
     """Trigger information.
 
     Attributes

@@ -8,13 +8,13 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .base import DataStructBase
+from .base import DataBase
 
 __all__ = ['Meta']
 
 
 @dataclass
-class Meta(DataStructBase):
+class Meta(DataBase):
     """Meta information about a rasterized image.
 
     Attributes

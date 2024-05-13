@@ -8,22 +8,20 @@ from mlreco.post.base import PostBase
 
 
 class DirectionProcessor(PostBase):
-    '''
-    Reconstruct the direction of particles w.r.t. to their end points.
-    '''
+    """Reconstructs the direction of fragments and/or particles w.r.t. to
+    their end points.
+    """
     name = 'direction'
     aliases = ['reconstruct_directions']
-    result_cap = ['particles']
-    result_cap_opt = ['truth_particles']
+    keys = {'reco_fragments': False, 'truth_fragments': False,
+            'reco_particles': True, 'truth_particles': False}
 
     def __init__(self,
                  neighborhood_radius = -1,
                  optimize = True,
                  truth_point_mode = 'points',
-                 run_mode = 'both',
-                 fragments=False):
-        '''
-        Store the particle direction recosntruction parameters
+                 run_mode = 'both'):
+        """Store the particle direction recosntruction parameters.
 
         Parameters
         ----------
@@ -31,31 +29,27 @@ class DirectionProcessor(PostBase):
             Max distance between start voxel and other voxels
         optimize : bool, default True
             Optimizes the number of points involved in the estimate
-        '''
+        """
         # Initialize the parent class
-        if fragments:
-            self.result_cap = ['particle_fragments']
-            self.result_cap_opt = ['truth_particle_fragments']
         super().__init__(run_mode, truth_point_mode)
 
         # Store the direction reconstruction parameters
         self.neighborhood_radius = neighborhood_radius
         self.optimize = optimize
 
-    def process(self, data_dict, result_dict):
-        '''
-        Reconstruct the directions of all particles in one entry
+    def process(self, data):
+        """Reconstruct the directions of all particles in one entry.
 
         Parameters
         ----------
-        data_dict : dict
-            Input data dictionary
-        result_dict : dict
-            Chain output dictionary
-        '''
+        data : dict
+            Dictionary of data products
+        """
         # Loop over particle objects
-        for k in self.part_keys:
-            for p in result_dict[k]:
+        print('YO')
+        print(self.fragment_keys, self.particle_keys)
+        for k in self.fragment_keys + self.particle_keys:
+            for p in data[k]:
                 # Make sure the particle coordinates are expressed in cm
                 self.check_units(p)
 
@@ -67,19 +61,19 @@ class DirectionProcessor(PostBase):
                 # Reconstruct directions from either end of the particle
                 p.start_dir = cluster_direction(points, p.start_point,
                         self.neighborhood_radius, self.optimize)
-                if p.semantic_type == TRACK_SHP:
-                    p.end_dir   = cluster_direction(points, p.end_point,
+                if p.shape == TRACK_SHP:
+                    p.end_dir = cluster_direction(points, p.end_point,
                             self.neighborhood_radius, self.optimize)
 
-        return {}, {}
+        return {}
 
 
 class ContainmentProcessor(PostBase):
-    '''
+    """
     Check whether a particle or interaction comes within some distance
     of the boundaries of the detector and assign the `is_contained`
     attribute accordingly.
-    '''
+    """
     name = 'check_containment'
     result_cap = ['particles', 'interactions']
     result_cap_opt = ['truth_particles', 'truth_interactions']
@@ -96,7 +90,7 @@ class ContainmentProcessor(PostBase):
                  truth_point_mode = 'points',
                  run_mode = 'both',
                  fragments=False):
-        '''
+        """
         Initialize the containment conditions.
 
         If the `source` method is used, the cut will be based on the source of
@@ -135,7 +129,7 @@ class ContainmentProcessor(PostBase):
             When checking interaction containment, ignore particles below the
             size (in voxel count) specified by this parameter. If specified
             as a dictionary, it maps a specific particle type to its own cut.
-        '''
+        """
         if fragments:
             self.result_cap = ['particle_fragments']
             self.result_cap_opt = ['truth_particle_fragments']
@@ -163,7 +157,7 @@ class ContainmentProcessor(PostBase):
                 self.min_particle_sizes[pid] = 0
 
     def process(self, data_dict, result_dict):
-        '''
+        """
         Check the containment of all particles/interactions in one entry
 
         Parameters
@@ -172,7 +166,7 @@ class ContainmentProcessor(PostBase):
             Input data dictionary
         result_dict : dict
             Chain output dictionary
-        '''
+        """
         # Loop over particle objects
         for k in self.part_keys:
             for p in result_dict[k]:
@@ -208,10 +202,10 @@ class ContainmentProcessor(PostBase):
 
 
 class FiducialProcessor(PostBase):
-    '''
+    """
     Check whether an interaction vertex is within some fiducial volume defined
     as margin distances from each of the detector walls.
-    '''
+    """
     name = 'check_fiducial'
     result_cap = ['interactions']
     result_cap_opt = ['truth_interactions']
@@ -224,7 +218,7 @@ class FiducialProcessor(PostBase):
                  mode = 'module',
                  truth_vertex_mode = 'truth_vertex',
                  run_mode = 'both'):
-        '''
+        """
         Initialize the fiducial conditions
 
         Parameters
@@ -250,7 +244,7 @@ class FiducialProcessor(PostBase):
               outermost walls
         truth_vertex_mode : str, default 'truth_vertex'
              Vertex attribute to use to check containment of true interactions
-        '''
+        """
         # Initialize the parent class
         super().__init__(run_mode)
 
@@ -262,7 +256,7 @@ class FiducialProcessor(PostBase):
         self.truth_vertex_mode = truth_vertex_mode
 
     def process(self, data_dict, result_dict):
-        '''
+        """
         Check the fiducial status of all interactions in one entry
 
         Parameters
@@ -271,7 +265,7 @@ class FiducialProcessor(PostBase):
             Input data dictionary
         result_dict : dict
             Chain output dictionary
-        '''
+        """
         # Loop over interaction objects
         for k in self.inter_keys:
             for ia in result_dict[k]:
@@ -292,11 +286,11 @@ class FiducialProcessor(PostBase):
 
 
 class SimpleContainmentProcessor(PostBase):
-    '''
+    """
     Check whether a particle or interaction comes within some distance
     of the boundaries of the image. Only does simple containment check 
     using pre-defined image size.
-    '''
+    """
     name = 'check_simple_containment'
     data_cap = ['meta']
     result_cap = ['particles', 'interactions']
@@ -308,7 +302,7 @@ class SimpleContainmentProcessor(PostBase):
                  fragments=False,
                  truth_point_mode = 'points',
                  run_mode = 'both',):
-        '''
+        """
         Initialize the containment conditions.
 
         If the `source` method is used, the cut will be based on the source of
@@ -322,7 +316,7 @@ class SimpleContainmentProcessor(PostBase):
             Minimum distance from a detector wall to be considered contained:
         image_size: 
             Size of the image in pixels
-        '''
+        """
         if fragments:
             self.result_cap = ['particle_fragments']
             self.result_cap_opt = ['truth_particle_fragments']
@@ -333,7 +327,7 @@ class SimpleContainmentProcessor(PostBase):
         self.image_size = image_size
 
     def process(self, data_dict, result_dict):
-        '''
+        """
         Check the containment of all particles/interactions in one entry
 
         Parameters
@@ -342,7 +336,7 @@ class SimpleContainmentProcessor(PostBase):
             Input data dictionary
         result_dict : dict
             Chain output dictionary
-        '''
+        """
         lower, upper, size = np.split(np.asarray(data_dict['meta'][0]).reshape(-1), 3)
         # Loop over particle objects
         for k in self.part_keys:
