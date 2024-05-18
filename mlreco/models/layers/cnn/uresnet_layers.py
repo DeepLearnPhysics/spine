@@ -23,6 +23,7 @@ class UResNetEncoder(torch.nn.Module):
 
     See :func:`setup_cnn_configuration` for available parameters.
     """
+
     def __init__(self, cfg):
         """Initialize the encoder.
 
@@ -104,6 +105,7 @@ class UResNetDecoder(torch.nn.Module):
 
     See :func:`setup_cnn_configuration` for available parameters.
     """
+
     def __init__(self, cfg):
         """Initialize the decoder.
 
@@ -178,6 +180,7 @@ class UResNet(torch.nn.Module):
 
     See :func:`setup_cnn_configuration` for available parameters.
     """
+
     def __init__(self, cfg):
         """Initialize the UResNet backbone.
 

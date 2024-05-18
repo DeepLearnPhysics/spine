@@ -537,10 +537,17 @@ class PPNLoss(torch.nn.modules.loss._Loss):
         closest_list, positive_list = [], []
         offset = 0
         for b in range(batch_size):
+            # If there are no label points, there are no positive points
+            points_label = ppn_label[b][:, COORD_COLS]
+            if not len(points_label):
+                positive = torch.empty(
+                        0, dtype=torch.bool, device=coords_final.device)
+                positive_list.append(positive)
+                continue
+
             # Compute the pairwise distances between each label point
             # and all the voxels in the image.
             points_entry = coords_final[b][:, COORD_COLS] + 0.5
-            points_label = ppn_label[b][:, COORD_COLS]
             dist_mat = local_cdist(points_entry, points_label)
             min_return = torch.min(dist_mat, dim=1)
             closest_list.append(offset + min_return.indices)
@@ -597,8 +604,10 @@ class PPNLoss(torch.nn.modules.loss._Loss):
                 mask_tensor = downsample(mask_tensor)
 
         # Apply the other losses to the last layer only
-        type_loss, reg_loss, end_loss = 0., 0., 0.
-        type_acc, end_acc = 1., 1.
+        zero = torch.tensor(0., dtype=ppn_label.dtype, device=ppn_label.device)
+        one = torch.tensor(1., dtype=ppn_label.dtype, device=ppn_label.device)
+        type_loss, reg_loss, end_loss = zero, zero, zero
+        type_acc, end_acc = one, one
         pos_mask = torch.where(positives)[0]
         if len(pos_mask):
             # Narrow the loss down to the true positive pixels

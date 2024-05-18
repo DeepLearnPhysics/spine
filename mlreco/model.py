@@ -449,3 +449,27 @@ class Model:
                         raise ValueError(f"Cannot cast output {key} to numpy")
 
             return result
+
+    def save_state(self, iteration):
+        """Save the model state.
+
+        Save three things from the model:
+        - global_step (iteration)
+        - state_dict (model parameter values)
+        - optimizer (optimizer parameter values)
+
+        Parameters
+        ----------
+        iteration : int
+            Iteration step index
+        """
+        # Make sure that the weight prefix is valid
+        assert self.weight_prefix, (
+                "Must provide a weight prefix to store them.")
+
+        filename = f'{self.weight_prefix}-{iteration:d}.ckpt'
+        torch.save({
+            'global_step': iteration,
+            'state_dict': self.model.state_dict(),
+            'optimizer': self.optimizer.state_dict()
+        }, filename)

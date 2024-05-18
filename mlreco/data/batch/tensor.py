@@ -201,15 +201,16 @@ class TensorBatch(BatchBase):
                            coord_cols=self.coord_cols)
 
     def to_cm(self, meta):
-        """Converts the coordinates of the tensor to cm.
+        """Converts the pixel coordinates of the tensor to cm.
 
         Parameters
         ----------
         meta : Meta
             Metadata information about the rasterized image
         """
-        assert self.is_numpy, "Can only convert units of numpy arrays"
-        self.data[:, COORD_COLS] = meta.to_cm(self.data[:, COORD_COLS])
+        assert self.is_numpy, "Can only convert units of numpy arrays."
+        self.data[:, COORD_COLS] = meta.to_cm(
+                self.data[:, COORD_COLS], center=True)
 
     def to_px(self, meta):
         """Converts the coordinates of the tensor to pixel indexes.
@@ -219,8 +220,9 @@ class TensorBatch(BatchBase):
         meta : Meta
             Metadata information about the rasterized image
         """
-        assert self.is_numpy, "Can only convert units of numpy arrays"
-        self.data[:, COORD_COLS] = meta.to_px(self.data[:, COORD_COLS])
+        assert self.is_numpy, "Can only convert units of numpy arrays."
+        self.data[:, COORD_COLS] = meta.to_px(
+                self.data[:, COORD_COLS], floor=True)
 
     @classmethod
     def from_list(cls, data_list):

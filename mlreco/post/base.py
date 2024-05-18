@@ -31,7 +31,7 @@ class PostBase(ABC):
     name = ''
     aliases = []
     parent_path = ''
-    keys = []
+    keys = {}
     truth_point_mode = 'points'
     units = 'cm'
 
@@ -99,7 +99,7 @@ class PostBase(ABC):
             Update to the input dictionary
         """
         # Fetch the input dictionary
-        input_data = {}
+        data_filter = {}
         for key, req in self.keys.items():
             # If this key is needed, check that it exists
             assert not req or key in data, (
@@ -108,12 +108,12 @@ class PostBase(ABC):
 
             # Append
             if key in data:
-                input_data[key] = data[key]
+                data_filter[key] = data[key]
                 if entry is not None:
-                    input_data[key] = data[key][entry]
+                    data_filter[key] = data[key][entry]
 
         # Run the post-processor
-        return self.process(input_data)
+        return self.process(data_filter)
 
     def get_points(self, obj):
         """Get a certain pre-defined point attribute of an object.
@@ -157,7 +157,7 @@ class PostBase(ABC):
 
     @abstractmethod
     def process(self, data):
-        """Place-holder function to be defined for each post-processor.
+        """Place-holder method to be defined in each post-processor.
 
         Parameters
         ----------

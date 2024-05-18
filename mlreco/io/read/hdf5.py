@@ -91,6 +91,9 @@ class HDF5Reader(ReaderBase):
                 self.file_offsets[i] = self.num_entries
                 self.num_entries += num_entries
 
+        # Dump the number of entries to load
+        print(f"Total number of entries in the file(s): {self.num_entries}\n")
+
         # Concatenate the file indexes into one
         self.file_index = np.concatenate(self.file_index)
 

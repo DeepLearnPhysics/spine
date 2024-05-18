@@ -100,6 +100,9 @@ class LArCVReader(ReaderBase):
             self.trees[key] = None
         print("")
 
+        # Dump the number of entries to load
+        print(f"Total number of entries in the file(s): {self.num_entries}\n")
+
         # Build a file index
         self.file_index = np.repeat(
                 np.arange(len(self.file_paths)), file_counts)

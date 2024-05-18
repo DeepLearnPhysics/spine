@@ -1,7 +1,7 @@
 """Module with a data class objects which represent output interactions."""
 
 from typing import List
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 
 import numpy as np
 
@@ -113,7 +113,6 @@ class InteractionBase:
 
         # Build long-form attributes
         for attr in cls._cat_attrs:
-            print(cls.__name__, attr)
             val_list = [getattr(p, attr) for p in particles]
             setattr(interaction, attr, np.concatenate(val_list))
 
@@ -175,7 +174,7 @@ class TruthInteraction(Neutrino, InteractionBase, TruthBase):
         neutrino : Neutrino
             Neutrino to fetch the attributes from
         """
-        for attr, val in asdict(neutrino):
+        for attr, val in asdict(neutrino).items():
             if attr != 'id':
                 setattr(self, attr, val)
             else:

@@ -1,9 +1,11 @@
 """Base class of all analysis scripts."""
 
+from abc import ABC, abstractmethod
+
 from mlreco.io.write import CSVWriter
 
 
-class AnaBase:
+class AnaBase(ABC):
     """Parent class of all analysis scripts.
 
     This base class performs the following functions:
@@ -73,9 +75,9 @@ class AnaBase:
             file_name = f'{self.output_prefix}_{file_name}'
 
         # Initialize the writer
-        self.writers[name] = CSVWriter(file_name, append_file)
+        self.writers[name] = CSVWriter(file_name, self.append_file)
 
-    def run(self, data, entry):
+    def __call__(self, data, entry=None):
         """Runs the analysis script on one entry.
 
         Parameters
@@ -106,8 +108,9 @@ class AnaBase:
 
         return data_update, result_update, process_time
 
+    @abstractmethod
     def process(self, data):
-        """Place-holder processing function for analysis scripts.
+        """Place-holder method to be defined in each analysis script.
 
         Parameters
         ----------

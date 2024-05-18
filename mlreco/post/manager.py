@@ -1,8 +1,9 @@
 """Manages the operation of post-processors."""
 
-import numpy as np
 from warnings import warn
 from collections import defaultdict, OrderedDict
+
+import numpy as np
 
 from .factories import post_processor_factory
 

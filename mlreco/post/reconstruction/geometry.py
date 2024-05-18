@@ -46,8 +46,6 @@ class DirectionProcessor(PostBase):
             Dictionary of data products
         """
         # Loop over particle objects
-        print('YO')
-        print(self.fragment_keys, self.particle_keys)
         for k in self.fragment_keys + self.particle_keys:
             for p in data[k]:
                 # Make sure the particle coordinates are expressed in cm

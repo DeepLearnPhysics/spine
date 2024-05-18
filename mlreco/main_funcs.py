@@ -21,6 +21,7 @@ from torch.distributed import init_process_group, destroy_process_group
 from .utils.logger import logger
 
 from .version import __version__
+from .logo import ascii_logo
 
 from .driver import Driver
 from .train import Trainer
@@ -257,12 +258,6 @@ def process_config(base, io, model=None, train=None, build=None, post=None,
         cfg['ana'] = ana
 
     # Log package logo
-    ascii_logo = (
-    " ██████████   ███████████   ███   ███       ██   ███████████\n"
-    "███        █  ██       ███   |    █████     ██   ██         \n"
-    "  ████████    ██       ███  ███   ██  ████  ██   ██████████ \n"
-    "█        ███  ██████████     |    ██     █████   ██         \n"
-    " ██████████   ██            ███   ██       ███   ███████████\n")
     logger.info(f"\n%s", ascii_logo)
 
     # Log environment information

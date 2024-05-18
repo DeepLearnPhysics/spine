@@ -86,17 +86,15 @@ class HDF5Writer:
         merge: bool = False
         scalar: bool = False
 
-    def create(self, data_blob, result_blob=None, cfg=None):
-        """Create the output file structure based on the data and result blobs.
+    def create(self, data, cfg=None):
+        """Create the output file structure based on the data dictionary.
 
         Parameters
         ----------
-        data_blob : dict
-            Dictionary containing the input data
-        result_blob : dict
-            Dictionary containing the output of the reconstruction chain
+        data : dict
+            Dictionary of data products
         cfg : dict
-            Dictionary containing the ML chain configuration
+            Dictionary containing the complete SPINE configuration
         """
         # Initialize a dictionary to store keys and their properties
         self.type_dict = {}
@@ -131,10 +129,8 @@ class HDF5Writer:
 
         Returns
         -------
-        data_keys : list
+        keys : list
             List of data keys to store to file
-        result_keys : list
-            List of result keys to store to file
         """
         # If the keys were already produced, nothing to do
         if self.ready:
@@ -144,10 +140,10 @@ class HDF5Writer:
         assert (self.keys is None) | (self.skip_keys is None), (
                 "Must not specify both `keys` or `skip_keys`.")
 
-        # Translate input_keys/skip_input_keys into a single list
-        input_keys = {'index'}
+        # Translate keys/skip_keys into a single list
+        keys = {'index'}
         if self.keys is None:
-            keys.update(data_blob.keys())
+            keys.update(data.keys())
             if self.skip_keys is not None:
                 for key in self.skip_keys:
                     if key in self.keys:
@@ -158,37 +154,20 @@ class HDF5Writer:
                                  "appear in the dictionary of data products.")
 
         else:
-            input_keys.update(self.input_keys)
-            for k in self.input_keys:
-                assert k in data_blob, (
+            keys.update(self.keys)
+            for k in self.keys:
+                assert k in data, (
                         f"Cannot store {k} as it does not appear "
-                         "in the input dictionary.")
+                         "in the dictionary of data products.")
 
-        # Translate result_keys/skip_result_keys into a single list
-        result_keys = set()
-        if self.result_keys is None:
-            if result_blob is not None:
-                result_keys.update(result_blob.keys())
-                if self.skip_result_keys is not None:
-                    for key in self.skip_result_keys:
-                        if key in result_keys:
-                            result_keys.remove(key)
-        else:
-            result_keys.update(self.result_keys)
-            for k in self.result_keys:
-                assert k in result_blob, (
-                        'it does not appear in the result dictionary'
-                        f"Cannot store {k} as it does not appear "
-                         "in the result dictionary")
+        return keys
 
-        return input_keys, result_keys
-
-    def register_key(self, blob, key):
+    def register_key(self, data, key):
         """Identify the dtype and shape objects to be dealt with.
 
         Parameters
         ----------
-        blob : dict
+        data : dict
             Dictionary containing the information to be stored
         key : string
             Dictionary key name
@@ -197,47 +176,47 @@ class HDF5Writer:
         self.type_dict[key] = self.DataFormat()
 
         # Store the necessary information to know how to store a key
-        if np.isscalar(blob[key]):
+        if np.isscalar(data[key]):
             # Single scalar for the entire batch (e.g. accuracy, loss, etc.)
-            if isinstance(blob[key], str):
+            if isinstance(data[key], str):
                 self.type_dict[key] = h5py.string_dtype()
             else:
-                self.type_dict[key] = type(blob[key])
+                self.type_dict[key] = type(data[key])
             self.type_dict[key].scalar = True
 
         else:
-            if np.isscalar(blob[key][0]):
+            if np.isscalar(data[key][0]):
                 # List containing a single scalar per batch ID
-                if isinstance(blob[key][0], str):
+                if isinstance(data[key][0], str):
                     self.type_dict[key].dtype = h5py.string_dtype()
                 else:
-                    self.type_dict[key].dtype = type(blob[key][0])
+                    self.type_dict[key].dtype = type(data[key][0])
                 self.type_dict[key].scalar = True
 
-            elif not hasattr(blob[key][0], '__len__'):
+            elif not hasattr(data[key][0], '__len__'):
                 # List containing one single non-standard object per batch ID
-                object_dtype = self.get_object_dtype(blob[key][0])
+                object_dtype = self.get_object_dtype(data[key][0])
                 self.object_dtypes.append(object_dtype)
                 self.type_dict[key].dtype = object_dtype
                 self.type_dict[key].scalar = True
-                self.type_dict[key].class_name = blob[key][0].__class__.__name__
+                self.type_dict[key].class_name = data[key][0].__class__.__name__
 
             else:
                 # List containing a list/array of objects per batch ID
-                ref_obj = blob[key][0]
-                if isinstance(blob[key][0], list):
+                ref_obj = data[key][0]
+                if isinstance(data[key][0], list):
                     # If simple list, check if it is empty
-                    if len(blob[key][0]):
+                    if len(data[key][0]):
                         # If it contains simple objects, use the first
-                        if not hasattr(blob[key][0][0], '__len__'):
-                            ref_obj = blob[key][0][0]
+                        if not hasattr(data[key][0][0], '__len__'):
+                            ref_obj = data[key][0][0]
                     else:
                         # If it is empty, must contain a default value
-                        assert hasattr(blob[key][0], 'default'), (
+                        assert hasattr(data[key][0], 'default'), (
                                f"Failed to find type of {key}. Lists that can "
                                 "be empty should be initialized as an "
                                 "ObjectList with a default object type.")
-                        ref_obj = blob[key][0].default
+                        ref_obj = data[key][0].default
 
                         # If the default value is an array, unwrap as such
                         if isinstance(ref_obj, np.ndarray):
@@ -274,10 +253,10 @@ class HDF5Writer:
                     self.type_dict[key].merge = same_width
 
                 else:
-                    dtype = type(blob[key][0])
+                    dtype = type(data[key][0])
                     raise TypeError(
-                            f"Do not know how to store output of type {dtype} "
-                            f"in key {key}")
+                            f"Cannot store output of type {dtype} "
+                            f"in key {key}.")
 
     def get_object_dtype(self, obj):
         """Loop over the attributes of a class to figure out what to store.
@@ -391,26 +370,25 @@ class HDF5Writer:
         out_file.create_dataset(
                 'events', (0,), maxshape=(None,), dtype=self.event_dtype)
 
-    def append(self, data_blob=None, result_blob=None, cfg=None):
+    def __call__(self, data, cfg=None):
         """Append the HDF5 file with the content of a batch.
 
         Parameters
         ----------
-        result_blob : dict
-            Dictionary containing the output of the reconstruction chain
-        data_blob : dict
-            Dictionary containing the input data
+        data : dict
+            Dictionary of data products
         cfg : dict
-            Dictionary containing the ML chain configuration
+            Dictionary containing the complete SPINE configuration
         """
         # If this function has never been called, initialiaze the HDF5 file
         if (not self.ready and
             (not self.append_file or os.path.isfile(self.file_name))):
-            self.create(data_blob, result_blob, cfg)
+            self.create(data, cfg)
             self.ready = True
 
         # Append file
-        batch_size = len(data_blob['index'])
+        # TODO: Make this handle single entries
+        batch_size = len(data['index'])
         with h5py.File(self.file_name, 'a') as out_file:
             # Loop over batch IDs
             for batch_id in range(batch_size):
@@ -419,10 +397,8 @@ class HDF5Writer:
 
                 # Initialize a dictionary of references to be passed to the
                 # event dataset and store the input and result keys
-                for key in self.input_keys:
-                    self.append_key(out_file, event, data_blob, key, batch_id)
-                for key in self.result_keys:
-                    self.append_key(out_file, event, result_blob, key, batch_id)
+                for key in self.keys:
+                    self.append_key(out_file, event, data, key, batch_id)
 
                 # Append event
                 event_id = len(out_file['events'])
@@ -430,7 +406,7 @@ class HDF5Writer:
                 event_ds.resize(event_id + 1, axis=0) # pylint: disable=E1101
                 event_ds[event_id] = event
 
-    def append_key(self, out_file, event, blob, key, batch_id):
+    def append_key(self, out_file, event, data, key, batch_id):
         """Stores data key in a specific dataset of an HDF5 file.
 
         Parameters
@@ -439,8 +415,8 @@ class HDF5Writer:
             HDF5 file instance
         event : dict
             Dictionary of objects that make up one event
-        blob : dict
-            Dictionary containing the information to be stored
+        data : dict
+            Dictionary of data products
         key : string
             Dictionary key name
         batch_id : int
@@ -450,13 +426,13 @@ class HDF5Writer:
         val = self.type_dict[key]
         if not val.merge and not isinstance(val.width, list):
             # Store single arrays
-            if np.isscalar(blob[key]):
+            if np.isscalar(data[key]):
                 # If a data product is a single scalar, use it for every entry
-                array = [blob[key]]
+                array = [data[key]]
 
             else:
                 # Otherwise, get the data corresponding to the current entry
-                array = blob[key][batch_id]
+                array = data[key][batch_id]
                 if val.scalar:
                     array = [array]
 
@@ -467,12 +443,12 @@ class HDF5Writer:
 
         elif not val.merge:
             # Store the array and its reference for each element in the list
-            array_list = blob[key][batch_id]
+            array_list = data[key][batch_id]
             self.store_jagged(out_file, event, key, array_list)
 
         else:
             # Store one array of for all in the list and a index to break them
-            array_list = blob[key][batch_id]
+            array_list = data[key][batch_id]
             self.store_flat(out_file, event, key, array_list)
 
     @staticmethod

@@ -229,7 +229,7 @@ def get_nu_ids(particles, inter_ids, particles_mpv=None, neutrinos=None):
     # Make sure there is only either MPV particles or neutrinos specified, not both
     assert particles_mpv is None or neutrinos is None, (
             "Do not specify both particle_mpv_event and neutrino_event "
-            "in `get_neutrino_ids`. Can only use one of them.")
+            "in `get_neutrino_ids`. Can only use one or the other.")
 
     # Initialize neutrino IDs
     nu_ids = -np.ones(len(particles), dtype=int)
@@ -252,21 +252,45 @@ def get_nu_ids(particles, inter_ids, particles_mpv=None, neutrinos=None):
             if np.sum(primary_ids[inter_index] == 1) > 1:
                 nu_ids[inter_index] = nu_id
                 nu_id += 1
+
     else:
         # Find the reference positions to gauge if a particle comes from a
         # nu-like interaction
-        ref_pos = None
+        ref_ids, ref_pos = None, None
         if particles_mpv and len(particles_mpv) > 0:
             ref_pos = np.vstack(
                     [get_coords(p.position()) for p in particles_mpv])
             ref_pos = np.unique(ref_pos, axis=0)
-        elif neutrinos and len(neutrinos) > 0:
-            ref_pos = np.vstack([get_coords(n.position()) for n in neutrinos])
 
-        # If any particle in an interaction shares its ancestor position with
-        # an MPV particle or a neutrino, the whole interaction is a
-        # nu-like interaction.
+        elif neutrinos and len(neutrinos) > 0:
+            if hasattr(neutrinos[0], 'interaction_id'):
+                ref_ids = np.array([n.interaction_id() for n in neutrinos])
+            else:
+                ref_pos = np.vstack([get_coords(n.position()) for n in neutrinos])
+
+        # If an interaction ID is provided for neutrinos, the matching is trivial
+        if ref_ids is not None:
+            for i in np.unique(inter_ids):
+                # If the interaction is invalid, skip
+                if i < 0:
+                    continue
+
+                # Loop over positions in the interaction find a reference match
+                inter_index = np.where(inter_ids == i)[0]
+                for nu_id, ref_id in enumerate(ref_ids):
+                    if i == ref_id:
+                        nu_ids[inter_index] = nu_id
+                        break
+
+        # Otherwise, if a particle in an interaction shares its ancestor
+        # position with an MPV particle or a neutrino, the whole interaction
+        # is labeled as a nu-like interaction.
         if ref_pos is not None:
+            warn("Neutrino IDs are being produced on the basis of floating "
+                 "point agreement between particle ancestor positions and "
+                 "neutrino positions. For safety, should provide a matching "
+                 "interaction_id to the larcv.Neutrino object.")
+
             anc_pos = np.vstack(
                     [get_coords(p.ancestor_position()) for p in particles])
             for i in np.unique(inter_ids):

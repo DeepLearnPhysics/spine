@@ -81,36 +81,43 @@ class Meta(DataBase):
 
         return np.dot(coords, mult)
 
-    def to_cm(self, coords, translate=True):
-        """Converts pixel indexes in a tensor to detector coordinates in cm.
+    def to_cm(self, coords, center=False):
+        """Converts pixel coordinates to detector coordinates in cm.
 
         Parameters
         ----------
         coords : np.ndarray
-            (N, 2/3) Input pixel indices
-        translate : bool, default True
-            If set to `False`, this function returns the input unchanged
+            (N, 2/3) Input pixel coordinates
+        center : bool, default False
+            If `True`, offset the input coordinates by half a pixel size. This
+            makes sense to provide unbiased coordinates when converting indexes.
+
+        Returns
+        -------
+        np.ndarray
+            Detector coordinates in cm
         """
-        if not translate or len(coords) == 0:
-            return coords
+        return self.lower + (coords + .5*center)*self.size
 
-        out = self.lower + (coords + .5) * self.size
-        return out.astype(np.float32)
-
-    def to_px(self, coords, translate=True):
-        """Converts detector coordinates in cm in a tensor to pixel indexes.
+    def to_px(self, coords, floor=False):
+        """Converts detector coordinates in cm to pixel coordinates.
 
         Parameters
         ----------
         coords : np.ndarray
             (N, 2/3) Input detector coordinates
-        translate : bool, default True
-            If set to `False`, this function returns the input unchanged
-        """
-        if not translate or len(coords) == 0:
-            return coords
+        floor : bool, default False
+            If `True`, converts pixel coordinates to indexes (floor function)
 
-        return (coords - self.lower) / self.size - .5
+        Returns
+        -------
+        np.ndarray
+            Pixel coordinates
+        """
+        if floor:
+            return np.floor((coords - self.lower)/self.size)
+
+        return (coords - self.lower)/self.size
 
     @classmethod
     def from_larcv(cls, meta):
@@ -143,6 +150,6 @@ class Meta(DataBase):
             upper = np.array([meta.max_x(), meta.max_y()], dtype=np.float32)
             size  = np.array([meta.pixel_height(),
                               meta.pixel_width()], dtype=np.float32)
-            size  = np.array([meta.rows(), meta.cols()], dtype=np.int64)
+            count = np.array([meta.rows(), meta.cols()], dtype=np.int64)
 
         return cls(lower=lower, upper=upper, size=size, count=count)

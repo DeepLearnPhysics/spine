@@ -11,8 +11,12 @@ Takes care of everything in one centralized place:
 """
 
 import os
+from datetime import datetime
 
+import psutil
 import pathlib
+import numpy as np
+import torch
 
 from .io import loader_factory, reader_factory, writer_factory
 from .io.write import CSVWriter
@@ -60,7 +64,8 @@ class Driver:
         rank : int, default 0
            Rank of the GPU in the multi-GPU training process
         """
-        # Initialize the timers
+        # Initialize the timers and the configuration dictionary
+        self.cfg = {} # Move processor elswhere, store it
         self.watch = StopwatchManager()
         self.watch.initialize('iteration')
 
@@ -108,8 +113,9 @@ class Driver:
         self.initialize_log()
 
     def initialize_base(self, log_dir='logs', prefix_log=False,
-                        parent_path=None, iterations=-1, unwrap=False,
-                        rank=None, gpus='', processed=False, seed=None):
+                        parent_path=None, iterations=-1, epochs=-1,
+                        unwrap=False, rank=None, processed=False,
+                        seed=None, report_step=1):
         """Initialize the base driver parameters.
 
         Parameters
@@ -121,7 +127,9 @@ class Driver:
         parent_path : str, optional
             Path to the parent directory of the analysis configuration file
         iterations : int, default -1
-            Number of times to iterate over the data (-1 means all entries)
+            Number of entries/batches to process (-1 means all entries)
+        epochs : int, default -1
+            Number of times to iterate over the full dataset
         unwrap : bool, default False
             Wheather to unwrap batched data (only relevant when using loader)
         rank : int, optional
@@ -130,6 +138,8 @@ class Driver:
             Whether this configuration has been pre-processed (must be true)
         seed : int, optional
             Random number generator seed
+        report_step : int, default 1
+            Number of iterations before the logging is called (1: every step)
         """
         # Check that the configuration has been processed
         assert processed, (
@@ -141,9 +151,12 @@ class Driver:
         self.prefix_log = prefix_log
         self.parent_path = parent_path
         self.iterations = iterations
+        self.epochs = epochs
         self.unwrap = unwrap
         self.rank = rank
+        self.main_process = rank is None or rank == 0
         self.seed = seed
+        self.report_step = report_step
 
     def initialize_io(self, loader=None, reader=None, writer=None):
         """Initializes the input/output scripts.
@@ -168,9 +181,10 @@ class Driver:
             self.watch.initialize('load')
             self.loader = loader_factory(**loader, rank=self.rank)
             self.loader_iter = iter(self.loader)
+            self.iter_per_epoch = len(self.loader)
             self.reader = self.loader.dataset.reader
 
-            # If needed, initialize the unwrapper
+            # If requested, initialize the unwrapper
             if self.unwrap:
                 geometry = None
                 if (hasattr(self.loader, 'collate_fn') and
@@ -180,22 +194,17 @@ class Driver:
                 self.watch.initialize('unwrap')
                 self.unwrapper = Unwrapper(geometry=geometry)
 
-            # If needed, set the number of iterations
-            if self.iterations < 0:
-                self.iterations = len(self.loader.dataset)
-
         else:
             # Initialize the reader
             self.watch.initialize('read')
             self.reader = reader_factory(reader)
-
-            # If needed, set the number of iterations
-            if self.iterations < 0:
-                self.iterations = len(self.reader)
+            self.iter_per_epoch = len(self.reader)
 
         # Initialize the data writer, if provided
         self.writer = None
         if writer is not None:
+            assert self.loader is None or self.unwrap, (
+                    "Must unwrap the model output to run post-processors.")
             self.watch.initialize('write')
             self.writer = writer_factory(writer)
 
@@ -204,6 +213,16 @@ class Driver:
             assert len(self.reader.file_paths) == 1, (
                     "To prefix log, there should be a single input file name.")
             self.log_prefix = pathlib.Path(self.reader.file_paths[0]).stem
+
+        # Harmonize the iterations and epochs parameters
+        assert self.iterations ^ self.epochs, (
+                "Must specify either `iterations` or `epochs` parameters.")
+        if self.iterations is not None:
+            if self.iterations < 0:
+                self.iterations = self.iter_per_epoch
+            self.epochs = 1.
+        else:
+            self.iterations = self.epochs*self.iter_per_epoch
 
     def initialize_log(self):
         """Initialize the output log for this driver process."""
@@ -233,13 +252,21 @@ class Driver:
         """Loop over the requested number of iterations, process them."""
         # Loop and process each iteration
         for iteration in range(self.iterations):
-            self.process(iteration)
+            # Update the epoch counter, record the execution date/time
+            epoch = iteration / self.iter_per_epoch
+            tstamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+            # Process one batch/entry of data
+            data = self.process(iteration)
+
+            # Log the output
+            self.log(data, tstamp, iteration, epoch)
 
     def process(self, iteration=None, run=None, event=None):
-        """Process one entry of a batch of entries.
+        """Process one entry or a batch of entries.
 
-        Run single step of analysis tools workflow. This includes data loading,
-        model forwarding, building data structures, running post-processing,
+        Run single step of main SPINE driver. This includes data loading,
+        model forwarding, data structure building, post-processing
         and appending desired information to each row of output csv files.
 
         Parameters
@@ -257,12 +284,10 @@ class Driver:
             Either one combined data dictionary, or one per entry in the batch
         """
         # 0. Start the timer for the iteration
-        print(self.watch.keys())
         self.watch.start('iteration')
 
         # 1. Load data
         data = self.load(iteration, run, event)
-        print('INDEX', data['index'])
 
         # 2. Pass data through the model
         if self.model is not None:
@@ -277,9 +302,6 @@ class Driver:
             data = self.unwrapper(data)
             self.watch.stop('unwrap')
 
-        print(data.keys())
-        print(data['fragment_group_pred'])
-
         # 4. Build representations
         if self.builder is not None:
             self.watch.start('build')
@@ -289,36 +311,25 @@ class Driver:
         # 5. Run post-processing, if requested
         if self.post is not None:
             self.watch.start('post')
-            if isinstance(data, dict):
-                self.post(data)
-            else:
-                for data_entry in data:
-                    self.post(data_entry)
+            self.post(data)
             self.watch.stop('post')
+            self.watch.update(self.post.watch, 'post')
 
         # 6. Run scripts, if requested
         if self.ana is not None:
             self.watch.start('ana')
-            if isinstance(data, dict):
-                self.ana(data)
-            else:
-                for data_entry in data:
-                    self.ana(data_entry)
+            self.ana(data)
             self.watch.stop('ana')
+            self.watch.update(self.post.watch, 'ana')
 
         # 7. Write output to file, if requested
         if self.writer is not None:
             self.watch.start('write')
-            if isinstance(data, dict):
-                self.writer(data)
-            else:
-                for data_entry in data:
-                    self.writer(data_entry)
+            self.writer(data, self.cfg)
             self.watch.stop('write')
 
-        # Log to file
-        self.stop('iteration')
-        self.log(data)
+        # Stop the iteration timer
+        self.watch.stop('iteration')
 
         # Return
         return data
@@ -370,16 +381,105 @@ class Driver:
 
         return data
 
-    def log(self, iteration):
-        '''
-        Generate analysis tools iteration log. This is a separate logging
-        operation from the subroutines in analysis.producers.loggers.
+    def log(self, data, tstamp, iteration, epoch=None):
+        """Log relevant information to CSV files and stdout.
 
         Parameters
         ----------
+        data : dict
+            Dictionary of data products to extract scalars from
+        tstamp : str
+            Time when this iteration was run
         iteration : int
-            Current iteration number
-        '''
-        row_dict = {'iteration': iteration}
-        row_dict.update(self.logger_dict)
-        self.logger.append(row_dict)
+            Iteration counter
+        epoch : float
+            Progress in the training process in number of epochs
+        """
+        # Fetch the first entry in the batch
+        first_entry = data['index']
+        if isinstance(first_entry, list):
+            first_entry = first_entry[0]
+
+        # Fetch the basics
+        log_dict = {
+            'iter': iteration,
+            'epoch': epoch,
+            'first_entry': first_entry
+        }
+
+        # Fetch the memory usage (in GB)
+        log_dict['cpu_mem'] = psutil.virtual_memory().used/1.e9
+        log_dict['cpu_mem_perc'] = psutil.virtual_memory().percent
+        log_dict['gpu_mem'], log_dict['gpu_mem_perc'] = 0., 0.
+        if torch.cuda.is_available():
+            gpu_total = torch.cuda.mem_get_info()[-1] / 1.e9
+            log_dict['gpu_mem'] = torch.cuda.max_memory_allocated() / 1.e9
+            log_dict['gpu_mem_perc'] = 100 * log_dict['gpu_mem'] / gpu_total
+
+        # Fetch the times
+        suff = '_time'
+        for key, watch in self.watch.items():
+            time, time_sum = watch.time, watch.time_sum
+            log_dict[f'{key}{suff}'] = time.wall
+            log_dict[f'{key}{suff}_cpu'] = time.cpu
+            log_dict[f'{key}{suff}_sum'] = time_sum.wall
+            log_dict[f'{key}{suff}_sum_cpu'] = time_sum.cpu
+
+        # Fetch all the scalar outputs and append them to a dictionary
+        for key in data:
+            if np.isscalar(data[key]):
+                log_dict[key] = data[key]
+
+        # Record
+        self.logger.append(log_dict)
+
+        # If requested, print out basics of the training/inference process.
+        report_step = ((iteration + 1) % self.report_step) == 0
+        if report_step:
+            # Dump general information
+            proc   = 'Train' if self.model.train else 'Inference'
+            device = 'GPU' if self.rank is not None else 'CPU'
+            keys   = [f'{proc} time', f'{device} memory', 'Loss', 'Accuracy']
+            widths = [20, 20, 9, 9]
+            if self.model.distributed:
+                keys = ['Rank'] + keys
+                widths = [5] + widths
+            if self.main_process:
+                header = '  | ' + '| '.join(
+                        [f'{keys[i]:<{widths[i]}}' for i in range(len(keys))])
+                separator = '  |' + '+'.join(['-'*(w+1) for w in widths])
+                msg  = f"Iter. {iteration} (epoch {epoch:.3f}) @ {tstamp}\n"
+                msg += header + '|\n'
+                msg += separator + '|'
+                print(msg, flush=True)
+            if self.model.distributed:
+                torch.model.distributed.barrier()
+
+            # Dump information pertaining to a specific process
+            t_iter = self.watch.time('iteration').wall
+            t_net  = self.watch.time('model').wall
+
+            if self.rank is not None:
+                mem, mem_perc = log_dict['gpu_mem'], log_dict['gpu_mem_perc']
+            else:
+                mem, mem_perc = log_dict['cpu_mem'], log_dict['cpu_mem_perc']
+
+            acc  = np.mean(data.get('accuracy', -1.))
+            loss = np.mean(data.get('loss',     -1.))
+
+            values = [f'{t_net:0.2f} s ({100*t_net/t_iter:0.2f} %)',
+                      f'{mem:0.2f} GB ({mem_perc:0.2f} %)',
+                      f'{loss:0.3f}', f'{acc:0.3f}']
+            if self.model.distributed:
+                values = [f'{self.rank}'] + values
+
+            msg = '  | ' + '| '.join(
+                    [f'{values[i]:<{widths[i]}}' for i in range(len(keys))])
+            msg += '|'
+            print(msg, flush=True)
+
+            # Start new line once only
+            if self.model.distributed:
+                torch.model.distributed.barrier()
+            if self.main_process:
+                print('', flush=True)

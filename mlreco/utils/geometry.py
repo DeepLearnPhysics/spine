@@ -517,7 +517,8 @@ class Geometry:
         else:
             # If the points are expressed in pixel coordinates, translate
             convert = meta is not None
-            points = meta.to_cm(points, convert)
+            if convert:
+                points = meta.to_cm(points, center=True)
 
             # If not provided, find module each point belongs to by proximity
             module_indexes = self.get_closest_module_indexes(points)
@@ -533,7 +534,8 @@ class Geometry:
                     self.translate(points[module_index], module_id, target_id)
 
         # Bring the coordiantes back to pixels, if they were shifted
-        points = meta.to_px(points, convert)
+        if convert:
+            points = meta.to_px(points, floor=True)
 
         return points, module_indexes
 

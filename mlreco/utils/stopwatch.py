@@ -343,3 +343,24 @@ class StopwatchManager:
             Execution time of all iterations of each process so far
         """
         return {key: value.time_sum for key, value in self.items()}
+
+    def update(self, other, prefix=None):
+        """Updates this manager with values from another stopwatch manager.
+
+        Parameters
+        ----------
+        other : StopwatchManager
+             Dictionary of execution times from another process
+        prefix : str, optional
+             String to prefix the timer key with
+
+        Returns
+        -------
+        Dict[str, Time]
+            Combined execution time of all iterations of each process so far
+        """
+        for key, value in other.items():
+            if prefix is None:
+                self._watch[key] = value
+            else:
+                self._watch[f'{prefix}_{key}'] = value
