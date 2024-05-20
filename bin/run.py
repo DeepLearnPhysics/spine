@@ -133,7 +133,7 @@ if __name__ == '__main__':
     parser.add_argument('--nskip',
                         help='Number of iterations to skip',
                         type=int)
-    parser.add_argument('--detect_anomaly',
+    parser.add_argument('--detect-anomaly',
                         help='Turns on autograd.detect_anomaly for debugging',
                         action='store_const', const=True)
     args = parser.parse_args()

@@ -57,4 +57,5 @@ def lr_sched_factory(cfg, optimizer):
     """
     from torch.optim import lr_scheduler
     lr_sched_dict = module_dict(lr_scheduler)
+
     return instantiate(lr_sched_dict, cfg, optimizer=optimizer)

@@ -1,9 +1,9 @@
 """Main functions.
 
-This is the first module called when launching a binary script under the
-`bin` directory. It takes care of setting up the environment and the
-`Driver`/`Trainer` object(s) used to execute/train ML models, post-processors,
-and analysis scripts.
+This is the first module called when launching a binary script under the ``bin`
+directory. It takes care of setting up the environment and the `Driver`
+object(s) used to execute/train ML models, post-processors, analysis
+scripts, writers and profilers.
 """
 
 import os
@@ -24,7 +24,6 @@ from .version import __version__
 from .logo import ascii_logo
 
 from .driver import Driver
-from .train import Trainer
 
 
 def run(cfg):
@@ -36,60 +35,50 @@ def run(cfg):
         Full driver/trainer configuration
     """
     # Process the configuration
-    cfg = process_config(**cfg)
+    cfg, distributed, world_size = process_config(**cfg)
 
-    # Dispatch
-    if 'train' not in cfg:
-        # If this is not a training process, use the driver
-        driver = Driver(**cfg)
-        driver.run()
+    # Launch the training/inference process
+    if not distributed:
+        # Run a single process
+        run_single(cfg)
 
     else:
-        # Launch the training/inference process
-        if (not 'distributed' in cfg['train'] or
-            not cfg['train']['distributed']):
-            run_single(0, cfg, train)
-        else:
-            world_size = 1
-            if torch.cuda.is_available:
-                world_size = torch.cuda.is_avaialble()
-            torch.multiprocessing.spawn(run_single,
-                    args = (cfg, train, world_size,), nprocs = world_size)
+        # Make sure that this is a training process
+        assert 'train' in cfg['base'], (
+                "Must only used distributed execution for training processes.")
+
+        # Make sure the world size is consistent with the number of visible GPUs
+        assert torch.cuda.is_available, (
+                "Cannot run a distributed training without access to GPUs.")
+
+        visible_devices = torch.cuda.device_count()
+        assert world_size <= visible_gpus, (
+                 "The number of GPUs requested for distributed execution "
+                f"({world_size}) is smaller than the number of visible devices "
+                f"({visible_devices}).")
+
+        # Launch the distributed training process
+        torch.multiprocessing.spawn(
+                train_single, args=(cfg,), nprocs=world_size)
 
 
-def run_single(rank, cfg, train, world_size=None):
+def run_single(cfg):
     """Execute a model on a single process.
 
     Parameters
     ----------
-    rank : int
-        Process rank
     cfg : dict
         Full driver/trainer configuration
-    train : bool
-        Whether to train the network or simply execute it
-    world_size : int, optional
-        How many processes are being run in parallel
     """
-    # Treat distributed and undistributed training/inference differently
-    if world_size is None:
-        if train:
-            train_single(cfg)
-        else:
-            inference_single(cfg)
-
+    # Dispatch
+    if 'train' in cfg['base']:
+        train_single(cfg)
     else:
-        setup_ddp(rank, world_size)
-        if train:
-            train_single(cfg, rank)
-        else:
-            inference_single(cfg, rank)
-        destroy_process_group()
+        inference_single(cfg)
 
 
-def train_single(cfg, rank=0):
-    """
-    Train a model in a single process
+def train_single(cfg, rank=None):
+    """Train a model in a single process.
 
     Parameters
     ----------
@@ -99,31 +88,31 @@ def train_single(cfg, rank=0):
         Process rank
     """
     # Prepare the trainer
-    trainer = Trainer(**cfg, rank=rank)
+    driver = Driver(**cfg, rank=rank)
 
     # Run the training process
-    trainer.run()
+    driver.run()
 
 
-def inference_single(cfg, rank=0):
+def inference_single(cfg, rank=None):
     """
     Execute a model in inference mode in a single process
 
     Parameters
     ----------
     cfg : dict
-        Full driver/trainer configuration
+        Full driver configuration
     rank : int, default 0
         Process rank
     """
-    # Prepare the trainer
-    trainer = Trainer(**cfg, rank=rank)
+    # Prepare the driver
+    driver = Driver(**cfg, rank=rank)
 
     # Find the set of weights to run the inference on
     preloaded, weights = False, []
-    if trainer.model.model_path is not None:
-        preloaded = os.path.isfile(trainer.model.model_path)
-        weights = sorted(glob.glob(trainer.model.model_path))
+    if driver.model.weight_path is not None:
+        preloaded = os.path.isfile(driver.model.weight_path)
+        weights = sorted(glob.glob(driver.model.weight_path))
         if not preloaded and len(weights):
             weight_list = "\n".join(weights)
             logger.info("Looping over %d set of weights:\n"
@@ -134,13 +123,13 @@ def inference_single(cfg, rank=0):
     # Loop over the weights, run the inference loop
     for weight in weights:
         if weight is not None and not preloaded:
-            trainer.model.load_weights(weight)
-            trainer.make_directories()
+            driver.model.load_weights(weight)
+            driver.initialize_log()
 
-        trainer.run()
+        driver.run()
 
 
-def process_config(base, io, model=None, train=None, build=None, post=None,
+def process_config(base, io, model=None, build=None, post=None,
                    ana=None, verbosity='info', processed=False):
     """Do all the necessary cross-checks to ensure that the configuration
     can be used.
@@ -155,8 +144,6 @@ def process_config(base, io, model=None, train=None, build=None, post=None,
         I/O configuration dictionary
     model : dict, optional
         Model configuration dictionary
-    train : dict, optional
-        Training configuration dictionary
     build : dict, optional
         Representation building configuration dictionary
     post : dict, optional
@@ -183,35 +170,21 @@ def process_config(base, io, model=None, train=None, build=None, post=None,
         verbosity = verbosity.upper()
     logger.setLevel(verbosity)
 
-    # Convert the gpus parameter to a list of GPU IDs
-    distributed = False
-    world_size = 1
-    if train is not None and 'gpus' in train:
-        # Check that the list of GPUs is a comma-separated string
-        for val in train['gpus'].split(','):
-            assert not val or val.isdigit(), (
-                    "The `gpus` parameter must be specified as a "
-                    "comma-separated string of numbers. "
-                   f"Instead, got: {train['gpus']}")
+    # Set GPUs visible to CUDA
+    assert 'world_size' in base, (
+        "Must provide `world_size` in the `base` configuration block.")
+    world_size = base['world_size']
 
-        # Set GPUs visible to CUDA
-        os.environ['CUDA_VISIBLE_DEVICES'] = train['gpus']
+    os.environ['CUDA_VISIBLE_DEVICES'] = \
+            ','.join([str(i) for i in range(world_size)])
 
-        # Convert the comma-separated string to a list
-        if len(train['gpus']):
-            train['gpus'] = list(range(len(train['gpus'].split(','))))
-            world_size = len(train['gpus'])
+    # If there is more than one GPU in use, must distribute
+    if world_size > 1:
+        base['distributed'] = True
+    elif 'distributed' not in base:
+        base['distributed'] = False
 
-        else:
-            train['gpus'] = []
-
-        # If there is more than one GPU, must distribute
-        if world_size > 1:
-            train['distributed'] = True
-
-        elif 'distributed' not in train:
-            train['distributed'] = False
-        distributed = train['distributed']
+    distributed = base['distributed']
 
     # If the seed is not set for the sampler, randomize it. This is done
     # here to keep a record of the seeds provided to the samplers
@@ -248,8 +221,6 @@ def process_config(base, io, model=None, train=None, build=None, post=None,
     cfg = {'base': base, 'io': io}
     if model is not None:
         cfg['model'] = model
-    if train is not None:
-        cfg['train'] = train
     if build is not None:
         cfg['build'] = build
     if post is not None:
@@ -273,29 +244,41 @@ def process_config(base, io, model=None, train=None, build=None, post=None,
     logger.info(yaml.dump(cfg, default_flow_style=None, sort_keys=False))
 
     # Return updated configuration
-    return cfg
+    return cfg, distributed, world_size
 
 
 def apply_event_filter(driver, entry_list):
-    """Restrict the list of entries
+    """Restrict the list of entries.
 
     Parameters
     ----------
     driver : Driver
         Driver instance
-    entry_list : list
-        List of events to load
+    n_entry : int, optional
+        Maximum number of entries to load
+    n_skip : int, optional
+        Number of entries to skip at the beginning
+    entry_list : list, optional
+        List of integer entry IDs to add to the index
+    skip_entry_list : list, optional
+        List of integer entry IDs to skip from the index
+    run_event_list: list((int, int)), optional
+        List of [run, event] pairs to add to the index
+    skip_run_event_list: list((int, int)), optional
+        List of [run, event] pairs to skip from the index
     """
     # Simply change the underlying entry list
-    driver.reader.process_entry_list(entry_list)
+    driver.reader.process_entry_list(
+            n_entry, n_skip, entry_list, skip_entry_list,
+            run_event_list, skip_run_event_list)
 
 
-def setup_ddp(rank, world_size):
+def setup_ddp(rank, world_size, backend='nccl'):
     """Sets up the DistributedDataParallel environment."""
     # Define the environment variables
     os.environ['MASTER_ADDR'] = 'localhost'
     os.environ['MASTER_PORT'] = '12355'
 
     # Initialize the process group for this GPU
-    init_process_group(backend='nccl', rank=rank, world_size=world_size)
+    init_process_group(backend=backend, rank=rank, world_size=world_size)
     torch.cuda.set_device(rank)

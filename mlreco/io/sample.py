@@ -16,8 +16,9 @@ class AbstractBatchSampler(Sampler):
     """Abstract sampler class.
 
     Samplers that inherit from this class should work out of the box.
-    Just define the __iter__ function. __init__ defines self._num_samples
-    and self._batch_size as well as self._random RNG, if needed.
+    Just define the __len__ and __iter__ functions. __init__ defines
+    self._num_samples and self._batch_size as well as a self._random
+    RNG, if needed.
     """
 
     def __init__(self, dataset, batch_size, seed=None, **kwargs):
@@ -45,32 +46,31 @@ class AbstractBatchSampler(Sampler):
             seed = int(time.time())
         self._random = np.random.RandomState(seed=seed) # pylint: disable=E1101
 
-        # Check that there is at least one sample in the dataset
-        self._num_samples = len(dataset)
-        if self._num_samples < 0:
-            class_name = self.__class__.__name__
-            raise ValueError(
-                    f"{class_name} received negative num_samples ("
-                    f"{self._num_samples}).")
-
-        # Check that the batch_size is not larger than the number of samples
+        # Check that the batch_size is no larger than the number of samples
         self._batch_size = int(batch_size)
-        if self._batch_size < 0 \
-                or self._batch_size > self._num_samples:
+        self._num_samples = len(dataset)
+        if self._batch_size < 0 or self._batch_size > self._num_samples:
             class_name = self.__class__.__name__
             raise ValueError(
                     f"{class_name} received invalid batch_size ({batch_size}) "
                     f"> num_samples ({self._num_samples}).")
 
+        # Define the number of batches as an integer multiple of the batch size
+        # to ensure that every batch has the same number of entries
+        self._num_batches = self._num_samples//self._batch_size
+
     def __len__(self):
-        """Provides the full length of the sampler (number of entries)
+        """Provides the full length of the sampler.
+
+        The length of the sampler is entirely defined by the number of
+        batches, which depends on how the dataset is accessed.
 
         Returns
         -------
         int
             Total number of entries in the dataset
         """
-        return self._num_samples
+        return self._num_batches*self._batch_size
 
     def __iter__(self):
         """Placeholder to be overridden by children classes."""
@@ -83,9 +83,7 @@ class SequentialBatchSampler(AbstractBatchSampler):
 
     def __iter__(self):
         """Iterates over sequential batches of data."""
-        num_batches = self._num_samples//self._batch_size
-        order = np.arange(num_batches*self._batch_size, dtype=np.int64)
-
+        order = np.arange(len(self), dtype=np.int64)
         return iter(order)
 
 
@@ -93,13 +91,31 @@ class RandomSequenceBatchSampler(AbstractBatchSampler):
     """Samples sequential batches randomly within the dataset."""
     name = 'random_sequence'
 
+    def __init__(self, **kwargs):
+        """Initialize the random sequence batch sampler.
+
+        Parameters
+        ----------
+        **kwargs, dict
+            Dictionary of parameters to pass to the parent class
+        """
+        # Initialize the parent class
+        super().__init__(**kwargs)
+
+        # Define the number of batches
+        self._num_batches = (
+                self._num_samples-self._batch_size+1)//self._batch_size
+        assert self._num_batches > 0, (
+                 "Not enough samples to properly randomly sample sequences. "
+                f"Must provide at least {2*self._batch_size-1} samples.")
+
     def __iter__(self):
         """Iterates over sequential batches of data randomly located
         in the dataset.
         """
         # Pick a general offset and produce sequence starts with respect to it
         offset = self._random.randint(0, self._batch_size)
-        num_batches = (self._num_samples - offset)//self._batch_size
+        num_batches = (self._num_samples - self._batch_size)//self._batch_size
         starts = np.arange(
                 offset, num_batches*self._batch_size,
                 self._batch_size, dtype=np.int64)
@@ -193,7 +209,7 @@ class DistributedProxySampler(DistributedSampler):
         indices = np.concatenate(
                 indices_split[self.rank:num_batches:self.num_replicas])
         #indices = indices[self.rank:self.total_size:self.num_replicas]
-        if len(indices) != self.num_samples:
-            raise RuntimeError("{len(indices)} vs {self.num_samples}")
+        if len(indices) != self._num_samples:
+            raise RuntimeError("{len(indices)} vs {self._num_samples}")
 
         return iter(indices)

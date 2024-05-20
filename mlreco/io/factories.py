@@ -20,7 +20,7 @@ __all__ = ['loader_factory', 'dataset_factory', 'sampler_factory',
 
 def loader_factory(dataset, batch_size=None, minibatch_size=None, shuffle=True,
                    sampler=None, num_workers=0, collate_fn=None,
-                   entry_list=None, distributed=False, world_size=1, rank=0):
+                   entry_list=None, distributed=False, world_size=0, rank=0):
     """Instantiates a DataLoader based on configuration.
 
     Dataset comes from `dataset_factory`.
@@ -47,7 +47,7 @@ def loader_factory(dataset, batch_size=None, minibatch_size=None, shuffle=True,
     distributed : bool, default False
         If True, the loader will be prepared for distributed execution
     world_size : int, default 1
-        Total number of processes running the sampler
+        Total number of GPUs using the sampler
     rank : int, default 0
         Unique identifier of the process sampling data
 
@@ -61,9 +61,9 @@ def loader_factory(dataset, batch_size=None, minibatch_size=None, shuffle=True,
             "Provide either `batch_size` or `minibatch_size`, not both.")
 
     if batch_size is not None:
-        assert (batch_size % world_size) == 0, (
+        assert world_size == 0 or (batch_size % world_size) == 0, (
                 "The batch_size must be a multiple of the number of GPUs.")
-        minibatch_size = batch_size//world_size
+        minibatch_size = batch_size//max(world_size, 1)
 
     # Initialize the dataset
     dataset = dataset_factory(dataset, entry_list)

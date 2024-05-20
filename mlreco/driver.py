@@ -37,7 +37,7 @@ class Driver:
 
     Processes global configuration and runs the appropriate modules:
       1. Load data
-      2. Run the model forward (including loss)
+      2. Run the model forward (including loss) and backward (if training)
       3. Unwrap batched data
       4. Build representations
       5. Run post-processing
@@ -61,8 +61,9 @@ class Driver:
             Post-processor configuration, if there are any to be run
         ana : dict, optional
             Analysis script configuration (writes to CSV files)
-        rank : int, default 0
-           Rank of the GPU in the multi-GPU training process
+        rank : int, optional
+           Rank of the GPU in the multi-GPU training process. If not specified,
+           the underlying ML process is run on CPU.
         """
         # Initialize the timers and the configuration dictionary
         self.cfg = {} # Move processor elswhere, store it
@@ -70,7 +71,7 @@ class Driver:
         self.watch.initialize('iteration')
 
         # Initialize the base driver configuration parameters
-        self.initialize_base(**base, rank=rank)
+        train, rank = self.initialize_base(**base, rank=rank)
 
         # Initialize the input/output
         self.initialize_io(**io)
@@ -81,7 +82,10 @@ class Driver:
             assert self.loader is not None, (
                     "The model can only be used in conjunction with a loader.")
             self.watch.initialize('model')
-            self.model = Model(**model, rank=rank)
+            self.model = Model(**model, train=train, rank=rank)
+        else:
+            assert train is None, (
+                    "Received a train block but there is no model to train.")
 
         # Initialize the data representation builder
         self.builder = None
@@ -112,14 +116,16 @@ class Driver:
         # Initialize the output log
         self.initialize_log()
 
-    def initialize_base(self, log_dir='logs', prefix_log=False,
+    def initialize_base(self, world_size=0, log_dir='logs', prefix_log=False,
                         parent_path=None, iterations=-1, epochs=-1,
                         unwrap=False, rank=None, processed=False,
-                        seed=None, report_step=1):
+                        seed=None, log_step=1, distributed=False, train=None):
         """Initialize the base driver parameters.
 
         Parameters
         ----------
+        world_size : int, default 0
+            Number of GPUs to use in the underlying model
         log_dir : str, default 'logs'
             Path to the directory where the logs will be written to
         prefix_log : bool, default False
@@ -138,8 +144,17 @@ class Driver:
             Whether this configuration has been pre-processed (must be true)
         seed : int, optional
             Random number generator seed
-        report_step : int, default 1
+        log_step : int, default 1
             Number of iterations before the logging is called (1: every step)
+        distributed : bool, default False
+            If `True`, this process is distributed among multiple processes
+
+        Returns
+        -------
+        dict
+            Training configuration
+        rank
+            Updated rank
         """
         # Check that the configuration has been processed
         assert processed, (
@@ -153,10 +168,33 @@ class Driver:
         self.iterations = iterations
         self.epochs = epochs
         self.unwrap = unwrap
-        self.rank = rank
-        self.main_process = rank is None or rank == 0
         self.seed = seed
-        self.report_step = report_step
+        self.log_step = log_step
+
+        # If the seed is provided, set it
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+
+        # Process the process GPU rank
+        if rank is None and world_size > 0:
+            assert world_size < 2, (
+                    "Must not request > 1 GPU without specifying a GPU rank.")
+            rank = 0
+
+        self.rank = rank
+        self.world_size = world_size
+        self.main_process = rank is None or rank == 0
+
+        # Check on the distributed process
+        assert self.rank is None or self.rank < world_size, (
+                f"The GPU rank index of this driver ({rank}) is too large "
+                f"for the number of GPUs available ({world_size}).")
+
+        self.distributed = distributed
+        if not distributed and world_size > 1:
+            self.distributed = True
+
+        return train, rank
 
     def initialize_io(self, loader=None, reader=None, writer=None):
         """Initializes the input/output scripts.
@@ -179,7 +217,8 @@ class Driver:
         if loader is not None:
             # Initialize the torch data loader
             self.watch.initialize('load')
-            self.loader = loader_factory(**loader, rank=self.rank)
+            self.loader = loader_factory(
+                    **loader, rank=self.rank)
             self.loader_iter = iter(self.loader)
             self.iter_per_epoch = len(self.loader)
             self.reader = self.loader.dataset.reader
@@ -237,7 +276,7 @@ class Driver:
         else:
             # If running the driver within a training/validation process,
             # follow a specific pattern of log names.
-            start_iteration = self.model.start_iteration if self.model else 0
+            start_iteration = self.model.start_iteration
             prefix  = 'train' if self.model.train else 'inference'
             suffix  = '' if not self.model.distributed else f'_proc{self.rank}'
             logname = f'{prefix}{suffix}_log-{start_iteration:07d}.csv'
@@ -250,19 +289,32 @@ class Driver:
 
     def run(self):
         """Loop over the requested number of iterations, process them."""
+        # Get the iteration start (if model exists
+        start_iteration = 0
+        if self.model is not None and self.model.train:
+            start_iteration = self.model.start_iteration
+        epoch = start_iteration/self.iter_per_epoch
+
         # Loop and process each iteration
-        for iteration in range(self.iterations):
+        for iteration in range(start_iteration, self.iterations):
+            # When switching to a new epoch, reset the loader iterator
+            if (self.loader is not None and
+                iteration//self.iter_per_epoch != epoch//1):
+                if self.distributed:
+                    self.loader.sampler.set_epoch(e)
+                self.loader_iter = iter(self.loader)
+
             # Update the epoch counter, record the execution date/time
             epoch = iteration / self.iter_per_epoch
             tstamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
             # Process one batch/entry of data
-            data = self.process(iteration)
+            data = self.process(iteration=iteration)
 
             # Log the output
             self.log(data, tstamp, iteration, epoch)
 
-    def process(self, iteration=None, run=None, event=None):
+    def process(self, entry=None, run=None, event=None, iteration=None):
         """Process one entry or a batch of entries.
 
         Run single step of main SPINE driver. This includes data loading,
@@ -271,12 +323,15 @@ class Driver:
 
         Parameters
         ----------
-        iteration : int, optional
-            Iteration number for current step.
+        entry : int, optional
+            Entry number to load
         run : int, optional
-            Run number
+            Run number to load
         event : int, optional
-            Event number
+            Event number to load
+        iteration : int, optional
+            Iteration number. Only needed to train models and/or to apply
+            time-dependant model losses, no-op otherwise
 
         Returns
         -------
@@ -287,14 +342,15 @@ class Driver:
         self.watch.start('iteration')
 
         # 1. Load data
-        data = self.load(iteration, run, event)
+        data = self.load(entry, run, event)
 
         # 2. Pass data through the model
         if self.model is not None:
             self.watch.start('model')
-            result = self.model(data)
+            result = self.model(data, iteration=iteration)
             data.update(**result)
             self.watch.stop('model')
+            self.watch.update(self.model.watch, 'model')
 
         # 3. Unwrap
         if self.unwrap:
@@ -334,7 +390,7 @@ class Driver:
         # Return
         return data
 
-    def load(self, iteration=None, run=None, event=None):
+    def load(self, entry=None, run=None, event=None):
         """Loads one batch/entry to process.
 
         If the model is run on the fly, the data is batched. Otherwise,
@@ -342,8 +398,8 @@ class Driver:
 
         Parameters
         ----------
-        iteration : int, optional
-            Iteration number, only valid with reader
+        entry : int, optional
+            Entry number, only valid with reader
         run : int, optional
             Run number, only valid with reader
         event : int, optional
@@ -357,24 +413,24 @@ class Driver:
         # Dispatch to the appropriate loader
         if self.loader is not None:
             # Can only load batches by index
-            assert ((iteration is not None) and
-                    (run is None and event is None)), (
-                           "Provide the iteration number only.")
+            assert (entry is None and run is None and event is None), (
+                    "When calling the loader, no way to specify a specific "
+                    "entry or run/event pair.")
 
             self.watch.start('load')
             data = next(self.loader_iter)
             self.watch.stop('load')
 
         else:
-            # Must provide either iteration or both run and event numbers
-            assert ((iteration is not None) or
+            # Must provide either entry number or both run and event numbers
+            assert ((entry is not None) or
                     (run is not None and event is not None)), (
-                           "Provide either the iteration number or both the "
+                           "Provide either the entry number or both the "
                            "run number and the event number to load.")
 
             self.watch.start('read')
-            if iteration is not None:
-                data = self.reader.get(iteration)
+            if entry is not None:
+                data = self.reader.get(entry)
             else:
                 data = self.reader.get_run_event(run, event)
             self.watch.stop('read')
@@ -434,8 +490,8 @@ class Driver:
         self.logger.append(log_dict)
 
         # If requested, print out basics of the training/inference process.
-        report_step = ((iteration + 1) % self.report_step) == 0
-        if report_step:
+        log = ((iteration + 1) % self.log_step) == 0
+        if log:
             # Dump general information
             proc   = 'Train' if self.model.train else 'Inference'
             device = 'GPU' if self.rank is not None else 'CPU'
@@ -464,8 +520,8 @@ class Driver:
             else:
                 mem, mem_perc = log_dict['cpu_mem'], log_dict['cpu_mem_perc']
 
-            acc  = np.mean(data.get('accuracy', -1.))
-            loss = np.mean(data.get('loss',     -1.))
+            acc  = data.get('accuracy', -1.)
+            loss = data.get('loss', -1.)
 
             values = [f'{t_net:0.2f} s ({100*t_net/t_iter:0.2f} %)',
                       f'{mem:0.2f} GB ({mem_perc:0.2f} %)',
@@ -479,7 +535,7 @@ class Driver:
             print(msg, flush=True)
 
             # Start new line once only
-            if self.model.distributed:
+            if self.model is not None and self.model.distributed:
                 torch.model.distributed.barrier()
             if self.main_process:
                 print('', flush=True)

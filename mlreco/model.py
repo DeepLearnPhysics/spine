@@ -13,17 +13,20 @@ from .models.experimental.bayes.calibration import (
         calibrator_factory, calibrator_loss_factory)
 
 from .data import TensorBatch, IndexBatch, EdgeIndexBatch
+from .utils.stopwatch import StopwatchManager
+from .utils.train import optim_factory, lr_sched_factory
 from .utils.logger import logger
 
 
 class Model:
     """Groups all relevant functions to construct a model and its loss."""
 
-    def __init__(self, name, modules, network_input, model_path=None,
-                 loss_input=None, calibration=None, train=False,
-                 to_numpy=False, time_dependent=False, dtype=torch.float,
-                 distributed=False, rank=None, detect_anomaly=False,
-                 find_unused_parameters=False):
+    def __init__(self, name, modules, network_input, loss_input=None,
+                 weight_path=None, calibration=None, train=None,
+                 save_step=None, optimizer=None, restore_optimizer=False,
+                 lr_scheduler=None, to_numpy=False, time_dependent_loss=False,
+                 dtype=torch.float, distributed=False, rank=None,
+                 detect_anomaly=False, find_unused_parameters=False):
         """Process the model configuration.
 
         Parameters
@@ -34,18 +37,18 @@ class Model:
             Dictionary of modules that make up the model
         network_input : List[str]
             List of keys of parsed objects to input into the model forward
-        model_path : str, optional
-            Path to global model weights to load
         loss_input : List[str], optional
             List of keys of parsed objects to input into the loss forward
+        weight_path : str, optional
+            Path to global model weights to load
         calibration : dict, optional
             Model score calibration configuration
         to_numpy : int, default False
             Cast model output to numpy ndarray
-        time_dependant : bool, default False
+        time_dependant_loss : bool, default False
             Handles time-dependant loss, such as KL divergence annealing
-        train : bool, default False
-            If True, enable autograd
+        train : dict, default None
+            Training regimen configuration
         dtype : torch.dtype
             Data type of the model parameters and input data 
         distributed : bool, default False
@@ -60,10 +63,17 @@ class Model:
         # Save parameters
         self.train = train
         self.to_numpy = to_numpy
-        self.time_dependant = time_dependent
+        self.time_dependant = time_dependent_loss
         self.dtype = dtype
         self.distributed = distributed
         self.rank = rank
+        self.main_process = rank is None or rank == 0
+
+        # Initialize the timers and the configuration dictionary
+        self.watch = StopwatchManager()
+        self.watch.initialize('forward')
+        if train:
+            self.watch.initialize(['backward', 'save'])
 
         # If anomaly detection is requested, set it
         if detect_anomaly:
@@ -78,7 +88,6 @@ class Model:
         net_cls, loss_cls = model_factory(name)
         try:
             self.net = net_cls(**modules)
-            print('RANK', rank)
             self.net.to(device=rank, dtype=dtype)
         except Exception as err:
             msg = f"Failed to instantiate {net_cls}"
@@ -93,15 +102,23 @@ class Model:
 
         # If the execution is distributed, wrap with DDP
         if self.distributed:
-            self.model = DDP(
-                    self.model, device_ids=[rank], output_device=self.rank,
+            self.net = DDP(
+                    self.net, device_ids=[rank], output_device=self.rank,
                     find_unused_parameters=find_unused_parameters)
 
-        # Put the model in evaluation mode if requested
-        if train:
-            self.net.train()
+        # If requested, initialize the training process
+        self.train = False
+        if train is not None:
+            self.initialize_train(**train)
         else:
             self.net.eval()
+
+        # If requested, freeze some/all the model weights
+        self.freeze_weights()
+
+        # If requested, load the some/all the model weights
+        self.weight_path = weight_path
+        self.load_weights(weight_path)
 
         # If requested, put the model in calibration mode
         if calibration is not None:
@@ -112,29 +129,52 @@ class Model:
         # in the forward/loss function to a data product name.
         self.input_dict = network_input
         self.loss_dict  = loss_input
+        assert isinstance(network_input, dict), (
+                "Must specify `network_input` as a dictionary mapping model "
+                "input keys onto data loader product keys.")
+        assert loss_input is None or isinstance(loss_input, dict), (
+                "Must specify `loss_input` as a dictionary mapping loss "
+                "input keys onto data loader product keys.")
 
-        if not isinstance(network_input, dict):
-            warn("Specify `network_input` as a dictionary, not a list.",
-                 DeprecationWarning)
-            fn   = self.model_class.forward
-            keys = list(signature(fn).parameters.keys())[1:] # Skip `self`
-            num_input = len(network_input)
-            self.input_dict = {
-                    keys[i]:network_input[i] for i in range(num_input)}
+    def initialize_train(self, optimizer, weight_prefix='snapshot',
+                         restore_optimizer=False, save_step=-1,
+                         lr_scheduler=None):
+        """Initialize the training regimen.
 
-        if loss_input is not None and not isinstance(loss_input, dict):
-            warn("Specify `loss_input` as a dictionary, not a list.",
-                 DeprecationWarning)
-            fn   = self.loss_class.forward
-            keys = list(signature(fn).parameters.keys())[1:] # Skip `self`
-            num_input = len(loss_input)
-            self.loss_dict = {keys[i]:loss_input[i] for i in range(num_input)}
+        Parameters
+        ----------
+        optimizer : dict
+            Configuration of the optimizer
+        weight_prefix : str, default 'snapshot'
+            Path + name of the weight file prefix
+        save_step : int, default -1
+            Number of iterations before recording the model weights (-1: never)
+        restore_optimizer : bool, default False
+            Whether to load the  opimizer state from the torch checkpoint
+        lr_scheduler : dict, optional
+            Configuration of the learning rate scheduler
+        """
+        # Turn train on
+        self.train = True
+        self.net.train()
 
-        # If requested, freeze some/all the model weights
-        self.freeze_weights()
+        # Store parameters
+        self.weight_prefix = weight_prefix
+        self.save_step = save_step
+        self.restore_optimizer = restore_optimizer
 
-        # If requested, load the some/all the model weights
-        self.load_weights(model_path)
+        # Make a directory for the weight files, if need be
+        save_dir = os.path.dirname(weight_prefix)
+        if save_dir and not os.path.isdir(save_dir):
+            os.makedirs(save_dir, exist_ok=True)
+
+        # Initiliaze the optimizer
+        self.optimizer = optim_factory(optimizer, self.net.parameters())
+
+        # Initialize the learning rate scheduler
+        self.lr_scheduler = None
+        if lr_scheduler is not None:
+            self.lr_scheduler = lr_sched_factory(lr_scheduler, self.optimizer)
 
     def initialize_calibrator(self, calibrator, calibrator_loss):
         """Switch model to calibration mode.
@@ -153,21 +193,43 @@ class Model:
         self.net = calibrator_factory(model=self.net, **calibrator)
         self.loss_fn = calibrator_loss_factory(**calibrator_loss)
 
-    def __call__(self, data):
-        """Calls the forward function on the provided batch of data.
+    def __call__(self, data, iteration=None):
+        """Calls the forward (and backward) function on a batch of data.
 
         Parameters
         ----------
         data : dict
             Dictionary of input data product keys which each map to its
             associated batched data product
+        iteration : int, optional
+            Iteration number (relevant for time-dependant losses)
 
         Returns
         -------
         dict
             Dictionary of model and loss outputs
         """
-        return self.forward(data)
+        # Run the model forward
+        self.watch.start('forward')
+        result = self.forward(data, iteration)
+        self.watch.stop('forward')
+
+        # If traning run the backward pass and update the weigths
+        if self.train:
+            self.watch.start('backward')
+            self.backward()
+            self.watch.stop('backward')
+
+        # If training and at an appropriate iteration, save model state
+        if self.train:
+            self.watch.start('save')
+            if iteration is not None:
+                save = ((iteration + 1) % self.save_step) == 0
+                if save and self.main_process:
+                    self.save_state(iteration)
+            self.watch.stop('save')
+
+        return result
 
     def clean_config(self, config):
         """Remove model loading/freezing keys from all level of a dictionary.
@@ -180,7 +242,7 @@ class Model:
         config : dict
             Dictionary to remove the keys from
         """
-        keys = ['model_path', 'model_name', 'freeze_weights']
+        keys = ['model_name', 'weight_path', 'freeze_weights']
         if isinstance(config, dict):
             for k in keys:
                 if k in config:
@@ -230,57 +292,57 @@ class Model:
                 if isinstance(config[key], dict):
                     module_items.append((key, config[key]))
 
-    def load_weights(self, full_model_path):
+    def load_weights(self, full_weight_path):
         """Load the weights of certain model components.
 
-        Breadth-first search for `model_path` parameters in the model
-        configuration. If 'model_path' is found under a module block,
+        Breadth-first search for `weight_path` parameters in the model
+        configuration. If 'weight_path' is found under a module block,
         the weights are loaded for its parameters.
 
-        If a `model_path` is not found for a given module, load the overall
-        weights from `model_path` under `trainval` for that module instead.
+        If a `weight_path` is not found for a given module, load the overall
+        weights from `weight_path` under `trainval` for that module instead.
 
         Parameters
         ----------
-        full_model_path : str
+        full_weight_path : str
             Path to the weights for the full model
         """
         # If a general model path is provided, add it to the loading list first
-        model_paths = []
-        if full_model_path:
-            model_paths = [(self.model_name, full_model_path, '')]
+        weight_paths = []
+        if full_weight_path:
+            weight_paths = [(self.model_name, full_weight_path, '')]
 
         # Find the list of sub-module weights to subsequently load
         module_items = list(self.model_cfg.items())
         while len(module_items) > 0:
             module, config = module_items.pop()
-            if config.get('model_path', '') != '':
+            if config.get('weight_path', '') != '':
                 model_name = config.get('model_name', module)
-                model_paths.append((module, config['model_path'], model_name))
+                weight_paths.append((module, config['weight_path'], model_name))
             for key in config:
                 if isinstance(config[key], dict):
                     module_items.append((key, config[key]))
 
         # If no pre-trained weights are requested, nothing to do here
         self.start_iteration = 0
-        if not model_paths:
+        if not weight_paths:
             return
 
         # Loop over provided model paths
-        for module, model_path, model_name in model_paths:
+        for module, weight_path, model_name in weight_paths:
             # Check that the requested weight file can be found. If the path
             # points at > 1 file, skip for now (loaded in a loop later)
-            if not os.path.isfile(model_path):
-                if not self.train and glob.glob(model_path):
+            if not os.path.isfile(weight_path):
+                if not self.train and glob.glob(weight_path):
                     continue
 
                 raise ValueError("Weight file not found for module "
-                                f"{module}: {model_path}")
+                                f"{module}: {weight_path}")
 
             # Load weight file into existing model
             logger.info("Restoring weights for module %s "
-                        "from %s...", module, model_path)
-            with open(model_path, 'rb') as f:
+                        "from %s...", module, weight_path)
+            with open(weight_path, 'rb') as f:
                 # Read checkpoint. If loading weights to a non-distributed
                 # model, remove leading keyword `module` from weight names.
                 checkpoint = torch.load(f, map_location='cpu')
@@ -377,8 +439,8 @@ class Model:
             if self.loss_dict is not None:
                 for param, name in self.loss_dict.items():
                     assert name in data, (
-                            f"Must provide `{name}` in the dataloader schema to "
-                             "input into the loss function.")
+                            f"Must provide `{name}` in the dataloader schema "
+                             "to input into the loss function.")
 
                     value = data[name]
                     if isinstance(value, TensorBatch):
@@ -399,6 +461,8 @@ class Model:
         data : dict
             Dictionary of input data product keys which each map to its
             associated batched data product
+        iteration : int, optional
+            Iteration number (relevant for time-dependant losses)
 
         Returns
         -------
@@ -450,6 +514,28 @@ class Model:
 
             return result
 
+    def backward(self):
+        """Run the backward step on the model."""
+        # Reset the gradient accumulation
+        self.optimizer.zero_grad()
+
+        # Run the model backward
+        self.loss.backward()
+
+        # Step the optimizer
+        self.optimizer.step()
+
+        # Step the learning rate scheduler
+        if self.lr_scheduler is not None:
+            self.lr_scheduler.step()
+
+        # If the model has a buffer that needs to be updated, do it after
+        # the trainable parameter update
+        model = self.net if not self.distributed else self.net.module
+        if hasattr(model, 'update_buffers'):
+            logger.info('Updating buffers')
+            model.update_buffers()
+
     def save_state(self, iteration):
         """Save the model state.
 
@@ -470,6 +556,6 @@ class Model:
         filename = f'{self.weight_prefix}-{iteration:d}.ckpt'
         torch.save({
             'global_step': iteration,
-            'state_dict': self.model.state_dict(),
+            'state_dict': self.net.state_dict(),
             'optimizer': self.optimizer.state_dict()
         }, filename)
