@@ -500,7 +500,10 @@ def get_cluster_features(data, clusts, add_value=False, add_shape=False):
     if add_value or add_shape:
         feats_ext = get_cluster_features_extended(
                 data, clusts, add_value, add_shape)
-        feats = np.hstack((feats, feats_ext))
+        if isinstance(data, np.ndarray):
+            feats = np.hstack((feats, feats_ext))
+        else:
+            feats = torch.cat((feats, feats_ext), dim=1)
 
     return feats
 

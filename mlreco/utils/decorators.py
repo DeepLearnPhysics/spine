@@ -113,7 +113,7 @@ def numbafy(cast_args=[], list_args=[], keep_torch=False, ref_arg=None):
             # device location
             if keep_torch:
                 assert ref_arg in kwargs, (
-                        "Must provide the `ref_arg` to cast back to torch")
+                        "Must provide the `ref_arg` to cast back to torch.")
                 dtype, device = None, None
                 if isinstance(kwargs[ref_arg], torch.Tensor):
                     dtype = kwargs[ref_arg].dtype
@@ -122,16 +122,19 @@ def numbafy(cast_args=[], list_args=[], keep_torch=False, ref_arg=None):
             # If the cast data is not a numpy array, cast it
             for arg in cast_args:
                 assert arg in kwargs, (
-                        "Must provide arguments in cast_args")
+                        f"Argument `{arg}` appears in `cast_args` but does "
+                         "not appear in the function arguments.")
                 if not isinstance(kwargs[arg], np.ndarray):
                     assert isinstance(kwargs[arg], torch.Tensor), (
-                            "Can only convert torch.Tensor to numpy")
+                             "Can only convert torch.Tensor to numpy. Got "
+                            f"a request to cast {type(kwargs[arg])} instead.")
                     kwargs[arg] = kwargs[arg].detach().cpu().numpy()
 
             # If there is a reflected list in the input, type it
             for arg in list_args:
                 assert arg in kwargs, (
-                        "Must provide arguments in list_args")
+                        f"Argument `{arg}` appears in `list_args` but does "
+                         "not appear in the function arguments.")
                 kwargs[arg] = nb.typed.List(kwargs[arg])
 
             # Get the output
@@ -144,7 +147,7 @@ def numbafy(cast_args=[], list_args=[], keep_torch=False, ref_arg=None):
                         r, dtype=dtype, device=device) for r in ret]
                 else:
                     raise TypeError(
-                            "Return type not recognized, cannot cast to torch")
+                            "Return type not recognized, cannot cast to torch.")
             return ret
         return inner
     return outer
