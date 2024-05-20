@@ -6,7 +6,7 @@ import numpy as np
 from larcv import larcv
 
 from mlreco import Meta
-from mlreco.iotools.parsers.cluster import *
+from mlreco.io.parse.cluster import *
 
 
 @pytest.mark.parametrize('projection_id', [0, 1, 2])

@@ -3,7 +3,7 @@
 import pytest
 
 from mlreco import Meta
-from mlreco.iotools.parsers.sparse import *
+from mlreco.io.parse.sparse import *
 
 
 @pytest.mark.parametrize('projection_id', [0, 1, 2])

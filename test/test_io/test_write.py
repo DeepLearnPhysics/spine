@@ -6,9 +6,9 @@ import pytest
 import numpy as np
 import h5py
 
-from mlreco.data_structures import (
+from mlreco.data import (
         ObjectList, Particle, Neutrino, Meta, Flash, CRTHit, RunInfo, Trigger)
-from mlreco.iotools.writers import *
+from mlreco.io.write import *
 
 
 @pytest.fixture(name='hdf5_output')
@@ -104,10 +104,7 @@ def test_hdf5_writer(hdf5_output, tensor_list, index_list, edge_index_list):
             'dummy_particles': generate_object_list(Particle, sizes),
             'dummy_neutrinos': generate_object_list(Neutrino, sizes),
             'dummy_flashes': generate_object_list(Flash, sizes),
-            'dummy_crthits': generate_object_list(CRTHit, sizes)
-    }
-
-    result = {
+            'dummy_crthits': generate_object_list(CRTHit, sizes),
             'dummy_tensor': tensor_list,
             'dummy_clusts': index_list,
             'dummy_edge_index': edge_index_list
@@ -117,7 +114,7 @@ def test_hdf5_writer(hdf5_output, tensor_list, index_list, edge_index_list):
     writer = HDF5Writer(hdf5_output)
 
     # Write output
-    writer.append(data, result)
+    writer(data)
 
 
 def generate_object_list(cls, sizes):

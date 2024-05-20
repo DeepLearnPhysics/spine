@@ -5,8 +5,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from mlreco.iotools.samplers import *
-from mlreco.iotools.samplers import DistributedProxySampler
+from mlreco.io.sample import *
+from mlreco.io.sample import DistributedProxySampler
 
 
 @dataclass
@@ -41,8 +41,8 @@ def test_sequential_sampler(dataset, batch_size, seed):
     # Initialize the sampler
     sampler = SequentialBatchSampler(dataset, batch_size, seed)
 
-    # Check that the sampler length and dataset size are aligned
-    assert len(sampler) == len(dataset)
+    # Check that the sampler length is as expected
+    assert len(sampler) == (len(dataset)//batch_size)*batch_size
 
     # Check that the entire sampling list is of the expected length
     samples = np.array(list(sampler))
@@ -64,17 +64,17 @@ def test_sequential_sampler(dataset, batch_size, seed):
 def test_random_sequence_sampler(dataset, batch_size, seed):
     """Tests the random sequence batch sampler."""
     # Initialize the sampler
-    sampler = RandomSequenceBatchSampler(dataset, batch_size, seed)
+    sampler = RandomSequenceBatchSampler(
+            dataset=dataset, batch_size=batch_size, seed=seed)
 
-    # Check that the sampler length and dataset size are aligned
-    assert len(sampler) == len(dataset)
+    # Check that the sampler length is as expected
+    assert len(sampler) == ((len(dataset)-batch_size+1)//batch_size)*batch_size
 
     # Check that the entire sampling list is of the expected length
     samples = np.array(list(sampler))
     offset = np.min(samples)
     assert len(samples)%batch_size == 0
-    assert len(samples) == (
-            (len(dataset) - offset) - (len(dataset) - offset)%batch_size)
+    assert len(samples) == len(sampler)
 
     # Ensure that all indexes appear in the list
     assert (np.sort(samples) == np.arange(offset, np.max(samples) + 1)).all()
@@ -94,8 +94,8 @@ def test_bootstrap_sampler(dataset, batch_size, seed):
     # Initialize the sampler
     sampler = BootstrapBatchSampler(dataset, batch_size, seed)
 
-    # Check that the sampler length and dataset size are aligned
-    assert len(sampler) == len(dataset)
+    # Check that the sampler length is as expected
+    assert len(sampler) == (len(dataset)//batch_size)*batch_size
 
     # Check that the entire sampling list is of the expected length
     samples = np.array(list(sampler))

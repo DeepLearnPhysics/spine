@@ -110,7 +110,7 @@ def inference_single(cfg, rank=None):
 
     # Find the set of weights to run the inference on
     preloaded, weights = False, []
-    if driver.model.weight_path is not None:
+    if driver.model is not None and driver.model.weight_path is not None:
         preloaded = os.path.isfile(driver.model.weight_path)
         weights = sorted(glob.glob(driver.model.weight_path))
         if not preloaded and len(weights):
@@ -171,10 +171,7 @@ def process_config(base, io, model=None, build=None, post=None,
     logger.setLevel(verbosity)
 
     # Set GPUs visible to CUDA
-    assert 'world_size' in base, (
-        "Must provide `world_size` in the `base` configuration block.")
-    world_size = base['world_size']
-
+    world_size = base.get('world_size', 0)
     os.environ['CUDA_VISIBLE_DEVICES'] = \
             ','.join([str(i) for i in range(world_size)])
 
@@ -192,6 +189,9 @@ def process_config(base, io, model=None, build=None, post=None,
         io['loader']['distributed'] = distributed
         io['loader']['world_size'] = world_size
         if 'sampler' in io['loader']:
+            if isinstance(io['loader']['sampler'], str):
+                io['loader']['sampler'] = {'name': io['loader']['sampler']}
+
             if ('seed' not in io['loader']['sampler'] or
                 io['loader']['sampler']['seed'] < 0):
                 current = int(time.time())
@@ -201,11 +201,10 @@ def process_config(base, io, model=None, build=None, post=None,
                     io['loader']['sampler']['seed'] = [
                             current + i for i in range(world_size)]
 
-            else:
-                if distributed:
-                    seed = int(io['loader']['sampler']['seed'])
-                    io['loader']['sampler']['seed'] = [
-                            seed + i for i in range(world_size)]
+            elif distributed:
+                seed = int(io['loader']['sampler']['seed'])
+                io['loader']['sampler']['seed'] = [
+                        seed + i for i in range(world_size)]
 
     # If the seed is not set for the training/inference process, randomize it
     if 'seed' not in base or base['seed'] < 0:

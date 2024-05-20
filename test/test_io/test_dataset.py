@@ -4,7 +4,7 @@ import pytest
 
 import ROOT
 
-from mlreco.iotools.datasets import *
+from mlreco.io.dataset import *
 
 
 def test_larcv_dataset(larcv_data):

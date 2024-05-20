@@ -5,7 +5,7 @@ import pytest
 from larcv import larcv
 
 from mlreco import Meta, Particle, Neutrino
-from mlreco.iotools.parsers.particle import *
+from mlreco.io.parse.particle import *
 
 
 @pytest.mark.parametrize(

@@ -6,7 +6,7 @@ import numpy as np
 import ROOT
 import h5py
 
-from mlreco.iotools.readers import *
+from mlreco.io.read import *
 
 
 def test_larcv_reader(larcv_data):
@@ -98,7 +98,7 @@ def test_hdf5_reader(hdf5_data):
         num_entries = len(h5_file['events'])
 
     # Intialize the reader
-    reader = HDF5Reader(hdf5_data, split_categories=False, create_run_map=True)
+    reader = HDF5Reader(hdf5_data, create_run_map=True)
 
     # Check that the number of events in the dataset is as expected
     assert reader.num_entries == num_entries

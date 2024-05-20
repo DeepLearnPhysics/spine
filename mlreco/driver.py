@@ -117,7 +117,7 @@ class Driver:
         self.initialize_log()
 
     def initialize_base(self, world_size=0, log_dir='logs', prefix_log=False,
-                        parent_path=None, iterations=-1, epochs=-1,
+                        parent_path=None, iterations=None, epochs=None,
                         unwrap=False, rank=None, processed=False,
                         seed=None, log_step=1, distributed=False, train=None):
         """Initialize the base driver parameters.
@@ -132,9 +132,9 @@ class Driver:
             If True, use the input file name to prefix the log name
         parent_path : str, optional
             Path to the parent directory of the analysis configuration file
-        iterations : int, default -1
+        iterations : int, optional
             Number of entries/batches to process (-1 means all entries)
-        epochs : int, default -1
+        epochs : int, optional
             Number of times to iterate over the full dataset
         unwrap : bool, default False
             Wheather to unwrap batched data (only relevant when using loader)
@@ -243,7 +243,7 @@ class Driver:
         self.writer = None
         if writer is not None:
             assert self.loader is None or self.unwrap, (
-                    "Must unwrap the model output to run post-processors.")
+                    "Must unwrap the model output to write it to file.")
             self.watch.initialize('write')
             self.writer = writer_factory(writer)
 
@@ -254,7 +254,7 @@ class Driver:
             self.log_prefix = pathlib.Path(self.reader.file_paths[0]).stem
 
         # Harmonize the iterations and epochs parameters
-        assert self.iterations ^ self.epochs, (
+        assert (self.iterations is not None) ^ (self.epochs is not None), (
                 "Must specify either `iterations` or `epochs` parameters.")
         if self.iterations is not None:
             if self.iterations < 0:
@@ -493,11 +493,11 @@ class Driver:
         log = ((iteration + 1) % self.log_step) == 0
         if log:
             # Dump general information
-            proc   = 'Train' if self.model.train else 'Inference'
+            proc   = 'Train' if self.model is not None and self.model.train else 'Inference'
             device = 'GPU' if self.rank is not None else 'CPU'
             keys   = [f'{proc} time', f'{device} memory', 'Loss', 'Accuracy']
             widths = [20, 20, 9, 9]
-            if self.model.distributed:
+            if self.distributed:
                 keys = ['Rank'] + keys
                 widths = [5] + widths
             if self.main_process:
@@ -508,12 +508,14 @@ class Driver:
                 msg += header + '|\n'
                 msg += separator + '|'
                 print(msg, flush=True)
-            if self.model.distributed:
+            if self.distributed:
                 torch.model.distributed.barrier()
 
             # Dump information pertaining to a specific process
             t_iter = self.watch.time('iteration').wall
-            t_net  = self.watch.time('model').wall
+            t_net  = 0.
+            if self.model is not None:
+                t_net  = self.watch.time('model').wall
 
             if self.rank is not None:
                 mem, mem_perc = log_dict['gpu_mem'], log_dict['gpu_mem_perc']
@@ -526,7 +528,7 @@ class Driver:
             values = [f'{t_net:0.2f} s ({100*t_net/t_iter:0.2f} %)',
                       f'{mem:0.2f} GB ({mem_perc:0.2f} %)',
                       f'{loss:0.3f}', f'{acc:0.3f}']
-            if self.model.distributed:
+            if self.distributed:
                 values = [f'{self.rank}'] + values
 
             msg = '  | ' + '| '.join(
@@ -535,7 +537,7 @@ class Driver:
             print(msg, flush=True)
 
             # Start new line once only
-            if self.model is not None and self.model.distributed:
+            if self.distributed:
                 torch.model.distributed.barrier()
             if self.main_process:
                 print('', flush=True)

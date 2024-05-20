@@ -91,16 +91,22 @@ class RandomSequenceBatchSampler(AbstractBatchSampler):
     """Samples sequential batches randomly within the dataset."""
     name = 'random_sequence'
 
-    def __init__(self, **kwargs):
+    def __init__(self, dataset, batch_size, seed=None, **kwargs):
         """Initialize the random sequence batch sampler.
 
         Parameters
         ----------
-        **kwargs, dict
-            Dictionary of parameters to pass to the parent class
+        dataset : torch.utils.data.Dataset
+            Dataset to sampler from
+        batch_size : int
+            Number of samples to load per iteration, per process
+        seed : int, optional
+            Seed to use for random sampling
+        **kwargs : dict, optional
+            Additional arguments to pass to the parent Sampler class
         """
         # Initialize the parent class
-        super().__init__(**kwargs)
+        super().__init__(dataset, batch_size, seed, **kwargs)
 
         # Define the number of batches
         self._num_batches = (
@@ -115,9 +121,8 @@ class RandomSequenceBatchSampler(AbstractBatchSampler):
         """
         # Pick a general offset and produce sequence starts with respect to it
         offset = self._random.randint(0, self._batch_size)
-        num_batches = (self._num_samples - self._batch_size)//self._batch_size
         starts = np.arange(
-                offset, num_batches*self._batch_size,
+                offset, self._num_batches*self._batch_size,
                 self._batch_size, dtype=np.int64)
 
         # Randomly pick the starts

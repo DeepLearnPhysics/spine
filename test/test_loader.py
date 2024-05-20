@@ -7,8 +7,8 @@ import pytest
 
 import numpy as np
 
-from mlreco.iotools.factories import loader_factory
-from mlreco.iotools.writers import CSVWriter
+from mlreco.io.factories import loader_factory
+from mlreco.io.write import CSVWriter
 
 MAX_ITER = 10
 
@@ -36,9 +36,10 @@ def test_loader(cfg_file, larcv_data, quiet=True, csv=False):
         cfg = yaml.safe_load(cfg_str)
 
         # Update the path to the file
-        cfg['iotool']['dataset']['file_keys'] = larcv_data
+        print(cfg.keys())
+        cfg['io']['loader']['dataset']['file_keys'] = larcv_data
 
-    loader = loader_factory(**cfg['iotool'])
+    loader = loader_factory(**cfg['io']['loader'])
 
     # Loop
     tstart = time.time()

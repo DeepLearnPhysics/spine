@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from mlreco import Meta
-from mlreco.iotools.collates import CollateAll
+from mlreco.io.collate import CollateAll
 
 
 @pytest.fixture(name='batch_sparse',
