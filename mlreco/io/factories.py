@@ -122,7 +122,7 @@ def sampler_factory(sampler_cfg, dataset, minibatch_size, distributed=False,
     """
     Instantiates sampler based on type specified in configuration under
     `io.sampler.name`. The name must match the name of a class under
-    `mlreco.io.samplers`.
+    `mlreco.io.sample`.
 
     Parameters
     ----------
@@ -151,7 +151,7 @@ def sampler_factory(sampler_cfg, dataset, minibatch_size, distributed=False,
 
     # If we are working a distributed environment, wrap the sampler
     if distributed:
-        sampler = samplers.DistributedProxySampler(
+        sampler = sample.DistributedProxySampler(
                 sampler, num_replicas, rank)
 
     # Return

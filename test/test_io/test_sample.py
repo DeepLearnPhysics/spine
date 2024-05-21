@@ -53,9 +53,11 @@ def test_sequential_sampler(dataset, batch_size, seed):
     assert samples[0] == 0
     assert (samples[1:] == samples[:-1] + 1).all()
 
-    # Make sure we can wrap it in a distributed context
-    dist_sampler = DistributedProxySampler(
-            sampler, num_replicas=4, rank=1)
+    # Make sure that the sampler works in a distirbuted context
+    for rank in (0, 1):
+        dist_sampler = DistributedProxySampler(
+                sampler, num_replicas=2, rank=rank)
+        print(list(dist_sampler))
     
 
 @pytest.mark.parametrize('dataset', [12, 37], indirect=True)

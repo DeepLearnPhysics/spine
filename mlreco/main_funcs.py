@@ -51,7 +51,7 @@ def run(cfg):
                 "Cannot run a distributed training without access to GPUs.")
 
         visible_devices = torch.cuda.device_count()
-        assert world_size <= visible_gpus, (
+        assert world_size <= visible_devices, (
                  "The number of GPUs requested for distributed execution "
                 f"({world_size}) is smaller than the number of visible devices "
                 f"({visible_devices}).")
@@ -71,20 +71,20 @@ def run_single(cfg):
     """
     # Dispatch
     if 'train' in cfg['base']:
-        train_single(cfg)
+        train_single(cfg=cfg, rank=None)
     else:
         inference_single(cfg)
 
 
-def train_single(cfg, rank=None):
+def train_single(rank, cfg):
     """Train a model in a single process.
 
     Parameters
     ----------
+    rank : int
+        Process rank
     cfg : dict
         Full driver/trainer configuration
-    rank : int, default 0
-        Process rank
     """
     # Prepare the trainer
     driver = Driver(**cfg, rank=rank)
@@ -93,7 +93,7 @@ def train_single(cfg, rank=None):
     driver.run()
 
 
-def inference_single(cfg, rank=None):
+def inference_single(cfg):
     """
     Execute a model in inference mode in a single process
 
@@ -101,11 +101,9 @@ def inference_single(cfg, rank=None):
     ----------
     cfg : dict
         Full driver configuration
-    rank : int, default 0
-        Process rank
     """
     # Prepare the driver
-    driver = Driver(**cfg, rank=rank)
+    driver = Driver(**cfg)
 
     # Find the set of weights to run the inference on
     preloaded, weights = False, []

@@ -191,6 +191,7 @@ class DistributedProxySampler(DistributedSampler):
 
         # Store the underlying basic sampler
         self.sampler = sampler
+        self._num_samples = sampler._num_samples
         self._batch_size = sampler._batch_size
 
     def __iter__(self):
@@ -201,9 +202,17 @@ class DistributedProxySampler(DistributedSampler):
         torch.manual_seed(self.epoch)
         indices = list(self.sampler)
 
-        # Add extra samples to make it evenly divisible
-        indices += indices[:(self.total_size - len(indices))]
-        if len(indices) != self.total_size:
+        # Truncate the number of entries to be divisible by the world size
+        #indices += indices[:(self.total_size - len(indices))]
+        num_remove = self.total_size - self.total_size%self.num_replicas
+        if num_remove > 0:
+            indices = indices[:-num_remove]
+
+        if len(indices == 0):
+            raise RuntimeError(
+                    f"There should be at least enough")
+
+        if len(indices)// self.total_size:
             raise RuntimeError(f"{len(indices)} vs {self.total_size}")
 
         # Subsample
@@ -215,6 +224,6 @@ class DistributedProxySampler(DistributedSampler):
                 indices_split[self.rank:num_batches:self.num_replicas])
         #indices = indices[self.rank:self.total_size:self.num_replicas]
         if len(indices) != self._num_samples:
-            raise RuntimeError("{len(indices)} vs {self._num_samples}")
+            raise RuntimeError(f"{len(indices)} vs {self._num_samples}")
 
         return iter(indices)

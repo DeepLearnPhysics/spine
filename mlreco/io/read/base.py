@@ -256,6 +256,8 @@ class ReaderBase:
 
         assert len(entry_index), "Must at least have one entry to load."
 
+        print(f"Total number of entries selected: {len(entry_index)}\n")
+
         self.entry_index = entry_index
 
     def get_run_event(self, run, event):
@@ -404,7 +406,7 @@ class ReaderBase:
 
         if isinstance(list_source, str):
             assert os.path.isfile(list_source), (
-                    "The list source file does not exist")
+                    "The list source file does not exist.")
             with open(list_source, 'r', encoding='utf-8') as f:
                 lines = f.read().splitlines()
                 list_source = [l.replace(',', ' ').split() for l in lines]
@@ -412,6 +414,3 @@ class ReaderBase:
             return np.array(list_source, dtype=np.int64)
 
         raise ValueError("List format not recognized")
-
-
-
