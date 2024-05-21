@@ -19,10 +19,9 @@ from torch.utils.data import DataLoader
 from torch.distributed import init_process_group, destroy_process_group
 
 from .utils.logger import logger
+from .utils.ascii_logo import ascii_logo
 
 from .version import __version__
-from .logo import ascii_logo
-
 from .driver import Driver
 
 
