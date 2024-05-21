@@ -58,7 +58,8 @@ def run(cfg):
 
         # Launch the distributed training process
         torch.multiprocessing.spawn(
-                train_single, args=(cfg,), nprocs=world_size)
+                train_single, args=(cfg, distributed, world_size), 
+                nprocs=world_size)
 
 
 def run_single(cfg):
@@ -76,7 +77,7 @@ def run_single(cfg):
         inference_single(cfg)
 
 
-def train_single(rank, cfg):
+def train_single(rank, cfg, distributed=False, world_size=None):
     """Train a model in a single process.
 
     Parameters
@@ -85,7 +86,15 @@ def train_single(rank, cfg):
         Process rank
     cfg : dict
         Full driver/trainer configuration
+    distirbuted : bool, default False
+        If `True`, distribute the training process
+    world_size : int, optional
+        Number of devices to use in the distributed training process
     """
+    # If distributed, setup the process group
+    if distributed:
+        setup_ddp(rank, world_size)
+
     # Prepare the trainer
     driver = Driver(**cfg, rank=rank)
 
