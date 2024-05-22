@@ -82,7 +82,9 @@ class Driver:
             assert self.loader is not None, (
                     "The model can only be used in conjunction with a loader.")
             self.watch.initialize('model')
-            self.model = Model(**model, train=train, rank=rank)
+            self.model = Model(
+                    **model, train=train, rank=rank,
+                    distributed=self.distributed)
         else:
             assert train is None, (
                     "Received a train block but there is no model to train.")
@@ -218,7 +220,8 @@ class Driver:
             # Initialize the torch data loader
             self.watch.initialize('load')
             self.loader = loader_factory(
-                    **loader, rank=self.rank)
+                    **loader, rank=self.rank, world_size=self.world_size,
+                    distributed=self.distributed)
             self.loader_iter = iter(self.loader)
             self.iter_per_epoch = len(self.loader)
             self.reader = self.loader.dataset.reader
@@ -509,7 +512,7 @@ class Driver:
                 msg += separator + '|'
                 print(msg, flush=True)
             if self.distributed:
-                torch.model.distributed.barrier()
+                torch.distributed.barrier()
 
             # Dump information pertaining to a specific process
             t_iter = self.watch.time('iteration').wall
@@ -538,6 +541,6 @@ class Driver:
 
             # Start new line once only
             if self.distributed:
-                torch.model.distributed.barrier()
+                torch.distributed.barrier()
             if self.main_process:
                 print('', flush=True)

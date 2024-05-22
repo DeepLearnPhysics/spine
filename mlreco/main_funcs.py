@@ -192,8 +192,6 @@ def process_config(base, io, model=None, build=None, post=None,
     # If the seed is not set for the sampler, randomize it. This is done
     # here to keep a record of the seeds provided to the samplers
     if 'loader' in io:
-        io['loader']['distributed'] = distributed
-        io['loader']['world_size'] = world_size
         if 'sampler' in io['loader']:
             if isinstance(io['loader']['sampler'], str):
                 io['loader']['sampler'] = {'name': io['loader']['sampler']}

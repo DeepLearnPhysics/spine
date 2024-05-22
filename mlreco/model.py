@@ -103,7 +103,7 @@ class Model:
         # If the execution is distributed, wrap with DDP
         if self.distributed:
             self.net = DDP(
-                    self.net, device_ids=[rank], output_device=self.rank,
+                    self.net, device_ids=[rank], output_device=rank,
                     find_unused_parameters=find_unused_parameters)
 
         # If requested, initialize the training process
@@ -343,24 +343,21 @@ class Model:
             logger.info("Restoring weights for module %s "
                         "from %s...", module, weight_path)
             with open(weight_path, 'rb') as f:
-                # Read checkpoint. If loading weights to a non-distributed
-                # model, remove leading keyword `module` from weight names.
+                # Read checkpoint
                 checkpoint = torch.load(f, map_location='cpu')
                 state_dict = checkpoint['state_dict']
-                if not self.distributed:
-                    state_dict = {k.replace('module.', ''):v \
-                            for k, v in state_dict.items()}
 
                 # Check that all the needed weights are provided
+                model = self.net if not self.distributed else self.net.module
                 missing_keys = []
                 if module == self.model_name:
-                    for name in self.net.state_dict():
+                    for name in model.state_dict():
                         if not name in state_dict.keys():
                             missing_keys.append((name, name))
                 else:
                     # Update the key names according to the name used to store
                     state_dict = {}
-                    for name in self.net.state_dict():
+                    for name in model.state_dict():
                         if module in name:
                             key = name.replace(
                                     f'.{module}.', f'.{model_name}.')
@@ -380,7 +377,7 @@ class Model:
                                      "must provide all necessary parameters.")
 
                 # Load checkpoint. Check that all weights are used
-                bad_keys = self.net.load_state_dict(state_dict, strict=False)
+                bad_keys = model.load_state_dict(state_dict, strict=False)
                 if len(bad_keys.unexpected_keys) > 0:
                     logger.warning(
                             "This weight file contains parameters that could "
@@ -531,10 +528,9 @@ class Model:
 
         # If the model has a buffer that needs to be updated, do it after
         # the trainable parameter update
-        model = self.net if not self.distributed else self.net.module
-        if hasattr(model, 'update_buffers'):
+        if hasattr(self.net, 'update_buffers'):
             logger.info('Updating buffers')
-            model.update_buffers()
+            self.net.update_buffers()
 
     def save_state(self, iteration):
         """Save the model state.
@@ -554,8 +550,9 @@ class Model:
                 "Must provide a weight prefix to store them.")
 
         filename = f'{self.weight_prefix}-{iteration:d}.ckpt'
+        model = self.net if not self.distributed else self.net.module
         torch.save({
             'global_step': iteration,
-            'state_dict': self.net.state_dict(),
+            'state_dict': model.state_dict(),
             'optimizer': self.optimizer.state_dict()
         }, filename)
