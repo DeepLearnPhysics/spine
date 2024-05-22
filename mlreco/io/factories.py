@@ -71,7 +71,7 @@ def loader_factory(dataset, batch_size=None, minibatch_size=None, shuffle=True,
     # Initialize the sampler
     if sampler is not None:
         sampler = sampler_factory(
-                sampler, dataset, minibatch_size, distributed, world_size, rank)
+                sampler, dataset, batch_size, distributed, world_size, rank)
 
     # Initialize the collate function
     if collate_fn is not None:

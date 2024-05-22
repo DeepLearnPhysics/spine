@@ -288,7 +288,7 @@ class Driver:
         if self.prefix_log:
             logname = f'{self.log_prefix}_{logname}'
 
-        self.logger = CSVWriter(logname)
+        self.logger = CSVWriter(os.path.join(self.log_dir, logname))
 
     def run(self):
         """Loop over the requested number of iterations, process them."""
