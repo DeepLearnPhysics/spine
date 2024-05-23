@@ -198,17 +198,7 @@ def process_config(base, io, model=None, build=None, post=None,
 
             if ('seed' not in io['loader']['sampler'] or
                 io['loader']['sampler']['seed'] < 0):
-                current = int(time.time())
-                if not distributed:
-                    io['loader']['sampler']['seed'] = current
-                else:
-                    io['loader']['sampler']['seed'] = [
-                            current + i for i in range(world_size)]
-
-            elif distributed:
-                seed = int(io['loader']['sampler']['seed'])
-                io['loader']['sampler']['seed'] = [
-                        seed + i for i in range(world_size)]
+                io['loader']['sampler']['seed'] = int(time.time())
 
     # If the seed is not set for the training/inference process, randomize it
     if 'seed' not in base or base['seed'] < 0:

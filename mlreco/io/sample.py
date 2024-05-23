@@ -44,6 +44,10 @@ class AbstractBatchSampler(Sampler):
         # Initialize the random number generator with a seed
         if seed is None:
             seed = int(time.time())
+        else:
+            assert isinstance(seed, int), (
+                    f"The sampler seed must be an integer, got: {seed}.")
+
         self._random = np.random.RandomState(seed=seed) # pylint: disable=E1101
 
         # Check that the batch_size is a sensible value
