@@ -13,7 +13,7 @@ current_directory = os.path.dirname(os.path.abspath(__file__))
 current_directory = os.path.dirname(current_directory)
 sys.path.insert(0, current_directory)
 
-from mlreco.main_funcs import run
+from mlreco.main import run
 
 
 def main(config, source, source_list, output, n, nskip, detect_anomaly):
