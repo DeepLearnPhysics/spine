@@ -3,7 +3,6 @@
 import time
 
 import numpy as np
-import torch
 
 from torch.utils.data import Sampler
 from torch.utils.data.distributed import DistributedSampler

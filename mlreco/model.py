@@ -107,10 +107,10 @@ class Model:
                     find_unused_parameters=find_unused_parameters)
 
         # If requested, initialize the training process
-        self.train = False
         if train is not None:
             self.initialize_train(**train)
         else:
+            self.train = False
             self.net.eval()
 
         # If requested, freeze some/all the model weights
@@ -216,8 +216,10 @@ class Model:
 
         # If traning run the backward pass and update the weigths
         if self.train:
+            assert 'loss' in result, (
+                    "Every model must return a `loss` value to be trained.")
             self.watch.start('backward')
-            self.backward()
+            self.backward(result['loss'])
             self.watch.stop('backward')
 
         # If training and at an appropriate iteration, save model state
@@ -476,16 +478,12 @@ class Model:
             result = self.net(**input_dict)
 
             # Compute the loss if one is specified, append results
-            self.loss = 0.
             if self.loss_dict:
                 if not self.time_dependant:
                     result.update(self.loss_fn(**loss_dict, **result))
                 else:
                     result.update(self.loss_fn(
                         iteration=iteration, **loss_dict, **result))
-
-                if self.train:
-                    self.loss = result['loss']
 
             # Convert to numpy, if requested
             if self.to_numpy:
@@ -511,13 +509,19 @@ class Model:
 
             return result
 
-    def backward(self):
-        """Run the backward step on the model."""
+    def backward(self, loss):
+        """Run the backward step on the model.
+
+        Parameters
+        ----------
+        loss : torch.tensor
+            Scalar loss value to step the model weights
+        """
         # Reset the gradient accumulation
         self.optimizer.zero_grad()
 
         # Run the model backward
-        self.loss.backward()
+        loss.backward()
 
         # Step the optimizer
         self.optimizer.step()

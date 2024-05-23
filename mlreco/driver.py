@@ -173,10 +173,6 @@ class Driver:
         self.seed = seed
         self.log_step = log_step
 
-        # If the seed is provided, set it
-        np.random.seed(seed)
-        torch.manual_seed(seed)
-
         # Process the process GPU rank
         if rank is None and world_size > 0:
             assert world_size < 2, (
@@ -222,7 +218,7 @@ class Driver:
             self.loader = loader_factory(
                     **loader, rank=self.rank, world_size=self.world_size,
                     distributed=self.distributed)
-            self.loader_iter = iter(self.loader)
+            self.loader_iter = None
             self.iter_per_epoch = len(self.loader)
             self.reader = self.loader.dataset.reader
 
@@ -316,6 +312,9 @@ class Driver:
 
             # Log the output
             self.log(data, tstamp, iteration, epoch)
+
+            # Release the memory for the next iteration
+            data = None
 
     def process(self, entry=None, run=None, event=None, iteration=None):
         """Process one entry or a batch of entries.
@@ -415,11 +414,16 @@ class Driver:
         """
         # Dispatch to the appropriate loader
         if self.loader is not None:
-            # Can only load batches by index
+            # Can only load batches sequentially, not by index
             assert (entry is None and run is None and event is None), (
                     "When calling the loader, no way to specify a specific "
                     "entry or run/event pair.")
 
+            # Initialize the loader, if necessary
+            if self.loader_iter is None:
+                self.loader_iter = iter(self.loader)
+
+            # Load the next batch
             self.watch.start('load')
             data = next(self.loader_iter)
             self.watch.stop('load')
@@ -429,8 +433,9 @@ class Driver:
             assert ((entry is not None) or
                     (run is not None and event is not None)), (
                            "Provide either the entry number or both the "
-                           "run number and the event number to load.")
+                           "run number and the event number to read.")
 
+            # Read an entry
             self.watch.start('read')
             if entry is not None:
                 data = self.reader.get(entry)

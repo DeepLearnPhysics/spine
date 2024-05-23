@@ -278,7 +278,7 @@ class SegmentationLoss(torch.nn.modules.loss._Loss):
 
         # If the loss is to be class-weighted, cannot also provide weights
         assert not self.balance_loss or weights is None, (
-                "If weights are provided, cannot class-weight loss.")
+                "If weights are provided, cannot also class-weight loss.")
 
         # Check that the labels have sensible values
         if self.ghost_label > -1:
