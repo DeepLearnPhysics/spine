@@ -11,8 +11,11 @@ Takes care of everything in one centralized place:
 """
 
 import os
+import time
 from datetime import datetime
+import subprocess as sc
 
+import yaml
 import psutil
 import pathlib
 import numpy as np
@@ -26,8 +29,12 @@ from .build import BuildManager
 from .post import PostManager
 from .ana import AnaManager
 
+from .utils.ascii_logo import ascii_logo
+from .utils.logger import logger
 from .utils.unwrap import Unwrapper
 from .utils.stopwatch import StopwatchManager
+
+from .version import __version__
 
 __all__ = ['Driver']
 
@@ -43,35 +50,45 @@ class Driver:
       5. Run post-processing
       6. Run analysis scripts
       7. Write to file
+
+    It takes a configuration dictionary of the form:
+
+    .. code-block:: yaml
+
+        base:
+          <Base driver configuration>
+        io:
+          <Input/output configuration>
+        model:
+          <Model architecture>
+        build:
+          <Rules as to how to build reconstructed object representations>
+        post:
+          <Post-processors>
+        ana:
+          <Analysis scripts>
     """
 
-    def __init__(self, base, io, model=None, build=None, post=None,
-                 ana=None, rank=None):
+    def __init__(self, cfg, rank=None):
         """Initializes the class attributes.
 
         Parameters
         ----------
-        base : dict
-           Base driver configuration dictionary
-        io : dict
-           Input/output configuration dictionary
-        model : dict
-           Model configuration dictionary
-        post : dict, optional
-            Post-processor configuration, if there are any to be run
-        ana : dict, optional
-            Analysis script configuration (writes to CSV files)
+        cfg : dict 
+            Global configuration dictionary
         rank : int, optional
-           Rank of the GPU in the multi-GPU training process. If not specified,
-           the underlying ML process is run on CPU.
+            Rank of the GPU. If not specified, the model will be run on CPU if
+            `world_size` is 0 and GPU is `world_size` is > 0.
         """
         # Initialize the timers and the configuration dictionary
-        self.cfg = {} # Move processor elswhere, store it
         self.watch = StopwatchManager()
         self.watch.initialize('iteration')
 
+        # Process the full configuration dictionary and store it
+        base, io, model, build, post, ana = self.process_config(**cfg, rank=rank)
+
         # Initialize the base driver configuration parameters
-        train, rank = self.initialize_base(**base, rank=rank)
+        train = self.initialize_base(**base, rank=rank)
 
         # Initialize the input/output
         self.initialize_io(**io)
@@ -83,8 +100,9 @@ class Driver:
                     "The model can only be used in conjunction with a loader.")
             self.watch.initialize('model')
             self.model = Model(
-                    **model, train=train, rank=rank,
+                    **model, train=train, rank=self.rank,
                     distributed=self.distributed)
+
         else:
             assert train is None, (
                     "Received a train block but there is no model to train.")
@@ -118,14 +136,106 @@ class Driver:
         # Initialize the output log
         self.initialize_log()
 
-    def initialize_base(self, world_size=0, log_dir='logs', prefix_log=False,
-                        parent_path=None, iterations=None, epochs=None,
-                        unwrap=False, rank=None, processed=False,
-                        seed=None, log_step=1, distributed=False, train=None):
+    def process_config(self, io, base=None, model=None, build=None,
+                       post=None, ana=None, rank=None):
+        """Reads the configuration and dumps it to the logger.
+
+        Parameters
+        ----------
+        io : dict
+            I/O configuration dictionary
+        base : dict, optional
+            Base driver configuration dictionary
+        model : dict, optional
+            Model configuration dictionary
+        build : dict, optional
+            Representation building configuration dictionary
+        post : dict, optional
+            Post-processor configutation dictionary
+        ana : dict, optional
+            Analysis script configurationdictionary
+        rank : int, optional
+            Rank of the GPU. If not specified, the model will be run on CPU if
+            `world_size` is 0 and GPU is `world_size` is > 0.
+
+        Returns
+        -------
+        dict
+            Processed configuration
+        """
+        # If there is no base configuration, make it empty (will use defaults)
+        if base is None:
+            base = {}
+
+        # Set the verbosity of the logger
+        verbosity = base.get('verbosity', 'info')
+        logger.setLevel(verbosity.upper())
+
+        # Set GPUs visible to CUDA
+        world_size = base.get('world_size', 0)
+        os.environ['CUDA_VISIBLE_DEVICES'] = ','.join(
+            [str(i) for i in range(world_size)])
+
+        # If the seed is not set for the sampler, randomize it. This is done
+        # here to keep a record of the seeds provided to the samplers
+        if 'loader' in io:
+            if 'sampler' in io['loader']:
+                if isinstance(io['loader']['sampler'], str):
+                    io['loader']['sampler'] = {'name': io['loader']['sampler']}
+
+                if ('seed' not in io['loader']['sampler'] or
+                    io['loader']['sampler']['seed'] < 0):
+                    io['loader']['sampler']['seed'] = int(time.time())
+
+        # If the seed is not set for the training/inference process, randomize it
+        if 'seed' not in base or base['seed'] < 0:
+            base['seed'] = int(time.time())
+        else:
+            assert isinstance(base['seed'], int), (
+                    f"The driver seed must be an integer, got: {base['seed']}")
+
+        # Rebuild global configuration dictionary
+        self.cfg = {'base': base, 'io': io}
+        if model is not None:
+            self.cfg['model'] = model
+        if build is not None:
+            self.cfg['build'] = build
+        if post is not None:
+            self.cfg['post'] = post
+        if ana is not None:
+            self.cfg['ana'] = ana
+
+        # Log information for the main process only
+        if rank is None or rank < 1:
+            # Log package logo
+            logger.info(f"\n%s", ascii_logo)
+
+            # Log environment information
+            logger.info("Release version: %s\n", __version__)
+
+            visible_devices = os.environ.get('CUDA_VISIBLE_DEVICES', None)
+            logger.info("$CUDA_VISIBLE_DEVICES=%s\n", visible_devices)
+
+            system_info = sc.getstatusoutput('uname -a')[1]
+            logger.info("Configuration processed at: %s\n", system_info)
+
+            # Log configuration
+            logger.info(yaml.dump(
+                self.cfg, default_flow_style=None, sort_keys=False))
+
+        # Return updated configuration
+        return base, io, model, build, post, ana
+
+    def initialize_base(self, seed, world_size=0, log_dir='logs',
+                        prefix_log=False, parent_path=None, iterations=None,
+                        epochs=None, unwrap=False, rank=None, log_step=1,
+                        distributed=False, train=None, verbosity='info'):
         """Initialize the base driver parameters.
 
         Parameters
         ----------
+        seed : int
+            Random number generator seed
         world_size : int, default 0
             Number of GPUs to use in the underlying model
         log_dir : str, default 'logs'
@@ -142,14 +252,13 @@ class Driver:
             Wheather to unwrap batched data (only relevant when using loader)
         rank : int, optional
             Rank of the GPU in the multi-GPU training process
-        processed : bool, default False
-            Whether this configuration has been pre-processed (must be true)
-        seed : int, optional
-            Random number generator seed
         log_step : int, default 1
             Number of iterations before the logging is called (1: every step)
         distributed : bool, default False
             If `True`, this process is distributed among multiple processes
+        verbosity : int, default 'info'
+            Verbosity level to pass to the `logging` module. Pick one of
+            'debug', 'info', 'warning', 'error', 'critical'.
 
         Returns
         -------
@@ -158,22 +267,11 @@ class Driver:
         rank
             Updated rank
         """
-        # Check that the configuration has been processed
-        assert processed, (
-                "Must run process_config from spine.main_funcs before "
-                "initialializing the full driver class.")
+        # Set up the seed
+        np.random.seed(seed)
+        torch.manual_seed(seed)
 
-        # Store general parameters
-        self.log_dir = log_dir
-        self.prefix_log = prefix_log
-        self.parent_path = parent_path
-        self.iterations = iterations
-        self.epochs = epochs
-        self.unwrap = unwrap
-        self.seed = seed
-        self.log_step = log_step
-
-        # Process the process GPU rank
+        # Set up the device the model will run on
         if rank is None and world_size > 0:
             assert world_size < 2, (
                     "Must not request > 1 GPU without specifying a GPU rank.")
@@ -192,7 +290,17 @@ class Driver:
         if not distributed and world_size > 1:
             self.distributed = True
 
-        return train, rank
+        # Store general parameters
+        self.log_dir = log_dir
+        self.prefix_log = prefix_log
+        self.parent_path = parent_path
+        self.iterations = iterations
+        self.epochs = epochs
+        self.unwrap = unwrap
+        self.seed = seed
+        self.log_step = log_step
+
+        return train
 
     def initialize_io(self, loader=None, reader=None, writer=None):
         """Initializes the input/output scripts.
@@ -218,6 +326,7 @@ class Driver:
             self.loader = loader_factory(
                     **loader, rank=self.rank, world_size=self.world_size,
                     distributed=self.distributed)
+            
             self.loader_iter = None
             self.iter_per_epoch = len(self.loader)
             self.reader = self.loader.dataset.reader
@@ -253,13 +362,13 @@ class Driver:
             self.log_prefix = pathlib.Path(self.reader.file_paths[0]).stem
 
         # Harmonize the iterations and epochs parameters
-        assert (self.iterations is not None) ^ (self.epochs is not None), (
-                "Must specify either `iterations` or `epochs` parameters.")
+        assert (self.iterations is None) or (self.epochs is None), (
+                "Must not specify both `iterations` or `epochs` parameters.")
         if self.iterations is not None:
             if self.iterations < 0:
                 self.iterations = self.iter_per_epoch
             self.epochs = 1.
-        else:
+        elif self.epochs is not None:
             self.iterations = self.epochs*self.iter_per_epoch
 
     def initialize_log(self):
@@ -288,6 +397,10 @@ class Driver:
 
     def run(self):
         """Loop over the requested number of iterations, process them."""
+        # To run the loop, must now how many times it must be done
+        assert self.iterations is not None, (
+                "Must specify either `iterations` or `epochs` parameters.")
+
         # Get the iteration start (if model exists
         start_iteration = 0
         if self.model is not None and self.model.train:
@@ -445,6 +558,34 @@ class Driver:
 
         return data
 
+    def apply_filter(self, n_entry=None, n_skip=None, entry_list=None,
+                     skip_entry_list=None, run_event_list=None,
+                     skip_run_event_list=None):
+        """Restrict the list of entries.
+
+        Parameters
+        ----------
+        n_entry : int, optional
+            Maximum number of entries to load
+        n_skip : int, optional
+            Number of entries to skip at the beginning
+        entry_list : list, optional
+            List of integer entry IDs to add to the index
+        skip_entry_list : list, optional
+            List of integer entry IDs to skip from the index
+        run_event_list: list((int, int)), optional
+            List of [run, event] pairs to add to the index
+        skip_run_event_list: list((int, int)), optional
+            List of [run, event] pairs to skip from the index
+        """
+        # Simply change the underlying entry list
+        self.reader.process_entry_list(
+                n_entry, n_skip, entry_list, skip_entry_list,
+                run_event_list, skip_run_event_list)
+
+        # Reset the iterator
+        self.loader_iter = None
+
     def log(self, data, tstamp, iteration, epoch=None):
         """Log relevant information to CSV files and stdout.
 
@@ -549,3 +690,4 @@ class Driver:
                 torch.distributed.barrier()
             if self.main_process:
                 print('', flush=True)
+
