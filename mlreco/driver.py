@@ -634,6 +634,8 @@ class Driver:
         for key in data:
             if np.isscalar(data[key]):
                 log_dict[key] = data[key]
+            elif torch.is_tensor(data[key]) and data[key].dim() == 0:
+                log_dict[key] = data[key].item()
 
         # Record
         self.logger.append(log_dict)
