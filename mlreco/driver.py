@@ -397,27 +397,26 @@ class Driver:
 
     def run(self):
         """Loop over the requested number of iterations, process them."""
-        # To run the loop, must now how many times it must be done
+        # To run the loop, must know how many times it must be done
         assert self.iterations is not None, (
                 "Must specify either `iterations` or `epochs` parameters.")
 
-        # Get the iteration start (if model exists
+        # Get the iteration start (if model exists)
         start_iteration = 0
         if self.model is not None and self.model.train:
             start_iteration = self.model.start_iteration
-        epoch = start_iteration/self.iter_per_epoch
 
         # Loop and process each iteration
         for iteration in range(start_iteration, self.iterations):
             # When switching to a new epoch, reset the loader iterator
-            if (self.loader is not None and
-                iteration//self.iter_per_epoch != epoch//1):
+            if self.loader_iter is None or iteration%self.iter_per_epoch == 0:
                 if self.distributed:
-                    self.loader.sampler.set_epoch(e)
+                    epoch_cnt = iteration//self.iter_per_epoch
+                    self.loader.sampler.set_epoch(epoch_cnt)
                 self.loader_iter = iter(self.loader)
 
             # Update the epoch counter, record the execution date/time
-            epoch = iteration / self.iter_per_epoch
+            epoch = iteration/self.iter_per_epoch
             tstamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
             # Process one batch/entry of data
