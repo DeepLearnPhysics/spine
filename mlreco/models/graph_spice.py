@@ -1,381 +1,358 @@
+"""Graph-SPICE dense clustering model and its loss."""
+
 import torch
 import numpy as np
 import MinkowskiEngine as ME
 
-from mlreco.models.layers.cluster_cnn.losses.gs_embeddings import *
-from mlreco.models.layers.cluster_cnn import gs_kernel_factory, spice_loss_factory
+from mlreco.data import TensorBatch
 
-from mlreco.models.layers.cluster_cnn.graph_spice_embedder import GraphSPICEEmbedder
+from mlreco.utils.cluster.graph_constructor import ClusterGraphConstructor
+from mlreco.utils.globals import (
+        COORD_COLS, SHAPE_COL, SHOWR_SHP, TRACK_SHP, DELTA_SHP, MICHL_SHP)
 
-from mlreco import TensorBatch
-from mlreco.utils.cluster.graph_manager import ClusterGraphConstructor
-from mlreco.utils.unwrap import Unwrapper
-from mlreco.utils.globals import *
+from .layers.cluster_cnn import kernel_factory, loss_factory
+from .layers.cluster_cnn.graph_spice_embedder import GraphSPICEEmbedder
+
+__all__ = ['GraphSPICE', 'GraphSPICELoss']
 
 
-class GraphSPICE(nn.Module):
-    '''
-    Neighbor-graph embedding based particle clustering.
+class GraphSPICE(torch.nn.Module):
+    """Graph Scalable Proposal-free Instance Clustering Engine (Graph-SPICE).
 
-    GraphSPICE has two components:
-
-    1. Voxel Embedder: UNet-type CNN architecture used for feature
-    extraction and feature embeddings.
-
-    2. Edge Probability Kernel function: A kernel function (any callable
-    that takes two node attribute vectors to give a edge proability score).
+    Graph-SPICE has two components:
+    1. Voxel embedder: UNet-type CNN architecture used for feature
+       extraction and feature embeddings.
+    2. Edge probability kernel function: A kernel function (any callable
+       that takes two node attribute vectors to give a edge proability score).
 
     Prediction is done in two steps:
-
     1. A neighbor graph (ex. KNN, Radius) is constructed to compute
-    edge probabilities between neighboring edges.
+       edge probabilities between neighboring edges;
+    2. Edges with low probability scores are dropped;
+    3. The voxels are clustered through connected component clustering.
 
-    2. Edges with low probability scores are dropped.
-    
-    3. The voxels are clustered by counting connected components.
+    A typical configuration is broken down into multiple components:
 
-    Configuration
-    -------------
-    skip_classes: list, default [2, 3, 4]
-        semantic labels for which to skip voxel clustering
-        (ex. Michel, Delta, and Low Es rarely require neural network clustering)
-    dimension: int, default 3
-        Spatial dimension (2 or 3).
-    min_points: int, default 0
-        If a value > 0 is specified, this will enable the orphans assignment for
-        any predicted cluster with voxel count < min_points.
+    .. code-block:: yaml
 
-        .. warning::
+        model:
+          name: graph_spice
+          modules:
+            graph_spice:
+              <Basic parameters>
+              embedder:
+                <Feature embedding configuration block>
+              kernel:
+                <Edge kernel function configuration block>
+              constructor:
+                <Graph construction base parameters>
+                graph:
+                  <Graph configuration block>
+                orphan:
+                  <Orphan assignment configuration block>
 
-            ``min_points`` is set to 0 at training time.
-
-    node_dim: int
-    use_raw_features: bool
-    constructor_cfg: dict
-        Configuration for ClusterGraphConstructor instance. A typical configuration:
-
-        .. code-block:: yaml
-
-              constructor_cfg:
-                mode: 'knn'
-                seg_col: -1
-                cluster_col: 5
-                edge_mode: 'attributes'
-                hyper_dimension: 22
-                edge_cut_threshold: 0.1
-
-        .. warning::
-
-            ``edge_cut_threshold`` is set to 0. at training time.
-            At inference time you want to set it to a value > 0.
-            As a rule of thumb, 0.1 is a good place to start.
-            Its exact value can be optimized.
-
-    embedder_cfg: dict
-        A typical configuration would look like:
-
-        .. code-block:: yaml
-
-              embedder_cfg:
-                graph_spice_embedder:
-                  segmentationLayer: False
-                  feature_embedding_dim: 16
-                  spatial_embedding_dim: 3
-                  num_classes: 5
-                  occupancy_mode: 'softplus'
-                  covariance_mode: 'softplus'
-                uresnet:
-                  filters: 32
-                  input_kernel: 5
-                  depth: 5
-                  reps: 2
-                  spatial_size: 768
-                  num_input: 4 # 1 feature + 3 normalized coords
-                  allow_bias: False
-                  activation:
-                    name: lrelu
-                    args:
-                      negative_slope: 0.33
-                  norm_layer:
-                    name: batch_norm
-                    args:
-                      eps: 0.0001
-                      momentum: 0.01
-
-    kernel_cfg: dict
-        A typical configuration:
-
-        .. code-block:: yaml
-
-              kernel_cfg:
-                name: 'bilinear'
-                num_features: 32
-
-    .. warning::
-
-        Train time and test time configurations are slightly different for GraphSpice.
-
-    Output
-    ------
-    graph:
-    graph_info:
-    coordinates:
-    hypergraph_features:
-
-    See Also
-    --------
-    GraphSPICELoss
-    '''
-
-    MODULES = ['constructor_cfg', 'embedder_cfg', 'kernel_cfg', 'gspice_fragment_manager']
+    See configuration file(s) prefixed with `graph_spice` under the `config`
+    directory for detailed examples of working configurations.
+    """
+    MODULES = ['constructor', 'embedder', 'kernel']
 
     def __init__(self, graph_spice, graph_spice_loss=None):
-        """Initialize the S3C (Supervised Conn. Components Clustering) Model
+        """Initialize the Graph-SPICE model.
 
         Parameters
         ----------
         graph_spice : dict
-            GraphSPICE configuration dictionary
-        name : str, optional
-            _description_, by default 'graph_spice'
+            Graph-SPICE configuration dictionary
+        graph_spice_loss : dict, optional
+            Graph-SPICE loss configuration dictionary
         """
-        super(GraphSPICE, self).__init__()
-        
+        # Initialize the parent class
+        super().__init__()
+
+        # Initialize the model configuration
         self.process_model_config(**graph_spice)
-        # self.RETURNS.update(self.embedder.RETURNS)
-        
-        
-    def process_model_config(self, 
-                             skip_classes=[4], 
-                             dimension=3, 
-                             min_points=3, 
-                             node_dim=22,
-                             use_raw_features=False, 
-                             constructor_cfg=None, 
-                             embedder_cfg=None,
-                             kernel_cfg=None,
-                             invert=True,
-                             use_true_labels=False,
-                             make_fragments=False):
-        
-        if constructor_cfg is None:
-            constructor_cfg = {}
-        if embedder_cfg is None:
-            embedder_cfg = {}
-        if kernel_cfg is None:
-            kernel_cfg = {}
-        
-        self.skip_classes     = skip_classes
-        self.dimension        = dimension
-        self.node_dim         = node_dim
-        self.min_points       = min_points
-        self.use_raw_features = use_raw_features
-        self.use_true_labels  = use_true_labels
-        self.make_fragments   = make_fragments
-        self.invert           = invert
-        
-        self.embedder   = GraphSPICEEmbedder(embedder_cfg)
-        self.gs_manager = ClusterGraphConstructor(constructor_cfg)
-        self.kernel_fn  = gs_kernel_factory(kernel_cfg)
 
+    def process_model_config(self, embedder, kernel, constructor,
+                             classes=[SHOWR_SHP, TRACK_SHP, MICHL_SHP, DELTA_SHP],
+                             use_raw_features=False, invert=True,
+                             make_clusters=False):
+        """Initialize the underlying modules.
 
-    def weight_initialization(self):
-        for m in self.modules():
-            if isinstance(m, ME.MinkowskiConvolution):
-                ME.utils.kaiming_normal_(m.kernel, 
-                                         mode="fan_out", 
-                                         nonlinearity="relu")
-
-            if isinstance(m, ME.MinkowskiBatchNorm):
-                nn.init.constant_(m.bn.weight, 1)
-                nn.init.constant_(m.bn.bias, 0)
-
-
-    def filter_class(self, input_tensors):
-        '''
-        Filter classes according to segmentation label.
-        '''
-        point_cloud, label = input_tensors
-        mask = ~np.isin(label.tensor[:, -1].detach().cpu().numpy(), 
-                        self.skip_classes)
-        # valid_points, labels = point_cloud[mask], label[mask]
-        valid_points = TensorBatch(point_cloud.tensor[mask], batch_size=input_tensors[0].batch_size, has_batch_col=True)
-        labels = TensorBatch(label.tensor[mask], batch_size=input_tensors[1].batch_size, has_batch_col=True)
-        return valid_points, labels
-    
-
-    def construct_fragments(self, input):
-        
-        raise NotImplementedError('Fragment construction not implemented.')
-        
-        frags = {}
-        
-        device = input[0].device
-        semantic_labels = input[1][:, SHAPE_COL]
-        filtered_semantic = ~(semantic_labels[..., None] == \
-                                torch.tensor(self.skip_classes, device=device)).any(-1)
-        graphs = self.gs_manager.fit_predict()
-        perm = torch.argsort(graphs.voxel_id)
-        cluster_predictions = graphs.node_pred[perm]
-        filtered_input = torch.cat([input[0][filtered_semantic][:, :4],
-                                    semantic_labels[filtered_semantic].view(-1, 1),
-                                    cluster_predictions.view(-1, 1)], dim=1)
-
-        fragments = self._gspice_fragment_manager(filtered_input, input[0], filtered_semantic)
-        frags['filtered_input'] = [filtered_input]
-        frags['fragment_batch_ids'] = [np.array(fragments[1])]
-        frags['fragment_clusts'] = [np.array(fragments[0])]
-        frags['fragment_seg'] = [np.array(fragments[2]).astype(int)]
-        
-        return frags
-
-
-    def forward(self, input_data, cluster_label=None):
-        '''Run a batch of data through the forward function.
-        
         Parameters
         ----------
-        input_data : TensorBatch
+        embedder : dict
+            Pixel embedding configuration
+        kernel : dict
+            Edge kernel configuration
+        constructor : dict
+            Edge index construction configuration
+        classes : List[int], default [0, 1, 2, 3]
+            List of semantic classes to run DBSCAN on
+        use_raw_features : bool, default True
+            Use the list of embedder features as is, without the output layers
+        invert : bool, default True
+            Invert the edge scores so that 0 is on an 1 is off
+        make_clusters : bool, default False
+            If `True`, builds a list of cluster indexes
+        """
+        # Initialize the embedder
+        self.embedder = GraphSPICEEmbedder(**embedder)
+
+        # Initialize the kernel function (must be owned here to be loaded)
+        self.kernel_fn = kernel_factory(kernel)
+
+        # Initialize the graph constructor
+        self.constructor = ClusterGraphConstructor(
+                **constructor, kernel_fn=self.kernel_fn, classes=classes,
+                invert=invert, training=self.training)
+
+        # Store model parameters
+        self.classes = classes
+        self.use_raw_features = use_raw_features
+        self.invert = invert
+        self.make_clusters = make_clusters
+
+    def filter_class(self, data, seg_label, clust_label=None):
+        """Filter the list of pixels to those in the list of requested classes.
+
+        Parameters
+        ----------
+        data : TensorBatch
             (N, 1 + D + N_f) tensor of voxel/value pairs
             - N is the the total number of voxels in the image
             - 1 is the batch ID
             - D is the number of dimensions in the input image
             - N_f is the number of features per voxel
-            
-        cluster_label : TensorBatch, optional
-            (N, 1 + D + 1 + N_labels) tensor of voxel/cluster label pairs. 
+        seg_label : TensorBatch
+            (N, 1 + D + 1) Tensor of segmentation labels
+            - 1 is the segmentation label
+        clust_label : TensorBatch, optional
+            (N, 1 + D + N_c) Tensor of cluster labels
+            - N_c is is the number of cluster labels
 
-        '''
-        
-        # Pass input through the model
-        
-        input_tensors = [input_data, cluster_label]
-        
-        self.gs_manager.training = self.training
-        
-        valid_points, labels = self.filter_class(input_tensors)
-        
-        res = self.embedder(valid_points)
+        Parameters
+        ----------
+        data : TensorBatch
+            (M, 1+ + D + Nf) restricted tensor of voxel/value pairs
+        seg_label : TensorBatch
+            (M, 1 + D + 1) restricted tensor of segmentation labels
+        clust_label : TensorBatch
+            (M, 1 + D + N_c) Restricted tnesor of cluster labels
+        index : torch.Tensor
+            (M) Index to narrow down the original tensor
+        counts : torch.Tensor
+            (B) Number of restricted points in each batch entry
+        """
+        # Convert classes to a torch tensor for easy comparison
+        classes = torch.tensor(self.classes, device=data.device)
 
-        res['coordinates'] = TensorBatch(valid_points.tensor[:, :COORD_COLS[-1]+1], 
-                                         batch_size=input_data.batch_size, has_batch_col=True)
-        
+        # Create an index of the valid input rows
+        mask = seg_label.tensor[:, SHAPE_COL] == classes.view(-1, 1).any(dim=0)
+        index = torch.where(mask)[0]
+
+        # Restrict the input
+        data = TensorBatch(
+                data.tensor[index], batch_size=data.batch_size,
+                has_batch_col=True)
+        seg_label = TensorBatch(seg_label.tensor[index], data.counts)
+        if clust_label is not None:
+            clust_label = TensorBatch(clust_label.tensor[index], data.counts)
+
+        return data, seg_label, clust_label, index, data.counts
+
+    def forward(self, data, seg_label, clust_label=None):
+        """Run a batch of data through the forward function.
+
+        Parameters
+        ----------
+        data : TensorBatch
+            (N, 1 + D + N_f) tensor of voxel/value pairs
+            - N is the the total number of voxels in the image
+            - 1 is the batch ID
+            - D is the number of dimensions in the input image
+            - N_f is the number of features per voxel
+        seg_label : TensorBatch
+            (N, 1 + D + 1) Tensor of segmentation labels
+            - 1 is the segmentation label
+        clust_label : TensorBatch, optional
+            (N, 1 + D + N_c) Tensor of cluster labels
+            - N_c is is the number of cluster labels
+
+        Returns
+        -------
+        dict
+            Dictionary of outputs
+        """
+        # Filter the input down to the requested classes
+        data, seg_label, clust_label, index, counts = self.filter_class(
+                data, seg_label, clust_label)
+
+        # Embed the input pixels into a feature space used for graph clustering
+        result = self.embedder(data)
+
+        # Store the index and the counts to not have to recompute them later
+        result['filter_index'] = index
+        result['filter_counts'] = counts
+
+        # Build the graph on the pixel set
+        coords = result['coordinates']
         if self.use_raw_features:
-            res['hypergraph_features'] = res['features']
+            features = result['features']
+        else:
+            features = result['hypergraph_features']
 
-        # Build the graph
-        # graph = self.gs_manager(res,
-        #                         self.kernel_fn,
-        #                         labels,
-        #                         invert=self.invert)
-        graph = self.gs_manager.initialize(res,
-                                           labels,
-                                           self.kernel_fn,
-                                           invert=self.invert)
-        
-        # if self.make_fragments:
-        #     frags = self.construct_fragments(valid_points)
-        #     res.update(frags)
-        
-        graph_state = self.gs_manager.save_state()
-        res.update(graph_state)
+        graph = self.constructor(coords, features, seg_label, clust_label)
 
-        return res
+        # Save the graph dictionary
+        result.update(graph)
+
+        return result
 
 
-class GraphSPICELoss(nn.Module):
-    """
-    Loss function for GraphSpice.
+class GraphSPICELoss(torch.nn.Module):
+    """Loss function for Graph-SPICE.
 
-    Configuration
-    -------------
-    name: str, default 'se_lovasz_inter'
-        Loss function to use.
-    invert: bool, default True
-        You want to leave this to True for statistical weighting purpose.
-    kernel_lossfn: str
-    edge_loss_cfg: dict
-        For example
+    For use in config:
 
-        .. code-block:: yaml
+    ..  code-block:: yaml
 
-          edge_loss_cfg:
-            loss_type: 'LogDice'
+        model:
+          name: graph_spice
+          modules:
+            graph_spice_loss:
+              <Basic parameters>
+              edge_loss:
+                <Edge loss configuration block>
 
-    eval: bool, default False
-        Whether we are in inference mode or not.
-
-        .. warning::
-
-            Currently you need to manually switch ``eval`` to ``True``
-            when you want to run the inference, as there is no way (?)
-            to know from within the loss function whether we are training
-            or not.
-
-    Output
-    ------
-    To be completed.
+    See configuration files prefixed with `graph_spice` under the `config`
+    directory for detailed examples of working configurations.
 
     See Also
     --------
-    GraphSPICE
+    :class:`GraphSPICE`
     """
 
     def __init__(self, graph_spice, graph_spice_loss=None):
-        super(GraphSPICELoss, self).__init__()
+        """Intialize the Graph-SPICE loss.
 
-        self.process_model_config(**graph_spice)
+        Parameters
+        ----------
+        graph_spice : dict
+            Graph-SPICE configuration dictionary
+        graph_spice_loss : dict
+            Graph-SPICE loss configuration dictionary
+        """
+        # Initialize the parent class
+        super().__init__()
+
+        # Process the loss configuration
         self.process_loss_config(**graph_spice_loss)
-        
-        
-    def process_model_config(self, skip_classes, invert=True, 
-                             constructor_cfg=None, **kwargs):
-        
-        if constructor_cfg is None:
-            constructor_cfg = {}
-            
-        self.gs_manager = ClusterGraphConstructor(constructor_cfg)
-        self.skip_classes = skip_classes
-        self.invert = invert
 
-        
-    def process_loss_config(self, evaluate_true_accuracy=False,
-                            name='se_lovasz_inter', **kwargs):
+        # Process the main mode configuration for its crucial elements
+        self.process_model_config(**graph_spice)
 
-        self.evaluate_true_accuracy = evaluate_true_accuracy
-        self.loss_fn = spice_loss_factory(name)(**kwargs)
+    def process_loss_config(self, evaluate_clustering_metrics=False, **loss):
+        """Process the loss configuration
 
+        Parameters
+        ----------
+        evaluate_clustering_metrics : bool, default False
+            If `True`, evaluates the clustering accuracy directly, rather than
+            simply reporting an edge assignment acurracy
+        **loss : dict
+            Loss configurationd dictionary
+        """
+        # Store basic parameters
+        self.evaluate_clustering_metrics = evaluate_clustering_metrics
 
-    def filter_class(self, segment_label, cluster_label):
-        '''
-        Filter classes according to segmentation label.
-        '''
-        mask = ~np.isin(segment_label[0][:, -1].cpu().numpy(), 
-                        self.skip_classes)
-        slabel = [segment_label[0][mask]]
-        clabel = [cluster_label[0][mask]]
-        return slabel, clabel
+        # Initialize the loss function
+        self.loss_fn = loss_factory(loss)
 
+    def process_model_config(self, constructor, invert=True, **kwargs):
+        """Process the model configuration
 
-    def forward(self, segment_label, cluster_label, **result):
-        '''
+        Parameters
+        ----------
+        constructor : dict, optional
+            Edge index construction configuration
+        invert : bool, default True
+            Invert the edge scores so that 0 is on an 1 is off
+        """
+        # Initialize the graph constructor (used to produce node assignments)
+        if self.evaluate_clustering_metrics:
+            self.constructor = ClusterGraphConstructor(
+                    **constructor, classes=classes, invert=invert)
 
-        '''
-        self.gs_manager.load_state(result)
-        
-        slabel_tensor = [segment_label.tensor]
-        clabel_tensor = [cluster_label.tensor]
+    def filter_class(self, seg_label, clust_label, filter_index, filter_counts):
+        """Filter the list of pixels to those in the list of requested classes.
 
-        slabel, clabel = self.filter_class(slabel_tensor, clabel_tensor)
-        
-        res = self.loss_fn(result, slabel, clabel)
-        
-        if self.evaluate_true_accuracy:
-            self.gs_manager.fit_predict()
-            acc_out = self.gs_manager.evaluate()
-            for key, val in acc_out.items():
-                res[key] = val
-                
-        if 'ari' in res:
-            res['accuracy'] = res['ari']
-        return res
+        Parameters
+        ----------
+        seg_label : TensorBatch
+            (N, 1 + D + 1) Tensor of segmentation labels
+            - 1 is the segmentation label
+        clust_label : TensorBatch, optional
+            (N, 1 + D + N_c) Tensor of cluster labels
+            - N_c is is the number of cluster labels
+        filter_index : torch.Tensor
+            (M) Index to narrow down the original tensor
+        filter_counts : torch.Tensor
+            (B) Number of restricted points in each batch entry
+
+        Parameters
+        ----------
+        seg_label : TensorBatch
+            (M, 1 + D + 1) restricted tensor of segmentation labels
+        clust_label : TensorBatch
+            (M, 1 + D + N_c) Restricted tnesor of cluster labels
+        """
+        seg_label = TensorBatch(seg_label.tensor[filter_index], filter_counts)
+        clust_label = TensorBatch(clust_label.tensor[filter_index], filter_counts)
+
+        return seg_label, clust_label
+
+    def forward(self, seg_label, clust_label, filter_index, filter_counts,
+                **output):
+        """Run a batch of data through the loss function.
+
+        Parameters
+        ----------
+        seg_label : TensorBatch
+            (N, 1 + D + 1) Tensor of segmentation labels
+            - 1 is the segmentation label
+        clust_label : TensorBatch, optional
+            (N, 1 + D + N_c) Tensor of cluster labelresul
+            - N_c is is the number of cluster labels
+        filter_index : torch.Tensor
+            (M) Index to narrow down the original tensor
+        filter_counts : torch.Tensor
+            (B) Number of restricted points in each batch entry
+        **output : dict
+            Output of the Graph-SPICE model
+
+        Returns
+        -------
+        dict
+            Dictionary of outputs
+        """
+        # Narrow down the labels to those corresponding to the relevant classes
+        seg_label, clust_label = self.filter_class(
+                seg_label, clust_label, filter_index, filter_counts)
+
+        # Pass the output through the loss function
+        result = self.loss_fn(
+                seg_label=seg_label, clust_label=clust_label, **output)
+
+        # If requested, compute clustering metrics
+        if self.evaluate_clustering_metrics:
+            # Assign cluster IDs to each of the input points, if not yet done
+            if 'node_pred' not in output:
+                self.constructor.fit_predict(output)
+
+            # Evaluate clustering metrics
+            metrics = self.constructor.evaluate(output, mean=True)
+
+            # Append metrics to the result dictionary
+            result.update(metrics)
+
+        return result

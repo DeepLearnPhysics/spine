@@ -422,7 +422,7 @@ class MaskLovaszInterLoss(MaskLovaszHingeLoss):
             sigma = torch.mean(margins[index], dim=0)
             dists = torch.sum(torch.pow(embeddings - centroids[i], 2), dim=1)
             p = torch.clamp(torch.exp(-dists / (2 * torch.pow(sigma, 2))), min=0, max=1)
-            logits = logit_fn(p, eps=1e-6)
+            logits = torch.logit(p, eps=1e-6)
             # print(logits.shape)
             probs[index] = p[index]
             loss += lovasz_hinge_flat(logits, mask).mean()

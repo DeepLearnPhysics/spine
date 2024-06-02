@@ -3,25 +3,6 @@
 import torch
 
 
-def cycle(data_io):
-    """Cycles over a an iterable indefinitely.
-
-    Use this function instead of itertools.cycle to avoid creating a memory
-    leak (itertools.cycle attempts to save all outputs in order to re-cycle
-    through them more cheaply).
-
-    This is typically used for a torch.utils.data.DataLoader
-
-    Parameters
-    ----------
-    data_io : torch.utils.data.DataLoader
-        Data loader
-    """
-    while True:
-        for x in data_io:
-            yield x
-
-
 def local_cdist(v1, v2):
     """Computes the pairwise distances between two `torch.Tensor` objects.
 

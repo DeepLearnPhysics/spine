@@ -7,101 +7,20 @@ from .misc import *
 from collections import defaultdict
 from torch_scatter import scatter_mean
 
-from mlreco.utils.globals import SHAPE_LABELS
+from mlreco.models.layers.factories import loss_fn_factory, metric_fn_factory
 
-class WeightedEdgeLoss(nn.Module):
-
-    def __init__(self, loss_type='BCE', reduction='mean', invert=False):
-        super(WeightedEdgeLoss, self).__init__()
-        self.reduction = reduction
-        if loss_type == 'BCE':
-            self.loss_fn = F.binary_cross_entropy_with_logits
-        elif loss_type == 'LogDice':
-            self.loss_fn = BinaryCELogDiceLoss()
-        elif loss_type == 'MinCut':
-            self.loss_fn = MincutLoss()
-        else:
-            self.loss_fn = F.binary_cross_entropy_with_logits
-
-        self.invert = invert
-
-    def forward(self, logits, targets):
-        if self.invert:
-            y = (targets < 0.5).float()
-        else:
-            y = targets #(targets > 0.5).float()
-        device = logits.device
-        weight = torch.ones(targets.shape[0]).to(device)
-
-        # The crucial error are the false positives, as these will
-        # lead to overclustering.
-        negatives_index = (targets < 0.5)
-        negatives = float(torch.sum(negatives_index))
-        positives = float(torch.sum(targets > 0.5))
-        # w = positives / negatives
-
-        weight[negatives_index] = 1.0
-
-        # with torch.no_grad():
-        #     num_pos = torch.sum(y).item()
-        #     num_edges = y.shape[0]
-        #     w = 1.0 / (1.0 - float(num_pos) / num_edges)
-        #     weight[~y.bool()] = w
-        # print(logits.shape, logits.max())
-        
-        loss = self.loss_fn(logits, y.float(), weight=weight)
-        return loss
+from mlreco.utils.weighting import get_class_weights
 
 
-def compute_edge_weight(sp_emb: torch.Tensor,
-                        ft_emb: torch.Tensor,
-                        cov: torch.Tensor,
-                        edge_indices: torch.Tensor,
-                        occ=None,
-                        eps=0.001):
-
-    device = sp_emb.device
-    ui, vi = edge_indices[0, :], edge_indices[1, :]
-
-    sp_cov_i = cov[:, 0][ui]
-    sp_cov_j = cov[:, 0][vi]
-    sp_i = ((sp_emb[ui] - sp_emb[vi])**2).sum(dim=1) / (sp_cov_i**2 + eps)
-    sp_j = ((sp_emb[ui] - sp_emb[vi])**2).sum(dim=1) / (sp_cov_j**2 + eps)
-
-    ft_cov_i = cov[:, 1][ui]
-    ft_cov_j = cov[:, 1][vi]
-    ft_i = ((ft_emb[ui] - ft_emb[vi])**2).sum(dim=1) / (ft_cov_i**2 + eps)
-    ft_j = ((ft_emb[ui] - ft_emb[vi])**2).sum(dim=1) / (ft_cov_j**2 + eps)
-
-    p_ij = torch.exp(-sp_i-ft_i)
-    p_ji = torch.exp(-sp_j-ft_j)
-
-    pvec = torch.clamp(p_ij + p_ji - p_ij * p_ji, min=0, max=1)
-
-    # pvec = torch.exp(- sp - ft)
-    if occ is not None:
-        r1 = occ[edge_indices[0, :]]
-        r2 = occ[edge_indices[1, :]]
-        r = torch.max((r2 + eps) / (r1 + eps), (r1 + eps) / (r2 + eps))
-        pvec = pvec / r
-    return pvec
+__all__ = ['NodeEdgeLoss', 'EdgeLoss']
 
 
 class GraphSPICEEmbeddingLoss(nn.Module):
-    '''
+    """
     Loss function for Sparse Spatial Embeddings Model, with fixed
     centroids and symmetric gaussian kernels.
-    '''
-
-    RETURNS = {
-        'loss' : ['scalar'],
-        'accuracy': ['scalar'],
-        'ft_inter_loss': ['scalar'],
-        'ft_intra_loss': ['scalar'],
-        'ft_reg_loss': ['scalar'],
-        'sp_inter_loss': ['scalar'],
-        'sp_intra_loss': ['scalar'],
-    }
+    """
+    name = 'embedding'
 
     def __init__(self, cfg, name='graph_spice_loss'):
         super(GraphSPICEEmbeddingLoss, self).__init__()
@@ -139,14 +58,14 @@ class GraphSPICEEmbeddingLoss(nn.Module):
 
 
     def feature_embedding_loss(self, ft_emb, groups, ft_centroids):
-        '''
+        """
         Compute discriminative feature embedding loss.
 
         INPUTS:
             - ft_emb (N x F)
             - groups (N)
             - ft_centroids (N_c X F)
-        '''
+        """
         intercluster_loss = inter_cluster_loss(ft_centroids,
                                                margin=self.ft_interloss)
         intracluster_loss = intra_cluster_loss(ft_emb, ft_centroids, groups,
@@ -162,14 +81,14 @@ class GraphSPICEEmbeddingLoss(nn.Module):
         return out
 
     def spatial_embedding_loss(self, sp_emb, groups, sp_centroids):
-        '''
+        """
         Compute spatial centroid regression loss.
 
         INPUTS:
             - sp_emb (N x D)
             - groups (N)
             - ft_centroids (N_c X F)
-        '''
+        """
         out = {}
         intercluster_loss = inter_cluster_loss(sp_centroids,
                                                margin=self.sp_interloss)
@@ -193,11 +112,11 @@ class GraphSPICEEmbeddingLoss(nn.Module):
 
 
     def occupancy_loss(self, occ, groups):
-        '''
+        """
         INPUTS:
             - occ (N x 1)
             - groups (N)
-        '''
+        """
         bincounts = torch.bincount(groups).float()
         bincounts[bincounts == 0] = 1
         occ_truth = torch.log(bincounts)
@@ -214,7 +133,7 @@ class GraphSPICEEmbeddingLoss(nn.Module):
 
     def combine_multiclass(self, sp_embeddings, ft_embeddings, covariance,
             occupancy, slabels, clabels):
-        '''
+        """
         Wrapper function for combining different components of the loss,
         in particular when clustering must be done PER SEMANTIC CLASS.
 
@@ -231,7 +150,7 @@ class GraphSPICEEmbeddingLoss(nn.Module):
             loss_segs (list): list of computed loss values for each semantic class.
             loss[i] = computed DLoss for semantic class <i>.
             acc_segs (list): list of computed clustering accuracy for each semantic class.
-        '''
+        """
         loss = defaultdict(list)
         loss['loss'] = []
         loss['ft_intra_loss'] = []
@@ -381,36 +300,31 @@ class GraphSPICEEmbeddingLoss(nn.Module):
         return res
 
 
-class NodeEdgeHybridLoss(torch.nn.modules.loss._Loss):
-    '''
+class NodeEdgeLoss(torch.nn.modules.loss._Loss):
+    """
     Combined Node + Edge Loss
-    '''
-
-    RETURNS = {
-        'edge_accuracy' : ['scalar']
-    }
+    """
+    name = 'node_edge'
 
     def __init__(self, 
                  invert=True, 
-                 edge_loss_cfg=None, 
+                 edge_loss=None, 
                  use_cluster_labels=True, 
                  embedding_loss_weight=1.0,
                  **kwargs):
         super(NodeEdgeHybridLoss, self).__init__()
         
         self.loss_fn = GraphSPICEEmbeddingLoss(kwargs)
-        if edge_loss_cfg is None:
-            edge_loss_cfg = {}
-        self.edge_loss_cfg = edge_loss_cfg
+        if edge_loss is None:
+            edge_loss = {}
+        self.edge_loss = edge_loss
         self.invert = invert
         self.edge_loss = WeightedEdgeLoss(invert=self.invert, 
-                                          **self.edge_loss_cfg)
+                                          **self.edge_loss)
 
-        self.acc_fn = IoUScore()
+        self.metric_fn = IoUScore()
         self.use_cluster_labels = use_cluster_labels
         self.embedding_loss_weight = embedding_loss_weight
-
-        self.RETURNS.update(self.loss_fn.RETURNS)
 
     def forward(self, result, segment_label, cluster_label):
 
@@ -432,8 +346,8 @@ class NodeEdgeHybridLoss(torch.nn.modules.loss._Loss):
             if self.invert:
                 edge_truth = torch.logical_not(edge_truth.long())
 
-            iou = self.acc_fn(pred, edge_truth)
-        # iou2 = self.acc_fn(~pred, ~edge_truth)
+            iou = self.metric_fn(pred, edge_truth)
+        # iou2 = self.metric_fn(~pred, ~edge_truth)
 
         res['edge_accuracy'] = iou
         if 'loss' in res:
@@ -445,53 +359,70 @@ class NodeEdgeHybridLoss(torch.nn.modules.loss._Loss):
         return res
 
 
-class EdgeOnlyLoss(torch.nn.modules.loss._Loss):
-    '''
-    Combined Node + Edge Loss
-    '''
+class EdgeLoss(torch.nn.modules.loss._Loss):
+    """Loss applied to edge scores produced by a GraphSPICE.
 
-    RETURNS = {
-        'edge_accuracy' : ['scalar']
-    }
+    This loss simply treats the edge score as logit predictions and compares
+    them to edge labels (simple classification task).
+    """
+    name = 'edge'
 
-    def __init__(self, edge_loss_cfg=None, invert=True, 
-                 use_cluster_labels=True, **kwargs):
-        super(EdgeOnlyLoss, self).__init__()
+    def __init__(self, loss='log_dice', invert=True, balance_loss=False,
+                 equal_sampling=False, min_sample_edges=1000, metric='iou'):
+        """Initialize the loss function.
 
-        if edge_loss_cfg is None:
-            edge_loss_cfg = {}
-        self.edge_loss_cfg      = edge_loss_cfg
-        
-        self.invert             = invert
-        self.edge_loss          = WeightedEdgeLoss(invert=self.invert, 
-                                                   **self.edge_loss_cfg)
-        self.acc_fn             = IoUScore()
-        self.use_cluster_labels = use_cluster_labels
-        self.equal_sampling     = kwargs.get('sample_edges', False)
-        self.min_sampled_edges  = kwargs.get('min_sampled_edges', 1000)
+        Parameters
+        ----------
+        loss : str, default 'log_dice'
+            Loss functional used to train edge scores
+        invert : bool, default True
+            If `True`, on edges are labeled as 0 and off edges as 1
+        balance_loss : bool, default True
+            Whether to weight the loss to account for class imbalance
+        equal_sampling : bool, default False
+            If `True`, sample the same number of edges from each label class
+        min_sample_edges : int, default 1000
+            If sampling evenly, minimum number of edges to sample with replacement
+        """
+        # Initialize the parent class
+        super().__init__()
 
-        # # print("CFG + ", cfg)
-        # self.loss_config = cfg #[name]
-        # # self.loss_fn = GraphSPICEEmbeddingLoss(cfg)
-        # self.edge_loss_cfg = self.loss_config.get('edge_loss_cfg', {})
-        # self.invert = cfg.get('invert', True)
-        # self.edge_loss = WeightedEdgeLoss(invert=self.invert, **self.edge_loss_cfg)
-        # # self.is_eval = cfg['eval']
-        # self.acc_fn = IoUScore()
-        # self.use_cluster_labels = cfg.get('use_cluster_labels', True)
-        # self.equal_sampling = cfg.get('sample_edges', False)
-        # self.min_sampled_edges = cfg.get('min_sampled_edges', 1000)
-        
-        
+        # Store parameters
+        self.invert = invert
+        self.balance_loss = balance_loss
+        self.equal_sampling = equal_sampling
+        self.min_sample_edges = min_sample_edges
+
+        # Intialize the loss function
+        self.loss_fn = loss_fn_factory(loss, reduction='none')
+
+        # Intitliaze the extra metric, if required
+        self.metric_fn = None
+        if metric is not None:
+            self.metric_fn = metric_fn_factory(metric)
+
     def sample_edges(self, edge_score, edge_truth):
-        
+        """Subsample a set number of edges from each edge label class.
+
+        Parameters
+        ----------
+        edge_scores : torch.Tensor
+            Edge score predictions
+        edge_label : torch.Tensor
+            Edge labels
+
+        Returns
+        -------
+        edge_scores : torch.Tensor
+            Subsampled edge predictions
+        edge_label : torch.Tensor
+            Subsampled edge labels
+        """
         with torch.no_grad():
             num_gaps, num_bridges = torch.bincount(edge_truth)
             n = max(num_gaps, self.min_sampled_edges)
-        
-        perm = torch.randperm(n).cuda()
-            
-        index = torch.arange(edge_truth.shape[0], dtype=torch.long).cuda()
+            perm = torch.randperm(n).cuda()
+            index = torch.arange(edge_truth.shape[0], dtype=torch.long).cuda()
         
         if num_gaps == 0:
             mask = index[perm]
@@ -507,42 +438,71 @@ class EdgeOnlyLoss(torch.nn.modules.loss._Loss):
         
         return sampled_score, sampled_truth
 
-    def forward(self, result, segment_label, cluster_label):
-        
+    def forward(self, clust_label, edge_attr, edge_pred, edge_label, **kwargs):
+        """Applies the edge loss to a batch of data.
 
-        group_label = [cluster_label[0][:, [0, 1, 2, 3, 5]]]
-        
-        res = {}
-        
-        edge_score = result['gs_edge_attr'].tensor.squeeze()
-        x = edge_score
-        pred = x >= 0
+        Parameters
+        ----------
+        clust_label : TensorBatch
+            (N, 1 + D + N_c) Tensor of cluster labels
+            - N_c is is the number of cluster labels
+        edge_attr : TensorBatch
+            (E) Edge scores
+        edge_pred : TensorBatch
+            (E) Edge assignment from scores
+        edge_label : TensorBatch
+            (E) Edge binary labels
+        **kwargs : dict, optional
+            Additional upstream model outputs not used in this loss
 
-        iou, edge_loss = 0, 0
+        Returns
+        -------
+        loss : torch.Tensor
+            Value of the loss
+        accuracy : float
+            Value of the edge-wise classification accuracy
+        iou : float
+            IoU accuracy metric
+        count : int
+            Number of edges the loss was applied to
+        """
+        # Extract the raw tensors from the batches
+        edge_attr = edge_attr.tensor.flatten()
+        edge_label = edge_label.tensor
+        edge_pred = edge_pred.tensor
 
-        # Flag for using true edge labels during training.
-        if self.use_cluster_labels:
-            edge_truth = result['gs_edge_label'].tensor.squeeze()
-        
-            if self.equal_sampling:
-                sampled_score, sampled_truth = self.sample_edges(edge_score, edge_truth)
-                edge_loss = self.edge_loss(sampled_score, sampled_truth)
-            else:
-                edge_loss = self.edge_loss(edge_score, edge_truth.float())
-                
-            edge_loss = edge_loss.mean()
+        # If requested, extract an equal number of samples from scores/labels
+        if self.equal_sampling:
+            edge_attr, edge_label = self.sample_edges(edge_attr, edge_label)
 
-            # Inverting the labels for accuracy logging purposes.
-            # The inverting operation that affects the loss is done within
-            # the WeightedEdgeLoss function.
-            if self.invert:
-                edge_truth = torch.logical_not(edge_truth.long())
+        # If requested, make off connections the positive label
+        if self.invert:
+            edge_label = torch.logical_not(edge_label).long()
 
-            iou = self.acc_fn(pred, edge_truth)
+        # Apply the loss function
+        loss = self.loss_fn(edge_attr, edge_label)
 
-        res['edge_accuracy'] = iou
-        res['accuracy'] = iou
-        res['loss'] = edge_loss
-        res['edge_loss'] = float(edge_loss)
-        
-        return res
+        # If requested, apply the weights
+        if self.balance_loss:
+            weight = get_class_weights(edge_label, 2, per_class=False)
+            loss *= weight
+
+        loss = loss.mean()
+
+        # Evaluate the accuracy
+        num_edges = len(edge_pred)
+        accuracy = 1.
+        if num_edges > 0:
+            accuracy = (edge_pred == edge_label).sum()/num_edges
+
+        metric = {}
+        if self.metric_fn is not None:
+            metric = {self.metric_fn.name: self.metric_fn(edge_pred, edge_label)}
+
+
+        # Prepare and return the result dictionary
+        return {
+                'loss': loss,
+                'accuracy': accuracy,
+                **metric
+        }

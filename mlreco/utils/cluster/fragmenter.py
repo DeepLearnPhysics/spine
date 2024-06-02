@@ -1,4 +1,6 @@
-from abc import abstractmethod
+"""Classes to process the output of dense clustering algorithms into a set
+of fragments."""
+
 from mlreco.utils.gnn.cluster import form_clusters, get_cluster_label
 
 import torch
@@ -7,41 +9,13 @@ import numpy as np
 
 from mlreco.utils.cluster.dense_cluster import fit_predict, gaussian_kernel_cuda
 
+__all__ = ['SPICEFragmentManager', 'GraphSPICEFragmentManager']
 
-class FragmentManager(nn.Module):
+
+class SPICEFragmentManager:
     """
-    Base class for fragmenters
-
-    Fragmenters take the input data tensor + outputs feature maps of CNNs
-    in <result> to give fragment labels.
-    """
-    def __init__(self, frag_cfg : dict, batch_col : int = 0):
-        super(FragmentManager, self).__init__()
-        self._batch_column                = batch_col
-        self._semantic_column             = frag_cfg.get('semantic_column', -1)
-        self._use_segmentation_prediction = frag_cfg.get('use_segmentation_prediction', True)
-
-
-    @abstractmethod
-    def forward(self, input, cnn_result, semantic_labels=None):
-        """
-        Inputs:
-            - input (torch.Tensor): N x 6 (coords, edep, semantic_labels)
-            - cnn_result: dict of List[torch.Tensor], containing:
-                - segmentation
-                - ppn_points
-                - ppn_masks
-
-        Returns:
-            - fragment_data
-        """
-        raise NotImplementedError
-
-
-class SPICEFragmentManager(FragmentManager):
-    '''
     Full chain model fragment mananger for SPICE Clustering
-    '''
+    """
     def __init__(self, frag_cfg : dict, **kwargs):
         super(SPICEFragmentManager, self).__init__(frag_cfg, **kwargs)
         self._s_thresholds     = frag_cfg.get('s_thresholds'   , [0.0, 0.0, 0.0, 0.0])
@@ -50,7 +24,7 @@ class SPICEFragmentManager(FragmentManager):
         self._spice_min_voxels = frag_cfg.get('min_voxels'     , 2                   )
 
     def forward(self, input, cnn_result, semantic_labels=None):
-        '''
+        """
         Inputs:
             - input (torch.Tensor): N x 6 (coords, edep, semantic_labels)
             - cnn_result: dict of List[torch.Tensor], containing:
@@ -64,7 +38,7 @@ class SPICEFragmentManager(FragmentManager):
             - frag_batch_ids
             - frag_seg
 
-        '''
+        """
         if self._use_segmentation_prediction:
             assert semantic_labels is None
             semantic_labels = torch.argmax(cnn_result['segmentation'][0],
@@ -104,10 +78,9 @@ class SPICEFragmentManager(FragmentManager):
         return fragments_np, frag_batch_ids, frag_seg
             
 
-class GraphSPICEFragmentManager(FragmentManager):
-    '''
-    Full chain model fragment mananger for GraphSPICE Clustering
-    '''
+class GraphSPICEFragmentManager:
+    """Builds fragments from edge Graph-SPICE edge predictions."""
+
     def __init__(self, frag_cfg : dict, **kwargs):
         super(GraphSPICEFragmentManager, self).__init__(frag_cfg, **kwargs)
 
@@ -133,7 +106,7 @@ class GraphSPICEFragmentManager(FragmentManager):
         return fragments, frag_batch_ids, fragments_seg, fragments_id
 
     def forward(self, filtered_input, original_input, filtered_semantic):
-        '''
+        """
         Inputs:
             - input (torch.Tensor): N x 6 (coords, edep, semantic_labels)
                 for GraphSPICE, we skip clustering for some labels
@@ -150,7 +123,7 @@ class GraphSPICEFragmentManager(FragmentManager):
             - frag_batch_ids
             - frag_seg
 
-        '''
+        """
         all_fragments, all_frag_batch_ids, all_fragments_seg = [], [], []
         all_fragments_id = []
         for b in filtered_input[:, self._batch_column].unique():

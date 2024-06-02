@@ -67,6 +67,7 @@ class Model:
         self.dtype = dtype
         self.distributed = distributed
         self.rank = rank
+        self.device = 'cpu' if self.rank is None else f'cuda:{self.rank}'
         self.main_process = rank is None or rank == 0
 
         # Initialize the timers and the configuration dictionary
@@ -209,6 +210,10 @@ class Model:
         dict
             Dictionary of model and loss outputs
         """
+        # Reset the gradient accumulation, free memory
+        if self.train:
+            self.optimizer.zero_grad(set_to_none=True)
+
         # Run the model forward
         self.watch.start('forward')
         result = self.forward(data, iteration)
@@ -346,7 +351,7 @@ class Model:
                         "from %s...", module, weight_path)
             with open(weight_path, 'rb') as f:
                 # Read checkpoint
-                checkpoint = torch.load(f, map_location='cpu')
+                checkpoint = torch.load(f, map_location=self.device)
                 state_dict = checkpoint['state_dict']
 
                 # Check that all the needed weights are provided
@@ -517,9 +522,6 @@ class Model:
         loss : torch.tensor
             Scalar loss value to step the model weights
         """
-        # Reset the gradient accumulation
-        self.optimizer.zero_grad()
-
         # Run the model backward
         loss.backward()
 

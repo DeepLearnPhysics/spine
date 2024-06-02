@@ -1,191 +1,190 @@
+"""Feature embedding for pixel supervised connected-component clustering."""
+
 import torch
 import torch.nn as nn
 import MinkowskiEngine as ME
 
-from mlreco import TensorBatch
+from mlreco.data import TensorBatch
+
+from mlreco.utils.globals import VALUE_COL
+
 from mlreco.models.layers.cnn.uresnet_layers import UResNet
-from mlreco.utils.globals import *
+
+__all__ = ['GraphSPICEEmbedder']
 
 
-class GraphSPICEEmbedder(UResNet):
+class GraphSPICEEmbedder(nn.Module):
+    """Model which produces embeddings of an input sparse point cloud."""
+    MODULES = ['uresnet']
 
-    MODULES = ['network_base', 'uresnet', 'graph_spice_embedder']
-
-    RETURNS = {
-        'spatial_embeddings': ['tensor', 'coordinates'],
-        'covariance': ['tensor', 'coordinates'],
-        'feature_embeddings': ['tensor', 'coordinates'],
-        'occupancy': ['tensor', 'coordinates'],
-        'features': ['tensor', 'coordinates'],
-        'hypergraph_features': ['tensor', 'coordinates'],
-        'segmentation': ['tensor', 'coordinates']
-    }
-
-    def __init__(self, cfg):
-        """Initialize the GraphSPICEEmbedder model.
+    def __init__(self, uresnet, **base):
+        """Initialize the embedding model.
 
         Parameters
         ----------
-        graph_spice_embedder : dict
-            Model configuration
+        uresnet : dict
+            Backbone UResNet configuration
+        **base : dict, optional
+            Basic parameters
         """
-        
-        uresnet = cfg['uresnet']
-        graph_spice_embedder = cfg['graph_spice_embedder']
-        super(GraphSPICEEmbedder, self).__init__(uresnet)
-        
-        self.process_model_config(**graph_spice_embedder)
+        # Initialize the parent class
+        super().__init__()
 
-        # Define outputlayers
+        # Initialize the uresnet backbone
+        self.backbone = UResNet(uresnet)
+        self.num_filters = self.backbone.num_filters
+        self.spatial_size = self.backbone.spatial_size
 
-        self.outputSpatialEmbeddings = nn.Linear(self.num_filters,
-                                                 self.spatial_embedding_dim)
+        # Process the rest of the configuration
+        self.process_model_config(**base)
 
-        self.outputFeatureEmbeddings = nn.Linear(self.num_filters,
-                                                 self.feature_embedding_dim)
+        # Define output layers
+        self.out_spatial = nn.Sequential(
+                nn.Linear(self.num_filters, self.spatial_embedding_dim),
+                nn.Tanh())
+        self.out_feature = nn.Linear(
+                self.num_filters, self.feature_embedding_dim)
+        self.out_cov = nn.Linear(self.num_filters, 2)
+        self.out_occupancy = nn.Linear(self.num_filters, 1)
 
         if self.predict_semantics:
-            self.outputSegmentation = nn.Linear(self.num_filters,
-                                               self.num_classes)
+            assert self.num_classes is not None, (
+                    "Must specify the number of classes predicting semantics.")
+            self.out_seg = nn.Linear(self.num_filters, self.num_classes)
 
-        self.outputCovariance = nn.Linear(self.num_filters, 2)
 
-        self.outputOccupancy = nn.Linear(self.num_filters, 1)
-
-        self.hyper_dimension = self.spatial_embedding_dim \
-                             + self.feature_embedding_dim + 3
-
-        # Pytorch Activations
-        self.tanh = nn.Tanh()
-        self.sigmoid = nn.Sigmoid()
-
-    def process_model_config(self, num_classes=5, coordConv=True, 
-                             predict_semantics=False, 
-                             covariance_mode='softplus', 
-                             occupancy_mode='softplus',
-                             feature_embedding_dim=16,
-                             spatial_embedding_dim=3,
-                             dimension=3):
-        """Initialize the GraphSPICEEmbedder model.
+    def process_model_config(self, predict_semantics=False, num_classes=None,
+                             coord_conv=True, covariance_mode='softplus', 
+                             occupancy_mode='softplus', feature_embedding_dim=16,
+                             spatial_embedding_dim=3):
+        """Process the embedding parameters.
 
         Parameters
         ----------
-        num_classes : int, default 5
-            Number of semantic classes, if predict_semantics is True.
-        coordConv : bool, default True
-            Whether to append spatial coordinates to the input features
         predict_semantics : bool, default False
-            Whether to predict semantic labels
+            If `True`, the embedder will output semantic predictions
+        num_classes : int, optional
+            Number of classes to classify the voxels as
+        coord_conv : bool, default True
+            If `True`, include the normalized pixel coordinates as a set of
+            input features to the backbone UResNet
         covariance_mode : str, default 'softplus'
-            Covariance layer output function
+            Activation used to predict cluster covariance (spatial extent)
         occupancy_mode : str, default 'softplus'
-            Occupancy layer output function
+            Activation used to predict cluster occupancy (pixel count)
         feature_embedding_dim : int, default 16
-            Dimension of the feature embeddings
-        spatial_embedding_dim : int, default 3
-            Dimension of the spatial embeddings
+            Number of features per pixel in embedding space
+        spatial_embedding_space : int, default 3
+            Number of spatial features per pixel in embedding space
         """
-        
+        # Store basic properties
         self.num_classes = num_classes
-        self.coordConv = coordConv
+        self.coord_conv = coord_conv
         self.predict_semantics = predict_semantics
         self.covariance_mode = covariance_mode
         self.occupancy_mode = occupancy_mode
+
         self.feature_embedding_dim = feature_embedding_dim
         self.spatial_embedding_dim = spatial_embedding_dim
-        self.D = dimension
+        self.hyper_dimension = (
+                self.spatial_embedding_dim + self.feature_embedding_dim + 3)
         
+        # Initialize covariance activation function
         if self.covariance_mode == 'exp':
             self.cov_func = torch.exp
         elif self.covariance_mode == 'softplus':
             self.cov_func = nn.Softplus()
         else:
-            raise ValueError("Covariance mode not recognized")
+            raise ValueError(
+                    f"Covariance mode not recognized: {self.covariance_mode}")
         
+        # Initialize occupancy activation function
         if self.occupancy_mode == 'exp':
             self.occ_func = torch.exp
         elif self.occupancy_mode == 'softplus':
             self.occ_func = nn.Softplus()
         else:
-            raise ValueError("Occupancy mode not recognized")
+            raise ValueError(
+                    f"Occupancy mode not recognized: {self.covariance_mode}")
         
 
-    def get_embeddings(self, tensorbatch):
-        '''
-        Forward function for computing GraphSPICE embeddings.
+    def forward(self, data):
+        """Compute the embeddings for one batch of data.
         
         Inputs
         ------
-        tensorbatch : TensorBatch
-            Input TensorBatch object
-            
+        data: TensorBatch
+            (N, 1 + D + N_f) tensor of voxel/value pairs
+            - N is the the total number of voxels in the image
+            - 1 is the batch ID
+            - D is the number of dimensions in the input image
+            - N_f is the number of features per voxel
+        
         Returns
         -------
-        res : dict
-            Dict[TensorBatch] of output embeddings
-        '''
-        
-        coords = tensorbatch.tensor[:, BATCH_COL:COORD_COLS[-1]+1].int()
-        features = tensorbatch.tensor[:, VALUE_COL].float().view(-1, 1)
-        
-        counts = tensorbatch.counts
+        dict
+            Dictionary of outputs
+        """
+        # Build an input feature tensor
+        coords = data.tensor[:, :VALUE_COL]
+        features = data.tensor[:, VALUE_COL].view(-1, 1)
 
-        normalized_coords = (coords[:, 1:self.D+1] - float(self.spatial_size) / 2) \
-                    / (float(self.spatial_size) / 2)
-        if self.coordConv:
+        # If requested, append the normalized coordinates to the feature tensor
+        half_size = self.spatial_size/2
+        points = coords[:, 1:]
+        normalized_coords = (points - half_size)/half_size
+        if self.coord_conv:
             features = torch.cat([normalized_coords, features], dim=1)
 
-        x = ME.SparseTensor(features, coordinates=coords)
+        # Pass it through the backbone UResNet, extract output features
+        backbone_data = torch.cat((coords, features), dim=1)
+        result_backbone = self.backbone(backbone_data)
+        output_features = result_backbone['decoder_tensors'][-1].F
 
-        encoder_res = self.encoder(x)
-        encoder_tensors = encoder_res['encoder_tensors']
-        final_tensor = encoder_res['final_tensor']
-        decoder_tensors = self.decoder(final_tensor, encoder_tensors)
-
-        output_features = decoder_tensors[-1].F
-
-        # Spatial Embeddings
-        out = self.outputSpatialEmbeddings(output_features)
-        spatial_embeddings = self.tanh(out)
-
-        # Covariance
-        out = self.outputCovariance(output_features)
-        covariance = self.cov_func(out)
+        # Spatial Embeddings (offset by the normalized coordinates)
+        spatial_embeddings = self.out_spatial(output_features)
 
         # Feature Embeddings
-        feature_embeddings = self.outputFeatureEmbeddings(output_features)
+        feature_embeddings = self.out_feature(output_features)
+
+        # Covariance
+        out = self.out_cov(output_features)
+        covariance = self.cov_func(out)
 
         # Occupancy
-        out = self.outputOccupancy(output_features)
+        out = self.out_occupancy(output_features)
         occupancy = self.occ_func(out)
 
         # Segmentation
         if self.predict_semantics:
-            segmentation = self.outputSegmentation(output_features)
+            segmentation = self.out_seg(output_features)
 
-        hypergraph_features = torch.cat([
-            spatial_embeddings,
-            feature_embeddings,
-            covariance,
-            occupancy], dim=1)
+        # Bundle the features together
+        hypergraph_features = torch.cat(
+                [spatial_embeddings, feature_embeddings, covariance, occupancy],
+                dim=1)
 
-        res = {
-            "spatial_embeddings": TensorBatch(spatial_embeddings + normalized_coords, counts=counts),
-            "covariance": TensorBatch(covariance, counts=counts),
-            "feature_embeddings": TensorBatch(feature_embeddings, counts=counts),
-            "occupancy": TensorBatch(occupancy, counts=counts),
-            "features": TensorBatch(output_features, counts=counts),
-            "hypergraph_features": TensorBatch(hypergraph_features, counts=counts)
+        # Convert the output to tensor batches
+        coords = TensorBatch(coords, data.counts)
+        features = TensorBatch(output_features, data.counts)
+        spatial_embeddings = TensorBatch(
+                spatial_embeddings + normalized_coords, data.counts)
+        feature_embeddings = TensorBatch(feature_embeddings, data.counts)
+        covariance = TensorBatch(covariance, data.counts)
+        occupancy = TensorBatch(occupancy, data.counts)
+        hypergraph_features = TensorBatch(hypergraph_features, data.counts)
+
+        result = {
+                'coordinates': coords,
+                'features': features,
+                'spatial_embeddings': spatial_embeddings,
+                'feature_embeddings': feature_embeddings,
+                'covariance': covariance,
+                'occupancy': occupancy,
+                'hypergraph_features': hypergraph_features
         }
+
         if self.predict_semantics:
-            res["segmentation"] = TensorBatch(segmentation, counts=counts)
+            result['segmentation'] = TensorBatch(segmentation, data.counts)
 
-        return res
-
-    def forward(self, tensorbatch):
-        '''
-        Train time forward
-        '''
-        out = self.get_embeddings(tensorbatch)
-
-        return out
+        return result

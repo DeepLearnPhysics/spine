@@ -1,194 +1,271 @@
 """Various metrics used to evaluate clustering."""
 
 import numpy as np
+import numba as nb
+
+from sklearn.metrics import adjusted_rand_score, adjusted_mutual_info_score
+
+from .numba_local import contingency_table
+
+__all__ = ['pur', 'eff', 'pur_eff', 'ari', 'ami', 'sbd']
 
 
-def unique_with_batch(label, bid):
-    """Merge 1D arrays of label and bid into array of new labels for unique
-    (label, bid) pairs
+def pur(truth, pred, batch_ids=None, per_cluster=True):
+    """Assignment purity.
 
     Parameters
     ----------
-    label : np.ndarray
-        Labels
-    bid : np.ndarray
-        Batch IDs
+    truth : np.ndarray
+        (N) Set of true labels
+    pred : np.ndarray
+        (N) Set of predicted labels
+    batch_ids : np.ndarray, optional
+        (N) Batch IDs
+    per_cluster : bool, default True
+        If `True`, computes the purity per predicted cluster, than averages it
 
     Returns
     -------
-    labels2 : ndarray
-        new unique labels
+    float
+        Assignment purity
     """
-    label = np.array(label)
-    bid = np.array(bid)
-    lb = np.stack((label, bid))
-    _, label2, cts = np.unique(lb, axis=1, return_inverse=True, return_counts=True)
-    return label2, cts
+    # Transform labels to be unique across all batch entries
+    truth, _, truth_counts = unique_labels(truth, batch_ids)
+    pred, _, pred_counts = unique_labels(pred, batch_ids)
+
+    # Compute the contingency table
+    table = contingency_table(truth, pred, len(truth_unique), len(pred_unique))
+
+    # Evaluate the purity for each predicted cluster
+    if per_cluster:
+        purities = table.max(axis=0)/pred_counts
+        return purities.mean()
+
+    else:
+        purity = np.sum(table.max(axis=0))/len(pred)
+        return purity
 
 
-def unique_label(label):
+def eff(truth, pred, batch_ids=None, per_cluster=True):
+    """Assignment efficiency, evaluated per true cluster and averaged.
+
+    Parameters
+    ----------
+    truth : np.ndarray
+        (N) Set of true labels
+    pred : np.ndarray
+        (N) Set of predicted labels
+    batch_ids : np.ndarray, optional
+        (N) Batch IDs
+    per_cluster : bool, default True
+        If `True`, computes the efficiency per truth cluster, than averages it
+
+    Returns
+    -------
+    float
+        Assignment efficiency
     """
-    transform label array into new label array where labels are between 0 and nlabels
-    """
-    label = np.array(label)
-    _, label2, cts = np.unique(label, return_inverse=True, return_counts=True)
-    return label2, cts
+    # Transform labels to be unique across all batch entries
+    truth, _, truth_counts = unique_labels(truth, batch_ids)
+    pred, _, pred_counts = unique_labels(pred, batch_ids)
+
+    # Compute the contingency table
+    table = contingency_table(truth, pred, len(truth_unique), len(pred_unique))
+
+    # Evaluate the efficiency for each true cluster
+    if per_cluster:
+        efficiencies = table.max(axis=1)/truth_counts
+        return efficiencies.mean()
+
+    else:
+        efficiency = np.sum(table.max(axis=1))/len(truth)
+        return efficiency
 
 
-def ARI(pred, truth, bid=None):
+def pur_eff(truth, pred, batch_ids=None, per_cluster=True):
+    """Assignment purity and efficiency.
+
+    Parameters
+    ----------
+    truth : np.ndarray
+        (N) Set of true labels
+    pred : np.ndarray
+        (N) Set of predicted labels
+    batch_ids : np.ndarray, optional
+        (N) Batch IDs
+    per_cluster : bool, default True
+        If `True`, computes the metrics per predicted cluster, than averages them
+
+    Returns
+    -------
+    float
+        Assignment purity
+    float
+        Assignment efficiency
     """
-    Compute the Adjusted Rand Index (ARI) score for two clusterings
-    """
-    from sklearn.metrics import adjusted_rand_score
-    if bid:
-        pred, = unique_with_batch(pred, bid)
-        truth, = unique_with_batch(truth, bid)
-    return adjusted_rand_score(pred, truth)
+    # Transform labels to be unique across all batch entries
+    truth, _, truth_counts = unique_labels(truth, batch_ids)
+    pred, _, pred_counts = unique_labels(pred, batch_ids)
+
+    # Compute the contingency table
+    table = contingency_table(truth, pred, len(truth_unique), len(pred_unique))
+
+    # Evaluate the purity and efficiency
+    if per_cluster:
+        purities = table.max(axis=0)/pred_counts
+        efficiencies = table.max(axis=1)/truth_counts
+
+        return purities.mean(), efficiencies.mean()
+
+    else:
+        purity = np.sum(table.max(axis=0))/len(pred)
+        efficiency = np.sum(table.max(axis=1))/len(truth)
+
+        return purity, efficiency
 
 
-def AMI(pred, truth, bid=None):
+def ari(truth, pred, batch_ids=None):
+    """Computes the Adjusted Rand Index (ARI) between two sets of labels.
+
+    Parameters
+    ----------
+    truth : np.ndarray
+        (N) Set of true labels
+    pred : np.ndarray
+        (N) Set of predicted labels
+    batch_ids : np.ndarray, optional
+        (N) Batch IDs
+
+    Returns
+    -------
+    float
+        Adjusted Rand Index (ARI) value
     """
-    Compute the Adjusted Mutual Information (AMI) score for two clusterings
-    """
-    from sklearn.metrics import adjusted_mutual_info_score
-    if bid:
-        pred, = unique_with_batch(pred, bid)
-        truth, = unique_with_batch(truth, bid)
-    return adjusted_mutual_info_score(pred, truth, average_method='arithmetic')
+    # If required, transform labels to be unique across all batch entries
+    if batch_ids is not None:
+        truth = unique_labels(truth, batch_ids)[0]
+        pred = unique_labels(pred, batch_ids)[0]
+
+    return adjusted_rand_score(truth, pred)
 
 
-def BD(data_sum, clusters_sum, clusters_sum_counts, data_fixed, clusters_fixed, clusters_fixed_counts):
+def ami(truth, pred, batch_ids=None):
+    """Computes the Adjusted Mutual Information (AMI) between two sets of labels.
+
+    Parameters
+    ----------
+    truth : np.ndarray
+        (N) Set of true labels
+    pred : np.ndarray
+        (N) Set of predicted labels
+    batch_ids : np.ndarray, optional
+        (N) Batch IDs
+
+    Returns
+    -------
+    float
+        Adjusted Mutual Information (AMI) value
     """
-    Helper function for SBD function.
+    # If required, transform labels to be unique across all batch entries
+    if batch_ids is not None:
+        truth = unique_labels(truth, batch_ids)[0]
+        pred = unique_labels(pred, batch_ids)[0]
+
+    return adjusted_mutual_info_score(truth, pred, average_method='arithmetic')
+
+
+def sbd(truth, pred, batch_ids=None):
+    """Compute the Symmetric Best Dice (SBD) score between two sets of labels.
+
+    Parameters
+    ----------
+    truth : np.ndarray
+        (N) Set of true labels
+    pred : np.ndarray
+        (N) Set of predicted labels
+    batch_ids : np.ndarray, optional
+        (N) Batch IDs
+
+    Returns
+    -------
+    float
+        Symmetric best dice value
     """
-    bd = 0
-    for i in range(len(clusters_sum)):
-        c = clusters_sum[i]
-        c_len = clusters_sum_counts[i]
-        unique, counts = np.unique(data_fixed[np.where(data_sum == c)], return_counts=True)
-        best_dice = 0
-        for j in range(len(unique)):
-            dice = 2 * counts[j] / (c_len + clusters_fixed_counts[np.searchsorted(clusters_fixed, unique[j])])
+    # Transform labels to be unique across all batch entries
+    truth, truth_unique, truth_counts = unique_labels(truth, batch_ids)
+    pred, pred_unique, pred_counts = unique_labels(pred, batch_ids)
+
+    # Compute the best dice both ways, take the minimum as the symmetric score
+    bd1 = bd(truth, truth_unique, truth_counts, pred, pred_unique, pred_counts)
+    bd2 = bd(pred, pred_unique, pred_counts, truth, truth_unique, truth_counts)
+
+    return min(bd1, bd2)
+
+
+def bd(truth, truth_unique, truth_counts, pred, pred_unique, pred_counts):
+    """Computes the Best Dice (BD) between two sets of labels.
+
+    Parameters
+    ----------
+    truth : np.ndarray
+        (N) Set of true labels
+    truth_unique : np.ndarray
+        (K) Set of unique true labels
+    truth_counts : np.ndarray
+        (K) Number of realization of each unique true label
+    pred : np.ndarray
+        (N) Set of predicted labels
+    pred_unique : np.ndarray
+        (L) Set of unique predicted labels
+    pred_counts : np.ndarray
+        (L) Number of realization of each unique predicted label
+    """
+    # Loop over the predicted clusters
+    total_bd = 0.
+    for i, c in enumerate(pred_unique):
+        # Get the composition of the predicted cluster in the label array
+        unique, counts = np.unique(truth[pred == c], return_counts=True)
+
+        # Compute the best dice for this cluster
+        bd = 0.
+        for j, d in enumerate(unique):
+            dice = 2 * counts[j] / (pred_counts[i] + truth_counts[d])
             if dice > best_dice:
                 best_dice = dice
-        bd += best_dice
-    bd /= len(clusters_sum)
-    return bd
+
+        # Increment
+        total_bd += best_dice
+
+    # Take the mean best dice as a clustering score
+    return total_bd/len(pred_unique)
 
 
-# pred, truth are 1D arrays of labels in the same order
-def SBD(pred, truth, bid=None):
-    '''
-    Compute the Symmetric Best Dice (SBD) Score for Instance Segmentation.
-    '''
-    if bid:
-        pred, = unique_with_batch(pred, bid)
-        truth, = unique_with_batch(truth, bid)
-    pred_clusters, pred_counts = np.unique(pred, return_counts=True)
-    truth_clusters, truth_counts = np.unique(truth, return_counts=True)
+def unique_labels(labels, batch_ids=None):
+    """Transforms labels to range from 0 to C-1 labels (with C the number of
+    unique values in the label array.
 
-    bd1 = BD(pred, pred_clusters, pred_counts, truth, truth_clusters, truth_counts)
-    bd2 = BD(truth, truth_clusters, truth_counts, pred, pred_clusters, pred_counts)
-    sbd = np.minimum(bd1, bd2)
+    If batch IDs are provided, ensures that the labels are unique at the batch
+    level as well.
 
-    return sbd
+    Parameters
+    ----------
+    labels : np.ndarray
+        (N) Labels
+    batch_ids : np.ndarray, optional
+        (N) Batch IDs
 
-
-def contingency_table(a, b, na=None, nb=None):
+    Returns
+    -------
+    inverse : np.ndarray
+        (N) Unique labels across all entries in the batch
+    unique : np.ndarray
+        (C) Unique set of labels
+    counts : np.ndarray
+        (C) Number of labels which belong to each unique category
     """
-    build contingency table for a and b
-    assume a and b have labels between 0 and na and 0 and nb respectively
-    """
-    if not na:
-        na = np.max(a)
-    if not nb:
-        nb = np.max(b)
-    table = np.zeros((na, nb), dtype=int)
-    for i, j in zip(a,b):
-        table[i,j] += 1
-    return table
+    if batch_ids is not None:
+        label = np.stack((label, batch_ids))
+    unique, inverse, counts = np.unique(
+            pairs, axis=-1, return_inverse=True, return_counts=True)
 
-
-def purity(pred, truth, bid=None):
-    """
-    cluster purity:
-    intersection(pred, truth)/pred
-    number in [0,1] - 1 indicates everything in the cluster is in the same ground-truth cluster
-    """
-    if bid:
-        pred, pcts = unique_with_batch(pred, bid)
-        truth, tcts = unique_with_batch(truth, bid)
-    else:
-        pred, pcts = unique_label(pred)
-        truth, tcts = unique_label(truth)
-    table = contingency_table(pred, truth, len(pcts), len(tcts))
-    purities = table.max(axis=1) / pcts
-    return purities.mean()
-
-
-def global_purity(pred, truth, bid=None):
-    """
-    cluster purity as defined in https://nlp.stanford.edu/IR-book/html/htmledition/evaluation-of-clustering-1.html:
-    intersection(pred, truth)/pred
-    number in [0,1] - 1 indicates everything in the cluster is in the same ground-truth cluster
-    """
-    if bid:
-        pred, pcts = unique_with_batch(pred, bid)
-        truth, tcts = unique_with_batch(truth, bid)
-    else:
-        pred, pcts = unique_label(pred)
-        truth, tcts = unique_label(truth)
-    table = contingency_table(pred, truth, len(pcts), len(tcts))
-    return np.sum(table.max(axis=1))/len(pred)
-
-
-def efficiency(pred, truth, bid=None):
-    """
-    cluster efficiency:
-    intersection(pred, truth)/truth
-    number in [0,1] - 1 indicates everything is found in cluster
-    """
-    if bid:
-        pred, pcts = unique_with_batch(pred, bid)
-        truth, tcts = unique_with_batch(truth, bid)
-    else:
-        pred, pcts = unique_label(pred)
-        truth, tcts = unique_label(truth)
-    table = contingency_table(pred, truth, len(pcts), len(tcts))
-    efficiencies = table.max(axis=0) / tcts
-    return efficiencies.mean()
-
-
-def global_efficiency(pred, truth, bid=None):
-    """
-    cluster efficiency as defined in https://nlp.stanford.edu/IR-book/html/htmledition/evaluation-of-clustering-1.html:
-    intersection(pred, truth)/truth
-    number in [0,1] - 1 indicates everything is found in cluster
-    """
-    if bid:
-        pred, pcts = unique_with_batch(pred, bid)
-        truth, tcts = unique_with_batch(truth, bid)
-    else:
-        pred, pcts = unique_label(pred)
-        truth, tcts = unique_label(truth)
-    table = contingency_table(pred, truth, len(pcts), len(tcts))
-    return np.sum(table.max(axis=0))/len(pred)
-
-
-def purity_efficiency(pred, truth, bid=None, mean=True):
-    """
-    function that combines purity and efficiency calculation into one go
-    """
-    if bid:
-        pred, pcts = unique_with_batch(pred, bid)
-        truth, tcts = unique_with_batch(truth, bid)
-    else:
-        pred, pcts = unique_label(pred)
-        truth, tcts = unique_label(truth)
-    table = contingency_table(pred, truth, len(pcts), len(tcts))
-    efficiencies = table.max(axis=0) / tcts
-    purities = table.max(axis=1) / pcts
-    if mean:
-        return purities.mean(), efficiencies.mean()
-    else:
-        return purities, efficiencies
+    return inverse, unique, counts

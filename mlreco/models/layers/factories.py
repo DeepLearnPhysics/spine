@@ -1,8 +1,13 @@
 """Factories to build generic layers components."""
 
+from torch import nn
+
+from mlreco.models.experimental.bayes.evidential import (
+        EVDLoss, EDLRegressionLoss)
+
 from mlreco.utils.factory import module_dict, instantiate
 
-from .common import final
+from .common import final, losses, metric
 
 __all__ = ['final_factory', 'loss_fn_factory']
 
@@ -43,28 +48,24 @@ def loss_fn_factory(cfg, functional=False, **kwargs):
     object
         Instantiated loss function
     """
-    from torch import nn
-    from .common.losses import LogRMSE, BerHuLoss
-    from mlreco.models.experimental.bayes.evidential import (
-            EVDLoss, EDLRegressionLoss)
-
     loss_dict = {
         'ce': nn.CrossEntropyLoss,
         'bce': nn.BCELoss,
+        'bce_logits': nn.BCEWithLogitsLoss,
         'mm': nn.MultiMarginLoss,
         'huber': nn.HuberLoss,
         'l1': nn.L1Loss,
         'l2': nn.MSELoss,
         'mse': nn.MSELoss,
-        'log_rmse': LogRMSE,
-        'berhu': BerHuLoss,
-        'evd': EVDLoss,
-        'edl': EDLRegressionLoss
+        'evd': EVDLoss, # TODO move
+        'edl': EDLRegressionLoss, # TODO move
+        **module_dict(losses)
     }
 
     loss_dict_func = {
         'ce': nn.functional.cross_entropy,
         'bce': nn.functional.binary_cross_entropy,
+        'bce': nn.functional.binary_cross_entropy_with_logits,
         'mm': nn.functional.multi_margin_loss,
         'huber': nn.functional.huber_loss,
         'l1': nn.functional.l1_loss,
@@ -74,14 +75,31 @@ def loss_fn_factory(cfg, functional=False, **kwargs):
 
     if not functional:
         return instantiate(loss_dict, cfg, **kwargs)
+
     else:
         assert (isinstance(cfg, str) or
                 ('name' in cfg and len(cfg) == 1)), (
-                       'For a functional, only provide the function name')
+                        "For a functional, only provide the function name.")
 
         name = cfg if isinstance(cfg, str) else cfg['name']
         try:
             return loss_dict_func[name]
         except KeyError as err:
-            raise KeyError("Could not find the functional {name} in the "
-                           "availabel list: {loss_dict_func.keys()}")
+            raise KeyError(f"Could not find the functional {name} in the "
+                           f"availabel list: {loss_dict_func.keys()}")
+
+def metric_fn_factory(cfg):
+    """Instantiates an metric function from a configuration dictionary.
+
+    Parameters
+    ----------
+    cfg : dict
+        Metric function configuration
+
+    Returns
+    -------
+    object
+        Instantiated metric function
+    """
+    metric_layers = module_dict(metric)
+    return instantiate(metric_layers, cfg)

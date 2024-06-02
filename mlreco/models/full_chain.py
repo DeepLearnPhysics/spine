@@ -16,16 +16,13 @@ from .layers.common.dbscan import DBSCAN
 # TODO: replace this with MultiParticleImageClassifier
 # TODO: raname it something more generic like ParticleClusterImageClassifier?
 
-from mlreco.utils.cluster.cluster_graph_constructor import ClusterGraphConstructor
-
-from mlreco import TensorBatch, IndexBatch, RunInfo
+from mlreco.data import TensorBatch, IndexBatch, RunInfo
 from mlreco.utils.globals import (
         COORD_COLS, VALUE_COL, CLUST_COL, SHAPE_COL, SHOWR_SHP, TRACK_SHP,
         MICHL_SHP, DELTA_SHP, GHOST_SHP)
 from mlreco.utils.calibration import CalibrationManager
 from mlreco.utils.logger import logger
 from mlreco.utils.ppn import get_particle_points
-from mlreco.utils.cluster.fragmenter import GraphSPICEFragmentManager
 from mlreco.utils.ghost import (
         compute_rescaled_charge_batch, adapt_labels_batch)
 from mlreco.utils.gnn.cluster import (
@@ -232,7 +229,7 @@ class FullChain(torch.nn.Module):
         sources : TensorBatch, optional
             (N, 2) tensor of module/tpc pair for each voxel
         seg_label : TensorBatch, optional
-            (N, 1 + D + 1) Tensor of segmentation labels for the batch
+            (N, 1 + D + 1) Tensor of segmentation labels
             - 1 is the segmentation label
         clust_label : TensorBatch, optional
             (N, 1 + D + N_c) Tensor of cluster labels
@@ -296,7 +293,7 @@ class FullChain(torch.nn.Module):
         sources : TensorBatch, optional
             (N, 2) tensor of module/tpc pair for each voxel
         seg_label : TensorBatch, optional
-            (N, 1 + D + 1) Tensor of segmentation labels for the batch
+            (N, 1 + D + 1) Tensor of segmentation labels
         clust_label : TensorBatch, optional
             (N, 1 + D + N_c) Tensor of cluster labels
 
@@ -418,7 +415,7 @@ class FullChain(torch.nn.Module):
             values = data.to_numpy().tensor[:, VALUE_COL]
             sources = sources.to_numpy().tensor if sources is not None else None
             run_info = run_info[0] if run_info is not None else None
- 
+
             # TODO: remove hard-coded value of dE/dx
             values = self.calibrator(voxels, values, sources, run_info, 2.2)
             data.tensor[:, VALUE_COL] = torch.tensor(
@@ -448,7 +445,7 @@ class FullChain(torch.nn.Module):
         data : TensorBatch
             (N, 1 + D + N_f) tensor of voxel/value pairs
         seg_label : TensorBatch, optional
-            (N, 1 + D + 1) Tensor of segmentation labels for the batch
+            (N, 1 + D + 1) Tensor of segmentation labels
         clust_label : TensorBatch, optional
             (N, 1 + D + N_c) Tensor of cluster labels
         """
@@ -526,8 +523,11 @@ class FullChain(torch.nn.Module):
             fragments, fragment_shapes = self.dbscan(data, **self.result)
 
         if 'graph_spice' in self.fragmentation:
-            raise NotImplementedError
-            # Run Graph-SPICE + post-processor
+            # Run Graph-SPICE
+            res_gs = self.graph_spice(data, self.result['seg_pred']) 
+
+            # 
+
             # TODO
 
             # If there are existing fragments from DBSCAN, merge
@@ -572,7 +572,7 @@ class FullChain(torch.nn.Module):
 
         # If GrapPA is run on track/shower separately, prepare merged products
         merge = {}
-        if (self.shower_aggregation == 'grappa' or 
+        if (self.shower_aggregation == 'grappa' or
             self.track_aggregation == 'grappa'):
             num_clusts = len(fragments.index_list)
             kwargs = {'dtype': data.dtype, 'device': data.device}
@@ -697,7 +697,7 @@ class FullChain(torch.nn.Module):
 
     def run_grappa(self, prefix, model, data, clusts, clust_shapes,
                    clust_primaries=None, coord_label=None,
-                   aggregate_shapes=False, shape_use_primary=False, 
+                   aggregate_shapes=False, shape_use_primary=False,
                    point_use_primary=False, retain_primaries=False):
         """Run the GNN-based particle aggregator.
 
@@ -938,7 +938,7 @@ class FullChain(torch.nn.Module):
         return grappa_input
 
     def build_groups(self, clusts, clust_shapes, group_pred, primary_mask=None,
-                     aggregate_shapes=False, shape_use_primary=False, 
+                     aggregate_shapes=False, shape_use_primary=False,
                      retain_primaries=False):
         """Use groups predictions from GrapPA to build superstructures.
 
@@ -1101,16 +1101,15 @@ class FullChainLoss(torch.nn.Module):
     def forward(self, seg_label=None, ppn_label=None, clust_label=None,
                 clust_label_adapt=None, coord_label=None, graph_label=None,
                 ghost=None, ghost_pred=None, segmentation=None, **kwargs):
-                
         """Run the full chain output through the full chain loss.
 
         Parameters
         ----------
         seg_label : TensorBatch, optional
-            (N, 1 + D + 1) Tensor of segmentation labels for the batch
+            (N, 1 + D + 1) Tensor of segmentation labels
             - 1 is the segmentation label
         ppn_label : TensorBatch, optional
-            (N, 1 + D + N_l) Tensor of PPN labels for the batch
+            (N, 1 + D + N_l) Tensor of PPN labels
         clust_label : TensorBatch, optional
             (N, 1 + D + N_c) Tensor of cluster labels
             - N_c is is the number of cluster labels
@@ -1138,7 +1137,7 @@ class FullChainLoss(torch.nn.Module):
         # Apply the deghosting loss
         if self.deghosting == 'uresnet':
             # Convert segmentation labels to ghost labels
-            ghost_label_tensor = seg_label.tensor.clone() 
+            ghost_label_tensor = seg_label.tensor.clone()
             ghost_label_tensor[:, SHAPE_COL] = (
                     seg_label.tensor[:, SHAPE_COL] == GHOST_SHP)
             ghost_label = TensorBatch(ghost_label_tensor, seg_label.counts)

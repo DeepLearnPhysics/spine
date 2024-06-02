@@ -242,7 +242,7 @@ def all(x: nb.float32[:,:],
     Parameters
     ----------
     x : np.ndarray
-        (N,M) array of values
+        (N, M) Array of values
     axis : int
         Array axis ID
 
@@ -260,6 +260,43 @@ def all(x: nb.float32[:,:],
         for i in range(len(all)):
             all[i] = np.all(x[i])
     return all
+
+
+@nb.njit(cache=True)
+def contingency_table(x: nb.int32[:],
+                      y: nb.int32[:],
+                      nx: nb.int32=None,
+                      ny: nb.int32=None) -> nb.int64[:, :]:
+    """Build a contingency table for two sets of labels.
+
+    Parameters
+    ----------
+    x : np.ndarray
+        (N) Array of integrer values
+    y : np.ndarray
+        (M) Array of integrer values
+    nx : int, optional
+        Number of integer values allowed in `x`, N
+    ny : int, optional
+        Number of integer values allowd in `y`, M
+
+    Returns
+    -------
+    np.ndarray
+        (N, M) Contingency table
+    """
+    # If not provided, assume that the max label is the max of the label array
+    if not na:
+        na = np.max(a) + 1
+    if not nb:
+        nb = np.max(b) + 1
+
+    # Bin the table
+    table = np.zeros((na, nb), dtype=np.int64)
+    for i, j in zip(a,b):
+        table[i, j] += 1
+
+    return table
 
 
 @nb.njit(cache=True)

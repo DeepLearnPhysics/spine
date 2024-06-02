@@ -19,7 +19,7 @@ def setup_cnn_configuration(self, spatial_size, reps, depth, filters,
     Parameters
     ----------
     spatial_size: int
-        Size of the input image in number of voxels per    data_dim
+        Size of the input image in number of voxels per data_dim
     reps : int
         Number of time convolutions are repeated at each depth
     depth : int

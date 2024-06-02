@@ -12,7 +12,7 @@ from scipy.sparse import csr_array
 from scipy.sparse.csgraph import minimum_spanning_tree
 
 import mlreco.utils.numba_local as nbl
-from mlreco.utils.metrics import SBD, AMI, ARI, purity_efficiency
+from mlreco.utils.metrics import sbd, ami, ari, pur_eff
 from mlreco import TensorBatch, IndexBatch, EdgeIndexBatch
 
 int_array = nb.int64[:]
@@ -788,12 +788,12 @@ def clustering_metrics(clusts, node_assn, node_pred):
     """
     pred_vox = cluster_to_voxel_label(clusts, node_pred)
     true_vox = cluster_to_voxel_label(clusts, node_assn)
-    ari = ARI(pred_vox, true_vox)
-    ami = AMI(pred_vox, true_vox)
-    sbd = SBD(pred_vox, true_vox)
-    pur, eff = purity_efficiency(pred_vox, true_vox)
+    ari_val = ari(truth_vox, pred_vox)
+    ami_val = ami(truth_vox, pred_vox)
+    sbd_val = sbd(truth_vox, pred_vox)
+    pur_val, eff_val = pur_eff(truth_vox, pred_vox)
 
-    return ari, ami, sbd, pur, eff
+    return ari_val, ami_val, sbd_val, pur_val, eff_val
 
 
 def voxel_efficiency_bipartite(clusts, node_assn, node_pred, primaries):

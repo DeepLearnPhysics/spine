@@ -11,8 +11,7 @@ from .blocks import *
 
 
 class FPN(torch.nn.Module):
-    '''
-    Feature Pyramid Network (FPN)
+    """Feature Pyramid Network (FPN).
 
     FPNs are a different implementation of the concept behind unets.
 
@@ -29,7 +28,7 @@ class FPN(torch.nn.Module):
         Kernel size for the SC (sparse convolutions for down/upsample).
     input_kernel : int, optional
         Receptive field size for very first convolution after input layer.
-    '''
+    """
     def __init__(self, cfg, name='fpn'):
         super(FPN, self).__init__()
         setup_cnn_configuration(self, cfg, name)
@@ -111,7 +110,7 @@ class FPN(torch.nn.Module):
 
 
     def encoder(self, x):
-        '''
+        """
         Vanilla FPN Encoder.
 
         INPUTS:
@@ -123,7 +122,7 @@ class FPN(torch.nn.Module):
               1) encoderTensors (list): list of intermediate SparseTensors
               2) finalTensor (SparseTensor): feature tensor at
               deepest layer.
-        '''
+        """
         x = self.input_layer(x)
         encoderTensors = [x]
         for i, layer in enumerate(self.encoding_block):
@@ -139,14 +138,14 @@ class FPN(torch.nn.Module):
 
 
     def decoder(self, final, encoderTensors):
-        '''
-        Vanilla FPN Decoder
+        """ Vanilla FPN Decoder
+
         INPUTS:
             - encoderTensors (list of SparseTensor): output of encoder.
         RETURNS:
             - decoderTensors (list of SparseTensor):
             list of feature tensors in decoding path at each spatial resolution.
-        '''
+        """
         decoderTensors = []
         x = final
         for i, layer in enumerate(self.decoding_conv):

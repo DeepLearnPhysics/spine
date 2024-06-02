@@ -1,11 +1,13 @@
+"""UResNet segmentation model and its loss."""
+
+from collections import defaultdict
+
 import numpy as np
 import torch
 import torch.nn as nn
 import MinkowskiEngine as ME
 
-from collections import defaultdict
-
-from mlreco import TensorBatch
+from mlreco.data import TensorBatch
 from mlreco.utils.globals import BATCH_COL, VALUE_COL, GHOST_SHP
 from mlreco.utils.logger import logger
 
@@ -34,7 +36,6 @@ class UResNetSegmentation(nn.Module):
     See configuration file(s) prefixed with `uresnet_` under the `config`
     directory for detailed examples of working configurations.
     """
-
     INPUT_SCHEMA = [
         ['parse_sparse3d', (float,), (3, 1)]
     ]
@@ -168,7 +169,7 @@ class SegmentationLoss(torch.nn.modules.loss._Loss):
 
     See Also
     --------
-    UResNet_Chain
+    :class:`UResNetSegmentation`
     """
     INPUT_SCHEMA = [
         ['parse_sparse3d', (int,), (3, 1)]

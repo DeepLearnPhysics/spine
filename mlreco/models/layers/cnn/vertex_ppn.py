@@ -5,9 +5,9 @@ import torch.nn as nn
 import MinkowskiEngine as ME
 import MinkowskiFunctional as MF
 
+from mlreco.models.layers.factories import loss_fn_factory
 from mlreco.models.layers.cnn.blocks import ResNetBlock
 from mlreco.models.layers.cnn.configuration import setup_cnn_configuration
-from mlreco.models.layers.cluster_cnn.losses.misc import BinaryCELogDiceLoss
 
 from .act_norm import act_factory
 from .ppn import *
@@ -187,13 +187,8 @@ class VertexPPNLoss(torch.nn.modules.loss._Loss):
         super(VertexPPNLoss, self).__init__()
         self.loss_config = cfg.get(name, {})
         # pprint(self.loss_config)
-        self.mask_loss_name = self.loss_config.get('mask_loss_name', 'BCE')
-        if self.mask_loss_name == "BCE":
-            self.lossfn = torch.nn.functional.binary_cross_entropy_with_logits
-        elif self.mask_loss_name == "LogDice":
-            self.lossfn = BinaryCELogDiceLoss()
-        else:
-            raise NotImplementedError
+        self.mask_loss = self.loss_config.get('mask_loss', 'bce')
+        self.lossfn = loss_fn_factory(self.mask_loss)
         self.resolution = self.loss_config.get('ppn_resolution', 1.0)
         self.regloss = torch.nn.MSELoss()
         self.use_numpy = self.loss_config.get('use_numpy', False)

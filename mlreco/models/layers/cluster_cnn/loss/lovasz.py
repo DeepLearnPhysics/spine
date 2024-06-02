@@ -1,5 +1,4 @@
-"""
-Lovasz-Softmax and Jaccard hinge loss in PyTorch
+"""Lovasz-Softmax and Jaccard hinge loss in PyTorch
 Maxim Berman 2018 ESAT-PSI KU Leuven (MIT License)
 
 Original Paper: https://arxiv.org/pdf/1705.08790.pdf

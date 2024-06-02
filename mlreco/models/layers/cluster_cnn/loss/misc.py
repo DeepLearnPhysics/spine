@@ -9,11 +9,6 @@ from torch_scatter import scatter_mean
 
 # Collection of Miscellaneous Loss Functions not yet implemented in Pytorch.
 
-def logit_fn(input, eps=1e-6):
-    x = torch.clamp(input, min=eps, max=1-eps)
-    return torch.log(x / (1 - x))
-
-
 def unique_label_torch(label):
     _, label2, cts = torch.unique(label, return_inverse=True, return_counts=True)
     return label2, cts
@@ -29,150 +24,6 @@ def iou_batch(pred: torch.BoolTensor, labels: torch.BoolTensor, eps=0.0):
     iou = (intersection + eps) / (union + eps)  # We smooth our devision to avoid 0/0
 
     return iou.mean()
-
-
-class VectorEstimationLoss(nn.Module):
-
-    def __init__(self, cfg, name='vector_estimation_loss'):
-        super(VectorEstimationLoss, self).__init__()
-        self.loss_config = cfg[name]
-        self.fps_ratio = self.loss_config.get('fps_ratio', 0.1)
-        self.k = self.loss_config.get('k', 20)
-        self.D = 3
-        self.cos = nn.CosineSimilarity(dim=1)
-        self.eps = self.loss_config.get('eps', 1e-6)
-
-
-    def compute_loss_single_graph(self, vec_pred, pos):
-        '''
-        INPUTS:
-            - x (N x 4) : sin/cos predictions for phi and theta.
-            - pos (N x 3 Tensor): spatial coordinates (batch, semantic_id)
-        '''
-
-        with torch.no_grad():
-            anchors = fps(pos, ratio=self.fps_ratio)
-            anchors_pos = pos[anchors]
-            index = knn(pos, anchors_pos, k=self.k)
-            nbhds = pos[index[1, :]].view(-1, self.k, self.D)
-            U, S, V = torch.pca_lowrank(nbhds)
-            vecs = V[:, :, 0]
-
-        abs_cos = torch.abs(self.cos(vec_pred[index[0, :]], vecs[index[0, :]]))
-
-        vec_loss = -torch.log(abs_cos + self.eps).mean()
-
-        return {
-            'vec_loss': vec_loss,
-            'abs_cos': abs_cos,
-        }
-
-    def forward(self, graph):
-
-        loss = []
-
-        num_graphs = torch.unique(graph.batch).shape[0]
-
-        for i in range(num_graphs):
-            print(i)
-            subgraph = graph.get_example(i)
-            res = self.compute_loss_single_graph(
-                subgraph.x[:, 3:6],
-                subgraph.pos
-            )
-            loss.append(res['vec_loss'])
-            # result['abs_cos'].append(res['abs_cos'])
-
-        loss = sum(loss) / len(loss)
-        return loss
-
-
-class BinaryLogDiceLoss(torch.nn.Module):
-
-    def __init__(self, gamma=1):
-        super(BinaryLogDiceLoss, self).__init__()
-
-    def forward(self, logits, targets, eps=1e-6):
-        p = torch.sigmoid(logits)
-        p = (logits < 0).float()
-        num = 2.0 * p[targets].sum()
-        denom = p.sum() + targets.sum()
-        dice = torch.clamp((num + eps) / (denom + eps), min=eps, max=1-eps)
-        return -torch.log(dice)
-
-
-class IoUScore(torch.nn.Module):
-
-    def __init__(self):
-        super(IoUScore, self).__init__()
-
-    def forward(self, y_pred, y_true):
-
-        iou = 0
-        intersection = (y_pred.long() == 1) & (y_true.long() == 1)
-        union = (y_pred.long() == 1) | (y_true.long() == 1)
-        if not union.any():
-            iou = 0
-        else:
-            iou = float(intersection.sum()) / float(union.sum())
-
-        return iou
-
-
-class BinaryCELogDiceLoss(torch.nn.Module):
-
-    def __init__(self, gamma=0.3, w_ce=0.2, w_dice=0.8):
-        super(BinaryCELogDiceLoss, self).__init__()
-        self.ce = F.binary_cross_entropy_with_logits
-        self.gamma = gamma
-        self.w_ce = w_ce
-        self.w_dice = w_dice
-
-    def forward(self, logits, targets, weight=None, eps=0.001, reduction='none'):
-
-        device = logits.device
-
-        bce, dice_loss = torch.tensor(0.0).to(device), torch.tensor(0.0).to(device)
-
-        if logits.shape[0] > 0:
-            bceloss = self.ce(logits, targets, weight=weight, reduction=reduction)
-            bce = bceloss.mean()
-            
-            # if weight is not None:
-            #     bce = (weight * torch.pow(bceloss, self.gamma)).mean()
-            # else:
-            #     bce = torch.pow(bceloss, self.gamma).mean()
-
-            p = torch.sigmoid(logits)
-            num = 2.0 * p[targets > 0.5].sum()
-            denom = (p**2).sum() + (targets**2).sum()
-            dice = torch.clamp((num + eps) / (denom + eps), min=eps, max=1-eps)
-            dice_loss = -torch.log(dice)
-        # print("CE = {}, Dice = {} ({})".format(bce, dice_loss, dice))
-        return self.w_ce * bce + self.w_dice * dice_loss
-
-
-class MincutLoss(BinaryCELogDiceLoss):
-
-    def __init__(self, mincut_weight=1.0, **kwargs):
-        super(MincutLoss, self).__init__(**kwargs)
-        self.w_mc = mincut_weight
-
-    def forward(self, logits, targets, weight=None, eps=0.001, reduction='none'):
-
-        bceloss = self.ce(logits, targets, weight=weight, reduction=reduction)
-        bce = bceloss.mean()
-
-        p = torch.sigmoid(logits)
-        num = 2.0 * p[targets > 0.5].sum()
-        denom = (p**2).sum() + (targets**2).sum()
-        dice = torch.clamp((num + eps) / (denom + eps), min=eps, max=1-eps)
-        dice_loss = -torch.log(dice)
-
-        # MinCut
-        mincut_loss = (1.0 - p[targets > 0.5]).sum()
-        print("CE = {:.5f}, Dice = {:.5f}, Mincut = {:.5f}".format(bce, dice_loss, mincut_loss))
-        return self.w_ce * bce + self.w_dice * dice_loss + self.w_mc * mincut_loss
 
 
 class LovaszHingeLoss(torch.nn.modules.loss._Loss):
@@ -277,7 +128,7 @@ def get_probs(embeddings, margins, labels, eps=1e-6):
 
     p = sqdists / (2.0 * sigma.view(1, -1)**2)
     p = torch.clamp(torch.exp(-p), min=eps, max=1-eps)
-    logits = logit_fn(p, eps=eps)
+    logits = torch.logit(p, eps=eps)
     eye = torch.eye(len(labels.unique()), dtype=torch.float32, device=device)
     targets = eye[labels]
     loss_tensor = nn.BCEWithLogitsLoss(reduction='none')(logits, targets)
@@ -358,7 +209,7 @@ def get_graphspice_logits(sp_emb, ft_emb, cov, groups,
     pvec = torch.exp(-sp_sqdists - ft_sqdists)
     # probs = (1-pvec).index_put((torch.arange(groups.shape[0]), groups),
     #     torch.gather(pvec, 1, groups.view(-1, 1)).squeeze())
-    logits = logit_fn(pvec)
+    logits = torch.logit(pvec)
 
     acc = None
     eye = torch.eye(len(groups.unique()), dtype=torch.float32, device=device)
@@ -367,54 +218,3 @@ def get_graphspice_logits(sp_emb, ft_emb, cov, groups,
         acc = iou_batch(logits > 0, targets.bool())
 
     return logits, acc, targets
-
-
-class FocalLoss(nn.Module):
-    '''
-    Original Paper: https://arxiv.org/abs/1708.02002
-    Implementation: https://www.kaggle.com/c/tgs-salt-identification-challenge/discussion/65938
-    '''
-    def __init__(self, alpha=1, gamma=2, logits=False, reduce=True):
-        super(FocalLoss, self).__init__()
-        self.alpha = alpha
-        self.gamma = gamma
-        self.logits = logits
-        self.reduce = reduce
-        self.stable_bce = StableBCELoss()
-
-    def forward(self, inputs, targets):
-        if self.logits:
-            BCE_loss = F.binary_cross_entropy_with_logits(inputs, targets, reduction='none')
-        else:
-            BCE_loss = self.stable_bce(inputs, targets, reduction='none')
-        pt = torch.exp(-BCE_loss)
-        F_loss = self.alpha * (1-pt)**self.gamma * BCE_loss
-
-        if self.reduce:
-            return torch.mean(F_loss)
-        else:
-            return F_loss
-
-
-class WeightedFocalLoss(FocalLoss):
-
-    def __init__(self, alpha=1, gamma=2, logits=False, reduce=True):
-        super(WeightedFocalLoss, self).__init__(alpha=alpha, gamma=gamma, logits=logits, reduce=reduce)
-
-    def forward(self, inputs, targets):
-        with torch.no_grad():
-            pos_weight = torch.sum(targets == 0) / (1.0 + torch.sum(targets == 1))
-            weight = torch.ones(inputs.shape[0]).cuda()
-            weight[targets == 1] = pos_weight
-        if self.logits:
-            BCE_loss = F.binary_cross_entropy_with_logits(inputs, targets, reduction='none')
-        else:
-            BCE_loss = self.stable_bce(inputs, targets, reduction='none')
-        pt = torch.exp(-BCE_loss)
-        F_loss = self.alpha * (1-pt)**self.gamma * BCE_loss
-        F_loss = torch.mul(F_loss, weight)
-
-        if self.reduce:
-            return torch.mean(F_loss)
-        else:
-            return F_loss

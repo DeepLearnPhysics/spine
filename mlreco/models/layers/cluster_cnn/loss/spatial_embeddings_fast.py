@@ -76,7 +76,7 @@ class SPICELoss(nn.Module):
 
         p = sqdists / (2.0 * sigma.view(1, -1)**2)
         p = torch.clamp(torch.exp(-p), min=eps, max=1-eps)
-        logits = logit_fn(p, eps=eps)
+        logits = torch.logit(p, eps=eps)
         eye = torch.eye(len(labels.unique()), dtype=torch.float32, device=device)
         targets = eye[labels]
         loss_tensor = self.mask_loss(logits, targets)
@@ -241,7 +241,7 @@ class SPICEInterLoss(SPICELoss):
         sqdists = ((em - centroids)**2).sum(-1) / (2.0 * cov**2)
 
         pvec = torch.exp(-sqdists)
-        logits = logit_fn(pvec, eps=eps)
+        logits = torch.logit(pvec, eps=eps)
         # print(logits)
         eye = torch.eye(len(labels.unique()), dtype=torch.float32, device=device)
         targets = eye[labels]
@@ -403,7 +403,7 @@ class SPICEAttractorLoss(SPICEInterLoss):
         sqdists = ((em - centroids)**2).sum(-1) / (2.0 * cov**2)
 
         pvec = torch.exp(-sqdists)
-        logits = logit_fn(pvec, eps=eps)
+        logits = torch.logit(pvec, eps=eps)
         # print(logits)
         eye = torch.eye(len(labels.unique()), dtype=torch.float32, device=device)
         targets = eye[labels]
