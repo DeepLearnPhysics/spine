@@ -10,8 +10,8 @@ from mlreco.utils.cluster.graph_constructor import ClusterGraphConstructor
 from mlreco.utils.globals import (
         COORD_COLS, SHAPE_COL, SHOWR_SHP, TRACK_SHP, DELTA_SHP, MICHL_SHP)
 
-from .layers.cluster_cnn import kernel_factory, loss_factory
-from .layers.cluster_cnn.graph_spice_embedder import GraphSPICEEmbedder
+from .layers.cluster import kernel_factory, loss_factory
+from .layers.cluster.graph_spice_embedder import GraphSPICEEmbedder
 
 __all__ = ['GraphSPICE', 'GraphSPICELoss']
 

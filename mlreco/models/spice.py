@@ -1,8 +1,8 @@
 import torch
 import torch.nn as nn
 
-from mlreco.models.layers.cluster_cnn.embeddings import SPICE as SPICE_base # TODO why does this live out of this module?
-from mlreco.models.layers.cluster_cnn import loss_factory
+from mlreco.models.layers.cluster.embeddings import SPICE as SPICE_base # TODO why does this live out of this module?
+from mlreco.models.layers.cluster import loss_factory
 
 class SPICE(SPICE_base):
 

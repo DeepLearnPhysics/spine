@@ -390,7 +390,6 @@ class TrainingDrawer:
 
             iplot(fig)
 
-
     def get_training_df(self, log_dir, keys):
         """Finds all training log files inside the specified directory and
         concatenates them. If the range of iterations overlap, keep only that
@@ -436,7 +435,6 @@ class TrainingDrawer:
             log_dfs.append(df)
 
         return pd.concat(log_dfs, sort=True)
-
 
     def get_validation_df(self, log_dir, keys):
         """Finds all validation log files inside the specified directory and
@@ -485,7 +483,6 @@ class TrainingDrawer:
             val_data[key] = np.array(val)[args]
 
         return pd.DataFrame(val_data)
-
 
     def find_key(self, df, key_list):
         """Checks if a :class:`pd.DataFrame` contains any of the keys listed

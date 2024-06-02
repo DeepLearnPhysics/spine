@@ -24,7 +24,7 @@ import torch
 from .io import loader_factory, reader_factory, writer_factory
 from .io.write import CSVWriter
 
-from .model import Model
+from .models import ModelManager
 from .build import BuildManager
 from .post import PostManager
 from .ana import AnaManager
@@ -99,7 +99,7 @@ class Driver:
             assert self.loader is not None, (
                     "The model can only be used in conjunction with a loader.")
             self.watch.initialize('model')
-            self.model = Model(
+            self.model = ModelManager(
                     **model, train=train, rank=self.rank,
                     distributed=self.distributed)
 

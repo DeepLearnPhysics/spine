@@ -8,17 +8,17 @@ import numpy as np
 import torch
 from torch.nn.parallel import DistributedDataParallel as DDP
 
-from .models import model_factory
-from .models.experimental.bayes.calibration import (
+from mlreco.data import TensorBatch, IndexBatch, EdgeIndexBatch
+from mlreco.utils.stopwatch import StopwatchManager
+from mlreco.utils.train import optim_factory, lr_sched_factory
+from mlreco.utils.logger import logger
+
+from .factories import model_factory
+from .experimental.bayes.calibration import (
         calibrator_factory, calibrator_loss_factory)
 
-from .data import TensorBatch, IndexBatch, EdgeIndexBatch
-from .utils.stopwatch import StopwatchManager
-from .utils.train import optim_factory, lr_sched_factory
-from .utils.logger import logger
 
-
-class Model:
+class ModelManager:
     """Groups all relevant functions to construct a model and its loss."""
 
     def __init__(self, name, modules, network_input, loss_input=None,

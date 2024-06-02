@@ -1,6 +1,6 @@
 """Main functions that call the Driver class.
 
-This is the first module called when launching a binary script under the ``bin`
+This is the first module called when launching a binary script under the `bin`
 directory. It takes care of setting up the environment and the `Driver`
 object(s) used to execute/train ML models, post-processors, analysis
 scripts, writers and profilers.

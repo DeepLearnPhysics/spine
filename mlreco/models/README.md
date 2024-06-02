@@ -10,6 +10,7 @@ Sub-folders include:
 
 * `experimental` unstable code, under active development.
 * `layers` everything that cannot be trained in standalone
-    - `cluster_cnn` CNN clustering-related layers.
-    - `gnn` GNN-related layers.
     - `common` everything else and all other common layers.
+    - `cnn` CNN related layers.
+    - `cluster` CNN clustering-related layers.
+    - `gnn` GNN-related layers.

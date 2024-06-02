@@ -7,7 +7,7 @@ import torch.nn.functional as F
 from torch import nn
 from mlreco.utils.globals import *
 from scipy.optimize import linear_sum_assignment
-from mlreco.models.layers.cluster_cnn.losses.misc import iou_batch, LovaszHingeLoss
+from mlreco.models.layers.cluster.losses.misc import iou_batch, LovaszHingeLoss
 
 class LinearSumAssignmentLoss(nn.Module):
     
