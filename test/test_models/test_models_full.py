@@ -2,8 +2,8 @@ from __future__ import print_function
 from __future__ import absolute_import
 from __future__ import division
 import pytest
-from mlreco.models import factories
-from mlreco.main_funcs import process_config, prepare, train_loop
+from spine.models import factories
+from spine.main_funcs import process_config, prepare, train_loop
 import os
 import yaml
 import sys

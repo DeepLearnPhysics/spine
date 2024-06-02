@@ -5,8 +5,8 @@ import pytest
 import numpy as np
 from larcv import larcv
 
-from mlreco import Meta
-from mlreco.io.parse.cluster import *
+from spine import Meta
+from spine.io.parse.cluster import *
 
 
 @pytest.mark.parametrize('projection_id', [0, 1, 2])

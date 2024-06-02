@@ -6,8 +6,8 @@ from dataclasses import asdict
 
 import numpy as np
 
-from mlreco import Meta, RunInfo, Flash, CRTHit, Trigger
-from mlreco.io.parse.misc import *
+from spine import Meta, RunInfo, Flash, CRTHit, Trigger
+from spine.io.parse.misc import *
 
 
 @pytest.mark.parametrize('projection_id', [0, 1, 2])

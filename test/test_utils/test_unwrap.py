@@ -4,8 +4,8 @@ import pytest
 
 import numpy as np
 
-from mlreco.data_structures import *
-from mlreco.utils.unwrap import Unwrapper
+from spine.data_structures import *
+from spine.utils.unwrap import Unwrapper
 
 
 @pytest.fixture(name='tensor_batch')

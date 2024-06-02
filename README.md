@@ -21,11 +21,11 @@ Then git clone this repository and have fun!
 ## Usage
 Basic example:
 ```python
-# assume that lartpc_mlreco3d folder is on python path
-from mlreco.main_funcs import process_config, train
+# assume that the `spine` folder is on python path
+from spine.main_funcs import process_config, train
 import yaml
 # Load configuration file
-with open('lartpc_mlreco3d/config/train_uresnet.cfg', 'r') as f:
+with open('spine/config/train_uresnet.cfg', 'r') as f:
     cfg = yaml.load(f, Loader=yaml.Loader)
 process_config(cfg)
 # train a model based on configuration
@@ -62,11 +62,11 @@ Typically in a configuration file the first things you may want to edit will be:
 If you want more information stored, such as network output tensors and post-processing outcomes, you can use `analysis` (scripts) and `outputs` (formatters)
 to store them in CSV format and run your custom analysis scripts (see folder `analysis`).
 
-This section has described how to use the contents of this repository to train variations of what has already been implemented.  To add your own models and analysis, you will want to know how to contribute to the `mlreco` module.
+This section has described how to use the contents of this repository to train variations of what has already been implemented.  To add your own models and analysis, you will want to know how to contribute to the `spine` module.
 
 ### Running A Configuration File
 
-Most basic usage is to use the `run` script.  From the `lartpc_mlreco3d` folder:
+Most basic usage is to use the `run` script.  From the `spine` folder:
 ```bash
 nohup python3 bin/run.py train_gnn.cfg >> log_gnn.txt &
 ```
@@ -76,7 +76,7 @@ You can generally load a configuration file into a python dictionary using
 ```python
 import yaml
 # Load configuration file
-with open('lartpc_mlreco3d/config/train_uresnet.cfg', 'r') as f:
+with open('spine/config/train_uresnet.cfg', 'r') as f:
     cfg = yaml.load(f, Loader=yaml.Loader)
 ```
 
@@ -107,9 +107,8 @@ We use [LArTPC MLReco3D Analysis Tools](./analysis/README.md) for all inference 
 * `bin` contains very simple scripts that run the training/inference functions.
 * `config` has various example configuration files.
 * `docs` Documentation (in progress)
-* `mlreco` the main code lives there!
+* `spine` the main code lives there!
 * `test` some testing using Pytest
-* `analysis`: [LArTPC MLReco3D Analysis Tools](./analysis/README.md), a pure python interface for inference, high-level analysis, and visualization using the full chain. 
 
 Please consult the README of each folder respectively for more information.
 
@@ -124,14 +123,14 @@ You may be able to re-use a fair amount of code, but here is what would be neces
 
 Parsers already exist for a variety of sparse tensor outputs as well as particle outputs.
 
-The most likely place you would need to add something is to `mlreco/iotools/parsers.py`.
+The most likely place you would need to add something is to `spine/io/parsers.py`.
 
-If the data you need is fundamentally different from data currently used, you may also need to add a collation function to `mlreco/iotools/collates.py`
+If the data you need is fundamentally different from data currently used, you may also need to add a collation function to `spine/iotools/collates.py`
 
 2. Include your model
 
-You should put your model in a new file in the `mlreco/models` folder.
+You should put your model in a new file in the `spine/models` folder.
 
-Add your model to the dictionary in `mlreco/models/factories.py` so it can be found by the configuration parsers.
+Add your model to the dictionary in `spine/models/factories.py` so it can be found by the configuration parsers.
 
 At this point, you should be able to train your model using a configuration file.

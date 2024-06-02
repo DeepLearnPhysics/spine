@@ -2,8 +2,8 @@
 
 import pytest
 
-from mlreco import Meta
-from mlreco.io.parse.sparse import *
+from spine import Meta
+from spine.io.parse.sparse import *
 
 
 @pytest.mark.parametrize('projection_id', [0, 1, 2])

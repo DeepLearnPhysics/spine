@@ -6,7 +6,7 @@ import numpy as np
 import ROOT
 import h5py
 
-from mlreco.io.read import *
+from spine.io.read import *
 
 
 def test_larcv_reader(larcv_data):

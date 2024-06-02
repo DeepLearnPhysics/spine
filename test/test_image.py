@@ -13,7 +13,7 @@ def test_full_chain(devices):
     TOP_DIR = os.path.dirname(TOP_DIR)
     sys.path.insert(0, TOP_DIR)
 
-    from mlreco.main_funcs import process_config, prepare
+    from spine.main_funcs import process_config, prepare
     cfg=yaml.load(open(os.path.join(TOP_DIR, 'config/chain/me_train_example.cfg'), 'r'),Loader=yaml.Loader)
     if (not torch.cuda.is_available()) and devices != '':
         #print('Switching to CPU')

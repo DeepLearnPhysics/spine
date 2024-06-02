@@ -1,6 +1,6 @@
 import pytest
 import os
-from mlreco.models import factories
+from spine.models import factories
 os.environ['CUDA_VISIBLE_DEVICES'] = ''
 
 @pytest.fixture

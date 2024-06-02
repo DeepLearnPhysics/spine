@@ -2,7 +2,7 @@ from __future__ import print_function
 from __future__ import absolute_import
 from __future__ import division
 import pytest
-from mlreco.models import factories
+from spine.models import factories
 import os
 os.environ['CUDA_VISIBLE_DEVICES'] = ''
 

@@ -6,7 +6,7 @@ from conftest import *
 @pytest.fixture(scope='module')
 def mpvmpr_forward(prod, tmp_data_dir, tmp_log_dir):
 
-    config_path = os.path.join(prod, "config/icarus/mlreco/latest_single.cfg")
+    config_path = os.path.join(prod, "config/icarus/spine/latest_single.cfg")
     data_path = '/sdf/data/neutrino/icarus/mpvmpr/test/all_0.root'
     cfg = yaml.safe_load(open(config_path, 'r'))
     
@@ -58,5 +58,5 @@ def test_anatools_filegen(tmp_data_dir):
     assert os.path.exists(outfile)
     
 def test_anatools_filegen_2(tmp_data_dir):
-    outfile = os.path.join(str(tmp_data_dir), 'icarus_mlreco_output.h5')
+    outfile = os.path.join(str(tmp_data_dir), 'icarus_spine_output.h5')
     assert os.path.exists(outfile)

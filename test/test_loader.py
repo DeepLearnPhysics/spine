@@ -7,8 +7,8 @@ import pytest
 
 import numpy as np
 
-from mlreco.io.factories import loader_factory
-from mlreco.io.write import CSVWriter
+from spine.io.factories import loader_factory
+from spine.io.write import CSVWriter
 
 MAX_ITER = 10
 

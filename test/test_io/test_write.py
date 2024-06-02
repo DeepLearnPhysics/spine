@@ -6,9 +6,9 @@ import pytest
 import numpy as np
 import h5py
 
-from mlreco.data import (
+from spine.data import (
         ObjectList, Particle, Neutrino, Meta, Flash, CRTHit, RunInfo, Trigger)
-from mlreco.io.write import *
+from spine.io.write import *
 
 
 @pytest.fixture(name='hdf5_output')

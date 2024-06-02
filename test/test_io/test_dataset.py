@@ -4,7 +4,7 @@ import pytest
 
 import ROOT
 
-from mlreco.io.dataset import *
+from spine.io.dataset import *
 
 
 def test_larcv_dataset(larcv_data):

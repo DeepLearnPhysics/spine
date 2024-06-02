@@ -2,19 +2,19 @@ import pytest
 import os, yaml
 import pathlib
 
-from mlreco.main_funcs import process_config, inference
+from spine.main_funcs import process_config, inference
 from analysis.manager import AnaToolsManager
 
 def pytest_addoption(parser):
     parser.addoption(
-        "--prod", action="store", required=True, type=str, help="Path to lartpc_mlreco3d_prod"
+        "--prod", action="store", required=True, type=str, help="Path to lartpc_spine3d_prod"
     )
     
 @pytest.fixture(scope='session')
 def prod(request):
     prod_path = request.config.getoption("--prod")
     if not os.path.exists(str(prod_path)):
-        raise ValueError(f"Path {str(prod_path)} for lartpc_mlreco3d_prod does not exist!")
+        raise ValueError(f"Path {str(prod_path)} for lartpc_spine3d_prod does not exist!")
     return prod_path
 
 @pytest.fixture(scope='session')
@@ -31,7 +31,7 @@ def tmp_log_dir(tmp_path_factory):
 @pytest.fixture(scope='session')
 def bnb_nue_forward(prod, tmp_data_dir, tmp_log_dir):
 
-    config_path = os.path.join(prod, "config/icarus/mlreco/latest_nocrt.cfg")
+    config_path = os.path.join(prod, "config/icarus/spine/latest_nocrt.cfg")
     data_path = '/sdf/data/neutrino/icarus/bnb_nue_corsika/all.root'
     cfg = yaml.safe_load(open(config_path, 'r'))
     
@@ -54,7 +54,7 @@ def bnb_nue_forward(prod, tmp_data_dir, tmp_log_dir):
 @pytest.fixture(scope='session')
 def bnb_numu_forward(prod, tmp_data_dir, tmp_log_dir):
 
-    config_path = os.path.join(prod, "config/icarus/mlreco/latest.cfg")
+    config_path = os.path.join(prod, "config/icarus/spine/latest.cfg")
     data_path = '/sdf/data/neutrino/icarus/bnb_numu_corsika/larcv0000.root'
     cfg = yaml.safe_load(open(config_path, 'r'))
     

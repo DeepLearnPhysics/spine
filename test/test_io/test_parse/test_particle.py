@@ -4,8 +4,8 @@ import pytest
 
 from larcv import larcv
 
-from mlreco import Meta, Particle, Neutrino
-from mlreco.io.parse.particle import *
+from spine import Meta, Particle, Neutrino
+from spine.io.parse.particle import *
 
 
 @pytest.mark.parametrize(

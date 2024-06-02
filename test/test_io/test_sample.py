@@ -5,8 +5,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from mlreco.io.sample import *
-from mlreco.io.sample import DistributedProxySampler
+from spine.io.sample import *
+from spine.io.sample import DistributedProxySampler
 
 
 @dataclass
