@@ -11,8 +11,6 @@ import numpy as np
 import torch
 from torch_cluster import knn_graph, radius_graph
 
-from mlreco.models.layers.cluster import kernel_factory
-
 from mlreco.data import TensorBatch, ObjectList
 from mlreco.utils.globals import CLUST_COL, SHAPE_COL
 from mlreco.utils.metrics import pur, eff, ari

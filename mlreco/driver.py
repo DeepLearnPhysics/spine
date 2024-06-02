@@ -24,7 +24,7 @@ import torch
 from .io import loader_factory, reader_factory, writer_factory
 from .io.write import CSVWriter
 
-from .models import ModelManager
+from .model import ModelManager
 from .build import BuildManager
 from .post import PostManager
 from .ana import AnaManager
