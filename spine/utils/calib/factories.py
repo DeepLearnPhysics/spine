@@ -1,39 +1,32 @@
+"""Construct a calibrator class from its name."""
+
+from spine.utils.factory import module_dict, instantiate
+
 from . import gain, lifetime, transparency, field, recombination
 
-CALIBRATOR_DICT = {}
-for module in [gain, lifetime, transparency, recombination, field]:
-    for calibrator in dir(module):
-        if 'Calibrator' in calibrator:
-            cls = getattr(module, calibrator)
-            CALIBRATOR_DICT[cls.name] = cls
 
-
-def calibrator_factory(name, cfg, parent_path=''):
-    """Instantiates calibrator based on name specified in configuration under
-    the `calibrator` config block.
+def calibrator_factory(name, cfg):
+    """Instantiates calibrator module from a configuration dictionary.
 
     Parameters
     ----------
     name : str
-        Name of the calibrator
+        Name of the calibration module
     cfg : dict
-        Configuration dictionary
-    parent_path : str
-        Path to the parent directory of the main analysis configuration. This
-        allows for the use of relative paths
+        Calibration module configuration
 
     Returns
     -------
     object
-         Initialized calibrator object
+         Initialized calibration module
     """
-    # Check that the calibrator is known
-    if name not in CALIBRATOR_DICT:
-        raise KeyError(f"Calibrator name not recognized: {name}")
+    # Build a dictionary of available calibration modules
+    calib_dict = {}
+    for module in [gain, lifetime, transparency, recombination, field]:
+        calib_dict.update(**module_dict(module))
 
-    # Set the parent path
-    CALIBRATOR_DICT[name].parent_path = parent_path
+    # Provide the name to the configuration
+    cfg['name'] = name
 
-    # Initialize
-    return CALIBRATOR_DICT[name](**cfg)
-
+    # Instantiate the calibration module
+    return instantiate(calib_dict, cfg)

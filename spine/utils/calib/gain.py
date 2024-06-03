@@ -1,9 +1,10 @@
+"""Applies conversion form ADC to number ionization electrons."""
+
 import numpy as np
 
 
 class GainCalibrator:
-    """
-    Converts all charge depositions in ADC to a number of electrons. It can
+    """Converts all charge depositions in ADC to a number of electrons. It can
     either use a flat converstion factor or one per TPC in the detector
     """
     name = 'gain'

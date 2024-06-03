@@ -1,3 +1,5 @@
+"""Applies field non-uniformity corrections."""
+
 class FieldCalibrator:
     """Applies position corrections to account for field non-uniformities
     (space charge, cathode distrotions, etc.)

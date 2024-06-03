@@ -1,3 +1,5 @@
+"""Applies electron recombination corrections."""
+
 import numpy as np
 
 from spine.utils.globals import LAR_DENSITY, LAR_WION
@@ -17,9 +19,9 @@ class RecombinationCalibrator:
     """
     name = 'recombination'
 
-    def __init__(self, efield, drift_dir, model='mbox', A=0.800, k=0.0486,
-                 alpha=0.906, beta=0.203, R=1.25, tracking_mode='bin_pca',
-                 **kwargs):
+    def __init__(self, efield, drift_dir, model='mbox', birks_a=0.800,
+                 birks_k=0.0486, mbox_alpha=0.906, mbox_beta=0.203,
+                 mbox_ell_r=1.25, tracking_mode='bin_pca', **kwargs):
         """Initialize the recombination model and its constants.
 
         Parameters
@@ -30,15 +32,15 @@ class RecombinationCalibrator:
             (3) three-vector indicating the direction of the drift field
         model : str, default 'mbox'
             Recombination model name (one of 'birks', 'mbox' or 'mbox_ell')
-        A : float, default 0.800 (ICARUS CNGS fit)
+        birks_a : float, default 0.800 (ICARUS CNGS fit)
             Birks model A parameter
-        k : float, default 0.0486 (ICARUS CNGS fit)
+        birks_k : float, default 0.0486 (ICARUS CNGS fit)
             Birks model k parameter in (kV/cm)(gm/cm^2)/MeV
-        alpha : float, default 0.906 (ICARUS fit)
+        mbox_alpha : float, default 0.906 (ICARUS fit)
             Modified box model alpha parameter
-        beta : float, default 0.203 (ICARUS fit)
+        mbox_beta : float, default 0.203 (ICARUS fit)
             Modified box model beta parameter in (kV/cm)(g/cm^2)/MeV
-        R : float, default 1.25 (ICARUS fit)
+        mbox_ell_r : float, default 1.25 (ICARUS fit)
             Modified box model ellipsoid correction R parameter
         **kwargs : dict, optional
             Additional arguments to pass to the tracking algorithm
@@ -50,16 +52,16 @@ class RecombinationCalibrator:
         self.use_angles = False
         if model == 'birks':
             self.model = 'birks'
-            self.A = A
-            self.k = k/efield/LAR_DENSITY # cm/MeV
+            self.a = birks_a
+            self.k = birks_k/efield/LAR_DENSITY # cm/MeV
         elif model in ['mbox', 'mbox_ell']:
             self.model = 'mbox'
-            self.alpha = alpha
-            self.beta = beta/efield/LAR_DENSITY # cm/MeV
-            self.R = None
+            self.alpha = mbox_alpha
+            self.beta = mbox_beta/efield/LAR_DENSITY # cm/MeV
+            self.r = None
             if model == 'mbox_ell':
                 self.use_angles = True
-                self.R = R
+                self.r = mbox_ell_r
         else:
             raise ValueError(
                     f"Recombination model not recognized: {model}. "
@@ -83,7 +85,7 @@ class RecombinationCalibrator:
         Union[float, np.ndarray]
            Quenching factors in electrons/MeV
         """
-        return self.A / (1. + self.k * dedx)
+        return self.a / (1. + self.k * dedx)
 
     def inv_birks(self, dqdx):
         """Inverse Birks equation to undo electron quenching (higher local
@@ -99,7 +101,7 @@ class RecombinationCalibrator:
         Union[float, np.ndarray]
             Inverse quenching factors in MeV/electrons
         """
-        return 1. / (self.A/LAR_WION - self.k * dqdx)
+        return 1. / (self.a/LAR_WION - self.k * dqdx)
 
     def mbox(self, dedx, cosphi=None):
         """Modified box model equation to calculate electron quenching (higher
@@ -118,11 +120,11 @@ class RecombinationCalibrator:
         Union[float, np.ndarray]
             Quenching factors in electrons/MeV
         """
-        Beta = self.beta
+        beta = self.beta
         if cosphi is not None:
-            Beta /= np.sqrt(1 - (1 - 1./self.R**2)*cosphi**2)
+            beta /= np.sqrt(1 - (1 - 1./self.r**2)*cosphi**2)
 
-        return np.log(self.alpha + Beta * dedx) / Beta / dedx
+        return np.log(self.alpha + beta * dedx) / beta / dedx
 
     def inv_mbox(self, dqdx, cosphi=None):
         """Inverse modified box model equation to undo electron quenching
@@ -142,11 +144,11 @@ class RecombinationCalibrator:
         Union[float, np.ndarray]
             Inverse quenching factors in MeV/electrons
         """
-        Beta = self.beta
+        beta = self.beta
         if cosphi is not None:
-            Beta /= np.sqrt(1 - (1 - 1./self.R**2)*cosphi**2)
+            beta /= np.sqrt(1 - (1 - 1./self.r**2)*cosphi**2)
 
-        return (np.exp(Beta * LAR_WION * dqdx) - self.alpha) / Beta / dqdx
+        return (np.exp(beta * LAR_WION * dqdx) - self.alpha) / beta / dqdx
 
     def recombination_factor(self, dedx, cosphi=None):
         """Calls the predefined recombination models to evaluate the
@@ -226,8 +228,9 @@ class RecombinationCalibrator:
         # requested) and assign a correction for all points in the segment.
         assert points is not None, (
                 "Cannot track the object without point coordinates")
-        seg_dqdxs, _, seg_clusts, seg_dirs, _ = get_track_segment_dedxs(points,
-                values, method=self.tracking_mode, **self.tracking_kwargs)
+        seg_dqdxs, _, _, seg_clusts, seg_dirs, _ = get_track_segment_dedxs(
+                points, values, method=self.tracking_mode,
+                **self.tracking_kwargs)
 
         corr_values = np.empty(len(values), dtype=values.dtype)
         for i, c in enumerate(seg_clusts):

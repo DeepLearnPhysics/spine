@@ -1,3 +1,6 @@
+"""Loads all requested calibration modules and executes them
+in the appropriate sequence."""
+
 import numpy as np
 
 from spine.utils.geo import Geometry
@@ -11,15 +14,13 @@ class CalibrationManager:
     a set of 3D space points and their associated measured charge depositions.
     """
 
-    def __init__(self, geometry, parent_path='', **cfg):
+    def __init__(self, geometry, **cfg):
         """Initialize the manager.
 
         Parameters
         ----------
         geometry : dict
             Geometry configuration
-        parent_path : str, optional
-            Path to the analysis tools configuration file
         **cfg : dict, optional
             Calibrator configurations
         """
@@ -33,18 +34,18 @@ class CalibrationManager:
         # Add the modules to a processor list in decreasing order of priority
         self.modules = {}
         self.watch   = StopwatchManager()
-        for key in cfg.keys():
+        for key, value in cfg.items():
             # Profile the module
             self.watch.initialize(key)
 
             # Add necessary geometry information
             if key != 'recombination':
-                cfg[key]['num_tpcs'] = self.geo.num_tpcs
+                value['num_tpcs'] = self.geo.num_tpcs
             else:
-                cfg[key]['drift_dir'] = self.geo.drift_dirs[0, 0]
+                value['drift_dir'] = self.geo.drift_dirs[0, 0]
 
             # Append
-            self.modules[key] = calibrator_factory(key, cfg[key], parent_path)
+            self.modules[key] = calibrator_factory(key, value)
 
     def __call__(self, points, values, sources=None, run_id=None,
                  dedx=None, track=None):
@@ -92,7 +93,7 @@ class CalibrationManager:
         new_values = np.copy(values)
         for t in range(self.geo.num_tpcs):
             # Restrict to the TPC of interest
-            if not len(tpc_indexes[t]):
+            if len(tpc_indexes[t]) == 0:
                 continue
             tpc_points = points[tpc_indexes[t]]
             tpc_values = values[tpc_indexes[t]]

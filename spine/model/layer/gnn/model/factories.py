@@ -27,7 +27,7 @@ def node_layer_factory(cfg, node_in, edge_in, glob_in):
     object
         Instantiated GNN node update layer
     """
-    layer_dict = module_dict(layers, pattern='Node')
+    layer_dict = module_dict(layer, pattern='Node')
     return instantiate(
             layer_dict, cfg, node_in=node_in, edge_in=edge_in, glob_in=glob_in)
 
@@ -51,7 +51,7 @@ def edge_layer_factory(cfg, node_in, edge_in, glob_in):
     object
         Instantiated GNN edge update layer
     """
-    layer_dict = module_dict(layers, pattern='Edge')
+    layer_dict = module_dict(layer, pattern='Edge')
     return instantiate(
             layer_dict, cfg, node_in=node_in, edge_in=edge_in, glob_in=glob_in)
 
@@ -73,5 +73,5 @@ def global_layer_factory(cfg, node_in, glob_in):
     object
         Instantiated GNN global update layer
     """
-    layer_dict = module_dict(layers, pattern='Global')
+    layer_dict = module_dict(layer, pattern='Global')
     return instantiate(layer_dict, cfg, node_in=node_in, edge_in=edge_in)

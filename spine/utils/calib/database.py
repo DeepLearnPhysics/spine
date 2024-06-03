@@ -1,7 +1,10 @@
+"""SQLite calibration database parsing."""
+
+from pathlib import Path
+import sqlite3 as sql
+
 import numpy as np
 import pandas as pd
-import sqlite3 as sql
-from pathlib import Path
 
 
 class CalibrationDatabase:
@@ -115,7 +118,7 @@ class CalibrationDatabase:
         """
         tpc_luts = []
         tpc_keys = ['EE', 'EW', 'WE', 'WW']
-        for tpc_id, tpc_key in enumerate(tpc_keys):
+        for tpc_key in tpc_keys:
             df_tpc = df_run[df_run.tpc == tpc_key]
             bins_y = np.max(df_tpc.ybin) + 1
             bins_z = np.max(df_tpc.zbin) + 1
@@ -174,7 +177,7 @@ class CalibrationLUT:
     returns a calibration value.
     """
 
-    def __init__(self, dims, bins, range, values):
+    def __init__(self, dims, bins, range, values): # pylint: disable=W0622
         """Initialize the calibration map.
 
         Parameters

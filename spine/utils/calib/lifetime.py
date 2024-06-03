@@ -1,8 +1,8 @@
+"""Apply electron lifetime corrections."""
+
 import numpy as np
 
 from .database import CalibrationDatabase
-
-from spine.utils.geo import Geometry
 
 
 class LifetimeCalibrator:

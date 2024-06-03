@@ -1,8 +1,6 @@
-import numpy as np
+"""Apply wire transparency corrections."""
 
 from .database import CalibrationDatabase
-
-from spine.utils.geo import Geometry
 
 
 class TransparencyCalibrator:
