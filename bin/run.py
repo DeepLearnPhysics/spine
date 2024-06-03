@@ -64,10 +64,6 @@ def main(config, source, source_list, output, n, nskip, detect_anomaly):
     assert 'io' in cfg, (
             "Must provide an `io` block in the configuration.")
 
-    # Check that the source and source list are not provided at the same time
-    assert source is None or source_list is None, (
-            "Must not provide --source and --source-list simultaneously.")
-
     # Override the input/output command-line information into the configuration
     if source is not None or source_list is not None:
         if 'reader' in cfg['io']:
@@ -115,27 +111,35 @@ if __name__ == '__main__':
     # Parse the command-line arguments
     parser = argparse.ArgumentParser(
             description="Runs the training/validation/inference/analysis")
+
     parser.add_argument('--config', '-c',
                         help='Path to the configuration file',
                         type=str)
-    parser.add_argument('--source', '-s',
-                        help='Path or list of paths to data files',
-                        type=str, nargs='+')
-    parser.add_argument('--source-list', '-S',
-                        help='Path to a text file of data file paths',
-                        type=str)
+
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument('--source', '-s',
+                       help='Path or list of paths to data files',
+                       type=str, nargs="+")
+    group.add_argument('--source-list', '-S',
+                       help='Path to a text file of data file paths',
+                       type=str)
+
     parser.add_argument('--output', '-o',
                         help='Path to the output file',
                         type=str)
+
     parser.add_argument('-n',
                         help='Number of iterations to process',
                         type=int)
+
     parser.add_argument('--nskip',
                         help='Number of iterations to skip',
                         type=int)
+
     parser.add_argument('--detect-anomaly',
                         help='Turns on autograd.detect_anomaly for debugging',
                         action='store_const', const=True)
+
     args = parser.parse_args()
 
     # Execute the main function

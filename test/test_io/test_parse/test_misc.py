@@ -137,7 +137,7 @@ def test_parse_trigger(trigger_event):
     """Tests the parsing of trigger information."""
     # Skip this test if larcv does not contain the Trigger object
     if trigger_event is None:
-        warn("Cannot test the parser, Trigger object missing from LArCV2.")
+        warn("Cannot test the trigger parser, Trigger object missing from LArCV2.")
         return
 
     # Initialize the parser
