@@ -10,9 +10,9 @@ from .uresnet import UResNetSegmentation, SegmentationLoss
 from .uresnet_ppn import UResNetPPN, UResNetPPNLoss
 from .graph_spice import GraphSPICE, GraphSPICELoss
 from .grappa import GrapPA, GrapPALoss
-from .layers.common.dbscan import DBSCAN
+from .layer.common.dbscan import DBSCAN
 
-#from spine.model.layers.cnn.cnn_encoder import SparseResidualEncoder ??
+#from spine.model.layer.cnn.cnn_encoder import SparseResidualEncoder ??
 # TODO: replace this with MultiParticleImageClassifier
 # TODO: raname it something more generic like ParticleClusterImageClassifier?
 
@@ -20,7 +20,7 @@ from spine.data import TensorBatch, IndexBatch, RunInfo
 from spine.utils.globals import (
         COORD_COLS, VALUE_COL, CLUST_COL, SHAPE_COL, SHOWR_SHP, TRACK_SHP,
         MICHL_SHP, DELTA_SHP, GHOST_SHP)
-from spine.utils.calibration import CalibrationManager
+from spine.utils.calib import CalibrationManager
 from spine.utils.logger import logger
 from spine.utils.ppn import get_particle_points
 from spine.utils.ghost import (

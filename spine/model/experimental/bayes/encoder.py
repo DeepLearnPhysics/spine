@@ -5,9 +5,9 @@ from collections import defaultdict
 
 import MinkowskiFunctional as MF
 
-from spine.model.layers.cnn.act_norm import act_factory, norm_factory
-from spine.model.layers.cnn.configuration import setup_cnn_configuration
-from spine.model.layers.cnn.blocks import DropoutBlock, ResNetBlock
+from spine.model.layer.cnn.act_norm import act_factory, norm_factory
+from spine.model.layer.cnn.configuration import setup_cnn_configuration
+from spine.model.layer.cnn.blocks import DropoutBlock, ResNetBlock
 
 
 class MCDropoutEncoder(torch.nn.Module):

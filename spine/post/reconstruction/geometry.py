@@ -1,7 +1,7 @@
 import numpy as np
 
 from spine.utils.globals import TRACK_SHP, PID_LABELS
-from spine.utils.geometry import Geometry
+from spine.utils.geo import Geometry
 from spine.utils.gnn.cluster import cluster_direction
 
 from spine.post.base import PostBase

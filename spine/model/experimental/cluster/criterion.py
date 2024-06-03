@@ -7,7 +7,7 @@ import torch.nn.functional as F
 from torch import nn
 from spine.utils.globals import *
 from scipy.optimize import linear_sum_assignment
-from spine.model.layers.cluster.losses.misc import iou_batch, LovaszHingeLoss
+from spine.model.layer.cluster.losses.misc import iou_batch, LovaszHingeLoss
 
 class LinearSumAssignmentLoss(nn.Module):
     

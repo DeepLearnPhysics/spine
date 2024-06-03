@@ -333,13 +333,13 @@ class Driver:
 
             # If requested, initialize the unwrapper
             if self.unwrap:
-                geometry = None
+                geo = None
                 if (hasattr(self.loader, 'collate_fn') and
                     hasattr(self.loader.collate_fn, 'geo')):
-                    geometry = self.loader.collate_fn.geo
+                    geo = self.loader.collate_fn.geo
 
                 self.watch.initialize('unwrap')
-                self.unwrapper = Unwrapper(geometry=geometry)
+                self.unwrapper = Unwrapper(geometry=geo)
 
         else:
             # Initialize the reader

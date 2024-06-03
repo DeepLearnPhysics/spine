@@ -4,7 +4,7 @@ import torch.nn as nn
 import MinkowskiEngine as ME
 import MinkowskiEngine.MinkowskiOps as me
 
-from spine.model.layers.cnn.uresnet_layers import UResNetDecoder, UResNetEncoder
+from spine.model.layer.cnn.uresnet_layers import UResNetDecoder, UResNetEncoder
 
 from spine.model.experimental.transformers.positional_encodings import FourierEmbeddings
 from spine.model.experimental.transformers.positional_encodings import get_normalized_coordinates

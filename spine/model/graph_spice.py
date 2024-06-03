@@ -10,8 +10,8 @@ from spine.utils.cluster.graph_constructor import ClusterGraphConstructor
 from spine.utils.globals import (
         COORD_COLS, SHAPE_COL, SHOWR_SHP, TRACK_SHP, DELTA_SHP, MICHL_SHP)
 
-from .layers.cluster import kernel_factory, loss_factory
-from .layers.cluster.graph_spice_embedder import GraphSPICEEmbedder
+from .layer.cluster import kernel_factory, loss_factory
+from .layer.cluster.graph_spice_embedder import GraphSPICEEmbedder
 
 __all__ = ['GraphSPICE', 'GraphSPICELoss']
 

@@ -4,9 +4,9 @@ import MinkowskiEngine as ME
 import torch.nn.functional as F
 from collections import defaultdict
 
-from .layers.cnn.act_norm import act_factory, norm_factory
-from .layers.cnn.configuration import setup_cnn_configuration
-from .layers.cnn.uresnet_layers import UResNet
+from .layer.cnn.act_norm import act_factory, norm_factory
+from .layer.cnn.configuration import setup_cnn_configuration
+from .layer.cnn.uresnet_layers import UResNet
 
 from .experimental.bayes.encoder import MCDropoutEncoder
 from .experimental.bayes.decoder import MCDropoutDecoder

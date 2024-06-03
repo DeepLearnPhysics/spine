@@ -1,31 +1,51 @@
+"Local implementations of the AdaBound optimizers."
+
 import math
 import torch
 from torch.optim import Optimizer
 
+__all__ = ['AdaBound', 'AdaBoundW']
+
 
 class AdaBound(Optimizer):
     """Implements AdaBound algorithm.
-    It has been proposed in `Adaptive Gradient Methods with Dynamic Bound of Learning Rate`_.
-    Arguments:
-        params (iterable): iterable of parameters to optimize or dicts defining
-            parameter groups
-        lr (float, optional): Adam learning rate (default: 1e-3)
-        betas (Tuple[float, float], optional): coefficients used for computing
-            running averages of gradient and its square (default: (0.9, 0.999))
-        final_lr (float, optional): final (SGD) learning rate (default: 0.1)
-        gamma (float, optional): convergence speed of the bound functions (default: 1e-3)
-        eps (float, optional): term added to the denominator to improve
-            numerical stability (default: 1e-8)
-        weight_decay (float, optional): weight decay (L2 penalty) (default: 0)
-        amsbound (boolean, optional): whether to use the AMSBound variant of this algorithm
+
+    It has been proposed in `Adaptive Gradient Methods with Dynamic Bound of
+    Learning Rate`.
+
     .. Adaptive Gradient Methods with Dynamic Bound of Learning Rate:
         https://openreview.net/forum?id=Bkg3g2R9FX
     """
+    name = 'ababound'
 
-    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), final_lr=0.1, gamma=1e-3,
-                 eps=1e-8, weight_decay=0, amsbound=False):
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), final_lr=0.1,
+                 gamma=1e-3, eps=1e-8, weight_decay=0, amsbound=False):
+        """Initialize the AdaBound optimizer
+
+        Parameters
+        ----------
+        params : iterable
+            Iiterable of parameters to optimize or dicts defining
+            parameter groups
+        lr : float, default 1e-3
+            Adam learning rate
+        betas : Tuple[float, float], default (0.9, 0.999)
+            Coefficients used for computing running averages of gradient and
+            its square
+        final_lr : float, default 0.1
+            Final (SGD) learning rate
+        gamma : float, default 1e-3
+            Convergence speed of the bound functions
+        eps : float, default 1e-8
+            Term added to the denominator to improve numerical stability
+        weight_decay : float, default 0.
+            Weight decay (L2 penalty)
+        amsbound : bool, default False
+            If `True`, use the AMSBound variant of this algorithm
+        """
+        # Check on the input parameters, intialize the parent class
         if not 0.0 <= lr:
-            raise ValueError("Invalid learning rate: {}".format(lr))
+            raise ValueError(f"Invalid learning rate: {lr}")
         if not 0.0 <= eps:
             raise ValueError("Invalid epsilon value: {}".format(eps))
         if not 0.0 <= betas[0] < 1.0:
@@ -36,22 +56,33 @@ class AdaBound(Optimizer):
             raise ValueError("Invalid final learning rate: {}".format(final_lr))
         if not 0.0 <= gamma < 1.0:
             raise ValueError("Invalid gamma parameter: {}".format(gamma))
-        defaults = dict(lr=lr, betas=betas, final_lr=final_lr, gamma=gamma, eps=eps,
-                        weight_decay=weight_decay, amsbound=amsbound)
-        super(AdaBound, self).__init__(params, defaults)
+        defaults = dict(lr=lr, betas=betas, final_lr=final_lr, gamma=gamma,
+                        eps=eps, weight_decay=weight_decay, amsbound=amsbound)
+        super().__init__(params, defaults)
 
+        # Store base learning rates
         self.base_lrs = list(map(lambda group: group['lr'], self.param_groups))
 
     def __setstate__(self, state):
-        super(AdaBound, self).__setstate__(state)
+        """Load optimizer state.
+
+        Parameters
+        ----------
+        state : object
+            Optimizer state dictionary
+        """
+        # Simply call the parent function
+        super().__setstate__(state)
         for group in self.param_groups:
             group.setdefault('amsbound', False)
 
     def step(self, closure=None):
         """Performs a single optimization step.
-        Arguments:
-            closure (callable, optional): A closure that reevaluates the model
-                and returns the loss.
+
+        Parameters
+        ----------
+        closure : callable, optional
+            A closure that reevaluates the model and returns the loss
         """
         loss = None
         if closure is not None:

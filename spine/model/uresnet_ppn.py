@@ -4,7 +4,7 @@ segmentation task and the point proposal task."""
 import torch
 
 from .uresnet import UResNetSegmentation, SegmentationLoss
-from .layers.cnn.ppn import PPN, PPNLoss
+from .layer.cnn.ppn import PPN, PPNLoss
 
 __all__ = ['UResNetPPN', 'UResNetPPNLoss']
 
@@ -122,7 +122,7 @@ class UResNetPPNLoss(torch.nn.Module):
     See Also
     --------
     :class:`spine.model.uresnet.SegmentationLoss`,
-    :class:`spine.model.layers.cnn.ppn.PPNLoss`
+    :class:`spine.model.layer.cnn.ppn.PPNLoss`
     """
 
     def __init__(self, uresnet, ppn, ppn_loss, uresnet_loss=None):

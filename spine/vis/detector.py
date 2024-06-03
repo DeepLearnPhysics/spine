@@ -1,6 +1,6 @@
 """Draw detectors based on their geometry definition."""
 
-from spine.utils.geometry import Geometry
+from spine.utils.geo import Geometry
 
 from .box import box_traces
 

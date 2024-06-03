@@ -9,7 +9,7 @@ from plotly.subplots import make_subplots
 import matplotlib as mpl
 import seaborn as sns
 
-from spine.utils.geometry import Geometry
+from spine.utils.geo import Geometry
 
 
 PLOTLY_COLORS = colors.qualitative.Plotly

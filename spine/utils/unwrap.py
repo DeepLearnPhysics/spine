@@ -7,7 +7,7 @@ from copy import deepcopy
 from spine import TensorBatch, IndexBatch, EdgeIndexBatch, ObjectList
 
 from .globals import BATCH_COL
-from .geometry import Geometry
+from .geo import Geometry
 
 __all__ = ['Unwrapper']
 

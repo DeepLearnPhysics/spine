@@ -4,9 +4,9 @@ from torch import nn
 import numpy as np
 from typing import Union, List, Dict
 
-from .layers.common.dbscan import DBSCAN
-from .layers.factories import final_factory
-from .layers.gnn.factories import *
+from .layer.common.dbscan import DBSCAN
+from .layer.factories import final_factory
+from .layer.gnn.factories import *
 
 from spine import TensorBatch, IndexBatch, EdgeIndexBatch
 from spine.utils.globals import (

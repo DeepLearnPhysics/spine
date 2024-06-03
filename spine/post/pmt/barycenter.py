@@ -1,6 +1,6 @@
 import numpy as np
 
-from spine.utils.geometry import Geometry
+from spine.utils.geo import Geometry
 from spine.utils.numba_local import cdist
 
 class BarycenterFlashMatcher:
