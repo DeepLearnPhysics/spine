@@ -1,7 +1,7 @@
 
 
 <h1 align="center">
-<img src="https://github.com/francois-drielsma/SPINE/blob/develop/docs/source/_static/img/spine-logo-dark.png" alt='SPINE', width="300">
+<img src="https://github.com/francois-drielsma/SPINE/blob/develop/docs/source/_static/img/spine-logo-dark.png" alt='SPINE', width="400">
 </h1><br>
 
 [![Build Status](https://travis-ci.com/DeepLearnPhysics/lartpc_mlreco3d.svg?branch=develop)](https://travis-ci.com/DeepLearnPhysics/lartpc_mlreco3d)
