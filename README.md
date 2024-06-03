@@ -2,7 +2,7 @@
 
 [![Documentation Status](https://readthedocs.org/projects/lartpc-mlreco3d/badge/?version=latest)](https://lartpc-mlreco3d.readthedocs.io/en/latest/?badge=latest)
 
-![SPINE Logo](https://github.com/DeepLearnPhysics/SPINE/blob/develop/docs/source/_static/img/spine-logo-dark.png)
+![SPINE Logo](https://github.com/francois-drielsma/SPINE/blob/develop/docs/source/_static/img/spine-logo-dark.png)
 
 --------------------------------------------------------------------------------
 
