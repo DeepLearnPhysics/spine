@@ -46,29 +46,29 @@ def scatter_particles(cluster_label, particles, part_col=PART_COL,
         label = f'Particle {p.id}'
         hovertext_dict = {'Particle ID': p.id,
                           'Group ID': p.group_id,
-                          'Parent ID': p.parent_id,
+                          '\u03a1arent ID': p.parent_id,
                           'Inter. ID': p.interaction_id,
                           'Neutrino ID': p.nu_id,
                           'Type ID': p.pid,
                           'Group primary': p.group_primary,
                           'Inter. primary': p.interaction_primary,
                           'Shape ID': p.shape,
-                          'PDG code': p.pdg_code,
-                          'Parent PDG code': p.parent_pdg_code,
-                          'Anc. PDG code': p.ancestor_pdg_code,
+                          'PDG': p.pdg_code,
+                          '\u03a1arent PDG': p.parent_pdg_code,
+                          'Anc. PDG': p.ancestor_pdg_code,
                           'Process': p.creation_process,
-                          'Parent process': p.parent_creation_process,
+                          '\u03a1arent process': p.parent_creation_process,
                           'Anc. process': p.ancestor_creation_process,
                           'Initial E': f'{p.energy_init:0.1f} MeV',
                           'Deposited E': f'{p.energy_deposit:0.1f} MeV',
                           'Time': f'{p.t:0.1f} ns',
                           'First step': p.first_step,
                           'Last step': p.last_step,
-                          'Creation point': p.position,
-                          'Anc. creation point': p.ancestor_position}
+                          'Position': p.position,
+                          'Anc. position': p.ancestor_position}
 
         hovertext = ''.join(
-                [f'{l}:   {v}<br>' for l, v in hovertext_dict.items()])
+                [f'{l:15}: {v}<br>' for l, v in hovertext_dict.items()])
 
         # Append a scatter plot trace
         trace = scatter_points(

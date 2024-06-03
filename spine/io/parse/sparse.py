@@ -27,7 +27,7 @@ class Sparse2DParser(ParserBase):
 
         schema:
           input_data:
-            parser: parse_sparse2d
+            parser: sparse2d
             sparse_event_list:
               - sparse2d_pcluster_0
               - sparse2d_pcluster_1
@@ -133,16 +133,16 @@ class Sparse3DParser(ParserBase):
 
         schema:
           input_data:
-            parser: parse_sparse3d
+            parser: sparse3d
             sparse_event_list:
               - sparse3d_pcluster_0
               - sparse3d_pcluster_1
               - ...
     """
-    name = 'parse_sparse3d'
+    name = 'sparse3d'
 
     def __init__(self, sparse_event=None, sparse_event_list=None,
-                 num_features=None, hit_keys=None, nhits_idx=None, **kwargs):
+                 num_features=None, hit_keys=None, nhits_idx=None):
         """Initialize the parser.
 
         Parameters
@@ -165,8 +165,6 @@ class Sparse3DParser(ParserBase):
         nhits_idx : int, optional
             Index among the input features where the `nhits` feature
             (doublet vs triplet) should be inserted.
-        **kwargs : dict, optional
-            Data product arguments to be passed to the `process` function
         """
         # Initialize the parent class
         super().__init__(sparse_event=sparse_event,
@@ -193,7 +191,7 @@ class Sparse3DParser(ParserBase):
         if self.num_features is not None:
             if num_tensors % self.num_features != 0:
                 raise ValueError(
-                        "The `num_features` number in parse_sparse3d should "
+                        "The `num_features` number in Sparse3DParser should "
                         "be a divider of the `sparse_event_list` length.")
         else:
             self.num_features = num_tensors
@@ -296,10 +294,10 @@ class Sparse3DGhostParser(Sparse3DParser):
 
         schema:
           ghost_label:
-            parser: parse_sparse3d
+            parser: sparse3d
             sparse_event_semantics: sparse3d_semantics
     """
-    name = 'parse_sparse3d_ghost'
+    name = 'sparse3d_ghost'
     aliases = []
 
     def __call__(self, trees):
@@ -343,7 +341,7 @@ class Sparse3DChargeRescaledParser(Sparse3DParser):
 
         schema:
           input_rescaled:
-            parser: parse_sparse3d_charge_rescaled
+            parser: sparse3d_charge_rescaled
             sparse_event_semantics: sparse3d_semantics
     """
     name = 'parse_sparse3d_rescale_charge'

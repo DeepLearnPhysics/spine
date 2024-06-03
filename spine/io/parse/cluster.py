@@ -32,10 +32,10 @@ class Cluster2DParser(ParserBase):
 
         schema:
           cluster_label:
-            parser: parse_cluster2d
+            parser: cluster2d
             cluster_event: cluster2d_pcluster
     """
-    name = 'parse_cluster2d'
+    name = 'cluster2d'
 
     def __init__(self, cluster_event, projection_id):
         """Initialize the parser.
@@ -118,7 +118,7 @@ class Cluster3DParser(ParserBase):
 
         schema:
           cluster_label:
-            parser: parse_cluster3d
+            parser: cluster3d
             cluster_event: cluster3d_pcluster
             particle_event: particle_pcluster
             particle_mpv_event: particle_mpv
@@ -132,7 +132,7 @@ class Cluster3DParser(ParserBase):
             primary_include_mpr: true
             break_clusters: false
     """
-    name = 'parse_cluster3d'
+    name = 'cluster3d'
 
     def __init__(self, particle_event=None, add_particle_info=False,
                  clean_data=False, type_include_mpr=True,
@@ -342,7 +342,7 @@ class Cluster3DParser(ParserBase):
             (sparse_value_event is not None)):
             if not self.clean_data:
                 warn("You must set `clean_data` to `True` if you specify a "
-                     "sparse tensor in `parse_cluster3d`.")
+                     "sparse tensor in `Cluster3DParser`.")
                 self.clean_data = True
 
             # Extract voxels and features
@@ -376,8 +376,7 @@ class Cluster3DChargeRescaledParser(Cluster3DParser):
     """Identical to :class:`Cluster3DParser`, but computes rescaled charges
     on the fly.
     """
-    name = 'parse_cluster3d_rescale_charge'
-    aliases = ['parse_cluster3d_charge_rescaled']
+    name = 'cluster3d_rescale_charge'
 
     def __init__(self, sparse_value_event_list, collection_only=False,
                  collection_id=2, **kwargs):
@@ -457,8 +456,7 @@ class Cluster3DMultiModuleParser(Cluster3DParser):
     """Identical to :class:`Cluster3DParser`, but fetches charge information
     from multiple detector modules independantly.
     """
-    name = 'parse_cluster3d_multi_module'
-    aliases = ['parse_cluster3d_2cryos']
+    name = 'cluster3d_multi_module'
 
     def __call__(self, trees):
         """Parse one entry.

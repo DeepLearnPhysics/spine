@@ -24,7 +24,7 @@ def layout3d(ranges=None, meta=None, detector=None, titles=None,
              detector_coords=False, backgroundcolor='white',
              gridcolor='lightgray', width=900, height=900, showlegend=True,
              camera=None, aspectmode='manual', aspectratio=None, dark=False,
-             margin=None, **kwargs):
+             margin=None, hoverlabel=None, **kwargs):
     """Produces plotly.graph_objs.Layout object for a certain format.
 
     Parameters
@@ -65,6 +65,8 @@ def layout3d(ranges=None, meta=None, detector=None, titles=None,
         Dark layout
     margin : dict, optional
         Specifies the margin in each subplot
+    hoverlabel : dict, optional
+        Specifies the style hovertext labels
     **kwargs : dict, optional
         List of additional arguments to pass to plotly.graph_objs.Layout
 
@@ -148,6 +150,10 @@ def layout3d(ranges=None, meta=None, detector=None, titles=None,
     if margin is None:
         margin = {'b': 0, 't': 0, 'l': 0, 'r': 0}
 
+    # Set hoverlabel font, if not provided
+    if hoverlabel is None:
+        hoverlabel = {'font_family': 'Droid sans, monospace'}
+
     # Initialize the general scene layout
     axis_base = {'nticks': 10, 'showticklabels': True, 'tickfont': {'size': 14},
                  'backgroundcolor': backgroundcolor, 'gridcolor': gridcolor,
@@ -164,7 +170,7 @@ def layout3d(ranges=None, meta=None, detector=None, titles=None,
     layout = go.Layout(
             showlegend=showlegend, width=width, height=height, margin=margin,
             scene1=scene, scene2=deepcopy(scene), scene3=deepcopy(scene),
-            **kwargs)
+            hoverlabel=hoverlabel, **kwargs)
 
     return layout
 
