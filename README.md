@@ -1,12 +1,11 @@
+
+
+<h1 align="center">
+<img src="https://raw.githubusercontent.com/numpy/numpy/main/branding/logo/primary/numpylogo.svg](https://github.com/francois-drielsma/SPINE/blob/develop/docs/source/_static/img/spine-logo-dark.png" alt='SPINE Logo', width="300">
+</h1><br>
+
 [![Build Status](https://travis-ci.com/DeepLearnPhysics/lartpc_mlreco3d.svg?branch=develop)](https://travis-ci.com/DeepLearnPhysics/lartpc_mlreco3d)
-
 [![Documentation Status](https://readthedocs.org/projects/lartpc-mlreco3d/badge/?version=latest)](https://lartpc-mlreco3d.readthedocs.io/en/latest/?badge=latest)
-
-![SPINE Logo](https://github.com/francois-drielsma/SPINE/blob/develop/docs/source/_static/img/spine-logo-dark.png)
-
---------------------------------------------------------------------------------
-
-# A Machine Learning Pipeline for Particle Imaging detector data
 
 This repository contains code used for training and running machine learning models on particle image data.
 
