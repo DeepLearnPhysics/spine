@@ -2,9 +2,13 @@
 
 [![Documentation Status](https://readthedocs.org/projects/lartpc-mlreco3d/badge/?version=latest)](https://lartpc-mlreco3d.readthedocs.io/en/latest/?badge=latest)
 
-# A Machine Learning Pipeline for LArTPC Data
+![SPINE Logo](https://github.com/DeepLearnPhysics/SPINE/blob/develop/docs/source/_static/img/spine-logo-dark.png)
 
-This repository contains code used for training and running machine learning models on LArTPC data.
+--------------------------------------------------------------------------------
+
+# A Machine Learning Pipeline for Particle Imaging detector data
+
+This repository contains code used for training and running machine learning models on particle image data.
 
 ![Full chain](./images/full_chain.png)
 
