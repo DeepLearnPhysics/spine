@@ -23,7 +23,7 @@ class Neutrino(PosDataBase):
     ----------
     id : int
         Index of the neutrino in the list
-    gen_id : int
+    interaction_id : int
         Index of the neutrino at the generator stage (e.g. Genie)
     mct_index : int
         Index in the original MCTruth array from whence it came
@@ -76,7 +76,7 @@ class Neutrino(PosDataBase):
     """
     # Attributes
     id: int = -1
-    gen_id: int = -1
+    interaction_id: int = -1
     mct_index: int = -1
     track_id: int = -1
     lepton_track_id: int = -1
@@ -139,7 +139,7 @@ class Neutrino(PosDataBase):
         obj_dict = {}
 
         # Load the scalar attributes
-        for key in ['id', 'gen_id', 'mct_index', 'nu_track_id',
+        for key in ['id', 'interaction_id', 'mct_index', 'nu_track_id',
                     'lepton_track_id', 'pdg_code', 'lepton_pdg_code',
                     'current_type', 'interaction_mode', 'interaction_type',
                     'target', 'nucleon', 'quark', 'energy_init',

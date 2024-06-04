@@ -432,7 +432,7 @@ class GenericMLP(nn.Module):
         if output_use_activation:
             layers.append(activation())
 
-        self.layers = nn.Sequential(*layers)
+        self.layer = nn.Sequential(*layers)
 
         if weight_init_name is not None:
             self.do_weight_init(weight_init_name)
@@ -444,5 +444,5 @@ class GenericMLP(nn.Module):
                 func(param)
 
     def forward(self, x):
-        output = self.layers(x)
+        output = self.layer(x)
         return output

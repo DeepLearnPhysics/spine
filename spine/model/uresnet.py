@@ -11,8 +11,8 @@ from spine.data import TensorBatch
 from spine.utils.globals import BATCH_COL, VALUE_COL, GHOST_SHP
 from spine.utils.logger import logger
 
-from .layers.cnn.act_norm import act_factory, norm_factory
-from .layers.cnn.uresnet_layers import UResNet
+from .layer.cnn.act_norm import act_factory, norm_factory
+from .layer.cnn.uresnet_layers import UResNet
 
 __all__ = ['UResNetSegmentation', 'SegmentationLoss']
 

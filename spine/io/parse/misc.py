@@ -32,11 +32,11 @@ class MetaParser(ParserBase):
 
         schema:
           meta:
-            parser: parse_meta
+            parser: meta
             sparse_event: sparse3d_pcluster
     """
-    name = 'parse_meta'
-    aliases = ['parse_meta2d', 'parse_meta3d']
+    name = 'meta'
+    aliases = ['meta2d', 'meta3d']
 
     def __call__(self, trees):
         """Parse one entry.
@@ -101,10 +101,10 @@ class RunInfoParser(ParserBase):
 
         schema:
           run_info:
-            parser: parse_run_info
+            parser: run_info
             sparse_event: sparse3d_pcluster
     """
-    name = 'parse_run_info'
+    name = 'run_info'
 
     def __call__(self, trees):
         """Parse one entry.
@@ -147,12 +147,12 @@ class FlashParser(ParserBase):
     .. code-block. yaml
         schema:
           flashes_cryoE:
-            parser: parse_flash
+            parser: flash
             flash_event: flash_cryoE
 
     """
-    name = 'parse_flashes'
-    aliases = ['parse_opflash', 'parse_opflashes']
+    name = 'flash'
+    aliases = ['opflash']
 
     def __call__(self, trees):
         """Parse one entry.
@@ -202,11 +202,10 @@ class CRTHitParser(ParserBase):
     .. code-block. yaml
         schema:
           crthits:
-            parser: parse_crthits
+            parser: crthit
             crthit_event: crthit_crthit
     """
-    name = 'parse_crthits'
-    aliases = ['parse_crthit']
+    name = 'crthit'
 
     def __call__(self, trees):
         """Parse one entry.
@@ -243,10 +242,10 @@ class TriggerParser(ParserBase):
     .. code-block. yaml
         schema:
           trigger:
-            parser: parse_trigger
+            parser: trigger
             trigger_event: trigger_base
     """
-    name = 'parse_trigger'
+    name = 'trigger'
 
     def __call__(self, trees):
         """Parse one entry.

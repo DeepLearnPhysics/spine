@@ -32,14 +32,14 @@ class ParticleParser(ParserBase):
 
         schema:
           particles:
-            parser: parse_particles
+            parser: particle
             particle_event: particle_pcluster
             cluster_event: cluster3d_pcluster
             asis: False
             pixel_coordinates: True
             post_process: True
     """
-    name = 'parse_particles'
+    name = 'particle'
 
     def __init__(self, pixel_coordinates=True, post_process=True,
                  asis=False, **kwargs):
@@ -141,13 +141,13 @@ class NeutrinoParser(ParserBase):
 
         schema:
           neutrinos:
-            parser: parse_neutrinos
+            parser: neutrino
             neutrino_event: neutrino_mpv
             cluster_event: cluster3d_pcluster
             pixel_coordinates: True
             asis: False
     """
-    name = 'parse_neutrinos'
+    name = 'neutrino'
 
     def __init__(self, pixel_coordinates=True, asis=False, **kwargs):
         """Initialize the parser.
@@ -235,12 +235,12 @@ class ParticlePointParser(ParserBase):
 
         schema:
           points:
-            parser: parse_particle_points
+            parser: particle_points
             particle_event: particle_pcluster
             sparse_event: sparse3d_pcluster
             include_point_tagging: True
     """
-    name = 'parse_particle_points'
+    name = 'particle_points'
 
     def __init__(self, include_point_tagging=True, **kwargs):
         """Initialize the parser.
@@ -316,11 +316,11 @@ class ParticleCoordinateParser(ParserBase):
 
         schema:
           coords:
-            parser: parse_particle_coordinates
+            parser: particle_coordinates
             particle_event: particle_pcluster
             sparse_event: sparse3d_pcluster
     """
-    name = 'parse_particle_coords'
+    name = 'particle_coords'
 
     def __call__(self, trees):
         """Parse one entry.
@@ -386,12 +386,12 @@ class ParticleGraphParser(ParserBase):
 
         schema:
           graph:
-            parser: parse_particle_graph
+            parser: particle_graph
             particle_event: particle_pcluster
             cluster_event: cluster3d_pcluster
 
     """
-    name = 'parse_particle_graph'
+    name = 'particle_graph'
 
     def __call__(self, trees):
         """Parse one entry.
@@ -498,11 +498,10 @@ class SingleParticlePIDParser(ParserBase):
 
         schema:
           pdg_list:
-            parser: parse_single_particle_pdg
+            parser: single_particle_pdg
             particle_event: particle_pcluster
     """
-    name = 'parse_single_particle_pdg'
-    aliases = ['parse_particle_singlep_pdg']
+    name = 'single_particle_pdg'
 
     def __call__(self, trees):
         """Parse one entry.
@@ -545,11 +544,10 @@ class SingleParticleEnergyParser(ParserBase):
 
         schema:
           energy_list:
-            parser: parse_single_particle_energy
+            parser: single_particle_energy
             particle_event: particle_pcluster
     """
-    name = 'parse_single_particle_energy'
-    aliases = ['parse_particle_singlep_enit']
+    name = 'single_particle_energy'
 
     def __call__(self, trees):
         """Parse one entry.

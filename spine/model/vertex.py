@@ -8,8 +8,8 @@ import MinkowskiFunctional as MF
 from spine.model.uresnet import SegmentationLoss
 from collections import defaultdict
 from spine.model.uresnet import UResNetSegmentation
-from spine.model.layers.cnn.vertex_ppn import VertexPPN, VertexPPNLoss
-from spine.model.experimental.layers.pointnet import PointNetEncoder
+from spine.model.layer.cnn.vertex_ppn import VertexPPN, VertexPPNLoss
+from spine.model.experimental.layer.pointnet import PointNetEncoder
 
 from spine.utils.globals import INTER_COL, BATCH_COL, VTX_COLS, NU_COL
 from spine.utils.gnn.cluster import form_clusters, get_cluster_label
@@ -62,7 +62,7 @@ class UResNetVertexLoss(nn.Module):
     """
     See Also
     --------
-    spine.model.uresnet.SegmentationLoss, spine.model.layers.common.ppn.PPNLonelyLoss
+    spine.model.uresnet.SegmentationLoss, spine.model.layer.common.ppn.PPNLonelyLoss
     """
     def __init__(self, cfg):
         super(UResNetVertexLoss, self).__init__()

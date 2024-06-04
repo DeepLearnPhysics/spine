@@ -6,7 +6,7 @@ We use Sphinx to generate the documentation, and Readthedocs.io to host it at ht
 In theory the online documentation gets built and updated automatically every time the source branch changes (for now, this is set to `Temigo/lartpc_mlreco3d`, branch `me`).
 
 ## Writing docstrings
-If possible, let us try to consistently use NumPy style. See [Napoleon](https://sphinxcontrib-napoleon.readthedocs.io/en/latest/index.html) and [NumPy](https://numpydoc.readthedocs.io/en/latest/format.html) style guides.
+Use NumPy style. See [Napoleon](https://sphinxcontrib-napoleon.readthedocs.io/en/latest/index.html) and [NumPy](https://numpydoc.readthedocs.io/en/latest/format.html) style guides.
 
 ### Documenting a generic function
 ```
@@ -31,7 +31,7 @@ def func(arg1, arg2):
 ```
 
 ### Documenting a ML model
-For a ML model, please try to document `Configuration` (YAML Configuration options)and `Output` (keywords in the output dictionary) sections:
+For an ML model, please try to document `Configuration` (YAML Configuration options) and `Output` (keywords in the output dictionary) sections:
 
 ```
 class MyNetwork(torch.nn.Module):

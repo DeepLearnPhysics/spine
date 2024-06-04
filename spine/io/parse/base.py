@@ -50,6 +50,7 @@ class ParserBase(ABC):
                 if not isinstance(value, list):
                     if value not in self.tree_keys:
                         self.tree_keys.append(value)
+
                 else:
                     for v in value:
                         if v not in self.tree_keys:

@@ -30,7 +30,8 @@ def module_dict(module, class_name=None, pattern=None):
     """
     # Loop over classes/functions in the module
     module_dict = {}
-    for cls_name in dir(module):
+    cls_names = getattr(module, '__attr__', dir(module))
+    for cls_name in cls_names:
         # Skip private objects
         if cls_name[0] == '_':
             continue

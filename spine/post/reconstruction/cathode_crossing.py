@@ -2,7 +2,7 @@ import numpy as np
 from scipy.spatial.distance import cdist
 
 from spine.utils.globals import COORD_COLS, TRACK_SHP
-from spine.utils.geometry import Geometry
+from spine.utils.geo import Geometry
 from spine.utils.numba_local import farthest_pair
 from spine.utils.gnn.cluster import cluster_direction
 

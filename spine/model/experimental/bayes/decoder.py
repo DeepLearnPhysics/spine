@@ -2,9 +2,9 @@ import torch
 import torch.nn as nn
 import MinkowskiEngine as ME
 
-from spine.model.layers.cnn.act_norm import act_factory, norm_factory
-from spine.model.layers.cnn.configuration import setup_cnn_configuration
-from spine.model.layers.cnn.blocks import DropoutBlock, ResNetBlock
+from spine.model.layer.cnn.act_norm import act_factory, norm_factory
+from spine.model.layer.cnn.configuration import setup_cnn_configuration
+from spine.model.layer.cnn.blocks import DropoutBlock, ResNetBlock
 
 
 class MCDropoutDecoder(torch.nn.Module):

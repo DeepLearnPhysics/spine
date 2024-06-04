@@ -2,7 +2,7 @@ import os, sys
 import numpy as np
 import time
 
-from spine.utils.geometry import Geometry
+from spine.utils.geo import Geometry
 
 
 class LikelihoodFlashMatcher:
