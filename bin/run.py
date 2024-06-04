@@ -114,7 +114,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--config', '-c',
                         help='Path to the configuration file',
-                        type=str)
+                        type=str, required=True)
 
     group = parser.add_mutually_exclusive_group()
     group.add_argument('--source', '-s',

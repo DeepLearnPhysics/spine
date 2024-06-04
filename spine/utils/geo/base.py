@@ -2,9 +2,9 @@
 
 import os
 import pathlib
-import numpy as np
-from typing import Union, List
 from dataclasses import dataclass
+
+import numpy as np
 
 
 @dataclass
@@ -243,7 +243,7 @@ class Geometry:
 
             # Identify the drift axis
             centers = np.mean(module, axis=-1)
-            drift_dir = (centers[1] - centers[0])
+            drift_dir = centers[1] - centers[0]
             drift_dir /= np.linalg.norm(drift_dir)
             axis = np.where(drift_dir)[0]
             assert len(axis) == 1, \
@@ -419,7 +419,6 @@ class Geometry:
         """
         # Compute the axis-wise distances of each point to each boundary
         tpc = self.boundaries[module_id, tpc_id]
-        ranges = self.ranges[module_id, tpc_id]
         dists = points[..., None] - tpc
 
         # If a point is between two boundaries, the distance is 0. If it is
@@ -568,7 +567,7 @@ class Geometry:
             raise ValueError('Must call `define_containment_volumes` first')
 
         # If sources are provided, only consider source volumes
-        if self.cont_use_source:
+        if self._cont_use_source:
             # Get the contributing TPCs
             assert len(points) == len(sources), \
                     'Need to provide sources to make a source-based check'
@@ -645,16 +644,16 @@ class Geometry:
                     vol = self.adapt_volume(tpc, margin, \
                             cathode_margin, m, t)
                     self._cont_volumes.append(vol)
-            self.cont_use_source = mode == 'source'
+            self._cont_use_source = mode == 'source'
         elif mode == 'module':
             for m in self.modules:
                 vol = self.adapt_volume(m, margin)
                 self._cont_volumes.append(vol)
-            self.cont_use_source = False
+            self._cont_use_source = False
         elif mode == 'detector':
             vol = self.adapt_volume(self.detector, margin)
             self._cont_volumes.append(vol)
-            self.cont_use_source = False
+            self._cont_use_source = False
         else:
             raise ValueError(f'Containement check mode not recognized: {mode}')
 

@@ -4,6 +4,8 @@ import numpy as np
 
 from .database import CalibrationDatabase
 
+__all__ = ['LifetimeCalibrator']
+
 
 class LifetimeCalibrator:
     """Applies a correction based on drift electron lifetime and the distance

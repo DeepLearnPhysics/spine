@@ -2,6 +2,8 @@
 
 from .database import CalibrationDatabase
 
+__all__ = ['TransparencyCalibrator']
+
 
 class TransparencyCalibrator:
     """Applies a correction on the amount of charge observed in a space point

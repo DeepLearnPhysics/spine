@@ -5,6 +5,8 @@ import numpy as np
 from spine.utils.globals import LAR_DENSITY, LAR_WION
 from spine.utils.tracking import get_track_segment_dedxs
 
+__all__ = ['RecombinationCalibrator']
+
 
 class RecombinationCalibrator:
     """Applies a recombination correction factor to account for some of the

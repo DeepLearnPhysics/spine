@@ -2,6 +2,8 @@
 
 import numpy as np
 
+__all__ = ['GainCalibrator']
+
 
 class GainCalibrator:
     """Converts all charge depositions in ADC to a number of electrons. It can
