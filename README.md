@@ -4,8 +4,8 @@
 <img src="https://github.com/francois-drielsma/SPINE/blob/develop/docs/source/_static/img/spine-logo-dark.png" alt='SPINE', width="400">
 </h1><br>
 
-[![Build Status](https://app.travis-ci.com/francois-drielsma/lartpc_mlreco3d.svg?token=WB4oxAv87vEXhuxUGH7e&branch=develop&status=passed)
-[![Documentation Status](https://readthedocs.org/projects/lartpc-mlreco3d/badge/?version=latest)](https://lartpc-mlreco3d.readthedocs.io/en/latest/?badge=latest)
+[![Build Status](https://app.travis-ci.com/francois-drielsma/lartpc_mlreco3d.svg?token=WB4oxAv87vEXhuxUGH7e&branch=develop&status=passed)]
+[![Documentation Status](https://readthedocs.org/projects/lartpc-mlreco3d/badge/?version=latest)](https://lartpc-mlreco3d.readthedocs.io/en/latest/?badge=latest)]
 
 This repository contains code used for training and running machine learning models on particle image data.
 
