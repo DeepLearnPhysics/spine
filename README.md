@@ -7,7 +7,7 @@
 
 This repository contains code used for training and running machine learning models on particle image data.
 
-![Full chain](https://github.com/francois-drielsma/SPINE/blob/develop/docs/source/_static/img/full_chain.png)
+![Full chain](https://github.com/francois-drielsma/SPINE/blob/develop/docs/source/_static/img/spine-chain-alpha.png)
 
 ## Installation
 We recommend using a Singularity or Docker containers pulled from `deeplearnphysics/larcv2`: https://hub.docker.com/r/deeplearnphysics/larcv2. It needs to have at least
