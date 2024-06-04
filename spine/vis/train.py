@@ -15,7 +15,7 @@ from plotly import colors as pcolors
 from .layout import PLOTLY_COLORS_TUPLE, color_rgba, apply_latex_style
 
 
-class TrainingDrawer:
+class TrainDrawer:
     """Class which centralizes function used to monitor a training process."""
 
     def __init__(self, log_dir, interactive=True, paper=False, alpha=0.5,
@@ -238,11 +238,12 @@ class TrainingDrawer:
             fig = go.Figure(layout=self.layout)
 
         # Get the DataFrames for the requested models/metrics
-        dfs, val_dfs, colors = {}, {}, {}
+        dfs, val_dfs, colors, draw_val = {}, {}, {}, {}
         for i, key in enumerate(model):
             log_subdir = self.log_dir + key
             dfs[key] = self.get_training_df(log_subdir, metric)
             val_dfs[key] = self.get_validation_df(log_subdir, metric)
+            draw_val[key] = bool(len(val_dfs[key]['iter']))
             colors[key] = self.colors[i%len(self.colors)]
 
         # Loop over the requested metrics, append a trace
@@ -255,8 +256,7 @@ class TrainingDrawer:
                 metric_t = dfs[key][metric_key]
 
                 # If validation points are available, fetch the validation data
-                draw_val = bool(len(val_dfs[key]['iter']))
-                if draw_val:
+                if draw_val[key]:
                     # Get the necessary data
                     iter_v = val_dfs[key]['iter']
                     metric_v_mean = val_dfs[key][metric_label+'_mean']
@@ -307,10 +307,10 @@ class TrainingDrawer:
                         label = model_name[key]
                     else:
                         label = f'{metric_name[metric_list]} ({model_name[key]})'
-                    if print_min and draw_val:
+                    if print_min and draw_val[key]:
                         min_it = iter_v[np.argmin(metric_v_mean)]
                         label += f'{self.cr_char}Min: {min_it:d}'
-                    if print_max and draw_val:
+                    if print_max and draw_val[key]:
                         max_it = iter_v[np.argmax(metric_v_mean)]
                         label += f'{self.cr_char}Max: {max_it:d}'
 
@@ -330,7 +330,7 @@ class TrainingDrawer:
                             alpha=self.alpha, linewidth=self.linewidth)
 
                     # Add a trace for the validation points
-                    if draw_val:
+                    if draw_val[key]:
                         axis.errorbar(
                                 epoch_v, metric_v_mean, yerr=metric_v_err,
                                 fmt='.', color=color, linewidth=self.linewidth,
@@ -346,7 +346,7 @@ class TrainingDrawer:
                         showlegend=showlegend)]
 
                     # Add a trace for the validation points
-                    if draw_val:
+                    if draw_val[key]:
                         hovertext = [f'(Iteration: {it:d})' for it in iter_v]
                         traces += [go.Scatter(
                             x=epoch_v, y=metric_v_mean,
@@ -380,9 +380,10 @@ class TrainingDrawer:
         else:
             if not same_plot:
                 n_mod, n_met = len(model), len(metric)
-                step = 1./(2**draw_val*n_mod)
+                mult = np.sum([2**val for val in draw_val.values()])
+                step = 1./mult
                 rows = list(np.arange(n_met, step=step).astype(int) + 1)
-                cols = list(np.ones(2**draw_val*n_mod*n_met, dtype=int))
+                cols = list(np.ones(mult*n_met, dtype=int))
                 fig.add_traces(traces, rows=rows, cols=cols)
 
             else:
