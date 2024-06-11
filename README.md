@@ -5,32 +5,45 @@
 [![Build Status](https://app.travis-ci.com/francois-drielsma/lartpc_mlreco3d.svg?token=WB4oxAv87vEXhuxUGH7e&branch=develop&status=passed)](https://app.travis-ci.com/github/francois-drielsma/lartpc_mlreco3d/logscans?serverType=git)
 [![Documentation Status](https://readthedocs.org/projects/lartpc-mlreco3d/badge/?version=latest)](https://lartpc-mlreco3d.readthedocs.io/en/latest/?badge=latest)
 
-The Scalable Particle Imaging with Neural Embeddings (SPINE) package leverages state-of-the-art Machine Learning (ML) algorithms -- in particular Deep Neural Networks (DNNs) -- to reconstruct particle imagaging detector data. This package was primarily develop for Liquid Argon Time-Projection Chamber (LArTPC) data and primarily relies of Convolutional Neural Networks (CNNs) for pixel-level feature extraction and Graph Neural Networks (GNNs) for superstructure formation. The schematic below breaks down the full end-to-end reconstruction flow.
+The Scalable Particle Imaging with Neural Embeddings (SPINE) package leverages state-of-the-art Machine Learning (ML) algorithms -- in particular Deep Neural Networks (DNNs) -- to reconstruct particle imagaging detector data. This package was primarily developed for Liquid Argon Time-Projection Chamber (LArTPC) data and relies on Convolutional Neural Networks (CNNs) for pixel-level feature extraction and Graph Neural Networks (GNNs) for superstructure formation. The schematic below breaks down the full end-to-end reconstruction flow.
 
 ![Full chain](https://github.com/DeepLearnPhysics/spine/blob/develop/docs/source/_static/img/spine-chain-alpha.png)
 
 ## Installation
-We recommend using a Singularity or Docker containers pulled from `deeplearnphysics/larcv2`: https://hub.docker.com/r/deeplearnphysics/larcv2. It needs to have at least
-* MinkowskiEngine,
-* larcv2,
-* pytorch_geometric,
-* PyTorch,
+
+We recommend using a Singularity or Docker containers pulled from [`deeplearnphysics/larcv2`](https://hub.docker.com/r/deeplearnphysics/larcv2), which contains all the necessary dependancy to run this package.
+
+The dependencies include:
+* `MinkowskiEngine`
+* `larcv2`
+* `torch`
+* `torch_geometric`
+* `numba`
 * standard Python scientific libraries.
 
-Then git clone this repository and have fun!
+This package does not need to be installed. Simply pull this repository and add it to the python path:
+
+```python
+import sys
+sys.path.insert(0, '/path/to/spine/')
+```
 
 ## Usage
 Basic example:
 ```python
-# assume that the `spine` folder is on python path
-from spine.main_funcs import process_config, train
+# Necessary imports
 import yaml
+from spine.driver import Driver
+
 # Load configuration file
 with open('spine/config/train_uresnet.cfg', 'r') as f:
-    cfg = yaml.load(f, Loader=yaml.Loader)
-process_config(cfg)
-# train a model based on configuration
-train(cfg)
+    cfg = yaml.safe_load(f)
+
+# Initialize driver class
+driver = Driver(cfg)
+
+# Execute model following the configuration regimen
+driver.run()
 ```
 
 * Some tutorials are available at https://deeplearnphysics.org/lartpc_mlreco3d_tutorials/.
