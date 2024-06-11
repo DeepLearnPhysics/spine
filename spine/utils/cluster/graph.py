@@ -11,8 +11,9 @@ import numpy as np
 import torch
 from torch_cluster import knn_graph, radius_graph
 
-from spine.data import TensorBatch, ObjectList
+from spine.data import TensorBatch, IndexBatch, ObjectList
 from spine.utils.globals import CLUST_COL, SHAPE_COL
+from spine.utils.gnn.cluster import form_clusters
 from spine.utils.metrics import pur, eff, ari
 
 from .ccc import ConnectedComponentClusterer
@@ -113,7 +114,8 @@ class ClusterGraphConstructor:
 
         # Loop over the unique batch indices, build a list of graphs for each
         graph = defaultdict(list)
-        edge_counts = []
+        edge_offset = 0
+        edge_counts, edge_offsets = [], []
         for b in range(coords.batch_size):
             # Build graphs (one per semantic type)
             clust_label_b = clust_label[b] if clust_label is not None else None
@@ -122,19 +124,39 @@ class ClusterGraphConstructor:
 
             # Append the output
             edge_counts.append(edge_count)
+            edge_offsets.append(edge_offset)
             for key, value in graphs_b.items():
-                graph[key].append(value)
+                if key.endswith('clusts'):
+                    is_edge = key.startswith('edge')
+                    offset = edge_offset if is_edge else coords.edges[b]
+                    for c in value:
+                        graph[key].append(offset + c)
 
-        # Concatenate the outputs together
+                else:
+                    graph[key].append(value)
+           
+            # Increment the offset
+            edge_offset += edge_count
+
+        # Concatenate the graph attributes together
         is_tensor = isinstance(coords.tensor, torch.Tensor)
         cat = torch.cat if is_tensor else np.concatenate
         for key, value in graph.items():
-            if key.startswith('edge') and not key.endswith('clusts'):
-                # Turn edge attributes into tensor batches
-                value = cat(value)
-                graph[key] = TensorBatch(value, counts=edge_counts)
+            if key.endswith('clusts'):
+                # Turn indexes into index batches
+                counts = [len(self.classes)]*coords.batch_size
+                single_counts = [len(c) for c in value]
+                is_edge = key.startswith('edge')
+                offsets = edge_offsets if is_edge else coords.edges[:-1]
+                graph[key] = IndexBatch(
+                        value, offsets, counts, single_counts)
 
-        # Add the node information to the graph
+            else:
+                # Turn edge index/attributes into tensor batches
+                value = cat(value)
+                graph[key] = TensorBatch(value, edge_counts)
+
+        # Add the input node information to the graph
         graph['node_coords'] = coords
         graph['node_features'] = features
         graph['node_shapes'] = TensorBatch(
@@ -229,8 +251,7 @@ class ClusterGraphConstructor:
 
         return graph, edge_count
         
-    @staticmethod
-    def fit_predict(graph, edge_mode='edge_pred'):
+    def fit_predict(self, graph, edge_mode='edge_pred'):
         """Perform connected components clustering on a batch.
 
         Parameters
@@ -245,16 +266,47 @@ class ClusterGraphConstructor:
         """
         # No gradients through this prediction
         with torch.no_grad():
+            # Assign each node to a cluster
             node_pred = self.ccc(
                     graph['node_coords'], graph['edge_index'], graph[edge_mode],
                     graph['node_clusts'], graph['edge_clusts'])
 
             graph['node_pred'] = node_pred
 
-            return node_pred
+            # Loop over entries in the batch, build fragments
+            node_clusts = graph['node_clusts']
+            filter_index = graph['filter_index'].index
+            clusts, counts, single_counts, shapes = [], [], [], []
+            for b in range(node_pred.batch_size):
+                # Loop over shapes in the entry
+                counts_b = 0
+                for s, shape in enumerate(self.classes):
+                    # Get the list of clusters for this (entry, shape) pair
+                    index_b_s = node_clusts[b][s]
+                    clusts_b_s, counts_b_s = form_clusters(
+                            node_pred[b][index_b_s, None], column=0)
+
+                    # Offset the cluster indexes appropriately, append
+                    for i, c in enumerate(clusts_b_s):
+                        clusts_b_s[i] = index_b_s[c]
+
+                    # Append
+                    clusts.extend(clusts_b_s)
+                    single_counts.extend(counts_b_s)
+                    shapes.append(
+                            shape*np.ones(len(clusts_b_s), dtype=int))
+                    counts_b += len(clusts_b_s)
+
+                counts.append(counts_b)
+
+            # Make an IndexBatch out of the list
+            clusts = IndexBatch(clusts, node_pred.counts, counts, single_counts)
+            clust_shapes = TensorBatch(np.concatenate(shapes), counts)
+
+            # Return
+            return clusts, clust_shapes
     
-    @staticmethod
-    def evaluate(graph, mean=False):
+    def evaluate(self, graph, mean=False):
         """Evaluate the clustering accuracy of a graph.
 
         Parameters

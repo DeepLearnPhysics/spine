@@ -37,7 +37,7 @@ class UResNetSegmentation(nn.Module):
     directory for detailed examples of working configurations.
     """
     INPUT_SCHEMA = [
-        ['parse_sparse3d', (float,), (3, 1)]
+        ['sparse3d', (float,), (3, 1)]
     ]
 
     MODULES = ['uresnet']
