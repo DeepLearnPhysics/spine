@@ -30,13 +30,13 @@ def test_larcv_dataset(larcv_data):
         datatype = key.split('_')[0]
         el = {}
         if datatype == 'sparse3d':
-            el['parser'] = f'parse_sparse3d'
+            el['parser'] = datatype
             el['sparse_event'] = key
         elif datatype == 'cluster3d':
-            el['parser'] = f'parse_cluster3d'
+            el['parser'] = datatype
             el['cluster_event'] = key
         elif datatype == 'particle':
-            el['parser'] = f'parse_particles'
+            el['parser'] = datatype
             el['particle_event'] = key
             el['pixel_coordinates'] = False
         else:

@@ -1,11 +1,11 @@
-from __future__ import print_function
-from __future__ import absolute_import
-from __future__ import division
+import os
 import pytest
-from spine.models import factories
+
 import numpy as np
 import torch
-import os
+
+from spine.model.factories import model_factory
+
 os.environ['CUDA_VISIBLE_DEVICES'] = ''
 
 
@@ -32,7 +32,7 @@ def test_model_forward(config_simple, xfail_models, N, num_voxels_low, num_voxel
         pytest.xfail("%s is expected to fail at the moment." % config_simple['model']['name'])
 
     config = config_simple
-    model, criterion = factories.construct(config['model']['name'])
+    model, criterion = model_factory(config['model']['name'])
     net = model(config['model']['modules'])
     loss = criterion(config['model']['modules'])
 
