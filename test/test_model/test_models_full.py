@@ -1,12 +1,12 @@
-from __future__ import print_function
-from __future__ import absolute_import
-from __future__ import division
-import pytest
-from spine.models import factories
-from spine.main_funcs import process_config, prepare, train_loop
 import os
-import yaml
 import sys
+import pytest
+
+import yaml
+
+from spine.model.factories import model_factory
+from spine.main import run
+
 os.environ['CUDA_VISIBLE_DEVICES'] = ''
 
 
@@ -46,7 +46,7 @@ def test_model_full(config_full, xfail_models):
         pytest.xfail("%s is expected to fail at the moment." % config_full['model']['name'])
 
     config = config_full
-    model, criterion = factories.construct(config['model']['name'])
+    model, criterion = model_factory(config['model']['name'])
     net = model(config['model']['modules'])
     loss = criterion(config['model']['modules'])
 

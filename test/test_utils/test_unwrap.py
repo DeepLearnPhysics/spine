@@ -4,7 +4,7 @@ import pytest
 
 import numpy as np
 
-from spine.data_structures import *
+from spine.data import TensorBatch, IndexBatch
 from spine.utils.unwrap import Unwrapper
 
 

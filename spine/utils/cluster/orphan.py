@@ -57,7 +57,7 @@ class OrphanAssigner:
                     eps=self.classifier.radius, min_samples=1,
                     metric=self.classifier.metric, p=self.classifier.p)
 
-    def assign(self, X, y):
+    def __call__(self, X, y):
         """Place-holder for a function which assigns labels to orphan points.
 
         Parameters
@@ -75,7 +75,7 @@ class OrphanAssigner:
         # Create a mask for orphaned points, throw if there are only orphans
         orphan_index = np.where(y == -1)[0]
         num_orphans = len(orphan_index)
-        if (mode == 'knn' or not self.assign_all) and len(y) == num_orphans:
+        if (self.mode == 'knn' or not self.assign_all) and len(y) == num_orphans:
             raise RuntimeError(
                     "Cannot assign orphans without any valid labels.")
 
@@ -107,7 +107,7 @@ class OrphanAssigner:
             num_orphans = len(orphan_index)
 
         # If required, assign stragglers using DBSCAN
-        if num_orphans and mode == 'radius' and self.assign_all:
+        if num_orphans and self.mode == 'radius' and self.assign_all:
             # Get the assignment for each of the orphaned points
             update = self.dbscan.fit(X[orphan_index]).labels_
 

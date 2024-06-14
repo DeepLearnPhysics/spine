@@ -1,22 +1,7 @@
-from typing import Union, Callable, Tuple, List
-from abc import ABC, abstractmethod
-
 import numpy as np
 import torch
 
-from spine.utils.metrics import *
-
-from sklearn.neighbors import kneighbors_graph # Move this
-import scipy.sparse as sp
-
-from torch_geometric.transforms import BaseTransform
-from torch_geometric.utils import to_scipy_sparse_matrix
-from torch_geometric.data import Data, Batch
-from sklearn.cluster import DBSCAN
-
-from spine import TensorBatch
-
-import copy
+from sklearn.neighbors import kneighbors_graph
 
 
 def knn_sklearn(coords, k):

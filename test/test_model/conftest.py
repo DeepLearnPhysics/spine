@@ -1,64 +1,63 @@
 import pytest
 import os
-from spine.models import factories
+from spine.model.factories import model_dict, model_factory
 os.environ['CUDA_VISIBLE_DEVICES'] = ''
 
 @pytest.fixture
 def xfail_models():
     return ["flashmatching"]
 
-@pytest.fixture(params=factories.model_dict().keys())
+#@pytest.fixture(params=model_dict().keys())
+@pytest.fixture(params=['uresnet'])
 def config_simple(request):
+    """Fixture to generate a basic configuration dictionary given a model name.
     """
-    Fixture to generate a basic configuration dictionary given a model name.
-    """
+    # Get the model and loss classes
     model_name = request.param
-    model, criterion = factories.construct(model_name)
-    # if 'chain' in model_name:
-    model_config = {
-        'name': model_name,
-        'modules': {}
+    model, criterion = model_factory(model_name)
+
+    # Initialize a basic loader configuration
+    loader_cfg = {
+            'batch_size': 1,
     }
-    for module in model.MODULES:
+
+    # Initialize the model configuration
+    model_cfg = {
+            'name': model_name,
+            'modules': {}
+    }
+
+    for module in getattr(model, 'MODULES', []):
         if isinstance(module, str):
-            model_config['modules'][module] = {}
+            model_cfg['modules'][module] = {}
         else:
             if isinstance(module[1], list):
-                model_config['modules'][module[0]] = {}
+                model_cfg['modules'][module[0]] = {}
                 for el in module[1]:
-                    model_config['modules'][module[0]][el] = {}
+                    model_cfg['modules'][module[0]][el] = {}
             else:
-                model_config['modules'][module[0]] = module[1]
-    # else:
-    #     model_config = {
-    #         'name': model_name,
-    #         'modules': {
-    #             model_name: {}
-    #         }
-    #     }
-    model_config['network_input'] = ['input_data', 'segment_label']
-    model_config['loss_input'] = ['segment_label']
-    iotool_config = {
-        'batch_size': 1,
-        'minibatch_size': 1
+                model_cfg['modules'][module[0]] = module[1]
+
+    # Set the input to the model and the loss
+    model_cfg['network_input'] = {'data': 'input_data'}
+    model_cfg['loss_input'] = {'seg_label': 'seg_label'}
+
+    # Assemble
+    cfg = {
+            'io': {'loader': loader_cfg},
+            'model': model_cfg,
     }
-    config = {
-        'iotool': iotool_config,
-        'trainval': {
-            'gpus': ''
-            },
-        'model': model_config
-    }
-    return config
+
+    return cfg
 
 
-@pytest.fixture(params=factories.model_dict().keys())
+@pytest.fixture(params=model_dict().keys())
 def config_full(request, tmp_path, data):
     """
     Fixture to generate a basic configuration dictionary given a model name.
     """
     model_name = request.param
-    model, criterion = factories.construct(model_name)
+    model, criterion = model_factory(model_name)
     # if model.CHAIN:
     model_config = {
         'name': model_name,

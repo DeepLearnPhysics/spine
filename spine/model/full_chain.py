@@ -265,7 +265,7 @@ class FullChain(torch.nn.Module):
         # Run the particle aggregation
         self.run_part_aggregation(data, clust_label, coord_label)
 
-        # Run the independant particle classification stage
+        # Run an independant particle classification stage
         # TODO
 
         # Run the interaction aggregation
@@ -518,20 +518,44 @@ class FullChain(torch.nn.Module):
         clust_label : TensorBatch, optional
             (N, 1 + D + N_c) Tensor of cluster labels
         """
-        fragments, fragment_shapes = None, None
+        # Initialize the fragment-level output
+        counts = np.zeros(data.batch_size, dtype=np.int64)
+        fragments = IndexBatch([], data.counts, counts, [])
+        fragment_shapes = TensorBatch(np.empty(0, dtype=np.int64), counts)
+
+        # Append the fragment list
         if 'dbscan' in self.fragmentation:
-            fragments, fragment_shapes = self.dbscan(data, **self.result)
+            # Run DBSCAN
+            clusts, clust_shapes = self.dbscan(data, **self.result)
+
+            # Append
+            fragments = fragments.merge(clusts)
+            fragment_shapes = fragment_shapes.merge(clust_shapes)
 
         if 'graph_spice' in self.fragmentation:
             # Run Graph-SPICE
-            res_gs = self.graph_spice(data, self.result['seg_pred']) 
+            seg_pred = TensorBatch(
+                    self.result['seg_pred'].tensor[:, None], data.counts)
+            res_gs = self.graph_spice(data, seg_pred, clust_label) 
 
-            # 
+            # Update the global result with the graph_spice output
+            self.result.update(
+                    {f'graph_spice_{key}':val for key, val in res_gs.items()})
 
-            # TODO
+            # Make fragments, if necessary
+            # TODO: check that we run GrapPA, to save time
+            clusts, clust_shapes = (
+                    self.graph_spice.constructor.fit_predict(res_gs))
 
-            # If there are existing fragments from DBSCAN, merge
-            # TODO
+            # Fragments point at a partial tensor, adapt them to the full input
+            filter_index = res_gs['filter_index'].index
+            for i, f in enumerate(fragments.index_list):
+                clusts.index_list[i] = filter_index[f]
+            clusts.offsets = data.counts
+
+            # Append
+            fragments = fragments.merge(clusts.to_numpy())
+            fragment_shapes = fragment_shapes.merge(clust_shapes)
 
         if self.fragmentation == 'label':
             assert clust_label is not None, (
@@ -1026,7 +1050,7 @@ class FullChainLoss(torch.nn.Module):
 
     def __init__(self, chain, uresnet_deghost=None, uresnet_deghost_loss=None,
                  uresnet=None, uresnet_loss=None, uresnet_ppn=None,
-                 uresnet_ppn_loss=None, graph_spice_loss=None,
+                 uresnet_ppn_loss=None, graph_spice=None, graph_spice_loss=None,
                  grappa_shower_loss=None, grappa_track_loss=None,
                  grappa_particle_loss=None, grappa_inter_loss=None, **kwargs):
         """Initialize the full chain model.
@@ -1047,6 +1071,8 @@ class FullChainLoss(torch.nn.Module):
             Segmentation and point proposal model configuration
         uresnet_ppn_loss : dict, optional
             Segmentation and point proposal loss configuration
+        graph_spice : dict, optional
+            Supervised connected component clustering model configuration
         graph_spice_loss : dict, optional
             Supervised connected component clustering loss configuration
         grappa_shower : dict, optional
@@ -1083,7 +1109,7 @@ class FullChainLoss(torch.nn.Module):
 
         # Initialize the graph-SPICE loss
         if 'graph_spice' in self.fragmentation:
-            self.graph_spice_loss = GraphSPICELoss(graph_spice_loss)
+            self.graph_spice_loss = GraphSPICELoss(graph_spice, graph_spice_loss)
 
         # Initialize the GraPA lossses
         self.grappa_losses = {
@@ -1100,7 +1126,7 @@ class FullChainLoss(torch.nn.Module):
 
     def forward(self, seg_label=None, ppn_label=None, clust_label=None,
                 clust_label_adapt=None, coord_label=None, graph_label=None,
-                ghost=None, ghost_pred=None, segmentation=None, **kwargs):
+                ghost=None, ghost_pred=None, segmentation=None, **output):
         """Run the full chain output through the full chain loss.
 
         Parameters
@@ -1128,7 +1154,7 @@ class FullChainLoss(torch.nn.Module):
             (N,) Tensor of ghost predictions
         segmentation : TensorBatch, optional
             (N, N_c) Tensor of logits from the segmentation model
-        **kwargs : dict, optional
+        **output : dict, optional
             Additional outputs of the reconstruction chain
         """
         # Initialize the loss output
@@ -1171,7 +1197,7 @@ class FullChainLoss(torch.nn.Module):
             else:
                 res_seg = self.uresnet_ppn_loss(
                         seg_label=seg_label, ppn_label=ppn_label,
-                        segmentation=segmentation, **kwargs)
+                        segmentation=segmentation, **output)
                 self.update_result(res_seg)
 
             # Adapt the cluster labels to those corresponding to the
@@ -1180,7 +1206,14 @@ class FullChainLoss(torch.nn.Module):
 
         # Apply the Graph-SPICE loss
         if 'graph_spice' in self.fragmentation:
-            raise NotImplementedError
+            # Prepare Graph-SPICE loss input
+            loss_dict = {}
+            for key, value in output.items():
+                if key.startswith('graph_spice_'):
+                    loss_dict[key.replace('graph_spice_', '')] = value
+
+            res_gs = self.graph_spice_loss(
+                    seg_label=seg_label, clust_label=clust_label, **loss_dict)
 
         # Apply the aggregation losses
         for stage in self.grappa_losses.keys():
@@ -1189,7 +1222,7 @@ class FullChainLoss(torch.nn.Module):
                 name = f'grappa_{stage}_loss'
                 prefix = f'{stage}_fragment' if stage != 'inter' else 'particle'
                 loss_dict = {}
-                for k, v in kwargs.items():
+                for k, v in output.items():
                     if f'{prefix}_' in k:
                         loss_dict[k.split(f'{prefix}_')[-1]] = v
 
@@ -1271,6 +1304,7 @@ def process_chain_config(self, dump_config=False, **parameters):
             (not self.shower_aggregation and not self.track_aggregation)), (
             "Use particle aggregator or shower/track aggregators, not both.")
 
+    # Dump the chain configuration, if requested
     if dump_config:
         logger.info(f"Full chain configuration:")
         for k, v in parameters.items():

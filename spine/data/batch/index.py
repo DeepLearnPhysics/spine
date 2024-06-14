@@ -90,7 +90,7 @@ class IndexBatch(BatchBase):
             single_counts = counts
         else:
             assert len(single_counts) == len(data), (
-                    "The must be one single count per index in the list.")
+                    "There must be one single count per index in the list.")
 
         # Cast
         counts = self._as_long(counts)
@@ -105,6 +105,12 @@ class IndexBatch(BatchBase):
 
         # Get the boundaries between successive index using the counts
         edges = self.get_edges(counts)
+
+        # If the data is a simple list, cast it to an array of objects
+        if is_list and not isinstance(data, np.ndarray):
+            data_np = np.empty(len(data), dtype=object)
+            data_np[:] = data
+            data = data_np
 
         # Store the attributes
         self.data = data
@@ -131,10 +137,13 @@ class IndexBatch(BatchBase):
         lower, upper = self.edges[batch_id], self.edges[batch_id + 1]
         if not self.is_list:
             return self.data[lower:upper] - self.offsets[batch_id]
+
         else:
             entry = np.empty(upper-lower, dtype=object)
-            entry[:] = self.data[lower:upper]
-            return entry - self.offsets[batch_id]
+            for i, index in enumerate(self.data[lower:upper]):
+                entry[i] = index - self.offsets[batch_id]
+
+            return entry
 
     @property
     def index(self):
@@ -314,13 +323,16 @@ class IndexBatch(BatchBase):
         if not self.is_list:
             data = self._to_numpy(self.data)
         else:
-            data = np.empty(len(data), dtype=object)
+            data = np.empty(len(self.data), dtype=object)
             for i, d in enumerate(self.data):
                 data[i] = self._to_numpy(d)
 
         offsets = self._to_numpy(self.offsets)
         counts = self._to_numpy(self.counts)
-        single_counts = self._to_numpy(self.single_counts)
+
+        single_counts = None
+        if self.is_list:
+            single_counts = self._to_numpy(self.single_counts)
 
         return IndexBatch(data, offsets, counts, single_counts)
 
@@ -352,6 +364,9 @@ class IndexBatch(BatchBase):
 
         offsets = self._to_tensor(self.offsets, dtype, device)
         counts = self._to_tensor(self.counts, dtype, device)
-        single_counts = self._to_tensor(self.single_counts, dtype, device)
+
+        single_counts = None
+        if self.is_list:
+            single_counts = self._to_tensor(self.single_counts, dtype, device)
 
         return IndexBatch(data, offsets, counts, single_counts)

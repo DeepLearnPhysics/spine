@@ -1,8 +1,10 @@
 """Connected component clustering module."""
 
 import numpy as np
-import scipy as sp
+from scipy.sparse import coo_matrix, csgraph
 import torch
+
+from spine.data import TensorBatch
 
 from .orphan import OrphanAssigner
 
@@ -57,12 +59,14 @@ class ConnectedComponentClusterer:
         # Cast the input to numpy, if necessary
         tensor_input = isinstance(node_coords.tensor, torch.Tensor)
         if tensor_input:
+            device = node_coords.device
+            node_clusts = node_clusts.to_numpy()
+            edge_clusts = edge_clusts.to_numpy()
             node_coords = node_coords.to_numpy()
             edge_index = edge_index.to_numpy()
             edge_assn = edge_assn.to_numpy()
 
         # Loop over the unique entries in the batch
-        device = node_coords.device
         node_pred_list = []
         for b in range(node_coords.batch_size):
             # Narrow down the input to this specific entry
@@ -79,7 +83,7 @@ class ConnectedComponentClusterer:
             # Loop over the semantic classes
             offset = 0
             node_pred_b = -np.ones(len(node_coords_b), dtype=int)
-            for (nindex, eindex) in zip(node_clusts, edge_clusts):
+            for (nindex, eindex) in zip(node_clusts_b, edge_clusts_b):
                 # Get predictions for a specifc (batch ID, shape) pair
                 node_pred_b_s = self.fit_predict_one(
                         node_coords_b[nindex], edge_index_b[eindex],
@@ -96,9 +100,8 @@ class ConnectedComponentClusterer:
         # is a torch tensor, convert the output
         node_pred = np.concatenate(node_pred_list)
         node_pred = TensorBatch(node_pred, counts=node_coords.counts)
-        if is_tensor:
-            node_pred = node_pred.to_tensor(
-                    dtype=torch.long, device=node_coords.device)
+        if tensor_input:
+            node_pred = node_pred.to_tensor(dtype=torch.long, device=device)
 
         return node_pred
 
@@ -129,17 +132,17 @@ class ConnectedComponentClusterer:
         # Convert the set of edges to a coordinate-format sparse adjacency matrix
         num_nodes = len(node_coords)
         edge_assn = np.ones(len(edges), dtype=int)
-        adj = sp.coo_matrix((edge_assn, tuple(edges)), (num_nodes, num_nodes))
+        adj = coo_matrix((edge_assn, tuple(edges.T)), (num_nodes, num_nodes))
 
         # Find connected components, allow for unidirectional connections
-        _, node_pred = sp.csgraph.connected_components(adj, connection='weak')
+        _, node_pred = csgraph.connected_components(adj, connection='weak')
         node_pred = node_pred.astype(np.int64)
 
         # If min_size is set, downselect the points considered labeled
         if self.min_size > 1:
             _, counts, inverse = np.unique(
-                    y, return_counts=True, return_inverse=True)
-            orphan_mask = np.where(counts[inverse] < min_size)[0]
+                    node_pred, return_counts=True, return_inverse=True)
+            orphan_mask = np.where(counts[inverse] < self.min_size)[0]
             node_pred[orphan_mask] = -1
 
         # If requested, assign the orphans

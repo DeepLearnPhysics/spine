@@ -1,12 +1,12 @@
-"""Graph-SPICE dense clustering model and its loss."""
+"""Supervi dense clustering model and its loss."""
 
 import torch
 import numpy as np
 import MinkowskiEngine as ME
 
-from spine.data import TensorBatch
+from spine.data import TensorBatch, IndexBatch
 
-from spine.utils.cluster.graph_constructor import ClusterGraphConstructor
+from spine.utils.cluster.graph import ClusterGraphConstructor
 from spine.utils.globals import (
         COORD_COLS, SHAPE_COL, SHOWR_SHP, TRACK_SHP, DELTA_SHP, MICHL_SHP)
 
@@ -147,10 +147,11 @@ class GraphSPICE(torch.nn.Module):
         classes = torch.tensor(self.classes, device=data.device)
 
         # Create an index of the valid input rows
-        mask = seg_label.tensor[:, SHAPE_COL] == classes.view(-1, 1).any(dim=0)
+        mask = (seg_label.tensor[:, SHAPE_COL] == classes.view(-1, 1)).any(dim=0)
         index = torch.where(mask)[0]
 
         # Restrict the input
+        offsets = data.counts
         data = TensorBatch(
                 data.tensor[index], batch_size=data.batch_size,
                 has_batch_col=True)
@@ -158,7 +159,10 @@ class GraphSPICE(torch.nn.Module):
         if clust_label is not None:
             clust_label = TensorBatch(clust_label.tensor[index], data.counts)
 
-        return data, seg_label, clust_label, index, data.counts
+        # Store the index as an IndexBatch
+        index = IndexBatch(index, offsets, data.counts)
+
+        return data, seg_label, clust_label, index
 
     def forward(self, data, seg_label, clust_label=None):
         """Run a batch of data through the forward function.
@@ -184,7 +188,7 @@ class GraphSPICE(torch.nn.Module):
             Dictionary of outputs
         """
         # Filter the input down to the requested classes
-        data, seg_label, clust_label, index, counts = self.filter_class(
+        data, seg_label, clust_label, index = self.filter_class(
                 data, seg_label, clust_label)
 
         # Embed the input pixels into a feature space used for graph clustering
@@ -192,7 +196,6 @@ class GraphSPICE(torch.nn.Module):
 
         # Store the index and the counts to not have to recompute them later
         result['filter_index'] = index
-        result['filter_counts'] = counts
 
         # Build the graph on the pixel set
         coords = result['coordinates']
@@ -283,7 +286,7 @@ class GraphSPICELoss(torch.nn.Module):
             self.constructor = ClusterGraphConstructor(
                     **constructor, classes=classes, invert=invert)
 
-    def filter_class(self, seg_label, clust_label, filter_index, filter_counts):
+    def filter_class(self, seg_label, clust_label, filter_index):
         """Filter the list of pixels to those in the list of requested classes.
 
         Parameters
@@ -294,10 +297,8 @@ class GraphSPICELoss(torch.nn.Module):
         clust_label : TensorBatch, optional
             (N, 1 + D + N_c) Tensor of cluster labels
             - N_c is is the number of cluster labels
-        filter_index : torch.Tensor
+        filter_index : IndexBatch
             (M) Index to narrow down the original tensor
-        filter_counts : torch.Tensor
-            (B) Number of restricted points in each batch entry
 
         Parameters
         ----------
@@ -306,13 +307,14 @@ class GraphSPICELoss(torch.nn.Module):
         clust_label : TensorBatch
             (M, 1 + D + N_c) Restricted tnesor of cluster labels
         """
-        seg_label = TensorBatch(seg_label.tensor[filter_index], filter_counts)
-        clust_label = TensorBatch(clust_label.tensor[filter_index], filter_counts)
+        seg_label = TensorBatch(
+                seg_label.tensor[filter_index.index], filter_index.counts)
+        clust_label = TensorBatch(
+                clust_label.tensor[filter_index.index], filter_index.counts)
 
         return seg_label, clust_label
 
-    def forward(self, seg_label, clust_label, filter_index, filter_counts,
-                **output):
+    def forward(self, seg_label, clust_label, filter_index, **output):
         """Run a batch of data through the loss function.
 
         Parameters
@@ -323,10 +325,8 @@ class GraphSPICELoss(torch.nn.Module):
         clust_label : TensorBatch, optional
             (N, 1 + D + N_c) Tensor of cluster labelresul
             - N_c is is the number of cluster labels
-        filter_index : torch.Tensor
+        filter_index : IndexBatch
             (M) Index to narrow down the original tensor
-        filter_counts : torch.Tensor
-            (B) Number of restricted points in each batch entry
         **output : dict
             Output of the Graph-SPICE model
 
@@ -337,7 +337,7 @@ class GraphSPICELoss(torch.nn.Module):
         """
         # Narrow down the labels to those corresponding to the relevant classes
         seg_label, clust_label = self.filter_class(
-                seg_label, clust_label, filter_index, filter_counts)
+                seg_label, clust_label, filter_index)
 
         # Pass the output through the loss function
         result = self.loss_fn(
