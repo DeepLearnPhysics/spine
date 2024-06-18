@@ -58,13 +58,16 @@ class PostManager:
             self.watch.start(key)
             if np.isscalar(data['index']):
                 result = module(data)
+
             else:
                 num_entries = len(data['index'])
                 result = defaultdict(list)
                 for entry in range(num_entries):
                     result_e = module(data, entry)
-                    for key, value in result_e.items():
-                       result[key].append(value)
+                    if result_e is not None:
+                        for k, v in result_e.items():
+                           result[k].append(v)
+
             self.watch.stop(key)
 
             # Update the input dictionary

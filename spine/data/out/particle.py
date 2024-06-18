@@ -66,7 +66,7 @@ class ParticleBase:
     end_dir: np.ndarray = None
     ke: float = -1.
     momentum: np.ndarray = None
-    is_valid: bool = False
+    is_valid: bool = True
 
     # Fixed-length attributes
     _fixed_length_attrs = {

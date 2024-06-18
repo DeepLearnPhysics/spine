@@ -112,6 +112,17 @@ PID_LABELS = {
     KAON_PID: 'Kaon'
 }
 
+# Particle type tags
+PID_TAGS = {
+    -1: '?',
+    PHOT_PID: 'g',
+    ELEC_PID: 'e',
+    MUON_PID: 'mu',
+    PION_PID: 'pi',
+    PROT_PID: 'p',
+    KAON_PID: 'ka'
+}
+
 # Map between shape and allowed PID/primary labels
 SHP_TO_PID = {
     SHOWR_SHP: np.array([PHOT_PID, ELEC_PID]),

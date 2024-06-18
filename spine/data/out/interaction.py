@@ -5,6 +5,7 @@ from dataclasses import dataclass, asdict
 
 import numpy as np
 
+from spine.utils.globals import PID_TAGS
 from spine.utils.decorators import inherit_docstring
 
 from spine.data.neutrino import Neutrino
@@ -84,6 +85,54 @@ class InteractionBase:
         """
         return len(self.particle_ids)
 
+    @property
+    def particle_counts(self):
+        """Number of particles of each shape in this interaction.
+
+        Returns
+        -------
+        np.ndarray
+            (C) Number of particles of each class
+        """
+        counts = np.empty(len(self.pid_scores), dtype=int)
+        for part in self.particles:
+            if part.pid > -1 and part.is_valid:
+                counts[part.pid] += 1
+
+        return counts
+
+    @property
+    def primary_particle_counts(self):
+        """Number of primary particles of each shape in this interaction.
+
+        Returns
+        -------
+        np.ndarray
+            (C) Number of primary particles of each class
+        """
+        counts = np.empty(len(self.pid_scores), dtype=int)
+        for part in self.particles:
+            if part.pid > -1 and part.is_primary and part.is_valid:
+                counts[part.pid] += 1
+
+        return counts
+
+    @property
+    def topology(self):
+        """String representing the interaction topology.
+
+        Returns
+        -------
+        str
+            String listing the number of primary particles in this interaction
+        """
+        topology = ''
+        for i, count in enumerate(self.primary_particle_counts):
+            if count > 0:
+                topology += f'{count}{encode[i]}'
+
+        return topology
+
     @classmethod
     def from_particles(cls, particles):
         """Builds an Interaction instance from its constituent Particle objects.
@@ -152,6 +201,11 @@ class TruthInteraction(Neutrino, InteractionBase, TruthBase):
         Index of the neutrino matched to this interaction
     """
     nu_id: int = -1
+
+    # Fixed-length attributes
+    _fixed_length_attrs = {
+        **Neutrino._fixed_length_attrs, **InteractionBase._fixed_length_attrs
+    }
 
     # Attributes that should not be stored
     _skip_attrs = [*TruthBase._skip_attrs, *InteractionBase._skip_attrs]

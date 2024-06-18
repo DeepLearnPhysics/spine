@@ -35,23 +35,31 @@ class PostBase(ABC):
     truth_point_mode = 'points'
     units = 'cm'
 
-    # List of recognized run modes
-    _run_modes = ['reco', 'truth', 'both', 'all']
-    
     # List of recognized object types
     _obj_types = ['fragment', 'particle', 'interaction']
 
-    def __init__(self, run_mode=None, truth_point_mode=None):
+    # List of recognized run modes
+    _run_modes = ['reco', 'truth', 'both', 'all']
+
+    # List of known point modes
+    _point_modes = ['points', 'points_adapt', 'points_g4']
+
+    def __init__(self, obj_type=None, run_mode=None, truth_point_mode=None):
         """Initialize default post-processor object properties.
 
         Parameters
         ----------
+        obj_type : Union[str, List[str]]
+            Name or list of names of the object types to process
         run_mode : str, optional
-           If specified, tells whether the post-processor must run on
-           reconstructed ('reco'), true ('true) or both objects ('both', 'all')
+            If specified, tells whether the post-processor must run on
+            reconstructed ('reco'), true ('true') or both objects
+            ('both' or 'all')
         truth_point_mode : str, optional
-           If specified, tells which attribute of the `TruthParticle` object
-           to use to fetch its point coordinates
+            If specified, tells which attribute of the :class:`TruthFragment`,
+            :class:`TruthParticle` or :class:`TruthInteraction` object to use
+            to fetch its point coordinates
+           
         """
         # If run mode is specified, process it
         if run_mode is not None:
@@ -60,27 +68,36 @@ class PostBase(ABC):
                     f"`run_mode` not recognized: {run_mode}. Must be one of "
                     f"{self._run_modes}.")
 
+        # Check that all the object sources are recognized
+        if isinstance(obj_type, str):
+            obj_type = [obj_type]
+        for obj in obj_type:
+            assert obj in self._obj_types, (
+                    f"Object type must be one of {self._obj_types}. Got "
+                    f"`{obj}` instead.")
+
         # Make a list of object keys to process
         for name in self._obj_types:
             # Initialize one list per object type
             setattr(self, f'{name}_keys', [])
 
-            # Loop over the requisite keys, store them
-            if run_mode != 'truth':
-                key = f'reco_{name}s'
-                if key in self.keys:
-                    getattr(self, f'{name}_keys').append(key)
-            if run_mode != 'reco':
-                key = f'truth_{name}s'
-                if key in self.keys:
-                    getattr(self, f'{name}_keys').append(key)
+            # Skip object types which are not requested
+            if name in obj_type:
+                if run_mode != 'truth':
+                    getattr(self, f'{name}_keys').append(f'reco_{name}s')
+                if run_mode != 'reco':
+                    getattr(self, f'{name}_keys').append(f'truth_{name}s')
 
-        self.all_keys = (self.fragment_keys 
+        self.obj_keys = (self.fragment_keys 
                          + self.particle_keys 
                          + self.interaction_keys)
+        self.keys.update({k:True for k in self.obj_keys})
 
         # If a truth point mode is specified, store it
         if truth_point_mode is not None:
+            assert truth_point_mode in self._point_modes, (
+                     "The `truth_point_mode` argument must be one of "
+                    f"{self._point_modes}. Got `{truth_point_mode}` instead.")
             self.truth_point_mode = truth_point_mode
 
     def __call__(self, data, entry=None):

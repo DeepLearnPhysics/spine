@@ -412,7 +412,7 @@ class ModelManager:
         Parameters
         ----------
         data : dict
-            Dictionary of input data product keys which each map to its
+            Dictionary of input data product keys, each of which maps to its
             associated batched data product
 
         Returns

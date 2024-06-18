@@ -13,9 +13,8 @@ def get_track_length(coordinates: nb.float32[:,:],
                      anchor_point: bool = True,
                      min_count: int = 10,
                      spline_smooth: float = None) -> nb.float32:
-    '''
-    Given a set of point coordinates associated with a track and one of its end
-    points, compute its length.
+    """Given a set of point coordinates associated with a track and one of its
+    end points, compute its length.
 
     Parameters
     ----------
@@ -40,7 +39,7 @@ def get_track_length(coordinates: nb.float32[:,:],
     -------
     float
        Total length of the track
-    '''
+    """
     if method == 'displacement':
         # Project points along the principal component, compute displacement
         track_dir = nbl.principal_components(coordinates)[0]
@@ -60,8 +59,8 @@ def get_track_length(coordinates: nb.float32[:,:],
         return get_track_spline(coordinates, segment_length, spline_smooth)[-1]
 
     else:
-        raise ValueError('Track length estimation method ' \
-                f'not recognized: {method}')
+        raise ValueError(
+                f"Track length estimation method not recognized: `{method}`.")
 
 
 @nb.njit(cache=True)
@@ -75,8 +74,7 @@ def check_track_orientation(coordinates: nb.float32[:,:],
                             segment_method: str = 'step_next',
                             segment_length: nb.float32 = 5,
                             segment_min_count: int = 10) -> bool:
-    '''
-    Given a set of track point coordinates and the track end points, checks
+    """Given a set of track point coordinates and the track end points, checks
     which end point is most likely to be the correct start, based on the
     rate of energy deposition in the track.
 
@@ -108,7 +106,7 @@ def check_track_orientation(coordinates: nb.float32[:,:],
     bool
        Returns `True` if the start point provided is correct, `False`
        if the end point is more likely to be the start point.
-    '''
+    """
     if method == 'local':
         # If requested, anchor the end points to the closest track points
         end_points = np.vstack((start_point, end_point))
@@ -151,10 +149,9 @@ def get_track_deposition_gradient(coordinates: nb.float32[:,:],
                                   min_count: int = 10) -> (nb.float32,
                                           nb.float32[:], nb.float32[:],
                                           nb.float32[:]):
-    '''
-    Given a set of point coordinates and their values associated with a track
-    and a start point, compute the deposition gradient with respect to the
-    start point.
+    """Given a set of point coordinates and their values associated with a
+    track and a start point, compute the deposition gradient with respect to
+    the start point.
 
     Parameters
     ----------
@@ -185,11 +182,11 @@ def get_track_deposition_gradient(coordinates: nb.float32[:,:],
        (S) Array of residual ranges (center of the segment w.r.t. end point)
     segment_lengths : np.ndarray
        (S) Array of segment lengths
-    '''
+    """
     # Compute the track segment dedxs
-    seg_dedxs, _, seg_rrs, _, _, seg_lengths = \
-            get_track_segment_dedxs(coordinates, values, start_point,
-                    segment_length, method, anchor_point, min_count)
+    seg_dedxs, _, seg_rrs, _, _, seg_lengths = get_track_segment_dedxs(
+            coordinates, values, start_point, segment_length, method,
+            anchor_point, min_count)
 
     valid_index = np.where(seg_dedxs > -1)[0]
     if not len(valid_index):
@@ -216,10 +213,9 @@ def get_track_segment_dedxs(coordinates: nb.float32[:,:],
                                     nb.float32[:], nb.float32[:],
                                     nb.float32[:], nb.float32[:],
                                     nb.float32[:], nb.float32[:]):
-    '''
-    Given a set of point coordinates and their values associated with a track
-    and one of its end points, compute the energy/charge deposition rate as
-    a function of the residual range.
+    """Given a set of point coordinates and their values associated with a
+    track and one of its end points, compute the energy/charge deposition rate
+    as a function of the residual range.
 
     Parameters
     ----------
@@ -254,7 +250,7 @@ def get_track_segment_dedxs(coordinates: nb.float32[:,:],
        (S, 3) Array of segment direction vectors
     seg_lengths : np.ndarray
        (S) Array of segment lengths
-    '''
+    """
     # Get the segment indexes and their lengths
     seg_clusts, seg_dirs, seg_lengths = get_track_segments(coordinates,
             segment_length, end_point, method, anchor_point, min_count)
@@ -291,10 +287,9 @@ def get_track_segments(coordinates: nb.float32[:,:],
                        method: str = 'step_next',
                        anchor_point: bool = True,
                        min_count: int = 10) -> (nb.types.List(nb.int64[:]),
-                               nb.float32[:], nb.float32):
-    '''
-    Given a set of point coordinates associated with a track and one of its end
-    points, divide the track into segments of the requested length.
+                               nb.float32[:,:], nb.float64[:]):
+    """Given a set of point coordinates associated with a track and one of its
+    end points, divide the track into segments of the requested length.
 
     Parameters
     ----------
@@ -321,7 +316,7 @@ def get_track_segments(coordinates: nb.float32[:,:],
        (S, 3) Array of segment direction vectors
     segment_lengths : np.ndarray
        (S) Array of segment lengths
-    '''
+    """
     if method == 'step' or method == 'step_next':
         # Determine which point to start stepping from
         if point is not None:
@@ -340,7 +335,7 @@ def get_track_segments(coordinates: nb.float32[:,:],
         seg_start     = np.copy(start_point)
         seg_clusts    = empty_list(np.empty(0, dtype=np.int64))
         seg_dirs_l    = empty_list(np.empty(0, dtype=coordinates.dtype))
-        seg_lengths_l = empty_list(np.empty(1, dtype=coordinates.dtype).item())
+        seg_lengths_l = empty_list(nb.float64)
         left_index = np.arange(len(coordinates))
         while len(left_index):
             # Compute distances from the segment start point to the all
@@ -385,7 +380,7 @@ def get_track_segments(coordinates: nb.float32[:,:],
             if np.linalg.norm(direction):
                 direction /= np.linalg.norm(direction)
             else:
-                direction = np.array([1.,0.,0.], dtype=coordinates.dtype)
+                direction = np.array([1., 0., 0.], dtype=coordinates.dtype)
 
             # Compute the segment length. If it's the last segment,
             # track the distance to the fathest point in the segment
@@ -480,9 +475,8 @@ def get_track_segments(coordinates: nb.float32[:,:],
 
 
 def get_track_spline(coordinates, segment_length, s=None):
-    '''
-    Estimate the best approximating curve defined by a point cloud
-    using univariate 3D splines.
+    """Estimate the best approximating curve defined by a point cloud using
+    univariate 3D splines.
 
     The length is computed by measuring the length of the piecewise linear
     interpolation of the spline at points defined by the bin size.
@@ -510,7 +504,7 @@ def get_track_spline(coordinates, segment_length, s=None):
         Approximating splines for the point cloud defined by points
     length : float
         The estimate of the total length of the curve
-    '''
+    """
     # Compute the principal component along which to segment the track
     track_dir = nbl.principal_components(coordinates)[0]
     pcoords   = np.dot(coordinates, track_dir)

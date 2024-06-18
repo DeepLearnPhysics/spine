@@ -136,6 +136,10 @@ class Driver:
         # Initialize the output log
         self.initialize_log()
 
+    def __len__(self):
+        """Returns the number of events in the underlying reader object."""
+        return len(self.reader)
+
     def process_config(self, io, base=None, model=None, build=None,
                        post=None, ana=None, rank=None):
         """Reads the configuration and dumps it to the logger.

@@ -4,9 +4,14 @@ from spine.utils.factory import module_dict, instantiate
 
 from . import gain, lifetime, transparency, field, recombination
 
+# Build a dictionary of available calibration modules
+CALIB_DICT = {}
+for module in [gain, lifetime, transparency, recombination, field]:
+    CALIB_DICT.update(**module_dict(module))
+
 
 def calibrator_factory(name, cfg):
-    """Instantiates calibrator module from a configuration dictionary.
+    """Instantiates a calibrator module from a configuration dictionary.
 
     Parameters
     ----------
@@ -20,13 +25,8 @@ def calibrator_factory(name, cfg):
     object
          Initialized calibration module
     """
-    # Build a dictionary of available calibration modules
-    calib_dict = {}
-    for module in [gain, lifetime, transparency, recombination, field]:
-        calib_dict.update(**module_dict(module))
-
     # Provide the name to the configuration
     cfg['name'] = name
 
     # Instantiate the calibration module
-    return instantiate(calib_dict, cfg)
+    return instantiate(CALIB_DICT, cfg)

@@ -2,6 +2,7 @@
 
 import numpy as np
 
+from spine.data import Particle
 from spine.utils.globals import PART_COL
 
 from .point import scatter_points
@@ -41,6 +42,10 @@ def scatter_particles(cluster_label, particles, part_col=PART_COL,
         index = np.where(cluster_label[:, part_col] == i)[0]
         if not index.shape[0]:
             continue
+
+        # If needed, cast the particle labels to the local class
+        if not isinstance(p, Particle):
+            p = Particle.from_larcv(p)
 
         # Initialize the information string
         label = f'Particle {p.id}'
