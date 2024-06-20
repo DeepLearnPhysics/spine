@@ -9,37 +9,39 @@ import spine.utils.match
 
 from spine.post.base import PostBase
 
+__all__ = ['MatchProcessor']
+
 
 class MatchProcessor(PostBase):
     """Does the matching between reconstructed and true objects."""
     name = 'match'
-    result_cap_opt = ['reco_fragments', 'truth_fragments', 
-                      'reco_particles', 'truth_particles',
-                      'reco_interactions', 'truth_interactions']
     
-    def __init__(self, fragments=None, particles=None, interactions=None):
+    def __init__(self, fragment=None, particle=None, interaction=None):
         """Initializes the matching post-processor.
         
         Parameters
         ----------
-        fragments: dict, optional
+        fragment: dict, optional
             Matching configuration for fragments
-        particles: dict, optional
+        particle: dict, optional
             Matching configuration for particles
-        interactions: dict, optional
+        interaction: dict, optional
             Matching configuration for interactions
         """
         # Initialize the necessary matchers
         self.matchers = {}
-        if fragments is not None:
-            self.matchers['fragments'] = self.Matcher(**fragments)
-        if particles is not None:
-            self.matchers['particles'] = self.Matcher(**particles)
-        if interactions is not None:
-            self.matchers['interactions'] = self.Matcher(**interactions)
+        if fragment is not None:
+            self.matchers['fragment'] = self.Matcher(**fragment)
+        if particle is not None:
+            self.matchers['particle'] = self.Matcher(**particle)
+        if interaction is not None:
+            self.matchers['interaction'] = self.Matcher(**interaction)
 
         assert len(self.matchers), (
-                "Must specify one of 'fragments', 'particles' or 'interactions'.")
+                "Must specify one of 'fragment', 'particle' or 'interaction'.")
+
+        # Initialize the parent class
+        super().__init__(list(self.matchers.keys()), 'both')
 
     @dataclass
     class Matcher:
@@ -83,33 +85,34 @@ class MatchProcessor(PostBase):
                 f"Must be one of {self._overlap_modes}.")
 
             # Check that the overlap mode and weighting are compatible
-            assert not weighted or overlap in ['iou', 'dice'], (
+            assert not self.weight_overlap or overlap in ['iou', 'dice'], (
                     "Only IoU and Dice-based overlap functions can be weighted.")
 
             # Initialize the match overlap function
-            prefix = 'overlap' if not self.weight else 'overlap_weighted'
+            prefix = 'overlap' if not self.weight_overlap else 'overlap_weighted'
             self.fn = getattr(
                     spine.utils.match, f'{prefix}_{self.overlap_mode}')
         
-    def process(self, data_dict, result_dict):
+    def process(self, data):
         """Match all the requested objects in one entry.
 
         Parameters
         ----------
-        data_dict : dict
-            Input data dictionary
-        result_dict : dict
-            Chain output dictionary
+        data: dict
+            Dictionary of data products
         """
         # Loop over the matchers
-        for name, matcher in self.matchers:
+        result = {}
+        for name, matcher in self.matchers.items():
             # Fetch the required data products
-            reco_objs = result_dict[f'reco_{name}']
-            truth_objs = result_dict[f'truth_{name}']
+            reco_objs = data[f'reco_{name}s']
+            truth_objs = data[f'truth_{name}s']
 
             # Pass it to the individual processor
-            result = self.process_single(reco_objs, truth_objs, matcher, name)
-            result_dict.update(**result)
+            res_one = self.process_single(reco_objs, truth_objs, matcher, name)
+            result.update(**res_one)
+
+        return result
 
     def process_single(self, reco_objs, truth_objs, matcher, name):
         """Match all the requested objects in a single category.
@@ -129,7 +132,7 @@ class MatchProcessor(PostBase):
         # TODO: more flexibility with indexes needed! Should be able
         # to convert coordinates to index (with meta) and use that to
         # match across points from different input/label tensors
-        if matcher.overlap_method != 'chamfer':
+        if matcher.overlap_mode != 'chamfer':
             reco_input = nb.typed.List([p.index for p in reco_objs])
             truth_input = nb.typed.List([p.index for p in truth_objs])
         else:
@@ -155,8 +158,10 @@ class MatchProcessor(PostBase):
             result[f'{name[:-1]}_matches_t2r'] = pairs
             result[f'{name[:-1]}_matches_t2r_overlap'] = overlaps
 
-    def generate_matches(source_objs, target_objs, prefix, suffix,
-                         ovl_matrix, ovl_valid):
+        return result
+
+    @staticmethod
+    def generate_matches(source_objs, target_objs, ovl_matrix, ovl_valid):
         """Generate pairs for a srt of sources and targets.
 
         Parameters
@@ -178,30 +183,30 @@ class MatchProcessor(PostBase):
             (N) List of overlap between each source and the best matched target
         """
         # Build the matches based on the threshold
-        pairs, overlaps = [], []
+        pairs, pair_overlaps = [], []
         for i, s in enumerate(source_objs):
             # Get the list of valid matches
             match_idxs = np.where(ovl_valid[i])[0]
             if not len(match_idxs):
                 # If there are no matches, fill dummy values
                 s.is_matched = False
-                s.match = np.empty(0, dtype=np.int64)
-                s.match_overlap = np.empty(0, dtype=np.float32)
+                s.match_ids = np.empty(0, dtype=np.int64)
+                s.match_overlaps = np.empty(0, dtype=np.float32)
 
                 pairs.append((s, None))
-                overlaps.append(-1.)
+                pair_overlaps.append(-1.)
 
             else:
                 # If there are matches, order them by decreasing overlap
                 overlaps = ovl_matrix[i, match_idxs]
                 perm = np.argsort(overlaps)[::-1]
                 s.is_matched = True
-                s.match = match_idxs[perm]
-                s.match_overlap = overlaps[perm]
+                s.match_ids = match_idxs[perm]
+                s.match_overlaps = overlaps[perm]
 
-                best_idx = s.match[0]
-                pairs.append((s, truth_objs[best_idx]))
-                overlaps.append(s.match_overlap[0])
+                best_idx = s.match_ids[0]
+                pairs.append((s, target_objs[best_idx]))
+                pair_overlaps.append(s.match_overlaps[0])
 
         # Fill the match lists
-        return pairs, overlaps
+        return pairs, pair_overlaps

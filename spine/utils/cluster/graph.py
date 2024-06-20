@@ -300,7 +300,8 @@ class ClusterGraphConstructor:
                 counts.append(counts_b)
 
             # Make an IndexBatch out of the list
-            clusts = IndexBatch(clusts, node_pred.counts, counts, single_counts)
+            clusts = IndexBatch(
+                    clusts, node_pred.edges[:-1], counts, single_counts)
             clust_shapes = TensorBatch(np.concatenate(shapes), counts)
 
             # Return

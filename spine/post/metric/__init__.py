@@ -1,1 +1,3 @@
-from .match import MatchProcessor
+"""Reconstruction quality evaluation module."""
+
+from .match import *

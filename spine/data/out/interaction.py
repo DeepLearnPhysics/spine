@@ -29,7 +29,7 @@ class InteractionBase:
         (3) Coordinates of the interaction vertex
     is_fiducial : bool
         Whether this interaction vertex is inside the fiducial volume
-    if_flash_matched : bool
+    is_flash_matched : bool
         True if the interaction was matched to an optical flash
     flash_id : int
         Index of the optical flash the interaction was matched to

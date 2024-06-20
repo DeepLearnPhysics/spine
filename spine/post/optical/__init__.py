@@ -1,1 +1,1 @@
-from .flash_matching import FlashMatchingProcessor
+from .flash_matching import *

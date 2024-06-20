@@ -520,7 +520,7 @@ class FullChain(torch.nn.Module):
         """
         # Initialize the fragment-level output
         counts = np.zeros(data.batch_size, dtype=np.int64)
-        fragments = IndexBatch([], data.counts, counts, [])
+        fragments = IndexBatch([], data.edges[:-1], counts, [])
         fragment_shapes = TensorBatch(np.empty(0, dtype=np.int64), counts)
 
         # Append the fragment list
@@ -551,7 +551,7 @@ class FullChain(torch.nn.Module):
             filter_index = res_gs['filter_index'].index
             for i, f in enumerate(fragments.index_list):
                 clusts.index_list[i] = filter_index[f]
-            clusts.offsets = data.counts
+            clusts.offsets = data.edges[:-1]
 
             # Append
             fragments = fragments.merge(clusts.to_numpy())

@@ -331,8 +331,7 @@ class CathodeCrosserProcessor(PostBase):
 
 
     def get_cathode_offsets(self, particle, module, tpcs):
-        """
-        Find the distance one must shift a particle points by to make
+        """Find the distance one must shift a particle points by to make
         both TPC contributions align at the cathode.
 
         Parameters
