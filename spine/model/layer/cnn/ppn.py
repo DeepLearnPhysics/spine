@@ -540,9 +540,12 @@ class PPNLoss(torch.nn.modules.loss._Loss):
             # If there are no label points, there are no positive points
             points_label = ppn_label[b][:, COORD_COLS]
             if not len(points_label):
-                positive = torch.empty(
-                        0, dtype=torch.bool, device=coords_final.device)
+                positive = torch.zeros(
+                        coords_final.counts[b], dtype=torch.bool,
+                        device=coords_final.device)
+                closest = torch.empty_like(positive, dtype=torch.long)
                 positive_list.append(positive)
+                closest_list.append(closest)
                 continue
 
             # Compute the pairwise distances between each label point
