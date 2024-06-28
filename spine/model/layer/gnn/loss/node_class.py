@@ -59,7 +59,7 @@ class NodeClassificationLoss(torch.nn.Module):
         self.loss_fn = loss_fn_factory(loss, functional=True)
 
     def forward(self, clust_label, clusts, node_pred, **kwargs):
-        """Applies the node classification  loss to a batch of data.
+        """Applies the node classification loss to a batch of data.
 
         Parameters
         ----------

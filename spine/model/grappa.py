@@ -493,6 +493,7 @@ class GrapPALoss(torch.nn.modules.loss._Loss):
             loss_key = f'{prefix}_loss'
             loss_keys.append(loss_key)
             setattr(self, loss_key, constructor(loss))
+
         else:
             # Otherwise, initialzie one loss per prediction type
             for key, cfg in loss.items():
