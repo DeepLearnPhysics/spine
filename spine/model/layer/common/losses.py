@@ -211,7 +211,7 @@ class BinaryLogDiceLoss(BinaryDiceLoss):
         """
         dice = super().forward(logits, targets)
         dice = torch.clamp(dice, min=self.eps, max=1.-self.eps)
-        return -torch.log(dice)
+        return -torch.log(1. - dice)
 
 
 class BinaryMincutLoss(nn.modules.loss._Loss):
