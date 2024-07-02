@@ -151,7 +151,7 @@ class GraphSPICE(torch.nn.Module):
         index = torch.where(mask)[0]
 
         # Restrict the input
-        offsets = data.counts
+        offsets = data.edges[:-1]
         data = TensorBatch(
                 data.tensor[index], batch_size=data.batch_size,
                 has_batch_col=True)
