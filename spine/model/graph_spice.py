@@ -155,8 +155,17 @@ class GraphSPICE(torch.nn.Module):
         data = TensorBatch(
                 data.tensor[index], batch_size=data.batch_size,
                 has_batch_col=True)
+
+        # Restrict the label tensors
+        assert seg_label.shape[0] == mask.shape[0], (
+                 "The segmentation label tensor is of the wrong shape: "
+                f"{seg_label.shape[0]} != {mask.shape[0]}")
         seg_label = TensorBatch(seg_label.tensor[index], data.counts)
+
         if clust_label is not None:
+            assert clust_label.shape[0] == mask.shape[0], (
+                     "The cluster label tensor is of the wrong shape: "
+                    f"{clust_label.shape[0]} != {mask.shape[0]}")
             clust_label = TensorBatch(clust_label.tensor[index], data.counts)
 
         # Store the index as an IndexBatch

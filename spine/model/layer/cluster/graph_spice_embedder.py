@@ -52,7 +52,6 @@ class GraphSPICEEmbedder(nn.Module):
                     "Must specify the number of classes predicting semantics.")
             self.out_seg = nn.Linear(self.num_filters, self.num_classes)
 
-
     def process_model_config(self, predict_semantics=False, num_classes=None,
                              coord_conv=True, covariance_mode='softplus', 
                              occupancy_mode='softplus', feature_embedding_dim=16,
@@ -106,7 +105,6 @@ class GraphSPICEEmbedder(nn.Module):
         else:
             raise ValueError(
                     f"Occupancy mode not recognized: {self.covariance_mode}")
-        
 
     def forward(self, data):
         """Compute the embeddings for one batch of data.
