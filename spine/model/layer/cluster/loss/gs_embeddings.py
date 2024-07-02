@@ -438,7 +438,7 @@ class EdgeLoss(torch.nn.modules.loss._Loss):
         
         return sampled_score, sampled_truth
 
-    def forward(self, clust_label, edge_attr, edge_pred, edge_label, **kwargs):
+    def forward(self, clust_label, edge_attr, edge_label, **kwargs):
         """Applies the edge loss to a batch of data.
 
         Parameters
@@ -448,8 +448,6 @@ class EdgeLoss(torch.nn.modules.loss._Loss):
             - N_c is is the number of cluster labels
         edge_attr : TensorBatch
             (E) Edge scores
-        edge_pred : TensorBatch
-            (E) Edge assignment from scores
         edge_label : TensorBatch
             (E) Edge binary labels
         **kwargs : dict, optional
@@ -468,8 +466,8 @@ class EdgeLoss(torch.nn.modules.loss._Loss):
         """
         # Extract the raw tensors from the batches
         edge_attr = edge_attr.tensor.flatten()
+        edge_pred = (edge_attr > 0.).long()
         edge_label = edge_label.tensor
-        edge_pred = edge_pred.tensor
 
         # If requested, extract an equal number of samples from scores/labels
         if self.equal_sampling:
@@ -498,7 +496,6 @@ class EdgeLoss(torch.nn.modules.loss._Loss):
         metric = {}
         if self.metric_fn is not None:
             metric = {self.metric_fn.name: self.metric_fn(edge_pred, edge_label)}
-
 
         # Prepare and return the result dictionary
         return {

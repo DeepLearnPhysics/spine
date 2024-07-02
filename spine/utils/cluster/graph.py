@@ -63,14 +63,12 @@ class ClusterGraphConstructor:
         """
         # Store basic properties
         self.classes = classes
+        self.threshold = edge_threshold
         self.min_size = min_size
         self.invert = invert
         self.label_edges = label_edges
         self.kernel_fn = kernel_fn
         self.target_col = target_col
-
-        # At train time, some of the parameters must be set to special values
-        self.threshold = edge_threshold if not training else 0.
 
         # Partially instantiate the graph constructor functions
         assert 'name' in graph, (
