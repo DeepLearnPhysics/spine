@@ -215,6 +215,12 @@ class GraphSPICE(torch.nn.Module):
 
         graph = self.constructor(coords, features, seg_label, clust_label)
 
+        # If requested, convert edge predictions to node predictions
+        if self.make_clusters:
+            clusts, clust_shapes = self.constructor.fit_predict(graph)
+            result['clusts'] = clusts
+            result['clust_shapes'] = clust_shapes
+
         # Save the graph dictionary
         result.update(graph)
 

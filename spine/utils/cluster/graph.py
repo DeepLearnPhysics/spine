@@ -241,21 +241,22 @@ class ClusterGraphConstructor:
         # Convert edge logits to sigmoid scores
         graph['edge_prob'] = torch.sigmoid(graph['edge_attr'])
 
-        # Assign edge predictions based on the edge scores
-        if self.invert:
-            graph['edge_pred'] = (graph['edge_prob'] <= self.threshold).long()
-        else:
-            graph['edge_pred'] = (graph['edge_prob'] >= self.threshold).long()
-
         return graph, edge_count
         
-    def fit_predict(self, graph, edge_mode='edge_pred'):
+    def fit_predict(self, graph, edge_mode='edge_pred',
+                    threshold=None, min_size=None):
         """Perform connected components clustering on a batch.
 
         Parameters
         ----------
         graph : dict
             Dictionary of graph attributes organized by batch and shape
+        edge_mode : str, default 'edge_pred'
+            Attribute of the graph used to get the edge status
+        threshold : float, optional
+            Override the edge score threshold set in the configuration
+        min_size : int, optional
+            Override the minimum cluster size set in the configuration
 
         Returns
         -------
@@ -264,6 +265,16 @@ class ClusterGraphConstructor:
         """
         # No gradients through this prediction
         with torch.no_grad():
+            # Assign edge predictions based on the edge scores
+            threshold = threshold if threshold is not None else self.threshold
+            if self.invert:
+                edge_pred = (graph['edge_prob'].tensor <= threshold).long()
+            else:
+                edge_pred = (graph['edge_prob'].tensor >= threshold).long()
+
+            graph['edge_pred'] = TensorBatch(
+                    edge_pred, graph['edge_prob'].counts)
+
             # Assign each node to a cluster
             node_pred = self.ccc(
                     graph['node_coords'], graph['edge_index'], graph[edge_mode],
@@ -273,7 +284,6 @@ class ClusterGraphConstructor:
 
             # Loop over entries in the batch, build fragments
             node_clusts = graph['node_clusts']
-            filter_index = graph['filter_index'].index
             clusts, counts, single_counts, shapes = [], [], [], []
             for b in range(node_pred.batch_size):
                 # Loop over shapes in the entry
@@ -286,7 +296,7 @@ class ClusterGraphConstructor:
 
                     # Offset the cluster indexes appropriately, append
                     for i, c in enumerate(clusts_b_s):
-                        clusts_b_s[i] = index_b_s[c]
+                        clusts_b_s[i] = node_pred.edges[b] + index_b_s[c]
 
                     # Append
                     clusts.extend(clusts_b_s)
