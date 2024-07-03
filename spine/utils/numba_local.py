@@ -286,14 +286,14 @@ def contingency_table(x: nb.int32[:],
         (N, M) Contingency table
     """
     # If not provided, assume that the max label is the max of the label array
-    if not na:
-        na = np.max(a) + 1
-    if not nb:
-        nb = np.max(b) + 1
+    if not nx:
+        nx = np.max(x) + 1
+    if not ny:
+        ny = np.max(y) + 1
 
     # Bin the table
-    table = np.zeros((na, nb), dtype=np.int64)
-    for i, j in zip(a,b):
+    table = np.zeros((nx, ny), dtype=np.int64)
+    for i, j in zip(x, y):
         table[i, j] += 1
 
     return table
