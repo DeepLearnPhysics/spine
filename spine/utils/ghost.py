@@ -266,13 +266,7 @@ def adapt_labels(clust_label, seg_label, seg_pred, ghost_pred=None,
             continue
 
         # Find points in clust_label that have compatible segment labels
-        if s == TRACK_SHP or s == LOWES_SHP:
-            seg_clust_mask = clust_label[:, SHAPE_COL] == s
-        else:
-            seg_clust_mask = (
-                    (clust_label[:, SHAPE_COL] != TRACK_SHP) &
-                    (clust_label[:, SHAPE_COL] != LOWES_SHP))
-
+        seg_clust_mask = compat_mat[s][to_long(clust_label[:, SHAPE_COL])]
         X_true = clust_label[seg_clust_mask]
         if len(X_true) == 0:
             continue
