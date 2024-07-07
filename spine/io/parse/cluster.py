@@ -9,13 +9,13 @@ from warnings import warn
 from collections import OrderedDict
 
 import numpy as np
-from sklearn.cluster import DBSCAN
 
 from spine import Meta
 from spine.utils.globals import DELTA_SHP
 from spine.utils.particles import process_particle_event
 from spine.utils.ppn import image_coordinates
 from spine.utils.conditional import larcv
+from spine.utils.numba_local import dbscan
 
 from .base import ParserBase
 from .sparse import Sparse3DParser, Sparse3DChargeRescaledParser
@@ -137,7 +137,8 @@ class Cluster3DParser(ParserBase):
     def __init__(self, particle_event=None, add_particle_info=False,
                  clean_data=False, type_include_mpr=True,
                  type_include_secondary=True, primary_include_mpr=True,
-                 break_clusters=False, **kwargs):
+                 break_clusters=False, break_eps=1.1, break_metric='chebyshev',
+                 **kwargs):
         """Initialize the parser.
 
         Parameters
@@ -158,6 +159,10 @@ class Cluster3DParser(ParserBase):
         break_clusters : bool, default False
             If `True`, runs DBSCAN on each cluster, assigns different cluster
             IDs to different fragments of the broken-down cluster
+        break_eps : float, default 1.1
+            Distance scale used in the break up procedure
+        break_metric : str, default 'chebyshev'
+            Distance metric used in the break up produce
         **kwargs : dict, optional
             Data product arguments to be passed to the `process` function
         """
@@ -171,13 +176,11 @@ class Cluster3DParser(ParserBase):
         self.type_include_secondary = type_include_secondary
         self.primary_include_mpr = primary_include_mpr
         self.break_clusters = break_clusters
+        self.break_eps = break_eps
+        self.break_metric = break_metric
 
         # Intialize the sparse and particle parsers
         self.sparse_parser = Sparse3DParser(sparse_event='dummy')
-
-        # Initialize the DBSCAN algorithm, if needed
-        if self.break_clusters:
-            self.dbscan = DBSCAN(eps=1.1, min_samples=1, metric='chebyshev')
 
         # Do basic sanity checks
         if self.add_particle_info:
@@ -320,8 +323,8 @@ class Cluster3DParser(ParserBase):
 
                 # If requested, break cluster into detached pieces
                 if self.break_clusters:
-                    frag_labels = np.unique(self.dbscan.fit(voxels).labels_,
-                                            return_inverse=True)[-1]
+                    frag_labels = dbscan(
+                            voxels, self.break_eps, self.break_metric)
                     features[1] = id_offset + frag_labels
                     id_offset += max(frag_labels) + 1
 

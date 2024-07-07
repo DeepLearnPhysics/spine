@@ -1,15 +1,16 @@
+"""Algorithms associated with the deghosting process."""
+
 import numpy as np
 import torch
-from typing import Union
-from scipy.spatial.distance import cdist
-from sklearn.cluster import DBSCAN
 from torch_cluster import knn
+from scipy.spatial.distance import cdist
 
-from spine import TensorBatch
+from spine.data import TensorBatch
+from spine.utils.numba_local import dbscan
 
 from .globals import (
         COORD_COLS, VALUE_COL, CLUST_COL, SHAPE_COL, SHOWR_SHP, TRACK_SHP,
-        MICHL_SHP, DELTA_SHP, GHOST_SHP)
+        MICHL_SHP, DELTA_SHP, LOWES_SHP, GHOST_SHP)
 
 
 def compute_rescaled_charge_batch(data, collection_only=False, collection_id=2):
@@ -39,7 +40,8 @@ def compute_rescaled_charge_batch(data, collection_only=False, collection_id=2):
 
 
 def adapt_labels_batch(clust_label, seg_label, seg_pred, ghost_pred=None,
-                       break_classes=[SHOWR_SHP,TRACK_SHP,MICHL_SHP,DELTA_SHP]):
+                       break_classes=[SHOWR_SHP,TRACK_SHP,MICHL_SHP,DELTA_SHP],
+                       break_eps=1.1, break_metric='chebyshev'):
     """Batched version of :func:`adapt_labels`.
 
     Parameters
@@ -55,6 +57,10 @@ def adapt_labels_batch(clust_label, seg_label, seg_pred, ghost_pred=None,
     break_classes : List[int], default 
                     [SHOWR_SHP, TRACK_SHP, MICHL_SHP, DELTA_SHP]
         Classes to run DBSCAN on to break up
+    break_eps : float, default 1.1
+        Distance scale used in the break up procedure
+    break_metric : str, default 'chebyshev'
+        Distance metric used in the break up produce
 
     Returns
     -------
@@ -69,7 +75,7 @@ def adapt_labels_batch(clust_label, seg_label, seg_pred, ghost_pred=None,
         ghost_pred_b = ghost_pred[b] if ghost_pred is not None else None
         clust_label_adapted[lower:upper] = adapt_labels(
                 clust_label[b], seg_label[b], seg_pred[b],
-                ghost_pred_b, break_classes)
+                ghost_pred_b, break_classes, break_eps, break_metric)
 
     return TensorBatch(clust_label_adapted, seg_pred.counts)
 
@@ -130,7 +136,8 @@ def compute_rescaled_charge(data, collection_only=False, collection_id=2):
 
 
 def adapt_labels(clust_label, seg_label, seg_pred, ghost_pred=None,
-                 break_classes=[SHOWR_SHP,TRACK_SHP,MICHL_SHP,DELTA_SHP]):
+                 break_classes=[SHOWR_SHP,TRACK_SHP,MICHL_SHP,DELTA_SHP],
+                 break_eps=1.1, break_metric='chebyshev'):
     """Adapts the cluster labels to account for the predicted semantics.
 
     Points wrongly predicted get the cluster label of the closest touching
@@ -160,6 +167,10 @@ def adapt_labels(clust_label, seg_label, seg_pred, ghost_pred=None,
     break_classes : List[int], default 
                     [SHOWR_SHP, TRACK_SHP, MICHL_SHP, DELTA_SHP]
         Classes to run DBSCAN on to break up
+    break_eps : float, default 1.1
+        Distance scale used in the break up procedure
+    break_metric : str, default 'chebyshev'
+        Distance metric used in the break up produce
 
     Returns
     -------
@@ -178,6 +189,7 @@ def adapt_labels(clust_label, seg_label, seg_pred, ghost_pred=None,
                 y[:, COORD_COLS], x[:, COORD_COLS], 1)[1]
         compute_distances = lambda x, y: torch.amax(
                 torch.abs(y[:, COORD_COLS] - x[:, COORD_COLS]), dim=1)
+
     else:
         where, cat, argmax = np.where, np.concatenate, np.argmax
         ones    = lambda x: np.ones(x, dtype=clust_label.dtype)
@@ -186,8 +198,8 @@ def adapt_labels(clust_label, seg_label, seg_pred, ghost_pred=None,
         to_bool = lambda x: x.astype(bool)
         compute_neighbor = lambda x, y: cdist(
                 x[:, COORD_COLS], y[:, COORD_COLS]).argmin(axis=1)
-        compute_distances = lambda x, y: cdist(
-                x[:, COORD_COLS], y[:, COORD_COLS], metric='chebyshev')
+        compute_distances = lambda x, y: np.amax(
+                np.abs(x[:, COORD_COLS] - y[:, COORD_COLS]), axis=1)
 
     # If there are no points in this event, nothing to do
     coords = seg_label[:, :VALUE_COL]
@@ -207,6 +219,7 @@ def adapt_labels(clust_label, seg_label, seg_pred, ghost_pred=None,
             shape = (len(coords), num_cols)
             dummy_labels = -1 * ones(shape)
             dummy_labels[:, :VALUE_COL] = coords
+
         else:
             shape = (len(deghost_index), num_cols)
             dummy_labels = -1 * ones(shape)
@@ -229,7 +242,7 @@ def adapt_labels(clust_label, seg_label, seg_pred, ghost_pred=None,
     # compatible, store the cluster labels as is. Track points do not mix
     # with other classes, but EM classes are allowed to.
     true_deghost = seg_label < GHOST_SHP
-    seg_mismatch = (seg_pred == TRACK_SHP) ^ (seg_label == TRACK_SHP)
+    seg_mismatch = seg_pred != seg_label
     new_label[true_deghost] = clust_label
     new_label[true_deghost & seg_mismatch, VALUE_COL:] = -1.
 
@@ -247,10 +260,13 @@ def adapt_labels(clust_label, seg_label, seg_pred, ghost_pred=None,
             continue
 
         # Find points in clust_label that have compatible segment labels
-        if s == TRACK_SHP:
-            seg_clust_mask = clust_label[:, SHAPE_COL] == TRACK_SHP
+        if s == TRACK_SHP or s == LOWES_SHP:
+            seg_clust_mask = clust_label[:, SHAPE_COL] == s
         else:
-            seg_clust_mask = clust_label[:, SHAPE_COL] != TRACK_SHP
+            seg_clust_mask = (
+                    (clust_label[:, SHAPE_COL] != TRACK_SHP) &
+                    (clust_label[:, SHAPE_COL] != LOWES_SHP))
+
         X_true = clust_label[seg_clust_mask]
         if len(X_true) == 0:
             continue
@@ -270,7 +286,7 @@ def adapt_labels(clust_label, seg_label, seg_pred, ghost_pred=None,
             select_index = where(select_mask)[0]
             tagged_voxels_count = len(select_index)
             if tagged_voxels_count > 0:
-                # Use the label of the touchleftover_index true voxel
+                # Use the label of the touching true voxel
                 additional_clust_label = cat(
                         [X_pred[select_index], 
                          X_true[closest_ids[select_index], VALUE_COL:]], 1)
@@ -294,12 +310,12 @@ def adapt_labels(clust_label, seg_label, seg_pred, ghost_pred=None,
         new_label[:, SHAPE_COL] = seg_pred
 
     # Now if an instance was broken up, assign it different cluster IDs
-    dbscan = DBSCAN(eps=1.1, min_samples=1, metric='chebyshev')
     cluster_count = int(clust_label[:, CLUST_COL].max()) + 1
     for break_class in break_classes:
         # Restrict to the set of labels associated with this class
         break_index = where(new_label[:, SHAPE_COL] == break_class)[0]
         restricted_label = new_label[break_index]
+        restricted_coordinates = restricted_label[:, COORD_COLS]
 
         # Loop over true cluster instances in the new label tensor, break
         for c in unique(restricted_label[:, CLUST_COL]):
@@ -309,12 +325,13 @@ def adapt_labels(clust_label, seg_label, seg_pred, ghost_pred=None,
 
             # Restrict tensor to a specific cluster, get voxel coordinates
             cluster_index = where(restricted_label[:, CLUST_COL] == c)[0]
-            coordinates = restricted_label[cluster_index][:, COORD_COLS]
+            coordinates = restricted_coordinates[cluster_index]
             if torch.is_tensor(coordinates):
                 coordinates = coordinates.detach().cpu().numpy()
 
             # Run DBSCAN on the cluster, update labels
-            break_labels = dbscan.fit(coordinates).labels_
+            break_labels = dbscan(
+                    coordinates, eps=break_eps, metric=break_metric)
             break_labels += cluster_count
             if torch.is_tensor(new_label):
                 break_labels = torch.tensor(break_labels,

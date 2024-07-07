@@ -383,7 +383,7 @@ def union_find(edge_index: nb.int64[:,:],
     Parameters
     ----------
     edge_index : np.ndarray
-        (2, E) Sparse incidence matrix
+        (E, 2) Sparse incidence matrix
     num_nodes : int
         Number of nodes in the graph, C
 
@@ -431,7 +431,7 @@ def node_assignment(edge_index: nb.int64[:,:],
         (C) Assigned node group IDs
     """
     # Loop over on edges, reset the group IDs of connected node
-    on_edges = edge_index[np.where(edge_pred[:,1] > edge_pred[:,0])[0]]
+    on_edges = edge_index[np.where(edge_pred[:, 1] > edge_pred[:, 0])[0]]
 
     return union_find(on_edges, num_nodes)[0]
 
