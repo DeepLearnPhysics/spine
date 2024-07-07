@@ -36,7 +36,7 @@ class HDF5Writer:
     name = 'hdf5'
 
     def __init__(self, file_name='output.h5', keys=None, skip_keys=None,
-                 append_file=False):
+                 overwrite=False, append=False):
         """Initializes the basics of the output file.
 
         Parameters
@@ -47,12 +47,18 @@ class HDF5Writer:
             List of data product keys to store. If not specified, store everything
         skip_keys: List[str], optionl
             List of data product keys to skip
-        append_file: bool, default False
-            Add new values to the end of an existing file
+        overwrite : bool, default False
+            If True, overwrite the output file if it already exists
+        append : bool, default False
+            If True, add new values to the end of an existing file
         """
+        # Check that output file does not already exist, if requestes
+        if not overwrite and os.path.isfile(file_name):
+            raise FileExistsError(f"File with name {log_path} already exists.")
+
         # Store persistent attributes
         self.file_name = file_name
-        self.append_file = append_file
+        self.append = append
         self.ready = False
         self.object_dtypes = [] # TODO: make this a set
 
@@ -382,7 +388,7 @@ class HDF5Writer:
         """
         # If this function has never been called, initialiaze the HDF5 file
         if (not self.ready and
-            (not self.append_file or os.path.isfile(self.file_name))):
+            (not self.append or os.path.isfile(self.file_name))):
             self.create(data, cfg)
             self.ready = True
 
