@@ -182,6 +182,7 @@ def adapt_labels(clust_label, seg_label, seg_pred, ghost_pred=None,
         dtype, device = clust_label.dtype, clust_label.device
         where, cat, argmax = torch.where, torch.cat, torch.amax
         ones    = lambda x: torch.ones(x, dtype=dtype, device=device)
+        eye     = lambda x: torch.eye(x, dtype=torch.bool, device=device)
         unique  = lambda x: torch.unique(x).long()
         to_long = lambda x: x.long()
         to_bool = lambda x: x.bool()
@@ -193,6 +194,7 @@ def adapt_labels(clust_label, seg_label, seg_pred, ghost_pred=None,
     else:
         where, cat, argmax = np.where, np.concatenate, np.argmax
         ones    = lambda x: np.ones(x, dtype=clust_label.dtype)
+        eye     = lambda x: np.eye(x, dtype=bool)
         unique  = lambda x: np.unique(x).astype(np.int64)
         to_long = lambda x: x.astype(np.int64)
         to_bool = lambda x: x.astype(bool)
@@ -228,7 +230,7 @@ def adapt_labels(clust_label, seg_label, seg_pred, ghost_pred=None,
         return dummy_labels
 
     # Build a tensor of predicted segmentation that includes ghost points
-    seg_label = seg_label[:, SHAPE_COL]
+    seg_label = to_long(seg_label[:, SHAPE_COL])
     if ghost_pred is not None and (len(ghost_pred) != len(seg_pred)):
         seg_pred_long = to_long(GHOST_SHP*ones(len(coords)))
         seg_pred_long[deghost_index] = seg_pred
@@ -241,8 +243,12 @@ def adapt_labels(clust_label, seg_label, seg_pred, ghost_pred=None,
     # Check if the segment labels and predictions are compatible. If they are
     # compatible, store the cluster labels as is. Track points do not mix
     # with other classes, but EM classes are allowed to.
+    compat_mat = eye(GHOST_SHP + 1)
+    compat_mat[([SHOWR_SHP, SHOWR_SHP, MICHL_SHP, DELTA_SHP],
+                [MICHL_SHP, DELTA_SHP, SHOWR_SHP, SHOWR_SHP])] = True
+
     true_deghost = seg_label < GHOST_SHP
-    seg_mismatch = seg_pred != seg_label
+    seg_mismatch = ~compat_mat[(seg_pred, seg_label)]
     new_label[true_deghost] = clust_label
     new_label[true_deghost & seg_mismatch, VALUE_COL:] = -1.
 
