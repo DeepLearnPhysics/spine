@@ -750,7 +750,7 @@ def edge_purity_mask(edge_index: nb.int64[:,:],
         primary_ids_g = primary_ids[group_mask]
         part_ids_g = part_ids[group_mask]
         if len(np.unique(part_ids_g[primary_ids_g == 1])) != 1:
-            # If there not exactly one one primary particle ID, the group
+            # If there not exactly one primary particle ID, the group
             # is not valid
             node_purity_mask[group_mask] = False
 

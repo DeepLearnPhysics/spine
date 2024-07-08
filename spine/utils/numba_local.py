@@ -172,9 +172,11 @@ def argmax(x: nb.float32[:,:],
     if axis == 0:
         for i in range(len(argmax)):
             argmax[i] = np.argmax(x[:,i])
+
     else:
         for i in range(len(argmax)):
             argmax[i] = np.argmax(x[i])
+
     return argmax
 
 
@@ -202,7 +204,7 @@ def amin(x: nb.float32[:,:],
             xmin[i] = np.min(x[:, i])
 
     else:
-        for i in range(len(xmax)):
+        for i in range(len(xmin)):
             xmin[i] = np.min(x[i])
 
     return xmin
@@ -325,11 +327,11 @@ def softmax(x: nb.float32[:,:],
     """
     assert axis == 0 or axis == 1
     if axis == 0:
-        xmax = max(x, axis=0)
+        xmax = amax(x, axis=0)
         logsumexp = np.log(np.sum(np.exp(x-xmax), axis=0)) + xmax
         return np.exp(x - logsumexp)
     else:
-        xmax = max(x, axis=1).reshape(-1,1)
+        xmax = amax(x, axis=1).reshape(-1,1)
         logsumexp = np.log(np.sum(np.exp(x-xmax), axis=1)).reshape(-1,1) + xmax
         return np.exp(x - logsumexp)
 
@@ -582,8 +584,8 @@ def farthest_pair(x: nb.float32[:,:],
         dist = dist_mat[idxs[0], idxs[1]]
 
     elif algorithm == 'recursive':
-        idxs, subidx, dist, tempdist = [0, 0], 0, 1e9, 1e9+1.
-        while dist < tempdist:
+        idxs, subidx, dist, tempdist = [0, 0], 0, 0., -1.
+        while dist > tempdist:
             tempdist = dist
             dists = cdist(np.ascontiguousarray(x[idxs[subidx]]).reshape(1,-1), x).flatten()
             idxs[~subidx] = np.argmax(dists)

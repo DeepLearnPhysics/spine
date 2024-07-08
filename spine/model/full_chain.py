@@ -549,8 +549,9 @@ class FullChain(torch.nn.Module):
                 clusts = res_gs['clusts']
                 clust_shapes = res_gs['clust_shapes']
                 filter_index = res_gs['filter_index'].index
-                for i, f in enumerate(fragments.index_list):
-                    clusts.index_list[i] = filter_index[f]
+                for i, f in enumerate(clusts.index_list):
+                    clusts.data[i] = filter_index[f]
+
                 clusts.offsets = data.edges[:-1]
 
                 # Append
@@ -868,8 +869,10 @@ class FullChain(torch.nn.Module):
             shape_index = np.where(mask)[0]
 
             batch_ids = clusts.batch_ids[shape_index]
+            clusts_np = np.empty(len(clusts.index_list), dtype=object)
+            clusts_np[:] = clusts.index_list
             clusts = IndexBatch(
-                    clusts.index_list[shape_index], offsets=clusts.offsets,
+                    clusts_np[shape_index], offsets=clusts.offsets,
                     single_counts=clusts.single_counts[shape_index],
                     batch_ids=batch_ids, batch_size=clusts.batch_size)
             clust_shapes = TensorBatch(

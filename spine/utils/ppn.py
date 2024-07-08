@@ -196,6 +196,7 @@ class PPNPredictor:
             pool_fn = getattr(torch, self.pool_score_fn)
             if self.pool_score_fn == 'max':
                 pool_fn = torch.amax
+
         else:
             cat, unique, argmax = np.concatenate, np.unique, np.argmax
             where, mean, softmax = np.where, np.mean, softmax_sp
@@ -269,7 +270,8 @@ class PPNPredictor:
             scores = scores[seg_mask]
             type_pred = type_pred[seg_mask]
             type_scores = type_scores[seg_mask]
-            end_scores = end_scores[seg_mask]
+            if ppn_ends is not None:
+                end_scores = end_scores[seg_mask]
 
         # At this point, if there are no valid proposed points left, abort
         if not len(coords):
@@ -338,8 +340,12 @@ def get_particle_points(data, clusts, clusts_seg, ppn_points,
         where, abss, softmax = torch.where, torch.abs, torch.softmax
         cdist = local_cdist
         empty = lambda x: torch.empty(x, dtype=dtype, device=device)
-        farthest_pair = lambda x: list(torch.triu_indices(
-                len(x), len(x), 1)[:, torch.argmin(torch.pdist(x))])
+        def farthest_pair(x):
+            if len(x) < 2:
+                return [0, 0]
+            return list(torch.triu_indices(
+                len(x), len(x), 1)[:, torch.argmax(torch.pdist(x))])
+
     else:
         cat, argmin, argmax = np.concatenate, np.argmin, np.argmax
         where, abss, softmax = np.where, np.abs, softmax_sp

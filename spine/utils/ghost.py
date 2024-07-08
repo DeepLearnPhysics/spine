@@ -10,7 +10,7 @@ from spine.utils.numba_local import dbscan
 
 from .globals import (
         COORD_COLS, VALUE_COL, CLUST_COL, SHAPE_COL, SHOWR_SHP, TRACK_SHP,
-        MICHL_SHP, DELTA_SHP, LOWES_SHP, GHOST_SHP)
+        MICHL_SHP, DELTA_SHP, GHOST_SHP)
 
 
 def compute_rescaled_charge_batch(data, collection_only=False, collection_id=2):
