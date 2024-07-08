@@ -4,6 +4,21 @@ import numpy as np
 import numba as nb
 
 
+@nb.njit
+def seed(seed: int) -> None:
+    """Sets the numpy random seed for all Numba jitted functions.
+
+    Note that setting the seed using `np.random.seed` outside a Numba jitted
+    function does *not* set the seed of Numba functions.
+
+    Parameters
+    ----------
+    seed : int
+        Random number generator seed
+    """
+    np.random.seed(seed)
+
+
 @nb.njit(cache=True)
 def submatrix(x: nb.float32[:,:],
               index1: nb.int32[:],

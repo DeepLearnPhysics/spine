@@ -31,6 +31,7 @@ from .ana import AnaManager
 
 from .utils.ascii_logo import ascii_logo
 from .utils.logger import logger
+from .utils.numba_local import seed as numba_seed
 from .utils.unwrap import Unwrapper
 from .utils.stopwatch import StopwatchManager
 
@@ -276,6 +277,7 @@ class Driver:
         """
         # Set up the seed
         np.random.seed(seed)
+        numba_seed(seed)
         torch.manual_seed(seed)
 
         # Set up the device the model will run on

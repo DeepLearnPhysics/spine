@@ -180,7 +180,11 @@ class ClustGeoNodeEncoder(torch.nn.Module):
 
         feats = TensorBatch(feats, clusts.counts)
 
-        return feats, points
+        # Return
+        if self.add_points:
+            return feats, points
+
+        return feats
 
     def get_base_features(data, clusts, add_value, add_shape):
         """Generate base geometric cluster node features for one batch of data.
