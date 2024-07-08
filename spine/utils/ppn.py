@@ -390,7 +390,7 @@ def get_particle_points(data, clusts, clusts_seg, ppn_points,
             # that are contained within the voxel making the prediction.
             ppn_scores = softmax(points_tensor[:, PPN_RPOS_COLS], 1)[:,-1]
             val_index = where(
-                    (abss(points_tensor[:, PPN_ROFF_COLS]) < 1.).all())[0]
+                    (abss(points_tensor[:, PPN_ROFF_COLS]) < 1.).all(1))[0]
             best_id = val_index[argmax(ppn_scores[val_index])] \
                     if len(val_index) else argmax(ppn_scores)
 
