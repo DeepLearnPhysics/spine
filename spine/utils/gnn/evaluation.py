@@ -195,7 +195,7 @@ def node_assignment_score_batch(edge_index, edge_pred, clusts):
 
 
 def edge_purity_mask_batch(edge_index, part_ids, group_ids, primary_ids):
-    """Batch version of :func:`edge_purity_mask`.
+    """Batched version of :func:`edge_purity_mask`.
 
     Parameters
     ----------
@@ -211,7 +211,7 @@ def edge_purity_mask_batch(edge_index, part_ids, group_ids, primary_ids):
     Returns
     -------
     np.ndarray
-i       (E) High purity edge mask
+        (E) High purity edge mask
     """
     # Loop over the entries in the batch
     valid_mask = np.empty(edge_index.index.shape[1], dtype=bool)
@@ -224,7 +224,7 @@ i       (E) High purity edge mask
 
 
 def node_purity_mask_batch(group_ids, primary_ids):
-    """Batch version of :func:`node_purity_mask`.
+    """Batched version of :func:`node_purity_mask`.
 
     Parameters
     ----------
@@ -238,11 +238,17 @@ def node_purity_mask_batch(group_ids, primary_ids):
     np.ndarray
         (C) High purity node mask
     """
-    return node_purity_mask(group_ids.tensor, primary_ids.tensor)
+    # Loop over the entries in the batch
+    valid_mask = np.empty(len(group_ids.tensor), dtype=bool)
+    for b in range(group_ids.batch_size):
+        lower, upper = group_ids.edges[b], group_ids.edges[b+1]
+        valid_mask[lower:upper] = node_purity_mask(group_ids[b], primary_ids[b])
+
+    return valid_mask
 
 
 def primary_assignment_batch(node_pred, group_ids=None):
-    """Batch version of :func:`primary_assignment`.
+    """Batched version of :func:`primary_assignment`.
 
     Parameters
     ----------
