@@ -6,6 +6,7 @@ import numpy as np
 from spine.model.layer.factories import loss_fn_factory
 
 from spine.utils.globals import CLUST_COL, GROUP_COL, PART_COL, PRGRP_COL
+from spine.utils.enums import ClusterLabelEnum
 from spine.utils.weighting import get_class_weights
 from spine.utils.gnn.cluster import get_cluster_label_batch
 from spine.utils.gnn.evaluation import (
@@ -43,8 +44,8 @@ class EdgeChannelLoss(torch.nn.Module):
 
         Parameters
         ----------
-        target : int
-            Column in the label tensor specifying the aggregation target
+        target : str
+            Column name in the label tensor specifying the aggregation target
         mode : str, default 'group'
             Loss mode, one of 'group', 'forest' or 'particle_forest'
             - 'group' turns every edge that connect two nodes that belong to
@@ -64,8 +65,12 @@ class EdgeChannelLoss(torch.nn.Module):
         # Initialize the parent class
         super().__init__()
 
+        # Parse the aggregation target
+        assert isinstance(target, str), (
+                "Specify `target` as a string available in `ClusterLabelEnum`.")
+        self.target = getattr(ClusterLabelEnum, target.upper()).value
+
         # Initialize basic parameters
-        self.target = target
         self.mode = mode
         self.balance_loss = balance_loss
         self.high_purity = high_purity

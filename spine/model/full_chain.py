@@ -867,8 +867,10 @@ class FullChain(torch.nn.Module):
             shape_index = np.where(mask)[0]
 
             batch_ids = clusts.batch_ids[shape_index]
+            clusts_np = np.empty(len(clusts.index_list), dtype=object)
+            clusts_np[:] = clusts.index_list
             clusts = IndexBatch(
-                    clusts.index_list[shape_index], offsets=clusts.offsets,
+                    clusts_np[shape_index], offsets=clusts.offsets,
                     single_counts=clusts.single_counts[shape_index],
                     batch_ids=batch_ids, batch_size=clusts.batch_size)
             clust_shapes = TensorBatch(
@@ -1126,7 +1128,8 @@ class FullChainLoss(torch.nn.Module):
 
     def forward(self, seg_label=None, ppn_label=None, clust_label=None,
                 clust_label_adapt=None, coord_label=None, graph_label=None,
-                ghost=None, ghost_pred=None, segmentation=None, **output):
+                meta=None, ghost=None, ghost_pred=None, segmentation=None,
+                **output):
         """Run the full chain output through the full chain loss.
 
         Parameters
@@ -1148,6 +1151,8 @@ class FullChainLoss(torch.nn.Module):
         graph_label : EdgeIndexTensor, optional
             (2, E) Tensor of edges that correspond to physical
             connections between true particle in the image
+        meta : Meta, optional
+            Image metadata information
         ghost : TensorBatch, optional
             (N, 2) Tensor of logits from the deghosting model
         ghost_pred : TensorBatch, optional
@@ -1229,7 +1234,7 @@ class FullChainLoss(torch.nn.Module):
                 # Store the loss dictionaru
                 res_grappa = getattr(self, name)(
                         clust_label=clust_label, coord_label=coord_label,
-                        graph_label=graph_label, **loss_dict)
+                        graph_label=graph_label, meta=meta, **loss_dict)
                 self.update_result(res_grappa, f'grappa_{stage}')
 
         return self.result

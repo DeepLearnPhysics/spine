@@ -1,13 +1,13 @@
 """SPINE driver class.
 
 Takes care of everything in one centralized place:
-    - Data loading
-    - ML model and loss forward pass
-    - Batch unwrapping
-    - Representation building
-    - Post-processing
-    - Analysis script execution
-    - Writing to file
+- Data loading
+- ML model and loss forward pass
+- Batch unwrapping
+- Representation building
+- Post-processing
+- Analysis script execution
+- Writing output to file
 """
 
 import os
@@ -24,17 +24,17 @@ import torch
 from .io import loader_factory, reader_factory, writer_factory
 from .io.write import CSVWriter
 
-from .model import ModelManager
-from .build import BuildManager
-from .post import PostManager
-from .ana import AnaManager
-
-from .utils.ascii_logo import ascii_logo
 from .utils.logger import logger
 from .utils.unwrap import Unwrapper
 from .utils.stopwatch import StopwatchManager
 
 from .version import __version__
+from .logo import ascii_logo
+
+from .model import ModelManager
+from .build import BuildManager
+from .post import PostManager
+from .ana import AnaManager
 
 __all__ = ['Driver']
 

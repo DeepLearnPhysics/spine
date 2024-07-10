@@ -6,6 +6,7 @@ from warnings import warn
 
 from spine.model.layer.factories import loss_fn_factory
 
+from spine.utils.enums import ClusterLabelEnum
 from spine.utils.weighting import get_class_weights
 from spine.utils.gnn.cluster import get_cluster_label_batch
 
@@ -41,7 +42,7 @@ class NodeClassificationLoss(torch.nn.Module):
 
         Parameters
         ----------
-        target : int
+        target : str
             Column in the label tensor specifying the classification target
         balance_loss : bool, default False
             Whether to weight the loss to account for class imbalance
@@ -51,8 +52,12 @@ class NodeClassificationLoss(torch.nn.Module):
         # Initialize the parent class
         super().__init__()
 
+        # Parse the classification target
+        assert isinstance(target, str), (
+                "Specify `target` as a string available in `ClusterLabelEnum`.")
+        self.target = getattr(ClusterLabelEnum, target.upper()).value
+
         # Initialize basic parameters
-        self.target = target
         self.balance_loss = balance_loss
 
         # Set the loss

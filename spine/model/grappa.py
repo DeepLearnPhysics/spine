@@ -11,6 +11,7 @@ from .layer.gnn.factories import *
 from spine import TensorBatch, IndexBatch, EdgeIndexBatch
 from spine.utils.globals import (
         BATCH_COL, COORD_COLS, CLUST_COL, GROUP_COL, SHAPE_COL, LOWES_SHP)
+from spine.utils.enums import ClusterLabelEnum
 from spine.utils.gnn.cluster import (
         form_clusters_batch, get_cluster_label_batch,
         get_cluster_primary_label_batch)
@@ -139,15 +140,15 @@ class GrapPA(torch.nn.Module):
         if dbscan is not None:
             self.process_dbscan_config(dbscan)
 
-    def process_node_config(self, source=CLUST_COL, semantic_class=-1,
+    def process_node_config(self, source='cluster', semantic_class=-1,
                             min_size=-1, make_groups=False,
                             grouping_method='score'):
         """Process the node parameters of the model.
 
         Parameters
         ----------
-        source : int, default CLUST_COL
-            Column in the label tensor which contains the input cluster IDs
+        source : str, default 'cluster'
+            Column name in the label tensor which contains the input cluster IDs
         class : int, default -1
             Type of nodes to include in the input. If -1, include all types
         min_size : int, default -1
@@ -157,8 +158,12 @@ class GrapPA(torch.nn.Module):
         grouping_method : str, default 'score'
             Algorithm used to build a node partition
         """
+        # Parse the node source
+        assert isinstance(source, str), (
+                "Specify `source` as a string available in `ClusterLabelEnum`.")
+        self.node_source = getattr(ClusterLabelEnum, source.upper()).value
+
         # Store the node parameters
-        self.node_source     = source
         self.node_type       = semantic_class
         self.node_min_size   = min_size
         self.make_groups     = make_groups

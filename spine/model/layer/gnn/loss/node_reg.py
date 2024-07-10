@@ -6,7 +6,7 @@ from warnings import warn
 
 from spine.model.layer.factories import loss_fn_factory
 
-from spine.utils.globals import MOM_COL
+from spine.utils.enums import ClusterLabelEnum
 from spine.utils.gnn.cluster import get_cluster_label_batch
 
 __all__ = ['NodeRegressionLoss']
@@ -41,7 +41,7 @@ class NodeRegressionLoss(torch.nn.Module):
 
         Parameters
         ----------
-        target : Union[int, List[int]]
+        target : str
             Column(s) in the label tensor specifying the regression target(s)
         loss : str, default 'mse'
             Name of the loss function to apply
@@ -49,8 +49,10 @@ class NodeRegressionLoss(torch.nn.Module):
         # Initialize the parent class
         super().__init__()
 
-        # Initialize basic parameters
-        self.target = target
+        # Parse the regression target
+        assert isinstance(target, str), (
+                "Specify `target` as a string available in `ClusterLabelEnum`.")
+        self.target = getattr(ClusterLabelEnum, target.upper()).value
 
         # Set the loss
         self.loss_fn = loss_fn_factory(loss, reduction='sum')
