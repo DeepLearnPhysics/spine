@@ -361,13 +361,15 @@ class ModelManager:
                     for name in model.state_dict():
                         if not name in state_dict.keys():
                             missing_keys.append((name, name))
+
                 else:
                     # Update the key names according to the name used to store
                     state_dict = {}
                     for name in model.state_dict():
                         if module in name:
+                            suffix = '.' if len(model_name) else ''
                             key = name.replace(
-                                    f'.{module}.', f'.{model_name}.')
+                                    f'{module}.', f'{model_name}{suffix}')
                             if key in checkpoint['state_dict'].keys():
                                 state_dict[name] = checkpoint['state_dict'][key]
                             else:

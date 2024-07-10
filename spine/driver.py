@@ -25,6 +25,7 @@ from .io import loader_factory, reader_factory, writer_factory
 from .io.write import CSVWriter
 
 from .utils.logger import logger
+from .utils.numba_local import seed as numba_seed
 from .utils.unwrap import Unwrapper
 from .utils.stopwatch import StopwatchManager
 
@@ -231,9 +232,10 @@ class Driver:
         return base, io, model, build, post, ana
 
     def initialize_base(self, seed, world_size=0, log_dir='logs',
-                        prefix_log=False, parent_path=None, iterations=None,
-                        epochs=None, unwrap=False, rank=None, log_step=1,
-                        distributed=False, train=None, verbosity='info'):
+                        prefix_log=False, overwrite_log=False, parent_path=None,
+                        iterations=None, epochs=None, unwrap=False, rank=None,
+                        log_step=1, distributed=False, train=None,
+                        verbosity='info'):
         """Initialize the base driver parameters.
 
         Parameters
@@ -246,6 +248,8 @@ class Driver:
             Path to the directory where the logs will be written to
         prefix_log : bool, default False
             If True, use the input file name to prefix the log name
+        overwrite_log : bool, default False
+            If True, overwrite log even if it already exists
         parent_path : str, optional
             Path to the parent directory of the analysis configuration file
         iterations : int, optional
@@ -273,6 +277,7 @@ class Driver:
         """
         # Set up the seed
         np.random.seed(seed)
+        numba_seed(seed)
         torch.manual_seed(seed)
 
         # Set up the device the model will run on
@@ -297,6 +302,7 @@ class Driver:
         # Store general parameters
         self.log_dir = log_dir
         self.prefix_log = prefix_log
+        self.overwrite_log = overwrite_log
         self.parent_path = parent_path
         self.iterations = iterations
         self.epochs = epochs
@@ -384,20 +390,22 @@ class Driver:
         # Determine the log name, initialize it
         if self.model is None:
             # If running the driver with a model, give a generic name
-            logname = f'spine_log.csv'
+            log_name = f'spine_log.csv'
         else:
             # If running the driver within a training/validation process,
             # follow a specific pattern of log names.
             start_iteration = self.model.start_iteration
-            prefix  = 'train' if self.model.train else 'inference'
-            suffix  = '' if not self.model.distributed else f'_proc{self.rank}'
-            logname = f'{prefix}{suffix}_log-{start_iteration:07d}.csv'
+            prefix = 'train' if self.model.train else 'inference'
+            suffix = '' if not self.model.distributed else f'_proc{self.rank}'
+            log_name = f'{prefix}{suffix}_log-{start_iteration:07d}.csv'
 
         # If requested, prefix the log name with the input file name
         if self.prefix_log:
-            logname = f'{self.log_prefix}_{logname}'
+            log_name = f'{self.log_prefix}_{log_name}'
 
-        self.logger = CSVWriter(os.path.join(self.log_dir, logname))
+        # Initialize the log
+        log_path = os.path.join(self.log_dir, log_name)
+        self.logger = CSVWriter(log_path, overwrite=self.overwrite_log)
 
     def run(self):
         """Loop over the requested number of iterations, process them."""

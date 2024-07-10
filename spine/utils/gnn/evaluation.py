@@ -195,7 +195,7 @@ def node_assignment_score_batch(edge_index, edge_pred, clusts):
 
 
 def edge_purity_mask_batch(edge_index, part_ids, group_ids, primary_ids):
-    """Batch version of :func:`edge_purity_mask`.
+    """Batched version of :func:`edge_purity_mask`.
 
     Parameters
     ----------
@@ -211,7 +211,7 @@ def edge_purity_mask_batch(edge_index, part_ids, group_ids, primary_ids):
     Returns
     -------
     np.ndarray
-i       (E) High purity edge mask
+        (E) High purity edge mask
     """
     # Loop over the entries in the batch
     valid_mask = np.empty(edge_index.index.shape[1], dtype=bool)
@@ -224,7 +224,7 @@ i       (E) High purity edge mask
 
 
 def node_purity_mask_batch(group_ids, primary_ids):
-    """Batch version of :func:`node_purity_mask`.
+    """Batched version of :func:`node_purity_mask`.
 
     Parameters
     ----------
@@ -238,11 +238,17 @@ def node_purity_mask_batch(group_ids, primary_ids):
     np.ndarray
         (C) High purity node mask
     """
-    return node_purity_mask(group_ids.tensor, primary_ids.tensor)
+    # Loop over the entries in the batch
+    valid_mask = np.empty(len(group_ids.tensor), dtype=bool)
+    for b in range(group_ids.batch_size):
+        lower, upper = group_ids.edges[b], group_ids.edges[b+1]
+        valid_mask[lower:upper] = node_purity_mask(group_ids[b], primary_ids[b])
+
+    return valid_mask
 
 
 def primary_assignment_batch(node_pred, group_ids=None):
-    """Batch version of :func:`primary_assignment`.
+    """Batched version of :func:`primary_assignment`.
 
     Parameters
     ----------
@@ -383,7 +389,7 @@ def union_find(edge_index: nb.int64[:,:],
     Parameters
     ----------
     edge_index : np.ndarray
-        (2, E) Sparse incidence matrix
+        (E, 2) Sparse incidence matrix
     num_nodes : int
         Number of nodes in the graph, C
 
@@ -431,7 +437,7 @@ def node_assignment(edge_index: nb.int64[:,:],
         (C) Assigned node group IDs
     """
     # Loop over on edges, reset the group IDs of connected node
-    on_edges = edge_index[np.where(edge_pred[:,1] > edge_pred[:,0])[0]]
+    on_edges = edge_index[np.where(edge_pred[:, 1] > edge_pred[:, 0])[0]]
 
     return union_find(on_edges, num_nodes)[0]
 
@@ -750,7 +756,7 @@ def edge_purity_mask(edge_index: nb.int64[:,:],
         primary_ids_g = primary_ids[group_mask]
         part_ids_g = part_ids[group_mask]
         if len(np.unique(part_ids_g[primary_ids_g == 1])) != 1:
-            # If there not exactly one one primary particle ID, the group
+            # If there not exactly one primary particle ID, the group
             # is not valid
             node_purity_mask[group_mask] = False
 

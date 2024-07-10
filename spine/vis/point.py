@@ -73,7 +73,7 @@ def scatter_points(points, color=None, markersize=2, linewidth=2,
         coord_cols = np.arange(dim)
 
     # If there is no hovertext, print the color as part of the hovertext
-    if hovertext is None and color is not None and isinstance(color, str):
+    if hovertext is None and color is not None and not isinstance(color, str):
         hovertext = color
 
     # Update hoverinfo

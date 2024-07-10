@@ -16,7 +16,7 @@ logging.captureWarnings(True)
 logger = logging.getLogger('spine')
 
 # Configure the warnings package to only issue warnings once
-warnings.simplefilter('default')
+warnings.simplefilter('ignore')
 
 # Suppress MinkowskiEngine internal problems (nothing we can do about it)
 warnings.filterwarnings('ignore', category=DeprecationWarning,

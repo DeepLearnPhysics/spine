@@ -354,7 +354,7 @@ class GrapPA(torch.nn.Module):
         if isinstance(node_features, tuple):
             # If the output of the node encoder is a tuple, separate points
             node_features, points = node_features
-            start_points, end_points = points.tensor.reshape(2, -1, 3)
+            start_points, end_points = points.tensor.split(3, dim=1)
 
             result['start_points'] = TensorBatch(start_points, points.counts)
             result['end_points'] = TensorBatch(end_points, points.counts)

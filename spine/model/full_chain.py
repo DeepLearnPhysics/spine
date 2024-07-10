@@ -489,6 +489,7 @@ class FullChain(torch.nn.Module):
                 self.fragmentation is not None):
                 seg_pred = self.result['seg_pred']
                 ghost_pred = self.result.get('ghost_pred', None)
+                old_clust_label = clust_label
                 clust_label = adapt_labels_batch(
                         clust_label, seg_label, seg_pred, ghost_pred)
 
@@ -542,20 +543,20 @@ class FullChain(torch.nn.Module):
             self.result.update(
                     {f'graph_spice_{key}':val for key, val in res_gs.items()})
 
-            # Make fragments, if necessary
-            # TODO: check that we run GrapPA, to save time
-            clusts, clust_shapes = (
-                    self.graph_spice.constructor.fit_predict(res_gs))
+            # If fragments are produced, store them
+            if 'clusts' in res_gs:
+                # Fragments point at a partial tensor, adapt them
+                clusts = res_gs['clusts']
+                clust_shapes = res_gs['clust_shapes']
+                filter_index = res_gs['filter_index'].index
+                for i, f in enumerate(clusts.index_list):
+                    clusts.data[i] = filter_index[f]
 
-            # Fragments point at a partial tensor, adapt them to the full input
-            filter_index = res_gs['filter_index'].index
-            for i, f in enumerate(fragments.index_list):
-                clusts.index_list[i] = filter_index[f]
-            clusts.offsets = data.edges[:-1]
+                clusts.offsets = data.edges[:-1]
 
-            # Append
-            fragments = fragments.merge(clusts.to_numpy())
-            fragment_shapes = fragment_shapes.merge(clust_shapes)
+                # Append
+                fragments = fragments.merge(clusts.to_numpy())
+                fragment_shapes = fragment_shapes.merge(clust_shapes)
 
         if self.fragmentation == 'label':
             assert clust_label is not None, (
@@ -717,7 +718,8 @@ class FullChain(torch.nn.Module):
                     shapes[name], data, particles, particle_shapes)
 
         # Store interaction objects
-        self.result['interaction_clusts'] = interactions
+        if self.inter_aggregation is not None:
+            self.result['interaction_clusts'] = interactions
 
     def run_grappa(self, prefix, model, data, clusts, clust_shapes,
                    clust_primaries=None, coord_label=None,
@@ -1054,7 +1056,8 @@ class FullChainLoss(torch.nn.Module):
                  uresnet=None, uresnet_loss=None, uresnet_ppn=None,
                  uresnet_ppn_loss=None, graph_spice=None, graph_spice_loss=None,
                  grappa_shower_loss=None, grappa_track_loss=None,
-                 grappa_particle_loss=None, grappa_inter_loss=None, **kwargs):
+                 grappa_particle_loss=None, grappa_inter_loss=None,
+                 **kwargs):
         """Initialize the full chain model.
 
         Parameters
@@ -1217,8 +1220,10 @@ class FullChainLoss(torch.nn.Module):
                 if key.startswith('graph_spice_'):
                     loss_dict[key.replace('graph_spice_', '')] = value
 
+            # Store the loss dictionary
             res_gs = self.graph_spice_loss(
                     seg_label=seg_label, clust_label=clust_label, **loss_dict)
+            self.update_result(res_gs, 'graph_spice')
 
         # Apply the aggregation losses
         for stage in self.grappa_losses.keys():
@@ -1231,7 +1236,7 @@ class FullChainLoss(torch.nn.Module):
                     if f'{prefix}_' in k:
                         loss_dict[k.split(f'{prefix}_')[-1]] = v
 
-                # Store the loss dictionaru
+                # Store the loss dictionary
                 res_grappa = getattr(self, name)(
                         clust_label=clust_label, coord_label=coord_label,
                         graph_label=graph_label, meta=meta, **loss_dict)

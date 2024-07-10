@@ -34,7 +34,7 @@ def pur(truth, pred, batch_ids=None, per_cluster=True):
     pred, _, pred_counts = unique_labels(pred, batch_ids)
 
     # Compute the contingency table
-    table = contingency_table(truth, pred, len(truth_unique), len(pred_unique))
+    table = contingency_table(truth, pred, len(truth_counts), len(pred_counts))
 
     # Evaluate the purity for each predicted cluster
     if per_cluster:
@@ -70,7 +70,7 @@ def eff(truth, pred, batch_ids=None, per_cluster=True):
     pred, _, pred_counts = unique_labels(pred, batch_ids)
 
     # Compute the contingency table
-    table = contingency_table(truth, pred, len(truth_unique), len(pred_unique))
+    table = contingency_table(truth, pred, len(truth_counts), len(pred_counts))
 
     # Evaluate the efficiency for each true cluster
     if per_cluster:
@@ -108,7 +108,7 @@ def pur_eff(truth, pred, batch_ids=None, per_cluster=True):
     pred, _, pred_counts = unique_labels(pred, batch_ids)
 
     # Compute the contingency table
-    table = contingency_table(truth, pred, len(truth_unique), len(pred_unique))
+    table = contingency_table(truth, pred, len(truth_counts), len(pred_counts))
 
     # Evaluate the purity and efficiency
     if per_cluster:
@@ -227,7 +227,7 @@ def bd(truth, truth_unique, truth_counts, pred, pred_unique, pred_counts):
         unique, counts = np.unique(truth[pred == c], return_counts=True)
 
         # Compute the best dice for this cluster
-        bd = 0.
+        best_dice = 0.
         for j, d in enumerate(unique):
             dice = 2 * counts[j] / (pred_counts[i] + truth_counts[d])
             if dice > best_dice:
@@ -266,6 +266,6 @@ def unique_labels(labels, batch_ids=None):
     if batch_ids is not None:
         label = np.stack((label, batch_ids))
     unique, inverse, counts = np.unique(
-            pairs, axis=-1, return_inverse=True, return_counts=True)
+            labels, axis=-1, return_inverse=True, return_counts=True)
 
     return inverse, unique, counts

@@ -151,12 +151,21 @@ class GraphSPICE(torch.nn.Module):
         index = torch.where(mask)[0]
 
         # Restrict the input
-        offsets = data.counts
+        offsets = data.edges[:-1]
         data = TensorBatch(
                 data.tensor[index], batch_size=data.batch_size,
                 has_batch_col=True)
+
+        # Restrict the label tensors
+        assert seg_label.shape[0] == mask.shape[0], (
+                 "The segmentation label tensor is of the wrong shape: "
+                f"{seg_label.shape[0]} != {mask.shape[0]}")
         seg_label = TensorBatch(seg_label.tensor[index], data.counts)
+
         if clust_label is not None:
+            assert clust_label.shape[0] == mask.shape[0], (
+                     "The cluster label tensor is of the wrong shape: "
+                    f"{clust_label.shape[0]} != {mask.shape[0]}")
             clust_label = TensorBatch(clust_label.tensor[index], data.counts)
 
         # Store the index as an IndexBatch
@@ -205,6 +214,12 @@ class GraphSPICE(torch.nn.Module):
             features = result['hypergraph_features']
 
         graph = self.constructor(coords, features, seg_label, clust_label)
+
+        # If requested, convert edge predictions to node predictions
+        if self.make_clusters:
+            clusts, clust_shapes = self.constructor.fit_predict(graph)
+            result['clusts'] = clusts
+            result['clust_shapes'] = clust_shapes
 
         # Save the graph dictionary
         result.update(graph)

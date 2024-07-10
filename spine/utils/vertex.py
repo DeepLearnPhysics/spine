@@ -169,6 +169,7 @@ def get_confluence_points(start_points: nb.float32[:,:],
                     dist_mat[i,j] = np.linalg.norm(sj - si)
                 if j < i:
                     dist_mat[i,j] = dist_mat[j,i]
+
     else:
         for i, (si, ei) in enumerate(zip(start_points, end_points)):
             pointsi = np.vstack((si, ei))
@@ -191,7 +192,7 @@ def get_confluence_points(start_points: nb.float32[:,:],
 
     # Find cycles to build particle groups and confluence points (vertices)
     leftover  = np.ones(n_part, dtype=np.bool_)
-    max_walks = nbl.max(walk_mat, axis=1)
+    max_walks = nbl.amax(walk_mat, axis=1)
     vertices  = nb.typed.List.empty_list(np.empty(0, dtype=start_points.dtype))
     while np.any(leftover):
         # Find the longest available cycle (must be at least 2 particles)

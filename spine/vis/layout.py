@@ -22,7 +22,7 @@ HIGH_CONTRAST_COLORS = np.concatenate(
 
 def layout3d(ranges=None, meta=None, detector=None, titles=None,
              detector_coords=False, backgroundcolor='white',
-             gridcolor='lightgray', width=900, height=900, showlegend=True,
+             gridcolor='lightgray', width=800, height=800, showlegend=True,
              camera=None, aspectmode='manual', aspectratio=None, dark=False,
              margin=None, hoverlabel=None, **kwargs):
     """Produces plotly.graph_objs.Layout object for a certain format.

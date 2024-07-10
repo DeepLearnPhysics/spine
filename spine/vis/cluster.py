@@ -63,7 +63,7 @@ def scatter_clusters(points, clusts, color=None, hovertext=None,
         has_labels = True
         if np.isscalar(color):
             color = [color]*len(clusts)
-        elif len(color) == len(points):
+        elif len(color) == len(points) and len(points) != len(clusts):
             color = [color[c] for c in clusts]
         elif len(color) != len(clusts):
             raise ValueError(
@@ -78,7 +78,7 @@ def scatter_clusters(points, clusts, color=None, hovertext=None,
     if hovertext is not None:
         if np.isscalar(hovertext):
             hovertext = [hovertext]*len(clusts)
-        elif len(hovertext) == len(points):
+        elif len(hovertext) == len(points) and len(points) != len(clusts):
             hovertext = [hovertext[c] for c in clusts]
         elif len(hovertext) != len(clusts):
             raise ValueError(

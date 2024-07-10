@@ -23,7 +23,7 @@ class CSVWriter:
     """
     name = 'csv'
 
-    def __init__(self, file_name='output.csv', append_file=False,
+    def __init__(self, file_name='output.csv', overwrite=False, append=False, 
                  accept_missing=False):
         """Initialize the basics of the output file.
 
@@ -31,15 +31,22 @@ class CSVWriter:
         ----------
         file_name : str, default 'output.csv'
             Name of the output CSV file
-        append_file : bool, default False
-            Add more rows to an existing CSV file
+        overwrite : bool, default False
+            If True, overwrite the output file if it already exists
+        append : bool, default False
+            If True, add more rows to an existing CSV file
         accept_missing : bool, default True
             Tolerate missing keys
         """
-        self.file_name      = file_name
-        self.append_file    = append_file
+        # Check that output file does not already exist, if requestes
+        if not overwrite and os.path.isfile(file_name):
+            raise FileExistsError(f"File with name {file_name} already exists.")
+
+        # Store persistent attributes
+        self.file_name = file_name
+        self.append_file = append
         self.accept_missing = accept_missing
-        self.result_keys    = None
+        self.result_keys = None
         if self.append_file:
             if not os.path.isfile(file_name):
                 raise FileNotFoundError(

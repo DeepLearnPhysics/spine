@@ -37,17 +37,17 @@ class NodeClassificationLoss(torch.nn.Module):
     name = 'class'
     aliases = ['classification']
 
-    def __init__(self, target, balance_loss=False, loss='ce'):
+    def __init__(self, target, loss='ce', balance_loss=False, weights=None):
         """Initialize the node classifcation loss function.
 
         Parameters
         ----------
         target : str
             Column in the label tensor specifying the classification target
-        balance_loss : bool, default False
-            Whether to weight the loss to account for class imbalance
         loss : str, default 'ce'
             Name of the loss function to apply
+        balance_loss : bool, default False
+            Whether to weight the loss to account for class imbalance
         """
         # Initialize the parent class
         super().__init__()
@@ -59,6 +59,11 @@ class NodeClassificationLoss(torch.nn.Module):
 
         # Initialize basic parameters
         self.balance_loss = balance_loss
+        self.weights = weights
+
+        # Sanity check
+        assert weights is None or not balance_loss, (
+                "Do not provide weights if they are to be computed on the fly.")
 
         # Set the loss
         self.loss_fn = loss_fn_factory(loss, functional=True)
@@ -111,12 +116,11 @@ class NodeClassificationLoss(torch.nn.Module):
         node_pred = node_pred.tensor[valid_index]
 
         # Compute the loss. Balance classes if requested
-        weights = None
         if self.balance_loss:
-            weights = get_class_weights(node_assn, num_classes=num_classes)
+            self.weights = get_class_weights(node_assn, num_classes=num_classes)
 
         loss = self.loss_fn(
-                node_pred, node_assn, weight=weights, reduction='sum')
+                node_pred, node_assn, weight=self.weights, reduction='sum')
         if len(valid_index):
             loss /= len(valid_index)
 
