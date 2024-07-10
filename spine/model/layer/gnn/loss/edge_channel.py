@@ -37,8 +37,8 @@ class EdgeChannelLoss(torch.nn.Module):
     """
     name = 'channel'
 
-    def __init__(self, target, mode='group', balance_loss=False,
-                 high_purity=False, loss='ce'):
+    def __init__(self, target, mode='group', loss='ce', balance_loss=False,
+                 high_purity=False):
         """Initialize the primary identification loss function.
 
         Parameters
@@ -53,13 +53,13 @@ class EdgeChannelLoss(torch.nn.Module):
               nodes, if they belong to the same group
             - 'particle_forest' only turns on edges that join two particles
               have a parentage relationship in the true particle tree
+        loss : Union[str, dict], default 'ce'
+            Name of the loss function to apply
         balance_loss : bool, default False
             Whether to weight the loss to account for class imbalance
         high_purity : bool, default False
             Only apply loss to nodes which belong to a sensible group, i.e.
             one with exactly one shower primary in it (not 0, not > 1)
-        loss : Union[str, dict], default 'ce'
-            Name of the loss function to apply
         """
         # Initialize the parent class
         super().__init__()
