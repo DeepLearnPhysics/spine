@@ -421,7 +421,9 @@ class Driver:
         # Loop and process each iteration
         for iteration in range(start_iteration, self.iterations):
             # When switching to a new epoch, reset the loader iterator
-            if self.loader_iter is None or iteration%self.iter_per_epoch == 0:
+            if (self.loader is not None and
+                (self.loader_iter is None or
+                 iteration%self.iter_per_epoch == 0)):
                 if self.distributed:
                     epoch_cnt = iteration//self.iter_per_epoch
                     self.loader.sampler.set_epoch(epoch_cnt)
@@ -432,7 +434,8 @@ class Driver:
             tstamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
             # Process one batch/entry of data
-            data = self.process(iteration=iteration)
+            entry = iteration if self.loader is None else None
+            data = self.process(entry=entry, iteration=iteration)
 
             # Log the output
             self.log(data, tstamp, iteration, epoch)
