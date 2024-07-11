@@ -54,7 +54,7 @@ class HDF5Writer:
         """
         # Check that output file does not already exist, if requestes
         if not overwrite and os.path.isfile(file_name):
-            raise FileExistsError(f"File with name {log_path} already exists.")
+            raise FileExistsError(f"File with name {file_name} already exists.")
 
         # Store persistent attributes
         self.file_name = file_name
@@ -185,9 +185,9 @@ class HDF5Writer:
         if np.isscalar(data[key]):
             # Single scalar for the entire batch (e.g. accuracy, loss, etc.)
             if isinstance(data[key], str):
-                self.type_dict[key] = h5py.string_dtype()
+                self.type_dict[key].dtype = h5py.string_dtype()
             else:
-                self.type_dict[key] = type(data[key])
+                self.type_dict[key].dtype = type(data[key])
             self.type_dict[key].scalar = True
 
         else:
@@ -592,5 +592,3 @@ class HDF5Writer:
         # Define region reference, store it at the event level
         region_ref = dataset.regionref[current_id:current_id + len(array)]
         event[key] = region_ref
-
-
