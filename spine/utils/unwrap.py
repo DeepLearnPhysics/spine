@@ -164,7 +164,7 @@ class Unwrapper:
                 indexes.append(np.concatenate(index_list))
 
         # Cast the indexes to ObjectList, in case they are empty
-        if isinstance(data, IndexBatch):
+        if isinstance(data, IndexBatch) and data.is_list:
             shape = (0, data.shape[1]) if len(data.shape) == 2 else 0
             default = np.empty(shape, dtype=np.int64)
             for i, index in enumerate(indexes):
