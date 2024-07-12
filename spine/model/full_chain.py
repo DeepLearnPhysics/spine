@@ -603,7 +603,7 @@ class FullChain(torch.nn.Module):
             kwargs = {'dtype': data.dtype, 'device': data.device}
             merge['start_points'] = torch.full((num_clusts, 3), -np.inf, **kwargs)
             merge['end_points'] = torch.full((num_clusts, 3), -np.inf, **kwargs)
-            merge['node_pred'] = -torch.full((num_clusts, 2), -np.inf, **kwargs)
+            merge['node_pred'] = torch.full((num_clusts, 2), -np.inf, **kwargs)
             merge['group_pred'] = -np.ones(num_clusts, dtype=np.int64)
 
         # Initialize the particle-level output
@@ -629,13 +629,14 @@ class FullChain(torch.nn.Module):
                         prefix, model, data, fragments, fragment_shapes,
                         coord_label, aggregate_shapes=True,
                         shape_use_primary=use_primary[name],
-                        retain_primaries=True)
+                        retain_primaries=use_primary[name])
 
                 if merge and shape_index is not None:
                     for key in merge:
                         if key != 'group_pred':
-                            merge[key][shape_index] = (
-                                    self.result[f'{prefix}_{key}'].tensor)
+                            if key != 'node_pred' or use_primary[name]:
+                                merge[key][shape_index] = (
+                                        self.result[f'{prefix}_{key}'].tensor)
                         else:
                             max_id = np.max(merge[key]) + 1
                             merge[key][shape_index] = (
@@ -648,7 +649,7 @@ class FullChain(torch.nn.Module):
                         shapes[name], data, fragments, fragment_shapes,
                         aggregate_shapes=True,
                         shape_use_primary=use_primary[name],
-                        retain_primaries=True)
+                        retain_primaries=use_primary[name])
 
             elif switch == 'skip':
                 # Leave the shower fragments as is
@@ -1039,6 +1040,8 @@ class FullChain(torch.nn.Module):
         if retain_primaries:
             group_primaries = IndexBatch(
                 group_primaries, clusts.offsets, counts, single_primary_counts)
+        else:
+            group_primaries = groups
 
         return groups, group_shapes, group_primaries
 

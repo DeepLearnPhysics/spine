@@ -84,6 +84,7 @@ class Drawer:
         self.truth_index_mode = truth_point_mode.replace('points', 'index')
 
         # Save the detector properties
+        self.meta = meta
         self.detector = detector
         self.detector_coords = detector_coords
 
@@ -153,11 +154,11 @@ class Drawer:
             if len(self.prefixes) and self.split_scene:
                 for prefix in self.prefixes:
                     traces[prefix] += detector_traces(
-                        detector=self.detector,
+                        detector=self.detector, meta=self.meta,
                         detector_coords=self.detector_coords)
             else:
                 traces[self.prefixes[-1]] += detector_traces(
-                        detector=self.detector,
+                        detector=self.detector, meta=self.meta,
                         detector_coords=self.detector_coords)
 
         # Initialize the figure, return
