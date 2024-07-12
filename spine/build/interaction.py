@@ -144,12 +144,20 @@ class InteractionBuilder(BuilderBase):
 
             # Append the neutrino information, if it is provided
             if neutrinos is not None:
-                nu_ids = [p.nu_id for p in inter_particles]
+                nu_ids = [part.nu_id for part in inter_particles]
                 assert len(np.unique(nu_ids)) == 1, (
                         "Interaction made up of particles with different "
                         "neutrino IDs. Must be unique.")
                 if nu_ids[0] > -1:
                     interaction.attach_neutrino(neutrinos[nu_ids[0]])
+
+            else:
+                anc_pos = [part.ancestor_position for part in inter_particles]
+                anc_pos = np.unique(anc_pos, axis=0)
+                assert len(anc_pos) == 1, (
+                    "Particles making up a true interaction have different "
+                    "ancestor positions.")
+                interaction.vertex = anc_pos.flatten()
 
             # Append
             truth_interactions.append(interaction)

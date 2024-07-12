@@ -59,7 +59,6 @@ class PostBase(ABC):
             If specified, tells which attribute of the :class:`TruthFragment`,
             :class:`TruthParticle` or :class:`TruthInteraction` object to use
             to fetch its point coordinates
-           
         """
         # If run mode is specified, process it
         if run_mode is not None:

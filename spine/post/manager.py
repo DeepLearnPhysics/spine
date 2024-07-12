@@ -53,10 +53,11 @@ class PostManager:
             Dictionary of data products
         """
         # Loop over the post-processor modules
+        single_entry = np.isscalar(data['index'])
         for key, module in self.modules.items():
             # Run the post-processor on each entry
             self.watch.start(key)
-            if np.isscalar(data['index']):
+            if single_entry:
                 result = module(data)
 
             else:
@@ -71,6 +72,10 @@ class PostManager:
             self.watch.stop(key)
 
             # Update the input dictionary
-            for key, val in result.items():
-                assert len(val) == num_entries
-                data[key] = val
+            if result is not None:
+                for key, val in result.items():
+                    if not single_entry:
+                        assert len(val) == num_entries, (
+                                f"The number {key} ({len(val)}) does not match "
+                                f"the number of entries ({num_entries}).")
+                    data[key] = val

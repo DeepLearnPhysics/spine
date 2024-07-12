@@ -228,8 +228,12 @@ class TruthInteraction(Neutrino, InteractionBase, TruthBase):
         neutrino : Neutrino
             Neutrino to fetch the attributes from
         """
+        # Transfer all the neutrino attributes
         for attr, val in asdict(neutrino).items():
             if attr != 'id':
                 setattr(self, attr, val)
             else:
                 self.nu_id = val
+
+        # Set the interaction vertex position
+        self.vertex = neutrino.position

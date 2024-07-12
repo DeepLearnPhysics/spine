@@ -30,7 +30,8 @@ class ParticleBuilder(BuilderBase):
             'particle_clusts': True, 'particle_shapes': True,
             'particle_start_points': True, 'particle_end_points': True,
             'particle_group_pred': True, 'particle_node_type_pred': True,
-            'particle_node_primary_pred': True, 'reco_fragments': False,
+            'particle_node_primary_pred': True,
+            'particle_node_orient_pred': False, 'reco_fragments': False,
             **BuilderBase.build_reco_keys
     }
 
@@ -62,8 +63,8 @@ class ParticleBuilder(BuilderBase):
     def _build_reco(self, points, depositions, particle_clusts, particle_shapes,
                     particle_start_points, particle_end_points,
                     particle_group_pred, particle_node_type_pred,
-                    particle_node_primary_pred, reco_fragments=None,
-                    sources=None):
+                    particle_node_primary_pred, particle_node_orient_pred=None,
+                    reco_fragments=None, sources=None):
         """Builds :class:`RecoParticle` objects from the full chain output.
 
         Parameters
@@ -86,6 +87,8 @@ class ParticleBuilder(BuilderBase):
             (P, N_c) Particle identification logits
         particle_node_primary_pred : np.ndarray
             (P, 2) Particle primary classification logits
+        particle_node_orient_pred : np.ndarray, optional
+            (P, 2) Particle orientation classification logits
         reco_fragments : List[RecoFragment], optional
             (F) List of reconstructed fragments
         sources : np.ndarray, optional
@@ -101,6 +104,8 @@ class ParticleBuilder(BuilderBase):
         primary_scores = softmax(particle_node_primary_pred, axis=1)
         pid_pred = np.argmax(pid_scores, axis=1)
         primary_pred = np.argmax(primary_scores, axis=1)
+        if particle_node_orient_pred is not None:
+            orient_pred = np.argmax(particle_node_orient_pred, axis=1)
 
         # Loop over the particle instances
         reco_particles = []
@@ -120,6 +125,12 @@ class ParticleBuilder(BuilderBase):
                     is_primary=bool(primary_pred[i]),
                     start_point=particle_start_points[i],
                     end_point=particle_end_points[i])
+
+            # If the orientation prediction is provided, use it
+            if orient_pred is not None and not orient_pred[i]:
+                if particle.shape == TRACK_SHP:
+                    particle.start_point, particle.end_point = (
+                            particle.end_point, particle.start_point)
 
             # Add optional arguments
             if sources is not None:
@@ -204,6 +215,8 @@ class ParticleBuilder(BuilderBase):
             particle.id = i
 
             # Update the attributes shared between reconstructed and true
+            particle.length = particle.distance_travel
+            particle.is_primary = particle.interaction_primary
             particle.start_point = particle.first_step
             if particle.shape == TRACK_SHP:
                 particle.end_point = particle.last_step
