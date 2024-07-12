@@ -108,5 +108,5 @@ class VertexProcessor(PostBase):
                           < self.touching_threshold):
                         part.is_primary = True
                     elif (part.shape == SHOWR_SHP and
-                          np.dot(part.start_point, inter.vertex) < angle_threshold):
+                          np.dot(part.start_point, inter.vertex) < self.angle_threshold):
                         part.is_primary = True

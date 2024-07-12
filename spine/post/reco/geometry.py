@@ -74,6 +74,7 @@ class ContainmentProcessor(PostBase):
             self.use_meta = False
             self.geo = Geometry(detector, boundary_file, source_file)
             self.geo.define_containment_volumes(margin, cathode_margin, mode)
+
         else:
             assert detector is None and boundary_file is None, (
                     "When using `meta` to check containment, must not "
@@ -182,6 +183,8 @@ class FiducialProcessor(PostBase):
             - If 'module', makes sure it is contained within a single module
             - If 'detector', makes sure it is contained within the
               outermost walls
+            - If 'meta', use the metadata range as a basis for containment.
+              Note that this does not guarantee containment within the detector.
         truth_vertex_mode : str, default 'truth_vertex'
              Vertex attribute to use to check containment of true interactions
         """
@@ -189,8 +192,18 @@ class FiducialProcessor(PostBase):
         super().__init__('interaction', run_mode)
 
         # Initialize the geometry
-        self.geo = Geometry(detector, boundary_file)
-        self.geo.define_containment_volumes(margin, cathode_margin, mode)
+        if mode != 'meta':
+            self.use_meta = False
+            self.geo = Geometry(detector, boundary_file, source_file)
+            self.geo.define_containment_volumes(margin, cathode_margin, mode)
+
+        else:
+            assert detector is None and boundary_file is None, (
+                    "When using `meta` to check containment, must not "
+                    "provide geometry information.")
+            self.keys['meta'] = True
+            self.use_meta = True
+            self.margin = margin
 
         # Store the true vertex source
         assert truth_vertex_mode in ['vertex', 'reco_vertex'], (
@@ -206,6 +219,10 @@ class FiducialProcessor(PostBase):
         data : dict
             Dictionary of data products
         """
+        # Get the metadata information, if need be
+        if self.use_meta:
+            meta = data['meta']
+
         # Loop over interaction objects
         for k in self.interaction_keys:
             for inter in data[k]:
@@ -220,4 +237,9 @@ class FiducialProcessor(PostBase):
                 vertex = vertex.reshape(-1,3)
 
                 # Check containment
-                inter.is_fiducial = self.geo.check_containment(vertex)
+                if not self.use_meta:
+                    inter.is_fiducial = self.geo.check_containment(vertex)
+                else:
+                    inter.is_fiducial = (
+                            (vertex > (meta.lower + self.margin)).all() and
+                            (vertex < (meta.upper - self.margin)).all())

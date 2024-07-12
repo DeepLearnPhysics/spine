@@ -433,7 +433,7 @@ class Driver:
                 self.loader_iter = iter(self.loader)
 
             # Update the epoch counter, record the execution date/time
-            epoch = iteration/self.iter_per_epoch
+            epoch = (iteration + 1)/self.iter_per_epoch
             tstamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
             # Process one batch/entry of data
