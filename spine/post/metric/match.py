@@ -149,14 +149,14 @@ class MatchProcessor(PostBase):
         if matcher.match_mode != 'truth_to_reco':
             pairs, overlaps = self.generate_matches(
                     reco_objs, truth_objs, ovl_matrix, ovl_valid)
-            result[f'{name[:-1]}_matches_r2t'] = pairs
-            result[f'{name[:-1]}_matches_r2t_overlap'] = overlaps
+            result[f'{name}_matches_r2t'] = pairs
+            result[f'{name}_matches_r2t_overlap'] = overlaps
 
         if matcher.match_mode != 'reco_to_truth':
             pairs, overlaps = self.generate_matches(
                     truth_objs, reco_objs, ovl_matrix.T, ovl_valid.T)
-            result[f'{name[:-1]}_matches_t2r'] = pairs
-            result[f'{name[:-1]}_matches_t2r_overlap'] = overlaps
+            result[f'{name}_matches_t2r'] = pairs
+            result[f'{name}_matches_t2r_overlap'] = overlaps
 
         return result
 

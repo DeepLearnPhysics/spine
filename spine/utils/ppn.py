@@ -458,7 +458,7 @@ def check_track_orientation_ppn(start_point, end_point, ppn_candidates):
     return end_scores[0] < end_scores[1]
 
 
-def get_ppn_labels(particle_v, meta, dim=3, min_voxel_count=1,
+def get_ppn_labels(particle_v, meta, dtype, dim=3, min_voxel_count=1,
                    min_energy_deposit=0, include_point_tagging=True):
     """Gets particle point coordinates and informations for running PPN.
 
@@ -471,6 +471,8 @@ def get_ppn_labels(particle_v, meta, dim=3, min_voxel_count=1,
         List of LArCV particle objects in the image
     meta : larcv::Voxel3DMeta or larcv::ImageMeta
         Metadata information
+    dtype : str
+        Typing of the output PPN labels
     dim : int, default 3
         Number of dimensions of the image
     min_voxel_count : int, default 5
@@ -534,9 +536,9 @@ def get_ppn_labels(particle_v, meta, dim=3, min_voxel_count=1,
             part_info.append(last_step + part_extra)
 
     if not len(part_info):
-        return np.empty((0, 5 + include_point_tagging), dtype=np.float32)
+        return np.empty((0, 5 + include_point_tagging), dtype=dtype)
 
-    return np.array(part_info)
+    return np.array(part_info, dtype=dtype)
 
 
 def image_contains(meta, point, dim=3):

@@ -125,8 +125,8 @@ class Mask3dLoss(nn.Module):
                 labels = clabel[0][batch_mask][:, GROUP_COL].long()
                 query_idx_batch = query_index[bidx]
                 # Compute instance mask loss
-                targets = get_instance_masks(labels).float()
-                # targets = get_instance_masks_from_queries(labels, query_idx_batch).float()
+                targets = get_instance_masks(labels)
+                # targets = get_instance_masks_from_queries(labels, query_idx_batch)
                 loss_batch, acc_batch = self.loss_fn(mask_layer[batch_mask], targets)
                 loss[bidx].append(loss_batch)
                 
@@ -175,9 +175,9 @@ class Mask3dLoss(nn.Module):
             
             labels = clabel[0][batch_mask][:, GROUP_COL].long()
             
-            targets = get_instance_masks(labels).float()
+            targets = get_instance_masks(labels)
             query_idx_batch = query_index[bidx]
-            # targets = get_instance_masks_from_queries(labels, query_idx_batch).float()
+            # targets = get_instance_masks_from_queries(labels, query_idx_batch)
         
             loss_batch, acc_batch = self.loss_fn(output_mask, targets)
             loss[bidx].append(loss_batch)

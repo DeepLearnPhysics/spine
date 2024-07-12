@@ -165,7 +165,8 @@ class TensorBatch(BatchBase):
 
         data = self.data
         if self.is_sparse:
-            data = torch.cat([self.data.C.float(), self.data.F], dim=1)
+            data = torch.cat([self.data.C.to(dtype=self.data.F.dtype),
+                              self.data.F], dim=1)
 
         data = self._to_numpy(data)
         counts = self._to_numpy(self.counts)

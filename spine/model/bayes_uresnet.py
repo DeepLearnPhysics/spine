@@ -89,7 +89,7 @@ class BayesianUResNet(torch.nn.Module):
             device = x.device
 
             x_sparse = ME.SparseTensor(coordinates=x[:, :4].int(),
-                                       features=x[:, -1].view(-1, 1).float())
+                                       features=x[:, -1].view(-1, 1))
 
             pvec = torch.zeros((num_voxels, self.num_classes)).to(device)
             logits = torch.zeros((num_voxels, self.num_classes)).to(device)
@@ -118,7 +118,7 @@ class BayesianUResNet(torch.nn.Module):
         out = defaultdict(list)
         for igpu, x in enumerate(input):
             x = ME.SparseTensor(coordinates=x[:, :4].int(),
-                                features=x[:, -1].view(-1, 1).float())
+                                features=x[:, -1].view(-1, 1))
             res_encoder = self.encoder.encoder(x)
             print([t.F.shape for t in res_encoder['encoderTensors']])
             decoderTensors = self.decoder(res_encoder['finalTensor'],
@@ -145,7 +145,7 @@ class BayesianUResNet(torch.nn.Module):
         out = defaultdict(list)
         for igpu, x in enumerate(input):
             x = ME.SparseTensor(coordinates=x[:, :4].int(),
-                                features=x[:, -1].view(-1, 1).float())
+                                features=x[:, -1].view(-1, 1))
             res_encoder = self.encoder.encoder(x)
             print([t.F.shape for t in res_encoder['encoderTensors']])
             decoderTensors = self.decoder(res_encoder['finalTensor'],
@@ -312,7 +312,7 @@ class SegmentationLoss(nn.Module):
                     loss_seg = self.loss_fn(event_segmentation, loss_label)
                 if weight is not None:
                     event_weight = weight[i][batch_index]
-                    event_weight = torch.squeeze(event_weight, dim=-1).float()
+                    event_weight = torch.squeeze(event_weight, dim=-1)
                     total_loss += torch.mean(loss_seg * event_weight)
                 else:
                     total_loss += torch.mean(loss_seg)

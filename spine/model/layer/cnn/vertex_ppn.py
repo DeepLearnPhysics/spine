@@ -283,7 +283,7 @@ class VertexPPNLoss(torch.nn.modules.loss._Loss):
 
             #         d_true = pairwise_distances(
             #             points_label,
-            #             points_event[:, 1:4].float().to(device))
+            #             points_event[:, 1:4].to(device))
 
             #         d_positives = (d_true < self.resolution * \
             #                        2**(len(ppn_layers) - layer)).any(dim=0)
@@ -291,15 +291,15 @@ class VertexPPNLoss(torch.nn.modules.loss._Loss):
             #         num_positives = d_positives.sum()
             #         num_negatives = d_positives.nelement() - num_positives
 
-            #         w = num_positives.float() / \
-            #             (num_positives + num_negatives).float()
+            #         w = num_positives / \
+            #             (num_positives + num_negatives)
 
             #         weight_ppn = torch.zeros(d_positives.shape[0]).to(device)
             #         weight_ppn[d_positives] = 1 - w
             #         weight_ppn[~d_positives] = w
 
             #         loss_batch = self.lossfn(scores_event,
-            #                                  d_positives.float(),
+            #                                  d_positives,
             #                                  weight=weight_ppn,
             #                                  reduction='mean')
 
@@ -307,7 +307,7 @@ class VertexPPNLoss(torch.nn.modules.loss._Loss):
             #         if layer == len(ppn_layers)-1:
 
             #             # Get Final Layers
-            #             anchors = coords_layer[batch_particle_index][:, 1:4].float().to(device) + 0.5
+            #             anchors = coords_layer[batch_particle_index][:, 1:4].to(device) + 0.5
             #             pixel_score = points[batch_particle_index][:, -1]
             #             pixel_logits = points[batch_particle_index][:, 3:8]
             #             pixel_pred = points[batch_particle_index][:, :3] + anchors
@@ -316,12 +316,12 @@ class VertexPPNLoss(torch.nn.modules.loss._Loss):
             #             positives = (d < self.resolution).any(dim=0)
             #             if (torch.sum(positives) < 1):
             #                 continue
-            #             acc = (positives == (pixel_score > 0)).sum().float() / float(pixel_score.shape[0])
+            #             acc = (positives == (pixel_score > 0)).sum() / float(pixel_score.shape[0])
             #             total_acc += acc
 
             #             # Mask Loss
             #             mask_loss_final = self.lossfn(pixel_score,
-            #                                           positives.float(),
+            #                                           positives,
             #                                           weight=weight_ppn,
             #                                           reduction='mean')
 

@@ -57,6 +57,7 @@ class TrackExtremaProcessor(PostBase):
                     flip = not check_track_orientation(
                             part.points, part.depositions, part.start_point,
                             part.end_point, self.method, **self.kwargs)
+
                 elif self.method == 'ppn':
                     assert 'ppn_candidates' in data, (
                             "Must run the `ppn_points` post-processor "
@@ -64,6 +65,7 @@ class TrackExtremaProcessor(PostBase):
                     flip = not check_track_orientation_ppn(
                             part.start_point, part.end_point,
                             data['ppn_candidates'])
+
                 else:
                     raise ValueError(
                              "Point assignment method not recognized: "
@@ -71,6 +73,5 @@ class TrackExtremaProcessor(PostBase):
 
                 # If needed, flip en end points
                 if flip:
-                    start_point, end_point = part.end_point, part.start_point
-                    part.start_point = start_point
-                    part.end_point = end_point
+                    part.start_point, part.end_point = (
+                            part.end_point, part.start_point)

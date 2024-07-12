@@ -37,7 +37,7 @@ class Cluster2DParser(ParserBase):
     """
     name = 'cluster2d'
 
-    def __init__(self, cluster_event, projection_id):
+    def __init__(self, dtype, cluster_event, projection_id):
         """Initialize the parser.
 
         Parameters
@@ -48,7 +48,7 @@ class Cluster2DParser(ParserBase):
             Projection ID to get the 2D images from
         """
         # Initialize the parent class
-        super().__init__(cluster_event=cluster_event)
+        super().__init__(dtype, cluster_event=cluster_event)
 
         # Store the revelant attributes
         self.projection_id = projection_id
@@ -91,18 +91,18 @@ class Cluster2DParser(ParserBase):
             cluster = cluster_event_p.as_vector()[i]
             num_points = cluster.as_vector().size()
             if num_points > 0:
-                x = np.empty(num_points, dtype=np.int32)
-                y = np.empty(num_points, dtype=np.int32)
-                value = np.empty(num_points, dtype=np.float32)
+                x = np.empty(num_points, dtype=self.itype)
+                y = np.empty(num_points, dtype=self.itype)
+                value = np.empty(num_points, dtype=self.ftype)
                 larcv.as_flat_arrays(cluster, meta, x, y, value)
-                cluster_id = np.full(num_points, i, dtype=np.float32)
+                cluster_id = np.full(num_points, i, dtype=self.ftype)
                 clusters_voxels.append(np.stack([x, y], axis=1))
                 clusters_features.append(np.column_stack([value, cluster_id]))
 
         # If there are no non-empty clusters, return. Concatenate otherwise
         if not clusters_voxels:
-            return (np.empty((0, 2), dtype=np.float32),
-                    np.empty((0, 2), dtype=np.float32),
+            return (np.empty((0, 2), dtype=self.ftype),
+                    np.empty((0, 2), dtype=self.ftype),
                     Meta.from_larcv(meta))
 
         np_voxels   = np.concatenate(clusters_voxels, axis=0)
@@ -134,7 +134,7 @@ class Cluster3DParser(ParserBase):
     """
     name = 'cluster3d'
 
-    def __init__(self, particle_event=None, add_particle_info=False,
+    def __init__(self, dtype, particle_event=None, add_particle_info=False,
                  clean_data=False, type_include_mpr=True,
                  type_include_secondary=True, primary_include_mpr=True,
                  break_clusters=False, break_eps=1.1, break_metric='chebyshev',
@@ -167,7 +167,7 @@ class Cluster3DParser(ParserBase):
             Data product arguments to be passed to the `process` function
         """
         # Initialize the parent class
-        super().__init__(particle_event=particle_event, **kwargs)
+        super().__init__(dtype, particle_event=particle_event, **kwargs)
 
         # Store the revelant attributes
         self.add_particle_info = add_particle_info
@@ -180,7 +180,7 @@ class Cluster3DParser(ParserBase):
         self.break_metric = break_metric
 
         # Intialize the sparse and particle parsers
-        self.sparse_parser = Sparse3DParser(sparse_event='dummy')
+        self.sparse_parser = Sparse3DParser(dtype, sparse_event='dummy')
 
         # Do basic sanity checks
         if self.add_particle_info:
@@ -272,7 +272,7 @@ class Cluster3DParser(ParserBase):
             labels['pinter']  = inter_primaries
 
             # Store the vertex and momentum
-            anc_pos = np.empty((len(particles), 3), dtype=np.float32)
+            anc_pos = np.empty((len(particles), 3), dtype=self.ftype)
             for i, p in enumerate(particles):
                 anc_pos[i] = image_coordinates(meta, p.ancestor_position())
             labels['vtx_x']   = anc_pos[:, 0]
@@ -306,10 +306,10 @@ class Cluster3DParser(ParserBase):
             num_points = cluster.as_vector().size()
             if num_points > 0:
                 # Get the position and pixel value from EventSparseTensor3D
-                x = np.empty(num_points, dtype=np.int32)
-                y = np.empty(num_points, dtype=np.int32)
-                z = np.empty(num_points, dtype=np.int32)
-                value = np.empty(num_points, dtype=np.float32)
+                x = np.empty(num_points, dtype=self.itype)
+                y = np.empty(num_points, dtype=self.itype)
+                z = np.empty(num_points, dtype=self.itype)
+                value = np.empty(num_points, dtype=self.ftype)
                 larcv.as_flat_arrays(cluster, meta, x, y, z, value)
                 voxels = np.stack([x, y, z], axis=1)
                 clusters_voxels.append(voxels)
@@ -319,7 +319,7 @@ class Cluster3DParser(ParserBase):
                 for l in labels.values():
                     val = l[i] if i < num_particles else -1
                     features.append(
-                            np.full(num_points, val, dtype=np.float32))
+                            np.full(num_points, val, dtype=self.ftype))
 
                 # If requested, break cluster into detached pieces
                 if self.break_clusters:
@@ -332,8 +332,8 @@ class Cluster3DParser(ParserBase):
 
         # If there are no non-empty clusters, return. Concatenate otherwise
         if not clusters_voxels:
-            return (np.empty((0, 3), dtype=np.float32),
-                    np.empty((0, len(labels) + 1), dtype=np.float32),
+            return (np.empty((0, 3), dtype=self.itype),
+                    np.empty((0, len(labels) + 1), dtype=self.ftype),
                     Meta.from_larcv(meta))
 
         np_voxels   = np.concatenate(clusters_voxels, axis=0)

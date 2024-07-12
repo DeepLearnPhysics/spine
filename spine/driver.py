@@ -101,7 +101,7 @@ class Driver:
                     "The model can only be used in conjunction with a loader.")
             self.watch.initialize('model')
             self.model = ModelManager(
-                    **model, train=train, rank=self.rank,
+                    **model, train=train, dtype=self.dtype, rank=self.rank,
                     distributed=self.distributed)
 
         else:
@@ -231,17 +231,19 @@ class Driver:
         # Return updated configuration
         return base, io, model, build, post, ana
 
-    def initialize_base(self, seed, world_size=0, log_dir='logs',
-                        prefix_log=False, overwrite_log=False, parent_path=None,
-                        iterations=None, epochs=None, unwrap=False, rank=None,
-                        log_step=1, distributed=False, train=None,
-                        verbosity='info'):
+    def initialize_base(self, seed, dtype='float32', world_size=0,
+                        log_dir='logs', prefix_log=False, overwrite_log=False,
+                        parent_path=None, iterations=None, epochs=None,
+                        unwrap=False, rank=None, log_step=1, distributed=False,
+                        train=None, verbosity='info'):
         """Initialize the base driver parameters.
 
         Parameters
         ----------
         seed : int
             Random number generator seed
+        dtype : str, default 'float32'
+            Data type of the model parameters and input data
         world_size : int, default 0
             Number of GPUs to use in the underlying model
         log_dir : str, default 'logs'
@@ -300,6 +302,7 @@ class Driver:
             self.distributed = True
 
         # Store general parameters
+        self.dtype = dtype
         self.log_dir = log_dir
         self.prefix_log = prefix_log
         self.overwrite_log = overwrite_log
@@ -334,8 +337,8 @@ class Driver:
             # Initialize the torch data loader
             self.watch.initialize('load')
             self.loader = loader_factory(
-                    **loader, rank=self.rank, world_size=self.world_size,
-                    distributed=self.distributed)
+                    **loader, rank=self.rank, dtype=self.dtype,
+                    world_size=self.world_size, distributed=self.distributed)
             
             self.loader_iter = None
             self.iter_per_epoch = len(self.loader)

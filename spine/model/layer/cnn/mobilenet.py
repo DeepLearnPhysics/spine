@@ -154,7 +154,7 @@ class MobileNetV3(torch.nn.Module):
 
     def forward(self, input):
         coordinates = input[:, 0:self.D+1].int()
-        features = input[:, self.D+1:].float()
+        features = input[:, self.D+1:]
 
         x = ME.SparseTensor(features, coordinates=coordinates)
         encoderOutput = self.encoder(x)
@@ -266,7 +266,7 @@ class MB3Encoder(torch.nn.Module):
 
     def forward(self, input):
         coordinates = input[:, 0:self.D+1].int()
-        features = input[:, self.D+1:].float()
+        features = input[:, self.D+1:]
 
         x = ME.SparseTensor(features, coordinates=coordinates)
         encoderOutput = self.encoder(x)

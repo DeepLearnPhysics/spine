@@ -104,7 +104,9 @@ class CollateAll:
                     voxels    = np.vstack([sample[key][0] for sample in batch])
                     features  = np.vstack([sample[key][1] for sample in batch])
                     counts    = [len(sample[key][0]) for sample in batch]
-                    batch_ids = np.repeat(np.arange(batch_size), counts)
+                    batch_ids = np.repeat(
+                            np.arange(batch_size, dtype=voxels.dtype), counts)
+
                 else:
                     # If split, must shift the voxel coordinates and create
                     # one batch ID per [batch, volume] pair
@@ -122,7 +124,7 @@ class CollateAll:
                             features_v.append(features[module_index])
                             idx = self.geo.num_modules * s + m
                             batch_ids_v.append(np.full(len(module_index),
-                                               idx, dtype = np.int32))
+                                               idx, dtype=voxels.dtype))
                             counts[idx] = len(module_index)
 
                     voxels = np.vstack(voxels_v)
@@ -132,8 +134,9 @@ class CollateAll:
                 # Stack the coordinates with the features
                 tensor = np.hstack([batch_ids[:, None], voxels, features])
                 coord_cols = np.arange(1, 1+voxels.shape[1])
-                data[key] = TensorBatch(tensor, counts, has_batch_col=True,
-                                        coord_cols=coord_cols)
+                data[key] = TensorBatch(
+                        tensor.astype(features.dtype), counts,
+                        has_batch_col=True, coord_cols=coord_cols)
 
             elif isinstance(ref_obj, tuple) and len(ref_obj) == 2:
                 # Case where an index and an offset is provided per entry.
@@ -142,6 +145,7 @@ class CollateAll:
                         [sample[key][0] for sample in batch], axis=1)
                 counts  = [sample[key][0].shape[-1] for sample in batch]
                 offsets = [sample[key][1] for sample in batch]
+
                 if len(tensor.shape) == 1:
                     data[key] = IndexBatch(tensor, counts, offsets)
                 else:

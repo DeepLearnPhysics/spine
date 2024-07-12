@@ -164,6 +164,22 @@ class DataBase:
         """
         return self._skip_attrs
 
+    @property
+    def set_precision(self, precision):
+        """Casts all the vector attributes to a different precision.
+
+        Parameters
+        ----------
+        int : default 4
+            Precision in number of bytes (half=2, single=4, double=8)
+        """
+        assert precision in [2, 4, 8], (
+                "Set the vector attribute precision for this object.")
+        for attr in self.fixed_length_attrs + self.variable_length_attrs:
+            val = getattr(self, attr)
+            dtype = f'{val.dtype.str[:-1]}{precision}'
+            setattr(self, attr, val.astype(dtype))
+
 
 @dataclass
 class PosDataBase(DataBase):

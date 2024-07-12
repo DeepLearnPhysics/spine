@@ -149,7 +149,7 @@ class UResNeXt(torch.nn.Module):
 
     def forward(self, input):
         coords = input[:, 0:self.D + 1].int()
-        features = input[:, self.D + 1:].float()
+        features = input[:, self.D + 1:]
 
         x = ME.SparseTensor(features, coordinates=coords)
         encoderOutput = self.encoder(x)

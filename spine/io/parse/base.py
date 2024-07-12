@@ -23,11 +23,13 @@ class ParserBase(ABC):
     name = None
     aliases = []
 
-    def __init__(self, **kwargs):
+    def __init__(self, dtype, **kwargs):
         """Loops over data product names, stores them.
 
         Parameters
         ----------
+        dtype : str
+            Data type to cast the input data to
         **kwargs : dict, optional
             Keyword arguments passed to the parser function
 
@@ -36,6 +38,10 @@ class ParserBase(ABC):
         All parser argument which correspond to the name of a tree in the
         LArCV file must be contain either the `_event` or `_event_list` suffix.
         """
+        # Store the type in which the parsers should return their data
+        self.ftype = dtype
+        self.itype = dtype.replace('float', 'int')
+
         # Find data keys, append them to the map
         self.data_map = {}
         self.tree_keys = []

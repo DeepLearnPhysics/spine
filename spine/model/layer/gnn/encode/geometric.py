@@ -201,10 +201,10 @@ class ClustGeoNodeEncoder(torch.nn.Module):
             Add the particle semantic type
         """
         # Get the value & semantic types
-        voxels = data.tensor[:, COORD_COLS].float()
-        values = data.tensor[:, VALUE_COL].float()
+        voxels = data.tensor[:, COORD_COLS]
+        values = data.tensor[:, VALUE_COL]
         if add_value:
-            sem_types = data.tensor[:, SHAPE_COL].float()
+            sem_types = data.tensor[:, SHAPE_COL]
 
         # Below is a torch-based implementation of cluster_features
         feats = []
@@ -379,7 +379,7 @@ class ClustGeoEdgeEncoder(torch.nn.Module):
             pair of clusters
         """
         # Get the voxel set
-        voxels = data.tensor[:, COORD_COLS].float()
+        voxels = data.tensor[:, COORD_COLS]
 
         # Here is a torch-based implementation of cluster_edge_features
         feats = []

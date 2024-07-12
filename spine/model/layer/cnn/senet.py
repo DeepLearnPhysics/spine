@@ -146,8 +146,8 @@ class SENet(torch.nn.Module):
         return decoderTensors
 
     def forward(self, input):
-        coords = input[:, 0:self.D + 1].cpu().int()
-        features = input[:, self.D + 1:].float()
+        coords = input[:, 0:self.D + 1].int()
+        features = input[:, self.D + 1:]
 
         x = ME.SparseTensor(features, coordinates=coords)
         encoderOutput = self.encoder(x)

@@ -301,10 +301,11 @@ class ParticlePointParser(ParserBase):
         # Get the point labels
         particles_v = particle_event.as_vector()
         point_labels = get_ppn_labels(
-                particles_v, meta,
+                particles_v, meta, self.ftype,
                 include_point_tagging=self.include_point_tagging)
 
-        return point_labels[:, :3], point_labels[:, 3:], Meta.from_larcv(meta)
+        return (point_labels[:, :3].astype(self.itype), point_labels[:, 3:],
+                Meta.from_larcv(meta))
 
 
 class ParticleCoordinateParser(ParserBase):
@@ -367,7 +368,7 @@ class ParticleCoordinateParser(ParserBase):
         particles_v = particle_event.as_vector()
 
         # Make features
-        features = np.empty((len(particles_v), 8), dtype=np.float32)
+        features = np.empty((len(particles_v), 8), dtype=self.ftype)
         for i, p in enumerate(particles_v):
             start_point = last_point = image_coordinates(meta, p.first_step())
             if p.shape() == TRACK_SHP: # End point only meaningful for tracks
@@ -375,7 +376,8 @@ class ParticleCoordinateParser(ParserBase):
             extra = [p.t(), p.shape()]
             features[i] = np.concatenate((start_point, last_point, extra))
 
-        return features[:, :6], features[:, 6:], Meta.from_larcv(meta)
+        return (features[:, :6].astype(self.itype), features[:, 6:],
+                Meta.from_larcv(meta))
 
 
 class ParticleGraphParser(ParserBase):
@@ -437,9 +439,9 @@ class ParticleGraphParser(ParserBase):
 
             # Convert the list of edges to a numpy array
             if not edges:
-                return np.empty((2, 0), dtype=np.int32), num_particles
+                return np.empty((2, 0), dtype=np.int64), num_particles
 
-            edges = np.vstack(edges).astype(np.int32)
+            edges = np.vstack(edges).astype(np.int64)
 
         else:
             # Check that the cluster and particle objects are consistent
@@ -466,9 +468,9 @@ class ParticleGraphParser(ParserBase):
 
             # Convert the list of edges to a numpy array
             if not edges:
-                return np.empty((2, 0), dtype=np.int32), num_particles
+                return np.empty((2, 0), dtype=np.int64), num_particles
 
-            edges = np.vstack(edges).astype(np.int32)
+            edges = np.vstack(edges).astype(np.int64)
 
             # Remove zero pixel nodes
             for zn in zero_nodes:
