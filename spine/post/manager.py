@@ -5,9 +5,9 @@ from collections import defaultdict, OrderedDict
 
 import numpy as np
 
-from .factories import post_processor_factory
-
 from spine.utils.stopwatch import StopwatchManager
+
+from .factories import post_processor_factory
 
 
 class PostManager:

@@ -11,7 +11,7 @@ for module in [reco, metric, optical, crt, trigger]:
 
 
 def post_processor_factory(name, cfg, parent_path=''):
-    '''Instantiates a post-processor module from a configuration dictionary.
+    """Instantiates a post-processor module from a configuration dictionary.
 
     Parameters
     ----------
@@ -27,7 +27,7 @@ def post_processor_factory(name, cfg, parent_path=''):
     -------
     object
          Initialized post-processor object
-    '''
+    """
     # Provide the name to the configuration
     cfg['name'] = name
 

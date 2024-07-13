@@ -7,7 +7,7 @@ import copy
 
 from spine.ana.base import AnaBase
 
-from spine.utils.globals import SHOWR_SHP
+from spine.utils.globals import SHOWR_SHP, ELEC_PID
 
 __all__ = ['EventAna']
 
@@ -15,16 +15,22 @@ __all__ = ['EventAna']
 class EventAna(AnaBase):
     """Class which saves basic event information (and their matches)."""
     name = 'event'
-    req_keys = ['index', 'particles', 'truth_particles']
-    opt_keys = ['run_info']
+    keys = {'index': True, 'reco_particles': True,
+            'truth_particles': True, 'run_info': False}
 
-    def __init__(self, run_mode='both', append=False):
-        """Initialize the CSV event logging class."""
+    def __init__(self, **kwargs):
+        """Initialize the CSV event logging class.
+
+        Parameters
+        ----------
+        **kwargs : dict, optional
+            Parameters to pass to :class:`AnaBase`
+        """
         # Initialize the parent class
-        super().__init__(run_mode=run_mode, append=append)
+        super().__init__(**kwargs)
 
         # Initialize the output log file
-        self.initialzie('events')
+        self.initialize_writer('events')
 
     def process(self, data):
         """Store basic event information for one entry.
@@ -36,7 +42,6 @@ class EventAna(AnaBase):
         """
         # Extract basic information to store in every row
         # TODO add file index + index within the file?
-        # TODO remove all assert checks below and add them to required keys!!
         row_dict = {'index': data['index']}
         if 'run_info' in data:
             row_dict.update(**data['run_info'].scalar_dict())
