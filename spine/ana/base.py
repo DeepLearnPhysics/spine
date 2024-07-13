@@ -69,12 +69,13 @@ class AnaBase(ABC):
             self.prefixes.append('truth')
 
         # Check that all the object sources are recognized
-        if isinstance(obj_type, str):
-            obj_type = [obj_type]
-        for obj in obj_type:
-            assert obj in self._obj_types, (
-                    f"Object type must be one of {self._obj_types}. Got "
-                    f"`{obj}` instead.")
+        if obj_type is not None:
+            if isinstance(obj_type, Vstr):
+                obj_type = [obj_type]
+            for obj in obj_type:
+                assert obj in self._obj_types, (
+                        f"Object type must be one of {self._obj_types}. Got "
+                        f"`{obj}` instead.")
 
         # Make a list of object keys to process
         for name in self._obj_types:
@@ -82,7 +83,7 @@ class AnaBase(ABC):
             setattr(self, f'{name}_keys', [])
 
             # Skip object types which are not requested
-            if name in obj_type:
+            if obj_type is not None and name in obj_type:
                 if run_mode != 'truth':
                     getattr(self, f'{name}_keys').append(f'reco_{name}s')
                 if run_mode != 'reco':

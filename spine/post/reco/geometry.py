@@ -194,7 +194,7 @@ class FiducialProcessor(PostBase):
         # Initialize the geometry
         if mode != 'meta':
             self.use_meta = False
-            self.geo = Geometry(detector, boundary_file, source_file)
+            self.geo = Geometry(detector, boundary_file)
             self.geo.define_containment_volumes(margin, cathode_margin, mode)
 
         else:

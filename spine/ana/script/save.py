@@ -83,7 +83,7 @@ class SaveAna(AnaBase):
         Parameters
         ----------
         data : dict
-            Dictionary of data products containing object representations
+            Dictionary of data products
         """
         # Extract basic information to store in every row
         # TODO add file index + index within the file?

@@ -1,6 +1,6 @@
 """Manages the operation of analysis scripts."""
 
-from collections import OrderedDict
+from collections import defaultdict, OrderedDict
 
 import numpy as np
 

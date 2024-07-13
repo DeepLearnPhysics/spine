@@ -508,7 +508,7 @@ class Driver:
             self.watch.start('ana')
             self.ana(data)
             self.watch.stop('ana')
-            self.watch.update(self.post.watch, 'ana')
+            self.watch.update(self.ana.watch, 'ana')
 
         # 7. Write output to file, if requested
         if self.writer is not None:

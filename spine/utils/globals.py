@@ -66,7 +66,7 @@ SHAPE_LABELS = {
    TRACK_SHP: 'Track',
    MICHL_SHP: 'Michel',
    DELTA_SHP: 'Delta',
-   LOWES_SHP: 'Low Energy',
+   LOWES_SHP: 'LE',
    GHOST_SHP: 'Ghost',
 }
 

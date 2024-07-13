@@ -2,11 +2,12 @@
 
 from spine.utils.factory import module_dict, instantiate
 
-from . import script
+from . import metric, script
 
 # Build a dictionary of available calibration modules
 ANA_DICT = {}
-ANA_DICT.update(**module_dict(script))
+for module in [metric, script]:
+    ANA_DICT.update(**module_dict(module))
 
 
 def ana_script_factory(name, cfg, parent_path=''):
