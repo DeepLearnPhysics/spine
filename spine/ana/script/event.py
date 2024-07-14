@@ -40,14 +40,6 @@ class EventAna(AnaBase):
         data : dict
             Dictionary of data products containing particle representations
         """
-        # Extract basic information to store in every row
-        # TODO add file index + index within the file?
-        row_dict = {'index': data['index']}
-        if 'run_info' in data:
-            row_dict.update(**data['run_info'].scalar_dict())
-        else:
-            warn("`run_info` is missing; will not be included in CSV file.")
-
         # Get the basic event-level information
         # TODO: this should be using run_mode
         reco_p, truth_p = data['reco_particles'], data['truth_particles']
@@ -64,5 +56,5 @@ class EventAna(AnaBase):
                         p.shape == SHOWR_SHP and p.is_primary)
                 cnts[f'{pre}_electron_showers'] += p.pid == ELEC_PID
 
-        row_dict.update(**cnts)
+        row_dict.update(**self.base_dict, **cnts)
         self.writers['events'].append(row_dict)

@@ -14,7 +14,6 @@ __all__ = ['SaveAna']
 class SaveAna(AnaBase):
     """Class which simply saves reconstructed objects (and their matches)."""
     name = 'save'
-    keys = {'index': True, 'run_info': False}
 
     # Valid match modes
     _match_modes = [None, 'reco_to_truth', 'truth_to_reco', 'both', 'all']
@@ -85,14 +84,6 @@ class SaveAna(AnaBase):
         data : dict
             Dictionary of data products
         """
-        # Extract basic information to store in every row
-        # TODO add file index + index within the file?
-        base_dict = {'index': data['index']}
-        if 'run_info' in data:
-            base_dict.update(**data['run_info'].scalar_dict())
-        else:
-            warn("`run_info` is missing; will not be included in CSV file.")
-
         # Loop over the keys to store
         other_prefix = {'reco': 'truth', 'truth': 'reco'}
         for key in self.obj_keys:
@@ -105,8 +96,7 @@ class SaveAna(AnaBase):
                 self.match_mode == f'{other}_to_{prefix}'):
                 # If there is no matches, save objects by themselves
                 for i, obj in enumerate(data[key]):
-                    row_dict = {**base_dict, **obj.scalar_dict(attrs)}
-                    self.writers[key].append(row_dict)
+                    self.append(key, **obj.scalar_dict(attrs))
 
             else:
                 # If there are matches, combine the objects with their best
@@ -125,6 +115,6 @@ class SaveAna(AnaBase):
                     tgt_dict = {f'{other}_{k}':v for k, v in tgt_dict.items()}
                     overlap = data[f'{match_key}_overlap'][idx]
 
-                    row_dict = {**base_dict, **src_dict, **tgt_dict}
+                    row_dict = {**src_dict, **tgt_dict}
                     row_dict.update({'match_overlap': overlap})
-                    self.writers[key].append(row_dict)
+                    self.append(key, **row_dict)

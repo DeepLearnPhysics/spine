@@ -17,7 +17,6 @@ class SegmentAna(AnaBase):
     semantic segmentation confusion matrix.
     """
     name = 'segment_eval'
-    keys = {'index': True, 'run_info': False}
 
     def __init__(self, summary=True, num_classes=GHOST_SHP, ghost=False,
                  use_particles=False, label_key='seg_label', **kwargs):
@@ -29,6 +28,8 @@ class SegmentAna(AnaBase):
             If `True`, summarize the confusion matrix for each entry. If
             `False`, store one row per pixel in the image (extremely memory
             intensive but gives details about pixel scores).
+        num_classes : int, default 5
+            Number of pixel classses, excluding the ghost class
         ghost : bool, default False
             Evaluate deghosting performance
         use_particles : bool, default False
@@ -53,14 +54,13 @@ class SegmentAna(AnaBase):
         self.label_key = label_key
 
         # Basic logic checks
-        assert not self.use_particles or not self.summary, (
+        assert not self.use_particles or self.summary, (
                 "Cannot store detailed score information from particles.")
         assert not self.use_particles or not self.ghost, (
                 "Cannot produce ghost metrics from particles.")
         
         # List the necessary data products, intialize writer
         if not self.use_particles:
-            self.initialize_writer('summary')
             self.keys[label_key] = True
             self.keys['segmentation'] = True
             if ghost:
@@ -68,12 +68,15 @@ class SegmentAna(AnaBase):
                 self.keys['ghost'] = True
 
         else:
-            self.initialize_writer('pixel')
-            self.keys['points']
+            self.keys['points'] = True
             for prefix in ['reco', 'truth']:
                 self.keys[f'{prefix}_particles'] = True
 
         # Initialize the output
+        if summary:
+            self.initialize_writer('summary')
+        else:
+            self.initialize_writer('pixel')
 
     def process(self, data):
         """Store the semantic segmentation metrics for one entry.
@@ -83,14 +86,6 @@ class SegmentAna(AnaBase):
         data : dict
             Dictionary of data products
         """
-        # Extract basic information to store in every row
-        # TODO add file index + index within the file?
-        base_dict = {'index': data['index']}
-        if 'run_info' in data:
-            base_dict.update(**data['run_info'].scalar_dict())
-        else:
-            warn("`run_info` is missing; will not be included in CSV file.")
-
         # Fetch the list of labels and predictions for each pixel in the image
         if not self.use_particles:
             # Rebuild the labels from the particle objects
@@ -120,7 +115,7 @@ class SegmentAna(AnaBase):
         else:
             seg_label = np.full(len(data['points']), LOWES_SHP, dtype=np.int32)
             for part in data['truth_particles']:
-                seg_pred[part.index] = part.shape
+                seg_label[part.index] = part.shape
 
             seg_pred = np.full_like(seg_label, LOWES_SHP)
             for part in data['reco_particles']:
@@ -130,11 +125,11 @@ class SegmentAna(AnaBase):
         if not self.summary:
             # Store one row per pixel in the image, including pixel scores
             for i in range(len(seg_label)):
-                row_dict = {**base_dict, 'label': seg_label[i], 'pred': seg_pred[i]}
+                row_dict = {'label': seg_label[i], 'pred': seg_pred[i]}
                 for s in range(self.num_classes):
                     row_dict[f'score_{s}'] = seg_scores[i, s]
 
-                self.writers['pixel'].append(row_dict)
+                self.append('pixel', **row_dict)
 
         else:
             # Store a summary of the confusion per entry (confusion matrix counts)
@@ -142,10 +137,9 @@ class SegmentAna(AnaBase):
                 seg_pred, seg_label, bins=[self.num_classes, self.num_classes],
                 range=[[0, self.num_classes], [0, self.num_classes]])[0]
 
-            print(count)
-            row_dict = {**base_dict}
+            row_dict = {}
             for i in range(self.num_classes):
                 for j in range(self.num_classes):
                     row_dict[f'count_{i}{j}'] = int(count[i][j])
 
-            self.writers['summary'].append(row_dict)
+            self.append('summary', **row_dict)

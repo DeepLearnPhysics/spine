@@ -23,7 +23,7 @@ class PPNProcessor(PostBase):
     If `restrict_shape` is `True`, points will be matched to particles with
     the same predicted semantic type only.
     """
-    name = 'ppn_candidates'
+    name = 'ppn'
     aliases = ['get_ppn_candidates']
     keys = {'segmentation': True, 'ppn_points': True, 'ppn_coords': True,
             'ppn_masks': True, 'ppn_classify_endpoints': True}

@@ -179,7 +179,7 @@ class BuildManager:
                 if key in data:
                     update[key] = data[key]
                     if entry is not None:
-                        update[key] = update[key][data]
+                        update[key] = update[key][entry]
 
         # Convert everything to the proper units once and for all
         if self.units != 'px':

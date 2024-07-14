@@ -26,7 +26,7 @@ class AnaBase(ABC):
     """
     name = ''
     aliases = []
-    keys = {}
+    keys = {'index': True, 'run_info': False}
     units = 'cm'
 
     # List of recognized object types
@@ -121,6 +121,42 @@ class AnaBase(ABC):
                 file_name, append=self.append_file,
                 overwrite=self.overwrite_file)
 
+    def get_base_dict(self, data):
+        """Builds the entry information dictionary.
+
+        Parameters
+        ----------
+        data : dict
+            Dictionary of data products
+
+        Returns
+        -------
+        dict
+            Dictionary of information for this entry
+        """
+        # Extract basic information to store in every row
+        # TODO: add file index + index within the file? adding the file path
+        # to every row is prohibitively expensive.
+        base_dict = {'index': data['index']}
+        if 'run_info' in data:
+            base_dict.update(**data['run_info'].scalar_dict())
+        else:
+            warn("`run_info` is missing; will not be included in CSV file.")
+
+        return base_dict
+
+    def append(self, name, **kwargs):
+        """Apppend a CSV log file with a set of values.
+
+        Parameters
+        ----------
+        name : str
+            Name of the writer
+        **kwargs : dict
+            Dictionary of information to save to the writer
+        """
+        self.writers[name].append({**self.base_dict, **kwargs})
+
     def __call__(self, data, entry=None):
         """Runs the analysis script on one entry.
 
@@ -147,6 +183,9 @@ class AnaBase(ABC):
                 data_filter[key] = data[key]
                 if entry is not None:
                     data_filter[key] = data[key][entry]
+
+        # Fetch the base dictionary
+        self.base_dict = self.get_base_dict(data_filter)
 
         # Run the analysis script
         return self.process(data_filter)

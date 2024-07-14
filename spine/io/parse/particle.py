@@ -304,8 +304,7 @@ class ParticlePointParser(ParserBase):
                 particles_v, meta, self.ftype,
                 include_point_tagging=self.include_point_tagging)
 
-        return (point_labels[:, :3].astype(self.itype), point_labels[:, 3:],
-                Meta.from_larcv(meta))
+        return point_labels[:, :3], point_labels[:, 3:], Meta.from_larcv(meta)
 
 
 class ParticleCoordinateParser(ParserBase):
@@ -376,8 +375,7 @@ class ParticleCoordinateParser(ParserBase):
             extra = [p.t(), p.shape()]
             features[i] = np.concatenate((start_point, last_point, extra))
 
-        return (features[:, :6].astype(self.itype), features[:, 6:],
-                Meta.from_larcv(meta))
+        return features[:, :6], features[:, 6:], Meta.from_larcv(meta)
 
 
 class ParticleGraphParser(ParserBase):
