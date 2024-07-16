@@ -4,7 +4,54 @@ from enum import IntEnum
 
 from .globals import *
 
-__all__ = ['ClusterLabelEnum']
+__all__ = ['enum_factory']
+
+
+def enum_factory(enum, value):
+    """Parses an enumerated object from string name(s) to value(s).
+
+    Parameters
+    ----------
+    enum : str
+        Name of the enumerated type
+    value : Union[str, List[str]]
+        Name or names of the enumerated objects (from config)
+
+    Returns
+    -------
+    Union[int, List[int]]
+        Value or values of the enumerated objects
+    """
+    # Get the enumerated type
+    ENUM_DICT = {
+            'cluster': ClusterLabelEnum,
+            'shape': ShapeEnum,
+            'pid': PIDEnum
+    }
+    assert enum in ENUM_DICT, (
+            "Enumerated type not recognized: {enum}. Must be one of "
+            "{list(ENUM_DICT.keys())}.")
+    enum = ENUM_DICT[enum]
+
+    # Translate enumerated strings into values
+    if isinstance(value, str):
+        if not hasattr(enum, value.upper()):
+            raise ValueError(
+                    f"Enumerated object not recognized: {value}. Must be one "
+                    f"of {[e.name for e in enum]}.")
+
+        return getattr(enum, value.upper()).value
+
+    else:
+        values = []
+        for v in value:
+            if not hasattr(enum, v.upper()):
+                raise ValueError(
+                        f"Enumerated object not recognized: {v}. Must be one "
+                        f"of {[e.name for e in enum]}.")
+            values.append(getattr(enum, v.upper()).value)
+            
+        return values
 
 
 class ClusterLabelEnum(IntEnum):

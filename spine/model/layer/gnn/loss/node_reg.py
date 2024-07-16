@@ -6,7 +6,7 @@ from warnings import warn
 
 from spine.model.layer.factories import loss_fn_factory
 
-from spine.utils.enums import ClusterLabelEnum
+from spine.utils.enums import enum_factory
 from spine.utils.gnn.cluster import get_cluster_label_batch
 
 __all__ = ['NodeRegressionLoss']
@@ -50,9 +50,7 @@ class NodeRegressionLoss(torch.nn.Module):
         super().__init__()
 
         # Parse the regression target
-        assert isinstance(target, str), (
-                "Specify `target` as a string available in `ClusterLabelEnum`.")
-        self.target = getattr(ClusterLabelEnum, target.upper()).value
+        self.target = enum_factory('cluster', target)
 
         # Set the loss
         self.loss_fn = loss_fn_factory(loss, reduction='sum')

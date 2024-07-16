@@ -13,6 +13,7 @@ from torch_cluster import knn_graph, radius_graph
 
 from spine.data import TensorBatch, IndexBatch, ObjectList
 from spine.utils.globals import CLUST_COL, SHAPE_COL
+from spine.utils.enums import enum_factory
 from spine.utils.gnn.cluster import form_clusters
 from spine.utils.metrics import pur, eff, ari
 
@@ -26,7 +27,7 @@ class ClusterGraphConstructor:
     construction and node predictions in Graph-SPICE clustering.
     """
 
-    def __init__(self, graph, classes, edge_threshold, kernel_fn=None,
+    def __init__(self, graph, shapes, edge_threshold, kernel_fn=None,
                  min_size=0, invert=True, label_edges=False,
                  target_col=CLUST_COL, training=False, orphan=None):
         """Initialize the cluster graph constructor.
@@ -35,8 +36,8 @@ class ClusterGraphConstructor:
         ----------
         graph : dict
             Graph construction configuration dictionary
-        classes : List[int]
-            List of classes to construct clusters for
+        shapes : List[str]
+            List of shape names to construct clusters for
         edge_threshold : float
             Edge score below which it is disconnected (or above which it is,
             if the `inverted` parameter is turned on
@@ -61,8 +62,10 @@ class ClusterGraphConstructor:
         ValueError
             If the graph type is not supported.
         """
-        # Store basic properties
-        self.classes = classes
+        # Parse the set of shapes to cluster
+        self.shapes = enum_factory('shape', shapes)
+
+        # Store other basic properties
         self.threshold = edge_threshold
         self.min_size = min_size
         self.invert = invert
@@ -142,7 +145,7 @@ class ClusterGraphConstructor:
         for key, value in graph.items():
             if key.endswith('clusts'):
                 # Turn indexes into index batches
-                counts = [len(self.classes)]*coords.batch_size
+                counts = [len(self.shapes)]*coords.batch_size
                 single_counts = [len(c) for c in value]
                 is_edge = key.startswith('edge')
                 offsets = edge_offsets if is_edge else coords.edges[:-1]
@@ -189,7 +192,7 @@ class ClusterGraphConstructor:
         # Loop over the semantic types, build a graph for each
         graph = defaultdict(list)
         edge_count = 0
-        for s in self.classes:
+        for s in self.shapes:
             # Get the index of points which belong to this class
             seg_index = torch.where(seg_label[:, SHAPE_COL] == s)[0]
             graph['node_clusts'].append(seg_index)
@@ -288,7 +291,7 @@ class ClusterGraphConstructor:
             for b in range(node_pred.batch_size):
                 # Loop over shapes in the entry
                 counts_b = 0
-                for s, shape in enumerate(self.classes):
+                for s, shape in enumerate(self.shapes):
                     # Get the list of clusters for this (entry, shape) pair
                     index_b_s = node_clusts[b][s]
                     clusts_b_s, counts_b_s = form_clusters(
@@ -345,7 +348,7 @@ class ClusterGraphConstructor:
                     result[m].append(metric(node_pred_b, node_label_b))
 
                 # Loop over the semantic types
-                for s, shape in self.classes:
+                for s, shape in self.shapes:
                     # Narrow down the predictions and labels to this shape
                     node_index = graph['node_clusts'][b][s]
                     node_label_b_s = node_label_b[node_index]
