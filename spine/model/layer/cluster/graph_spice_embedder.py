@@ -34,6 +34,8 @@ class GraphSPICEEmbedder(nn.Module):
         self.backbone = UResNet(uresnet)
         self.num_filters = self.backbone.num_filters
         self.spatial_size = self.backbone.spatial_size
+        assert self.spatial_size is not None, (
+                "Must provide a spatial size to compute normalized coordinates.")
 
         # Process the rest of the configuration
         self.process_model_config(**base)
