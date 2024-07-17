@@ -80,7 +80,11 @@ def box_trace(lower, upper, draw_faces=False, line=None, linewidth=None,
     # Update hovertemplate style
     hovertemplate = 'x: %{x}<br>y: %{y}<br>z: %{z}'
     if hovertext is not None:
-        hovertemplate += '<br>%{text}'
+        if not np.isscalar(hovertext):
+            hovertemplate += '<br>%{text}'
+        else:
+            hovertemplate += f'<br>{hovertext}'
+            hovertext = None
 
     if not draw_faces:
         # Build a list of box edges to draw (padded with None values to break

@@ -74,7 +74,7 @@ def scatter_points(points, color=None, markersize=2, linewidth=2,
 
     # If there is no hovertext, print the color as part of the hovertext
     if hovertext is None and color is not None and not isinstance(color, str):
-        hovertext = color
+        hovertext = [f'Value: {c}' for c in color]
 
     # Update hovertemplate
     if hovertemplate is None:
@@ -82,7 +82,11 @@ def scatter_points(points, color=None, markersize=2, linewidth=2,
         if dim == 3:
             hovertemplate += '<br>z: %{z}'
         if hovertext is not None:
-            hovertemplate += '<br>%{text}'
+            if not np.isscalar(hovertext):
+                hovertemplate += '<br>%{text}'
+            else:
+                hovertemplate += f'<br>{hovertext}'
+                hovertext = None
 
     # Initialize the marker/line object depending on mode
     if 'markers' in mode and marker is None:
