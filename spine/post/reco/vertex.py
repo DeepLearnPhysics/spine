@@ -93,14 +93,18 @@ class VertexProcessor(PostBase):
             shapes       = np.array([part.shape for part in particles])
 
             # Reconstruct the vertex for this interaction
-            vtx, vtx_mode = get_vertex(
+            vtx, _ = get_vertex(
                 start_points, end_points, directions, shapes,
                 self.anchor_vertex, self.touching_threshold, return_mode=True)
-            inter.vertex = vtx
-            inter.vertex_mode = vtx_mode
+
+            # Assign it to the appropriate interaction attribute
+            if not inter.is_truth:
+                inter.vertex = vtx
+            else:
+                inter.reco_vertex = vtx
 
             # If requested, update primaries on the basis of the vertex
-            if self.update_primaries:
+            if not inter.is_truth and self.update_primaries:
                 for part in inter.particles:
                     if part.shape not in [SHOWR_SHP, TRACK_SHP]:
                         part.is_primary = False

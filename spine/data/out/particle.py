@@ -51,6 +51,12 @@ class ParticleBase:
         to track objects)
     ke : float
         Kinetic energy of the particle
+    calo_ke : float
+        Kinetic energy reconstructed from the energy depositions alone
+    csda_ke : float
+        Kinetic energy reconstructed from the particle range
+    mcs_ke : float
+        Kinetic energy reconstructed using the MCS method
     momentum : np.ndarray
         3-momentum of the particle at the production point
     p : float
@@ -72,6 +78,9 @@ class ParticleBase:
     start_dir: np.ndarray = None
     end_dir: np.ndarray = None
     ke: float = -1.
+    calo_ke: float = -1.
+    csda_ke: float = -1.
+    mcs_ke: float = -1.
     momentum: np.ndarray = None
     p: float = -1.
     is_valid: bool = True
@@ -84,6 +93,9 @@ class ParticleBase:
             'start_point': 3, 'end_point': 3, 'start_dir': 3, 'end_dir': 3,
             'momentum': 3
     }
+
+    # Variable-length attributes as (key, dtype) pairs
+    _var_length_attrs = {'fragment_ids': np.int32}
 
     # Attributes specifying coordinates
     _pos_attrs = ['start_point', 'end_point']
@@ -98,7 +110,7 @@ class ParticleBase:
     }
 
     # Attributes that should not be stored
-    _skip_attrs = ['fragments']
+    _skip_attrs = ['fragments', 'ppn_points']
 
     @property
     def num_fragments(self):
@@ -168,18 +180,15 @@ class RecoParticle(ParticleBase, RecoBase):
         (P) Array of softmax scores associated with each of particle class
     primary_scores : np.ndarray
         (2) Array of softmax scores associated with secondary and primary
-    calo_ke : float
-        Kinetic energy reconstructed from the energy depositions alone
-    csda_ke : float
-        Kinetic energy reconstructed from the particle range
-    mcs_ke : float
-        Kinetic energy reconstructed using the MCS method
+    ppn_ids : np.ndarray
+        (M) List of indexes of PPN points associated with this particle
+    ppn_points : np.ndarray
+        (M, 3) List of PPN points tagged to this particle
     """
     pid_scores: np.ndarray = None
     primary_scores: np.ndarray = None
-    calo_ke: float = -1.
-    csda_ke: float = -1.
-    mcs_ke: float = -1.
+    ppn_ids: np.ndarray = None
+    ppn_points: np.ndarray = None
 
     # Private derived attributes
     _ke: float = field(init=False, repr=False)
@@ -192,8 +201,14 @@ class RecoParticle(ParticleBase, RecoBase):
             'primary_scores': 2, 
             **ParticleBase._fixed_length_attrs}
 
+    # Variable-length attributes
+    _var_length_attrs = {
+            **RecoBase._var_length_attrs, **ParticleBase._var_length_attrs,
+            'ppn_ids': np.int32, 'ppn_points': (3, np.float32)
+    }
+
     # Attributes that should not be stored
-    _skip_attrs = [*RecoBase._skip_attrs, *ParticleBase._skip_attrs]
+    _skip_attrs = [*RecoBase._skip_attrs, *ParticleBase._skip_attrs, 'ppn_points']
 
     def __str__(self):
         """Human-readable string representation of the particle object.
@@ -319,17 +334,24 @@ class TruthParticle(Particle, ParticleBase, TruthBase):
     ----------
     orig_interaction_id : int
         Unaltered index of the interaction in the original MC paricle list
+    children_counts : np.ndarray
+        (P) Number of truth child particle of each shape
     """
     orig_interaction_id: int = -1
+    children_counts: np.ndarray = None
 
     # Fixed-length attributes
     _fixed_length_attrs = {
-            **ParticleBase._fixed_length_attrs, **Particle._fixed_length_attrs
+            **ParticleBase._fixed_length_attrs,
+            **Particle._fixed_length_attrs
     }
 
     # Variable-length attributes
     _var_length_attrs = {
-            **TruthBase._var_length_attrs, **Particle._var_length_attrs
+            **TruthBase._var_length_attrs,
+            **ParticleBase._var_length_attrs,
+            **Particle._var_length_attrs,
+            'children_counts': np.int32
     }
 
     # Attributes that should not be stored

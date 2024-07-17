@@ -59,6 +59,9 @@ class InteractionBase:
     # Fixed-length attributes
     _fixed_length_attrs = {'vertex': 3}
 
+    # Variable-length attributes as (key, dtype) pairs
+    _var_length_attrs = {'particle_ids': np.int32}
+
     # Attributes specifying coordinates
     _pos_attrs = ['vertex']
 
@@ -134,7 +137,6 @@ class InteractionBase:
         """
         topology = ''
         for i, count in enumerate(self.primary_particle_counts):
-            print(i, count)
             if count > 0:
                 topology += f'{count}{PID_TAGS[i]}'
 
@@ -169,7 +171,7 @@ class InteractionBase:
 
         # Attach particle list
         interaction.particles = particles
-        interaction.particle_ids = [p.id for p in particles]
+        interaction.particle_ids = np.array([p.id for p in particles])
 
         # Build long-form attributes
         for attr in cls._cat_attrs:
@@ -186,6 +188,11 @@ class RecoInteraction(InteractionBase, RecoBase):
 
     # Attributes that should not be stored
     _skip_attrs = [*RecoBase._skip_attrs, *InteractionBase._skip_attrs]
+
+    # Variable-length attributes
+    _var_length_attrs = {
+            **RecoBase._var_length_attrs, **InteractionBase._var_length_attrs
+    }
 
     def __str__(self):
         """Human-readable string representation of the interaction object.
@@ -210,12 +217,23 @@ class TruthInteraction(Neutrino, InteractionBase, TruthBase):
     ----------
     nu_id : int
         Index of the neutrino matched to this interaction
+    reco_vertex : np.ndarray
+        (3) Coordinates of the reconstructed interaction vertex
     """
     nu_id: int = -1
+    reco_vertex: np.ndarray = None
 
     # Fixed-length attributes
     _fixed_length_attrs = {
-        **Neutrino._fixed_length_attrs, **InteractionBase._fixed_length_attrs
+            **Neutrino._fixed_length_attrs,
+            **InteractionBase._fixed_length_attrs,
+            'reco_vertex': 3, 
+    }
+
+    # Variable-length attributes
+    _var_length_attrs = {
+            **TruthBase._var_length_attrs,
+            **InteractionBase._var_length_attrs
     }
 
     # Attributes that should not be stored

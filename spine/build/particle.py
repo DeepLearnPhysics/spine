@@ -43,7 +43,7 @@ class ParticleBuilder(BuilderBase):
             **BuilderBase.load_reco_keys
     }
 
-    load_reco_keys  = {
+    load_truth_keys  = {
             'truth_particles': True, 
             **BuilderBase.load_truth_keys
     }
@@ -196,11 +196,8 @@ class ParticleBuilder(BuilderBase):
         # Loop over the true particle instance groups
         truth_particles = []
         unique_group_ids = np.unique(label_tensor[:, GROUP_COL]).astype(int)
-        for i, group_id in enumerate(unique_group_ids):
-            # Skip if the group index is -1 (invalid)
-            if group_id < 0:
-                continue
-
+        valid_group_ids = unique_group_ids[unique_group_ids > -1]
+        for i, group_id in enumerate(valid_group_ids):
             # Load the MC particle information
             assert group_id < len(particles), (
                     "Invalid group ID, cannot build true particle.")
@@ -249,13 +246,23 @@ class ParticleBuilder(BuilderBase):
 
         return truth_particles
 
-    def load_reco(self, reco_particles, points, depositions, sources=None):
+    def load_reco(self, data):
         """Construct :class:`RecoParticle` objects from their stored versions.
 
         Parameters
         ----------
-        reco_particles : List[dict]
-            List of dictionary representations of reconstructed particles
+        data : dict
+            Dictionary of data products
+        """
+        return self._load_reco(**data)
+
+    def _load_reco(self, reco_particles, points, depositions, sources=None):
+        """Construct :class:`RecoParticle` objects from their stored versions.
+
+        Parameters
+        ----------
+        reco_particles : List[RecoParticle]
+            (P) List of partial reconstructed particles
         points : np.ndarray
             (N, 3) Set of deposition coordinates in the image
         depositions : np.ndarray
@@ -269,9 +276,8 @@ class ParticleBuilder(BuilderBase):
             List of restored reconstructed particle instances
         """
         # Loop over the dictionaries
-        for i, part_dict in enumerate(reco_particles):
-            # Pass the dictionary to build the particle
-            particle = RecoParticle(**part_dict)
+        for i, particle in enumerate(reco_particles):
+            # Check that the particle ID checks out
             assert particle.id == i, (
                     "The ordering of the stored particles is wrong.")
 
@@ -281,20 +287,27 @@ class ParticleBuilder(BuilderBase):
             if sources is not None:
                 particle.sources = sources[particle.index]
 
-            # Append
-            reco_particles[i] = particle
-
         return reco_particles
 
-    def load_truth(self, truth_fragments, points, depositions, points_label,
-                   depositions_label, depositions_q_label=None, points_g4=None,
-                   depositons_g4=None, sources=None, sources_label=None):
+    def load_truth(self, data):
         """Construct :class:`TruthParticle` objects from their stored versions.
 
         Parameters
         ----------
-        truth_particles : List[dict]
-            List of dictionary representations of truth particles
+        data : dict
+            Dictionary of data products
+        """
+        return self._load_truth(**data)
+
+    def _load_truth(self, truth_particles, points, depositions, points_label,
+                    depositions_label, depositions_q_label=None, points_g4=None,
+                    depositons_g4=None, sources=None, sources_label=None):
+        """Construct :class:`TruthParticle` objects from their stored versions.
+
+        Parameters
+        ----------
+        truth_particles : List[TruthParticle]
+            (P) List of partial truth particles
         points : np.ndarray
             (N, 3) Set of deposition coordinates in the image
         depositions : np.ndarray
@@ -321,9 +334,8 @@ class ParticleBuilder(BuilderBase):
             List of restored true particle instances
         """
         # Loop over the dictionaries
-        for i, part_dict in enumerate(truth_particles):
-            # Pass the dictionary to build the particle
-            particle = TruthParticle(**part_dict)
+        for i, particle in enumerate(truth_particles):
+            # Check that the particle ID checks out
             assert particle.id == i, (
                     "The ordering of the stored particles is wrong.")
 
@@ -343,8 +355,5 @@ class ParticleBuilder(BuilderBase):
             if points_g4 is not None:
                 particle.points_g4 = points_g4[particle.index_g4]
                 particle.depositions_g4 = depositions_g4[particle.index_g4]
-
-            # Append
-            truth_particles[i] = particle
 
         return truth_particles

@@ -240,8 +240,8 @@ class BuildManager:
 
                 else:
                     # If a match is found, the first is always the best match
-                    best_match = obj.match[0]
+                    best_match = obj.match_ids[0]
                     result[match_key].append((obj, targets[best_match]))
-                    result[match_overlap_key].append(obj.match_overlap[0])
+                    result[match_overlap_key].append(obj.match_overlaps[0])
 
         return result

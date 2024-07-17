@@ -310,7 +310,7 @@ class HDF5Writer:
             else:
                 raise ValueError(
                         f"Attribute {key} of {obj} has unrecognized an "
-                        "unrecognized type: {type(val)}")
+                        f"unrecognized type: {type(val)}")
 
         return object_dtype
 

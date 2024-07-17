@@ -122,7 +122,7 @@ class BuilderBase(ABC):
             Entry to process
         """
         # Dispatch to the appropriate function
-        key = f'{mode}_{self.name}'
+        key = f'{mode}_{self.name}s'
         if key in data:
             func = f'load_{mode}'
         else:

@@ -5,7 +5,7 @@ from collections import Counter
 import numpy as np
 import networkx as nx
 
-from spine.utils.globals import SHAPE_LABELS
+from spine.utils.globals import GHOST_SHP, PID_LABELS
 
 from spine.post.base import PostBase
 
@@ -19,7 +19,7 @@ class ChildrenProcessor(PostBase):
     name = 'children_count'
     aliases = ['count_children']
 
-    def __init__(self, mode='semantic_type', obj_type='particle'):
+    def __init__(self, mode='shape', obj_type='particle'):
         """Initialize the children counting parameters.
 
         Parameters
@@ -33,7 +33,15 @@ class ChildrenProcessor(PostBase):
 
         # Store the counting mode
         self.mode = mode
-
+        if self.mode == 'shape':
+            self.num_classes = GHOST_SHP
+        elif self.mode == 'pid':
+            self.num_classes = len(PID_LABELS) - 1
+        else:
+            raise ValueError(
+                    f"Child counting mode not recognized: {mode}. Must be "
+                     "one of 'shape' or 'pid'.")
+            
     def process(self, data):
         """Count children of each true particle in one entry.
 
@@ -60,7 +68,7 @@ class ChildrenProcessor(PostBase):
                 successors = list(G.successors(obj.id))
                 counter = Counter()
                 counter.update([G.nodes[succ]['attr'] for succ in successors])
-                children_counts = np.zeros(len(SHAPE_LABELS), dtype=np.int64)
+                children_counts = np.zeros(self.num_classes, dtype=np.int64)
                 for key, val in counter.items():
                     children_counts[key] = val
 

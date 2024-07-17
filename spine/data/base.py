@@ -119,7 +119,7 @@ class DataBase:
         dict
             Dictionary of attribute names and their values
         """
-        return self.__getstate__()
+        return {k:v for k, v in self.__getstate__().items() if k not in self._skip_attrs}
 
     def scalar_dict(self, attrs=None):
         """Returns the data class attributes as a dictionary of scalars.
@@ -160,6 +160,11 @@ class DataBase:
                 # If the attribute is a fixed length array, expand with index
                 for i, v in enumerate(value):
                     scalar_dict[f'{attr}_{i}'] = v
+
+            else:
+                raise ValueError(
+                        f"Cannot expand the `{attr}` attribute of "
+                        f"`{self.__cls__.__name__}` to scalar values.")
 
         if attrs is not None and len(attrs) != len(found):
             class_name = self.__class__.__name__
