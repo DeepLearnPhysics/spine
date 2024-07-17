@@ -172,7 +172,7 @@ class FullChain(torch.nn.Module):
                 self.uresnet_ppn = UResNetPPN(**uresnet_ppn)
 
         # Initialize the dense clustering model
-        self.fragment_classes = []
+        self.fragment_shapes = []
         if ('dbscan' in self.fragmentation or
             'graph_spice' in self.fragmentation):
             if 'dbscan' in self.fragmentation:
@@ -180,22 +180,22 @@ class FullChain(torch.nn.Module):
                         "If the fragmentation is done using DBSCAN, must "
                         "provide the `dbscan` configuration block.")
                 self.dbscan = DBSCAN(**dbscan)
-                self.fragment_classes.extend(self.dbscan.classes)
+                self.fragment_shapes.extend(self.dbscan.shapes)
             if 'graph_spice' in self.fragmentation:
                 assert graph_spice is not None, (
                         "If the fragmentation is done using Graph-SPICE, must "
                         "provide the `graph_spice` configuration block.")
                 self.graph_spice = GraphSPICE(graph_spice)
-                self.fragment_classes.extend(self.graph_spice.classes)
+                self.fragment_shapes.extend(self.graph_spice.shapes)
 
             # Check that there is no redundancy between the fragmenters
             uniques, counts = np.unique(
-                    self.fragment_classes, return_counts=True)
+                    self.fragment_shapes, return_counts=True)
             assert np.all(uniques == np.arange(4)), (
                     "All four expected semantic classes should be fragmented "
                     "by either DBSCAN or Graph-SPICE.")
             assert np.all(counts) == 1, (
-                    "Some of the classes appear in both the DBSCAN and the "
+                    "Some of the shapes appear in both the DBSCAN and the "
                     "Graph-SPICE based fragmentation. Ambiguous.")
 
         # Initialize the graph-based aggregator modules
@@ -614,7 +614,7 @@ class FullChain(torch.nn.Module):
 
         # Loop over GraPA models, append the particle list
         shapes = {'shower': [SHOWR_SHP, MICHL_SHP, DELTA_SHP],
-                  'track': [TRACK_SHP], 'particle': self.fragment_classes}
+                  'track': [TRACK_SHP], 'particle': self.fragment_shapes}
         use_primary = {'shower': True, 'track': False, 'particle': True}
         for name in ['shower', 'track', 'particle']:
             # Dispatch the input to the right aggregation method
@@ -840,8 +840,8 @@ class FullChain(torch.nn.Module):
                 aggregate_shapes, shape_use_primary, retain_primaries),
                 shape_index)
 
-    def restrict_clusts(self, clusts, clust_shapes, classes):
-        """Restricts a cluster list against a list of classes.
+    def restrict_clusts(self, clusts, clust_shapes, shapes):
+        """Restricts a cluster list against a list of shapes.
 
         Parameters
         ----------
@@ -849,8 +849,8 @@ class FullChain(torch.nn.Module):
             List of clusters to aggregate using GrapPA
         clust_shapes : TensorBatch
             Semantic type of each of the clusters
-        classes : List[int]
-            List of semantic classes to restrict to
+        shapes : List[int]
+            List of semantic shapes to restrict to
 
         Returns
         -------
@@ -863,9 +863,9 @@ class FullChain(torch.nn.Module):
         """
         # Restrict the clusters to those in the input of the model
         shape_index = False
-        if classes != self.fragment_classes:
+        if shapes != self.fragment_shapes:
             mask = np.zeros(len(clust_shapes.tensor), dtype=bool)
-            for c in classes:
+            for c in shapes:
                 mask |= (clust_shapes.tensor == c)
             shape_index = np.where(mask)[0]
 
@@ -914,7 +914,7 @@ class FullChain(torch.nn.Module):
             (N, 1 + D + N_f) tensor of voxel/value pairs
         clusts : IndexBatch
             Input clusters to the model
-        classes : TensorBatch
+        shapes : TensorBatch
             List of semantic type of each clusters
         points : TensorBatch
             List of start/end points associated with each cluster
@@ -925,7 +925,7 @@ class FullChain(torch.nn.Module):
         grappa_input = {}
         grappa_input['data'] = data
         grappa_input['clusts'] = clusts
-        grappa_input['classes'] = clust_shapes
+        grappa_input['shapes'] = clust_shapes
         if coord_label is not None:
             grappa_input['coord_label'] = coord_label
 

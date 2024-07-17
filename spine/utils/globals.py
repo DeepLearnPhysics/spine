@@ -101,6 +101,7 @@ PDG_TO_PID.update({
 })
 
 PID_TO_PDG = {v : abs(k) for k, v in PDG_TO_PID.items()}
+PID_TO_PDG[-1] = -1
 
 # Particle type labels
 PID_LABELS = {

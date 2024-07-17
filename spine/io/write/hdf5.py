@@ -1,7 +1,7 @@
 """Module to write the output of the reconstruction to file."""
 
 import os
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 
 import yaml
 import h5py
@@ -281,7 +281,7 @@ class HDF5Writer:
             List of (key, dtype) pairs
         """
         object_dtype = []
-        for key, val in asdict(obj).items():
+        for key, val in obj.as_dict().items():
             # Append the relevant data type
             if isinstance(val, str):
                 # String
@@ -581,7 +581,7 @@ class HDF5Writer:
         # Convert list of objects to list of storable objects
         objects = np.empty(len(array), obj_dtype)
         for i, obj in enumerate(array):
-            objects[i] = tuple(asdict(obj).values())
+            objects[i] = tuple(obj.as_dict().values())
 
         # Extend the dataset, store array
         dataset = out_file[key]

@@ -1,7 +1,5 @@
 """Classes in charge of constructing ParticleBase objects."""
 
-from dataclasses import asdict
-
 import numpy as np
 
 from scipy.special import softmax
@@ -206,7 +204,7 @@ class ParticleBuilder(BuilderBase):
             # Load the MC particle information
             assert group_id < len(particles), (
                     "Invalid group ID, cannot build true particle.")
-            particle = TruthParticle(**asdict(particles[group_id]))
+            particle = TruthParticle(**particles[group_id].as_dict())
             assert particle.id == group_id, (
                     "The ordering of the true particle is wrong.")
             

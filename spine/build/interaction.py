@@ -1,7 +1,6 @@
 """Class in charge of constructing *Interaction objects."""
 
 from collections import defaultdict
-from dataclasses import asdict
 
 import numpy as np
 

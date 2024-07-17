@@ -1,7 +1,7 @@
 """Classes in charge of constructing FragmentBase objects."""
 
 from typing import List
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 import inspect
 
 import numpy as np
@@ -206,7 +206,7 @@ class FragmentBuilder(BuilderBase):
                         "A true fragment must not mix label particle indexes.")
                 assert part_id > -1 and part_id < len(particles), (
                         "Invalid particle ID found in fragment labels.")
-                fragment = TruthFragment(**asdict(particles[part_id]))
+                fragment = TruthFragment(**particles[part_id].as_dict())
                 fragment.id = i
 
             else:

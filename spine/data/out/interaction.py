@@ -1,11 +1,11 @@
 """Module with a data class objects which represent output interactions."""
 
 from typing import List
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, field
 
 import numpy as np
 
-from spine.utils.globals import PID_TAGS
+from spine.utils.globals import PID_LABELS, PID_TAGS
 from spine.utils.decorators import inherit_docstring
 
 from spine.data.neutrino import Neutrino
@@ -39,6 +39,8 @@ class InteractionBase:
         Total number of photoelectrons associated with the flash
     flash_hypo_pe : float
         Total number of photoelectrons expected to be produced by the interaction
+    topology : str
+        String representing the interaction topology
     """
     particles: List[object] = None
     particle_ids: np.ndarray = None
@@ -49,6 +51,10 @@ class InteractionBase:
     flash_time: float = -1.
     flash_total_pe: float = -1.
     flash_hypo_pe: float = -1.
+    topology: str = ''
+
+    # Private derived attributes
+    _topology: str = field(init=False, repr=False)
 
     # Fixed-length attributes
     _fixed_length_attrs = {'vertex': 3}
@@ -70,7 +76,7 @@ class InteractionBase:
         str
             Basic information about the interaction properties
         """
-        match = self.match[0] if len(self.match) > 0 else -1
+        match = self.match_ids[0] if len(self.match_ids) > 0 else -1
         return (f"Interaction(ID: {self.id:<3} "
                 f"| Size: {self.size:<5} | Match: {match:<3})")
 
@@ -94,7 +100,7 @@ class InteractionBase:
         np.ndarray
             (C) Number of particles of each class
         """
-        counts = np.empty(len(self.pid_scores), dtype=int)
+        counts = np.zeros(len(PID_LABELS) - 1, dtype=int)
         for part in self.particles:
             if part.pid > -1 and part.is_valid:
                 counts[part.pid] += 1
@@ -110,7 +116,7 @@ class InteractionBase:
         np.ndarray
             (C) Number of primary particles of each class
         """
-        counts = np.empty(len(self.pid_scores), dtype=int)
+        counts = np.zeros(len(PID_LABELS) - 1, dtype=int)
         for part in self.particles:
             if part.pid > -1 and part.is_primary and part.is_valid:
                 counts[part.pid] += 1
@@ -128,10 +134,15 @@ class InteractionBase:
         """
         topology = ''
         for i, count in enumerate(self.primary_particle_counts):
+            print(i, count)
             if count > 0:
-                topology += f'{count}{encode[i]}'
+                topology += f'{count}{PID_TAGS[i]}'
 
         return topology
+
+    @topology.setter
+    def topology(self, topology):
+        self._topology = topology
 
     @classmethod
     def from_particles(cls, particles):
@@ -229,7 +240,7 @@ class TruthInteraction(Neutrino, InteractionBase, TruthBase):
             Neutrino to fetch the attributes from
         """
         # Transfer all the neutrino attributes
-        for attr, val in asdict(neutrino).items():
+        for attr, val in neutrino.as_dict().items():
             if attr != 'id':
                 setattr(self, attr, val)
             else:
