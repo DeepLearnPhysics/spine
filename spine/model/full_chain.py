@@ -173,8 +173,9 @@ class FullChain(torch.nn.Module):
 
         # Initialize the dense clustering model
         self.fragment_shapes = []
-        if ('dbscan' in self.fragmentation or
-            'graph_spice' in self.fragmentation):
+        if (self.fragmentation is not None and
+            ('dbscan' in self.fragmentation or
+             'graph_spice' in self.fragmentation)):
             if 'dbscan' in self.fragmentation:
                 assert dbscan is not None, (
                         "If the fragmentation is done using DBSCAN, must "
@@ -310,7 +311,8 @@ class FullChain(torch.nn.Module):
             ghost_tensor = res_deghost['segmentation'].tensor
             ghost_pred = torch.argmax(ghost_tensor, dim=1)
             data_adapt = TensorBatch(
-                    data.tensor[ghost_pred == 0], batch_size=data.batch_size)
+                    data.tensor[ghost_pred == 0], batch_size=data.batch_size,
+                    has_batch_col=True)
             ghost_pred = TensorBatch(ghost_pred, data.counts)
 
             # Rescale the charge, if requested
@@ -519,6 +521,10 @@ class FullChain(torch.nn.Module):
         clust_label : TensorBatch, optional
             (N, 1 + D + N_c) Tensor of cluster labels
         """
+        # Nothing to do if there is no fragmentation requested
+        if self.fragmentation is None:
+            return
+
         # Initialize the fragment-level output
         counts = np.zeros(data.batch_size, dtype=np.int64)
         fragments = IndexBatch([], data.edges[:-1], counts, [])
@@ -537,7 +543,7 @@ class FullChain(torch.nn.Module):
             # Run Graph-SPICE
             seg_pred = TensorBatch(
                     self.result['seg_pred'].tensor[:, None], data.counts)
-            res_gs = self.graph_spice(data, seg_pred, clust_label) 
+            res_gs = self.graph_spice(data, seg_pred, clust_label)
 
             # Update the global result with the graph_spice output
             self.result.update(
@@ -1116,7 +1122,7 @@ class FullChainLoss(torch.nn.Module):
                         **uresnet_ppn, **uresnet_ppn_loss)
 
         # Initialize the graph-SPICE loss
-        if 'graph_spice' in self.fragmentation:
+        if self.fragmentation is not None and 'graph_spice' in self.fragmentation:
             self.graph_spice_loss = GraphSPICELoss(graph_spice, graph_spice_loss)
 
         # Initialize the GraPA lossses
@@ -1193,7 +1199,8 @@ class FullChainLoss(torch.nn.Module):
                 index = seg_label_t[:, SHAPE_COL] < GHOST_SHP
 
                 seg_label = TensorBatch(
-                        seg_label_t[index], batch_size=seg_label.batch_size)
+                        seg_label_t[index], batch_size=seg_label.batch_size,
+                        has_batch_col=True)
                 segmentation = TensorBatch(
                         segmentation.tensor[index], seg_label.counts)
 
@@ -1216,7 +1223,7 @@ class FullChainLoss(torch.nn.Module):
             clust_label = clust_label_adapt
 
         # Apply the Graph-SPICE loss
-        if 'graph_spice' in self.fragmentation:
+        if self.fragmentation is not None and 'graph_spice' in self.fragmentation:
             # Prepare Graph-SPICE loss input
             loss_dict = {}
             for key, value in output.items():
