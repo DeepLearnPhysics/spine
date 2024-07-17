@@ -121,8 +121,8 @@ class InteractionBuilder(BuilderBase):
         """
         # Loop over unique interaction IDs
         truth_interactions = []
-        unique_inter_ids = np.unique(
-                np.array([p.interaction_id for p in truth_particles]))
+        inter_ids = np.array([p.interaction_id for p in truth_particles])
+        unique_inter_ids = np.unique(inter_ids)
         valid_inter_ids = unique_inter_ids[unique_inter_ids > -1]
         for i, inter_id in enumerate(valid_inter_ids):
             # Get the list of particles associates with this interaction

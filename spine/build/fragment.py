@@ -120,7 +120,7 @@ class FragmentBuilder(BuilderBase):
             if fragment_end_points is not None:
                 fragment.end_point = fragment_end_points[i]
             if fragment_group_pred is not None:
-                fragment.group_id = fragment_group_pred[i]
+                fragment.particle_id = fragment_group_pred[i]
             if fragment_node_pred is not None:
                 fragment.primary_scores = primary_scores[i]
                 fragment.is_primary = bool(primary_pred[i])
@@ -193,7 +193,7 @@ class FragmentBuilder(BuilderBase):
         truth_fragments = []
         unique_fragment_ids = np.unique(label_tensor[:, CLUST_COL])
         valid_fragment_ids = unique_fragment_ids[unique_fragment_ids > -1]
-        for i, frag_id in enumerate(velid_fragment_ids):
+        for i, frag_id in enumerate(valid_fragment_ids):
             # Fetch the index of the MC particle it matches to, initialize
             index = np.where(label_tensor[:, CLUST_COL] == frag_id)[0]
             if particles is not None:
