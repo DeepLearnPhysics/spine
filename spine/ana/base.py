@@ -70,7 +70,7 @@ class AnaBase(ABC):
 
         # Check that all the object sources are recognized
         if obj_type is not None:
-            if isinstance(obj_type, Vstr):
+            if isinstance(obj_type, str):
                 obj_type = [obj_type]
             for obj in obj_type:
                 assert obj in self._obj_types, (

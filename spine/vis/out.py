@@ -30,8 +30,8 @@ class Drawer:
     _point_modes = ['points', 'points_adapt', 'points_g4']
 
     def __init__(self, data, draw_mode='both', truth_point_mode='points',
-                 split_scene=True, meta=None, detector=None,
-                 detector_coords=True, **kwargs):
+                 split_scene=True, detector=None, detector_coords=True,
+                 **kwargs):
         """Initialize the drawer attributes
 
         Parameters
@@ -47,8 +47,6 @@ class Drawer:
         split_scene : bool, default True
             If True and when drawing both reconstructed and truth information,
             split the traces between two separate scenes
-        meta : Meta, optional
-            Metadata information used to infer the full image range
         detector : str, optional
             Name of the detector to be drawn
         detector_coords : bool, default True
@@ -84,16 +82,16 @@ class Drawer:
         self.truth_index_mode = truth_point_mode.replace('points', 'index')
 
         # Save the detector properties
-        self.meta = meta
+        self.meta = data.get('meta', None)
         self.detector = detector
         self.detector_coords = detector_coords
 
         # Initialize the layout
         self.split_scene = split_scene
-        detector = detector if meta is None else None
+        meta = self.meta if detector is None else None
         self.layout = layout3d(
-                detector=detector, meta=meta, detector_coords=detector_coords,
-                **kwargs)
+                detector=self.detector, meta=meta,
+                detector_coords=self.detector_coords, **kwargs)
 
     def get(self, obj_type, attr=None, draw_end_points=False,
             draw_vertices=False, synchronize=False):
@@ -121,7 +119,7 @@ class Drawer:
         # Check that what is to be drawn is a known object type that is provided
         assert obj_type in self._obj_types, (
                 f"Object type not recognized: {obj_type}. Must be one of "
-                f"{self.supported_objs}.")
+                f"{self._obj_types}.")
 
         # Fetch the objects
         traces = {}

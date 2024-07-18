@@ -61,6 +61,8 @@ class SaveAna(AnaBase):
 
         # Add the necessary keys associated with matching, if needed
         if match_mode is not None:
+            if isinstance(obj_type, str):
+                obj_type = [obj_type]
             for prefix in self.prefixes:
                 for obj_name in obj_type:
                     if prefix == 'reco' and match_mode != 'truth_to_reco':
