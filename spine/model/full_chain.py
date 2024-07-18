@@ -109,13 +109,13 @@ class FullChain(torch.nn.Module):
     }
 
     def __init__(self, chain, uresnet_deghost=None, uresnet=None,
-                 uresnet_ppn=None, graph_spice=None, dbscan=None,
-                 grappa_shower=None, grappa_track=None, grappa_particle=None,
-                 grappa_inter=None, calibrator=None, uresnet_deghost_loss=None,
-                 uresnet_loss=None, uresnet_ppn_loss=None,
-                 graph_spice_loss=None, grappa_shower_loss=None,
-                 grappa_track_loss=None, grappa_particle_loss=None,
-                 grappa_inter_loss=None):
+                 uresnet_ppn=None, adapt_labels=None, graph_spice=None,
+                 dbscan=None, grappa_shower=None, grappa_track=None,
+                 grappa_particle=None, grappa_inter=None, calibrator=None,
+                 uresnet_deghost_loss=None, uresnet_loss=None,
+                 uresnet_ppn_loss=None, graph_spice_loss=None,
+                 grappa_shower_loss=None, grappa_track_loss=None,
+                 grappa_particle_loss=None, grappa_inter_loss=None):
         """Initialize the full chain model.
 
         Parameters
@@ -126,6 +126,8 @@ class FullChain(torch.nn.Module):
             Deghosting model configuration
         uresnet_ppn : dict, optional
             Segmentation and point proposal model configuration
+        adapt_labels : dict, optional
+            Parameters for the cluster label adaptation (if non-standard)
         dbscan : dict, optional
             Connected component clustering configuration
         graph_spice : dict, optional
@@ -170,6 +172,10 @@ class FullChain(torch.nn.Module):
                 self.uresnet = UResNetSegmentation(uresnet)
             else:
                 self.uresnet_ppn = UResNetPPN(**uresnet_ppn)
+
+        # Initialize the relabeling process (adapt to the semantic predictions)
+        # TODO: make this a class which holds onto these parameters?
+        self.adapt_params = adapt_labels if adapt_labels is not None else {}
 
         # Initialize the dense clustering model
         self.fragment_shapes = []
@@ -493,7 +499,8 @@ class FullChain(torch.nn.Module):
                 ghost_pred = self.result.get('ghost_pred', None)
                 old_clust_label = clust_label
                 clust_label = adapt_labels_batch(
-                        clust_label, seg_label, seg_pred, ghost_pred)
+                        clust_label, seg_label, seg_pred, ghost_pred,
+                        **self.adapt_params)
 
                 self.result['clust_label_adapt'] = clust_label
 
