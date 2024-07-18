@@ -75,7 +75,7 @@ class Driver:
 
         Parameters
         ----------
-        cfg : dict 
+        cfg : dict
             Global configuration dictionary
         rank : int, optional
             Rank of the GPU. If not specified, the model will be run on CPU if
@@ -336,7 +336,7 @@ class Driver:
             self.loader = loader_factory(
                     **loader, rank=self.rank, dtype=self.dtype,
                     world_size=self.world_size, distributed=self.distributed)
-            
+
             self.loader_iter = None
             self.iter_per_epoch = len(self.loader)
             self.reader = self.loader.dataset.reader
@@ -388,12 +388,12 @@ class Driver:
             os.makedirs(self.log_dir, exist_ok=True)
 
         # Determine the log name, initialize it
-        if self.model is None:
-            # If running the driver with a model, give a generic name
+        if self.builder is not None:
+            # If running the driver more than a model, give a generic name
             log_name = f'spine_log.csv'
         else:
-            # If running the driver within a training/validation process,
-            # follow a specific pattern of log names.
+            # If running the driver within a training/validation process
+            # (model only), follow a specific pattern of log names.
             start_iteration = self.model.start_iteration
             prefix = 'train' if self.model.train else 'inference'
             suffix = '' if not self.model.distributed else f'_proc{self.rank}'
