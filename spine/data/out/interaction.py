@@ -80,8 +80,15 @@ class InteractionBase:
             Basic information about the interaction properties
         """
         match = self.match_ids[0] if len(self.match_ids) > 0 else -1
-        return (f"Interaction(ID: {self.id:<3} "
-                f"| Size: {self.size:<5} | Match: {match:<3})")
+        info = (f"Interaction(ID: {self.id:<3} "
+                f"| Size: {self.size:<5} | Topology: {self.topology:<10} "
+                f"| Match: {match:<3})")
+        if len (self.particles):
+            info += '\n' + len(info) * '-'
+            for particle in self.particles:
+                info += '\n' + str(particle)
+
+        return info
 
     @property
     def num_particles(self):
