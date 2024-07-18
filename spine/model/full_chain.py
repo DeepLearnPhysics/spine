@@ -1148,7 +1148,7 @@ class FullChainLoss(torch.nn.Module):
     def forward(self, seg_label=None, ppn_label=None, clust_label=None,
                 clust_label_adapt=None, coord_label=None, graph_label=None,
                 meta=None, ghost=None, ghost_pred=None, segmentation=None,
-                **output):
+                seg_pred=None, **output):
         """Run the full chain output through the full chain loss.
 
         Parameters
@@ -1178,6 +1178,8 @@ class FullChainLoss(torch.nn.Module):
             (N,) Tensor of ghost predictions
         segmentation : TensorBatch, optional
             (N, N_c) Tensor of logits from the segmentation model
+        seg_pred : TensorBatch, optional
+            (N) Semantic prediction for each point
         **output : dict, optional
             Additional outputs of the reconstruction chain
         """
@@ -1238,8 +1240,9 @@ class FullChainLoss(torch.nn.Module):
                     loss_dict[key.replace('graph_spice_', '')] = value
 
             # Store the loss dictionary
+            seg_pred = TensorBatch(seg_pred.tensor[:, None], clust_label.counts)
             res_gs = self.graph_spice_loss(
-                    seg_label=seg_label, clust_label=clust_label, **loss_dict)
+                    seg_label=seg_pred, clust_label=clust_label, **loss_dict)
             self.update_result(res_gs, 'graph_spice')
 
         # Apply the aggregation losses
