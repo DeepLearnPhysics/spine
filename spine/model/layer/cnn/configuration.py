@@ -1,9 +1,9 @@
 """Function which sets up the necessary configuration for all CNNs."""
 
-def setup_cnn_configuration(self, spatial_size, reps, depth, filters,
-                            input_kernel=3, data_dim=3, num_input=1,
-                            allow_bias=False, activation='lrelu',
-                            norm_layer='batch_norm'):
+def setup_cnn_configuration(self, reps, depth, filters, input_kernel=3,
+                            data_dim=3, num_input=1, allow_bias=False,
+                            activation='lrelu', norm_layer='batch_norm',
+                            spatial_size=None):
     """Base function for global network parameters (CNN-based models).
 
     This avoids repeating the same base configuration parsing everywhere.
@@ -18,8 +18,6 @@ def setup_cnn_configuration(self, spatial_size, reps, depth, filters,
 
     Parameters
     ----------
-    spatial_size: int
-        Size of the input image in number of voxels per data_dim
     reps : int
         Number of time convolutions are repeated at each depth
     depth : int
@@ -38,9 +36,11 @@ def setup_cnn_configuration(self, spatial_size, reps, depth, filters,
         Activation function configuration
     normalization : union[str, dict], default 'batch_norm'
         Normalization function configuration
+    spatial_size : int, optional
+        Size of the input image in number of voxels per data_dim. This is only
+        necessary when passing the normalized coordinates as features.
     """
     # Store the base parameters
-    self.spatial_size = spatial_size
     self.reps = reps
     self.depth = depth
     self.num_filters = filters
@@ -48,6 +48,7 @@ def setup_cnn_configuration(self, spatial_size, reps, depth, filters,
     self.dim = data_dim
     self.num_input = num_input
     self.allow_bias = allow_bias
+    self.spatial_size = spatial_size
 
     # Convert the depth to a number of filters per plane
     self.num_planes = [i * self.num_filters for i in range(1, self.depth + 1)]

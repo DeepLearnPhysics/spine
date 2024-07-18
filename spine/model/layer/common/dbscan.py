@@ -16,7 +16,7 @@ class DBSCAN(torch.nn.Module):
     """Uses DBSCAN to find locally-dense particle fragments.
 
     It uses sklearn's DBSCAN implementation to fragment each of the particle
-    classes into dense instances. Runs DBSCAN on each requested semantic class
+    shapes into dense instances. Runs DBSCAN on each requested semantic class
     separately, in one of three ways:
     - Run pure DBSCAN on all the voxels in that class
     - Runs DBSCAN on PPN point-masked voxels and then associates the 
@@ -26,8 +26,8 @@ class DBSCAN(torch.nn.Module):
     """
 
     def __init__(self, eps=1.8, min_samples=1, min_size=3, metric='euclidean', 
-                 classes=[SHOWR_SHP, TRACK_SHP, MICHL_SHP, DELTA_SHP],
-                 break_classes=[TRACK_SHP], break_mask_radius=5.0,
+                 shapes=[SHOWR_SHP, TRACK_SHP, MICHL_SHP, DELTA_SHP],
+                 break_shapes=[TRACK_SHP], break_mask_radius=5.0,
                  break_track_method='masked_dbscan', 
                  use_label_break_points=False, track_include_delta=False,
                  ppn_predictor={}):
@@ -45,10 +45,10 @@ class DBSCAN(torch.nn.Module):
             Minimum cluster size to stored in the final list of DBSCAN clusters
         metric : str, default 'euclidean'
             Metric used to compute the pair-wise distances between space points
-        classes : List[int], default [0, 1, 2, 3]
+        shapes : List[int], default [0, 1, 2, 3]
             List of semantic classes to run DBSCAN on
-        break_classes : List[int], default [1]
-            List of semantic classes for which to use PPN to break down
+        break_shapes : List[int], default [1]
+            List of semantic shapes for which to use PPN to break down
         break_mask_radius : str, default 5.0
             If using particle points to break up instances further, specifies
             the radius around each particle point which gets masked
@@ -70,38 +70,38 @@ class DBSCAN(torch.nn.Module):
         self.min_samples = min_samples
         self.min_size = min_size
         self.metric = metric
-        self.classes = classes
-        self.break_classes = break_classes
+        self.shapes = shapes
+        self.break_shapes = break_shapes
         self.break_mask_radius = break_mask_radius
         self.break_track_method = break_track_method
         self.track_include_delta = track_include_delta
 
         # If the constants are provided as scalars, turn them into lists
-        assert not np.isscalar(classes), (
+        assert not np.isscalar(shapes), (
                 "Semantic classes should be provided as a list.")
         for attr in ['eps', 'min_samples', 'min_size',
                      'metric', 'break_mask_radius']:
             if np.isscalar(getattr(self, attr)):
-                setattr(self, attr, len(classes)*[getattr(self, attr)])
+                setattr(self, attr, len(shapes)*[getattr(self, attr)])
             else:
-                assert len(getattr(self, attr)) == len(classes), (
+                assert len(getattr(self, attr)) == len(shapes), (
                         f"The number of `{attr}` values does not match the "
-                         "number classes to cluster.")
+                         "number shapes to cluster.")
 
         # Instantiate the PPN post-processor, if needed
         self.use_label_break_points = use_label_break_points
-        assert not np.isscalar(break_classes), (
+        assert not np.isscalar(break_shapes), (
                 "Semantic classes to break should be provided as a list.")
-        if len(break_classes) and not use_label_break_points:
+        if len(break_shapes) and not use_label_break_points:
             assert ppn_predictor is not None, (
-                    "If classes are to be broken up using PPN points, "
+                    "If shapes are to be broken up using PPN points, "
                     "must provide a PPN predictor configuration.")
             self.ppn_predictor = PPNPredictor(**ppn_predictor)
 
         # Initialize one clustering algorithm per class
         self.clusterers = []
-        for k, c in enumerate(classes):
-            if c not in break_classes:
+        for k, c in enumerate(shapes):
+            if c not in break_shapes:
                 dbscan = sklearn_dbscan(
                         eps=self.eps[k], min_samples=self.min_samples[k],
                         metric=self.metric[k])
@@ -136,10 +136,10 @@ class DBSCAN(torch.nn.Module):
         **ppn_result : dict, optional
             Dictionary of outputs from the PPN model
         """
-        # If some classes must be broken up at their points of interest,
+        # If some shapes must be broken up at their points of interest,
         # fetch them from the relevant location.
         points, point_shapes = None, None
-        if len(self.break_classes):
+        if len(self.break_shapes):
             if self.use_label_break_points:
                 assert coord_label is not None, (
                         "If label points are to be used to break instance, "
@@ -168,7 +168,7 @@ class DBSCAN(torch.nn.Module):
 
         # Loop over the entries in the batch
         offsets = data.edges[:-1]
-        clusts, classes, counts, single_counts = [], [], [], []
+        clusts, shapes, counts, single_counts = [], [], [], []
         for b in range(data.batch_size):
             # Fetch the necessary data products, in numpy format
             voxels_b = data_np[b][:, COORD_COLS]
@@ -180,11 +180,11 @@ class DBSCAN(torch.nn.Module):
                 # Exclude delta points, they do not help with clustering
                 points_b = points_b[point_shapes_b != DELTA_SHP]
 
-            # Loop over the classes to cluster
-            clusts_b, counts_b, classes_b = [], [], []
-            for k, s in enumerate(self.classes):
+            # Loop over the shapes to cluster
+            clusts_b, counts_b, shapes_b = [], [], []
+            for k, s in enumerate(self.shapes):
                 # Restrict the voxels to the current class
-                break_class = s in self.break_classes
+                break_class = s in self.break_shapes
                 shape_mask = seg_pred_b == s
                 if s == TRACK_SHP and break_class and self.track_include_delta:
                     shape_mask |= seg_pred_b == DELTA_SHP
@@ -210,11 +210,11 @@ class DBSCAN(torch.nn.Module):
                         counts_b.append(len(clust))
  
                 clusts_b.extend(clusts_b_s)
-                classes_b.append(s * np.ones(len(clusts_b_s), dtype=np.int64))
+                shapes_b.append(s * np.ones(len(clusts_b_s), dtype=np.int64))
 
             # Update the output
             clusts.extend(clusts_b)
-            classes.extend(classes_b)
+            shapes.extend(shapes_b)
             counts.append(len(clusts_b))
             single_counts.extend(counts_b)
 
@@ -223,9 +223,9 @@ class DBSCAN(torch.nn.Module):
         clusts_nb[:] = clusts
 
         index = IndexBatch(clusts_nb, offsets, counts, single_counts)
-        if len(classes):
-            classes = TensorBatch(np.concatenate(classes), counts)
+        if len(shapes):
+            shapes = TensorBatch(np.concatenate(shapes), counts)
         else:
-            classes = TensorBatch(np.empty(0, dtype=np.int64), counts)
+            shapes = TensorBatch(np.empty(0, dtype=np.int64), counts)
 
-        return index, classes
+        return index, shapes

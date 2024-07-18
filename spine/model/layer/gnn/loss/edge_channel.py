@@ -6,6 +6,7 @@ import numpy as np
 from spine.model.layer.factories import loss_fn_factory
 
 from spine.utils.globals import CLUST_COL, GROUP_COL, PART_COL, PRGRP_COL
+from spine.utils.enums import enum_factory
 from spine.utils.weighting import get_class_weights
 from spine.utils.gnn.cluster import get_cluster_label_batch
 from spine.utils.gnn.evaluation import (
@@ -37,14 +38,14 @@ class EdgeChannelLoss(torch.nn.Module):
     """
     name = 'channel'
 
-    def __init__(self, target, mode='group', balance_loss=False,
-                 high_purity=False, loss='ce'):
+    def __init__(self, target, mode='group', loss='ce', balance_loss=False,
+                 high_purity=False):
         """Initialize the primary identification loss function.
 
         Parameters
         ----------
-        target : int
-            Column in the label tensor specifying the aggregation target
+        target : str
+            Column name in the label tensor specifying the aggregation target
         mode : str, default 'group'
             Loss mode, one of 'group', 'forest' or 'particle_forest'
             - 'group' turns every edge that connect two nodes that belong to
@@ -53,19 +54,21 @@ class EdgeChannelLoss(torch.nn.Module):
               nodes, if they belong to the same group
             - 'particle_forest' only turns on edges that join two particles
               have a parentage relationship in the true particle tree
+        loss : Union[str, dict], default 'ce'
+            Name of the loss function to apply
         balance_loss : bool, default False
             Whether to weight the loss to account for class imbalance
         high_purity : bool, default False
             Only apply loss to nodes which belong to a sensible group, i.e.
             one with exactly one shower primary in it (not 0, not > 1)
-        loss : Union[str, dict], default 'ce'
-            Name of the loss function to apply
         """
         # Initialize the parent class
         super().__init__()
 
+        # Parse the aggregation target
+        self.target = enum_factory('cluster', target)
+
         # Initialize basic parameters
-        self.target = target
         self.mode = mode
         self.balance_loss = balance_loss
         self.high_purity = high_purity

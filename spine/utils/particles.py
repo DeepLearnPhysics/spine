@@ -7,7 +7,8 @@ from warnings import warn
 
 import numpy as np
 
-from .globals import MICHL_SHP, DELTA_SHP, INVAL_ID, INVAL_TID, PDG_TO_PID
+from .globals import (
+        MICHL_SHP, DELTA_SHP, OLD_INVAL_ID, INVAL_ID, INVAL_TID, PDG_TO_PID)
 
 
 def process_particles(particles, particle_event, particle_mpv_event=None,
@@ -136,7 +137,7 @@ def get_valid_mask(particles):
 
     # If the interaction IDs are set in the particle tree, simply use that
     inter_ids = np.array([p.interaction_id() for p in particles], dtype=int)
-    if np.any(inter_ids != INVAL_ID):
+    if np.any((inter_ids != INVAL_ID) & (inter_ids != OLD_INVAL_ID)):
         return inter_ids != INVAL_ID
 
     # Otherwise, check that the ancestor track ID and creation process are valid
@@ -178,7 +179,7 @@ def get_interaction_ids(particles, valid_mask=None):
 
     # If the interaction IDs are set in the particle tree, simply use that
     inter_ids = np.array([p.interaction_id() for p in particles], dtype=int)
-    if np.any(inter_ids != INVAL_ID):
+    if np.any((inter_ids != INVAL_ID) & (inter_ids != OLD_INVAL_ID)):
         inter_ids[~valid_mask] = -1 # pylint: disable=E1130
         return inter_ids
 

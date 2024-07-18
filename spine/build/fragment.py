@@ -1,7 +1,7 @@
 """Classes in charge of constructing FragmentBase objects."""
 
 from typing import List
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 import inspect
 
 import numpy as np
@@ -46,7 +46,7 @@ class FragmentBuilder(BuilderBase):
             **BuilderBase.load_reco_keys
     }
 
-    load_reco_keys  = {
+    load_truth_keys  = {
             'truth_fragments': True, 
             **BuilderBase.load_truth_keys
     }
@@ -120,7 +120,7 @@ class FragmentBuilder(BuilderBase):
             if fragment_end_points is not None:
                 fragment.end_point = fragment_end_points[i]
             if fragment_group_pred is not None:
-                fragment.group_id = fragment_group_pred[i]
+                fragment.particle_id = fragment_group_pred[i]
             if fragment_node_pred is not None:
                 fragment.primary_scores = primary_scores[i]
                 fragment.is_primary = bool(primary_pred[i])
@@ -192,11 +192,8 @@ class FragmentBuilder(BuilderBase):
         # Loop over the true fragment instances in the label tensor
         truth_fragments = []
         unique_fragment_ids = np.unique(label_tensor[:, CLUST_COL])
-        for i, frag_id in enumerate(unique_fragment_ids):
-            # Skip if the fragment index is -1 (invalid)
-            if frag_id < 0:
-                continue
-
+        valid_fragment_ids = unique_fragment_ids[unique_fragment_ids > -1]
+        for i, frag_id in enumerate(valid_fragment_ids):
             # Fetch the index of the MC particle it matches to, initialize
             index = np.where(label_tensor[:, CLUST_COL] == frag_id)[0]
             if particles is not None:
@@ -206,7 +203,7 @@ class FragmentBuilder(BuilderBase):
                         "A true fragment must not mix label particle indexes.")
                 assert part_id > -1 and part_id < len(particles), (
                         "Invalid particle ID found in fragment labels.")
-                fragment = TruthFragment(**asdict(particles[part_id]))
+                fragment = TruthFragment(**particles[part_id].as_dict())
                 fragment.id = i
 
             else:
@@ -266,8 +263,8 @@ class FragmentBuilder(BuilderBase):
 
         Parameters
         ----------
-        reco_fragments : List[dict]
-            (F) List of dictionary representations of reconstructed fragments
+        reco_fragments : List[RecoFragment]
+            (F) List of partial reconstructed fragments
         points : np.ndarray
             (N, 3) Set of deposition coordinates in the image
         depositions : np.ndarray
@@ -281,9 +278,8 @@ class FragmentBuilder(BuilderBase):
             List of restored reconstructed fragment instances
         """
         # Loop over the dictionaries
-        for i, part_dict in enumerate(reco_fragments):
-            # Pass the dictionary to build the fragment
-            fragment = RecoFragment(**part_dict)
+        for i, fragment in enumerate(reco_fragments):
+            # Check that the fragment ID checks out
             assert fragment.id == i, (
                     "The ordering of the stored fragments is wrong.")
 
@@ -292,9 +288,6 @@ class FragmentBuilder(BuilderBase):
             fragment.depositions = depositions[fragment.index]
             if sources is not None:
                 fragment.sources = sources[fragment.index]
-
-            # Append
-            reco_fragments[i] = fragment
 
         return reco_fragments
 
@@ -320,8 +313,8 @@ class FragmentBuilder(BuilderBase):
 
         Parameters
         ----------
-        truth_fragments : List[dict]
-            (F) List of dictionary representations of truth fragments
+        reco_fragments : List[TruthFragment]
+            (F) List of partial truth fragments
         points : np.ndarray
             (N, 3) Set of deposition coordinates in the image
         depositions : np.ndarray
@@ -348,9 +341,8 @@ class FragmentBuilder(BuilderBase):
             List of restored true fragment instances
         """
         # Loop over the dictionaries
-        for i, part_dict in enumerate(truth_fragments):
-            # Pass the dictionary to build the fragment
-            fragment = TruthFragment(**part_dict)
+        for i, fragment in enumerate(truth_fragments):
+            # Check that the fragment ID checks out
             assert fragment.id == i, (
                     "The ordering of the stored fragments is wrong.")
 
@@ -370,8 +362,5 @@ class FragmentBuilder(BuilderBase):
             if points_g4 is not None:
                 fragment.points_g4 = points_g4[fragment.index_g4]
                 fragment.depositions_g4 = depositions_g4[fragment.index_g4]
-
-            # Append
-            truth_fragments[i] = fragment
 
         return truth_fragments

@@ -1,7 +1,9 @@
 from spine.post.base import PostBase
 
+__all__ = ['CRTMatchProcessor']
 
-class CRTTPCMatchingProcessor(PostBase):
+
+class CRTMatchProcessor(PostBase):
     '''
     Associates TPC interactions with optical flashes.
     '''

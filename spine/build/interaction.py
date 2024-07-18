@@ -1,7 +1,6 @@
 """Class in charge of constructing *Interaction objects."""
 
 from collections import defaultdict
-from dataclasses import asdict
 
 import numpy as np
 
@@ -123,11 +122,9 @@ class InteractionBuilder(BuilderBase):
         # Loop over unique interaction IDs
         truth_interactions = []
         inter_ids = np.array([p.interaction_id for p in truth_particles])
-        for i, inter_id in enumerate(np.unique(inter_ids)):
-            # Skip if the interaction ID is invalid
-            if inter_id < 0:
-                continue
-
+        unique_inter_ids = np.unique(inter_ids)
+        valid_inter_ids = unique_inter_ids[unique_inter_ids > -1]
+        for i, inter_id in enumerate(valid_inter_ids):
             # Get the list of particles associates with this interaction
             particle_ids = np.where(inter_ids == inter_id)[0]
             inter_particles = [truth_particles[j] for j in particle_ids]
@@ -144,12 +141,20 @@ class InteractionBuilder(BuilderBase):
 
             # Append the neutrino information, if it is provided
             if neutrinos is not None:
-                nu_ids = [p.nu_id for p in inter_particles]
+                nu_ids = [part.nu_id for part in inter_particles]
                 assert len(np.unique(nu_ids)) == 1, (
                         "Interaction made up of particles with different "
                         "neutrino IDs. Must be unique.")
                 if nu_ids[0] > -1:
                     interaction.attach_neutrino(neutrinos[nu_ids[0]])
+
+            else:
+                anc_pos = [part.ancestor_position for part in inter_particles]
+                anc_pos = np.unique(anc_pos, axis=0)
+                assert len(anc_pos) == 1, (
+                    "Particles making up a true interaction have different "
+                    "ancestor positions.")
+                interaction.vertex = anc_pos.flatten()
 
             # Append
             truth_interactions.append(interaction)
@@ -169,17 +174,17 @@ class InteractionBuilder(BuilderBase):
         List[RecoInteraction]
             List of restored reconstructed interaction instances
         """
-        return self._load_reco(data)
+        return self._load_reco(**data)
 
-    def _load_reco(self, reco_particles, reco_interactions):
+    def _load_reco(self, reco_interactions, reco_particles):
         """Load :class:`RecoInteraction` objects from their stored versions.
 
         Parameters
         ----------
+        reco_interactions : List[RecoInteraction]
+            List of partial reconstructed interaction objects
         reco_particles : List[RecoParticle]
             List of reconstructed particle objects
-        reco_interactions : List[dict]
-            List of dictionary representations of reconstructed interactions
 
         Returns
         -------
@@ -187,9 +192,8 @@ class InteractionBuilder(BuilderBase):
             List of restored reconstructed interaction instances
         """
         # Loop over the dictionaries
-        for i, inter_dict in enumerate(reco_interactions):
-            # Pass the dictionary to build the interaction
-            interaction = RecoInteraction(**inter_dict)
+        for i, interaction in enumerate(reco_interactions):
+            # Check that the interaction ID checks out
             assert interaction.id == i, (
                     "The ordering of the stored ineractions is wrong.")
 
@@ -204,9 +208,6 @@ class InteractionBuilder(BuilderBase):
             for attr in interaction._cat_attrs:
                 val_list = [getattr(p, attr) for p in inter_particles]
                 setattr(interaction, attr, np.concatenate(val_list))
-
-            # Append
-            reco_interactions[i] = interaction
 
         return reco_interactions
 
@@ -223,9 +224,9 @@ class InteractionBuilder(BuilderBase):
         List[TruthInteraction]
             List of restored truth interaction instances
         """
-        return self._load_truth(data)
+        return self._load_truth(**data)
 
-    def load_truth(self, truth_particles, truth_interactions):
+    def _load_truth(self, truth_interactions, truth_particles):
         """Load :class:`TruthInteraction` objects from their stored versions.
 
         Parameters
@@ -235,10 +236,10 @@ class InteractionBuilder(BuilderBase):
 
         Parameters
         ----------
+        truth_interactions : List[TruthInteraction]
+            List of partial truth interaction objects
         truth_particles : List[TruthParticle]
             List of truth particle objects
-        truth_interactions : List[dict]
-            List of dictionary representations of truth interactions
 
         Returns
         -------
@@ -246,9 +247,8 @@ class InteractionBuilder(BuilderBase):
             List of restored truth interaction instances
         """
         # Loop over the dictionaries
-        for i, inter_dict in enumerate(truth_interactions):
-            # Pass the dictionary to build the interaction
-            interaction = RecoInteraction(**inter_dict)
+        for i, interaction in enumerate(truth_interactions):
+            # Check that the interaction ID checks out
             assert interaction.id == i, (
                     "The ordering of the stored ineractions is wrong.")
 
@@ -264,8 +264,4 @@ class InteractionBuilder(BuilderBase):
                 val_list = [getattr(p, attr) for p in inter_particles]
                 setattr(interaction, attr, np.concatenate(val_list))
 
-            # Append
-            interactions.append(interaction)
-
-        return interaction
-
+        return truth_interactions

@@ -72,6 +72,55 @@ class DataBase:
             if isinstance(getattr(self, attr), bytes):
                 setattr(self, attr, getattr(self, attr).decode())
 
+    def __getstate__(self):
+        """Returns the variables to be pickled.
+
+        This is needed because the derived variables are stored as property
+        objects and are not naturally pickleable. This function simply skips
+        the private attributes which might be problematic to pickle.
+
+        Returns
+        -------
+        dict
+            Dictionary representation of the object
+        """
+        return {k: v for k, v in self.__dict__.items() if not k.startswith('_')}
+
+    def __setstate__(self, state):
+        """Sets the object state from a dictionary.
+
+        Parameters
+        ----------
+        dict
+            Dictionary representation of the object
+        """
+        self.__dict__.update(state)
+
+    def set_precision(self, precision):
+        """Casts all the vector attributes to a different precision.
+
+        Parameters
+        ----------
+        int : default 4
+            Precision in number of bytes (half=2, single=4, double=8)
+        """
+        assert precision in [2, 4, 8], (
+                "Set the vector attribute precision for this object.")
+        for attr in self.fixed_length_attrs + self.variable_length_attrs:
+            val = getattr(self, attr)
+            dtype = f'{val.dtype.str[:-1]}{precision}'
+            setattr(self, attr, val.astype(dtype))
+
+    def as_dict(self):
+        """Returns the data class as dictionary of (key, value) pairs.
+
+        Returns
+        -------
+        dict
+            Dictionary of attribute names and their values
+        """
+        return {k:v for k, v in self.__getstate__().items() if k not in self._skip_attrs}
+
     def scalar_dict(self, attrs=None):
         """Returns the data class attributes as a dictionary of scalars.
 
@@ -86,7 +135,7 @@ class DataBase:
         """
         # Loop over the attributes of the data class
         scalar_dict, found = {}, []
-        for attr, value in asdict(self).items():
+        for attr, value in self.as_dict().items():
             # If the attribute is not requested, skip
             if attrs is not None and attr not in attrs:
                 continue
@@ -111,6 +160,11 @@ class DataBase:
                 # If the attribute is a fixed length array, expand with index
                 for i, v in enumerate(value):
                     scalar_dict[f'{attr}_{i}'] = v
+
+            else:
+                raise ValueError(
+                        f"Cannot expand the `{attr}` attribute of "
+                        f"`{self.__cls__.__name__}` to scalar values.")
 
         if attrs is not None and len(attrs) != len(found):
             class_name = self.__class__.__name__
@@ -155,7 +209,7 @@ class DataBase:
 
     @property
     def skip_attrs(self):
-        """Fetches the list attributes to not store to file.
+        """Fetches the list of attributes to not store to file.
 
         Returns
         -------

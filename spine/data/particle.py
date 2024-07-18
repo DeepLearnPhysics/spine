@@ -4,7 +4,7 @@ This copies the internal structure of :class:`larcv.Particle`.
 """
 
 from warnings import warn
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -95,6 +95,10 @@ class Particle(PosDataBase):
         3-momentum of the particle at the production point
     end_momentum : np.ndarray
         3-momentum of the particle at where it stops or exits the detector
+    p : float
+        Momentum magnitude of the particle at the production point
+    end_p : float
+        Momentum magnitude of the particle where it stops or exits the detector
     units : str
         Units in which the position attributes are expressed
     """
@@ -136,7 +140,13 @@ class Particle(PosDataBase):
     last_step: np.ndarray = None
     momentum: np.ndarray = None
     end_momentum: np.ndarray = None
+    p: float = -1.
+    end_p: float = -1.
     units: str = 'cm'
+
+    # Private derived attributes
+    _p: float = field(init=False, repr=False)
+    _end_p: float = field(init=False, repr=False)
 
     # Fixed-length attributes
     _fixed_length_attrs = {'position': 3, 'end_position': 3,
@@ -175,6 +185,10 @@ class Particle(PosDataBase):
         """
         return np.linalg.norm(self.momentum)
 
+    @p.setter
+    def p(self, p):
+        self._p = p
+
     @property
     def end_p(self):
         """Computes the magnitude of the final momentum.
@@ -185,6 +199,10 @@ class Particle(PosDataBase):
             Norm of the final momentum vector
         """
         return np.linalg.norm(self.end_momentum)
+
+    @end_p.setter
+    def end_p(self, end_p):
+        self._end_p = end_p
 
     @classmethod
     def from_larcv(cls, particle):

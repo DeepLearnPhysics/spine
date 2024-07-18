@@ -66,14 +66,15 @@ SHAPE_LABELS = {
    TRACK_SHP: 'Track',
    MICHL_SHP: 'Michel',
    DELTA_SHP: 'Delta',
-   LOWES_SHP: 'Low Energy',
+   LOWES_SHP: 'LE',
    GHOST_SHP: 'Ghost',
 }
 
 # Invalid larcv.Particle labels
-INVAL_ID   = 9223372036854775807 # larcv.kINVALID_INSTANCEID
-INVAL_TID  = 4294967295          # larcv.kINVALID_UINT
-INVAL_PDG  = 0                   # Invalid particle PDG code
+OLD_INVAL_ID = 65535               # larcv.kINVALID_INSTANCEID, before LArCV2 v2.2.0
+INVAL_ID     = 9223372036854775807 # larcv.kINVALID_INSTANCEID
+INVAL_TID    = 4294967295          # larcv.kINVALID_UINT
+INVAL_PDG    = 0                   # Invalid particle PDG code
 
 # Particle ID of each recognized particle species
 PHOT_PID = 0
@@ -100,6 +101,7 @@ PDG_TO_PID.update({
 })
 
 PID_TO_PDG = {v : abs(k) for k, v in PDG_TO_PID.items()}
+PID_TO_PDG[-1] = -1
 
 # Particle type labels
 PID_LABELS = {
@@ -110,6 +112,17 @@ PID_LABELS = {
     PION_PID: 'Pion',
     PROT_PID: 'Proton',
     KAON_PID: 'Kaon'
+}
+
+# Particle type tags
+PID_TAGS = {
+    -1: '?',
+    PHOT_PID: 'g',
+    ELEC_PID: 'e',
+    MUON_PID: 'mu',
+    PION_PID: 'pi',
+    PROT_PID: 'p',
+    KAON_PID: 'ka'
 }
 
 # Map between shape and allowed PID/primary labels

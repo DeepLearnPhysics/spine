@@ -63,7 +63,7 @@ def scatter_clusters(points, clusts, color=None, hovertext=None,
         has_labels = True
         if np.isscalar(color):
             color = [color]*len(clusts)
-        elif len(color) == len(points):
+        elif len(color) == len(points) and len(points) != len(clusts):
             color = [color[c] for c in clusts]
         elif len(color) != len(clusts):
             raise ValueError(
@@ -74,11 +74,11 @@ def scatter_clusters(points, clusts, color=None, hovertext=None,
         color = clust_ids
 
     # Build the hovertext vectors
-    hoverinfo = ['x', 'y', 'z', 'text']
+    hovertemplate = 'x: %{x}<br>y: %{y}<br>z: %{z}<br>%{text}'
     if hovertext is not None:
         if np.isscalar(hovertext):
             hovertext = [hovertext]*len(clusts)
-        elif len(hovertext) == len(points):
+        elif len(hovertext) == len(points) and len(points) != len(clusts):
             hovertext = [hovertext[c] for c in clusts]
         elif len(hovertext) != len(clusts):
             raise ValueError(
@@ -87,10 +87,14 @@ def scatter_clusters(points, clusts, color=None, hovertext=None,
 
     else:
         hovertext = [f'Cluster ID: {i:.0f}' for i in clust_ids]
-        if has_labels and len(color) and np.isscalar(color[0]):
-            for i, hc in enumerate(hovertext):
-                fmt = '.0f' if float(color[i]).is_integer() else '.2f'
-                hovertext[i] = hc + f'<br>Label: {color[i]:{fmt}}'
+        if has_labels and len(color):
+            if np.isscalar(color[0]):
+                for i, hc in enumerate(hovertext):
+                    fmt = '.0f' if float(color[i]).is_integer() else '.2f'
+                    hovertext[i] = hc + f'<br>Label: {color[i]:{fmt}}'
+            else:
+                for i, hc in enumerate(hovertext):
+                    hovertext[i] = [hc + f'<br>Value: {v:0.3f}' for v in color[i]]
 
     # If requested, combine all clusters into a single trace
     if single_trace:
@@ -109,7 +113,7 @@ def scatter_clusters(points, clusts, color=None, hovertext=None,
 
             return scatter_points(
                     centroids, name=name, color=color, markersize=sizes,
-                    hovertext=hovertext, hoverinfo=hoverinfo,
+                    hovertext=hovertext, hovertemplate=hovertemplate,
                     cmin=cmin, cmax=cmax, **kwargs)
 
         else:
@@ -127,7 +131,7 @@ def scatter_clusters(points, clusts, color=None, hovertext=None,
 
             return scatter_points(
                     coords, color=color, hovertext=hovertext,
-                    hoverinfo=hoverinfo, name=name,
+                    hovertemplate=hovertemplate, name=name,
                     cmin=cmin, cmax=cmax, **kwargs)
 
     # If cmin/cmax are not provided, must build them so that all clusters
@@ -157,31 +161,31 @@ def scatter_clusters(points, clusts, color=None, hovertext=None,
             size = np.sqrt(len(coord))
             traces += scatter_points(
                 centroid, name=name_i, color=color[i], hovertext=hovertext[i],
-                hoverinfo=hoverinfo, cmin=cmin, cmax=cmax, markersize=size,
+                hovertemplate=hovertemplate, cmin=cmin, cmax=cmax, markersize=size,
                 legendgroup=legendgroup, showlegend=showlegend, **kwargs)
 
         elif mode == 'scatter':
             traces += scatter_points(
                 coord, name=name_i, color=color[i], hovertext=hovertext[i],
-                hoverinfo=hoverinfo, cmin=cmin, cmax=cmax,
+                hovertemplate=hovertemplate, cmin=cmin, cmax=cmax,
                 legendgroup=legendgroup, showlegend=showlegend, **kwargs)
 
         elif mode == 'ellipsoid':
             traces.append(ellipsoid_trace(
                 coord, name=name_i, color=color[i], hovertext=hovertext[i],
-                hoverinfo=hoverinfo, cmin=cmin, cmax=cmax,
+                hovertemplate=hovertemplate, cmin=cmin, cmax=cmax,
                 legendgroup=legendgroup, showlegend=showlegend, **kwargs))
 
         elif mode == 'cone':
             traces.append(cone_trace(
                 coord, name=name_i, color=color[i], hovertext=hovertext[i],
-                hoverinfo=hoverinfo, cmin=cmin, cmax=cmax,
+                hovertemplate=hovertemplate, cmin=cmin, cmax=cmax,
                 legendgroup=legendgroup, showlegend=showlegend, **kwargs))
 
         elif mode == 'hull':
             traces.append(hull_trace(
                 coord, name=name_i, color=color[i], hovertext=hovertext[i],
-                hoverinfo=hoverinfo, cmin=cmin, cmax=cmax,
+                hovertemplate=hovertemplate, cmin=cmin, cmax=cmax,
                 legendgroup=legendgroup, showlegend=showlegend, **kwargs))
 
         else:

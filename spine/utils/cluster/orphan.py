@@ -31,7 +31,6 @@ class OrphanAssigner:
             If `True`, force assign all orphans to a cluster. In the 'knn' mode,
             this is guaranteed, provided there is at least one labeled point.
             In the 'radius' mode, this uses DBSCAN for outliers.
-
         **kwargs : dict
             Arguments to pass to the underlying classifier function
         """
@@ -83,11 +82,11 @@ class OrphanAssigner:
         y_updated = y.copy()
         while num_orphans:
             # Fit the classifier with the labeled points
-            valid_index = np.where(y > -1)[0]
+            valid_index = np.where(y_updated > -1)[0]
             if not len(valid_index):
                 break
 
-            self.classifier.fit(X[valid_index], y[valid_index])
+            self.classifier.fit(X[valid_index], y_updated[valid_index])
 
             # Get the assignment for each of the orphaned points
             update = self.classifier.predict(X[orphan_index])
@@ -100,7 +99,7 @@ class OrphanAssigner:
                 break
 
             # If the number of orphans has not changed, no point in proceeding
-            orphan_index = orphan_index[update > -1]
+            orphan_index = orphan_index[update < 0]
             if len(orphan_index) == num_orphans:
                 break
 

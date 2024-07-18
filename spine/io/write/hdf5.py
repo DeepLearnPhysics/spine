@@ -1,7 +1,7 @@
 """Module to write the output of the reconstruction to file."""
 
 import os
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 
 import yaml
 import h5py
@@ -36,7 +36,7 @@ class HDF5Writer:
     name = 'hdf5'
 
     def __init__(self, file_name='output.h5', keys=None, skip_keys=None,
-                 append_file=False):
+                 overwrite=False, append=False):
         """Initializes the basics of the output file.
 
         Parameters
@@ -47,12 +47,18 @@ class HDF5Writer:
             List of data product keys to store. If not specified, store everything
         skip_keys: List[str], optionl
             List of data product keys to skip
-        append_file: bool, default False
-            Add new values to the end of an existing file
+        overwrite : bool, default False
+            If True, overwrite the output file if it already exists
+        append : bool, default False
+            If True, add new values to the end of an existing file
         """
+        # Check that output file does not already exist, if requestes
+        if not overwrite and os.path.isfile(file_name):
+            raise FileExistsError(f"File with name {file_name} already exists.")
+
         # Store persistent attributes
         self.file_name = file_name
-        self.append_file = append_file
+        self.append = append
         self.ready = False
         self.object_dtypes = [] # TODO: make this a set
 
@@ -179,9 +185,9 @@ class HDF5Writer:
         if np.isscalar(data[key]):
             # Single scalar for the entire batch (e.g. accuracy, loss, etc.)
             if isinstance(data[key], str):
-                self.type_dict[key] = h5py.string_dtype()
+                self.type_dict[key].dtype = h5py.string_dtype()
             else:
-                self.type_dict[key] = type(data[key])
+                self.type_dict[key].dtype = type(data[key])
             self.type_dict[key].scalar = True
 
         else:
@@ -275,7 +281,7 @@ class HDF5Writer:
             List of (key, dtype) pairs
         """
         object_dtype = []
-        for key, val in asdict(obj).items():
+        for key, val in obj.as_dict().items():
             # Append the relevant data type
             if isinstance(val, str):
                 # String
@@ -304,7 +310,7 @@ class HDF5Writer:
             else:
                 raise ValueError(
                         f"Attribute {key} of {obj} has unrecognized an "
-                        "unrecognized type: {type(val)}")
+                        f"unrecognized type: {type(val)}")
 
         return object_dtype
 
@@ -382,7 +388,7 @@ class HDF5Writer:
         """
         # If this function has never been called, initialiaze the HDF5 file
         if (not self.ready and
-            (not self.append_file or os.path.isfile(self.file_name))):
+            (not self.append or os.path.isfile(self.file_name))):
             self.create(data, cfg)
             self.ready = True
 
@@ -575,7 +581,7 @@ class HDF5Writer:
         # Convert list of objects to list of storable objects
         objects = np.empty(len(array), obj_dtype)
         for i, obj in enumerate(array):
-            objects[i] = tuple(asdict(obj).values())
+            objects[i] = tuple(obj.as_dict().values())
 
         # Extend the dataset, store array
         dataset = out_file[key]
@@ -586,5 +592,3 @@ class HDF5Writer:
         # Define region reference, store it at the event level
         region_ref = dataset.regionref[current_id:current_id + len(array)]
         event[key] = region_ref
-
-

@@ -94,7 +94,7 @@ class PPNPredictor:
         entry : int, optional
              Entry in the batch for which to compute the point predictions
         selection : Union[IndexBatch, List[np.ndarray]], optional
-             List of indexes to consider exclusively (e.g. to get PPN 
+             List of indexes to consider exclusively (e.g. to get PPN
              predictions within a list of clusters)
         **kwargs : dict, optional
              Extraneous outputs not used in this post-processor
@@ -175,7 +175,7 @@ class PPNPredictor:
         ghost : Union[torch.Tensor, np.ndarray], optional
              Raw logits from the ghost segmentation network output
         selection : Union[torch.Tensor, np.ndarray], optional
-             List of indexes to consider exclusively (e.g. to get PPN 
+             List of indexes to consider exclusively (e.g. to get PPN
              predictions within a list of clusters)
 
         Returns
@@ -196,6 +196,7 @@ class PPNPredictor:
             pool_fn = getattr(torch, self.pool_score_fn)
             if self.pool_score_fn == 'max':
                 pool_fn = torch.amax
+
         else:
             cat, unique, argmax = np.concatenate, np.unique, np.argmax
             where, mean, softmax = np.where, np.mean, softmax_sp
@@ -269,7 +270,8 @@ class PPNPredictor:
             scores = scores[seg_mask]
             type_pred = type_pred[seg_mask]
             type_scores = type_scores[seg_mask]
-            end_scores = end_scores[seg_mask]
+            if ppn_ends is not None:
+                end_scores = end_scores[seg_mask]
 
         # At this point, if there are no valid proposed points left, abort
         if not len(coords):
@@ -299,7 +301,7 @@ class PPNPredictor:
         return ppn_pred
 
 
-def get_particle_points(data, clusts, clusts_seg, ppn_points, 
+def get_particle_points(data, clusts, clusts_seg, ppn_points,
                         anchor_points=True, enhance_track_points=False,
                         approx_farthest_points=True):
     """Associate PPN points with particle clusters.
@@ -338,8 +340,12 @@ def get_particle_points(data, clusts, clusts_seg, ppn_points,
         where, abss, softmax = torch.where, torch.abs, torch.softmax
         cdist = local_cdist
         empty = lambda x: torch.empty(x, dtype=dtype, device=device)
-        farthest_pair = lambda x: list(torch.triu_indices(
-                len(x), len(x), 1)[:, torch.argmin(torch.pdist(x))])
+        def farthest_pair(x):
+            if len(x) < 2:
+                return [0, 0]
+            return list(torch.triu_indices(
+                len(x), len(x), 1)[:, torch.argmax(torch.pdist(x))])
+
     else:
         cat, argmin, argmax = np.concatenate, np.argmin, np.argmax
         where, abss, softmax = np.where, np.abs, softmax_sp
@@ -384,7 +390,7 @@ def get_particle_points(data, clusts, clusts_seg, ppn_points,
             # that are contained within the voxel making the prediction.
             ppn_scores = softmax(points_tensor[:, PPN_RPOS_COLS], 1)[:,-1]
             val_index = where(
-                    (abss(points_tensor[:, PPN_ROFF_COLS]) < 1.).all())[0]
+                    (abss(points_tensor[:, PPN_ROFF_COLS]) < 1.).all(1))[0]
             best_id = val_index[argmax(ppn_scores[val_index])] \
                     if len(val_index) else argmax(ppn_scores)
 
@@ -452,7 +458,7 @@ def check_track_orientation_ppn(start_point, end_point, ppn_candidates):
     return end_scores[0] < end_scores[1]
 
 
-def get_ppn_labels(particle_v, meta, dim=3, min_voxel_count=1,
+def get_ppn_labels(particle_v, meta, dtype, dim=3, min_voxel_count=1,
                    min_energy_deposit=0, include_point_tagging=True):
     """Gets particle point coordinates and informations for running PPN.
 
@@ -465,6 +471,8 @@ def get_ppn_labels(particle_v, meta, dim=3, min_voxel_count=1,
         List of LArCV particle objects in the image
     meta : larcv::Voxel3DMeta or larcv::ImageMeta
         Metadata information
+    dtype : str
+        Typing of the output PPN labels
     dim : int, default 3
         Number of dimensions of the image
     min_voxel_count : int, default 5
@@ -528,9 +536,9 @@ def get_ppn_labels(particle_v, meta, dim=3, min_voxel_count=1,
             part_info.append(last_step + part_extra)
 
     if not len(part_info):
-        return np.empty((0, 5 + include_point_tagging), dtype=np.float32)
+        return np.empty((0, 5 + include_point_tagging), dtype=dtype)
 
-    return np.array(part_info)
+    return np.array(part_info, dtype=dtype)
 
 
 def image_contains(meta, point, dim=3):
@@ -551,7 +559,7 @@ def image_contains(meta, point, dim=3):
         True if the point is contained in the image box
     """
     if dim == 3:
-        return (point.x() >= meta.min_x() and point.y() >= meta.min_y() and 
+        return (point.x() >= meta.min_x() and point.y() >= meta.min_y() and
                 point.z() >= meta.min_z() and point.x() <= meta.max_x() and
                 point.y() <= meta.max_y() and point.z() <= meta.max_z())
     else:

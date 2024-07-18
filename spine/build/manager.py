@@ -173,15 +173,26 @@ class BuildManager:
             update['points_g4'] = sources['label_g4_tensor'][:, COORD_COLS]
             update['depositions_g4'] = sources['label_g4_tensor'][:, VALUE_COL]
 
+        # If provided, etch the point attributes to check their units
+        for obj in ['fragment', 'particle']:
+            for key in [f'{obj}_start_points', f'{obj}_end_points']:
+                if key in data:
+                    update[key] = data[key]
+                    if entry is not None:
+                        update[key] = update[key][entry]
+
         # Convert everything to the proper units once and for all
         if self.units != 'px':
             # Fetch metadata
             assert 'meta' in data, (
                     "Must provide metadata to build objects in cm.")
+
             meta = data['meta'][entry] if entry is not None else data['meta']
-            for key in ['points', 'points_label', 'points_g4']:
-                if key in update:
-                    update[key] = meta.to_cm(np.copy(update[key]), center=True)
+            for key in update:
+                if 'points' in key and key in update:
+                    if key in update:
+                        update[key] = meta.to_cm(
+                                np.copy(update[key]), center=True)
 
             for key in ['particles', 'neutrinos']:
                 if key in sources:
@@ -229,8 +240,8 @@ class BuildManager:
 
                 else:
                     # If a match is found, the first is always the best match
-                    best_match = obj.match[0]
+                    best_match = obj.match_ids[0]
                     result[match_key].append((obj, targets[best_match]))
-                    result[match_overlap_key].append(obj.match_overlap[0])
+                    result[match_overlap_key].append(obj.match_overlaps[0])
 
         return result

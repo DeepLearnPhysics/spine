@@ -180,7 +180,11 @@ class ClustGeoNodeEncoder(torch.nn.Module):
 
         feats = TensorBatch(feats, clusts.counts)
 
-        return feats, points
+        # Return
+        if self.add_points:
+            return feats, points
+
+        return feats
 
     def get_base_features(data, clusts, add_value, add_shape):
         """Generate base geometric cluster node features for one batch of data.
@@ -197,10 +201,10 @@ class ClustGeoNodeEncoder(torch.nn.Module):
             Add the particle semantic type
         """
         # Get the value & semantic types
-        voxels = data.tensor[:, COORD_COLS].float()
-        values = data.tensor[:, VALUE_COL].float()
+        voxels = data.tensor[:, COORD_COLS]
+        values = data.tensor[:, VALUE_COL]
         if add_value:
-            sem_types = data.tensor[:, SHAPE_COL].float()
+            sem_types = data.tensor[:, SHAPE_COL]
 
         # Below is a torch-based implementation of cluster_features
         feats = []
@@ -375,7 +379,7 @@ class ClustGeoEdgeEncoder(torch.nn.Module):
             pair of clusters
         """
         # Get the voxel set
-        voxels = data.tensor[:, COORD_COLS].float()
+        voxels = data.tensor[:, COORD_COLS]
 
         # Here is a torch-based implementation of cluster_edge_features
         feats = []

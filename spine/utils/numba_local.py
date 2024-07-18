@@ -4,6 +4,21 @@ import numpy as np
 import numba as nb
 
 
+@nb.njit
+def seed(seed: int) -> None:
+    """Sets the numpy random seed for all Numba jitted functions.
+
+    Note that setting the seed using `np.random.seed` outside a Numba jitted
+    function does *not* set the seed of Numba functions.
+
+    Parameters
+    ----------
+    seed : int
+        Random number generator seed
+    """
+    np.random.seed(seed)
+
+
 @nb.njit(cache=True)
 def submatrix(x: nb.float32[:,:],
               index1: nb.int32[:],
@@ -172,16 +187,18 @@ def argmax(x: nb.float32[:,:],
     if axis == 0:
         for i in range(len(argmax)):
             argmax[i] = np.argmax(x[:,i])
+
     else:
         for i in range(len(argmax)):
             argmax[i] = np.argmax(x[i])
+
     return argmax
 
 
 @nb.njit(cache=True)
-def min(x: nb.float32[:,:],
-        axis: nb.int32) -> nb.float32[:]:
-    """Numba implementation of `np.max(x, axis)`.
+def amin(x: nb.float32[:,:],
+         axis: nb.int32) -> nb.float32[:]:
+    """Numba implementation of `np.amin(x, axis)`.
 
     Parameters
     ----------
@@ -199,17 +216,19 @@ def min(x: nb.float32[:,:],
     xmin = np.empty(x.shape[1-axis], dtype=np.int32)
     if axis == 0:
         for i in range(len(xmin)):
-            xmin[i] = np.min(x[:,i])
+            xmin[i] = np.min(x[:, i])
+
     else:
-        for i in range(len(xmax)):
+        for i in range(len(xmin)):
             xmin[i] = np.min(x[i])
+
     return xmin
 
 
 @nb.njit(cache=True)
-def max(x: nb.float32[:,:],
-        axis: nb.int32) -> nb.float32[:]:
-    """Numba implementation of `np.max(x, axis)`.
+def amax(x: nb.float32[:,:],
+         axis: nb.int32) -> nb.float32[:]:
+    """Numba implementation of `np.amax(x, axis)`.
 
     Parameters
     ----------
@@ -227,10 +246,12 @@ def max(x: nb.float32[:,:],
     xmax = np.empty(x.shape[1-axis], dtype=np.int32)
     if axis == 0:
         for i in range(len(xmax)):
-            xmax[i] = np.max(x[:,i])
+            xmax[i] = np.max(x[:, i])
+
     else:
         for i in range(len(xmax)):
             xmax[i] = np.max(x[i])
+
     return xmax
 
 
@@ -256,9 +277,11 @@ def all(x: nb.float32[:,:],
     if axis == 0:
         for i in range(len(all)):
             all[i] = np.all(x[:,i])
+
     else:
         for i in range(len(all)):
             all[i] = np.all(x[i])
+
     return all
 
 
@@ -286,14 +309,14 @@ def contingency_table(x: nb.int32[:],
         (N, M) Contingency table
     """
     # If not provided, assume that the max label is the max of the label array
-    if not na:
-        na = np.max(a) + 1
-    if not nb:
-        nb = np.max(b) + 1
+    if not nx:
+        nx = np.max(x) + 1
+    if not ny:
+        ny = np.max(y) + 1
 
     # Bin the table
-    table = np.zeros((na, nb), dtype=np.int64)
-    for i, j in zip(a,b):
+    table = np.zeros((nx, ny), dtype=np.int64)
+    for i, j in zip(x, y):
         table[i, j] += 1
 
     return table
@@ -319,11 +342,11 @@ def softmax(x: nb.float32[:,:],
     """
     assert axis == 0 or axis == 1
     if axis == 0:
-        xmax = max(x, axis=0)
+        xmax = amax(x, axis=0)
         logsumexp = np.log(np.sum(np.exp(x-xmax), axis=0)) + xmax
         return np.exp(x - logsumexp)
     else:
-        xmax = max(x, axis=1).reshape(-1,1)
+        xmax = amax(x, axis=1).reshape(-1,1)
         logsumexp = np.log(np.sum(np.exp(x-xmax), axis=1)).reshape(-1,1) + xmax
         return np.exp(x - logsumexp)
 
@@ -352,31 +375,61 @@ def log_loss(label: nb.boolean[:],
 
 
 @nb.njit(cache=True)
-def pdist(x: nb.float32[:,:]) -> nb.float32[:,:]:
-    """Numba implementation of Eucleadian 
+def pdist(x: nb.float32[:,:],
+          metric: str = 'euclidean') -> nb.float32[:,:]:
+    """Numba implementation of
     `scipy.spatial.distance.pdist(x, p=2)` in 3D.
 
     Parameters
     ----------
     x : np.ndarray
-        (N,3) array of point coordinates in the set
+        (N, 3) array of point coordinates in the set
+    metric : str, default 'euclidean'
+        Distance metric
 
     Returns
     -------
     np.ndarray
-        (N,N) array of pair-wise Euclidean distances
+        (N, N) array of pair-wise Euclidean distances
     """
-    res = np.zeros((x.shape[0], x.shape[0]), dtype=x.dtype)
-    for i in range(x.shape[0]):
-        for j in range(i+1, x.shape[0]):
-            res[i,j] = res[j,i] = np.sqrt((x[i][0]-x[j][0])**2+(x[i][1]-x[j][1])**2+(x[i][2]-x[j][2])**2)
+    # Initialize the return matrix
+    assert x.shape[1] == 3, "Only supports 3D points for now."
+    res = np.zeros((len(x), len(x)), dtype=x.dtype)
+
+    if metric == 'euclidean':
+        for i in range(x.shape[0]):
+            for j in range(i+1, x.shape[0]):
+                res[i, j] = res[j, i] = np.sqrt(
+                        (x[i][0] - x[j][0])**2 +
+                        (x[i][1] - x[j][1])**2 +
+                        (x[i][2] - x[j][2])**2)
+
+    elif metric == 'cityblock':
+        for i in range(x.shape[0]):
+            for j in range(i+1, x.shape[0]):
+                res[i, j] = res[j, i] = (
+                        abs(x[i][0] - x[j][0]) +
+                        abs(x[i][1] - x[j][1]) +
+                        abs(x[i][2] - x[j][2]))
+
+    elif metric == 'chebyshev':
+        for i in range(x.shape[0]):
+            for j in range(i+1, x.shape[0]):
+                res[i, j] = res[j, i] = max(
+                        max(abs(x[i][0] - x[j][0]),
+                        abs(x[i][1] - x[j][1])),
+                        abs(x[i][2] - x[j][2]))
+
+    else:
+        raise ValueError("Distance metric not recognized.")
+
     return res
 
 
 @nb.njit(cache=True)
 def cdist(x1: nb.float32[:,:],
           x2: nb.float32[:,:]) -> nb.float32[:,:]:
-    """Numba implementation of Eucleadian
+    """Numba implementation of Euclidean
     `scipy.spatial.distance.cdist(x, p=2)` in 1D, 2D or 3D.
 
     Parameters
@@ -397,19 +450,93 @@ def cdist(x1: nb.float32[:,:],
     if dim == 1:
         for i1 in range(x1.shape[0]):
             for i2 in range(x2.shape[0]):
-                res[i1,i2] = abs(x1[i1][0]-x2[i2][0])
+                res[i1,i2] = abs(x1[i1][0] - x2[i2][0])
+
     elif dim == 2:
         for i1 in range(x1.shape[0]):
             for i2 in range(x2.shape[0]):
-                res[i1,i2] = np.sqrt((x1[i1][0]-x2[i2][0])**2 \
-                        + (x1[i1][1]-x2[i2][1])**2)
+                res[i1,i2] = np.sqrt(
+                        (x1[i1][0] - x2[i2][0])**2 +
+                        (x1[i1][1] - x2[i2][1])**2)
+
     elif dim == 3:
         for i1 in range(x1.shape[0]):
             for i2 in range(x2.shape[0]):
-                res[i1,i2] = np.sqrt((x1[i1][0]-x2[i2][0])**2 \
-                        + (x1[i1][1]-x2[i2][1])**2 \
-                        + (x1[i1][2]-x2[i2][2])**2)
+                res[i1,i2] = np.sqrt(
+                        (x1[i1][0]-x2[i2][0])**2 +
+                        (x1[i1][1]-x2[i2][1])**2 +
+                        (x1[i1][2]-x2[i2][2])**2)
+
     return res
+
+
+@nb.njit(cache=True)
+def union_find(edge_index: nb.int64[:,:],
+               count: nb.int64,
+               return_inverse: bool = True) -> nb.int64[:]:
+    """Numba implementation of the Union-Find algorithm.
+
+    This function assigns a group to each node in a graph, provided
+    a set of edges connecting the nodes together.
+
+    Parameters
+    ----------
+    edge_index : np.ndarray
+        (E, 2) List of edges (sparse adjacency matrix)
+    count : int
+        Number of nodes in the graph, C
+    return_inverse : bool, default True
+        Make sure the group IDs range from 0 to N_groups-1
+
+    Returns
+    -------
+    np.ndarray
+        (C) Group assignments for each of the nodes in the graph
+    """
+    labels = np.arange(count)
+    for e in edge_index:
+        if labels[e[0]] != labels[e[1]]:
+            labels[labels == labels[e[1]]] = labels[e[0]]
+
+    if return_inverse:
+        mask = np.zeros(count, dtype=np.bool_)
+        mask[labels] = True
+        mapping = np.empty(count, dtype=labels.dtype)
+        mapping[mask] = np.arange(np.sum(mask))
+        labels = mapping[labels]
+
+    return labels
+
+
+@nb.njit(cache=True)
+def dbscan(x: nb.float32[:, :],
+           eps: nb.float32,
+           metric: str = 'euclidean') -> nb.float32[:]:
+    """Runs DBSCAN on 3D points and returns the group assignments.
+
+    Notes
+    -----
+    The traditional 'min_samples' is always set to 1 here.
+
+    Parameters
+    ----------
+    x : np.ndarray
+        (N, 3) array of point coordinates
+    eps : float
+        Distance below which two points are considered neighbors
+    metric : str, default 'euclidean'
+        Distance metric used to compute pdist
+
+    Returns
+    -------
+    np.ndarray
+        (N) Group assignments
+    """
+    # Produce a sparse adjacency matrix (edge index)
+    edges = np.vstack(np.where(pdist(x, metric) < eps)).T
+    
+    # Build groups
+    return union_find(edges, len(x), return_inverse=True)
 
 
 @nb.njit(cache=True)
@@ -452,7 +579,7 @@ def farthest_pair(x: nb.float32[:,:],
     Parameters
     ----------
     x : np.ndarray
-        (Nx3) array of point coordinates
+        (N, 3) array of point coordinates
     algorithm : str
         Name of the algorithm to use: `brute` or `recursive`
 
@@ -470,14 +597,16 @@ def farthest_pair(x: nb.float32[:,:],
         index = np.argmax(dist_mat)
         idxs = [index//x.shape[0], index%x.shape[0]]
         dist = dist_mat[idxs[0], idxs[1]]
+
     elif algorithm == 'recursive':
-        idxs, subidx, dist, tempdist = [0, 0], 0, 1e9, 1e9+1.
-        while dist < tempdist:
+        idxs, subidx, dist, tempdist = [0, 0], 0, 0., -1.
+        while dist > tempdist:
             tempdist = dist
             dists = cdist(np.ascontiguousarray(x[idxs[subidx]]).reshape(1,-1), x).flatten()
             idxs[~subidx] = np.argmax(dists)
             dist = dists[idxs[~subidx]]
             subidx = ~subidx
+
     else:
         raise ValueError("Algorithm not supported")
 

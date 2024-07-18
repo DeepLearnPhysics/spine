@@ -22,7 +22,7 @@ HIGH_CONTRAST_COLORS = np.concatenate(
 
 def layout3d(ranges=None, meta=None, detector=None, titles=None,
              detector_coords=False, backgroundcolor='white',
-             gridcolor='lightgray', width=900, height=900, showlegend=True,
+             gridcolor='lightgray', width=800, height=800, showlegend=True,
              camera=None, aspectmode='manual', aspectratio=None, dark=False,
              margin=None, hoverlabel=None, **kwargs):
     """Produces plotly.graph_objs.Layout object for a certain format.
@@ -98,7 +98,7 @@ def layout3d(ranges=None, meta=None, detector=None, titles=None,
             ranges = np.vstack([meta.lower, meta.upper]).T
         else:
             ranges = np.vstack([[0, 0, 0],
-                np.round((meta.upper-meta.lower)/meta.size)]).T
+                np.round((meta.upper - meta.lower)/meta.size)]).T
 
     if detector is not None:
         # If detector geometry is provided, make the full detector the range
@@ -112,11 +112,11 @@ def layout3d(ranges=None, meta=None, detector=None, titles=None,
         ranges[:,0] -= lengths*0.1
         ranges[:,1] += lengths*0.1
 
-        # Define detector-style camera, unless explicitely provided
-        if camera is None:
-            camera = {'eye':    {'x':-2., 'y': 1.,   'z': -0.01},
-                      'up':     {'x':0.,  'y': 1.,   'z': 0.},
-                      'center': {'x':0.,  'y': -0.1, 'z': -0.01}}
+    # Define detector-style camera, unless explicitely provided
+    if camera is None:
+        camera = {'eye':    {'x':-2., 'y': 1.,   'z': -0.01},
+                  'up':     {'x':0.,  'y': 1.,   'z': 0.},
+                  'center': {'x':0.,  'y': -0.1, 'z': -0.01}}
 
     # Infer the image width/height and aspect ratios, unless they are specified
     if aspectmode == 'manual':
@@ -228,6 +228,8 @@ def dual_figure3d(traces_left, traces_right, layout=None, titles=None,
     # Inialize and set layout
     if layout is None:
         layout = layout3d(width=width, height=height, margin=margin, **kwargs)
+    else:
+        layout.update({'width': width, 'height': height, 'margin': margin})
     fig.layout.update(layout)
 
     # If requested, synchronize the two cameras

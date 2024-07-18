@@ -1,1 +1,3 @@
-from .trigger import TriggerProcessor
+"""Trigger information processing module."""
+
+from .trigger import *

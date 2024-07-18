@@ -5,9 +5,9 @@ from collections import defaultdict, OrderedDict
 
 import numpy as np
 
-from .factories import post_processor_factory
-
 from spine.utils.stopwatch import StopwatchManager
+
+from .factories import post_processor_factory
 
 
 class PostManager:
@@ -53,21 +53,29 @@ class PostManager:
             Dictionary of data products
         """
         # Loop over the post-processor modules
+        single_entry = np.isscalar(data['index'])
         for key, module in self.modules.items():
             # Run the post-processor on each entry
             self.watch.start(key)
-            if np.isscalar(data['index']):
+            if single_entry:
                 result = module(data)
+
             else:
                 num_entries = len(data['index'])
                 result = defaultdict(list)
                 for entry in range(num_entries):
                     result_e = module(data, entry)
-                    for key, value in result_e.items():
-                       result[key].append(value)
+                    if result_e is not None:
+                        for k, v in result_e.items():
+                           result[k].append(v)
+
             self.watch.stop(key)
 
             # Update the input dictionary
-            for key, val in result.items():
-                assert len(val) == num_entries
-                data[key] = val
+            if result is not None:
+                for key, val in result.items():
+                    if not single_entry:
+                        assert len(val) == num_entries, (
+                                f"The number {key} ({len(val)}) does not match "
+                                f"the number of entries ({num_entries}).")
+                    data[key] = val

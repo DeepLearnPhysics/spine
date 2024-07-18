@@ -52,7 +52,7 @@ class GraphBase:
             assert len(max_length) == num_classes*(num_classes + 1)/2, (
                     "If provided as a list, the maximum edge length should be "
                     "given for each upper triangular element of a matrix of "
-                    "size num_classes*num_classes")
+                    "size (num_classes*num_classes).")
 
             max_length_mat = np.zeros((num_classes, num_classes), dtype=float)
             max_length_mat[np.triu_indices(num_classes)] = max_length

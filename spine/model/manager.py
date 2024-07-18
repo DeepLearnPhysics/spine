@@ -25,7 +25,7 @@ class ModelManager:
                  weight_path=None, calibration=None, train=None,
                  save_step=None, optimizer=None, restore_optimizer=False,
                  lr_scheduler=None, to_numpy=False, time_dependent_loss=False,
-                 dtype=torch.float, distributed=False, rank=None,
+                 dtype='float32', distributed=False, rank=None,
                  detect_anomaly=False, find_unused_parameters=False):
         """Process the model configuration.
 
@@ -49,7 +49,7 @@ class ModelManager:
             Handles time-dependant loss, such as KL divergence annealing
         train : dict, default None
             Training regimen configuration
-        dtype : torch.dtype
+        dtype : str, default 'float32'
             Data type of the model parameters and input data 
         distributed : bool, default False
             Whether the model is part of a distributed training process
@@ -64,7 +64,7 @@ class ModelManager:
         self.train = train
         self.to_numpy = to_numpy
         self.time_dependant = time_dependent_loss
-        self.dtype = dtype
+        self.dtype = getattr(torch, dtype)
         self.distributed = distributed
         self.rank = rank
         self.device = 'cpu' if self.rank is None else f'cuda:{self.rank}'
@@ -89,14 +89,14 @@ class ModelManager:
         net_cls, loss_cls = model_factory(name)
         try:
             self.net = net_cls(**modules)
-            self.net.to(device=rank, dtype=dtype)
+            self.net.to(device=rank, dtype=self.dtype)
         except Exception as err:
             msg = f"Failed to instantiate {net_cls}"
             raise type(err)(f"{err}\n{msg}")
 
         try:
             self.loss_fn = loss_cls(**modules)
-            self.loss_fn.to(device=rank, dtype=dtype)
+            self.loss_fn.to(device=rank, dtype=self.dtype)
         except Exception as err:
             msg = f"Failed to instantiate {loss_cls}"
             raise type(err)(f"{err}\n{msg}")
@@ -361,13 +361,15 @@ class ModelManager:
                     for name in model.state_dict():
                         if not name in state_dict.keys():
                             missing_keys.append((name, name))
+
                 else:
                     # Update the key names according to the name used to store
                     state_dict = {}
                     for name in model.state_dict():
                         if module in name:
+                            suffix = '.' if len(model_name) else ''
                             key = name.replace(
-                                    f'.{module}.', f'.{model_name}.')
+                                    f'{module}.', f'{model_name}{suffix}')
                             if key in checkpoint['state_dict'].keys():
                                 state_dict[name] = checkpoint['state_dict'][key]
                             else:
@@ -412,7 +414,7 @@ class ModelManager:
         Parameters
         ----------
         data : dict
-            Dictionary of input data product keys which each map to its
+            Dictionary of input data product keys, each of which maps to its
             associated batched data product
 
         Returns

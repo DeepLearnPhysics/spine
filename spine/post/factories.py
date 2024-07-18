@@ -1,39 +1,35 @@
-from . import reconstruction, pmt, crt, trigger, evaluation
+"""Construct a post-processor module class from its name."""
 
-POST_PROCESSOR_DICT = {}
-for module in [reconstruction, pmt, crt, trigger, evaluation]:
-    for processor in dir(module):
-        if 'Processor' in processor:
-            cls = getattr(module, processor)
-            POST_PROCESSOR_DICT[cls.name] = cls
+from spine.utils.factory import module_dict, instantiate
+
+from . import reco, metric, optical, crt, trigger
+
+# Build a dictionary of available calibration modules
+POST_DICT = {}
+for module in [reco, metric, optical, crt, trigger]:
+    POST_DICT.update(**module_dict(module))
 
 
 def post_processor_factory(name, cfg, parent_path=''):
-    '''
-    Instantiates post-processor based on name specified in configuration under
-    the `post_processor` config block.
+    """Instantiates a post-processor module from a configuration dictionary.
 
     Parameters
     ----------
     name : str
-        Name of the post-processor
+        Name of the post-processor module
     cfg : dict
-        Configuration dictionary
+        Post-processor module configuration
     parent_path : str
         Path to the parent directory of the main analysis configuration. This
-        allows for the use of relative paths
+        allows for the use of relative paths in the post-processors.
 
     Returns
     -------
     object
          Initialized post-processor object
-    '''
-    # Check that the post processor is known
-    if name not in POST_PROCESSOR_DICT:
-        raise KeyError(f'Post-processor name not recognized: {name}')
+    """
+    # Provide the name to the configuration
+    cfg['name'] = name
 
-    # Set the parent path
-    POST_PROCESSOR_DICT[name].parent_path = parent_path
-
-    # Initialize
-    return POST_PROCESSOR_DICT[name](**cfg)
+    # Instantiate the post-processor module
+    return instantiate(POST_DICT, cfg)

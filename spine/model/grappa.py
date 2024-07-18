@@ -11,6 +11,7 @@ from .layer.gnn.factories import *
 from spine import TensorBatch, IndexBatch, EdgeIndexBatch
 from spine.utils.globals import (
         BATCH_COL, COORD_COLS, CLUST_COL, GROUP_COL, SHAPE_COL, LOWES_SHP)
+from spine.utils.enums import enum_factory
 from spine.utils.gnn.cluster import (
         form_clusters_batch, get_cluster_label_batch,
         get_cluster_primary_label_batch)
@@ -139,17 +140,18 @@ class GrapPA(torch.nn.Module):
         if dbscan is not None:
             self.process_dbscan_config(dbscan)
 
-    def process_node_config(self, source=CLUST_COL, semantic_class=-1,
+    def process_node_config(self, source='cluster', shapes=None,
                             min_size=-1, make_groups=False,
                             grouping_method='score'):
         """Process the node parameters of the model.
 
         Parameters
         ----------
-        source : int, default CLUST_COL
-            Column in the label tensor which contains the input cluster IDs
-        class : int, default -1
-            Type of nodes to include in the input. If -1, include all types
+        source : str, default 'cluster'
+            Column name in the label tensor which contains the input cluster IDs
+        shapes : int, optional
+            Type of nodes to include in the input. If not specified, include
+            all types
         min_size : int, default -1
             Minimum number of voxels in a cluster to be included in the input
         make_groups : bool, default False
@@ -157,19 +159,21 @@ class GrapPA(torch.nn.Module):
         grouping_method : str, default 'score'
             Algorithm used to build a node partition
         """
+        # Parse the node source
+        self.node_source = enum_factory('cluster', source)
+
+        # Interpret node type as list of shapes to cluster
+        if shapes is None:
+            self.node_type = list(np.arange(LOWES_SHP))
+        else:
+            assert not np.isscalar(shapes), (
+                    "Semantic classes should be provided as a list.")
+            self.node_type = enum_factory('shape', shapes)
+
         # Store the node parameters
-        self.node_source     = source
-        self.node_type       = semantic_class
         self.node_min_size   = min_size
         self.make_groups     = make_groups
         self.grouping_method = grouping_method
-
-        # Interpret node type as list of classes to cluster
-        if isinstance(semantic_class, int):
-            if semantic_class == -1:
-                self.node_type = list(np.arange(LOWES_SHP))
-            else:
-                self.node_type = [semantic_class]
 
     def process_gnn_config(self, node_pred=None, edge_pred=None,
                            global_pred=None, **gnn_model):
@@ -236,12 +240,12 @@ class GrapPA(torch.nn.Module):
 
         setattr(self, f'{prefix}_pred_keys', out_keys)
 
-    def process_dbscan_config(cluster_classes=None, min_size=None, **kwargs):
+    def process_dbscan_config(shapes=None, min_size=None, **kwargs):
         """Process the DBSCAN fragmenter configuration.
 
         Parameters
         ----------
-        cluster_classes : Union[int, list], optional
+        shapes : Union[int, list], optional
             This should not be specified (fetched from the node configuration)
         min_size : Union[int, list], optional
             This should not be specified (fetched from the node configuration)
@@ -249,15 +253,15 @@ class GrapPA(torch.nn.Module):
             Rest of the DBSCAN configuration
         """
         # Make sure the basic parameters are not specified twice
-        assert cluster_classes is not None and min_size is not None, (
-                "Do not specify 'cluster_classes' or 'min_size' in the "
+        assert shapes is not None and min_size is not None, (
+                "Do not specify 'shapes' or 'min_size' in the "
                 "`dbscan` block, it is shared with the `node` block")
 
         # Initialize DBSCAN fragmenter
         self.dbscan = DBSCAN(
-                classes=self.node_type, min_size=self.min_size, **kwargs)
+                shapes=self.node_type, min_size=self.min_size, **kwargs)
 
-    def forward(self, data, coord_label=None, clusts=None, classes=None,
+    def forward(self, data, coord_label=None, clusts=None, shapes=None,
                 groups=None, points=None, extra=None):
         """Prepares particle clusters and feed them to the GNN model.
 
@@ -274,7 +278,7 @@ class GrapPA(torch.nn.Module):
             (P, 1 + 2*D + 2) Tensor of label points (start/end/time/shape)
         clusts : IndexBatch, optional
             (C) List of indexes corresponding to each cluster
-        classes : TensorBatch, optional
+        shapes : TensorBatch, optional
             (C) List of cluster semantic class used to define the max length
         groups : TensorBatch, optional
             (C) List of node groups, one per cluster. If specified, will
@@ -317,27 +321,27 @@ class GrapPA(torch.nn.Module):
             else:
                 # Use the label tensor to build the clusters
                 clusts = form_clusters_batch(
-                        data_np, self.node_min_size,
-                        self.node_source, cluster_classes=self.node_type)
+                        data_np, self.node_min_size, self.node_source,
+                        shapes=self.node_type)
 
         result['clusts'] = clusts
 
         # If the graph edge length cut is class-specific, get the class labels
-        if (classes is None and 
+        if (shapes is None and
             hasattr(self.graph_constructor.max_length, '__len__')):
             if self.node_source == GROUP_COL:
                 # For groups, use primary shape to handle Michel/Delta properly
-                classes = get_cluster_primary_label_batch(
+                shapes = get_cluster_primary_label_batch(
                         data_np, clusts, SHAPE_COL)
             else:
                 # Just use the shape of the cluster itself otherwise
-                classes = get_cluster_label_batch(data_np, clusts, SHAPE_COL)
+                shapes = get_cluster_label_batch(data_np, clusts, SHAPE_COL)
 
-            classes.data = classes.data.astype(np.int64)
+            shapes.data = shapes.data.astype(np.int64)
 
         # Initialize the input graph
         edge_index, dist_mat, closest_index = self.graph_constructor(
-                data_np, clusts, classes, groups)
+                data_np, clusts, shapes, groups)
 
         result['edge_index'] = edge_index
 
@@ -349,7 +353,7 @@ class GrapPA(torch.nn.Module):
         if isinstance(node_features, tuple):
             # If the output of the node encoder is a tuple, separate points
             node_features, points = node_features
-            start_points, end_points = points.tensor.reshape(2, -1, 3)
+            start_points, end_points = points.tensor.split(3, dim=1)
 
             result['start_points'] = TensorBatch(start_points, points.counts)
             result['end_points'] = TensorBatch(end_points, points.counts)
@@ -455,7 +459,7 @@ class GrapPALoss(torch.nn.modules.loss._Loss):
         """
         # Check that there is at least one loss to apply
         self.out_types = ['node', 'edge', 'global']
-        assert (node_loss is not None or 
+        assert (node_loss is not None or
                 edge_loss is not None or
                 global_lsos is not None), (
                 "Must provide either a `node_loss`, `edge_loss` or "
@@ -493,6 +497,7 @@ class GrapPALoss(torch.nn.modules.loss._Loss):
             loss_key = f'{prefix}_loss'
             loss_keys.append(loss_key)
             setattr(self, loss_key, constructor(loss))
+
         else:
             # Otherwise, initialzie one loss per prediction type
             for key, cfg in loss.items():
@@ -541,7 +546,7 @@ class GrapPALoss(torch.nn.modules.loss._Loss):
                 # Compute the loss
                 out = getattr(self, key)(
                         clust_label=clust_label, coord_label=coord_label,
-                        graph_label=graph_label, iteration=iteration, 
+                        graph_label=graph_label, iteration=iteration,
                         **output, **extra)
 
                 # Increment the loss and accuracy

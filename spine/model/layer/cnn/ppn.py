@@ -199,7 +199,7 @@ class PPN(torch.nn.Module):
         # Final ResNet block at the original image size
         num_output = self.num_planes[0]
         self.final_block = ResNetBlock(
-                num_output, num_output, 
+                num_output, num_output,
                 dimension=self.dim, activation=self.act_cfg)
 
         # Final linear layer for positional regression (dimension size)
@@ -227,7 +227,7 @@ class PPN(torch.nn.Module):
         - Regression loss: position of the point of interest within a pixel
         - Type: type of point of interest
         - Mask: whether or not a pixel is within some distance of a point
-        
+
         Parameters
         ----------
         final_tensor : TensorBatch
@@ -257,7 +257,7 @@ class PPN(torch.nn.Module):
                             "provide the `seg_label` tensor.")
 
                     labels = seg_label.tensor
-                    assert (labels.shape[0] == 
+                    assert (labels.shape[0] ==
                             decoder_tensors[-1].tensor.shape[0]), (
                                     "The label tensor length must match that "
                                     "of the last UResNet layer")
@@ -310,7 +310,7 @@ class PPN(torch.nn.Module):
             ppn_layers.append(TensorBatch(scores.F, counts))
             ppn_masks.append(TensorBatch(mask, counts))
 
-            # Expand the score mask 
+            # Expand the score mask
             s_expanded = self.expand_as(
                     softmax, x.F.shape, propagate_all=self.propagate_all,
                     use_binary_mask=self.use_binary_mask)
@@ -540,9 +540,12 @@ class PPNLoss(torch.nn.modules.loss._Loss):
             # If there are no label points, there are no positive points
             points_label = ppn_label[b][:, COORD_COLS]
             if not len(points_label):
-                positive = torch.empty(
-                        0, dtype=torch.bool, device=coords_final.device)
+                positive = torch.zeros(
+                        coords_final.counts[b], dtype=torch.bool,
+                        device=coords_final.device)
+                closest = torch.empty_like(positive, dtype=torch.long)
                 positive_list.append(positive)
+                closest_list.append(closest)
                 continue
 
             # Compute the pairwise distances between each label point
@@ -749,7 +752,7 @@ class ExpandAs(nn.Module):
 
         # Expand the features to the right dimension
         if use_binary_mask:
-            features = (features > score_threshold).float().expand(*shape)
+            features = (features > score_threshold).expand(*shape)
         else:
             features = features.expand(*shape)
 

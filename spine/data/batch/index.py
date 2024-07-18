@@ -106,12 +106,6 @@ class IndexBatch(BatchBase):
         # Get the boundaries between successive index using the counts
         edges = self.get_edges(counts)
 
-        # If the data is a simple list, cast it to an array of objects
-        if is_list and not isinstance(data, np.ndarray):
-            data_np = np.empty(len(data), dtype=object)
-            data_np[:] = data
-            data = data_np
-
         # Store the attributes
         self.data = data
         self.counts = counts

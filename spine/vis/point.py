@@ -8,7 +8,7 @@ from spine.utils.globals import COORD_COLS
 
 def scatter_points(points, color=None, markersize=2, linewidth=2,
                    colorscale=None, cmin=None, cmax=None, opacity=None,
-                   hovertext=None, hoverinfo=None, dim=3, mode='markers',
+                   hovertext=None, hovertemplate=None, dim=3, mode='markers',
                    marker=None, line=None, **kwargs):
     """Scatters points and their labels.
 
@@ -41,8 +41,8 @@ def scatter_points(points, color=None, markersize=2, linewidth=2,
         Marker opacity
     hovertext : Union[List[str], List[int]], optional
         (N) List of labels associated with each marker
-    hoverinfo : List[str]
-        Specifies the type hover information
+    hovertemplate : str, optional
+        Hover information formatting
     dim : int, default 3
         Dimension (can either be 2 or 3)
     mode : str, default 'markers'
@@ -73,14 +73,20 @@ def scatter_points(points, color=None, markersize=2, linewidth=2,
         coord_cols = np.arange(dim)
 
     # If there is no hovertext, print the color as part of the hovertext
-    if hovertext is None and color is not None and isinstance(color, str):
-        hovertext = color
+    if hovertext is None and color is not None and not isinstance(color, str):
+        hovertext = [f'Value: {c}' for c in color]
 
-    # Update hoverinfo
-    if hoverinfo is None:
-        hoverinfo = ['x', 'y', 'z'] if dim == 3 else ['x', 'y']
+    # Update hovertemplate
+    if hovertemplate is None:
+        hovertemplate = 'x: %{x}<br>y: %{y}'
+        if dim == 3:
+            hovertemplate += '<br>z: %{z}'
         if hovertext is not None:
-            hoverinfo += ['text']
+            if not np.isscalar(hovertext):
+                hovertemplate += '<br>%{text}'
+            else:
+                hovertemplate += f'<br>{hovertext}'
+                hovertext = None
 
     # Initialize the marker/line object depending on mode
     if 'markers' in mode and marker is None:
@@ -100,8 +106,8 @@ def scatter_points(points, color=None, markersize=2, linewidth=2,
     if dim == 2:
         return [go.Scatter(
                 mode=mode, marker=marker, line=line, text=hovertext,
-                hoverinfo=hoverinfo, **pos_dict, **kwargs)]
+                hovertemplate=hovertemplate, **pos_dict, **kwargs)]
     else:
         return [go.Scatter3d(
                 mode=mode, marker=marker, line=line, text=hovertext,
-                hoverinfo=hoverinfo, **pos_dict, **kwargs)]
+                hovertemplate=hovertemplate, **pos_dict, **kwargs)]

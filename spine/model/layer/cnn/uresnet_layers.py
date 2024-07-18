@@ -219,7 +219,7 @@ class UResNet(torch.nn.Module):
         """
         # Cast the input data to a sparse tensor
         coords = input_data[:, 0:self.dim + 1].int()
-        features = input_data[:, self.dim + 1:].float()
+        features = input_data[:, self.dim + 1:]
         x = ME.SparseTensor(features, coordinates=coords)
 
         # Pass it through the encoder

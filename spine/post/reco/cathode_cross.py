@@ -6,40 +6,30 @@ from spine.utils.geo import Geometry
 from spine.utils.numba_local import farthest_pair
 from spine.utils.gnn.cluster import cluster_direction
 
-#TODO
-#from spine.data import Interaction, TruthInteraction
-
 from spine.post.base import PostBase
+
+__all__ = ['CathodeCrosserProcessor']
 
 
 class CathodeCrosserProcessor(PostBase):
-    '''
-    Find particles that cross the cathode of a LArTPC module that is divided
+    """Find particles that cross the cathode of a LArTPC module that is divided
     into two TPCs. It might manifest itself into two forms:
     - If the particle is ~in-time, it will be a single particle, with
       potentially a small break/offset in the center
     - If the particle is sigificantly out-of-time, a cathode crosser will
       be composed of two distinct reconstructed particle objects
-    '''
-    name = 'find_cathode_crossers'
+    """
+    name = 'cathode_crosser'
+    aliases = ['find_cathode_crossers']
     data_cap_opt = ['input_data']
-    result_cap = ['particles', 'interactions']
     result_cap_opt = ['input_rescaled', 'cluster_label_adapted',
             'truth_particles', 'truth_interactions']
 
-    def __init__(self,
-                 crossing_point_tolerance,
-                 offset_tolerance,
-                 angle_tolerance,
-                 adjust_crossers=True,
-                 merge_crossers=True,
-                 detector=None,
-                 boundary_file=None,
-                 source_file=None,
-                 truth_point_mode='points',
-                 run_mode='both'):
-        '''
-        Initialize the cathode crosser finder algorithm
+    def __init__(self, crossing_point_tolerance, offset_tolerance,
+                 angle_tolerance, adjust_crossers=True, merge_crossers=True,
+                 detector=None, boundary_file=None, source_file=None,
+                 run_mode='reco', truth_point_mode='points'):
+        """Initialize the cathode crosser finder algorithm.
 
         Parameters
         ----------
@@ -64,9 +54,10 @@ class CathodeCrosserProcessor(PostBase):
             Path to a detector boundary file. Supersedes `detector` if set
         source_file : str, optional
             Path to a detector source file. Supersedes `detector` if set
-        '''
+        """
         # Initialize the parent class
-        super().__init__(run_mode, truth_point_mode)
+        super().__init__(
+                ['particle', 'interaction'], run_mode, truth_point_mode)
 
         # Initialize the geometry
         self.geo = Geometry(detector, boundary_file, source_file)
@@ -78,51 +69,49 @@ class CathodeCrosserProcessor(PostBase):
         self.adjust_crossers = adjust_crossers
         self.merge_crossers = merge_crossers
 
-    def process(self, data_dict, result_dict):
-        '''
-        Find cathode crossing particles in one entry
+    def process(self, data):
+        """Find cathode crossing particles in one entry.
 
         Parameters
         ----------
-        data_dict : dict
-            Input data dictionary
-        result_dict : dict
-            Chain output dictionary
-        '''
+        data : dict
+            Dictionary of data products
+        """
         # Loop over particle types
         update_dict = {}
-        for k in self.part_keys:
+        for k in self.particle_keys:
             # Find crossing particles already merged by the reconstruction
-            truth = 'truth' in k
-            prefix = 'truth_' if truth else ''
-            candidate_mask = np.zeros(len(result_dict[k]), dtype=bool)
-            for i, p in enumerate(result_dict[k]):
+            prefix = k.split('_')[0]
+            candidate_mask = np.zeros(len(data[k]), dtype=bool)
+            for i, part in enumerate(data[k]):
                 # Only bother to look for tracks that cross the cathode
-                if p.semantic_type != TRACK_SHP:
+                if part.shape != TRACK_SHP:
                     continue
 
                 # Make sure the particle coordinates are expressed in cm
-                self.check_units(p)
+                self.check_units(part)
 
                 # Get point coordinates
-                points = self.get_points(p)
+                points = self.get_points(part)
                 if not len(points):
                     continue
-                assert len(p.sources), \
-                        'Cannot identify cathode crossers without sources'
+                assert len(part.sources), (
+                        "Cannot identify cathode crossers without `sources`.")
 
                 # If the particle is composed of points from multiple
                 # contributing TPCs in the same module, it is a cathode crosser
-                modules, tpcs = self.geo.get_contributors(p.sources)
-                p.is_ccrosser = len(np.unique(tpcs)) > len(np.unique(modules))
-                candidate_mask[i] = not p.is_ccrosser
+                modules, tpcs = self.geo.get_contributors(part.sources)
+                part.is_cathode_crosser = (
+                        len(np.unique(tpcs)) > len(np.unique(modules)))
+                candidate_mask[i] = not part.is_cathode_crosser
 
                 # Now measure the gap at the cathode, correct if requested
                 # TODO: handle particles that cross a cathode in at least one
                 # module but not all of them or cross multiple cathodes
-                if p.is_ccrosser and self.adjust_crossers and len(tpcs) == 2:
+                if (part.is_cathode_crosser and self.adjust_crossers and
+                    len(tpcs) == 2):
                     # Adjust positions
-                    self.adjust_positions(result_dict, i, truth=truth)
+                    self.adjust_positions(data, i)
 
             # If we do not want to merge broken crossers, our job here is done
             if not self.merge_crossers:
@@ -134,7 +123,7 @@ class CathodeCrosserProcessor(PostBase):
             while i < len(candidate_ids):
                 # Get the first particle and its properties
                 ci = candidate_ids[i]
-                pi = result_dict[k][ci]
+                pi = data[k][ci]
                 end_points_i = np.vstack([pi.start_point, pi.end_point])
                 end_dirs_i = np.vstack([pi.start_dir, pi.end_dir])
 
@@ -159,7 +148,7 @@ class CathodeCrosserProcessor(PostBase):
 
                     # Get the second particle object and its properties
                     cj = candidate_ids[j]
-                    pj = result_dict[k][cj]
+                    pj = data[k][cj]
                     end_points_j = np.vstack([pj.start_point, pj.end_point])
                     end_dirs_j = np.vstack([pj.start_dir, pj.end_dir])
 
@@ -195,7 +184,7 @@ class CathodeCrosserProcessor(PostBase):
                     # If compatible, merge
                     if compat:
                         # Merge particle and adjust positions
-                        self.adjust_positions(result_dict, ci, cj, truth=truth)
+                        self.adjust_positions(data, ci, cj, truth=truth)
 
                         # Update the candidate list to remove matched particle
                         candidate_ids[j:-1] = candidate_ids[j+1:] - 1
@@ -207,38 +196,36 @@ class CathodeCrosserProcessor(PostBase):
                 i += 1
 
             # Update crossing interactions information
-            int_k = f'{prefix}interactions'
-            for ia in result_dict[int_k]:
+            int_k = f'{prefix}_interactions'
+            for ia in data[int_k]:
                 crosser, offsets = False, []
-                parts = [p for p in result_dict[k] \
+                parts = [p for p in data[k] \
                         if p.interaction_id == ia.id]
                 for p in parts:
                     if p.interaction_id != ia.id:
                         continue
-                    crosser |= p.is_ccrosser
-                    if p.is_ccrosser:
-                        offsets.append(p.coffset)
+                    crosser |= p.is_cathode_crosser
+                    if p.is_cathode_crosser:
+                        offsets.append(p.cathode_offset)
 
                 if crosser:
-                    ia.is_ccrosser = crosser
-                    ia.coffset = np.mean(offsets)
+                    ia.is_cathode_crosser = crosser
+                    ia.cathode_offset = np.mean(offsets)
 
             # Update
-            update_dict.update({k: result_dict[k]})
-            update_dict.update({int_k: result_dict[int_k]})
+            update_dict.update({k: data[k]})
+            update_dict.update({int_k: data[int_k]})
 
-        return {}, update_dict
+        return update_dict
 
-
-    def adjust_positions(self, result_dict, idx_i, idx_j=None, truth=False):
-        '''
-        Given a cathode crosser (either in one or two pieces), apply the
+    def adjust_positions(self, data, idx_i, idx_j=None, truth=False):
+        """Given a cathode crosser (either in one or two pieces), apply the
         necessary position offsets to match it at the cathode.
 
         Parameters
         ----------
-        result_dict : dict
-            Chain output dictionary
+        data : dict
+            Dictionary of data products
         idx_i : int
             Index of a cathode crosser (or a cathode crosser fragment)
         idx_j : int, optional
@@ -250,13 +237,13 @@ class CathodeCrosserProcessor(PostBase):
         -------
         np.ndarray
            (N, 3) Point coordinates
-        '''
+        """
         # If there are two indexes, create a new merged particle object
-        prefix = 'truth_' if truth else ''
+        prefix = 'truth_' if truth else 'reco_'
         k, int_k = f'{prefix}particles', f'{prefix}interactions'
         input_k = 'input_rescaled' \
-                if 'input_rescaled' in result_dict else 'input_data'
-        particles = result_dict[k]
+                if 'input_rescaled' in data else 'input_data'
+        particles = data[k]
         if idx_j is not None:
             # Merge particles
             int_id_i = particles[idx_i].interaction_id
@@ -297,20 +284,20 @@ class CathodeCrosserProcessor(PostBase):
                     continue
 
                 sister.points[part_index, daxis] -= offsets[i]
-                result_dict[input_k][index, dcol] -= offsets[i]
+                data[input_k][index, dcol] -= offsets[i]
                 if truth:
                     sister.truth_points[part_index] -= offset
-                    result_dict['cluster_label_adapted'][index, dcol] \
+                    data['cluster_label_adapted'][index, dcol] \
                             -= offsets[i]
 
         # Store crosser information
-        particle.is_ccrosser = True
-        particle.coffset = global_offset
+        particle.is_cathode_crosser = True
+        particle.cathode_offset = global_offset
 
         # Update interactions
         if idx_j is None:
             # In this case, just need to update the positions
-            interactions = result_dict[int_k]
+            interactions = data[int_k]
             points = [sister.points for sister in sisters]
             interactions[int_id].points = np.vstack(points)
             if truth:
@@ -340,12 +327,11 @@ class CathodeCrosserProcessor(PostBase):
                 # Append
                 interactions.append(interaction)
 
-            result_dict[int_k] = interactions
+            data[int_k] = interactions
 
 
     def get_cathode_offsets(self, particle, module, tpcs):
-        '''
-        Find the distance one must shift a particle points by to make
+        """Find the distance one must shift a particle points by to make
         both TPC contributions align at the cathode.
 
         Parameters
@@ -363,7 +349,7 @@ class CathodeCrosserProcessor(PostBase):
             Offsets to apply to the each TPC contributions
         float
             General offset for this particle (proxy of out-of-time displacement)
-        '''
+        """
         # Get the cathode position
         daxis, cpos = self.geo.cathodes[module]
         dvector = (np.arange(3) == daxis).astype(float)

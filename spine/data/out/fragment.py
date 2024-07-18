@@ -75,11 +75,9 @@ class FragmentBase:
             Basic information about the fragment properties
         """
         shape_label = SHAPE_LABELS[self.shape]
-        match = self.match[0] if len(self.match) > 0 else -1
+        match = self.match_ids[0] if len(self.match_ids) > 0 else -1
         return (f"Fragment(ID: {self.id:<3} | Shape: {shape_label:<11} "
                 f"| Primary: {self.is_primary:<2} "
-                f"| Particle ID: {self.particle_id} "
-                f"| Interaction ID: {self.interaction_id:<2} "
                 f"| Size: {self.size:<5} | Match: {match:<3})")
 
 @dataclass

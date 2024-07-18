@@ -1,12 +1,12 @@
 """Manages the operation of analysis scripts."""
 
-from collections import OrderedDict
+from collections import defaultdict, OrderedDict
 
 import numpy as np
 
 from spine.utils.stopwatch import StopwatchManager
 
-from .scripts import *
+from .factories import ana_script_factory
 
 
 class AnaManager:
@@ -20,7 +20,7 @@ class AnaManager:
     """
 
     def __init__(self, cfg, parent_path=''):
-        """Initialize the post-processing manager.
+        """Initialize the analysis manager.
 
         Parameters
         ----------
@@ -29,7 +29,7 @@ class AnaManager:
         parent_path : str, optional
             Path to the analysis tools configuration file
         """
-        # Loop over the post-processor modules and get their priorities
+        # Loop over the analyzer modules and get their priorities
         keys = np.array(list(cfg.keys()))
         priorities = -np.ones(len(keys), dtype=np.int32)
         for i, k in enumerate(keys):
@@ -45,7 +45,7 @@ class AnaManager:
             self.watch.initialize(k)
 
             # Append
-            self.modules[k] = post_processor_factory(k, cfg[k], parent_path)
+            self.modules[k] = ana_script_factory(k, cfg[k], parent_path)
 
     def __call__(self, data):
         """Pass one batch of data through the analysis scripts
@@ -55,22 +55,30 @@ class AnaManager:
         data : dict
             Dictionary of data products
         """
-        # Loop over the post-processor modules
+        # Loop over the analysis script modules
+        single_entry = np.isscalar(data['index'])
         for key, module in self.modules.items():
-            # Run the post-processor on each entry
+            # Run the analysis script on each entry
             self.watch.start(key)
-            if np.isscalar(data['index']):
+            if single_entry:
                 result = module(data)
+
             else:
                 num_entries = len(data['index'])
                 result = defaultdict(list)
                 for entry in range(num_entries):
                     result_e = module(data, entry)
-                    for key, value in result_e.items():
-                       result[key].append(value)
+                    if result_e is not None:
+                        for k, v in result_e.items():
+                           result[k].append(v)
+
             self.watch.stop(key)
 
             # Update the input dictionary
-            for key, val in result.items():
-                assert len(val) == num_entries
-                data[key] = val
+            if result is not None:
+                for key, val in result.items():
+                    if not single_entry:
+                        assert len(val) == num_entries, (
+                                f"The number {key} ({len(val)}) does not match "
+                                f"the number of entries ({num_entries}).")
+                    data[key] = val

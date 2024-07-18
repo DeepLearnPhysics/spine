@@ -28,7 +28,7 @@ class LArCVDataset(Dataset):
     """
     name = 'larcv'
 
-    def __init__(self, schema, **kwargs):
+    def __init__(self, schema, dtype, **kwargs):
         """Instantiates the LArCVDataset.
 
         Parameters
@@ -40,6 +40,8 @@ class LArCVDataset(Dataset):
               - parser: name of the parser
               - args: (key, value) pairs that correspond to parser argument
                 names and their values
+        dtype : str
+            Data type to cast the input data to (to match the downstream model)
         **kwargs : dict, optional
             Additional arguments to pass to the LArCVReader class
         """
@@ -49,7 +51,7 @@ class LArCVDataset(Dataset):
         for data_product, parser_cfg in schema.items():
             # Instantiate parser
             self.parsers[data_product] = instantiate(
-                    PARSER_DICT, parser_cfg, alt_name='parser')
+                    PARSER_DICT, parser_cfg, alt_name='parser', dtype=dtype)
 
             # Append to the list of trees to load
             for key in self.parsers[data_product].tree_keys:

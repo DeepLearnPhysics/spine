@@ -77,11 +77,14 @@ def box_trace(lower, upper, draw_faces=False, line=None, linewidth=None,
     # List of scaled vertices
     vertices = lower + box_vertices * (upper - lower)
 
-    # Update hoverinfo style
-    if hovertext is None:
-        hoverinfo = ['x', 'y', 'z']
-    else:
-        hoverinfo = ['x', 'y', 'z', 'text']
+    # Update hovertemplate style
+    hovertemplate = 'x: %{x}<br>y: %{y}<br>z: %{z}'
+    if hovertext is not None:
+        if not np.isscalar(hovertext):
+            hovertemplate += '<br>%{text}'
+        else:
+            hovertemplate += f'<br>{hovertext}'
+            hovertext = None
 
     if not draw_faces:
         # Build a list of box edges to draw (padded with None values to break
@@ -105,7 +108,7 @@ def box_trace(lower, upper, draw_faces=False, line=None, linewidth=None,
         # Return trace
         trace = go.Scatter3d(x=edges[:, 0], y=edges[:, 1], z=edges[:, 2],
                              mode='lines', line=line, hovertext=hovertext,
-                             hoverinfo=hoverinfo, **kwargs)
+                             hovertemplate=hovertemplate, **kwargs)
 
     else:
         # If the color is a number, must be specified as an intensity
@@ -120,7 +123,7 @@ def box_trace(lower, upper, draw_faces=False, line=None, linewidth=None,
                           k=box_tri_index[2], color=color, intensity=intensity,
                           showscale=showscale, cmin=cmin, cmax=cmax,
                           colorscale=colorscale, hovertext=hovertext,
-                          hoverinfo=hoverinfo, **kwargs)
+                          hovertemplate=hovertemplate, **kwargs)
 
     # Return trace
     return trace

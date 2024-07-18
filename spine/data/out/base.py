@@ -29,9 +29,9 @@ class OutBase(PosDataBase):
         Whether this object is fully contained within the detector
     is_matched: bool
         True if a true object match was found
-    match : np.ndarray
+    match_ids : np.ndarray
         List of true object IDs this object is matched to
-    match_overlap : np.ndarray
+    match_overlaps : np.ndarray
         List of match overlaps (IoU) between the object and its matches
     is_cathode_crosser : bool
         True if the particle crossed a cathode, i.e. if it is made up
@@ -51,8 +51,8 @@ class OutBase(PosDataBase):
     sources: np.ndarray = None
     is_contained: bool = False
     is_matched: bool = False
-    match: np.ndarray = None
-    match_overlap: np.ndarray = None
+    match_ids: np.ndarray = None
+    match_overlaps: np.ndarray = None
     is_cathode_crosser: bool = False
     cathode_offset: float = -1.
     is_truth: bool = None
@@ -60,9 +60,9 @@ class OutBase(PosDataBase):
 
     # Variable-length attribtues
     _var_length_attrs = {
-            'index': np.int64, 'depositions': np.float32, 'match': np.int64,
-            'match_overlap': np.float32, 'points': (3, np.float32),
-            'sources': (2, np.int64)
+            'index': np.int64, 'depositions': np.float32,
+            'match_ids': np.int64, 'match_overlaps': np.float32,
+            'points': (3, np.float32), 'sources': (2, np.int64)
     }
 
     # Attributes to concatenate when merging objects

@@ -18,8 +18,8 @@ __all__ = ['loader_factory', 'dataset_factory', 'sampler_factory',
            'collate_factory', 'reader_factory', 'writer_factory']
 
 
-def loader_factory(dataset, batch_size=None, minibatch_size=None, shuffle=True,
-                   sampler=None, num_workers=0, collate_fn=None,
+def loader_factory(dataset, dtype, batch_size=None, minibatch_size=None,
+                   shuffle=True, sampler=None, num_workers=0, collate_fn=None,
                    entry_list=None, distributed=False, world_size=0, rank=0):
     """Instantiates a DataLoader based on configuration.
 
@@ -29,6 +29,8 @@ def loader_factory(dataset, batch_size=None, minibatch_size=None, shuffle=True,
     ----------
     dataset : dict
         Dataset configuration dictionary
+    dtype : str
+        Data type to cast the input data to
     batch_size : int, optional
         Number of data samples to load per iteration
     minibatch_size : int, optional
@@ -66,7 +68,7 @@ def loader_factory(dataset, batch_size=None, minibatch_size=None, shuffle=True,
         minibatch_size = batch_size//max(world_size, 1)
 
     # Initialize the dataset
-    dataset = dataset_factory(dataset, entry_list)
+    dataset = dataset_factory(dataset, entry_list, dtype)
 
     # Initialize the sampler
     if sampler is not None:
@@ -85,7 +87,7 @@ def loader_factory(dataset, batch_size=None, minibatch_size=None, shuffle=True,
     return loader
 
 
-def dataset_factory(dataset_cfg, entry_list=None):
+def dataset_factory(dataset_cfg, entry_list=None, dtype=None):
     """Instantiates a Dataset based on a configuration.
 
     The Dataset type is specified in configuration under `io.dataset.name`.
@@ -97,6 +99,8 @@ def dataset_factory(dataset_cfg, entry_list=None):
         Dataset configuration dictionary
     entry_list: list, optional
         List of entry numbers to include in the dataset
+    dtype : str, optional
+        Data type to cast the input data to (to match the downstream model)
 
     Returns
     -------
@@ -114,7 +118,7 @@ def dataset_factory(dataset_cfg, entry_list=None):
         dataset_cfg['entry_list'] = entry_list
 
     # Initialize dataset
-    return instantiate(DATASET_DICT, dataset_cfg)
+    return instantiate(DATASET_DICT, dataset_cfg, dtype=dtype)
 
 
 def sampler_factory(sampler_cfg, dataset, minibatch_size, distributed=False,

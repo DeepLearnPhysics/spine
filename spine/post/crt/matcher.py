@@ -1,10 +1,13 @@
+"""CRT-TPC matcher interface."""
+
 import numpy as np
 import yaml
-from spine.utils.volumes import VolumeBoundaries
 
-class CRTTPCMatcherInterface:
-    """
-    Adapter class between full chain outputs and matcha (Python package
+from spine.utils.geo import Geometry
+
+
+class CRTMatcher:
+    """Adapter class between full chain outputs and matcha (Python package
     for matching tracks to CRT hits)
     """
     def __init__(self, config, crt_tpc_config,
@@ -119,6 +122,7 @@ class CRTTPCMatcherInterface:
 
         return (x_contained & y_contained & z_contained).all()
 
+
 class CRTTPCManager:
     """
     Class that manages TPC track and CRT hit objects. Similar to the FlashManager
@@ -213,7 +217,7 @@ class CRTTPCManager:
 
     def make_tpctrack(self, muon_candidates):
         from matcha.track import Track
-        '''
+        """
         Fill matcha::Track() from muons candidates selected from interaction list
 
         Parameters
@@ -223,7 +227,7 @@ class CRTTPCManager:
         Returns
         -------
         list of matcha::Track()
-        '''
+        """
         tpc_v = []
 
         for idx, particle in enumerate(muon_candidates):
@@ -291,32 +295,3 @@ class CRTTPCManager:
             file_path=self.file_path
         )
         return crt_tpc_matches
-
-    # def points_to_cm(self, points):
-    #     """
-    #     Convert particle points from voxel units to cm
-
-    #     Parameters
-    #     ----------
-    #     points: np.ndarray
-    #         Shape (N, 3). Coordinates in voxel units.
-
-    #     Returns
-    #     -------
-    #     np.ndarray
-    #         Shape (N, 3). Coordinates in cm.
-    #     """
-    #     if points.shape[1] != 3:
-    #         raise ValueError("points should have shape (N,3) but has shape {}".format(points.shape))
-    #     points_in_cm = np.zeros(shape=(len(points), 3))
-    #     for ip, point in enumerate(points):
-    #         points_in_cm[ip][0] = point[0] * self.size_voxel_x + self.min_x
-    #         points_in_cm[ip][1] = point[1] * self.size_voxel_y + self.min_y
-    #         points_in_cm[ip][2] = point[2] * self.size_voxel_z + self.min_z
-
-    #     return points_in_cm
-
-
-
-
-

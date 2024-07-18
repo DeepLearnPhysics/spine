@@ -80,8 +80,8 @@ class CalibrationManager:
             tpc_indexes = []
             for t in range(self.geo.num_tpcs):
                 # Get the set of points associated with this TPC
-                module_id = t // self.geo.num_modules
-                tpc_id = t % self.geo.num_modules
+                module_id = t//self.geo.num_tpcs_per_module
+                tpc_id = t%self.geo.num_tpcs_per_module
                 tpc_index = self.geo.get_tpc_index(sources, module_id, tpc_id)
                 tpc_indexes.append(tpc_index)
         else:

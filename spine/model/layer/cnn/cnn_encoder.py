@@ -87,7 +87,7 @@ class SparseResidualEncoder(UResNetEncoder):
 
         # Build a sparse tensor
         x = ME.SparseTensor(coordinates=data[:, :VALUE_COL].int(),
-                            features=features.float())
+                            features=features)
 
         # Pass through the CNN encoder
         output = self.encoder(x)

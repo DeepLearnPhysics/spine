@@ -25,23 +25,32 @@ class AnaBase(ABC):
         Units in which the coordinates are expressed
     """
     name = ''
-    req_keys = []
-    opt_keys = []
+    aliases = []
+    keys = {'index': True, 'run_info': False}
     units = 'cm'
+
+    # List of recognized object types
+    _obj_types = ['fragment', 'particle', 'interaction']
 
     # Valid run modes
     _run_modes = ['reco', 'truth', 'both', 'all']
 
-    def __init__(self, run_mode=None, append_file=False, output_prefix=None):
+    def __init__(self, obj_type=None, run_mode=None, append_file=False,
+                 overwrite_file=False, output_prefix=None):
         """Initialize default anlysis script object properties.
 
         Parameters
         ----------
+        obj_type : Union[str, List[str]]
+            Name or list of names of the object types to process
         run_mode : str, optional
-            If specified, tells whether the analysis script must run on
-            reconstructed ('reco'), true ('true) or both objects ('both', 'all')
+            If specified, tells whether the post-processor must run on
+            reconstructed ('reco'), true ('true') or both objects
+            ('both' or 'all')
         append_file : bool, default False
             If True, appends existing CSV files instead of creating new ones
+        overwrite_file : bool, default False
+            If True and the output CSV file exists, overwrite it
         output_prefix : str, default None
             Name to prefix every output CSV file with
         """
@@ -53,8 +62,41 @@ class AnaBase(ABC):
                     f"`run_mode` not recognized: {run_mode}. Must be one of "
                     f"{self._run_modes}.")
 
+        self.prefixes = []
+        if run_mode != 'truth':
+            self.prefixes.append('reco')
+        if run_mode != 'reco':
+            self.prefixes.append('truth')
+
+        # Check that all the object sources are recognized
+        if obj_type is not None:
+            if isinstance(obj_type, str):
+                obj_type = [obj_type]
+            for obj in obj_type:
+                assert obj in self._obj_types, (
+                        f"Object type must be one of {self._obj_types}. Got "
+                        f"`{obj}` instead.")
+
+        # Make a list of object keys to process
+        for name in self._obj_types:
+            # Initialize one list per object type
+            setattr(self, f'{name}_keys', [])
+
+            # Skip object types which are not requested
+            if obj_type is not None and name in obj_type:
+                if run_mode != 'truth':
+                    getattr(self, f'{name}_keys').append(f'reco_{name}s')
+                if run_mode != 'reco':
+                    getattr(self, f'{name}_keys').append(f'truth_{name}s')
+
+        self.obj_keys = (self.fragment_keys 
+                         + self.particle_keys 
+                         + self.interaction_keys)
+        self.keys.update({k:True for k in self.obj_keys})
+
         # Store the append flag
         self.append_file = append_file
+        self.overwrite_file = overwrite_file
 
         # Initialize a writer dictionary to be filled by the children classes
         self.output_prefix = output_prefix
@@ -70,12 +112,50 @@ class AnaBase(ABC):
         """
         # Define the name of the file to write to
         assert len(name) > 0, "Must provide a non-empty name."
-        file_name = f'{self.name}_{name}'
+        file_name = f'{self.name}_{name}.csv'
         if self.output_prefix is not None:
-            file_name = f'{self.output_prefix}_{file_name}'
+            file_name = f'{self.output_prefix}_{file_name}.csv'
 
         # Initialize the writer
-        self.writers[name] = CSVWriter(file_name, self.append_file)
+        self.writers[name] = CSVWriter(
+                file_name, append=self.append_file,
+                overwrite=self.overwrite_file)
+
+    def get_base_dict(self, data):
+        """Builds the entry information dictionary.
+
+        Parameters
+        ----------
+        data : dict
+            Dictionary of data products
+
+        Returns
+        -------
+        dict
+            Dictionary of information for this entry
+        """
+        # Extract basic information to store in every row
+        # TODO: add file index + index within the file? adding the file path
+        # to every row is prohibitively expensive.
+        base_dict = {'index': data['index']}
+        if 'run_info' in data:
+            base_dict.update(**data['run_info'].scalar_dict())
+        else:
+            warn("`run_info` is missing; will not be included in CSV file.")
+
+        return base_dict
+
+    def append(self, name, **kwargs):
+        """Apppend a CSV log file with a set of values.
+
+        Parameters
+        ----------
+        name : str
+            Name of the writer
+        **kwargs : dict
+            Dictionary of information to save to the writer
+        """
+        self.writers[name].append({**self.base_dict, **kwargs})
 
     def __call__(self, data, entry=None):
         """Runs the analysis script on one entry.
@@ -92,21 +172,23 @@ class AnaBase(ABC):
         """
         # Fetch the necessary information
         data_filter = {}
-        for key in (self.req_keys + self.opt_keys):
+        for key, req in self.keys.items():
+            # If this key is needed, check that it exists
+            assert not req or key in data, (
+                    f"Post-processor `{self.name}` if missing an essential "
+                    f"input to be used: `{key}`.")
+
+            # Append
             if key in data:
                 data_filter[key] = data[key]
-            elif key in self.req_keys:
-                raise KeyError(
-                        f"Unable to find {data_key} in data dictionary while "
-                        f"running analysis script {self.name}.")
+                if entry is not None:
+                    data_filter[key] = data[key][entry]
+
+        # Fetch the base dictionary
+        self.base_dict = self.get_base_dict(data_filter)
 
         # Run the analysis script
-        start = time.time()
-        data_update, result_update = self.process(data_single, result_single)
-        end = time.time()
-        process_time = end-start
-
-        return data_update, result_update, process_time
+        return self.process(data_filter)
 
     @abstractmethod
     def process(self, data):

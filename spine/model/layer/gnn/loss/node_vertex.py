@@ -85,7 +85,7 @@ class NodeVertexLoss(torch.nn.Module):
 
         # Initialize the primary identification loss
         self.primary_loss = NodeClassificationLoss(
-                target=PRINT_COL, balance_loss=balance_primary_loss,
+                target='inter_primary', balance_loss=balance_primary_loss,
                 loss=primary_loss)
 
         # Initialize the regression loss

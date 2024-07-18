@@ -36,7 +36,7 @@ class Sparse2DParser(ParserBase):
     """
     name = 'parse_sparse2d'
 
-    def __init__(self, projection_id, sparse_event=None,
+    def __init__(self, dtype, projection_id, sparse_event=None,
                  sparse_event_list=None):
         """Initialize the parser.
 
@@ -50,8 +50,9 @@ class Sparse2DParser(ParserBase):
             List of sparse tensors to get the voxel/features from
         """
         # Initialize the parent class
-        super().__init__(sparse_event=sparse_event,
-                         sparse_event_list=sparse_event_list)
+        super().__init__(
+                dtype, sparse_event=sparse_event,
+                sparse_event_list=sparse_event_list)
 
         # Store the revelant attributes
         self.projection_id = projection_id
@@ -110,7 +111,7 @@ class Sparse2DParser(ParserBase):
             if meta is None:
                 meta = tensor.meta()
                 num_points = tensor.as_vector().size()
-                np_voxels = np.empty((num_points, 2), dtype=np.int32)
+                np_voxels = np.empty((num_points, 2), dtype=self.itype)
                 larcv.fill_2d_voxels(tensor, np_voxels)
             else:
                 assert meta == tensor.meta(), (
@@ -119,7 +120,7 @@ class Sparse2DParser(ParserBase):
                         "The number of pixels must match between tensors")
 
             # Get the feature vector for this tensor
-            np_data = np.empty((num_points, 1), dtype=np.float32)
+            np_data = np.empty((num_points, 1), dtype=self.ftype)
             larcv.fill_2d_pcloud(tensor, np_data)
             np_features.append(np_data)
 
@@ -141,7 +142,7 @@ class Sparse3DParser(ParserBase):
     """
     name = 'sparse3d'
 
-    def __init__(self, sparse_event=None, sparse_event_list=None,
+    def __init__(self, dtype, sparse_event=None, sparse_event_list=None,
                  num_features=None, hit_keys=None, nhits_idx=None):
         """Initialize the parser.
 
@@ -167,8 +168,9 @@ class Sparse3DParser(ParserBase):
             (doublet vs triplet) should be inserted.
         """
         # Initialize the parent class
-        super().__init__(sparse_event=sparse_event,
-                         sparse_event_list=sparse_event_list)
+        super().__init__(
+                dtype, sparse_event=sparse_event,
+                sparse_event_list=sparse_event_list)
 
         # Store the revelant attributes
         self.num_features = num_features
@@ -253,14 +255,14 @@ class Sparse3DParser(ParserBase):
 
                 if num_points is None:
                     num_points = sparse_event.as_vector().size()
-                    np_voxels = np.empty((num_points, 3), dtype=np.int32)
+                    np_voxels = np.empty((num_points, 3), dtype=self.itype)
                     larcv.fill_3d_voxels(sparse_event, np_voxels)
                 else:
                     assert num_points == sparse_event.as_vector().size(), (
                             "The number of pixels must match between tensors")
 
                 # Get the feature vector for this tensor
-                np_data = np.empty((num_points, 1), dtype=np.float32)
+                np_data = np.empty((num_points, 1), dtype=self.ftype)
                 larcv.fill_3d_pcloud(sparse_event, np_data)
                 np_features.append(np_data)
 
@@ -329,7 +331,7 @@ class Sparse3DGhostParser(Sparse3DParser):
         """
         # Convert the semantics feature to a ghost feature
         np_voxels, np_data, meta = self.process(sparse_event)
-        np_ghosts = (np_data == GHOST_SHP).astype(np_voxels.dtype)
+        np_ghosts = (np_data == GHOST_SHP).astype(np_data.dtype)
 
         return np_voxels, np_ghosts, meta
 

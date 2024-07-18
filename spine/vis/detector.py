@@ -42,6 +42,11 @@ def detector_traces(detector=None, boundaries=None, meta=None,
     **kwargs : dict, optional
         List of additional arguments to pass to
         spine.viusalization.boxes.box_traces
+
+    Returns
+    -------
+    List[Union[plotly.graph_objs.Scatter3D, plotly.graph_objs.Mesh3D]]
+        List of detector traces (one per TPC)
     """
     # Load the list of boundaries
     boundaries = Geometry(detector, boundaries).tpcs

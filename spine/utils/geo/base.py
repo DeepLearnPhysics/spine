@@ -23,6 +23,8 @@ class Geometry:
         (N, m, N_t, N_s, 2) Array of contributing logical TPCs to each TPC
         - N_s is the number of contributing logical TPCs to a geometry TPC
         - 2 corresponds to the [module ID, tpc ID] of a contributing pair
+        If this is not specified, the assumption is that there is an exact
+        match between logical and physical TPCs (as specified by boundaries)
     opdets : np.ndarray
         (N_m[, N_t], N_p, 3) Array of optical detector locations
         - N_p is the number of optical detectors per module or TPC
@@ -132,6 +134,13 @@ class Geometry:
             self.sources = np.load(sources)
             assert self.sources.shape[:2] == self.boundaries.shape[:2], (
                     "There should be one list of sources per TPC")
+        else:
+            # Match the source of each TPC in order of (module ID, tpc ID)
+            shape = (*self.boundaries.shape[:2], 1, 2)
+            num_tpcs = shape[0]*shape[1]
+            module_ids = np.arange(num_tpcs)//self.num_tpcs_per_module
+            tpc_ids = np.arange(num_tpcs)%self.num_tpcs_per_module
+            self.sources = np.vstack((module_ids, tpc_ids)).T.reshape(shape)
 
         # Check that the optical detector file exists, load it
         self.opdets = None
@@ -193,6 +202,17 @@ class Geometry:
         return len(self.tpcs)
 
     @property
+    def num_tpcs_per_module(self):
+        """Number of TPC volumes per module.
+
+        Returns
+        -------
+        int
+            Number of TPC volumes per module, N_t
+        """
+        return self.boundaries.shape[1]
+
+    @property
     def num_modules(self):
         """Number of detector modules.
 
@@ -238,16 +258,16 @@ class Geometry:
         self.anode_wall_ids = np.empty((*tpc_shape, 2), dtype = np.int32)
         for m, module in enumerate(self.boundaries):
             # Check that the module is central-cathode style
-            assert len(module) == 2, \
-                    'A module with < 2 TPCs has no central cathode'
+            assert len(module) == 2, (
+                    "A module with < 2 TPCs has no central cathode.")
 
             # Identify the drift axis
             centers = np.mean(module, axis=-1)
             drift_dir = centers[1] - centers[0]
             drift_dir /= np.linalg.norm(drift_dir)
             axis = np.where(drift_dir)[0]
-            assert len(axis) == 1, \
-                    'The drift direction is not aligned with an axis, abort'
+            assert len(axis) == 1, (
+                    "The drift direction is not aligned with an axis, abort.")
             axis = axis[0]
 
             # Store the cathode position
@@ -336,7 +356,8 @@ class Geometry:
         # Compute the distance from the points to each TPC
         distances = np.empty((self.num_tpcs, len(points)))
         for t in range(self.num_tpcs):
-            module_id, tpc_id = t // self.num_modules, t % self.num_modules
+            module_id = t//self.num_tpcs_per_module
+            tpc_id = t%self.num_tpcs_per_module
             offsets = self.get_tpc_offsets(points, module_id, tpc_id)
             distances[t] = np.linalg.norm(offsets, axis=1)
 
@@ -503,8 +524,8 @@ class Geometry:
         """
 
         # Check that the target ID exists
-        assert target_id > -1 and target_id < len(self.modules), \
-                'Target ID should be in [0, N_modules['
+        assert target_id > -1 and target_id < len(self.modules), (
+                "Target ID should be in [0, N_modules[")
 
         # Get the module ID of each of the input points
         convert = False
@@ -564,13 +585,13 @@ class Geometry:
         """
         # If the containment volumes are not defined, throw
         if self._cont_volumes is None:
-            raise ValueError('Must call `define_containment_volumes` first')
+            raise ValueError("Must call `define_containment_volumes` first.")
 
         # If sources are provided, only consider source volumes
         if self._cont_use_source:
             # Get the contributing TPCs
-            assert len(points) == len(sources), \
-                    'Need to provide sources to make a source-based check'
+            assert len(points) == len(sources), (
+                    "Need to provide sources to make a source-based check.")
             contributors = self.get_contributors(sources)
             if not allow_multi_module and len(np.unique(contributors[0])) > 1:
                 return False
@@ -628,12 +649,12 @@ class Geometry:
         if np.isscalar(margin):
             margin = np.full((3,2), margin)
         elif len(np.array(margin).shape) == 1:
-            assert len(margin) == 3, \
-                    'Must provide one value per axis'
+            assert len(margin) == 3, (
+                    "Must provide one value per axis.")
             margin = np.repeat([margin], 2, axis=0).T
         else:
-            assert np.array(margin).shape == (3,2), \
-                    'Must provide two values per axis'
+            assert np.array(margin).shape == (3,2), (
+                    "Must provide two values per axis.")
             margin = np.copy(margin)
 
         # Establish the volumes to check against
@@ -655,7 +676,7 @@ class Geometry:
             self._cont_volumes.append(vol)
             self._cont_use_source = False
         else:
-            raise ValueError(f'Containement check mode not recognized: {mode}')
+            raise ValueError(f"Containement check mode not recognized: {mode}.")
 
         self._cont_volumes = np.array(self._cont_volumes)
 

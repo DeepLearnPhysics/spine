@@ -109,13 +109,13 @@ class FullChain(torch.nn.Module):
     }
 
     def __init__(self, chain, uresnet_deghost=None, uresnet=None,
-                 uresnet_ppn=None, graph_spice=None, dbscan=None,
-                 grappa_shower=None, grappa_track=None, grappa_particle=None,
-                 grappa_inter=None, calibrator=None, uresnet_deghost_loss=None,
-                 uresnet_loss=None, uresnet_ppn_loss=None,
-                 graph_spice_loss=None, grappa_shower_loss=None,
-                 grappa_track_loss=None, grappa_particle_loss=None,
-                 grappa_inter_loss=None):
+                 uresnet_ppn=None, adapt_labels=None, graph_spice=None,
+                 dbscan=None, grappa_shower=None, grappa_track=None,
+                 grappa_particle=None, grappa_inter=None, calibrator=None,
+                 uresnet_deghost_loss=None, uresnet_loss=None,
+                 uresnet_ppn_loss=None, graph_spice_loss=None,
+                 grappa_shower_loss=None, grappa_track_loss=None,
+                 grappa_particle_loss=None, grappa_inter_loss=None):
         """Initialize the full chain model.
 
         Parameters
@@ -126,6 +126,8 @@ class FullChain(torch.nn.Module):
             Deghosting model configuration
         uresnet_ppn : dict, optional
             Segmentation and point proposal model configuration
+        adapt_labels : dict, optional
+            Parameters for the cluster label adaptation (if non-standard)
         dbscan : dict, optional
             Connected component clustering configuration
         graph_spice : dict, optional
@@ -171,31 +173,36 @@ class FullChain(torch.nn.Module):
             else:
                 self.uresnet_ppn = UResNetPPN(**uresnet_ppn)
 
+        # Initialize the relabeling process (adapt to the semantic predictions)
+        # TODO: make this a class which holds onto these parameters?
+        self.adapt_params = adapt_labels if adapt_labels is not None else {}
+
         # Initialize the dense clustering model
-        self.fragment_classes = []
-        if ('dbscan' in self.fragmentation or
-            'graph_spice' in self.fragmentation):
+        self.fragment_shapes = []
+        if (self.fragmentation is not None and
+            ('dbscan' in self.fragmentation or
+             'graph_spice' in self.fragmentation)):
             if 'dbscan' in self.fragmentation:
                 assert dbscan is not None, (
                         "If the fragmentation is done using DBSCAN, must "
                         "provide the `dbscan` configuration block.")
                 self.dbscan = DBSCAN(**dbscan)
-                self.fragment_classes.extend(self.dbscan.classes)
+                self.fragment_shapes.extend(self.dbscan.shapes)
             if 'graph_spice' in self.fragmentation:
                 assert graph_spice is not None, (
                         "If the fragmentation is done using Graph-SPICE, must "
                         "provide the `graph_spice` configuration block.")
                 self.graph_spice = GraphSPICE(graph_spice)
-                self.fragment_classes.extend(self.graph_spice.classes)
+                self.fragment_shapes.extend(self.graph_spice.shapes)
 
             # Check that there is no redundancy between the fragmenters
             uniques, counts = np.unique(
-                    self.fragment_classes, return_counts=True)
+                    self.fragment_shapes, return_counts=True)
             assert np.all(uniques == np.arange(4)), (
                     "All four expected semantic classes should be fragmented "
                     "by either DBSCAN or Graph-SPICE.")
             assert np.all(counts) == 1, (
-                    "Some of the classes appear in both the DBSCAN and the "
+                    "Some of the shapes appear in both the DBSCAN and the "
                     "Graph-SPICE based fragmentation. Ambiguous.")
 
         # Initialize the graph-based aggregator modules
@@ -310,7 +317,8 @@ class FullChain(torch.nn.Module):
             ghost_tensor = res_deghost['segmentation'].tensor
             ghost_pred = torch.argmax(ghost_tensor, dim=1)
             data_adapt = TensorBatch(
-                    data.tensor[ghost_pred == 0], batch_size=data.batch_size)
+                    data.tensor[ghost_pred == 0], batch_size=data.batch_size,
+                    has_batch_col=True)
             ghost_pred = TensorBatch(ghost_pred, data.counts)
 
             # Rescale the charge, if requested
@@ -489,8 +497,10 @@ class FullChain(torch.nn.Module):
                 self.fragmentation is not None):
                 seg_pred = self.result['seg_pred']
                 ghost_pred = self.result.get('ghost_pred', None)
+                old_clust_label = clust_label
                 clust_label = adapt_labels_batch(
-                        clust_label, seg_label, seg_pred, ghost_pred)
+                        clust_label, seg_label, seg_pred, ghost_pred,
+                        **self.adapt_params)
 
                 self.result['clust_label_adapt'] = clust_label
 
@@ -518,9 +528,13 @@ class FullChain(torch.nn.Module):
         clust_label : TensorBatch, optional
             (N, 1 + D + N_c) Tensor of cluster labels
         """
+        # Nothing to do if there is no fragmentation requested
+        if self.fragmentation is None:
+            return
+
         # Initialize the fragment-level output
         counts = np.zeros(data.batch_size, dtype=np.int64)
-        fragments = IndexBatch([], data.counts, counts, [])
+        fragments = IndexBatch([], data.edges[:-1], counts, [])
         fragment_shapes = TensorBatch(np.empty(0, dtype=np.int64), counts)
 
         # Append the fragment list
@@ -536,26 +550,26 @@ class FullChain(torch.nn.Module):
             # Run Graph-SPICE
             seg_pred = TensorBatch(
                     self.result['seg_pred'].tensor[:, None], data.counts)
-            res_gs = self.graph_spice(data, seg_pred, clust_label) 
+            res_gs = self.graph_spice(data, seg_pred, clust_label)
 
             # Update the global result with the graph_spice output
             self.result.update(
                     {f'graph_spice_{key}':val for key, val in res_gs.items()})
 
-            # Make fragments, if necessary
-            # TODO: check that we run GrapPA, to save time
-            clusts, clust_shapes = (
-                    self.graph_spice.constructor.fit_predict(res_gs))
+            # If fragments are produced, store them
+            if 'clusts' in res_gs:
+                # Fragments point at a partial tensor, adapt them
+                clusts = res_gs['clusts']
+                clust_shapes = res_gs['clust_shapes']
+                filter_index = res_gs['filter_index'].index
+                for i, f in enumerate(clusts.index_list):
+                    clusts.data[i] = filter_index[f]
 
-            # Fragments point at a partial tensor, adapt them to the full input
-            filter_index = res_gs['filter_index'].index
-            for i, f in enumerate(fragments.index_list):
-                clusts.index_list[i] = filter_index[f]
-            clusts.offsets = data.counts
+                clusts.offsets = data.edges[:-1]
 
-            # Append
-            fragments = fragments.merge(clusts.to_numpy())
-            fragment_shapes = fragment_shapes.merge(clust_shapes)
+                # Append
+                fragments = fragments.merge(clusts.to_numpy())
+                fragment_shapes = fragment_shapes.merge(clust_shapes)
 
         if self.fragmentation == 'label':
             assert clust_label is not None, (
@@ -602,7 +616,7 @@ class FullChain(torch.nn.Module):
             kwargs = {'dtype': data.dtype, 'device': data.device}
             merge['start_points'] = torch.full((num_clusts, 3), -np.inf, **kwargs)
             merge['end_points'] = torch.full((num_clusts, 3), -np.inf, **kwargs)
-            merge['node_pred'] = -torch.full((num_clusts, 2), -np.inf, **kwargs)
+            merge['node_pred'] = torch.full((num_clusts, 2), -np.inf, **kwargs)
             merge['group_pred'] = -np.ones(num_clusts, dtype=np.int64)
 
         # Initialize the particle-level output
@@ -613,7 +627,7 @@ class FullChain(torch.nn.Module):
 
         # Loop over GraPA models, append the particle list
         shapes = {'shower': [SHOWR_SHP, MICHL_SHP, DELTA_SHP],
-                  'track': [TRACK_SHP], 'particle': self.fragment_classes}
+                  'track': [TRACK_SHP], 'particle': self.fragment_shapes}
         use_primary = {'shower': True, 'track': False, 'particle': True}
         for name in ['shower', 'track', 'particle']:
             # Dispatch the input to the right aggregation method
@@ -628,13 +642,14 @@ class FullChain(torch.nn.Module):
                         prefix, model, data, fragments, fragment_shapes,
                         coord_label, aggregate_shapes=True,
                         shape_use_primary=use_primary[name],
-                        retain_primaries=True)
+                        retain_primaries=use_primary[name])
 
                 if merge and shape_index is not None:
                     for key in merge:
                         if key != 'group_pred':
-                            merge[key][shape_index] = (
-                                    self.result[f'{prefix}_{key}'].tensor)
+                            if key != 'node_pred' or use_primary[name]:
+                                merge[key][shape_index] = (
+                                        self.result[f'{prefix}_{key}'].tensor)
                         else:
                             max_id = np.max(merge[key]) + 1
                             merge[key][shape_index] = (
@@ -647,7 +662,7 @@ class FullChain(torch.nn.Module):
                         shapes[name], data, fragments, fragment_shapes,
                         aggregate_shapes=True,
                         shape_use_primary=use_primary[name],
-                        retain_primaries=True)
+                        retain_primaries=use_primary[name])
 
             elif switch == 'skip':
                 # Leave the shower fragments as is
@@ -717,7 +732,8 @@ class FullChain(torch.nn.Module):
                     shapes[name], data, particles, particle_shapes)
 
         # Store interaction objects
-        self.result['interaction_clusts'] = interactions
+        if self.inter_aggregation is not None:
+            self.result['interaction_clusts'] = interactions
 
     def run_grappa(self, prefix, model, data, clusts, clust_shapes,
                    clust_primaries=None, coord_label=None,
@@ -837,8 +853,8 @@ class FullChain(torch.nn.Module):
                 aggregate_shapes, shape_use_primary, retain_primaries),
                 shape_index)
 
-    def restrict_clusts(self, clusts, clust_shapes, classes):
-        """Restricts a cluster list against a list of classes.
+    def restrict_clusts(self, clusts, clust_shapes, shapes):
+        """Restricts a cluster list against a list of shapes.
 
         Parameters
         ----------
@@ -846,8 +862,8 @@ class FullChain(torch.nn.Module):
             List of clusters to aggregate using GrapPA
         clust_shapes : TensorBatch
             Semantic type of each of the clusters
-        classes : List[int]
-            List of semantic classes to restrict to
+        shapes : List[int]
+            List of semantic shapes to restrict to
 
         Returns
         -------
@@ -860,15 +876,17 @@ class FullChain(torch.nn.Module):
         """
         # Restrict the clusters to those in the input of the model
         shape_index = False
-        if classes != self.fragment_classes:
+        if shapes != self.fragment_shapes:
             mask = np.zeros(len(clust_shapes.tensor), dtype=bool)
-            for c in classes:
+            for c in shapes:
                 mask |= (clust_shapes.tensor == c)
             shape_index = np.where(mask)[0]
 
             batch_ids = clusts.batch_ids[shape_index]
+            clusts_np = np.empty(len(clusts.index_list), dtype=object)
+            clusts_np[:] = clusts.index_list
             clusts = IndexBatch(
-                    clusts.index_list[shape_index], offsets=clusts.offsets,
+                    clusts_np[shape_index], offsets=clusts.offsets,
                     single_counts=clusts.single_counts[shape_index],
                     batch_ids=batch_ids, batch_size=clusts.batch_size)
             clust_shapes = TensorBatch(
@@ -909,7 +927,7 @@ class FullChain(torch.nn.Module):
             (N, 1 + D + N_f) tensor of voxel/value pairs
         clusts : IndexBatch
             Input clusters to the model
-        classes : TensorBatch
+        shapes : TensorBatch
             List of semantic type of each clusters
         points : TensorBatch
             List of start/end points associated with each cluster
@@ -920,7 +938,7 @@ class FullChain(torch.nn.Module):
         grappa_input = {}
         grappa_input['data'] = data
         grappa_input['clusts'] = clusts
-        grappa_input['classes'] = clust_shapes
+        grappa_input['shapes'] = clust_shapes
         if coord_label is not None:
             grappa_input['coord_label'] = coord_label
 
@@ -1035,6 +1053,8 @@ class FullChain(torch.nn.Module):
         if retain_primaries:
             group_primaries = IndexBatch(
                 group_primaries, clusts.offsets, counts, single_primary_counts)
+        else:
+            group_primaries = groups
 
         return groups, group_shapes, group_primaries
 
@@ -1052,7 +1072,8 @@ class FullChainLoss(torch.nn.Module):
                  uresnet=None, uresnet_loss=None, uresnet_ppn=None,
                  uresnet_ppn_loss=None, graph_spice=None, graph_spice_loss=None,
                  grappa_shower_loss=None, grappa_track_loss=None,
-                 grappa_particle_loss=None, grappa_inter_loss=None, **kwargs):
+                 grappa_particle_loss=None, grappa_inter_loss=None,
+                 **kwargs):
         """Initialize the full chain model.
 
         Parameters
@@ -1108,7 +1129,7 @@ class FullChainLoss(torch.nn.Module):
                         **uresnet_ppn, **uresnet_ppn_loss)
 
         # Initialize the graph-SPICE loss
-        if 'graph_spice' in self.fragmentation:
+        if self.fragmentation is not None and 'graph_spice' in self.fragmentation:
             self.graph_spice_loss = GraphSPICELoss(graph_spice, graph_spice_loss)
 
         # Initialize the GraPA lossses
@@ -1126,7 +1147,8 @@ class FullChainLoss(torch.nn.Module):
 
     def forward(self, seg_label=None, ppn_label=None, clust_label=None,
                 clust_label_adapt=None, coord_label=None, graph_label=None,
-                ghost=None, ghost_pred=None, segmentation=None, **output):
+                meta=None, ghost=None, ghost_pred=None, segmentation=None,
+                seg_pred=None, **output):
         """Run the full chain output through the full chain loss.
 
         Parameters
@@ -1148,12 +1170,16 @@ class FullChainLoss(torch.nn.Module):
         graph_label : EdgeIndexTensor, optional
             (2, E) Tensor of edges that correspond to physical
             connections between true particle in the image
+        meta : Meta, optional
+            Image metadata information
         ghost : TensorBatch, optional
             (N, 2) Tensor of logits from the deghosting model
         ghost_pred : TensorBatch, optional
             (N,) Tensor of ghost predictions
         segmentation : TensorBatch, optional
             (N, N_c) Tensor of logits from the segmentation model
+        seg_pred : TensorBatch, optional
+            (N) Semantic prediction for each point
         **output : dict, optional
             Additional outputs of the reconstruction chain
         """
@@ -1182,7 +1208,8 @@ class FullChainLoss(torch.nn.Module):
                 index = seg_label_t[:, SHAPE_COL] < GHOST_SHP
 
                 seg_label = TensorBatch(
-                        seg_label_t[index], batch_size=seg_label.batch_size)
+                        seg_label_t[index], batch_size=seg_label.batch_size,
+                        has_batch_col=True)
                 segmentation = TensorBatch(
                         segmentation.tensor[index], seg_label.counts)
 
@@ -1205,15 +1232,18 @@ class FullChainLoss(torch.nn.Module):
             clust_label = clust_label_adapt
 
         # Apply the Graph-SPICE loss
-        if 'graph_spice' in self.fragmentation:
+        if self.fragmentation is not None and 'graph_spice' in self.fragmentation:
             # Prepare Graph-SPICE loss input
             loss_dict = {}
             for key, value in output.items():
                 if key.startswith('graph_spice_'):
                     loss_dict[key.replace('graph_spice_', '')] = value
 
+            # Store the loss dictionary
+            seg_pred = TensorBatch(seg_pred.tensor[:, None], clust_label.counts)
             res_gs = self.graph_spice_loss(
-                    seg_label=seg_label, clust_label=clust_label, **loss_dict)
+                    seg_label=seg_pred, clust_label=clust_label, **loss_dict)
+            self.update_result(res_gs, 'graph_spice')
 
         # Apply the aggregation losses
         for stage in self.grappa_losses.keys():
@@ -1226,10 +1256,10 @@ class FullChainLoss(torch.nn.Module):
                     if f'{prefix}_' in k:
                         loss_dict[k.split(f'{prefix}_')[-1]] = v
 
-                # Store the loss dictionaru
+                # Store the loss dictionary
                 res_grappa = getattr(self, name)(
                         clust_label=clust_label, coord_label=coord_label,
-                        graph_label=graph_label, **loss_dict)
+                        graph_label=graph_label, meta=meta, **loss_dict)
                 self.update_result(res_grappa, f'grappa_{stage}')
 
         return self.result

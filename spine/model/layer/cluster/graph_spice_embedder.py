@@ -34,6 +34,8 @@ class GraphSPICEEmbedder(nn.Module):
         self.backbone = UResNet(uresnet)
         self.num_filters = self.backbone.num_filters
         self.spatial_size = self.backbone.spatial_size
+        assert self.spatial_size is not None, (
+                "Must provide a spatial size to compute normalized coordinates.")
 
         # Process the rest of the configuration
         self.process_model_config(**base)
@@ -51,7 +53,6 @@ class GraphSPICEEmbedder(nn.Module):
             assert self.num_classes is not None, (
                     "Must specify the number of classes predicting semantics.")
             self.out_seg = nn.Linear(self.num_filters, self.num_classes)
-
 
     def process_model_config(self, predict_semantics=False, num_classes=None,
                              coord_conv=True, covariance_mode='softplus', 
@@ -106,7 +107,6 @@ class GraphSPICEEmbedder(nn.Module):
         else:
             raise ValueError(
                     f"Occupancy mode not recognized: {self.covariance_mode}")
-        
 
     def forward(self, data):
         """Compute the embeddings for one batch of data.

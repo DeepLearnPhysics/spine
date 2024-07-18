@@ -26,7 +26,6 @@ class IoUScore(torch.nn.Module):
         """
         # Compute and return
         with torch.no_grad():
-            return 1.
             union = (y_true.long() == 1) | (y_pred.long() == 1)
             if not union.any():
                 return 0.

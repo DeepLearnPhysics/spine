@@ -9,6 +9,7 @@ from spine.data import TensorBatch, IndexBatch
 from spine.utils.cluster.graph import ClusterGraphConstructor
 from spine.utils.globals import (
         COORD_COLS, SHAPE_COL, SHOWR_SHP, TRACK_SHP, DELTA_SHP, MICHL_SHP)
+from spine.utils.enums import enum_factory
 
 from .layer.cluster import kernel_factory, loss_factory
 from .layer.cluster.graph_spice_embedder import GraphSPICEEmbedder
@@ -73,7 +74,7 @@ class GraphSPICE(torch.nn.Module):
         self.process_model_config(**graph_spice)
 
     def process_model_config(self, embedder, kernel, constructor,
-                             classes=[SHOWR_SHP, TRACK_SHP, MICHL_SHP, DELTA_SHP],
+                             shapes=[SHOWR_SHP, TRACK_SHP, MICHL_SHP, DELTA_SHP],
                              use_raw_features=False, invert=True,
                              make_clusters=False):
         """Initialize the underlying modules.
@@ -86,8 +87,8 @@ class GraphSPICE(torch.nn.Module):
             Edge kernel configuration
         constructor : dict
             Edge index construction configuration
-        classes : List[int], default [0, 1, 2, 3]
-            List of semantic classes to run DBSCAN on
+        shapes : List[str]
+            List of shape names to construct clusters for
         use_raw_features : bool, default True
             Use the list of embedder features as is, without the output layers
         invert : bool, default True
@@ -103,17 +104,19 @@ class GraphSPICE(torch.nn.Module):
 
         # Initialize the graph constructor
         self.constructor = ClusterGraphConstructor(
-                **constructor, kernel_fn=self.kernel_fn, classes=classes,
+                **constructor, kernel_fn=self.kernel_fn, shapes=shapes,
                 invert=invert, training=self.training)
 
+        # Parse the set of shapes to cluster
+        self.shapes = enum_factory('shape', shapes)
+
         # Store model parameters
-        self.classes = classes
         self.use_raw_features = use_raw_features
         self.invert = invert
         self.make_clusters = make_clusters
 
     def filter_class(self, data, seg_label, clust_label=None):
-        """Filter the list of pixels to those in the list of requested classes.
+        """Filter the list of pixels to those in the list of requested shapes.
 
         Parameters
         ----------
@@ -143,20 +146,29 @@ class GraphSPICE(torch.nn.Module):
         counts : torch.Tensor
             (B) Number of restricted points in each batch entry
         """
-        # Convert classes to a torch tensor for easy comparison
-        classes = torch.tensor(self.classes, device=data.device)
+        # Convert shapes to a torch tensor for easy comparison
+        shapes = torch.tensor(self.shapes, device=data.device)
 
         # Create an index of the valid input rows
-        mask = (seg_label.tensor[:, SHAPE_COL] == classes.view(-1, 1)).any(dim=0)
+        mask = (seg_label.tensor[:, SHAPE_COL] == shapes.view(-1, 1)).any(dim=0)
         index = torch.where(mask)[0]
 
         # Restrict the input
-        offsets = data.counts
+        offsets = data.edges[:-1]
         data = TensorBatch(
                 data.tensor[index], batch_size=data.batch_size,
                 has_batch_col=True)
+
+        # Restrict the label tensors
+        assert seg_label.shape[0] == mask.shape[0], (
+                 "The segmentation label tensor is of the wrong shape: "
+                f"{seg_label.shape[0]} != {mask.shape[0]}")
         seg_label = TensorBatch(seg_label.tensor[index], data.counts)
+
         if clust_label is not None:
+            assert clust_label.shape[0] == mask.shape[0], (
+                     "The cluster label tensor is of the wrong shape: "
+                    f"{clust_label.shape[0]} != {mask.shape[0]}")
             clust_label = TensorBatch(clust_label.tensor[index], data.counts)
 
         # Store the index as an IndexBatch
@@ -187,7 +199,7 @@ class GraphSPICE(torch.nn.Module):
         dict
             Dictionary of outputs
         """
-        # Filter the input down to the requested classes
+        # Filter the input down to the requested shapes
         data, seg_label, clust_label, index = self.filter_class(
                 data, seg_label, clust_label)
 
@@ -205,6 +217,12 @@ class GraphSPICE(torch.nn.Module):
             features = result['hypergraph_features']
 
         graph = self.constructor(coords, features, seg_label, clust_label)
+
+        # If requested, convert edge predictions to node predictions
+        if self.make_clusters:
+            clusts, clust_shapes = self.constructor.fit_predict(graph)
+            result['clusts'] = clusts
+            result['clust_shapes'] = clust_shapes
 
         # Save the graph dictionary
         result.update(graph)
@@ -271,23 +289,27 @@ class GraphSPICELoss(torch.nn.Module):
         # Initialize the loss function
         self.loss_fn = loss_factory(loss)
 
-    def process_model_config(self, constructor, invert=True, **kwargs):
+    def process_model_config(self, constructor,
+                             shapes=[SHOWR_SHP, TRACK_SHP, MICHL_SHP, DELTA_SHP],
+                             invert=True, **kwargs):
         """Process the model configuration
 
         Parameters
         ----------
         constructor : dict, optional
             Edge index construction configuration
+        shapes : List[int], default [0, 1, 2, 3]
+            List of semantic shapes to run DBSCAN on
         invert : bool, default True
             Invert the edge scores so that 0 is on an 1 is off
         """
         # Initialize the graph constructor (used to produce node assignments)
         if self.evaluate_clustering_metrics:
             self.constructor = ClusterGraphConstructor(
-                    **constructor, classes=classes, invert=invert)
+                    **constructor, shapes=shapes, invert=invert)
 
     def filter_class(self, seg_label, clust_label, filter_index):
-        """Filter the list of pixels to those in the list of requested classes.
+        """Filter the list of pixels to those in the list of requested shapes.
 
         Parameters
         ----------
@@ -335,7 +357,7 @@ class GraphSPICELoss(torch.nn.Module):
         dict
             Dictionary of outputs
         """
-        # Narrow down the labels to those corresponding to the relevant classes
+        # Narrow down the labels to those corresponding to the relevant shapes
         seg_label, clust_label = self.filter_class(
                 seg_label, clust_label, filter_index)
 

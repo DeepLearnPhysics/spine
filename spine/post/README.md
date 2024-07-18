@@ -1,11 +1,10 @@
-# Flash Matching with OpT0Finder
+# Post-processing module
 -----
 
-## 1. Setup
+This module centralizes all methods that act on the output of the ML-based reconstruction chain.
 
-To run the flash matching post processor (`run_flash_matching`) interface, 
-you first have to configure OpT0Finder:
-
-```bash
-$ source $PATH_TO_OPT0FINDER/configure.sh
-```
+The following submodules are available:
+- `reconstruction`: traditional reconstruction modules
+- `evaluation`: performance metric evaluation
+- `optical`: optical flash matching
+- `crt`: cosmic-ray tagger hit matching

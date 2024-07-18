@@ -17,8 +17,8 @@ from spine.utils.globals import (
 import spine.utils.numba_local as nbl
 
 
-def form_clusters_batch(data, min_size=-1, column=CLUST_COL,
-                        cluster_classes=None, batch_size=None):
+def form_clusters_batch(data, min_size=-1, column=CLUST_COL, shapes=None,
+                        batch_size=None):
     """Batched version of :func:`form_clusters`.
 
     Parameters
@@ -29,7 +29,7 @@ def form_clusters_batch(data, min_size=-1, column=CLUST_COL,
         Minimum size of a cluster to be included in the list
     column : int, default CLUST_COL
         Column of the label tensor to use to fetch the pixel cluster IDs
-    cluster_classes : List[int], optional
+    shapes : List[int], optional
         List of semantic classes to include in the list of cluster
 
     Returns
@@ -42,8 +42,7 @@ def form_clusters_batch(data, min_size=-1, column=CLUST_COL,
     for b in range(data.batch_size):
         # Get the list of clusters and cluster sizes within this entry
         data_b = data[b]
-        clusts_b, counts_b = form_clusters(
-                data_b, min_size, column, cluster_classes)
+        clusts_b, counts_b = form_clusters(data_b, min_size, column, shapes)
 
         # Offset the cluster indexes appropriately
         for i in range(len(clusts_b)):
@@ -220,7 +219,7 @@ def get_cluster_features_batch(data, clusts, add_value=False, add_shape=False):
     return TensorBatch(feats, clusts.counts)
 
 
-def form_clusters(data, min_size=-1, column=CLUST_COL, cluster_classes=None):
+def form_clusters(data, min_size=-1, column=CLUST_COL, shapes=None):
     """Builds a list of indexes corresponding to each cluster in the event.
 
     The `data` tensor should only contain one entry.
@@ -233,7 +232,7 @@ def form_clusters(data, min_size=-1, column=CLUST_COL, cluster_classes=None):
         Minimum size of a cluster to be included in the list
     column : int, default CLUST_COL
         Column of the label tensor to use to fetch the pixel cluster IDs
-    cluster_classes : List[int], optional
+    shapes : List[int], optional
         List of semantic classes to include in the list of cluster
 
     Returns
@@ -252,9 +251,9 @@ def form_clusters(data, min_size=-1, column=CLUST_COL, cluster_classes=None):
         where, unique = np.where, np.unique
 
     # If requested, restrict data to a specific set of semantic classes
-    if cluster_classes is not None:
+    if shapes is not None:
         mask = zeros(len(data))
-        for s in cluster_classes:
+        for s in shapes:
             mask |= (data[:, SHAPE_COL] == s)
         mask = where(mask)[0]
         data = data[mask]
@@ -273,7 +272,7 @@ def form_clusters(data, min_size=-1, column=CLUST_COL, cluster_classes=None):
             continue
 
         # If a mask was applied, get the appropriate IDs
-        if cluster_classes is not None:
+        if shapes is not None:
             clust = mask[clust]
 
         clusts.append(clust)
