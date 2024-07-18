@@ -134,9 +134,6 @@ class Driver:
             self.watch.initialize('ana')
             self.ana = AnaManager(ana)
 
-        # Initialize the output log
-        self.initialize_log()
-
     def __len__(self):
         """Returns the number of events in the underlying reader object."""
         return len(self.reader)
@@ -415,6 +412,9 @@ class Driver:
         # To run the loop, must know how many times it must be done
         assert self.iterations is not None, (
                 "Must specify either `iterations` or `epochs` parameters.")
+
+        # Initialize the output log
+        self.initialize_log()
 
         # Get the iteration start (if model exists)
         start_iteration = 0
