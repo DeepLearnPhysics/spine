@@ -364,6 +364,7 @@ class TruthParticle(Particle, ParticleBase, TruthBase):
     # Private derived attributes
     _start_dir: np.ndarray = field(init=False, repr=False)
     _end_dir: np.ndarray = field(init=False, repr=False)
+    _ke: np.ndarray = field(init=False, repr=False)
 
     # Attributes that should not be stored
     _skip_attrs = [*TruthBase._skip_attrs, *ParticleBase._skip_attrs]
@@ -420,3 +421,25 @@ class TruthParticle(Particle, ParticleBase, TruthBase):
     @end_dir.setter
     def end_dir(self, end_dir):
         self._end_dir = end_dir
+
+    @property
+    def ke(self):
+        """Converts the particle initial energy to a kinetic energy.
+
+        This only works for particles with a known mass (as defined in
+        `spine.utils.globals`).
+
+        Returns
+        -------
+        float
+            (3) End direction vector
+        """
+        if self.pid in PID_MASSES:
+            mass = PID_MASSES[self.pid]
+            return self.energy_init - mass
+
+        return -1.
+
+    @ke.setter
+    def ke(self, ke):
+        self._ke = ke
