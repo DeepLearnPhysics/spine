@@ -270,15 +270,18 @@ class Drawer:
             color = np.unique(color, return_inverse=True)[-1]
             colorscale = HIGH_CONTRAST_COLORS
             count = len(color)
-            if count <= len(colorscale):
+            if count == 0:
+                colorscale = None
+            elif count == 1:
+                colorscale = [colorscale[0]] * 2 # Avoid length 0 colorscale
+            elif count <= len(colorscale):
                 colorscale = colorscale[:count]
-
-            if count > len(colorscale):
+            else:
                 repeat = (count - 1)//len(colorscales) + 1
                 self._colorscale = np.repeat(colorscale, repeat)[:count]
 
             cmin = 0
-            cmax = count - 1
+            cmax = count# - 1
 
         else:
             raise KeyError(
