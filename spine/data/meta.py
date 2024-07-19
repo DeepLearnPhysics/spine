@@ -49,7 +49,7 @@ class Meta(DataBase):
         int
             Number of dimensions in the image
         """
-        return len(lower)
+        return len(self.lower)
 
     @property
     def num_elements(self):
@@ -77,9 +77,9 @@ class Meta(DataBase):
         """
         mult = np.empty(self.dimension, dtype=self.count.dtype)
         for i in range(self.dimension):
-            mult = np.prod(self.count[i+1:])
+            mult[i] = np.prod(self.count[i+1:])
 
-        return np.dot(coords, mult)
+        return np.dot(coords, mult).astype(np.int64)
 
     def to_cm(self, coords, center=False):
         """Converts pixel coordinates to detector coordinates in cm.
