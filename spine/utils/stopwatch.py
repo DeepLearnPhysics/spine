@@ -1,5 +1,5 @@
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 @dataclass
 class Time:
@@ -85,14 +85,16 @@ class Time:
         return cls(time.time(), time.process_time())
 
 
-@dataclass
 class Stopwatch:
-    """Simple dataclass to hold timing information for a specific process."""
-    _start: Time = Time()
-    _stop: Time = Time()
-    _pause: Time = Time()
-    _time: Time = Time(0., 0.)
-    _total: Time = Time(0., 0.)
+    """Simple class to hold timing information for a specific process."""
+
+    def __init__(self):
+        """Give default values to the underlying class attributes."""
+        self._start = Time()
+        self._stop = Time()
+        self._pause = Time()
+        self._time = Time(0., 0.)
+        self._total = Time(0., 0.)
 
     @property
     def start(self):
