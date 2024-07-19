@@ -140,9 +140,16 @@ class MatchProcessor(PostBase):
             truth_input = nb.typed.List([p.points for p in truth_objs])
 
         # Pass lists to the matching function to compute overlaps
-        # TODO: the validity check makes no sense for Chamfer distance
-        ovl_matrix = matcher.fn(reco_input, truth_input)
-        ovl_valid = ovl_matrix > matcher.min_overlap
+        if len(reco_input) and len(truth_input):
+            ovl_matrix = matcher.fn(reco_input, truth_input)
+        else:
+            ovl_matrix = np.empty(len(reco_input), len(truth_input))
+
+        # Make the overlap selection cut, if requested
+        if matcher.overlap_mode != 'chamfer':
+            ovl_valid = ovl_matrix > matcher.min_overlap
+        else:
+            ovl_valid = ovl_matrix < match.min_overlap
 
         # Produce matches
         result = {}
