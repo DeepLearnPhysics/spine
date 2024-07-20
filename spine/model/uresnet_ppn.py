@@ -148,7 +148,7 @@ class UResNetPPNLoss(torch.nn.Module):
         # Initialize the point proposal loss
         self.ppn_loss = PPNLoss(uresnet, ppn, ppn_loss)
 
-    def forward(self, seg_label, ppn_label, weights=None, **result):
+    def forward(self, seg_label, ppn_label, clust_label=None, weights=None, **result):
         """Run a batch of data through the loss function.
 
         Parameters
@@ -168,10 +168,13 @@ class UResNetPPNLoss(torch.nn.Module):
         """
         # Apply the segmentation loss
         result_seg = self.seg_loss(seg_label, weights=weights, **result)
+        
+        if clust_label is not None:
+            result['ppn_clust_label'] = clust_label
 
         # Apply the PPN loss
         result_ppn = self.ppn_loss(ppn_label, **result)
-
+        
         # Combine the two outputs
         result = {
             'loss': result_seg['loss'] + result_ppn['loss'],

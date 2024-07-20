@@ -15,7 +15,8 @@ from spine.utils.torch_local import local_cdist
 from spine.utils.logger import logger
 from spine.utils.globals import (COORD_COLS, VALUE_COL, SHAPE_COL, TRACK_SHP,
                                   GHOST_SHP, PPN_ROFF_COLS, PPN_RPOS_COLS,
-                                  PPN_RTYPE_COLS, PPN_LTYPE_COL, PPN_LENDP_COL)
+                                  PPN_RTYPE_COLS, PPN_LTYPE_COL, PPN_LENDP_COL,
+                                  PART_COL, PPN_LPART_COL)
 from spine.utils.weighting import get_class_weights
 
 __all__ = ['PPN', 'PPNLoss']
@@ -420,7 +421,8 @@ class PPNLoss(torch.nn.modules.loss._Loss):
                             type_weighting_mode='const',
                             reg_loss_weight=1., type_loss_weight=1.,
                             mask_loss_weight=1., endpoint_loss_weight=1.,
-                            return_mask_labels=False):
+                            return_mask_labels=False,
+                            restrict_to_clusters=False):
         """Process the loss function parameters.
 
         Parameters
@@ -450,6 +452,10 @@ class PPNLoss(torch.nn.modules.loss._Loss):
             Relative weight to apply to the endpoint classification
         return_mask_labels : bool, default False
             If `True`, returns the masks used to compute the mask loss
+        restrict_to_clusters : bool, default False
+            If `True`, when computing the positive labels for PPN, it will
+            only look for points that are close to a given PPN label point
+            with the same particle id. 
         """
         # Store the loss parameters
         self.resolution = resolution
@@ -465,6 +471,8 @@ class PPNLoss(torch.nn.modules.loss._Loss):
         self.point_classes = point_classes
         if point_classes is not None and isinstance(point_classes, int):
             self.point_classes = [point_classes]
+            
+        self.restrict_to_clusters = restrict_to_clusters
 
         # Instantiate the regression loss function
         self.reg_loss_fn = torch.nn.MSELoss(reduction='mean')
@@ -482,9 +490,75 @@ class PPNLoss(torch.nn.modules.loss._Loss):
         else:
             raise ValueError(
                     f"Mask loss name not recognized: {mask_loss}")
+            
+            
+    @staticmethod
+    def get_ppn_positives(coords : torch.Tensor, 
+                          labels: torch.Tensor, 
+                          ppn_labels: torch.Tensor, 
+                          resolution: float,
+                          offset: int):
+        """Get ppn positive label mask, but with cluster restrictions.
+
+        Parameters
+        ----------
+        coords : torch.Tensor
+            N x 3 3D coordinates of the image voxels
+        labels : torch.Tensor
+            N x 1 tensor of the particle id label for each voxel
+        ppn_labels : torch.Tensor
+            N_p x 6 PPN label points 
+        resolution : float
+            Distance from a label point in pixels within which a voxel is
+            
+        Warning
+        -------
+        If a given cluster has two ppn label points (tracks), then they must
+        appear consecutively in the ppn_labels tensor.
+
+        Returns
+        -------
+        positives : torch.Tensor
+            N x 1 tensor of the positive label mask
+        """
+        positives = torch.zeros(coords.shape[0], device=coords.device, dtype=torch.bool)
+        closests = -torch.ones(coords.shape[0], device=coords.device, dtype=torch.long)
+        
+        # test_mask = torch.zeros(coords.shape[0], device=coords.device, dtype=torch.bool)
+        
+        # print("Labels = ", labels.unique(return_counts=True), ppn_labels[:, PPN_LPART_COL])
+        
+        frag_ids = set()
+        
+        for i, pt in enumerate(ppn_labels):
+            
+            frag_id = int(pt[PPN_LPART_COL])
+            if frag_id in frag_ids:
+                continue
+            frag_ids.add(frag_id)
+            
+            mask = labels == frag_id
+            # test_mask[mask] = True
+            label_points = ppn_labels[ppn_labels[:, 5] == frag_id][:, COORD_COLS]
+            
+            dist_mat = local_cdist(coords[mask], label_points)
+            
+            min_return = torch.min(dist_mat, dim=1)
+            # print(i, coords[mask].shape, label_points.shape, i+min_return.indices)
+            # print(label_points, ppn_labels[i+min_return.indices][:, COORD_COLS])
+
+            closests[mask] = offset + (i + min_return.indices)
+            
+            positives_frag = (dist_mat < resolution).any(dim=1)
+            positives[mask] = positives_frag
+            
+        # print(test_mask.shape[0], test_mask.sum(), "labels[test_mask] = ", labels[test_mask].unique(return_counts=True))
+            
+        return positives, closests
+        
 
     def forward(self, ppn_label, ppn_points, ppn_masks, ppn_layers, ppn_coords,
-                ppn_output_coords, ppn_classify_endpoints=None, **kwargs):
+                ppn_output_coords, ppn_classify_endpoints=None, ppn_clust_label=None, **kwargs):
         """Computes the three PPN losses.
 
         Parameters
@@ -503,6 +577,8 @@ class PPNLoss(torch.nn.modules.loss._Loss):
             Set of coordinates at the very last layer of the PPN
         ppn_classify_endpoins : TensorBatch, optional
             Set of logits associated with end point classification
+        frag_label : TensorBatch
+            (N, 1 + D + 1) Tensor of fragment labels for the batch
         **kwargs : dict, optional
             Other outputs of the upstream model which are not relevant here
 
@@ -538,7 +614,7 @@ class PPNLoss(torch.nn.modules.loss._Loss):
         offset = 0
         for b in range(batch_size):
             # If there are no label points, there are no positive points
-            points_label = ppn_label[b][:, COORD_COLS]
+            points_label = ppn_label[b]
             if not len(points_label):
                 positive = torch.zeros(
                         coords_final.counts[b], dtype=torch.bool,
@@ -551,14 +627,23 @@ class PPNLoss(torch.nn.modules.loss._Loss):
             # Compute the pairwise distances between each label point
             # and all the voxels in the image.
             points_entry = coords_final[b][:, COORD_COLS] + 0.5
-            dist_mat = local_cdist(points_entry, points_label)
-            min_return = torch.min(dist_mat, dim=1)
-            closest_list.append(offset + min_return.indices)
-            offset += len(points_label)
-
-            # Define voxels as positive if they are within threshold
-            positive = (dist_mat < self.resolution).any(dim=1)
+            if self.restrict_to_clusters:
+                assert ppn_clust_label is not None
+                positive, closest = self.get_ppn_positives(points_entry, 
+                    ppn_clust_label[b][:, PART_COL], 
+                    points_label, 
+                    resolution=self.resolution,
+                    offset=offset)
+            else:
+                dist_mat = local_cdist(points_entry, points_label[:, COORD_COLS])
+                min_return = torch.min(dist_mat, dim=1)
+                closest = offset + min_return.indices
+                # Define voxels as positive if they are within threshold
+                positive = (dist_mat < self.resolution).any(dim=1)
+                
             positive_list.append(positive)
+            closest_list.append(closest)
+            offset += len(points_label)
 
         closests = torch.cat(closest_list, dim=0)
         positives = torch.cat(positive_list, dim=0).long()
@@ -615,6 +700,8 @@ class PPNLoss(torch.nn.modules.loss._Loss):
         if len(pos_mask):
             # Narrow the loss down to the true positive pixels
             # TODO: should this be predicted positive pixels?
+            
+            # Closest ppn point label (index) to given positive point
             closests = closests[pos_mask]
 
             anchors = coords_final.tensor[:, COORD_COLS] + 0.5
