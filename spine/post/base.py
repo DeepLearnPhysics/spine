@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 
 class PostBase(ABC):
     """Base class of all post-processors.
-    
+
     This base class performs the following functions:
       - Ensures that the necessary method exist
       - Checks that the post-processor is provided the necessary information
@@ -87,8 +87,8 @@ class PostBase(ABC):
                 if run_mode != 'reco':
                     getattr(self, f'{name}_keys').append(f'truth_{name}s')
 
-        self.obj_keys = (self.fragment_keys 
-                         + self.particle_keys 
+        self.obj_keys = (self.fragment_keys
+                         + self.particle_keys
                          + self.interaction_keys)
         self.keys.update({k:True for k in self.obj_keys})
 
@@ -98,6 +98,7 @@ class PostBase(ABC):
                      "The `truth_point_mode` argument must be one of "
                     f"{self._point_modes}. Got `{truth_point_mode}` instead.")
             self.truth_point_mode = truth_point_mode
+            self.truth_index_mode = truth_point_mode.replace('points', 'index')
 
     def __call__(self, data, entry=None):
         """Calls the post processor on one entry.
@@ -133,7 +134,7 @@ class PostBase(ABC):
 
     def get_points(self, obj):
         """Get a certain pre-defined point attribute of an object.
-        
+
         The :class:`TruthFragment`, :class:`TruthParticle` and
         :class:`TruthInteraction` objects points are obtained using the
         `truth_point_mode` attribute of the class.
@@ -152,6 +153,28 @@ class PostBase(ABC):
             return obj.points
         else:
             return getattr(obj, self.truth_point_mode)
+
+    def get_index(self, obj):
+        """Get a certain pre-defined index attribute of an object.
+
+        The :class:`TruthFragment`, :class:`TruthParticle` and
+        :class:`TruthInteraction` objects index are obtained using the
+        `truth_index_mode` attribute of the class.
+
+        Parameters
+        ----------
+        obj : Union[FragmentBase, ParticleBase, InteractionBase]
+            Fragment, Particle or Interaction object
+
+        Results
+        -------
+        np.ndarray
+           (N) Object index
+        """
+        if not obj.is_truth:
+            return obj.index
+        else:
+            return getattr(obj, self.truth_index_mode)
 
     def check_units(self, obj):
         """Check that the point coordinates of an object are as expected.

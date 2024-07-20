@@ -176,7 +176,7 @@ def layout3d(ranges=None, meta=None, detector=None, titles=None,
 
 
 def dual_figure3d(traces_left, traces_right, layout=None, titles=None,
-                  width=1000, height=500, synchronize=False,
+                  width=1500, height=750, synchronize=False,
                   margin=None, **kwargs):
     """Function which returns a plotly.graph_objs.Figure with two set of traces
     side-by-side in separate subplots.
