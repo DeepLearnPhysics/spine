@@ -48,7 +48,7 @@ class BuilderBase(ABC):
             'label_g4_tensor': False, 'points': True, 'points_label': True,
             'points_g4': False, 'depositions': True, 'depositions_label': True,
             'depositions_q_label': False, 'depositions_g4': False,
-            'sources': False
+            'sources': False, 'sources_label': False
     }
 
     load_reco_keys   = {
@@ -59,7 +59,7 @@ class BuilderBase(ABC):
             'points': True, 'points_label': True, 'points_g4': False,
             'depositions': True, 'depositions_label': True,
             'depositions_q_label': False, 'depositions_g4': False,
-            'sources': False
+            'sources': False, 'sources_label': False
     }
 
     # List of recognized run modes

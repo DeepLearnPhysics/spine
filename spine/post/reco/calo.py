@@ -75,8 +75,18 @@ class CalibrationProcessor(PostBase):
     aliases = ['apply_calibrations']
     keys = {'depositions': True, 'run_info': False}
 
+    # Map between point attribute and underlying deposition objects
+    _depo_attr_map = {
+            'points': 'depositions_label_q',
+            'points_adapt': 'depsitions_adapt'
+    }
+    _depo_map = {
+            'points': 'depositions_label_q',
+            'points_adapt': 'depositions'
+    }
+
     def __init__(self, dedx=2.2, do_tracking=False, obj_type='particle', 
-                 run_mode='both', **cfg):
+                 run_mode='reco', **cfg):
         """Initialize the calibration manager.
 
         Parameters
@@ -95,6 +105,10 @@ class CalibrationProcessor(PostBase):
         self.calibrator = CalibrationManager(**cfg)
         self.dedx = dedx
         self.do_tracking = do_tracking
+
+        # Set the truth attributes to set
+        self.truth_depo_attr = self._depo_attr_map[self.truth_point_mode]
+        self.truth_depo_key = self._depo_map[self.truth_point_mode]
 
     def process(self, data):
         """Apply calibrations to each particle in one entry.
@@ -132,5 +146,9 @@ class CalibrationProcessor(PostBase):
                             run_id, track=True)
 
                 # Update the particle *and* the reference tensor
-                part.depositions = depositions
-                data['depositions'][part.index] = depositions
+                if not part.is_truth:
+                    part.depositions = depositions
+                    data['depositions'][part.index] = depositions
+                else:
+                    setattr(part, self.truth_depo_attr, depositions)
+                    data[self.truth_depo_key] = depositions

@@ -15,11 +15,11 @@ __all__ = ['MatchProcessor']
 class MatchProcessor(PostBase):
     """Does the matching between reconstructed and true objects."""
     name = 'match'
-    
-    def __init__(self, fragment=None, particle=None,
-                 interaction=None, **kwargs):
+
+    def __init__(self, fragment=None, particle=None, interaction=None,
+                 truth_point_mode='points', **kwargs):
         """Initializes the matching post-processor.
-        
+
         Parameters
         ----------
         fragment: Union[bool, dict], optional
@@ -28,6 +28,8 @@ class MatchProcessor(PostBase):
             Matching flag or configuration for particles
         interaction: Union[bool, dict], optional
             Matching flag or configuration for interactions
+        truth_point_mode : str, default 'points'
+            Type of truth points to use to do the matching
         **kwargs : dict, optional
             Matching parameters shared between all matching processes
         """
@@ -50,7 +52,7 @@ class MatchProcessor(PostBase):
                 "Must specify one of 'fragment', 'particle' or 'interaction'.")
 
         # Initialize the parent class
-        super().__init__(list(self.matchers.keys()), 'both')
+        super().__init__(list(self.matchers.keys()), 'both', truth_point_mode)
 
     @dataclass
     class Matcher:
@@ -105,7 +107,7 @@ class MatchProcessor(PostBase):
             prefix = 'overlap' if not self.weight_overlap else 'overlap_weighted'
             self.fn = getattr(
                     spine.utils.match, f'{prefix}_{self.overlap_mode}')
-        
+
     def process(self, data):
         """Match all the requested objects in one entry.
 
@@ -152,32 +154,32 @@ class MatchProcessor(PostBase):
         # Convert the object list into an index/coordinate list
         if matcher.overlap_mode != 'chamfer':
             # For overlap matches, use pixel indexes (faster)
-            if not matcher.ghost:
+            if not matcher.ghost or self.truth_point_mode == 'points_adapt':
                 # The indexes of reco and truth point to the same point set
-                reco_input = nb.typed.List([p.index for p in reco_objs])
-                truth_input = nb.typed.List([p.index for p in truth_objs])
+                reco_input = nb.typed.List([self.get_index(p) for p in reco_objs])
+                truth_input = nb.typed.List([self.get_index(p) for p in truth_objs])
 
             else:
                 # The indexes of reco and truth point to different point sets.
                 # In this case, convert the positions to indexes
                 reco_input = []
                 for p in reco_objs:
-                    coords = p.points
+                    coords = self.get_points(p)
                     if p.units != 'px':
                         coords = meta.to_px(coords, floor=True)
                     reco_input.append(meta.index(coords))
 
                 truth_input = []
                 for p in truth_objs:
-                    coords = p.points
+                    coords = self.get_points(p)
                     if p.units != 'px':
                         coords = meta.to_px(coords, floor=True)
                     truth_input.append(meta.index(coords))
-                
+
         else:
             # For the chamfer distance, simply use the point positions
-            reco_input = nb.typed.List([p.points for p in reco_objs])
-            truth_input = nb.typed.List([p.points for p in truth_objs])
+            reco_input = nb.typed.List([self.get_points(p) for p in reco_objs])
+            truth_input = nb.typed.List([self.get_points(p) for p in truth_objs])
 
         # Pass lists to the matching function to compute overlaps
         if len(reco_input) and len(truth_input):

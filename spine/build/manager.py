@@ -153,6 +153,7 @@ class BuildManager:
                     sources[key] = data[alt]
                     if entry is not None:
                         sources[key] = data[alt][entry]
+                    break
 
         # Build aditional information
         update = {}
@@ -167,6 +168,9 @@ class BuildManager:
             update['label_adapt_tensor'] = sources['label_adapt_tensor']
             update['depositions_label_adapt'] = (
                     sources['label_adapt_tensor'][:, VALUE_COL])
+
+            if 'depositions_q_label' in sources:
+                update['depositions_q_label'] = sources['depositions_q_label']
 
         if 'label_g4_tensor' in sources:
             update['label_g4_tensor'] = sources['label_g4_tensor']

@@ -120,9 +120,12 @@ class ParticleBuilder(BuilderBase):
                     pid_scores=pid_scores[i],
                     pid=pid_pred[i],
                     primary_scores=primary_scores[i],
-                    is_primary=bool(primary_pred[i]),
-                    start_point=particle_start_points[i],
-                    end_point=particle_end_points[i])
+                    is_primary=bool(primary_pred[i]))
+
+            # Set the end points
+            particle.start_point = particle_start_points[i]
+            if particle.shape == TRACK_SHP:
+                particle.end_point = particle_end_points[i]
 
             # If the orientation prediction is provided, use it
             if orient_pred is not None and not orient_pred[i]:
@@ -227,7 +230,7 @@ class ParticleBuilder(BuilderBase):
                 particle.sources = sources_label[index]
 
             index_adapt = np.where(
-                    label_adapt_tensor[index, GROUP_COL] == group_id)[0]
+                    label_adapt_tensor[:, GROUP_COL] == group_id)[0]
             particle.index_adapt = index_adapt
             particle.points_adapt = points[index_adapt]
             particle.depositions_adapt = depositions[index_adapt]
@@ -236,7 +239,7 @@ class ParticleBuilder(BuilderBase):
 
             if label_g4_tensor is not None:
                 index_g4 = np.where(
-                        label_g4_tensor[index][:, GROUP_COL] == group_id)[0]
+                        label_g4_tensor[:, GROUP_COL] == group_id)[0]
                 particle.index_g4 = index_g4
                 particle.points_g4 = points_g4[index_g4]
                 particle.depositions_g4 = depositions_g4[index_g4]
@@ -301,7 +304,7 @@ class ParticleBuilder(BuilderBase):
 
     def _load_truth(self, truth_particles, points, depositions, points_label,
                     depositions_label, depositions_q_label=None, points_g4=None,
-                    depositons_g4=None, sources=None, sources_label=None):
+                    depositions_g4=None, sources=None, sources_label=None):
         """Construct :class:`TruthParticle` objects from their stored versions.
 
         Parameters

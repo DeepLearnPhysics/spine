@@ -29,6 +29,10 @@ class Drawer:
     # List of known point modes
     _point_modes = ['points', 'points_adapt', 'points_g4']
 
+    # Map between attribute and underlying point objects
+    _point_map = {'points': 'points_label', 'points_adapt': 'points', 
+                  'points_g4': 'points_g4'}
+
     def __init__(self, data, draw_mode='both', truth_point_mode='points',
                  split_scene=True, detector=None, detector_coords=True,
                  **kwargs):
@@ -192,8 +196,9 @@ class Drawer:
         if 'reco' in obj_name:
             points = self.data['points']
             index_mode = 'index'
+
         else:
-            points = self.data[self.truth_point_mode]
+            points = self.data[self._point_map[self.truth_point_mode]]
             index_mode = self.truth_index_mode
 
         clusts = [getattr(obj, index_mode) for obj in self.data[obj_name]]

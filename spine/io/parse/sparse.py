@@ -143,7 +143,8 @@ class Sparse3DParser(ParserBase):
     name = 'sparse3d'
 
     def __init__(self, dtype, sparse_event=None, sparse_event_list=None,
-                 num_features=None, hit_keys=None, nhits_idx=None):
+                 num_features=None, hit_keys=None, nhits_idx=None,
+                 feature_only=False):
         """Initialize the parser.
 
         Parameters
@@ -166,6 +167,8 @@ class Sparse3DParser(ParserBase):
         nhits_idx : int, optional
             Index among the input features where the `nhits` feature
             (doublet vs triplet) should be inserted.
+        feature_only : bool, default False
+            If `True`, only return the feature vector without the coordinates
         """
         # Initialize the parent class
         super().__init__(
@@ -176,6 +179,7 @@ class Sparse3DParser(ParserBase):
         self.num_features = num_features
         self.hit_keys = hit_keys
         self.nhits_idx = nhits_idx
+        self.feature_only = feature_only
 
         # Check on the parameters
         self.compute_nhits = hit_keys is not None
@@ -255,8 +259,9 @@ class Sparse3DParser(ParserBase):
 
                 if num_points is None:
                     num_points = sparse_event.as_vector().size()
-                    np_voxels = np.empty((num_points, 3), dtype=self.itype)
-                    larcv.fill_3d_voxels(sparse_event, np_voxels)
+                    if not self.feature_only:
+                        np_voxels = np.empty((num_points, 3), dtype=self.itype)
+                        larcv.fill_3d_voxels(sparse_event, np_voxels)
                 else:
                     assert num_points == sparse_event.as_vector().size(), (
                             "The number of pixels must match between tensors")
@@ -282,11 +287,15 @@ class Sparse3DParser(ParserBase):
                 np_features.insert(self.nhits_idx, nhits)
 
             # Append to the global list of voxel/features
-            all_voxels.append(np_voxels)
+            if not self.feature_only:
+                all_voxels.append(np_voxels)
             all_features.append(np.hstack(np_features))
 
-        return (np.vstack(all_voxels), np.vstack(all_features),
-                Meta.from_larcv(meta))
+        if self.feature_only:
+            return np.vstack(all_features)
+        else:
+            return (np.vstack(all_voxels), np.vstack(all_features),
+                    Meta.from_larcv(meta))
 
 
 class Sparse3DGhostParser(Sparse3DParser):
