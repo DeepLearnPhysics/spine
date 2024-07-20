@@ -16,26 +16,35 @@ class MatchProcessor(PostBase):
     """Does the matching between reconstructed and true objects."""
     name = 'match'
     
-    def __init__(self, fragment=None, particle=None, interaction=None):
+    def __init__(self, fragment=None, particle=None,
+                 interaction=None, **kwargs):
         """Initializes the matching post-processor.
         
         Parameters
         ----------
-        fragment: dict, optional
-            Matching configuration for fragments
-        particle: dict, optional
-            Matching configuration for particles
-        interaction: dict, optional
-            Matching configuration for interactions
+        fragment: Union[bool, dict], optional
+            Matching flag or configuration for fragments
+        particle: Union[bool, dict], optional
+            Matching flag or configuration for particles
+        interaction: Union[bool, dict], optional
+            Matching flag or configuration for interactions
+        **kwargs : dict, optional
+            Matching parameters shared between all matching processes
         """
         # Initialize the necessary matchers
+        configs = {'fragment': fragment, 'particle': particle,
+                   'interaction': interaction}
         self.matchers = {}
-        if fragment is not None:
-            self.matchers['fragment'] = self.Matcher(**fragment)
-        if particle is not None:
-            self.matchers['particle'] = self.Matcher(**particle)
-        if interaction is not None:
-            self.matchers['interaction'] = self.Matcher(**interaction)
+        for key, cfg in configs.items():
+            if cfg is not None and cfg != False:
+                # Initialize the matcher
+                if isinstance(cfg, bool):
+                    cfg = {}
+                self.matchers[key] = self.Matcher(**cfg, **kwargs)
+
+                # If any matcher includes ghost points, must load meta
+                if self.matchers[key].ghost:
+                    self.keys['meta'] = True
 
         assert len(self.matchers), (
                 "Must specify one of 'fragment', 'particle' or 'interaction'.")
@@ -59,12 +68,16 @@ class MatchProcessor(PostBase):
             Overlap value above which a pair is considered a match
         weight_overlap : bool, default False
             Whether to weight the overlap metric
+        ghost : bool, default False
+            Whether a deghosting process was applied (in which case the indexes
+            of the reco and the truth particles do not align)
         """
         fn: object = None
         match_mode: str = 'both'
         overlap_mode: str = 'iou'
         min_overlap: float = 0.
         weight_overlap: bool = False
+        ghost: bool = False
 
         # Valid match modes
         _match_modes = ['reco_to_truth', 'truth_to_reco', 'both', 'all']
@@ -108,13 +121,19 @@ class MatchProcessor(PostBase):
             reco_objs = data[f'reco_{name}s']
             truth_objs = data[f'truth_{name}s']
 
+            # Fetch the metadata, if needed
+            meta = None
+            if matcher.ghost:
+                meta = data['meta']
+
             # Pass it to the individual processor
-            res_one = self.process_single(reco_objs, truth_objs, matcher, name)
+            res_one = self.process_single(
+                    reco_objs, truth_objs, matcher, name, meta)
             result.update(**res_one)
 
         return result
 
-    def process_single(self, reco_objs, truth_objs, matcher, name):
+    def process_single(self, reco_objs, truth_objs, matcher, name, meta=None):
         """Match all the requested objects in a single category.
 
         Parameters
@@ -127,22 +146,50 @@ class MatchProcessor(PostBase):
             Matching method and function
         name : str
             Object type name
+        meta : Meta, optional
+            Metadata information to convert position to index
         """
         # Convert the object list into an index/coordinate list
-        # TODO: more flexibility with indexes needed! Should be able
-        # to convert coordinates to index (with meta) and use that to
-        # match across points from different input/label tensors
         if matcher.overlap_mode != 'chamfer':
-            reco_input = nb.typed.List([p.index for p in reco_objs])
-            truth_input = nb.typed.List([p.index for p in truth_objs])
+            # For overlap matches, use pixel indexes (faster)
+            if not matcher.ghost:
+                # The indexes of reco and truth point to the same point set
+                reco_input = nb.typed.List([p.index for p in reco_objs])
+                truth_input = nb.typed.List([p.index for p in truth_objs])
+
+            else:
+                # The indexes of reco and truth point to different point sets.
+                # In this case, convert the positions to indexes
+                reco_input = []
+                for p in reco_objs:
+                    coords = p.points
+                    if p.units != 'px':
+                        coords = meta.to_px(coords, floor=True)
+                    reco_input.append(meta.index(coords))
+
+                truth_input = []
+                for p in truth_objs:
+                    coords = p.points
+                    if p.units != 'px':
+                        coords = meta.to_px(coords, floor=True)
+                    truth_input.append(meta.index(coords))
+                
         else:
+            # For the chamfer distance, simply use the point positions
             reco_input = nb.typed.List([p.points for p in reco_objs])
             truth_input = nb.typed.List([p.points for p in truth_objs])
 
         # Pass lists to the matching function to compute overlaps
-        # TODO: the validity check makes no sense for Chamfer distance
-        ovl_matrix = matcher.fn(reco_input, truth_input)
-        ovl_valid = ovl_matrix > matcher.min_overlap
+        if len(reco_input) and len(truth_input):
+            ovl_matrix = matcher.fn(reco_input, truth_input)
+        else:
+            ovl_matrix = np.empty((len(reco_input), len(truth_input)))
+
+        # Make the overlap selection cut, if requested
+        if matcher.overlap_mode != 'chamfer':
+            ovl_valid = ovl_matrix > matcher.min_overlap
+        else:
+            ovl_valid = ovl_matrix < match.min_overlap
 
         # Produce matches
         result = {}

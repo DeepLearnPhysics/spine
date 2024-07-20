@@ -120,13 +120,14 @@ class ClustGeoNodeEncoder(torch.nn.Module):
         # If features are provided directly, must ensure that the corresponding
         # flags in the configuration are as expected.
         assert points is None or self.add_points, (
-                "If end points are provided, `add_points` should be True")
+                "If end points are provided, `add_points` should be `True`.")
         assert extra is None or (self.add_value or self.add_shape), (
                 "If extra features are provided, either `add_value` or "
-                "`add_shape` should be True")
+                "`add_shape` should be `True`.")
         assert (not self.add_points or
                 ((coord_label is not None) ^ (points is not None))), (
-                "Must provide either `coord_label` or `points` to add points")
+                "Must provide either `coord_label` or `points` to add points, "
+                "not both.")
 
         # Update the flags depending what is provided
         add_value, add_shape = self.add_value, self.add_shape

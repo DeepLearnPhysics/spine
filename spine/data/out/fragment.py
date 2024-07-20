@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from spine.utils.globals import SHAPE_LABELS
+from spine.utils.globals import SHAPE_LABELS, TRACK_SHP
 from spine.utils.decorators import inherit_docstring
 
 from spine.data.particle import Particle
@@ -36,9 +36,9 @@ class FragmentBase:
     end_point : np.ndarray
         (3) Fragment end point (only assigned to track objects)
     start_dir : np.ndarray
-        (3) Fragment direction estimate w.r.t. the start point
+        (3) Fragment direction w.r.t. the start point
     end_dir : np.ndarray
-        (3) Fragment direction estimate w.r.t. the end point (only assigned
+        (3) Fragment direction w.r.t. the end point (only assigned
         to track objects)
     """
     particle_id: int = -1
@@ -115,16 +115,36 @@ class TruthFragment(Particle, FragmentBase, TruthBase):
 
     This inherits all of the attributes of :class:`Particle`, which contains
     the G4 truth information for the fragment.
+
+    Attributes
+    ----------
+    orig_interaction_id : int
+        Unaltered index of the interaction in the original MC paricle list
+    children_counts : np.ndarray
+        (P) Number of truth child particle of each shape
+    reco_start_dir : np.ndarray
+        (3) Particle direction estimate w.r.t. the start point
+    reco_end_dir : np.ndarray
+        (3) Particle direction estimate w.r.t. the end point (only assigned
+        to track objects)
     """
+    orig_interaction_id: int = -1
+    children_counts: np.ndarray = None
+    reco_start_dir: np.ndarray = None
+    reco_end_dir: np.ndarray = None
 
     # Fixed-length attributes
     _fixed_length_attrs = {
-            **FragmentBase._fixed_length_attrs, **Particle._fixed_length_attrs
+            **FragmentBase._fixed_length_attrs,
+            **Particle._fixed_length_attrs,
+            'reco_start_dir': 3, 'reco_end_dir': 3
     }
 
     # Variable-length attributes
     _var_length_attrs = {
-            **TruthBase._var_length_attrs, **Particle._var_length_attrs
+            **TruthBase._var_length_attrs,
+            **Particle._var_length_attrs,
+            'children_counts': np.int32
     }
 
     def __str__(self):
@@ -136,3 +156,46 @@ class TruthFragment(Particle, FragmentBase, TruthBase):
             Basic information about the fragment properties
         """
         return 'Truth' + super().__str__()
+
+    @property
+    def start_dir(self):
+        """Converts the initial momentum to a direction vector.
+
+        Returns
+        -------
+        np.ndarray
+            (3) Start direction vector
+        """
+        if self.momentum is not None:
+            norm = np.linalg.norm(self.momentum)
+            if norm > 0. and norm != np.inf:
+                return self.momentum/norm
+
+        return np.full(3, -np.inf, dtype=np.float32)
+
+    @start_dir.setter
+    def start_dir(self, start_dir):
+        self._start_dir = start_dir
+
+    @property
+    def end_dir(self):
+        """Converts the final momentum to a direction vector.
+
+        Note that if a particle stops, this is unreliable as an estimate of the
+        direction of the particle before it stops.
+
+        Returns
+        -------
+        np.ndarray
+            (3) End direction vector
+        """
+        if self.end_momentum is not None:
+            norm = np.linalg.norm(self.end_momentum)
+            if self.shape == TRACK_SHP and norm > 0. and norm != np.inf:
+                return self.end_momentum/norm
+
+        return np.full(3, -np.inf, dtype=np.float32)
+
+    @end_dir.setter
+    def end_dir(self, end_dir):
+        self._end_dir = end_dir

@@ -92,9 +92,8 @@ class MCSEnergyProcessor(PostBase):
                     continue
 
                 # Get the list of segment directions
-                # TODO: fix typing upstream (input/output of model should match)
                 _, dirs, _ = get_track_segments(
-                        points.astype(np.float32), self.segment_length, obj.start_point,
+                        points, self.segment_length, obj.start_point,
                         method=self.tracking_mode, **self.tracking_kwargs)
 
                 # Find the angles between successive segments

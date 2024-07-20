@@ -520,7 +520,7 @@ class PPNLoss(torch.nn.modules.loss._Loss):
             assert len(self.point_classes), (
                     "Should provide at least one class to include in the loss")
             ppn_label_list = []
-            for b, label_tensor in enumerate(ppn_label_list):
+            for b, label_tensor in enumerate(ppn_label.split()):
                 labels = label_tensor[:, PPN_LTYPE_COL]
                 mask = torch.zeros(len(labels), dtype=torch.bool,
                                    device=labels.device)

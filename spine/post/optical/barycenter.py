@@ -4,18 +4,16 @@ from spine.utils.geo import Geometry
 from spine.utils.numba_local import cdist
 
 class BarycenterFlashMatcher:
-    '''
-    Matches interactions and flashes by matching the charge barycenter of
+    """Matches interactions and flashes by matching the charge barycenter of
     TPC interactions with the light barycenter of optical flashes.
-    '''
+    """
     axes = ['x', 'y', 'z']
 
     def __init__(self, match_method='threshold', dimensions=[1,2],
             charge_weighted=False, time_window=None, first_flash_only=False,
             min_inter_size=None, min_flash_pe=None, match_distance=None,
             detector=None, boundary_file=None, source_file=None):
-        '''
-        Initalize the barycenter flash matcher.
+        """Initalize the barycenter flash matcher.
 
         Parameters
         ----------
@@ -41,7 +39,7 @@ class BarycenterFlashMatcher:
             Detector to get the geometry from
         boundary_file : str, optional
             Path to a detector boundary file. Supersedes `detector` if set
-        '''
+        """
         self.geo = None
         if detector is not None or boundary_file is not None:
             self.geo = Geometry(detector, boundary_file, source_file)
@@ -65,8 +63,7 @@ class BarycenterFlashMatcher:
                     'When using the `threshold` method, must specify `match_distance`'
 
     def get_matches(self, interactions, flashes):
-        '''
-        Makes [interaction, flash] pairs that have compatible barycenters.
+        """Makes [interaction, flash] pairs that have compatible barycenters.
 
         Parameters
         ----------
@@ -79,7 +76,7 @@ class BarycenterFlashMatcher:
         -------
         List[[Interaction, larcv.Flash, float]]
             List of [interaction, flash, distance] triplets
-        '''
+        """
         # Restrict the flashes to those that fit the selection criteria
         flashes = np.asarray(flashes, dtype=object)
         if self.time_window is not None:
