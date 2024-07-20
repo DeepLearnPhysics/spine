@@ -152,6 +152,13 @@ class CollateAll:
                     data[key] = EdgeIndexBatch(
                             tensor, counts, offsets, directed=True)
 
+            elif isinstance(ref_obj, np.ndarray):
+                # Case where there is a simple feature tensor returned per
+                # entry. Stack the features, do not add a batch column
+                tensor = np.concatenate([sample[key] for sample in batch])
+                counts = [len(sample[key]) for sample in batch]
+                data[key] = TensorBatch(tensor, counts)
+
             else:
                 # In all other cases, just make a list of size batch_size
                 data[key] = [sample[key] for sample in batch]

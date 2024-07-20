@@ -432,7 +432,7 @@ class TruthParticle(Particle, ParticleBase, TruthBase):
         Returns
         -------
         float
-            (3) End direction vector
+            Initial kinetic energy of the particle
         """
         if self.pid in PID_MASSES:
             mass = PID_MASSES[self.pid]

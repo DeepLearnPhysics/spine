@@ -340,10 +340,10 @@ class FullChain(torch.nn.Module):
                         sources.tensor[ghost_pred.tensor == 0],
                         data_adapt.counts)
                 self.result['sources_adapt'] = sources_adapt
-                if seg_label is not None:
+                if clust_label is not None:
                     ghost_label = seg_label.tensor[:, SHAPE_COL] < GHOST_SHP
                     sources_label = TensorBatch(
-                            source.tensor[ghost_label], seg_label.counts)
+                            sources.tensor[ghost_label], clust_label.counts)
                     self.result['sources_label'] = sources_label
 
             return data_adapt, sources_adapt
