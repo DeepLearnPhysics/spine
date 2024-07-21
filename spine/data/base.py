@@ -119,7 +119,8 @@ class DataBase:
         dict
             Dictionary of attribute names and their values
         """
-        return {k:v for k, v in self.__getstate__().items() if k not in self._skip_attrs}
+        return {k:v for k, v in asdict(self).items() if (
+                not k.startswith('_') and not k in self._skip_attrs)}
 
     def scalar_dict(self, attrs=None):
         """Returns the data class attributes as a dictionary of scalars.
