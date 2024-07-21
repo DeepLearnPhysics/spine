@@ -10,7 +10,7 @@ for module in [reco, metric, optical, crt, trigger]:
     POST_DICT.update(**module_dict(module))
 
 
-def post_processor_factory(name, cfg, parent_path=''):
+def post_processor_factory(name, cfg, parent_path=None):
     """Instantiates a post-processor module from a configuration dictionary.
 
     Parameters
@@ -19,9 +19,6 @@ def post_processor_factory(name, cfg, parent_path=''):
         Name of the post-processor module
     cfg : dict
         Post-processor module configuration
-    parent_path : str
-        Path to the parent directory of the main analysis configuration. This
-        allows for the use of relative paths in the post-processors.
 
     Returns
     -------
@@ -32,4 +29,8 @@ def post_processor_factory(name, cfg, parent_path=''):
     cfg['name'] = name
 
     # Instantiate the post-processor module
-    return instantiate(POST_DICT, cfg)
+    # TODO: This is hacky, fix it
+    if name == 'flash_match':
+        return instantiate(POST_DICT, cfg, parent_path=parent_path)
+    else:
+        return instantiate(POST_DICT, cfg)
