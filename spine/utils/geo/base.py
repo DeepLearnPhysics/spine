@@ -473,7 +473,7 @@ class Geometry:
 
         return offsets
 
-    def translate(self, points, source_id, target_id):
+    def translate(self, points, source_id, target_id, factor=None):
         """Moves a point cloud from one module to another one
 
         Parameters
@@ -484,6 +484,9 @@ class Geometry:
             Module ID from which to move the point cloud
         target_id : int
             Module ID to which to move the point cloud
+        factor : Union[float, np.ndarray], optional
+            Multiplicative factor to apply to the offset. This is necessary if
+            the points are not expressed in detector coordinates
 
         Returns
         -------
@@ -492,13 +495,15 @@ class Geometry:
         """
         # If the source and target are the same, nothing to do here
         if target_id == source_id:
-            return points
+            return np.copy(points)
 
         # Fetch the inter-module shift
         offset = self.centers[target_id] - self.centers[source_id]
+        if factor is not None:
+            offset *= factor
 
         # Translate
-        return np.copy(points) + offset
+        return points + offset
 
     def split(self, points, target_id, sources=None, meta=None):
         """Migrate all points to a target module, organize them by module ID.
@@ -534,6 +539,7 @@ class Geometry:
             module_indexes = []
             for m in range(self.num_modules):
                 module_indexes.append(np.where(sources[:, 0] == m)[0])
+
         else:
             # If the points are expressed in pixel coordinates, translate
             convert = meta is not None
@@ -550,10 +556,10 @@ class Geometry:
                 continue
 
             # Shift the coordinates
-            points[module_index] = \
-                    self.translate(points[module_index], module_id, target_id)
+            points[module_index] = self.translate(
+                    points[module_index], module_id, target_id)
 
-        # Bring the coordiantes back to pixels, if they were shifted
+        # Bring the coordinates back to pixels, if they were shifted
         if convert:
             points = meta.to_px(points, floor=True)
 

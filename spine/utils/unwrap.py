@@ -123,17 +123,21 @@ class Unwrapper:
         tensors = []
         batch_size = data.batch_size//self.num_volumes
         for b in range(batch_size):
+            tensor_list = []
             for v in range(self.num_volumes):
                 idx = b*self.num_volumes + v
                 tensor = data[idx]
                 if v > 0 and data.coord_cols is not None:
                     for cols in data.coord_cols.reshape(-1, 3):
+                        # TODO: Hacky as hell, fix it
                         tensor[:, cols] = self.geo.translate(
-                                tensor[:, cols], 0, v)
+                                tensor[:, cols], 0, v, 1./0.3)
                 if self.remove_batch_col and data.has_batch_col:
                     tensor = tensor[:, BATCH_COL+1:]
 
-                tensors.append(tensor)
+                tensor_list.append(tensor)
+
+            tensors.append(np.concatenate(tensor_list))
 
         return tensors
 
