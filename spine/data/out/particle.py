@@ -24,7 +24,7 @@ class ParticleBase:
     ----------
     fragments : List[object]
         List of fragments that make up the interaction
-    fragment_ids : np.ndarray, 
+    fragment_ids : np.ndarray
         List of Fragment IDs that make up this particle
     interaction_id : int
         Index of the interaction this particle belongs to
@@ -45,9 +45,9 @@ class ParticleBase:
     end_point : np.ndarray
         (3) Particle end point (only assigned to track objects)
     start_dir : np.ndarray
-        (3) Particle direction estimate w.r.t. the start point
+        (3) Particle direction w.r.t. the start point
     end_dir : np.ndarray
-        (3) Particle direction estimate w.r.t. the end point (only assigned
+        (3) Particle direction w.r.t. the end point (only assigned
         to track objects)
     ke : float
         Kinetic energy of the particle
@@ -144,7 +144,7 @@ class ParticleBase:
         Returns
         -------
         int
-            Reconstructed sign-less PDG code 
+            Reconstructed sign-less PDG code
         """
         return PID_TO_PDG[self.pid]
 
@@ -197,7 +197,7 @@ class RecoParticle(ParticleBase, RecoBase):
     # Fixed-length attributes
     _fixed_length_attrs = {
             'pid_scores': len(PID_LABELS) - 1,
-            'primary_scores': 2, 
+            'primary_scores': 2,
             **ParticleBase._fixed_length_attrs}
 
     # Variable-length attributes
@@ -335,14 +335,22 @@ class TruthParticle(Particle, ParticleBase, TruthBase):
         Unaltered index of the interaction in the original MC paricle list
     children_counts : np.ndarray
         (P) Number of truth child particle of each shape
+    reco_start_dir : np.ndarray
+        (3) Particle direction estimate w.r.t. the start point
+    reco_end_dir : np.ndarray
+        (3) Particle direction estimate w.r.t. the end point (only assigned
+        to track objects)
     """
     orig_interaction_id: int = -1
     children_counts: np.ndarray = None
+    reco_start_dir: np.ndarray = None
+    reco_end_dir: np.ndarray = None
 
     # Fixed-length attributes
     _fixed_length_attrs = {
             **ParticleBase._fixed_length_attrs,
-            **Particle._fixed_length_attrs
+            **Particle._fixed_length_attrs,
+            'reco_start_dir': 3, 'reco_end_dir': 3
     }
 
     # Variable-length attributes
@@ -352,6 +360,11 @@ class TruthParticle(Particle, ParticleBase, TruthBase):
             **Particle._var_length_attrs,
             'children_counts': np.int32
     }
+
+    # Private derived attributes
+    _start_dir: np.ndarray = field(init=False, repr=False)
+    _end_dir: np.ndarray = field(init=False, repr=False)
+    _ke: np.ndarray = field(init=False, repr=False)
 
     # Attributes that should not be stored
     _skip_attrs = [*TruthBase._skip_attrs, *ParticleBase._skip_attrs]
@@ -365,3 +378,68 @@ class TruthParticle(Particle, ParticleBase, TruthBase):
             Basic information about the particle properties
         """
         return 'Truth' + super().__str__()
+
+    @property
+    def start_dir(self):
+        """Converts the initial momentum to a direction vector.
+
+        Returns
+        -------
+        np.ndarray
+            (3) Start direction vector
+        """
+        if self.momentum is not None:
+            norm = np.linalg.norm(self.momentum)
+            if norm > 0. and norm != np.inf:
+                return self.momentum/norm
+
+        return np.full(3, -np.inf, dtype=np.float32)
+
+    @start_dir.setter
+    def start_dir(self, start_dir):
+        self._start_dir = start_dir
+
+    @property
+    def end_dir(self):
+        """Converts the final momentum to a direction vector.
+
+        Note that if a particle stops, this is unreliable as an estimate of the
+        direction of the particle before it stops.
+
+        Returns
+        -------
+        np.ndarray
+            (3) End direction vector
+        """
+        if self.end_momentum is not None:
+            norm = np.linalg.norm(self.end_momentum)
+            if self.shape == TRACK_SHP and norm > 0. and norm != np.inf:
+                return self.end_momentum/norm
+
+        return np.full(3, -np.inf, dtype=np.float32)
+
+    @end_dir.setter
+    def end_dir(self, end_dir):
+        self._end_dir = end_dir
+
+    @property
+    def ke(self):
+        """Converts the particle initial energy to a kinetic energy.
+
+        This only works for particles with a known mass (as defined in
+        `spine.utils.globals`).
+
+        Returns
+        -------
+        float
+            Initial kinetic energy of the particle
+        """
+        if self.pid in PID_MASSES:
+            mass = PID_MASSES[self.pid]
+            return self.energy_init - mass
+
+        return -1.
+
+    @ke.setter
+    def ke(self, ke):
+        self._ke = ke

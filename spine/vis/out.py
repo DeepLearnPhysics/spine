@@ -29,6 +29,10 @@ class Drawer:
     # List of known point modes
     _point_modes = ['points', 'points_adapt', 'points_g4']
 
+    # Map between attribute and underlying point objects
+    _point_map = {'points': 'points_label', 'points_adapt': 'points', 
+                  'points_g4': 'points_g4'}
+
     def __init__(self, data, draw_mode='both', truth_point_mode='points',
                  split_scene=True, detector=None, detector_coords=True,
                  **kwargs):
@@ -161,11 +165,15 @@ class Drawer:
 
         # Initialize the figure, return
         if len(self.prefixes) > 1 and self.split_scene:
+            titles = [f'Reconstructed {obj_type}', f'Truth {obj_type}']
             figure = dual_figure3d(
                     traces['reco'], traces['truth'], layout=self.layout,
-                    synchronize=synchronize)
+                    synchronize=synchronize, titles=titles)
 
         else:
+            assert titles is None, (
+                    "Providing titles does not do anything when split_scene "
+                    "is False.")
             all_traces = []
             for trace_group in traces.values():
                 all_traces += trace_group
@@ -192,8 +200,9 @@ class Drawer:
         if 'reco' in obj_name:
             points = self.data['points']
             index_mode = 'index'
+
         else:
-            points = self.data[self.truth_point_mode]
+            points = self.data[self._point_map[self.truth_point_mode]]
             index_mode = self.truth_index_mode
 
         clusts = [getattr(obj, index_mode) for obj in self.data[obj_name]]
@@ -270,15 +279,18 @@ class Drawer:
             color = np.unique(color, return_inverse=True)[-1]
             colorscale = HIGH_CONTRAST_COLORS
             count = len(color)
-            if count <= len(colorscale):
+            if count == 0:
+                colorscale = None
+            elif count == 1:
+                colorscale = [colorscale[0]] * 2 # Avoid length 0 colorscale
+            elif count <= len(colorscale):
                 colorscale = colorscale[:count]
-
-            if count > len(colorscale):
+            else:
                 repeat = (count - 1)//len(colorscales) + 1
                 self._colorscale = np.repeat(colorscale, repeat)[:count]
 
             cmin = 0
-            cmax = count - 1
+            cmax = count# - 1
 
         else:
             raise KeyError(

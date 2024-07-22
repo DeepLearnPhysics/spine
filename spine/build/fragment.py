@@ -117,7 +117,7 @@ class FragmentBuilder(BuilderBase):
                 fragment.sources = sources[index]
             if fragment_start_points is not None:
                 fragment.start_point = fragment_start_points[i]
-            if fragment_end_points is not None:
+            if fragment_end_points is not None and fragment.shape == TRACK_SHP:
                 fragment.end_point = fragment_end_points[i]
             if fragment_group_pred is not None:
                 fragment.particle_id = fragment_group_pred[i]
@@ -224,7 +224,7 @@ class FragmentBuilder(BuilderBase):
                 fragment.sources = sources_label[index]
 
             index_adapt = np.where(
-                    label_adapt_tensor[index, CLUST_COL] == frag_id)[0]
+                    label_adapt_tensor[:, CLUST_COL] == frag_id)[0]
             fragment.index_adapt = fragment.index_adapt
             fragment.points_adapt = points[index_adapt]
             fragment.depositions_adapt = depositions[index_adapt]
@@ -233,7 +233,7 @@ class FragmentBuilder(BuilderBase):
 
             if label_g4_tensor is not None:
                 index_g4 = np.where(
-                        label_g4_tensor[index, CLUST_COL] == frag_id)[0]
+                        label_g4_tensor[:, CLUST_COL] == frag_id)[0]
                 fragment.index_g4 = index_g4
                 fragment.points_g4 = poins_g4[index_g4]
                 fragment.depositions_g4 = depositions_g4[index_g4]

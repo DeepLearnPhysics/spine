@@ -56,10 +56,12 @@ class DirectionProcessor(PostBase):
                     continue
 
                 # Reconstruct directions from either end of the particle
-                obj.start_dir = cluster_direction(
+                start_attr = 'reco_start_dir' if obj.is_truth else 'start_dir'
+                setattr(obj, start_attr, cluster_direction(
                         points, obj.start_point, 
-                        self.neighborhood_radius, self.optimize)
+                        self.neighborhood_radius, self.optimize))
                 if obj.shape == TRACK_SHP:
-                    obj.end_dir = cluster_direction(
+                    end_attr = 'reco_end_dir' if obj.is_truth else 'end_dir'
+                    setattr(obj, end_attr, -cluster_direction(
                             points, obj.end_point,
-                            self.neighborhood_radius, self.optimize)
+                            self.neighborhood_radius, self.optimize))

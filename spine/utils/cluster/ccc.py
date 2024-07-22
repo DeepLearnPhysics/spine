@@ -128,8 +128,9 @@ class ConnectedComponentClusterer:
 
             # Update the list of node assignments, offset the cluster
             # counter to make sure there is no overlap between shapes
-            node_pred[nindex] = node_pred_s
-            offset = int(node_pred.max()) + 1
+            if len(nindex):
+                node_pred[nindex] = node_pred_s
+                offset = int(node_pred.max()) + 1
         
         return node_pred
 

@@ -1,6 +1,6 @@
 """Module with classes for all reconstructed and true objects."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -25,6 +25,8 @@ class OutBase(PosDataBase):
         (N) Array of charge deposition values for each voxel
     sources : np.ndarray
         (N, 2) Set of voxel sources as (Module ID, TPC ID) pairs
+    module_ids : np.ndarray
+        (M) List of module indexes that make up this object
     is_contained : bool
         Whether this object is fully contained within the detector
     is_matched: bool
@@ -49,6 +51,7 @@ class OutBase(PosDataBase):
     points: np.ndarray = None
     depositions: np.ndarray = None
     sources: np.ndarray = None
+    module_ids: np.ndarray = None
     is_contained: bool = False
     is_matched: bool = False
     match_ids: np.ndarray = None
@@ -58,11 +61,14 @@ class OutBase(PosDataBase):
     is_truth: bool = None
     units: str = 'cm'
 
+    # Private derived attributes
+    _module_ids: np.ndarray = field(init=False, repr=False)
+
     # Variable-length attribtues
     _var_length_attrs = {
             'index': np.int64, 'depositions': np.float32,
             'match_ids': np.int64, 'match_overlaps': np.float32,
-            'points': (3, np.float32), 'sources': (2, np.int64)
+            'points': (3, np.float32), 'sources': (2, np.int64),
     }
 
     # Attributes to concatenate when merging objects
@@ -92,6 +98,21 @@ class OutBase(PosDataBase):
             Sum of all depositions that make up the object
         """
         return np.sum(self.depositions)
+
+    @property
+    def module_ids(self):
+        """List of modules that contribute to this object.
+
+        Returns
+        -------
+        np.ndarray
+            List of unique modules contributing to this object.
+        """
+        return np.unique(self.sources[:, 0])
+
+    @module_ids.setter
+    def module_ids(self, module_ids):
+        self._module_ids = module_ids
 
 
 @dataclass

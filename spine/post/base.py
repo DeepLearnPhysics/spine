@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 
 class PostBase(ABC):
     """Base class of all post-processors.
-    
+
     This base class performs the following functions:
       - Ensures that the necessary method exist
       - Checks that the post-processor is provided the necessary information
@@ -44,7 +44,8 @@ class PostBase(ABC):
     # List of known point modes
     _point_modes = ['points', 'points_adapt', 'points_g4']
 
-    def __init__(self, obj_type=None, run_mode=None, truth_point_mode=None):
+    def __init__(self, obj_type=None, run_mode=None, truth_point_mode=None,
+                 parent_path=None):
         """Initialize default post-processor object properties.
 
         Parameters
@@ -59,6 +60,9 @@ class PostBase(ABC):
             If specified, tells which attribute of the :class:`TruthFragment`,
             :class:`TruthParticle` or :class:`TruthInteraction` object to use
             to fetch its point coordinates
+        parent_path : str, optional
+            Path to the parent directory of the main analysis configuration. This
+            allows for the use of relative paths in the post-processors.
         """
         # If run mode is specified, process it
         if run_mode is not None:
@@ -87,8 +91,8 @@ class PostBase(ABC):
                 if run_mode != 'reco':
                     getattr(self, f'{name}_keys').append(f'truth_{name}s')
 
-        self.obj_keys = (self.fragment_keys 
-                         + self.particle_keys 
+        self.obj_keys = (self.fragment_keys
+                         + self.particle_keys
                          + self.interaction_keys)
         self.keys.update({k:True for k in self.obj_keys})
 
@@ -98,6 +102,10 @@ class PostBase(ABC):
                      "The `truth_point_mode` argument must be one of "
                     f"{self._point_modes}. Got `{truth_point_mode}` instead.")
             self.truth_point_mode = truth_point_mode
+            self.truth_index_mode = truth_point_mode.replace('points', 'index')
+
+        # Store the parent path
+        self.parent_path = parent_path
 
     def __call__(self, data, entry=None):
         """Calls the post processor on one entry.
@@ -119,7 +127,7 @@ class PostBase(ABC):
         for key, req in self.keys.items():
             # If this key is needed, check that it exists
             assert not req or key in data, (
-                    f"Post-processor `{self.name}` if missing an essential "
+                    f"Post-processor `{self.name}` is missing an essential "
                     f"input to be used: `{key}`.")
 
             # Append
@@ -133,7 +141,7 @@ class PostBase(ABC):
 
     def get_points(self, obj):
         """Get a certain pre-defined point attribute of an object.
-        
+
         The :class:`TruthFragment`, :class:`TruthParticle` and
         :class:`TruthInteraction` objects points are obtained using the
         `truth_point_mode` attribute of the class.
@@ -152,6 +160,28 @@ class PostBase(ABC):
             return obj.points
         else:
             return getattr(obj, self.truth_point_mode)
+
+    def get_index(self, obj):
+        """Get a certain pre-defined index attribute of an object.
+
+        The :class:`TruthFragment`, :class:`TruthParticle` and
+        :class:`TruthInteraction` objects index are obtained using the
+        `truth_index_mode` attribute of the class.
+
+        Parameters
+        ----------
+        obj : Union[FragmentBase, ParticleBase, InteractionBase]
+            Fragment, Particle or Interaction object
+
+        Results
+        -------
+        np.ndarray
+           (N) Object index
+        """
+        if not obj.is_truth:
+            return obj.index
+        else:
+            return getattr(obj, self.truth_index_mode)
 
     def check_units(self, obj):
         """Check that the point coordinates of an object are as expected.

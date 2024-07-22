@@ -25,7 +25,7 @@ class CollateAll:
     name = 'all'
 
     def __init__(self, split=False, target_id=0, detector=None,
-                 boundary=None, overlay=None):
+                 boundary=None, overlay=None, source=None):
         """Initialize the collation parameters.
 
         Parameters
@@ -41,15 +41,20 @@ class CollateAll:
             Path to a `.npy` boundary file to load the boundaries from
         overlay : dict, optional
             Image overlay configuration
+        source : dict, optional
+            Dictionary which maps keys to their corresponding sources. This can
+            be used to split tensors without having to check the geometry
         """
         # Initialize the geometry, if required
         self.split = split
+        self.source = None
         if split:
             assert (detector is not None) or (boundary is not None), (
                     "If splitting the input per module, must provide detector")
 
             self.target_id = target_id
             self.geo = Geometry(detector, boundary)
+            self.source = source
 
         if overlay is not None:
             self.process_overlay_config(**overlay)
@@ -95,7 +100,16 @@ class CollateAll:
         batch_size = len(batch)
         data = {}
         for key in batch[0].keys():
+            # Fetch the reference object
             ref_obj = batch[0][key]
+
+            # Fetch the source object, if it exists
+            sources = None
+            if self.source is not None and key in self.source:
+                source_key = self.source[key]
+                sources = [batch[i][source_key] for i in range(len(batch))]
+
+            # Dispatch
             if isinstance(ref_obj, tuple) and len(ref_obj) == 3:
                 # Case where a coordinates tensor and a feature tensor
                 # are provided, along with the metadata information
@@ -114,11 +128,26 @@ class CollateAll:
                     counts = np.empty(
                             batch_size*self.geo.num_modules, dtype=np.int64)
                     for s, sample in enumerate(batch):
+                        # Identify which point belongs to which module
                         voxels, features, meta = sample[key]
                         voxels_wrapped, module_indexes = self.geo.split(
                                 voxels.reshape(-1, 3),
                                 self.target_id, meta=meta)
                         voxels = voxels_wrapped.reshape(-1, voxels.shape[1])
+
+                        # If there are more than one point per row and they
+                        # are in separate volumes, the choice is arbitrary
+                        if voxels.shape[1] > 3:
+                            num_points = voxels.shape[1]//3
+                            free = np.ones(len(voxels), dtype=bool)
+                            for m, module_index in enumerate(module_indexes):
+                                mask = np.zeros(len(voxels_wrapped), dtype=bool)
+                                mask[module_index] = True
+                                mask = mask.reshape(-1, num_points).any(axis=1)
+                                module_indexes[m] = np.where(free & mask)[0]
+                                free[module_indexes[m]] = False
+
+                        # Assign a different batch ID to each volume
                         for m, module_index in enumerate(module_indexes):
                             voxels_v.append(voxels[module_index])
                             features_v.append(features[module_index])
@@ -151,6 +180,29 @@ class CollateAll:
                 else:
                     data[key] = EdgeIndexBatch(
                             tensor, counts, offsets, directed=True)
+
+            elif isinstance(ref_obj, np.ndarray):
+                # Case where there is a simple feature tensor returned per
+                # entry. Stack the features, do not add a batch column
+                if not self.split or sources is None:
+                    tensor = np.concatenate([sample[key] for sample in batch])
+                    counts = [len(sample[key]) for sample in batch]
+
+                else:
+                    features_v = []
+                    counts = np.empty(
+                            batch_size*self.geo.num_modules, dtype=np.int64)
+                    for s, sample in enumerate(batch):
+                        features = sample[key]
+                        for m in range(self.geo.num_modules):
+                            module_index = np.where(sources[s][:, 0] == m)[0]
+                            features_v.append(features[module_index])
+                            idx = self.geo.num_modules * s + m
+                            counts[idx] = len(module_index)
+
+                    tensor = np.vstack(features_v)
+
+                data[key] = TensorBatch(tensor, counts)
 
             else:
                 # In all other cases, just make a list of size batch_size

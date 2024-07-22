@@ -101,7 +101,9 @@ class BuildManager:
         """
         # If this is the first time the builders are called, build
         # the objects shared between fragments/particles/interactions
+        load = True
         if 'points' not in data:
+            load = False
             if np.isscalar(data['index']):
                 sources = self.build_sources(data)
             else:
@@ -119,7 +121,7 @@ class BuildManager:
             builder(data)
 
             # Generate match pairs from stored matches
-            if self.mode in ['both', 'all']:
+            if load and self.mode in ['both', 'all']:
                 if np.isscalar(data['index']):
                     match_dict = self.load_match_pairs(data, name)
                 else:
@@ -153,6 +155,7 @@ class BuildManager:
                     sources[key] = data[alt]
                     if entry is not None:
                         sources[key] = data[alt][entry]
+                    break
 
         # Build aditional information
         update = {}
@@ -167,6 +170,9 @@ class BuildManager:
             update['label_adapt_tensor'] = sources['label_adapt_tensor']
             update['depositions_label_adapt'] = (
                     sources['label_adapt_tensor'][:, VALUE_COL])
+
+            if 'depositions_q_label' in sources:
+                update['depositions_q_label'] = sources['depositions_q_label']
 
         if 'label_g4_tensor' in sources:
             update['label_g4_tensor'] = sources['label_g4_tensor']

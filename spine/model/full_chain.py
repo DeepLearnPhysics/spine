@@ -318,7 +318,7 @@ class FullChain(torch.nn.Module):
             ghost_pred = torch.argmax(ghost_tensor, dim=1)
             data_adapt = TensorBatch(
                     data.tensor[ghost_pred == 0], batch_size=data.batch_size,
-                    has_batch_col=True)
+                    has_batch_col=True, coord_cols=data.coord_cols)
             ghost_pred = TensorBatch(ghost_pred, data.counts)
 
             # Rescale the charge, if requested
@@ -327,7 +327,7 @@ class FullChain(torch.nn.Module):
                         data_adapt, self.charge_rescaling == 'collection')
                 tensor_deghost = data_adapt.tensor[:, :-6]
                 tensor_deghost[:, VALUE_COL] = charges
-                data_adapt = TensorBatch(tensor_deghost, data_adapt.counts)
+                data_adapt.data = tensor_deghost
 
             self.result['ghost'] = res_deghost['segmentation']
             self.result['ghost_pred'] = ghost_pred
@@ -340,10 +340,10 @@ class FullChain(torch.nn.Module):
                         sources.tensor[ghost_pred.tensor == 0],
                         data_adapt.counts)
                 self.result['sources_adapt'] = sources_adapt
-                if seg_label is not None:
+                if clust_label is not None:
                     ghost_label = seg_label.tensor[:, SHAPE_COL] < GHOST_SHP
                     sources_label = TensorBatch(
-                            source.tensor[ghost_label], seg_label.counts)
+                            sources.tensor[ghost_label], clust_label.counts)
                     self.result['sources_label'] = sources_label
 
             return data_adapt, sources_adapt
@@ -365,7 +365,8 @@ class FullChain(torch.nn.Module):
             # Store and return
             ghost_pred = TensorBatch(ghost_pred, data.counts)
             data_adapt = TensorBatch(
-                    tensor_deghost, batch_size=data.batch_size)
+                    tensor_deghost, batch_size=data.batch_size,
+                    coord_cols=data.coord_cols)
             self.result['ghost_pred'] = ghost_pred
             self.result['data_adapt'] = data_adapt
 
@@ -471,7 +472,7 @@ class FullChain(torch.nn.Module):
                 ghost_pred = torch.argmax(ghost_tensor, dim=1)
                 data_adapt = TensorBatch(
                         data.tensor[ghost_pred == 0],
-                        batch_size=data.batch_size)
+                        batch_size=data.batch_size, coord_cols=data.coord_cols)
                 ghost_pred = TensorBatch(ghost_pred, data.counts)
 
                 self.result['ghost_pred'] = ghost_pred

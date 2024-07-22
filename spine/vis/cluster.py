@@ -106,9 +106,9 @@ def scatter_clusters(points, clusts, color=None, hovertext=None,
         if mode == 'circle':
             # Define the nodes as circles centered in the centroid of each
             # cluster and of radius proportional to the sqrt of the cluster size
-            centroids = [np.mean(coord, axis=0) for coord in coords]
-            if centroids:
-                centroids = np.vstack(centroids)
+            centroids = np.empty(len(coords), dtype=np.float32)
+            for i, coord in enumerate(coords):
+                centroids = np.mean(coord, axis=0)
             sizes = np.sqrt(counts)
 
             return scatter_points(
@@ -117,7 +117,11 @@ def scatter_clusters(points, clusts, color=None, hovertext=None,
                     cmin=cmin, cmax=cmax, **kwargs)
 
         else:
-            coords = np.vstack(coords)
+            if len(coords):
+                coords = np.vstack(coords)
+            else:
+                coords = np.empty((0, 3), dtype=np.float32)
+
             if color is not None and len(color):
                 if np.isscalar(color[0]):
                     color = np.repeat(color, counts)
