@@ -56,16 +56,16 @@ class ChildrenProcessor(PostBase):
             G = nx.DiGraph()
             edges = []
             for obj in data[k]:
-                G.add_node(obj.id, attr=getattr(obj, self.mode))
+                G.add_node(obj.orig_id, attr=getattr(obj, self.mode))
                 parent = obj.parent_id
-                if parent in G and int(parent) != int(obj.id):
-                    edges.append((parent, obj.id))
+                if parent in G and int(parent) != int(obj.orig_id):
+                    edges.append((parent, obj.orig_id))
             G.add_edges_from(edges)
             G.remove_edges_from(nx.selfloop_edges(G))
 
             # Count children
             for obj in data[k]:
-                successors = list(G.successors(obj.id))
+                successors = list(G.successors(obj.orig_id))
                 counter = Counter()
                 counter.update([G.nodes[succ]['attr'] for succ in successors])
                 children_counts = np.zeros(self.num_classes, dtype=np.int64)
