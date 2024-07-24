@@ -388,7 +388,7 @@ class Driver:
             os.makedirs(self.log_dir, exist_ok=True)
 
         # Determine the log name, initialize it
-        if self.builder is not None:
+        if self.builder is not None or self.model is None:
             # If running the driver more than a model, give a generic name
             log_name = f'spine_log.csv'
         else:

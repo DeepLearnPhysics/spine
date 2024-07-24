@@ -214,7 +214,7 @@ class ParticleBuilder(BuilderBase):
 
             # Update the attributes shared between reconstructed and true
             particle.length = particle.distance_travel
-            particle.is_primary = particle.interaction_primary
+            particle.is_primary = bool(particle.interaction_primary > 0)
             particle.start_point = particle.first_step
             if particle.shape == TRACK_SHP:
                 particle.end_point = particle.last_step

@@ -165,11 +165,15 @@ class Drawer:
 
         # Initialize the figure, return
         if len(self.prefixes) > 1 and self.split_scene:
+            titles = [f'Reconstructed {obj_type}', f'Truth {obj_type}']
             figure = dual_figure3d(
                     traces['reco'], traces['truth'], layout=self.layout,
-                    synchronize=synchronize)
+                    synchronize=synchronize, titles=titles)
 
         else:
+            assert titles is None, (
+                    "Providing titles does not do anything when split_scene "
+                    "is False.")
             all_traces = []
             for trace_group in traces.values():
                 all_traces += trace_group

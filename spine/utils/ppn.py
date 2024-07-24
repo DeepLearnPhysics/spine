@@ -149,7 +149,9 @@ class PPNPredictor:
         elif not isinstance(ppn_points, TensorBatch):
             return ppn_pred
         else:
-            return TensorBatch.from_list(ppn_pred)
+            tensor = TensorBatch.from_list(ppn_pred)
+            tensor.coord_cols = COORD_COLS
+            return tensor
 
     def process_single(self, ppn_raw, ppn_coords, ppn_mask, ppn_ends=None,
                        segmentation=None, ghost=None, selection=None):
@@ -406,7 +408,7 @@ def get_particle_points(data, clusts, clusts_seg, ppn_points,
             points[i] = cat([start_point, start_point], 0)
 
     # Return points
-    return TensorBatch(points, clusts.counts)
+    return TensorBatch(points, clusts.counts, coord_cols=np.arange(6))
 
 
 def check_track_orientation_ppn(start_point, end_point, ppn_candidates):

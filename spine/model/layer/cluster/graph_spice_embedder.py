@@ -6,7 +6,7 @@ import MinkowskiEngine as ME
 
 from spine.data import TensorBatch
 
-from spine.utils.globals import VALUE_COL
+from spine.utils.globals import COORD_COLS, VALUE_COL
 
 from spine.model.layer.cnn.uresnet_layers import UResNet
 
@@ -165,7 +165,7 @@ class GraphSPICEEmbedder(nn.Module):
                 dim=1)
 
         # Convert the output to tensor batches
-        coords = TensorBatch(coords, data.counts)
+        coords = TensorBatch(coords, data.counts, coord_cols=COORD_COLS)
         features = TensorBatch(output_features, data.counts)
         spatial_embeddings = TensorBatch(
                 spatial_embeddings + normalized_coords, data.counts)

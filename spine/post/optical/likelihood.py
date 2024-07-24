@@ -245,17 +245,17 @@ class LikelihoodFlashMatcher:
         for idx, f in enumerate(opflashes):
             # Initialize the Flash_t object
             flash = flashmatch.Flash_t()
-            flash.idx = f.id()  # Assign a unique index
-            flash.time = f.time()  # Flash timing, a candidate T0
+            flash.idx = f.id  # Assign a unique index
+            flash.time = f.time  # Flash timing, a candidate T0
 
             # Assign the flash position and error on this position
             flash.x, flash.y, flash.z = 0, 0, 0
             flash.x_err, flash.y_err, flash.z_err = 0, 0, 0
 
             # Assign the individual PMT optical hit PEs
-            offset = 0 if len(f.PEPerOpDet()) == 180 else 180
+            offset = 0 if len(f.pe_per_ch) == 180 else 180
             for i in range(180):
-                flash.pe_v.push_back(f.PEPerOpDet()[i + offset])
+                flash.pe_v.push_back(f.pe_per_ch[i + offset])
                 flash.pe_err_v.push_back(0.)
 
             # Append

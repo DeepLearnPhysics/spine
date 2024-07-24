@@ -71,7 +71,7 @@ class ParticleShapeLogicProcessor(PostBase):
                 primary_scores[primary_range] = part.primary_scores[primary_range]
                 primary_scores /= np.sum(primary_scores)
                 part.primary_scores = primary_scores
-                part.is_primary = np.argmax(primary_scores)
+                part.is_primary = bool(np.argmax(primary_scores))
 
 
 class ParticleThresholdProcessor(PostBase):
@@ -148,7 +148,8 @@ class ParticleThresholdProcessor(PostBase):
 
             # Adjust the primary ID
             if self.primary_threshold is not None:
-                part.is_primary = part.primary_scores[1] >= self.primary_threshold
+                part.is_primary = bool(
+                        part.primary_scores[1] >= self.primary_threshold)
 
 
 class InteractionTopologyProcessor(PostBase):

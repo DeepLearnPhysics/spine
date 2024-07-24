@@ -101,7 +101,9 @@ class BuildManager:
         """
         # If this is the first time the builders are called, build
         # the objects shared between fragments/particles/interactions
+        load = True
         if 'points' not in data:
+            load = False
             if np.isscalar(data['index']):
                 sources = self.build_sources(data)
             else:
@@ -119,7 +121,7 @@ class BuildManager:
             builder(data)
 
             # Generate match pairs from stored matches
-            if self.mode in ['both', 'all']:
+            if load and self.mode in ['both', 'all']:
                 if np.isscalar(data['index']):
                     match_dict = self.load_match_pairs(data, name)
                 else:

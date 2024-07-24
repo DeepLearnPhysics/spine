@@ -60,7 +60,9 @@ class InteractionBase:
     _fixed_length_attrs = {'vertex': 3}
 
     # Variable-length attributes as (key, dtype) pairs
-    _var_length_attrs = {'particle_ids': np.int32}
+    _var_length_attrs = {
+            'particles': object, 'particle_ids': np.int32
+    }
 
     # Attributes specifying coordinates
     _pos_attrs = ['vertex']

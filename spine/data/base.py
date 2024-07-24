@@ -119,7 +119,15 @@ class DataBase:
         dict
             Dictionary of attribute names and their values
         """
-        return {k:v for k, v in self.__getstate__().items() if k not in self._skip_attrs}
+        obj_dict = {}
+        for k, v in self.__dict__.items():
+            if not k in self._skip_attrs:
+                if not k.startswith('_'):
+                    obj_dict[k] = v
+                else:
+                    obj_dict[k[1:]] = getattr(self, k[1:])
+
+        return obj_dict
 
     def scalar_dict(self, attrs=None):
         """Returns the data class attributes as a dictionary of scalars.

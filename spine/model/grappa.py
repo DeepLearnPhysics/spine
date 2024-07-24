@@ -355,8 +355,10 @@ class GrapPA(torch.nn.Module):
             node_features, points = node_features
             start_points, end_points = points.tensor.split(3, dim=1)
 
-            result['start_points'] = TensorBatch(start_points, points.counts)
-            result['end_points'] = TensorBatch(end_points, points.counts)
+            result['start_points'] = TensorBatch(
+                    start_points, points.counts, coord_cols=np.array([0, 1, 2]))
+            result['end_points'] = TensorBatch(
+                    end_points, points.counts, coord_cols=np.array([0, 1, 2]))
 
         # Fetch the edge features
         edge_features = self.edge_encoder(

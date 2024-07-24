@@ -387,6 +387,11 @@ class HDF5Writer:
             Dictionary containing the complete SPINE configuration
         """
         # If this function has never been called, initialiaze the HDF5 file
+        # TODO: make this nicer?
+        if np.isscalar(data['index']):
+            for k in data:
+                data[k] = [data[k]]
+
         if (not self.ready and
             (not self.append or os.path.isfile(self.file_name))):
             self.create(data, cfg)

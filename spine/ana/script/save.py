@@ -23,7 +23,7 @@ class SaveAna(AnaBase):
             'reco_fragment': RecoFragment(), 'truth_fragment': TruthFragment(),
             'reco_particle': RecoParticle(), 'truth_particle': TruthParticle(),
             'reco_interaction': RecoInteraction(),
-            'truth_particle': TruthInteraction()
+            'truth_interaction': TruthInteraction()
     }
 
     def __init__(self, obj_type, fragment=None, particle=None, interaction=None,

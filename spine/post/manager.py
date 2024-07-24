@@ -16,7 +16,7 @@ class PostManager:
     It loads all the post-processor objects once and feeds them data.
     """
 
-    def __init__(self, cfg, parent_path=''):
+    def __init__(self, cfg, parent_path=None):
         """Initialize the post-processing manager.
 
         Parameters
@@ -42,7 +42,8 @@ class PostManager:
             self.watch.initialize(k)
 
             # Append
-            self.modules[k] = post_processor_factory(k, cfg[k], parent_path)
+            self.modules[k] = post_processor_factory(
+                    k, cfg[k], parent_path=parent_path)
 
     def __call__(self, data):
         """Pass one batch of data through the post-processors.
