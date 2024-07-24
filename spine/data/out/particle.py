@@ -95,7 +95,9 @@ class ParticleBase:
     }
 
     # Variable-length attributes as (key, dtype) pairs
-    _var_length_attrs = {'fragment_ids': np.int32}
+    _var_length_attrs = {
+            'fragments': object, 'fragment_ids': np.int32
+    }
 
     # Attributes specifying coordinates
     _pos_attrs = ['start_point', 'end_point']
