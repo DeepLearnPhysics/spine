@@ -286,7 +286,7 @@ class Drawer:
             elif count <= len(colorscale):
                 colorscale = colorscale[:count]
             else:
-                repeat = (count - 1)//len(colorscales) + 1
+                repeat = (count - 1)//len(colorscale) + 1
                 self._colorscale = np.repeat(colorscale, repeat)[:count]
 
             cmin = 0
