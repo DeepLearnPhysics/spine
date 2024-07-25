@@ -98,7 +98,7 @@ class Drawer:
                 detector_coords=self.detector_coords, **kwargs)
 
     def get(self, obj_type, attr=None, draw_end_points=False,
-            draw_vertices=False, synchronize=False):
+            draw_vertices=False, synchronize=False, titles=None):
         """Draw the requested object type with the requested mode.
 
         Parameters
@@ -114,6 +114,8 @@ class Drawer:
             If True, draw the interaction vertices
         synchronize : bool, default False
             If True, matches the camera position/angle of one plot to the other
+        titles : List[str], optional
+            Titles of the two scenes (only relevant for split_scene True
 
         Returns
         -------
