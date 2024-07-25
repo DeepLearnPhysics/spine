@@ -1,5 +1,5 @@
 <h1 align="center">
-<img src="https://github.com/francois-drielsma/SPINE/blob/develop/docs/source/_static/img/spine-logo-dark.png" alt='SPINE', width="400">
+<img src="https://github.com/DeepLearnPhysics/SPINE/blob/develop/docs/source/_static/img/spine-logo-dark.png" alt='SPINE', width="400">
 </h1><br>
 
 [![Build Status](https://app.travis-ci.com/francois-drielsma/lartpc_mlreco3d.svg?token=WB4oxAv87vEXhuxUGH7e&branch=develop&status=passed)](https://app.travis-ci.com/github/francois-drielsma/lartpc_mlreco3d/logscans?serverType=git)
