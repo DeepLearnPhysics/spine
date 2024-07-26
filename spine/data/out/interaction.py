@@ -48,7 +48,7 @@ class InteractionBase:
     is_fiducial: bool = False
     is_flash_matched: bool = False
     flash_id: int = -1
-    flash_time: float = -1.
+    flash_time: float = -np.inf
     flash_total_pe: float = -1.
     flash_hypo_pe: float = -1.
     topology: str = ''

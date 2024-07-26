@@ -57,7 +57,7 @@ class OutBase(PosDataBase):
     match_ids: np.ndarray = None
     match_overlaps: np.ndarray = None
     is_cathode_crosser: bool = False
-    cathode_offset: float = -1.
+    cathode_offset: float = -np.inf
     is_truth: bool = None
     units: str = 'cm'
 
