@@ -44,6 +44,7 @@ class InteractionBase:
     """
     particles: List[object] = None
     particle_ids: np.ndarray = None
+    primary_particle_counts: np.ndarray = None
     vertex: np.ndarray = None
     is_fiducial: bool = False
     is_flash_matched: bool = False
@@ -57,7 +58,7 @@ class InteractionBase:
     _topology: str = field(init=False, repr=False)
 
     # Fixed-length attributes
-    _fixed_length_attrs = {'vertex': 3}
+    _fixed_length_attrs = {'vertex': 3, 'primary_particle_counts': len(PID_LABELS) - 1}
 
     # Variable-length attributes as (key, dtype) pairs
     _var_length_attrs = {
@@ -129,11 +130,17 @@ class InteractionBase:
             (C) Number of primary particles of each class
         """
         counts = np.zeros(len(PID_LABELS) - 1, dtype=int)
+        if self.particles is None:
+            return counts
         for part in self.particles:
             if part.pid > -1 and part.is_primary and part.is_valid:
                 counts[part.pid] += 1
 
         return counts
+    
+    @primary_particle_counts.setter
+    def primary_particle_counts(self, counts):
+        self._primary_particle_counts = counts
 
     @property
     def topology(self):
