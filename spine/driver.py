@@ -693,7 +693,7 @@ class Driver:
             acc  = data.get('accuracy', -1.)
             loss = data.get('loss', -1.)
 
-            values = [f'{t_net:0.2f} s ({100*t_net/t_iter:0.2f} %)',
+            values = [f'{t_iter:0.2f} s ({100*t_net/t_iter:0.2f} %)',
                       f'{mem:0.2f} GB ({mem_perc:0.2f} %)',
                       f'{loss:0.3f}', f'{acc:0.3f}']
             if self.distributed:
