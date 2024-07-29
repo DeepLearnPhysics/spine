@@ -45,3 +45,13 @@ class RunInfo(DataBase):
         return cls(run=larcv_event.run(),
                    subrun=larcv_event.subrun(),
                    event=larcv_event.event())
+    
+    def __str__(self):
+        """Human-readable string representation of the object.
+        
+        Results
+        -------
+        str
+            String representation of the object
+        """
+        return f"Run: {self.run}, Subrun: {self.subrun}, Event: {self.event}"
