@@ -1,5 +1,6 @@
 """Module which centralizes all tools used to visualize data."""
 
+from .out import Drawer
 from .point import scatter_points
 from .cluster import scatter_clusters
 from .box import scatter_boxes
