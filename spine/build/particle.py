@@ -123,6 +123,7 @@ class ParticleBuilder(BuilderBase):
 
             # Set the PID scores without modifying the default size
             particle.pid_scores[:len(pid_scores[i])] = pid_scores[i]
+            particle.pid_scores[len(pid_scores[i]):] = 0.
 
             # Set the end points
             particle.start_point = particle_start_points[i]
