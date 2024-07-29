@@ -34,8 +34,9 @@ class Meta(DataBase):
     count: np.ndarray = None
 
     # Fixed-length attributes
-    _fixed_length_attrs = {'lower': 3, 'upper': 3, 'size': 3,
-                           'count': (3, np.int64)}
+    _fixed_length_attrs = {
+            'lower': 3, 'upper': 3, 'size': 3, 'count': (3, np.int64)
+    }
 
     # Attributes specifying vector components
     _vec_attrs = ['lower', 'upper', 'size', 'count']

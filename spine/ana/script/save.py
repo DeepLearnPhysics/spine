@@ -16,14 +16,16 @@ class SaveAna(AnaBase):
     name = 'save'
 
     # Valid match modes
-    _match_modes = [None, 'reco_to_truth', 'truth_to_reco', 'both', 'all']
+    _match_modes = (None, 'reco_to_truth', 'truth_to_reco', 'both', 'all')
 
     # Default object types when a match is not found
     _default_objs = {
-            'reco_fragment': RecoFragment(), 'truth_fragment': TruthFragment(),
-            'reco_particle': RecoParticle(), 'truth_particle': TruthParticle(),
-            'reco_interaction': RecoInteraction(),
-            'truth_interaction': TruthInteraction()
+            'reco_fragments': RecoFragment(),
+            'truth_fragments': TruthFragment(),
+            'reco_particles': RecoParticle(),
+            'truth_particles': TruthParticle(),
+            'reco_interactions': RecoInteraction(),
+            'truth_interactions': TruthInteraction()
     }
 
     def __init__(self, obj_type, fragment=None, particle=None, interaction=None,
@@ -52,17 +54,46 @@ class SaveAna(AnaBase):
         # Store the matching mode
         self.match_mode = match_mode
         assert match_mode in self._match_modes, (
-            f"Invalid matching mode: {self.match_mode}. Must be one "
-            f"of {self._match_modes}.")
+                f"Invalid matching mode: {self.match_mode}. Must be one "
+                f"of {self._match_modes}.")
+        assert match_mode is None or run_mode == 'both', (
+                 "When storing matches, you must load both reco and truth "
+                f"objects, i.e. set `run_mode` to `True`. Got {run_mode}.")
 
         # Store the list of attributes to store for each object type
-        self.attrs = {'fragment': fragment, 'particle': particle,
-                      'interaction': interaction}
+        attrs = {
+                'fragments': fragment,
+                'particles': particle,
+                'interactions': interaction
+        }
+        if run_mode != 'both':
+            # If there is only one object type, the keys specified are unique
+            self.attrs = {f'{run_mode}_{k}': v for k, v in attrs.items()}
+
+        else:
+            # If there are multiple object types, down select to attributes
+            # each declination of the object knows, as long as either one does
+            self.attrs = {}
+            for obj_t in attrs.keys():
+                # Create a list speicific to each object declination
+                leftover = set(attrs[obj_t]) if attrs[obj_t] is not None else None
+                for run_mode in ['reco', 'truth']:
+                    key = f'{run_mode}_{obj_t}'
+                    if attrs[obj_t] is not None:
+                        all_keys = self._default_objs[key].as_dict().keys()
+                        self.attrs[key] = set(attrs[obj_t]) & set(all_keys)
+                        leftover -= (leftover & self.attrs[key])
+
+                    else:
+                        self.attrs[key] = attrs[obj_t]
+
+                # Check that there are no leftover keys
+                assert leftover is None or len(leftover) == 0, (
+                         "The following keys were not found in either the reco "
+                        f"or the truth {obj_t} : {leftover}")
 
         # Add the necessary keys associated with matching, if needed
         if match_mode is not None:
-            if isinstance(obj_type, str):
-                obj_type = [obj_type]
             for prefix in self.prefixes:
                 for obj_name in obj_type:
                     if prefix == 'reco' and match_mode != 'truth_to_reco':
@@ -91,10 +122,10 @@ class SaveAna(AnaBase):
         for key in self.obj_keys:
             # Dispatch
             prefix, obj_type = key.split('_')
-            obj_type = obj_type[:-1]
             other = other_prefix[prefix]
-            attrs = self.attrs[obj_type]
-            if (self.match_mode is None or 
+            attrs = self.attrs[key]
+            attrs_other = self.attrs[f'{other}_{obj_type}']
+            if (self.match_mode is None or
                 self.match_mode == f'{other}_to_{prefix}'):
                 # If there is no matches, save objects by themselves
                 for i, obj in enumerate(data[key]):
@@ -104,14 +135,14 @@ class SaveAna(AnaBase):
                 # If there are matches, combine the objects with their best
                 # match on a single row
                 match_suffix = f'{prefix[0]}2{other[0]}'
-                match_key = f'{obj_type}_matches_{match_suffix}'
+                match_key = f'{obj_type[:-1]}_matches_{match_suffix}'
                 for idx, (obj_i, obj_j) in enumerate(data[match_key]):
                     src_dict = obj_i.scalar_dict(attrs)
                     if obj_j is not None:
-                        tgt_dict = obj_j.scalar_dict(attrs)
+                        tgt_dict = obj_j.scalar_dict(attrs_other)
                     else:
                         default_obj = self._default_objs[f'{other}_{obj_type}']
-                        tgt_dict = default_obj.scalar_dict(attrs)
+                        tgt_dict = default_obj.scalar_dict(attrs_other)
 
                     src_dict = {f'{prefix}_{k}':v for k, v in src_dict.items()}
                     tgt_dict = {f'{other}_{k}':v for k, v in tgt_dict.items()}

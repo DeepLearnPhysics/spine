@@ -19,10 +19,14 @@ class OutBase(PosDataBase):
         Unique index of the object within the object list
     index : np.ndarray
         (N) Voxel indexes corresponding to this object in the input tensor
+    size : int
+        Number of points, N, that make up this object
     points : np.ndarray
         (N, 3) Set of voxel coordinates that make up this object
     depositions : np.ndarray
         (N) Array of charge deposition values for each voxel
+    depositions_sum : float
+        Total amount of depositions
     sources : np.ndarray
         (N, 2) Set of voxel sources as (Module ID, TPC ID) pairs
     module_ids : np.ndarray
@@ -48,8 +52,10 @@ class OutBase(PosDataBase):
     """
     id: int = -1
     index: np.ndarray = None
+    size: int = None
     points: np.ndarray = None
     depositions: np.ndarray = None
+    depositions_sum: float = None
     sources: np.ndarray = None
     module_ids: np.ndarray = None
     is_contained: bool = False
@@ -57,11 +63,13 @@ class OutBase(PosDataBase):
     match_ids: np.ndarray = None
     match_overlaps: np.ndarray = None
     is_cathode_crosser: bool = False
-    cathode_offset: float = -1.
+    cathode_offset: float = -np.inf
     is_truth: bool = None
     units: str = 'cm'
 
     # Private derived attributes
+    _size: int = field(init=False, repr=False)
+    _depositions_sum: float = field(init=False, repr=False)
     _module_ids: np.ndarray = field(init=False, repr=False)
 
     # Variable-length attribtues
@@ -69,7 +77,11 @@ class OutBase(PosDataBase):
             'index': np.int64, 'depositions': np.float32,
             'match_ids': np.int64, 'match_overlaps': np.float32,
             'points': (3, np.float32), 'sources': (2, np.int64),
+            'module_ids': np.int64
     }
+
+    # Attributes to be binarized to form an integer from a variable-length array
+    _binarize_attrs = ['module_ids']
 
     # Attributes to concatenate when merging objects
     _cat_attrs = ['index', 'points', 'depositions', 'sources']
@@ -88,6 +100,10 @@ class OutBase(PosDataBase):
         """
         return len(self.index)
 
+    @size.setter
+    def size(self, size):
+        self._size = size
+
     @property
     def depositions_sum(self):
         """Total deposition value for the entire object.
@@ -98,6 +114,10 @@ class OutBase(PosDataBase):
             Sum of all depositions that make up the object
         """
         return np.sum(self.depositions)
+
+    @depositions_sum.setter
+    def depositions_sum(self, depositions_sum):
+        self._depositions_sum = depositions_sum
 
     @property
     def module_ids(self):
@@ -132,9 +152,14 @@ class TruthBase(OutBase):
     orig_id : int
         If matched to an MC truth instance, ID of the original instance
     depositions_q : np.ndarray
-        (N) Array fo values for each voxel in the same units as the input image
+        (N) Array of values for each voxel in the same units as the input image
+    depositions_q_sum : float
+        Total amount of depositions in the same units as the input image
     index_adapt: np.ndarray
         (N') Voxel indexes corresponding to this object in the adapted cluster
+        label tensor
+    size_adapt : int
+        Number of points, N', that make up this object in the adapted cluster
         label tensor
     points_adapt : np.ndarray
         (N', 3) Set of voxel coordinates using adapted cluster labels
@@ -142,28 +167,51 @@ class TruthBase(OutBase):
         (N', 2) Set of voxel sources as (Module ID, TPC ID) pairs, adapted
     depositions_adapt : np.ndarray
         (N') Array of values for each voxel in the adapted cluster label tensor
+    depositions_adapt_sum : float
+        Total amount of depositions in adapted cluster label tensor
     depositions_adapt_q : np.ndarray
-        (N) Array fo values for each voxel in the same units as the input image
+        (N) Array of values for each voxel in the same units as the input image
+    depositions_adapt_q_sum : float
+        Total amount of depositions in adapted cluster label tensor in the same
+        units as the input image
     sources_adapt : np.ndarray
         (N, 2) Set of voxel sources as (Module ID, TPC ID) pairs, adapted
     index_g4: np.ndarray
         (N'') Fragment voxel indexes in the true Geant4 energy deposition tensor
+    size_g4 : int
+        Number of points, N'', that make up this object in the true Geant4
+        energy deposition tensor
     points_g4 : np.ndarray
         (N'', 3) Set of voxel coordinates of true Geant4 energy depositions
     depositions_g4 : np.ndarray
         (N'') Array of true Geant4 energy depositions per voxel
+    depositions_g4_sum : float
+        Total amount of true Geant4 depositions
     """
     orig_id: int = -1
     depositions_q: np.ndarray = None
+    depositions_q_sum: float = None
     index_adapt: np.ndarray = None
+    size_adapt: int = None
     points_adapt: np.ndarray = None
     depositions_adapt: np.ndarray = None
+    depositions_adapt_sum: float = None
     depositions_adapt_q: np.ndarray = None
+    depositions_adapt_q_sum: float = None
     sources_adapt: np.ndarray = None
     index_g4: np.ndarray = None
     points_g4: np.ndarray = None
     depositions_g4: np.ndarray = None
+    depositions_g4_sum: float = None
     is_truth: bool = True
+
+    # Private derived attributes
+    _size_adapt: int = field(init=False, repr=False)
+    _size_g4: int = field(init=False, repr=False)
+    _depositions_q_sum: float = field(init=False, repr=False)
+    _depositions_adapt_sum: float = field(init=False, repr=False)
+    _depositions_adapt_q_sum: float = field(init=False, repr=False)
+    _depositions_g4_sum: float = field(init=False, repr=False)
 
     # Variable-length attribtues
     _var_length_attrs = {
@@ -175,9 +223,9 @@ class TruthBase(OutBase):
     }
 
     # Attributes to concatenate when merging objects
-    _cat_attrs = ['depositions_q', 'index_adapt', 'points_adapt', 
+    _cat_attrs = ['depositions_q', 'index_adapt', 'points_adapt',
                   'depositions_adapt', 'depositions_adapt_q', 'sources_adapt',
-                  'index_g4', 'points_g4', 'depositions_g4', 
+                  'index_g4', 'points_g4', 'depositions_g4',
                   *OutBase._cat_attrs]
 
     # Attributes that should not be stored
@@ -196,6 +244,10 @@ class TruthBase(OutBase):
         """
         return len(self.index_adapt)
 
+    @size_adapt.setter
+    def size_adapt(self, size_adapt):
+        self._size_adapt = size_adapt
+
     @property
     def size_g4(self):
         """Total number of voxels that make up the object in the Geant4 tensor.
@@ -206,6 +258,10 @@ class TruthBase(OutBase):
             Total number of voxels in the object
         """
         return len(self.index_g4)
+
+    @size_g4.setter
+    def size_g4(self, size_g4):
+        self._size_g4 = size_g4
 
     @property
     def depositions_q_sum(self):
@@ -218,6 +274,10 @@ class TruthBase(OutBase):
         """
         return np.sum(self.depositions_q)
 
+    @depositions_q_sum.setter
+    def depositions_q_sum(self, depositions_q_sum):
+        self._depositions_q_sum = depositions_q_sum
+
     @property
     def depositions_adapt_sum(self):
         """Total deposition value for the entire object in the adapted tensor.
@@ -228,6 +288,10 @@ class TruthBase(OutBase):
             Sum of all depositions that make up the object
         """
         return np.sum(self.depositions_adapt)
+
+    @depositions_adapt_sum.setter
+    def depositions_adapt_sum(self, depositions_adapt_sum):
+        self._depositions_adapt_sum = depositions_adapt_sum
 
     @property
     def depositions_adapt_q_sum(self):
@@ -241,6 +305,10 @@ class TruthBase(OutBase):
         """
         return np.sum(self.depositions_adapt_q)
 
+    @depositions_adapt_q_sum.setter
+    def depositions_adapt_q_sum(self, depositions_adapt_q_sum):
+        self._depositions_adapt_q_sum = depositions_adapt_q_sum
+
     @property
     def depositions_g4_sum(self):
         """Total deposition value for the entire object in the Geant4 tensor.
@@ -251,3 +319,7 @@ class TruthBase(OutBase):
             Sum of all depositions that make up the object
         """
         return np.sum(self.depositions_g4)
+
+    @depositions_g4_sum.setter
+    def depositions_g4_sum(self, depositions_g4_sum):
+        self._depositions_g4_sum = depositions_g4_sum

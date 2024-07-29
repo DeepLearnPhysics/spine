@@ -26,6 +26,8 @@ class ParticleBase:
         List of fragments that make up the interaction
     fragment_ids : np.ndarray
         List of Fragment IDs that make up this particle
+    num_fragments : int
+        Number of fragments that make up this particle
     interaction_id : int
         Index of the interaction this particle belongs to
     shape : int
@@ -67,6 +69,7 @@ class ParticleBase:
     """
     fragments: List[object] = None
     fragment_ids: np.ndarray = None
+    num_fragments: int = None
     interaction_id: int = -1
     shape: int = -1
     pid: int = -1
@@ -86,6 +89,7 @@ class ParticleBase:
     is_valid: bool = True
 
     # Private derived attributes
+    _num_fragments: int = field(init=False, repr=False)
     _p: float = field(init=False, repr=False)
 
     # Fixed-length attributes
@@ -114,17 +118,6 @@ class ParticleBase:
     # Attributes that should not be stored
     _skip_attrs = ['fragments', 'ppn_points']
 
-    @property
-    def num_fragments(self):
-        """Number of fragments that make up this particle.
-
-        Returns
-        -------
-        int
-            Number of fragments that make up the particle instance
-        """
-        return len(self.fragment_ids)
-
     def __str__(self):
         """Human-readable string representation of the particle object.
 
@@ -138,6 +131,21 @@ class ParticleBase:
         return (f"Particle(ID: {self.id:<3} | PID: {pid_label:<8} "
                 f"| Primary: {self.is_primary:<2} "
                 f"| Size: {self.size:<5} | Match: {match:<3})")
+
+    @property
+    def num_fragments(self):
+        """Number of fragments that make up this particle.
+
+        Returns
+        -------
+        int
+            Number of fragments that make up the particle instance
+        """
+        return len(self.fragment_ids)
+
+    @num_fragments.setter
+    def num_fragments(self, num_fragments):
+        self._num_fragments = num_fragments
 
     @property
     def pdg_code(self):
