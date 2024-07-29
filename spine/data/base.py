@@ -49,15 +49,6 @@ class DataBase:
         - Casts strings when they are provided as binary objects, which is the
           format one gets when loading string from HDF5 files.
         """
-        # Provide default values to the fixed-length array attributes
-        for attr, size in self._fixed_length_attrs.items():
-            if getattr(self, attr) is None:
-                if not isinstance(size, tuple):
-                    dtype = np.float32
-                else:
-                    size, dtype = size
-                setattr(self, attr, np.full(size, -np.inf, dtype=dtype))
-
         # Provide default values to the variable-length array attributes
         for attr, dtype in self._var_length_attrs.items():
             if getattr(self, attr) is None:
@@ -66,6 +57,15 @@ class DataBase:
                 else:
                     width, dtype = dtype
                     setattr(self, attr, np.empty((0, width), dtype=dtype))
+
+        # Provide default values to the fixed-length array attributes
+        for attr, size in self._fixed_length_attrs.items():
+            if getattr(self, attr) is None:
+                if not isinstance(size, tuple):
+                    dtype = np.float32
+                else:
+                    size, dtype = size
+                setattr(self, attr, np.full(size, -np.inf, dtype=dtype))
 
         # Make sure the strings are not binary
         for attr in self._str_attrs:
@@ -172,7 +172,7 @@ class DataBase:
             else:
                 raise ValueError(
                         f"Cannot expand the `{attr}` attribute of "
-                        f"`{self.__cls__.__name__}` to scalar values.")
+                        f"`{self.__class__.__name__}` to scalar values.")
 
         if attrs is not None and len(attrs) != len(found):
             class_name = self.__class__.__name__

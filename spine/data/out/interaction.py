@@ -25,6 +25,12 @@ class InteractionBase:
         List of particles that make up the interaction
     particle_ids : np.ndarray, 
         List of Particle IDs that make up this interaction
+    num_particles : int
+        Number of particles that make up this interaction
+    particle_counts : np.ndarray
+        (P) Number of particles of each species in this interaction
+    primary_particle_counts : np.ndarray
+        (P) Number of primary particles of each species in this interaction
     vertex : np.ndarray
         (3) Coordinates of the interaction vertex
     is_fiducial : bool
@@ -44,6 +50,9 @@ class InteractionBase:
     """
     particles: List[object] = None
     particle_ids: np.ndarray = None
+    num_particles: int = None
+    particle_counts: np.ndarray = None
+    primary_particle_counts: np.ndarray = None
     vertex: np.ndarray = None
     is_fiducial: bool = False
     is_flash_matched: bool = False
@@ -54,10 +63,16 @@ class InteractionBase:
     topology: str = ''
 
     # Private derived attributes
+    _num_particles: int = field(init=False, repr=False)
+    _particle_counts: np.ndarray = field(init=False, repr=False)
+    _primary_particle_counts: np.ndarray = field(init=False, repr=False)
     _topology: str = field(init=False, repr=False)
 
     # Fixed-length attributes
-    _fixed_length_attrs = {'vertex': 3}
+    _fixed_length_attrs = {
+            'vertex': 3, 'particle_counts': len(PID_LABELS) - 1,
+            'primary_particle_counts': len(PID_LABELS) - 1
+    }
 
     # Variable-length attributes as (key, dtype) pairs
     _var_length_attrs = {
@@ -103,14 +118,18 @@ class InteractionBase:
         """
         return len(self.particle_ids)
 
+    @num_particles.setter
+    def num_particles(self, num_particles):
+        self._num_particles = num_particles
+
     @property
     def particle_counts(self):
-        """Number of particles of each shape in this interaction.
+        """Number of particles of each PID species in this interaction.
 
         Returns
         -------
         np.ndarray
-            (C) Number of particles of each class
+            (P) Number of particles of each PID
         """
         counts = np.zeros(len(PID_LABELS) - 1, dtype=int)
         for part in self.particles:
@@ -119,14 +138,18 @@ class InteractionBase:
 
         return counts
 
+    @particle_counts.setter
+    def particle_counts(self, particle_counts):
+        self._particle_counts = particle_counts
+
     @property
     def primary_particle_counts(self):
-        """Number of primary particles of each shape in this interaction.
+        """Number of primary particles of each PID species in this interaction.
 
         Returns
         -------
         np.ndarray
-            (C) Number of primary particles of each class
+            (P) Number of primary particles of each PID
         """
         counts = np.zeros(len(PID_LABELS) - 1, dtype=int)
         for part in self.particles:
@@ -134,6 +157,10 @@ class InteractionBase:
                 counts[part.pid] += 1
 
         return counts
+
+    @primary_particle_counts.setter
+    def primary_particle_counts(self, primary_particle_counts):
+        self._primary_particle_counts = primary_particle_counts
 
     @property
     def topology(self):
