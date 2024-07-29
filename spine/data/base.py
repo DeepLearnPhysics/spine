@@ -21,6 +21,9 @@ class DataBase:
     # Variable-length attributes as (key, dtype) pairs
     _var_length_attrs = {}
 
+    # Attributes to be binarized to form an integer from a variable-length array
+    _binarize_attrs = []
+
     # Attributes specifying coordinates
     _pos_attrs = []
 
@@ -151,13 +154,18 @@ class DataBase:
                 found.append(attr)
 
             # If the attribute is long-form attribute, skip it
-            if attr in self._skip_attrs or attr in self._var_length_attrs:
+            if (attr not in self._binarize_attrs and
+                (attr in self._skip_attrs or attr in self._var_length_attrs)):
                 continue
 
             # Dispatch
             if np.isscalar(value):
                 # If the attribute is a scalar, store as is
                 scalar_dict[attr] = value
+
+            elif attr in self._binarize_attrs:
+                # If the list is to be binarized, do it
+                scalar_dict[attr] = int(np.sum(2**value))
 
             elif attr in (self._pos_attrs + self._vec_attrs):
                 # If the attribute is a position or vector, expand with axis

@@ -80,6 +80,9 @@ class OutBase(PosDataBase):
             'module_ids': np.int64
     }
 
+    # Attributes to be binarized to form an integer from a variable-length array
+    _binarize_attrs = ['module_ids']
+
     # Attributes to concatenate when merging objects
     _cat_attrs = ['index', 'points', 'depositions', 'sources']
 
@@ -220,9 +223,9 @@ class TruthBase(OutBase):
     }
 
     # Attributes to concatenate when merging objects
-    _cat_attrs = ['depositions_q', 'index_adapt', 'points_adapt', 
+    _cat_attrs = ['depositions_q', 'index_adapt', 'points_adapt',
                   'depositions_adapt', 'depositions_adapt_q', 'sources_adapt',
-                  'index_g4', 'points_g4', 'depositions_g4', 
+                  'index_g4', 'points_g4', 'depositions_g4',
                   *OutBase._cat_attrs]
 
     # Attributes that should not be stored
