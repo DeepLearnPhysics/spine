@@ -137,7 +137,7 @@ class HDF5Reader(ReaderBase):
             event = in_file['events'][entry_idx]
             for key in event.dtype.names:
                 self.load_key(in_file, event, data, key)
-                
+
         return data
 
     def load_key(self, in_file, event, data, key):
