@@ -661,9 +661,9 @@ class Driver:
         log = ((iteration + 1) % self.log_step) == 0
         if log:
             # Dump general information
-            proc   = 'Train' if self.model is not None and self.model.train else 'Inference'
+            proc   = 'train' if self.model is not None and self.model.train else 'inference'
             device = 'GPU' if self.rank is not None else 'CPU'
-            keys   = [f'{proc} time', f'{device} memory', 'Loss', 'Accuracy']
+            keys   = [f'Time ({proc})', f'{device} memory', 'Loss', 'Accuracy']
             widths = [20, 20, 9, 9]
             if self.distributed:
                 keys = ['Rank'] + keys
