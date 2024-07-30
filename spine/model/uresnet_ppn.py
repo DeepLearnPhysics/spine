@@ -157,6 +157,9 @@ class UResNetPPNLoss(torch.nn.Module):
             (N, 1 + D + 1) Tensor of segmentation labels for the batch
         ppn_label : TensorBatch
             (N, 1 + D + N_l) Tensor of PPN labels for the batch
+        clust_label : TensorBatch, optional
+            (N, 1 + D + N_c) Tensor of cluster labels
+            - N_c is is the number of cluster labels
         weights : torch.Tensor, optional
             (N) Tensor of segmentation weights for each pixel in the batch
         **result : dict
@@ -168,13 +171,10 @@ class UResNetPPNLoss(torch.nn.Module):
         """
         # Apply the segmentation loss
         result_seg = self.seg_loss(seg_label, weights=weights, **result)
-        
-        if clust_label is not None:
-            result['ppn_clust_label'] = clust_label
 
         # Apply the PPN loss
-        result_ppn = self.ppn_loss(ppn_label, **result)
-        
+        result_ppn = self.ppn_loss(ppn_label, clust_label=clust_label, **result)
+
         # Combine the two outputs
         result = {
             'loss': result_seg['loss'] + result_ppn['loss'],
