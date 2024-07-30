@@ -1,5 +1,6 @@
 """Module which defines all the data structures used in the package."""
 
+from .out import *
 from .batch import *
 from .particle import *
 from .neutrino import *
