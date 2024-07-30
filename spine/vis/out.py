@@ -167,7 +167,8 @@ class Drawer:
 
         # Initialize the figure, return
         if len(self.prefixes) > 1 and self.split_scene:
-            titles = [f'Reconstructed {obj_type}', f'Truth {obj_type}']
+            if titles is None:
+                titles = [f'Reconstructed {obj_type}', f'Truth {obj_type}']
             figure = dual_figure3d(
                     traces['reco'], traces['truth'], layout=self.layout,
                     synchronize=synchronize, titles=titles)
