@@ -530,16 +530,19 @@ class PPNLoss(torch.nn.modules.loss._Loss):
         """
         positives = torch.zeros(coords.shape[0], device=coords.device, dtype=torch.bool)
         closests = -torch.ones(coords.shape[0], device=coords.device, dtype=torch.long)
-
+        
         part_ids = ppn_labels[:, PPN_LPART_COL]
         for part_id in torch.unique(part_ids):
             point_index = torch.where(part_ids == part_id)[0]
             index = torch.where(labels == part_id)[0]
             points = ppn_labels[point_index][:, COORD_COLS]
             dist_mat = local_cdist(coords[index], points)
+            # Generate positive mask
             positives[index] = (dist_mat < resolution).any(dim=1)
+            # [0,1] index of the closest point
             min_return = torch.min(dist_mat, dim=1)
-            closests[index] = point_index[min_return.indices]
+            # Need to add offset to account for global batch index
+            closests[index] = point_index[min_return.indices] + offset
 
         return positives, closests
         
