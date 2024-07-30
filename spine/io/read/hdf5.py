@@ -132,7 +132,7 @@ class HDF5Reader(ReaderBase):
         entry_idx = self.get_file_entry_index(idx)
 
         # Use the event tree to find out what needs to be loaded
-        data = {}
+        data = {'file_index': file_idx}
         with h5py.File(self.file_paths[file_idx], 'r') as in_file:
             event = in_file['events'][entry_idx]
             for key in event.dtype.names:
