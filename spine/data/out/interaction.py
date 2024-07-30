@@ -152,17 +152,11 @@ class InteractionBase:
             (P) Number of primary particles of each PID
         """
         counts = np.zeros(len(PID_LABELS) - 1, dtype=int)
-        if self.particles is None:
-            return counts
         for part in self.particles:
             if part.pid > -1 and part.is_primary and part.is_valid:
                 counts[part.pid] += 1
 
         return counts
-    
-    @primary_particle_counts.setter
-    def primary_particle_counts(self, counts):
-        self._primary_particle_counts = counts
 
     @primary_particle_counts.setter
     def primary_particle_counts(self, primary_particle_counts):

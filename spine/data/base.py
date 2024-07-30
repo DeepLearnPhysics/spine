@@ -185,11 +185,8 @@ class DataBase:
         if attrs is not None and len(attrs) != len(found):
             class_name = self.__class__.__name__
             miss = list(set(attrs).difference(set(found)))
-            for attr in miss:
-                if attr in scalar_dict:
-                    scalar_dict.pop(attr)
-            # raise AttributeError(
-            #         f"Attribute(s) {miss} do(es) not appear in {class_name}.")
+            raise AttributeError(
+                    f"Attribute(s) {miss} do(es) not appear in {class_name}.")
 
         return scalar_dict
 

@@ -206,8 +206,7 @@ class RecoParticle(ParticleBase, RecoBase):
 
     # Fixed-length attributes
     _fixed_length_attrs = {
-            #'pid_scores': len(PID_LABELS) - 1,
-            'pid_scores': 5, # TODO: Temporary
+            'pid_scores': len(PID_LABELS) - 1,
             'primary_scores': 2,
             **ParticleBase._fixed_length_attrs}
 
