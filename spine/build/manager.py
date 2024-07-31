@@ -179,6 +179,10 @@ class BuildManager:
             update['points_g4'] = sources['label_g4_tensor'][:, COORD_COLS]
             update['depositions_g4'] = sources['label_g4_tensor'][:, VALUE_COL]
 
+        if 'sources' in sources:
+            update['sources'] = sources['sources']
+            update['sources_label'] = sources['sources_label']
+
         # If provided, etch the point attributes to check their units
         for obj in ['fragment', 'particle']:
             for key in [f'{obj}_start_points', f'{obj}_end_points']:

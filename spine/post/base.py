@@ -44,8 +44,12 @@ class PostBase(ABC):
     # List of known point modes
     _point_modes = ['points', 'points_adapt', 'points_g4']
 
+    # List of known deposition modes
+    _dep_modes = ['depositions', 'depositions_q', 'depositions_adapt',
+                  'depositions_adapt_q', 'depositions_g4']
+
     def __init__(self, obj_type=None, run_mode=None, truth_point_mode=None,
-                 parent_path=None):
+                 truth_dep_mode=None, parent_path=None):
         """Initialize default post-processor object properties.
 
         Parameters
@@ -60,6 +64,10 @@ class PostBase(ABC):
             If specified, tells which attribute of the :class:`TruthFragment`,
             :class:`TruthParticle` or :class:`TruthInteraction` object to use
             to fetch its point coordinates
+        truth_dep_mode : str, optional
+            If specified, tells which attribute of the :class:`TruthFragment`,
+            :class:`TruthParticle` or :class:`TruthInteraction` object to use
+            to fetch its depositions
         parent_path : str, optional
             Path to the parent directory of the main analysis configuration. This
             allows for the use of relative paths in the post-processors.
@@ -104,6 +112,13 @@ class PostBase(ABC):
             self.truth_point_mode = truth_point_mode
             self.truth_index_mode = truth_point_mode.replace('points', 'index')
 
+        # If a truth deposition mode is specified, store it
+        if truth_dep_mode is not None:
+            assert truth_dep_mode in self._dep_modes, (
+                     "The `truth_dep_mode` argument must be one of "
+                    f"{self._dep_modes}. Got `{truth_dep_mode}` instead.")
+            self.truth_dep_mode = truth_dep_mode
+
         # Store the parent path
         self.parent_path = parent_path
 
@@ -139,6 +154,28 @@ class PostBase(ABC):
         # Run the post-processor
         return self.process(data_filter)
 
+    def get_index(self, obj):
+        """Get a certain pre-defined index attribute of an object.
+
+        The :class:`TruthFragment`, :class:`TruthParticle` and
+        :class:`TruthInteraction` objects index are obtained using the
+        `truth_index_mode` attribute of the class.
+
+        Parameters
+        ----------
+        obj : Union[FragmentBase, ParticleBase, InteractionBase]
+            Fragment, Particle or Interaction object
+
+        Results
+        -------
+        np.ndarray
+           (N) Object index
+        """
+        if not obj.is_truth:
+            return obj.index
+        else:
+            return getattr(obj, self.truth_index_mode)
+
     def get_points(self, obj):
         """Get a certain pre-defined point attribute of an object.
 
@@ -161,12 +198,12 @@ class PostBase(ABC):
         else:
             return getattr(obj, self.truth_point_mode)
 
-    def get_index(self, obj):
-        """Get a certain pre-defined index attribute of an object.
+    def get_depositions(self, obj):
+        """Get a certain pre-defined deposition attribute of an object.
 
         The :class:`TruthFragment`, :class:`TruthParticle` and
-        :class:`TruthInteraction` objects index are obtained using the
-        `truth_index_mode` attribute of the class.
+        :class:`TruthInteraction` objects points are obtained using the
+        `truth_dep_mode` attribute of the class.
 
         Parameters
         ----------
@@ -176,12 +213,12 @@ class PostBase(ABC):
         Results
         -------
         np.ndarray
-           (N) Object index
+           (N) Depositions
         """
         if not obj.is_truth:
-            return obj.index
+            return obj.depositions
         else:
-            return getattr(obj, self.truth_index_mode)
+            return getattr(obj, self.truth_dep_mode)
 
     def check_units(self, obj):
         """Check that the point coordinates of an object are as expected.

@@ -18,21 +18,18 @@ class CalorimetricEnergyProcessor(PostBase):
     aliases = ['reconstruct_calo_energy']
 
     def __init__(self, scaling=1., shower_fudge=1., obj_type='particle',
-                 run_mode='reco', truth_deposition_mode='points'):
+                 run_mode='reco', truth_dep_mode='depositions'):
         """Stores the ADC to MeV conversion factor.
-        
+
         Parameters
         ----------
-        scaling : Union[float, str]
+        scaling : Union[float, str], default 1.
             Global scaling factor for the depositions (can be an expression)
-        shower_fudge : Union[float, str]
+        shower_fudge : Union[float, str], default 1.
             Shower energy fudge factor (accounts for missing cluster energy)
         """
         # Initialize the parent class
-        super().__init__(obj_type, run_mode)
-
-        # Store parameter
-        self.truth_deposition_mode = truth_deposition_mode
+        super().__init__(obj_type, run_mode, truth_dep_mode=truth_dep_mode)
 
         # Store the conversion factor
         self.scaling = scaling
@@ -62,31 +59,28 @@ class CalorimetricEnergyProcessor(PostBase):
                     scaling *= self.shower_fudge
 
                 # Save the calorimetric energy
-                if not part.is_truth:
-                    part.calo_ke = scaling * part.depositions_sum
-                else:
-                    part.calo_ke = scaling * getattr(
-                            part, self.truth_deposition_mode)
+                depositions = self.get_depositions(part)
+                part.calo_ke = scaling * np.sum(depositions)
 
 
 class CalibrationProcessor(PostBase):
     """Apply calibrations to the reconstructed objects."""
     name = 'calibration'
     aliases = ['apply_calibrations']
-    keys = {'depositions': True, 'run_info': False}
+    keys = {'run_info': False}
 
     # Map between point attribute and underlying deposition objects
-    _depo_attr_map = {
-            'points': 'depositions_label_q',
-            'points_adapt': 'depsitions_adapt'
+    _dep_attr_map = {
+            'points': 'depositions_q',
+            'points_adapt': 'depositions_adapt_q'
     }
-    _depo_map = {
+    _dep_map = {
             'points': 'depositions_label_q',
             'points_adapt': 'depositions'
     }
 
-    def __init__(self, dedx=2.2, do_tracking=False, obj_type='particle', 
-                 run_mode='reco', **cfg):
+    def __init__(self, dedx=2.2, do_tracking=False, obj_type='particle',
+                 run_mode='reco', truth_point_mode='points', **cfg):
         """Initialize the calibration manager.
 
         Parameters
@@ -99,7 +93,7 @@ class CalibrationProcessor(PostBase):
             Calibration manager configuration
         """
         # Initialize the parent class
-        super().__init__(obj_type, run_mode)
+        super().__init__(obj_type, run_mode, truth_point_mode)
 
         # Initialize the calibrator
         self.calibrator = CalibrationManager(**cfg)
@@ -107,8 +101,12 @@ class CalibrationProcessor(PostBase):
         self.do_tracking = do_tracking
 
         # Set the truth attributes to set
-        self.truth_depo_attr = self._depo_attr_map[self.truth_point_mode]
-        self.truth_depo_key = self._depo_map[self.truth_point_mode]
+        self.truth_dep_attr = self._dep_attr_map[self.truth_point_mode]
+        self.truth_dep_key = self._dep_map[self.truth_point_mode]
+
+        # Add necessary keys
+        self.keys['depositions'] = run_mode != 'truth'
+        self.keys[self.truth_dep_key] = run_mode != 'reco'
 
     def process(self, data):
         """Apply calibrations to each particle in one entry.
@@ -150,5 +148,5 @@ class CalibrationProcessor(PostBase):
                     part.depositions = depositions
                     data['depositions'][part.index] = depositions
                 else:
-                    setattr(part, self.truth_depo_attr, depositions)
-                    data[self.truth_depo_key] = depositions
+                    setattr(part, self.truth_dep_attr, depositions)
+                    data[self.truth_dep_key] = depositions

@@ -10,19 +10,14 @@ class LikelihoodFlashMatcher:
 
     See https://github.com/drinkingkazu/OpT0Finder for more details about it.
     """
-    def __init__(self,
-                 fmatch_config,
-                 parent_path = '',
-                 reflash_merging_window = None,
-                 detector = None,
-                 boundary_file = None,
-                 ADC_to_MeV = 1.0,
-                 use_depositions_MeV = False):
+    def __init__(self, cfg, parent_path=None, reflash_merging_window=None,
+                 detector=None, boundary_file=None, scaling=1.,
+                 truth_dep_mode='depositions'):
         """Initialize the likelihood-based flash matching algorithm.
 
         Parameters
         ----------
-        fmatch_config : str
+        cfg : str
             Flash matching configuration file path
         parent_path : str, optional
             Path to the parent configuration file (allows for relative paths)
@@ -32,32 +27,30 @@ class LikelihoodFlashMatcher:
             Detector to get the geometry from
         boundary_file : str, optional
             Path to a detector boundary file. Supersedes `detector` if set
-        ADC_to_MeV : float, default 1.0
-            Conversion factor between ADC and MeV
-        use_depositions_MeV, default `False`
-            If `True`, uses true energy depositions
+        scaling : Union[float, str], default 1.
+            Global scaling factor for the depositions (can be an expression)
+        truth_dep_mode : str, default 'depositions'
+            Attribute used to fetch deposition values for truth interactions
         """
         # Initialize the flash manager (OpT0Finder wrapper)
-        self.initialize_backend(fmatch_config, parent_path)
+        self.initialize_backend(cfg, parent_path)
 
         # Initialize the geometry
         self.geo = Geometry(detector, boundary_file)
 
         # Get the external parameters
+        self.truth_dep_mode = truth_dep_mode
         self.reflash_merging_window = reflash_merging_window
-        self.use_depositions_MeV = use_depositions_MeV
-        self.ADC_to_MeV = ADC_to_MeV
-        if isinstance(self.ADC_to_MeV, str):
-            self.ADC_to_MeV = eval(self.ADC_to_MeV)
+        self.scaling = scaling
+        if isinstance(self.scaling, str):
+            self.scaling = eval(self.scaling)
 
         # Initialize flash matching attributes
         self.matches = None
         self.qcluster_v = None
         self.flash_v = None
 
-    def initialize_backend(self,
-                           fmatch_config,
-                           parent_path):
+    def initialize_backend(self, cfg, parent_path):
         """Initialize OpT0Finder (backend).
 
         Expects that the environment variable `FMATCH_BASEDIR` is set.
@@ -67,23 +60,23 @@ class LikelihoodFlashMatcher:
 
         Parameters
         ----------
-        fmatch_config: str
+        cfg: str
             Path to config for OpT0Finder
         parent_path : str, optional
             Path to the parent configuration file (allows for relative paths)
         """
         # Add OpT0finder python interface to the python path
         basedir = os.getenv('FMATCH_BASEDIR')
-        if basedir is None:
-            msg = 'You need to source OpT0Finder configure.sh '\
-                'first, or set the FMATCH_BASEDIR environment variable.'
-            raise Exception(msg)
+        assert basedir is not None, (
+                "You need to source OpT0Finder's configure.sh or set the "
+                "FMATCH_BASEDIR environment variable before running flash "
+                "matching.")
         sys.path.append(os.path.join(basedir, 'python'))
 
         # Add the OpT0Finder library to the dynamic link loader
         lib_path = os.path.join(basedir, 'build/lib')
-        os.environ['LD_LIBRARY_PATH'] = '%s:%s' \
-                % (lib_path, os.environ['LD_LIBRARY_PATH'])
+        os.environ['LD_LIBRARY_PATH'] = '{}:{}'.format(
+                lib_path, os.environ['LD_LIBRARY_PATH'])
 
         # Add the OpT0Finder data directory if it is not yet set
         if 'FMATCH_DATADIR' not in os.environ:
@@ -95,69 +88,74 @@ class LikelihoodFlashMatcher:
                 os.path.join(basedir, 'dat/detector_specs.cfg'))
 
         # Fetch and initialize the OpT0Finder configuration
-        if not os.path.isfile(fmatch_config):
-            fmatch_config = os.path.join(parent_path, fmatch_config)
-            if not os.path.isfile(fmatch_config):
-                raise FileNotFoundError('Cannot find flash-matcher config')
+        if parent_path is not None and not os.path.isfile(cfg):
+            cfg = os.path.join(parent_path, cfg)
+        if not os.path.isfile(cfg):
+            raise FileNotFoundError(
+                    f"Cannot find flash-matcher config: {cfg}")
 
-        cfg = flashmatch.CreatePSetFromFile(fmatch_config)
+        cfg = flashmatch.CreatePSetFromFile(cfg)
 
         # Initialize The OpT0Finder flash match manager
         self.mgr = flashmatch.FlashMatchManager()
         self.mgr.Configure(cfg)
 
         # Get the light path algorithm to produce QCluster_t objects
-        self.light_path = \
-                flashmatch.CustomAlgoFactory.get().create('LightPath',
-                        'ToyMCLightPath')
+        self.light_path = flashmatch.CustomAlgoFactory.get().create(
+                'LightPath', 'ToyMCLightPath')
         self.light_path.Configure(cfg.get['flashmatch::PSet']('LightPath'))
 
-    def get_matches(self,
-                    interactions,
-                    opflashes):
+    def get_matches(self, interactions, flashes):
         """Find TPC interactions compatible with optical flashes.
 
         Parameters
         ----------
         interactions : List[Union[Interaction, TruthInteraction]]
             List of TPC interactions
-        opflashes : List[larcv.Flash]
+        flashes : List[Flash]
             List of optical flashes
 
         Returns
         -------
-        list of tuple (Interaction, larcv::Flash, flashmatch::FlashMatch_t)
+        List[Tuple[Interaction, Flash, flashmatch::FlashMatch_t]]
+            Set of interaction/flash matches with their matching characteristics
         """
-        # If there's no interactions or no flashes, nothing to do
-        if not len(interactions) or not len(opflashes):
+        # If there is no interaction or no flashe, nothing to do
+        if not len(interactions) or not len(flashes):
             return []
 
-        # Get the volume ID in which the interactions live
-        volume_ids = np.empty(len(interactions), dtype=np.int64)
-        for i, ii in enumerate(interactions):
-            if len(ii.sources):
-                modules, tpcs = self.geo.get_contributors(ii.sources)
-                assert len(np.unique(modules)) == 1, 'Cannot match ' \
-                        'interactions that originate from > 1 optical volumes'
-                volume_ids[i] = modules[0]
-            else:
-                volume_ids[i] = ii.volume_id
+        # Get the module ID in which all the interactions live
+        module_ids = np.empty(len(interactions), dtype=np.int64)
+        for i, inter in enumerate(interactions):
+            ids = inter.module_ids
+            assert len(ids) > 0, (
+                    "The interaction object does not contain any information "
+                    "about which optical module produced it; must be provided.")
+            assert len(ids) == 1, (
+                    "Cannot match interactions that are composed of points "
+                    "originating for more than one optical module.")
+            module_ids[i] = ids[0]
 
-        assert len(np.unique(volume_ids)) == 1, \
-                'Should only provide interactions from a single optical volume'
-        self.volume_id = volume_ids[0]
+        # Check that all interactions live in one module, store it
+        assert len(np.unique(module_ids)) == 1, (
+                "Should only provide interactions from a single optical module.")
+        self.module_id = module_ids[0]
 
         # Build a list of QCluster_t (OpT0Finder interaction representation)
         self.qcluster_v = self.make_qcluster_list(interactions)
 
         # Build a list of Flash_t (OpT0Finder optical flash representation)
-        self.flash_v, opflashes = self.make_flash_list(opflashes)
+        self.flash_v, flashes = self.make_flash_list(flashes)
 
         # Running flash matching and caching the results
         self.matches = self.run_flash_matching()
 
-        return [(interactions[m.tpc_id], opflashes[m.flash_id], m) \
-                for m in self.matches]
+        # Build result, return
+        result = []
+        for m in self.matches:
+            result.append((interactions[m.tpc_id], flashes[m.flash_id], m))
+
+        return result
 
     def make_qcluster_list(self, interactions):
         """Converts a list of SPINE interaction into a list of OpT0Finder
@@ -176,9 +174,9 @@ class LikelihoodFlashMatcher:
         # Loop over the interacions
         from flashmatch import flashmatch
         qcluster_v = []
-        for ii in interactions:
+        for inter in interactions:
             # Produce a mask to remove negative value points (can happen)
-            valid_mask = np.where(ii.depositions > 0.)[0]
+            valid_mask = np.where(inter.depositions > 0.)[0]
 
             # If the interaction has less than 2 points, skip
             if len(valid_mask) < 2:
@@ -186,35 +184,35 @@ class LikelihoodFlashMatcher:
 
             # Initialize qcluster
             qcluster = flashmatch.QCluster_t()
-            qcluster.idx = int(ii.id)
+            qcluster.idx = int(inter.id)
             qcluster.time = 0
 
             # Get the point coordinates
-            points = self.geo.translate(ii.points[valid_mask],
-                    self.volume_id, 0)
+            points = self.geo.translate(inter.points[valid_mask],
+                    self.module_id, 0)
 
             # Get the depositions
-            if not self.use_depositions_MeV:
-                depositions = ii.depositions[valid_mask]
+            if not inter.is_truth:
+                depositions = inter.depositions[valid_mask]
             else:
-                depositions = ii.depositions_MeV[valid_mask]
+                depositions = getattr(inter, self.truth_dep_mode)
 
             # Fill the trajectory
             pytraj = np.hstack([points, depositions[:, None]])
             traj = flashmatch.as_geoalgo_trajectory(pytraj)
-            qcluster += self.light_path.MakeQCluster(traj, self.ADC_to_MeV)
+            qcluster += self.light_path.MakeQCluster(traj, self.scaling)
 
             # Append
             qcluster_v.append(qcluster)
 
         return qcluster_v
 
-    def make_flash_list(self, opflashes):
+    def make_flash_list(self, flashes):
         """Creates a list of flashmatch.Flash_t from the local class.
 
         Parameters
         ----------
-        opflashes : List[larcv.Flash]
+        flashes : List[Flash]
             List of optical flashes
 
         Returns
@@ -224,25 +222,25 @@ class LikelihoodFlashMatcher:
         """
         # If requested, merge flashes that are compatible in time
         if self.reflash_merging_window is not None:
-            times = [f.time() for f in opflashes]
+            times = [f.time for f in flashes]
             perm = np.argsort(times)
-            new_opflashes = [opflashes[perm[0]]]
+            new_flashes = [flashes[perm[0]]]
             for i in range(1, len(perm)):
-                if opflashes[perm[i]].time() - opflashes[perm[i-1]].time() \
-                        < self.reflash_merging_window:
+                prev, curr = perm[i-1], perm[i]
+                if ((flashes[curr].time - flashes[prev].time)
+                    < self.reflash_merging_window):
                     # If compatible, simply add up the PEs
-                    pe_v = np.array(opflashes[perm[i-1]].PEPerOpDet()) \
-                            + np.array(opflashes[perm[i]].PEPerOpDet())
-                    new_opflashes[-1].PEPerOpDet(pe_v)
+                    pe_v = flashes[prev].pe_per_ch + flashes[curr].pe_per_ch
+                    new_flashes[-1].pe_per_ch = pe_v
                 else:
-                    new_opflashes.append(opflashes[perm[i]])
+                    new_flashes.append(flashes[curr])
 
-            opflashes = new_opflashes
+            flashes = new_flashes
 
         # Loop over the optical flashes
         from flashmatch import flashmatch
         flash_v = []
-        for idx, f in enumerate(opflashes):
+        for idx, f in enumerate(flashes):
             # Initialize the Flash_t object
             flash = flashmatch.Flash_t()
             flash.idx = f.id  # Assign a unique index
@@ -261,7 +259,7 @@ class LikelihoodFlashMatcher:
             # Append
             flash_v.append(flash)
 
-        return flash_v, opflashes
+        return flash_v, flashes
 
     def run_flash_matching(self):
         """Drive the OpT0Finder flash matching.
@@ -272,8 +270,8 @@ class LikelihoodFlashMatcher:
             List of matches
         """
         # Make sure the interaction and flash objects were set
-        assert self.qcluster_v is not None and self.flash_v is not None, \
-                'Must make_qcluster_list and make_flash_list first'
+        assert self.qcluster_v is not None and self.flash_v is not None, (
+                "Must make_qcluster_list and make_flash_list first.")
 
         # Register all objects in the manager
         self.mgr.Reset()
@@ -288,7 +286,7 @@ class LikelihoodFlashMatcher:
         # Adjust the output position to account for the module shift
         for m in all_matches:
             pos = np.array([m.tpc_point.x, m.tpc_point.y, m.tpc_point.z])
-            pos = self.geo.translate(pos, 0, self.volume_id)
+            pos = self.geo.translate(pos, 0, self.module_id)
             m.tpc_point.x = pos[0]
             m.tpc_point.y = pos[1]
             m.tpc_point.z = pos[2]

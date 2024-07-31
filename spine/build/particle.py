@@ -116,7 +116,6 @@ class ParticleBuilder(BuilderBase):
                     index=index,
                     points=points[index],
                     depositions=depositions[index],
-                    sources=sources,
                     pid=pid_pred[i],
                     primary_scores=primary_scores[i],
                     is_primary=bool(primary_pred[i]))
