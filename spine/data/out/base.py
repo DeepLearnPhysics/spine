@@ -83,6 +83,9 @@ class OutBase(PosDataBase):
     # Attributes to be binarized to form an integer from a variable-length array
     _binarize_attrs = ['module_ids']
 
+    # Boolean attributes
+    _bool_attrs = ['is_contained', 'is_matched', 'is_cathode_crosser', 'is_truth']
+
     # Attributes to concatenate when merging objects
     _cat_attrs = ['index', 'points', 'depositions', 'sources']
 

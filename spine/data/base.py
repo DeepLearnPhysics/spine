@@ -33,6 +33,9 @@ class DataBase:
     # String attributes
     _str_attrs = []
 
+    # Boolean attributes
+    _bool_attrs = []
+
     # Attributes to concatenate when merging objects
     _cat_attrs = []
 
@@ -70,10 +73,15 @@ class DataBase:
                     size, dtype = size
                 setattr(self, attr, np.full(size, -np.inf, dtype=dtype))
 
-        # Make sure the strings are not binary
+        # Cast stored binary strings back to regular strings
         for attr in self._str_attrs:
             if isinstance(getattr(self, attr), bytes):
                 setattr(self, attr, getattr(self, attr).decode())
+
+        # Cast stored 8-bit unsigned integers back to booleans
+        for attr in self._bool_attrs:
+            if isinstance(getattr(self, attr), np.uint8):
+                setattr(self, attr, bool(getattr(self, attr)))
 
     def __getstate__(self):
         """Returns the variables to be pickled.

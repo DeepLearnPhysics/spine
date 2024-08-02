@@ -109,6 +109,9 @@ class ParticleBase:
     # Attributes specifying vector components
     _vec_attrs = ['start_dir', 'end_dir', 'momentum']
 
+    # Boolean attributes
+    _bool_attrs = ['is_primary', 'is_valid']
+
     # Enumerated attributes
     _enum_attrs = {
             'shape': {v : k for k, v in SHAPE_LABELS.items()},
@@ -215,6 +218,9 @@ class RecoParticle(ParticleBase, RecoBase):
             **RecoBase._var_length_attrs, **ParticleBase._var_length_attrs,
             'ppn_ids': np.int32, 'ppn_points': (3, np.float32)
     }
+
+    # Boolean attributes
+    _bool_attrs = [*RecoBase._bool_attrs, *ParticleBase._bool_attrs]
 
     # Attributes that should not be stored
     _skip_attrs = [*RecoBase._skip_attrs, *ParticleBase._skip_attrs, 'ppn_points']
@@ -356,6 +362,11 @@ class TruthParticle(Particle, ParticleBase, TruthBase):
     reco_start_dir: np.ndarray = None
     reco_end_dir: np.ndarray = None
 
+    # Private derived attributes
+    _start_dir: np.ndarray = field(init=False, repr=False)
+    _end_dir: np.ndarray = field(init=False, repr=False)
+    _ke: np.ndarray = field(init=False, repr=False)
+
     # Fixed-length attributes
     _fixed_length_attrs = {
             **ParticleBase._fixed_length_attrs,
@@ -371,10 +382,8 @@ class TruthParticle(Particle, ParticleBase, TruthBase):
             'children_counts': np.int32
     }
 
-    # Private derived attributes
-    _start_dir: np.ndarray = field(init=False, repr=False)
-    _end_dir: np.ndarray = field(init=False, repr=False)
-    _ke: np.ndarray = field(init=False, repr=False)
+    # Boolean attributes
+    _bool_attrs = [*TruthBase._bool_attrs, *ParticleBase._bool_attrs]
 
     # Attributes that should not be stored
     _skip_attrs = [*TruthBase._skip_attrs, *ParticleBase._skip_attrs]

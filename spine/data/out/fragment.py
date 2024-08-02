@@ -61,6 +61,9 @@ class FragmentBase:
     # Attributes specifying vector components
     _vec_attrs = ['start_dir', 'end_dir']
 
+    # Boolean attributes
+    _bool_attrs = ['is_primary']
+
     # Enumerated attributes
     _enum_attrs = {
             'shape': {v : k for k, v in SHAPE_LABELS.items()}
@@ -96,6 +99,9 @@ class RecoFragment(FragmentBase, RecoBase):
     _fixed_length_attrs = {
             'primary_scores': 2, 
             **FragmentBase._fixed_length_attrs}
+
+    # Boolean attributes
+    _bool_attrs = [*RecoBase._bool_attrs, *FragmentBase._bool_attrs]
 
     def __str__(self):
         """Human-readable string representation of the fragment object.
@@ -146,6 +152,9 @@ class TruthFragment(Particle, FragmentBase, TruthBase):
             **Particle._var_length_attrs,
             'children_counts': np.int32
     }
+
+    # Boolean attributes
+    _bool_attrs = [*TruthBase._bool_attrs, *FragmentBase._bool_attrs]
 
     def __str__(self):
         """Human-readable string representation of the fragment object.

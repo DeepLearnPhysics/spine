@@ -85,6 +85,9 @@ class InteractionBase:
     # Attributes specifying vector components
     _vec_attrs = ['vertex']
 
+    # Boolean attributes
+    _bool_attrs = ['is_fiducial', 'is_flash_matched']
+
     # Attributes that should not be stored
     _skip_attrs = ['particles']
 
@@ -230,6 +233,9 @@ class RecoInteraction(InteractionBase, RecoBase):
             **RecoBase._var_length_attrs, **InteractionBase._var_length_attrs
     }
 
+    # Boolean attributes
+    _bool_attrs = [*RecoBase._bool_attrs, *InteractionBase._bool_attrs]
+
     def __str__(self):
         """Human-readable string representation of the interaction object.
 
@@ -271,6 +277,9 @@ class TruthInteraction(Neutrino, InteractionBase, TruthBase):
             **TruthBase._var_length_attrs,
             **InteractionBase._var_length_attrs
     }
+
+    # Boolean attributes
+    _bool_attrs = [*TruthBase._bool_attrs, *InteractionBase._bool_attrs]
 
     # Attributes that should not be stored
     _skip_attrs = [*TruthBase._skip_attrs, *InteractionBase._skip_attrs]
