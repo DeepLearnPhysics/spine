@@ -1225,7 +1225,8 @@ class FullChainLoss(torch.nn.Module):
             else:
                 res_seg = self.uresnet_ppn_loss(
                         seg_label=seg_label, ppn_label=ppn_label,
-                        segmentation=segmentation, **output)
+                        clust_label=clust_label, segmentation=segmentation,
+                        **output)
                 self.update_result(res_seg)
 
             # Adapt the cluster labels to those corresponding to the
