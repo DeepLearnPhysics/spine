@@ -2,6 +2,7 @@
 
 from typing import List
 from dataclasses import dataclass, field
+from warnings import warn
 
 import numpy as np
 
@@ -307,7 +308,9 @@ class TruthInteraction(Neutrino, InteractionBase, TruthBase):
             if attr != 'id':
                 setattr(self, attr, val)
             else:
-                self.nu_id = val
+                if neutrino.id != self.nu_id:
+                    warn("The neutrino ID as stored in the larcv.Neutrino "
+                         "object does not match its index.")
 
         # Set the interaction vertex position
         self.vertex = neutrino.position
