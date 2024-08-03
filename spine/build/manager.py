@@ -181,6 +181,7 @@ class BuildManager:
 
         if 'sources' in sources:
             update['sources'] = sources['sources'].astype(int)
+        if 'sources_label' in sources:
             update['sources_label'] = sources['sources_label'].astype(int)
 
         # If provided, etch the point attributes to check their units
