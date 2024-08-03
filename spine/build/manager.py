@@ -180,8 +180,8 @@ class BuildManager:
             update['depositions_g4'] = sources['label_g4_tensor'][:, VALUE_COL]
 
         if 'sources' in sources:
-            update['sources'] = sources['sources']
-            update['sources_label'] = sources['sources_label']
+            update['sources'] = sources['sources'].astype(int)
+            update['sources_label'] = sources['sources_label'].astype(int)
 
         # If provided, etch the point attributes to check their units
         for obj in ['fragment', 'particle']:
