@@ -95,7 +95,7 @@ class Neutrino(PosDataBase):
     momentum_transfer: float = -1.
     momentum_transfer_mag: float = -1.
     energy_transfer: float = -1.
-    lepton_p: float = -1
+    lepton_p: float = -1.
     theta: float = -1.
     creation_process: str = ''
     position: np.ndarray = None
