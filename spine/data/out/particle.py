@@ -26,6 +26,8 @@ class ParticleBase:
         List of fragments that make up the interaction
     fragment_ids : np.ndarray
         List of Fragment IDs that make up this particle
+    num_fragments : int
+        Number of fragments that make up this particle
     interaction_id : int
         Index of the interaction this particle belongs to
     shape : int
@@ -67,6 +69,7 @@ class ParticleBase:
     """
     fragments: List[object] = None
     fragment_ids: np.ndarray = None
+    num_fragments: int = None
     interaction_id: int = -1
     shape: int = -1
     pid: int = -1
@@ -86,6 +89,7 @@ class ParticleBase:
     is_valid: bool = True
 
     # Private derived attributes
+    _num_fragments: int = field(init=False, repr=False)
     _p: float = field(init=False, repr=False)
 
     # Fixed-length attributes
@@ -105,6 +109,9 @@ class ParticleBase:
     # Attributes specifying vector components
     _vec_attrs = ['start_dir', 'end_dir', 'momentum']
 
+    # Boolean attributes
+    _bool_attrs = ['is_primary', 'is_valid']
+
     # Enumerated attributes
     _enum_attrs = {
             'shape': {v : k for k, v in SHAPE_LABELS.items()},
@@ -113,17 +120,6 @@ class ParticleBase:
 
     # Attributes that should not be stored
     _skip_attrs = ['fragments', 'ppn_points']
-
-    @property
-    def num_fragments(self):
-        """Number of fragments that make up this particle.
-
-        Returns
-        -------
-        int
-            Number of fragments that make up the particle instance
-        """
-        return len(self.fragment_ids)
 
     def __str__(self):
         """Human-readable string representation of the particle object.
@@ -138,6 +134,21 @@ class ParticleBase:
         return (f"Particle(ID: {self.id:<3} | PID: {pid_label:<8} "
                 f"| Primary: {self.is_primary:<2} "
                 f"| Size: {self.size:<5} | Match: {match:<3})")
+
+    @property
+    def num_fragments(self):
+        """Number of fragments that make up this particle.
+
+        Returns
+        -------
+        int
+            Number of fragments that make up the particle instance
+        """
+        return len(self.fragment_ids)
+
+    @num_fragments.setter
+    def num_fragments(self, num_fragments):
+        self._num_fragments = num_fragments
 
     @property
     def pdg_code(self):
@@ -207,6 +218,9 @@ class RecoParticle(ParticleBase, RecoBase):
             **RecoBase._var_length_attrs, **ParticleBase._var_length_attrs,
             'ppn_ids': np.int32, 'ppn_points': (3, np.float32)
     }
+
+    # Boolean attributes
+    _bool_attrs = [*RecoBase._bool_attrs, *ParticleBase._bool_attrs]
 
     # Attributes that should not be stored
     _skip_attrs = [*RecoBase._skip_attrs, *ParticleBase._skip_attrs, 'ppn_points']
@@ -348,6 +362,11 @@ class TruthParticle(Particle, ParticleBase, TruthBase):
     reco_start_dir: np.ndarray = None
     reco_end_dir: np.ndarray = None
 
+    # Private derived attributes
+    _start_dir: np.ndarray = field(init=False, repr=False)
+    _end_dir: np.ndarray = field(init=False, repr=False)
+    _ke: np.ndarray = field(init=False, repr=False)
+
     # Fixed-length attributes
     _fixed_length_attrs = {
             **ParticleBase._fixed_length_attrs,
@@ -363,10 +382,8 @@ class TruthParticle(Particle, ParticleBase, TruthBase):
             'children_counts': np.int32
     }
 
-    # Private derived attributes
-    _start_dir: np.ndarray = field(init=False, repr=False)
-    _end_dir: np.ndarray = field(init=False, repr=False)
-    _ke: np.ndarray = field(init=False, repr=False)
+    # Boolean attributes
+    _bool_attrs = [*TruthBase._bool_attrs, *ParticleBase._bool_attrs]
 
     # Attributes that should not be stored
     _skip_attrs = [*TruthBase._skip_attrs, *ParticleBase._skip_attrs]

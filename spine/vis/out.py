@@ -98,7 +98,7 @@ class Drawer:
                 detector_coords=self.detector_coords, **kwargs)
 
     def get(self, obj_type, attr=None, draw_end_points=False,
-            draw_vertices=False, synchronize=False):
+            draw_vertices=False, synchronize=False, titles=None):
         """Draw the requested object type with the requested mode.
 
         Parameters
@@ -114,6 +114,8 @@ class Drawer:
             If True, draw the interaction vertices
         synchronize : bool, default False
             If True, matches the camera position/angle of one plot to the other
+        titles : List[str], optional
+            Titles of the two scenes (only relevant for split_scene True
 
         Returns
         -------
@@ -165,7 +167,8 @@ class Drawer:
 
         # Initialize the figure, return
         if len(self.prefixes) > 1 and self.split_scene:
-            titles = [f'Reconstructed {obj_type}', f'Truth {obj_type}']
+            if titles is None:
+                titles = [f'Reconstructed {obj_type}', f'Truth {obj_type}']
             figure = dual_figure3d(
                     traces['reco'], traces['truth'], layout=self.layout,
                     synchronize=synchronize, titles=titles)
@@ -286,7 +289,7 @@ class Drawer:
             elif count <= len(colorscale):
                 colorscale = colorscale[:count]
             else:
-                repeat = (count - 1)//len(colorscales) + 1
+                repeat = (count - 1)//len(colorscale) + 1
                 self._colorscale = np.repeat(colorscale, repeat)[:count]
 
             cmin = 0

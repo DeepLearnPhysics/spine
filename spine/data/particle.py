@@ -226,8 +226,8 @@ class Particle(PosDataBase):
             for key in ['track_id', 'pdg_code', 'creation_process', 't']:
                 obj_dict[prefix+key] = getattr(particle, prefix+key)()
         for key in ['id', 'gen_id', 'group_id', 'interaction_id', 'parent_id',
-                    'mct_index', 'mcst_index', 'shape', 'energy_init',
-                    'energy_deposit', 'distance_travel']:
+                    'mct_index', 'mcst_index', 'num_voxels', 'shape',
+                    'energy_init', 'energy_deposit', 'distance_travel']:
             if not hasattr(particle, key):
                 warn(f"The LArCV Particle object is missing the {key} "
                       "attribute. It will miss from the Particle object.")

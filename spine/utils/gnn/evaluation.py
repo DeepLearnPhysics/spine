@@ -129,15 +129,18 @@ def edge_assignment_score_batch(edge_index, edge_pred, clusts):
     group_ids = np.empty(len(clusts.index_list), dtype=np.int64)
     scores = np.empty(edge_index.batch_size, dtype=edge_pred.dtype)
     edge_counts = np.empty(edge_index.batch_size, dtype=np.int64)
+    offset = 0
     for b in range(edge_index.batch_size):
         lower, upper = clusts.edges[b], clusts.edges[b+1]
         edge_index_b, group_ids_b, score_b = edge_assignment_score(
                 edge_index[b], edge_pred[b], clusts.counts[b])
 
         edge_index_list.append(edge_index_b + edge_index.offsets[b])
-        group_ids[lower:upper] = group_ids_b
+        group_ids[lower:upper] = offset + group_ids_b
         scores[b] = score_b
         edge_counts[b] = len(edge_index_b)
+        if upper - lower > 0:
+            offset = np.max(group_ids[lower:upper]) + 1
 
     # Make a new EdgeIndexBatch out of the selected edges
     new_edge_index = EdgeIndexBatch(
@@ -165,12 +168,15 @@ def node_assignment_batch(edge_index, edge_pred, clusts):
     """
     # Loop over on edges, reset the group IDs of connected node
     group_ids = np.empty(len(clusts.index_list), dtype=np.int64)
+    offset = 0
     for b in range(edge_index.batch_size):
         lower, upper = clusts.edges[b], clusts.edges[b+1]
-        group_ids[lower:upper] = node_assignment(
-                edge_index[b], edge_pred[b], clusts.counts[b])
+        if upper - lower > 0:
+            group_ids[lower:upper] = offset + node_assignment(
+                    edge_index[b], edge_pred[b], clusts.counts[b])
+            offset = np.max(group_ids[lower:upper]) + 1
 
-    return group_ids
+    return TensorBatch(group_ids, counts=clusts.counts)
 
 
 def node_assignment_score_batch(edge_index, edge_pred, clusts):

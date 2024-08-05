@@ -32,7 +32,9 @@ class FlashMatchProcessor(PostBase):
             Keyword arguments to pass to specific flash matching algorithms
         """
         # Initialize the parent class
-        super().__init__('interaction', run_mode, truth_point_mode, parent_path)
+        super().__init__(
+                'interaction', run_mode, truth_point_mode,
+                parent_path=parent_path)
 
         # If there is no map from flash data product to volume ID, throw
         self.flash_map = flash_map
@@ -93,9 +95,9 @@ class FlashMatchProcessor(PostBase):
                 # Get the list of flashes associated with that key
                 flashes = data[key]
 
-                # Get the list of interactions that share the same volume
+                # Get list of interactions that originate from the same module
                 # TODO: this only works for interactions coming from a single
-                # volume. Must fix this.
+                # TODO: module. Must fix this.
                 ints = [inter for inter in interactions if inter.module_ids[0] == module_id]
 
                 # Run flash matching

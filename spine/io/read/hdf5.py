@@ -4,7 +4,7 @@ import h5py
 import numpy as np
 
 import spine.data
-import spine.data.out
+
 from spine.utils.decorators import inherit_docstring
 
 from .base import ReaderBase
@@ -132,7 +132,7 @@ class HDF5Reader(ReaderBase):
         entry_idx = self.get_file_entry_index(idx)
 
         # Use the event tree to find out what needs to be loaded
-        data = {}
+        data = {'file_index': file_idx}
         with h5py.File(self.file_paths[file_idx], 'r') as in_file:
             event = in_file['events'][entry_idx]
             for key in event.dtype.names:
@@ -168,13 +168,9 @@ class HDF5Reader(ReaderBase):
             else:
                 # If the dataset has multiple attributes, it contains an object.
                 # Start by fetching the appropriate class to rebuild
-                # TODO currently have to look in two modules, simplify?
                 array = in_file[key][region_ref]
                 class_name = in_file[key].attrs['class_name']
-                if hasattr(spine.data, class_name):
-                    obj_class = getattr(spine.data, class_name)
-                else:
-                    obj_class = getattr(spine.data.out, class_name)
+                obj_class = getattr(spine.data, class_name)
 
                 # Load the object
                 names = array.dtype.names

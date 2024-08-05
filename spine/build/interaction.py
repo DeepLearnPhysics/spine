@@ -1,6 +1,7 @@
 """Class in charge of constructing *Interaction objects."""
 
 from collections import defaultdict
+from warnings import warn
 
 import numpy as np
 
@@ -152,9 +153,10 @@ class InteractionBuilder(BuilderBase):
             else:
                 anc_pos = [part.ancestor_position for part in inter_particles]
                 anc_pos = np.unique(anc_pos, axis=0)
-                assert len(anc_pos) == 1, (
-                        "Particles making up a true interaction have "
-                        "different ancestor positions.")
+                if len(anc_pos) != 1:
+                    warn("Particles making up a true interaction have "
+                         "different ancestor positions.")
+                    anc_pos = np.max(anc_pos, axis=0)
                 interaction.vertex = anc_pos.flatten()
 
             # Append

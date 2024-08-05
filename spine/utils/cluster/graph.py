@@ -207,8 +207,9 @@ class ClusterGraphConstructor:
                     0, dtype=torch.long, device=coords.device))
                 graph['edge_attr'].append(torch.empty(
                     0, dtype=features.dtype, device=features.device))
-                graph['edge_label'].append(torch.empty(
-                    0, dtype=torch.long, device=coords.device))
+                if self.label_edges:
+                    graph['edge_label'].append(torch.empty(
+                        0, dtype=torch.long, device=coords.device))
                 continue
 
             # Make the graph edge index

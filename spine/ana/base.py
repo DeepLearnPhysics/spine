@@ -26,7 +26,7 @@ class AnaBase(ABC):
     """
     name = ''
     aliases = []
-    keys = {'index': True, 'run_info': False}
+    keys = {'index': True, 'file_index': True, 'run_info': False}
     units = 'cm'
 
     # List of recognized object types
@@ -135,9 +135,7 @@ class AnaBase(ABC):
             Dictionary of information for this entry
         """
         # Extract basic information to store in every row
-        # TODO: add file index + index within the file? adding the file path
-        # to every row is prohibitively expensive.
-        base_dict = {'index': data['index']}
+        base_dict = {'index': data['index'], 'file_index': data['file_index']}
         if 'run_info' in data:
             base_dict.update(**data['run_info'].scalar_dict())
         else:

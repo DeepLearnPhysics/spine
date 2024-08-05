@@ -187,7 +187,7 @@ class ClustGeoNodeEncoder(torch.nn.Module):
 
         return feats
 
-    def get_base_features(data, clusts, add_value, add_shape):
+    def get_base_features(self, data, clusts, add_value, add_shape):
         """Generate base geometric cluster node features for one batch of data.
 
         Parameters
@@ -215,7 +215,7 @@ class ClustGeoNodeEncoder(torch.nn.Module):
         for c in clusts.index_list:
             # Get list of voxels in the cluster
             x = voxels[c]
-            size = full(1, len(c))
+            size = full([1], len(c))
 
             # Give default values to size-1 clusters
             if len(c) < 2:
@@ -225,7 +225,7 @@ class ClustGeoNodeEncoder(torch.nn.Module):
                     vals[0] = values[c[0]]
                     feats_v = torch.cat((feats_v, vals), dim=1)
                 if add_shape:
-                    shape = full(1, sem_types[c[0]])
+                    shape = full([1], sem_types[c[0]])
                     feats_v = torch.cat((feats_v, shape), dim=1)
 
                 feats.append(feats_v)
@@ -273,7 +273,7 @@ class ClustGeoNodeEncoder(torch.nn.Module):
                 vals[1] = values[c].std()
                 feats_v = torch.cat((feats_v, vals), dim=1)
             if add_shape:
-                shape = full(1, sem_types[c].mode())
+                shape = full([1], sem_types[c].mode())
                 feats_v = torch.cat((feats_v, shape), dim=1)
 
             feats.append(feats_v)
@@ -343,7 +343,7 @@ class ClustGeoEdgeEncoder(torch.nn.Module):
         else:
             # Otherwise, use the local torch method
             feats = self.get_base_features(
-                    data, clusts, edge_index, closest_index).tensor
+                    data, clusts, edge_index, closest_index)
 
         # If the graph is undirected, infer reciprocal features
         if not edge_index.directed:
@@ -364,7 +364,7 @@ class ClustGeoEdgeEncoder(torch.nn.Module):
 
         return TensorBatch(feats, edge_index.counts)
 
-    def get_base_features(data, clusts, edge_index, closest_index=None):
+    def get_base_features(self, data, clusts, edge_index, closest_index=None):
         """Generate base geometric cluster node features for one batch of data.
 
         Parameters
@@ -415,6 +415,6 @@ class ClustGeoEdgeEncoder(torch.nn.Module):
             feats.append(torch.cat([v1, v2, disp, lend.reshape(1), B]))
 
         if len(feats):
-            return TensorBatch(torch.stack(feats, dim=0), edge_index.counts)
+            return torch.stack(feats, dim=0)
         else:
-            return TensorBatch(zeros((0, 19)), edge_index.counts)
+            return torch.zeros((0, 19))

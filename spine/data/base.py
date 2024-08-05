@@ -21,6 +21,9 @@ class DataBase:
     # Variable-length attributes as (key, dtype) pairs
     _var_length_attrs = {}
 
+    # Attributes to be binarized to form an integer from a variable-length array
+    _binarize_attrs = []
+
     # Attributes specifying coordinates
     _pos_attrs = []
 
@@ -29,6 +32,9 @@ class DataBase:
 
     # String attributes
     _str_attrs = []
+
+    # Boolean attributes
+    _bool_attrs = []
 
     # Attributes to concatenate when merging objects
     _cat_attrs = []
@@ -49,15 +55,6 @@ class DataBase:
         - Casts strings when they are provided as binary objects, which is the
           format one gets when loading string from HDF5 files.
         """
-        # Provide default values to the fixed-length array attributes
-        for attr, size in self._fixed_length_attrs.items():
-            if getattr(self, attr) is None:
-                if not isinstance(size, tuple):
-                    dtype = np.float32
-                else:
-                    size, dtype = size
-                setattr(self, attr, np.full(size, -np.inf, dtype=dtype))
-
         # Provide default values to the variable-length array attributes
         for attr, dtype in self._var_length_attrs.items():
             if getattr(self, attr) is None:
@@ -67,10 +64,24 @@ class DataBase:
                     width, dtype = dtype
                     setattr(self, attr, np.empty((0, width), dtype=dtype))
 
-        # Make sure the strings are not binary
+        # Provide default values to the fixed-length array attributes
+        for attr, size in self._fixed_length_attrs.items():
+            if getattr(self, attr) is None:
+                if not isinstance(size, tuple):
+                    dtype = np.float32
+                else:
+                    size, dtype = size
+                setattr(self, attr, np.full(size, -np.inf, dtype=dtype))
+
+        # Cast stored binary strings back to regular strings
         for attr in self._str_attrs:
             if isinstance(getattr(self, attr), bytes):
                 setattr(self, attr, getattr(self, attr).decode())
+
+        # Cast stored 8-bit unsigned integers back to booleans
+        for attr in self._bool_attrs:
+            if isinstance(getattr(self, attr), np.uint8):
+                setattr(self, attr, bool(getattr(self, attr)))
 
     def __getstate__(self):
         """Returns the variables to be pickled.
@@ -151,13 +162,18 @@ class DataBase:
                 found.append(attr)
 
             # If the attribute is long-form attribute, skip it
-            if attr in self._skip_attrs or attr in self._var_length_attrs:
+            if (attr not in self._binarize_attrs and
+                (attr in self._skip_attrs or attr in self._var_length_attrs)):
                 continue
 
             # Dispatch
             if np.isscalar(value):
                 # If the attribute is a scalar, store as is
                 scalar_dict[attr] = value
+
+            elif attr in self._binarize_attrs:
+                # If the list is to be binarized, do it
+                scalar_dict[attr] = int(np.sum(2**value))
 
             elif attr in (self._pos_attrs + self._vec_attrs):
                 # If the attribute is a position or vector, expand with axis
@@ -172,7 +188,7 @@ class DataBase:
             else:
                 raise ValueError(
                         f"Cannot expand the `{attr}` attribute of "
-                        f"`{self.__cls__.__name__}` to scalar values.")
+                        f"`{self.__class__.__name__}` to scalar values.")
 
         if attrs is not None and len(attrs) != len(found):
             class_name = self.__class__.__name__

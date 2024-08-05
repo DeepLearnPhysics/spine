@@ -390,11 +390,14 @@ def get_particle_points(data, clusts, clusts_seg, ppn_points,
         else:
             # Only use positive voxels and give precedence to predictions
             # that are contained within the voxel making the prediction.
-            ppn_scores = softmax(points_tensor[:, PPN_RPOS_COLS], 1)[:,-1]
-            val_index = where(
-                    (abss(points_tensor[:, PPN_ROFF_COLS]) < 1.).all(1))[0]
-            best_id = val_index[argmax(ppn_scores[val_index])] \
-                    if len(val_index) else argmax(ppn_scores)
+            ppn_scores = softmax(points_tensor[:, PPN_RPOS_COLS], 1)[:, -1]
+            dists = abss(points_tensor[:, PPN_ROFF_COLS])
+
+            val_index = where((ppn_scores > 0.5) & (dists < 1.).all(1))[0]
+            if len(val_index):
+                best_id = val_index[argmax(ppn_scores[val_index])]
+            else:
+                best_id = argmax(ppn_scores)
 
             start_point = (clust_coords[best_id]
                            + points_tensor[best_id, PPN_ROFF_COLS] + 0.5)

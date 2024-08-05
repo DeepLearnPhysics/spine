@@ -179,6 +179,11 @@ class BuildManager:
             update['points_g4'] = sources['label_g4_tensor'][:, COORD_COLS]
             update['depositions_g4'] = sources['label_g4_tensor'][:, VALUE_COL]
 
+        if 'sources' in sources:
+            update['sources'] = sources['sources'].astype(int)
+        if 'sources_label' in sources:
+            update['sources_label'] = sources['sources_label'].astype(int)
+
         # If provided, etch the point attributes to check their units
         for obj in ['fragment', 'particle']:
             for key in [f'{obj}_start_points', f'{obj}_end_points']:
@@ -226,7 +231,7 @@ class BuildManager:
         prefix = f'{name}_matches'
 
         # Create match pairs in both directions (true to reco and vice versa)
-        result = defaultdict(list)
+        result = {}
         for source, target in [('reco', 'truth'), ('truth', 'reco')]:
             # Fetch the lists of objects to match
             sources = data[f'{source}_{name}s']
@@ -238,6 +243,8 @@ class BuildManager:
             suffix = f'{source[0]}2{target[0]}'
             match_key = f'{prefix}_{suffix}'
             match_overlap_key = f'{match_key}_overlap'
+            result[match_key] = []
+            result[match_overlap_key] = []
             for obj in sources:
                 if not obj.is_matched:
                     # If no match is found, give an empty value to the match
