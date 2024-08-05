@@ -55,8 +55,8 @@ class ParticleParser(ParserBase):
         skip_empty : bool, default False
             Do not read the truth information corresponding to empty particles.
             This saves considerable read time when there are a lot of irrelevant
-            particle stored in the LArCV file. It puts and empty `Particle`
-            object in place of empty particles, to preserve the list size, typing.
+            particle stored in the LArCV file. It puts an empty `Particle`
+            object in place of empty particles, to preserve list size and typing.
         asis : bool, default False
             Load the objects as larcv objects, do not build local data class
         **kwargs : dict, optional
