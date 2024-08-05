@@ -42,7 +42,7 @@ class ParticleParser(ParserBase):
     name = 'particle'
 
     def __init__(self, pixel_coordinates=True, post_process=True,
-                 asis=False, **kwargs):
+                 skip_empty=False, asis=False, **kwargs):
         """Initialize the parser.
 
         Parameters
@@ -52,6 +52,11 @@ class ParticleParser(ParserBase):
             (start, end, etc.) to voxel coordinates
         post_process : bool, default True
             Processes particles to add/correct missing attributes
+        skip_empty : bool, default False
+            Do not read the truth information corresponding to empty particles.
+            This saves considerable read time when there are a lot of irrelevant
+            particle stored in the LArCV file. It puts and empty `Particle`
+            object in place of empty particles, to preserve the list size, typing.
         asis : bool, default False
             Load the objects as larcv objects, do not build local data class
         **kwargs : dict, optional
@@ -63,6 +68,7 @@ class ParticleParser(ParserBase):
         # Store the revelant attributes
         self.pixel_coordinates = pixel_coordinates
         self.post_process = post_process
+        self.skip_empty = skip_empty
         self.asis = asis
 
     def __call__(self, trees):
@@ -106,11 +112,20 @@ class ParticleParser(ParserBase):
                     "If `asis` is True, `pixel_coordinates` must be False.")
             assert not self.post_process, (
                     "If `asis` is True, `post_process` must be False.")
+            assert not self.skip_empty, (
+                    "If `asis` is True`, `skip_empty` must be False.")
 
             return ObjectList(particle_list, larcv.Particle())
 
         # Convert to a list of particle objects
-        particles = [Particle.from_larcv(p) for p in particle_list]
+        particles = []
+        for p in particle_list:
+            if (not self.skip_empty or
+                p.num_voxels() > 0 or
+                p.id() == p.group_id()):
+                particles.append(Particle.from_larcv(p))
+            else:
+                particles.append(Particle())
 
         # If requested, post-process the particle list
         if self.post_process:
@@ -129,7 +144,8 @@ class ParticleParser(ParserBase):
 
             # Convert all the relevant attributes
             for p in particles:
-                p.to_px(meta)
+                if p.id > -1:
+                    p.to_px(meta)
 
         return ObjectList(particles, Particle())
 
@@ -281,7 +297,7 @@ class ParticlePointParser(ParserBase):
         cluster_event : larcv.EventClusterVoxel3D, optional
             Cluster which contains the metadata needed to convert the
             positions in voxel coordinates
-            
+
         Returns
         -------
         np_voxels : np.ndarray
@@ -345,11 +361,11 @@ class ParticleCoordinateParser(ParserBase):
         cluster_event : larcv.EventClusterVoxel3D, optional
             Cluster which contains the metadata needed to convert the
             positions in voxel coordinates
-            
+
         Returns
         -------
         np_voxels : np.ndarray
-            (N, 6) array of [x_s, y_s, z_s, x_e, y_e, z_e] start and end 
+            (N, 6) array of [x_s, y_s, z_s, x_e, y_e, z_e] start and end
             point coordinates
         np_features : np.ndarray
             (N, 2) array of [first_step_t, shape_id]
