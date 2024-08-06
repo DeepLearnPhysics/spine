@@ -80,8 +80,11 @@ class PostBase(ABC):
                     f"{self._run_modes}.")
 
         # Check that all the object sources are recognized
-        if isinstance(obj_type, str):
+        if obj_type is None:
+            obj_type = []
+        elif isinstance(obj_type, str):
             obj_type = [obj_type]
+
         for obj in obj_type:
             assert obj in self._obj_types, (
                     f"Object type must be one of {self._obj_types}. Got "
