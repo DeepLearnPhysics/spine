@@ -494,8 +494,7 @@ class FullChain(torch.nn.Module):
             self.result['seg_pred'] = TensorBatch(seg_pred, data.counts)
 
             # If the rest of the chain is run, must adapt cluster labels now
-            if (seg_label is not None and clust_label is not None and
-                self.fragmentation is not None):
+            if seg_label is not None and clust_label is not None:
                 seg_pred = self.result['seg_pred']
                 ghost_pred = self.result.get('ghost_pred', None)
                 old_clust_label = clust_label
@@ -1216,6 +1215,10 @@ class FullChainLoss(torch.nn.Module):
 
         # Apply the segmentation and point proposal loss
         if self.segmentation == 'uresnet':
+            # Adapt the cluster labels to those corresponding to the
+            # reconstructed semantic segmentation of the image
+            clust_label = clust_label_adapt
+
             # Store the loss dictionary
             if hasattr(self, 'uresnet_loss'):
                 res_seg = self.uresnet_loss(
@@ -1228,10 +1231,6 @@ class FullChainLoss(torch.nn.Module):
                         clust_label=clust_label, segmentation=segmentation,
                         **output)
                 self.update_result(res_seg)
-
-            # Adapt the cluster labels to those corresponding to the
-            # reconstructed semantic segmentation of the image
-            clust_label = clust_label_adapt
 
         # Apply the Graph-SPICE loss
         if self.fragmentation is not None and 'graph_spice' in self.fragmentation:
