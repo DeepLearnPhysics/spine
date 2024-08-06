@@ -1,6 +1,7 @@
 """Base class of all analysis scripts."""
 
 from abc import ABC, abstractmethod
+from warnings import warn
 
 from spine.io.write import CSVWriter
 
