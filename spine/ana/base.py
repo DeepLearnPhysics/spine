@@ -26,7 +26,8 @@ class AnaBase(ABC):
     """
     name = ''
     aliases = []
-    keys = {'index': True, 'file_index': True, 'run_info': False}
+    keys = {'index': True, 'file_index': True,
+            'file_entry_index': False, 'run_info': False}
     units = 'cm'
 
     # List of recognized object types
@@ -44,7 +45,7 @@ class AnaBase(ABC):
         obj_type : Union[str, List[str]]
             Name or list of names of the object types to process
         run_mode : str, optional
-            If specified, tells whether the post-processor must run on
+            If specified, tells whether the analysis script must run on
             reconstructed ('reco'), true ('true') or both objects
             ('both' or 'all')
         append_file : bool, default False
@@ -136,6 +137,8 @@ class AnaBase(ABC):
         """
         # Extract basic information to store in every row
         base_dict = {'index': data['index'], 'file_index': data['file_index']}
+        if 'file_entry_index' in data:
+            base_dict['file_entry_index'] = data['file_entry_index']
         if 'run_info' in data:
             base_dict.update(**data['run_info'].scalar_dict())
         else:
@@ -165,15 +168,15 @@ class AnaBase(ABC):
 
         Returns
         -------
-        float
-            Post-processor execution time
+        dict
+            Update to the input dictionary
         """
         # Fetch the necessary information
         data_filter = {}
         for key, req in self.keys.items():
             # If this key is needed, check that it exists
             assert not req or key in data, (
-                    f"Post-processor `{self.name}` if missing an essential "
+                    f"Analysis script `{self.name}` is missing an essential "
                     f"input to be used: `{key}`.")
 
             # Append

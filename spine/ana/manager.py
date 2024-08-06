@@ -25,7 +25,7 @@ class AnaManager:
         Parameters
         ----------
         cfg : dict
-            Post-processor configurations
+            Analysis script configurations
         parent_path : str, optional
             Path to the analysis tools configuration file
         """
