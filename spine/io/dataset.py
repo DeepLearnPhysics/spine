@@ -89,7 +89,10 @@ class LArCVDataset(Dataset):
 
         # Get the index
         entry_idx = self.reader.entry_index[idx]
-        result = {'index': entry_idx}
+        file_idx = self.reader.get_file_index(idx)
+        file_entry_idx = self.reader.get_file_entry_index(idx)
+        result = {'index': entry_idx, 'file_index': file_idx,
+                  'file_entry_index': file_entry_idx}
 
         # Loop over data products, execute parsers
         for name, parser in self.parsers.items():
@@ -115,7 +118,7 @@ class LArCVDataset(Dataset):
     def list_data(file_path):
         """Dumps top-level information about the contents of the LArCV root
         file.
-        
+
         Parameters
         ----------
         file_path : str
