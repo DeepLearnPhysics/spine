@@ -41,8 +41,12 @@ class PostBase(ABC):
     # List of recognized run modes
     _run_modes = ['reco', 'truth', 'both', 'all']
 
-    # List of known point modes
-    _point_modes = ['points', 'points_adapt', 'points_g4']
+    # List of known point modes for true particles
+    _point_modes = {
+            'points': 'points_label',
+            'points_adapt': 'points',
+            'points_g4': 'points_g4'
+    }
 
     # List of known deposition modes
     _dep_modes = ['depositions', 'depositions_q', 'depositions_adapt',
@@ -113,7 +117,9 @@ class PostBase(ABC):
                      "The `truth_point_mode` argument must be one of "
                     f"{self._point_modes}. Got `{truth_point_mode}` instead.")
             self.truth_point_mode = truth_point_mode
+            self.truth_point_key = self._point_modes[truth_point_mode]
             self.truth_index_mode = truth_point_mode.replace('points', 'index')
+            self.truth_source_mode = truth_point_mode.replace('points', 'sources')
 
         # If a truth deposition mode is specified, store it
         if truth_dep_mode is not None:
@@ -200,6 +206,28 @@ class PostBase(ABC):
             return obj.points
         else:
             return getattr(obj, self.truth_point_mode)
+
+    def get_sources(self, obj):
+        """Get a certain pre-defined sources attribute of an object.
+
+        The :class:`TruthFragment`, :class:`TruthParticle` and
+        :class:`TruthInteraction` objects sources are obtained using the
+        `truth_source_mode` attribute of the class.
+
+        Parameters
+        ----------
+        obj : Union[FragmentBase, ParticleBase, InteractionBase]
+            Fragment, Particle or Interaction object
+
+        Results
+        -------
+        np.ndarray
+           (N, 2) Object sources
+        """
+        if not obj.is_truth:
+            return obj.sources
+        else:
+            return getattr(obj, self.truth_source_mode)
 
     def get_depositions(self, obj):
         """Get a certain pre-defined deposition attribute of an object.

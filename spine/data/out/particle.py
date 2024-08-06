@@ -4,6 +4,7 @@ from typing import List
 from dataclasses import dataclass, field
 
 import numpy as np
+from scipy.spatial.distance import cdist
 
 from spine.utils.globals import (
         TRACK_SHP, SHAPE_LABELS, PID_LABELS, PID_MASSES, PID_TO_PDG)
