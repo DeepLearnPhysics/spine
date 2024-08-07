@@ -11,7 +11,7 @@ performs basic selection cuts and store the output to a CSV file.
 # Must import the analysis script base class
 from spine.ana.base import AnaBase
 
-# Must list the post-processor(s) here to be found by the factory.
+# Must list the analysis script(s) here to be found by the factory.
 # You must also add it to the list of imported modules in the
 # `spine.ana.factories`!
 __all__ = ['TemplateAna']
@@ -34,7 +34,7 @@ class TemplateAna(AnaBase):
         obj_type : Union[str, List[str]]
             Name or list of names of the object types to process
         run_mode : str, optional
-            If specified, tells whether the post-processor must run on
+            If specified, tells whether the analysis script must run on
             reconstructed ('reco'), true ('true') or both objects
             ('both' or 'all')
         append_file : bool, default False

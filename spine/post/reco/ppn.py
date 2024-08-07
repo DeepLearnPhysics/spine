@@ -26,10 +26,10 @@ class PPNProcessor(PostBase):
     name = 'ppn'
     aliases = ['get_ppn_candidates']
     keys = {'segmentation': True, 'ppn_points': True, 'ppn_coords': True,
-            'ppn_masks': True, 'ppn_classify_endpoints': True}
+            'ppn_masks': True, 'ppn_classify_endpoints': False}
 
     def __init__(self, assign_to_particles=False, restrict_shape=False,
-                 match_threshold=2., obj_type='particle', **ppn_pred_cfg):
+                 match_threshold=2., **ppn_pred_cfg):
         """Store the `get_ppn_predictions` keyword arguments.
 
         Parameters
@@ -49,6 +49,7 @@ class PPNProcessor(PostBase):
             Update result dictionary containing 'ppn_candidates' key
         """
         # Intialize the parent class
+        obj_type = 'particle' if assign_to_particles else None
         super().__init__(obj_type, 'reco')
 
         # Store the relevant parameters

@@ -1,7 +1,11 @@
+"""Cathode crossing identification + merging module."""
+
 import numpy as np
 from scipy.spatial.distance import cdist
 
-from spine.utils.globals import COORD_COLS, TRACK_SHP
+from spine.data import RecoInteraction, TruthInteraction
+
+from spine.utils.globals import TRACK_SHP
 from spine.utils.geo import Geometry
 from spine.utils.numba_local import farthest_pair
 from spine.utils.gnn.cluster import cluster_direction
@@ -21,9 +25,6 @@ class CathodeCrosserProcessor(PostBase):
     """
     name = 'cathode_crosser'
     aliases = ['find_cathode_crossers']
-    data_cap_opt = ['input_data']
-    result_cap_opt = ['input_rescaled', 'cluster_label_adapted',
-            'truth_particles', 'truth_interactions']
 
     def __init__(self, crossing_point_tolerance, offset_tolerance,
                  angle_tolerance, adjust_crossers=True, merge_crossers=True,
@@ -69,6 +70,12 @@ class CathodeCrosserProcessor(PostBase):
         self.adjust_crossers = adjust_crossers
         self.merge_crossers = merge_crossers
 
+        # Add the points to the list of keys to load
+        if run_mode != 'truth':
+            self.keys['points'] = True
+        if run_mode != 'reco':
+            self.keys[truth_point_mode] = True
+
     def process(self, data):
         """Find cathode crossing particles in one entry.
 
@@ -79,11 +86,11 @@ class CathodeCrosserProcessor(PostBase):
         """
         # Loop over particle types
         update_dict = {}
-        for k in self.particle_keys:
+        for part_key in self.particle_keys:
             # Find crossing particles already merged by the reconstruction
-            prefix = k.split('_')[0]
-            candidate_mask = np.zeros(len(data[k]), dtype=bool)
-            for i, part in enumerate(data[k]):
+            prefix = part_key.split('_')[0]
+            candidate_mask = np.zeros(len(data[part_key]), dtype=bool)
+            for i, part in enumerate(data[part_key]):
                 # Only bother to look for tracks that cross the cathode
                 if part.shape != TRACK_SHP:
                     continue
@@ -91,16 +98,16 @@ class CathodeCrosserProcessor(PostBase):
                 # Make sure the particle coordinates are expressed in cm
                 self.check_units(part)
 
-                # Get point coordinates
+                # Get point coordinates, sources
                 points = self.get_points(part)
                 if not len(points):
                     continue
-                assert len(part.sources), (
+                assert len(self.get_sources(part)), (
                         "Cannot identify cathode crossers without `sources`.")
 
                 # If the particle is composed of points from multiple
                 # contributing TPCs in the same module, it is a cathode crosser
-                modules, tpcs = self.geo.get_contributors(part.sources)
+                modules, tpcs = self.geo.get_contributors(self.get_sources(part))
                 part.is_cathode_crosser = (
                         len(np.unique(tpcs)) > len(np.unique(modules)))
                 candidate_mask[i] = not part.is_cathode_crosser
@@ -123,12 +130,13 @@ class CathodeCrosserProcessor(PostBase):
             while i < len(candidate_ids):
                 # Get the first particle and its properties
                 ci = candidate_ids[i]
-                pi = data[k][ci]
+                pi = data[part_key][ci]
                 end_points_i = np.vstack([pi.start_point, pi.end_point])
-                end_dirs_i = np.vstack([pi.start_dir, pi.end_dir])
+                end_dirs_i = np.vstack([pi.start_dir, -pi.end_dir])
 
                 # Check that the particle lives in one TPC
-                modules_i, tpcs_i = self.geo.get_contributors(pi.sources)
+                modules_i, tpcs_i = self.geo.get_contributors(
+                        self.get_sources(pi))
                 if len(tpcs_i) != 1:
                     i += 1
                     continue
@@ -138,8 +146,8 @@ class CathodeCrosserProcessor(PostBase):
                 caxes = np.array([i for i in range(3) if i != daxis])
 
                 # Store the distance of the particle to the cathode
-                tpc_offset = self.geo.get_min_tpc_offset(end_points_i, \
-                        modules_i[0], tpcs_i[0])[daxis]
+                tpc_offset = self.geo.get_min_tpc_offset(
+                        end_points_i, modules_i[0], tpcs_i[0])[daxis]
                 cdists = end_points_i[:,daxis] - tpc_offset - cpos
 
                 # Loop over other tracks
@@ -148,33 +156,36 @@ class CathodeCrosserProcessor(PostBase):
 
                     # Get the second particle object and its properties
                     cj = candidate_ids[j]
-                    pj = data[k][cj]
+                    pj = data[part_key][cj]
                     end_points_j = np.vstack([pj.start_point, pj.end_point])
-                    end_dirs_j = np.vstack([pj.start_dir, pj.end_dir])
+                    end_dirs_j = np.vstack([pj.start_dir, -pj.end_dir])
 
                     # Check that the particles live in TPCs of one module
-                    modules_j, tpcs_j = self.geo.get_contributors(pj.sources)
-                    if len(tpcs_j) != 1 or modules_i[0] != modules_j[0] \
-                            or tpcs_i[0] == tpcs_j[0]:
+                    modules_j, tpcs_j = self.geo.get_contributors(
+                            self.get_sources(pj))
+
+                    if (len(tpcs_j) != 1 or
+                        modules_i[0] != modules_j[0] or
+                        tpcs_i[0] == tpcs_j[0]):
                         j += 1
                         continue
 
                     # Check if the two particles stop at roughly the same
                     # position in the plane of the cathode
                     compat = True
-                    dist_mat = cdist(end_points_i[:, caxes],
-                            end_points_j[:, caxes])
+                    dist_mat = cdist(
+                            end_points_i[:, caxes], end_points_j[:, caxes])
                     argmin = np.argmin(dist_mat)
                     pair_i, pair_j = np.unravel_index(argmin, (2, 2))
-                    compat &= dist_mat[pair_i, pair_j] \
-                            < self.crossing_point_tolerance
+                    compat &= (
+                            dist_mat[pair_i, pair_j]
+                            < self.crossing_point_tolerance)
 
                     # Check if the offset of the two particles w.r.t. to the
                     # cathode is compatible
                     offset_i = end_points_i[pair_i, daxis] - cpos
                     offset_j = end_points_j[pair_j, daxis] - cpos
-                    compat &= np.abs(offset_i + offset_j) \
-                            < self.offset_tolerance
+                    compat &= np.abs(offset_i + offset_j) < self.offset_tolerance
 
                     # Check that the two directions where the two fragment
                     # meet is consistent between the two
@@ -184,7 +195,7 @@ class CathodeCrosserProcessor(PostBase):
                     # If compatible, merge
                     if compat:
                         # Merge particle and adjust positions
-                        self.adjust_positions(data, ci, cj, truth=truth)
+                        self.adjust_positions(data, ci, cj, truth=pi.is_truth)
 
                         # Update the candidate list to remove matched particle
                         candidate_ids[j:-1] = candidate_ids[j+1:] - 1
@@ -196,11 +207,10 @@ class CathodeCrosserProcessor(PostBase):
                 i += 1
 
             # Update crossing interactions information
-            int_k = f'{prefix}_interactions'
-            for ia in data[int_k]:
+            inter_key = f'{prefix}_interactions'
+            for ia in data[inter_key]:
                 crosser, offsets = False, []
-                parts = [p for p in data[k] \
-                        if p.interaction_id == ia.id]
+                parts = [p for p in data[part_key] if p.interaction_id == ia.id]
                 for p in parts:
                     if p.interaction_id != ia.id:
                         continue
@@ -213,8 +223,8 @@ class CathodeCrosserProcessor(PostBase):
                     ia.cathode_offset = np.mean(offsets)
 
             # Update
-            update_dict.update({k: data[k]})
-            update_dict.update({int_k: data[int_k]})
+            update_dict.update({part_key: data[part_key]})
+            update_dict.update({inter_key: data[inter_key]})
 
         return update_dict
 
@@ -239,16 +249,28 @@ class CathodeCrosserProcessor(PostBase):
            (N, 3) Point coordinates
         """
         # If there are two indexes, create a new merged particle object
-        prefix = 'truth_' if truth else 'reco_'
-        k, int_k = f'{prefix}particles', f'{prefix}interactions'
-        input_k = 'input_rescaled' \
-                if 'input_rescaled' in data else 'input_data'
-        particles = data[k]
+        prefix = 'truth' if truth else 'reco'
+        part_key, inter_key = f'{prefix}_particles', f'{prefix}_interactions'
+        points_attr = 'points' if not truth else self.truth_point_mode
+        points_key = 'points' if not truth else self.truth_point_key
+        particles = data[part_key]
+        closest_attr = [None, None]
         if idx_j is not None:
             # Merge particles
             int_id_i = particles[idx_i].interaction_id
             int_id_j = particles[idx_j].interaction_id
             particles[idx_i].merge(particles.pop(idx_j))
+
+            # Assign start and end point to a specific TPC
+            for attr in ('start_point', 'end_point'):
+                key_point = getattr(particles[idx_i], attr)
+                points = self.get_points(particles[idx_i])
+                argmin = np.argmin(cdist(key_point[None, :], points))
+                sources = self.get_sources(particles[idx_i])
+                tpc_id = self.geo.get_contributors(sources[argmin][None, :])[1]
+                closest_attr[tpc_id[0]] = attr
+
+            assert np.all([val is not None for val in closest_attr])
 
             # Update the particle IDs and interaction IDs
             assert idx_j > idx_i
@@ -256,12 +278,12 @@ class CathodeCrosserProcessor(PostBase):
                 p.id = i
                 if p.interaction_id == int_id_j:
                     p.interaction_id = int_id_i
-        
+
         # Get TPCs that contributed to this particle
         particle = particles[idx_i]
-        modules, tpcs = self.geo.get_contributors(particle.sources)
-        assert len(tpcs) == 2 and modules[0] == modules[1], \
-                'Can only handle particles crossing a single cathode'
+        modules, tpcs = self.geo.get_contributors(self.get_sources(particle))
+        assert len(tpcs) == 2 and modules[0] == modules[1], (
+                "Can only handle particles crossing a single cathode.")
 
         # Get the particle's sisters
         int_id = particle.interaction_id
@@ -270,25 +292,31 @@ class CathodeCrosserProcessor(PostBase):
         # Get the cathode position
         m = modules[0]
         daxis, cpos = self.geo.cathodes[m]
-        dcol = COORD_COLS[daxis]
 
         # Loop over contributing TPCs, shift the points in each independently
-        offsets, global_offset = \
-                self.get_cathode_offsets(particle, m, tpcs)
+        offsets, global_offset = self.get_cathode_offsets(
+                particle, m, tpcs)
         for i, t in enumerate(tpcs):
             # Move each of the sister particles by the same amount
             for sister in sisters:
-                part_index = self.geo.get_tpc_index(sister.sources, m, t)
-                index = sister.index[part_index]
+                # Find the index corresponding to the sister particle
+                tpc_index = self.geo.get_tpc_index(
+                        self.get_sources(sister), m, t)
+                index = self.get_index(sister)[tpc_index]
                 if not len(index):
                     continue
 
-                sister.points[part_index, daxis] -= offsets[i]
-                data[input_k][index, dcol] -= offsets[i]
-                if truth:
-                    sister.truth_points[part_index] -= offset
-                    data['cluster_label_adapted'][index, dcol] \
-                            -= offsets[i]
+                # Update the sister position and the main position tensor
+                self.get_points(sister)[tpc_index, daxis] -= offsets[i]
+                data[points_key][index, daxis] -= offsets[i]
+
+                # Update the start/end points appropriately
+                if closest_attr[t] is not None and sister.id == idx_i:
+                    getattr(sister, closest_attr[t])[daxis] -= offsets[i]
+
+                else:
+                    sister.start_point[daxis] -= offsets[i]
+                    sister.end_point[daxis] -= offsets[i]
 
         # Store crosser information
         particle.is_cathode_crosser = True
@@ -297,12 +325,10 @@ class CathodeCrosserProcessor(PostBase):
         # Update interactions
         if idx_j is None:
             # In this case, just need to update the positions
-            interactions = data[int_k]
-            points = [sister.points for sister in sisters]
-            interactions[int_id].points = np.vstack(points)
-            if truth:
-                truth_points = [sister.truth_points for sister in sisters]
-                interactions[int_id].truth_point = np.vstack(truth_points)
+            interactions = data[inter_key]
+            points = [self.get_points(sister) for sister in sisters]
+            setattr(interactions[int_id], points_attr, np.vstack(points))
+
         else:
             interactions = []
             interaction_ids = np.array([p.interaction_id for p in particles])
@@ -313,7 +339,7 @@ class CathodeCrosserProcessor(PostBase):
 
                 # Build interactions
                 if not truth:
-                    interaction = Interaction.from_particles(parts)
+                    interaction = RecoInteraction.from_particles(parts)
                     interaction.id = i
                 else:
                     interaction = TruthInteraction.from_particles(parts)
@@ -327,8 +353,7 @@ class CathodeCrosserProcessor(PostBase):
                 # Append
                 interactions.append(interaction)
 
-            data[int_k] = interactions
-
+            data[inter_key] = interactions
 
     def get_cathode_offsets(self, particle, module, tpcs):
         """Find the distance one must shift a particle points by to make
@@ -355,7 +380,8 @@ class CathodeCrosserProcessor(PostBase):
         dvector = (np.arange(3) == daxis).astype(float)
 
         # Check which side of the cathode each TPC lives
-        flip = (-1) ** (self.geo.boundaries[module, tpcs[0], daxis].mean() \
+        flip = (-1) ** (
+                self.geo.boundaries[module, tpcs[0], daxis].mean()
                 > self.geo.boundaries[module, tpcs[1], daxis].mean())
 
         # Loop over the contributing TPCs
@@ -363,7 +389,8 @@ class CathodeCrosserProcessor(PostBase):
         offsets = np.empty(2)
         for i, t in enumerate(tpcs):
             # Get the end points of the track segment
-            index  = self.geo.get_tpc_index(particle.sources, module, t)
+            index  = self.geo.get_tpc_index(
+                    self.get_sources(particle), module, t)
             points = self.get_points(particle)[index]
             idx0, idx1, _ = farthest_pair(points, 'recursive')
             end_points = points[[idx0, idx1]]

@@ -18,7 +18,7 @@ def ana_script_factory(name, cfg, parent_path=''):
     name : str
         Name of the analyzer module
     cfg : dict
-        Post-processor module configuration
+        Analysis script module configuration
     parent_path : str
         Path to the parent directory of the main analysis configuration. This
         allows for the use of relative paths in the analyzers.

@@ -74,7 +74,7 @@ class TriggerProcessor(PostBase):
         if not len(trigger_info):
             raise KeyError(
                     f"Could not find run {run_id}, event {event_id} in the "
-                     "trigger file")
+                     "trigger file.")
         elif len(trigger_info) > 1:
             raise KeyError(
                     f"Found more than one trigger associated with {run_id} "
@@ -83,12 +83,11 @@ class TriggerProcessor(PostBase):
         trigger_info = trigger_info.to_dict(orient='records')[0]
 
         # Build trigger object
-        trigger = Trigger(id=trigger_info['wr_event_no'],
-                          time_s=trigger_info['wr_seconds'],
+        trigger = Trigger(time_s=trigger_info['wr_seconds'],
                           time_ns=trigger_info['wr_nanoseconds'],
                           beam_time_s=trigger_info['beam_seconds'],
                           beam_time_ns=trigger_info['beam_nanoseconds'],
-                          type=trigger_info['trigger_type'])
+                          type=trigger_info.get('trigger_type', -1))
 
         # If requested, loop over the interaction objects, modify flash times
         if self.correct_flash_times:
@@ -98,8 +97,7 @@ class TriggerProcessor(PostBase):
                       - self.flash_time_corr_us)
 
             for key in self.flash_keys:
-                for opflash in data[key]:
-                    time = opflash.time()
-                    opflash.time(time + offset)
+                for flash in data[key]:
+                    flash.time += offset
 
         return {'trigger': trigger}

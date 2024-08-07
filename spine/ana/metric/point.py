@@ -75,12 +75,14 @@ class PointProposalAna(AnaBase):
         # Fetch the list of label points and their characteristics
         points['truth'] = data[self.label_key][:, COORD_COLS]
         types['truth'] = data[self.label_key][:, PPN_LTYPE_COL].astype(int)
-        ends['truth'] = data[self.label_key][:, PPN_LENDP_COL].astype(int)
+        if PPN_LENDP_COL < data[self.label_key].shape[1]:
+            ends['truth'] = data[self.label_key][:, PPN_LENDP_COL].astype(int)
 
         # Fetch the list of predicted points and their characteristics
         points['reco'] = data['ppn_pred'][:, COORD_COLS]
         types['reco'] = data['ppn_pred'][:, PPN_SHAPE_COL].astype(int)
-        ends['reco'] = np.argmax(data['ppn_pred'][:, PPN_END_COLS], axis=1)
+        if PPN_END_COLS[0] < data['ppn_pred'].shape[1]:
+            ends['reco'] = np.argmax(data['ppn_pred'][:, PPN_END_COLS], axis=1)
 
         # Compute the pair-wise distances between label and predicted points
         dist_mat = {}
@@ -99,7 +101,8 @@ class PointProposalAna(AnaBase):
                 dummy = {**self.dummy_dict}
                 for i in range(len(points[source])):
                     dummy['shape'] = types[source][i]
-                    dummy['end'] = ends[source][i]
+                    if len(ends):
+                        dummy['end'] = ends[source][i]
                     self.append(source, **dummy)
 
             # Otherwise, use closest point as reference
@@ -110,9 +113,10 @@ class PointProposalAna(AnaBase):
                 point_dict = {**self.dummy_dict}
                 point_dict['dist'] = dists[i, closest_index[i]]
                 point_dict['shape'] = types[source][i]
-                point_dict['end'] = ends[source][i]
                 point_dict['closest_shape'] = types[target][closest_index[i]]
-                point_dict['closest_end'] = ends[target][closest_index[i]]
+                if len(ends):
+                    point_dict['end'] = ends[source][i]
+                    point_dict['closest_end'] = ends[target][closest_index[i]]
                 for s in range(self.num_classes):
                     if len(masks[s]) > 0:
                         point_dict[f'dist_{s}'] = np.min(dists[i, masks[s]])

@@ -44,11 +44,12 @@ def process_particles(particles, particle_event, particle_mpv_event=None,
 
     # Update the particles objects in place
     for i, p in enumerate(particles):
-        p.interaction_id = interaction_ids[i]
-        p.nu_id = nu_ids[i]
-        p.group_primary = group_primary_ids[i]
-        p.interaction_primary = inter_primary_ids[i]
-        p.pid = pids[i]
+        if p.id > -1:
+            p.interaction_id = interaction_ids[i]
+            p.nu_id = nu_ids[i]
+            p.group_primary = group_primary_ids[i]
+            p.interaction_primary = inter_primary_ids[i]
+            p.pid = pids[i]
 
 
 def process_particle_event(particle_event, particle_mpv_event=None,
