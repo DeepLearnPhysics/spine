@@ -322,7 +322,7 @@ class CathodeCrosserProcessor(PostBase):
         particle.is_cathode_crosser = True
         particle.cathode_offset = global_offset
 
-        # Update interactions
+        # Update interactions, if need be
         if idx_j is None:
             # In this case, just need to update the positions
             interactions = data[inter_key]
@@ -330,6 +330,7 @@ class CathodeCrosserProcessor(PostBase):
             setattr(interactions[int_id], points_attr, np.vstack(points))
 
         else:
+            # Merge newly formed particles into interactions
             interactions = []
             interaction_ids = np.array([p.interaction_id for p in particles])
             for i, int_id in enumerate(np.unique(interaction_ids)):
