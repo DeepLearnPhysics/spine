@@ -60,10 +60,11 @@ class BuildManager:
         
         # Parse the build sources based on defaults
         if build_sources is not None:
-            for key, value in build_sources:
+            for key, value in build_sources.items():
                 assert key in self.sources, (
                         "Unexpected data product specified in `build_sources`: "
                         f"{key}. Should be one of {list(self.sources.keys())}.")
+            self.sources.update(**build_sources)
 
         for key, value in self.sources.items():
             if isinstance(value, str):

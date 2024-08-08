@@ -7,6 +7,8 @@ import yaml
 import h5py
 import numpy as np
 
+import spine.data
+
 from spine.version import __version__
 
 __all__ = ['HDF5Writer']
@@ -36,7 +38,7 @@ class HDF5Writer:
     name = 'hdf5'
 
     def __init__(self, file_name='output.h5', keys=None, skip_keys=None,
-                 overwrite=False, append=False):
+                 dummy_ds=None, overwrite=False, append=False):
         """Initializes the basics of the output file.
 
         Parameters
@@ -47,6 +49,9 @@ class HDF5Writer:
             List of data product keys to store. If not specified, store everything
         skip_keys: List[str], optionl
             List of data product keys to skip
+        dummy_ds: Dict[str, str], optional
+            Keys for which to create placeholder datasets. For each key, specify
+            the object type it is supposed to represent as a string.
         overwrite : bool, default False
             If True, overwrite the output file if it already exists
         append : bool, default False
@@ -64,6 +69,12 @@ class HDF5Writer:
 
         self.keys = keys
         self.skip_keys = skip_keys
+        self.dummy_ds = dummy_ds
+
+        # Initialize dummy dataset placeholders once
+        if self.dummy_ds is not None:
+            for key, class_name in dummy_ds.items():
+                self.dummy_ds[key] = getattr(spine.data, class_name)()
 
         # Initialize attributes to be stored when the output file is created
         self.type_dict   = None
@@ -161,10 +172,18 @@ class HDF5Writer:
 
         else:
             keys.update(self.keys)
-            for k in self.keys:
-                assert k in data, (
-                        f"Cannot store {k} as it does not appear "
+            for key in self.keys:
+                assert key in data, (
+                        f"Cannot store {key} as it does not appear "
                          "in the dictionary of data products.")
+
+        # Add dummy keys to the list, if requested
+        if self.dummy_ds is not None:
+            for key in self.dummy_ds:
+                assert key not in keys, (
+                        f"The requested dummy dataset {key} already exists "
+                         "in the list of real datasets being stored.")
+            keys.update(self.dummy_ds.keys())
 
         return keys
 
@@ -386,20 +405,25 @@ class HDF5Writer:
         cfg : dict
             Dictionary containing the complete SPINE configuration
         """
-        # If this function has never been called, initialiaze the HDF5 file
+        # Nest data if is not already, fetch batch size
         # TODO: make this nicer?
         if np.isscalar(data['index']):
             for k in data:
                 data[k] = [data[k]]
+        batch_size = len(data['index'])
 
+        # If needed, add empty data for dummy datasets
+        if self.dummy_ds is not None:
+            for key, value in self.dummy_ds.items():
+                data[key] = [spine.data.ObjectList([], default=value)] * batch_size
+
+        # If this function has never been called, initialiaze the HDF5 file
         if (not self.ready and
             (not self.append or os.path.isfile(self.file_name))):
             self.create(data, cfg)
             self.ready = True
 
         # Append file
-        # TODO: Make this handle single entries
-        batch_size = len(data['index'])
         with h5py.File(self.file_name, 'a') as out_file:
             # Loop over batch IDs
             for batch_id in range(batch_size):
