@@ -189,54 +189,60 @@ class FragmentBuilder(BuilderBase):
         List[TruthFragment]
             List of constructed true fragment instances
         """
-        # Loop over the true fragment instances in the label tensor
+        # Check once if the fragment labels are untouched
+        broken = (label_tensor[:, CLUST_COL] != label_tensor[:, PART_COL]).any()
+
+        # Loop over the true fragment instances in the *adapted* label tensor.
+        # The label tensor does not necessarily contain the correct fragments.
         truth_fragments = []
-        unique_fragment_ids = np.unique(label_tensor[:, CLUST_COL])
+        unique_fragment_ids = np.unique(label_adapt_tensor[:, CLUST_COL])
         valid_fragment_ids = unique_fragment_ids[unique_fragment_ids > -1]
         for i, frag_id in enumerate(valid_fragment_ids):
-            # Fetch the index of the MC particle it matches to, initialize
-            index = np.where(label_tensor[:, CLUST_COL] == frag_id)[0]
-            if particles is not None:
-                part_ids = np.unique(label_tensor[index, PART_COL])
-                part_id = int(part_ids[0])
-                assert len(part_ids) == 1, (
-                        "A true fragment must not mix label particle indexes.")
-                assert part_id > -1 and part_id < len(particles), (
-                        "Invalid particle ID found in fragment labels.")
-                fragment = TruthFragment(**particles[part_id].as_dict())
-                fragment.id = i
+            # Initialize fragment
+            fragment = TruthFragment(id=i)
 
-            else:
-                fragment = TruthFragment(id=i)
-
-            # Update the attributes shared between reconstructed and true
-            fragment.start_point = fragment.first_step
-            if fragment.shape == TRACK_SHP:
-                fragment.end_point = fragment.last_step
-
-            # Update the fragment with its long-form attributes
-            fragment.index = index
-            fragment.points = points_label[index]
-            fragment.depositions = depositions_label[index]
-            if depositions_q_label is not None:
-                fragment.depositions_q = depositions_q_label[index]
-            if sources_label is not None:
-                fragment.sources = sources_label[index]
-
+            # Find the particle which matches this fragment best
             index_adapt = np.where(
                     label_adapt_tensor[:, CLUST_COL] == frag_id)[0]
-            fragment.index_adapt = fragment.index_adapt
+            if particles is not None:
+                part_ids, counts = np.unique(
+                        label_adapt_tensor[index_adapt, PART_COL],
+                        return_counts=True)
+                part_id = int(part_ids[np.argmax(counts)])
+                if part_id > -1:
+                    assert part_id < len(particles), (
+                            "Invalid particle ID found in fragment labels.")
+                    fragment = TruthFragment(**particles[part_id].as_dict())
+                    fragment.id = i
+
+            # Always fill adapted long-form attributes
+            fragment.index_adapt = index_adapt
             fragment.points_adapt = points[index_adapt]
             fragment.depositions_adapt = depositions[index_adapt]
             if sources is not None:
                 fragment.sources_adapt = sources[index_adapt]
 
-            if label_g4_tensor is not None:
-                index_g4 = np.where(
-                        label_g4_tensor[:, CLUST_COL] == frag_id)[0]
-                fragment.index_g4 = index_g4
-                fragment.points_g4 = poins_g4[index_g4]
-                fragment.depositions_g4 = depositions_g4[index_g4]
+            # If the input cluster label is not adapted, fill other long-form
+            if id(label_tensor) == id(label_adapt_tensor):
+                # Update the fragment with its true long-form attributes
+                index = np.where(label_tensor[:, CLUST_COL] == frag_id)[0]
+                fragment.index = index
+                fragment.points = points_label[index]
+                fragment.depositions = depositions_label[index]
+                if depositions_q_label is not None:
+                    fragment.depositions_q = depositions_q_label[index]
+                if sources_label is not None:
+                    fragment.sources = sources_label[index]
+
+                # If the fragments are not broken, can match to G4 info
+                if not broken:
+                    # If available, append the Geant4 information
+                    if label_g4_tensor is not None:
+                        index_g4 = np.where(
+                                label_g4_tensor[:, CLUST_COL] == frag_id)[0]
+                        fragment.index_g4 = index_g4
+                        fragment.points_g4 = poins_g4[index_g4]
+                        fragment.depositions_g4 = depositions_g4[index_g4]
 
             # Append
             truth_fragments.append(fragment)
