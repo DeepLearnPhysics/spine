@@ -19,7 +19,8 @@ class SegmentAna(AnaBase):
     name = 'segment_eval'
 
     def __init__(self, summary=True, num_classes=GHOST_SHP, ghost=False,
-                 use_particles=False, label_key='seg_label', **kwargs):
+                 use_fragments=False, use_particles=False,
+                 label_key='seg_label', **kwargs):
         """Initialize the analysis script.
 
         Parameters
@@ -32,12 +33,18 @@ class SegmentAna(AnaBase):
             Number of pixel classses, excluding the ghost class
         ghost : bool, default False
             Evaluate deghosting performance
+        use_fragments : bool, default False
+            If `True`, rebuild the segmentation for truth and reco from the
+            shape of truth and reco fragments. This method is exact, as long as
+            there is no ghost points (particles do not retain the full input
+            tensor which includes ghosts, for the sake of memory consumption
+            in an output file).
         use_particles : bool, default False
-            If `True`, rebuild the segmentation for truth and reco
-            from the shape of truth and reco particles. This method is exact,
-            as long as there is no ghost points (particles do not retain
-            the full input tensor which includes ghosts, for the sake of
-            memory consumption in an output file).
+            If `True`, rebuild the segmentation for truth and reco from the
+            shape of truth and reco particles. This method is imperfect, as the
+            shape of showers is determined by the primary shape, which may not
+            match the secondary fragment shapes in the original segmentation.
+            This method is not compatible with ghost points.
         label_key : str, default 'seg_label'
             Name of the tensor which contains the segmentation labels
         **kwargs : dict, optional
@@ -50,17 +57,23 @@ class SegmentAna(AnaBase):
         self.summary = summary
         self.num_classes = num_classes
         self.ghost = ghost
+        self.use_fragments = use_fragments
         self.use_particles = use_particles
         self.label_key = label_key
 
         # Basic logic checks
-        assert not self.use_particles or self.summary, (
-                "Cannot store detailed score information from particles.")
-        assert not self.use_particles or not self.ghost, (
-                "Cannot produce ghost metrics from particles.")
+        assert not use_fragments or not use_particles, (
+                "Cannot use both fragments and particles.")
+        assert not (use_fragments or use_particles) or summary, (
+                "Cannot store detailed score information from fragments/particles.")
+        assert not (use_fragments or use_particles) or not ghost, (
+                "Cannot produce ghost metrics from fragments/particles.")
         
-        # List the necessary data products, intialize writer
-        if not self.use_particles:
+        # List the necessary data products
+        self.keys[label_key] = True # TMP TMP
+        self.keys['segmentation'] = True # TMP TMP
+        if not use_fragments and not use_particles:
+            self.obj_source = None
             self.keys[label_key] = True
             self.keys['segmentation'] = True
             if ghost:
@@ -69,8 +82,9 @@ class SegmentAna(AnaBase):
 
         else:
             self.keys['points'] = True
+            self.obj_type = 'fragments' if use_fragments else 'particles'
             for prefix in ['reco', 'truth']:
-                self.keys[f'{prefix}_particles'] = True
+                self.keys[f'{prefix}_{self.obj_type}'] = True
 
         # Initialize the output
         if summary:
@@ -87,8 +101,8 @@ class SegmentAna(AnaBase):
             Dictionary of data products
         """
         # Fetch the list of labels and predictions for each pixel in the image
-        if not self.use_particles:
-            # Rebuild the labels from the particle objects
+        if not self.use_fragments and not self.use_particles:
+            # Get the label/predictions from the raw reconstruction output
             seg_label = data[self.label_key][:, SHAPE_COL].astype(np.int32)
             seg_pred = np.argmax(data['segmentation'], axis=1).astype(np.int32)
             if self.ghost:
@@ -113,13 +127,14 @@ class SegmentAna(AnaBase):
                     full_seg_scores[deghost_mask, :-1] = seg_scores
 
         else:
+            # Rebuild the labels/predictions from the fragment/particle objects
             seg_label = np.full(len(data['points']), LOWES_SHP, dtype=np.int32)
-            for part in data['truth_particles']:
-                seg_label[part.index] = part.shape
+            for obj in data[f'truth_{self.obj_type}']:
+                seg_label[obj.index] = obj.shape
 
             seg_pred = np.full_like(seg_label, LOWES_SHP)
-            for part in data['reco_particles']:
-                seg_pred[part.index] = part.shape
+            for obj in data[f'reco_{self.obj_type}']:
+                seg_pred[obj.index] = obj.shape
 
         # Store the information
         if not self.summary:
