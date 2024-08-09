@@ -19,7 +19,7 @@ __all__ = ['TemplateAna']
 
 class TemplateAna(AnaBase):
     """Description of what the analysis script is supposed to be doing."""
-    name = 'segment_eval'
+    name = 'template' # Name used to call the analysis script in the config
 
     def __init__(self, arg0, arg1, obj_type, run_mode, append_file,
                  overwrite_file, output_prefix):

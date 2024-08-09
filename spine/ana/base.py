@@ -25,17 +25,16 @@ class AnaBase(ABC):
     units : str
         Units in which the coordinates are expressed
     """
-    name = ''
-    aliases = []
-    keys = {'index': True, 'file_index': True,
-            'file_entry_index': False, 'run_info': False}
+    name = None
+    aliases = ()
+    keys = None
     units = 'cm'
 
     # List of recognized object types
-    _obj_types = ['fragment', 'particle', 'interaction']
+    _obj_types = ('fragment', 'particle', 'interaction')
 
     # Valid run modes
-    _run_modes = ['reco', 'truth', 'both', 'all']
+    _run_modes = ('reco', 'truth', 'both', 'all')
 
     def __init__(self, obj_type=None, run_mode=None, append=False,
                  overwrite=False, output_prefix=None):
@@ -56,6 +55,12 @@ class AnaBase(ABC):
         output_prefix : str, default None
             Name to prefix every output CSV file with
         """
+        # Initialize default keys
+        self.keys = {
+                'index': True, 'file_index': True,
+                'file_entry_index': False, 'run_info': False
+        }
+
         # If run mode is specified, process it
         self.run_mode = run_mode
         if run_mode is not None:
@@ -71,10 +76,11 @@ class AnaBase(ABC):
             self.prefixes.append('truth')
 
         # Check that all the object sources are recognized
-        if obj_type is not None:
-            if isinstance(obj_type, str):
-                obj_type = [obj_type]
-            for obj in obj_type:
+        self.obj_type = obj_type
+        if self.obj_type is not None:
+            if isinstance(self.obj_type, str):
+                self.obj_type = [self.obj_type]
+            for obj in self.obj_type:
                 assert obj in self._obj_types, (
                         f"Object type must be one of {self._obj_types}. Got "
                         f"`{obj}` instead.")
@@ -85,7 +91,7 @@ class AnaBase(ABC):
             setattr(self, f'{name}_keys', [])
 
             # Skip object types which are not requested
-            if obj_type is not None and name in obj_type:
+            if self.obj_type is not None and name in self.obj_type:
                 if run_mode != 'truth':
                     getattr(self, f'{name}_keys').append(f'reco_{name}s')
                 if run_mode != 'reco':
