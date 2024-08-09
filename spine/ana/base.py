@@ -37,8 +37,8 @@ class AnaBase(ABC):
     # Valid run modes
     _run_modes = ['reco', 'truth', 'both', 'all']
 
-    def __init__(self, obj_type=None, run_mode=None, append_file=False,
-                 overwrite_file=False, output_prefix=None):
+    def __init__(self, obj_type=None, run_mode=None, append=False,
+                 overwrite=False, output_prefix=None):
         """Initialize default anlysis script object properties.
 
         Parameters
@@ -49,10 +49,10 @@ class AnaBase(ABC):
             If specified, tells whether the analysis script must run on
             reconstructed ('reco'), true ('true') or both objects
             ('both' or 'all')
-        append_file : bool, default False
+        append : bool, default False
             If True, appends existing CSV files instead of creating new ones
-        overwrite_file : bool, default False
-            If True and the output CSV file exists, overwrite it
+        overwrite : bool, default False
+            If True and an output CSV file exists, overwrite it
         output_prefix : str, default None
             Name to prefix every output CSV file with
         """
@@ -97,8 +97,8 @@ class AnaBase(ABC):
         self.keys.update({k:True for k in self.obj_keys})
 
         # Store the append flag
-        self.append_file = append_file
-        self.overwrite_file = overwrite_file
+        self.append_file = append
+        self.overwrite_file = overwrite
 
         # Initialize a writer dictionary to be filled by the children classes
         self.output_prefix = output_prefix
