@@ -70,8 +70,6 @@ class SegmentAna(AnaBase):
                 "Cannot produce ghost metrics from fragments/particles.")
         
         # List the necessary data products
-        self.keys[label_key] = True # TMP TMP
-        self.keys['segmentation'] = True # TMP TMP
         if not use_fragments and not use_particles:
             self.obj_source = None
             self.keys[label_key] = True

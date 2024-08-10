@@ -57,7 +57,7 @@ class ClusterAna(AnaBase):
         if not use_objects:
             for key in self.obj_keys:
                 del self.keys[key]
-        
+
         # Store the basic parameters
         self.use_objects = use_objects
         self.per_shape = per_shape
@@ -96,29 +96,36 @@ class ClusterAna(AnaBase):
                 num_points = len(data[self.label_key])
                 labels = data[self.label_key][:, self._label_cols[obj_type]]
                 shapes = data[self.label_key][:, SHAPE_COL]
+                num_truth = len(np.unique(labels[labels > -1]))
+
             else:
                 # Rebuild the labels
                 num_points = len(data['points'])
                 labels = -np.ones(num_points)
+                num_truth = len(data[f'truth_{obj_type}s'])
                 for i, obj in enumerate(data[f'truth_{obj_type}s']):
-                    labels[obj.index] = i
+                    labels[obj.index_adapt] = i
 
             # Build the cluster predictions for this object type
             preds = -np.ones(num_points)
             if not self.use_objects:
                 # Use clusters directly from the full chain output
+                num_reco = len(data[f'{obj_type}_clusts'])
                 for i, index in enumerate(data[f'{obj_type}_clusts']):
                     preds[index] = i
+
             else:
                 # Use clusters from the object indexes
                 shapes = -np.full(num_points, LOWES_SHP)
+                num_reco = len(data[f'reco_{obj_type}s'])
                 for i, obj in enumerate(data[f'reco_{obj_type}s']):
                     preds[obj.index] = i
                     if obj_type != 'interaction':
                         shapes[obj.index] = obj.shape
 
             # Evaluate clustering metrics
-            row_dict = {}
+            row_dict = {'num_points': num_points, 'num_truth': num_truth,
+                        'num_reco': num_reco}
             for metric, func in self.metrics.items():
                 valid_index = np.where(preds > -1)[0]
                 row_dict[metric] = func(labels[valid_index], preds[valid_index])
