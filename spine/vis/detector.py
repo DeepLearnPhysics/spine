@@ -8,7 +8,7 @@ from .box import box_traces
 def detector_traces(detector=None, boundaries=None, meta=None,
                     detector_coords=True, draw_faces=False, shared_legend=True,
                     name='Detector', color='rgba(0,0,0,0.150)',
-                    linewidth=2, **kwargs):
+                    linewidth=5, **kwargs):
     """Function which takes loads a file with detector boundaries and
     produces a list of traces which represent them in a 3D event display.
 
