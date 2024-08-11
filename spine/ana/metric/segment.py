@@ -36,9 +36,9 @@ class SegmentAna(AnaBase):
         use_fragments : bool, default False
             If `True`, rebuild the segmentation for truth and reco from the
             shape of truth and reco fragments. This method is exact, as long as
-            there is no ghost points (particles do not retain the full input
-            tensor which includes ghosts, for the sake of memory consumption
-            in an output file).
+            there is no ghost points and the cluster label tensor is untouched.
+            If the label tensor is adapted, the original fragment boundaries are
+            lost.
         use_particles : bool, default False
             If `True`, rebuild the segmentation for truth and reco from the
             shape of truth and reco particles. This method is imperfect, as the
@@ -128,6 +128,10 @@ class SegmentAna(AnaBase):
             # Rebuild the labels/predictions from the fragment/particle objects
             seg_label = np.full(len(data['points']), LOWES_SHP, dtype=np.int32)
             for obj in data[f'truth_{self.obj_type}']:
+                assert len(obj.index > 0), (
+                        "The `index` of true fragments is not filled, indicating "
+                        "that the original label tensor was modified. Cannot use "
+                        "modified fragments to rebuild semantic labels.")
                 seg_label[obj.index] = obj.shape
 
             seg_pred = np.full_like(seg_label, LOWES_SHP)
