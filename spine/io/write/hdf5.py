@@ -163,12 +163,11 @@ class HDF5Writer:
             keys.update(data.keys())
             if self.skip_keys is not None:
                 for key in self.skip_keys:
-                    if key in self.keys:
-                        input_keys.remove(key)
-                    else:
+                    if key not in keys:
                        raise KeyError(
                                 f"Key {key} appears in `skip_keys` but does not "
                                  "appear in the dictionary of data products.")
+                    keys.remove(key)
 
         else:
             keys.update(self.keys)

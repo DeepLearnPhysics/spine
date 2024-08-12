@@ -2,3 +2,4 @@
 
 from .segment import *
 from .point import *
+from .cluster import *

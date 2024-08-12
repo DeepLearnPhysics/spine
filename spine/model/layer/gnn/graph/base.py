@@ -1,10 +1,12 @@
 """Base class for all graph construction classes."""
 
 import inspect
-import numpy as np
-from typing import List, Union
+from warnings import warn
 
-from spine import EdgeIndexBatch
+import numpy as np
+
+from spine.data import EdgeIndexBatch
+
 from spine.utils.globals import COORD_COLS
 from spine.utils.gnn.network import inter_cluster_distance
 
@@ -122,6 +124,18 @@ class GraphBase:
 
             edge_index = full_index
             edge_counts = 2*edge_counts
+
+        # If there is a maximum count and the set of edges exceeds it, remove
+        if self.max_count is not None and (edge_counts > self.max_count).any():
+            batch_ids = np.repeat(np.arange(len(edge_counts)), edge_counts)
+            mask = np.where(edge_counts[batch_ids] <= self.max_count)[0]
+            edge_index = edge_index[:, mask]
+
+            batch_mask = np.where(edge_counts > self.max_count)[0]
+            edge_counts[batch_mask] = 0
+            warn(f"Found too many edges in {len(batch_mask)} entry(ies) of the "
+                  "batch. There will be no aggregation predictions for such"
+                  "entries (all edges removed from the graph).")
 
         # Get the offsets, initialize an EdgeIndexBatch obejct
         offsets = clusts.edges[:-1]

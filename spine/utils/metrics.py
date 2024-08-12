@@ -29,6 +29,10 @@ def pur(truth, pred, batch_ids=None, per_cluster=True):
     float
         Assignment purity
     """
+    # If the vectors compared are empty, nothing to do
+    if len(truth) == 0:
+        return -1.
+
     # Transform labels to be unique across all batch entries
     truth, _, truth_counts = unique_labels(truth, batch_ids)
     pred, _, pred_counts = unique_labels(pred, batch_ids)
@@ -65,6 +69,10 @@ def eff(truth, pred, batch_ids=None, per_cluster=True):
     float
         Assignment efficiency
     """
+    # If the vectors compared are empty, nothing to do
+    if len(truth) == 0:
+        return -1.
+
     # Transform labels to be unique across all batch entries
     truth, _, truth_counts = unique_labels(truth, batch_ids)
     pred, _, pred_counts = unique_labels(pred, batch_ids)
@@ -103,6 +111,10 @@ def pur_eff(truth, pred, batch_ids=None, per_cluster=True):
     float
         Assignment efficiency
     """
+    # If the vectors compared are empty, nothing to do
+    if len(truth) == 0:
+        return -1., -1.
+
     # Transform labels to be unique across all batch entries
     truth, _, truth_counts = unique_labels(truth, batch_ids)
     pred, _, pred_counts = unique_labels(pred, batch_ids)
@@ -141,6 +153,10 @@ def ari(truth, pred, batch_ids=None):
     float
         Adjusted Rand Index (ARI) value
     """
+    # If the vectors compared are empty, nothing to do
+    if len(truth) == 0:
+        return -1.
+
     # If required, transform labels to be unique across all batch entries
     if batch_ids is not None:
         truth = unique_labels(truth, batch_ids)[0]
@@ -166,6 +182,10 @@ def ami(truth, pred, batch_ids=None):
     float
         Adjusted Mutual Information (AMI) value
     """
+    # If the vectors compared are empty, nothing to do
+    if len(truth) == 0:
+        return -1.
+
     # If required, transform labels to be unique across all batch entries
     if batch_ids is not None:
         truth = unique_labels(truth, batch_ids)[0]
@@ -220,6 +240,10 @@ def bd(truth, truth_unique, truth_counts, pred, pred_unique, pred_counts):
     pred_counts : np.ndarray
         (L) Number of realization of each unique predicted label
     """
+    # If the vectors compared are empty, nothing to do
+    if len(truth) == 0:
+        return -1.
+
     # Loop over the predicted clusters
     total_bd = 0.
     for i, c in enumerate(pred_unique):

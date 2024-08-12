@@ -25,20 +25,19 @@ class AnaBase(ABC):
     units : str
         Units in which the coordinates are expressed
     """
-    name = ''
-    aliases = []
-    keys = {'index': True, 'file_index': True,
-            'file_entry_index': False, 'run_info': False}
+    name = None
+    aliases = ()
+    keys = None
     units = 'cm'
 
     # List of recognized object types
-    _obj_types = ['fragment', 'particle', 'interaction']
+    _obj_types = ('fragment', 'particle', 'interaction')
 
     # Valid run modes
-    _run_modes = ['reco', 'truth', 'both', 'all']
+    _run_modes = ('reco', 'truth', 'both', 'all')
 
-    def __init__(self, obj_type=None, run_mode=None, append_file=False,
-                 overwrite_file=False, output_prefix=None):
+    def __init__(self, obj_type=None, run_mode=None, append=False,
+                 overwrite=False, output_prefix=None):
         """Initialize default anlysis script object properties.
 
         Parameters
@@ -49,13 +48,19 @@ class AnaBase(ABC):
             If specified, tells whether the analysis script must run on
             reconstructed ('reco'), true ('true') or both objects
             ('both' or 'all')
-        append_file : bool, default False
+        append : bool, default False
             If True, appends existing CSV files instead of creating new ones
-        overwrite_file : bool, default False
-            If True and the output CSV file exists, overwrite it
+        overwrite : bool, default False
+            If True and an output CSV file exists, overwrite it
         output_prefix : str, default None
             Name to prefix every output CSV file with
         """
+        # Initialize default keys
+        self.keys = {
+                'index': True, 'file_index': True,
+                'file_entry_index': False, 'run_info': False
+        }
+
         # If run mode is specified, process it
         self.run_mode = run_mode
         if run_mode is not None:
@@ -71,10 +76,11 @@ class AnaBase(ABC):
             self.prefixes.append('truth')
 
         # Check that all the object sources are recognized
-        if obj_type is not None:
-            if isinstance(obj_type, str):
-                obj_type = [obj_type]
-            for obj in obj_type:
+        self.obj_type = obj_type
+        if self.obj_type is not None:
+            if isinstance(self.obj_type, str):
+                self.obj_type = [self.obj_type]
+            for obj in self.obj_type:
                 assert obj in self._obj_types, (
                         f"Object type must be one of {self._obj_types}. Got "
                         f"`{obj}` instead.")
@@ -85,7 +91,7 @@ class AnaBase(ABC):
             setattr(self, f'{name}_keys', [])
 
             # Skip object types which are not requested
-            if obj_type is not None and name in obj_type:
+            if self.obj_type is not None and name in self.obj_type:
                 if run_mode != 'truth':
                     getattr(self, f'{name}_keys').append(f'reco_{name}s')
                 if run_mode != 'reco':
@@ -97,8 +103,8 @@ class AnaBase(ABC):
         self.keys.update({k:True for k in self.obj_keys})
 
         # Store the append flag
-        self.append_file = append_file
-        self.overwrite_file = overwrite_file
+        self.append_file = append
+        self.overwrite_file = overwrite
 
         # Initialize a writer dictionary to be filled by the children classes
         self.output_prefix = output_prefix
