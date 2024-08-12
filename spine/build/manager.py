@@ -60,7 +60,7 @@ class BuildManager:
         
         # Parse the build sources based on defaults
         if sources is not None:
-            for key, value in souces.items():
+            for key, value in sources.items():
                 assert key in self.sources, (
                          "Unexpected data product specified in `sources`: "
                         f"{key}. Should be one of {list(self.sources.keys())}.")
