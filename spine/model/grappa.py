@@ -140,9 +140,8 @@ class GrapPA(torch.nn.Module):
         if dbscan is not None:
             self.process_dbscan_config(dbscan)
 
-    def process_node_config(self, source='cluster', shapes=None,
-                            min_size=-1, make_groups=False,
-                            grouping_method='score'):
+    def process_node_config(self, source='cluster', shapes=None, min_size=-1,
+                            make_groups=False, grouping_method='score'):
         """Process the node parameters of the model.
 
         Parameters
@@ -228,8 +227,9 @@ class GrapPA(torch.nn.Module):
             out_key = f'{prefix}_pred'
             out_keys.append(out_key)
             setattr(self, out_key, final_factory(in_channels, **final))
+
         else:
-            # Otherwise, initialzie one final layer per prediction type
+            # Otherwise, initialize one final layer per prediction type
             for key, cfg in final.items():
                 # If the final layer is specified as a number, use linear layer
                 out_key = f'{prefix}_{key}_pred'
