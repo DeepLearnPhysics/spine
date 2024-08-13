@@ -196,6 +196,7 @@ class TruthBase(OutBase):
     depositions_q_sum: float = None
     index_adapt: np.ndarray = None
     size_adapt: int = None
+    size_g4: int = None
     points_adapt: np.ndarray = None
     depositions_adapt: np.ndarray = None
     depositions_adapt_sum: float = None
