@@ -12,7 +12,7 @@ from .base import PosDataBase
 __all__ = ['CRTHit']
 
 
-@dataclass
+@dataclass(eq=False)
 class CRTHit(PosDataBase):
     """CRT hit information.
 

@@ -10,7 +10,7 @@ from .base import DataBase
 __all__ = ['Trigger']
 
 
-@dataclass
+@dataclass(eq=False)
 class Trigger(DataBase):
     """Trigger information.
 

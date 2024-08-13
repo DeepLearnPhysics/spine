@@ -15,7 +15,7 @@ from .base import PosDataBase
 __all__ = ['Neutrino']
 
 
-@dataclass
+@dataclass(eq=False)
 class Neutrino(PosDataBase):
     """Neutrino truth information.
 

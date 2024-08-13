@@ -14,7 +14,7 @@ from .base import RecoBase, TruthBase
 __all__ = ['RecoFragment', 'TruthFragment']
 
 
-@dataclass
+@dataclass(eq=False)
 class FragmentBase:
     """Base fragment-specific information.
 
@@ -83,7 +83,7 @@ class FragmentBase:
                 f"| Primary: {self.is_primary:<2} "
                 f"| Size: {self.size:<5} | Match: {match:<3})")
 
-@dataclass
+@dataclass(eq=False)
 @inherit_docstring(RecoBase, FragmentBase)
 class RecoFragment(FragmentBase, RecoBase):
     """Reconstructed fragment information.
@@ -114,7 +114,7 @@ class RecoFragment(FragmentBase, RecoBase):
         return 'Reco' + super().__str__()
 
 
-@dataclass
+@dataclass(eq=False)
 @inherit_docstring(TruthBase, FragmentBase)
 class TruthFragment(Particle, FragmentBase, TruthBase):
     """Truth fragment information.
@@ -184,7 +184,7 @@ class TruthFragment(Particle, FragmentBase, TruthBase):
 
     @start_dir.setter
     def start_dir(self, start_dir):
-        self._start_dir = start_dir
+        pass
 
     @property
     def end_dir(self):
@@ -207,4 +207,4 @@ class TruthFragment(Particle, FragmentBase, TruthBase):
 
     @end_dir.setter
     def end_dir(self, end_dir):
-        self._end_dir = end_dir
+        pass

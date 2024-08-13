@@ -15,7 +15,7 @@ from .base import PosDataBase
 __all__ = ['Particle']
 
 
-@dataclass
+@dataclass(eq=False)
 class Particle(PosDataBase):
     """Particle truth information.
 
@@ -140,13 +140,9 @@ class Particle(PosDataBase):
     last_step: np.ndarray = None
     momentum: np.ndarray = None
     end_momentum: np.ndarray = None
-    p: float = -1.
-    end_p: float = -1.
+    p: float = None
+    end_p: float = None
     units: str = 'cm'
-
-    # Private derived attributes
-    _p: float = field(init=False, repr=False)
-    _end_p: float = field(init=False, repr=False)
 
     # Fixed-length attributes
     _fixed_length_attrs = {'position': 3, 'end_position': 3,
@@ -187,7 +183,7 @@ class Particle(PosDataBase):
 
     @p.setter
     def p(self, p):
-        self._p = p
+        pass
 
     @property
     def end_p(self):
@@ -202,7 +198,7 @@ class Particle(PosDataBase):
 
     @end_p.setter
     def end_p(self, end_p):
-        self._end_p = end_p
+        pass
 
     @classmethod
     def from_larcv(cls, particle):
