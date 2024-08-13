@@ -16,7 +16,7 @@ from .base import BatchBase
 __all__ = ['EdgeIndexBatch']
 
 
-@dataclass
+@dataclass(eq=False)
 @inherit_docstring(BatchBase)
 class EdgeIndexBatch(BatchBase):
     """Batched edge index with the necessary methods to slice it.

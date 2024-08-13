@@ -14,7 +14,7 @@ from .base import BatchBase
 __all__ = ['TensorBatch']
 
 
-@dataclass
+@dataclass(eq=False)
 @inherit_docstring(BatchBase)
 class TensorBatch(BatchBase):
     """Batched tensor with the necessary methods to slice it."""
