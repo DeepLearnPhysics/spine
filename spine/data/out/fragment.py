@@ -127,7 +127,9 @@ class TruthFragment(Particle, FragmentBase, TruthBase):
     orig_interaction_id : int
         Unaltered index of the interaction in the original MC paricle list
     children_counts : np.ndarray
-        (P) Number of truth child particle of each shape
+        (P) Number of truth child fragment of each shape
+    reco_length : float
+        Reconstructed length of the fragment (only assigned to track objects)
     reco_start_dir : np.ndarray
         (3) Particle direction estimate w.r.t. the start point
     reco_end_dir : np.ndarray
@@ -136,6 +138,7 @@ class TruthFragment(Particle, FragmentBase, TruthBase):
     """
     orig_interaction_id: int = -1
     children_counts: np.ndarray = None
+    reco_length: float = -1.
     reco_start_dir: np.ndarray = None
     reco_end_dir: np.ndarray = None
 
