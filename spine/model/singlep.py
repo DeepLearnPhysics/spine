@@ -23,7 +23,7 @@ from .layer.factories import loss_fn_factory
 
 from .layer.cnn.act_norm import act_factory
 from .layer.cnn.configuration import setup_cnn_configuration
-from .layer.cnn.cnn_encoder import SparseResidualEncoder
+from .layer.cnn.encoder import SparseResidualEncoder
 
 from .experimental.layer.pointnet import PointNetEncoder
 #from .experimental.layer.pointmlp import PointMLPEncoder

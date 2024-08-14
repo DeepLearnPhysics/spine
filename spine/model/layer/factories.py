@@ -7,28 +7,12 @@ from spine.model.experimental.bayes.evidential import (
 
 from spine.utils.factory import module_dict, instantiate
 
-from .common import final, losses, metric
+from .cnn.encoder import SparseResidualEncoder
 
-__all__ = ['final_factory', 'loss_fn_factory']
+from .common import losses, metric, final
 
-
-def final_factory(in_channels, **cfg):
-    """Instantiates a final layer from a configuration dictionary.
-
-    Parameters
-    ----------
-    in_channels : int
-        Number of features input into the final layer
-    **cfg : dict
-        Final layer configuration
-
-    Returns
-    -------
-    object
-        Instantiated final layer
-    """
-    final_layers = module_dict(final)
-    return instantiate(final_layers, cfg, in_channels=in_channels)
+__all__ = ['loss_fn_factory', 'metric_fn_fatory', 'encoder_factory',
+           'final_factory']
 
 
 def loss_fn_factory(cfg, functional=False, **kwargs):
@@ -89,7 +73,7 @@ def loss_fn_factory(cfg, functional=False, **kwargs):
                            f"availabel list: {loss_dict_func.keys()}")
 
 def metric_fn_factory(cfg):
-    """Instantiates an metric function from a configuration dictionary.
+    """Instantiates a metric function from a configuration dictionary.
 
     Parameters
     ----------
@@ -103,3 +87,42 @@ def metric_fn_factory(cfg):
     """
     metric_layers = module_dict(metric)
     return instantiate(metric_layers, cfg)
+
+
+def encoder_factory(cfg):
+    """Instantiates an image encoder from a configuration dictionary.
+
+    Parameters
+    ----------
+    cfg : dict
+        Encoder configuration
+
+    Returns
+    -------
+    object
+        Instantiated encoder
+    """
+    encoder_dict = {
+        'cnn': SparseResidualEncoder
+    }
+
+    return instantiate(encoder_dict, cfg)
+
+
+def final_factory(in_channels, **cfg):
+    """Instantiates a final layer from a configuration dictionary.
+
+    Parameters
+    ----------
+    in_channels : int
+        Number of features input into the final layer
+    **cfg : dict
+        Final layer configuration
+
+    Returns
+    -------
+    object
+        Instantiated final layer
+    """
+    final_layers = module_dict(final)
+    return instantiate(final_layers, cfg, in_channels=in_channels)

@@ -2,7 +2,7 @@
 
 import torch
 
-from spine.model.layer.cnn.cnn_encoder import SparseResidualEncoder
+from spine.model.layer.cnn.encoder import SparseResidualEncoder
 
 from spine import TensorBatch, IndexBatch
 from spine.utils.globals import BATCH_COL

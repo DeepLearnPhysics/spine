@@ -5,8 +5,7 @@ import torch.nn as nn
 
 from spine.data import TensorBatch
 
-from .layer.factories import loss_fn_factory
-from .layer.cnn.cnn_encoder import SparseResidualEncoder
+from .layer.factories import encoder_factory, loss_fn_factory
 
 __all__ = ['ImageClassifier']
 
@@ -55,8 +54,7 @@ class ImageClassifier(nn.Module):
             Encoder configuration
         """
         # Initialize the encoder
-        self.encoder = SparseResidualEncoder(**encoder)
-        #self.encoder = encoder_factory(encoder)
+        self.encoder = encoder_factory(encoder)
         '''
         self.encoder_type = model_cfg.get('encoder_type', 'standard')
         if self.encoder_type == 'dropout':
