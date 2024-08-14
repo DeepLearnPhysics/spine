@@ -153,6 +153,15 @@ class TruthFragment(Particle, FragmentBase, TruthBase):
             'children_counts': np.int32
     }
 
+    # Attributes specifying coordinates
+    _pos_attrs = [*FragmentBase._pos_attrs, *Particle._pos_attrs]
+
+    # Attributes specifying vector components
+    _vec_attrs = [
+            *FragmentBase._vec_attrs, *Particle._vec_attrs,
+            'reco_start_dir', 'reco_end_dir'
+    ]
+
     # Boolean attributes
     _bool_attrs = [*TruthBase._bool_attrs, *FragmentBase._bool_attrs]
 

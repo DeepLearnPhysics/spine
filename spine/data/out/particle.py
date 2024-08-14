@@ -369,6 +369,15 @@ class TruthParticle(Particle, ParticleBase, TruthBase):
             'children_counts': np.int32
     }
 
+    # Attributes specifying coordinates
+    _pos_attrs = [*ParticleBase._pos_attrs, *Particle._pos_attrs]
+
+    # Attributes specifying vector components
+    _vec_attrs = [
+            *ParticleBase._vec_attrs, *Particle._vec_attrs,
+            'reco_start_dir', 'reco_end_dir'
+    ]
+
     # Boolean attributes
     _bool_attrs = [*TruthBase._bool_attrs, *ParticleBase._bool_attrs]
 

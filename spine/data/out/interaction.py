@@ -77,9 +77,6 @@ class InteractionBase:
     # Attributes specifying coordinates
     _pos_attrs = ['vertex']
 
-    # Attributes specifying vector components
-    _vec_attrs = ['vertex']
-
     # Boolean attributes
     _bool_attrs = ['is_fiducial', 'is_flash_matched']
 
@@ -272,6 +269,11 @@ class TruthInteraction(Neutrino, InteractionBase, TruthBase):
             **TruthBase._var_length_attrs,
             **InteractionBase._var_length_attrs
     }
+
+    # Attributes specifying coordinates
+    _pos_attrs = [
+            *InteractionBase._pos_attrs, *Neutrino._pos_attrs, 'reco_vertex'
+    ]
 
     # Boolean attributes
     _bool_attrs = [*TruthBase._bool_attrs, *InteractionBase._bool_attrs]
