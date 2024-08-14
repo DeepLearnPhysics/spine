@@ -5,7 +5,7 @@ from dataclasses import dataclass, asdict
 import numpy as np
 
 
-@dataclass
+@dataclass(eq=False)
 class DataBase:
     """Base class of all data structures.
 
@@ -83,29 +83,40 @@ class DataBase:
             if isinstance(getattr(self, attr), np.uint8):
                 setattr(self, attr, bool(getattr(self, attr)))
 
-    def __getstate__(self):
-        """Returns the variables to be pickled.
+    def __eq__(self, other):
+        """Checks that all attributes of two class instances are the same.
 
-        This is needed because the derived variables are stored as property
-        objects and are not naturally pickleable. This function simply skips
-        the private attributes which might be problematic to pickle.
-
-        Returns
-        -------
-        dict
-            Dictionary representation of the object
-        """
-        return {k: v for k, v in self.__dict__.items() if not k.startswith('_')}
-
-    def __setstate__(self, state):
-        """Sets the object state from a dictionary.
+        This overloads the default dataclass `__eq__` method to include an
+        appopriate check for vector (numpy) attributes.
 
         Parameters
         ----------
-        dict
-            Dictionary representation of the object
+        other : obj
+            Other instance of the same object class
+
+        Returns
+        -------
+        bool
+            `True` if all attributes of both objects are identical
         """
-        self.__dict__.update(state)
+        # Check that the two objects belong to the same class
+        if self.__class__ != other.__class__:
+            return False
+
+        # Check that all attributes are identical
+        for k, v in self.__dict__.items():
+            if np.isscalar(v):
+                # For scalars, regular comparison will do
+                if getattr(other, k) != v:
+                    return False
+
+            else:
+                # For vectors, compare all elements
+                v_other = getattr(other, k)
+                if v.shape != v_other.shape or (v_other != v).any():
+                    return False
+
+        return True
 
     def set_precision(self, precision):
         """Casts all the vector attributes to a different precision.
@@ -130,15 +141,7 @@ class DataBase:
         dict
             Dictionary of attribute names and their values
         """
-        obj_dict = {}
-        for k, v in self.__dict__.items():
-            if not k in self._skip_attrs:
-                if not k.startswith('_'):
-                    obj_dict[k] = v
-                else:
-                    obj_dict[k[1:]] = getattr(self, k[1:])
-
-        return obj_dict
+        return {k: v for k, v in self.__dict__.items() if not k in self._skip_attrs}
 
     def scalar_dict(self, attrs=None):
         """Returns the data class attributes as a dictionary of scalars.
@@ -243,7 +246,7 @@ class DataBase:
         return self._skip_attrs
 
 
-@dataclass
+@dataclass(eq=False)
 class PosDataBase(DataBase):
     """Base class of for data structures with positional attributes.
 

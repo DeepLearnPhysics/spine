@@ -16,7 +16,7 @@ from .base import RecoBase, TruthBase
 __all__ = ['RecoInteraction', 'TruthInteraction']
 
 
-@dataclass
+@dataclass(eq=False)
 class InteractionBase:
     """Base interaction-specific information.
 
@@ -61,13 +61,7 @@ class InteractionBase:
     flash_time: float = -np.inf
     flash_total_pe: float = -1.
     flash_hypo_pe: float = -1.
-    topology: str = ''
-
-    # Private derived attributes
-    _num_particles: int = field(init=False, repr=False)
-    _particle_counts: np.ndarray = field(init=False, repr=False)
-    _primary_particle_counts: np.ndarray = field(init=False, repr=False)
-    _topology: str = field(init=False, repr=False)
+    topology: str = None
 
     # Fixed-length attributes
     _fixed_length_attrs = {
@@ -124,7 +118,7 @@ class InteractionBase:
 
     @num_particles.setter
     def num_particles(self, num_particles):
-        self._num_particles = num_particles
+        pass
 
     @property
     def particle_counts(self):
@@ -144,7 +138,7 @@ class InteractionBase:
 
     @particle_counts.setter
     def particle_counts(self, particle_counts):
-        self._particle_counts = particle_counts
+        pass
 
     @property
     def primary_particle_counts(self):
@@ -164,7 +158,7 @@ class InteractionBase:
 
     @primary_particle_counts.setter
     def primary_particle_counts(self, primary_particle_counts):
-        self._primary_particle_counts = primary_particle_counts
+        pass
 
     @property
     def topology(self):
@@ -184,7 +178,7 @@ class InteractionBase:
 
     @topology.setter
     def topology(self, topology):
-        self._topology = topology
+        pass
 
     @classmethod
     def from_particles(cls, particles):
@@ -221,7 +215,7 @@ class InteractionBase:
         return interaction
 
 
-@dataclass
+@dataclass(eq=False)
 @inherit_docstring(RecoBase, InteractionBase)
 class RecoInteraction(InteractionBase, RecoBase):
     """Reconstructed interaction information."""
@@ -248,7 +242,7 @@ class RecoInteraction(InteractionBase, RecoBase):
         return 'Reco' + super().__str__()
 
 
-@dataclass
+@dataclass(eq=False)
 @inherit_docstring(TruthBase, InteractionBase)
 class TruthInteraction(Neutrino, InteractionBase, TruthBase):
     """Truth interaction information.

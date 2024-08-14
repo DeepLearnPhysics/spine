@@ -28,18 +28,18 @@ class PostBase(ABC):
     units : str
         Units in which the objects must be expressed (one of 'px' or 'cm')
     """
-    name = ''
-    aliases = []
+    name = None
+    aliases = ()
     parent_path = ''
     keys = {}
     truth_point_mode = 'points'
     units = 'cm'
 
     # List of recognized object types
-    _obj_types = ['fragment', 'particle', 'interaction']
+    _obj_types = ('fragment', 'particle', 'interaction')
 
     # List of recognized run modes
-    _run_modes = ['reco', 'truth', 'both', 'all']
+    _run_modes = ('reco', 'truth', 'both', 'all')
 
     # List of known point modes for true particles
     _point_modes = {
@@ -49,8 +49,8 @@ class PostBase(ABC):
     }
 
     # List of known deposition modes
-    _dep_modes = ['depositions', 'depositions_q', 'depositions_adapt',
-                  'depositions_adapt_q', 'depositions_g4']
+    _dep_modes = ('depositions', 'depositions_q', 'depositions_adapt',
+                  'depositions_adapt_q', 'depositions_g4')
 
     def __init__(self, obj_type=None, run_mode=None, truth_point_mode=None,
                  truth_dep_mode=None, parent_path=None):
@@ -109,6 +109,7 @@ class PostBase(ABC):
         self.obj_keys = (self.fragment_keys
                          + self.particle_keys
                          + self.interaction_keys)
+
         self.keys.update({k:True for k in self.obj_keys})
 
         # If a truth point mode is specified, store it

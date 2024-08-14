@@ -33,22 +33,31 @@ class SparseResidualEncoder(UResNetEncoder):
             Configuration to pass along to the sparse residual encoder
         """
         # Initialize the parent class
-        super().__init__(**cfg)
+        super().__init__(cfg)
 
         # Store attributes
         self.coord_conv = coord_conv
 
         # Initialize the final pooling layer
+        assert self.spatial_size is not None, (
+                "Must specify `spatial_size` to know how many pooling stages "
+                "are needed to get to a one dimensional vector.")
         final_tensor_shape = self.spatial_size // (2**(self.depth-1))
-        if self.pool_mode == 'avg':
+
+        if pool_mode == 'avg':
+            # Average pooling
             self.pool = ME.MinkowskiGlobalPooling()
-        elif self.pool_mode == 'max':
+
+        elif pool_mode == 'max':
+            # Max pooling
             self.pool = torch.nn.Sequential(
                 ME.MinkowskiMaxPooling(
                     final_tensor_shape, stride=final_tensor_shape,
                     dimension=self.dim),
                 ME.MinkowskiGlobalPooling())
-        elif self.pool_mode == 'conv':
+
+        elif pool_mode == 'conv':
+            # Strided convolution
             self.pool = torch.nn.Sequential(
                 ME.MinkowskiConvolution(
                     in_channels=self.num_planes[-1],
@@ -56,6 +65,7 @@ class SparseResidualEncoder(UResNetEncoder):
                     kernel_size=final_tensor_shape, stride=final_tensor_shape,
                     dimension=self.dim),
                 ME.MinkowskiGlobalPooling())
+
         else:
             raise ValueError(
                     f"Pooling mode not recognized: {self.pool_mode}. Must be "
@@ -90,7 +100,7 @@ class SparseResidualEncoder(UResNetEncoder):
                             features=features)
 
         # Pass through the CNN encoder
-        output = self.encoder(x)
+        output = super().forward(x)
         final_tensor = output['final_tensor']
 
         # Pool the last layer

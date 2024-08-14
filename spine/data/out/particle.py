@@ -17,7 +17,7 @@ from .base import RecoBase, TruthBase
 __all__ = ['RecoParticle', 'TruthParticle']
 
 
-@dataclass
+@dataclass(eq=False)
 class ParticleBase:
     """Base particle-specific information.
 
@@ -86,12 +86,8 @@ class ParticleBase:
     csda_ke: float = -1.
     mcs_ke: float = -1.
     momentum: np.ndarray = None
-    p: float = -1.
+    p: float = None
     is_valid: bool = True
-
-    # Private derived attributes
-    _num_fragments: int = field(init=False, repr=False)
-    _p: float = field(init=False, repr=False)
 
     # Fixed-length attributes
     _fixed_length_attrs = {
@@ -149,7 +145,7 @@ class ParticleBase:
 
     @num_fragments.setter
     def num_fragments(self, num_fragments):
-        self._num_fragments = num_fragments
+        pass
 
     @property
     def pdg_code(self):
@@ -164,7 +160,7 @@ class ParticleBase:
 
     @pdg_code.setter
     def pdg_code(self, pdg_code):
-        self._pdg_code = pdg_code
+        pass
 
     @property
     def p(self):
@@ -179,10 +175,10 @@ class ParticleBase:
 
     @p.setter
     def p(self, p):
-        self._p = p
+        pass
 
 
-@dataclass
+@dataclass(eq=False)
 @inherit_docstring(RecoBase, ParticleBase)
 class RecoParticle(ParticleBase, RecoBase):
     """Reconstructed particle information.
@@ -202,11 +198,6 @@ class RecoParticle(ParticleBase, RecoBase):
     primary_scores: np.ndarray = None
     ppn_ids: np.ndarray = None
     ppn_points: np.ndarray = None
-
-    # Private derived attributes
-    _ke: float = field(init=False, repr=False)
-    _momentum: np.ndarray = field(init=False, repr=False)
-    _pdg_code: int = field(init=False, repr=False)
 
     # Fixed-length attributes
     _fixed_length_attrs = {
@@ -313,7 +304,7 @@ class RecoParticle(ParticleBase, RecoBase):
 
     @ke.setter
     def ke(self, ke):
-        self._ke = ke
+        pass
 
     @property
     def momentum(self):
@@ -335,10 +326,10 @@ class RecoParticle(ParticleBase, RecoBase):
 
     @momentum.setter
     def momentum(self, momentum):
-        self._momentum = momentum
+        pass
 
 
-@dataclass
+@dataclass(eq=False)
 @inherit_docstring(TruthBase, ParticleBase)
 class TruthParticle(Particle, ParticleBase, TruthBase):
     """Truth particle information.
@@ -362,11 +353,6 @@ class TruthParticle(Particle, ParticleBase, TruthBase):
     children_counts: np.ndarray = None
     reco_start_dir: np.ndarray = None
     reco_end_dir: np.ndarray = None
-
-    # Private derived attributes
-    _start_dir: np.ndarray = field(init=False, repr=False)
-    _end_dir: np.ndarray = field(init=False, repr=False)
-    _ke: np.ndarray = field(init=False, repr=False)
 
     # Fixed-length attributes
     _fixed_length_attrs = {
@@ -417,7 +403,7 @@ class TruthParticle(Particle, ParticleBase, TruthBase):
 
     @start_dir.setter
     def start_dir(self, start_dir):
-        self._start_dir = start_dir
+        pass
 
     @property
     def end_dir(self):
@@ -440,7 +426,7 @@ class TruthParticle(Particle, ParticleBase, TruthBase):
 
     @end_dir.setter
     def end_dir(self, end_dir):
-        self._end_dir = end_dir
+        pass
 
     @property
     def ke(self):
@@ -462,4 +448,4 @@ class TruthParticle(Particle, ParticleBase, TruthBase):
 
     @ke.setter
     def ke(self, ke):
-        self._ke = ke
+        pass

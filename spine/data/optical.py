@@ -12,7 +12,7 @@ from .base import PosDataBase
 __all__ = ['Flash']
 
 
-@dataclass
+@dataclass(eq=False)
 class Flash(PosDataBase):
     """Optical flash information.
 

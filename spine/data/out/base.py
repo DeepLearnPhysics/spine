@@ -9,7 +9,7 @@ from spine.utils.decorators import inherit_docstring
 from spine.data.base import PosDataBase
 
 
-@dataclass
+@dataclass(eq=False)
 class OutBase(PosDataBase):
     """Base data structure shared among all output classes.
 
@@ -67,11 +67,6 @@ class OutBase(PosDataBase):
     is_truth: bool = None
     units: str = 'cm'
 
-    # Private derived attributes
-    _size: int = field(init=False, repr=False)
-    _depositions_sum: float = field(init=False, repr=False)
-    _module_ids: np.ndarray = field(init=False, repr=False)
-
     # Variable-length attribtues
     _var_length_attrs = {
             'index': np.int64, 'depositions': np.float32,
@@ -105,7 +100,7 @@ class OutBase(PosDataBase):
 
     @size.setter
     def size(self, size):
-        self._size = size
+        pass
 
     @property
     def depositions_sum(self):
@@ -120,7 +115,7 @@ class OutBase(PosDataBase):
 
     @depositions_sum.setter
     def depositions_sum(self, depositions_sum):
-        self._depositions_sum = depositions_sum
+        pass
 
     @property
     def module_ids(self):
@@ -135,17 +130,17 @@ class OutBase(PosDataBase):
 
     @module_ids.setter
     def module_ids(self, module_ids):
-        self._module_ids = module_ids
+        pass
 
 
-@dataclass
+@dataclass(eq=False)
 @inherit_docstring(OutBase)
 class RecoBase(OutBase):
     """Base data structure shared among all reconstructed output classes."""
     is_truth: bool = False
 
 
-@dataclass
+@dataclass(eq=False)
 @inherit_docstring(OutBase)
 class TruthBase(OutBase):
     """Base data structure shared among all truth output classes.
@@ -196,6 +191,7 @@ class TruthBase(OutBase):
     depositions_q_sum: float = None
     index_adapt: np.ndarray = None
     size_adapt: int = None
+    size_g4: int = None
     points_adapt: np.ndarray = None
     depositions_adapt: np.ndarray = None
     depositions_adapt_sum: float = None
@@ -207,14 +203,6 @@ class TruthBase(OutBase):
     depositions_g4: np.ndarray = None
     depositions_g4_sum: float = None
     is_truth: bool = True
-
-    # Private derived attributes
-    _size_adapt: int = field(init=False, repr=False)
-    _size_g4: int = field(init=False, repr=False)
-    _depositions_q_sum: float = field(init=False, repr=False)
-    _depositions_adapt_sum: float = field(init=False, repr=False)
-    _depositions_adapt_q_sum: float = field(init=False, repr=False)
-    _depositions_g4_sum: float = field(init=False, repr=False)
 
     # Variable-length attribtues
     _var_length_attrs = {
@@ -249,7 +237,7 @@ class TruthBase(OutBase):
 
     @size_adapt.setter
     def size_adapt(self, size_adapt):
-        self._size_adapt = size_adapt
+        pass
 
     @property
     def size_g4(self):
@@ -264,7 +252,7 @@ class TruthBase(OutBase):
 
     @size_g4.setter
     def size_g4(self, size_g4):
-        self._size_g4 = size_g4
+        pass
 
     @property
     def depositions_q_sum(self):
@@ -279,7 +267,7 @@ class TruthBase(OutBase):
 
     @depositions_q_sum.setter
     def depositions_q_sum(self, depositions_q_sum):
-        self._depositions_q_sum = depositions_q_sum
+        pass
 
     @property
     def depositions_adapt_sum(self):
@@ -294,7 +282,7 @@ class TruthBase(OutBase):
 
     @depositions_adapt_sum.setter
     def depositions_adapt_sum(self, depositions_adapt_sum):
-        self._depositions_adapt_sum = depositions_adapt_sum
+        pass
 
     @property
     def depositions_adapt_q_sum(self):
@@ -310,7 +298,7 @@ class TruthBase(OutBase):
 
     @depositions_adapt_q_sum.setter
     def depositions_adapt_q_sum(self, depositions_adapt_q_sum):
-        self._depositions_adapt_q_sum = depositions_adapt_q_sum
+        pass
 
     @property
     def depositions_g4_sum(self):
@@ -325,4 +313,4 @@ class TruthBase(OutBase):
 
     @depositions_g4_sum.setter
     def depositions_g4_sum(self, depositions_g4_sum):
-        self._depositions_g4_sum = depositions_g4_sum
+        pass

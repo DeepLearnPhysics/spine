@@ -13,7 +13,7 @@ from .base import DataBase
 __all__ = ['Meta']
 
 
-@dataclass
+@dataclass(eq=False)
 class Meta(DataBase):
     """Meta information about a rasterized image.
 

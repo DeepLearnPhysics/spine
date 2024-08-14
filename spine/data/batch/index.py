@@ -14,7 +14,7 @@ from .base import BatchBase
 __all__ = ['IndexBatch']
 
 
-@dataclass
+@dataclass(eq=False)
 @inherit_docstring(BatchBase)
 class IndexBatch(BatchBase):
     """Batched index with the necessary methods to slice it.

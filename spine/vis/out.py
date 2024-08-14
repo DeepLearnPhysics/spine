@@ -21,13 +21,13 @@ class Drawer:
     provides functions to represent the output.
     """
     # List of recognized object types
-    _obj_types = ['fragments', 'particles', 'interactions']
+    _obj_types = ('fragments', 'particles', 'interactions')
 
     # List of recognized drawing modes
-    _draw_modes = ['reco', 'truth', 'both', 'all']
+    _draw_modes = ('reco', 'truth', 'both', 'all')
 
     # List of known point modes
-    _point_modes = ['points', 'points_adapt', 'points_g4']
+    _point_modes = ('points', 'points_adapt', 'points_g4')
 
     # Map between attribute and underlying point objects
     _point_map = {'points': 'points_label', 'points_adapt': 'points', 
@@ -63,7 +63,7 @@ class Drawer:
 
         # Set up the list of prefixes to access
         assert draw_mode in self._draw_modes, (
-                f"`mode` not recognized: {mode}. Must be one of "
+                f"`mode` not recognized: {draw_mode}. Must be one of "
                  "{self._draw_modes}.")
 
         self.prefixes = []
@@ -297,7 +297,7 @@ class Drawer:
 
         else:
             raise KeyError(
-                    f"Drawing the `{attr}` attribute of each point in the "
+                    f"Drawing the `{attr}` attribute of each object in the "
                     f"{name.lower()} is not supported.")
 
         return {'color': color, 'hovertext': hovertext, 'name': name,
