@@ -297,7 +297,7 @@ class Drawer:
 
         else:
             raise KeyError(
-                    f"Drawing the `{attr}` attribute of each point in the "
+                    f"Drawing the `{attr}` attribute of each object in the "
                     f"{name.lower()} is not supported.")
 
         return {'color': color, 'hovertext': hovertext, 'name': name,

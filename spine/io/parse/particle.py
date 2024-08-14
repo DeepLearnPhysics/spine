@@ -513,11 +513,11 @@ class SingleParticlePIDParser(ParserBase):
     .. code-block. yaml
 
         schema:
-          pdg_list:
-            parser: single_particle_pdg
+          image_pid:
+            parser: single_particle_pid
             particle_event: particle_pcluster
     """
-    name = 'single_particle_pdg'
+    name = 'single_particle_pid'
 
     def __call__(self, trees):
         """Parse one entry.
@@ -542,15 +542,15 @@ class SingleParticlePIDParser(ParserBase):
         int
             Species of the first particle
         """
-        pdg = -1
+        pid = -1
         for p in particle_event.as_vector():
             if p.track_id() == 1:
                 if int(p.pdg_code()) in PDG_TO_PID.keys():
-                    pdg = PDG_TO_PID[int(p.pdg_code())]
+                    pid = PDG_TO_PID[int(p.pdg_code())]
 
                 break
 
-        return pdg
+        return pid
 
 
 class SingleParticleEnergyParser(ParserBase):
@@ -559,7 +559,7 @@ class SingleParticleEnergyParser(ParserBase):
     .. code-block. yaml
 
         schema:
-          energy_list:
+          image_energy:
             parser: single_particle_energy
             particle_event: particle_pcluster
     """
