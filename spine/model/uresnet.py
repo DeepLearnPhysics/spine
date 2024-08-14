@@ -97,7 +97,7 @@ class UResNetSegmentation(nn.Module):
 
         Parameters
         ----------
-        data: TensorBatch
+        data : TensorBatch
             (N, 1 + D + N_f) tensor of voxel/value pairs
             - N is the the total number of voxels in the image
             - 1 is the batch ID

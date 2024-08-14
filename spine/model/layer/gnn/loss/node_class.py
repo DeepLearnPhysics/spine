@@ -10,10 +10,10 @@ from spine.utils.enums import enum_factory
 from spine.utils.weighting import get_class_weights
 from spine.utils.gnn.cluster import get_cluster_label_batch
 
-__all__ = ['NodeClassificationLoss']
+__all__ = ['NodeClassLoss']
 
 
-class NodeClassificationLoss(torch.nn.Module):
+class NodeClassLoss(torch.nn.Module):
     """Generic loss used to train node identification.
 
     Takes the C-channel node output of the GNN and optimizes node-wise scores
@@ -48,6 +48,8 @@ class NodeClassificationLoss(torch.nn.Module):
             Name of the loss function to apply
         balance_loss : bool, default False
             Whether to weight the loss to account for class imbalance
+        weights : list, optional
+            (C) One weight value per class
         """
         # Initialize the parent class
         super().__init__()

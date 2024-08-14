@@ -4,7 +4,7 @@ import torch
 import numpy as np
 from warnings import warn
 
-from .node_class import NodeClassificationLoss
+from .node_class import NodeClassLoss
 
 from spine.model.layer.factories import loss_fn_factory
 
@@ -84,7 +84,7 @@ class NodeVertexLoss(torch.nn.Module):
         self.return_vertex_labels = return_vertex_labels
 
         # Initialize the primary identification loss
-        self.primary_loss = NodeClassificationLoss(
+        self.primary_loss = NodeClassLoss(
                 target='inter_primary', balance_loss=balance_primary_loss,
                 loss=primary_loss)
 

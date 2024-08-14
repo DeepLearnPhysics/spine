@@ -1,4 +1,11 @@
-import sys
+'''Image classification module.
+
+This module includes:
+    - Single full image classification
+    - Individual cluster classification
+    - UQ implementations of the full image classification
+'''
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -6,6 +13,13 @@ import torch.nn.functional as F
 from collections import defaultdict, Counter, OrderedDict
 
 from torch_geometric.data import Batch, Data
+
+from spine.data import TensorBatch
+
+from spine.utils.gnn.cluster import form_clusters, get_cluster_label
+from spine.utils.globals import PID_COL
+
+from .layer.factories import loss_fn_factory
 
 from .layer.cnn.act_norm import act_factory
 from .layer.cnn.configuration import setup_cnn_configuration
@@ -16,48 +30,8 @@ from .experimental.layer.pointnet import PointNetEncoder
 from .experimental.bayes.encoder import MCDropoutEncoder
 from .experimental.bayes.evidential import EVDLoss
 
-from spine.utils.gnn.cluster import form_clusters, get_cluster_label
-from spine.utils.globals import PID_COL
 
-
-class ParticleImageClassifier(nn.Module):
-
-    MODULES = ['particle_image_classifier', 'network_base', 'mink_encoder']
-
-    def __init__(self, cfg, name='particle_image_classifier'):
-        super(ParticleImageClassifier, self).__init__()
-
-        # Get the config
-        model_cfg = cfg.get(name, {})
-
-        # Initialize encoder
-        self.encoder_type = model_cfg.get('encoder_type', 'standard')
-        if self.encoder_type == 'dropout':
-            self.encoder = MCDropoutEncoder(cfg)
-        elif self.encoder_type == 'standard':
-            self.encoder = SparseResidualEncoder(cfg)
-        elif self.encoder_type == 'pointnet':
-            self.encoder = PointNetEncoder(cfg)
-        else:
-            raise ValueError('Unrecognized encoder type: {}'.format(self.encoder_type))
-
-        # Initialize final layer
-        self.num_classes = model_cfg.get('num_classes', 5)
-        self.final_layer = nn.Linear(self.encoder.latent_size, self.num_classes)
-        print('Total Number of Trainable Parameters = {}'.format(
-                    sum(p.numel() for p in self.parameters() if p.requires_grad)))
-
-    def forward(self, input):
-        point_cloud, = input
-        out = self.encoder(point_cloud)
-        out = self.final_layer(out)
-        res = {
-            'logits': [out]
-        }
-        return res
-
-
-class MultiParticleImageClassifier(ParticleImageClassifier):
+class MultiParticleImageClassifier(ImageClassifier):
 
     MODULES = ['particle_image_classifier', 'network_base', 'mink_encoder']
 
@@ -152,7 +126,7 @@ class MultiParticleImageClassifier(ParticleImageClassifier):
         return res
 
 
-class DUQParticleClassifier(ParticleImageClassifier):
+class DUQParticleClassifier(ImageClassifier):
     """
     Uncertainty Estimation Using a Single Deep Deterministic Neural Network
     https://arxiv.org/pdf/2003.02037.pdf
@@ -226,7 +200,7 @@ class DUQParticleClassifier(ParticleImageClassifier):
             self.m = self.gamma * self.m + (1 - self.gamma) * features_sum
 
 
-class EvidentialParticleClassifier(ParticleImageClassifier):
+class EvidentialParticleClassifier(ImageClassifier):
 
     MODULES = ['network_base', 'particle_image_classifier', 'mink_encoder']
     def __init__(self, cfg, name='evidential_image_classifier'):
@@ -352,9 +326,7 @@ class BayesianParticleClassifier(torch.nn.Module):
             return res
 
     def standard_forward(self, input, verbose=False):
-        if verbose:
-            sys.stdout.write("Forwarding using weight averaging (standard dropout) ...")
-            sys.stdout.flush()
+        print("Forwarding using weight averaging (standard dropout) ...")
         point_cloud, = input
         out = self.encoder(point_cloud)
         out = self.logit_layer(out)
@@ -373,35 +345,6 @@ class BayesianParticleClassifier(torch.nn.Module):
             return self.standard_forward(input)
 
 
-class ParticleTypeLoss(nn.Module):
-
-    def __init__(self, cfg, name='particle_type_loss'):
-        super(ParticleTypeLoss, self).__init__()
-        self.xentropy = nn.CrossEntropyLoss(ignore_index=-1)
-        self.num_classes = cfg.get(name, {}).get('num_classes', 5)
-
-    def forward(self, out, type_labels):
-        # print(type_labels)
-        logits = out['logits'][0]
-        labels = type_labels[0][:, -1].to(dtype=torch.long)
-
-        loss = self.xentropy(logits, labels)
-
-        pred   = torch.argmax(logits, dim=1)
-        accuracy = float(torch.sum(pred[labels > -1] == labels[labels > -1])) / float(labels[labels > -1].shape[0])
-
-        res = {
-            'loss': loss,
-            'accuracy': accuracy
-        }
-
-        for c in range(self.num_classes):
-            mask = labels == c
-            res[f'accuracy_class_{c}'] = \
-                float(torch.sum(pred[mask] == labels[mask])) / float(torch.sum(mask)) \
-                if torch.sum(mask) else 1.
-
-        return res
 
 
 class MultiParticleTypeLoss(nn.Module):
@@ -522,7 +465,6 @@ class MultiLabelCrossEntropy(nn.Module):
         return gradient_penalty
 
     def forward(self, out, type_labels):
-        # print(type_labels)
         probas = out['score'][0]
         device = probas.device
         labels_one_hot = torch.eye(self.num_classes)[type_labels[0][:, 0].long()].to(device=device)
