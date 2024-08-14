@@ -7,11 +7,11 @@ from spine.data import TensorBatch
 
 from .layer.factories import encoder_factory, loss_fn_factory
 
-__all__ = ['ImageClassifier']
+__all__ = ['ImageClassifier', 'ClusterImageClassifier', 'ImageClassLoss']
 
 
 class ImageClassifier(nn.Module):
-    """Whole particle image classification.
+    """Whole-image classification model.
 
     This model uses various encoder declinations to classifier an entire
     image as belonging to a certain class.
@@ -202,11 +202,28 @@ class ImageClassLoss(nn.Module):
 
         # Compute accuracy of assignment (fraction of correctly assigned images)
         acc = 1.
+        acc_class = [1.] * num_classes
         if len(valid_index):
-            acc = float(torch.sum(torch.argmax(logits, dim=1) == labels))
+            preds = torch.argmax(logits, dim=1)
+            acc = float(torch.sum(preds == labels))
             acc /= len(valid_index)
+            for c in range(num_classes):
+                index = torch.where(labels == c)[0]
+                if len(index):
+                    acc_class[c] = float(torch.sum(preds[index] == c))/len(index)
 
-        return {
-            'accuracy': acc,
-            'loss': loss
+        # Prepare and return result
+        result = {
+            'loss': loss,
+            'accuracy': acc
         }
+
+        for c in range(num_classes):
+            result[f'accuracy_class_{c}'] = acc_class[c]
+
+        return result
+
+
+class ClusterImageClassifier(nn.Module):
+
+    pass

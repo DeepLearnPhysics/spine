@@ -126,12 +126,24 @@ class NodeClassLoss(torch.nn.Module):
 
         # Compute accuracy of assignment (fraction of correctly assigned nodes)
         acc = 1.
+        acc_class = [1.] * num_classes
         if len(valid_index):
-            acc = float(torch.sum(torch.argmax(node_pred, dim=1) == node_assn))
+            preds = torch.argmax(node_pred, dim=1)
+            acc = float(torch.sum(preds == node_assn))
             acc /= len(valid_index)
+            for c in range(num_classes):
+                index = torch.where(node_assn == c)[0]
+                if len(index):
+                    acc_class[c] = float(torch.sum(preds[index] == c))/len(index)
 
-        return {
-            'accuracy': acc,
+        # Prepare and return result
+        result = {
             'loss': loss,
+            'accuracy': acc,
             'count': len(valid_index)
         }
+
+        for c in range(num_classes):
+            result[f'accuracy_class_{c}'] = acc_class[c]
+
+        return result

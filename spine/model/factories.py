@@ -20,7 +20,7 @@ def model_dict():
     #from . import bayes_uresnet
     #from . import vertex
 
-    # Make some models available (not all of them, e.g. PPN is not standalone)
+    # Map configuration keys to model/loss tuples
     models = {
         # Full reconstruction chain
         "full_chain": (
