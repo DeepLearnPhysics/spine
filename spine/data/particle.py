@@ -75,6 +75,8 @@ class Particle(PosDataBase):
         Particle PDG code of the ancestor particle
     t : float
         Particle creation time
+    end_t : float
+        Particle death time
     parent_t : float
         Particle creation time of the parent particle
     ancestor_t : float
@@ -82,7 +84,7 @@ class Particle(PosDataBase):
     position : np.ndarray
         Location of the creation point of the particle
     end_position : np.ndarray
-        Location where the particle stopped or exited the detector
+        Location where the particle stopped
     parent_position : np.ndarry
         Location of the creation point of the parent particle
     ancestor_position : np.ndarray
@@ -130,6 +132,7 @@ class Particle(PosDataBase):
     parent_creation_process: str = ''
     ancestor_creation_process: str = ''
     t: float = -np.inf
+    end_t: float = -np.inf
     parent_t: float = -np.inf
     ancestor_t: float = -np.inf
     position: np.ndarray = None
@@ -229,6 +232,8 @@ class Particle(PosDataBase):
                       "attribute. It will miss from the Particle object.")
                 continue
             obj_dict[key] = getattr(particle, key)()
+
+        obj_dict['end_t'] = particle.end_position().t()
 
         # Load the positional attribute
         pos_attrs = ['x', 'y', 'z']
