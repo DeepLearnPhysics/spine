@@ -111,7 +111,7 @@ class ClustCNNEdgeEncoder(torch.nn.Module):
         # Use edge ID as a batch ID, pass through CNN. For undirected graph,
         # only do it on half of the edges to save time (same features).
         cnn_data = []
-        for i, e in enumerate(edge_index.directed_index.T):
+        for i, e in enumerate(edge_index.directed_index_t):
             ci, cj = clusts.data[e[0]], clusts.data[e[1]]
             edge_data = torch.cat((data.tensor[ci], data.tensor[cj]))
             edge_data[:, BATCH_COL] = i

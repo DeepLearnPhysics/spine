@@ -51,9 +51,13 @@ class MetaLayerGNN(nn.Module):
         self.num_mp       = num_mp
 
         # Intialize the input normalization layers
-        self.node_bn   = norm_factory(input_normalization, node_feats)
-        self.edge_bn   = norm_factory(input_normalization, edge_feats)
-        self.global_bn = norm_factory(input_normalization, global_feats)
+        self.node_bn, self.edge_bn, self.global_bn = None, None, None
+        if node_feats > 0:
+            self.node_bn   = norm_factory(input_normalization, node_feats)
+        if edge_feats > 0:
+            self.edge_bn   = norm_factory(input_normalization, edge_feats)
+        if global_feats > 0:
+            self.global_bn = norm_factory(input_normalization, global_feats)
 
         # Loop over the number of message passing steps, initialize the
         # metalayer which updates the features at each step
@@ -108,12 +112,17 @@ class MetaLayerGNN(nn.Module):
             (B) Batch ID of each node in the batched graph
         """
         # Pass input through the input normalization layer
-        x = self.node_bn(node_feats.tensor)
-        e, u = None, None
+        x, e, u = node_feats.tensor, None, None
+        if self.node_bn is not None:
+            x = self.node_bn(node_feats.tensor)
         if edge_feats is not None:
-            e = self.edge_bn(edge_feats.tensor)
+            e = edge_feats.tensor
+            if self.edge_bn is not None:
+                e = self.edge_bn(e)
         if glob_feats is not None:
-            u = self.global_bn(glob_feats.tensor)
+            u = glob_feats.tensor
+            if self.global_bn is not None:
+                u = self.global_bn(u)
 
         # Loop over the message passing steps, update the graph features
         for l in range(self.num_mp):
@@ -121,11 +130,11 @@ class MetaLayerGNN(nn.Module):
 
         # Initialize and return result dictionary
         result = {}
-        if self.mp_layers[0].node_model is not None: 
+        if self.mp_layers[0].node_model is not None:
             result['node_features'] = TensorBatch(x, node_feats.counts)
-        if self.mp_layers[0].edge_model is not None: 
+        if self.mp_layers[0].edge_model is not None:
             result['edge_features'] = TensorBatch(e, edge_feats.counts)
-        if self.mp_layers[0].global_model is not None: 
+        if self.mp_layers[0].global_model is not None:
             result['global_features'] = TensorBatch(u, global_feats.counts)
 
         return result
