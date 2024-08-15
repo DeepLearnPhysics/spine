@@ -216,14 +216,14 @@ class Drawer:
         clusts = [getattr(obj, index_mode) for obj in self.data[obj_name]]
 
         # Get the colors
-        color_dict = self._object_colors(obj_name, attr)
+        color_dict = self._object_colors(obj_name, attr, split_traces)
 
         # Return
         return scatter_clusters(
                 points, clusts, single_trace=not split_traces,
                 shared_legend=not split_traces, **color_dict)
 
-    def _object_colors(self, obj_name, attr):
+    def _object_colors(self, obj_name, attr, split_traces=False):
         """Provides an appropriate colorscale and range for a given attribute.
 
         Parameters
@@ -232,6 +232,8 @@ class Drawer:
             Name of the object to draw
         attr : str
             Object attribute to draw
+        split_traces : bool, default False
+            If `True`, one trace is produced for each object
 
         Returns
         -------
@@ -240,6 +242,8 @@ class Drawer:
         """
         # Define the name of the trace group
         name = ' '.join(obj_name.split('_')).capitalize()
+        if split_traces:
+            name = name[:-1]
 
         # Initialize hovertext per object
         obj_type = obj_name.split('_')[-1][:-1].capitalize()
