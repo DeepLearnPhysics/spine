@@ -194,8 +194,8 @@ class Drawer:
         ----------
         obj_name : str
             Name of the objects to be represented
-        attr : str
-            Attribute name used to set the color
+        attr : Union[str, List[str]]
+            Attribute name(s) used to set the color/hovertext
         split_traces : bool, default False
             If `True`, one trace is produced for each object
 
@@ -230,8 +230,8 @@ class Drawer:
         ----------
         obj_name : str
             Name of the object to draw
-        attr : str
-            Object attribute to draw
+        attr : Union[str, List[str]]
+            Attribute name(s) used to set the color/hovertext
         split_traces : bool, default False
             If `True`, one trace is produced for each object
 
@@ -256,15 +256,32 @@ class Drawer:
             color = np.arange(len(self.data[obj_name]))
 
         else:
-            attr_name = ' '.join(attr.split('_')).capitalize()
-            color = [getattr(obj, attr) for obj in self.data[obj_name]]
-            if not attr.startswith('depositions'):
-                for i, hc in enumerate(hovertext):
-                    hovertext[i] = hc + f'<br>{attr_name}: {color[i]}'
-            else:
-                for i, hc in enumerate(hovertext):
-                    hovertext[i] = [
-                            hc + f'<br>Value: {v:0.3f}' for v in color[i]]
+            # Fetch hover information for each of the requested attributes
+            attrs = [attr] if isinstance(attr, str) else attr
+            for attr in attrs:
+                attr_name = ' '.join(attr.split('_')).capitalize()
+                values = [getattr(obj, attr) for obj in self.data[obj_name]]
+                if attr == attrs[0]:
+                    color = values
+                if not attr.startswith('depositions'):
+                    for i, hc in enumerate(hovertext):
+                        if isinstance(hc, str):
+                            hovertext[i] = hc + f'<br>{attr_name}: {values[i]}'
+                        else:
+                            hovertext[i] = [
+                                    hcj + f'<br>{attr_name}: {values[i]}' for hcj in hc]
+
+                else:
+                    for i, hc in enumerate(hovertext):
+                        if isinstance(hc, str):
+                            hovertext[i] = [
+                                    hc + f'<br>Value: {v:0.3f}' for v in values[i]]
+                        else:
+                            hovertext[i] = [
+                                    hc[i] + f'<br>Value: {v:0.3f}' for i, v in enumerate(values[i])]
+
+            # Fetch the colors for the first attribute only
+            attr = attrs[0]
 
         # Set up the appropriate color scheme
         if attr.startswith('depositions'):
