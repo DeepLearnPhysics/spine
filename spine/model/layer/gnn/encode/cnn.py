@@ -54,7 +54,8 @@ class ClustCNNNodeEncoder(torch.nn.Module):
         num_voxels = len(full_index)
         shape = (num_voxels, data.tensor.shape[1])
         cnn_data = data.tensor[full_index].clone()
-        cnn_data[:, BATCH_COL] = clusts.full_batch_ids
+        cnn_data[:, BATCH_COL] = torch.tensor(
+                clusts.index_ids, device=cnn_data.device)
 
         # Pass the batched input through the encoder
         feats = self.encoder(cnn_data)
@@ -110,7 +111,7 @@ class ClustCNNEdgeEncoder(torch.nn.Module):
         # Use edge ID as a batch ID, pass through CNN. For undirected graph,
         # only do it on half of the edges to save time (same features).
         cnn_data = []
-        for i, e in enumerate(edge_index.directed_index):
+        for i, e in enumerate(edge_index.directed_index.T):
             ci, cj = clusts.data[e[0]], clusts.data[e[1]]
             edge_data = torch.cat((data.tensor[ci], data.tensor[cj]))
             edge_data[:, BATCH_COL] = i
@@ -119,6 +120,7 @@ class ClustCNNEdgeEncoder(torch.nn.Module):
         # Pass through the network
         if len(cnn_data):
             feats = self.encoder(torch.cat(cnn_data))
+
         else:
             feats = torch.empty((0, self.feature_size),
                                 dtype=data.tensor.dtype,
