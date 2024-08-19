@@ -72,13 +72,17 @@ class CSDAEnergyProcessor(PostBase):
                     continue
 
                 # Compute the length of the track
-                # TODO: fix typing upstream (input/output of model should match)
                 length = get_track_length(
-                        points.astype(np.float32), point=obj.start_point,
+                        points, point=obj.start_point,
                         method=self.tracking_mode, **self.tracking_kwargs)
 
-                # Store the length and the CSDA kinetic energy
-                obj.length = length
+                # Store the length
+                if not obj.is_truth:
+                    obj.length = length
+                else:
+                    obj.reco_length = length
+
+                # Compute the CSDA kinetic energy
                 if length > 0.:
                     obj.csda_ke = self.splines[obj.pid](length).item()
                 else:

@@ -89,15 +89,17 @@ class SparseResidualEncoder(UResNetEncoder):
         torch.Tensor
             (B) Batch of features, one per batch ID
         """
-        # Get the feature tensor
-        features = data[:, VALUE_COL:VALUE_COL+self.num_input]
+        # Build an input feature tensor
+        coords = data[:, :VALUE_COL]
+        features = data[:, VALUE_COL].view(-1, 1)
+
+        # If requested, append the normalized coordinates to the feature tensor
         if self.coord_conv:
             normalized_coords = data[:, COORD_COLS]/self.spatial_size
             features = torch.cat([normalized_coords, features], dim=1)
 
         # Build a sparse tensor
-        x = ME.SparseTensor(coordinates=data[:, :VALUE_COL].int(),
-                            features=features)
+        x = ME.SparseTensor(coordinates=coords.int(), features=features)
 
         # Pass through the CNN encoder
         output = super().forward(x)

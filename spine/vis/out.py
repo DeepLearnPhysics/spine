@@ -98,7 +98,8 @@ class Drawer:
                 detector_coords=self.detector_coords, **kwargs)
 
     def get(self, obj_type, attr=None, draw_end_points=False,
-            draw_vertices=False, synchronize=False, titles=None):
+            draw_vertices=False, synchronize=False, titles=None,
+            split_traces=False):
         """Draw the requested object type with the requested mode.
 
         Parameters
@@ -109,13 +110,15 @@ class Drawer:
         attr : Union[str, List[str]]
             Name of list of names of attributes to draw
         draw_end_points : bool, default False
-            If True, draw the fragment or particle end points
+            If `True`, draw the fragment or particle end points
         draw_vertices : bool, default False
-            If True, draw the interaction vertices
+            If `True`, draw the interaction vertices
         synchronize : bool, default False
-            If True, matches the camera position/angle of one plot to the other
+            If `True`, matches the camera position/angle of one plot to the other
         titles : List[str], optional
             Titles of the two scenes (only relevant for split_scene True
+        split_traces : bool, default False
+            If `True`, one trace is produced for each object
 
         Returns
         -------
@@ -134,7 +137,7 @@ class Drawer:
             assert obj_name in self.data, (
                     f"Must provide `{obj_name}` in the data products to draw "
                      "them.")
-            traces[prefix] = self._object_traces(obj_name, attr)
+            traces[prefix] = self._object_traces(obj_name, attr, split_traces)
 
         # Fetch the end points, if requested
         if draw_end_points:
@@ -184,15 +187,17 @@ class Drawer:
 
         return figure
 
-    def _object_traces(self, obj_name, attr=None):
+    def _object_traces(self, obj_name, attr=None, split_traces=False):
         """Draw a specific object.
 
         Parameters
         ----------
         obj_name : str
             Name of the objects to be represented
-        attr : str
-            Attribute name used to set the color
+        attr : Union[str, List[str]]
+            Attribute name(s) used to set the color/hovertext
+        split_traces : bool, default False
+            If `True`, one trace is produced for each object
 
         Returns
         -------
@@ -211,20 +216,24 @@ class Drawer:
         clusts = [getattr(obj, index_mode) for obj in self.data[obj_name]]
 
         # Get the colors
-        color_dict = self._object_colors(obj_name, attr)
+        color_dict = self._object_colors(obj_name, attr, split_traces)
 
         # Return
-        return scatter_clusters(points, clusts, **color_dict)
+        return scatter_clusters(
+                points, clusts, single_trace=not split_traces,
+                shared_legend=not split_traces, **color_dict)
 
-    def _object_colors(self, obj_name, attr):
+    def _object_colors(self, obj_name, attr, split_traces=False):
         """Provides an appropriate colorscale and range for a given attribute.
 
         Parameters
         ----------
         obj_name : str
             Name of the object to draw
-        attr : str
-            Object attribute to draw
+        attr : Union[str, List[str]]
+            Attribute name(s) used to set the color/hovertext
+        split_traces : bool, default False
+            If `True`, one trace is produced for each object
 
         Returns
         -------
@@ -233,6 +242,8 @@ class Drawer:
         """
         # Define the name of the trace group
         name = ' '.join(obj_name.split('_')).capitalize()
+        if split_traces:
+            name = name[:-1]
 
         # Initialize hovertext per object
         obj_type = obj_name.split('_')[-1][:-1].capitalize()
@@ -245,15 +256,32 @@ class Drawer:
             color = np.arange(len(self.data[obj_name]))
 
         else:
-            attr_name = ' '.join(attr.split('_')).capitalize()
-            color = [getattr(obj, attr) for obj in self.data[obj_name]]
-            if not attr.startswith('depositions'):
-                for i, hc in enumerate(hovertext):
-                    hovertext[i] = hc + f'<br>{attr_name}: {color[i]}'
-            else:
-                for i, hc in enumerate(hovertext):
-                    hovertext[i] = [
-                            hc + f'<br>Value: {v:0.3f}' for v in color[i]]
+            # Fetch hover information for each of the requested attributes
+            attrs = [attr] if isinstance(attr, str) else attr
+            for attr in attrs:
+                attr_name = ' '.join(attr.split('_')).capitalize()
+                values = [getattr(obj, attr) for obj in self.data[obj_name]]
+                if attr == attrs[0]:
+                    color = values
+                if not attr.startswith('depositions'):
+                    for i, hc in enumerate(hovertext):
+                        if isinstance(hc, str):
+                            hovertext[i] = hc + f'<br>{attr_name}: {values[i]}'
+                        else:
+                            hovertext[i] = [
+                                    hcj + f'<br>{attr_name}: {values[i]}' for hcj in hc]
+
+                else:
+                    for i, hc in enumerate(hovertext):
+                        if isinstance(hc, str):
+                            hovertext[i] = [
+                                    hc + f'<br>Value: {v:0.3f}' for v in values[i]]
+                        else:
+                            hovertext[i] = [
+                                    hc[i] + f'<br>Value: {v:0.3f}' for i, v in enumerate(values[i])]
+
+            # Fetch the colors for the first attribute only
+            attr = attrs[0]
 
         # Set up the appropriate color scheme
         if attr.startswith('depositions'):
@@ -388,7 +416,7 @@ class Drawer:
         ----------
         obj_name : str
             Name of the object to draw
-        point_)attr : str
+        point_attr : str
             Name of the attribute specifying end point to draw
         **kwargs : dict, optional
             List of additional arguments to pass to :func:`scatter_points`
