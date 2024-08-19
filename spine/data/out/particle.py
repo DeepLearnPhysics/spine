@@ -52,18 +52,20 @@ class ParticleBase:
     end_dir : np.ndarray
         (3) Particle direction w.r.t. the end point (only assigned
         to track objects)
+    mass : float
+        Rest mass of the particle in MeV/c^2
     ke : float
-        Kinetic energy of the particle
+        Kinetic energy of the particle in MeV
     calo_ke : float
-        Kinetic energy reconstructed from the energy depositions alone
+        Kinetic energy reconstructed from the energy depositions alone in MeV
     csda_ke : float
-        Kinetic energy reconstructed from the particle range
+        Kinetic energy reconstructed from the particle range in MeV
     mcs_ke : float
-        Kinetic energy reconstructed using the MCS method
+        Kinetic energy reconstructed using the MCS method in MeV
     momentum : np.ndarray
-        3-momentum of the particle at the production point
+        3-momentum of the particle at the production point in MeV/c
     p : float
-        Momentum magnitude of the particle at the production point
+        Momentum magnitude of the particle at the production point in MeV/c
     is_valid : bool
         Whether this particle counts towards an interaction topology. This
         may be False if a particle is below some defined energy threshold.
@@ -81,6 +83,7 @@ class ParticleBase:
     end_point: np.ndarray = None
     start_dir: np.ndarray = None
     end_dir: np.ndarray = None
+    mass: float = -1.
     ke: float = -1.
     calo_ke: float = -1.
     csda_ke: float = -1.
@@ -275,6 +278,26 @@ class RecoParticle(ParticleBase, RecoBase):
             self.pid_scores = other.pid_scores
 
     @property
+    def mass(self):
+        """Rest mass of the particle in MeV/c^2.
+
+        The mass is inferred from the predicted mass.
+
+        Returns
+        -------
+        float
+            Rest mass of the particle
+        """
+        if self.pid in PID_MASSES:
+            return PID_MASSES[self.pid]
+
+        return -1.
+
+    @mass.setter
+    def mass(self, mass):
+        pass
+
+    @property
     def ke(self):
         """Best-guess kinetic energy in MeV.
 
@@ -452,9 +475,8 @@ class TruthParticle(Particle, ParticleBase, TruthBase):
         float
             Initial kinetic energy of the particle
         """
-        if self.pid in PID_MASSES:
-            mass = PID_MASSES[self.pid]
-            return self.energy_init - mass
+        if self.mass > -1.:
+            return self.energy_init - self.mass
 
         return -1.
 

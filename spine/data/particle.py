@@ -54,9 +54,9 @@ class Particle(PosDataBase):
     num_voxels : int
         Number of voxels matched to this particle instance
     energy_init : float
-        True initial energy in GeV
+        True initial energy in MeV
     energy_deposit : float
-        Amount of energy matched to this particle instance in GeV
+        Amount of energy matched to this particle instance in MeV
     distance_travel : float
         True amount of distance traveled by the particle in the active volume
     creation_process : str
@@ -101,6 +101,8 @@ class Particle(PosDataBase):
         Momentum magnitude of the particle at the production point
     end_p : float
         Momentum magnitude of the particle where it stops or exits the detector
+    mass : float
+        Rest mass of the particle in MeV/c^2
     units : str
         Units in which the position attributes are expressed
     """
@@ -143,6 +145,7 @@ class Particle(PosDataBase):
     last_step: np.ndarray = None
     momentum: np.ndarray = None
     end_momentum: np.ndarray = None
+    mass: float = None
     p: float = None
     end_p: float = None
     units: str = 'cm'
@@ -201,6 +204,24 @@ class Particle(PosDataBase):
 
     @end_p.setter
     def end_p(self, end_p):
+        pass
+
+    @property
+    def mass(self):
+        """Computes the rest mass of the particle from its energy/momentum.
+
+        Returns
+        -------
+        float
+            Rest mass of the particle in MeV/c^2
+        """
+        if self.energy_init < 0.:
+            return -1.
+
+        return np.sqrt(max(0., self.energy_init**2 - np.sum(self.momentum**2)))
+
+    @mass.setter
+    def mass(self, mass):
         pass
 
     @classmethod
