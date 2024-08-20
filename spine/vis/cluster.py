@@ -74,7 +74,10 @@ def scatter_clusters(points, clusts, color=None, hovertext=None,
                     "one value per point or one value per cluster.")
 
     else:
-        color = clust_ids
+        if mode != 'scatter':
+            color = clust_ids
+        else:
+            color = [[clust_ids[i]]*len(c) for i, c in enumerate(clusts)]
 
     # Build the hovertext vectors
     hovertemplate = 'x: %{x}<br>y: %{y}<br>z: %{z}<br>%{text}'
@@ -101,6 +104,8 @@ def scatter_clusters(points, clusts, color=None, hovertext=None,
             else:
                 for i, hc in enumerate(hovertext):
                     hovertext[i] = [hc + f'<br>Value: {v:0.3f}' for v in color[i]]
+        elif mode == 'scatter':
+            hovertext = [[hovertext[i]]*len(c) for i, c in enumerate(clusts)]
 
     # If requested, combine all clusters into a single trace
     if single_trace:
