@@ -25,7 +25,7 @@ if os.getenv('FMATCH_BUILDDIR') is not None:
 from spine.main import run
 
 
-def main(config, source, source_list, output, n, nskip, detect_anomaly):
+def main(config, source, source_list, output, n, nskip, detect_anomaly, log_dir, weight_prefix):
     """Main driver for training/validation/inference/analysis.
 
     Performs these basic functions:
@@ -101,6 +101,14 @@ def main(config, source, source_list, output, n, nskip, detect_anomaly):
     if output is not None and 'writer' in cfg['io']:
         cfg['io']['writer']['file_name'] = output
 
+    if log_dir is not None:
+        cfg['base']['log_dir'] = log_dir
+
+    if weight_prefix is not None:
+        if not 'train' in cfg['base']:
+            raise KeyError('--weight_prefix flag provided: must specify `train` in the `base` block.')
+        cfg['base']['train']['weight_prefix']=weight_prefix
+
     # Turn on PyTorch anomaly detection, if requested
     if detect_anomaly is not None:
         assert 'model' in cfg, (
@@ -149,8 +157,16 @@ if __name__ == '__main__':
                         help='Turns on autograd.detect_anomaly for debugging',
                         action='store_const', const=True)
 
+    parser.add_argument('--log_dir',
+                        help='Log directory',
+                        type=str, default=None)
+
+    parser.add_argument('--weight_prefix',
+                        help='Prefix for weight files',
+                        type=str, default=None)
+
     args = parser.parse_args()
 
     # Execute the main function
     main(args.config, args.source, args.source_list, args.output, args.n,
-         args.nskip, args.detect_anomaly)
+         args.nskip, args.detect_anomaly, args.log_dir, args.weight_prefix)
