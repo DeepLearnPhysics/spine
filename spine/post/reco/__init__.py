@@ -11,3 +11,4 @@ from .vertex import *
 from .calo import *
 from .kinematics import *
 from .label import *
+from .shower import *

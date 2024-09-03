@@ -15,7 +15,7 @@ from .base import PosDataBase
 __all__ = ['Particle']
 
 
-@dataclass
+@dataclass(eq=False)
 class Particle(PosDataBase):
     """Particle truth information.
 
@@ -54,9 +54,9 @@ class Particle(PosDataBase):
     num_voxels : int
         Number of voxels matched to this particle instance
     energy_init : float
-        True initial energy in GeV
+        True initial energy in MeV
     energy_deposit : float
-        Amount of energy matched to this particle instance in GeV
+        Amount of energy matched to this particle instance in MeV
     distance_travel : float
         True amount of distance traveled by the particle in the active volume
     creation_process : str
@@ -75,6 +75,8 @@ class Particle(PosDataBase):
         Particle PDG code of the ancestor particle
     t : float
         Particle creation time
+    end_t : float
+        Particle death time
     parent_t : float
         Particle creation time of the parent particle
     ancestor_t : float
@@ -82,7 +84,7 @@ class Particle(PosDataBase):
     position : np.ndarray
         Location of the creation point of the particle
     end_position : np.ndarray
-        Location where the particle stopped or exited the detector
+        Location where the particle stopped
     parent_position : np.ndarry
         Location of the creation point of the parent particle
     ancestor_position : np.ndarray
@@ -99,6 +101,8 @@ class Particle(PosDataBase):
         Momentum magnitude of the particle at the production point
     end_p : float
         Momentum magnitude of the particle where it stops or exits the detector
+    mass : float
+        Rest mass of the particle in MeV/c^2
     units : str
         Units in which the position attributes are expressed
     """
@@ -130,6 +134,7 @@ class Particle(PosDataBase):
     parent_creation_process: str = ''
     ancestor_creation_process: str = ''
     t: float = -np.inf
+    end_t: float = -np.inf
     parent_t: float = -np.inf
     ancestor_t: float = -np.inf
     position: np.ndarray = None
@@ -140,13 +145,10 @@ class Particle(PosDataBase):
     last_step: np.ndarray = None
     momentum: np.ndarray = None
     end_momentum: np.ndarray = None
-    p: float = -1.
-    end_p: float = -1.
+    mass: float = None
+    p: float = None
+    end_p: float = None
     units: str = 'cm'
-
-    # Private derived attributes
-    _p: float = field(init=False, repr=False)
-    _end_p: float = field(init=False, repr=False)
 
     # Fixed-length attributes
     _fixed_length_attrs = {'position': 3, 'end_position': 3,
@@ -187,7 +189,7 @@ class Particle(PosDataBase):
 
     @p.setter
     def p(self, p):
-        self._p = p
+        pass
 
     @property
     def end_p(self):
@@ -202,7 +204,25 @@ class Particle(PosDataBase):
 
     @end_p.setter
     def end_p(self, end_p):
-        self._end_p = end_p
+        pass
+
+    @property
+    def mass(self):
+        """Computes the rest mass of the particle from its energy/momentum.
+
+        Returns
+        -------
+        float
+            Rest mass of the particle in MeV/c^2
+        """
+        if self.energy_init < 0.:
+            return -1.
+
+        return np.sqrt(max(0., self.energy_init**2 - np.sum(self.momentum**2)))
+
+    @mass.setter
+    def mass(self, mass):
+        pass
 
     @classmethod
     def from_larcv(cls, particle):
@@ -233,6 +253,8 @@ class Particle(PosDataBase):
                       "attribute. It will miss from the Particle object.")
                 continue
             obj_dict[key] = getattr(particle, key)()
+
+        obj_dict['end_t'] = particle.end_position().t()
 
         # Load the positional attribute
         pos_attrs = ['x', 'y', 'z']

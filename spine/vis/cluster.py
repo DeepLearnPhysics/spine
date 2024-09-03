@@ -32,8 +32,8 @@ def scatter_clusters(points, clusts, color=None, hovertext=None,
         (N/C) List of labels associated with each marker or cluster
     single_trace : bool, default False
         If `True`, combine all clusters into a single plotly trace
-    name : str, optional
-        Name of the clusters
+    name : Union[str, List[str]], optional
+        Name of the clusters or of each cluster
     mode : str, default 'scatter'
         Drawing mode; one of 'circle', 'scatter', 'ellipsoid', 'cone' or 'hull'
     cmin : float, optional
@@ -65,13 +65,19 @@ def scatter_clusters(points, clusts, color=None, hovertext=None,
             color = [color]*len(clusts)
         elif len(color) == len(points) and len(points) != len(clusts):
             color = [color[c] for c in clusts]
-        elif len(color) != len(clusts):
+        elif len(color) == len(clusts):
+            if mode == 'scatter' and len(color) > 0 and np.isscalar(color[0]):
+                color = [[color[i]]*len(c) for i, c in enumerate(clusts)]
+        else:
             raise ValueError(
                     "The `color` attribute should be provided as a scalar, "
                     "one value per point or one value per cluster.")
 
     else:
-        color = clust_ids
+        if mode != 'scatter':
+            color = clust_ids
+        else:
+            color = [[clust_ids[i]]*len(c) for i, c in enumerate(clusts)]
 
     # Build the hovertext vectors
     hovertemplate = 'x: %{x}<br>y: %{y}<br>z: %{z}<br>%{text}'
@@ -80,6 +86,9 @@ def scatter_clusters(points, clusts, color=None, hovertext=None,
             hovertext = [hovertext]*len(clusts)
         elif len(hovertext) == len(points) and len(points) != len(clusts):
             hovertext = [hovertext[c] for c in clusts]
+        elif len(hovertext) == len(hovertext):
+            if mode == 'scatter' and len(hovertext) > 0 and np.isscalar(hovertext[0]):
+                hovertext = [[hovertext[i]]*len(c) for i, c in enumerate(clusts)]
         elif len(hovertext) != len(clusts):
             raise ValueError(
                     "The `hovertext` attribute should be provided as a scalar, "
@@ -95,6 +104,8 @@ def scatter_clusters(points, clusts, color=None, hovertext=None,
             else:
                 for i, hc in enumerate(hovertext):
                     hovertext[i] = [hc + f'<br>Value: {v:0.3f}' for v in color[i]]
+        elif mode == 'scatter':
+            hovertext = [[hovertext[i]]*len(c) for i, c in enumerate(clusts)]
 
     # If requested, combine all clusters into a single trace
     if single_trace:
@@ -123,15 +134,9 @@ def scatter_clusters(points, clusts, color=None, hovertext=None,
                 coords = np.empty((0, 3), dtype=np.float32)
 
             if color is not None and len(color):
-                if np.isscalar(color[0]):
-                    color = np.repeat(color, counts)
-                else:
-                    color = np.concatenate(color)
+                color = np.concatenate(color)
             if hovertext is not None and len(hovertext):
-                if np.isscalar(hovertext[0]):
-                    hovertext = np.repeat(hovertext, counts)
-                else:
-                    hovertext = np.concatenate(hovertext)
+                hovertext = np.concatenate(hovertext)
 
             return scatter_points(
                     coords, color=color, hovertext=hovertext,
@@ -156,8 +161,14 @@ def scatter_clusters(points, clusts, color=None, hovertext=None,
         if shared_legend:
             legendgroup = group_name
             showlegend = i == 0
-        else:
-            name_i = f'{name} {i}'
+        elif name is not None:
+            if np.isscalar(name):
+                name_i = f'{name} {i}'
+            else:
+                assert len(name) == len(clusts), (
+                        "When providing the name as a list, there should be "
+                        "one name per cluster.")
+                name_i = name[i]
 
         # Dispatch
         if mode == 'circle':

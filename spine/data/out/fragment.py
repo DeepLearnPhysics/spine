@@ -14,7 +14,7 @@ from .base import RecoBase, TruthBase
 __all__ = ['RecoFragment', 'TruthFragment']
 
 
-@dataclass
+@dataclass(eq=False)
 class FragmentBase:
     """Base fragment-specific information.
 
@@ -83,7 +83,7 @@ class FragmentBase:
                 f"| Primary: {self.is_primary:<2} "
                 f"| Size: {self.size:<5} | Match: {match:<3})")
 
-@dataclass
+@dataclass(eq=False)
 @inherit_docstring(RecoBase, FragmentBase)
 class RecoFragment(FragmentBase, RecoBase):
     """Reconstructed fragment information.
@@ -114,7 +114,7 @@ class RecoFragment(FragmentBase, RecoBase):
         return 'Reco' + super().__str__()
 
 
-@dataclass
+@dataclass(eq=False)
 @inherit_docstring(TruthBase, FragmentBase)
 class TruthFragment(Particle, FragmentBase, TruthBase):
     """Truth fragment information.
@@ -127,7 +127,9 @@ class TruthFragment(Particle, FragmentBase, TruthBase):
     orig_interaction_id : int
         Unaltered index of the interaction in the original MC paricle list
     children_counts : np.ndarray
-        (P) Number of truth child particle of each shape
+        (P) Number of truth child fragment of each shape
+    reco_length : float
+        Reconstructed length of the fragment (only assigned to track objects)
     reco_start_dir : np.ndarray
         (3) Particle direction estimate w.r.t. the start point
     reco_end_dir : np.ndarray
@@ -136,6 +138,7 @@ class TruthFragment(Particle, FragmentBase, TruthBase):
     """
     orig_interaction_id: int = -1
     children_counts: np.ndarray = None
+    reco_length: float = -1.
     reco_start_dir: np.ndarray = None
     reco_end_dir: np.ndarray = None
 
@@ -152,6 +155,15 @@ class TruthFragment(Particle, FragmentBase, TruthBase):
             **Particle._var_length_attrs,
             'children_counts': np.int32
     }
+
+    # Attributes specifying coordinates
+    _pos_attrs = [*FragmentBase._pos_attrs, *Particle._pos_attrs]
+
+    # Attributes specifying vector components
+    _vec_attrs = [
+            *FragmentBase._vec_attrs, *Particle._vec_attrs,
+            'reco_start_dir', 'reco_end_dir'
+    ]
 
     # Boolean attributes
     _bool_attrs = [*TruthBase._bool_attrs, *FragmentBase._bool_attrs]
@@ -184,7 +196,7 @@ class TruthFragment(Particle, FragmentBase, TruthBase):
 
     @start_dir.setter
     def start_dir(self, start_dir):
-        self._start_dir = start_dir
+        pass
 
     @property
     def end_dir(self):
@@ -207,4 +219,4 @@ class TruthFragment(Particle, FragmentBase, TruthBase):
 
     @end_dir.setter
     def end_dir(self, end_dir):
-        self._end_dir = end_dir
+        pass

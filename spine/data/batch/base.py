@@ -7,7 +7,7 @@ import numpy as np
 import torch
 
 
-@dataclass
+@dataclass(eq=False)
 class BatchBase:
     """Base class for all types of batched data.
 
@@ -56,6 +56,47 @@ class BatchBase:
     def __len__(self):
         """Returns the number of entries that make up the batch."""
         return self.batch_size
+
+    def __eq__(self, other):
+        """Checks that all attributes of two class instances are the same.
+
+        This overloads the default dataclass `__eq__` method to include an
+        appopriate check for vector (numpy) attributes.
+
+        Parameters
+        ----------
+        other : obj
+            Other instance of the same object class
+
+        Returns
+        -------
+        bool
+            `True` if all attributes of both objects are identical
+        """
+        # Check that the two objects belong to the same class
+        if self.__class__ != other.__class__:
+            return False
+
+        # Check that all attributes are identical
+        for k, v in self.__dict__.items():
+            v_other = getattr(other, k)
+            if v is None:
+                # If not filled, make sure neither are
+                if v_other is not None:
+                    return False
+
+            elif np.isscalar(v) or isinstance(v, np.dtype):
+                # For scalars, regular comparison will do
+                if v_other != v:
+                    return False
+
+            else:
+                # For vectors, compare all elements
+                v_other = getattr(other, k)
+                if v.shape != v_other.shape or (v_other != v).any():
+                    return False
+
+        return True
 
     @property
     def shape(self):

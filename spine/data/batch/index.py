@@ -14,7 +14,7 @@ from .base import BatchBase
 __all__ = ['IndexBatch']
 
 
-@dataclass
+@dataclass(eq=False)
 @inherit_docstring(BatchBase)
 class IndexBatch(BatchBase):
     """Batched index with the necessary methods to slice it.
@@ -210,7 +210,7 @@ class IndexBatch(BatchBase):
             full_counts = self._empty(self.batch_size)
             for b in range(self.batch_size):
                 lower, upper = self.edges[b], self.edges[b+1]
-                full_counts = self._sum(self.single_counts[lower:upper])
+                full_counts[b] = self._sum(self.single_counts[lower:upper])
 
             return self._as_long(full_counts)
 

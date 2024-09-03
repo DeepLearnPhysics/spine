@@ -72,6 +72,7 @@ class ClusterAna(AnaBase):
             self.keys[label_key] = True
             for obj in self.obj_type:
                 self.keys[f'{obj}_clusts'] = True
+                self.keys[f'{obj}_shapes'] = True
 
         else:
             self.keys['points'] = True
@@ -108,15 +109,16 @@ class ClusterAna(AnaBase):
 
             # Build the cluster predictions for this object type
             preds = -np.ones(num_points)
+            shapes = -np.full(num_points, LOWES_SHP)
             if not self.use_objects:
                 # Use clusters directly from the full chain output
                 num_reco = len(data[f'{obj_type}_clusts'])
                 for i, index in enumerate(data[f'{obj_type}_clusts']):
                     preds[index] = i
+                    shapes[index] = data[f'{obj_type}_shapes'][i]
 
             else:
                 # Use clusters from the object indexes
-                shapes = -np.full(num_points, LOWES_SHP)
                 num_reco = len(data[f'reco_{obj_type}s'])
                 for i, obj in enumerate(data[f'reco_{obj_type}s']):
                     preds[obj.index] = i
@@ -127,11 +129,12 @@ class ClusterAna(AnaBase):
             row_dict = {'num_points': num_points, 'num_truth': num_truth,
                         'num_reco': num_reco}
             for metric, func in self.metrics.items():
-                valid_index = np.where(preds > -1)[0]
+                valid_index = np.where((preds > -1) & (labels > -1))[0]
                 row_dict[metric] = func(labels[valid_index], preds[valid_index])
                 if self.per_shape and obj_type != 'interaction':
                     for shape in range(LOWES_SHP):
-                        shape_index = np.where(shapes == shape)[0]
+                        shape_index = np.where(
+                                (shapes == shape) & (labels > -1))[0]
                         row_dict[f'{metric}_{shape}'] = func(
                                 labels[shape_index], preds[shape_index])
 

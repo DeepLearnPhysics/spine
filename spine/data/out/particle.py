@@ -17,7 +17,7 @@ from .base import RecoBase, TruthBase
 __all__ = ['RecoParticle', 'TruthParticle']
 
 
-@dataclass
+@dataclass(eq=False)
 class ParticleBase:
     """Base particle-specific information.
 
@@ -52,18 +52,20 @@ class ParticleBase:
     end_dir : np.ndarray
         (3) Particle direction w.r.t. the end point (only assigned
         to track objects)
+    mass : float
+        Rest mass of the particle in MeV/c^2
     ke : float
-        Kinetic energy of the particle
+        Kinetic energy of the particle in MeV
     calo_ke : float
-        Kinetic energy reconstructed from the energy depositions alone
+        Kinetic energy reconstructed from the energy depositions alone in MeV
     csda_ke : float
-        Kinetic energy reconstructed from the particle range
+        Kinetic energy reconstructed from the particle range in MeV
     mcs_ke : float
-        Kinetic energy reconstructed using the MCS method
+        Kinetic energy reconstructed using the MCS method in MeV
     momentum : np.ndarray
-        3-momentum of the particle at the production point
+        3-momentum of the particle at the production point in MeV/c
     p : float
-        Momentum magnitude of the particle at the production point
+        Momentum magnitude of the particle at the production point in MeV/c
     is_valid : bool
         Whether this particle counts towards an interaction topology. This
         may be False if a particle is below some defined energy threshold.
@@ -81,17 +83,14 @@ class ParticleBase:
     end_point: np.ndarray = None
     start_dir: np.ndarray = None
     end_dir: np.ndarray = None
+    mass: float = -1.
     ke: float = -1.
     calo_ke: float = -1.
     csda_ke: float = -1.
     mcs_ke: float = -1.
     momentum: np.ndarray = None
-    p: float = -1.
+    p: float = None
     is_valid: bool = True
-
-    # Private derived attributes
-    _num_fragments: int = field(init=False, repr=False)
-    _p: float = field(init=False, repr=False)
 
     # Fixed-length attributes
     _fixed_length_attrs = {
@@ -149,7 +148,7 @@ class ParticleBase:
 
     @num_fragments.setter
     def num_fragments(self, num_fragments):
-        self._num_fragments = num_fragments
+        pass
 
     @property
     def pdg_code(self):
@@ -164,7 +163,7 @@ class ParticleBase:
 
     @pdg_code.setter
     def pdg_code(self, pdg_code):
-        self._pdg_code = pdg_code
+        pass
 
     @property
     def p(self):
@@ -179,10 +178,10 @@ class ParticleBase:
 
     @p.setter
     def p(self, p):
-        self._p = p
+        pass
 
 
-@dataclass
+@dataclass(eq=False)
 @inherit_docstring(RecoBase, ParticleBase)
 class RecoParticle(ParticleBase, RecoBase):
     """Reconstructed particle information.
@@ -202,11 +201,6 @@ class RecoParticle(ParticleBase, RecoBase):
     primary_scores: np.ndarray = None
     ppn_ids: np.ndarray = None
     ppn_points: np.ndarray = None
-
-    # Private derived attributes
-    _ke: float = field(init=False, repr=False)
-    _momentum: np.ndarray = field(init=False, repr=False)
-    _pdg_code: int = field(init=False, repr=False)
 
     # Fixed-length attributes
     _fixed_length_attrs = {
@@ -284,6 +278,26 @@ class RecoParticle(ParticleBase, RecoBase):
             self.pid_scores = other.pid_scores
 
     @property
+    def mass(self):
+        """Rest mass of the particle in MeV/c^2.
+
+        The mass is inferred from the predicted mass.
+
+        Returns
+        -------
+        float
+            Rest mass of the particle
+        """
+        if self.pid in PID_MASSES:
+            return PID_MASSES[self.pid]
+
+        return -1.
+
+    @mass.setter
+    def mass(self, mass):
+        pass
+
+    @property
     def ke(self):
         """Best-guess kinetic energy in MeV.
 
@@ -313,7 +327,7 @@ class RecoParticle(ParticleBase, RecoBase):
 
     @ke.setter
     def ke(self, ke):
-        self._ke = ke
+        pass
 
     @property
     def momentum(self):
@@ -335,10 +349,10 @@ class RecoParticle(ParticleBase, RecoBase):
 
     @momentum.setter
     def momentum(self, momentum):
-        self._momentum = momentum
+        pass
 
 
-@dataclass
+@dataclass(eq=False)
 @inherit_docstring(TruthBase, ParticleBase)
 class TruthParticle(Particle, ParticleBase, TruthBase):
     """Truth particle information.
@@ -352,6 +366,8 @@ class TruthParticle(Particle, ParticleBase, TruthBase):
         Unaltered index of the interaction in the original MC paricle list
     children_counts : np.ndarray
         (P) Number of truth child particle of each shape
+    reco_length : float
+        Reconstructed length of the particle (only assigned to track objects)
     reco_start_dir : np.ndarray
         (3) Particle direction estimate w.r.t. the start point
     reco_end_dir : np.ndarray
@@ -360,13 +376,9 @@ class TruthParticle(Particle, ParticleBase, TruthBase):
     """
     orig_interaction_id: int = -1
     children_counts: np.ndarray = None
+    reco_length: float = -1.
     reco_start_dir: np.ndarray = None
     reco_end_dir: np.ndarray = None
-
-    # Private derived attributes
-    _start_dir: np.ndarray = field(init=False, repr=False)
-    _end_dir: np.ndarray = field(init=False, repr=False)
-    _ke: np.ndarray = field(init=False, repr=False)
 
     # Fixed-length attributes
     _fixed_length_attrs = {
@@ -382,6 +394,15 @@ class TruthParticle(Particle, ParticleBase, TruthBase):
             **Particle._var_length_attrs,
             'children_counts': np.int32
     }
+
+    # Attributes specifying coordinates
+    _pos_attrs = [*ParticleBase._pos_attrs, *Particle._pos_attrs]
+
+    # Attributes specifying vector components
+    _vec_attrs = [
+            *ParticleBase._vec_attrs, *Particle._vec_attrs,
+            'reco_start_dir', 'reco_end_dir'
+    ]
 
     # Boolean attributes
     _bool_attrs = [*TruthBase._bool_attrs, *ParticleBase._bool_attrs]
@@ -417,7 +438,7 @@ class TruthParticle(Particle, ParticleBase, TruthBase):
 
     @start_dir.setter
     def start_dir(self, start_dir):
-        self._start_dir = start_dir
+        pass
 
     @property
     def end_dir(self):
@@ -440,7 +461,7 @@ class TruthParticle(Particle, ParticleBase, TruthBase):
 
     @end_dir.setter
     def end_dir(self, end_dir):
-        self._end_dir = end_dir
+        pass
 
     @property
     def ke(self):
@@ -454,12 +475,11 @@ class TruthParticle(Particle, ParticleBase, TruthBase):
         float
             Initial kinetic energy of the particle
         """
-        if self.pid in PID_MASSES:
-            mass = PID_MASSES[self.pid]
-            return self.energy_init - mass
+        if self.mass > -1.:
+            return self.energy_init - self.mass
 
         return -1.
 
     @ke.setter
     def ke(self, ke):
-        self._ke = ke
+        pass

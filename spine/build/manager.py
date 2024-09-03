@@ -24,7 +24,7 @@ class BuildManager:
     sources = {
             'data_tensor': ['data_adapt', 'data'],
             'label_tensor': 'clust_label',
-            'label_adapt_tensor': 'clust_label_adapt',
+            'label_adapt_tensor': ['clust_label_adapt', 'clust_label'],
             'label_g4_tensor': 'clust_label_g4',
             'depositions_q_label': 'charge_label',
             'sources': ['sources_adapt', 'sources'],
@@ -34,7 +34,7 @@ class BuildManager:
     }
 
     def __init__(self, fragments, particles, interactions,
-                 mode='both', units='cm', build_sources=None):
+                 mode='both', units='cm', sources=None):
         """Initializes the build manager.
 
         Parameters
@@ -47,7 +47,7 @@ class BuildManager:
             Build/load RecoInteraction/TruthInteraction objects
         mode : str, default 'both'
             Whether to construct reconstructed objects, true objects or both
-        build_sources : Dict[str, str], optional
+        sources : Dict[str, str], optional
             Dictionary which maps the necessary data products onto a name
             in the input/output dictionary of the reconstruction chain.
         """
@@ -59,12 +59,12 @@ class BuildManager:
         self.units = units
         
         # Parse the build sources based on defaults
-        if build_sources is not None:
-            for key, value in build_sources.items():
+        if sources is not None:
+            for key, value in sources.items():
                 assert key in self.sources, (
-                        "Unexpected data product specified in `build_sources`: "
+                         "Unexpected data product specified in `sources`: "
                         f"{key}. Should be one of {list(self.sources.keys())}.")
-            self.sources.update(**build_sources)
+            self.sources.update(**sources)
 
         for key, value in self.sources.items():
             if isinstance(value, str):

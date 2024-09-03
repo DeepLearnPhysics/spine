@@ -10,7 +10,7 @@ from .base import DataBase
 __all__ = ['RunInfo']
 
 
-@dataclass
+@dataclass(eq=False)
 class RunInfo(DataBase):
     """Run information related to a specific event.
 
