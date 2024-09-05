@@ -5,15 +5,9 @@ from . import numba_local as nbl
 from .globals import TRACK_SHP, INTER_COL, PRINT_COL, VTX_COLS
 
 
-def get_vertex(start_points,
-               end_points,
-               directions,
-               semantics,
-               anchor_vertex=True,
-               touching_threshold=2.0,
-               return_mode=False):
-    '''
-    Reconstruct the vertex of an individual interaction.
+def get_vertex(start_points, end_points, directions, semantics,
+               anchor_vertex=True, touching_threshold=2.0, return_mode=False):
+    """Reconstruct the vertex of an individual interaction.
 
     Parameters
     ----------
@@ -30,7 +24,9 @@ def get_vertex(start_points,
         with the expection of interactions only composed of showers.
     touching_threshold : float, default 2.0
         Maximum distance for two particle points to be considered touching
-    '''
+    return_mode : bool, default False
+        If `True`, return the method used to find the vertex
+    """
     # If there is no particle: return default values
     if not len(start_points):
         if return_mode:
@@ -98,11 +94,10 @@ def angular_loss(candidates: nb.float32[:,:],
                  points: nb.float32[:,:],
                  directions: nb.float32[:,:],
                  use_cos: bool = True) -> nb.float32:
-    '''
-    Computes the angular/cosine distance between vectors that
-    join candidate points to the start points of particles and their
-    respective direction estimates. Values are normalized between
-    0 (perfect fit) and 1 (complete disagreement).
+    """Computes the angular/cosine distance between vectors that join candidate
+    points to the start points of particles and their respective direction
+    estimates. Values are normalized between 0 (perfect fit) and 1
+    (complete disagreement).
 
     Parameters
     ----------
@@ -119,7 +114,7 @@ def angular_loss(candidates: nb.float32[:,:],
     -------
     np.ndarray
         (C) Loss for each of the candidates
-    '''
+    """
     n_c = len(candidates)
     losses = np.empty(n_c, dtype=np.float32)
     for i, c in enumerate(candidates):
@@ -141,8 +136,7 @@ def angular_loss(candidates: nb.float32[:,:],
 def get_confluence_points(start_points: nb.float32[:,:],
                           end_points: nb.float32[:,:] = None,
                           touching_threshold: nb.float32 = 2.0) -> nb.types.List(nb.float32[:]):
-    '''
-    Find the points where multiple particles touch.
+    """Find the points where multiple particles touch.
 
     Parameters
     ----------
@@ -157,7 +151,7 @@ def get_confluence_points(start_points: nb.float32[:,:],
     -------
     List[np.ndarray]
         List of vertices that correspond to the confluence points
-    '''
+    """
     # Create a particle-to-particle distance matrix
     n_part   = len(start_points)
     dist_mat = np.zeros((n_part, n_part), dtype=start_points.dtype)
@@ -223,10 +217,8 @@ def get_confluence_points(start_points: nb.float32[:,:],
 def get_pseudovertex(start_points: nb.float32[:,:],
                      directions:  nb.float32[:,:],
                      dim: int = 3) -> nb.float32[:]:
-    '''
-    Finds the vertex which minimizes the total distance
-    from itself to all the lines defined by the start points
-    of particles and their directions.
+    """Finds the vertex which minimizes the total distance from itself to all
+    the lines defined by the start points of particles and their directions.
 
     Parameters
     ----------
@@ -236,9 +228,9 @@ def get_pseudovertex(start_points: nb.float32[:,:],
         (P, 3) Particle directions
     dim : int
         Number of dimensions
-    '''
-    assert len(start_points),\
-            'Cannot reconstruct pseudovertex without points'
+    """
+    assert len(start_points), (
+            "Cannot reconstruct pseudovertex without points.")
 
     if len(start_points) == 1:
         return start_points[0]
@@ -254,38 +246,3 @@ def get_pseudovertex(start_points: nb.float32[:,:],
     pseudovtx = np.linalg.pinv(S) @ C
 
     return pseudovtx
-
-
-def get_truth_vertex(cluster_label,
-                     data_idx,
-                     inter_idx,
-                     primary_label=1):
-    """
-    Getting true vertex for interaction identified by inter_idx
-
-    Look at cluster labels, selecting only primary particles
-    within this interaction, and get vertex which occurs the most.
-
-    Parameters
-    ----------
-    cluster_label: list of np.ndarray
-        Cluster labels.
-    data_idx: int
-        Which entry we are looking at (labels).
-    inter_idx: int
-        The true interaction id for which we want the vertex.
-    primary_label: int, default 1
-        What integer tags primary particles in kinematics labels
-        ("primary particles" ~ particles coming out of the vertex).
-
-    Output
-    ------
-    np.ndarray
-        True vertex coordinates. Shape (3,)
-    """
-    inter_mask = cluster_label[data_idx][:, INTER_COL] == inter_idx
-    primary_mask = cluster_label[data_idx][:, PRINT_COL] == primary_label
-    mask = inter_mask if (inter_mask & primary_mask).sum() == 0 else inter_mask & primary_mask
-    vtx, counts = np.unique(cluster_label[data_idx][mask][:, [VTX_COLS[0], VTX_COLS[1], VTX_COLS[2]]], axis=0, return_counts=True)
-    vtx = vtx[np.argmax(counts)]
-    return vtx
