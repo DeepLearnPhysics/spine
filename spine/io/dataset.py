@@ -3,6 +3,7 @@
 from torch.utils.data import Dataset
 
 from spine.utils.factory import module_dict, instantiate
+from spine.utils.augment import Augmenter
 
 from . import parse
 from .read import LArCVReader
@@ -28,7 +29,7 @@ class LArCVDataset(Dataset):
     """
     name = 'larcv'
 
-    def __init__(self, schema, dtype, **kwargs):
+    def __init__(self, schema, dtype, augment=None, **kwargs):
         """Instantiates the LArCVDataset.
 
         Parameters
@@ -42,6 +43,8 @@ class LArCVDataset(Dataset):
                 names and their values
         dtype : str
             Data type to cast the input data to (to match the downstream model)
+        augment : dict, optional
+            Augmentation strategy configuration
         **kwargs : dict, optional
             Additional arguments to pass to the LArCVReader class
         """
@@ -57,6 +60,11 @@ class LArCVDataset(Dataset):
             for key in self.parsers[data_product].tree_keys:
                 if key not in tree_keys:
                     tree_keys.append(key)
+
+        # Parse the augmentation configuration
+        self.augmenter = None
+        if augment is not None:
+            self.augmenter = Augmenter(**augment)
 
         # Instantiate the reader
         self.reader = LArCVReader(tree_keys=tree_keys, **kwargs)
@@ -101,6 +109,10 @@ class LArCVDataset(Dataset):
             except Exception as err:
                 print(f"Failed to produce {name} using {parser}")
                 raise err
+
+        # If requested, augment the data
+        if self.augmenter is not None:
+            result = self.augmenter(result)
 
         return result
 

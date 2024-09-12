@@ -31,7 +31,7 @@ class PostBase(ABC):
     name = None
     aliases = ()
     parent_path = ''
-    keys = {}
+    keys = None
     truth_point_mode = 'points'
     units = 'cm'
 
@@ -76,6 +76,10 @@ class PostBase(ABC):
             Path to the parent directory of the main analysis configuration. This
             allows for the use of relative paths in the post-processors.
         """
+        # Initialize default keys
+        if self.keys is None:
+            self.keys = {}
+
         # If run mode is specified, process it
         if run_mode is not None:
             # Check that the run mode is recognized
