@@ -8,6 +8,12 @@ Currently wraps the following packages:
 import os
 from warnings import warn
 
+# If ROOT is available, load it
+try:
+    import ROOT
+except ModuleNotFoundError:
+    warn("ROOT could not be found, cannot parse LArCV data.")
+    ROOT = None
 
 # If LArCV is available, load it
 try:
