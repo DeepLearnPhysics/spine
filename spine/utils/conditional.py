@@ -14,6 +14,7 @@ try:
     from larcv import larcv
 except ModuleNotFoundError:
     warn("larcv could not be found, cannot parse LArCV data.")
+    larcv = None
 
 
 # If MinkowskiEngine is available, load it with the right number of threads
@@ -24,3 +25,5 @@ try:
     import MinkowskiFunctional as MF
 except ModuleNotFoundError:
     warn("MinkowskiEngine could not be found, cannot run sparse CNNs.")
+    ME = None
+    MF = None
