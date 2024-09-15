@@ -37,6 +37,7 @@ class MatchProcessor(PostBase):
         configs = {'fragment': fragment, 'particle': particle,
                    'interaction': interaction}
         self.matchers = {}
+        self.keys = {}
         for key, cfg in configs.items():
             if cfg is not None and cfg != False:
                 # Initialize the matcher
