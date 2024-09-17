@@ -6,6 +6,7 @@ import numpy as np
 from scipy.special import softmax
 
 import spine.utils.metrics
+from spine.utils.enums import enum_factory
 from spine.utils.globals import (
         SHAPE_COL, LOWES_SHP, CLUST_COL, GROUP_COL, INTER_COL)
 
@@ -23,24 +24,27 @@ class ClusterAna(AnaBase):
     """
     name = 'cluster_eval'
 
-    # Label column to use for each clustering target
+    # Label column to use for each clustering label_col
     _label_cols = {
             'fragment': CLUST_COL, 'particle': GROUP_COL,
             'interaction': INTER_COL
     }
 
-    def __init__(self, obj_type, use_objects=False, per_shape=True,
-                 metrics=('pur', 'eff', 'ari'), label_key='clust_label_adapt',
-                 **kwargs):
+    def __init__(self, obj_type=None, use_objects=False, per_object=True,
+                 per_shape=True, metrics=('pur', 'eff', 'ari'),
+                 label_key='clust_label_adapt', label_col=None, **kwargs):
         """Initialize the analysis script.
 
         Parameters
         ----------
-        obj_type : Union[str, List[str]]
+        obj_type : Union[str, List[str]], optional
             Name or list of names of the object types to process
         use_objects : bool, default False
-            If `True`, rebuild the clustering labels for truth and reco
+            If `True`, rebuild the clustering assignments for truth and reco
             from the set of truth and reco particles
+        per_object : bool, default True
+            Evaluate the clustering accuracy for each object type (not relevant
+            if running GrapPA standalone)
         per_shape : bool, default True
             Evaluate the clustering accuracy for each object shape (not
             relevant in the case of interactions)
@@ -49,33 +53,59 @@ class ClusterAna(AnaBase):
         label_key : str, default 'clust_label_adapt'
             Name of the tensor which contains the cluster labels, when
             using the raw reconstruction output
+        label_col : str
+            Column name in the label tensor specifying the aggregation label_col
         **kwargs : dict, optional
             Additional arguments to pass to :class:`AnaBase`
         """
+        # Check parameters
+        assert obj_type is not None or not per_object, (
+                "If evaluating clustering metrics per object, provide a list "
+                "of object types to evaluate the clustering for.")
+        assert per_object or label_col is not None, (
+                "If evaluating clustering standalone (not per object), must "
+                "provide the name of the target clustering label column.")
+        assert per_object or not use_objects, (
+                "If evaluating clustering standalone (not per object), cannot "
+                "use objects to evaluate it.")
+
         # Initialize the parent class
         super().__init__(obj_type, 'both', **kwargs)
         if not use_objects:
             for key in self.obj_keys:
                 del self.keys[key]
+        if not per_object:
+            self.obj_type = [label_col]
 
         # Store the basic parameters
         self.use_objects = use_objects
+        self.per_object = per_object
         self.per_shape = per_shape
         self.label_key = label_key
+
+        # Parse the label_col column, if necessary
+        if label_col is not None:
+            self.label_col = enum_factory('cluster', label_col)
 
         # Convert metric strings to functions
         self.metrics = {m: getattr(spine.utils.metrics, m) for m in metrics}
 
         # List the necessary data products
-        if not self.use_objects:
-            # Store the labels and the clusters output by the reco chain
-            self.keys[label_key] = True
-            for obj in self.obj_type:
-                self.keys[f'{obj}_clusts'] = True
-                self.keys[f'{obj}_shapes'] = True
+        if self.per_object:
+            if not self.use_objects:
+                # Store the labels and the clusters output by the reco chain
+                self.keys[label_key] = True
+                for obj in self.obj_type:
+                    self.keys[f'{obj}_clusts'] = True
+                    self.keys[f'{obj}_shapes'] = True
+
+            else:
+                self.keys['points'] = True
 
         else:
-            self.keys['points'] = True
+            self.keys[label_key] = True
+            self.keys['clusts'] = True
+            self.keys['group_pred'] = True
 
         # Initialize the output
         for obj in self.obj_type:
@@ -94,8 +124,9 @@ class ClusterAna(AnaBase):
             # Build the cluster labels for this object type
             if not self.use_objects:
                 # Fetch the right label column
+                label_col = self.label_col or self._label_cols[obj_type]
                 num_points = len(data[self.label_key])
-                labels = data[self.label_key][:, self._label_cols[obj_type]]
+                labels = data[self.label_key][:, label_col]
                 shapes = data[self.label_key][:, SHAPE_COL]
                 num_truth = len(np.unique(labels[labels > -1]))
 
@@ -109,21 +140,27 @@ class ClusterAna(AnaBase):
 
             # Build the cluster predictions for this object type
             preds = -np.ones(num_points)
-            shapes = -np.full(num_points, LOWES_SHP)
-            if not self.use_objects:
-                # Use clusters directly from the full chain output
-                num_reco = len(data[f'{obj_type}_clusts'])
-                for i, index in enumerate(data[f'{obj_type}_clusts']):
-                    preds[index] = i
-                    shapes[index] = data[f'{obj_type}_shapes'][i]
+            if self.per_object:
+                shapes = -np.full(num_points, LOWES_SHP)
+                if not self.use_objects:
+                    # Use clusters directly from the full chain output
+                    num_reco = len(data[f'{obj_type}_clusts'])
+                    for i, index in enumerate(data[f'{obj_type}_clusts']):
+                        preds[index] = i
+                        shapes[index] = data[f'{obj_type}_shapes'][i]
+
+                else:
+                    # Use clusters from the object indexes
+                    num_reco = len(data[f'reco_{obj_type}s'])
+                    for i, obj in enumerate(data[f'reco_{obj_type}s']):
+                        preds[obj.index] = i
+                        if obj_type != 'interaction':
+                            shapes[obj.index] = obj.shape
 
             else:
-                # Use clusters from the object indexes
-                num_reco = len(data[f'reco_{obj_type}s'])
-                for i, obj in enumerate(data[f'reco_{obj_type}s']):
-                    preds[obj.index] = i
-                    if obj_type != 'interaction':
-                        shapes[obj.index] = obj.shape
+                num_reco = len(data['clusts'])
+                for i, index in enumerate(data['clusts']):
+                    preds[index] = data['group_pred'][i]
 
             # Evaluate clustering metrics
             row_dict = {'num_points': num_points, 'num_truth': num_truth,
