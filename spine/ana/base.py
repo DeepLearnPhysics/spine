@@ -56,10 +56,12 @@ class AnaBase(ABC):
             Name to prefix every output CSV file with
         """
         # Initialize default keys
-        self.keys = {
+        if self.keys is None:
+            self.keys = {}
+        self.keys.update({
                 'index': True, 'file_index': True,
                 'file_entry_index': False, 'run_info': False
-        }
+        })
 
         # If run mode is specified, process it
         self.run_mode = run_mode
