@@ -45,7 +45,8 @@ def get_vertex(start_points, end_points, directions, semantics,
     if anchor_vertex:
         # If there is a unique point where >=2 particles meet, pick it. Include
         # track start and end points, to not rely on direction predictions
-        vertices = get_confluence_points(start_points, end_points, touching_threshold)
+        vertices = get_confluence_points(
+                start_points, end_points, touching_threshold)
         if len(vertices) == 1:
             if return_mode:
                 return vertices[0], 'confluence_nodir'
@@ -54,8 +55,8 @@ def get_vertex(start_points, end_points, directions, semantics,
         # If there is more than one option, restrict track end points to the
         # predicted start points (relies on direction prediction), check again
         if len(vertices) > 1 and len(track_ids):
-            vertices = get_confluence_points(start_points,
-                    touching_threshold=touching_threshold)
+            vertices = get_confluence_points(
+                    start_points, touching_threshold=touching_threshold)
             if len(vertices) == 1:
                 if return_mode:
                     return vertices[0], 'confluence_dir'
