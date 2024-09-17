@@ -27,14 +27,31 @@ class AnaManager:
         cfg : dict
             Analysis script configurations
         parent_path : str, optional
-            Path to the analysis tools configuration file
+            Path to the parent directory of the main analysis configuration.
+            This allows for the use of relative paths in the analyzers.
+        """
+        # Parse the analysis block configuration
+        self.parse_config(parent_path, **cfg)
+
+    def parse_config(self, parent_path, overwrite=False, **modules):
+        """Parse the analysis tool configuration.
+
+        Parameters
+        ----------
+        parent_path : str, optional
+            Path to the parent directory of the main analysis configuration.
+            This allows for the use of relative paths in the analyzers.
+        overwrite : bool, default False
+            If `True`, overwrite the CSV logs if they already exist
+        **modules : dict
+            List of analysis script modules
         """
         # Loop over the analyzer modules and get their priorities
-        keys = np.array(list(cfg.keys()))
+        keys = np.array(list(modules.keys()))
         priorities = -np.ones(len(keys), dtype=np.int32)
         for i, k in enumerate(keys):
-            if 'priority' in cfg[k]:
-                priorities[i] = cfg[k].pop('priority')
+            if 'priority' in modules[k]:
+                priorities[i] = modules[k].pop('priority')
 
         # Add the modules to a processor list in decreasing order of priority
         self.watch = StopwatchManager()
@@ -45,7 +62,8 @@ class AnaManager:
             self.watch.initialize(k)
 
             # Append
-            self.modules[k] = ana_script_factory(k, cfg[k], parent_path)
+            self.modules[k] = ana_script_factory(
+                    k, modules[k], parent_path, overwrite)
 
     def __call__(self, data):
         """Pass one batch of data through the analysis scripts
