@@ -2,7 +2,6 @@
 
 import numpy as np
 import torch
-from torch_cluster import knn
 from scipy.spatial.distance import cdist
 
 from spine.data import TensorBatch
@@ -179,6 +178,7 @@ def adapt_labels(clust_label, seg_label, seg_pred, ghost_pred=None,
     """
     # Define operations on the basis of the input type
     if torch.is_tensor(seg_label):
+        from torch_cluster import knn # TODO: not PEP8 compliant, refactor
         dtype, device = clust_label.dtype, clust_label.device
         where, cat, argmax = torch.where, torch.cat, torch.amax
         ones    = lambda x: torch.ones(x, dtype=dtype, device=device)
