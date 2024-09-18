@@ -132,7 +132,7 @@ class Driver:
             assert self.model is None or self.unwrap, (
                     "Must unwrap the model output to run analysis scripts.")
             self.watch.initialize('ana')
-            self.ana = AnaManager(ana)
+            self.ana = AnaManager(ana, log_dir=self.log_dir, prefix=self.prefix)
 
     def __len__(self):
         """Returns the number of events in the underlying reader object."""
