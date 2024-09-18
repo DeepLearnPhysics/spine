@@ -19,22 +19,50 @@ class AnaManager:
     CSV writers needed to store the output of the analysis scripts.
     """
 
-    def __init__(self, cfg, parent_path=''):
+    def __init__(self, cfg, log_dir=None, prefix=None):
         """Initialize the analysis manager.
 
         Parameters
         ----------
         cfg : dict
             Analysis script configurations
-        parent_path : str, optional
-            Path to the analysis tools configuration file
+        log_dir : str
+            Output CSV file directory (shared with driver log)
+        prefix : str, optional
+            Input file prefix. If requested, it will be used to prefix
+            all the output CSV files.
+        """
+        # Parse the analysis block configuration
+        self.parse_config(log_dir, prefix, **cfg)
+
+    def parse_config(self, log_dir, prefix, overwrite=False,
+                     prefix_output=False, **modules):
+        """Parse the analysis tool configuration.
+
+        Parameters
+        ----------
+        log_dir : str
+            Output CSV file directory (shared with driver log)
+        prefix : str
+            Input file prefix. If requested, it will be used to prefix
+            all the output CSV files.
+        overwrite : bool, default False
+            If `True`, overwrite the CSV logs if they already exist
+        prefix_output : bool, optional
+            If `True`, will prefix the output CSV names with the input file name
+        **modules : dict
+            List of analysis script modules
         """
         # Loop over the analyzer modules and get their priorities
-        keys = np.array(list(cfg.keys()))
+        keys = np.array(list(modules.keys()))
         priorities = -np.ones(len(keys), dtype=np.int32)
         for i, k in enumerate(keys):
-            if 'priority' in cfg[k]:
-                priorities[i] = cfg[k].pop('priority')
+            if 'priority' in modules[k]:
+                priorities[i] = modules[k].pop('priority')
+
+        # Only use the prefix if the output is to be prefixed
+        if not prefix_output:
+            prefix = None
 
         # Add the modules to a processor list in decreasing order of priority
         self.watch = StopwatchManager()
@@ -45,7 +73,8 @@ class AnaManager:
             self.watch.initialize(k)
 
             # Append
-            self.modules[k] = ana_script_factory(k, cfg[k], parent_path)
+            self.modules[k] = ana_script_factory(
+                    k, modules[k], overwrite, log_dir, prefix)
 
     def __call__(self, data):
         """Pass one batch of data through the analysis scripts

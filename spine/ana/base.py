@@ -37,7 +37,7 @@ class AnaBase(ABC):
     _run_modes = ('reco', 'truth', 'both', 'all')
 
     def __init__(self, obj_type=None, run_mode=None, append=False,
-                 overwrite=False, output_prefix=None):
+                 overwrite=False, log_dir=None, prefix=None):
         """Initialize default anlysis script object properties.
 
         Parameters
@@ -52,7 +52,9 @@ class AnaBase(ABC):
             If True, appends existing CSV files instead of creating new ones
         overwrite : bool, default False
             If True and an output CSV file exists, overwrite it
-        output_prefix : str, default None
+        log_dir : str
+            Output CSV file directory (shared with driver log)
+        prefix : str, default None
             Name to prefix every output CSV file with
         """
         # Initialize default keys
@@ -109,7 +111,8 @@ class AnaBase(ABC):
         self.overwrite_file = overwrite
 
         # Initialize a writer dictionary to be filled by the children classes
-        self.output_prefix = output_prefix
+        self.log_dir = log_dir
+        self.output_prefix = prefix
         self.writers = {}
 
     def initialize_writer(self, name):
@@ -123,8 +126,10 @@ class AnaBase(ABC):
         # Define the name of the file to write to
         assert len(name) > 0, "Must provide a non-empty name."
         file_name = f'{self.name}_{name}.csv'
-        if self.output_prefix is not None:
-            file_name = f'{self.output_prefix}_{file_name}.csv'
+        if self.output_prefix:
+            file_name = f'{self.output_prefix}_{file_name}'
+        if self.log_dir:
+            file_name = f'{self.log_dir}/{file_name}'
 
         # Initialize the writer
         self.writers[name] = CSVWriter(

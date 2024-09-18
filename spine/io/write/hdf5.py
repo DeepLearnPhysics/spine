@@ -37,13 +37,13 @@ class HDF5Writer:
     """
     name = 'hdf5'
 
-    def __init__(self, file_name='output.h5', keys=None, skip_keys=None,
-                 dummy_ds=None, overwrite=False, append=False):
+    def __init__(self, file_name=None, keys=None, skip_keys=None,
+                 dummy_ds=None, overwrite=False, append=False, prefix=None):
         """Initializes the basics of the output file.
 
         Parameters
         ----------
-        file_name : str, default 'output.h5'
+        file_name : str, default 'spine.h5'
             Name of the output HDF5 file
         keys : List[str], optional
             List of data product keys to store. If not specified, store everything
@@ -53,10 +53,20 @@ class HDF5Writer:
             Keys for which to create placeholder datasets. For each key, specify
             the object type it is supposed to represent as a string.
         overwrite : bool, default False
-            If True, overwrite the output file if it already exists
+            If `True`, overwrite the output file if it already exists
         append : bool, default False
-            If True, add new values to the end of an existing file
+            If `True`, add new values to the end of an existing file
+        prefix : str, optional
+            Input file prefix. It will be use to form the output file name,
+            provided that no file_name is explicitely provided
         """
+        # If the output file name is not provided, use the input file prefix
+        if not file_name:
+            assert prefix is not None, (
+                    "If the output `file_name` is not provided, must provide"
+                    "the input file `prefix` to build it from.")
+            file_name = prefix + '_spine.h5'
+
         # Check that output file does not already exist, if requestes
         if not overwrite and os.path.isfile(file_name):
             raise FileExistsError(f"File with name {file_name} already exists.")

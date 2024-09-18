@@ -123,8 +123,7 @@ def dataset_factory(dataset_cfg, entry_list=None, dtype=None):
 
 def sampler_factory(sampler_cfg, dataset, minibatch_size, distributed=False,
                     num_replicas=1, rank=0):
-    """
-    Instantiates sampler based on type specified in configuration under
+    """Instantiates sampler based on type specified in configuration under
     `io.sampler.name`. The name must match the name of a class under
     `spine.io.sample`.
 
@@ -163,8 +162,7 @@ def sampler_factory(sampler_cfg, dataset, minibatch_size, distributed=False,
 
 
 def collate_factory(collate_cfg):
-    """
-    Instantiates collate function based on type specified in configuration
+    """Instantiates collate function based on type specified in configuration
     under `io.collate.name`. The name must match the name of a class
     under `spine.io.collates`.
 
@@ -183,8 +181,7 @@ def collate_factory(collate_cfg):
 
 
 def reader_factory(reader_cfg):
-    """
-    Instantiates reader based on type specified in configuration under
+    """Instantiates reader based on type specified in configuration under
     `io.reader.name`. The name must match the name of a class under
     `spine.io.readers`.
 
@@ -206,9 +203,8 @@ def reader_factory(reader_cfg):
     return instantiate(READER_DICT, reader_cfg)
 
 
-def writer_factory(writer_cfg):
-    """
-    Instantiates writer based on type specified in configuration under
+def writer_factory(writer_cfg, prefix=None):
+    """Instantiates writer based on type specified in configuration under
     `io.writer.name`. The name must match the name of a class under
     `spine.io.writers`.
 
@@ -216,6 +212,8 @@ def writer_factory(writer_cfg):
     ----------
     writer_cfg : dict
         Writer configuration dictionary
+    prefix : str, optional
+        Input file prefix to use as an output name
 
     Returns
     -------
@@ -227,4 +225,4 @@ def writer_factory(writer_cfg):
     Currently the choice is limited to `HDF5Writer` only.
     """
     # Initialize writer
-    return instantiate(WRITER_DICT, writer_cfg)
+    return instantiate(WRITER_DICT, writer_cfg, prefix=prefix)

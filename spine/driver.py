@@ -132,7 +132,7 @@ class Driver:
             assert self.model is None or self.unwrap, (
                     "Must unwrap the model output to run analysis scripts.")
             self.watch.initialize('ana')
-            self.ana = AnaManager(ana)
+            self.ana = AnaManager(ana, log_dir=self.log_dir, prefix=self.prefix)
 
     def __len__(self):
         """Returns the number of events in the underlying reader object."""
@@ -357,19 +357,16 @@ class Driver:
             self.reader = reader_factory(reader)
             self.iter_per_epoch = len(self.reader)
 
+        # Fetch an appropriate common prefix for all input files
+        self.prefix = self.get_prefix(self.reader.file_paths)
+
         # Initialize the data writer, if provided
         self.writer = None
         if writer is not None:
             assert self.loader is None or self.unwrap, (
                     "Must unwrap the model output to write it to file.")
             self.watch.initialize('write')
-            self.writer = writer_factory(writer)
-
-        # If requested, extract the name of the input file to prefix logs
-        if self.prefix_log:
-            assert len(self.reader.file_paths) == 1, (
-                    "To prefix log, there should be a single input file name.")
-            self.log_prefix = pathlib.Path(self.reader.file_paths[0]).stem
+            self.writer = writer_factory(writer, prefix=self.prefix)
 
         # Harmonize the iterations and epochs parameters
         assert (self.iterations is None) or (self.epochs is None), (
@@ -380,6 +377,40 @@ class Driver:
             self.epochs = 1.
         elif self.epochs is not None:
             self.iterations = self.epochs*self.iter_per_epoch
+
+    @staticmethod
+    def get_prefix(file_paths):
+        """Builds an appropriate output prefix based on the list of input files.
+
+        Parameters
+        ----------
+        file_paths : List[str]
+            List of input file paths
+
+        Returns
+        -------
+        str
+            Shared input summary string to be used to prefix outputs
+        """
+        # Fetch file base names (ignore where they live)
+        file_names = [os.path.basename(f) for f in file_paths]
+
+        # Get the shared prefix of all files in the list
+        prefix = os.path.splitext(os.path.commonprefix(file_names))[0]
+
+        # If there is only one file, done
+        if len(file_names) == 1:
+            return prefix
+
+        # Otherwise, form the suffix from the first and last file names
+        first = os.path.splitext(file_names[0][len(prefix):])
+        last = os.path.splitext(file_names[-1][len(prefix):])
+        first = first[0] if first[0] and first[0][0] != '.' else ''
+        last = last[0] if last[0] and last[0][0] != '.' else ''
+
+        suffix = f'{first}--{len(file_names)-2}--{last}'
+
+        return prefix + suffix
 
     def initialize_log(self):
         """Initialize the output log for this driver process."""
@@ -401,7 +432,7 @@ class Driver:
 
         # If requested, prefix the log name with the input file name
         if self.prefix_log:
-            log_name = f'{self.log_prefix}_{log_name}'
+            log_name = f'{self.prefix}_{log_name}'
 
         # Initialize the log
         log_path = os.path.join(self.log_dir, log_name)
