@@ -358,7 +358,7 @@ class Driver:
             self.iter_per_epoch = len(self.reader)
 
         # Fetch an appropriate common prefix for all input files
-        self.prefix = self.initialize_prefix(self.reader.file_paths)
+        self.prefix = self.get_prefix(self.reader.file_paths)
 
         # Initialize the data writer, if provided
         self.writer = None
@@ -366,7 +366,7 @@ class Driver:
             assert self.loader is None or self.unwrap, (
                     "Must unwrap the model output to write it to file.")
             self.watch.initialize('write')
-            self.writer = writer_factory(writer)
+            self.writer = writer_factory(writer, prefix=self.prefix)
 
         # Harmonize the iterations and epochs parameters
         assert (self.iterations is None) or (self.epochs is None), (
@@ -379,7 +379,7 @@ class Driver:
             self.iterations = self.epochs*self.iter_per_epoch
 
     @staticmethod
-    def initialize_prefix(file_paths):
+    def get_prefix(file_paths):
         """Builds an appropriate output prefix based on the list of input files.
 
         Parameters
