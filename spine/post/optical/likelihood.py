@@ -33,6 +33,7 @@ class LikelihoodFlashMatcher:
             Attribute used to fetch deposition values for truth interactions
         """
         # Initialize the flash manager (OpT0Finder wrapper)
+        self.detector = detector
         self.initialize_backend(cfg, parent_path)
 
         # Initialize the geometry
@@ -44,6 +45,8 @@ class LikelihoodFlashMatcher:
         self.scaling = scaling
         if isinstance(self.scaling, str):
             self.scaling = eval(self.scaling)
+        
+        print('scaling: ',self.scaling)
 
         # Initialize flash matching attributes
         self.matches = None
@@ -84,8 +87,14 @@ class LikelihoodFlashMatcher:
 
         # Load up the detector specifications
         from flashmatch import flashmatch
-        flashmatch.DetectorSpecs.GetME(
-                os.path.join(basedir, 'dat/detector_specs.cfg'))
+        #Find the detector configuration file
+        print(f"Detector: {self.detector}")
+        if self.detector is None:
+            det_cfg = os.path.join(basedir, 'dat/detector_specs.cfg')
+        else:
+            det_cfg = os.path.join(basedir, f'dat/detector_specs_{self.detector}.cfg')
+        det_cfg = os.path.join(basedir, f'dat/detector_specs_sbnd.cfg')
+        flashmatch.DetectorSpecs.GetME(det_cfg)
 
         # Fetch and initialize the OpT0Finder configuration
         if parent_path is not None and not os.path.isfile(cfg):
@@ -182,14 +191,19 @@ class LikelihoodFlashMatcher:
             if len(valid_mask) < 2:
                 continue
 
+            print(f'Interaction {inter.id} has {len(inter.points)} points\
+                    and {len(valid_mask)} valid points in module {self.module_id}')
+
             # Initialize qcluster
             qcluster = flashmatch.QCluster_t()
             qcluster.idx = int(inter.id)
             qcluster.time = 0
 
             # Get the point coordinates
-            points = self.geo.translate(inter.points[valid_mask],
-                    self.module_id, 0)
+            # FIXME: This is a temporary fix for the SBND geometry, we don't need to shift points
+            points = inter.points[valid_mask]
+            #points = self.geo.translate(inter.points[valid_mask],
+            #        self.module_id, 0)
 
             # Get the depositions
             if not inter.is_truth:
@@ -207,7 +221,7 @@ class LikelihoodFlashMatcher:
 
         return qcluster_v
 
-    def make_flash_list(self, flashes):
+    def make_flash_list(self, flashes,n_pds=312):
         """Creates a list of flashmatch.Flash_t from the local class.
 
         Parameters
@@ -236,6 +250,12 @@ class LikelihoodFlashMatcher:
                     new_flashes.append(flashes[curr])
 
             flashes = new_flashes
+        #FIXME - do this upstream when parsing flashes
+        #if the PEPerOPDet is not the same length as the number of PDs, pad with zeros
+        for f in flashes:
+            if len(f.pe_per_ch) != n_pds:
+                f.pe_per_ch = np.resize(f.pe_per_ch,n_pds)
+            print(len(f.pe_per_ch))
 
         # Loop over the optical flashes
         from flashmatch import flashmatch
@@ -243,7 +263,8 @@ class LikelihoodFlashMatcher:
         for idx, f in enumerate(flashes):
             # Initialize the Flash_t object
             flash = flashmatch.Flash_t()
-            flash.idx = f.id  # Assign a unique index
+            print(f.id,idx)
+            flash.idx = int(f.id)  # Assign a unique index
             flash.time = f.time  # Flash timing, a candidate T0
 
             # Assign the flash position and error on this position
@@ -251,8 +272,8 @@ class LikelihoodFlashMatcher:
             flash.x_err, flash.y_err, flash.z_err = 0, 0, 0
 
             # Assign the individual PMT optical hit PEs
-            offset = 0 if len(f.pe_per_ch) == 180 else 180
-            for i in range(180):
+            offset = 0 if len(f.pe_per_ch) == n_pds else n_pds
+            for i in range(n_pds):
                 flash.pe_v.push_back(f.pe_per_ch[i + offset])
                 flash.pe_err_v.push_back(0.)
 
@@ -286,7 +307,8 @@ class LikelihoodFlashMatcher:
         # Adjust the output position to account for the module shift
         for m in all_matches:
             pos = np.array([m.tpc_point.x, m.tpc_point.y, m.tpc_point.z])
-            pos = self.geo.translate(pos, 0, self.module_id)
+            #FIXME: This is a temporary fix for the SBND geometry, we don't need to shift points
+            #pos = self.geo.translate(pos, 0, self.module_id)
             m.tpc_point.x = pos[0]
             m.tpc_point.y = pos[1]
             m.tpc_point.z = pos[2]
