@@ -45,8 +45,6 @@ class LikelihoodFlashMatcher:
         self.scaling = scaling
         if isinstance(self.scaling, str):
             self.scaling = eval(self.scaling)
-        
-        print('scaling: ',self.scaling)
 
         # Initialize flash matching attributes
         self.matches = None
@@ -88,7 +86,6 @@ class LikelihoodFlashMatcher:
         # Load up the detector specifications
         from flashmatch import flashmatch
         #Find the detector configuration file
-        print(f"Detector: {self.detector}")
         if self.detector is None:
             det_cfg = os.path.join(basedir, 'dat/detector_specs.cfg')
         else:
@@ -191,9 +188,6 @@ class LikelihoodFlashMatcher:
             if len(valid_mask) < 2:
                 continue
 
-            print(f'Interaction {inter.id} has {len(inter.points)} points\
-                    and {len(valid_mask)} valid points in module {self.module_id}')
-
             # Initialize qcluster
             qcluster = flashmatch.QCluster_t()
             qcluster.idx = int(inter.id)
@@ -255,7 +249,6 @@ class LikelihoodFlashMatcher:
         for f in flashes:
             if len(f.pe_per_ch) != n_pds:
                 f.pe_per_ch = np.resize(f.pe_per_ch,n_pds)
-            print(len(f.pe_per_ch))
 
         # Loop over the optical flashes
         from flashmatch import flashmatch
@@ -263,7 +256,6 @@ class LikelihoodFlashMatcher:
         for idx, f in enumerate(flashes):
             # Initialize the Flash_t object
             flash = flashmatch.Flash_t()
-            print(f.id,idx)
             flash.idx = int(f.id)  # Assign a unique index
             flash.time = f.time  # Flash timing, a candidate T0
 
