@@ -114,7 +114,6 @@ class FlashMatchProcessor(PostBase):
                                                module_ids=[module_id],
                                                flash_ids=ii.flash_ids,
                                                flash_times=ii.flash_times)
-                        print(f"Interaction {_int.id} has {len(_int.points)} points in module {_int.module_ids}")
                         ints.append(_int)
                         
 
