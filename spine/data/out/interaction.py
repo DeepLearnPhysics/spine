@@ -72,7 +72,8 @@ class InteractionBase:
     # Fixed-length attributes
     _fixed_length_attrs = {
             'vertex': 3, 'particle_counts': len(PID_LABELS) - 1,
-            'primary_particle_counts': len(PID_LABELS) - 1
+            'primary_particle_counts': len(PID_LABELS) - 1,
+            'flash_ids': 2, 'flash_times': 2, 'module_ids': 2 #FIXME: Change to variable length based on number of modules
     }
 
     # Variable-length attributes as (key, dtype) pairs
