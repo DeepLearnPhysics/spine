@@ -9,7 +9,8 @@ import numba as nb
 import torch
 from typing import List
 
-from spine import TensorBatch, IndexBatch
+from spine.data import TensorBatch, IndexBatch
+
 from spine.utils.decorators import numbafy
 from spine.utils.globals import (
         BATCH_COL, COORD_COLS, VALUE_COL, CLUST_COL, PART_COL, GROUP_COL,

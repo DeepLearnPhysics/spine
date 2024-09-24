@@ -103,15 +103,15 @@ class CalibrationManager:
                 assert run_id is not None, (
                         "Must provide a run ID to get the transparency map.")
                 self.watch.start('transparency')
-                tpc_values = self.modules['transparency'].process(tpc_points,
-                        tpc_values, t, run_id) # ADC
+                tpc_values = self.modules['transparency'].process(
+                        tpc_points, tpc_values, t, run_id) # ADC
                 self.watch.stop('transparency')
 
             # Apply the lifetime correction
             if 'lifetime' in self.modules:
                 self.watch.start('lifetime')
-                tpc_values = self.modules['lifetime'].process(tpc_points,
-                        tpc_values, self.geo, t, run_id) # ADC
+                tpc_values = self.modules['lifetime'].process(
+                        tpc_points, tpc_values, self.geo, t, run_id) # ADC
                 self.watch.stop('lifetime')
 
             # Apply the gain correction
@@ -123,8 +123,8 @@ class CalibrationManager:
             # Apply the recombination
             if 'recombination' in self.modules:
                 self.watch.start('recombination')
-                tpc_values = self.modules['recombination'].process(tpc_values,
-                        tpc_points, dedx, track) # MeV
+                tpc_values = self.modules['recombination'].process(
+                        tpc_values, tpc_points, dedx, track) # MeV
                 self.watch.stop('recombination')
 
             # Append

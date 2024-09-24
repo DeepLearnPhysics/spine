@@ -4,7 +4,7 @@ import numpy as np
 from dataclasses import dataclass
 from copy import deepcopy
 
-from spine import TensorBatch, IndexBatch, EdgeIndexBatch, ObjectList
+from spine.data import TensorBatch, IndexBatch, EdgeIndexBatch, ObjectList
 
 from .globals import BATCH_COL
 from .geo import Geometry

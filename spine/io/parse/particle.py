@@ -12,7 +12,8 @@ Contains the following parsers:
 
 import numpy as np
 
-from spine import Meta, Particle, Neutrino, ObjectList
+from spine.data import Meta, Particle, Neutrino, ObjectList
+
 from spine.utils.globals import TRACK_SHP, PDG_TO_PID, PID_MASSES
 from spine.utils.particles import process_particles
 from spine.utils.ppn import get_ppn_labels, image_coordinates

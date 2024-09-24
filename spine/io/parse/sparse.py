@@ -9,7 +9,8 @@ Contains the following parsers:
 
 import numpy as np
 
-from spine import Meta
+from spine.data import Meta
+
 from spine.utils.globals import GHOST_SHP
 from spine.utils.ghost import compute_rescaled_charge
 from spine.utils.conditional import larcv

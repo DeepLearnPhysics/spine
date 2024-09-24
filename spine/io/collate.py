@@ -6,7 +6,8 @@ to :class:`torch.utils.data.DataLoader` as the `collate_fn` argumement.
 
 import numpy as np
 
-from spine import TensorBatch, IndexBatch, EdgeIndexBatch
+from spine.data import TensorBatch, IndexBatch, EdgeIndexBatch
+
 from spine.utils.geo import Geometry
 
 __all__ = ['CollateAll']
