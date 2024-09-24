@@ -3,7 +3,8 @@
 import numpy as np
 import numba as nb
 
-from spine import TensorBatch
+from spine.data import TensorBatch
+
 from spine.utils.decorators import numbafy
 from spine.utils.globals import COORD_COLS
 import spine.utils.numba_local as nbl

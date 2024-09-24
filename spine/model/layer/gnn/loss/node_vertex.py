@@ -8,7 +8,8 @@ from .node_class import NodeClassLoss
 
 from spine.model.layer.factories import loss_fn_factory
 
-from spine import TensorBatch, Meta
+from spine.data import TensorBatch, Meta
+
 from spine.utils.globals import PRINT_COL, VTX_COLS
 from spine.utils.geo import Geometry
 from spine.utils.gnn.cluster import get_cluster_label_batch

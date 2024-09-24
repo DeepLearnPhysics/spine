@@ -4,7 +4,8 @@ import numpy as np
 import torch
 from sklearn.cluster import DBSCAN as sklearn_dbscan
 
-from spine import TensorBatch, IndexBatch
+from spine.data import TensorBatch, IndexBatch
+
 from spine.utils.globals import (
         SHOWR_SHP, TRACK_SHP, MICHL_SHP, DELTA_SHP, COORD_COLS, PPN_SHAPE_COL,
         COORD_START_COLS, COORD_END_COLS)
