@@ -409,7 +409,10 @@ class Driver:
 
         # If there is only one file, done
         if len(file_names) == 1:
-            return prefix
+            if not split_output:
+                return prefix, prefix
+            else:
+                return prefix, [prefix]
 
         # Otherwise, form the suffix from the first and last file names
         first = os.path.splitext(file_names[0][len(prefix):])
