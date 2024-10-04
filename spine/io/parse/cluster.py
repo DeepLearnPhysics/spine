@@ -10,7 +10,8 @@ from collections import OrderedDict
 
 import numpy as np
 
-from spine import Meta
+from spine.data import Meta
+
 from spine.utils.globals import DELTA_SHP
 from spine.utils.particles import process_particle_event
 from spine.utils.ppn import image_coordinates

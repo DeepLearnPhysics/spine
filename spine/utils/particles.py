@@ -8,7 +8,7 @@ from warnings import warn
 import numpy as np
 
 from .globals import (
-        MICHL_SHP, DELTA_SHP, OLD_INVAL_ID, INVAL_ID, INVAL_TID, PDG_TO_PID)
+        MICHL_SHP, DELTA_SHP, INVAL_IDX, INVAL_ID, INVAL_TID, PDG_TO_PID)
 
 
 def process_particles(particles, particle_event, particle_mpv_event=None,
@@ -138,7 +138,7 @@ def get_valid_mask(particles):
 
     # If the interaction IDs are set in the particle tree, simply use that
     inter_ids = np.array([p.interaction_id() for p in particles], dtype=int)
-    if np.any((inter_ids != INVAL_ID) & (inter_ids != OLD_INVAL_ID)):
+    if np.any((inter_ids != INVAL_ID) & (inter_ids != INVAL_IDX)):
         return inter_ids != INVAL_ID
 
     # Otherwise, check that the ancestor track ID and creation process are valid
@@ -180,7 +180,7 @@ def get_interaction_ids(particles, valid_mask=None):
 
     # If the interaction IDs are set in the particle tree, simply use that
     inter_ids = np.array([p.interaction_id() for p in particles], dtype=int)
-    if np.any((inter_ids != INVAL_ID) & (inter_ids != OLD_INVAL_ID)):
+    if np.any((inter_ids != INVAL_ID) & (inter_ids != INVAL_IDX)):
         inter_ids[~valid_mask] = -1 # pylint: disable=E1130
         return inter_ids
 
@@ -265,7 +265,8 @@ def get_nu_ids(particles, inter_ids, particles_mpv=None, neutrinos=None):
             ref_pos = np.unique(ref_pos, axis=0)
 
         elif neutrinos and len(neutrinos) > 0:
-            if hasattr(neutrinos[0], 'interaction_id'):
+            if (hasattr(neutrinos[0], 'interaction_id') and
+                neutrinos[0].interaction_id() != INVAL_IDX):
                 ref_ids = np.array([n.interaction_id() for n in neutrinos])
             else:
                 ref_pos = np.vstack([get_coords(n.position()) for n in neutrinos])

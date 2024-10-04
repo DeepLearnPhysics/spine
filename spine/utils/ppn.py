@@ -12,7 +12,7 @@ from typing import Union, List
 from scipy.special import softmax as softmax_sp
 from scipy.spatial.distance import cdist as cdist_sp
 
-from spine import TensorBatch
+from spine.data import TensorBatch
 
 from . import numba_local as nbl
 from .dbscan import dbscan_points

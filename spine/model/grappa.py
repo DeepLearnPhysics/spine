@@ -8,7 +8,8 @@ from .layer.common.dbscan import DBSCAN
 from .layer.factories import final_factory
 from .layer.gnn.factories import *
 
-from spine import TensorBatch, IndexBatch, EdgeIndexBatch
+from spine.data import TensorBatch, IndexBatch, EdgeIndexBatch
+
 from spine.utils.globals import (
         BATCH_COL, COORD_COLS, CLUST_COL, GROUP_COL, SHAPE_COL, LOWES_SHP)
 from spine.utils.enums import enum_factory

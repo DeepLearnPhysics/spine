@@ -11,9 +11,10 @@ import numba as nb
 from scipy.sparse import csr_array
 from scipy.sparse.csgraph import minimum_spanning_tree
 
+from spine.data import TensorBatch, IndexBatch, EdgeIndexBatch
+
 import spine.utils.numba_local as nbl
 from spine.utils.metrics import sbd, ami, ari, pur_eff
-from spine import TensorBatch, IndexBatch, EdgeIndexBatch
 
 int_array = nb.int64[:]
 

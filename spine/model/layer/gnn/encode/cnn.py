@@ -4,7 +4,8 @@ import torch
 
 from spine.model.layer.cnn.encoder import SparseResidualEncoder
 
-from spine import TensorBatch, IndexBatch
+from spine.data import TensorBatch, IndexBatch
+
 from spine.utils.globals import BATCH_COL
 
 __all__ = ['ClustCNNNodeEncoder', 'ClustCNNEdgeEncoder', 'ClustCNNGlobalEncoder']

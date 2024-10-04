@@ -4,7 +4,7 @@ feature extractor networks and produces the required type of output.
 
 from torch import nn
 
-from spine import TensorBatch
+from spine.data import TensorBatch
 
 from .mlp import MLP
 from .evidential import EvidentialModel
