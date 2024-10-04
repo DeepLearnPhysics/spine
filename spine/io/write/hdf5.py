@@ -38,7 +38,8 @@ class HDF5Writer:
     name = 'hdf5'
 
     def __init__(self, file_name=None, keys=None, skip_keys=None,
-                 dummy_ds=None, overwrite=False, append=False, prefix=None):
+                 dummy_ds=None, overwrite=False, append=False,
+                 prefix=None, split=False):
         """Initializes the basics of the output file.
 
         Parameters
@@ -59,21 +60,38 @@ class HDF5Writer:
         prefix : str, optional
             Input file prefix. It will be use to form the output file name,
             provided that no file_name is explicitely provided
+        split : bool, default False
+            If `True`, split the output to produce one file per input file
         """
-        # If the output file name is not provided, use the input file prefix
+        # If the output file name is not provided, use the input file prefix(es)
         if not file_name:
             assert prefix is not None, (
                     "If the output `file_name` is not provided, must provide"
                     "the input file `prefix` to build it from.")
-            file_name = prefix + '_spine.h5'
+            if not split:
+                file_name = f'{prefix}_spine.h5'
+            else:
+                file_name = [f'{pre}_spine.h5' for pre in prefix]
 
-        # Check that output file does not already exist, if requestes
-        if not overwrite and os.path.isfile(file_name):
-            raise FileExistsError(f"File with name {file_name} already exists.")
+        elif split:
+            file_name = [f'{file_name}_{i}' for i in range(len(prefix))]
+
+        # Check that the output file(s) do(es) not already exist, if requested
+        if not overwrite:
+            if not split:
+                if os.path.isfile(file_name):
+                    raise FileExistsError(
+                            f"File with name {file_name} already exists.")
+            else:
+                for f in file_name:
+                    if os.path.isfile(f):
+                        raise FileExistsError(
+                                f"File with name {f} already exists.")
 
         # Store persistent attributes
         self.file_name = file_name
         self.append = append
+        self.split = split
         self.ready = False
         self.object_dtypes = [] # TODO: make this a set
 
@@ -131,20 +149,22 @@ class HDF5Writer:
         for key in self.keys:
             self.register_key(data, key)
 
-        # Initialize the output HDF5 file
-        with h5py.File(self.file_name, 'w') as out_file:
-            # Initialize the info dataset that stores environment parameters
-            if cfg is not None:
-                out_file.create_dataset(
-                        'info', (0,), maxshape=(None,), dtype=None)
-                out_file['info'].attrs['cfg'] = yaml.dump(cfg)
-                out_file['info'].attrs['version'] = __version__
+        # Initialize the output HDF5 file(s)
+        file_names = [self.file_name] if not self.split else self.file_name
+        for file_name in file_names:
+            with h5py.File(file_name, 'w') as out_file:
+                # Initialize the info dataset that stores environment parameters
+                if cfg is not None:
+                    out_file.create_dataset(
+                            'info', (0,), maxshape=(None,), dtype=None)
+                    out_file['info'].attrs['cfg'] = yaml.dump(cfg)
+                    out_file['info'].attrs['version'] = __version__
 
-            # Initialize the event dataset and their reference array datasets
-            self.initialize_datasets(out_file)
+                # Initialize the event dataset and their reference array datasets
+                self.initialize_datasets(out_file)
 
-            # Mark file as ready for use
-            self.ready = True
+        # Mark file(s) as ready for use
+        self.ready = True
 
     def get_stored_keys(self, data):
         """Get the list of data product keys to store.
@@ -432,23 +452,45 @@ class HDF5Writer:
             self.create(data, cfg)
             self.ready = True
 
-        # Append file
-        with h5py.File(self.file_name, 'a') as out_file:
-            # Loop over batch IDs
-            for batch_id in range(batch_size):
-                # Initialize a new event
-                event = np.empty(1, self.event_dtype)
+        # Append file(s)
+        if not self.split:
+            with h5py.File(self.file_name, 'a') as out_file:
+                # Loop over batch IDs
+                for batch_id in range(batch_size):
+                    self.append_entry(out_file, data, batch_id)
 
-                # Initialize a dictionary of references to be passed to the
-                # event dataset and store the input and result keys
-                for key in self.keys:
-                    self.append_key(out_file, event, data, key, batch_id)
+        else:
+            file_ids = data['file_index']
+            for file_id in np.unique(file_ids):
+                with h5py.File(self.file_name[file_id], 'a') as out_file:
+                    for batch_id in np.where(file_ids == file_id)[0]:
+                        self.append_entry(out_file, data, batch_id)
 
-                # Append event
-                event_id = len(out_file['events'])
-                event_ds = out_file['events']
-                event_ds.resize(event_id + 1, axis=0) # pylint: disable=E1101
-                event_ds[event_id] = event
+    def append_entry(self, out_file, data, batch_id):
+        """Stores one entry.
+
+        Parameters
+        ----------
+        out_file : h5py.File
+            HDF5 file instance
+        data : dict
+            Dictionary of data products
+        batch_id : int
+            Batch ID to be stored
+        """
+        # Initialize a new event
+        event = np.empty(1, self.event_dtype)
+
+        # Initialize a dictionary of references to be passed to the
+        # event dataset and store the input and result keys
+        for key in self.keys:
+            self.append_key(out_file, event, data, key, batch_id)
+
+        # Append event
+        event_id = len(out_file['events'])
+        event_ds = out_file['events']
+        event_ds.resize(event_id + 1, axis=0) # pylint: disable=E1101
+        event_ds[event_id] = event
 
     def append_key(self, out_file, event, data, key, batch_id):
         """Stores data key in a specific dataset of an HDF5 file.

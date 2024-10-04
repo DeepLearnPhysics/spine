@@ -17,7 +17,6 @@ import subprocess as sc
 
 import yaml
 import psutil
-import pathlib
 import numpy as np
 import torch
 
@@ -232,7 +231,7 @@ class Driver:
                         log_dir='logs', prefix_log=False, overwrite_log=False,
                         parent_path=None, iterations=None, epochs=None,
                         unwrap=False, rank=None, log_step=1, distributed=False,
-                        train=None, verbosity='info'):
+                        split_output=False, train=None, verbosity='info'):
         """Initialize the base driver parameters.
 
         Parameters
@@ -263,6 +262,10 @@ class Driver:
             Number of iterations before the logging is called (1: every step)
         distributed : bool, default False
             If `True`, this process is distributed among multiple processes
+        train : dict, optional
+            Training configuration dictionary
+        split_output : bool, default False
+            Split the output of the process into one file per input file
         verbosity : int, default 'info'
             Verbosity level to pass to the `logging` module. Pick one of
             'debug', 'info', 'warning', 'error', 'critical'.
@@ -309,6 +312,7 @@ class Driver:
         self.unwrap = unwrap
         self.seed = seed
         self.log_step = log_step
+        self.split_output = split_output
 
         return train
 
@@ -358,7 +362,7 @@ class Driver:
             self.iter_per_epoch = len(self.reader)
 
         # Fetch an appropriate common prefix for all input files
-        self.prefix = self.get_prefix(self.reader.file_paths)
+        self.prefix = self.get_prefix(self.reader.file_paths, self.split_output)
 
         # Initialize the data writer, if provided
         self.writer = None
@@ -366,7 +370,8 @@ class Driver:
             assert self.loader is None or self.unwrap, (
                     "Must unwrap the model output to write it to file.")
             self.watch.initialize('write')
-            self.writer = writer_factory(writer, prefix=self.prefix)
+            self.writer = writer_factory(
+                    writer, prefix=self.prefix, split=self.split_output)
 
         # Harmonize the iterations and epochs parameters
         assert (self.iterations is None) or (self.epochs is None), (
@@ -379,19 +384,25 @@ class Driver:
             self.iterations = self.epochs*self.iter_per_epoch
 
     @staticmethod
-    def get_prefix(file_paths):
+    def get_prefix(file_paths, split_output):
         """Builds an appropriate output prefix based on the list of input files.
 
         Parameters
         ----------
         file_paths : List[str]
             List of input file paths
+        split_output : bool
+            Split the output of the process into one file per input file
 
         Returns
         -------
-        str
+        Union[str, List[str]]
             Shared input summary string to be used to prefix outputs
         """
+        # If the output is to be split, use the basename of each file
+        if split_output:
+            return [os.path.splitext(os.path.basename(f))[0] for f in file_paths]
+
         # Fetch file base names (ignore where they live)
         file_names = [os.path.basename(f) for f in file_paths]
 
