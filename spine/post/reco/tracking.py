@@ -3,15 +3,16 @@
 import numpy as np
 
 from scipy.spatial.distance import cdist
-from spine.utils.gnn.cluster import cluster_dedx
 
 from spine.utils.globals import (
         SHOWR_SHP, TRACK_SHP, MUON_PID, PION_PID, PROT_PID, KAON_PID)
 from spine.utils.energy_loss import csda_table_spline
+from spine.utils.gnn.cluster import cluster_dedx
 from spine.utils.tracking import get_track_length
 from spine.post.base import PostBase
 
-__all__ = ['CSDAEnergyProcessor', 'TrackValidityProcessor', 'TrackShowerMergerProcessor']
+__all__ = ['CSDAEnergyProcessor', 'TrackValidityProcessor',
+           'TrackShowerMergerProcessor']
 
 
 class CSDAEnergyProcessor(PostBase):
@@ -89,28 +90,38 @@ class CSDAEnergyProcessor(PostBase):
                     obj.csda_ke = self.splines[obj.pid](length).item()
                 else:
                     obj.csda_ke = 0.
-                    
-                    
+
+
 class TrackValidityProcessor(PostBase):
     """Check if track is valid based on the proximity to reconstructed vertex.
     Can also reject small tracks that are close to the vertex (optional).
     """
-    
     name = 'track_validity'
     aliases = ['track_validity_processor']
-    
-    def __init__(self, threshold=3.0, 
-                 ke_threshold=50, 
+
+    def __init__(self, threshold=3., ke_threshold=50.,
                  check_small_track=False, **kwargs):
+        """Initialize the track validity post-processor.
+
+        Parameters
+        ----------
+        threshold : float, default 3.0
+            Vertex distance above which a track is not considered a primary
+        ke_theshold : float, default 50.0
+            Kinetic energy threshold below which a track close to the vertex
+            is deemed not primary/not valid
+        check_small_track : bool, default False
+            Whether or not to apply the small track KE cut
+        """
         # Initialize the parent class
         super().__init__('interaction', 'reco')
-        
+
         self.threshold = threshold
         self.ke_threshold = ke_threshold
         self.check_small_track = check_small_track
-        
+
     def process(self, data):
-        """Loop through reco interactions and modify reco particle's 
+        """Loop through reco interactions and modify reco particle's
         primary label based on the proximity to reconstructed vertex.
 
         Parameters
@@ -128,11 +139,10 @@ class TrackValidityProcessor(PostBase):
                         p.is_primary = False
                     # Check if track is small and within radius from vertex
                     if self.check_small_track:
-                        if (dist < self.threshold).all() \
-                            and p.ke < self.ke_threshold:
+                        if ((dist < self.threshold).all()
+                            and p.ke < self.ke_threshold):
                             p.is_valid = False
                             p.is_primary = False
-        
 
 
 class TrackShowerMergerProcessor(PostBase):
@@ -141,23 +151,21 @@ class TrackShowerMergerProcessor(PostBase):
     name = 'merge_track_to_shower'
     aliases = ['track_shower_merger']
 
-    def __init__(self, angle_threshold=10,
-                 adjacency_threshold=0.5,
-                 dedx_threshold=-1,
-                 track_length_limit=50, **kwargs):
+    def __init__(self, angle_threshold=10, adjacency_threshold=0.5,
+                 dedx_threshold=-1, track_length_limit=50, **kwargs):
         """Post-processor to merge tracks into showers.
 
         Parameters
         ----------
         angle_threshold : float, default 0.95
-            Check if track and shower cosine distance is greater than this value.
+            Check if track and shower cosine similarity is greater than this value.
         adjacency_threshold : float, default 0.5
-            Check if track and shower is within threshold distance. 
+            Check if track and shower is within this threshold distance.
         dedx_limit : int, default -1
-            Check if the track dedx is below this value, 
+            Check if the track dedx is below this value,
             to avoid merging protons.
         track_length_limit : int, default 40
-            Check if track length is below this value, 
+            Check if track length is below this value,
             to avoid merging long tracks.
         """
         # Initialize the parent class
@@ -167,7 +175,7 @@ class TrackShowerMergerProcessor(PostBase):
         self.adjacency_threshold = adjacency_threshold
         self.dedx_threshold = dedx_threshold
         self.track_length_limit = track_length_limit
-        
+
     def process(self, data):
         """Loop over the reco interactions and merge tracks into showers,
         if they pass the selection criteria.
@@ -177,9 +185,8 @@ class TrackShowerMergerProcessor(PostBase):
         data : dict
             Dictionary of data products
         """
-        
-        interactions = []
         # Loop over the reco interactions
+        interactions = []
         for ia in data['reco_interactions']:
             # Leading shower and its ke
             shower_p = None
@@ -196,12 +203,11 @@ class TrackShowerMergerProcessor(PostBase):
             new_particles = []
             for p in ia.particles:
                 if p.shape == TRACK_SHP and p.is_primary:
-                    should_merge = check_merge(p, shower_p, 
+                    should_merge = check_merge(p, shower_p,
                         angle_threshold=self.angle_threshold,
                         adjacency_threshold=self.adjacency_threshold,
                         dedx_limit=self.dedx_threshold,
                         track_length_limit=self.track_length_limit)
-                    print(should_merge)
                     if should_merge:
                         merge_track_to_shower(shower_p, p)
                         p.is_valid = False
@@ -212,12 +218,10 @@ class TrackShowerMergerProcessor(PostBase):
             if len(ia.particles) != len(new_particles):
                 ia.particles = new_particles
             interactions.append(ia)
-            
+
         data['reco_interactions'] = interactions
-                     
-                     
-                     
-                     
+
+
 def merge_track_to_shower(p1, p2):
     """Merge a track p2 into shower p1.
 
@@ -228,8 +232,10 @@ def merge_track_to_shower(p1, p2):
     p2 : RecoParticle
         Track particle p2 that will be merged into p1.
     """
+    # Sanity checks
     assert p1.shape == SHOWR_SHP
     assert p2.shape == TRACK_SHP
+
     # Stack the two particle array attributes together
     for attr in ['index', 'depositions']:
         val = np.concatenate([getattr(p1, attr), getattr(p2, attr)])
@@ -241,17 +247,15 @@ def merge_track_to_shower(p1, p2):
     # Select track startpoint as new startpoint
     p1.start_point = np.copy(p2.start_point)
     p1.calo_ke = p1.calo_ke + p2.ke
-    
+
     # If one of the two particles is a primary, the new one is
     p1.is_primary = max(p1.is_primary, p2.is_primary)
     if p2.primary_scores[-1] > p1.primary_scores[-1]:
         p1.primary_scores = p2.primary_scores
-        
-        
-def check_merge(p_track, p_shower, angle_threshold=0.95, 
-                                   adjacency_threshold=0.5,
-                                   dedx_limit=-1,
-                                   track_length_limit=40):
+
+
+def check_merge(p_track, p_shower, angle_threshold=0.95,
+                adjacency_threshold=0.5, dedx_limit=-1, track_length_limit=40):
     """Check if a track and a shower can be merged.
 
     Parameters
@@ -263,12 +267,12 @@ def check_merge(p_track, p_shower, angle_threshold=0.95,
     angle_threshold : float, default 0.95
         Check if track and shower cosine distance is greater than this value.
     adjacency_threshold : float, default 0.5
-        Check if track and shower is within threshold distance. 
+        Check if track and shower is within threshold distance.
     dedx_limit : int, default -1
-        Check if the track dedx is below this value, 
+        Check if the track dedx is below this value,
         to avoid merging protons.
     track_length_limit : int, default 40
-        Check if track length is below this value, 
+        Check if track length is below this value,
         to avoid merging long tracks.
 
     Returns
@@ -287,7 +291,8 @@ def check_merge(p_track, p_shower, angle_threshold=0.95,
     if angular_sep > angle_threshold:
         check_direction = True
 
-    if cdist(p_shower.points.reshape(-1, 3), p_track.points.reshape(-1, 3)).min() < adjacency_threshold:
+    if cdist(p_shower.points.reshape(-1, 3),
+             p_track.points.reshape(-1, 3)).min() < adjacency_threshold:
         check_adjacency = True
 
     dedx = cluster_dedx(p_track.points, p_track.depositions, p_track.start_point)
@@ -295,8 +300,8 @@ def check_merge(p_track, p_shower, angle_threshold=0.95,
         check_dedx = False
     if p_track.length < track_length_limit:
         check_track_energy = True
-        
-    result = (check_dedx and check_direction and \
+
+    result = (check_dedx and check_direction and
               check_adjacency and check_track_energy)
 
     return result
