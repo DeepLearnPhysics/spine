@@ -105,6 +105,9 @@ class FlashMatchProcessor(PostBase):
                 #ints = [inter for inter in interactions if inter.module_ids[0] == module_id]
                 ints = []
                 for i,ii in enumerate(interactions):
+                    #Temporary check for mpvs
+                    #if np.sum(ii.primary_particle_counts) < 2: continue
+                    #End of temporary check
                     tpc_index = np.where(ii.sources[:, 1] == module_id)[0]
                     if len(tpc_index) > 0:
                         tpc_points = ii.points[tpc_index]
@@ -119,12 +122,13 @@ class FlashMatchProcessor(PostBase):
 
                 # Run flash matching
                 matches = self.matcher.get_matches(ints, flashes)
+                #print(f'Found {len(matches)} matches for {len(ints)} interactions and {len(flashes)} flashes')
 
                 # Store flash information
-                for i, (inter, flash, match) in enumerate(matches):
+                for i, (_inter, flash, match) in enumerate(matches):
                     # We have made dummy interactions for split TPCs, so we need the 
                     # to update the real interaction by matching the id
-                    inter = [interactions[j] for j in range(len(interactions)) if interactions[j].id == ii.id][0]
+                    inter = interactions[_inter.id]
                     # FIXME: This is a temporary fix to avoid the issue of NoneType flash_ids and flash_times
                     if inter.flash_ids is None:
                         inter.flash_ids = np.full(n_volumes, -1)
@@ -135,12 +139,11 @@ class FlashMatchProcessor(PostBase):
                     inter.flash_times[module_id] = float(flash.time) #Flash time in the Nth volume
                     
                     if inter.is_flash_matched:
-                        inter.flash_total_pe = float(flash.total_pe)
-                        inter.flash_hypo_pe = float(np.array(match.hypothesis,
-                            dtype=np.float32).sum())
-                    else:
-                        inter.is_flash_matched = True
                         inter.flash_total_pe += float(flash.total_pe)
                         inter.flash_hypo_pe += float(np.array(match.hypothesis,
                             dtype=np.float32).sum())
-                        inter.flash_hypo_pe += float(np.sum(match.hypothesis))
+                    else:
+                        inter.is_flash_matched = True
+                        inter.flash_total_pe = float(flash.total_pe)
+                        inter.flash_hypo_pe = float(np.array(match.hypothesis,
+                            dtype=np.float32).sum())

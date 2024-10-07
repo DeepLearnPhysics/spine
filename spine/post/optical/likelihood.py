@@ -12,6 +12,7 @@ class LikelihoodFlashMatcher:
     """
     def __init__(self, cfg, parent_path=None, reflash_merging_window=None,
                  detector=None, boundary_file=None, scaling=1.,
+                 alpha=0.21, recombination_mip=0.65,
                  truth_dep_mode='depositions'):
         """Initialize the likelihood-based flash matching algorithm.
 
@@ -29,6 +30,10 @@ class LikelihoodFlashMatcher:
             Path to a detector boundary file. Supersedes `detector` if set
         scaling : Union[float, str], default 1.
             Global scaling factor for the depositions (can be an expression)
+        alpha : float, default 0.21
+            Number of excitons (Ar*) divided by number of electron-ion pairs (e-,Ar+)
+        recombination_mip : float, default 0.65
+            Recombination factor for MIP-like particles in LAr
         truth_dep_mode : str, default 'depositions'
             Attribute used to fetch deposition values for truth interactions
         """
@@ -45,6 +50,12 @@ class LikelihoodFlashMatcher:
         self.scaling = scaling
         if isinstance(self.scaling, str):
             self.scaling = eval(self.scaling)
+        self.alpha = alpha
+        if isinstance(self.alpha, str):
+            self.alpha = eval(self.alpha)
+        self.recombination_mip = recombination_mip
+        if isinstance(self.recombination_mip, str):
+            self.recobination_mip = eval(self.recombination_mip)
 
         # Initialize flash matching attributes
         self.matches = None
@@ -208,7 +219,7 @@ class LikelihoodFlashMatcher:
             # Fill the trajectory
             pytraj = np.hstack([points, depositions[:, None]])
             traj = flashmatch.as_geoalgo_trajectory(pytraj)
-            qcluster += self.light_path.MakeQCluster(traj, self.scaling)
+            qcluster += self.light_path.MakeQCluster(traj, self.scaling, self.alpha, self.recombination_mip)
 
             # Append
             qcluster_v.append(qcluster)
