@@ -37,9 +37,8 @@ class HDF5Writer:
     """
     name = 'hdf5'
 
-    def __init__(self, file_name=None, keys=None, skip_keys=None,
-                 dummy_ds=None, overwrite=False, append=False,
-                 prefix=None, split=False):
+    def __init__(self, file_name=None, keys=None, skip_keys=None, dummy_ds=None,
+                 overwrite=False, append=False, prefix=None, split=False):
         """Initializes the basics of the output file.
 
         Parameters
@@ -74,7 +73,14 @@ class HDF5Writer:
                 file_name = [f'{pre}_spine.h5' for pre in prefix]
 
         elif split:
-            file_name = [f'{file_name}_{i}' for i in range(len(prefix))]
+            dir_name = os.path.dirname(file_name)
+            if dir_name:
+                dir_name += '/'
+            base_name = os.path.splitext(os.path.basename(file_name))[0]
+            if not prefix:
+                file_name = [f'{dir_name}{base_name}_{i}.h5' for i in range(len(prefix))]
+            else:
+                file_name = [f'{dir_name}{pre}_{base_name}.h5' for pre in prefix]
 
         # Check that the output file(s) do(es) not already exist, if requested
         if not overwrite:
@@ -154,11 +160,11 @@ class HDF5Writer:
         for file_name in file_names:
             with h5py.File(file_name, 'w') as out_file:
                 # Initialize the info dataset that stores environment parameters
+                out_file.create_dataset(
+                        'info', (0,), maxshape=(None,), dtype=None)
+                out_file['info'].attrs['version'] = __version__
                 if cfg is not None:
-                    out_file.create_dataset(
-                            'info', (0,), maxshape=(None,), dtype=None)
                     out_file['info'].attrs['cfg'] = yaml.dump(cfg)
-                    out_file['info'].attrs['version'] = __version__
 
                 # Initialize the event dataset and their reference array datasets
                 self.initialize_datasets(out_file)
