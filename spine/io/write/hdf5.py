@@ -37,9 +37,8 @@ class HDF5Writer:
     """
     name = 'hdf5'
 
-    def __init__(self, file_name=None, keys=None, skip_keys=None,
-                 dummy_ds=None, overwrite=False, append=False,
-                 prefix=None, split=False):
+    def __init__(self, file_name=None, keys=None, skip_keys=None, dummy_ds=None,
+                 overwrite=False, append=False, prefix=None, split=False):
         """Initializes the basics of the output file.
 
         Parameters
