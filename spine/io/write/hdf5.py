@@ -74,7 +74,14 @@ class HDF5Writer:
                 file_name = [f'{pre}_spine.h5' for pre in prefix]
 
         elif split:
-            file_name = [f'{file_name}_{i}' for i in range(len(prefix))]
+            dir_name = os.path.dirname(file_name)
+            if dir_name:
+                dir_name += '/'
+            base_name = os.path.splitext(os.path.basename(file_name))[0]
+            if not prefix:
+                file_name = [f'{dir_name}{base_name}_{i}.h5' for i in range(len(prefix))]
+            else:
+                file_name = [f'{dir_name}{pre}_{base_name}.h5' for pre in prefix]
 
         # Check that the output file(s) do(es) not already exist, if requested
         if not overwrite:
