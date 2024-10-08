@@ -41,16 +41,28 @@ class PostBase(ABC):
     # List of recognized run modes
     _run_modes = ('reco', 'truth', 'both', 'all')
 
-    # List of known point modes for true particles
+    # List of known point modes for true particles and their corresponding keys
     _point_modes = {
             'points': 'points_label',
             'points_adapt': 'points',
             'points_g4': 'points_g4'
     }
 
-    # List of known deposition modes
-    _dep_modes = ('depositions', 'depositions_q', 'depositions_adapt',
-                  'depositions_adapt_q', 'depositions_g4')
+    # List of known source modes for true particles and their corresponding keys
+    _source_modes = {
+            'sources': 'sources_label',
+            'sources_adapt': 'sources',
+            'sources_g4': 'sources_g4'
+    }
+
+    # List of known deposition modes for true particles and their corresponding keys
+    _dep_modes = {
+            'depositions': 'depositions_label',
+            'depositions_q': 'depositions_q_label',
+            'depositions_adapt': 'depositions_label_adapt',
+            'depositions_adapt_q': 'depositions',
+            'depositions_g4': 'depositions_g4'
+    }
 
     def __init__(self, obj_type=None, run_mode=None, truth_point_mode=None,
                  truth_dep_mode=None, parent_path=None):
@@ -120,18 +132,25 @@ class PostBase(ABC):
         if truth_point_mode is not None:
             assert truth_point_mode in self._point_modes, (
                      "The `truth_point_mode` argument must be one of "
-                    f"{self._point_modes}. Got `{truth_point_mode}` instead.")
+                    f"{self._point_modes.keys()}. Got `{truth_point_mode}` instead.")
             self.truth_point_mode = truth_point_mode
-            self.truth_point_key = self._point_modes[truth_point_mode]
-            self.truth_index_mode = truth_point_mode.replace('points', 'index')
+            self.truth_point_key = self._point_modes[self.truth_point_mode]
             self.truth_source_mode = truth_point_mode.replace('points', 'sources')
+            self.truth_source_key = self._source_modes[self.truth_source_mode]
+            self.truth_index_mode = truth_point_mode.replace('points', 'index')
 
         # If a truth deposition mode is specified, store it
         if truth_dep_mode is not None:
             assert truth_dep_mode in self._dep_modes, (
                      "The `truth_dep_mode` argument must be one of "
-                    f"{self._dep_modes}. Got `{truth_dep_mode}` instead.")
+                    f"{self._dep_modes.keys()}. Got `{truth_dep_mode}` instead.")
+            if truth_point_mode is not None:
+                prefix = truth_point_mode.replace('points', 'depositions')
+                assert truth_dep_mode.startswith(prefix), (
+                        "Points mode {truth_point_mode} and deposition mode "
+                        "{truth_dep_mode} are incompatible.")
             self.truth_dep_mode = truth_dep_mode
+            self.truth_dep_key = self._dep_modes[truth_dep_mode]
 
         # Store the parent path
         self.parent_path = parent_path
