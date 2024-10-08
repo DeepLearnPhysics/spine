@@ -236,6 +236,10 @@ class ModelManager:
                     self.save_state(iteration)
             self.watch.stop('save')
 
+        # If requested, cast the result dictionary to numpy
+        if self.to_numpy:
+            self.cast_to_numpy(result)
+
         return result
 
     def clean_config(self, config):
@@ -492,29 +496,7 @@ class ModelManager:
                     result.update(self.loss_fn(
                         iteration=iteration, **loss_dict, **result))
 
-            # Convert to numpy, if requested
-            if self.to_numpy:
-                for key, value in result.items():
-                    if np.isscalar(value):
-                        # Scalar
-                        result[key] = value
-                    elif (isinstance(value, torch.Tensor) and
-                          value.numel() == 1):
-                        # Scalar tensor
-                        result[key] = value.item()
-                    elif isinstance(
-                            value, (TensorBatch, IndexBatch, EdgeIndexBatch)):
-                        # Batch of data
-                        result[key] = value.to_numpy()
-                    elif (isinstance(value, list) and
-                          len(value) and
-                          isinstance(value[0], TensorBatch)):
-                        # List of tensor batches
-                        result[key] = [v.to_numpy() for v in value]
-                    else:
-                        raise ValueError(f"Cannot cast output {key} to numpy")
-
-            return result
+        return result
 
     def backward(self, loss):
         """Run the backward step on the model.
@@ -539,6 +521,39 @@ class ModelManager:
         if hasattr(self.net, 'update_buffers'):
             logger.info('Updating buffers')
             self.net.update_buffers()
+
+    def cast_to_numpy(self, result):
+        """Casts the model output data products to numpy object in place.
+
+        Parameters
+        ----------
+        result : dict
+            Dictionary of model and loss outputs
+        """
+        # Loop over the key, value pairs in the result dictionary
+        for key, value in result.items():
+            # Cast to numpy or python scalars
+            if np.isscalar(value):
+                # Scalar
+                result[key] = value
+
+            elif (isinstance(value, torch.Tensor) and value.numel() == 1):
+                # Scalar tensor
+                result[key] = value.item()
+
+            elif isinstance(value, (TensorBatch, IndexBatch, EdgeIndexBatch)):
+                # Batch of data
+                result[key] = value.to_numpy()
+
+            elif (isinstance(value, list) and len(value) and
+                  isinstance(value[0], TensorBatch)):
+                # List of tensor batches
+                result[key] = [v.to_numpy() for v in value]
+
+            else:
+                dtype = type(value)
+                raise ValueError(
+                        f"Cannot cast output {key} of type {dtype} to numpy.")
 
     def save_state(self, iteration):
         """Save the model state.
