@@ -335,6 +335,7 @@ class Driver:
 
         # Initialize the data loader/reader
         self.loader = None
+        self.unwrapper = None
         if loader is not None:
             # Initialize the torch data loader
             self.watch.initialize('load')
@@ -534,7 +535,7 @@ class Driver:
             self.watch.update(self.model.watch, 'model')
 
         # 3. Unwrap
-        if self.unwrap:
+        if self.unwrapper is not None:
             self.watch.start('unwrap')
             data = self.unwrapper(data)
             self.watch.stop('unwrap')
