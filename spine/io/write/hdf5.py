@@ -161,11 +161,11 @@ class HDF5Writer:
         for file_name in file_names:
             with h5py.File(file_name, 'w') as out_file:
                 # Initialize the info dataset that stores environment parameters
+                out_file.create_dataset(
+                        'info', (0,), maxshape=(None,), dtype=None)
+                out_file['info'].attrs['version'] = __version__
                 if cfg is not None:
-                    out_file.create_dataset(
-                            'info', (0,), maxshape=(None,), dtype=None)
                     out_file['info'].attrs['cfg'] = yaml.dump(cfg)
-                    out_file['info'].attrs['version'] = __version__
 
                 # Initialize the event dataset and their reference array datasets
                 self.initialize_datasets(out_file)
