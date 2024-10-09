@@ -335,7 +335,7 @@ class ShowerStartpointCorrectionProcessor(PostBase):
         guess : np.ndarray
             (3, ) array of the corrected shower startpoint.
         """
-        track_points = [p.points for p in ia.particles if p.semantic_type == TRACK_SHP and p.is_primary]
+        track_points = [p.points for p in ia.particles if p.shape == TRACK_SHP and p.is_primary]
         if track_points == []:
             return shower_p.start_point
         
