@@ -16,13 +16,13 @@ from spine.data import Meta, Particle, Neutrino, ObjectList
 
 from spine.utils.globals import TRACK_SHP, PDG_TO_PID, PID_MASSES
 from spine.utils.particles import process_particles
-from spine.utils.ppn import get_ppn_labels, image_coordinates
+from spine.utils.ppn import get_ppn_labels, get_vertex_labels, image_coordinates
 from spine.utils.conditional import larcv
 
 from .base import ParserBase
 
 __all__ = ['ParticleParser', 'NeutrinoParser', 'ParticlePointParser',
-           'ParticleCoordinateParser', 'ParticleGraphParser',
+           'ParticleCoordinateParser', 'VertexPointParser', 'ParticleGraphParser',
            'SingleParticlePIDParser', 'SingleParticleEnergyParser']
 
 
@@ -316,9 +316,9 @@ class ParticlePointParser(ParserBase):
         meta = ref_event.meta()
 
         # Get the point labels
-        particles_v = particle_event.as_vector()
+        particle_v = particle_event.as_vector()
         point_labels = get_ppn_labels(
-                particles_v, meta, self.ftype,
+                particle_v, meta, self.ftype,
                 include_point_tagging=self.include_point_tagging)
 
         return point_labels[:, :3], point_labels[:, 3:], Meta.from_larcv(meta)
@@ -381,11 +381,11 @@ class ParticleCoordinateParser(ParserBase):
         meta = ref_event.meta()
 
         # Scale particle coordinates to image size
-        particles_v = particle_event.as_vector()
+        particle_v = particle_event.as_vector()
 
         # Make features
-        features = np.empty((len(particles_v), 8), dtype=self.ftype)
-        for i, p in enumerate(particles_v):
+        features = np.empty((len(particle_v), 8), dtype=self.ftype)
+        for i, p in enumerate(particle_v):
             start_point = last_point = image_coordinates(meta, p.first_step())
             if p.shape() == TRACK_SHP: # End point only meaningful for tracks
                 last_point = image_coordinates(meta, p.last_step())
@@ -393,6 +393,84 @@ class ParticleCoordinateParser(ParserBase):
             features[i] = np.concatenate((start_point, last_point, extra))
 
         return features[:, :6], features[:, 6:], Meta.from_larcv(meta)
+
+
+class VertexPointParser(ParserBase):
+    """Class that retrieves the vertices.
+
+    It provides the coordinates of points where multiple particles originate:
+    - If the `neutrino_event` is provided, it simply uses the coordinates of
+      the neutrino interaction points.
+    - If the `particle_event` is provided instead, it looks for ancestor point
+      positions shared by at least two particles.
+
+    .. code-block. yaml
+
+        schema:
+          vertices:
+            parser: vertex_points
+            particle_event: particle_pcluster
+            #neutrino_event: neutrino_mpv
+            sparse_event: sparse3d_pcluster
+            include_point_tagging: True
+    """
+    name = 'vertex_points'
+
+    def __call__(self, trees):
+        """Parse one entry.
+
+        Parameters
+        ----------
+        trees : dict
+            Dictionary which maps each data product name to a LArCV object
+        """
+        return self.process(**self.get_input_data(trees))
+
+    def process(self, particle_event=None, neutrino_event=None,
+                sparse_event=None, cluster_event=None):
+        """Fetch the list of label vertex points.
+
+        Parameters
+        ----------
+        particle_event : larcv.EventParticle
+            Particle event which contains the list of true particles
+        neutrino_event : larcv.EventNeutrino
+            Neutrino event which contains the list of true neutrinos
+        sparse_event : larcv.EventSparseTensor3D, optional
+            Tensor which contains the metadata needed to convert the
+            positions in voxel coordinates
+        cluster_event : larcv.EventClusterVoxel3D, optional
+            Cluster which contains the metadata needed to convert the
+            positions in voxel coordinates
+
+        Returns
+        -------
+        np_voxels : np.ndarray
+            (N, 3) array of [x, y, z] coordinates
+        np_features : np.ndarray
+            (N, 1) array of [vertex ID]
+        meta : Meta
+            Metadata of the parsed image
+        """
+        # Check that only one source of vertex is provided
+        assert (particle_event is not None) ^ (neutrino_event is not None), (
+                "Must provide either `particle_event` or `sparse_event` to "
+                "get the vertex points, not both.")
+
+        # Fetch the metadata
+        assert (sparse_event is not None) ^ (cluster_event is not None), (
+                "Must provide either `sparse_event` or `cluster_event` to "
+                "get the metadata and convert positions to voxel units.")
+        ref_event = sparse_event if sparse_event is not None else cluster_event
+        meta = ref_event.meta()
+
+        # Get the vertex labels
+        particle_v = particle_event.as_vector() if particle_event else None
+        neutrino_v = neutrino_event.as_vector() if neutrino_event else None
+        point_labels = get_vertex_labels(
+                particle_v, neutrino_v, meta, self.ftype)
+
+        return point_labels[:, :3], point_labels[:, 3:], Meta.from_larcv(meta)
 
 
 class ParticleGraphParser(ParserBase):

@@ -173,7 +173,8 @@ class BuildManager:
                     sources['label_adapt_tensor'][:, VALUE_COL])
 
             if 'depositions_q_label' in sources:
-                update['depositions_q_label'] = sources['depositions_q_label']
+                update['depositions_q_label'] = (
+                        sources['depositions_q_label'][:, VALUE_COL])
 
         if 'label_g4_tensor' in sources:
             update['label_g4_tensor'] = sources['label_g4_tensor']
