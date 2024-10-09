@@ -546,6 +546,67 @@ def get_ppn_labels(particle_v, meta, dtype, dim=3, min_voxel_count=1,
     return np.array(part_info, dtype=dtype)
 
 
+def get_vertex_labels(particle_v, neutrino_v, meta, dtype):
+    """Gets particle vertex coordinates.
+
+    It provides the coordinates of points where multiple particles originate:
+    - If the `neutrino_event` is provided, it simply uses the coordinates of
+      the neutrino interaction points.
+    - If the `particle_event` is provided instead, it looks for ancestor point
+      positions shared by at least two **primary** particles.
+
+    Parameters
+    ----------
+    particle_v : List[larcv.Particle]
+        List of LArCV particle objects in the image
+    neutrino_v : List[larcv.Neutrino]
+        List of LArCV neutrino objects in the image
+    meta : larcv::Voxel3DMeta or larcv::ImageMeta
+        Metadata information
+    dtype : str
+        Typing of the output PPN labels
+
+    Returns
+    -------
+    np.array
+        Array of points of shape (N, 4) where 4 = x, y, z, vertex_id
+    """
+    # If the particles are provided, find unique ancestors
+    vertexes = []
+    if particle_v is not None:
+        # Fetch all ancestor positions of primary particles
+        anc_positions = []
+        for i, p in enumerate(particle_v):
+            if p.parent_id() == p.id() or p.ancestor_pdg_code() == 111:
+                if image_contains(meta, p.ancestor_position()):
+                    anc_pos = image_coordinates(meta, p.ancestor_position())
+                    anc_positions.append(anc_pos)
+
+        # If there is no primary, nothing to do
+        if not len(anc_positions):
+            return np.empty((0, 4), dtype=dtype)
+
+        # Find those that appear > once
+        anc_positions = np.vstack(anc_positions)
+        unique_positions, counts = np.unique(
+                anc_positions, return_counts=True, axis=0)
+        for i, idx in enumerate(np.where(counts > 1)[0]):
+            vertexes.append([*unique_positions[idx], i])
+
+    # If the neutrinos are provided, straightforward
+    if neutrino_v is not None:
+        for i, n in enumerate(neutrino_v):
+            if image_contains(meta, n.position()):
+                nu_pos = image_coordinates(meta, n.position())
+                vertexes.append([*nu_pos, i])
+
+    # If there are no vertex, nothing to do
+    if not len(vertexes):
+        return np.empty((0, 4), dtype=dtype)
+
+    return np.vstack(vertexes).astype(dtype)
+
+
 def image_contains(meta, point, dim=3):
     """Checks whether a point is contained in the image box defined by meta.
 
