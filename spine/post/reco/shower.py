@@ -171,12 +171,12 @@ class ShowerMultiArmCheck(PostBase):
     name = 'shower_multi_arm_check'
     aliases = ['shower_multi_arm']
     
-    def __init__(self, threshold=0.25, min_samples=20, eps=0.02):
+    def __init__(self, threshold=70, min_samples=20, eps=0.02):
         """Specify the threshold for the number of arms of showers.
 
         Parameters
         ----------
-        threshold : float, default 0.25
+        threshold : float, default 70 (deg)
             If the electron shower's leading and subleading angle are
             separated by more than this, the shower is considered to be
             invalid and its PID will be changed to PHOT_PID.
@@ -234,7 +234,7 @@ class ShowerMultiArmCheck(PostBase):
         -------
         max_angle : float
             Maximum angle between the mean cluster direction vectors 
-            of the shower points.
+            of the shower points (degrees)
         """
         points = p.points
         depositions = p.depositions
@@ -276,9 +276,10 @@ class ShowerMultiArmCheck(PostBase):
         vecs = np.vstack(vecs)
         cos_dist = cosine_similarity(vecs)
         # max_angle ranges from 0 (parallel) to 2 (antiparallel)
-        max_angle = (np.abs(1.0 - cos_dist)).max()
+        max_angle = np.clip((1.0 - cos_dist).max(), a_min=0, a_max=2)
+        max_angle_deg = np.rad2deg(np.arccos(1 - max_angle))
         # counts = counts[1:]
-        return max_angle
+        return max_angle_deg
     
     
 class ShowerStartpointCorrectionProcessor(PostBase):
