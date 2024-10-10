@@ -19,6 +19,7 @@ import yaml
 import psutil
 import numpy as np
 import torch
+from torch.utils.tensorboard import SummaryWriter
 
 from .io import loader_factory, reader_factory, writer_factory
 from .io.write import CSVWriter
@@ -195,6 +196,14 @@ class Driver:
         else:
             assert isinstance(base['seed'], int), (
                     f"The driver seed must be an integer, got: {base['seed']}")
+            
+        # check for run number
+        if 'run_number' not in base:
+            base['run_number'] = '00'
+
+        # check for tensorboard
+        if 'tensorboard' not in base:
+            base['tensorboard'] = False
 
         # Rebuild global configuration dictionary
         self.cfg = {'base': base, 'io': io}
@@ -232,7 +241,8 @@ class Driver:
                         log_dir='logs', prefix_log=False, overwrite_log=False,
                         parent_path=None, iterations=None, epochs=None,
                         unwrap=False, rank=None, log_step=1, distributed=False,
-                        split_output=False, train=None, verbosity='info'):
+                        split_output=False, train=None, verbosity='info',
+                        run_number='00', tensorboard=False):
         """Initialize the base driver parameters.
 
         Parameters
@@ -314,6 +324,8 @@ class Driver:
         self.seed = seed
         self.log_step = log_step
         self.split_output = split_output
+        self.run_number = run_number
+        self.tensorboard = tensorboard
 
         return train
 
@@ -454,8 +466,17 @@ class Driver:
             log_name = f'{self.log_prefix}_{log_name}'
 
         # Initialize the log
-        log_path = os.path.join(self.log_dir, log_name)
-        self.logger = CSVWriter(log_path, overwrite=self.overwrite_log)
+        self.log_path = os.path.join(self.log_dir, log_name)
+        self.logger = CSVWriter(self.log_path, overwrite=self.overwrite_log)
+
+        # set up tensorboard
+        if (self.tensorboard and self.main_process):
+            time = datetime.now()
+            now = f"{time.year}.{time.month}.{time.day}.{time.hour}:{time.minute}:{time.second}"
+            self.tensorboard_dir = f'{self.log_path.replace(".csv", "/")}/{self.run_number}/{now}/'
+            self.tensorboard = SummaryWriter(
+                log_dir=self.tensorboard_dir
+            )
 
     def run(self):
         """Loop over the requested number of iterations, process them."""
@@ -760,3 +781,8 @@ class Driver:
             if self.main_process:
                 print('', flush=True)
 
+            # Report to tensorboard
+            if (self.tensorboard and self.main_process):
+                for key, value in log_dict.items():
+                    if ("loss" in key or "accuracy" in key):
+                        self.tensorboard.add_scalar(key, value, iteration)
