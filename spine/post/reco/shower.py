@@ -1,13 +1,15 @@
 import numpy as np
 
-from spine.utils.globals import (PHOT_PID, PROT_PID, PION_PID, ELEC_PID)
+from spine.utils.globals import (PHOT_PID, PROT_PID, PION_PID, ELEC_PID, 
+                                 SHOWR_SHP, TRACK_SHP)
 
 from spine.post.base import PostBase
 from scipy.spatial.distance import cdist
 from sklearn.cluster import DBSCAN
 from sklearn.metrics.pairwise import cosine_similarity
 
-__all__ = ['ConversionDistanceProcessor', 'ShowerMultiArmCheck']
+__all__ = ['ConversionDistanceProcessor', 'ShowerMultiArmCheck', 
+           'ShowerStartpointCorrectionProcessor']
 
 
 class ConversionDistanceProcessor(PostBase):
@@ -69,6 +71,7 @@ class ConversionDistanceProcessor(PostBase):
                         criterion = self.convdist_vertex_startpoint(ia, p)
                     else:
                         raise ValueError('Invalid point mode')
+                    p.vertex_distance = criterion
                     if criterion >= self.threshold:
                         p.pid = PHOT_PID
             
@@ -168,12 +171,12 @@ class ShowerMultiArmCheck(PostBase):
     name = 'shower_multi_arm_check'
     aliases = ['shower_multi_arm']
     
-    def __init__(self, threshold=0.25, min_samples=20, eps=0.02):
+    def __init__(self, threshold=70, min_samples=20, eps=0.02):
         """Specify the threshold for the number of arms of showers.
 
         Parameters
         ----------
-        threshold : float, default 0.25
+        threshold : float, default 70 (deg)
             If the electron shower's leading and subleading angle are
             separated by more than this, the shower is considered to be
             invalid and its PID will be changed to PHOT_PID.
@@ -206,6 +209,7 @@ class ShowerMultiArmCheck(PostBase):
                     angle = self.compute_angular_criterion(p, ia.vertex, 
                                                      eps=self.eps, 
                                                      min_samples=self.min_samples)
+                    p.shower_split_angle = angle
                     if angle > self.threshold:
                         p.pid = PHOT_PID
                 
@@ -230,7 +234,7 @@ class ShowerMultiArmCheck(PostBase):
         -------
         max_angle : float
             Maximum angle between the mean cluster direction vectors 
-            of the shower points.
+            of the shower points (degrees)
         """
         points = p.points
         depositions = p.depositions
@@ -272,6 +276,75 @@ class ShowerMultiArmCheck(PostBase):
         vecs = np.vstack(vecs)
         cos_dist = cosine_similarity(vecs)
         # max_angle ranges from 0 (parallel) to 2 (antiparallel)
-        max_angle = (np.abs(1.0 - cos_dist)).max()
+        max_angle = np.clip((1.0 - cos_dist).max(), a_min=0, a_max=2)
+        max_angle_deg = np.rad2deg(np.arccos(1 - max_angle))
         # counts = counts[1:]
-        return max_angle
+        return max_angle_deg
+    
+    
+class ShowerStartpointCorrectionProcessor(PostBase):
+    """Correct the startpoint of the primary EM shower by 
+    finding the closest point to the vertex.
+    """
+    name = 'showerstart_correction_processor'
+    aliases = ['reco_shower_startpoint_correction']
+    
+    def __init__(self, threshold=1.0):
+        """Specify the EM shower conversion distance threshold and
+        the type of vertex to use for the distance calculation.
+
+        Parameters
+        ----------
+        threshold : float, default -1.0
+            If EM shower has a conversion distance greater than this,
+            its PID will be changed to PHOT_PID.
+        """
+        super().__init__('interaction', 'reco')
+        self.threshold = threshold
+        
+    def process(self, data):
+        """Update the shower startpoint using the closest point to the vertex.
+
+        Parameters
+        ----------
+        data : dict
+            Dictionaries of data products
+        """
+        # Loop over the reco interactions
+        for ia in data['reco_interactions']:
+            vertex = ia.vertex
+            for p in ia.particles:
+                if (p.shape == SHOWR_SHP) and (p.is_primary):
+                    new_point = self.correct_shower_startpoint(p, ia)
+                    p.start_point = new_point
+                    
+                        
+    @staticmethod                
+    def correct_shower_startpoint(shower_p, ia):
+        """Function to correct the shower startpoint by finding the closest
+        point to the vertex.
+
+        Parameters
+        ----------
+        shower_p : RecoParticle
+            Primary EM shower to correct the startpoint.
+        ia : RecoInteraction
+            Reco interaction to use as the vertex estimate.
+
+        Returns
+        -------
+        guess : np.ndarray
+            (3, ) array of the corrected shower startpoint.
+        """
+        track_points = [p.points for p in ia.particles if p.shape == TRACK_SHP and p.is_primary]
+        if track_points == []:
+            return shower_p.start_point
+        
+        track_points = np.vstack(track_points)
+        dist = cdist(shower_p.points.reshape(-1, 3), track_points.reshape(-1, 3))
+        min_dist = dist.min()
+        closest_idx, _ = np.where(dist == min_dist)
+        if len(closest_idx) == 0:
+            return shower_p.start_point
+        guess = shower_p.points[closest_idx[0]]
+        return guess

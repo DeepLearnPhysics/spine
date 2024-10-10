@@ -135,7 +135,8 @@ class TrackValidityProcessor(PostBase):
                 if p.shape == TRACK_SHP and p.is_primary:
                     # Check vertex attachment
                     dist = np.linalg.norm(p.points - ia.vertex, axis=1)
-                    if dist.min() > self.threshold:
+                    p.vertex_distance = dist.min()
+                    if p.vertex_distance > self.threshold:
                         p.is_primary = False
                     # Check if track is small and within radius from vertex
                     if self.check_small_track:
