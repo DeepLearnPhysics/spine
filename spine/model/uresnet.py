@@ -283,10 +283,8 @@ class SegmentationLoss(torch.nn.modules.loss._Loss):
         # Get the underlying tensor in each TensorBatch
         seg_label_t = seg_label.tensor
         segmentation_t = segmentation.tensor
-        if ghost is not None:
-            ghost_t = ghost.tensor
-        if weights is not None:
-            weights_t = weights.tensor
+        ghost_t = ghost.tensor if ghost is not None else ghost
+        weights_t = weights.tensor if weights is not None else weights
 
         # Make sure that the segmentation output and labels have the same length
         assert len(seg_label_t) == len(segmentation_t), (
