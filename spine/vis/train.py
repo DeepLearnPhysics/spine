@@ -430,6 +430,8 @@ class TrainDrawer:
         log_dfs    = []
         for i, f in enumerate(np.array(log_files)[order]):
             df = pd.read_csv(f, nrows=end_points[i+1]-end_points[i])
+            if len(df) == 0:
+                continue
             for key_list in keys:
                 key, key_name = self.find_key(df, key_list)
                 df[key_name] = df[key]
