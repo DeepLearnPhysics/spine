@@ -134,10 +134,6 @@ class Driver:
             self.ana = AnaManager(
                     ana, log_dir=self.log_dir, prefix=self.log_prefix)
 
-    def __len__(self):
-        """Returns the number of events in the underlying reader object."""
-        return len(self.reader)
-
     def process_config(self, io, base=None, model=None, build=None,
                        post=None, ana=None, rank=None):
         """Reads the configuration and dumps it to the logger.
@@ -456,6 +452,51 @@ class Driver:
         # Initialize the log
         log_path = os.path.join(self.log_dir, log_name)
         self.logger = CSVWriter(log_path, overwrite=self.overwrite_log)
+
+    def __len__(self):
+        """Returns the number of events in the underlying reader object.
+
+        Returns
+        -------
+        int
+            Number of elements in the underlying loader/reader.
+        """
+        return len(self.reader)
+
+    def __iter__(self):
+        """Resets the counter and returns itself.
+
+        Returns
+        -------
+        object
+            The Driver itself
+        """
+        # If a loader is used, reinitialize it. Otherwise set an entry counter
+        if self.loader is not None:
+            self.loader_iter = iter(self.loader)
+            self.counter = None
+        else:
+            self.counter = 0
+
+        return self
+
+    def __next__(self):
+        """Defines how to process the next entry in the iterator.
+
+        Returns
+        -------
+        Union[dict, List[dict]]
+            Either one combined data dictionary, or one per entry in the batch
+        """
+        # If there are more iterations to go through, return data
+        if self.counter < len(self):
+            data = self.process(self.counter)
+            if self.counter is not None:
+                self.counter += 1
+
+            return data
+
+        raise StopIteration
 
     def run(self):
         """Loop over the requested number of iterations, process them."""
