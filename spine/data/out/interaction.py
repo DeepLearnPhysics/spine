@@ -15,7 +15,8 @@ from .base import RecoBase, TruthBase
 
 __all__ = ['RecoInteraction', 'TruthInteraction']
 
-
+#FIXME: Unable to use flash_ids and flash_times as variable-length attributes when using
+#       save post processor
 @dataclass(eq=False)
 class InteractionBase:
     """Base interaction-specific information.
@@ -38,16 +39,18 @@ class InteractionBase:
         Whether this interaction vertex is inside the fiducial volume
     is_flash_matched : bool
         True if the interaction was matched to an optical flash
-    flash_id : int
-        Index of the optical flash the interaction was matched to
-    flash_time : float
-        Time at which the flash occurred in nanoseconds
+    flash_ids : np.ndarray
+        (V) Indices of the optical flash the interaction was matched to, one per volume
+    flash_times : np.ndarray
+        (V) Time at which the flash occurred in nanoseconds, one per volume    
     flash_total_pe : float
         Total number of photoelectrons associated with the flash
     flash_hypo_pe : float
         Total number of photoelectrons expected to be produced by the interaction
     topology : str
         String representing the interaction topology
+    module_ids : np.ndarray
+        (M) Indices of the modules that the interaction originates from
     """
     particles: List[object] = None
     particle_ids: np.ndarray = None
@@ -57,16 +60,20 @@ class InteractionBase:
     vertex: np.ndarray = None
     is_fiducial: bool = False
     is_flash_matched: bool = False
-    flash_id: int = -1
-    flash_time: float = -np.inf
+    flash_ids: np.ndarray = None
+    flash_id: int = -1 #temporary - would like to delete
+    flash_times: np.ndarray = None
+    flash_time: float = -1. #temporary - would like to delete
     flash_total_pe: float = -1.
     flash_hypo_pe: float = -1.
     topology: str = None
+    module_ids: np.ndarray = None
 
     # Fixed-length attributes
     _fixed_length_attrs = {
             'vertex': 3, 'particle_counts': len(PID_LABELS) - 1,
-            'primary_particle_counts': len(PID_LABELS) - 1
+            'primary_particle_counts': len(PID_LABELS) - 1,
+            'flash_ids': 2, 'flash_times': 2, 'module_ids': 2 #FIXME: Change to variable length based on number of modules
     }
 
     # Variable-length attributes as (key, dtype) pairs
