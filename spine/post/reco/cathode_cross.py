@@ -253,23 +253,11 @@ class CathodeCrosserProcessor(PostBase):
         points_attr = 'points' if not truth else self.truth_point_mode
         points_key = 'points' if not truth else self.truth_point_key
         particles = data[part_key]
-        closest_attr = [None, None]
         if idx_j is not None:
             # Merge particles
             int_id_i = particles[idx_i].interaction_id
             int_id_j = particles[idx_j].interaction_id
             particles[idx_i].merge(particles.pop(idx_j))
-
-            # Assign start and end point to a specific TPC
-            for attr in ('start_point', 'end_point'):
-                key_point = getattr(particles[idx_i], attr)
-                points = self.get_points(particles[idx_i])
-                argmin = np.argmin(cdist(key_point[None, :], points))
-                sources = self.get_sources(particles[idx_i])
-                tpc_id = self.geo.get_contributors(sources[argmin][None, :])[1]
-                closest_attr[tpc_id[0]] = attr
-
-            assert np.all([val is not None for val in closest_attr])
 
             # Update the particle IDs and interaction IDs
             assert idx_j > idx_i
@@ -277,6 +265,18 @@ class CathodeCrosserProcessor(PostBase):
                 p.id = i
                 if p.interaction_id == int_id_j:
                     p.interaction_id = int_id_i
+
+        # Assign start and end point to a specific TPC
+        closest_attr = [None, None]
+        for attr in ('start_point', 'end_point'):
+            key_point = getattr(particles[idx_i], attr)
+            points = self.get_points(particles[idx_i])
+            argmin = np.argmin(cdist(key_point[None, :], points))
+            sources = self.get_sources(particles[idx_i])
+            tpc_id = self.geo.get_contributors(sources[argmin][None, :])[1]
+            closest_attr[tpc_id[0]] = attr
+
+        assert np.all([val is not None for val in closest_attr])
 
         # Get TPCs that contributed to this particle
         particle = particles[idx_i]
