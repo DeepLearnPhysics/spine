@@ -1,0 +1,327 @@
+OpDet6: [-213.4,-175,27.8742] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet7: [213.4,-175,27.8742] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet8: [-213.4,-95,27.8742] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet9: [213.4,-95,27.8742] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet10: [-213.4,-40,27.8742] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet11: [213.4,-40,27.8742] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet12: [-213.4,40,27.8742] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet13: [213.4,40,27.8742] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet14: [-213.4,95,27.8742] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet15: [213.4,95,27.8742] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet16: [-213.4,175,27.8742] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet17: [213.4,175,27.8742] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet36: [-213.4,-135,57.8742] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet37: [213.4,-135,57.8742] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet38: [-213.4,0,57.8742] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet39: [213.4,0,57.8742] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet40: [-213.4,135,57.8742] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet41: [213.4,135,57.8742] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet60: [-213.4,-175,87.8742] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet61: [213.4,-175,87.8742] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet62: [-213.4,-95,87.8742] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet63: [213.4,-95,87.8742] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet64: [-213.4,-40,87.8742] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet65: [213.4,-40,87.8742] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet66: [-213.4,40,87.8742] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet67: [213.4,40,87.8742] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet68: [-213.4,95,87.8742] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet69: [213.4,95,87.8742] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet70: [-213.4,175,87.8742] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet71: [213.4,175,87.8742] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet84: [-213.4,-175,161.158] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet85: [213.4,-175,161.158] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet86: [-213.4,-95,161.158] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet87: [213.4,-95,161.158] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet88: [-213.4,-40,161.158] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet89: [213.4,-40,161.158] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet90: [-213.4,40,161.158] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet91: [213.4,40,161.158] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet92: [-213.4,95,161.158] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet93: [213.4,95,161.158] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet94: [-213.4,175,161.158] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet95: [213.4,175,161.158] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet114: [-213.4,-135,191.158] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet115: [213.4,-135,191.158] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet116: [-213.4,0,191.158] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet117: [213.4,0,191.158] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet118: [-213.4,135,191.158] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet119: [213.4,135,191.158] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet138: [-213.4,-175,221.158] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet139: [213.4,-175,221.158] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet140: [-213.4,-95,221.158] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet141: [213.4,-95,221.158] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet142: [-213.4,-40,221.158] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet143: [213.4,-40,221.158] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet144: [-213.4,40,221.158] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet145: [213.4,40,221.158] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet146: [-213.4,95,221.158] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet147: [213.4,95,221.158] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet148: [-213.4,175,221.158] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet149: [213.4,175,221.158] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet162: [-213.4,-175,288.242] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet163: [213.4,-175,288.242] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet164: [-213.4,-95,288.242] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet165: [213.4,-95,288.242] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet166: [-213.4,-40,288.242] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet167: [213.4,-40,288.242] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet168: [-213.4,40,288.242] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet169: [213.4,40,288.242] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet170: [-213.4,95,288.242] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet171: [213.4,95,288.242] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet172: [-213.4,175,288.242] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet173: [213.4,175,288.242] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet192: [-213.4,-135,318.242] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet193: [213.4,-135,318.242] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet194: [-213.4,0,318.242] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet195: [213.4,0,318.242] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet196: [-213.4,135,318.242] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet197: [213.4,135,318.242] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet216: [-213.4,-175,348.242] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet217: [213.4,-175,348.242] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet218: [-213.4,-95,348.242] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet219: [213.4,-95,348.242] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet220: [-213.4,-40,348.242] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet221: [213.4,-40,348.242] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet222: [-213.4,40,348.242] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet223: [213.4,40,348.242] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet224: [-213.4,95,348.242] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet225: [213.4,95,348.242] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet226: [-213.4,175,348.242] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet227: [213.4,175,348.242] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet240: [-213.4,-175,421.526] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet241: [213.4,-175,421.526] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet242: [-213.4,-95,421.526] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet243: [213.4,-95,421.526] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet244: [-213.4,-40,421.526] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet245: [213.4,-40,421.526] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet246: [-213.4,40,421.526] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet247: [213.4,40,421.526] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet248: [-213.4,95,421.526] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet249: [213.4,95,421.526] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet250: [-213.4,175,421.526] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet251: [213.4,175,421.526] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet270: [-213.4,-135,451.526] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet271: [213.4,-135,451.526] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet272: [-213.4,0,451.526] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet273: [213.4,0,451.526] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet274: [-213.4,135,451.526] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet275: [213.4,135,451.526] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet294: [-213.4,-175,481.526] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet295: [213.4,-175,481.526] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet296: [-213.4,-95,481.526] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet297: [213.4,-95,481.526] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet298: [-213.4,-40,481.526] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet299: [213.4,-40,481.526] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet300: [-213.4,40,481.526] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet301: [213.4,40,481.526] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet302: [-213.4,95,481.526] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet303: [213.4,95,481.526] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet304: [-213.4,175,481.526] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet305: [213.4,175,481.526] # cm, hemispherical with external radius 10.16 cm, theta[z] #: 1.5708 rad
+OpDet0: [-213.75,-135,20.2542] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet1: [213.75,-135,20.2542] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet2: [-213.75,0,20.2542] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet3: [213.75,0,20.2542] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet4: [-213.75,135,20.2542] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet5: [213.75,135,20.2542] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet18: [-213.75,-135,35.4942] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: -nan rad
+OpDet19: [213.75,-135,35.4942] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet20: [-213.75,0,35.4942] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: -nan rad
+OpDet21: [213.75,0,35.4942] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet22: [-213.75,135,35.4942] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: -nan rad
+OpDet23: [213.75,135,35.4942] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet24: [-213.75,-175,50.2542] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: -nan rad
+OpDet25: [213.75,-175,50.2542] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: -nan rad
+OpDet26: [-213.75,-95,50.2542] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: -nan rad
+OpDet27: [213.75,-95,50.2542] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: -nan rad
+OpDet28: [-213.75,-40,50.2542] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: -nan rad
+OpDet29: [213.75,-40,50.2542] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: -nan rad
+OpDet30: [-213.75,40,50.2542] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: -nan rad
+OpDet31: [213.75,40,50.2542] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: -nan rad
+OpDet32: [-213.75,95,50.2542] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: -nan rad
+OpDet33: [213.75,95,50.2542] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: -nan rad
+OpDet34: [-213.75,175,50.2542] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: -nan rad
+OpDet35: [213.75,175,50.2542] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: -nan rad
+OpDet42: [-213.75,-175,65.4942] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: -nan rad
+OpDet43: [213.75,-175,65.4942] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: -nan rad
+OpDet44: [-213.75,-95,65.4942] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: -nan rad
+OpDet45: [213.75,-95,65.4942] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: -nan rad
+OpDet46: [-213.75,-40,65.4942] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: -nan rad
+OpDet47: [213.75,-40,65.4942] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: -nan rad
+OpDet48: [-213.75,40,65.4942] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: -nan rad
+OpDet49: [213.75,40,65.4942] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: -nan rad
+OpDet50: [-213.75,95,65.4942] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: -nan rad
+OpDet51: [213.75,95,65.4942] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: -nan rad
+OpDet52: [-213.75,175,65.4942] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: -nan rad
+OpDet53: [213.75,175,65.4942] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: -nan rad
+OpDet54: [-213.75,-135,80.2542] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: -nan rad
+OpDet55: [213.75,-135,80.2542] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: -nan rad
+OpDet56: [-213.75,0,80.2542] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: -nan rad
+OpDet57: [213.75,0,80.2542] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: -nan rad
+OpDet58: [-213.75,135,80.2542] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: -nan rad
+OpDet59: [213.75,135,80.2542] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: -nan rad
+OpDet72: [-213.75,-135,95.4942] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: -nan rad
+OpDet73: [213.75,-135,95.4942] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: -nan rad
+OpDet74: [-213.75,0,95.4942] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: -nan rad
+OpDet75: [213.75,0,95.4942] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: -nan rad
+OpDet76: [-213.75,135,95.4942] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: -nan rad
+OpDet77: [213.75,135,95.4942] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: -nan rad
+OpDet78: [-213.75,-135,153.538] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet79: [213.75,-135,153.538] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet80: [-213.75,0,153.538] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet81: [213.75,0,153.538] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet82: [-213.75,135,153.538] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet83: [213.75,135,153.538] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet96: [-213.75,-135,168.778] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet97: [213.75,-135,168.778] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet98: [-213.75,0,168.778] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet99: [213.75,0,168.778] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet100: [-213.75,135,168.778] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet101: [213.75,135,168.778] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet102: [-213.75,-175,183.538] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet103: [213.75,-175,183.538] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet104: [-213.75,-95,183.538] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet105: [213.75,-95,183.538] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet106: [-213.75,-40,183.538] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet107: [213.75,-40,183.538] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet108: [-213.75,40,183.538] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet109: [213.75,40,183.538] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet110: [-213.75,95,183.538] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet111: [213.75,95,183.538] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet112: [-213.75,175,183.538] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet113: [213.75,175,183.538] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet120: [-213.75,-175,198.778] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet121: [213.75,-175,198.778] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet122: [-213.75,-95,198.778] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet123: [213.75,-95,198.778] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet124: [-213.75,-40,198.778] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet125: [213.75,-40,198.778] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet126: [-213.75,40,198.778] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet127: [213.75,40,198.778] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet128: [-213.75,95,198.778] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet129: [213.75,95,198.778] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet130: [-213.75,175,198.778] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet131: [213.75,175,198.778] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet132: [-213.75,-135,213.538] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet133: [213.75,-135,213.538] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet134: [-213.75,0,213.538] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet135: [213.75,0,213.538] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet136: [-213.75,135,213.538] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet137: [213.75,135,213.538] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet150: [-213.75,-135,228.778] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet151: [213.75,-135,228.778] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet152: [-213.75,0,228.778] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet153: [213.75,0,228.778] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet154: [-213.75,135,228.778] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet155: [213.75,135,228.778] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet156: [-213.75,-135,280.622] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet157: [213.75,-135,280.622] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet158: [-213.75,0,280.622] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet159: [213.75,0,280.622] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet160: [-213.75,135,280.622] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet161: [213.75,135,280.622] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet174: [-213.75,-135,295.862] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet175: [213.75,-135,295.862] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet176: [-213.75,0,295.862] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet177: [213.75,0,295.862] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet178: [-213.75,135,295.862] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet179: [213.75,135,295.862] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet180: [-213.75,-175,310.622] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet181: [213.75,-175,310.622] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet182: [-213.75,-95,310.622] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet183: [213.75,-95,310.622] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet184: [-213.75,-40,310.622] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet185: [213.75,-40,310.622] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet186: [-213.75,40,310.622] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet187: [213.75,40,310.622] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet188: [-213.75,95,310.622] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet189: [213.75,95,310.622] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet190: [-213.75,175,310.622] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet191: [213.75,175,310.622] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet198: [-213.75,-175,325.862] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet199: [213.75,-175,325.862] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet200: [-213.75,-95,325.862] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet201: [213.75,-95,325.862] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet202: [-213.75,-40,325.862] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet203: [213.75,-40,325.862] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet204: [-213.75,40,325.862] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet205: [213.75,40,325.862] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet206: [-213.75,95,325.862] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet207: [213.75,95,325.862] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet208: [-213.75,175,325.862] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet209: [213.75,175,325.862] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet210: [-213.75,-135,340.622] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet211: [213.75,-135,340.622] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet212: [-213.75,0,340.622] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet213: [213.75,0,340.622] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet214: [-213.75,135,340.622] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet215: [213.75,135,340.622] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet228: [-213.75,-135,355.862] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet229: [213.75,-135,355.862] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet230: [-213.75,0,355.862] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet231: [213.75,0,355.862] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet232: [-213.75,135,355.862] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet233: [213.75,135,355.862] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet234: [-213.75,-135,413.906] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet235: [213.75,-135,413.906] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet236: [-213.75,0,413.906] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet237: [213.75,0,413.906] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet238: [-213.75,135,413.906] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet239: [213.75,135,413.906] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet252: [-213.75,-135,429.146] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet253: [213.75,-135,429.146] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet254: [-213.75,0,429.146] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet255: [213.75,0,429.146] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet256: [-213.75,135,429.146] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet257: [213.75,135,429.146] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet258: [-213.75,-175,443.906] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet259: [213.75,-175,443.906] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet260: [-213.75,-95,443.906] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet261: [213.75,-95,443.906] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet262: [-213.75,-40,443.906] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet263: [213.75,-40,443.906] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet264: [-213.75,40,443.906] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet265: [213.75,40,443.906] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet266: [-213.75,95,443.906] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet267: [213.75,95,443.906] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet268: [-213.75,175,443.906] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet269: [213.75,175,443.906] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet276: [-213.75,-175,459.146] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet277: [213.75,-175,459.146] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet278: [-213.75,-95,459.146] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet279: [213.75,-95,459.146] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet280: [-213.75,-40,459.146] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet281: [213.75,-40,459.146] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet282: [-213.75,40,459.146] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet283: [213.75,40,459.146] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet284: [-213.75,95,459.146] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet285: [213.75,95,459.146] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet286: [-213.75,175,459.146] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet287: [213.75,175,459.146] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet288: [-213.75,-135,473.906] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet289: [213.75,-135,473.906] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet290: [-213.75,0,473.906] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet291: [213.75,0,473.906] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet292: [-213.75,135,473.906] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet293: [213.75,135,473.906] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet306: [-213.75,-135,489.146] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet307: [213.75,-135,489.146] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet308: [-213.75,0,489.146] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet309: [213.75,0,489.146] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet310: [-213.75,135,489.146] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+OpDet311: [213.75,135,489.146] # cm, bar size 0.2 x 20.6 x 7.6 cm, theta[z] #: nan rad
+
+SphericalIDs: [6,7,8,9,10,11,12,13,14,15,16,17,36,37,38,39,40,41,60,61,62,63,64,65,66,67,68,69,70,71,84,85
+    ,86,87,88,89,90,91,92,93,94,95,114,115,116,117,118,119,138,139,140,141,142,143,144,145,146,147,148,149,162
+    ,163,164,165,166,167,168,169,170,171,172,173,192,193,194,195,196,197,216,217,218,219,220,221,222,223,224
+    ,225,226,227,240,241,242,243,244,245,246,247,248,249,250,251,270,271,272,273,274,275,294,295,296,297,298,299
+    ,300,301,302,303,304,305]
+RectangularIDs: [
+    0,1,2,3,4,5,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,42,43,44,45,46,47,48,49,50,51,52,53,54
+    ,55,56,57,58,59,72,73,74,75,76,77,78,79,80,81,82,83,96,97,98,99,100,101,102,103,104,105,106,107,108,109
+    ,110,111,112,113,120,121,122,123,124,125,126,127,128,129,130,131,132,133,134,135,136,137,150,151,152,153
+    ,154,155,156,157,158,159,160,161,174,175,176,177,178,179,180,181,182,183,184,185,186,187,188,189,190,191
+    ,198,199,200,201,202,203,204,205,206,207,208,209,210,211,212,213,214,215,228,229,230,231,232,233,234,235
+    ,236,237,238,239,252,253,254,255,256,257,258,259,260,261,262,263,264,265,266,267,268,269,276,277,278,279
+    ,280,281,282,283,284,285,286,287,288,289,290,291,292,293,306,307,308,309,310,311
+]

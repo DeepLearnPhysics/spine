@@ -7,15 +7,15 @@ from plotly import graph_objs as go
 
 from spine.utils.globals import COORD_COLS, PID_LABELS, SHAPE_LABELS, TRACK_SHP
 
+from .geo import GeoDrawer
 from .point import scatter_points
 from .cluster import scatter_clusters
-from .detector import detector_traces
 from .layout import (
         layout3d, dual_figure3d, PLOTLY_COLORS_WGRAY, HIGH_CONTRAST_COLORS)
 
 
 class Drawer:
-    """Class dedicated to drawing the true/reconstructed output.
+    """Handles drawing the true/reconstructed output.
 
     This class is given the entire input/output dictionary from one entry and
     provides functions to represent the output.
@@ -29,7 +29,7 @@ class Drawer:
     # List of known point modes
     _point_modes = ('points', 'points_adapt', 'points_g4')
 
-    # Map between attribute and underlying point objects
+    # Map between point attributes and underlying point objects
     _point_map = {'points': 'points_label', 'points_adapt': 'points', 
                   'points_g4': 'points_g4'}
 
@@ -85,21 +85,22 @@ class Drawer:
         self.truth_point_mode = truth_point_mode
         self.truth_index_mode = truth_point_mode.replace('points', 'index')
 
-        # Save the detector properties
+        # If detector information is provided, initialie the geometry drawer
         self.meta = data.get('meta', None)
-        self.detector = detector
-        self.detector_coords = detector_coords
+        if detector is not None:
+            self.geo = GeoDrawer(
+                    detector=detector, detector_coords=detector_coords)
 
         # Initialize the layout
         self.split_scene = split_scene
         meta = self.meta if detector is None else None
         self.layout = layout3d(
-                detector=self.detector, meta=meta,
-                detector_coords=self.detector_coords, **kwargs)
+                detector=detector, meta=meta, detector_coords=detector_coords,
+                **kwargs)
 
     def get(self, obj_type, attr=None, draw_end_points=False,
-            draw_vertices=False, synchronize=False, titles=None,
-            split_traces=False):
+            draw_vertices=False, draw_flashes=False, synchronize=False,
+            titles=None, split_traces=False):
         """Draw the requested object type with the requested mode.
 
         Parameters
@@ -113,6 +114,8 @@ class Drawer:
             If `True`, draw the fragment or particle end points
         draw_vertices : bool, default False
             If `True`, draw the interaction vertices
+        draw_flashes : bool, default False
+            If `True`, draw flashes that have been matched to interactions
         synchronize : bool, default False
             If `True`, matches the camera position/angle of one plot to the other
         titles : List[str], optional
@@ -148,7 +151,7 @@ class Drawer:
                 traces[prefix] += self._start_point_trace(obj_name)
                 traces[prefix] += self._end_point_trace(obj_name)
 
-        # Fetch the vertex, if requested
+        # Fetch the vertices, if requested
         if draw_vertices:
             for prefix in self.prefixes:
                 obj_name = f'{prefix}_interactions'
@@ -156,17 +159,24 @@ class Drawer:
                         "Must provide interactions to draw their vertices.")
                 traces[prefix] += self._vertex_trace(obj_name)
 
-        # Add the detector traces, if available
-        if self.detector is not None:
+        # Fetch the flashes, if requested
+        if draw_flashes:
+            assert 'flashes' in self.data, (
+                    "Must provide flash objects to draw them.")
+            for prefix in self.prefixes:
+                obj_name = f'{prefix}_interactions'
+                assert obj_name in self.data, (
+                        "Must provide interactions to draw their vertices.")
+
+            raise NotImplementedError
+
+        # Add the TPC traces, if available
+        if self.geo is not None:
             if len(self.prefixes) and self.split_scene:
                 for prefix in self.prefixes:
-                    traces[prefix] += detector_traces(
-                        detector=self.detector, meta=self.meta,
-                        detector_coords=self.detector_coords)
+                    traces[prefix] += self.geo.tpc_traces(meta=self.meta)
             else:
-                traces[self.prefixes[-1]] += detector_traces(
-                        detector=self.detector, meta=self.meta,
-                        detector_coords=self.detector_coords)
+                traces[self.prefixes[-1]] += self.geo.tpc_traces(meta=self.meta)
 
         # Initialize the figure, return
         if len(self.prefixes) > 1 and self.split_scene:

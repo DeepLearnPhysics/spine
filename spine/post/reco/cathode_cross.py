@@ -28,8 +28,8 @@ class CathodeCrosserProcessor(PostBase):
 
     def __init__(self, crossing_point_tolerance, offset_tolerance,
                  angle_tolerance, adjust_crossers=True, merge_crossers=True,
-                 detector=None, boundary_file=None, source_file=None,
-                 run_mode='reco', truth_point_mode='points'):
+                 detector=None, geometry_file=None, run_mode='reco',
+                 truth_point_mode='points'):
         """Initialize the cathode crosser finder algorithm.
 
         Parameters
@@ -51,17 +51,15 @@ class CathodeCrosserProcessor(PostBase):
             and merge them into one particle
         detector : str, optional
             Detector to get the geometry from
-        boundary_file : str, optional
-            Path to a detector boundary file. Supersedes `detector` if set
-        source_file : str, optional
-            Path to a detector source file. Supersedes `detector` if set
+        geometry_file : str, optional
+            Path to a `.yaml` geometry file to load the geometry from
         """
         # Initialize the parent class
         super().__init__(
                 ['particle', 'interaction'], run_mode, truth_point_mode)
 
         # Initialize the geometry
-        self.geo = Geometry(detector, boundary_file, source_file)
+        self.geo = Geometry(detector, geometry_file)
 
         # Store the matching parameters
         self.crossing_point_tolerance = crossing_point_tolerance
@@ -142,7 +140,8 @@ class CathodeCrosserProcessor(PostBase):
                     continue
 
                 # Get the cathode position, drift axis and cathode plane axes
-                daxis, cpos = self.geo.cathodes[modules_i[0]]
+                daxis = self.geo.tpc[modules_i[0]].drift_axis
+                cpos = self.geo.tpc[modules_i[0]].cathode_pos
                 caxes = np.array([i for i in range(3) if i != daxis])
 
                 # Store the distance of the particle to the cathode
@@ -291,7 +290,8 @@ class CathodeCrosserProcessor(PostBase):
 
         # Get the cathode position
         m = modules[0]
-        daxis, cpos = self.geo.cathodes[m]
+        daxis = self.geo.tpc[m].drift_axis
+        cpos = self.geo.tpc[m].cathode_pos
 
         # Loop over contributing TPCs, shift the points in each independently
         offsets, global_offset = self.get_cathode_offsets(
@@ -300,7 +300,7 @@ class CathodeCrosserProcessor(PostBase):
             # Move each of the sister particles by the same amount
             for sister in sisters:
                 # Find the index corresponding to the sister particle
-                tpc_index = self.geo.get_tpc_index(
+                tpc_index = self.geo.get_volume_index(
                         self.get_sources(sister), m, t)
                 index = self.get_index(sister)[tpc_index]
                 if not len(index):
@@ -377,28 +377,29 @@ class CathodeCrosserProcessor(PostBase):
             General offset for this particle (proxy of out-of-time displacement)
         """
         # Get the cathode position
-        daxis, cpos = self.geo.cathodes[module]
+        daxis = self.geo.tpc[module].drift_axis
+        cpos = self.geo.tpc[module].cathode_pos
         dvector = (np.arange(3) == daxis).astype(float)
 
         # Check which side of the cathode each TPC lives
         flip = (-1) ** (
-                self.geo.boundaries[module, tpcs[0], daxis].mean()
-                > self.geo.boundaries[module, tpcs[1], daxis].mean())
+                self.geo.tpc[module, tpcs[0]].boundaries[daxis].mean()
+                > self.geo.tpc[module, tpcs[1].boundaries[daxis].mean())
 
         # Loop over the contributing TPCs
         closest_points = np.empty((2, 3))
         offsets = np.empty(2)
         for i, t in enumerate(tpcs):
             # Get the end points of the track segment
-            index  = self.geo.get_tpc_index(
+            index  = self.geo.get_volume_index(
                     self.get_sources(particle), module, t)
             points = self.get_points(particle)[index]
             idx0, idx1, _ = farthest_pair(points, 'recursive')
             end_points = points[[idx0, idx1]]
 
             # Find the point closest to the cathode
-            tpc_offset = self.geo.get_min_tpc_offset(end_points,
-                    module, t)[daxis]
+            tpc_offset = self.geo.get_min_tpc_offset(
+                end_points, module, t)[daxis]
             cdists = end_points[:, daxis] - tpc_offset - cpos
             argmin = np.argmin(np.abs(cdists))
             closest_points[i] = end_points[argmin]

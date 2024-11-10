@@ -40,9 +40,9 @@ class CalibrationManager:
 
             # Add necessary geometry information
             if key != 'recombination':
-                value['num_tpcs'] = self.geo.num_tpcs
+                value['num_tpcs'] = self.geo.tpc.num_tpcs
             else:
-                value['drift_dir'] = self.geo.drift_dirs[0, 0]
+                value['drift_dir'] = self.geo.tpc[0, 0].drift_dir
 
             # Append
             self.modules[key] = calibrator_factory(key, value)

@@ -2,7 +2,6 @@
 
 import numpy as np
 
-from spine.utils.geo import Geometry
 from spine.utils.numba_local import cdist
 
 
@@ -16,8 +15,7 @@ class BarycenterFlashMatcher:
 
     def __init__(self, match_method='threshold', dimensions=[1, 2],
                  charge_weighted=False, time_window=None, first_flash_only=False,
-                 min_inter_size=None, min_flash_pe=None, match_distance=None,
-                 detector=None, boundary_file=None, source_file=None):
+                 min_inter_size=None, min_flash_pe=None, match_distance=None):
         """Initalize the barycenter flash matcher.
 
         Parameters
@@ -40,15 +38,7 @@ class BarycenterFlashMatcher:
             Minimum number of total PE in a flash to consider it
         match_distance : float, optional
             If a threshold is used, specifies the acceptable distance
-        detector : str, optional
-            Detector to get the geometry from
-        boundary_file : str, optional
-            Path to a detector boundary file. Supersedes `detector` if set
         """
-        self.geo = None
-        if detector is not None or boundary_file is not None:
-            self.geo = Geometry(detector, boundary_file, source_file)
-
         # Store the flash matching parameters
         self.match_method     = match_method
         self.dims             = dimensions
