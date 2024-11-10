@@ -52,6 +52,17 @@ class Chamber(Box):
         self.drift_axis = nonzero_axes[0]
 
     @property
+    def drift_sign(self):
+        """Sign of drift w.r.t. to the drift axis orientation.
+
+        Returns
+        -------
+        int
+            Returns the sign of the drift vector w.r.t. to the drift axis
+        """
+        return int(self.drift_dir[self.drift_axis])
+
+    @property
     def anode_side(self):
         """Returns whether the anode is on the lower or upper boundary of
         the TPC along the drift axis (0 for lower, 1 for upper).
@@ -96,17 +107,6 @@ class Chamber(Box):
             Cathode position along the drift direction
         """
         return self.boundaries[self.drift_axis, self.cathode_side]
-
-    @property
-    def drift_sign(self):
-        """Sign of drift w.r.t. to the drift axis orientation.
-
-        Returns
-        -------
-        int
-            Returns the sign of the drift vector w.r.t. to the drift axis
-        """
-        return self.drift_dir[self.drift_axis]
 
 
 @dataclass
@@ -390,7 +390,7 @@ class TPCDetector(Box):
             Module or Chamber object
         """
         if isinstance(idx, int):
-            return self.modules[module_id]
+            return self.modules[idx]
 
         else:
             module_id, chamber_id = idx

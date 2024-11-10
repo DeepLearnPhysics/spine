@@ -271,7 +271,7 @@ class Geometry:
             List of index of points that belong to each TPC
         """
         # Start by finding the closest TPC to each of the points
-        closest_ids = get_closest_tpc(points)
+        closest_ids = self.get_closest_tpc(points)
 
         # For each TPC, append the list of point indices associated with it
         tpc_indexes = []
@@ -295,11 +295,11 @@ class Geometry:
             List of index of points that belong to each module
         """
         # Start by finding the closest TPC to each of the points
-        closest_ids = get_closest_module(points)
+        closest_ids = self.get_closest_module(points)
 
         # For each module, append the list of point indices associated with it
         module_indexes = []
-        for m in range(self.num_modules):
+        for m in range(self.tpc.num_modules):
             module_indexes.append(np.where(closest_ids == m)[0])
 
         return module_indexes

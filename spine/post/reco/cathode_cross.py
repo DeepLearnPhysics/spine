@@ -384,7 +384,7 @@ class CathodeCrosserProcessor(PostBase):
         # Check which side of the cathode each TPC lives
         flip = (-1) ** (
                 self.geo.tpc[module, tpcs[0]].boundaries[daxis].mean()
-                > self.geo.tpc[module, tpcs[1].boundaries[daxis].mean())
+                > self.geo.tpc[module, tpcs[1]].boundaries[daxis].mean())
 
         # Loop over the contributing TPCs
         closest_points = np.empty((2, 3))

@@ -111,7 +111,7 @@ class LifetimeCalibrator:
         drifts = np.abs(points[:, daxis] - position)
 
         # Clip down to the physical range of possible drift distances
-        max_drift = geo[m, t].dimensions[daxis]
+        max_drift = geo.tpc[m, t].dimensions[daxis]
         drifts = np.clip(drifts, 0., max_drift)
 
         # Convert the drift distances to correction factors
