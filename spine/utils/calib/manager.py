@@ -40,9 +40,9 @@ class CalibrationManager:
 
             # Add necessary geometry information
             if key != 'recombination':
-                value['num_tpcs'] = self.geo.num_tpcs
+                value['num_tpcs'] = self.geo.tpc.num_chambers
             else:
-                value['drift_dir'] = self.geo.drift_dirs[0, 0]
+                value['drift_dir'] = self.geo.tpc[0, 0].drift_dir
 
             # Append
             self.modules[key] = calibrator_factory(key, value)
@@ -78,12 +78,13 @@ class CalibrationManager:
         # Create a mask for each of the TPC volume in the detector
         if sources is not None:
             tpc_indexes = []
-            for t in range(self.geo.num_tpcs):
-                # Get the set of points associated with this TPC
-                module_id = t//self.geo.num_tpcs_per_module
-                tpc_id = t%self.geo.num_tpcs_per_module
-                tpc_index = self.geo.get_tpc_index(sources, module_id, tpc_id)
-                tpc_indexes.append(tpc_index)
+            for module_id in range(self.geo.tpc.num_modules):
+                for tpc_id in range(self.geo.tpc.num_chambers_per_module):
+                    # Get the set of points associated with this TPC
+                    tpc_index = self.geo.get_volume_index(
+                            sources, module_id, tpc_id)
+                    tpc_indexes.append(tpc_index)
+
         else:
             assert points is not None, (
                     "If sources are not given, must provide points instead.")
@@ -91,7 +92,7 @@ class CalibrationManager:
 
         # Loop over the TPCs, apply the relevant calibration corrections
         new_values = np.copy(values)
-        for t in range(self.geo.num_tpcs):
+        for t in range(self.geo.tpc.num_chambers):
             # Restrict to the TPC of interest
             if len(tpc_indexes[t]) == 0:
                 continue
@@ -103,15 +104,15 @@ class CalibrationManager:
                 assert run_id is not None, (
                         "Must provide a run ID to get the transparency map.")
                 self.watch.start('transparency')
-                tpc_values = self.modules['transparency'].process(tpc_points,
-                        tpc_values, t, run_id) # ADC
+                tpc_values = self.modules['transparency'].process(
+                        tpc_points, tpc_values, t, run_id) # ADC
                 self.watch.stop('transparency')
 
             # Apply the lifetime correction
             if 'lifetime' in self.modules:
                 self.watch.start('lifetime')
-                tpc_values = self.modules['lifetime'].process(tpc_points,
-                        tpc_values, self.geo, t, run_id) # ADC
+                tpc_values = self.modules['lifetime'].process(
+                        tpc_points, tpc_values, self.geo, t, run_id) # ADC
                 self.watch.stop('lifetime')
 
             # Apply the gain correction
@@ -123,8 +124,8 @@ class CalibrationManager:
             # Apply the recombination
             if 'recombination' in self.modules:
                 self.watch.start('recombination')
-                tpc_values = self.modules['recombination'].process(tpc_values,
-                        tpc_points, dedx, track) # MeV
+                tpc_values = self.modules['recombination'].process(
+                        tpc_values, tpc_points, dedx, track) # MeV
                 self.watch.stop('recombination')
 
             # Append

@@ -71,10 +71,10 @@ SHAPE_LABELS = {
 }
 
 # Invalid larcv.Particle labels
-OLD_INVAL_ID = 65535               # larcv.kINVALID_INSTANCEID, before LArCV2 v2.2.0
-INVAL_ID     = 9223372036854775807 # larcv.kINVALID_INSTANCEID
-INVAL_TID    = 4294967295          # larcv.kINVALID_UINT
-INVAL_PDG    = 0                   # Invalid particle PDG code
+INVAL_IDX = 65535               # larcv.kINVALID_INDEX, or INVAL_ID before LArCV2 v2.2.0
+INVAL_ID  = 9223372036854775807 # larcv.kINVALID_INSTANCEID
+INVAL_TID = 4294967295          # larcv.kINVALID_UINT
+INVAL_PDG = 0                   # Invalid particle PDG code
 
 # Particle ID of each recognized particle species
 PHOT_PID = 0

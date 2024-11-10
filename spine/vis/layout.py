@@ -11,7 +11,7 @@ import seaborn as sns
 
 from spine.utils.geo import Geometry
 
-
+# Colorscale definitions
 PLOTLY_COLORS = colors.qualitative.Plotly
 PLOTLY_COLORS_TUPLE = colors.convert_colors_to_same_type(
         deepcopy(PLOTLY_COLORS), 'tuple')[0]
@@ -105,8 +105,8 @@ def layout3d(ranges=None, meta=None, detector=None, titles=None,
         assert (ranges is None or None in ranges) and meta is None, (
                 "Should not specify `detector` along with `ranges` or `meta`.")
         geo = Geometry(detector)
-        lengths = geo.detector[:,1] - geo.detector[:,0]
-        ranges = geo.detector
+        lengths = geo.tpc.dimensions
+        ranges = geo.tpc.boundaries
 
         # Add some padding
         ranges[:,0] -= lengths*0.1

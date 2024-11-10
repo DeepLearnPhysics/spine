@@ -145,12 +145,17 @@ def scatter_clusters(points, clusts, color=None, hovertext=None,
 
     # If cmin/cmax are not provided, must build them so that all clusters
     # share the same colorscale range (not guaranteed otherwise)
-    if color is not None and len(color) and cmin is None or cmax is None:
-        if np.isscalar(color[0]):
-            cmin, cmax = np.min(color), np.max(color)
-        else:
-            cmin = np.min(np.concatenate(color))
-            cmax = np.max(np.concatenate(color))
+    if color is not None and not np.isscalar(color) and len(color) > 0:
+        if cmin is None:
+            if np.isscalar(color[0]):
+                cmin= np.min(color)
+            else:
+                cmin = np.min(np.concatenate(color))
+        if cmax is None:
+            if np.isscalar(color[0]):
+                cmax = np.min(color)
+            else:
+                cmax = np.min(np.concatenate(color))
 
     # Loop over the list of clusters
     traces = []

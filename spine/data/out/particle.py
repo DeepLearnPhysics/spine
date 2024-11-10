@@ -196,11 +196,19 @@ class RecoParticle(ParticleBase, RecoBase):
         (M) List of indexes of PPN points associated with this particle
     ppn_points : np.ndarray
         (M, 3) List of PPN points tagged to this particle
+    vertex_distance: float
+        Set-to-point distance between all particle points and the parent
+        interaction vertex. (untis of cm)
+    shower_split_angle: float
+        Estimate of the opening angle of the shower. If particle is not a
+        shower, then this is set to -1. (units of degrees)
     """
     pid_scores: np.ndarray = None
     primary_scores: np.ndarray = None
     ppn_ids: np.ndarray = None
     ppn_points: np.ndarray = None
+    vertex_distance: float = -1.
+    shower_split_angle: float = -1.
 
     # Fixed-length attributes
     _fixed_length_attrs = {

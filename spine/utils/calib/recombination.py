@@ -56,6 +56,7 @@ class RecombinationCalibrator:
             self.model = 'birks'
             self.a = birks_a
             self.k = birks_k/efield/LAR_DENSITY # cm/MeV
+
         elif model in ['mbox', 'mbox_ell']:
             self.model = 'mbox'
             self.alpha = mbox_alpha
@@ -64,6 +65,7 @@ class RecombinationCalibrator:
             if model == 'mbox_ell':
                 self.use_angles = True
                 self.r = mbox_ell_r
+
         else:
             raise ValueError(
                     f"Recombination model not recognized: {model}. "

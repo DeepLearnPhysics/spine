@@ -8,7 +8,8 @@ from .node_class import NodeClassLoss
 
 from spine.model.layer.factories import loss_fn_factory
 
-from spine import TensorBatch, Meta
+from spine.data import TensorBatch, Meta
+
 from spine.utils.globals import PRINT_COL, VTX_COLS
 from spine.utils.geo import Geometry
 from spine.utils.gnn.cluster import get_cluster_label_batch
@@ -49,7 +50,7 @@ class NodeVertexLoss(torch.nn.Module):
     def __init__(self, balance_primary_loss=False, primary_loss='ce',
                  regression_loss='mse', only_contained=True,
                  normalize_positions=False, use_anchor_points=False,
-                 return_vertex_labels=False, detector=None, boundaries=None):
+                 return_vertex_labels=False, detector=None, geometry_file=None):
         """Initialize the vertex regression loss function.
 
         Parameters
@@ -70,8 +71,8 @@ class NodeVertexLoss(torch.nn.Module):
             If `True`, return the list vertex labels (one per particle)
         detector : str, optional
             Name of a recognized detector to the geometry from
-        boundaries : str, optional
-            Path to a `.npy` boundary file to load the boundaries from
+        geometry_file : str, optional
+            Path to a `.yaml` geometry file to load the geometry from
         """
         # Initialize the parent class
         super().__init__()
@@ -94,7 +95,7 @@ class NodeVertexLoss(torch.nn.Module):
 
         # If containment is requested, intialize geometry
         if self.only_contained:
-            self.geo = Geometry(detector, boundaries)
+            self.geo = Geometry(detector, geometry_file)
             self.geo.define_containment_volumes(margin=0., mode='module')
 
     def forward(self, clust_label, clusts, node_pred, meta=None,

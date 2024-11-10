@@ -10,7 +10,7 @@ Contains the following parsers:
 """
 
 
-from spine import Meta, RunInfo, Flash, CRTHit, Trigger, ObjectList
+from spine.data import Meta, RunInfo, Flash, CRTHit, Trigger, ObjectList
 
 from spine.utils.conditional import larcv
 

@@ -11,7 +11,7 @@ class LikelihoodFlashMatcher:
     See https://github.com/drinkingkazu/OpT0Finder for more details about it.
     """
     def __init__(self, cfg, parent_path=None, reflash_merging_window=None,
-                 detector=None, boundary_file=None, scaling=1.,
+                 detector=None, geometry_file=None, scaling=1.,
                  alpha=0.21, recombination_mip=0.65,
                  truth_dep_mode='depositions'):
         """Initialize the likelihood-based flash matching algorithm.
@@ -26,8 +26,8 @@ class LikelihoodFlashMatcher:
             Maximum time between successive flashes to be considered a reflash
         detector : str, optional
             Detector to get the geometry from
-        boundary_file : str, optional
-            Path to a detector boundary file. Supersedes `detector` if set
+        geometry_file : str, optional
+            Path to a `.yaml` geometry file to load the geometry from
         scaling : Union[float, str], default 1.
             Global scaling factor for the depositions (can be an expression)
         alpha : float, default 0.21
@@ -42,7 +42,7 @@ class LikelihoodFlashMatcher:
         self.initialize_backend(cfg, parent_path)
 
         # Initialize the geometry
-        self.geo = Geometry(detector, boundary_file)
+        self.geo = Geometry(detector, geometry_file)
 
         # Get the external parameters
         self.truth_dep_mode = truth_dep_mode
@@ -156,7 +156,7 @@ class LikelihoodFlashMatcher:
         # Check that all interactions live in one module, store it
         assert len(np.unique(module_ids)) == 1, (
                 "Should only provide interactions from a single optical module.")
-        self.module_id = module_ids[0]
+        self.module_id = int(module_ids[0])
 
         # Build a list of QCluster_t (OpT0Finder interaction representation)
         self.qcluster_v = self.make_qcluster_list(interactions)

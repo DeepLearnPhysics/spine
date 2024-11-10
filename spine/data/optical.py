@@ -20,6 +20,8 @@ class Flash(PosDataBase):
     ----------
     id : int
         Index of the flash in the list
+    volume_id : int
+        Index of the optical volume in which the flahs was recorded
     time : float
         Time with respect to the trigger in microseconds
     time_width : float
@@ -46,6 +48,7 @@ class Flash(PosDataBase):
         Units in which the position coordinates are expressed
     """
     id: int = -1
+    volume_id: int = -1
     frame: int = -1
     in_beam_frame: bool = False
     on_beam_time: bool = False
@@ -93,7 +96,10 @@ class Flash(PosDataBase):
         # Get the number of PEs per optical channel
         pe_per_ch = np.array(list(flash.PEPerOpDet()), dtype=np.float32)
 
-        return cls(id=flash.id(), frame=flash.frame(),
+        # Get the volume ID, if it is filled (TODO: rename to volume_id)
+        volume_id = flash.tpc() if hasattr(flash, 'tpc') else -1
+
+        return cls(id=flash.id(), volume_id=volume_id, frame=flash.frame(),
                    in_beam_frame=flash.inBeamFrame(),
                    on_beam_time=flash.onBeamTime(), time=flash.time(),
                    time_abs=flash.absTime(), time_width=flash.timeWidth(),

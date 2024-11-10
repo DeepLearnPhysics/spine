@@ -64,7 +64,7 @@ def main(source, source_list, output):
             (set(keys_list[idx]) != set(all_keys))):
             print(f"- Bad file: {file_path}")
             out_file.write(f'{file_path}\n')
-            bad_files += file_path
+            bad_files.append(file_path)
 
     suffix = ':' if len(bad_files) > 0 else '.'
     print(f"\nFound {len(bad_files)} bad files{suffix}")

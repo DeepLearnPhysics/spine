@@ -4,7 +4,7 @@ import numpy as np
 from dataclasses import dataclass
 from copy import deepcopy
 
-from spine import TensorBatch, IndexBatch, EdgeIndexBatch, ObjectList
+from spine.data import TensorBatch, IndexBatch, EdgeIndexBatch, ObjectList
 
 from .globals import BATCH_COL
 from .geo import Geometry
@@ -33,7 +33,7 @@ class Unwrapper:
              Remove column which specifies batch ID from the unwrapped tensors
         """
         self.geo = geometry
-        self.num_volumes = self.geo.num_modules if self.geo else 1
+        self.num_volumes = self.geo.tpc.num_modules if self.geo else 1
         self.remove_batch_col = remove_batch_col
 
     def __call__(self, data):
