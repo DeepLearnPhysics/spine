@@ -86,6 +86,7 @@ class Drawer:
         self.truth_index_mode = truth_point_mode.replace('points', 'index')
 
         # If detector information is provided, initialie the geometry drawer
+        self.geo = None
         self.meta = data.get('meta', None)
         if detector is not None:
             self.geo = GeoDrawer(

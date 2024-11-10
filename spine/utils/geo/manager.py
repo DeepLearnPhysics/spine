@@ -146,6 +146,7 @@ class Geometry:
             return sources
 
         # Otherwise, map logical to physical
+        sources = np.copy(sources)
         sources[:, 1] = self.tpc.det_ids[sources[:, 1]]
 
         return sources

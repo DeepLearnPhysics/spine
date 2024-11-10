@@ -145,9 +145,9 @@ class CathodeCrosserProcessor(PostBase):
                 caxes = np.array([i for i in range(3) if i != daxis])
 
                 # Store the distance of the particle to the cathode
-                tpc_offset = self.geo.get_min_tpc_offset(
+                tpc_offset = self.geo.get_min_volume_offset(
                         end_points_i, modules_i[0], tpcs_i[0])[daxis]
-                cdists = end_points_i[:,daxis] - tpc_offset - cpos
+                cdists = end_points_i[:, daxis] - tpc_offset - cpos
 
                 # Loop over other tracks
                 j = i + 1
@@ -398,7 +398,7 @@ class CathodeCrosserProcessor(PostBase):
             end_points = points[[idx0, idx1]]
 
             # Find the point closest to the cathode
-            tpc_offset = self.geo.get_min_tpc_offset(
+            tpc_offset = self.geo.get_min_volume_offset(
                 end_points, module, t)[daxis]
             cdists = end_points[:, daxis] - tpc_offset - cpos
             argmin = np.argmin(np.abs(cdists))

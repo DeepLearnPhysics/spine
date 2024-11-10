@@ -139,7 +139,7 @@ class LikelihoodFlashMatcher:
         # Check that all interactions live in one module, store it
         assert len(np.unique(module_ids)) == 1, (
                 "Should only provide interactions from a single optical module.")
-        self.module_id = int(module_ids[0])
+        self.module_id = module_ids[0]
 
         # Build a list of QCluster_t (OpT0Finder interaction representation)
         self.qcluster_v = self.make_qcluster_list(interactions)

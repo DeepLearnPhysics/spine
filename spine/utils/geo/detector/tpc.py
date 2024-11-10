@@ -389,7 +389,7 @@ class TPCDetector(Box):
         Union[Module, Chamber]
             Module or Chamber object
         """
-        if isinstance(idx, int):
+        if np.isscalar(idx):
             return self.modules[idx]
 
         else:
