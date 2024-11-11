@@ -144,12 +144,18 @@ class RunInfoParser(ParserBase):
 class FlashParser(ParserBase):
     """Copy construct Flash and return an array of `Flash`.
 
+    This parser also takes care of flashes that have been split between their
+    respective optical volumes, provided a `flash_event_list`. This parser
+    assumes that the trees are provided in order of the volume ID they
+    correspond to.
+
     .. code-block. yaml
         schema:
-          flashes_cryoE:
+          flashes:
             parser: flash
-            flash_event: flash_cryoE
-
+            flash_event_list:
+              - flash_cryoE
+              - flash_cryoW
     """
     name = 'flash'
     aliases = ['opflash']
@@ -184,11 +190,25 @@ class FlashParser(ParserBase):
                 (flash_event_list is not None)), (
                 "Must specify either `flash_event` or `flash_event_list`")
         if flash_event is not None:
+            # If there is a single flash event, parse it as is
             flash_list = flash_event.as_vector()
+
         else:
+            # Otherwise, set the volume ID of the flash to the source index
+            # and count the flash index from 0 to the largest number
             flash_list = []
-            for flash_event in flash_event_list:
-                flash_list.extend(flash_event.as_vector())
+            idx = 0
+            for volume_id, flash_event in enumerate(flash_event_list):
+                for flash in flash_event.as_vector():
+                    # Update attributes (TODO: simplify volume_id with update)
+                    flash.id(idx)
+                    for attr in ['tpc', 'volume_id']:
+                        if hasattr(flash, attr):
+                            getattr(flash, attr)(volume_id)
+
+                    # Append, increment counter
+                    flash_list.append(flash)
+                    idx += 1
 
         # Output as a list of LArCV optical flash objects
         flashes = [Flash.from_larcv(larcv.Flash(f)) for f in flash_list]

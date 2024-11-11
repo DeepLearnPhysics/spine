@@ -1,8 +1,8 @@
+"""Module which supports likelihood-based flash matchin (OpT0Finder)."""
+
 import os, sys
 import numpy as np
 import time
-
-from spine.utils.geo import Geometry
 
 
 class LikelihoodFlashMatcher:
@@ -10,42 +10,32 @@ class LikelihoodFlashMatcher:
 
     See https://github.com/drinkingkazu/OpT0Finder for more details about it.
     """
-    def __init__(self, cfg, parent_path=None, reflash_merging_window=None,
-                 detector=None, geometry_file=None, scaling=1.,
-                 alpha=0.21, recombination_mip=0.65,
-                 truth_dep_mode='depositions'):
+    def __init__(self, cfg, detector, parent_path=None,
+                 reflash_merging_window=None, scaling=1., alpha=0.21,
+                 recombination_mip=0.65):
         """Initialize the likelihood-based flash matching algorithm.
 
         Parameters
         ----------
         cfg : str
             Flash matching configuration file path
+        detector : str, optional
+            Detector to get the geometry from
         parent_path : str, optional
             Path to the parent configuration file (allows for relative paths)
         reflash_merging_window : float, optional
             Maximum time between successive flashes to be considered a reflash
-        detector : str, optional
-            Detector to get the geometry from
-        geometry_file : str, optional
-            Path to a `.yaml` geometry file to load the geometry from
         scaling : Union[float, str], default 1.
             Global scaling factor for the depositions (can be an expression)
         alpha : float, default 0.21
             Number of excitons (Ar*) divided by number of electron-ion pairs (e-,Ar+)
         recombination_mip : float, default 0.65
             Recombination factor for MIP-like particles in LAr
-        truth_dep_mode : str, default 'depositions'
-            Attribute used to fetch deposition values for truth interactions
         """
         # Initialize the flash manager (OpT0Finder wrapper)
-        self.detector = detector
-        self.initialize_backend(cfg, parent_path)
-
-        # Initialize the geometry
-        self.geo = Geometry(detector, geometry_file)
+        self.initialize_backend(cfg, detector, parent_path)
 
         # Get the external parameters
-        self.truth_dep_mode = truth_dep_mode
         self.reflash_merging_window = reflash_merging_window
         self.scaling = scaling
         if isinstance(self.scaling, str):
@@ -55,14 +45,14 @@ class LikelihoodFlashMatcher:
             self.alpha = eval(self.alpha)
         self.recombination_mip = recombination_mip
         if isinstance(self.recombination_mip, str):
-            self.recobination_mip = eval(self.recombination_mip)
+            self.recombination_mip = eval(self.recombination_mip)
 
         # Initialize flash matching attributes
         self.matches = None
         self.qcluster_v = None
         self.flash_v = None
 
-    def initialize_backend(self, cfg, parent_path):
+    def initialize_backend(self, cfg, detector, parent_path):
         """Initialize OpT0Finder (backend).
 
         Expects that the environment variable `FMATCH_BASEDIR` is set.
@@ -74,6 +64,8 @@ class LikelihoodFlashMatcher:
         ----------
         cfg: str
             Path to config for OpT0Finder
+        detector : str, optional
+            Detector to get the geometry from
         parent_path : str, optional
             Path to the parent configuration file (allows for relative paths)
         """
@@ -96,12 +88,10 @@ class LikelihoodFlashMatcher:
 
         # Load up the detector specifications
         from flashmatch import flashmatch
-        #Find the detector configuration file
-        if self.detector is None:
+        if detector is None:
             det_cfg = os.path.join(basedir, 'dat/detector_specs.cfg')
         else:
-            det_cfg = os.path.join(basedir, f'dat/detector_specs_{self.detector}.cfg')
-        det_cfg = os.path.join(basedir, f'dat/detector_specs_sbnd.cfg')
+            det_cfg = os.path.join(basedir, f'dat/detector_specs_{detector}.cfg')
         flashmatch.DetectorSpecs.GetME(det_cfg)
 
         # Fetch and initialize the OpT0Finder configuration
@@ -140,23 +130,6 @@ class LikelihoodFlashMatcher:
         # If there is no interaction or no flashe, nothing to do
         if not len(interactions) or not len(flashes):
             return []
-
-        # Get the module ID in which all the interactions live
-        module_ids = np.empty(len(interactions), dtype=np.int64)
-        for i, inter in enumerate(interactions):
-            ids = inter.module_ids
-            assert len(ids) > 0, (
-                    "The interaction object does not contain any information "
-                    "about which optical module produced it; must be provided.")
-            assert len(ids) == 1, (
-                    "Cannot match interactions that are composed of points "
-                    "originating for more than one optical module.")
-            module_ids[i] = ids[0]
-
-        # Check that all interactions live in one module, store it
-        assert len(np.unique(module_ids)) == 1, (
-                "Should only provide interactions from a single optical module.")
-        self.module_id = module_ids[0]
 
         # Build a list of QCluster_t (OpT0Finder interaction representation)
         self.qcluster_v = self.make_qcluster_list(interactions)
@@ -205,28 +178,26 @@ class LikelihoodFlashMatcher:
             qcluster.time = 0
 
             # Get the point coordinates
-            # FIXME: This is a temporary fix for the SBND geometry, we don't need to shift points
             points = inter.points[valid_mask]
-            #points = self.geo.translate(inter.points[valid_mask],
-            #        self.module_id, 0)
 
             # Get the depositions
-            if not inter.is_truth:
-                depositions = inter.depositions[valid_mask]
-            else:
-                depositions = getattr(inter, self.truth_dep_mode)
+            depositions = inter.depositions[valid_mask]
 
             # Fill the trajectory
             pytraj = np.hstack([points, depositions[:, None]])
             traj = flashmatch.as_geoalgo_trajectory(pytraj)
-            qcluster += self.light_path.MakeQCluster(traj, self.scaling, self.alpha, self.recombination_mip)
+            qcluster += self.light_path.MakeQCluster(
+                    traj, self.scaling)
+            # TODO: TMP, this function is incompatible with legacy
+            #qcluster += self.light_path.MakeQCluster(
+            #        traj, self.scaling, self.alpha, self.recombination_mip)
 
             # Append
             qcluster_v.append(qcluster)
 
         return qcluster_v
 
-    def make_flash_list(self, flashes,n_pds=312):
+    def make_flash_list(self, flashes):
         """Creates a list of flashmatch.Flash_t from the local class.
 
         Parameters
@@ -255,11 +226,6 @@ class LikelihoodFlashMatcher:
                     new_flashes.append(flashes[curr])
 
             flashes = new_flashes
-        #FIXME - do this upstream when parsing flashes
-        #if the PEPerOPDet is not the same length as the number of PDs, pad with zeros
-        for f in flashes:
-            if len(f.pe_per_ch) != n_pds:
-                f.pe_per_ch = np.resize(f.pe_per_ch,n_pds)
 
         # Loop over the optical flashes
         from flashmatch import flashmatch
@@ -275,9 +241,8 @@ class LikelihoodFlashMatcher:
             flash.x_err, flash.y_err, flash.z_err = 0, 0, 0
 
             # Assign the individual PMT optical hit PEs
-            offset = 0 if len(f.pe_per_ch) == n_pds else n_pds
-            for i in range(n_pds):
-                flash.pe_v.push_back(f.pe_per_ch[i + offset])
+            for i in range(len(f.pe_per_ch)):
+                flash.pe_v.push_back(f.pe_per_ch[i])
                 flash.pe_err_v.push_back(0.)
 
             # Append
@@ -310,8 +275,6 @@ class LikelihoodFlashMatcher:
         # Adjust the output position to account for the module shift
         for m in all_matches:
             pos = np.array([m.tpc_point.x, m.tpc_point.y, m.tpc_point.z])
-            #FIXME: This is a temporary fix for the SBND geometry, we don't need to shift points
-            #pos = self.geo.translate(pos, 0, self.module_id)
             m.tpc_point.x = pos[0]
             m.tpc_point.y = pos[1]
             m.tpc_point.z = pos[2]

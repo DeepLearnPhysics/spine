@@ -11,7 +11,7 @@ __all__ = ['OptDetector']
 @dataclass
 class OptDetector:
     """Handles all geometry queries for a set of optical detectors.
-    
+
     Attributes
     ----------
     volume : str
@@ -115,7 +115,7 @@ class OptDetector:
         return self.positions.shape[0]
 
     @property
-    def num_detectors(self):
+    def num_detectors_per_volume(self):
         """Returns the number of optical detectors in each optical volume.
 
         Returns
@@ -124,3 +124,30 @@ class OptDetector:
             Number of optical detectors in each volume, N_o
         """
         return self.positions.shape[1]
+
+    @property
+    def num_detectors(self):
+        """Number of optical detectors.
+
+        Returns
+        -------
+        int
+            Total number of optical detector, N_v*N_o
+        """
+        return self.num_volumes*self.num_detectors_per_volume
+
+    def volume_index(self, volume_id):
+        """Returns an index which corresponds to detectors in a certain volume.
+
+        Parameters
+        ----------
+        volume_id : int
+            ID of the volume to return the index for
+
+        Returns
+        -------
+        np.ndarray
+            Index of the detectors which belong to the requested volume ID
+        """
+        return (volume_id*self.num_detectors_per_volume +
+                np.arange(self.num_detectors_per_volume))

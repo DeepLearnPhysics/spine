@@ -1,8 +1,14 @@
+"""Post-processor in charge of finding matches between charge and light.
+"""
+
 import numpy as np
 from warnings import warn
 
 from spine.post.base import PostBase
-from spine.data.out.interaction import RecoInteraction
+
+from spine.data.out.base import OutBase
+
+from spine.utils.geo import Geometry
 
 from .barycenter import BarycenterFlashMatcher
 from .likelihood import LikelihoodFlashMatcher
@@ -15,17 +21,28 @@ class FlashMatchProcessor(PostBase):
     name = 'flash_match'
     aliases = ['run_flash_matching']
 
-    def __init__(self, flash_map, method='likelihood', run_mode='reco',
-                 truth_point_mode='points', parent_path=None, **kwargs):
+    def __init__(self, flash_key, volume, ref_volume_id=None,
+                 method='likelihood', detector=None, geometry_file=None,
+                 run_mode='reco', truth_point_mode='points',
+                 truth_dep_mode='depositions', parent_path=None, **kwargs):
         """Initialize the flash matching algorithm.
 
         Parameters
         ----------
+        flash_key : str
+            Flash data product name. In most cases, this is unambiguous, unless
+            there are multiple types of segregated optical detectors
+        volume : str
+            Physical volume corresponding to each flash ('module' or 'tpc')
+        ref_volume_id : str, optional
+            If specified, the flash matching expects all interactions/flashes
+            to live into a specific optical volume. Must shift everything.
         method : str, default 'likelihood'
             Flash matching method (one of 'likelihood' or 'barycenter')
-        flash_map : dict
-            Maps a flash data product key in the data ditctionary to an
-            optical volume in the detector
+        detector : str, optional
+            Detector to get the geometry from
+        geometry_file : str, optional
+            Path to a `.yaml` geometry file to load the geometry from
         parent_path : str, optional
             Path to the parent directory of the main analysis configuration.
             This allows for the use of relative paths in the post-processors.
@@ -34,13 +51,21 @@ class FlashMatchProcessor(PostBase):
         """
         # Initialize the parent class
         super().__init__(
-                'interaction', run_mode, truth_point_mode,
+                'interaction', run_mode, truth_point_mode, truth_dep_mode,
                 parent_path=parent_path)
 
-        # If there is no map from flash data product to volume ID, throw
-        self.flash_map = flash_map
-        for key in self.flash_map:
-            self.keys[key] = True
+        # Make sure the flash data product is available, store
+        self.flash_key = flash_key
+        self.keys[flash_key] = True
+
+        # Initialize the detector geometry
+        self.geo = Geometry(detector, geometry_file)
+
+        # Get the volume within which each flash is confined
+        assert volume in ['tpc', 'module'], (
+                "The `volume` must be one of 'tpc' or 'module'.")
+        self.volume = volume
+        self.ref_volume_id = ref_volume_id
 
         # Initialize the flash matching algorithm
         if method == 'barycenter':
@@ -48,7 +73,7 @@ class FlashMatchProcessor(PostBase):
 
         elif method == 'likelihood':
             self.matcher = LikelihoodFlashMatcher(
-                    **kwargs, parent_path=self.parent_path)
+                    detector=detector, parent_path=self.parent_path, **kwargs)
 
         else:
             raise ValueError(f'Flash matching method not recognized: {method}')
@@ -64,18 +89,23 @@ class FlashMatchProcessor(PostBase):
         Notes
         -----
         This post-processor modifies the list of `interaction` objectss
-        in-place by adding the following attributes:
+        in-place by filling the following attributes
         - interaction.is_flash_matched: (bool)
                Indicator for whether the given interaction has a flash match
-        - interaction.flash_time: float
-               The flash time in microseconds
+        - interaction.flash_ids: np.ndarray
+               The flash IDs in the flash list
+        - interaction.flash_times: np.ndarray
+               The flash time(s) in microseconds
         - interaction.flash_total_pe: float
-        - interaction.flash_hypo_pe: float
+               Total number of PEs associated with the matched flash(es)
+        - interaction.flash_hypo_pe: float, optional
+               Total number of PEss associated with the hypothesis flash
         """
-        #Get number of volumes
-        n_volumes = len(self.flash_map)
+        # Fetch the optical volume each flash belongs to
+        flashes = data[self.flash_key]
+        volume_ids = np.asarray([f.volume_id for f in flashes])
         
-        # Loop over the keys to match
+        # Loop over the optical volumes, run flash matching
         for k in self.interaction_keys:
             # Fetch interactions, nothing to do if there are not any
             interactions = data[k]
@@ -87,63 +117,90 @@ class FlashMatchProcessor(PostBase):
 
             # Clear previous flash matching information
             for inter in interactions:
+                inter.flash_ids = []
+                inter.flash_times = []
                 if inter.is_flash_matched:
                     inter.is_flash_matched = False
-                    inter.flash_ids = np.full(n_volumes, -1)
-                    inter.flash_times = np.full(n_volumes, -np.inf)
-                    inter.flash_total_pe = -1.0
-                    inter.flash_hypo_pe = -1.0
+                    inter.flash_total_pe = -1.
+                    inter.flash_hypo_pe = -1.
 
-            # Loop over flash keys
-            for key, module_id in self.flash_map.items():
-                # Get the list of flashes associated with that key
-                flashes = data[key]
+            # Loop over the optical volumes
+            for volume_id in np.unique(volume_ids):
+                # Get the list of flashes associated with this optical volume
+                flashes_v = []
+                for flash in flashes:
+                    # Skip if the flash is not associated with the right volume
+                    if flash.volume_id != volume_id:
+                        continue
 
-                # Get list of interactions that originate from the same module
-                # TODO: this only works for interactions coming from a single
-                # TODO: module. Must fix this.
-                #ints = [inter for inter in interactions if inter.module_ids[0] == module_id]
-                ints = []
-                for i,ii in enumerate(interactions):
-                    #Temporary check for mpvs
-                    #if np.sum(ii.primary_particle_counts) < 2: continue
-                    #End of temporary check
-                    tpc_index = np.where(ii.sources[:, 1] == module_id)[0]
-                    if len(tpc_index) > 0:
-                        tpc_points = ii.points[tpc_index]
-                        tpc_depositions = ii.depositions[tpc_index]
-                        _int = RecoInteraction(ii.id, points=tpc_points, 
-                                               depositions=tpc_depositions, 
-                                               module_ids=[module_id],
-                                               flash_ids=ii.flash_ids,
-                                               flash_times=ii.flash_times)
-                        ints.append(_int)
-                        
+                    # Reshape the flash based on geometry
+                    pe_per_ch = np.empty(
+                            self.geo.optical.num_detectors_per_volume,
+                            dtype=flash.pe_per_ch.dtype)
+                    if self.ref_volume_id is not None:
+                        lower = flash.volume_id*len(pe_per_ch)
+                        upper = (flash.volume_id + 1)*len(pe_per_ch)
+                        pe_per_ch = flash.pe_per_ch[lower:upper]
+                    else:
+                        pe_per_ch[:len(flash.pe_per_ch)] = flash.pe_per_ch
+
+                    flash.pe_per_ch = pe_per_ch
+                    flashes_v.append(flash)
+
+                # Crop interactions to only include depositions in the optical volume
+                interactions_v = []
+                for inter in interactions:
+                    # Fetch the points in the current optical volume
+                    sources = self.get_sources(inter)
+                    if self.volume == 'module':
+                        index = self.geo.get_volume_index(sources, volume_id)
+
+                    elif self.volume == 'tpc':
+                        num_cpm = self.geo.tpc.num_chambers_per_module
+                        module_id, tpc_id = volume_id//num_cpm, volume_id%num_cpm
+                        indes = self.geo.get_volume_index(sources, module_id, tpc_id)
+
+                    # If there are no points in this volume, proceed
+                    if len(index) == 0:
+                        continue
+
+                    # Fetch points and depositions
+                    points = self.get_points(inter)[index]
+                    depositions = self.get_depositions(inter)[index]
+                    if self.ref_volume_id is not None:
+                        # If the reference volume is specified, shift positions
+                        points = self.geo.translate(
+                                points, volume_id, self.ref_volume_id)
+
+                    # Create an interaction which holds positions/depositions
+                    inter_v = OutBase(
+                            id=inter.id, points=points, depositions=depositions)
+                    interactions_v.append(inter_v)
 
                 # Run flash matching
-                matches = self.matcher.get_matches(ints, flashes)
-                #print(f'Found {len(matches)} matches for {len(ints)} interactions and {len(flashes)} flashes')
+                matches = self.matcher.get_matches(interactions_v, flashes_v)
 
                 # Store flash information
-                for i, (_inter, flash, match) in enumerate(matches):
-                    # We have made dummy interactions for split TPCs, so we need the 
-                    # to update the real interaction by matching the id
-                    inter = interactions[_inter.id]
-                    # FIXME: This is a temporary fix to avoid the issue of NoneType flash_ids and flash_times
-                    if inter.flash_ids is None:
-                        inter.flash_ids = np.full(n_volumes, -1)
-                    if inter.flash_times is None:
-                        inter.flash_times = np.full(n_volumes, -np.inf)
-                    # End of temporary fix
-                    inter.flash_ids[module_id] = int(flash.id) #The flash id in the Nth volume
-                    inter.flash_times[module_id] = float(flash.time) #Flash time in the Nth volume
-                    
+                for i, (inter_v, flash, match) in enumerate(matches):
+                    # Get the interaction that matches the cropped version
+                    inter = interactions[inter_v.id]
+
+                    # Append
+#                    print(flash.id, flash.volume_id, flash.time, flash.total_pe, np.array(match.hypothesis, dtype=np.float32).sum())
+                    inter.flash_ids.append(int(flash.id))
+                    inter.flash_times.append(float(flash.time))
                     if inter.is_flash_matched:
                         inter.flash_total_pe += float(flash.total_pe)
-                        inter.flash_hypo_pe += float(np.array(match.hypothesis,
-                            dtype=np.float32).sum())
+                        inter.flash_hypo_pe += float(
+                                np.array(match.hypothesis, dtype=np.float32).sum())
+
                     else:
                         inter.is_flash_matched = True
                         inter.flash_total_pe = float(flash.total_pe)
-                        inter.flash_hypo_pe = float(np.array(match.hypothesis,
-                            dtype=np.float32).sum())
+                        inter.flash_hypo_pe = float(
+                                np.array(match.hypothesis, dtype=np.float32).sum())
+
+            # Cast list attributes to numpy arrays
+            for inter in interactions:
+                inter.flash_ids = np.asarray(inter.flash_ids, dtype=np.int32)
+                inter.flash_times = np.asarray(inter.flash_times, dtype=np.float32)

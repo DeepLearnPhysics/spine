@@ -30,7 +30,7 @@ class Drawer:
     _point_modes = ('points', 'points_adapt', 'points_g4')
 
     # Map between point attributes and underlying point objects
-    _point_map = {'points': 'points_label', 'points_adapt': 'points', 
+    _point_map = {'points': 'points_label', 'points_adapt': 'points',
                   'points_g4': 'points_g4'}
 
     def __init__(self, data, draw_mode='both', truth_point_mode='points',
@@ -86,10 +86,10 @@ class Drawer:
         self.truth_index_mode = truth_point_mode.replace('points', 'index')
 
         # If detector information is provided, initialie the geometry drawer
-        self.geo = None
+        self.geo_drawer = None
         self.meta = data.get('meta', None)
         if detector is not None:
-            self.geo = GeoDrawer(
+            self.geo_drawer = GeoDrawer(
                     detector=detector, detector_coords=detector_coords)
 
         # Initialize the layout
@@ -167,17 +167,16 @@ class Drawer:
             for prefix in self.prefixes:
                 obj_name = f'{prefix}_interactions'
                 assert obj_name in self.data, (
-                        "Must provide interactions to draw their vertices.")
-
-            raise NotImplementedError
+                        "Must provide interactions to draw matched flashes.")
+                traces[prefix] += self._flash_trace(obj_name)
 
         # Add the TPC traces, if available
-        if self.geo is not None:
+        if self.geo_drawer is not None:
             if len(self.prefixes) and self.split_scene:
                 for prefix in self.prefixes:
-                    traces[prefix] += self.geo.tpc_traces(meta=self.meta)
+                    traces[prefix] += self.geo_drawer.tpc_traces(meta=self.meta)
             else:
-                traces[self.prefixes[-1]] += self.geo.tpc_traces(meta=self.meta)
+                traces[self.prefixes[-1]] += self.geo_drawer.tpc_traces(meta=self.meta)
 
         # Initialize the figure, return
         if len(self.prefixes) > 1 and self.split_scene:
@@ -361,8 +360,8 @@ class Drawer:
 
         Returns
         -------
-        dict
-            Dictionary of color parameters (colorscale, cmin, cmax)
+        list
+            List of start point traces
         """
         return self._point_trace(
                 obj_name, 'start_point', color=color, markersize=markersize,
@@ -387,8 +386,8 @@ class Drawer:
 
         Returns
         -------
-        dict
-            Dictionary of color parameters (colorscale, cmin, cmax)
+        list
+            List of end point traces
         """
         return self._point_trace(
                 obj_name, 'end_point', color=color, markersize=markersize,
@@ -413,8 +412,8 @@ class Drawer:
 
         Returns
         -------
-        dict
-            Dictionary of color parameters (colorscale, cmin, cmax)
+        list
+            List of vertex point traces
         """
         return self._point_trace(
                 obj_name, vertex_attr, color=color, markersize=markersize,
@@ -434,8 +433,8 @@ class Drawer:
 
         Returns
         -------
-        dict
-            Dictionary of color parameters (colorscale, cmin, cmax)
+        list
+            List of point traces
         """
         # Define the name of the trace
         name = (' '.join(obj_name.split('_')).capitalize()[:-1] + ' ' +
@@ -463,3 +462,39 @@ class Drawer:
 
         return scatter_points(
                 points, hovertext=np.array(hovertext), name=name, **kwargs)
+
+    def _flash_trace(self, obj_name, **kwargs):
+        """Draw the cumlative PEs of flashes that have been matched to
+        interactions specified by `obj_name`.
+
+        Parameters
+        ----------
+        obj_name : str
+            Name of the object to draw
+        **kwargs : dict, optional
+            List of additional arguments to pass to :func:`optical_traces`
+
+        Returns
+        -------
+        list
+            List of optical detector traces
+        """
+        # Define the name of the trace
+        name = ' '.join(obj_name.split('_')).capitalize()[:-1] + ' flashes'
+
+        # Find the list of flash IDs to draw
+        flash_ids = []
+        for inter in self.data[obj_name]:
+            if inter.is_flash_matched:
+                flash_ids.extend(inter.flash_ids)
+
+        # Sum values from each flash to build a a global color scale
+        color = np.zeros(self.geo_drawer.geo.optical.num_detectors)
+        for flash_id in flash_ids:
+            flash = self.data['flashes'][flash_id]
+            index = self.geo_drawer.geo.optical.volume_index(flash.volume_id)
+            color[index] += flash.pe_per_ch
+
+        # Return the set of optical detectors with a color scale
+        return self.geo_drawer.optical_traces(
+                meta=self.meta, color=color, zero_supress=True, name=name)

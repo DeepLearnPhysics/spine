@@ -96,8 +96,11 @@ class Flash(PosDataBase):
         # Get the number of PEs per optical channel
         pe_per_ch = np.array(list(flash.PEPerOpDet()), dtype=np.float32)
 
-        # Get the volume ID, if it is filled (TODO: rename to volume_id)
-        volume_id = flash.tpc() if hasattr(flash, 'tpc') else -1
+        # Get the volume ID, if it is filled (TODO: simplify with update)
+        volume_id = -1
+        for attr in ['tpc', 'volume_id']:
+            if hasattr(flash, attr):
+                volume_id = getattr(flash, attr)()
 
         return cls(id=flash.id(), volume_id=volume_id, frame=flash.frame(),
                    in_beam_frame=flash.inBeamFrame(),
