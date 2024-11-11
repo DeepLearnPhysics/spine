@@ -20,7 +20,7 @@ class BuildManager:
       - Load up existing objects stored as dictionaries
     """
     # Name of input data products needed to build representations. These names
-    # are not set in stone, so they can be set in the configuration
+    # are not set in stone; they can be set in the configuration
     sources = {
             'data_tensor': ['data_adapt', 'data'],
             'label_tensor': 'clust_label',
@@ -30,7 +30,9 @@ class BuildManager:
             'sources': ['sources_adapt', 'sources'],
             'sources_label': 'sources_label',
             'particles': 'particles',
-            'neutrinos': 'neutrinos'
+            'neutrinos': 'neutrinos',
+            'flashes': 'flashes',
+            'crthits': 'crthits'
     }
 
     def __init__(self, fragments, particles, interactions,
