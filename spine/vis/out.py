@@ -497,4 +497,5 @@ class Drawer:
 
         # Return the set of optical detectors with a color scale
         return self.geo_drawer.optical_traces(
-                meta=self.meta, color=color, zero_supress=True, name=name)
+                meta=self.meta, color=color, zero_supress=True,
+                colorscale='Inferno', name=name)
