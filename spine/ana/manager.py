@@ -1,5 +1,6 @@
 """Manages the operation of analysis scripts."""
 
+from copy import deepcopy
 from collections import defaultdict, OrderedDict
 
 import numpy as np
@@ -54,6 +55,7 @@ class AnaManager:
             List of analysis script modules
         """
         # Loop over the analyzer modules and get their priorities
+        modules = deepcopy(modules)
         keys = np.array(list(modules.keys()))
         priorities = -np.ones(len(keys), dtype=np.int32)
         for i, k in enumerate(keys):
