@@ -186,7 +186,7 @@ class FlashMatchProcessor(PostBase):
                     inter = interactions[inter_v.id]
 
                     # Append
-#                    print(flash.id, flash.volume_id, flash.time, flash.total_pe, np.array(match.hypothesis, dtype=np.float32).sum())
+                    print(flash.id, flash.volume_id, flash.time, flash.total_pe, np.array(match.hypothesis, dtype=np.float32).sum())
                     inter.flash_ids.append(int(flash.id))
                     inter.flash_times.append(float(flash.time))
                     if inter.is_flash_matched:
