@@ -40,6 +40,8 @@ class InteractionBase:
         True if the interaction was matched to an optical flash
     flash_ids : np.ndarray
         (F) Indices of the optical flashes the interaction is matched to
+    flash_volume_ids : np.ndarray
+        (F) Indices of the optical volumes the flashes where recorded in
     flash_times : np.ndarray
         (F) Times at which the flashes occurred in nanoseconds
     flash_total_pe : float
@@ -58,6 +60,7 @@ class InteractionBase:
     is_fiducial: bool = False
     is_flash_matched: bool = False
     flash_ids: np.ndarray = None
+    flash_volume_ids: np.ndarray = None
     flash_times: np.ndarray = None
     flash_total_pe: float = -1.
     flash_hypo_pe: float = -1.
@@ -72,7 +75,8 @@ class InteractionBase:
     # Variable-length attributes as (key, dtype) pairs
     _var_length_attrs = {
             'particles': object, 'particle_ids': np.int32,
-            'flash_ids': np.int32, 'flash_times': np.int32
+            'flash_ids': np.int32, 'flash_volume_ids': np.int32,
+            'flash_times': np.int32
     }
 
     # Attributes specifying coordinates
