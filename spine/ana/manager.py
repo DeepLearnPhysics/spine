@@ -36,7 +36,7 @@ class AnaManager:
         # Parse the analysis block configuration
         self.parse_config(log_dir, prefix, **cfg)
 
-    def parse_config(self, log_dir, prefix, overwrite=False,
+    def parse_config(self, log_dir, prefix, overwrite=None,
                      prefix_output=False, **modules):
         """Parse the analysis tool configuration.
 
@@ -47,7 +47,7 @@ class AnaManager:
         prefix : str
             Input file prefix. If requested, it will be used to prefix
             all the output CSV files.
-        overwrite : bool, default False
+        overwrite : bool, optional
             If `True`, overwrite the CSV logs if they already exist
         prefix_output : bool, optional
             If `True`, will prefix the output CSV names with the input file name
