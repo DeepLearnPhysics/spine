@@ -95,7 +95,7 @@ class Geometry:
         crt : dict, optional
             CRT detector configuration
         """
-        # Load the detector boundaries
+        # Load the charge detector boundaries
         self.tpc = TPCDetector(**tpc)
 
         # Load the optical detectors
@@ -568,7 +568,7 @@ class Geometry:
             self._cont_use_source = False
 
         elif mode == 'detector':
-            vol = self.adapt_volume(self.boundaries, margin)
+            vol = self.adapt_volume(self.tpc.boundaries, margin)
             self._cont_volumes.append(vol)
             self._cont_use_source = False
 
