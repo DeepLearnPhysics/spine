@@ -12,7 +12,7 @@ class LikelihoodFlashMatcher:
     """
     def __init__(self, cfg, detector, parent_path=None,
                  reflash_merging_window=None, scaling=1., alpha=0.21,
-                 recombination_mip=0.65):
+                 recombination_mip=0.65, legacy=False):
         """Initialize the likelihood-based flash matching algorithm.
 
         Parameters
@@ -31,6 +31,8 @@ class LikelihoodFlashMatcher:
             Number of excitons (Ar*) divided by number of electron-ion pairs (e-,Ar+)
         recombination_mip : float, default 0.65
             Recombination factor for MIP-like particles in LAr
+        legacy : bool, default False
+            Use the legacy OpT0Finder function(s). TODO: remove when dropping legacy
         """
         # Initialize the flash manager (OpT0Finder wrapper)
         self.initialize_backend(cfg, detector, parent_path)
@@ -46,6 +48,7 @@ class LikelihoodFlashMatcher:
         self.recombination_mip = recombination_mip
         if isinstance(self.recombination_mip, str):
             self.recombination_mip = eval(self.recombination_mip)
+        self.legacy = legacy
 
         # Initialize flash matching attributes
         self.matches = None
@@ -87,11 +90,16 @@ class LikelihoodFlashMatcher:
             os.environ['FMATCH_DATADIR'] = os.path.join(basedir, 'dat')
 
         # Load up the detector specifications
-        from flashmatch import flashmatch
         if detector is None:
             det_cfg = os.path.join(basedir, 'dat/detector_specs.cfg')
         else:
             det_cfg = os.path.join(basedir, f'dat/detector_specs_{detector}.cfg')
+
+        if not os.path.isfile(det_cfg):
+            raise FileNotFoundError(
+                    f"Cannot file detector specification file: {det_cfg}.")
+
+        from flashmatch import flashmatch
         flashmatch.DetectorSpecs.GetME(det_cfg)
 
         # Fetch and initialize the OpT0Finder configuration
@@ -186,11 +194,11 @@ class LikelihoodFlashMatcher:
             # Fill the trajectory
             pytraj = np.hstack([points, depositions[:, None]])
             traj = flashmatch.as_geoalgo_trajectory(pytraj)
-            qcluster += self.light_path.MakeQCluster(
-                    traj, self.scaling)
-            # TODO: TMP, this function is incompatible with legacy
-            #qcluster += self.light_path.MakeQCluster(
-            #        traj, self.scaling, self.alpha, self.recombination_mip)
+            if self.legacy:
+                qcluster += self.light_path.MakeQCluster(traj, self.scaling)
+            else:
+                qcluster += self.light_path.MakeQCluster(
+                        traj, self.scaling, self.alpha, self.recombination_mip)
 
             # Append
             qcluster_v.append(qcluster)

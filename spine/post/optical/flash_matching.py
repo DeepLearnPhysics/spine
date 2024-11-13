@@ -94,6 +94,8 @@ class FlashMatchProcessor(PostBase):
                Indicator for whether the given interaction has a flash match
         - interaction.flash_ids: np.ndarray
                The flash IDs in the flash list
+        - interaction.flash_volume_ids: np.ndarray
+               The flash optical volume IDs in the flash list
         - interaction.flash_times: np.ndarray
                The flash time(s) in microseconds
         - interaction.flash_total_pe: float
@@ -118,6 +120,7 @@ class FlashMatchProcessor(PostBase):
             # Clear previous flash matching information
             for inter in interactions:
                 inter.flash_ids = []
+                inter.flash_volume_ids = []
                 inter.flash_times = []
                 if inter.is_flash_matched:
                     inter.is_flash_matched = False
@@ -185,22 +188,26 @@ class FlashMatchProcessor(PostBase):
                     # Get the interaction that matches the cropped version
                     inter = interactions[inter_v.id]
 
+                    # Get the flash hypothesis (if the matcher produces one)
+                    hypo_pe = -1.
+                    if hasattr(match, 'hypothesis'):
+                        hypo_pe = float(np.sum(list(match.hypothesis)))
+
                     # Append
-#                    print(flash.id, flash.volume_id, flash.time, flash.total_pe, np.array(match.hypothesis, dtype=np.float32).sum())
                     inter.flash_ids.append(int(flash.id))
+                    inter.flash_volume_ids.append(int(flash.volume_id))
                     inter.flash_times.append(float(flash.time))
                     if inter.is_flash_matched:
                         inter.flash_total_pe += float(flash.total_pe)
-                        inter.flash_hypo_pe += float(
-                                np.array(match.hypothesis, dtype=np.float32).sum())
+                        inter.flash_hypo_pe += hypo_pe
 
                     else:
                         inter.is_flash_matched = True
                         inter.flash_total_pe = float(flash.total_pe)
-                        inter.flash_hypo_pe = float(
-                                np.array(match.hypothesis, dtype=np.float32).sum())
+                        inter.flash_hypo_pe = hypo_pe
 
             # Cast list attributes to numpy arrays
             for inter in interactions:
                 inter.flash_ids = np.asarray(inter.flash_ids, dtype=np.int32)
+                inter.flash_volume_ids = np.asarray(inter.flash_volume_ids, dtype=np.int32)
                 inter.flash_times = np.asarray(inter.flash_times, dtype=np.float32)
