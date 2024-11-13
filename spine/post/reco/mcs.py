@@ -22,7 +22,8 @@ class MCSEnergyProcessor(PostBase):
     def __init__(self, tracking_mode='bin_pca', segment_length=5.0,
                  split_angle=False, res_a=0.25, res_b=1.25,
                  include_pids=[MUON_PID, PION_PID, PROT_PID, KAON_PID],
-                 only_uncontained=False, obj_type='particle', run_mode='both',
+                 fill_per_pid=False, only_uncontained=False,
+                 obj_type='particle', run_mode='both',
                  truth_point_mode='points', **kwargs):
         """Store the necessary attributes to do MCS-based estimations.
 
@@ -41,6 +42,8 @@ class MCSEnergyProcessor(PostBase):
             Parameter b in the a/dx^b which models the angular uncertainty
         include_pids : list, default [2, 3, 4, 5]
             Particle species to compute the kinetic energy for
+        fill_per_pid : bool, default False
+            If `True`, compute the MCS KE estimate under all PID assumptions
         only_uncontained : bool, default False
             Only run the algorithm on particles that are not contained
         **kwargs : dict, optiona
@@ -51,6 +54,7 @@ class MCSEnergyProcessor(PostBase):
 
         # Store the general parameters
         self.include_pids = include_pids
+        self.fill_per_pid = fill_per_pid
         self.only_uncontained = only_uncontained
 
         # Store the tracking parameters
@@ -108,3 +112,14 @@ class MCSEnergyProcessor(PostBase):
                 obj.mcs_ke = mcs_fit(
                         theta, mass, self.segment_length, 1,
                         self.split_angle, self.res_a, self.res_b)
+
+                # If requested, convert the KE to other PID hypotheses
+                if self.fill_per_pid:
+                    # Compute the momentum (what MCS is truly sensitive to)
+                    mom = np.sqrt(obj.mcs_ke**2 + 2*mass*obj.mcs_ke) 
+
+                    # For each PID, convert back to KE
+                    for pid in self.include_pids:
+                        mass = PID_MASSES[pid]
+                        ke = np.sqrt(mom**2 + mass**2) - mass
+                        obj.mcs_ke_per_pid[pid] = ke
