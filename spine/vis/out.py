@@ -163,7 +163,7 @@ class Drawer:
         # Fetch the flashes, if requested
         if draw_flashes:
             assert 'flashes' in self.data, (
-                    "Must provide flash objects to draw them.")
+                    "Must provide the `flashes` objects to draw them.")
             for prefix in self.prefixes:
                 obj_name = f'{prefix}_interactions'
                 assert obj_name in self.data, (
@@ -490,10 +490,14 @@ class Drawer:
 
         # Sum values from each flash to build a a global color scale
         color = np.zeros(self.geo_drawer.geo.optical.num_detectors)
+        opt_det_ids = self.geo_drawer.geo.optical.det_ids
         for flash_id in flash_ids:
             flash = self.data['flashes'][flash_id]
             index = self.geo_drawer.geo.optical.volume_index(flash.volume_id)
-            color[index] += flash.pe_per_ch
+            pe_per_ch = flash.pe_per_ch
+            if opt_det_ids is not None:
+                pe_per_ch = np.bincount(opt_det_ids, weights=pe_per_ch)
+            color[index] += pe_per_ch
 
         # Return the set of optical detectors with a color scale
         return self.geo_drawer.optical_traces(
