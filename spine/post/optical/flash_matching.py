@@ -161,7 +161,7 @@ class FlashMatchProcessor(PostBase):
                     elif self.volume == 'tpc':
                         num_cpm = self.geo.tpc.num_chambers_per_module
                         module_id, tpc_id = volume_id//num_cpm, volume_id%num_cpm
-                        indes = self.geo.get_volume_index(sources, module_id, tpc_id)
+                        index = self.geo.get_volume_index(sources, module_id, tpc_id)
 
                     # If there are no points in this volume, proceed
                     if len(index) == 0:
