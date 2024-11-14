@@ -368,18 +368,27 @@ class RecoParticle(ParticleBase, RecoBase):
 
     @property
     def reco_ke(self):
+        """Alias for `ke`, to match nomenclature in truth."""
         return self.ke
     
     @property
     def reco_momentum(self):
+        """Alias for `momentum`, to match nomenclature in truth."""
         return self.momentum
     
     @property
     def reco_length(self):
+        """Alias for `length`, to match nomenclature in truth."""
         return self.length
+
+    @property
+    def reco_start_dir(self):
+        """Alias for `start_dir`, to match nomenclature in truth."""
+        return self.start_dir
     
     @property
     def reco_end_dir(self):
+        """Alias for `end_dir`, to match nomenclature in truth."""
         return self.end_dir
 
 @dataclass(eq=False)
@@ -403,18 +412,24 @@ class TruthParticle(Particle, ParticleBase, TruthBase):
     reco_end_dir : np.ndarray
         (3) Particle direction estimate w.r.t. the end point (only assigned
         to track objects)
+    reco_ke : float
+        Best-guess reconstructed KE of the particle
+    reco_momentum : np.ndarray
+        Best-guess reconstructed momentum of the particle
     """
     orig_interaction_id: int = -1
     children_counts: np.ndarray = None
     reco_length: float = -1.
     reco_start_dir: np.ndarray = None
     reco_end_dir: np.ndarray = None
+    reco_ke: float = -1.
+    reco_momentum: np.ndarray = None
 
     # Fixed-length attributes
     _fixed_length_attrs = {
             **ParticleBase._fixed_length_attrs,
             **Particle._fixed_length_attrs,
-            'reco_start_dir': 3, 'reco_end_dir': 3
+            'reco_start_dir': 3, 'reco_end_dir': 3, 'reco_momentum': 3
     }
 
     # Variable-length attributes
@@ -431,7 +446,7 @@ class TruthParticle(Particle, ParticleBase, TruthBase):
     # Attributes specifying vector components
     _vec_attrs = [
             *ParticleBase._vec_attrs, *Particle._vec_attrs,
-            'reco_start_dir', 'reco_end_dir'
+            'reco_start_dir', 'reco_end_dir', 'reco_momentum'
     ]
 
     # Boolean attributes
@@ -514,10 +529,9 @@ class TruthParticle(Particle, ParticleBase, TruthBase):
     def ke(self, ke):
         pass
 
-    ########
     @property
     def reco_ke(self):
-        """Best-guess kinetic energy in MeV.
+        """Best-guess reconstructed kinetic energy in MeV.
 
         Uses calorimetry for EM activity and this order for track:
         - CSDA-based estimate if it is available
@@ -549,7 +563,7 @@ class TruthParticle(Particle, ParticleBase, TruthBase):
 
     @property
     def reco_momentum(self):
-        """Best-guess momentum in MeV/c.
+        """Best-guess reconstructed momentum in MeV/c.
 
         Returns
         -------
@@ -560,7 +574,7 @@ class TruthParticle(Particle, ParticleBase, TruthBase):
         if ke >= 0.0 and self.reco_start_dir[0] != -np.inf and self.pid in PID_MASSES:
             mass = PID_MASSES[self.pid]
             mom = np.sqrt(ke**2 + 2 * ke * mass)
-            return mom * self.start_dir
+            return mom * self.reco_start_dir
 
         else:
             return np.full(3, -np.inf, dtype=np.float32)
