@@ -63,6 +63,8 @@ class Neutrino(PosDataBase):
         Energy transfer (Q0) in GeV
     lepton_p : float
         Absolute momentum of the lepton
+    distance_travel : float
+        True amount of distance traveled by the neutrino before interacting
     theta : float
         Angle between incoming and outgoing leptons in radians
     creation_process : str
@@ -96,6 +98,7 @@ class Neutrino(PosDataBase):
     momentum_transfer_mag: float = -1.
     energy_transfer: float = -1.
     lepton_p: float = -1.
+    distance_travel: float = -1.
     theta: float = -1.
     creation_process: str = ''
     position: np.ndarray = None
@@ -145,7 +148,8 @@ class Neutrino(PosDataBase):
                     'target', 'nucleon', 'quark', 'energy_init',
                     'hadronic_invariant_mass', 'bjorken_x', 'inelasticity',
                     'momentum_transfer', 'momentum_transfer_mag',
-                    'energy_transfer', 'lepton_p', 'theta', 'creation_process']:
+                    'energy_transfer', 'lepton_p', 'distance_travel',
+                    'theta', 'creation_process']:
             if not hasattr(neutrino, key):
                 warn(f"The LArCV Neutrino object is missing the {key} "
                       "attribute. It will miss from the Neutrino object.")
