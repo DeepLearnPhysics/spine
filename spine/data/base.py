@@ -42,6 +42,9 @@ class DataBase:
     # Attributes that should not be stored to file (long-form attributes)
     _skip_attrs = []
 
+    # Attributes that should not be stored to file when storing lite files
+    _lite_skip_attrs = []
+
     # Euclidean axis labels
     _axes = ['x', 'y', 'z']
 
@@ -133,17 +136,28 @@ class DataBase:
             dtype = f'{val.dtype.str[:-1]}{precision}'
             setattr(self, attr, val.astype(dtype))
 
-    def as_dict(self):
+    def as_dict(self, lite=False):
         """Returns the data class as dictionary of (key, value) pairs.
+
+        Parameters
+        ----------
+        lite : bool, default False
+            If `True`, the `_lite_skip_attrs` are dropped
 
         Returns
         -------
         dict
             Dictionary of attribute names and their values
         """
-        return {k: v for k, v in asdict(self).items() if not k in self._skip_attrs}
+        # Build a list of attributes to skip
+        if not lite:
+            skip_attrs = self._skip_attrs
+        else:
+            skip_attrs = [*self._skip_attrs, *self._lite_skip_attrs]
 
-    def scalar_dict(self, attrs=None):
+        return {k: v for k, v in asdict(self).items() if not k in skip_attrs}
+
+    def scalar_dict(self, attrs=None, lite=False):
         """Returns the data class attributes as a dictionary of scalars.
 
         This is useful when storing data classes in CSV files, which expect
@@ -154,10 +168,12 @@ class DataBase:
         attrs : List[str], optional
             List of attribute names to include in the dictionary. If not
             specified, all the keys are included.
+        lite : bool, default False
+            If `True`, the `_lite_skip_attrs` are dropped
         """
         # Loop over the attributes of the data class
         scalar_dict, found = {}, []
-        for attr, value in self.as_dict().items():
+        for attr, value in self.as_dict(lite).items():
             # If the attribute is not requested, skip
             if attrs is not None and attr not in attrs:
                 continue
