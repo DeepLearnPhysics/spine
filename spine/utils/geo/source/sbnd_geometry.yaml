@@ -7,6 +7,7 @@ tpc:
 optical:
   volume: module
   shape: [box, ellipsoid]
+  global_index: true
   dimensions:
   - [0.2, 20.6, 7.6]
   - [10.8, 20.2, 20.2]

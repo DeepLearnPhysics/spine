@@ -44,7 +44,7 @@ class OptDetector:
     det_ids: np.ndarray = None
 
     def __init__(self, volume, volume_offsets, shape, dimensions, positions,
-                 shape_ids=None, det_ids=None):
+                 shape_ids=None, det_ids=None, global_index=False):
         """Parse the optical detector configuration.
 
         Parameters
@@ -66,6 +66,9 @@ class OptDetector:
         det_ids : List[int], optional
             (N_c) If there are multiple readout channels which contribute to each
             physical optical detector, map each channel onto a physical detector
+        global_index : bool, default False
+            If `True`, the flash objects have a `pe_per_ch` attribute which refers
+            to the entire index of optical detectors, rather than one volume
         """
         # Parse the detector shape(s) and its mapping, store is as a list
         assert (shape in ['ellipsoid', 'box'] or
@@ -102,6 +105,9 @@ class OptDetector:
         self.positions = np.empty((len(offsets), count, 3))
         for v in range(len(offsets)):
             self.positions[v] = relative_positions + offsets[v]
+
+        # Store if the flash points to the entire index of optical detectors
+        self.global_index = global_index
 
     @property
     def num_volumes(self):
@@ -149,5 +155,9 @@ class OptDetector:
         np.ndarray
             Index of the detectors which belong to the requested volume ID
         """
+        # If using a global index, all volumes point to the same index
+        if self.global_index is not None:
+            return np.arange(self.num_detectors)
+
         return (volume_id*self.num_detectors_per_volume +
                 np.arange(self.num_detectors_per_volume))
