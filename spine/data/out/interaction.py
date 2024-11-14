@@ -85,7 +85,7 @@ class InteractionBase:
     # Boolean attributes
     _bool_attrs = ['is_fiducial', 'is_flash_matched']
 
-    # Attributes that should not be stored
+    # Attributes that must never be stored to file
     _skip_attrs = ['particles']
 
     def __str__(self):
@@ -222,7 +222,7 @@ class InteractionBase:
 class RecoInteraction(InteractionBase, RecoBase):
     """Reconstructed interaction information."""
 
-    # Attributes that should not be stored
+    # Attributes that must never be stored to file
     _skip_attrs = [*RecoBase._skip_attrs, *InteractionBase._skip_attrs]
 
     # Variable-length attributes
@@ -283,7 +283,7 @@ class TruthInteraction(Neutrino, InteractionBase, TruthBase):
     # Boolean attributes
     _bool_attrs = [*TruthBase._bool_attrs, *InteractionBase._bool_attrs]
 
-    # Attributes that should not be stored
+    # Attributes that must never be stored to file
     _skip_attrs = [*TruthBase._skip_attrs, *InteractionBase._skip_attrs]
 
     def __str__(self):

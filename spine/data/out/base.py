@@ -84,10 +84,10 @@ class OutBase(PosDataBase):
     # Attributes to concatenate when merging objects
     _cat_attrs = ['index', 'points', 'depositions', 'sources']
 
-    # Attributes that should not be stored
+    # Attributes that must never be stored to file
     _skip_attrs = ['points', 'depositions', 'sources']
 
-    # Attributes that should not be stored to file when storing lite files
+    # Attributes that must not be stored to file when storing lite files
     _lite_skip_attrs = ['index']
 
     @property
@@ -222,12 +222,12 @@ class TruthBase(OutBase):
                   'index_g4', 'points_g4', 'depositions_g4',
                   *OutBase._cat_attrs]
 
-    # Attributes that should not be stored
+    # Attributes that must never be stored to file
     _skip_attrs = ['depositions_q', 'points_adapt', 'depositions_adapt',
                    'depositions_adapt_q', 'sources_adapt', 'depositions_g4',
                    'points_g4', 'depositions_g4', *OutBase._skip_attrs]
 
-    # Attributes that should not be stored to file when storing lite files
+    # Attributes that must not be stored to file when storing lite files
     _lite_skip_attrs = ['index_adapt', 'index_g4', *OutBase._lite_skip_attrs]
 
     @property

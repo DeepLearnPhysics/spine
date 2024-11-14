@@ -125,7 +125,7 @@ class ParticleBase:
             'pid': {v : k for k, v in PID_LABELS.items()}
     }
 
-    # Attributes that should not be stored
+    # Attributes that must never be stored to file
     _skip_attrs = ['fragments', 'ppn_points']
 
     def __str__(self):
@@ -232,7 +232,7 @@ class RecoParticle(ParticleBase, RecoBase):
     # Boolean attributes
     _bool_attrs = [*RecoBase._bool_attrs, *ParticleBase._bool_attrs]
 
-    # Attributes that should not be stored
+    # Attributes that must never be stored to file
     _skip_attrs = [*RecoBase._skip_attrs, *ParticleBase._skip_attrs, 'ppn_points']
 
     def __str__(self):
@@ -452,7 +452,7 @@ class TruthParticle(Particle, ParticleBase, TruthBase):
     # Boolean attributes
     _bool_attrs = [*TruthBase._bool_attrs, *ParticleBase._bool_attrs]
 
-    # Attributes that should not be stored
+    # Attributes that must never be stored to file
     _skip_attrs = [*TruthBase._skip_attrs, *ParticleBase._skip_attrs]
 
     def __str__(self):

@@ -39,10 +39,10 @@ class DataBase:
     # Attributes to concatenate when merging objects
     _cat_attrs = []
 
-    # Attributes that should not be stored to file (long-form attributes)
+    # Attributes that must never be stored to file
     _skip_attrs = []
 
-    # Attributes that should not be stored to file when storing lite files
+    # Attributes that must not be stored to file when storing lite files
     _lite_skip_attrs = []
 
     # Euclidean axis labels
