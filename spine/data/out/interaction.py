@@ -43,7 +43,7 @@ class InteractionBase:
     flash_volume_ids : np.ndarray
         (F) Indices of the optical volumes the flashes where recorded in
     flash_times : np.ndarray
-        (F) Times at which the flashes occurred in nanoseconds
+        (F) Times at which the flashes occurred in microseconds
     flash_total_pe : float
         Total number of photoelectrons associated with the flash
     flash_hypo_pe : float

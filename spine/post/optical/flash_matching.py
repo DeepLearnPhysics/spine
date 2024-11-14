@@ -137,7 +137,7 @@ class FlashMatchProcessor(PostBase):
                         continue
 
                     # Reshape the flash based on geometry
-                    pe_per_ch = np.empty(
+                    pe_per_ch = np.zeros(
                             self.geo.optical.num_detectors_per_volume,
                             dtype=flash.pe_per_ch.dtype)
                     if self.ref_volume_id is not None:
