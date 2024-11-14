@@ -366,6 +366,21 @@ class RecoParticle(ParticleBase, RecoBase):
     def momentum(self, momentum):
         pass
 
+    @property
+    def reco_ke(self):
+        return self.ke
+    
+    @property
+    def reco_momentum(self):
+        return self.momentum
+    
+    @property
+    def reco_length(self):
+        return self.length
+    
+    @property
+    def reco_end_dir(self):
+        return self.end_dir
 
 @dataclass(eq=False)
 @inherit_docstring(TruthBase, ParticleBase)
@@ -497,4 +512,59 @@ class TruthParticle(Particle, ParticleBase, TruthBase):
 
     @ke.setter
     def ke(self, ke):
+        pass
+
+    ########
+    @property
+    def reco_ke(self):
+        """Best-guess kinetic energy in MeV.
+
+        Uses calorimetry for EM activity and this order for track:
+        - CSDA-based estimate if it is available
+        - MCS-based estimate if it is available
+        - Calorimetry if all else fails
+
+        Returns
+        -------
+        float
+            Best-guess kinetic energy
+        """
+        if self.shape != TRACK_SHP:
+            # If a particle is not a track, can only use calorimetry
+            return self.calo_ke
+
+        else:
+            # If a particle is a track, pick CSDA for contained tracks and
+            # pick MCS for uncontained tracks, unless specified otherwise
+            if self.is_contained and self.csda_ke > 0.0:
+                return self.csda_ke
+            elif not self.is_contained and self.mcs_ke > 0.0:
+                return self.mcs_ke
+            else:
+                return self.calo_ke
+
+    @reco_ke.setter
+    def reco_ke(self, reco_ke):
+        pass
+
+    @property
+    def reco_momentum(self):
+        """Best-guess momentum in MeV/c.
+
+        Returns
+        -------
+        np.ndarray
+            (3) Momentum vector
+        """
+        ke = self.reco_ke
+        if ke >= 0.0 and self.reco_start_dir[0] != -np.inf and self.pid in PID_MASSES:
+            mass = PID_MASSES[self.pid]
+            mom = np.sqrt(ke**2 + 2 * ke * mass)
+            return mom * self.start_dir
+
+        else:
+            return np.full(3, -np.inf, dtype=np.float32)
+
+    @reco_momentum.setter
+    def reco_momentum(self, reco_momentum):
         pass
