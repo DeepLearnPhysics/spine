@@ -156,7 +156,7 @@ class OptDetector:
             Index of the detectors which belong to the requested volume ID
         """
         # If using a global index, all volumes point to the same index
-        if self.global_index is not None:
+        if self.global_index:
             return np.arange(self.num_detectors)
 
         return (volume_id*self.num_detectors_per_volume +

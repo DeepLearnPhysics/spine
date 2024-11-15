@@ -44,7 +44,7 @@ class HDF5Writer:
 
         Parameters
         ----------
-        file_name : str, default 'spine.h5'
+        file_name : str, optional
             Name of the output HDF5 file
         keys : List[str], optional
             List of data product keys to store. If not specified, store everything
