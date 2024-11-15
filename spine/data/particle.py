@@ -151,30 +151,33 @@ class Particle(PosDataBase):
     units: str = 'cm'
 
     # Fixed-length attributes
-    _fixed_length_attrs = {'position': 3, 'end_position': 3,
-                           'parent_position': 3, 'ancestor_position': 3,
-                           'first_step': 3, 'last_step': 3, 'momentum': 3,
-                           'end_momentum': 3}
+    _fixed_length_attrs = (
+            ('position', 3), ('end_position', 3), ('parent_position', 3),
+            ('ancestor_position', 3), ('first_step', 3), ('last_step', 3),
+            ('momentum', 3), ('end_momentum', 3)
+    )
 
     # Variable-length attributes
-    _var_length_attrs = {'children_id': np.int64}
+    _var_length_attrs = (('children_id', np.int64),)
 
     # Attributes specifying coordinates
-    _pos_attrs = ['position', 'end_position', 'parent_position',
-                  'ancestor_position', 'first_step', 'last_step']
+    _pos_attrs = (
+            'position', 'end_position', 'parent_position', 'ancestor_position',
+            'first_step', 'last_step'
+    )
 
     # Attributes specifying vector components
-    _vec_attrs = ['momentum', 'end_momentum']
+    _vec_attrs = ('momentum', 'end_momentum')
 
     # Enumerated attributes
-    _enum_attrs = {
-            'shape': {v : k for k, v in SHAPE_LABELS.items()},
-            'pid': {v : k for k, v in PID_LABELS.items()}
-    }
+    _enum_attrs = (
+            ('shape', tuple((v, k) for k, v in SHAPE_LABELS.items())),
+            ('pid', tuple((v, k) for k, v in PID_LABELS.items()))
+    )
 
     # String attributes
-    _str_attrs = ['creation_process', 'parent_creation_process',
-                  'ancestor_creation_process']
+    _str_attrs = ('creation_process', 'parent_creation_process',
+                  'ancestor_creation_process')
 
     @property
     def p(self):
@@ -242,12 +245,12 @@ class Particle(PosDataBase):
         obj_dict = {}
 
         # Load the scalar attributes
-        for prefix in ['', 'parent_', 'ancestor_']:
-            for key in ['track_id', 'pdg_code', 'creation_process', 't']:
+        for prefix in ('', 'parent_', 'ancestor_'):
+            for key in ('track_id', 'pdg_code', 'creation_process', 't'):
                 obj_dict[prefix+key] = getattr(particle, prefix+key)()
-        for key in ['id', 'gen_id', 'group_id', 'interaction_id', 'parent_id',
+        for key in ('id', 'gen_id', 'group_id', 'interaction_id', 'parent_id',
                     'mct_index', 'mcst_index', 'num_voxels', 'shape',
-                    'energy_init', 'energy_deposit', 'distance_travel']:
+                    'energy_init', 'energy_deposit', 'distance_travel'):
             if not hasattr(particle, key):
                 warn(f"The LArCV Particle object is missing the {key} "
                       "attribute. It will miss from the Particle object.")
@@ -266,8 +269,8 @@ class Particle(PosDataBase):
         # Load the other array attributes (special care needed)
         obj_dict['children_id'] = np.asarray(particle.children_id(), dtype=int)
 
-        mom_attrs = ['px', 'py', 'pz']
-        for prefix in ['', 'end_']:
+        mom_attrs = ('px', 'py', 'pz')
+        for prefix in ('', 'end_'):
             key = prefix + 'momentum'
             if not hasattr(particle, key):
                 warn(f"The LArCV Particle object is missing the {key} "

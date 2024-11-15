@@ -99,34 +99,35 @@ class ParticleBase:
     is_valid: bool = True
 
     # Fixed-length attributes
-    _fixed_length_attrs = {
-            'start_point': 3, 'end_point': 3, 'start_dir': 3, 'end_dir': 3,
-            'momentum': 3, 'csda_ke_per_pid': len(PID_LABELS) -1,
-            'mcs_ke_per_pid': len(PID_LABELS) - 1
-    }
+    _fixed_length_attrs = (
+            ('start_point', 3), ('end_point', 3), ('start_dir', 3),
+            ('end_dir', 3), ('momentum', 3),
+            ('csda_ke_per_pid', len(PID_LABELS) - 1),
+            ('mcs_ke_per_pid', len(PID_LABELS) - 1)
+    )
 
     # Variable-length attributes as (key, dtype) pairs
-    _var_length_attrs = {
-            'fragments': object, 'fragment_ids': np.int32
-    }
+    _var_length_attrs = (
+            ('fragments', object), ('fragment_ids', np.int32)
+    )
 
     # Attributes specifying coordinates
-    _pos_attrs = ['start_point', 'end_point']
+    _pos_attrs = ('start_point', 'end_point')
 
     # Attributes specifying vector components
-    _vec_attrs = ['start_dir', 'end_dir', 'momentum']
+    _vec_attrs = ('start_dir', 'end_dir', 'momentum')
 
     # Boolean attributes
-    _bool_attrs = ['is_primary', 'is_valid']
+    _bool_attrs = ('is_primary', 'is_valid')
 
     # Enumerated attributes
-    _enum_attrs = {
-            'shape': {v : k for k, v in SHAPE_LABELS.items()},
-            'pid': {v : k for k, v in PID_LABELS.items()}
-    }
+    _enum_attrs = (
+            ('shape', tuple((v, k) for k, v in SHAPE_LABELS.items())),
+            ('pid', tuple((v, k) for k, v in PID_LABELS.items()))
+    )
 
     # Attributes that must never be stored to file
-    _skip_attrs = ['fragments', 'ppn_points']
+    _skip_attrs = ('fragments', 'ppn_points')
 
     def __str__(self):
         """Human-readable string representation of the particle object.
@@ -218,22 +219,30 @@ class RecoParticle(ParticleBase, RecoBase):
     shower_split_angle: float = -1.
 
     # Fixed-length attributes
-    _fixed_length_attrs = {
-            'pid_scores': len(PID_LABELS) - 1,
-            'primary_scores': 2,
-            **ParticleBase._fixed_length_attrs}
+    _fixed_length_attrs = (
+            ('pid_scores', len(PID_LABELS) - 1), ('primary_scores', 2),
+            *ParticleBase._fixed_length_attrs
+    )
 
     # Variable-length attributes
-    _var_length_attrs = {
-            **RecoBase._var_length_attrs, **ParticleBase._var_length_attrs,
-            'ppn_ids': np.int32, 'ppn_points': (3, np.float32)
-    }
+    _var_length_attrs = (
+            ('ppn_ids', np.int32), ('ppn_points', (3, np.float32)),
+            *RecoBase._var_length_attrs,
+            *ParticleBase._var_length_attrs
+    )
 
     # Boolean attributes
-    _bool_attrs = [*RecoBase._bool_attrs, *ParticleBase._bool_attrs]
+    _bool_attrs = (
+            *RecoBase._bool_attrs,
+            *ParticleBase._bool_attrs
+    )
 
     # Attributes that must never be stored to file
-    _skip_attrs = [*RecoBase._skip_attrs, *ParticleBase._skip_attrs, 'ppn_points']
+    _skip_attrs = (
+            'ppn_points',
+            *RecoBase._skip_attrs,
+            *ParticleBase._skip_attrs
+    )
 
     def __str__(self):
         """Human-readable string representation of the particle object.
@@ -426,34 +435,44 @@ class TruthParticle(Particle, ParticleBase, TruthBase):
     reco_momentum: np.ndarray = None
 
     # Fixed-length attributes
-    _fixed_length_attrs = {
-            **ParticleBase._fixed_length_attrs,
-            **Particle._fixed_length_attrs,
-            'reco_start_dir': 3, 'reco_end_dir': 3, 'reco_momentum': 3
-    }
+    _fixed_length_attrs = (
+            ('reco_start_dir', 3), ('reco_end_dir', 3), ('reco_momentum', 3),
+            *ParticleBase._fixed_length_attrs,
+            *Particle._fixed_length_attrs
+    )
 
     # Variable-length attributes
-    _var_length_attrs = {
-            **TruthBase._var_length_attrs,
-            **ParticleBase._var_length_attrs,
-            **Particle._var_length_attrs,
-            'children_counts': np.int32
-    }
+    _var_length_attrs = (
+            ('children_counts', np.int32),
+            *TruthBase._var_length_attrs,
+            *ParticleBase._var_length_attrs,
+            *Particle._var_length_attrs
+    )
 
     # Attributes specifying coordinates
-    _pos_attrs = [*ParticleBase._pos_attrs, *Particle._pos_attrs]
+    _pos_attrs = (
+            *ParticleBase._pos_attrs,
+            *Particle._pos_attrs
+    )
 
     # Attributes specifying vector components
-    _vec_attrs = [
-            *ParticleBase._vec_attrs, *Particle._vec_attrs,
-            'reco_start_dir', 'reco_end_dir', 'reco_momentum'
-    ]
+    _vec_attrs = (
+            'reco_start_dir', 'reco_end_dir', 'reco_momentum',
+            *ParticleBase._vec_attrs,
+            *Particle._vec_attrs
+    )
 
     # Boolean attributes
-    _bool_attrs = [*TruthBase._bool_attrs, *ParticleBase._bool_attrs]
+    _bool_attrs = (
+            *TruthBase._bool_attrs,
+            *ParticleBase._bool_attrs
+    )
 
     # Attributes that must never be stored to file
-    _skip_attrs = [*TruthBase._skip_attrs, *ParticleBase._skip_attrs]
+    _skip_attrs = (
+            *TruthBase._skip_attrs,
+            *ParticleBase._skip_attrs
+    )
 
     def __str__(self):
         """Human-readable string representation of the particle object.

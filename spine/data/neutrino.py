@@ -106,23 +106,23 @@ class Neutrino(PosDataBase):
     units: str = 'cm'
 
     # Fixed-length attributes
-    _fixed_length_attrs = {'position': 3, 'momentum': 3}
+    _fixed_length_attrs = (('position', 3), ('momentum', 3))
 
     # Attributes specifying coordinates
-    _pos_attrs = ['position']
+    _pos_attrs = ('position',)
 
     # Attributes specifying vector components
-    _vec_attrs = ['momentum']
+    _vec_attrs = ('momentum',)
 
     # Enumerated attributes
-    _enum_attrs = {
-            'current_type': {v : k for k, v in NU_CURR_TYPE.items()},
-            'interaction_mode': {v : k for k, v in NU_INT_TYPE.items()},
-            'interaction_type': {v : k for k, v in NU_INT_TYPE.items()}
-    }
+    _enum_attrs = (
+            ('current_type', tuple((v, k) for k, v in NU_CURR_TYPE.items())),
+            ('interaction_mode', tuple((v, k) for k, v in NU_INT_TYPE.items())),
+            ('interaction_type', tuple((v, k) for k, v in NU_INT_TYPE.items()))
+    )
 
     # String attributes
-    _str_attrs = ['creation_process']
+    _str_attrs = ('creation_process',)
 
     @classmethod
     def from_larcv(cls, neutrino):
@@ -142,14 +142,14 @@ class Neutrino(PosDataBase):
         obj_dict = {}
 
         # Load the scalar attributes
-        for key in ['id', 'interaction_id', 'mct_index', 'nu_track_id',
+        for key in ('id', 'interaction_id', 'mct_index', 'nu_track_id',
                     'lepton_track_id', 'pdg_code', 'lepton_pdg_code',
                     'current_type', 'interaction_mode', 'interaction_type',
                     'target', 'nucleon', 'quark', 'energy_init',
                     'hadronic_invariant_mass', 'bjorken_x', 'inelasticity',
                     'momentum_transfer', 'momentum_transfer_mag',
                     'energy_transfer', 'lepton_p', 'distance_travel',
-                    'theta', 'creation_process']:
+                    'theta', 'creation_process'):
             if not hasattr(neutrino, key):
                 warn(f"The LArCV Neutrino object is missing the {key} "
                       "attribute. It will miss from the Neutrino object.")
@@ -167,7 +167,7 @@ class Neutrino(PosDataBase):
                     [getattr(vector, a)() for a in pos_attrs], dtype=np.float32)
 
         # Load the momentum attribute (special care needed)
-        mom_attrs = ['px', 'py', 'pz']
+        mom_attrs = ('px', 'py', 'pz')
         if not hasattr(neutrino, 'momentum'):
             warn("The LArCV Neutrino object is missing the momentum "
                  "attribute. It will miss from the Neutrino object.")

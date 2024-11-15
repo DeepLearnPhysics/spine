@@ -63,16 +63,16 @@ class Flash(PosDataBase):
     units: str = 'cm'
 
     # Fixed-length attributes
-    _fixed_length_attrs = {'center': 3, 'width': 3}
+    _fixed_length_attrs = (('center', 3), ('width', 3))
 
     # Variable-length attributes
-    _var_length_attrs = {'pe_per_ch': np.float32}
+    _var_length_attrs = (('pe_per_ch', np.float32),)
 
     # Attributes specifying coordinates
-    _pos_attrs = ['center']
+    _pos_attrs = ('center',)
 
     # Attributes specifying vector components
-    _vec_attrs = ['width']
+    _vec_attrs = ('width',)
 
     @classmethod
     def from_larcv(cls, flash):
@@ -89,7 +89,7 @@ class Flash(PosDataBase):
             Flash object
         """
         # Get the physical center and width of the flash
-        axes = ['x', 'y', 'z']
+        axes = ('x', 'y', 'z')
         center = np.array([getattr(flash, f'{a}Center')() for a in axes])
         width = np.array([getattr(flash, f'{a}Width')() for a in axes])
 
@@ -98,7 +98,7 @@ class Flash(PosDataBase):
 
         # Get the volume ID, if it is filled (TODO: simplify with update)
         volume_id = -1
-        for attr in ['tpc', 'volume_id']:
+        for attr in ('tpc', 'volume_id'):
             if hasattr(flash, attr):
                 volume_id = getattr(flash, attr)()
 

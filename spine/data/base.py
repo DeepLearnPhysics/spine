@@ -13,40 +13,40 @@ class DataBase:
     """
 
     # Enumerated attributes
-    _enum_attrs = {}
+    _enum_attrs = ()
 
-    # Fixed-length attributes as (key, size) pairs
-    _fixed_length_attrs = {}
+    # Fixed-length attributes as (key, size) or (key, (size, dtype)) pairs
+    _fixed_length_attrs = ()
 
-    # Variable-length attributes as (key, dtype) pairs
-    _var_length_attrs = {}
+    # Variable-length attributes as (key, dtype) or (key, (width, dtype)) pairs
+    _var_length_attrs = ()
 
     # Attributes to be binarized to form an integer from a variable-length array
-    _binarize_attrs = []
+    _binarize_attrs = ()
 
     # Attributes specifying coordinates
-    _pos_attrs = []
+    _pos_attrs = ()
 
     # Attributes specifying vector components
-    _vec_attrs = []
+    _vec_attrs = ()
 
     # String attributes
-    _str_attrs = []
+    _str_attrs = ()
 
     # Boolean attributes
-    _bool_attrs = []
+    _bool_attrs = ()
 
     # Attributes to concatenate when merging objects
-    _cat_attrs = []
+    _cat_attrs = ()
 
     # Attributes that must never be stored to file
-    _skip_attrs = []
+    _skip_attrs = ()
 
     # Attributes that must not be stored to file when storing lite files
-    _lite_skip_attrs = []
+    _lite_skip_attrs = ()
 
     # Euclidean axis labels
-    _axes = ['x', 'y', 'z']
+    _axes = ('x', 'y', 'z')
 
     def __post_init__(self):
         """Immediately called after building the class attributes.
@@ -59,7 +59,7 @@ class DataBase:
           format one gets when loading string from HDF5 files.
         """
         # Provide default values to the variable-length array attributes
-        for attr, dtype in self._var_length_attrs.items():
+        for attr, dtype in self._var_length_attrs:
             if getattr(self, attr) is None:
                 if not isinstance(dtype, tuple):
                     setattr(self, attr, np.empty(0, dtype=dtype))
@@ -68,7 +68,7 @@ class DataBase:
                     setattr(self, attr, np.empty((0, width), dtype=dtype))
 
         # Provide default values to the fixed-length array attributes
-        for attr, size in self._fixed_length_attrs.items():
+        for attr, size in self._fixed_length_attrs:
             if getattr(self, attr) is None:
                 if not isinstance(size, tuple):
                     dtype = np.float32
@@ -153,7 +153,7 @@ class DataBase:
         if not lite:
             skip_attrs = self._skip_attrs
         else:
-            skip_attrs = [*self._skip_attrs, *self._lite_skip_attrs]
+            skip_attrs = (*self._skip_attrs, *self._lite_skip_attrs)
 
         return {k: v for k, v in asdict(self).items() if not k in skip_attrs}
 
@@ -180,7 +180,7 @@ class DataBase:
             else:
                 found.append(attr)
 
-            # If the attribute is long-form attribute, skip it
+            # If the attribute is a long-form attribute, skip it
             if (attr not in self._binarize_attrs and
                 (attr in self._skip_attrs or attr in self._var_length_attrs)):
                 continue
@@ -223,8 +223,8 @@ class DataBase:
 
         Returns
         -------
-        Dict[str, int]
-            Dictioary which maps fixed-length attributes onto their length
+        Tuple[str, int]
+            Tuple which maps fixed-length attributes onto their length
         """
         return self._fixed_length_attrs
 
@@ -234,8 +234,8 @@ class DataBase:
 
         Returns
         -------
-        Dict[str, type]
-            Dictionary which maps variable-length attributes onto their type
+        Tuple[str, type]
+            Tuple which maps variable-length attributes onto their type
         """
         return self._fixed_length_attrs
 
@@ -245,8 +245,8 @@ class DataBase:
 
         Returns
         -------
-        Dict[int, Dict[int, str]]
-            Dictionary which maps names onto enumerator descriptors
+        Tuple[int, Tuple[int, str]]
+            Tuple which maps names onto enumerator descriptors
         """
         return self._enum_attrs
 
@@ -260,6 +260,17 @@ class DataBase:
             List of attributes to exclude from the storage process
         """
         return self._skip_attrs
+
+    @property
+    def lite_skip_attrs(self):
+        """Fetches the list of attributes to not store to lite file.
+
+        Returns
+        -------
+        List[str]
+            List of attributes to exclude from the storage process
+        """
+        return self._lite_skip_attrs
 
 
 @dataclass(eq=False)

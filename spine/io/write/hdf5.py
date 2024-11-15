@@ -348,7 +348,7 @@ class HDF5Writer:
             elif hasattr(obj, 'enum_attrs') and key in obj.enum_attrs:
                 # Recognized enumerated list
                 enum_dtype = h5py.enum_dtype(
-                        obj.enum_attrs[key], basetype=type(val))
+                        dict(obj.enum_attrs[key]), basetype=type(val))
                 object_dtype.append((key, enum_dtype))
 
             elif np.isscalar(val):
