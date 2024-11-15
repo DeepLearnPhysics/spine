@@ -69,8 +69,9 @@ class CalibrationProcessor(PostBase):
     aliases = ['apply_calibrations']
     keys = {'run_info': False}
 
-    def __init__(self, dedx=2.2, do_tracking=False, obj_type='particle',
-                 run_mode='reco', truth_point_mode='points', **cfg):
+    def __init__(self, dedx=2.2, do_tracking=False,
+                 obj_type=('particle', 'interaction'), run_mode='reco',
+                 truth_point_mode='points', **cfg):
         """Initialize the calibration manager.
 
         Parameters
@@ -116,7 +117,7 @@ class CalibrationProcessor(PostBase):
             run_id = run_info.run
 
         # Loop over particle objects
-        for k in self.obj_keys:
+        for k in self.particle_keys:
             points_key = 'points' if not 'truth' in k else self.truth_point_key
             source_key = 'sources' if not 'truth' in k else self.truth_source_key
             dep_key = 'depositions' if not 'truth' in k else self.truth_dep_key
@@ -155,3 +156,14 @@ class CalibrationProcessor(PostBase):
             data[dep_key][unass_index] = self.calibrator(
                     data[points_key][unass_index], data[dep_key][unass_index],
                     data[source_key][unass_index], run_id, self.dedx)
+
+        # If requested, updated the depositions attribute of interactions
+        for k in self.interaction_keys:
+            dep_key = 'depositions' if not 'truth' in k else self.truth_dep_key
+            for inter in data[k]:
+                # Update depositions for the interaction
+                depositions = data[dep_key][inter.index]
+                if not part.is_truth:
+                    inter.depositions = depositions
+                else:
+                    setattr(inter, self.truth_dep_mode, depositions)
