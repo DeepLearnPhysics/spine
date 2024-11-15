@@ -21,9 +21,6 @@ class DataBase:
     # Variable-length attributes as (key, dtype) or (key, (width, dtype)) pairs
     _var_length_attrs = ()
 
-    # Attributes to be binarized to form an integer from a variable-length array
-    _binarize_attrs = ()
-
     # Attributes specifying coordinates
     _pos_attrs = ()
 
@@ -106,7 +103,7 @@ class DataBase:
         if self.__class__ != other.__class__:
             return False
 
-        # Check that all attributes are identical
+        # Check that all base attributes are identical
         for k, v in self.__dict__.items():
             if np.isscalar(v):
                 # For scalars, regular comparison will do
@@ -181,8 +178,7 @@ class DataBase:
                 found.append(attr)
 
             # If the attribute is a long-form attribute, skip it
-            if (attr not in self._binarize_attrs and
-                (attr in self._skip_attrs or attr in self._var_length_attrs)):
+            if attr in self.skip_attrs or attr in self.var_length_attrs:
                 continue
 
             # Dispatch
@@ -190,16 +186,12 @@ class DataBase:
                 # If the attribute is a scalar, store as is
                 scalar_dict[attr] = value
 
-            elif attr in self._binarize_attrs:
-                # If the list is to be binarized, do it
-                scalar_dict[attr] = int(np.sum(2**value))
-
             elif attr in (self._pos_attrs + self._vec_attrs):
                 # If the attribute is a position or vector, expand with axis
                 for i, v in enumerate(value):
                     scalar_dict[f'{attr}_{self._axes[i]}'] = v
 
-            elif attr in self._fixed_length_attrs:
+            elif attr in self.fixed_length_attrs:
                 # If the attribute is a fixed length array, expand with index
                 for i, v in enumerate(value):
                     scalar_dict[f'{attr}_{i}'] = v
@@ -219,36 +211,36 @@ class DataBase:
 
     @property
     def fixed_length_attrs(self):
-        """Fetches the dictionary of fixed-length array attributes.
+        """Fetches the dictionary of fixed-length array attributes as a dictionary.
 
         Returns
         -------
-        Tuple[str, int]
-            Tuple which maps fixed-length attributes onto their length
+        Dict[str, int]
+            Dictionary which maps fixed-length attributes onto their length
         """
-        return self._fixed_length_attrs
+        return dict(self._fixed_length_attrs)
 
     @property
     def var_length_attrs(self):
-        """Fetches the list of variable-length array attributes.
+        """Fetches the list of variable-length array attributes as a dictionary.
 
         Returns
         -------
-        Tuple[str, type]
-            Tuple which maps variable-length attributes onto their type
+        Dict[str, type]
+            Dictionary which maps variable-length attributes onto their type
         """
-        return self._fixed_length_attrs
+        return dict(self._var_length_attrs)
 
     @property
     def enum_attrs(self):
-        """Fetches the list of enumerated attributes.
+        """Fetches the list of enumerated attributes as a dictionary.
 
         Returns
         -------
-        Tuple[int, Tuple[int, str]]
-            Tuple which maps names onto enumerator descriptors
+        Dict[int, Dict[int, str]]
+            Dictionary which maps names onto enumerator descriptors
         """
-        return self._enum_attrs
+        return {k: dict(v) for k, v in self._enum_attrs}
 
     @property
     def skip_attrs(self):
