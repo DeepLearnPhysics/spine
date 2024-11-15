@@ -29,7 +29,7 @@ class SaveAna(AnaBase):
     }
 
     def __init__(self, obj_type, fragment=None, particle=None, interaction=None,
-                 run_mode='both', match_mode='both', **kwargs):
+                 lengths=None, run_mode='both', match_mode='both', **kwargs):
         """Initialize the CSV logging class.
 
         If any of the `fragments`, `particles` or `interactions` are specified
@@ -40,8 +40,14 @@ class SaveAna(AnaBase):
         ----------
         obj_type : Union[str, List[str]], default ['particle', 'interaction']
             Objects to build files from
-        attrs : List[str]
-            List of object attributes to store
+        fragment : List[str], optional
+            List of fragment attributes to store
+        particle : List[str], optional
+            List of particle attributes to store
+        interaction : List[str], optional
+            List of interaction attributes to store
+        lengths : Dict[str, int], optional
+            Lengths to use for variable-length object attributes
         match_mode : str, default 'both'
             If reconstructed and truth are available, specified which matching
             direction(s) should be saved to the log file.
@@ -92,6 +98,9 @@ class SaveAna(AnaBase):
                          "The following keys were not found in either the reco "
                         f"or the truth {obj_t} : {leftover}")
 
+        # Store the list of variable-length array lengths
+        self.lengths = lengths
+
         # Add the necessary keys associated with matching, if needed
         if match_mode is not None:
             for prefix in self.prefixes:
@@ -125,11 +134,13 @@ class SaveAna(AnaBase):
             other = other_prefix[prefix]
             attrs = self.attrs[key]
             attrs_other = self.attrs[f'{other}_{obj_type}']
+            lengths = self.lengths
+            lengths_other = self.lengths
             if (self.match_mode is None or
                 self.match_mode == f'{other}_to_{prefix}'):
                 # If there is no matches, save objects by themselves
                 for i, obj in enumerate(data[key]):
-                    self.append(key, **obj.scalar_dict(attrs))
+                    self.append(key, **obj.scalar_dict(attrs, lengths))
 
             else:
                 # If there are matches, combine the objects with their best
@@ -137,12 +148,12 @@ class SaveAna(AnaBase):
                 match_suffix = f'{prefix[0]}2{other[0]}'
                 match_key = f'{obj_type[:-1]}_matches_{match_suffix}'
                 for idx, (obj_i, obj_j) in enumerate(data[match_key]):
-                    src_dict = obj_i.scalar_dict(attrs)
+                    src_dict = obj_i.scalar_dict(attrs, lengths)
                     if obj_j is not None:
-                        tgt_dict = obj_j.scalar_dict(attrs_other)
+                        tgt_dict = obj_j.scalar_dict(attrs_other, lengths_other)
                     else:
                         default_obj = self._default_objs[f'{other}_{obj_type}']
-                        tgt_dict = default_obj.scalar_dict(attrs_other)
+                        tgt_dict = default_obj.scalar_dict(attrs_other, lengths_other)
 
                     src_dict = {f'{prefix}_{k}':v for k, v in src_dict.items()}
                     tgt_dict = {f'{other}_{k}':v for k, v in tgt_dict.items()}

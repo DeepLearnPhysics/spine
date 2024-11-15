@@ -154,7 +154,7 @@ class DataBase:
 
         return {k: v for k, v in asdict(self).items() if not k in skip_attrs}
 
-    def scalar_dict(self, attrs=None, lite=False):
+    def scalar_dict(self, attrs=None, lengths=None, lite=False):
         """Returns the data class attributes as a dictionary of scalars.
 
         This is useful when storing data classes in CSV files, which expect
@@ -165,10 +165,13 @@ class DataBase:
         attrs : List[str], optional
             List of attribute names to include in the dictionary. If not
             specified, all the keys are included.
+        lengths : Dict[str, int], optional
+            Specifies the length of variable-length attributes
         lite : bool, default False
             If `True`, the `_lite_skip_attrs` are dropped
         """
         # Loop over the attributes of the data class
+        lengths = lengths or {}
         scalar_dict, found = {}, []
         for attr, value in self.as_dict(lite).items():
             # If the attribute is not requested, skip
@@ -176,10 +179,6 @@ class DataBase:
                 continue
             else:
                 found.append(attr)
-
-            # If the attribute is a long-form attribute, skip it
-            if attr in self.skip_attrs or attr in self.var_length_attrs:
-                continue
 
             # Dispatch
             if np.isscalar(value):
@@ -192,9 +191,27 @@ class DataBase:
                     scalar_dict[f'{attr}_{self._axes[i]}'] = v
 
             elif attr in self.fixed_length_attrs:
-                # If the attribute is a fixed length array, expand with index
+                # If the attribute is a fixed-length array, expand with index
                 for i, v in enumerate(value):
                     scalar_dict[f'{attr}_{i}'] = v
+
+            elif attr in self.var_length_attrs:
+                if attr in lengths:
+                    # If the attribute is a variable-length array with a length
+                    # provided, resize it to match that length and store it
+                    for i in range(lengths[attr]):
+                        if i < len(value):
+                            scalar_dict[f'{attr}_{i}'] = value[i]
+                        else:
+                            scalar_dict[f'{attr}_{i}'] = None
+
+                else:
+                    # If the attribute is a variable-length array of
+                    # indeterminate length, do not store it
+                    assert attrs is None or attr not in attrs, (
+                            f"Cannot cast {attr} to scalars. To cast a variable-"
+                             "length array, must provide a fixed length.")
+                    continue
 
             else:
                 raise ValueError(
