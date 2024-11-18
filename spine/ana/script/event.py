@@ -14,9 +14,14 @@ __all__ = ['EventAna']
 
 class EventAna(AnaBase):
     """Class which saves basic event information (and their matches)."""
+
+    # Name of the analysis script (as specified in the configuration)
     name = 'event'
-    keys = {'index': True, 'reco_particles': True,
-            'truth_particles': True, 'run_info': False}
+
+    # Set of data keys needed for this analysis script to operate
+    _keys = (
+            ('reco_particles', True), ('truth_particles', True)
+    )
 
     def __init__(self, **kwargs):
         """Initialize the CSV event logging class.

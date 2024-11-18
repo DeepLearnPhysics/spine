@@ -25,10 +25,18 @@ class AnaBase(ABC):
     units : str
         Units in which the coordinates are expressed
     """
+
+    # Name of the analysis script (as specified in the configuration)
     name = None
+
+    # Alternative allowed names of the analysis script
     aliases = ()
-    keys = None
+
+    # Units in which the analysis script expects objects to be expressed in
     units = 'cm'
+
+    # Set of data keys needed for this analysis script to operate
+    _keys = ()
 
     # List of recognized object types
     _obj_types = ('fragment', 'particle', 'interaction')
@@ -58,9 +66,7 @@ class AnaBase(ABC):
             Name to prefix every output CSV file with
         """
         # Initialize default keys
-        if self.keys is None:
-            self.keys = {}
-        self.keys.update({
+        self.update_keys({
                 'index': True, 'file_index': True,
                 'file_entry_index': False, 'run_info': False
         })
@@ -104,7 +110,9 @@ class AnaBase(ABC):
         self.obj_keys = (self.fragment_keys 
                          + self.particle_keys 
                          + self.interaction_keys)
-        self.keys.update({k:True for k in self.obj_keys})
+
+        # Update underlying keys, if needed
+        self.update_keys({k:True for k in self.obj_keys})
 
         # Store the append flag
         self.append_file = append
@@ -135,6 +143,42 @@ class AnaBase(ABC):
         self.writers[name] = CSVWriter(
                 file_name, append=self.append_file,
                 overwrite=self.overwrite_file)
+
+    @property
+    def keys(self):
+        """Dictionary of (key, necessity) pairs which determine which data keys
+        are needed/optional for the post-processor to run.
+
+        Returns
+        -------
+        Dict[str, bool]
+            Dictionary of (key, necessity) pairs to be used
+        """
+        return dict(self._keys)
+
+    @keys.setter
+    def keys(self, keys):
+        """Converts a dictionary of keys to an immutable tuple.
+
+        Parameters
+        ----------
+        Dict[str, bool]
+            Dictionary of (key, necessity) pairs to be used
+        """
+        self._keys = tuple(keys.items())
+
+    def update_keys(self, update_dict):
+        """Update the underlying set of keys and their necessity in place.
+
+        Parameters
+        ----------
+        update_dict : Dict[str, bool]
+            Dictionary of (key, necessity) pairs to update the keys with
+        """
+        if len(update_dict) > 0:
+            keys = self.keys
+            keys.update(update_dict)
+            self._keys = tuple(keys.items())
 
     def get_base_dict(self, data):
         """Builds the entry information dictionary.

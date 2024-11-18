@@ -19,14 +19,14 @@ class SaveAna(AnaBase):
     _match_modes = (None, 'reco_to_truth', 'truth_to_reco', 'both', 'all')
 
     # Default object types when a match is not found
-    _default_objs = {
-            'reco_fragments': RecoFragment(),
-            'truth_fragments': TruthFragment(),
-            'reco_particles': RecoParticle(),
-            'truth_particles': TruthParticle(),
-            'reco_interactions': RecoInteraction(),
-            'truth_interactions': TruthInteraction()
-    }
+    _default_objs = (
+            ('reco_fragments', RecoFragment()),
+            ('truth_fragments', TruthFragment()),
+            ('reco_particles', RecoParticle()),
+            ('truth_particles', TruthParticle()),
+            ('reco_interactions', RecoInteraction()),
+            ('truth_interactions', TruthInteraction())
+    )
 
     def __init__(self, obj_type, fragment=None, particle=None, interaction=None,
                  lengths=None, run_mode='both', match_mode='both', **kwargs):
@@ -66,6 +66,9 @@ class SaveAna(AnaBase):
                  "When storing matches, you must load both reco and truth "
                 f"objects, i.e. set `run_mode` to `True`. Got {run_mode}.")
 
+        # Store default objects as a dictionary
+        self.default_objs = dict(self._default_objs)
+
         # Store the list of attributes to store for each object type
         attrs = {
                 'fragments': fragment,
@@ -86,7 +89,7 @@ class SaveAna(AnaBase):
                 for run_mode in ['reco', 'truth']:
                     key = f'{run_mode}_{obj_t}'
                     if attrs[obj_t] is not None:
-                        all_keys = self._default_objs[key].as_dict().keys()
+                        all_keys = self.default_objs[key].as_dict().keys()
                         self.attrs[key] = set(attrs[obj_t]) & set(all_keys)
                         leftover -= (leftover & self.attrs[key])
 
@@ -102,15 +105,18 @@ class SaveAna(AnaBase):
         self.lengths = lengths
 
         # Add the necessary keys associated with matching, if needed
+        keys = {}
         if match_mode is not None:
             for prefix in self.prefixes:
                 for obj_name in obj_type:
                     if prefix == 'reco' and match_mode != 'truth_to_reco':
-                        self.keys[f'{obj_name}_matches_r2t'] = True
-                        self.keys[f'{obj_name}_matches_r2t_overlap'] = True
+                        keys[f'{obj_name}_matches_r2t'] = True
+                        keys[f'{obj_name}_matches_r2t_overlap'] = True
                     if prefix == 'truth' and match_mode != 'reco_to_truth':
-                        self.keys[f'{obj_name}_matches_t2r'] = True
-                        self.keys[f'{obj_name}_matches_t2r_overlap'] = True
+                        keys[f'{obj_name}_matches_t2r'] = True
+                        keys[f'{obj_name}_matches_t2r_overlap'] = True
+
+        self.update_keys(keys)
 
         # Initialize one CSV writer per object type
         for key in self.obj_keys:
@@ -152,7 +158,7 @@ class SaveAna(AnaBase):
                     if obj_j is not None:
                         tgt_dict = obj_j.scalar_dict(attrs_other, lengths_other)
                     else:
-                        default_obj = self._default_objs[f'{other}_{obj_type}']
+                        default_obj = self.default_objs[f'{other}_{obj_type}']
                         tgt_dict = default_obj.scalar_dict(attrs_other, lengths_other)
 
                     src_dict = {f'{prefix}_{k}':v for k, v in src_dict.items()}

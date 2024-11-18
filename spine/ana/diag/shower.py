@@ -13,6 +13,8 @@ class ShowerStartDEdxAna(AnaBase):
     of different EM shower types (electron vs photon), which are expected to
     have different dE/dx patterns near their start point.
     """
+
+    # Name of the analysis script (as specified in the configuration)
     name = 'shower_start_dedx'
 
     def __init__(self, radius, obj_type='particle', run_mode='both', 

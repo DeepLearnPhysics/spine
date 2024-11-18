@@ -120,9 +120,8 @@ class PostBase(ABC):
                          + self.particle_keys
                          + self.interaction_keys)
 
-        # Update underlying keys, if needed:
-        if len(self.obj_keys) > 0:
-            self.update_keys({k: True for k in self.obj_keys})
+        # Update underlying keys, if needed
+        self.update_keys({k: True for k in self.obj_keys})
 
         # If a truth point mode is specified, store it
         if truth_point_mode is not None:
