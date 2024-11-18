@@ -188,7 +188,7 @@ class FlashMatchProcessor(PostBase):
                 matches = self.matcher.get_matches(interactions_v, flashes_v)
 
                 # Store flash information
-                for i, (inter_v, flash, match) in enumerate(matches):
+                for inter_v, flash, match in matches:
                     # Get the interaction that matches the cropped version
                     inter = interactions[inter_v.id]
 

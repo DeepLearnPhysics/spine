@@ -87,7 +87,7 @@ class MetaParser(ParserBase):
         """
         # Check on the input, pick a source for the metadata
         assert (sparse_event is not None) ^ (cluster_event is not None), (
-                "Must specify either `sparse_event` or `cluster_event`")
+                "Must specify either `sparse_event` or `cluster_event`.")
         ref_event = sparse_event if sparse_event is not None else cluster_event
 
         # Fetch a specific projection, if needed
@@ -141,7 +141,7 @@ class RunInfoParser(ParserBase):
         """
         # Check on the input, pick a source for the run information
         assert (sparse_event is not None) ^ (cluster_event is not None), (
-                "Must specify either `sparse_event` or `cluster_event`")
+                "Must specify either `sparse_event` or `cluster_event`.")
         ref_event = sparse_event if sparse_event is not None else cluster_event
 
         return RunInfo.from_larcv(ref_event)
@@ -195,33 +195,32 @@ class FlashParser(ParserBase):
         List[Flash]
             List of optical flash objects
         """
-        # Check on the input, aggregate the sources for the optical flashes
+        # Check on the input
         assert ((flash_event is not None) ^
                 (flash_event_list is not None)), (
-                "Must specify either `flash_event` or `flash_event_list`")
+                "Must specify either `flash_event` or `flash_event_list`.")
+
+        # Parse flash objects
         if flash_event is not None:
             # If there is a single flash event, parse it as is
             flash_list = flash_event.as_vector()
+            flashes = [Flash.from_larcv(larcv.Flash(f)) for f in flash_list]
 
         else:
             # Otherwise, set the volume ID of the flash to the source index
             # and count the flash index from 0 to the largest number
-            flash_list = []
+            flashes = []
             idx = 0
             for volume_id, flash_event in enumerate(flash_event_list):
-                for flash in flash_event.as_vector():
-                    # Update attributes (TODO: simplify volume_id with update)
-                    flash.id(idx)
-                    for attr in ['tpc', 'volume_id']:
-                        if hasattr(flash, attr):
-                            getattr(flash, attr)(volume_id)
+                for f in flash_event.as_vector():
+                    # Cast and update attributes
+                    flash = Flash.from_larcv(f)
+                    flash.id = idx
+                    flash.volume_id = volume_id
 
                     # Append, increment counter
-                    flash_list.append(flash)
+                    flashes.append(flash)
                     idx += 1
-
-        # Output as a list of LArCV optical flash objects
-        flashes = [Flash.from_larcv(larcv.Flash(f)) for f in flash_list]
 
         return ObjectList(flashes, Flash())
 

@@ -191,7 +191,7 @@ class Cluster3DParser(ParserBase):
         if self.add_particle_info:
             assert particle_event is not None, (
                     "If `add_particle_info` is `True`, must provide the "
-                    "`particle_event` argument")
+                    "`particle_event` argument.")
 
     def __call__(self, trees):
         """Parse one entry.

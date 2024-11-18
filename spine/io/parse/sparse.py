@@ -62,9 +62,9 @@ class Sparse2DParser(ParserBase):
 
         # Get the number of features in the output tensor
         assert (sparse_event is not None) ^ (sparse_event_list is not None), (
-                "Must provide either `sparse_event` or `sparse_event_list`")
+                "Must provide either `sparse_event` or `sparse_event_list`.")
         assert sparse_event_list is None or len(sparse_event_list), (
-                "Must provide as least 1 sparse_event in the list")
+                "Must provide as least 1 sparse_event in the list.")
 
         self.num_features = 1
         if sparse_event_list is not None:
@@ -118,9 +118,9 @@ class Sparse2DParser(ParserBase):
                 larcv.fill_2d_voxels(tensor, np_voxels)
             else:
                 assert meta == tensor.meta(), (
-                        "The metadata must match between tensors")
+                        "The metadata must match between tensors.")
                 assert num_points == tensor.as_vector().size(), (
-                        "The number of pixels must match between tensors")
+                        "The number of pixels must match between tensors.")
 
             # Get the feature vector for this tensor
             np_data = np.empty((num_points, 1), dtype=self.ftype)
@@ -194,9 +194,9 @@ class Sparse3DParser(ParserBase):
 
         # Get the number of features in the output tensor
         assert (sparse_event is not None) ^ (sparse_event_list is not None), (
-                "Must provide either `sparse_event` or `sparse_event_list`")
+                "Must provide either `sparse_event` or `sparse_event_list`.")
         assert sparse_event_list is None or len(sparse_event_list), (
-                "Must provide as least 1 sparse_event in the list")
+                "Must provide as least 1 sparse_event in the list.")
 
         num_tensors = 1 if sparse_event is not None else len(sparse_event_list)
         if self.num_features is not None:
@@ -260,7 +260,7 @@ class Sparse3DParser(ParserBase):
                     meta = sparse_event.meta()
                 else:
                     assert meta == sparse_event.meta(), (
-                            "The metadata must match between tensors")
+                            "The metadata must match between tensors.")
 
                 if num_points is None:
                     num_points = sparse_event.as_vector().size()
@@ -269,7 +269,7 @@ class Sparse3DParser(ParserBase):
                         larcv.fill_3d_voxels(sparse_event, np_voxels)
                 else:
                     assert num_points == sparse_event.as_vector().size(), (
-                            "The number of pixels must match between tensors")
+                            "The number of pixels must match between tensors.")
 
                 # Get the feature vector for this tensor
                 np_data = np.empty((num_points, 1), dtype=self.ftype)
