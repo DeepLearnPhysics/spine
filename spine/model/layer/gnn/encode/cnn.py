@@ -13,6 +13,8 @@ __all__ = ['ClustCNNNodeEncoder', 'ClustCNNEdgeEncoder', 'ClustCNNGlobalEncoder'
 
 class ClustCNNNodeEncoder(torch.nn.Module):
     """Produces cluster node features using a sparse residual CNN encoder."""
+
+    # Name of the node encoder (as specified in the configuration)
     name = 'cnn'
 
     def __init__(self, **cfg):
@@ -68,6 +70,8 @@ class ClustCNNEdgeEncoder(torch.nn.Module):
     Considers an edge as an image containing both ojbects connected by
     the edge in a single image.
     """
+
+    # Name of the edge encoder (as specified in the configuration)
     name = 'cnn'
 
     def __init__(self, **cfg):
@@ -143,6 +147,8 @@ class ClustCNNGlobalEncoder(torch.nn.Module):
 
     Considers the whole graph as an image containing all objects in it.
     """
+
+    # Name of the global encoder (as specified in the configuration)
     name = 'cnn'
 
     def __init__(self, **cfg):

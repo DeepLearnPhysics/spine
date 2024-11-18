@@ -41,8 +41,12 @@ class ClustGeoNodeEncoder(torch.nn.Module):
     - Start dEdx (1)
     - End dEdx (1)
     """
+
+    # Name of the node encoder (as specified in the configuration)
     name = 'geometric'
-    aliases = ['geo']
+
+    # Alternative allowed names of the node encoder
+    aliases = ('geo',)
 
     def __init__(self, use_numpy=True, add_value=False, add_shape=False,
                  add_points=False, add_local_dirs=False, dir_max_dist=5.,
@@ -296,8 +300,12 @@ class ClustGeoEdgeEncoder(torch.nn.Module):
     - Length of the displacement vector (1)
     - Outer product of the displacement vector (9)
     """
+
+    # Name of the edge encoder (as specified in the configuration)
     name = 'geometric'
-    aliases = ['geo']
+
+    # Alternative allowed names of the edge encoder
+    aliases = ('geo',)
 
     def __init__(self, use_numpy=True):
         """Initializes the geometric-based node encoder.

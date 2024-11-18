@@ -21,6 +21,8 @@ class EConvNodeLayer(nn.Module):
 
     Source: https://arxiv.org/abs/1801.07829
     """
+
+    # Name of the node layer (as specified in the configuration)
     name = 'econv'
 
     def __init__(self, node_in, edge_in, glob_in, mlp, aggr='max', **kwargs):

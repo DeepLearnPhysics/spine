@@ -36,6 +36,8 @@ class Cluster2DParser(ParserBase):
             parser: cluster2d
             cluster_event: cluster2d_pcluster
     """
+
+    # Name of the parser (as specified in the configuration)
     name = 'cluster2d'
 
     def __init__(self, dtype, cluster_event, projection_id):
@@ -133,6 +135,8 @@ class Cluster3DParser(ParserBase):
             primary_include_mpr: true
             break_clusters: false
     """
+
+    # Name of the parser (as specified in the configuration)
     name = 'cluster3d'
 
     def __init__(self, dtype, particle_event=None, add_particle_info=False,
@@ -187,7 +191,7 @@ class Cluster3DParser(ParserBase):
         if self.add_particle_info:
             assert particle_event is not None, (
                     "If `add_particle_info` is `True`, must provide the "
-                    "`particle_event` argument")
+                    "`particle_event` argument.")
 
     def __call__(self, trees):
         """Parse one entry.
@@ -380,6 +384,8 @@ class Cluster3DChargeRescaledParser(Cluster3DParser):
     """Identical to :class:`Cluster3DParser`, but computes rescaled charges
     on the fly.
     """
+
+    # Name of the parser (as specified in the configuration)
     name = 'cluster3d_rescale_charge'
 
     def __init__(self, sparse_value_event_list, collection_only=False,
@@ -460,6 +466,8 @@ class Cluster3DMultiModuleParser(Cluster3DParser):
     """Identical to :class:`Cluster3DParser`, but fetches charge information
     from multiple detector modules independantly.
     """
+
+    # Name of the parser (as specified in the configuration)
     name = 'cluster3d_multi_module'
 
     def __call__(self, trees):

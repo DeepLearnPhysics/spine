@@ -33,8 +33,12 @@ class NodeRegressionLoss(torch.nn.Module):
     See configuration files prefixed with `grappa_` under the `config`
     directory for detailed examples of working configurations.
     """
+
+    # Name of the loss (as specified in the configuration)
     name = 'reg'
-    aliases = ['regression']
+
+    # Alternative allowed names of the loss
+    aliases = ('regression',)
 
     def __init__(self, target, loss='mse'):
         """Initialize the node regression loss function.

@@ -16,6 +16,8 @@ class CompleteGraph(GraphBase):
     See :class:`GraphBase` for attributes/methods shared
     across all graph constructors.
     """
+
+    # Name of the graph constructor (as specified in the configuration)
     name = 'complete'
 
     def generate(self, clusts, **kwargs):

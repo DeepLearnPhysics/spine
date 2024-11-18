@@ -19,12 +19,16 @@ class CSDAEnergyProcessor(PostBase):
     """Reconstruct the kinetic energy of tracks based on their range in liquid
     argon using the continuous slowing down approximation (CSDA).
     """
+
+    # Name of the post-processor (as specified in the configuration)
     name = 'csda_ke'
-    aliases = ['reconstruct_csda_energy']
+
+    # Alternative allowed names of the post-processor
+    aliases = ('reconstruct_csda_energy',)
 
     def __init__(self, tracking_mode='step_next',
-                 include_pids=[MUON_PID, PION_PID, PROT_PID, KAON_PID],
-                 obj_type='particle', run_mode='both',
+                 include_pids=(MUON_PID, PION_PID, PROT_PID, KAON_PID),
+                 fill_per_pid=False, obj_type='particle', run_mode='both',
                  truth_point_mode='points', **kwargs):
         """Store the necessary attributes to do CSDA range-based estimation.
 
@@ -35,6 +39,8 @@ class CSDAEnergyProcessor(PostBase):
             'step', 'step_next', 'bin_pca' or 'spline')
         include_pids : list, default [2, 3, 4, 5]
             Particle species to compute the kinetic energy for
+        fill_per_pid : bool, default False
+            If `True`, compute the CSDA KE estimate under all PID assumptions
         **kwargs : dict, optional
             Additional arguments to pass to the tracking algorithm
         """
@@ -43,6 +49,7 @@ class CSDAEnergyProcessor(PostBase):
 
         # Fetch the functions that map the range to a KE
         self.include_pids = include_pids
+        self.fill_per_pid = fill_per_pid
         self.splines = {
                 ptype: csda_table_spline(ptype) for ptype in include_pids}
 
@@ -88,16 +95,26 @@ class CSDAEnergyProcessor(PostBase):
                 # Compute the CSDA kinetic energy
                 if length > 0.:
                     obj.csda_ke = self.splines[obj.pid](length).item()
+                    if self.fill_per_pid:
+                        for pid in self.include_pids:
+                            obj.csda_ke_per_pid[pid] = self.splines[pid](length).item()
                 else:
                     obj.csda_ke = 0.
+                    if self.fill_per_pid:
+                        for pid in self.include_pids:
+                            obj.csda_ke_per_pid[pid] = 0.
 
 
 class TrackValidityProcessor(PostBase):
     """Check if track is valid based on the proximity to reconstructed vertex.
     Can also reject small tracks that are close to the vertex (optional).
     """
+
+    # Name of the post-processor (as specified in the configuration)
     name = 'track_validity'
-    aliases = ['track_validity_processor']
+
+    # Alternative allowed names of the post-processor
+    aliases = ('track_validity_processor',)
 
     def __init__(self, threshold=3., ke_threshold=50.,
                  check_small_track=False, **kwargs):
@@ -135,7 +152,8 @@ class TrackValidityProcessor(PostBase):
                 if p.shape == TRACK_SHP and p.is_primary:
                     # Check vertex attachment
                     dist = np.linalg.norm(p.points - ia.vertex, axis=1)
-                    if dist.min() > self.threshold:
+                    p.vertex_distance = dist.min()
+                    if p.vertex_distance > self.threshold:
                         p.is_primary = False
                     # Check if track is small and within radius from vertex
                     if self.check_small_track:
@@ -148,8 +166,12 @@ class TrackValidityProcessor(PostBase):
 class TrackShowerMergerProcessor(PostBase):
     """Merge tracks into showers based on a set of selection criteria.
     """
+
+    # Name of the post-processor (as specified in the configuration)
     name = 'merge_track_to_shower'
-    aliases = ['track_shower_merger']
+
+    # Alternative allowed names of the post-processor
+    aliases = ('track_shower_merger',)
 
     def __init__(self, angle_threshold=10, adjacency_threshold=0.5,
                  dedx_threshold=-1, track_length_limit=50, **kwargs):

@@ -25,7 +25,12 @@ class PointProposalAna(AnaBase):
     - Point type classification accuracy
     - Point end classification accuracy
     """
+
+    # Name of the analysis script (as specified in the configuration)
     name = 'point_eval'
+
+    # Set of data keys needed for this analysis script to operate
+    _keys = (('ppn_pred', True),)
 
     def __init__(self, num_classes=LOWES_SHP, label_key='ppn_label',
                  endpoints=False, **kwargs):
@@ -51,8 +56,7 @@ class PointProposalAna(AnaBase):
         self.endpoints = endpoints
 
         # Append other required key
-        self.keys['ppn_pred'] = True
-        self.keys[self.label_key] = True
+        self.update_keys({self.label_key: True})
 
         # Initialize the output
         self.initialize_writer('truth_to_reco')

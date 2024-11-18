@@ -12,58 +12,42 @@ class BuilderBase(ABC):
 
     A Builder class takes input data and full chain result dictionaries
     and processes them into human-readable data structures.
-
-    Attributes
-    ----------
-    name : str
-        Name of the builder (to call it from a configuration file)
-    reco_type : object
-        Data class representation object of a reconstructed object
-    truth_type : object
-        Data class representation object of a truth object
-    build_reco_keys : Dict[str, bool]
-        Dictionary of keys used to build the reconstructed objects from the
-        data products and whether they are essential or not
-    build_truth_keys : Dict[str, bool]
-        Dictionary of keys used to build the truth objects from the
-        data products and whether they are essential or not
-    load_reco_keys : Dict[str, bool]
-        Dictionary of keys used to load the reconstructed objects from
-        existing stored objects and whether they are essential or not
-    load_truth_keys : Dict[str, bool]
-        Dictionary of keys used to load the truth objects from
-        existing stored objects and whether they are essential or not
     """
+
+    # Builder name
     name = None
 
-    reco_type = None
-    truth_type = None
+    # Types of objects constructed by the builder
+    _reco_type = None
+    _truth_type = None
 
-    build_reco_keys  = {
-            'points': True, 'depositions': True, 'sources': False
-    }
+    # Necessary/optional data products to build a reconstructed object
+    _build_reco_keys  = (
+            ('points', True), ('depositions', True), ('sources', False)
+    )
 
-    build_truth_keys = {
-            'label_tensor': True, 'label_adapt_tensor': True,
-            'label_g4_tensor': False, 'points': True, 'points_label': True,
-            'points_g4': False, 'depositions': True, 'depositions_label': True,
-            'depositions_q_label': False, 'depositions_g4': False,
-            'sources': False, 'sources_label': False
-    }
+    # Necessary/optional data products to build a truth object
+    _build_truth_keys = (
+            ('label_tensor', True), ('label_adapt_tensor', True),
+            ('label_g4_tensor', False), ('points', True),
+            ('points_label', True), ('points_g4', False), ('depositions', True),
+            ('depositions_label', True), ('depositions_q_label', False),
+            ('depositions_g4', False), ('sources', False),
+            ('sources_label', False)
+    )
 
-    load_reco_keys   = {
-            'points': True, 'depositions': True, 'sources': False
-    }
+    # Necessary/optional data products to load a reconstructed object
+    _load_reco_keys   = (
+            ('points', True), ('depositions', True), ('sources', False)
+    )
 
-    load_truth_keys  = {
-            'points': True, 'points_label': True, 'points_g4': False,
-            'depositions': True, 'depositions_label': True,
-            'depositions_q_label': False, 'depositions_g4': False,
-            'sources': False, 'sources_label': False
-    }
-
-    # List of recognized run modes
-    _run_modes = ['reco', 'truth', 'both', 'all']
+    # Necessary/optional data products to load a truth object
+    _load_truth_keys  = (
+            ('points', True), ('points_label', True), ('points_g4', False),
+            ('depositions', True), ('depositions_label', True),
+            ('depositions_q_label', False), ('depositions_g4', False),
+            ('sources', False), ('sources_label', False)
+    )
 
     def __init__(self, mode, units):
         """Initializes the builder.
@@ -77,13 +61,8 @@ class BuilderBase(ABC):
             Units in which the position arguments of the constructed objects
             should be expressed (one of 'cm' or 'px')
         """
-        # Check on the mode, store it
-        assert mode in self._run_modes, (
-                f"Run mode not recognized: {mode}. Must be one of 'reco', "
-                 "'truth', 'both' or 'all'.")
+        # Store the mode and units
         self.mode = mode
-
-        # Store the target units
         self.units = units
 
     def __call__(self, data):
@@ -158,7 +137,7 @@ class BuilderBase(ABC):
 
     def construct(self, func, data, entry=None):
         """Prepares the input based on the required data and runs constructor.
-        
+
         Parameters
         ----------
         func : str
@@ -176,8 +155,8 @@ class BuilderBase(ABC):
         # Get the description of the fields needed by this source object
         input_data = {}
         method, dtype = func.split('_')
-        keys = getattr(self, f'{func}_keys')
-        for key, req in keys.items():
+        keys = getattr(self, f'_{func}_keys')
+        for key, req in keys:
             # If the field has no default value, must be provided
             if req and key not in data:
                 raise KeyError(
@@ -191,7 +170,7 @@ class BuilderBase(ABC):
                     input_data[key] = data[key]
 
         obj_list = getattr(self, func)(input_data)
-        default = getattr(self, f'{dtype}_type')()
+        default = getattr(self, f'_{dtype}_type')()
 
         return ObjectList(obj_list, default)
 

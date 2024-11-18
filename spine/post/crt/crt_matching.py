@@ -4,49 +4,48 @@ __all__ = ['CRTMatchProcessor']
 
 
 class CRTMatchProcessor(PostBase):
-    '''
-    Associates TPC interactions with optical flashes.
-    '''
-    name = 'run_crt_tpc_matching'
-    data_cap = ['crthits']
-    result_cap = ['interactions'] # TODO: Should be done at particle level
+    """Associates TPC particles with CRT hits.
+    """
 
-    def __init__(self,
-                 crthit_keys,
-                 **kwargs):
-        '''
-        Post processor for running CRT-TPC matching using matcha.
+    # Name of the post-processor (as specified in the configuration)
+    name = 'crt_match'
+
+    # Alternative allowed names of the post-processor
+    aliases = ('run_crt_matching',)
+
+    def __init__(self, crthit_key, obj_type='particle', run_mode='reco'):
+        """Initialize the CRT/TPC matching post-processor.
         
         Parameters
         ----------
-        crthit_keys : List[str]
-            List of keys that provide the CRT information in the data dictionary
+        crthit_key : str
+            Data product key which provides the CRT information
         **kwargs : dict
             Keyword arguments to pass to the CRT-TPC matching algorithm
-        '''
+        """
+        # Initialize the parent class
+        super().__init__(obj_type, run_mode)
+
         # Store the relevant attributes
-        self.crthit_keys = crthit_keys
+        self.crthit_key = crthit_key
 
     def process(self, data_dict, result_dict):
-        '''
-        Find [interaction, flash] pairs
-
+        """Find particle/CRT matches for one entry.
         Parameters
+
         ----------
-        data_dict : dict
-            Input data dictionary
-        result_dict : dict
-            Chain output dictionary
+        data : dict
+            Dictionary of data products
 
         Notes
         -----
         This post-processor also modifies the list of Interactions
         in-place by adding the following attributes:
-            interaction.crthit_matched: (bool)
-                Indicator for whether the given interaction has a CRT-TPC match
-            interaction.crthit_id: (list of ints)
-                List of IDs for CRT hits that were matched to one or more tracks
-        '''
+            particle.is_crthit_matched: bool
+                Indicator for whether the given particle has a CRT-TPC match
+            particle.crthit_ids: List[int]
+                List of IDs for CRT hits that were matched to that particle
+        """
         crthits = {}
         assert len(self.crthit_keys) > 0
         for key in self.crthit_keys:

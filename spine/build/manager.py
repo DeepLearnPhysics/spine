@@ -19,19 +19,28 @@ class BuildManager:
       - Interpret the raw output of the reconstruction chain
       - Load up existing objects stored as dictionaries
     """
+
+    # List of recognized run modes
+    _run_modes = ('reco', 'truth', 'both', 'all')
+
+    # List of recognized units
+    _units = ('cm', 'px')
+
     # Name of input data products needed to build representations. These names
-    # are not set in stone, so they can be set in the configuration
-    sources = {
-            'data_tensor': ['data_adapt', 'data'],
-            'label_tensor': 'clust_label',
-            'label_adapt_tensor': ['clust_label_adapt', 'clust_label'],
-            'label_g4_tensor': 'clust_label_g4',
-            'depositions_q_label': 'charge_label',
-            'sources': ['sources_adapt', 'sources'],
-            'sources_label': 'sources_label',
-            'particles': 'particles',
-            'neutrinos': 'neutrinos'
-    }
+    # are not set in stone; they can be set in the configuration
+    _sources = (
+            ('data_tensor', ('data_adapt', 'data')),
+            ('label_tensor', ('clust_label',)),
+            ('label_adapt_tensor', ('clust_label_adapt', 'clust_label')),
+            ('label_g4_tensor', ('clust_label_g4',)),
+            ('depositions_q_label', ('charge_label',)),
+            ('sources', ('sources_adapt', 'sources')),
+            ('sources_label', ('sources_label',)),
+            ('particles', ('particles',)),
+            ('neutrinos', ('neutrinos',)),
+            ('flashes', ('flashes',)),
+            ('crthits', ('crthits',))
+    )
 
     def __init__(self, fragments, particles, interactions,
                  mode='both', units='cm', sources=None):
@@ -51,26 +60,29 @@ class BuildManager:
             Dictionary which maps the necessary data products onto a name
             in the input/output dictionary of the reconstruction chain.
         """
-        # Check on the mode, store desired units
-        assert mode in ['reco', 'truth', 'both', 'all'], (
-                f"Run mode not recognized: {mode}. Must be one of 'reco', "
-                 "'truth', 'both' or 'all'.")
+        # Check on the mode, store it
+        assert mode in self._run_modes, (
+                f"Run mode not recognized: {mode}. Must be one {self._run_modes}")
         self.mode = mode
+
+        # Check on the units, store them
+        assert units in self._units, (
+                f"Units not recognized: {units}. Must be one {self._units}")
         self.units = units
         
-        # Parse the build sources based on defaults
+        # If custom sources are provided, update the tuple
         if sources is not None:
+            sources_dict = dict(self._sources)
             for key, value in sources.items():
-                assert key in self.sources, (
+                assert key in sources_dict, (
                          "Unexpected data product specified in `sources`: "
-                        f"{key}. Should be one of {list(self.sources.keys())}.")
-            self.sources.update(**sources)
+                        f"{key}. Should be one of {list(sources_dict.keys())}.")
+                if isinstance(value, str):
+                    sources_dict[key] = (value,)
+                else:
+                    sources_dict[key] = tuple(value)
 
-        for key, value in self.sources.items():
-            if isinstance(value, str):
-                self.sources[key] = [value]
-            else:
-                self.sources[key] = value
+            self._sources = tuple(sources_dict.items())
 
         # Initialize the builders
         self.builders = OrderedDict()
@@ -79,10 +91,9 @@ class BuildManager:
         if particles:
             self.builders['particle'] = ParticleBuilder(mode, units)
         if interactions:
-            assert particles, (
-                    "Interactions are built from particles. If "
-                    "`interactions` is True, so must "
-                    "`particles` be.")
+            assert particles is not None, (
+                    "Interactions are built from particles. If `interactions` "
+                    "is True, so must `particles` be.")
             self.builders['interaction'] = InteractionBuilder(mode, units)
 
         assert len(self.builders), (
@@ -150,7 +161,7 @@ class BuildManager:
         """
         # Fetch the orginal sources
         sources = {}
-        for key, alt_keys in self.sources.items():
+        for key, alt_keys in self._sources:
             for alt in alt_keys:
                 if alt in data:
                     sources[key] = data[alt]

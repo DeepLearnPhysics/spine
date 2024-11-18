@@ -18,6 +18,8 @@ class AGNNConvNodeLayer(nn.Module):
 
     Source: https://arxiv.org/abs/1803.03735
     """
+
+    # Name of the node layer (as specified in the configuration)
     name = 'agnnconv'
 
     def __init__(self, node_in, edge_in, glob_in,

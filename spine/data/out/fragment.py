@@ -52,22 +52,24 @@ class FragmentBase:
     end_dir: np.ndarray = None
 
     # Fixed-length attributes
-    _fixed_length_attrs = {'start_point': 3, 'end_point': 3, 'start_dir': 3,
-                           'end_dir': 3}
+    _fixed_length_attrs = (
+            ('start_point', 3), ('end_point', 3), ('start_dir', 3),
+            ('end_dir', 3)
+    )
 
     # Attributes specifying coordinates
-    _pos_attrs = ['start_point', 'end_point']
+    _pos_attrs = ('start_point', 'end_point')
 
     # Attributes specifying vector components
-    _vec_attrs = ['start_dir', 'end_dir']
+    _vec_attrs = ('start_dir', 'end_dir')
 
     # Boolean attributes
-    _bool_attrs = ['is_primary']
+    _bool_attrs = ('is_primary',)
 
     # Enumerated attributes
-    _enum_attrs = {
-            'shape': {v : k for k, v in SHAPE_LABELS.items()}
-    }
+    _enum_attrs = (
+            ('shape', tuple((v, k) for k, v in SHAPE_LABELS.items())),
+    )
 
     def __str__(self):
         """Human-readable string representation of the fragment object.
@@ -96,12 +98,16 @@ class RecoFragment(FragmentBase, RecoBase):
     primary_scores: np.ndarray = None
 
     # Fixed-length attributes
-    _fixed_length_attrs = {
-            'primary_scores': 2, 
-            **FragmentBase._fixed_length_attrs}
+    _fixed_length_attrs = (
+            ('primary_scores', 2),
+            *FragmentBase._fixed_length_attrs
+    )
 
     # Boolean attributes
-    _bool_attrs = [*RecoBase._bool_attrs, *FragmentBase._bool_attrs]
+    _bool_attrs = (
+            *RecoBase._bool_attrs,
+            *FragmentBase._bool_attrs
+    )
 
     def __str__(self):
         """Human-readable string representation of the fragment object.
@@ -143,30 +149,37 @@ class TruthFragment(Particle, FragmentBase, TruthBase):
     reco_end_dir: np.ndarray = None
 
     # Fixed-length attributes
-    _fixed_length_attrs = {
-            **FragmentBase._fixed_length_attrs,
-            **Particle._fixed_length_attrs,
-            'reco_start_dir': 3, 'reco_end_dir': 3
-    }
+    _fixed_length_attrs = (
+            ('reco_start_dir', 3), ('reco_end_dir', 3),
+            *FragmentBase._fixed_length_attrs,
+            *Particle._fixed_length_attrs
+    )
 
     # Variable-length attributes
-    _var_length_attrs = {
-            **TruthBase._var_length_attrs,
-            **Particle._var_length_attrs,
-            'children_counts': np.int32
-    }
+    _var_length_attrs = (
+            ('children_counts', np.int32),
+            *TruthBase._var_length_attrs,
+            *Particle._var_length_attrs
+    )
 
     # Attributes specifying coordinates
-    _pos_attrs = [*FragmentBase._pos_attrs, *Particle._pos_attrs]
+    _pos_attrs = (
+            *FragmentBase._pos_attrs,
+            *Particle._pos_attrs
+    )
 
     # Attributes specifying vector components
-    _vec_attrs = [
-            *FragmentBase._vec_attrs, *Particle._vec_attrs,
-            'reco_start_dir', 'reco_end_dir'
-    ]
+    _vec_attrs = (
+            'reco_start_dir', 'reco_end_dir',
+            *FragmentBase._vec_attrs,
+            *Particle._vec_attrs
+    )
 
     # Boolean attributes
-    _bool_attrs = [*TruthBase._bool_attrs, *FragmentBase._bool_attrs]
+    _bool_attrs = (
+            *TruthBase._bool_attrs,
+            *FragmentBase._bool_attrs
+    )
 
     def __str__(self):
         """Human-readable string representation of the fragment object.

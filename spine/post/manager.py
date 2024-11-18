@@ -1,6 +1,7 @@
 """Manages the operation of post-processors."""
 
 from warnings import warn
+from copy import deepcopy
 from collections import defaultdict, OrderedDict
 
 import numpy as np
@@ -27,6 +28,7 @@ class PostManager:
             Path to the analysis tools configuration file
         """
         # Loop over the post-processor modules and get their priorities
+        cfg = deepcopy(cfg)
         keys = np.array(list(cfg.keys()))
         priorities = -np.ones(len(keys), dtype=np.int32)
         for i, k in enumerate(keys):

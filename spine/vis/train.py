@@ -267,7 +267,7 @@ class TrainDrawer:
                         epoch_v = [epoch_t[iter_t == it] for it in iter_v]
                         mask = np.where(
                                 np.array([len(e) for e in epoch_v]) == 1)[0]
-                        epoch_v = [float(epoch_v[i]) for i in mask]
+                        epoch_v = [float(epoch_v[i].iloc[0]) for i in mask]
                         iter_v = iter_v[mask]
                         metric_v_mean = metric_v_mean[mask]
                         metric_v_err = metric_v_err[mask]
@@ -430,6 +430,8 @@ class TrainDrawer:
         log_dfs    = []
         for i, f in enumerate(np.array(log_files)[order]):
             df = pd.read_csv(f, nrows=end_points[i+1]-end_points[i])
+            if len(df) == 0:
+                continue
             for key_list in keys:
                 key, key_name = self.find_key(df, key_list)
                 df[key_name] = df[key]

@@ -15,6 +15,8 @@ __all__ = ['MetaLayerGNN']
 
 class MetaLayerGNN(nn.Module):
     """Completely generic message-passing GNN."""
+
+    # Name of the model (as specified in the configuration)
     name = 'meta'
 
     def __init__(self, node_feats=0, node_layer=None, edge_feats=0,

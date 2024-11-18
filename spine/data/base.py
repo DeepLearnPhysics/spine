@@ -13,37 +13,37 @@ class DataBase:
     """
 
     # Enumerated attributes
-    _enum_attrs = {}
+    _enum_attrs = ()
 
-    # Fixed-length attributes as (key, size) pairs
-    _fixed_length_attrs = {}
+    # Fixed-length attributes as (key, size) or (key, (size, dtype)) pairs
+    _fixed_length_attrs = ()
 
-    # Variable-length attributes as (key, dtype) pairs
-    _var_length_attrs = {}
-
-    # Attributes to be binarized to form an integer from a variable-length array
-    _binarize_attrs = []
+    # Variable-length attributes as (key, dtype) or (key, (width, dtype)) pairs
+    _var_length_attrs = ()
 
     # Attributes specifying coordinates
-    _pos_attrs = []
+    _pos_attrs = ()
 
     # Attributes specifying vector components
-    _vec_attrs = []
+    _vec_attrs = ()
 
     # String attributes
-    _str_attrs = []
+    _str_attrs = ()
 
     # Boolean attributes
-    _bool_attrs = []
+    _bool_attrs = ()
 
     # Attributes to concatenate when merging objects
-    _cat_attrs = []
+    _cat_attrs = ()
 
-    # Attributes that should not be stored to file (long-form attributes)
-    _skip_attrs = []
+    # Attributes that must never be stored to file
+    _skip_attrs = ()
+
+    # Attributes that must not be stored to file when storing lite files
+    _lite_skip_attrs = ()
 
     # Euclidean axis labels
-    _axes = ['x', 'y', 'z']
+    _axes = ('x', 'y', 'z')
 
     def __post_init__(self):
         """Immediately called after building the class attributes.
@@ -56,7 +56,7 @@ class DataBase:
           format one gets when loading string from HDF5 files.
         """
         # Provide default values to the variable-length array attributes
-        for attr, dtype in self._var_length_attrs.items():
+        for attr, dtype in self._var_length_attrs:
             if getattr(self, attr) is None:
                 if not isinstance(dtype, tuple):
                     setattr(self, attr, np.empty(0, dtype=dtype))
@@ -65,7 +65,7 @@ class DataBase:
                     setattr(self, attr, np.empty((0, width), dtype=dtype))
 
         # Provide default values to the fixed-length array attributes
-        for attr, size in self._fixed_length_attrs.items():
+        for attr, size in self._fixed_length_attrs:
             if getattr(self, attr) is None:
                 if not isinstance(size, tuple):
                     dtype = np.float32
@@ -103,7 +103,7 @@ class DataBase:
         if self.__class__ != other.__class__:
             return False
 
-        # Check that all attributes are identical
+        # Check that all base attributes are identical
         for k, v in self.__dict__.items():
             if np.isscalar(v):
                 # For scalars, regular comparison will do
@@ -133,17 +133,28 @@ class DataBase:
             dtype = f'{val.dtype.str[:-1]}{precision}'
             setattr(self, attr, val.astype(dtype))
 
-    def as_dict(self):
+    def as_dict(self, lite=False):
         """Returns the data class as dictionary of (key, value) pairs.
+
+        Parameters
+        ----------
+        lite : bool, default False
+            If `True`, the `_lite_skip_attrs` are dropped
 
         Returns
         -------
         dict
             Dictionary of attribute names and their values
         """
-        return {k: v for k, v in asdict(self).items() if not k in self._skip_attrs}
+        # Build a list of attributes to skip
+        if not lite:
+            skip_attrs = self._skip_attrs
+        else:
+            skip_attrs = (*self._skip_attrs, *self._lite_skip_attrs)
 
-    def scalar_dict(self, attrs=None):
+        return {k: v for k, v in asdict(self).items() if not k in skip_attrs}
+
+    def scalar_dict(self, attrs=None, lengths=None, lite=False):
         """Returns the data class attributes as a dictionary of scalars.
 
         This is useful when storing data classes in CSV files, which expect
@@ -154,39 +165,53 @@ class DataBase:
         attrs : List[str], optional
             List of attribute names to include in the dictionary. If not
             specified, all the keys are included.
+        lengths : Dict[str, int], optional
+            Specifies the length of variable-length attributes
+        lite : bool, default False
+            If `True`, the `_lite_skip_attrs` are dropped
         """
         # Loop over the attributes of the data class
+        lengths = lengths or {}
         scalar_dict, found = {}, []
-        for attr, value in self.as_dict().items():
+        for attr, value in self.as_dict(lite).items():
             # If the attribute is not requested, skip
             if attrs is not None and attr not in attrs:
                 continue
             else:
                 found.append(attr)
 
-            # If the attribute is long-form attribute, skip it
-            if (attr not in self._binarize_attrs and
-                (attr in self._skip_attrs or attr in self._var_length_attrs)):
-                continue
-
             # Dispatch
             if np.isscalar(value):
                 # If the attribute is a scalar, store as is
                 scalar_dict[attr] = value
-
-            elif attr in self._binarize_attrs:
-                # If the list is to be binarized, do it
-                scalar_dict[attr] = int(np.sum(2**value))
 
             elif attr in (self._pos_attrs + self._vec_attrs):
                 # If the attribute is a position or vector, expand with axis
                 for i, v in enumerate(value):
                     scalar_dict[f'{attr}_{self._axes[i]}'] = v
 
-            elif attr in self._fixed_length_attrs:
-                # If the attribute is a fixed length array, expand with index
+            elif attr in self.fixed_length_attrs:
+                # If the attribute is a fixed-length array, expand with index
                 for i, v in enumerate(value):
                     scalar_dict[f'{attr}_{i}'] = v
+
+            elif attr in self.var_length_attrs:
+                if attr in lengths:
+                    # If the attribute is a variable-length array with a length
+                    # provided, resize it to match that length and store it
+                    for i in range(lengths[attr]):
+                        if i < len(value):
+                            scalar_dict[f'{attr}_{i}'] = value[i]
+                        else:
+                            scalar_dict[f'{attr}_{i}'] = None
+
+                else:
+                    # If the attribute is a variable-length array of
+                    # indeterminate length, do not store it
+                    assert attrs is None or attr not in attrs, (
+                            f"Cannot cast {attr} to scalars. To cast a variable-"
+                             "length array, must provide a fixed length.")
+                    continue
 
             else:
                 raise ValueError(
@@ -203,36 +228,36 @@ class DataBase:
 
     @property
     def fixed_length_attrs(self):
-        """Fetches the dictionary of fixed-length array attributes.
+        """Fetches the dictionary of fixed-length array attributes as a dictionary.
 
         Returns
         -------
         Dict[str, int]
-            Dictioary which maps fixed-length attributes onto their length
+            Dictionary which maps fixed-length attributes onto their length
         """
-        return self._fixed_length_attrs
+        return dict(self._fixed_length_attrs)
 
     @property
     def var_length_attrs(self):
-        """Fetches the list of variable-length array attributes.
+        """Fetches the list of variable-length array attributes as a dictionary.
 
         Returns
         -------
         Dict[str, type]
             Dictionary which maps variable-length attributes onto their type
         """
-        return self._fixed_length_attrs
+        return dict(self._var_length_attrs)
 
     @property
     def enum_attrs(self):
-        """Fetches the list of enumerated attributes.
+        """Fetches the list of enumerated attributes as a dictionary.
 
         Returns
         -------
         Dict[int, Dict[int, str]]
             Dictionary which maps names onto enumerator descriptors
         """
-        return self._enum_attrs
+        return {k: dict(v) for k, v in self._enum_attrs}
 
     @property
     def skip_attrs(self):
@@ -244,6 +269,17 @@ class DataBase:
             List of attributes to exclude from the storage process
         """
         return self._skip_attrs
+
+    @property
+    def lite_skip_attrs(self):
+        """Fetches the list of attributes to not store to lite file.
+
+        Returns
+        -------
+        List[str]
+            List of attributes to exclude from the storage process
+        """
+        return self._lite_skip_attrs
 
 
 @dataclass(eq=False)

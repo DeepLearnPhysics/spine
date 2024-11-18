@@ -8,8 +8,11 @@ import torch.nn as nn
 import MinkowskiEngine as ME
 
 from spine.data import TensorBatch
-from spine.utils.globals import BATCH_COL, VALUE_COL, GHOST_SHP
+from spine.utils.globals import BATCH_COL, COORD_COLS, VALUE_COL, GHOST_SHP
 from spine.utils.logger import logger
+from spine.utils.torch_local import local_cdist
+
+from .layer.factories import loss_fn_factory
 
 from .layer.cnn.act_norm import act_factory, norm_factory
 from .layer.cnn.uresnet_layers import UResNet
@@ -19,7 +22,7 @@ __all__ = ['UResNetSegmentation', 'SegmentationLoss']
 
 class UResNetSegmentation(nn.Module):
     """UResNet for semantic segmentation.
-    
+
     Typical configuration should look like:
 
     .. code-block:: yaml
@@ -103,7 +106,7 @@ class UResNetSegmentation(nn.Module):
             - 1 is the batch ID
             - D is the number of dimensions in the input image
             - N_f is the number of features per voxel
-        
+
         Returns
         -------
         dict
@@ -195,10 +198,6 @@ class SegmentationLoss(torch.nn.modules.loss._Loss):
         # Initialize the loss configuration
         self.process_loss_config(**uresnet_loss)
 
-        # Initialize the cross-entropy loss
-        # TODO: Make it configurable
-        self.xe = torch.nn.functional.cross_entropy
-
     def process_model_config(self, num_classes, ghost=False, **kwargs):
         """Process the parameters of the upstream model needed for in the loss.
 
@@ -215,12 +214,15 @@ class SegmentationLoss(torch.nn.modules.loss._Loss):
         self.num_classes = num_classes
         self.ghost = ghost
 
-    def process_loss_config(self, ghost_label=-1, alpha=1.0, beta=1.0,
-                            balance_loss=False):
+    def process_loss_config(self, loss='ce', ghost_label=-1, alpha=1.0,
+                            beta=1.0, balance_loss=False,
+                            upweight_points=False, upweight_radius=20):
         """Process the loss function parameters.
 
         Parameters
         ----------
+        loss : str, default 'ce'
+            Loss function used for semantic segmentation
         ghost_label : int, default -1
             ID of ghost points. If specified (> -1), classify ghosts only
         alpha : float, default 1.0
@@ -229,12 +231,22 @@ class SegmentationLoss(torch.nn.modules.loss._Loss):
             Ghost mask loss prefactor
         balance_loss : bool, default False
             Whether to weight the loss to account for class imbalance
+        upweight_points : bool, default False
+            Whether to weight the loss higher near specific points (to be
+            provided as `point_label` as a loss input)
+        upweight_radius: bool, default False
+            Radius around the points of interest for which to upweight the loss
         """
+        # Set the loss function
+        self.loss_fn = loss_fn_factory(loss, reduction='none')
+
         # Store the loss configuration
-        self.ghost_label  = ghost_label
-        self.alpha        = alpha
-        self.beta         = beta
-        self.balance_loss = balance_loss
+        self.ghost_label     = ghost_label
+        self.alpha           = alpha
+        self.beta            = beta
+        self.balance_loss    = balance_loss
+        self.upweight_points = upweight_points
+        self.upweight_radius = upweight_radius
 
         # If a ghost label is provided, it cannot be in conjecture with
         # having a dedicated ghost masking layer
@@ -242,10 +254,10 @@ class SegmentationLoss(torch.nn.modules.loss._Loss):
                 "Cannot classify ghost exclusively (ghost_label) and "
                 "have a dedicated ghost masking layer at the same time.")
 
-    def forward(self, seg_label, segmentation, ghost=None, 
+    def forward(self, seg_label, segmentation, point_label=None, ghost=None,
                 weights=None, **kwargs):
         """Computes the cross-entropy loss of the semantic segmentation
-        predictions. 
+        predictions.
 
         Parameters
         ----------
@@ -253,9 +265,12 @@ class SegmentationLoss(torch.nn.modules.loss._Loss):
             (N, 1 + D + 1) Tensor of segmentation labels for the batch
         segmentation : TensorBatch
             (N, N_c) Tensor of logits from the segmentation model
-        ghost : TensorBatch
+        point_label : TensorBatch, optional
+            (P, 1 + D + 1) Tensor of points of interests for the batch. This
+            is used to upweight the loss near specific points.
+        ghost : TensorBatch, optional
             (N, 2) Tensor of ghost logits from the segmentation model
-        weights : torch.Tensor, optional
+        weights : TensorBatch, optional
             (N) Tensor of weights for each pixel in the batch
         **kwargs : dict, optional
             Other outputs of the upstream model which are not relevant here
@@ -266,27 +281,40 @@ class SegmentationLoss(torch.nn.modules.loss._Loss):
             Dictionary of accuracies and losses
         """
         # Get the underlying tensor in each TensorBatch
-        seg_label = seg_label.tensor
-        segmentation = segmentation.tensor
+        seg_label_t = seg_label.tensor
+        segmentation_t = segmentation.tensor
+        ghost_t = ghost.tensor if ghost is not None else ghost
+        weights_t = weights.tensor if weights is not None else weights
 
         # Make sure that the segmentation output and labels have the same length
-        assert len(seg_label) == len(segmentation), (
-                f"The `segmentation` output length ({len(segmentation)}) and "
-                f"its labels ({len(seg_label)}) do not match.")
-        assert not self.ghost or len(seg_label) == len(ghost), (
-                f"The `ghost` output length ({len(ghost)}) and "
-                f"its labels ({len(seg_label)}) do not match.")
+        assert len(seg_label_t) == len(segmentation_t), (
+                f"The `segmentation` output length ({len(segmentation_t)}) "
+                f"and its labels ({len(seg_label_t)}) do not match.")
+        assert not self.ghost or len(seg_label_t) == len(ghost_t), (
+                f"The `ghost` output length ({len(ghost_t)}) and "
+                f"its labels ({len(seg_label_t)}) do not match.")
+        assert not self.ghost or weights is None, (
+                "Providing explicit weights is not compatible when peforming "
+                "deghosting in tandem with semantic segmentation.")
 
-        # If the loss is to be class-weighted, cannot also provide weights
-        assert not self.balance_loss or weights is None, (
-                "If weights are provided, cannot also class-weight loss.")
+        # If requested, produce weights based on point-proximity
+        if self.upweight_points:
+            assert point_label is not None, (
+                    "If upweighting the loss nearby points of interests, must "
+                    "provide a list of such points in `point_label`.")
+            dist_weights = self.get_distance_weights(seg_label, point_label)
+            if weights is not None:
+                weights_t *= dist_weights.tensor
+            else:
+                weights_t = dist_weights
 
         # Check that the labels have sensible values
         if self.ghost_label > -1:
-            labels = (seg_label[:, VALUE_COL] == self.ghost_label).long()
+            labels_t = (seg_label_t[:, VALUE_COL] == self.ghost_label).long()
+
         else:
-            labels = seg_label[:, VALUE_COL].long()
-            if torch.any(labels > self.num_classes):
+            labels_t = seg_label_t[:, VALUE_COL].long()
+            if torch.any(labels_t > self.num_classes):
                 raise ValueError(
                         "The segmentation labels contain labels larger than "
                         "the number of logits output by the model.")
@@ -294,18 +322,18 @@ class SegmentationLoss(torch.nn.modules.loss._Loss):
         # If there is a dedicated ghost layer, apply the mask first
         if self.ghost:
             # Count the number of voxels in each class
-            ghost_labels = (labels == GHOST_SHP).long()
-            ghost_loss, ghost_acc, ghost_acc_class = self.loss_accuracy(
-                    ghost, ghost_labels)
+            ghost_labels_t = (labels_t == GHOST_SHP).long()
+            ghost_loss, ghost_acc, ghost_acc_class = self.get_loss_accuracy(
+                    ghost_t, ghost_labels_t)
 
             # Restrict the segmentation target to true non-ghosts
-            nonghost = torch.nonzero(ghost_labels == 0).flatten()
-            segmentation = segmentation[nonghost]
-            labels = labels[nonghost]
+            nonghost = torch.nonzero(ghost_labels_t == 0).flatten()
+            segmentation_t = segmentation_t[nonghost]
+            labels_t = labels_t[nonghost]
 
         # Compute the loss/accuracy of the semantic segmentation step
-        seg_loss, seg_acc, seg_acc_class = self.loss_accuracy(
-                segmentation, labels, weights)
+        seg_loss, seg_acc, seg_acc_class, weights_t = self.get_loss_accuracy(
+                segmentation_t, labels_t, weights_t)
 
         # Get the combined loss and accuracies
         result = {}
@@ -331,9 +359,56 @@ class SegmentationLoss(torch.nn.modules.loss._Loss):
             for c in range(self.num_classes):
                 result[f'accuracy_class_{c}'] = seg_acc_class[c]
 
+        if weights_t is not None:
+            result['weights'] = TensorBatch(weights_t, seg_label.counts)
+
         return result
 
-    def loss_accuracy(self, logits, labels, weights=None):
+    def get_distance_weights(self, seg_label, point_label):
+        """Define weights for each of the points in the image based on their
+        distance from points of interests (typically vertices, but user defined).
+
+        Parameters
+        ----------
+        seg_label : TensorBatch
+            (N, 1 + D + 1) Tensor of segmentation labels for the batch
+        point_label : TensorBatch
+            (P, 1 + D + 1) Tensor of points of interests for the batch. This
+            is used to upweight the loss of points near a vertex.
+
+        Returns
+        -------
+        torch.Tensor
+            (N) Array of weights associated with each point
+        """
+        # Loop over the entries in the batch, compute proximity for each point
+        dists = torch.full_like(seg_label.tensor[:, 0], float('inf'))
+        for b in range(seg_label.batch_size):
+            # Fetch image voxel and point coordinates for this entry
+            voxels_b = seg_label[b][:, COORD_COLS]
+            points_b = point_label[b][:, COORD_COLS]
+            if not len(points_b) or not len(voxels_b):
+                continue
+
+            # Compute the minimal distance to any point in this entry
+            dist_mat = local_cdist(voxels_b, points_b)
+            dists_b = torch.min(dist_mat, dim=1).values
+
+            # Record information in the batch-wise tensor
+            lower, upper = seg_label.edges[b], seg_label.edges[b+1]
+            dists[lower:upper] = dists_b
+
+        # Upweight the points within some distance of the points of interest
+        proximity = (dists < self.upweight_radius).long()
+        close_count = torch.sum(proximity)
+        counts = torch.tensor(
+                [len(dists) - close_count, close_count],
+                dtype=torch.long, device=dists.device)
+        weights = len(proximity)/2/counts
+
+        return weights[proximity]
+
+    def get_loss_accuracy(self, logits, labels, weights=None):
         """Computes the loss, global and classwise accuracy.
 
         Parameters
@@ -353,10 +428,12 @@ class SegmentationLoss(torch.nn.modules.loss._Loss):
             Global accuracy
         np.ndarray
             (N_c) Vector of class-wise accuracy
+        torch.Tensor
+            (N) Updated set of weights for each pixel in the batch
         """
         # If there is no input, nothing to do
         if not len(logits):
-            return 0., 1., np.ones(num_classes, dtype=np.float32)
+            return 0., 1., np.ones(num_classes, dtype=np.float32), weights
 
         # Count the number of voxels in each class
         num_classes = logits.shape[1]
@@ -365,15 +442,22 @@ class SegmentationLoss(torch.nn.modules.loss._Loss):
         for c in range(num_classes):
             counts[c] = torch.sum(labels == c).item()
 
-        # Compute the loss
-        if self.balance_loss and torch.all(counts):
-            class_weight = len(labels)/num_classes/counts
-            loss = self.xe(logits, labels, weight=class_weight)
-        else:
-            if weights is None:
-                loss = self.xe(logits, labels, reduction='mean')
+        # If requested, create a set of weights based on class prevalance
+        if self.balance_loss:
+            class_weight = torch.ones(
+                    len(counts), dtype=logits.dtype, device=logits.device)
+            class_weight[counts > 0] = len(labels)/num_classes/counts[counts > 0]
+            class_weights = class_weight[labels]
+            if weights is not None:
+                weights *= class_weights
             else:
-                loss = (weights*self.xe(logits, labels, reduction='none')).sum()
+                weights = class_weights
+
+        # Compute the loss
+        if weights is None:
+            loss = self.loss_fn(logits, labels).mean()
+        else:
+            loss = (weights*self.loss_fn(logits, labels)).sum()/weights.sum()
 
         # Compute the accuracies
         with torch.no_grad():
@@ -388,4 +472,4 @@ class SegmentationLoss(torch.nn.modules.loss._Loss):
             # Global prediction accuracy
             acc = (preds == labels).sum().item() / torch.sum(counts).item()
 
-        return loss, acc, acc_class
+        return loss, acc, acc_class, weights

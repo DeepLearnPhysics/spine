@@ -35,6 +35,8 @@ class NodeShowerPrimaryLoss(torch.nn.Module):
     See configuration files prefixed with `grappa_` under the `config`
     directory for detailed examples of working configurations.
     """
+
+    # Name of the loss (as specified in the configuration)
     name = 'shower_primary'
 
     def __init__(self, balance_loss=False, high_purity=False,

@@ -1,4 +1,4 @@
-"""Classes in charge of constructing ParticleBase objects."""
+"""Classes in charge of constructing Particle objects."""
 
 import numpy as np
 
@@ -19,34 +19,41 @@ class ParticleBuilder(BuilderBase):
     necessary information and builds :class:`RecoParticle` and
     :class:`TruthParticle` objects from it.
     """
+
+    # Builder name
     name = 'particle'
 
-    reco_type = RecoParticle
-    truth_type = TruthParticle
+    # Types of objects constructed by the builder
+    _reco_type = RecoParticle
+    _truth_type = TruthParticle
 
-    build_reco_keys  = {
-            'particle_clusts': True, 'particle_shapes': True,
-            'particle_start_points': True, 'particle_end_points': True,
-            'particle_group_pred': True, 'particle_node_type_pred': True,
-            'particle_node_primary_pred': True,
-            'particle_node_orient_pred': False, 'reco_fragments': False,
-            **BuilderBase.build_reco_keys
-    }
+    # Necessary/optional data products to build a reconstructed object
+    _build_reco_keys  = (
+            ('particle_clusts', True), ('particle_shapes', True),
+            ('particle_start_points', True), ('particle_end_points', True),
+            ('particle_group_pred', True), ('particle_node_type_pred', True),
+            ('particle_node_primary_pred', True),
+            ('particle_node_orient_pred', False), ('reco_fragments', False),
+            *BuilderBase._build_reco_keys
+    )
 
-    build_truth_keys = {
-            'particles': False,
-            **BuilderBase.build_truth_keys
-    }
+    # Necessary/optional data products to build a truth object
+    _build_truth_keys = (
+            ('particles', False),
+            *BuilderBase._build_truth_keys
+    )
 
-    load_reco_keys  = {
-            'reco_particles': True, 
-            **BuilderBase.load_reco_keys
-    }
+    # Necessary/optional data products to load a reconstructed object
+    _load_reco_keys  = (
+            ('reco_particles', True),
+            *BuilderBase._load_reco_keys
+    )
 
-    load_truth_keys  = {
-            'truth_particles': True, 
-            **BuilderBase.load_truth_keys
-    }
+    # Necessary/optional data products to load a truth object
+    _load_truth_keys  = (
+            ('truth_particles', True),
+            *BuilderBase._load_truth_keys
+    )
 
     def build_reco(self, data):
         """Builds :class:`RecoParticle` objects from the full chain output.
@@ -209,7 +216,7 @@ class ParticleBuilder(BuilderBase):
             particle = TruthParticle(**particles[group_id].as_dict())
             assert particle.id == group_id, (
                     "The ordering of the true particle is wrong.")
-            
+
             # Override the index of the particle but preserve it
             particle.orig_id = group_id
             particle.id = i

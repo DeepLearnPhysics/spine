@@ -11,9 +11,15 @@ __all__ = ['TrackExtremaProcessor']
 
 class TrackExtremaProcessor(PostBase):
     """Assigns track start point and end point."""
+
+    # Name of the post-processor (as specified in the configuration)
     name = 'track_extrema'
-    aliases = ['assign_track_extrema']
-    keys = {'ppn_candidates': False}
+
+    # Alternative allowed names of the post-processor
+    aliases = ('assign_track_extrema',)
+
+    # Set of data keys needed for this post-processor to operate
+    _keys = (('ppn_candidates', False),)
 
     def __init__(self, method='local', obj_type='particle', **kwargs):
         """Initialize the track end point assignment parameters.
@@ -60,7 +66,7 @@ class TrackExtremaProcessor(PostBase):
 
                 elif self.method == 'ppn':
                     assert 'ppn_candidates' in data, (
-                            "Must run the `ppn_points` post-processor "
+                            "Must run the `ppn` post-processor "
                             "before using PPN predictions to assign extrema.")
                     flip = not check_track_orientation_ppn(
                             part.start_point, part.end_point,

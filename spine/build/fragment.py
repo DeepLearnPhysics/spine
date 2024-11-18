@@ -1,4 +1,4 @@
-"""Classes in charge of constructing FragmentBase objects."""
+"""Classes in charge of constructing Fragment objects."""
 
 from typing import List
 from dataclasses import dataclass
@@ -24,32 +24,39 @@ class FragmentBuilder(BuilderBase):
     necessary information and builds :class:`RecoFragment` and
     :class:`TruthFragment` objects from it.
     """
+
+    # Builder name
     name = 'fragment'
 
-    reco_type = RecoFragment
-    truth_type = TruthFragment
+    # Types of objects constructed by the builder
+    _reco_type = RecoFragment
+    _truth_type = TruthFragment
 
-    build_reco_keys  = {
-            'fragment_clusts': True, 'fragment_shapes': True,
-            'fragment_start_points': False, 'fragment_end_points': False,
-            'fragment_group_pred': False, 'fragment_node_pred': False,
-            **BuilderBase.build_reco_keys
-    }
+    # Necessary/optional data products to build a reconstructed object
+    _build_reco_keys  = (
+            ('fragment_clusts', True), ('fragment_shapes', True),
+            ('fragment_start_points', False), ('fragment_end_points', False),
+            ('fragment_group_pred', False), ('fragment_node_pred', False),
+            *BuilderBase._build_reco_keys
+    )
 
-    build_truth_keys = {
-            'particles': False,
-            **BuilderBase.build_truth_keys
-    }
+    # Necessary/optional data products to build a truth object
+    _build_truth_keys = (
+            ('particles', False),
+            *BuilderBase._build_truth_keys
+    )
 
-    load_reco_keys  = {
-            'reco_fragments': True, 
-            **BuilderBase.load_reco_keys
-    }
+    # Necessary/optional data products to load a reconstructed object
+    _load_reco_keys  = (
+            ('reco_fragments', True),
+            *BuilderBase._load_reco_keys
+    )
 
-    load_truth_keys  = {
-            'truth_fragments': True, 
-            **BuilderBase.load_truth_keys
-    }
+    # Necessary/optional data products to load a truth object
+    _load_truth_keys  = (
+            ('truth_fragments', True),
+            *BuilderBase._load_truth_keys
+    )
 
     def build_reco(self, data):
         """Builds :class:`RecoFragment` objects from the full chain output.

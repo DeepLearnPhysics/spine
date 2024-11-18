@@ -119,13 +119,9 @@ class ReaderBase:
                     f"File key {file_key} yielded no compatible path.")
             for path in file_paths:
                 if (limit_num_files is not None and
-                    len(self.file_paths) > limit_num_files):
+                    len(self.file_paths) >= limit_num_files):
                     break
                 self.file_paths.append(path)
-
-            if (limit_num_files is not None and
-                len(self.file_paths) >= limit_num_files):
-                break
 
         self.file_paths = sorted(self.file_paths)
 

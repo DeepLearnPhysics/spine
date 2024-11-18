@@ -20,6 +20,8 @@ class Flash(PosDataBase):
     ----------
     id : int
         Index of the flash in the list
+    volume_id : int
+        Index of the optical volume in which the flahs was recorded
     time : float
         Time with respect to the trigger in microseconds
     time_width : float
@@ -46,6 +48,7 @@ class Flash(PosDataBase):
         Units in which the position coordinates are expressed
     """
     id: int = -1
+    volume_id: int = -1
     frame: int = -1
     in_beam_frame: bool = False
     on_beam_time: bool = False
@@ -60,16 +63,16 @@ class Flash(PosDataBase):
     units: str = 'cm'
 
     # Fixed-length attributes
-    _fixed_length_attrs = {'center': 3, 'width': 3}
+    _fixed_length_attrs = (('center', 3), ('width', 3))
 
     # Variable-length attributes
-    _var_length_attrs = {'pe_per_ch': np.float32}
+    _var_length_attrs = (('pe_per_ch', np.float32),)
 
     # Attributes specifying coordinates
-    _pos_attrs = ['center']
+    _pos_attrs = ('center',)
 
     # Attributes specifying vector components
-    _vec_attrs = ['width']
+    _vec_attrs = ('width',)
 
     @classmethod
     def from_larcv(cls, flash):
@@ -86,14 +89,20 @@ class Flash(PosDataBase):
             Flash object
         """
         # Get the physical center and width of the flash
-        axes = ['x', 'y', 'z']
+        axes = ('x', 'y', 'z')
         center = np.array([getattr(flash, f'{a}Center')() for a in axes])
         width = np.array([getattr(flash, f'{a}Width')() for a in axes])
 
         # Get the number of PEs per optical channel
         pe_per_ch = np.array(list(flash.PEPerOpDet()), dtype=np.float32)
 
-        return cls(id=flash.id(), frame=flash.frame(),
+        # Get the volume ID, if it is filled (TODO: simplify with update)
+        volume_id = -1
+        for attr in ('tpc', 'volume_id'):
+            if hasattr(flash, attr):
+                volume_id = getattr(flash, attr)()
+
+        return cls(id=flash.id(), volume_id=volume_id, frame=flash.frame(),
                    in_beam_frame=flash.inBeamFrame(),
                    on_beam_time=flash.onBeamTime(), time=flash.time(),
                    time_abs=flash.absTime(), time_width=flash.timeWidth(),
