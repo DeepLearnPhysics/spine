@@ -18,8 +18,12 @@ class ParticleShapeLogicProcessor(PostBase):
     - If a particle has track shape, it can only have a track PID
     - If a particle has delta/michel shape, it can only be a secondary electron
     """
+
+    # Name of the post-processor (as specified in the configuration)
     name = 'shape_logic'
-    aliases = ['enforce_particle_semantics']
+
+    # Alternative allowed names of the post-processor
+    aliases = ('enforce_particle_semantics',)
 
     def __init__(self, enforce_pid=True, enforce_primary=True):
         """Store information about which particle properties should
@@ -78,8 +82,12 @@ class ParticleThresholdProcessor(PostBase):
     """Adjust the particle PID and primary properties according to customizable
     thresholds and priority orderings.
     """
+
+    # Name of the post-processor (as specified in the configuration)
     name = 'particle_threshold'
-    aliases = ['adjust_particle_properties']
+
+    # Alternative allowed names of the post-processor
+    aliases = ('adjust_particle_properties',)
 
     def __init__(self, shower_pid_thresholds=None, track_pid_thresholds=None,
                  primary_threshold=None):
@@ -156,8 +164,12 @@ class InteractionTopologyProcessor(PostBase):
     """Adjust the topology of interactions by applying thresholds on the
     minimum kinetic energy of particles.
     """
+
+    # Name of the post-processor (as specified in the configuration)
     name = 'topology_threshold'
-    aliases = ['adjust_interaction_topology']
+
+    # Alternative allowed names of the post-processor
+    aliases = ('adjust_interaction_topology',)
 
     def __init__(self, ke_thresholds, reco_ke_mode='ke',
                  truth_ke_mode='energy_deposit', run_mode='both'):

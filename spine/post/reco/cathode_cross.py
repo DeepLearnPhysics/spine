@@ -23,8 +23,12 @@ class CathodeCrosserProcessor(PostBase):
     - If the particle is sigificantly out-of-time, a cathode crosser will
       be composed of two distinct reconstructed particle objects
     """
+
+    # Name of the post-processor (as specified in the configuration)
     name = 'cathode_crosser'
-    aliases = ['find_cathode_crossers']
+
+    # Alternative allowed names of the post-processor
+    aliases = ('find_cathode_crossers',)
 
     def __init__(self, crossing_point_tolerance, offset_tolerance,
                  angle_tolerance, adjust_crossers=True, merge_crossers=True,
@@ -56,7 +60,7 @@ class CathodeCrosserProcessor(PostBase):
         """
         # Initialize the parent class
         super().__init__(
-                ['particle', 'interaction'], run_mode, truth_point_mode)
+                ('particle', 'interaction'), run_mode, truth_point_mode)
 
         # Initialize the geometry
         self.geo = Geometry(detector, geometry_file)
@@ -69,10 +73,13 @@ class CathodeCrosserProcessor(PostBase):
         self.merge_crossers = merge_crossers
 
         # Add the points to the list of keys to load
+        keys = {}
         if run_mode != 'truth':
-            self.keys['points'] = True
+            keys['points'] = True
         if run_mode != 'reco':
-            self.keys[truth_point_mode] = True
+            keys[truth_point_mode] = True
+
+        self.update_keys(keys)
 
     def process(self, data):
         """Find cathode crossing particles in one entry.

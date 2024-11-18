@@ -10,6 +10,7 @@ class LikelihoodFlashMatcher:
 
     See https://github.com/drinkingkazu/OpT0Finder for more details about it.
     """
+
     def __init__(self, cfg, detector, parent_path=None,
                  reflash_merging_window=None, scaling=1., alpha=0.21,
                  recombination_mip=0.65, legacy=False):

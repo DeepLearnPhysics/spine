@@ -14,6 +14,8 @@ __all__ = ['MatchProcessor']
 
 class MatchProcessor(PostBase):
     """Does the matching between reconstructed and true objects."""
+
+    # Name of the post-processor (as specified in the configuration)
     name = 'match'
 
     def __init__(self, fragment=None, particle=None, interaction=None,
@@ -36,8 +38,8 @@ class MatchProcessor(PostBase):
         # Initialize the necessary matchers
         configs = {'fragment': fragment, 'particle': particle,
                    'interaction': interaction}
+        keys = {}
         self.matchers = {}
-        self.keys = {}
         for key, cfg in configs.items():
             if cfg is not None and cfg != False:
                 # Initialize the matcher
@@ -47,10 +49,13 @@ class MatchProcessor(PostBase):
 
                 # If any matcher includes ghost points, must load meta
                 if self.matchers[key].ghost:
-                    self.keys['meta'] = True
+                    keys['meta'] = True
 
         assert len(self.matchers), (
                 "Must specify one of 'fragment', 'particle' or 'interaction'.")
+
+        # Update the set of keys necessary for this post-processor
+        self.update_keys(keys)
 
         # Initialize the parent class
         super().__init__(list(self.matchers.keys()), 'both', truth_point_mode)

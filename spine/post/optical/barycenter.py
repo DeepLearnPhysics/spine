@@ -11,7 +11,7 @@ class BarycenterFlashMatcher:
     """
 
     # List of valid matching methods
-    _match_methods = ['threshold', 'best']
+    _match_methods = ('threshold', 'best')
 
     def __init__(self, match_method='threshold', dimensions=[1, 2],
                  charge_weighted=False, time_window=None, first_flash_only=False,
@@ -39,6 +39,17 @@ class BarycenterFlashMatcher:
         match_distance : float, optional
             If a threshold is used, specifies the acceptable distance
         """
+        # Check validity of key parameters
+        if match_method not in self._match_methods:
+            raise ValueError(
+                     "Barycenter flash matching method not recognized: "
+                    f"{match_method}. Must be one of {self._match_methods}.")
+
+        if match_method == 'threshold':
+            assert match_distance is not None, (
+                    "When using the `threshold` method, must specify the "
+                    "`match_distance` parameter.")
+
         # Store the flash matching parameters
         self.match_method     = match_method
         self.dims             = dimensions
@@ -49,16 +60,6 @@ class BarycenterFlashMatcher:
         self.min_flash_pe     = min_flash_pe
         self.match_distance   = match_distance
 
-        # Check validity of key parameters
-        if self.match_method not in self._match_methods:
-            raise ValueError(
-                     "Barycenter flash matching method not recognized: "
-                    f"{match_method}. Must be one of {self._match_methods}.")
-
-        if self.match_method == 'threshold':
-            assert self.match_distance is not None, (
-                    "When using the `threshold` method, must specify the "
-                    "`match_distance` parameter.")
 
     def get_matches(self, interactions, flashes):
         """Makes [interaction, flash] pairs that have compatible barycenters.

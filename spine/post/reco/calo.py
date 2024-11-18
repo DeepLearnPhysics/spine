@@ -14,8 +14,12 @@ class CalorimetricEnergyProcessor(PostBase):
     """Compute calorimetric energy by summing the charge depositions and
     scaling by the ADC to MeV conversion factor, if needed.
     """
+
+    # Name of the post-processor (as specified in the configuration)
     name = 'calo_ke'
-    aliases = ['reconstruct_calo_energy']
+
+    # Alternative allowed names of the post-processor
+    aliases = ('reconstruct_calo_energy',)
 
     def __init__(self, scaling=1., shower_fudge=1., obj_type='particle',
                  run_mode='reco', truth_dep_mode='depositions'):
@@ -65,9 +69,15 @@ class CalorimetricEnergyProcessor(PostBase):
 
 class CalibrationProcessor(PostBase):
     """Apply calibrations to the reconstructed objects."""
+
+    # Name of the post-processor (as specified in the configuration)
     name = 'calibration'
-    aliases = ['apply_calibrations']
-    keys = {'run_info': False}
+
+    # Alternative allowed names of the post-processor
+    aliases = ('apply_calibrations',)
+
+    # Set of data keys needed for this post-processor to operate
+    _keys = (('run_info', False),)
 
     def __init__(self, dedx=2.2, do_tracking=False,
                  obj_type=('particle', 'interaction'), run_mode='reco',
@@ -95,12 +105,22 @@ class CalibrationProcessor(PostBase):
         self.do_tracking = do_tracking
 
         # Add necessary keys
-        self.keys['points'] = run_mode != 'truth'
-        self.keys[self.truth_point_key] = run_mode != 'reco'
-        self.keys['depositions'] = run_mode != 'truth'
-        self.keys[self.truth_dep_key] = run_mode != 'reco'
-        self.keys['sources'] = run_mode != 'truth'
-        self.keys[self.truth_source_key] = run_mode != 'reco'
+        keys = {}
+        if run_mode != 'truth':
+            keys.update({
+                'points': True,
+                'depositions': True,
+                'sources': True
+            })
+
+        if run_mode != 'reco':
+            keys.update({
+                self.truth_point_key: True,
+                self.truth_dep_key: True,
+                self.truth_source_key: True
+            })
+
+        self.update_keys(keys)
 
     def process(self, data):
         """Apply calibrations to each particle in one entry.

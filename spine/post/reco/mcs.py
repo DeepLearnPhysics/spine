@@ -16,12 +16,16 @@ class MCSEnergyProcessor(PostBase):
     """Reconstruct the kinetic energy of tracks based on their Multiple-Coulomb
     scattering (MCS) angles while passing through liquid argon.
     """
+
+    # Name of the post-processor (as specified in the configuration)
     name = 'mcs_ke'
-    aliases = ['reconstruct_mcs_energy']
+
+    # Alternative allowed names of the post-processor
+    aliases = ('reconstruct_mcs_energy',)
 
     def __init__(self, tracking_mode='bin_pca', segment_length=5.0,
                  split_angle=False, res_a=0.25, res_b=1.25,
-                 include_pids=[MUON_PID, PION_PID, PROT_PID, KAON_PID],
+                 include_pids=(MUON_PID, PION_PID, PROT_PID, KAON_PID),
                  fill_per_pid=False, only_uncontained=False,
                  obj_type='particle', run_mode='both',
                  truth_point_mode='points', **kwargs):

@@ -12,10 +12,14 @@ __all__ = ['VertexProcessor']
 
 class VertexProcessor(PostBase):
     """Reconstruct one vertex for each interaction in the provided list."""
-    name = 'vertex'
-    aliases = ['reconstruct_vertex']
 
-    def __init__(self, include_shapes=[SHOWR_SHP, TRACK_SHP],
+    # Name of the post-processor (as specified in the configuration)
+    name = 'vertex'
+
+    # Alternative allowed names of the post-processor
+    aliases = ('reconstruct_vertex',)
+
+    def __init__(self, include_shapes=(SHOWR_SHP, TRACK_SHP),
                  use_primaries=True, update_primaries=False,
                  anchor_vertex=True, touching_threshold=2.0,
                  angle_threshold=0.3, run_mode='both',

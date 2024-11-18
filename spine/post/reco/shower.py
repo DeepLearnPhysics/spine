@@ -19,8 +19,12 @@ class ConversionDistanceProcessor(PostBase):
     NOTE: This processor can only change reco electron shower pid to
     photon pid depending on the distance threshold. 
     """
+
+    # Name of the post-processor (as specified in the configuration)
     name = 'shower_conversion_distance'
-    aliases = ['shower_separation_processor']
+
+    # Alternative allowed names of the post-processor
+    aliases = ('shower_separation_processor',)
     
     def __init__(self, threshold=-1.0, vertex_mode='vertex'):
         """Specify the EM shower conversion distance threshold and
@@ -168,8 +172,12 @@ class ShowerMultiArmCheck(PostBase):
     NOTE: This processor can only change reco electron shower pid to
     photon pid depending on the angle threshold. 
     """
+
+    # Name of the post-processor (as specified in the configuration)
     name = 'shower_multi_arm_check'
-    aliases = ['shower_multi_arm']
+
+    # Alternative allowed names of the post-processor
+    aliases = ('shower_multi_arm',)
     
     def __init__(self, threshold=70, min_samples=20, eps=0.02):
         """Specify the threshold for the number of arms of showers.
@@ -286,8 +294,12 @@ class ShowerStartpointCorrectionProcessor(PostBase):
     """Correct the startpoint of the primary EM shower by 
     finding the closest point to the vertex.
     """
+
+    # Name of the post-processor (as specified in the configuration)
     name = 'showerstart_correction_processor'
-    aliases = ['reco_shower_startpoint_correction']
+
+    # Alternative allowed names of the post-processor
+    aliases = ('reco_shower_startpoint_correction',)
     
     def __init__(self, threshold=1.0):
         """Specify the EM shower conversion distance threshold and

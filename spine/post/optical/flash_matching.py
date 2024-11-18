@@ -18,8 +18,12 @@ __all__ = ['FlashMatchProcessor']
 
 class FlashMatchProcessor(PostBase):
     """Associates TPC interactions with optical flashes."""
+
+    # Name of the post-processor (as specified in the configuration)
     name = 'flash_match'
-    aliases = ['run_flash_matching']
+
+    # Alternative allowed names of the post-processor
+    aliases = ('run_flash_matching',)
 
     def __init__(self, flash_key, volume, ref_volume_id=None,
                  method='likelihood', detector=None, geometry_file=None,
@@ -56,7 +60,7 @@ class FlashMatchProcessor(PostBase):
 
         # Make sure the flash data product is available, store
         self.flash_key = flash_key
-        self.keys[flash_key] = True
+        self.update_keys({flash_key: True})
 
         # Initialize the detector geometry
         self.geo = Geometry(detector, geometry_file)
