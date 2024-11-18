@@ -15,6 +15,8 @@ class LoopGraph(GraphBase):
     See :class:`GraphBase` for attributes/methods shared
     across all graph constructors.
     """
+
+    # Name of the graph constructor (as specified in the configuration)
     name = 'loop'
 
     def generate(self, clusts, **kwargs):

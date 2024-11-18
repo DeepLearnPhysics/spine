@@ -15,7 +15,7 @@ class BuilderBase(ABC):
     """
 
     # Builder name
-    _name = None
+    name = None
 
     # Types of objects constructed by the builder
     _reco_type = None
@@ -173,17 +173,6 @@ class BuilderBase(ABC):
         default = getattr(self, f'_{dtype}_type')()
 
         return ObjectList(obj_list, default)
-
-    @property
-    def name(self):
-        """Name of the builder.
-
-        Returns
-        -------
-        str
-            Name of the builder class.
-        """
-        return self._name
 
     @abstractmethod
     def build_reco(self, data):

@@ -21,6 +21,8 @@ class MLPEdgeLayer(nn.Module):
     multi-layer perceptron (MLP) and outputs an (E, N_o) vector, with N_o the
     width of the MLP (feature size of the hidden representation).
     """
+
+    # Name of the edge layer (as specified in the configuration)
     name = 'mlp'
 
     def __init__(self, node_in, edge_in, glob_in, mlp):
@@ -96,6 +98,8 @@ class MLPNodeLayer(nn.Module):
     to form a (N_o + N_c + N_g) feature vector. This new vector is passed
     through a second MLP to update the node features to (N_o').
     """
+
+    # Name of the node layer (as specified in the configuration)
     name = 'mlp'
 
     def __init__(self, node_in, edge_in, glob_in, message_mlp,
@@ -199,6 +203,8 @@ class MLPGlobalLayer(nn.Module):
     perceptron (MLP) and outputs a (B, N_o) vector, with N_o the width of the
     MLP (feature size of the hidden representation).
     """
+
+    # Name of the global layer (as specified in the configuration)
     name = 'mlp'
 
     def __init__(self, node_in, glob_in, mlp, reduction='mean'):

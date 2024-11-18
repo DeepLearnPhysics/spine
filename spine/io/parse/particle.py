@@ -40,6 +40,8 @@ class ParticleParser(ParserBase):
             pixel_coordinates: True
             post_process: True
     """
+
+    # Name of the parser (as specified in the configuration)
     name = 'particle'
 
     def __init__(self, pixel_coordinates=True, post_process=True,
@@ -164,6 +166,8 @@ class NeutrinoParser(ParserBase):
             pixel_coordinates: True
             asis: False
     """
+
+    # Name of the parser (as specified in the configuration)
     name = 'neutrino'
 
     def __init__(self, pixel_coordinates=True, asis=False, **kwargs):
@@ -257,6 +261,8 @@ class ParticlePointParser(ParserBase):
             sparse_event: sparse3d_pcluster
             include_point_tagging: True
     """
+
+    # Name of the parser (as specified in the configuration)
     name = 'particle_points'
 
     def __init__(self, include_point_tagging=True, **kwargs):
@@ -337,6 +343,8 @@ class ParticleCoordinateParser(ParserBase):
             particle_event: particle_pcluster
             sparse_event: sparse3d_pcluster
     """
+
+    # Name of the parser (as specified in the configuration)
     name = 'particle_coords'
 
     def __call__(self, trees):
@@ -414,6 +422,8 @@ class VertexPointParser(ParserBase):
             sparse_event: sparse3d_pcluster
             include_point_tagging: True
     """
+
+    # Name of the parser (as specified in the configuration)
     name = 'vertex_points'
 
     def __call__(self, trees):
@@ -486,6 +496,8 @@ class ParticleGraphParser(ParserBase):
             cluster_event: cluster3d_pcluster
 
     """
+
+    # Name of the parser (as specified in the configuration)
     name = 'particle_graph'
 
     def __call__(self, trees):
@@ -596,6 +608,8 @@ class SingleParticlePIDParser(ParserBase):
             parser: single_particle_pid
             particle_event: particle_pcluster
     """
+
+    # Name of the parser (as specified in the configuration)
     name = 'single_particle_pid'
 
     def __call__(self, trees):
@@ -642,6 +656,8 @@ class SingleParticleEnergyParser(ParserBase):
             parser: single_particle_energy
             particle_event: particle_pcluster
     """
+
+    # Name of the parser (as specified in the configuration)
     name = 'single_particle_energy'
 
     def __call__(self, trees):

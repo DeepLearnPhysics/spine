@@ -35,6 +35,8 @@ class Sparse2DParser(ParserBase):
               - ...
             projection_id: 0
     """
+
+    # Name of the parser (as specified in the configuration)
     name = 'parse_sparse2d'
 
     def __init__(self, dtype, projection_id, sparse_event=None,
@@ -141,6 +143,8 @@ class Sparse3DParser(ParserBase):
               - sparse3d_pcluster_1
               - ...
     """
+
+    # Name of the parser (as specified in the configuration)
     name = 'sparse3d'
 
     def __init__(self, dtype, sparse_event=None, sparse_event_list=None,
@@ -309,8 +313,9 @@ class Sparse3DGhostParser(Sparse3DParser):
             parser: sparse3d
             sparse_event_semantics: sparse3d_semantics
     """
+
+    # Name of the parser (as specified in the configuration)
     name = 'sparse3d_ghost'
-    aliases = []
 
     def __call__(self, trees):
         """Parse one entry.
@@ -356,8 +361,12 @@ class Sparse3DChargeRescaledParser(Sparse3DParser):
             parser: sparse3d_charge_rescaled
             sparse_event_semantics: sparse3d_semantics
     """
+
+    # Name of the parser (as specified in the configuration)
     name = 'parse_sparse3d_rescale_charge'
-    aliases = ['parse_sparse3d_charge_rescaled']
+
+    # Alternative allowed names of the parser
+    aliases = ('parse_sparse3d_charge_rescaled',)
 
     def __init__(self, collection_only=False, collection_id=2, **kwargs):
         """Initialize the parser.

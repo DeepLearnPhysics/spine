@@ -22,6 +22,8 @@ class MSTGraph(GraphBase):
     See :class:`GraphBase` for attributes/methods shared
     across all graph constructors.
     """
+
+    # Name of the graph constructor (as specified in the configuration)
     name = 'mst'
 
     def generate(self, clusts, dist_mat, **kwargs):

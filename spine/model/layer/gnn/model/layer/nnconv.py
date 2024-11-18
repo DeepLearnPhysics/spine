@@ -22,6 +22,8 @@ class NNConvNodeLayer(nn.Module):
 
     Source: https://arxiv.org/abs/1704.02901
     """
+
+    # Name of the node layer (as specified in the configuration)
     name = 'nnconv'
 
     def __init__(self, node_in, edge_in, glob_in, out_channels,

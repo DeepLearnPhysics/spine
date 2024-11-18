@@ -35,8 +35,12 @@ class NodeOrientLoss(torch.nn.Module):
     See configuration files prefixed with `grappa_` under the `config`
     directory for detailed examples of working configurations.
     """
+
+    # Name of the loss (as specified in the configuration)
     name = 'orient'
-    aliases = ['orientation']
+
+    # Alternative allowed names of the loss
+    aliases = ('orientation',)
 
     def __init__(self, loss='ce'):
         """Initialize the node orientation loss function.

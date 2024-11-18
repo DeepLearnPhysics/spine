@@ -21,7 +21,7 @@ class InteractionBuilder(BuilderBase):
     """
 
     # Builder name
-    _name = 'interaction'
+    name = 'interaction'
 
     # Types of objects constructed by the builder
     _reco_type = RecoInteraction

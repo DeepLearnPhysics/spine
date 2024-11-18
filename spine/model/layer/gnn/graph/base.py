@@ -14,6 +14,9 @@ from spine.utils.gnn.network import inter_cluster_distance
 class GraphBase:
     """Parent class for all graph constructors."""
 
+    # Name of the graph constructor (as specified in the configuration)
+    name = None
+
     def __init__(self, directed=False, max_length=None, classes=None,
                  max_count=None, dist_method='voxel', dist_algorithm='brute'):
         """Initializes attributes shared accross all graph constructors.
@@ -65,7 +68,7 @@ class GraphBase:
 
         # Store whether the inter-cluster distance matrix must be evaluated
         self.compute_dist = (max_length is not None or
-                             self.name in ['mst', 'knn'])
+                             self.name in ('mst', 'knn'))
 
         # If this is a loop graph, simply set as undirected
         assert self.name != 'loop' or self.directed, (

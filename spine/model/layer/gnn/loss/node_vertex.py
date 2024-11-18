@@ -45,6 +45,8 @@ class NodeVertexLoss(torch.nn.Module):
     See configuration files prefixed with `grappa_` under the `config`
     directory for detailed examples of working configurations.
     """
+
+    # Name of the loss (as specified in the configuration)
     name = 'vertex'
 
     def __init__(self, balance_primary_loss=False, primary_loss='ce',

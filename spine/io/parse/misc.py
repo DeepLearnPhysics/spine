@@ -35,8 +35,12 @@ class MetaParser(ParserBase):
             parser: meta
             sparse_event: sparse3d_pcluster
     """
+
+    # Name of the parser (as specified in the configuration)
     name = 'meta'
-    aliases = ['meta2d', 'meta3d']
+
+    # Alternative allowed names of the parser
+    aliases = ('meta2d', 'meta3d')
 
     def __call__(self, trees):
         """Parse one entry.
@@ -104,6 +108,8 @@ class RunInfoParser(ParserBase):
             parser: run_info
             sparse_event: sparse3d_pcluster
     """
+
+    # Name of the parser (as specified in the configuration)
     name = 'run_info'
 
     def __call__(self, trees):
@@ -157,8 +163,12 @@ class FlashParser(ParserBase):
               - flash_cryoE
               - flash_cryoW
     """
+
+    # Name of the parser (as specified in the configuration)
     name = 'flash'
-    aliases = ['opflash']
+
+    # Alternative allowed names of the parser
+    aliases = ('opflash',)
 
     def __call__(self, trees):
         """Parse one entry.
@@ -225,6 +235,8 @@ class CRTHitParser(ParserBase):
             parser: crthit
             crthit_event: crthit_crthit
     """
+
+    # Name of the parser (as specified in the configuration)
     name = 'crthit'
 
     def __call__(self, trees):
@@ -265,6 +277,8 @@ class TriggerParser(ParserBase):
             parser: trigger
             trigger_event: trigger_base
     """
+
+    # Name of the parser (as specified in the configuration)
     name = 'trigger'
 
     def __call__(self, trees):

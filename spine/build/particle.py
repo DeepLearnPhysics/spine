@@ -21,7 +21,7 @@ class ParticleBuilder(BuilderBase):
     """
 
     # Builder name
-    _name = 'particle'
+    name = 'particle'
 
     # Types of objects constructed by the builder
     _reco_type = RecoParticle

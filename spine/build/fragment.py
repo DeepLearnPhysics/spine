@@ -26,7 +26,7 @@ class FragmentBuilder(BuilderBase):
     """
 
     # Builder name
-    _name = 'fragment'
+    name = 'fragment'
 
     # Types of objects constructed by the builder
     _reco_type = RecoFragment

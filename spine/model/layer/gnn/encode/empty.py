@@ -10,6 +10,8 @@ __all__ = ['EmptyClusterNodeEncoder', 'EmptyClusterEdgeEncoder',
 
 class EmptyClusterNodeEncoder(torch.nn.Module):
     """Produces empty cluster node features."""
+
+    # Name of the node encoder (as specified in the configuration)
     name = 'empty'
 
     def forward(self, data, clusts, **kwargs):
@@ -38,6 +40,8 @@ class EmptyClusterNodeEncoder(torch.nn.Module):
 
 class EmptyClusterEdgeEncoder(torch.nn.Module):
     """Produces empty cluster edge features."""
+
+    # Name of the edge encoder (as specified in the configuration)
     name = 'empty'
 
     def forward(self, data, clusts, edge_index, **kwargs):
@@ -68,6 +72,8 @@ class EmptyClusterEdgeEncoder(torch.nn.Module):
 
 class EmptyClusterGlobalEncoder(torch.nn.Module):
     """Produces empty global graph features."""
+
+    # Name of the global encoder (as specified in the configuration)
     name = 'empty'
 
     def forward(self, data, clusts, **kwargs):
