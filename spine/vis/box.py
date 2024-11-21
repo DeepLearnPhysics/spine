@@ -86,6 +86,7 @@ def box_trace(lower, upper, draw_faces=False, line=None, linewidth=None,
             hovertemplate += f'<br>{hovertext}'
             hovertext = None
 
+    # Create the box trace
     if not draw_faces:
         # Build a list of box edges to draw (padded with None values to break
         # them from each other)

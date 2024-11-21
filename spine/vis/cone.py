@@ -6,7 +6,7 @@ from plotly import graph_objs as go
 from spine.utils.numba_local import principal_components
 
 
-def cone_trace(points, fraction=0.5, num_samples=10, color=None,
+def cone_trace(points, fraction=0.5, num_samples=10, color=None, hovertext=None,
                showscale=False, **kwargs):
     """Converts a cloud of points into a 3D cone.
 
@@ -26,6 +26,8 @@ def cone_trace(points, fraction=0.5, num_samples=10, color=None,
         If True, show the colorscale of the :class:`plotly.graph_objs.Mesh3d`
     color : Union[str, float], optional
         Color of the cone
+    hovertext : Union[int, str, np.ndarray], optional
+        Text associated with the cone
     **kwargs : dict, optional
         Additional parameters to pass to the 
     """
@@ -84,7 +86,17 @@ def cone_trace(points, fraction=0.5, num_samples=10, color=None,
                 "Should provide a single color for the cone.")
         intensity = [color]*len(cone_points)
 
+    # Update hovertemplate style
+    hovertemplate = 'x: %{x}<br>y: %{y}<br>z: %{z}'
+    if hovertext is not None:
+        if not np.isscalar(hovertext):
+            hovertemplate += '<br>%{text}'
+        else:
+            hovertemplate += f'<br>{hovertext}'
+            hovertext = None
+
     # Append Mesh3d object
     return go.Mesh3d(
         x=cone_points[:, 0], y=cone_points[:, 1], z=cone_points[:, 2],
-        intensity=intensity, alphahull=0, showscale=showscale, **kwargs)
+        intensity=intensity, alphahull=0, showscale=showscale,
+        hovertemplate=hovertemplate, **kwargs)
