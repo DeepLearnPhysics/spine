@@ -111,7 +111,7 @@ class FullChain(torch.nn.Module):
     def __init__(self, chain, uresnet_deghost=None, uresnet=None,
                  uresnet_ppn=None, adapt_labels=None, graph_spice=None,
                  dbscan=None, grappa_shower=None, grappa_track=None,
-                 grappa_particle=None, grappa_inter=None, calibrator=None,
+                 grappa_particle=None, grappa_inter=None, calibration=None,
                  uresnet_deghost_loss=None, uresnet_loss=None,
                  uresnet_ppn_loss=None, graph_spice_loss=None,
                  grappa_shower_loss=None, grappa_track_loss=None,
@@ -140,7 +140,7 @@ class FullChain(torch.nn.Module):
             Global particle aggregation configuration
         grappa_inter : dict, optional
             Interaction aggregation model configuration
-        calibrator : dict, optional
+        caliration : dict, optional
             Calibration manager configuration
         """
         # Initialize the parent class
@@ -158,10 +158,10 @@ class FullChain(torch.nn.Module):
 
         # Initialize the calibrater manager
         if self.calibration == 'apply':
-            assert calibrator is not None, (
+            assert calibration is not None, (
                     "If the calibration is to be applied, must provide the "
-                    "`calibrator` configuration block.")
-            self.calibrator = CalibrationManager(**calibrator)
+                    "`calibration` configuration block.")
+            self.calibrator = CalibrationManager(**calibration)
 
         # Initialize the semantic segmentation model (+ point proposal)
         if self.segmentation is not None and self.segmentation == 'uresnet':
@@ -423,6 +423,8 @@ class FullChain(torch.nn.Module):
             voxels = data.to_numpy().tensor[:, COORD_COLS]
             values = data.to_numpy().tensor[:, VALUE_COL]
             sources = sources.to_numpy().tensor if sources is not None else None
+
+            # TODO: does not work for mixed runs (is this a real use-case?)
             run_info = run_info[0] if run_info is not None else None
 
             # TODO: remove hard-coded value of dE/dx
@@ -435,7 +437,7 @@ class FullChain(torch.nn.Module):
         elif self.calibration == 'label':
             # Use energy labels to give values to each voxel
             assert energy_label is not None, (
-                    "Must provide `seg_label` to deghost with it.")
+                    "Must provide `energy_label` to do label-based calibration.")
             data.tensor[:, VALUE_COL] = energy_label.tensor[:, VALUE_COL]
 
             self.result['data_adapt'] = data
