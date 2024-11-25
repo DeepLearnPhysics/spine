@@ -143,11 +143,11 @@ class Geometry:
         """
         # If logical and physical TPCs are aligned, nothing to do
         if self.tpc.det_ids is None:
-            return sources
+            return sources.astype(int)
 
         # Otherwise, map logical to physical
         sources = np.copy(sources)
-        sources[:, 1] = self.tpc.det_ids[sources[:, 1]]
+        sources[:, 1] = self.tpc.det_ids[sources[:, 1].astype(int)]
 
         return sources
 
