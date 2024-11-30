@@ -12,7 +12,7 @@ import numpy as np
 
 from spine.data import Meta
 
-from spine.utils.globals import DELTA_SHP
+from spine.utils.globals import DELTA_SHP, SHAPE_PREC
 from spine.utils.particles import process_particle_event
 from spine.utils.ppn import image_coordinates
 from spine.utils.conditional import larcv
@@ -143,7 +143,7 @@ class Cluster3DParser(ParserBase):
                  clean_data=False, type_include_mpr=True,
                  type_include_secondary=True, primary_include_mpr=True,
                  break_clusters=False, break_eps=1.1, break_metric='chebyshev',
-                 **kwargs):
+                 shape_precedence=SHAPE_PREC, **kwargs):
         """Initialize the parser.
 
         Parameters
@@ -168,6 +168,8 @@ class Cluster3DParser(ParserBase):
             Distance scale used in the break up procedure
         break_metric : str, default 'chebyshev'
             Distance metric used in the break up produce
+        shape_precedence: list, default SHAPE_PREC
+             Array of classes in the reference array, ordered by precedence
         **kwargs : dict, optional
             Data product arguments to be passed to the `process` function
         """
@@ -183,6 +185,7 @@ class Cluster3DParser(ParserBase):
         self.break_clusters = break_clusters
         self.break_eps = break_eps
         self.break_metric = break_metric
+        self.shape_precedence = shape_precedence
 
         # Intialize the sparse and particle parsers
         self.sparse_parser = Sparse3DParser(dtype, sparse_event='dummy')
@@ -362,7 +365,8 @@ class Cluster3DParser(ParserBase):
             sem_voxels, sem_features, _ = (
                     self.sparse_parser.process(sparse_semantics_event))
             np_voxels, np_features = (
-                    clean_sparse_data(np_voxels, np_features, sem_voxels))
+                    clean_sparse_data(
+                        np_voxels, np_features, sem_voxels, self.shape_precedence))
 
             # Match the semantic column to the reference tensor
             np_features[:, -1] = sem_features[:, -1]

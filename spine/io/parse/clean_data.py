@@ -11,7 +11,8 @@ import numba as nb
 from spine.utils.globals import SHAPE_COL, SHAPE_PREC
 
 
-def clean_sparse_data(cluster_voxels, cluster_data, sparse_voxels):
+def clean_sparse_data(cluster_voxels, cluster_data, sparse_voxels,
+                      precedence=SHAPE_PREC):
     """Helper that factorizes common cleaning operations required when trying
     to match cluster3d data products to sparse3d data products.
 
@@ -32,6 +33,8 @@ def clean_sparse_data(cluster_voxels, cluster_data, sparse_voxels):
         in the cluster3d tensor
     sparse_voxels : np.ndarray
         (M, 3) Matrix of voxel coordinates in the reference sparse tensor
+    precedence: list, default SHAPE_PREC
+        (C) Array of classes in the reference array, ordered by precedence
 
     Returns
     -------
@@ -51,7 +54,7 @@ def clean_sparse_data(cluster_voxels, cluster_data, sparse_voxels):
     # Remove duplicates
     duplicate_mask = filter_duplicate_voxels_ref(
             cluster_voxels, cluster_data[:, SHAPE_COL],
-            nb.typed.List(SHAPE_PREC))
+            nb.typed.List(precedence))
     duplicate_index = np.where(duplicate_mask)[0]
     cluster_voxels = cluster_voxels[duplicate_index]
     cluster_data = cluster_data[duplicate_index]
