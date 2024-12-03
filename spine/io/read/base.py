@@ -146,8 +146,9 @@ class ReaderBase:
             assert len(self.run_info) == self.num_entries
             has_duplicates = not np.all(np.unique(self.run_info,
                 axis = 0, return_counts=True)[-1] == 1)
-            if has_duplicates:
-                warn("There are duplicated (run, event) pairs.")
+            assert not has_duplicates, (
+                    "Cannot create a run map if (run, event) pairs are not "
+                    "unique in the dataset. Abort.")
 
         # If run_info is set, flip it into a map from info to entry
         self.run_map = None
