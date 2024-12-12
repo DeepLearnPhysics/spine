@@ -10,9 +10,9 @@ class ConfigLoader(yaml.SafeLoader):
 
     This class implements a more complex YAML loader than the standard loader in
     order to support more advanced functions such as:
-    - Include YAML configuration files into another YAML configuration file
+    - Include YAML configuration files into another YAML configuration file;
     - Edit an included YAML dictionary with one liners (to modify single
-      configuration parameters without replicating a configuration block.
+      configuration parameters without replicating a configuration block).
     """
 
     def __init__(self, stream):

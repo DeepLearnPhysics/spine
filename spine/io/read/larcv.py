@@ -54,20 +54,20 @@ class LArCVReader(ReaderBase):
             List of integer entry IDs to add to the index
         skip_entry_list : list
             List of integer entry IDs to skip from the index
-        run_event_list: list((int, int)), optional
-            List of [run, event] pairs to add to the index
-        skip_run_event_list: list((int, int)), optional
-            List of [run, event] pairs to skip from the index
+        run_event_list: list((int, int, int)), optional
+            List of (run, subrun, event) triplets to add to the index
+        skip_run_event_list: list((int, int, int)), optional
+            List of (run, subrun, event) triplets to skip from the index
         create_run_map : bool, default False
-            Initialize a map between [run, event] pairs and entries. For large
-            files, this can be quite expensive (must load every entry).
+            Initialize a map between (run, subrun, event) triplets and entries.
+            For large files, this can be quite expensive (must load every entry).
         run_info_key : str, optional
             Key of the tree in the file to get the run information from
         """
         # Process the file_paths
         self.process_file_paths(file_keys, limit_num_files, max_print_files)
 
-        # If an entry list is requested based on run/event ID, create map
+        # If an entry list is requested based on run/subrun/event ID, create map
         if run_event_list is not None or skip_run_event_list is not None:
             create_run_map = True
 
@@ -118,11 +118,11 @@ class LArCVReader(ReaderBase):
                 chain.AddFile(f)
 
             # Loop over entries
-            self.run_info = np.empty((self.num_entries, 2), dtype=np.int64)
+            self.run_info = ()
             for i in range(self.num_entries):
                 chain.GetEntry(i)
-                source = getattr(chain, f'{run_info_key}_branch')
-                self.run_info[i] = [source.run(), source.event()]
+                info = getattr(chain, f'{run_info_key}_branch')
+                self.run_info.append((info.run(), info.subrun(), info.event()))
 
         # Process the run information
         self.process_run_info()
