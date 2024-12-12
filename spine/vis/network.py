@@ -11,7 +11,7 @@ from .cluster import scatter_clusters
 
 def network_topology(points, clusts, edge_index, clust_labels=None,
                      edge_labels=None, mode='scatter', color=None,
-                     linewidth=2, name=None, **kwargs):
+                     line=None, linewidth=2, name=None, **kwargs):
     """Network 3D topological representation in Euclidean space.
 
     Parameters
@@ -30,6 +30,8 @@ def network_topology(points, clusts, edge_index, clust_labels=None,
         Drawing mode; one of 'circle', 'scatter', 'ellipsoid', 'cone' or 'hull'
     color : Union[str, np.ndarray], optional
         Color of clusters or (C) list of color of clusters
+    line : dict, optional
+        Line property dictionary
     linewidth : float, default 2
         Width of the edge lines
     name : str, optional
@@ -96,7 +98,7 @@ def network_topology(points, clusts, edge_index, clust_labels=None,
 
     # Add the edge trace
     traces += scatter_points(
-        edge_vertices, color=edge_labels, linewidth=linewidth,
+        edge_vertices, color=edge_labels, line=line, linewidth=linewidth,
         mode='lines', name=edge_name)
 
     # Return

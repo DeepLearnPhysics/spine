@@ -11,7 +11,8 @@ import numba as nb
 from spine.utils.globals import SHAPE_COL, SHAPE_PREC
 
 
-def clean_sparse_data(cluster_voxels, cluster_data, sparse_voxels):
+def clean_sparse_data(cluster_voxels, cluster_data, sparse_voxels,
+                      precedence=SHAPE_PREC):
     """Helper that factorizes common cleaning operations required when trying
     to match cluster3d data products to sparse3d data products.
 
@@ -30,8 +31,10 @@ def clean_sparse_data(cluster_voxels, cluster_data, sparse_voxels):
     cluster_data : np.ndarray
         (N, F) Matrix of voxel values corresponding to each voxel
         in the cluster3d tensor
-    sparse_voxels: np.ndarray
+    sparse_voxels : np.ndarray
         (M, 3) Matrix of voxel coordinates in the reference sparse tensor
+    precedence: list, default SHAPE_PREC
+        (C) Array of classes in the reference array, ordered by precedence
 
     Returns
     -------
@@ -51,7 +54,7 @@ def clean_sparse_data(cluster_voxels, cluster_data, sparse_voxels):
     # Remove duplicates
     duplicate_mask = filter_duplicate_voxels_ref(
             cluster_voxels, cluster_data[:, SHAPE_COL],
-            nb.typed.List(SHAPE_PREC))
+            nb.typed.List(precedence))
     duplicate_index = np.where(duplicate_mask)[0]
     cluster_voxels = cluster_voxels[duplicate_index]
     cluster_data = cluster_data[duplicate_index]
@@ -80,7 +83,7 @@ def filter_duplicate_voxels(data: nb.int32[:,:]) -> nb.boolean[:]:
     Returns
     -------
     np.ndarray
-        (N', 3) Matrix that does not contain duplicate voxel coordinates
+        (N) Boolean mask which is False for pixels to remove
     """
     # For each voxel, check if the next one shares its coordinates
     n = data.shape[0]
@@ -115,7 +118,7 @@ def filter_duplicate_voxels_ref(data: nb.int32[:,:],
     Returns
     -------
     np.ndarray
-        (N', 3) Matrix that does not contain duplicate voxel coordinates
+        (N) Boolean mask which is False for pixels to remove
     """
     # Find all the voxels which are duplicated and organize them in groups
     n = data.shape[0]
@@ -166,8 +169,7 @@ def filter_voxels_ref(data: nb.int32[:,:],
     Returns
     -------
     np.ndarray
-        (N', 3) Matrix that does not contain voxels absent from
-        the reference matrix
+        (N) Boolean mask which is False for pixels to remove
     """
     # Try to match each voxel in the data tensor to one in the reference tensor
     n_data, n_ref = data.shape[0], reference.shape[0]

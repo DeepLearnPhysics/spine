@@ -667,7 +667,7 @@ def edge_assignment_score(edge_index: nb.int64[:,:],
 @nb.njit(cache=True)
 def node_assignment_score(edge_index: nb.int64[:,:],
                           edge_pred: nb.float32[:,:],
-                          n: nb.int64) -> nb.int64[:]:
+                          num_nodes: nb.int64) -> nb.int64[:]:
     """Finds the graph that produces the lowest grouping score and use
     union-find to find group IDs for each of the nodes in the graph.
 

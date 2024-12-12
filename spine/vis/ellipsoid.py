@@ -47,15 +47,6 @@ def ellipsoid_trace(points=None, centroid=None, covmat=None, contour=0.5,
     assert (points is not None) ^ (centroid is not None and covmat is not None), (
             "Must provide either `points` or both `centroid` and `covmat`.")
 
-    # Update hovertemplate style
-    hovertemplate = 'x: %{x}<br>y: %{y}<br>z: %{z}'
-    if hovertext is not None:
-        if not np.isscalar(hovertext):
-            hovertemplate += '<br>%{text}'
-        else:
-            hovertemplate += f'<br>{hovertext}'
-            hovertext = None
-
     # Compute the points on a unit sphere
     phi = np.linspace(0, 2*np.pi, num=num_samples)
     theta = np.linspace(-np.pi/2, np.pi/2, num=num_samples)
@@ -67,8 +58,12 @@ def ellipsoid_trace(points=None, centroid=None, covmat=None, contour=0.5,
 
     # Get the centroid and the covariance matrix, if needed
     if points is not None:
-        centroid = np.mean(points, axis=0)
-        covmat = np.cov((points - centroid).T)
+        if len(points) > 1:
+            centroid = np.mean(points, axis=0)
+            covmat = np.cov((points - centroid).T)
+        else:
+            centroid = points[0]
+            covmat = np.zeros((3, 3))
 
     # Diagonalize the covariance matrix, get rotation matrix
     w, v = np.linalg.eigh(covmat)
@@ -91,6 +86,15 @@ def ellipsoid_trace(points=None, centroid=None, covmat=None, contour=0.5,
                 "Must not provide both `color` and `intensity`.")
         intensity = np.full(len(ell_points), color)
         color = None
+
+    # Update hovertemplate style
+    hovertemplate = 'x: %{x}<br>y: %{y}<br>z: %{z}'
+    if hovertext is not None:
+        if not np.isscalar(hovertext):
+            hovertemplate += '<br>%{text}'
+        else:
+            hovertemplate += f'<br>{hovertext}'
+            hovertext = None
 
     # Append Mesh3d object
     return go.Mesh3d(

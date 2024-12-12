@@ -37,9 +37,9 @@ class ReaderBase:
     file_index : List[int]
         Index of the file each entry in entry_index lives in
     run_info : List[Tuple[int]]
-        (run, event) pairs associated with each entry in the file list
+        (run, subrun, event) triplets associated with each entry in the file list
     run_map : Dict[Type[int], int]
-        Maps each available (run, event) pair onto an entry_index index
+        Maps each available (run, subrun, event) triplet onto an entry_index index
     """
     name = ''
     num_entries = None
@@ -139,20 +139,20 @@ class ReaderBase:
         """Process the run information.
 
         Check the run information for duplicates and initialize a dictionary
-        which map [run, event] pairs onto entry index.
+        which map (run, subrun, event) triplets onto entry index.
         """
         # Check for duplicates
         if self.run_info is not None:
             assert len(self.run_info) == self.num_entries
-            has_duplicates = not np.all(np.unique(self.run_info,
-                axis = 0, return_counts=True)[-1] == 1)
-            if has_duplicates:
-                warn("There are duplicated (run, event) pairs.")
+            num_unique = len(np.unique(self.run_info, axis=0))
+            assert num_unique == len(self.run_info), (
+                    "Cannot create a run map if (run, subrun, event) triplets "
+                    "are not unique in the dataset. Abort.")
 
         # If run_info is set, flip it into a map from info to entry
         self.run_map = None
         if self.run_info is not None:
-            self.run_map = {tuple(v):i for i, v in enumerate(self.run_info)}
+            self.run_map = {tuple(v): i for i, v in enumerate(self.run_info)}
 
     def process_entry_list(self, n_entry=None, n_skip=None, entry_list=None,
                            skip_entry_list=None, run_event_list=None,
@@ -170,9 +170,9 @@ class ReaderBase:
         skip_entry_list : list, optional
             List of integer entry IDs to skip from the index
         run_event_list: list((int, int)), optional
-            List of [run, event] pairs to add to the index
+            List of (run, subrun, event) triplets to add to the index
         skip_run_event_list: list((int, int)), optional
-            List of [run, event] pairs to skip from the index
+            List of (run, subrun, event) triplets to skip from the index
 
         Returns
         -------
@@ -222,8 +222,8 @@ class ReaderBase:
         elif run_event_list:
             run_event_list = self.parse_run_event_list(run_event_list)
             entry_list = np.empty(len(run_event_list), dtype=np.int64)
-            for i, (r, e) in enumerate(run_event_list):
-                entry_list[i] = self.get_run_event_index(r, e)
+            for i, (r, s, e) in enumerate(run_event_list):
+                entry_list[i] = self.get_run_event_index(r, s, e)
 
         elif skip_entry_list or skip_run_event_list:
             if skip_entry_list:
@@ -236,8 +236,8 @@ class ReaderBase:
                         skip_run_event_list)
                 skip_entry_list = np.empty(
                         len(skip_run_event_list), dtype=np.int64)
-                for i, (r, e) in enumerate(skip_run_event_list):
-                    skip_entry_list[i] = self.get_run_event_index(r, e)
+                for i, (r, s, e) in enumerate(skip_run_event_list):
+                    skip_entry_list[i] = self.get_run_event_index(r, s, e)
 
             entry_mask = np.ones(self.num_entries, dtype=bool)
             entry_mask[skip_entry_list] = False
@@ -250,7 +250,7 @@ class ReaderBase:
 
             if self.run_info is not None:
                 run_info = self.run_info[entry_list]
-                self.run_map = {tuple(v):i for i, v in enumerate(run_info)}
+                self.run_map = {tuple(v): i for i, v in enumerate(run_info)}
 
         assert len(entry_index), "Must at least have one entry to load."
 
@@ -258,13 +258,16 @@ class ReaderBase:
 
         self.entry_index = entry_index
 
-    def get_run_event(self, run, event):
-        """Returns an entry corresponding to a specific (run, event) pair.
+    def get_run_event(self, run, subrun, event):
+        """Returns an entry corresponding to a specific (run, subrun, event)
+        triplet.
 
         Parameters
         ----------
         run : int
             Run number
+        subrun : int
+            Subrun number
         event : int
             Event number
 
@@ -275,10 +278,10 @@ class ReaderBase:
         result_blob : dict
             Ditionary of result data products corresponding to one event
         """
-        return self.get(self.get_run_event_index(run, event))
+        return self.get(self.get_run_event_index(run, subrun, event))
 
-    def get_run_event_index(self, run, event):
-        """Returns an entry index corresponding to a specific (run, event) pair.
+    def get_run_event_index(self, run, subrun, event):
+        """Returns an entry index corresponding to a specific (run, subrun, event) triplet.
 
         Parameters
         ----------
@@ -289,11 +292,11 @@ class ReaderBase:
         """
         # Get the appropriate entry index
         assert self.run_map is not None, (
-                "Must build a run map to get entries by [run, event].")
-        assert (run, event) in self.run_map, (
-                f"Could not find (run={run}, event={event}) pair.")
+                "Must build a run map to get entries by (run, sunrun, event).")
+        assert (run, subrun, event) in self.run_map, (
+                f"Could not find (run={run}, subrun={subrun}, event={event}).")
 
-        return self.run_map[(run, event)]
+        return self.run_map[(run, subrun, event)]
 
     def get_file_path(self, idx):
         """Returns the path to the file corresponding to a specific entry.
@@ -381,10 +384,10 @@ class ReaderBase:
 
     @staticmethod
     def parse_run_event_list(list_source):
-        """Parses a list of [run, event] pairs into an np.ndarray.
+        """Parses a list of (run, subrun, event) triplets into an np.ndarray.
 
         The list can be passed as a simple python list or a path to a file
-        which contains one [run, event] pair per line.
+        which contains one (run, subrun, event) pair per line.
 
         Parameters
         ----------
@@ -393,14 +396,14 @@ class ReaderBase:
 
         Returns
         -------
-        np.ndarray
+        Tuple[Tuple[int]]
             List as a numpy array
         """
         if list_source is None:
-            return np.empty((0, 2), dtype=np.int64)
+            return ()
 
         if not np.isscalar(list_source):
-            return np.asarray(list_source, dtype=np.int64).reshape(-1, 2)
+            return tuple(tuple(val) for val in list_source)
 
         if isinstance(list_source, str):
             assert os.path.isfile(list_source), (
@@ -409,6 +412,6 @@ class ReaderBase:
                 lines = f.read().splitlines()
                 list_source = [l.replace(',', ' ').split() for l in lines]
 
-            return np.array(list_source, dtype=np.int64)
+            return tuple(tuple(val) for val in list_source)
 
-        raise ValueError("List format not recognized")
+        raise ValueError("List format not recognized.")

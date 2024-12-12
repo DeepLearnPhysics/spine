@@ -111,6 +111,17 @@ class TensorBatch(BatchBase):
         """
         return self.data
 
+    @property
+    def batch_ids(self):
+        """Returns the batch ID of each of the elements in the tensor.
+
+        Returns
+        -------
+        Union[np.ndarray, torch.Tensor]
+            (N) Batch ID of each element in the tensor
+        """
+        return self._repeat(self._arange(self.batch_size), self.counts)
+
     def split(self):
         """Breaks up the tensor batch into its constituents.
 
@@ -126,6 +137,22 @@ class TensorBatch(BatchBase):
             feats = self._split(self.data.F, self.splits)
             return [ME.SparseTensor(
                 feats[i], coordinates=coords[i]) for i in range(self.batch_size)]
+
+    def apply_mask(self, mask):
+        """Apply a global mask to the underlying tensor, update batching.
+
+        Parameters
+        ----------
+        mask : Union[np.ndarray, torch.Tensor]
+            (N) Boolean mask to apply to the underlying tensor
+        """
+        # Update underlying tensor in place
+        self.data = self.data[mask]
+
+        # Update batching information
+        batch_ids = self.batch_ids[mask]
+        self.counts = self.get_counts(batch_ids, self.batch_size)
+        self.edges = self.get_edges(self.counts)
 
     def merge(self, tensor_batch):
         """Merge this tensor batch with another.

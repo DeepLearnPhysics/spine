@@ -92,6 +92,12 @@ class CathodeCrosserProcessor(PostBase):
         # Loop over particle types
         update_dict = {}
         for part_key in self.particle_keys:
+            # Check that the direction of particles in available
+            if self.merge_crossers and len(data[part_key]) > 0:
+                assert data[part_key][0].start_dir[0] > -np.inf, (
+                        "Must reconstruct the direction of particles before "
+                        "running the cathode crossing algorithm, abort.")
+
             # Find crossing particles already merged by the reconstruction
             prefix = part_key.split('_')[0]
             candidate_mask = np.zeros(len(data[part_key]), dtype=bool)
@@ -274,16 +280,14 @@ class CathodeCrosserProcessor(PostBase):
                     p.interaction_id = int_id_i
 
         # Assign start and end point to a specific TPC
-        closest_attr = [None, None]
+        closest_tpcs = {}
         for attr in ('start_point', 'end_point'):
             key_point = getattr(particles[idx_i], attr)
             points = self.get_points(particles[idx_i])
             argmin = np.argmin(cdist(key_point[None, :], points))
             sources = self.get_sources(particles[idx_i])
             tpc_id = self.geo.get_contributors(sources[argmin][None, :])[1]
-            closest_attr[tpc_id[0]] = attr
-
-        assert np.all([val is not None for val in closest_attr])
+            closest_tpcs[attr] = tpc_id[0]
 
         # Get TPCs that contributed to this particle
         particle = particles[idx_i]
@@ -318,8 +322,10 @@ class CathodeCrosserProcessor(PostBase):
                 data[points_key][index, daxis] -= offsets[i]
 
                 # Update the start/end points appropriately
-                if closest_attr[t] is not None and sister.id == idx_i:
-                    getattr(sister, closest_attr[t])[daxis] -= offsets[i]
+                if sister.id == idx_i:
+                    for attr, closest_tpc in closest_tpcs.items():
+                        if closest_tpc == t:
+                            getattr(sister, attr)[daxis] -= offsets[i]
 
                 else:
                     sister.start_point[daxis] -= offsets[i]

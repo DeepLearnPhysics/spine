@@ -48,13 +48,13 @@ class HDF5Reader(ReaderBase):
             List of integer entry IDs to add to the index
         skip_entry_list : list
             List of integer entry IDs to skip from the index
-        run_event_list: list((int, int)), optional
-            List of [run, event] pairs to add to the index
-        skip_run_event_list: list((int, int)), optional
-            List of [run, event] pairs to skip from the index
+        run_event_list: list((int, int, int)), optional
+            List of (run, subrun, event) triplets to add to the index
+        skip_run_event_list: list((int, int, int)), optional
+            List of (run, subrun, event) triplets to skip from the index
         create_run_map : bool, default False
-            Initialize a map between [run, event] pairs and entries. For large
-            files, this can be quite expensive (must load every entry).
+            Initialize a map between (run, subrun, event) triplets and entries.
+            For large files, this can be quite expensive (must load every entry).
         build_classes : bool, default True
             If the stored object is a class, build it back
         run_info_key : str, default 'run_info'
@@ -63,7 +63,7 @@ class HDF5Reader(ReaderBase):
         # Process the list of files
         self.process_file_paths(file_keys, limit_num_files, max_print_files)
 
-        # If an entry list is requested based on run/event ID, create map
+        # If an entry list is requested based on run/subrun/event ID, create map
         if run_event_list is not None or skip_run_event_list is not None:
             create_run_map = True
 
@@ -78,13 +78,13 @@ class HDF5Reader(ReaderBase):
                 assert 'events' in in_file, (
                         "File does not contain an event tree")
 
-                # If requested, register the [run, event] information pair
+                # If requested, register the (run, subrun, event) information
                 if create_run_map:
                     assert run_info_key in in_file, (
                             f"Must provide {run_info_key} to create run map")
-                    run_info = in_file[run_info_key]
-                    for r, e in zip(run_info['run'], run_info['event']):
-                        self.run_info.append([r, e])
+                    info = in_file[run_info_key]
+                    for r, s, e in zip(info['run'], info['subrun'], info['event']):
+                        self.run_info.append((r, s, e))
 
                 # Update the total number of entries
                 num_entries = len(in_file['events'])
