@@ -220,6 +220,7 @@ class ReaderBase:
                     "Values in entry_list outside of bounds.")
 
         elif run_event_list:
+            self.process_run_info()
             run_event_list = self.parse_run_event_list(run_event_list)
             entry_list = np.empty(len(run_event_list), dtype=np.int64)
             for i, (r, s, e) in enumerate(run_event_list):
@@ -232,6 +233,7 @@ class ReaderBase:
                         "Values in skip_entry_list outside of bounds.")
 
             else:
+                self.process_run_info()
                 skip_run_event_list = self.parse_run_event_list(
                         skip_run_event_list)
                 skip_entry_list = np.empty(
