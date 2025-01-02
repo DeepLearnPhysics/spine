@@ -11,7 +11,7 @@ from ROOT import TFile # pylint: disable=E0611
 from larcv import larcv # pylint: disable=W0611
 
 
-def main(source, source_list, output, dest, suffix):
+def main(source, source_list, output, dest, suffix, tree_name):
     """Checks the output of the SPINE process.
 
     The script loops over the input files, check that there is an output file
@@ -38,6 +38,9 @@ def main(source, source_list, output, dest, suffix):
         Destination directory for the original SPINE process
     suffix : str
         Suffix added to the end of the input files by the original SPINE process
+    tree_name : str
+        Name of the tree to use as a reference to count the number of entries.
+        If not specified, takes the first tree in the list.
     """
     # If using source list, read it in
     if source_list is not None:
@@ -65,11 +68,16 @@ def main(source, source_list, output, dest, suffix):
             break
 
         # If the output does exist, check that the input and output have the
-        # same number of entries. First count the number of entries in the
-        # first tree of the input file (assumed to all match, as they should)
-        f = TFile(file_path)
-        key = [key.GetName() for key in f.GetListOfKeys()][0]
-        num_entries = f.Get(key).GetEntries()
+        # same number of entries. Get the tree name first.
+        f = TFile(file_path, 'r')
+        if tree_name is None:
+            key = [key.GetName() for key in f.GetListOfKeys()][0]
+        else:
+            key = f'{tree_name}_tree'
+            print(key)
+
+        # Count the number of entries in the input file
+        num_entries = getattr(f, key).GetEntries()
         f.Close()
 
         # Then check the number of events in the output file
@@ -103,17 +111,22 @@ if __name__ == "__main__":
 
     parser.add_argument('--output', '-o',
                         help='Path to the output file',
-                        type=str)
+                        type=str, required=True)
 
     parser.add_argument('--dest',
                         help='Destination directory for the original SPINE process',
-                        type=str)
+                        type=str, required=True)
         
     parser.add_argument('--suffix',
                         help='Suffix added to the input files by the original SPINE process',
+                        type=str, required=True)
+
+    parser.add_argument('--tree_name',
+                        help='TTree name used to count the entries.',
                         type=str)
 
     args = parser.parse_args()
 
     # Execute the main function
-    main(args.source, args.source_list, args.output, args.dest, args.suffix)
+    main(args.source, args.source_list, args.output, args.dest, args.suffix,
+         args.tree_name)

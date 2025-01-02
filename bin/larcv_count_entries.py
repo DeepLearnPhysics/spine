@@ -16,7 +16,7 @@ def main(source, source_list, tree_name):
         Path or list of paths to the input files
     source_list : str
         Path to a text file containing a list of data file paths
-    tree_name : str, optional
+    tree_name : str
         Name of the tree to use as a reference to count the number of entries.
         If not specified, takes the first tree in the list.
     """
