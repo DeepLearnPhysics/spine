@@ -58,5 +58,5 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    # Execture the main function
+    # Execute the main function
     main(args.tree_name, args.source, args.source_list)
