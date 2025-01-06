@@ -83,7 +83,7 @@ def main(source, source_list, output, dest, suffix, tree_name):
         # Then check the number of events in the output file
         with h5py.File(out_path) as f:
             if len(f['events']) != num_entries:
-                print(f"-Incomplete: {out_base}")
+                print(f"- Incomplete: {out_base}")
                 out_file.write(f'{file_path}\n')
                 inc_list.append(file_path)
 
