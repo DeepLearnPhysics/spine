@@ -114,7 +114,7 @@ class Drawer:
 
     def get(self, obj_type, attr=None, draw_end_points=False,
             draw_vertices=False, draw_flashes=False, synchronize=False,
-            titles=None, split_traces=False):
+            titles=None, split_traces=False, matched_flash_only=True):
         """Draw the requested object type with the requested mode.
 
         Parameters
@@ -136,6 +136,8 @@ class Drawer:
             Titles of the two scenes (only relevant for split_scene True
         split_traces : bool, default False
             If `True`, one trace is produced for each object
+        matched_flash_only : bool, default True
+            If `True`, only flashes matched to interactions are drawn
 
         Returns
         -------
@@ -181,7 +183,7 @@ class Drawer:
                 obj_name = f'{prefix}_interactions'
                 assert obj_name in self.data, (
                         "Must provide interactions to draw matched flashes.")
-                traces[prefix] += self._flash_trace(obj_name)
+                traces[prefix] += self._flash_trace(obj_name, matched_flash_only)
 
         # Add the TPC traces, if available
         if self.geo_drawer is not None:
@@ -479,7 +481,7 @@ class Drawer:
         return scatter_points(
                 points, hovertext=np.array(hovertext), name=name, **kwargs)
 
-    def _flash_trace(self, obj_name, **kwargs):
+    def _flash_trace(self, obj_name, matched_only, **kwargs):
         """Draw the cumlative PEs of flashes that have been matched to
         interactions specified by `obj_name`.
 
@@ -487,6 +489,8 @@ class Drawer:
         ----------
         obj_name : str
             Name of the object to draw
+        matched_only : bool
+            If `True`, only flashes matched to interactions are drawn
         **kwargs : dict, optional
             List of additional arguments to pass to :func:`optical_traces`
 
@@ -499,10 +503,13 @@ class Drawer:
         name = ' '.join(obj_name.split('_')).capitalize()[:-1] + ' flashes'
 
         # Find the list of flash IDs to draw
-        flash_ids = []
-        for inter in self.data[obj_name]:
-            if inter.is_flash_matched:
-                flash_ids.extend(inter.flash_ids)
+        if matched_only:
+            flash_ids = []
+            for inter in self.data[obj_name]:
+                if inter.is_flash_matched:
+                    flash_ids.extend(inter.flash_ids)
+        else:
+            flash_ids = np.arange(len(self.data['flashes']))
 
         # Sum values from each flash to build a a global color scale
         color = np.zeros(self.geo_drawer.geo.optical.num_detectors)

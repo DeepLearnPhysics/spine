@@ -65,7 +65,7 @@ def main(source, source_list, output, dest, suffix, tree_name):
             print(f"- Missing: {out_base}")
             out_file.write(f'{file_path}\n')
             miss_list.append(file_path)
-            break
+            continue
 
         # If the output does exist, check that the input and output have the
         # same number of entries. Get the tree name first.
