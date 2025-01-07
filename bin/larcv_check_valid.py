@@ -88,8 +88,8 @@ if __name__ == "__main__":
                        type=str)
 
     parser.add_argument('--output', '-o',
-                        help='Path to the output file',
-                        type=str)
+                        help='Path to the output text file with the bad list',
+                        type=str, required=True)
 
     args = parser.parse_args()
 

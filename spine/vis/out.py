@@ -1,6 +1,7 @@
 """Draw reconstruction output-level objects"""
 
 from collections import defaultdict
+from warnings import warn
 
 import numpy as np
 from plotly import graph_objs as go
@@ -26,12 +27,12 @@ class Drawer:
     # List of recognized drawing modes
     _draw_modes = ('reco', 'truth', 'both', 'all')
 
-    # List of known point modes
-    _point_modes = ('points', 'points_adapt', 'points_g4')
-
-    # Map between point attributes and underlying point objects
-    _point_map = {'points': 'points_label', 'points_adapt': 'points',
-                  'points_g4': 'points_g4'}
+    # List of known point modes for true particles and their corresponding keys
+    _point_modes = (
+            ('points', 'points_label'),
+            ('points_adapt', 'points'),
+            ('points_g4', 'points_g4')
+    )
 
     def __init__(self, data, draw_mode='both', truth_point_mode='points',
                  split_scene=True, detector=None, detector_coords=True,
@@ -64,7 +65,7 @@ class Drawer:
         # Set up the list of prefixes to access
         assert draw_mode in self._draw_modes, (
                 f"`mode` not recognized: {draw_mode}. Must be one of "
-                 "{self._draw_modes}.")
+                f"{self._draw_modes}.")
 
         self.prefixes = []
         if draw_mode != 'truth':
@@ -79,9 +80,9 @@ class Drawer:
                 self.supported_objs.append(f'{mode}_{obj_type}')
 
         # Set up the truth point mode
-        assert truth_point_mode in self._point_modes, (
+        assert truth_point_mode in self.point_modes, (
                  "The `truth_point_mode` argument must be one of "
-                f"{self._point_modes}. Got `{truth_point_mode}` instead.")
+                f"{self.point_modes.keys()}. Got `{truth_point_mode}` instead.")
         self.truth_point_mode = truth_point_mode
         self.truth_index_mode = truth_point_mode.replace('points', 'index')
 
@@ -98,6 +99,18 @@ class Drawer:
         self.layout = layout3d(
                 detector=detector, meta=meta, detector_coords=detector_coords,
                 **kwargs)
+
+    @property
+    def point_modes(self):
+        """Dictionary which makes the correspondance between the name of a true
+        object point attribute with the underlying point tensor it points to.
+
+        Returns
+        -------
+        Dict[str, str]
+            Dictionary of (attribute, key) mapping for point coordinates
+        """
+        return dict(self._point_modes)
 
     def get(self, obj_type, attr=None, draw_end_points=False,
             draw_vertices=False, draw_flashes=False, synchronize=False,
@@ -220,7 +233,7 @@ class Drawer:
             index_mode = 'index'
 
         else:
-            points = self.data[self._point_map[self.truth_point_mode]]
+            points = self.data[self.point_modes[self.truth_point_mode]]
             index_mode = self.truth_index_mode
 
         clusts = [getattr(obj, index_mode) for obj in self.data[obj_name]]
@@ -290,8 +303,16 @@ class Drawer:
                             hovertext[i] = [
                                     hc[i] + f'<br>Value: {v:0.3f}' for i, v in enumerate(values[i])]
 
-            # Fetch the colors for the first attribute only
+            # Determine which attribute to define the colorscale
             attr = attrs[0]
+            if not (attr.startswith('depositions') or attr.startswith('is_') or
+                    attr in ['shape', 'pid'] or attr.endswith('id')):
+                # If the first attribute is not representable as a color, use ID
+                attr = 'id'
+                color = np.arange(len(self.data[obj_name]))
+                warn(f"Using the `{attr}` attribute of each object in the "
+                     f"{name.lower()} as colorscale is not supported. The "
+                     "object index will be used instead.")
 
         # Set up the appropriate color scheme
         if attr.startswith('depositions'):
@@ -332,11 +353,6 @@ class Drawer:
 
             cmin = 0
             cmax = count# - 1
-
-        else:
-            raise KeyError(
-                    f"Drawing the `{attr}` attribute of each object in the "
-                    f"{name.lower()} is not supported.")
 
         return {'color': color, 'hovertext': hovertext, 'name': name,
                 'colorscale': colorscale, 'cmin': cmin, 'cmax': cmax}
