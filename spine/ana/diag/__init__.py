@@ -10,3 +10,4 @@ This submodule is use to run basic diagnostics analyses such as:
 
 from .shower import *
 from .track import *
+from .shower_dedx_singlep import *
