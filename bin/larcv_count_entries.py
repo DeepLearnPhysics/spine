@@ -7,17 +7,18 @@ from ROOT import TFile # pylint: disable=E0611
 from larcv import larcv # pylint: disable=W0611
 
 
-def main(tree_name, source, source_list):
+def main(source, source_list, tree_name):
     """Checks the number of entries in a file/list of files.
 
     Parameters
     ----------
-    tree_name : str
-        Name of the tree to use as a reference to count the number of entries
     source : Union[str, List[str]]
         Path or list of paths to the input files
     source_list : str
         Path to a text file containing a list of data file paths
+    tree_name : str
+        Name of the tree to use as a reference to count the number of entries.
+        If not specified, takes the first tree in the list.
     """
     # If using source list, read it in
     if source_list is not None:
@@ -28,9 +29,15 @@ def main(tree_name, source, source_list):
     total_entries = 0
     print(f"\nCounting entries in {len(source)} file(s):")
     for file_path in source:
-        # Count the number of entries in this file
+        # Get the tree to get the number of entries from
         f = TFile(file_path, 'r')
-        num_entries = getattr(f, f'{tree_name}_tree').GetEntries()
+        if tree_name is None:
+            key = [key.GetName() for key in f.GetListOfKeys()][0]
+        else:
+            key = f'{tree_name}_tree'
+
+        # Count the number of entries in this file
+        num_entries = getattr(f, key).GetEntries()
         f.Close()
 
         # Dump number for this file, increment
@@ -44,10 +51,6 @@ if __name__ == "__main__":
     # Parse the command-line arguments
     parser = argparse.ArgumentParser(description="Count entries in dataset")
 
-    parser.add_argument('tree_name',
-                          help='TTree name used to count the entries.',
-                          type=str)
-
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument('--source', '-s',
                        help='Path or list of paths to data files',
@@ -56,7 +59,11 @@ if __name__ == "__main__":
                        help='Path to a text file of data file paths',
                        type=str)
 
+    parser.add_argument('--tree_name',
+                        help='TTree name used to count the entries.',
+                        type=str)
+
     args = parser.parse_args()
 
-    # Execture the main function
-    main(args.tree_name, args.source, args.source_list)
+    # Execute the main function
+    main(args.source, args.source_list, args.tree_name)

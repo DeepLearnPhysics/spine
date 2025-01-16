@@ -36,9 +36,9 @@ class ReaderBase:
         Offsets between the global index and each individual file start index
     file_index : List[int]
         Index of the file each entry in entry_index lives in
-    run_info : List[Tuple[int]]
+    run_info : np.ndarray
         (run, subrun, event) triplets associated with each entry in the file list
-    run_map : Dict[Type[int], int]
+    run_map : Dict[Tuple[int], int]
         Maps each available (run, subrun, event) triplet onto an entry_index index
     """
     name = ''
@@ -220,6 +220,7 @@ class ReaderBase:
                     "Values in entry_list outside of bounds.")
 
         elif run_event_list:
+            self.process_run_info()
             run_event_list = self.parse_run_event_list(run_event_list)
             entry_list = np.empty(len(run_event_list), dtype=np.int64)
             for i, (r, s, e) in enumerate(run_event_list):
@@ -232,6 +233,7 @@ class ReaderBase:
                         "Values in skip_entry_list outside of bounds.")
 
             else:
+                self.process_run_info()
                 skip_run_event_list = self.parse_run_event_list(
                         skip_run_event_list)
                 skip_entry_list = np.empty(

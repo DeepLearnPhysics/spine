@@ -118,11 +118,11 @@ class LArCVReader(ReaderBase):
                 chain.AddFile(f)
 
             # Loop over entries
-            self.run_info = ()
+            self.run_info = np.empty((self.num_entries, 3), dtype=int)
             for i in range(self.num_entries):
                 chain.GetEntry(i)
                 info = getattr(chain, f'{run_info_key}_branch')
-                self.run_info.append((info.run(), info.subrun(), info.event()))
+                self.run_info[i] = [info.run(), info.subrun(), info.event()]
 
         # Process the run information
         self.process_run_info()

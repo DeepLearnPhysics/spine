@@ -14,13 +14,15 @@ class CalibrationManager:
     a set of 3D space points and their associated measured charge depositions.
     """
 
-    def __init__(self, geometry, **cfg):
+    def __init__(self, geometry, gain_applied=False, **cfg):
         """Initialize the manager.
 
         Parameters
         ----------
         geometry : dict
             Geometry configuration
+        gain_applied : bool, default False
+            Weather the gain conversion was applied upstream or not
         **cfg : dict, optional
             Calibrator configurations
         """
@@ -28,7 +30,7 @@ class CalibrationManager:
         self.geo = Geometry(**geometry)
 
         # Make sure the essential calibration modules are present
-        assert 'recombination' not in cfg or 'gain' in cfg, (
+        assert gain_applied or 'recombination' not in cfg or 'gain' in cfg, (
                 "Must provide gain configuration if recombination is applied.")
 
         # Add the modules to a processor list in decreasing order of priority

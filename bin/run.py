@@ -8,7 +8,7 @@ import argparse
 import pathlib
 import yaml
 
-# Add parent lartpc_spine3d directory to the python path
+# Add parent SPINE base directory to the python path
 current_directory = os.path.dirname(os.path.abspath(__file__))
 current_directory = os.path.dirname(current_directory)
 sys.path.insert(0, current_directory)

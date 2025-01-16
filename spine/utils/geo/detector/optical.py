@@ -44,7 +44,7 @@ class OptDetector:
     det_ids: np.ndarray = None
 
     def __init__(self, volume, volume_offsets, shape, dimensions, positions,
-                 shape_ids=None, det_ids=None, global_index=False):
+                 shape_ids=None, det_ids=None, global_index=False, mirror=False):
         """Parse the optical detector configuration.
 
         Parameters
@@ -69,6 +69,9 @@ class OptDetector:
         global_index : bool, default False
             If `True`, the flash objects have a `pe_per_ch` attribute which refers
             to the entire index of optical detectors, rather than one volume
+        mirror : bool, default False
+            If True, mirror the z positons of the optical modules in the second
+            TPC of each module
         """
         # Parse the detector shape(s) and its mapping, store is as a list
         assert (shape in ['ellipsoid', 'box'] or
@@ -98,13 +101,21 @@ class OptDetector:
         if det_ids is not None:
             self.det_ids = np.asarray(det_ids, dtype=int)
 
-        # Store optical detector positions
+        # Parse the relative optical detector posiitons
+        rel_positions = np.asarray(positions)
+        if mirror:
+            rel_positions_m = np.copy(rel_positions)
+            rel_positions_m[:, -1] = -rel_positions_m[:, -1]
+
+        # Store the optical detector positions in each optical volume
         count = len(positions)
         offsets = np.asarray(volume_offsets)
-        relative_positions = np.asarray(positions)
         self.positions = np.empty((len(offsets), count, 3))
         for v in range(len(offsets)):
-            self.positions[v] = relative_positions + offsets[v]
+            if mirror and v%2 != 0:
+                self.positions[v] = rel_positions_m + offsets[v]
+            else:
+                self.positions[v] = rel_positions + offsets[v]
 
         # Store if the flash points to the entire index of optical detectors
         self.global_index = global_index
