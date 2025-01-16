@@ -62,6 +62,7 @@ class InteractionBase:
     flash_ids: np.ndarray = None
     flash_volume_ids: np.ndarray = None
     flash_times: np.ndarray = None
+    flash_scores: np.ndarray = None
     flash_total_pe: float = -1.
     flash_hypo_pe: float = -1.
     topology: str = None
@@ -76,7 +77,7 @@ class InteractionBase:
     _var_length_attrs = (
             ('particles', object), ('particle_ids', np.int32),
             ('flash_ids', np.int32), ('flash_volume_ids', np.int32),
-            ('flash_times', np.int32)
+            ('flash_times', np.float32), ('flash_scores', np.float32)
     )
 
     # Attributes specifying coordinates
