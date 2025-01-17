@@ -1036,6 +1036,36 @@ def cluster_dedx(voxels: nb.float64[:,:],
     return np.sum(values)/np.max(dist_mat)
 
 
+@nb.njit(cache=True)
+def cluster_dedx2(voxels: nb.float64[:,:],
+                 values: nb.float64[:],
+                 start: nb.float64[:],
+                 max_dist: nb.float64=5.0) -> nb.types.Tuple((nb.float64, nb.float64)):
+    # If max_dist is set, limit the set of voxels to those within a sphere of radius max_dist                                                                                     
+    assert voxels.shape[1] == 3, (
+            "The shape of the input is not compatible with voxel coordinates.")
+
+    dist_mat = nbl.cdist(start.reshape(1,-1), voxels).flatten()
+    if max_dist > 0:
+        voxels = voxels[dist_mat <= max_dist]
+        if len(voxels) < 2:
+            return 0., 0.
+        values = values[dist_mat <= max_dist]
+        dist_mat = dist_mat[dist_mat <= max_dist]
+
+    if np.max(dist_mat) == 0.:
+        return 0., 0.
+
+        # Calculate sum of values
+    sum_values = np.sum(values)
+    
+    # Calculate max distance
+    max_distance = np.max(dist_mat)
+    
+    return sum_values, max_distance
+
+        
+
 @numbafy(cast_args=['data'], list_args=['clusts'],
          keep_torch=True, ref_arg='data')
 def get_cluster_start_points(data, clusts):
