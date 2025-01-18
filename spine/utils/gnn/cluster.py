@@ -1057,10 +1057,10 @@ def cluster_dedx2(voxels: nb.float64[:,:],
         return 0., 0.
 
         # Calculate sum of values
-    sum_values = np.sum(values)
+    sum_values = float(np.sum(values))
     
     # Calculate max distance
-    max_distance = np.max(dist_mat)
+    max_distance = float(np.max(dist_mat))
     
     return sum_values, max_distance
 
