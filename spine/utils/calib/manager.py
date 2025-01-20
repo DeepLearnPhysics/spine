@@ -49,8 +49,7 @@ class CalibrationManager:
             # Append
             self.modules[key] = calibrator_factory(key, value)
 
-    def __call__(self, points, values, sources=None, run_id=None,
-                 dedx=None, track=None):
+    def __call__(self, points, values, sources=None, run_id=None, track=None):
         """Main calibration driver.
 
         Parameters
@@ -65,9 +64,6 @@ class CalibrationManager:
         run_id : int, optional
             ID of the run to get the calibration for. This is needed when using
             a database of corrections organized by run.
-        dedx : float, optional
-            If specified, use a flat value of dE/dx in MeV/cm to apply
-            the recombination correction.
         track : bool, defaut `False`
             Whether the object is a track or not. If it is, the track gets
             segmented to evaluate local dE/dx and track angle.
@@ -127,7 +123,7 @@ class CalibrationManager:
             if 'recombination' in self.modules:
                 self.watch.start('recombination')
                 tpc_values = self.modules['recombination'].process(
-                        tpc_values, tpc_points, dedx, track) # MeV
+                        tpc_values, tpc_points, track) # MeV
                 self.watch.stop('recombination')
 
             # Append
