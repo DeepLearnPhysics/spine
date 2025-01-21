@@ -2,6 +2,7 @@
 
 import h5py
 import numpy as np
+from dataclasses import fields
 
 import spine.data
 
@@ -29,7 +30,8 @@ class HDF5Reader(ReaderBase):
                  n_entry=None, n_skip=None, entry_list=None,
                  skip_entry_list=None, run_event_list=None,
                  skip_run_event_list=None, create_run_map=False,
-                 build_classes=True, run_info_key='run_info'):
+                 build_classes=True, skip_unknown_attrs=False,
+                 run_info_key='run_info'):
         """Initalize the HDF5 file reader.
 
         Parameters
@@ -57,6 +59,10 @@ class HDF5Reader(ReaderBase):
             For large files, this can be quite expensive (must load every entry).
         build_classes : bool, default True
             If the stored object is a class, build it back
+        skip_unknown_attrs : bool, default False
+            If `True`, allow a loaded object to have unrecognized attributes.
+            This allows backward compatibility with old files, but use with
+            extreme caution, as this might hide a fundamental issue with your code.
         run_info_key : str, default 'run_info'
             Name of the data product which contains the run info of the event
         """
@@ -112,6 +118,7 @@ class HDF5Reader(ReaderBase):
 
         # Store other attributes
         self.build_classes = build_classes
+        self.skip_unknown_attrs = skip_unknown_attrs
 
     def get(self, idx):
         """Returns a specific entry in the file.
@@ -172,15 +179,29 @@ class HDF5Reader(ReaderBase):
                 class_name = in_file[key].attrs['class_name']
                 obj_class = getattr(spine.data, class_name)
 
+                # If needed, get the list of recognized attributes
+                if self.skip_unknown_attrs:
+                    known_attrs = [f.name for f in fields(obj_class)]
+
                 # Load the object
                 names = array.dtype.names
                 data[key] = []
                 for i, el in enumerate(array):
-                    obj_dict = dict(zip(names, el))
+                    # Fetch the list of key/value pairs, filter if requested
+                    if self.skip_unknown_attrs:
+                        obj_dict = {}
+                        for i, k in enumerate(names):
+                            if k in known_attrs:
+                                obj_dict[k] = el[i]
+                    else:
+                        obj_dict = dict(zip(names, el))
+
+                    # Rebuild an instance of the object class, if requested
                     if self.build_classes:
                         data[key].append(obj_class(**obj_dict))
                     else:
                         data[key].append(obj_dict)
+
                 if in_file[key].attrs['scalar']:
                     data[key] = data[key][0]
 

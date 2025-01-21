@@ -142,8 +142,8 @@ class PostBase(ABC):
             if truth_point_mode is not None:
                 prefix = truth_point_mode.replace('points', 'depositions')
                 assert truth_dep_mode.startswith(prefix), (
-                        "Points mode {truth_point_mode} and deposition mode "
-                        "{truth_dep_mode} are incompatible.")
+                        f"Points mode {truth_point_mode} and deposition mode "
+                        f"{truth_dep_mode} are incompatible.")
             self.truth_dep_mode = truth_dep_mode
             self.truth_dep_key = self.dep_modes[truth_dep_mode]
 

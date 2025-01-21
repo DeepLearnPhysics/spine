@@ -126,6 +126,7 @@ class FlashMatchProcessor(PostBase):
                 inter.flash_ids = []
                 inter.flash_volume_ids = []
                 inter.flash_times = []
+                inter.flash_scores = []
                 if inter.is_flash_matched:
                     inter.is_flash_matched = False
                     inter.flash_total_pe = -1.
@@ -193,14 +194,17 @@ class FlashMatchProcessor(PostBase):
                     inter = interactions[inter_v.id]
 
                     # Get the flash hypothesis (if the matcher produces one)
-                    hypo_pe = -1.
+                    hypo_pe, score = -1., -1.
                     if hasattr(match, 'hypothesis'):
                         hypo_pe = float(np.sum(list(match.hypothesis)))
+                    if hasattr(match, 'score'):
+                        score = float(match.score)
 
                     # Append
                     inter.flash_ids.append(int(flash.id))
                     inter.flash_volume_ids.append(int(flash.volume_id))
                     inter.flash_times.append(float(flash.time))
+                    inter.flash_scores.append(score)
                     if inter.is_flash_matched:
                         inter.flash_total_pe += float(flash.total_pe)
                         inter.flash_hypo_pe += hypo_pe
@@ -215,3 +219,4 @@ class FlashMatchProcessor(PostBase):
                 inter.flash_ids = np.asarray(inter.flash_ids, dtype=np.int32)
                 inter.flash_volume_ids = np.asarray(inter.flash_volume_ids, dtype=np.int32)
                 inter.flash_times = np.asarray(inter.flash_times, dtype=np.float32)
+                inter.flash_scores = np.asarray(inter.flash_scores, dtype=np.float32)
