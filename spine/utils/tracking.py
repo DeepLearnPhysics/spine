@@ -462,10 +462,14 @@ def get_track_segments(coordinates: nb.float32[:,:],
             # Evaluate length of the segment as constrained by the track
             # principal axis bin that defines it
             if i < len(seg_clusts) - 1:
-                length = segment_length/np.dot(direction, track_dir)
+                length = segment_length
             else:
-                length = (np.max(pcoordinates)-boundaries[-1]) \
-                        / np.dot(direction, track_dir)
+                length = (np.max(pcoordinates) - boundaries[-1])
+
+            costh = np.dot(direction, track_dir)
+            if costh != 0.:
+                length /= costh
+
             seg_lengths[i] = length
 
         return seg_clusts, seg_dirs, seg_lengths
