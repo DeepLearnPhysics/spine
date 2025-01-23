@@ -3,7 +3,7 @@
 import numpy as np
 
 from spine.ana.base import AnaBase
-from spine.utils.gnn.cluster import cluster_dedx2
+from spine.utils.gnn.cluster import cluster_dedx2, cluster_end_points
 
 __all__ = ['ShowerStartSingleParticle']
 
@@ -170,4 +170,31 @@ class ShowerStartSingleParticle(AnaBase):
             out_dict['reco_de_3'] = de_3
             out_dict['reco_dx_3'] = dx_3
             
+            out_dict['true_startpoint_x'] = true_shower.start_point[0]
+            out_dict['true_startpoint_y'] = true_shower.start_point[1]
+            out_dict['true_startpoint_z'] = true_shower.start_point[2]
+            
+            out_dict['reco_startpoint_x'] = reco_shower.start_point[0]
+            out_dict['reco_startpoint_y'] = reco_shower.start_point[1]
+            out_dict['reco_startpoint_z'] = reco_shower.start_point[2]
+            
+            # Compute startpoint using umbrella curvature
+            
+            umb_semi_start, _ = cluster_end_points(reco_points)
+            umb_reco_start, _ = cluster_end_points(reco_shower.points)
+            umb_true_start, _ = cluster_end_points(true_shower.points)
+            
+            out_dict['umb_semi_start_x'] = umb_semi_start[0]
+            out_dict['umb_semi_start_y'] = umb_semi_start[1]
+            out_dict['umb_semi_start_z'] = umb_semi_start[2]
+            
+            out_dict['umb_reco_start_x'] = umb_reco_start[0]
+            out_dict['umb_reco_start_y'] = umb_reco_start[1]
+            out_dict['umb_reco_start_z'] = umb_reco_start[2]
+            
+            out_dict['umb_true_start_x'] = umb_true_start[0]
+            out_dict['umb_true_start_y'] = umb_true_start[1]
+            out_dict['umb_true_start_z'] = umb_true_start[2]
+            
             self.append('particle', **out_dict)
+
