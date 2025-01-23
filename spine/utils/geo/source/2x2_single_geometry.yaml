@@ -2,11 +2,12 @@ tpc:
   dimensions: [30.1135, 123.708602905, 61.632598877]
   module_ids: [0, 0]
   positions:
-  - [-15.2155, 0.0, 0.0]
   - [15.2155, 0.0, 0.0]
+  - [-15.2155, 0.0, 0.0]
 optical:
   volume: tpc
   shape: [box, box]
+  mirror: true
   dimensions:
   - [27.17, 31.02, 1.0]
   - [27.17, 10.34, 1.0]

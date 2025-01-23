@@ -11,7 +11,7 @@ from .layer.gnn.factories import *
 from spine.data import TensorBatch, IndexBatch, EdgeIndexBatch
 
 from spine.utils.globals import (
-        BATCH_COL, COORD_COLS, CLUST_COL, GROUP_COL, SHAPE_COL, LOWES_SHP)
+        BATCH_COL, COORD_COLS, CLUST_COL, GROUP_COL, SHAPE_COL, TRACK_SHP, LOWES_SHP)
 from spine.utils.enums import enum_factory
 from spine.utils.gnn.cluster import (
         form_clusters_batch, get_cluster_label_batch,
@@ -142,7 +142,8 @@ class GrapPA(torch.nn.Module):
             self.process_dbscan_config(dbscan)
 
     def process_node_config(self, source='cluster', shapes=None, min_size=-1,
-                            make_groups=False, grouping_method='score'):
+                            make_groups=False, grouping_method='score',
+                            grouping_through_track=False):
         """Process the node parameters of the model.
 
         Parameters
@@ -158,6 +159,8 @@ class GrapPA(torch.nn.Module):
             Use edge predictions to build node groups
         grouping_method : str, default 'score'
             Algorithm used to build a node partition
+        grouping_through_track : bool, default False
+            If `True`, shower objects can only be connected to one track object
         """
         # Parse the node source
         self.node_source = enum_factory('cluster', source)
@@ -171,9 +174,10 @@ class GrapPA(torch.nn.Module):
             self.node_type = enum_factory('shape', shapes)
 
         # Store the node parameters
-        self.node_min_size   = min_size
-        self.make_groups     = make_groups
+        self.node_min_size = min_size
+        self.make_groups = make_groups
         self.grouping_method = grouping_method
+        self.grouping_through_track = grouping_through_track
 
     def process_gnn_config(self, node_pred=None, edge_pred=None,
                            global_pred=None, **gnn_model):
@@ -393,8 +397,17 @@ class GrapPA(torch.nn.Module):
                 result['group_pred'] = node_assignment_batch(
                         edge_index, edge_pred, clusts)
             elif self.grouping_method == 'score':
-                result['group_pred'] = node_assignment_score_batch(
-                        edge_index, edge_pred, clusts)
+                if not self.grouping_through_track:
+                    result['group_pred'] = node_assignment_score_batch(
+                            edge_index, edge_pred, clusts)
+                else:
+                    assert shapes is not None, (
+                            "Must provide shapes to restrict track association.")
+                    track_node = TensorBatch(
+                            shapes.data == TRACK_SHP, counts=shapes.counts)
+                    result['group_pred'] = node_assignment_score_batch(
+                            edge_index, edge_pred, clusts, track_node)
+
             else:
                 raise ValueError("Group prediction algorithm not "
                                  "recognized:", self.grouping_method)

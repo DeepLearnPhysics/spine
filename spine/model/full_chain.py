@@ -420,17 +420,38 @@ class FullChain(torch.nn.Module):
         """
         if self.calibration == 'apply':
             # Apply calibration routines
-            voxels = data.to_numpy().tensor[:, COORD_COLS]
-            values = data.to_numpy().tensor[:, VALUE_COL]
+            data_np = data.to_numpy().tensor
             sources = sources.to_numpy().tensor if sources is not None else None
+            if run_info is None:
+                # Fetch points for the whole batch
+                voxels = data_np[:, COORD_COLS]
+                values = data_np[:, VALUE_COL]
 
-            # TODO: does not work for mixed runs (is this a real use-case?)
-            run_info = run_info[0] if run_info is not None else None
+                # Calibrate voxel values
+                values = self.calibrator(voxels, values, sources)
+                data.tensor[:, value_col] = torch.tensor(
+                        values, dtype=data.dtype, device=data.device)
 
-            # TODO: remove hard-coded value of dE/dx
-            values = self.calibrator(voxels, values, sources, run_info, 2.2)
-            data.tensor[:, VALUE_COL] = torch.tensor(
-                    values, dtype=data.dtype, device=data.device)
+            else:
+                # Loop over entries in the batch (might have different run IDs)
+                rep = data.batch_size//len(run_info)
+                for b in range(data.batch_size):
+                    # Fetch points for this batch entry
+                    lower, upper = data.edges[b], data.edges[b+1]
+                    data_b = data_np[lower:upper]
+                    voxels_b = data_b[:, COORD_COLS]
+                    values_b = data_b[:, VALUE_COL]
+
+                    # Fetch run ID for this batch entry
+                    run_id = run_info[b//rep].run
+
+                    # Calibrate voxel values
+                    sources_b = sources[lower:upper] if sources is not None else None
+                    values_b = self.calibrator(
+                            voxels_b, values_b, sources_b, run_id)
+
+                    data.tensor[lower:upper, VALUE_COL] = torch.tensor(
+                            values_b, dtype=data.dtype, device=data.device)
 
             self.result['data_adapt'] = data
 

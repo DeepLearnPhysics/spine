@@ -79,15 +79,12 @@ class CalibrationProcessor(PostBase):
     # Set of data keys needed for this post-processor to operate
     _keys = (('run_info', False),)
 
-    def __init__(self, dedx=2.2, do_tracking=False,
-                 obj_type=('particle', 'interaction'), run_mode='reco',
-                 truth_point_mode='points', **cfg):
+    def __init__(self, do_tracking=False, obj_type=('particle', 'interaction'),
+                 run_mode='reco', truth_point_mode='points', **cfg):
         """Initialize the calibration manager.
 
         Parameters
         ----------
-        dedx : float, default 2.2
-            Static value of dE/dx in MeV/cm used to compute the recombination factor
         do_tracking : bool, default False
             Segment track to get a proper local dQ/dx estimate
         **cfg : dict
@@ -101,7 +98,6 @@ class CalibrationProcessor(PostBase):
 
         # Initialize the calibrator
         self.calibrator = CalibrationManager(**cfg)
-        self.dedx = dedx
         self.do_tracking = do_tracking
 
         # Add necessary keys
@@ -157,7 +153,7 @@ class CalibrationProcessor(PostBase):
                 # Apply calibration
                 if not self.do_tracking or part.shape != TRACK_SHP:
                     depositions = self.calibrator(
-                            points, deps, sources, run_id, self.dedx)
+                            points, deps, sources, run_id)
                 else:
                     depositions = self.calibrator.process(
                             points, deps, sources, run_id, track=True)
@@ -175,7 +171,7 @@ class CalibrationProcessor(PostBase):
             unass_index = np.where(unass_mask)[0]
             data[dep_key][unass_index] = self.calibrator(
                     data[points_key][unass_index], data[dep_key][unass_index],
-                    data[source_key][unass_index], run_id, self.dedx)
+                    data[source_key][unass_index], run_id)
 
         # If requested, updated the depositions attribute of interactions
         for k in self.interaction_keys:
