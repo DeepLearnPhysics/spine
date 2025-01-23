@@ -180,9 +180,20 @@ class ShowerStartSingleParticle(AnaBase):
             
             # Compute startpoint using umbrella curvature
             
-            umb_semi_start, _ = cluster_end_points(reco_points)
-            umb_reco_start, _ = cluster_end_points(reco_shower.points)
-            umb_true_start, _ = cluster_end_points(true_shower.points)
+            if reco_points.shape[0] > 3:
+                umb_semi_start, _ = cluster_end_points(reco_points)
+            else:
+                umb_semi_start = np.array([-np.inf, -np.inf, -np.inf])
+                
+            if reco_shower.points.shape[0] > 3:
+                umb_reco_start, _ = cluster_end_points(reco_shower.points)
+            else:
+                umb_reco_start = np.array([-np.inf, -np.inf, -np.inf])
+            
+            if true_shower.points.shape[0] > 3:
+                umb_true_start, _ = cluster_end_points(true_shower.points)
+            else:
+                umb_true_start = np.array([-np.inf, -np.inf, -np.inf])
             
             out_dict['umb_semi_start_x'] = umb_semi_start[0]
             out_dict['umb_semi_start_y'] = umb_semi_start[1]
