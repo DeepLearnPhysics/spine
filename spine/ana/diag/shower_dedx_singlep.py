@@ -79,14 +79,18 @@ class ShowerStartSingleParticle(AnaBase):
             out_dict['true_dx_1'] = t_dx_1
             out_dict['true_l_1'] = t_l_1
             out_dict['true_match_overlap'] = -1
+            match_id = -1
             if true_shower.match_overlaps is not None and len(true_shower.match_overlaps)>0:
                 out_dict['true_match_overlap'] = true_shower.match_overlaps[0]
+                match_id = true_shower.match_ids[0]
             # Reco Showers, reco points
             
             if len(data['reco_particles']) == 0:
                 return
-            
-            reco_shower = data['reco_particles'][0]
+            if match_id == -1:
+                return
+
+            reco_shower = data['reco_particles'][match_id]
             startpoint = reco_shower.start_point
             out_dict['reco_particle_id'] = reco_shower.id
             # out_dict['reco_particle_energy_init'] = reco_shower.energy_init
