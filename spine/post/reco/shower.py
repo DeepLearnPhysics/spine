@@ -26,7 +26,7 @@ class ConversionDistanceProcessor(PostBase):
     # Alternative allowed names of the post-processor
     aliases = ('shower_separation_processor',)
     
-    def __init__(self, threshold=-1.0, vertex_mode='vertex'):
+    def __init__(self, threshold=-1.0, vertex_mode='vertex_points', modify_inplace=True):
         """Specify the EM shower conversion distance threshold and
         the type of vertex to use for the distance calculation.
 
@@ -47,6 +47,7 @@ class ConversionDistanceProcessor(PostBase):
         
         self.threshold = threshold
         self.vertex_mode = vertex_mode
+        self.modify_inplace = modify_inplace
         
     def process(self, data):
         """Update reco interaction topologies using the conversion
@@ -65,6 +66,9 @@ class ConversionDistanceProcessor(PostBase):
         # Loop over the reco interactions
         for ia in data['reco_interactions']:
             criterion = -np.inf
+            
+            leading_shower, energy = None, -np.inf
+            
             for p in ia.particles:
                 if (p.shape == 0 and p.pid == 1 and p.is_primary):
                     if self.vertex_mode == 'protons':
@@ -76,8 +80,19 @@ class ConversionDistanceProcessor(PostBase):
                     else:
                         raise ValueError('Invalid point mode')
                     p.vertex_distance = criterion
-                    if criterion >= self.threshold:
-                        p.pid = PHOT_PID
+                    
+                    if p.ke > energy:
+                        leading_shower = p
+                        energy = p.ke
+                    
+                    if self.modify_inplace:
+                        if criterion >= self.threshold:
+                            p.pid = PHOT_PID
+                            
+            if leading_shower is None:
+                ia.vertex_distance = -np.inf
+            else:
+                ia.vertex_distance = leading_shower.vertex_distance
             
     @staticmethod        
     def convdist_protons(ia, shower_p):
@@ -179,7 +194,8 @@ class ShowerMultiArmCheck(PostBase):
     # Alternative allowed names of the post-processor
     aliases = ('shower_multi_arm',)
     
-    def __init__(self, threshold=70, min_samples=20, eps=0.02):
+    def __init__(self, threshold=70, min_samples=20, eps=0.02, 
+                 modify_inplace=True, largest_two=False, sort_by='energy'):
         """Specify the threshold for the number of arms of showers.
 
         Parameters
@@ -200,6 +216,9 @@ class ShowerMultiArmCheck(PostBase):
         self.threshold = threshold
         self.min_samples = min_samples
         self.eps = eps
+        self.modify_inplace = modify_inplace
+        self.largest_two = largest_two
+        self.sort_by = sort_by
         
     def process(self, data):
         """Update reco interaction topologies using the shower multi-arm check.
@@ -212,17 +231,30 @@ class ShowerMultiArmCheck(PostBase):
         # Loop over the reco interactions
         for ia in data['reco_interactions']:
             # Loop over particles, select the ones that pass a threshold
+            
+            leading_shower, energy = None, -np.inf
+            
             for p in ia.particles:
                 if p.pid == ELEC_PID and p.is_primary and (p.shape == 0):
                     angle = self.compute_angular_criterion(p, ia.vertex, 
                                                      eps=self.eps, 
                                                      min_samples=self.min_samples)
                     p.shower_split_angle = angle
-                    if angle > self.threshold:
-                        p.pid = PHOT_PID
+                    if self.modify_inplace:
+                        if angle > self.threshold:
+                            p.pid = PHOT_PID
+                    if p.ke > energy:
+                        leading_shower = p
+                        energy = p.ke
+            
+            if leading_shower is None:
+                ia.shower_split_angle = -np.inf
+            else:
+                ia.shower_split_angle = leading_shower.shower_split_angle
+            
                 
-    @staticmethod
-    def compute_angular_criterion(p, vertex, eps, min_samples):
+    # @staticmethod
+    def compute_angular_criterion(self, p, vertex, eps, min_samples):
         """Compute the angular criterion for the given primary electron shower.
 
         Parameters
@@ -260,17 +292,32 @@ class ShowerMultiArmCheck(PostBase):
         points = points[v_norm > 0]
         depositions = depositions[v_norm > 0]
         
-        # If there are no valid directions, return 0
+        # If there are no valid directions, return -inf (will never be rejected)
         if directions.shape[0] < 1:
-            return 0
+            return -np.inf
         
         # Run DBSCAN clustering on the unit sphere
         model = DBSCAN(eps=eps, 
                        min_samples=min_samples, 
                        metric='cosine').fit(directions)
         clusts, counts = np.unique(model.labels_, return_counts=True)
-        perm = np.argsort(counts)[::-1]
-        clusts, counts = clusts[perm], counts[perm]
+        
+        if self.sort_by == 'energy':
+            if not np.all(clusts >= 0): # If there are outliers
+                labels = np.array(model.labels_ + 1, dtype=int)
+            else:
+                labels = np.array(model.labels_, dtype=int)
+            energies = np.bincount(labels, weights=depositions)
+            perm = np.argsort(energies)[::-1]
+            clusts, counts = clusts[perm], counts[perm]
+        elif self.sort_by == 'voxel_counts':
+            perm = np.argsort(counts)[::-1]
+            clusts, counts = clusts[perm], counts[perm]
+        else:
+            raise ValueError('Invalid sorting mode {}, must be either "energy" or "voxel_counts".'.format(self.sort_by))
+        
+        if self.largest_two:
+            clusts, counts = clusts[:2], counts[:2]
         
         vecs = []
         for i, c in enumerate(clusts):
@@ -280,7 +327,7 @@ class ShowerMultiArmCheck(PostBase):
             v = directions[model.labels_ == c].mean(axis=0)
             vecs.append(v / np.linalg.norm(v))
         if len(vecs) == 0:
-            return 0
+            return -np.inf
         vecs = np.vstack(vecs)
         cos_dist = cosine_similarity(vecs)
         # max_angle ranges from 0 (parallel) to 2 (antiparallel)
