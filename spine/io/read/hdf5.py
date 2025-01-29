@@ -31,7 +31,7 @@ class HDF5Reader(ReaderBase):
                  skip_entry_list=None, run_event_list=None,
                  skip_run_event_list=None, create_run_map=False,
                  build_classes=True, skip_unknown_attrs=False,
-                 run_info_key='run_info'):
+                 run_info_key='run_info', allow_missing=False):
         """Initalize the HDF5 file reader.
 
         Parameters
@@ -65,6 +65,8 @@ class HDF5Reader(ReaderBase):
             extreme caution, as this might hide a fundamental issue with your code.
         run_info_key : str, default 'run_info'
             Name of the data product which contains the run info of the event
+        allow_missing : bool, default False
+            If `True`, allows missing entries in the entry or event list
         """
         # Process the list of files
         self.process_file_paths(file_keys, limit_num_files, max_print_files)
@@ -114,7 +116,7 @@ class HDF5Reader(ReaderBase):
         # Process the entry list
         self.process_entry_list(
                 n_entry, n_skip, entry_list, skip_entry_list,
-                run_event_list, skip_run_event_list)
+                run_event_list, skip_run_event_list, allow_missing)
 
         # Store other attributes
         self.build_classes = build_classes
