@@ -156,7 +156,7 @@ class ReaderBase:
 
     def process_entry_list(self, n_entry=None, n_skip=None, entry_list=None,
                            skip_entry_list=None, run_event_list=None,
-                           skip_run_event_list=None):
+                           skip_run_event_list=None, allow_missing=False):
         """Create a list of entries that can be accessed by :meth:`__getitem__`.
 
         Parameters
@@ -169,10 +169,12 @@ class ReaderBase:
             List of integer entry IDs to add to the index
         skip_entry_list : list, optional
             List of integer entry IDs to skip from the index
-        run_event_list: list((int, int)), optional
+        run_event_list: list((int, int, int)), optional
             List of (run, subrun, event) triplets to add to the index
-        skip_run_event_list: list((int, int)), optional
+        skip_run_event_list: list((int, int, int)), optional
             List of (run, subrun, event) triplets to skip from the index
+        allow_missing : bool, default False
+            If `True`, allows missing entries in the entry or event list
 
         Returns
         -------
@@ -222,9 +224,12 @@ class ReaderBase:
         elif run_event_list:
             self.process_run_info()
             run_event_list = self.parse_run_event_list(run_event_list)
-            entry_list = np.empty(len(run_event_list), dtype=np.int64)
+            entry_list = []
             for i, (r, s, e) in enumerate(run_event_list):
-                entry_list[i] = self.get_run_event_index(r, s, e)
+                if not allow_missing or (r, s, e) in self.run_map:
+                    entry_list.append(self.get_run_event_index(r, s, e))
+
+            entry_list = np.unique(entry_list)
 
         elif skip_entry_list or skip_run_event_list:
             if skip_entry_list:
@@ -236,10 +241,10 @@ class ReaderBase:
                 self.process_run_info()
                 skip_run_event_list = self.parse_run_event_list(
                         skip_run_event_list)
-                skip_entry_list = np.empty(
-                        len(skip_run_event_list), dtype=np.int64)
+                skip_entry_list = []
                 for i, (r, s, e) in enumerate(skip_run_event_list):
-                    skip_entry_list[i] = self.get_run_event_index(r, s, e)
+                    if not allow_missing or (r, s, e) in self.run_map:
+                        skip_entry_list.append(self.get_run_event_index(r, s, e))
 
             entry_mask = np.ones(self.num_entries, dtype=bool)
             entry_mask[skip_entry_list] = False
@@ -283,7 +288,8 @@ class ReaderBase:
         return self.get(self.get_run_event_index(run, subrun, event))
 
     def get_run_event_index(self, run, subrun, event):
-        """Returns an entry index corresponding to a specific (run, subrun, event) triplet.
+        """Returns an entry index corresponding to a specific
+        (run, subrun, event) triplet.
 
         Parameters
         ----------
@@ -374,15 +380,15 @@ class ReaderBase:
 
         if isinstance(list_source, str):
             assert os.path.isfile(list_source), (
-                    "The list source file does not exist")
+                    "The list source file does not exist.")
             with open(list_source, 'r', encoding='utf-8') as f:
                 lines = f.read().splitlines()
-                list_source = [
-                        w for l in lines for w in l.replace(',', ' ').split()]
+                line_list = [l.replace(',', ' ').split() for l in lines]
+                list_source = [int(w) for l in line_list for w in l]
 
             return np.array(list_source, dtype=np.int64)
 
-        raise ValueError("List format not recognized")
+        raise ValueError("List format not recognized.")
 
     @staticmethod
     def parse_run_event_list(list_source):
@@ -412,7 +418,8 @@ class ReaderBase:
                     "The list source file does not exist.")
             with open(list_source, 'r', encoding='utf-8') as f:
                 lines = f.read().splitlines()
-                list_source = [l.replace(',', ' ').split() for l in lines]
+                line_list = [l.replace(',', ' ').split() for l in lines]
+                list_source = [(int(r), int(s), int(e)) for r, s, e in line_list]
 
             return tuple(tuple(val) for val in list_source)
 
