@@ -139,9 +139,7 @@ class SaveAna(AnaBase):
             prefix, obj_type = key.split('_')
             other = other_prefix[prefix]
             attrs = self.attrs[key]
-            attrs_other = self.attrs[f'{other}_{obj_type}']
             lengths = self.lengths
-            lengths_other = self.lengths
             if (self.match_mode is None or
                 self.match_mode == f'{other}_to_{prefix}'):
                 # If there is no matches, save objects by themselves
@@ -153,6 +151,8 @@ class SaveAna(AnaBase):
                 # match on a single row
                 match_suffix = f'{prefix[0]}2{other[0]}'
                 match_key = f'{obj_type[:-1]}_matches_{match_suffix}'
+                attrs_other = self.attrs[f'{other}_{obj_type}']
+                lengths_other = self.lengths # TODO
                 for idx, (obj_i, obj_j) in enumerate(data[match_key]):
                     src_dict = obj_i.scalar_dict(attrs, lengths)
                     if obj_j is not None:
