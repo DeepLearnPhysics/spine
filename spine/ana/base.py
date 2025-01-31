@@ -62,6 +62,7 @@ class AnaBase(ABC):
         run_mode : str, optional
             If specified, tells whether the analysis script must run on
             reconstructed ('reco'), true ('true') or both objects
+            ('both' or 'all')
         truth_point_mode : str, optional
             If specified, tells which attribute of the :class:`TruthFragment`,
             :class:`TruthParticle` or :class:`TruthInteraction` object to use
