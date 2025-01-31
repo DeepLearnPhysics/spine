@@ -44,8 +44,15 @@ class AnaBase(ABC):
     # Valid run modes
     _run_modes = ('reco', 'truth', 'both', 'all')
 
-    def __init__(self, obj_type=None, run_mode=None, append=False,
-                 overwrite=False, log_dir=None, prefix=None):
+    # List of known point modes for true particles and their corresponding keys
+    _point_modes = (
+            ('points', 'points_label'),
+            ('points_adapt', 'points'),
+            ('points_g4', 'points_g4')
+    )
+
+    def __init__(self, obj_type=None, run_mode=None, truth_point_mode=None,
+                 append=False, overwrite=False, log_dir=None, prefix=None):
         """Initialize default anlysis script object properties.
 
         Parameters
