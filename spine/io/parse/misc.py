@@ -35,8 +35,12 @@ class MetaParser(ParserBase):
             parser: meta
             sparse_event: sparse3d_pcluster
     """
+
+    # Name of the parser (as specified in the configuration)
     name = 'meta'
-    aliases = ['meta2d', 'meta3d']
+
+    # Alternative allowed names of the parser
+    aliases = ('meta2d', 'meta3d')
 
     def __call__(self, trees):
         """Parse one entry.
@@ -83,7 +87,7 @@ class MetaParser(ParserBase):
         """
         # Check on the input, pick a source for the metadata
         assert (sparse_event is not None) ^ (cluster_event is not None), (
-                "Must specify either `sparse_event` or `cluster_event`")
+                "Must specify either `sparse_event` or `cluster_event`.")
         ref_event = sparse_event if sparse_event is not None else cluster_event
 
         # Fetch a specific projection, if needed
@@ -104,6 +108,8 @@ class RunInfoParser(ParserBase):
             parser: run_info
             sparse_event: sparse3d_pcluster
     """
+
+    # Name of the parser (as specified in the configuration)
     name = 'run_info'
 
     def __call__(self, trees):
@@ -135,7 +141,7 @@ class RunInfoParser(ParserBase):
         """
         # Check on the input, pick a source for the run information
         assert (sparse_event is not None) ^ (cluster_event is not None), (
-                "Must specify either `sparse_event` or `cluster_event`")
+                "Must specify either `sparse_event` or `cluster_event`.")
         ref_event = sparse_event if sparse_event is not None else cluster_event
 
         return RunInfo.from_larcv(ref_event)
@@ -144,15 +150,25 @@ class RunInfoParser(ParserBase):
 class FlashParser(ParserBase):
     """Copy construct Flash and return an array of `Flash`.
 
+    This parser also takes care of flashes that have been split between their
+    respective optical volumes, provided a `flash_event_list`. This parser
+    assumes that the trees are provided in order of the volume ID they
+    correspond to.
+
     .. code-block. yaml
         schema:
-          flashes_cryoE:
+          flashes:
             parser: flash
-            flash_event: flash_cryoE
-
+            flash_event_list:
+              - flash_cryoE
+              - flash_cryoW
     """
+
+    # Name of the parser (as specified in the configuration)
     name = 'flash'
-    aliases = ['opflash']
+
+    # Alternative allowed names of the parser
+    aliases = ('opflash',)
 
     def __call__(self, trees):
         """Parse one entry.
@@ -179,19 +195,32 @@ class FlashParser(ParserBase):
         List[Flash]
             List of optical flash objects
         """
-        # Check on the input, aggregate the sources for the optical flashes
+        # Check on the input
         assert ((flash_event is not None) ^
                 (flash_event_list is not None)), (
-                "Must specify either `flash_event` or `flash_event_list`")
-        if flash_event is not None:
-            flash_list = flash_event.as_vector()
-        else:
-            flash_list = []
-            for flash_event in flash_event_list:
-                flash_list.extend(flash_event.as_vector())
+                "Must specify either `flash_event` or `flash_event_list`.")
 
-        # Output as a list of LArCV optical flash objects
-        flashes = [Flash.from_larcv(larcv.Flash(f)) for f in flash_list]
+        # Parse flash objects
+        if flash_event is not None:
+            # If there is a single flash event, parse it as is
+            flash_list = flash_event.as_vector()
+            flashes = [Flash.from_larcv(larcv.Flash(f)) for f in flash_list]
+
+        else:
+            # Otherwise, set the volume ID of the flash to the source index
+            # and count the flash index from 0 to the largest number
+            flashes = []
+            idx = 0
+            for volume_id, flash_event in enumerate(flash_event_list):
+                for f in flash_event.as_vector():
+                    # Cast and update attributes
+                    flash = Flash.from_larcv(f)
+                    flash.id = idx
+                    flash.volume_id = volume_id
+
+                    # Append, increment counter
+                    flashes.append(flash)
+                    idx += 1
 
         return ObjectList(flashes, Flash())
 
@@ -205,6 +234,8 @@ class CRTHitParser(ParserBase):
             parser: crthit
             crthit_event: crthit_crthit
     """
+
+    # Name of the parser (as specified in the configuration)
     name = 'crthit'
 
     def __call__(self, trees):
@@ -245,6 +276,8 @@ class TriggerParser(ParserBase):
             parser: trigger
             trigger_event: trigger_base
     """
+
+    # Name of the parser (as specified in the configuration)
     name = 'trigger'
 
     def __call__(self, trees):

@@ -8,7 +8,7 @@ import argparse
 import pathlib
 import yaml
 
-# Add parent lartpc_spine3d directory to the python path
+# Add parent SPINE base directory to the python path
 current_directory = os.path.dirname(os.path.abspath(__file__))
 current_directory = os.path.dirname(current_directory)
 sys.path.insert(0, current_directory)
@@ -25,7 +25,8 @@ if os.getenv('FMATCH_BUILDDIR') is not None:
 from spine.main import run
 
 
-def main(config, source, source_list, output, n, nskip, detect_anomaly, log_dir, weight_prefix, weight_path):
+def main(config, source, source_list, output, n, nskip, detect_anomaly,
+         log_dir, weight_prefix, weight_path):
     """Main driver for training/validation/inference/analysis.
 
     Performs these basic functions:
@@ -53,7 +54,8 @@ def main(config, source, source_list, output, n, nskip, detect_anomaly, log_dir,
     weight_prefix : str
         Path to the directory for storing the training weights
     weight_path : str
-        Path string a weight file or pattern for multiple weight files to load the model weights
+        Path string a weight file or pattern for multiple weight files to load
+        the model weights
     """
     # Try to find configuration file using the absolute path or under
     # the 'config' directory of the parent SPINE repository
@@ -112,7 +114,8 @@ def main(config, source, source_list, output, n, nskip, detect_anomaly, log_dir,
 
     if weight_prefix is not None:
         if not 'train' in cfg['base']:
-            raise KeyError('--weight_prefix flag provided: must specify `train` in the `base` block.')
+            raise KeyError("--weight_prefix flag provided: must specify "
+                           "`train` in the `base` block.")
         cfg['base']['train']['weight_prefix']=weight_prefix
 
     if weight_path is not None:
@@ -182,4 +185,5 @@ if __name__ == '__main__':
 
     # Execute the main function
     main(args.config, args.source, args.source_list, args.output, args.n,
-         args.nskip, args.detect_anomaly, args.log_dir, args.weight_prefix, args.weight_path)
+         args.nskip, args.detect_anomaly, args.log_dir, args.weight_prefix,
+         args.weight_path)

@@ -17,23 +17,21 @@ class PostBase(ABC):
     ----------
     name : str
         Name of the post-processor as defined in the configuration file
-    aliases : []
+    aliases : Tuple[str]
         Alternative acceptable names for a post-processor
-    parent_path : str
-        Path to the main configuration file (to access relative configurations)
-    keys : Dict[str, bool]
-        List of data product keys used to operate the post-processor
-    truth_point_mode : str
-        Type of `points` attribute to use for the truth particles
-    units : str
-        Units in which the objects must be expressed (one of 'px' or 'cm')
     """
+
+    # Name of the post-processor (as specified in the configuration)
     name = None
+
+    # Alternative allowed names of the post-processor
     aliases = ()
-    parent_path = ''
-    keys = None
-    truth_point_mode = 'points'
+
+    # Units in which the post-processor expects objects to be expressed in
     units = 'cm'
+
+    # Set of data keys needed for this post-processor to operate
+    _keys = ()
 
     # List of recognized object types
     _obj_types = ('fragment', 'particle', 'interaction')
@@ -42,27 +40,27 @@ class PostBase(ABC):
     _run_modes = ('reco', 'truth', 'both', 'all')
 
     # List of known point modes for true particles and their corresponding keys
-    _point_modes = {
-            'points': 'points_label',
-            'points_adapt': 'points',
-            'points_g4': 'points_g4'
-    }
+    _point_modes = (
+            ('points', 'points_label'),
+            ('points_adapt', 'points'),
+            ('points_g4', 'points_g4')
+    )
 
     # List of known source modes for true particles and their corresponding keys
-    _source_modes = {
-            'sources': 'sources_label',
-            'sources_adapt': 'sources',
-            'sources_g4': 'sources_g4'
-    }
+    _source_modes = (
+            ('sources', 'sources_label'),
+            ('sources_adapt', 'sources'),
+            ('sources_g4', 'sources_g4')
+    )
 
     # List of known deposition modes for true particles and their corresponding keys
-    _dep_modes = {
-            'depositions': 'depositions_label',
-            'depositions_q': 'depositions_q_label',
-            'depositions_adapt': 'depositions_label_adapt',
-            'depositions_adapt_q': 'depositions',
-            'depositions_g4': 'depositions_g4'
-    }
+    _dep_modes = (
+            ('depositions', 'depositions_label'),
+            ('depositions_q', 'depositions_q_label'),
+            ('depositions_adapt', 'depositions_label_adapt'),
+            ('depositions_adapt_q', 'depositions'),
+            ('depositions_g4', 'depositions_g4')
+    )
 
     def __init__(self, obj_type=None, run_mode=None, truth_point_mode=None,
                  truth_dep_mode=None, parent_path=None):
@@ -88,10 +86,6 @@ class PostBase(ABC):
             Path to the parent directory of the main analysis configuration. This
             allows for the use of relative paths in the post-processors.
         """
-        # Initialize default keys
-        if self.keys is None:
-            self.keys = {}
-
         # If run mode is specified, process it
         if run_mode is not None:
             # Check that the run mode is recognized
@@ -126,34 +120,96 @@ class PostBase(ABC):
                          + self.particle_keys
                          + self.interaction_keys)
 
-        self.keys.update({k:True for k in self.obj_keys})
+        # Update underlying keys, if needed
+        self.update_keys({k: True for k in self.obj_keys})
 
         # If a truth point mode is specified, store it
         if truth_point_mode is not None:
-            assert truth_point_mode in self._point_modes, (
+            assert truth_point_mode in self.point_modes, (
                      "The `truth_point_mode` argument must be one of "
-                    f"{self._point_modes.keys()}. Got `{truth_point_mode}` instead.")
+                    f"{self.point_modes.keys()}. Got `{truth_point_mode}` instead.")
             self.truth_point_mode = truth_point_mode
-            self.truth_point_key = self._point_modes[self.truth_point_mode]
+            self.truth_point_key = self.point_modes[self.truth_point_mode]
             self.truth_source_mode = truth_point_mode.replace('points', 'sources')
-            self.truth_source_key = self._source_modes[self.truth_source_mode]
+            self.truth_source_key = self.source_modes[self.truth_source_mode]
             self.truth_index_mode = truth_point_mode.replace('points', 'index')
 
         # If a truth deposition mode is specified, store it
         if truth_dep_mode is not None:
-            assert truth_dep_mode in self._dep_modes, (
+            assert truth_dep_mode in self.dep_modes, (
                      "The `truth_dep_mode` argument must be one of "
-                    f"{self._dep_modes.keys()}. Got `{truth_dep_mode}` instead.")
+                    f"{self.dep_modes.keys()}. Got `{truth_dep_mode}` instead.")
             if truth_point_mode is not None:
                 prefix = truth_point_mode.replace('points', 'depositions')
                 assert truth_dep_mode.startswith(prefix), (
-                        "Points mode {truth_point_mode} and deposition mode "
-                        "{truth_dep_mode} are incompatible.")
+                        f"Points mode {truth_point_mode} and deposition mode "
+                        f"{truth_dep_mode} are incompatible.")
             self.truth_dep_mode = truth_dep_mode
-            self.truth_dep_key = self._dep_modes[truth_dep_mode]
+            self.truth_dep_key = self.dep_modes[truth_dep_mode]
 
         # Store the parent path
         self.parent_path = parent_path
+
+    @property
+    def keys(self):
+        """Dictionary of (key, necessity) pairs which determine which data keys
+        are needed/optional for the post-processor to run.
+
+        Returns
+        -------
+        Dict[str, bool]
+            Dictionary of (key, necessity) pairs to be used
+        """
+        return dict(self._keys)
+
+    @property
+    def point_modes(self):
+        """Dictionary which makes the correspondance between the name of a true
+        object point attribute with the underlying point tensor it points to.
+
+        Returns
+        -------
+        Dict[str, str]
+            Dictionary of (attribute, key) mapping for point coordinates
+        """
+        return dict(self._point_modes)
+
+    @property
+    def source_modes(self):
+        """Dictionary which makes the correspondance between the name of a true
+        object source attribute with the underlying source tensor it points to.
+
+        Returns
+        -------
+        Dict[str, str]
+            Dictionary of (attribute, key) mapping for point sources
+        """
+        return dict(self._source_modes)
+
+    @property
+    def dep_modes(self):
+        """Dictionary which makes the correspondance between the name of a true
+        object deposition attribute with the underlying deposition array it points to.
+
+        Returns
+        -------
+        Dict[str, str]
+            Dictionary of (attribute, key) mapping for point depositions
+        """
+        return dict(self._dep_modes)
+
+    def update_keys(self, update_dict):
+        """Update the underlying set of keys and their necessity in place.
+
+        Parameters
+        ----------
+        update_dict : Dict[str, bool]
+            Dictionary of (key, necessity) pairs to update the keys with
+        """
+        if len(update_dict) > 0:
+            keys = self.keys
+            keys.update(update_dict)
+            self._keys = tuple(keys.items())
 
     def __call__(self, data, entry=None):
         """Calls the post processor on one entry.
@@ -172,7 +228,7 @@ class PostBase(ABC):
         """
         # Fetch the input dictionary
         data_filter = {}
-        for key, req in self.keys.items():
+        for key, req in self._keys:
             # If this key is needed, check that it exists
             assert not req or key in data, (
                     f"Post-processor `{self.name}` is missing an essential "
@@ -290,8 +346,8 @@ class PostBase(ABC):
         """
         if obj.units != self.units:
             raise ValueError(
-                    f"Coordinates must be expressed in "
-                    f"{self.units}; currently in {obj.units} instead.")
+                    f"Coordinates must be expressed in {self.units} but are "
+                    f"currently in {obj.units} instead.")
 
     @abstractmethod
     def process(self, data):

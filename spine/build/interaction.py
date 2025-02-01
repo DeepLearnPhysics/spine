@@ -1,4 +1,4 @@
-"""Class in charge of constructing *Interaction objects."""
+"""Class in charge of constructing Interaction objects."""
 
 from collections import defaultdict
 from warnings import warn
@@ -19,26 +19,33 @@ class InteractionBuilder(BuilderBase):
     necessary information and builds :class:`RecoInteraction` and
     :class:`TruthInteraction` objects from it.
     """
+
+    # Builder name
     name = 'interaction'
 
-    reco_type = RecoInteraction
-    truth_type = TruthInteraction
+    # Types of objects constructed by the builder
+    _reco_type = RecoInteraction
+    _truth_type = TruthInteraction
 
-    build_reco_keys = {
-            'reco_particles': True
-    }
+    # Necessary/optional data products to build a reconstructed object
+    _build_reco_keys = (
+            ('reco_particles', True),
+    )
 
-    build_truth_keys = {
-            'truth_particles': True, 'neutrinos': False
-    }
+    # Necessary/optional data products to build a truth object
+    _build_truth_keys = (
+            ('truth_particles', True), ('neutrinos', False)
+    )
 
-    load_reco_keys = {
-            'reco_interactions': True, 'reco_particles': True
-    }
+    # Necessary/optional data products to load a reconstructed object
+    _load_reco_keys = (
+            ('reco_interactions', True), ('reco_particles', True)
+    )
 
-    load_truth_keys = {
-            'truth_interactions': True, 'truth_particles': True
-    }
+    # Necessary/optional data products to load a truth object
+    _load_truth_keys = (
+            ('truth_interactions', True), ('truth_particles', True)
+    )
 
     def build_reco(self, data):
         """Builds :class:`RecoInteraction` objects from the full chain output.

@@ -11,7 +11,7 @@ from .hull import hull_trace
 
 
 def scatter_clusters(points, clusts, color=None, hovertext=None,
-                     single_trace=True, name=None, mode='scatter',
+                     single_trace=False, name=None, mode='scatter',
                      cmin=None, cmax=None, shared_legend=True, **kwargs):
     """Arranges points in clusters and scatters them and their cluster labels.
 
@@ -80,7 +80,6 @@ def scatter_clusters(points, clusts, color=None, hovertext=None,
             color = [[clust_ids[i]]*len(c) for i, c in enumerate(clusts)]
 
     # Build the hovertext vectors
-    hovertemplate = 'x: %{x}<br>y: %{y}<br>z: %{z}<br>%{text}'
     if hovertext is not None:
         if np.isscalar(hovertext):
             hovertext = [hovertext]*len(clusts)
@@ -112,20 +111,21 @@ def scatter_clusters(points, clusts, color=None, hovertext=None,
         # Check that we are operating in the expected mode
         assert mode in ['circle', 'scatter'], (
                 "Can only combine in one trace in 'circle' or 'scatter' mode.")
+        assert shared_legend, (
+                "Cannot split legend when merging all clusters in one trace.")
 
         # Aggregate the coordinates, color and hovertext
         if mode == 'circle':
             # Define the nodes as circles centered in the centroid of each
             # cluster and of radius proportional to the sqrt of the cluster size
-            centroids = np.empty(len(coords), dtype=np.float32)
+            centroids = np.empty((len(coords), 3), dtype=np.float32)
             for i, coord in enumerate(coords):
-                centroids = np.mean(coord, axis=0)
+                centroids[i] = np.mean(coord, axis=0)
             sizes = np.sqrt(counts)
 
             return scatter_points(
                     centroids, name=name, color=color, markersize=sizes,
-                    hovertext=hovertext, hovertemplate=hovertemplate,
-                    cmin=cmin, cmax=cmax, **kwargs)
+                    hovertext=hovertext, cmin=cmin, cmax=cmax, **kwargs)
 
         else:
             if len(coords):
@@ -140,17 +140,22 @@ def scatter_clusters(points, clusts, color=None, hovertext=None,
 
             return scatter_points(
                     coords, color=color, hovertext=hovertext,
-                    hovertemplate=hovertemplate, name=name,
-                    cmin=cmin, cmax=cmax, **kwargs)
+                    name=name, cmin=cmin, cmax=cmax, **kwargs)
 
     # If cmin/cmax are not provided, must build them so that all clusters
     # share the same colorscale range (not guaranteed otherwise)
-    if color is not None and len(color) and cmin is None or cmax is None:
-        if np.isscalar(color[0]):
-            cmin, cmax = np.min(color), np.max(color)
-        else:
-            cmin = np.min(np.concatenate(color))
-            cmax = np.max(np.concatenate(color))
+    if color is not None and not np.isscalar(color) and len(color) > 0:
+        if cmin is None:
+            if np.isscalar(color[0]):
+                cmin = np.min(color)
+            else:
+                cmin = np.min(np.concatenate(color))
+
+        if cmax is None:
+            if np.isscalar(color[0]):
+                cmax = np.max(color)
+            else:
+                cmax = np.max(np.concatenate(color))
 
     # Loop over the list of clusters
     traces = []
@@ -173,35 +178,35 @@ def scatter_clusters(points, clusts, color=None, hovertext=None,
         # Dispatch
         if mode == 'circle':
             centroid = np.mean(coord, axis=0)[None, :]
-            size = np.sqrt(len(coord))
+            size = np.sqrt(counts[i])
             traces += scatter_points(
                 centroid, name=name_i, color=color[i], hovertext=hovertext[i],
-                hovertemplate=hovertemplate, cmin=cmin, cmax=cmax, markersize=size,
-                legendgroup=legendgroup, showlegend=showlegend, **kwargs)
+                cmin=cmin, cmax=cmax, markersize=size, legendgroup=legendgroup,
+                showlegend=showlegend, **kwargs)
 
         elif mode == 'scatter':
             traces += scatter_points(
                 coord, name=name_i, color=color[i], hovertext=hovertext[i],
-                hovertemplate=hovertemplate, cmin=cmin, cmax=cmax,
-                legendgroup=legendgroup, showlegend=showlegend, **kwargs)
+                cmin=cmin, cmax=cmax, legendgroup=legendgroup,
+                showlegend=showlegend, **kwargs)
 
         elif mode == 'ellipsoid':
             traces.append(ellipsoid_trace(
                 coord, name=name_i, color=color[i], hovertext=hovertext[i],
-                hovertemplate=hovertemplate, cmin=cmin, cmax=cmax,
-                legendgroup=legendgroup, showlegend=showlegend, **kwargs))
+                cmin=cmin, cmax=cmax, legendgroup=legendgroup,
+                showlegend=showlegend, **kwargs))
 
         elif mode == 'cone':
             traces.append(cone_trace(
                 coord, name=name_i, color=color[i], hovertext=hovertext[i],
-                hovertemplate=hovertemplate, cmin=cmin, cmax=cmax,
-                legendgroup=legendgroup, showlegend=showlegend, **kwargs))
+                cmin=cmin, cmax=cmax, legendgroup=legendgroup,
+                showlegend=showlegend, **kwargs))
 
         elif mode == 'hull':
             traces.append(hull_trace(
                 coord, name=name_i, color=color[i], hovertext=hovertext[i],
-                hovertemplate=hovertemplate, cmin=cmin, cmax=cmax,
-                legendgroup=legendgroup, showlegend=showlegend, **kwargs))
+                cmin=cmin, cmax=cmax, legendgroup=legendgroup,
+                showlegend=showlegend, **kwargs))
 
         else:
             raise ValueError(

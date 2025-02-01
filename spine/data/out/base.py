@@ -68,24 +68,26 @@ class OutBase(PosDataBase):
     units: str = 'cm'
 
     # Variable-length attribtues
-    _var_length_attrs = {
-            'index': np.int64, 'depositions': np.float32,
-            'match_ids': np.int64, 'match_overlaps': np.float32,
-            'points': (3, np.float32), 'sources': (2, np.int64),
-            'module_ids': np.int64
-    }
-
-    # Attributes to be binarized to form an integer from a variable-length array
-    _binarize_attrs = ['module_ids']
+    _var_length_attrs = (
+            ('index', np.int64), ('depositions', np.float32),
+            ('match_ids', np.int64), ('match_overlaps', np.float32),
+            ('points', (3, np.float32)), ('sources', (2, np.int64)),
+            ('module_ids', np.int64)
+    )
 
     # Boolean attributes
-    _bool_attrs = ['is_contained', 'is_matched', 'is_cathode_crosser', 'is_truth']
+    _bool_attrs = (
+            'is_contained', 'is_matched', 'is_cathode_crosser', 'is_truth'
+    )
 
     # Attributes to concatenate when merging objects
-    _cat_attrs = ['index', 'points', 'depositions', 'sources']
+    _cat_attrs = ('index', 'points', 'depositions', 'sources')
 
-    # Attributes that should not be stored
-    _skip_attrs = ['points', 'depositions', 'sources']
+    # Attributes that must never be stored to file
+    _skip_attrs = ('points', 'depositions', 'sources')
+
+    # Attributes that must not be stored to file when storing lite files
+    _lite_skip_attrs = ('index',)
 
     @property
     def size(self):
@@ -205,24 +207,30 @@ class TruthBase(OutBase):
     is_truth: bool = True
 
     # Variable-length attribtues
-    _var_length_attrs = {
-            'depositions_q': np.float32, 'index_adapt': np.int64,
-            'depositions_adapt': np.float32, 'depositions_adapt_q': np.float32,
-            'index_g4': np.int64, 'depositions_g4': np.int64,
-            'points_adapt': (3, np.float32), 'sources_adapt': (2, np.int64),
-            'points_g4': (3, np.float32), **OutBase._var_length_attrs
-    }
+    _var_length_attrs = (
+            ('depositions_q', np.float32), ('index_adapt', np.int64),
+            ('depositions_adapt', np.float32), ('depositions_adapt_q', np.float32),
+            ('index_g4', np.int64), ('depositions_g4', np.int64),
+            ('points_adapt', (3, np.float32)), ('sources_adapt', (2, np.int64)),
+            ('points_g4', (3, np.float32)), *OutBase._var_length_attrs
+    )
 
     # Attributes to concatenate when merging objects
-    _cat_attrs = ['depositions_q', 'index_adapt', 'points_adapt',
-                  'depositions_adapt', 'depositions_adapt_q', 'sources_adapt',
-                  'index_g4', 'points_g4', 'depositions_g4',
-                  *OutBase._cat_attrs]
+    _cat_attrs = (
+            'depositions_q', 'index_adapt', 'points_adapt', 'depositions_adapt',
+            'depositions_adapt_q', 'sources_adapt', 'index_g4', 'points_g4',
+            'depositions_g4', *OutBase._cat_attrs
+    )
 
-    # Attributes that should not be stored
-    _skip_attrs = ['depositions_q', 'points_adapt', 'depositions_adapt',
-                   'depositions_adapt_q', 'sources_adapt', 'depositions_g4',
-                   'points_g4', 'depositions_g4', *OutBase._skip_attrs]
+    # Attributes that must never be stored to file
+    _skip_attrs = (
+            'depositions_q', 'points_adapt', 'depositions_adapt',
+            'depositions_adapt_q', 'sources_adapt', 'depositions_g4',
+            'points_g4', 'depositions_g4', *OutBase._skip_attrs
+    )
+
+    # Attributes that must not be stored to file when storing lite files
+    _lite_skip_attrs = ('index_adapt', 'index_g4', *OutBase._lite_skip_attrs)
 
     @property
     def size_adapt(self):

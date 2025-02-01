@@ -22,13 +22,16 @@ class ClusterAna(AnaBase):
     - particles
     - interactions
     """
+
+    # Name of the analysis script (as specified in the configuration)
     name = 'cluster_eval'
 
     # Label column to use for each clustering label_col
-    _label_cols = {
-            'fragment': CLUST_COL, 'particle': GROUP_COL,
-            'interaction': INTER_COL
-    }
+    _label_cols = (
+            ('fragment', CLUST_COL),
+            ('particle', GROUP_COL),
+            ('interaction', INTER_COL)
+    )
 
     def __init__(self, obj_type=None, use_objects=False, per_object=True,
                  per_shape=True, metrics=('pur', 'eff', 'ari'),
@@ -53,7 +56,7 @@ class ClusterAna(AnaBase):
         label_key : str, default 'clust_label_adapt'
             Name of the tensor which contains the cluster labels, when
             using the raw reconstruction output
-        label_col : str
+        label_col : str, optional
             Column name in the label tensor specifying the aggregation label_col
         **kwargs : dict, optional
             Additional arguments to pass to :class:`AnaBase`
@@ -71,9 +74,9 @@ class ClusterAna(AnaBase):
 
         # Initialize the parent class
         super().__init__(obj_type, 'both', **kwargs)
-        if not use_objects:
-            for key in self.obj_keys:
-                del self.keys[key]
+
+
+        # If the clustering is not done per object, fix target
         if not per_object:
             self.obj_type = [label_col]
 
@@ -90,26 +93,46 @@ class ClusterAna(AnaBase):
         # Convert metric strings to functions
         self.metrics = {m: getattr(spine.utils.metrics, m) for m in metrics}
 
-        # List the necessary data products
+        # If objects are not used, remove them from the required keys
+        keys = self.keys
+        if not use_objects:
+            for key in self.obj_keys:
+                del keys[key]
+
+        # List other necessary data products
         if self.per_object:
             if not self.use_objects:
                 # Store the labels and the clusters output by the reco chain
-                self.keys[label_key] = True
+                keys[label_key] = True
                 for obj in self.obj_type:
-                    self.keys[f'{obj}_clusts'] = True
-                    self.keys[f'{obj}_shapes'] = True
+                    keys[f'{obj}_clusts'] = True
+                    keys[f'{obj}_shapes'] = True
 
             else:
-                self.keys['points'] = True
+                keys['points'] = True
 
         else:
-            self.keys[label_key] = True
-            self.keys['clusts'] = True
-            self.keys['group_pred'] = True
+            keys[label_key] = True
+            keys['clusts'] = True
+            keys['group_pred'] = True
+
+        self.keys = keys
 
         # Initialize the output
         for obj in self.obj_type:
             self.initialize_writer(obj)
+
+    @property
+    def label_cols(self):
+        """Dictionary of (key, column_id) pairs which determine which column
+        in the label tensor corresponds to a specific clustering target.
+
+        Returns
+        -------
+        Dict[str, int]
+            Dictionary of (key, column_id) mapping from name to label column
+        """
+        return dict(self._label_cols)
 
     def process(self, data):
         """Store the clustering metrics for one entry.
@@ -124,7 +147,7 @@ class ClusterAna(AnaBase):
             # Build the cluster labels for this object type
             if not self.use_objects:
                 # Fetch the right label column
-                label_col = self.label_col or self._label_cols[obj_type]
+                label_col = self.label_col or self.label_cols[obj_type]
                 num_points = len(data[self.label_key])
                 labels = data[self.label_key][:, label_col]
                 shapes = data[self.label_key][:, SHAPE_COL]

@@ -34,8 +34,12 @@ class NodeClassLoss(torch.nn.Module):
     See configuration files prefixed with `grappa_` under the `config`
     directory for detailed examples of working configurations.
     """
+
+    # Name of the loss (as specified in the configuration)
     name = 'class'
-    aliases = ['classification']
+
+    # Alternative allowed names of the loss
+    aliases = ('classification',)
 
     def __init__(self, target, loss='ce', balance_loss=False, weights=None):
         """Initialize the node classifcation loss function.

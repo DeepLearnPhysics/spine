@@ -16,6 +16,8 @@ __all__ = ['ClustGeoCNNMixNodeEncoder', 'ClustGeoCNNMixEdgeEncoder']
 
 class ClustGeoCNNMixNodeEncoder(torch.nn.Module):
     """Produces cluster node features using both geometric and CNN encoders."""
+
+    # Name of the node encoder (as specified in the configuration)
     name = 'geo_cnn_mix'
 
     def __init__(self, geo_encoder, cnn_encoder, activation='elu'):
@@ -79,6 +81,8 @@ class ClustGeoCNNMixNodeEncoder(torch.nn.Module):
 
 class ClustGeoCNNMixEdgeEncoder(torch.nn.Module):
     """Produces cluster edge features using both geometric and CNN encoders."""
+
+    # Name of the edge encoder (as specified in the configuration)
     name = 'geo_cnn_mix'
 
     def __init__(self, geo_encoder, cnn_encoder):

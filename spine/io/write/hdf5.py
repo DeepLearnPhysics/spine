@@ -38,12 +38,13 @@ class HDF5Writer:
     name = 'hdf5'
 
     def __init__(self, file_name=None, keys=None, skip_keys=None, dummy_ds=None,
-                 overwrite=False, append=False, prefix=None, split=False):
+                 overwrite=False, append=False, prefix=None, split=False,
+                 lite=False):
         """Initializes the basics of the output file.
 
         Parameters
         ----------
-        file_name : str, default 'spine.h5'
+        file_name : str, optional
             Name of the output HDF5 file
         keys : List[str], optional
             List of data product keys to store. If not specified, store everything
@@ -61,6 +62,8 @@ class HDF5Writer:
             provided that no file_name is explicitely provided
         split : bool, default False
             If `True`, split the output to produce one file per input file
+        lite : bool, default False
+            If `True`, the lite version of objects is stored (drop point indexes)
         """
         # If the output file name is not provided, use the input file prefix(es)
         if not file_name:
@@ -98,6 +101,7 @@ class HDF5Writer:
         self.file_name = file_name
         self.append = append
         self.split = split
+        self.lite = lite
         self.ready = False
         self.object_dtypes = [] # TODO: make this a set
 
@@ -335,7 +339,7 @@ class HDF5Writer:
             List of (key, dtype) pairs
         """
         object_dtype = []
-        for key, val in obj.as_dict().items():
+        for key, val in obj.as_dict(self.lite).items():
             # Append the relevant data type
             if isinstance(val, str):
                 # String
@@ -344,7 +348,7 @@ class HDF5Writer:
             elif hasattr(obj, 'enum_attrs') and key in obj.enum_attrs:
                 # Recognized enumerated list
                 enum_dtype = h5py.enum_dtype(
-                        obj.enum_attrs[key], basetype=type(val))
+                        dict(obj.enum_attrs[key]), basetype=type(val))
                 object_dtype.append((key, enum_dtype))
 
             elif np.isscalar(val):
@@ -529,7 +533,7 @@ class HDF5Writer:
                     array = [array]
 
             if val.dtype in self.object_dtypes:
-                self.store_objects(out_file, event, key, array, val.dtype)
+                self.store_objects(out_file, event, key, array, val.dtype, self.lite)
             else:
                 self.store(out_file, event, key, array)
 
@@ -647,7 +651,7 @@ class HDF5Writer:
         event[key] = region_ref
 
     @staticmethod
-    def store_objects(out_file, event, key, array, obj_dtype):
+    def store_objects(out_file, event, key, array, obj_dtype, lite):
         """Stores a list of objects with understandable attributes in the file
         and stores its mapping in the event dataset.
 
@@ -663,11 +667,13 @@ class HDF5Writer:
             Array of objects or dictionaries to be stored
         obj_dtype : list
             List of (key, dtype) pairs which specify what's to store
+        lite : bool
+            If `True`, store the lite version of objects
         """
         # Convert list of objects to list of storable objects
         objects = np.empty(len(array), obj_dtype)
         for i, obj in enumerate(array):
-            objects[i] = tuple(obj.as_dict().values())
+            objects[i] = tuple(obj.as_dict(lite).values())
 
         # Extend the dataset, store array
         dataset = out_file[key]

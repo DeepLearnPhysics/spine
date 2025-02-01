@@ -19,7 +19,9 @@ __all__ = ['TemplateAna']
 
 class TemplateAna(AnaBase):
     """Description of what the analysis script is supposed to be doing."""
-    name = 'template' # Name used to call the analysis script in the config
+
+    # Name of the analysis script (as specified in the configuration)
+    name = 'template'
 
     def __init__(self, arg0, arg1, obj_type, run_mode, append_file,
                  overwrite_file, output_prefix):
@@ -56,7 +58,7 @@ class TemplateAna(AnaBase):
         self.initialize_writer('template')
 
         # Add additional required data products
-        self.keys['prod'] = True # Means we must have 'data' in the dictionary
+        self.update_keys({'prod': True}) # Means we must have 'prod' in the dictionary
 
     def process(self, data):
         """Pass data products corresponding to one entry through the analysis.

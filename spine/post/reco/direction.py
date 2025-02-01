@@ -14,8 +14,12 @@ class DirectionProcessor(PostBase):
 
     This modules assign the `start_dir` and `end_dir` attributes.
     """
+
+    # Name of the post-processor (as specified in the configuration)
     name = 'direction'
-    aliases = ['reconstruct_directions']
+
+    # Alternative allowed names of the post-processor
+    aliases = ('reconstruct_directions',)
 
     def __init__(self, neighborhood_radius=-1, optimize=True,
                  obj_type='particle', truth_point_mode='points',

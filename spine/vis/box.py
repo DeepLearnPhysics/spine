@@ -86,6 +86,7 @@ def box_trace(lower, upper, draw_faces=False, line=None, linewidth=None,
             hovertemplate += f'<br>{hovertext}'
             hovertext = None
 
+    # Create the box trace
     if not draw_faces:
         # Build a list of box edges to draw (padded with None values to break
         # them from each other)
@@ -130,7 +131,9 @@ def box_trace(lower, upper, draw_faces=False, line=None, linewidth=None,
 
 
 def box_traces(lowers, uppers, draw_faces=False, color=None, linewidth=None,
-               hovertext=None, shared_legend=True, name=None, **kwargs):
+               hovertext=None, cmin=None, cmax=None, shared_legend=True,
+               legendgroup=None, showlegend=True, group_name=None, name=None,
+               **kwargs):
     """Function which produces a list of plotly traces of boxes given a list of
     lower bounds and upper bounds in x, y and z.
 
@@ -148,8 +151,16 @@ def box_traces(lowers, uppers, draw_faces=False, color=None, linewidth=None,
         Width of the box edge lines
     hovertext : Union[int, str, np.ndarray], optional
         Text associated with every box or each box
+    cmin : float, optional
+        Minimum value along the color scale
+    cmax : float, optional
+        Maximum value along the color scale
     shared_legend : bool, default True
         If True, the plotly legend of all boxes is shared as one
+    legendgroup : str, optional
+        Legend group to be shared between all boxes
+    showlegend : bool, default `True`
+        Whether to show legends on not
     name : str, optional
         Name of the trace(s)
     **kwargs : dict, optional
@@ -172,9 +183,24 @@ def box_traces(lowers, uppers, draw_faces=False, color=None, linewidth=None,
             len(hovertext) == len(lowers)), (
             "Specify one hovertext for all boxes, or one hovertext per box.")
 
+    # If one color is provided per box, give an associated hovertext
+    if hovertext is None and color is not None and not np.isscalar(color):
+        hovertext = [f'Value: {v:0.3f}' for v in color]
+
+    # If cmin/cmax are not provided, must build them so that all boxes
+    # share the same colorscale range (not guaranteed otherwise)
+    if color is not None and not np.isscalar(color) and len(color) > 0:
+        if cmin is None:
+            cmin = np.min(color)
+        if cmax is None:
+            cmax = np.max(color)
+
+    # If the legend is to be shared, make sure there is a common legend group
+    if shared_legend and legendgroup is None:
+        legendgroup = 'group_' + str(time.time())
+
     # Loop over the list of box boundaries
     traces = []
-    group_name = 'group_' + str(time.time())
     for i, (lower, upper) in enumerate(zip(lowers, uppers)):
         # Fetch the right color/hovertext combination
         col, hov = color, hovertext
@@ -184,17 +210,16 @@ def box_traces(lowers, uppers, draw_faces=False, color=None, linewidth=None,
             hov = hovertext[i]
 
         # If the legend is shared, only draw the legend of the first trace
-        legendgroup, showlegend, name_i = None, True, name
         if shared_legend:
-            legendgroup = group_name
-            showlegend = i == 0
+            showlegend = showlegend and i == 0
+            name_i = name
         else:
             name_i = f'{name} {i}'
 
         # Append list of traces
         traces.append(box_trace(
-            lower, upper, draw_faces, linewidth=linewidth,
-            color=col, hovertext=hov, legendgroup=legendgroup,
+            lower, upper, draw_faces, linewidth=linewidth, color=col,
+            hovertext=hov, cmin=cmin, cmax=cmax, legendgroup=legendgroup,
             showlegend=showlegend, name=name_i, **kwargs))
 
     return traces

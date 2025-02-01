@@ -11,7 +11,7 @@ import seaborn as sns
 
 from spine.utils.geo import Geometry
 
-
+# Colorscale definitions
 PLOTLY_COLORS = colors.qualitative.Plotly
 PLOTLY_COLORS_TUPLE = colors.convert_colors_to_same_type(
         deepcopy(PLOTLY_COLORS), 'tuple')[0]
@@ -88,9 +88,28 @@ def layout3d(ranges=None, meta=None, detector=None, titles=None,
                     [np.min(ranges, axis=0), np.max(ranges, axis=0)]).T
 
         # Check that the range is sensible
-        assert np.all(ranges[:,1] >= ranges[:,0])
+        assert np.all(ranges[:, 1] >= ranges[:, 0])
 
-    if meta is not None:
+    if detector is not None:
+        # If detector geometry is provided, make the full detector the range
+        assert ranges is None or None in ranges, (
+                "Should not specify `detector` along with `ranges`.")
+        geo = Geometry(detector)
+        lengths = geo.tpc.dimensions
+        ranges = geo.tpc.boundaries
+
+        # Add some padding
+        ranges[:, 0] -= lengths*0.1
+        ranges[:, 1] += lengths*0.1
+
+        # If pixel coordinates are requested, use meta to make the conversion
+        if detector_coords is False:
+            assert meta is not None, (
+                    "Must provide metadata information to convert the detector "
+                    "coordinates to pixel coordinates.")
+            ranges = meta.to_px(ranges.T).T
+
+    elif meta is not None:
         # If meta information is provided, make the full image the range
         assert ranges is None or None in ranges, (
                 "Should not specify both `ranges` and `meta` parameters.")
@@ -100,17 +119,6 @@ def layout3d(ranges=None, meta=None, detector=None, titles=None,
             ranges = np.vstack([[0, 0, 0],
                 np.round((meta.upper - meta.lower)/meta.size)]).T
 
-    if detector is not None:
-        # If detector geometry is provided, make the full detector the range
-        assert (ranges is None or None in ranges) and meta is None, (
-                "Should not specify `detector` along with `ranges` or `meta`.")
-        geo = Geometry(detector)
-        lengths = geo.detector[:,1] - geo.detector[:,0]
-        ranges = geo.detector
-
-        # Add some padding
-        ranges[:,0] -= lengths*0.1
-        ranges[:,1] += lengths*0.1
 
     # Define detector-style camera, unless explicitely provided
     if camera is None:

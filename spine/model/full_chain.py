@@ -111,7 +111,7 @@ class FullChain(torch.nn.Module):
     def __init__(self, chain, uresnet_deghost=None, uresnet=None,
                  uresnet_ppn=None, adapt_labels=None, graph_spice=None,
                  dbscan=None, grappa_shower=None, grappa_track=None,
-                 grappa_particle=None, grappa_inter=None, calibrator=None,
+                 grappa_particle=None, grappa_inter=None, calibration=None,
                  uresnet_deghost_loss=None, uresnet_loss=None,
                  uresnet_ppn_loss=None, graph_spice_loss=None,
                  grappa_shower_loss=None, grappa_track_loss=None,
@@ -140,7 +140,7 @@ class FullChain(torch.nn.Module):
             Global particle aggregation configuration
         grappa_inter : dict, optional
             Interaction aggregation model configuration
-        calibrator : dict, optional
+        caliration : dict, optional
             Calibration manager configuration
         """
         # Initialize the parent class
@@ -158,10 +158,10 @@ class FullChain(torch.nn.Module):
 
         # Initialize the calibrater manager
         if self.calibration == 'apply':
-            assert calibrator is not None, (
+            assert calibration is not None, (
                     "If the calibration is to be applied, must provide the "
-                    "`calibrator` configuration block.")
-            self.calibrator = CalibrationManager(**calibrator)
+                    "`calibration` configuration block.")
+            self.calibrator = CalibrationManager(**calibration)
 
         # Initialize the semantic segmentation model (+ point proposal)
         if self.segmentation is not None and self.segmentation == 'uresnet':
@@ -420,22 +420,45 @@ class FullChain(torch.nn.Module):
         """
         if self.calibration == 'apply':
             # Apply calibration routines
-            voxels = data.to_numpy().tensor[:, COORD_COLS]
-            values = data.to_numpy().tensor[:, VALUE_COL]
+            data_np = data.to_numpy().tensor
             sources = sources.to_numpy().tensor if sources is not None else None
-            run_info = run_info[0] if run_info is not None else None
+            if run_info is None:
+                # Fetch points for the whole batch
+                voxels = data_np[:, COORD_COLS]
+                values = data_np[:, VALUE_COL]
 
-            # TODO: remove hard-coded value of dE/dx
-            values = self.calibrator(voxels, values, sources, run_info, 2.2)
-            data.tensor[:, VALUE_COL] = torch.tensor(
-                    values, dtype=data.dtype, device=data.device)
+                # Calibrate voxel values
+                values = self.calibrator(voxels, values, sources)
+                data.tensor[:, value_col] = torch.tensor(
+                        values, dtype=data.dtype, device=data.device)
+
+            else:
+                # Loop over entries in the batch (might have different run IDs)
+                rep = data.batch_size//len(run_info)
+                for b in range(data.batch_size):
+                    # Fetch points for this batch entry
+                    lower, upper = data.edges[b], data.edges[b+1]
+                    data_b = data_np[lower:upper]
+                    voxels_b = data_b[:, COORD_COLS]
+                    values_b = data_b[:, VALUE_COL]
+
+                    # Fetch run ID for this batch entry
+                    run_id = run_info[b//rep].run
+
+                    # Calibrate voxel values
+                    sources_b = sources[lower:upper] if sources is not None else None
+                    values_b = self.calibrator(
+                            voxels_b, values_b, sources_b, run_id)
+
+                    data.tensor[lower:upper, VALUE_COL] = torch.tensor(
+                            values_b, dtype=data.dtype, device=data.device)
 
             self.result['data_adapt'] = data
 
         elif self.calibration == 'label':
             # Use energy labels to give values to each voxel
             assert energy_label is not None, (
-                    "Must provide `seg_label` to deghost with it.")
+                    "Must provide `energy_label` to do label-based calibration.")
             data.tensor[:, VALUE_COL] = energy_label.tensor[:, VALUE_COL]
 
             self.result['data_adapt'] = data

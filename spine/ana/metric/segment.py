@@ -16,6 +16,8 @@ class SegmentAna(AnaBase):
     """Class which computes and stores the necessary data to build a
     semantic segmentation confusion matrix.
     """
+
+    # Name of the analysis script (as specified in the configuration)
     name = 'segment_eval'
 
     def __init__(self, summary=True, num_classes=GHOST_SHP, ghost=False,
@@ -70,19 +72,22 @@ class SegmentAna(AnaBase):
                 "Cannot produce ghost metrics from fragments/particles.")
         
         # List the necessary data products
+        keys = self.keys
         if not use_fragments and not use_particles:
             self.obj_source = None
-            self.keys[label_key] = True
-            self.keys['segmentation'] = True
+            keys[label_key] = True
+            keys['segmentation'] = True
             if ghost:
                 self.num_classes += 1
-                self.keys['ghost'] = True
+                keys['ghost'] = True
 
         else:
-            self.keys['points'] = True
+            keys['points'] = True
             self.obj_type = 'fragments' if use_fragments else 'particles'
             for prefix in ['reco', 'truth']:
-                self.keys[f'{prefix}_{self.obj_type}'] = True
+                keys[f'{prefix}_{self.obj_type}'] = True
+
+        self.keys = keys
 
         # Initialize the output
         if summary:

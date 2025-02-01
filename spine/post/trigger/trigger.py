@@ -13,9 +13,15 @@ class TriggerProcessor(PostBase):
     """Parses trigger information from a CSV file and adds a new trigger_info
     data product to the data dictionary.
     """
+
+    # Name of the post-processor (as specified in the configuration)
     name = 'trigger'
-    aliases = ['parse_trigger']
-    keys = {'run_info': True}
+
+    # Alternative allowed names of the post-processor
+    aliases = ('parse_trigger',)
+
+    # Set of data keys needed for this post-processor to operate
+    _keys = (('run_info', True),)
 
     def __init__(self, file_path, correct_flash_times=True, flash_keys=None,
                  flash_time_corr_us=4):
@@ -53,7 +59,7 @@ class TriggerProcessor(PostBase):
             self.flash_time_corr_us  = flash_time_corr_us
 
             # Add flash keys to the required data products
-            self.keys.update({k: True for k in self.flash_keys})
+            self.update_keys({k: True for k in self.flash_keys})
 
     def process(self, data):
         """Parse the trigger information of one entry.

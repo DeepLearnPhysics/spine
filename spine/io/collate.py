@@ -26,7 +26,7 @@ class CollateAll:
     name = 'all'
 
     def __init__(self, split=False, target_id=0, detector=None,
-                 boundary=None, overlay=None, source=None):
+                 geometry_file=None, overlay=None, source=None):
         """Initialize the collation parameters.
 
         Parameters
@@ -38,8 +38,8 @@ class CollateAll:
             If split is `True`, specifies where to relocate the points
         detector : str, optional
             Name of a recognized detector to the geometry from
-        boundary : str, optional
-            Path to a `.npy` boundary file to load the boundaries from
+        geometry_file : str, optional
+            Path to a `.yaml` geometry file to load the geometry from
         overlay : dict, optional
             Image overlay configuration
         source : dict, optional
@@ -50,11 +50,11 @@ class CollateAll:
         self.split = split
         self.source = None
         if split:
-            assert (detector is not None) or (boundary is not None), (
+            assert (detector is not None) or (geoemtry_file is not None), (
                     "If splitting the input per module, must provide detector")
 
             self.target_id = target_id
-            self.geo = Geometry(detector, boundary)
+            self.geo = Geometry(detector, geometry_file)
             self.source = source
 
         if overlay is not None:
@@ -127,7 +127,7 @@ class CollateAll:
                     # one batch ID per [batch, volume] pair
                     voxels_v, features_v, batch_ids_v = [], [], []
                     counts = np.empty(
-                            batch_size*self.geo.num_modules, dtype=np.int64)
+                            batch_size*self.geo.tpc.num_modules, dtype=np.int64)
                     for s, sample in enumerate(batch):
                         # Identify which point belongs to which module
                         voxels, features, meta = sample[key]
@@ -152,7 +152,7 @@ class CollateAll:
                         for m, module_index in enumerate(module_indexes):
                             voxels_v.append(voxels[module_index])
                             features_v.append(features[module_index])
-                            idx = self.geo.num_modules * s + m
+                            idx = self.geo.tpc.num_modules * s + m
                             batch_ids_v.append(np.full(len(module_index),
                                                idx, dtype=voxels.dtype))
                             counts[idx] = len(module_index)
@@ -192,13 +192,13 @@ class CollateAll:
                 else:
                     features_v = []
                     counts = np.empty(
-                            batch_size*self.geo.num_modules, dtype=np.int64)
+                            batch_size*self.geo.tpc.num_modules, dtype=np.int64)
                     for s, sample in enumerate(batch):
                         features = sample[key]
-                        for m in range(self.geo.num_modules):
+                        for m in range(self.geo.tpc.num_modules):
                             module_index = np.where(sources[s][:, 0] == m)[0]
                             features_v.append(features[module_index])
-                            idx = self.geo.num_modules * s + m
+                            idx = self.geo.tpc.num_modules * s + m
                             counts[idx] = len(module_index)
 
                     tensor = np.vstack(features_v)

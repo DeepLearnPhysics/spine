@@ -13,12 +13,8 @@ class LifetimeCalibrator:
     """
     name = 'lifetime'
 
-    def __init__(self,
-                 num_tpcs,
-                 lifetime = None,
-                 driftv = None,
-                 lifetime_db = None,
-                 driftv_db = None):
+    def __init__(self, num_tpcs, lifetime=None, driftv=None, lifetime_db=None,
+                 driftv_db=None):
         """Load the information needed to make a lifetime correction.
 
         Parameters
@@ -108,12 +104,14 @@ class LifetimeCalibrator:
             driftv = self.driftv[run_id]
 
         # Compute the distance to the anode plane
-        m, t = tpc_id // geo.num_tpcs_per_module, tpc_id % geo.num_tpcs_per_module
-        daxis, position = geo.anodes[m, t]
+        m = tpc_id // geo.tpc.num_chambers_per_module
+        t = tpc_id % geo.tpc.num_chambers_per_module
+        daxis = geo.tpc[m, t].drift_axis
+        position = geo.tpc[m, t].anode_pos
         drifts = np.abs(points[:, daxis] - position)
 
         # Clip down to the physical range of possible drift distances
-        max_drift = geo.ranges[m, t][daxis]
+        max_drift = geo.tpc[m, t].dimensions[daxis]
         drifts = np.clip(drifts, 0., max_drift)
 
         # Convert the drift distances to correction factors

@@ -2,15 +2,15 @@
 
 from spine.utils.factory import module_dict, instantiate
 
-from . import metric, script
+from . import diag, metric, script
 
 # Build a dictionary of available calibration modules
 ANA_DICT = {}
-for module in [metric, script]:
+for module in [diag, metric, script]:
     ANA_DICT.update(**module_dict(module))
 
 
-def ana_script_factory(name, cfg, overwrite=False, log_dir=None, prefix=None):
+def ana_script_factory(name, cfg, overwrite=None, log_dir=None, prefix=None):
     """Instantiates an analyzer module from a configuration dictionary.
 
     Parameters
@@ -22,7 +22,7 @@ def ana_script_factory(name, cfg, overwrite=False, log_dir=None, prefix=None):
     parent_path : str
         Path to the parent directory of the main analysis configuration. This
         allows for the use of relative paths in the analyzers.
-    overwrite : bool, default False
+    overwrite : bool, optional
         If `True`, overwrite the CSV logs if they already exist
     log_dir : str, optional
         Output CSV file directory (shared with driver log)
@@ -39,5 +39,9 @@ def ana_script_factory(name, cfg, overwrite=False, log_dir=None, prefix=None):
     cfg['name'] = name
 
     # Instantiate the analysis script module
-    return instantiate(
-            ANA_DICT, cfg, overwrite=overwrite, log_dir=log_dir, prefix=prefix)
+    if overwrite is not None:
+        return instantiate(
+                ANA_DICT, cfg, overwrite=overwrite, log_dir=log_dir, prefix=prefix)
+    else:
+        return instantiate(
+                ANA_DICT, cfg, log_dir=log_dir, prefix=prefix)

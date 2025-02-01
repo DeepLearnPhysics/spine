@@ -16,8 +16,12 @@ class ChildrenProcessor(PostBase):
     """Count the number of children of a given particle, using the particle
     hierarchy information from :class:`ParticleGraphParser`.
     """
+
+    # Name of the post-processor (as specified in the configuration)
     name = 'children_count'
-    aliases = ['count_children']
+
+    # Alternative allowed names of the post-processor
+    aliases = ('count_children',)
 
     def __init__(self, mode='shape', obj_type='particle'):
         """Initialize the children counting parameters.

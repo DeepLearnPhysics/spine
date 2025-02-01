@@ -17,6 +17,8 @@ class BipartiteGraph(GraphBase):
     See :class:`GraphBase` for attributes/methods shared
     across all graph constructors.
     """
+
+    # Name of the graph constructor (as specified in the configuration)
     name = 'bipartite'
 
     def __init__(self, directed_to, **kwargs):

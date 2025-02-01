@@ -304,8 +304,8 @@ class PPNPredictor:
 
 
 def get_particle_points(data, clusts, clusts_seg, ppn_points,
-                        anchor_points=True, enhance_track_points=False,
-                        approx_farthest_points=True):
+                        contained_first=True, anchor_points=True,
+                        enhance_track_points=False, approx_farthest_points=True):
     """Associate PPN points with particle clusters.
 
     Given a list particle or fragment clusters, leverage the raw PPN output
@@ -324,16 +324,19 @@ def get_particle_points(data, clusts, clusts_seg, ppn_points,
         Array of cluster semantic types
     ppn_points : numpy.ndarray
         Raw output of PPN
+    contained_first : bool, default True
+        If `True`, for shower points, give precedence to voxels which
+        predict a point within one voxel of their location
     anchor_points : bool, default True
         If `True`, the point estimates are brought to the closest cluster voxel
-    approx_farthest_points: bool, default True
-        If `True`, approximate the computation of the two farthest points
     enhance_track_points, default False
         If `True`, tracks leverage PPN predictions to provide a more
         accurate estimate of the end points. This needs to be avoided for
         track fragments, as PPN is typically not trained to find end points
         for them. If set to `False`, the two voxels farthest away from each
         other are picked.
+    approx_farthest_points: bool, default True
+        If `True`, approximate the computation of the two farthest points
     """
     # Define operations on the basis of the input type
     if torch.is_tensor(data.tensor):
@@ -391,11 +394,14 @@ def get_particle_points(data, clusts, clusts_seg, ppn_points,
             # Only use positive voxels and give precedence to predictions
             # that are contained within the voxel making the prediction.
             ppn_scores = softmax(points_tensor[:, PPN_RPOS_COLS], 1)[:, -1]
-            dists = abss(points_tensor[:, PPN_ROFF_COLS])
+            if contained_first:
+                dists = abss(points_tensor[:, PPN_ROFF_COLS])
 
-            val_index = where((ppn_scores > 0.5) & (dists < 1.).all(1))[0]
-            if len(val_index):
-                best_id = val_index[argmax(ppn_scores[val_index])]
+                val_index = where((ppn_scores > 0.5) & (dists < 1.).all(1))[0]
+                if len(val_index):
+                    best_id = val_index[argmax(ppn_scores[val_index])]
+                else:
+                    best_id = argmax(ppn_scores)
             else:
                 best_id = argmax(ppn_scores)
 
@@ -544,6 +550,67 @@ def get_ppn_labels(particle_v, meta, dtype, dim=3, min_voxel_count=1,
         return np.empty((0, 5 + include_point_tagging), dtype=dtype)
 
     return np.array(part_info, dtype=dtype)
+
+
+def get_vertex_labels(particle_v, neutrino_v, meta, dtype):
+    """Gets particle vertex coordinates.
+
+    It provides the coordinates of points where multiple particles originate:
+    - If the `neutrino_event` is provided, it simply uses the coordinates of
+      the neutrino interaction points.
+    - If the `particle_event` is provided instead, it looks for ancestor point
+      positions shared by at least two **primary** particles.
+
+    Parameters
+    ----------
+    particle_v : List[larcv.Particle]
+        List of LArCV particle objects in the image
+    neutrino_v : List[larcv.Neutrino]
+        List of LArCV neutrino objects in the image
+    meta : larcv::Voxel3DMeta or larcv::ImageMeta
+        Metadata information
+    dtype : str
+        Typing of the output PPN labels
+
+    Returns
+    -------
+    np.array
+        Array of points of shape (N, 4) where 4 = x, y, z, vertex_id
+    """
+    # If the particles are provided, find unique ancestors
+    vertexes = []
+    if particle_v is not None:
+        # Fetch all ancestor positions of primary particles
+        anc_positions = []
+        for i, p in enumerate(particle_v):
+            if p.parent_id() == p.id() or p.ancestor_pdg_code() == 111:
+                if image_contains(meta, p.ancestor_position()):
+                    anc_pos = image_coordinates(meta, p.ancestor_position())
+                    anc_positions.append(anc_pos)
+
+        # If there is no primary, nothing to do
+        if not len(anc_positions):
+            return np.empty((0, 4), dtype=dtype)
+
+        # Find those that appear > once
+        anc_positions = np.vstack(anc_positions)
+        unique_positions, counts = np.unique(
+                anc_positions, return_counts=True, axis=0)
+        for i, idx in enumerate(np.where(counts > 1)[0]):
+            vertexes.append([*unique_positions[idx], i])
+
+    # If the neutrinos are provided, straightforward
+    if neutrino_v is not None:
+        for i, n in enumerate(neutrino_v):
+            if image_contains(meta, n.position()):
+                nu_pos = image_coordinates(meta, n.position())
+                vertexes.append([*nu_pos, i])
+
+    # If there are no vertex, nothing to do
+    if not len(vertexes):
+        return np.empty((0, 4), dtype=dtype)
+
+    return np.vstack(vertexes).astype(dtype)
 
 
 def image_contains(meta, point, dim=3):

@@ -36,6 +36,8 @@ class EdgeChannelLoss(torch.nn.Module):
     See configuration files prefixed with `grappa_` under the `config`
     directory for detailed examples of working configurations.
     """
+
+    # Name of the GNN loss (as specified in the configuration)
     name = 'channel'
 
     def __init__(self, target, mode='group', loss='ce', balance_loss=False,

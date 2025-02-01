@@ -19,6 +19,8 @@ class KNNGraph(GraphBase):
     See :class:`GraphBase` for attributes/methods shared
     across all graph constructors.
     """
+
+    # Name of the graph constructor (as specified in the configuration)
     name = 'knn'
 
     def __init__(self, k, **kwargs):

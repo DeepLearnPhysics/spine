@@ -23,7 +23,8 @@ class RecombinationCalibrator:
 
     def __init__(self, efield, drift_dir, model='mbox', birks_a=0.800,
                  birks_k=0.0486, mbox_alpha=0.906, mbox_beta=0.203,
-                 mbox_ell_r=1.25, tracking_mode='bin_pca', **kwargs):
+                 mbox_ell_r=1.25, mip_dedx=2.2, tracking_mode='bin_pca',
+                 **kwargs):
         """Initialize the recombination model and its constants.
 
         Parameters
@@ -44,6 +45,12 @@ class RecombinationCalibrator:
             Modified box model beta parameter in (kV/cm)(g/cm^2)/MeV
         mbox_ell_r : float, default 1.25 (ICARUS fit)
             Modified box model ellipsoid correction R parameter
+        mip_dedx : float, default 2.2 (must be changed to 2.105168)
+            Mean dE/dx value of a MIP in LAr. Used to apply a flat recombination
+            correction if the local dE/dx is not evaluated through tracking.
+        track_mode : float, default 'bin_pca'
+            If tracking is done to produce local dQ/dx values along tracks,
+            defines the track chunking method to be used.
         **kwargs : dict, optional
             Additional arguments to pass to the tracking algorithm
         """
@@ -56,6 +63,7 @@ class RecombinationCalibrator:
             self.model = 'birks'
             self.a = birks_a
             self.k = birks_k/efield/LAR_DENSITY # cm/MeV
+
         elif model in ['mbox', 'mbox_ell']:
             self.model = 'mbox'
             self.alpha = mbox_alpha
@@ -64,10 +72,14 @@ class RecombinationCalibrator:
             if model == 'mbox_ell':
                 self.use_angles = True
                 self.r = mbox_ell_r
+
         else:
             raise ValueError(
                     f"Recombination model not recognized: {model}. "
                      "Must be one of 'birks', 'mbox' or 'mbox_ell'")
+
+        # Evaluate the MIP recombination factor, store it
+        self.mip_recomb = self.recombination_factor(mip_dedx)
 
         # Store the tracking parameters
         self.tracking_mode = tracking_mode
@@ -196,7 +208,7 @@ class RecombinationCalibrator:
         else:
             return self.inv_mbox(dqdx, cosphi)
 
-    def process(self, values, points=None, dedx=None, track=False):
+    def process(self, values, points=None, track=False):
         """Corrects for electron recombination.
 
         Parameters
@@ -206,9 +218,6 @@ class RecombinationCalibrator:
         points : np.ndarray, optional
             (N, 3) array of point coordinates associated with one particle.
             Only needed if `track` is set to `True`.
-        dedx : float, optional
-            If specified, use a flat value of dE/dx in MeV/cm to apply
-            the recombination correction.
         track : bool, defaut `False`
             Whether the object is a track or not. If it is, the track gets
             segmented to evaluate local dE/dx and track angle.
@@ -218,12 +227,9 @@ class RecombinationCalibrator:
         np.ndarray
             (N) array of depositions in MeV
         """
-        # If the dE/dx value is fixed, use it to compute a flat recombination
+        # If no tracking is applied, use the MIP recombination factor
         if not track:
-            assert dedx is not None, (
-                    "If the object is not tracked, must specify a flat dE/dx")
-            recomb = self.recombination_factor(dedx)
-            return values * LAR_WION / recomb
+            return values * LAR_WION / self.mip_recomb
 
         # If the object is a track, segment the track use each segment to
         # compute a local dQ/dx (+ angle w.r.t. to the drift direction, if

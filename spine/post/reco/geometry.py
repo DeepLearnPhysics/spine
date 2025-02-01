@@ -17,13 +17,17 @@ class ContainmentProcessor(PostBase):
     boundaries of the detector and assign the `is_contained` attribute
     accordingly.
     """
+
+    # Name of the post-processor (as specified in the configuration)
     name = 'containment'
-    aliases = ['check_containment']
+
+    # Alternative allowed names of the post-processor
+    aliases = ('check_containment',)
 
     def __init__(self, margin, cathode_margin=None, detector=None,
-                 boundary_file=None, source_file=None, mode='module',
+                 geometry_file=None, mode='module',
                  allow_multi_module=False, min_particle_sizes=0,
-                 obj_type=['particle', 'interaction'],
+                 obj_type=('particle', 'interaction'),
                  truth_point_mode='points', run_mode='both'):
         """Initialize the containment conditions.
 
@@ -45,10 +49,8 @@ class ContainmentProcessor(PostBase):
             If specified, sets a different margin for the cathode boundaries
         detector : str, optional
             Detector to get the geometry from
-        boundary_file : str, optional
-            Path to a detector boundary file. Supersedes `detector` if set
-        source_file : str, optional
-            Path to a detector source file. Supersedes `detector` if set
+        geometry_file : str, optional
+            Path to a `.yaml` geometry file to load the geometry from
         mode : str, default 'module'
             Containement criterion (one of 'global', 'module', 'tpc'):
             - If 'tpc', makes sure it is contained within a single tpc
@@ -72,14 +74,14 @@ class ContainmentProcessor(PostBase):
         # Initialize the geometry, if needed
         if mode != 'meta':
             self.use_meta = False
-            self.geo = Geometry(detector, boundary_file, source_file)
+            self.geo = Geometry(detector, geometry_file)
             self.geo.define_containment_volumes(margin, cathode_margin, mode)
 
         else:
-            assert detector is None and boundary_file is None, (
+            assert detector is None and geometry_file is None, (
                     "When using `meta` to check containment, must not "
                     "provide geometry information.")
-            self.keys['meta'] = True
+            self.update_keys({'meta': True})
             self.use_meta = True
             self.margin = margin
 
@@ -154,11 +156,15 @@ class FiducialProcessor(PostBase):
     The fiducial volume is defined as a margin distances from each of the
     detector walls.
     """
+
+    # Name of the post-processor (as specified in the configuration)
     name = 'fiducial'
-    aliases = ['check_fiducial']
+
+    # Alternative allowed names of the post-processor
+    aliases = ('check_fiducial',)
 
     def __init__(self, margin, cathode_margin=None, detector=None,
-                 boundary_file=None, mode='module', run_mode='both',
+                 geometry_file=None, mode='module', run_mode='both',
                  truth_vertex_mode='vertex'):
         """Initialize the fiducial conditions.
 
@@ -175,8 +181,8 @@ class FiducialProcessor(PostBase):
             If specified, sets a different margin for the cathode boundaries
         detector : str, default 'icarus'
             Detector to get the geometry from
-        boundary_file : str, optional
-            Path to a detector boundary file. Supersedes `detector` if set
+        geometry_file : str, optional
+            Path to a `.yaml` geometry file to load the geometry from
         mode : str, default 'module'
             Containement criterion (one of 'global', 'module', 'tpc'):
             - If 'tpc', makes sure it is contained within a single tpc
@@ -194,14 +200,14 @@ class FiducialProcessor(PostBase):
         # Initialize the geometry
         if mode != 'meta':
             self.use_meta = False
-            self.geo = Geometry(detector, boundary_file)
+            self.geo = Geometry(detector, geometry_file)
             self.geo.define_containment_volumes(margin, cathode_margin, mode)
 
         else:
-            assert detector is None and boundary_file is None, (
+            assert detector is None and geometry_file is None, (
                     "When using `meta` to check containment, must not "
                     "provide geometry information.")
-            self.keys['meta'] = True
+            self.update_keys({'meta': True})
             self.use_meta = True
             self.margin = margin
 

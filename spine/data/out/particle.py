@@ -60,8 +60,12 @@ class ParticleBase:
         Kinetic energy reconstructed from the energy depositions alone in MeV
     csda_ke : float
         Kinetic energy reconstructed from the particle range in MeV
+    csda_ke_per_pid : np.ndarray
+        Same as `csda_ke` but for every available track PID hypothesis
     mcs_ke : float
         Kinetic energy reconstructed using the MCS method in MeV
+    mcs_ke_per_pid : np.ndarray
+        Same as `mcs_ke` but for every available track PID hypothesis
     momentum : np.ndarray
         3-momentum of the particle at the production point in MeV/c
     p : float
@@ -87,39 +91,43 @@ class ParticleBase:
     ke: float = -1.
     calo_ke: float = -1.
     csda_ke: float = -1.
+    csda_ke_per_pid: np.ndarray = None
     mcs_ke: float = -1.
+    mcs_ke_per_pid: np.ndarray = None
     momentum: np.ndarray = None
     p: float = None
     is_valid: bool = True
 
     # Fixed-length attributes
-    _fixed_length_attrs = {
-            'start_point': 3, 'end_point': 3, 'start_dir': 3, 'end_dir': 3,
-            'momentum': 3
-    }
+    _fixed_length_attrs = (
+            ('start_point', 3), ('end_point', 3), ('start_dir', 3),
+            ('end_dir', 3), ('momentum', 3),
+            ('csda_ke_per_pid', len(PID_LABELS) - 1),
+            ('mcs_ke_per_pid', len(PID_LABELS) - 1)
+    )
 
     # Variable-length attributes as (key, dtype) pairs
-    _var_length_attrs = {
-            'fragments': object, 'fragment_ids': np.int32
-    }
+    _var_length_attrs = (
+            ('fragments', object), ('fragment_ids', np.int32)
+    )
 
     # Attributes specifying coordinates
-    _pos_attrs = ['start_point', 'end_point']
+    _pos_attrs = ('start_point', 'end_point')
 
     # Attributes specifying vector components
-    _vec_attrs = ['start_dir', 'end_dir', 'momentum']
+    _vec_attrs = ('start_dir', 'end_dir', 'momentum')
 
     # Boolean attributes
-    _bool_attrs = ['is_primary', 'is_valid']
+    _bool_attrs = ('is_primary', 'is_valid')
 
     # Enumerated attributes
-    _enum_attrs = {
-            'shape': {v : k for k, v in SHAPE_LABELS.items()},
-            'pid': {v : k for k, v in PID_LABELS.items()}
-    }
+    _enum_attrs = (
+            ('shape', tuple((v, k) for k, v in SHAPE_LABELS.items())),
+            ('pid', tuple((v, k) for k, v in PID_LABELS.items()))
+    )
 
-    # Attributes that should not be stored
-    _skip_attrs = ['fragments', 'ppn_points']
+    # Attributes that must never be stored to file
+    _skip_attrs = ('fragments', 'ppn_points')
 
     def __str__(self):
         """Human-readable string representation of the particle object.
@@ -196,29 +204,45 @@ class RecoParticle(ParticleBase, RecoBase):
         (M) List of indexes of PPN points associated with this particle
     ppn_points : np.ndarray
         (M, 3) List of PPN points tagged to this particle
+    vertex_distance: float
+        Set-to-point distance between all particle points and the parent
+        interaction vertex. (untis of cm)
+    shower_split_angle: float
+        Estimate of the opening angle of the shower. If particle is not a
+        shower, then this is set to -1. (units of degrees)
     """
     pid_scores: np.ndarray = None
     primary_scores: np.ndarray = None
     ppn_ids: np.ndarray = None
     ppn_points: np.ndarray = None
+    vertex_distance: float = -1.
+    shower_split_angle: float = -1.
 
     # Fixed-length attributes
-    _fixed_length_attrs = {
-            'pid_scores': len(PID_LABELS) - 1,
-            'primary_scores': 2,
-            **ParticleBase._fixed_length_attrs}
+    _fixed_length_attrs = (
+            ('pid_scores', len(PID_LABELS) - 1), ('primary_scores', 2),
+            *ParticleBase._fixed_length_attrs
+    )
 
     # Variable-length attributes
-    _var_length_attrs = {
-            **RecoBase._var_length_attrs, **ParticleBase._var_length_attrs,
-            'ppn_ids': np.int32, 'ppn_points': (3, np.float32)
-    }
+    _var_length_attrs = (
+            ('ppn_ids', np.int32), ('ppn_points', (3, np.float32)),
+            *RecoBase._var_length_attrs,
+            *ParticleBase._var_length_attrs
+    )
 
     # Boolean attributes
-    _bool_attrs = [*RecoBase._bool_attrs, *ParticleBase._bool_attrs]
+    _bool_attrs = (
+            *RecoBase._bool_attrs,
+            *ParticleBase._bool_attrs
+    )
 
-    # Attributes that should not be stored
-    _skip_attrs = [*RecoBase._skip_attrs, *ParticleBase._skip_attrs, 'ppn_points']
+    # Attributes that must never be stored to file
+    _skip_attrs = (
+            'ppn_points',
+            *RecoBase._skip_attrs,
+            *ParticleBase._skip_attrs
+    )
 
     def __str__(self):
         """Human-readable string representation of the particle object.
@@ -351,6 +375,30 @@ class RecoParticle(ParticleBase, RecoBase):
     def momentum(self, momentum):
         pass
 
+    @property
+    def reco_ke(self):
+        """Alias for `ke`, to match nomenclature in truth."""
+        return self.ke
+    
+    @property
+    def reco_momentum(self):
+        """Alias for `momentum`, to match nomenclature in truth."""
+        return self.momentum
+    
+    @property
+    def reco_length(self):
+        """Alias for `length`, to match nomenclature in truth."""
+        return self.length
+
+    @property
+    def reco_start_dir(self):
+        """Alias for `start_dir`, to match nomenclature in truth."""
+        return self.start_dir
+    
+    @property
+    def reco_end_dir(self):
+        """Alias for `end_dir`, to match nomenclature in truth."""
+        return self.end_dir
 
 @dataclass(eq=False)
 @inherit_docstring(TruthBase, ParticleBase)
@@ -373,42 +421,58 @@ class TruthParticle(Particle, ParticleBase, TruthBase):
     reco_end_dir : np.ndarray
         (3) Particle direction estimate w.r.t. the end point (only assigned
         to track objects)
+    reco_ke : float
+        Best-guess reconstructed KE of the particle
+    reco_momentum : np.ndarray
+        Best-guess reconstructed momentum of the particle
     """
     orig_interaction_id: int = -1
     children_counts: np.ndarray = None
     reco_length: float = -1.
     reco_start_dir: np.ndarray = None
     reco_end_dir: np.ndarray = None
+    reco_ke: float = -1.
+    reco_momentum: np.ndarray = None
 
     # Fixed-length attributes
-    _fixed_length_attrs = {
-            **ParticleBase._fixed_length_attrs,
-            **Particle._fixed_length_attrs,
-            'reco_start_dir': 3, 'reco_end_dir': 3
-    }
+    _fixed_length_attrs = (
+            ('reco_start_dir', 3), ('reco_end_dir', 3), ('reco_momentum', 3),
+            *ParticleBase._fixed_length_attrs,
+            *Particle._fixed_length_attrs
+    )
 
     # Variable-length attributes
-    _var_length_attrs = {
-            **TruthBase._var_length_attrs,
-            **ParticleBase._var_length_attrs,
-            **Particle._var_length_attrs,
-            'children_counts': np.int32
-    }
+    _var_length_attrs = (
+            ('children_counts', np.int32),
+            *TruthBase._var_length_attrs,
+            *ParticleBase._var_length_attrs,
+            *Particle._var_length_attrs
+    )
 
     # Attributes specifying coordinates
-    _pos_attrs = [*ParticleBase._pos_attrs, *Particle._pos_attrs]
+    _pos_attrs = (
+            *ParticleBase._pos_attrs,
+            *Particle._pos_attrs
+    )
 
     # Attributes specifying vector components
-    _vec_attrs = [
-            *ParticleBase._vec_attrs, *Particle._vec_attrs,
-            'reco_start_dir', 'reco_end_dir'
-    ]
+    _vec_attrs = (
+            'reco_start_dir', 'reco_end_dir', 'reco_momentum',
+            *ParticleBase._vec_attrs,
+            *Particle._vec_attrs
+    )
 
     # Boolean attributes
-    _bool_attrs = [*TruthBase._bool_attrs, *ParticleBase._bool_attrs]
+    _bool_attrs = (
+            *TruthBase._bool_attrs,
+            *ParticleBase._bool_attrs
+    )
 
-    # Attributes that should not be stored
-    _skip_attrs = [*TruthBase._skip_attrs, *ParticleBase._skip_attrs]
+    # Attributes that must never be stored to file
+    _skip_attrs = (
+            *TruthBase._skip_attrs,
+            *ParticleBase._skip_attrs
+    )
 
     def __str__(self):
         """Human-readable string representation of the particle object.
@@ -482,4 +546,58 @@ class TruthParticle(Particle, ParticleBase, TruthBase):
 
     @ke.setter
     def ke(self, ke):
+        pass
+
+    @property
+    def reco_ke(self):
+        """Best-guess reconstructed kinetic energy in MeV.
+
+        Uses calorimetry for EM activity and this order for track:
+        - CSDA-based estimate if it is available
+        - MCS-based estimate if it is available
+        - Calorimetry if all else fails
+
+        Returns
+        -------
+        float
+            Best-guess kinetic energy
+        """
+        if self.shape != TRACK_SHP:
+            # If a particle is not a track, can only use calorimetry
+            return self.calo_ke
+
+        else:
+            # If a particle is a track, pick CSDA for contained tracks and
+            # pick MCS for uncontained tracks, unless specified otherwise
+            if self.is_contained and self.csda_ke > 0.0:
+                return self.csda_ke
+            elif not self.is_contained and self.mcs_ke > 0.0:
+                return self.mcs_ke
+            else:
+                return self.calo_ke
+
+    @reco_ke.setter
+    def reco_ke(self, reco_ke):
+        pass
+
+    @property
+    def reco_momentum(self):
+        """Best-guess reconstructed momentum in MeV/c.
+
+        Returns
+        -------
+        np.ndarray
+            (3) Momentum vector
+        """
+        ke = self.reco_ke
+        if ke >= 0.0 and self.reco_start_dir[0] != -np.inf and self.pid in PID_MASSES:
+            mass = PID_MASSES[self.pid]
+            mom = np.sqrt(ke**2 + 2 * ke * mass)
+            return mom * self.reco_start_dir
+
+        else:
+            return np.full(3, -np.inf, dtype=np.float32)
+
+    @reco_momentum.setter
+    def reco_momentum(self, reco_momentum):
         pass

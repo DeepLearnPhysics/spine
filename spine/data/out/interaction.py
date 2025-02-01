@@ -38,10 +38,12 @@ class InteractionBase:
         Whether this interaction vertex is inside the fiducial volume
     is_flash_matched : bool
         True if the interaction was matched to an optical flash
-    flash_id : int
-        Index of the optical flash the interaction was matched to
-    flash_time : float
-        Time at which the flash occurred in nanoseconds
+    flash_ids : np.ndarray
+        (F) Indices of the optical flashes the interaction is matched to
+    flash_volume_ids : np.ndarray
+        (F) Indices of the optical volumes the flashes where recorded in
+    flash_times : np.ndarray
+        (F) Times at which the flashes occurred in microseconds
     flash_total_pe : float
         Total number of photoelectrons associated with the flash
     flash_hypo_pe : float
@@ -57,31 +59,35 @@ class InteractionBase:
     vertex: np.ndarray = None
     is_fiducial: bool = False
     is_flash_matched: bool = False
-    flash_id: int = -1
-    flash_time: float = -np.inf
+    flash_ids: np.ndarray = None
+    flash_volume_ids: np.ndarray = None
+    flash_times: np.ndarray = None
+    flash_scores: np.ndarray = None
     flash_total_pe: float = -1.
     flash_hypo_pe: float = -1.
     topology: str = None
 
     # Fixed-length attributes
-    _fixed_length_attrs = {
-            'vertex': 3, 'particle_counts': len(PID_LABELS) - 1,
-            'primary_particle_counts': len(PID_LABELS) - 1
-    }
+    _fixed_length_attrs = (
+            ('vertex', 3), ('particle_counts', len(PID_LABELS) - 1),
+            ('primary_particle_counts', len(PID_LABELS) - 1)
+    )
 
     # Variable-length attributes as (key, dtype) pairs
-    _var_length_attrs = {
-            'particles': object, 'particle_ids': np.int32
-    }
+    _var_length_attrs = (
+            ('particles', object), ('particle_ids', np.int32),
+            ('flash_ids', np.int32), ('flash_volume_ids', np.int32),
+            ('flash_times', np.float32), ('flash_scores', np.float32)
+    )
 
     # Attributes specifying coordinates
-    _pos_attrs = ['vertex']
+    _pos_attrs = ('vertex',)
 
     # Boolean attributes
-    _bool_attrs = ['is_fiducial', 'is_flash_matched']
+    _bool_attrs = ('is_fiducial', 'is_flash_matched')
 
-    # Attributes that should not be stored
-    _skip_attrs = ['particles']
+    # Attributes that must never be stored to file
+    _skip_attrs = ('particles',)
 
     def __str__(self):
         """Human-readable string representation of the interaction object.
@@ -217,16 +223,23 @@ class InteractionBase:
 class RecoInteraction(InteractionBase, RecoBase):
     """Reconstructed interaction information."""
 
-    # Attributes that should not be stored
-    _skip_attrs = [*RecoBase._skip_attrs, *InteractionBase._skip_attrs]
+    # Attributes that must never be stored to file
+    _skip_attrs = (
+            *RecoBase._skip_attrs,
+            *InteractionBase._skip_attrs
+    )
 
     # Variable-length attributes
-    _var_length_attrs = {
-            **RecoBase._var_length_attrs, **InteractionBase._var_length_attrs
-    }
+    _var_length_attrs = (
+            *RecoBase._var_length_attrs,
+            *InteractionBase._var_length_attrs
+    )
 
     # Boolean attributes
-    _bool_attrs = [*RecoBase._bool_attrs, *InteractionBase._bool_attrs]
+    _bool_attrs = (
+            *RecoBase._bool_attrs,
+            *InteractionBase._bool_attrs
+    )
 
     def __str__(self):
         """Human-readable string representation of the interaction object.
@@ -258,28 +271,36 @@ class TruthInteraction(Neutrino, InteractionBase, TruthBase):
     reco_vertex: np.ndarray = None
 
     # Fixed-length attributes
-    _fixed_length_attrs = {
-            **Neutrino._fixed_length_attrs,
-            **InteractionBase._fixed_length_attrs,
-            'reco_vertex': 3, 
-    }
+    _fixed_length_attrs = (
+            ('reco_vertex', 3),
+            *Neutrino._fixed_length_attrs,
+            *InteractionBase._fixed_length_attrs
+    )
 
     # Variable-length attributes
-    _var_length_attrs = {
-            **TruthBase._var_length_attrs,
-            **InteractionBase._var_length_attrs
-    }
+    _var_length_attrs = (
+            *TruthBase._var_length_attrs,
+            *InteractionBase._var_length_attrs
+    )
 
     # Attributes specifying coordinates
-    _pos_attrs = [
-            *InteractionBase._pos_attrs, *Neutrino._pos_attrs, 'reco_vertex'
-    ]
+    _pos_attrs = (
+            'reco_vertex',
+            *InteractionBase._pos_attrs,
+            *Neutrino._pos_attrs
+    )
 
     # Boolean attributes
-    _bool_attrs = [*TruthBase._bool_attrs, *InteractionBase._bool_attrs]
+    _bool_attrs = (
+            *TruthBase._bool_attrs,
+            *InteractionBase._bool_attrs
+    )
 
-    # Attributes that should not be stored
-    _skip_attrs = [*TruthBase._skip_attrs, *InteractionBase._skip_attrs]
+    # Attributes that must never be stored to file
+    _skip_attrs = (
+            *TruthBase._skip_attrs,
+            *InteractionBase._skip_attrs
+    )
 
     def __str__(self):
         """Human-readable string representation of the interaction object.

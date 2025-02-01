@@ -5,9 +5,10 @@ import numpy as np
 
 from spine.model.layer.factories import loss_fn_factory
 
-from spine.utils.globals import GROUP_COL, PRGRP_COL
+from spine.utils.globals import GROUP_COL, PRGRP_COL, COORD_START_COLS
 from spine.utils.weighting import get_class_weights
-from spine.utils.gnn.cluster import get_cluster_label_batch
+from spine.utils.gnn.cluster import (
+        get_cluster_label_batch, get_cluster_closest_primary_label_batch)
 from spine.utils.gnn.evaluation import node_purity_mask_batch
 
 __all__ = ['NodeShowerPrimaryLoss']
@@ -35,9 +36,11 @@ class NodeShowerPrimaryLoss(torch.nn.Module):
     See configuration files prefixed with `grappa_` under the `config`
     directory for detailed examples of working configurations.
     """
+
+    # Name of the loss (as specified in the configuration)
     name = 'shower_primary'
 
-    def __init__(self, balance_loss=False, high_purity=False,
+    def __init__(self, balance_loss=False, high_purity=False, use_closest=False,
                  use_group_pred=False, group_pred_alg='score', loss='ce'):
         """Initialize the EM shower primary identification loss function.
 
@@ -48,6 +51,9 @@ class NodeShowerPrimaryLoss(torch.nn.Module):
         high_purity : bool, default False
             Only apply loss to nodes which belong to a sensible group, i.e.
             one with exactly one primary in it (not 0, not > 1)
+        use_closest : bool, default False
+            For each group, pick the fragment which is closest to the start
+            point of the shower as the primary (more robust to fragment breaks)
         use_group_pred : bool, default False
             Use predicted group to check for high purity
         group_pred_alg : str, default 'score'
@@ -61,14 +67,15 @@ class NodeShowerPrimaryLoss(torch.nn.Module):
         # Initialize basic parameters
         self.balance_loss = balance_loss
         self.high_purity = high_purity
+        self.use_closest = use_closest
         self.use_group_pred = use_group_pred
         self.group_pred_alg = group_pred_alg
 
         # Set the loss
         self.loss_fn = loss_fn_factory(loss, functional=True)
 
-    def forward(self, clust_label, clusts, node_pred, edge_index=None,
-                edge_pred=None, group_pred=None, **kwargs):
+    def forward(self, clust_label, clusts, node_pred, coord_label=None,
+                group_pred=None, **kwargs):
         """Applies the shower primary loss to a batch of data.
 
         Parameters
@@ -79,10 +86,8 @@ class NodeShowerPrimaryLoss(torch.nn.Module):
             (C) Index which maps each cluster to a list of voxel IDs
         node_pred : TensorBatch
             (C, 2) Node prediction logits (binary output)
-        edge_index : EdgeIndexBatch, optional
-            (2, E) Incidence matrix between clusters
-        edge_pred : TensorBatch, optional
-            (E, 2) Edge prediction logits (binary output)
+        coord_label : TensorBatch, optional
+            (P, 1 + D + 8) Label start, end, time and shape for each point
         group_pred : TensorBatch, optional
             (C) Predicted group to which each node belongs to
         **kwargs : dict, optional
@@ -101,6 +106,18 @@ class NodeShowerPrimaryLoss(torch.nn.Module):
         primary_ids = get_cluster_label_batch(
                 clust_label, clusts, column=PRGRP_COL)
         valid_mask = primary_ids.tensor > -1
+
+        # If requested, adjust the primary labeling of groups by picking the
+        # fragment closest to the creation point of the shower
+        if self.use_closest:
+            # Make sure that the start point labeling is provided
+            assert coord_label is not None, (
+                    "To use the shower fragment closest to the shower creation "
+                    "point as the primary fragment, must provide `coord_label`.")
+
+            # Adjust the primary labels
+            primary_ids = get_cluster_closest_primary_label_batch(
+                    clust_label, coord_label, clusts, primary_ids)
 
         # If requested, remove groups that do not contain exactly one primary
         if self.high_purity:

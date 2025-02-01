@@ -14,13 +14,15 @@ class CalibrationManager:
     a set of 3D space points and their associated measured charge depositions.
     """
 
-    def __init__(self, geometry, **cfg):
+    def __init__(self, geometry, gain_applied=False, **cfg):
         """Initialize the manager.
 
         Parameters
         ----------
         geometry : dict
             Geometry configuration
+        gain_applied : bool, default False
+            Weather the gain conversion was applied upstream or not
         **cfg : dict, optional
             Calibrator configurations
         """
@@ -28,7 +30,7 @@ class CalibrationManager:
         self.geo = Geometry(**geometry)
 
         # Make sure the essential calibration modules are present
-        assert 'recombination' not in cfg or 'gain' in cfg, (
+        assert gain_applied or 'recombination' not in cfg or 'gain' in cfg, (
                 "Must provide gain configuration if recombination is applied.")
 
         # Add the modules to a processor list in decreasing order of priority
@@ -40,15 +42,14 @@ class CalibrationManager:
 
             # Add necessary geometry information
             if key != 'recombination':
-                value['num_tpcs'] = self.geo.num_tpcs
+                value['num_tpcs'] = self.geo.tpc.num_chambers
             else:
-                value['drift_dir'] = self.geo.drift_dirs[0, 0]
+                value['drift_dir'] = self.geo.tpc[0, 0].drift_dir
 
             # Append
             self.modules[key] = calibrator_factory(key, value)
 
-    def __call__(self, points, values, sources=None, run_id=None,
-                 dedx=None, track=None):
+    def __call__(self, points, values, sources=None, run_id=None, track=None):
         """Main calibration driver.
 
         Parameters
@@ -63,9 +64,6 @@ class CalibrationManager:
         run_id : int, optional
             ID of the run to get the calibration for. This is needed when using
             a database of corrections organized by run.
-        dedx : float, optional
-            If specified, use a flat value of dE/dx in MeV/cm to apply
-            the recombination correction.
         track : bool, defaut `False`
             Whether the object is a track or not. If it is, the track gets
             segmented to evaluate local dE/dx and track angle.
@@ -78,12 +76,13 @@ class CalibrationManager:
         # Create a mask for each of the TPC volume in the detector
         if sources is not None:
             tpc_indexes = []
-            for t in range(self.geo.num_tpcs):
-                # Get the set of points associated with this TPC
-                module_id = t//self.geo.num_tpcs_per_module
-                tpc_id = t%self.geo.num_tpcs_per_module
-                tpc_index = self.geo.get_tpc_index(sources, module_id, tpc_id)
-                tpc_indexes.append(tpc_index)
+            for module_id in range(self.geo.tpc.num_modules):
+                for tpc_id in range(self.geo.tpc.num_chambers_per_module):
+                    # Get the set of points associated with this TPC
+                    tpc_index = self.geo.get_volume_index(
+                            sources, module_id, tpc_id)
+                    tpc_indexes.append(tpc_index)
+
         else:
             assert points is not None, (
                     "If sources are not given, must provide points instead.")
@@ -91,7 +90,7 @@ class CalibrationManager:
 
         # Loop over the TPCs, apply the relevant calibration corrections
         new_values = np.copy(values)
-        for t in range(self.geo.num_tpcs):
+        for t in range(self.geo.tpc.num_chambers):
             # Restrict to the TPC of interest
             if len(tpc_indexes[t]) == 0:
                 continue
@@ -124,7 +123,7 @@ class CalibrationManager:
             if 'recombination' in self.modules:
                 self.watch.start('recombination')
                 tpc_values = self.modules['recombination'].process(
-                        tpc_values, tpc_points, dedx, track) # MeV
+                        tpc_values, tpc_points, track) # MeV
                 self.watch.stop('recombination')
 
             # Append

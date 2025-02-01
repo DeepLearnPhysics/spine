@@ -63,19 +63,19 @@ class CRTHit(PosDataBase):
     units: str = 'cm'
 
     # Fixed-length attributes
-    _fixed_length_attrs = {'center': 3, 'width': 3}
+    _fixed_length_attrs = (('center', 3), ('width', 3))
 
     # Variable-length attributes
-    _var_length_attrs = {'feb_id': np.ubyte}
+    _var_length_attrs = (('feb_id', np.ubyte),)
 
     # Attributes specifying coordinates
-    _pos_attrs = ['position']
+    _pos_attrs = ('position',)
 
     # Attributes specifying vector components
-    _vec_attrs = ['width']
+    _vec_attrs = ('width',)
 
     # String attributes
-    _str_attrs = ['tagger', 'units']
+    _str_attrs = ('tagger', 'units')
 
     @classmethod
     def from_larcv(cls, crthit):
@@ -92,7 +92,7 @@ class CRTHit(PosDataBase):
             CRT hit object
         """
         # Get the physical center and width of the CRT hit
-        axes = ['x', 'y', 'z']
+        axes = ('x', 'y', 'z')
         center = np.array([getattr(crthit, f'{a}_pos')() for a in axes])
         width = np.array([getattr(crthit, f'{a}_err')() for a in axes])
 
@@ -100,7 +100,8 @@ class CRTHit(PosDataBase):
         feb_id = np.array([ord(c) for c in crthit.feb_id()], dtype=np.ubyte)
 
         # Get the number of PEs per FEB channel
-        # TODO: This is a dictionary of dictionaries, hard to store
+        # TODO: This is a dictionary of dictionaries, need to figure out
+        # how to unpack in a sensible manner
 
         return cls(id=crthit.id(), plane=crthit.plane(),
                    tagger=crthit.tagger(), feb_id=feb_id, ts0_s=crthit.ts0_s(),

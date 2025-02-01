@@ -25,10 +25,18 @@ class AnaBase(ABC):
     units : str
         Units in which the coordinates are expressed
     """
+
+    # Name of the analysis script (as specified in the configuration)
     name = None
+
+    # Alternative allowed names of the analysis script
     aliases = ()
-    keys = None
+
+    # Units in which the analysis script expects objects to be expressed in
     units = 'cm'
+
+    # Set of data keys needed for this analysis script to operate
+    _keys = ()
 
     # List of recognized object types
     _obj_types = ('fragment', 'particle', 'interaction')
@@ -36,8 +44,15 @@ class AnaBase(ABC):
     # Valid run modes
     _run_modes = ('reco', 'truth', 'both', 'all')
 
-    def __init__(self, obj_type=None, run_mode=None, append=False,
-                 overwrite=False, log_dir=None, prefix=None):
+    # List of known point modes for true particles and their corresponding keys
+    _point_modes = (
+            ('points', 'points_label'),
+            ('points_adapt', 'points'),
+            ('points_g4', 'points_g4')
+    )
+
+    def __init__(self, obj_type=None, run_mode=None, truth_point_mode=None,
+                 append=False, overwrite=False, log_dir=None, prefix=None):
         """Initialize default anlysis script object properties.
 
         Parameters
@@ -48,6 +63,10 @@ class AnaBase(ABC):
             If specified, tells whether the analysis script must run on
             reconstructed ('reco'), true ('true') or both objects
             ('both' or 'all')
+        truth_point_mode : str, optional
+            If specified, tells which attribute of the :class:`TruthFragment`,
+            :class:`TruthParticle` or :class:`TruthInteraction` object to use
+            to fetch its point coordinates
         append : bool, default False
             If True, appends existing CSV files instead of creating new ones
         overwrite : bool, default False
@@ -58,9 +77,7 @@ class AnaBase(ABC):
             Name to prefix every output CSV file with
         """
         # Initialize default keys
-        if self.keys is None:
-            self.keys = {}
-        self.keys.update({
+        self.update_keys({
                 'index': True, 'file_index': True,
                 'file_entry_index': False, 'run_info': False
         })
@@ -104,7 +121,17 @@ class AnaBase(ABC):
         self.obj_keys = (self.fragment_keys 
                          + self.particle_keys 
                          + self.interaction_keys)
-        self.keys.update({k:True for k in self.obj_keys})
+
+        # Update underlying keys, if needed
+        self.update_keys({k:True for k in self.obj_keys})
+
+        # If a truth point mode is specified, store it
+        if truth_point_mode is not None:
+            assert truth_point_mode in self.point_modes, (
+                     "The `truth_point_mode` argument must be one of "
+                    f"{self.point_modes.keys()}. Got `{truth_point_mode}` instead.")
+            self.truth_point_mode = truth_point_mode
+            self.truth_index_mode = truth_point_mode.replace('points', 'index')
 
         # Store the append flag
         self.append_file = append
@@ -135,6 +162,54 @@ class AnaBase(ABC):
         self.writers[name] = CSVWriter(
                 file_name, append=self.append_file,
                 overwrite=self.overwrite_file)
+
+    @property
+    def keys(self):
+        """Dictionary of (key, necessity) pairs which determine which data keys
+        are needed/optional for the post-processor to run.
+
+        Returns
+        -------
+        Dict[str, bool]
+            Dictionary of (key, necessity) pairs to be used
+        """
+        return dict(self._keys)
+
+    @keys.setter
+    def keys(self, keys):
+        """Converts a dictionary of keys to an immutable tuple.
+
+        Parameters
+        ----------
+        Dict[str, bool]
+            Dictionary of (key, necessity) pairs to be used
+        """
+        self._keys = tuple(keys.items())
+
+    @property
+    def point_modes(self):
+        """Dictionary which makes the correspondance between the name of a true
+        object point attribute with the underlying point tensor it points to.
+
+        Returns
+        -------
+        Dict[str, str]
+            Dictionary of (attribute, key) mapping for point coordinates
+        """
+        return dict(self._point_modes)
+
+    def update_keys(self, update_dict):
+        """Update the underlying set of keys and their necessity in place.
+
+        Parameters
+        ----------
+        update_dict : Dict[str, bool]
+            Dictionary of (key, necessity) pairs to update the keys with
+        """
+        if len(update_dict) > 0:
+            keys = self.keys
+            keys.update(update_dict)
+            self._keys = tuple(keys.items())
 
     def get_base_dict(self, data):
         """Builds the entry information dictionary.
@@ -204,6 +279,50 @@ class AnaBase(ABC):
 
         # Run the analysis script
         return self.process(data_filter)
+
+    def get_index(self, obj):
+        """Get a certain pre-defined index attribute of an object.
+
+        The :class:`TruthFragment`, :class:`TruthParticle` and
+        :class:`TruthInteraction` objects index are obtained using the
+        `truth_index_mode` attribute of the class.
+
+        Parameters
+        ----------
+        obj : Union[FragmentBase, ParticleBase, InteractionBase]
+            Fragment, Particle or Interaction object
+
+        Results
+        -------
+        np.ndarray
+           (N) Object index
+        """
+        if not obj.is_truth:
+            return obj.index
+        else:
+            return getattr(obj, self.truth_index_mode)
+
+    def get_points(self, obj):
+        """Get a certain pre-defined point attribute of an object.
+
+        The :class:`TruthFragment`, :class:`TruthParticle` and
+        :class:`TruthInteraction` objects points are obtained using the
+        `truth_point_mode` attribute of the class.
+
+        Parameters
+        ----------
+        obj : Union[FragmentBase, ParticleBase, InteractionBase]
+            Fragment, Particle or Interaction object
+
+        Results
+        -------
+        np.ndarray
+           (N, 3) Point coordinates
+        """
+        if not obj.is_truth:
+            return obj.points
+        else:
+            return getattr(obj, self.truth_point_mode)
 
     @abstractmethod
     def process(self, data):

@@ -20,8 +20,12 @@ class ParserBase(ABC):
     tree_keys : List[str]
         List of file data product name
     """
+
+    # Name of the parser (as specified in the configuration)
     name = None
-    aliases = []
+
+    # Alternative allowed names of the parser
+    aliases = ()
 
     def __init__(self, dtype, **kwargs):
         """Loops over data product names, stores them.

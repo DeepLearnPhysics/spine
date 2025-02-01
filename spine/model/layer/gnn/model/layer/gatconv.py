@@ -18,6 +18,8 @@ class GATConvNodeLayer(nn.Module):
 
     Source: https://arxiv.org/abs/1710.10903
     """
+
+    # Name of the node layer (as specified in the configuration)
     name = 'gatconv'
 
     def __init__(self, node_in, edge_in, glob_in, out_channels,

@@ -105,7 +105,7 @@ def edge_assignment_forest_batch(edge_index, edge_pred, group_ids):
             TensorBatch(edge_valid, counts=edge_valid.counts))
 
 
-def edge_assignment_score_batch(edge_index, edge_pred, clusts):
+def edge_assignment_score_batch(edge_index, edge_pred, clusts, track_node=None):
     """Batched version of :func:`edge_assignment_score`.
 
     Parameters
@@ -116,6 +116,8 @@ def edge_assignment_score_batch(edge_index, edge_pred, clusts):
         (E, 2) Logits associated with each edge
     clusts : IndexBatch
         (C) List of cluster indexes
+    track_node : TensorBatch, optional
+        (C) Whether a node is a track fragment/particle or not
 
     Returns
     -------
@@ -133,8 +135,9 @@ def edge_assignment_score_batch(edge_index, edge_pred, clusts):
     offset = 0
     for b in range(edge_index.batch_size):
         lower, upper = clusts.edges[b], clusts.edges[b+1]
+        track_node_b = track_node[b] if track_node is not None else None
         edge_index_b, group_ids_b, score_b = edge_assignment_score(
-                edge_index[b], edge_pred[b], clusts.counts[b])
+                edge_index[b], edge_pred[b], clusts.counts[b], track_node_b)
 
         edge_index_list.append(edge_index_b + edge_index.offsets[b])
         group_ids[lower:upper] = offset + group_ids_b
@@ -180,7 +183,7 @@ def node_assignment_batch(edge_index, edge_pred, clusts):
     return TensorBatch(group_ids, counts=clusts.counts)
 
 
-def node_assignment_score_batch(edge_index, edge_pred, clusts):
+def node_assignment_score_batch(edge_index, edge_pred, clusts, track_node=None):
     """Finds the graph that produces the lowest grouping score and use
     union-find to find group IDs for each of the nodes in the graph.
 
@@ -192,13 +195,15 @@ def node_assignment_score_batch(edge_index, edge_pred, clusts):
         (E, 2) Logits associated with each edge
     clusts : IndexBatch
         (C) List of cluster indexes
+    track_node : TensorBatch, optional
+        (C) Whether a node is a track fragment/particle or not
 
     Returns
     -------
     np.ndarray
         (C) Optimal group ID for each node
     """
-    return edge_assignment_score_batch(edge_index, edge_pred, clusts)[1]
+    return edge_assignment_score_batch(edge_index, edge_pred, clusts, track_node)[1]
 
 
 def edge_purity_mask_batch(edge_index, part_ids, group_ids, primary_ids):
@@ -582,7 +587,8 @@ def grouping_loss(pred_mat: nb.float32[:],
 @nb.njit(cache=True)
 def edge_assignment_score(edge_index: nb.int64[:,:],
                           edge_pred: nb.float32[:,:],
-                          num_nodes: nb.int64) -> (
+                          num_nodes: nb.int64,
+                          track_node: nb.boolean[:] = None) -> (
                                   nb.int64[:,:], nb.int64[:], nb.float32):
     """Finds the graph that produces the lowest grouping score by iteratively
     adding the next most likely edge, if it improves the the score. This method
@@ -596,6 +602,8 @@ def edge_assignment_score(edge_index: nb.int64[:,:],
         (E, 2) Logits associated with each edge
     num_nodes : int
         Number of nodes in the graph, C
+    track_node : np.ndarray, optional
+        (C) Whether a node is a track fragment/particle or not
 
     Returns
     -------
@@ -632,12 +640,24 @@ def edge_assignment_score(edge_index: nb.int64[:,:],
     empty_adj   = np.eye(num_nodes, dtype=np.bool_)
     best_ids    = np.empty(0, dtype=np.int64)
     best_groups = np.arange(num_nodes, dtype=np.int64)
+    track_used  = np.zeros(num_nodes, dtype=np.bool_)
     best_loss   = grouping_loss(pred_adj.flatten(), empty_adj.flatten())
     for k, e in enumerate(ord_index):
         # If the edge connect two nodes already in the same group, proceed
-        group_a, group_b = best_groups[e[0]], best_groups[e[1]]
+        a, b = e
+        group_a, group_b = best_groups[a], best_groups[b]
         if group_a == group_b:
             continue
+
+        # If requested, check whether there is already a track connection
+        if track_node is not None:
+            if track_used[a] or track_used[b]:
+                continue
+            if track_node[a] ^ track_node[b]:
+                if not track_node[a]:
+                    track_used[a] = True
+                if not track_node[b]:
+                    track_used[b] = True
 
         # Restrict the adjacency matrix and the predictions to the nodes in
         # the two candidate groups
@@ -667,7 +687,8 @@ def edge_assignment_score(edge_index: nb.int64[:,:],
 @nb.njit(cache=True)
 def node_assignment_score(edge_index: nb.int64[:,:],
                           edge_pred: nb.float32[:,:],
-                          n: nb.int64) -> nb.int64[:]:
+                          num_nodes: nb.int64,
+                          track_node: nb.boolean[:] = None) -> nb.int64[:]:
     """Finds the graph that produces the lowest grouping score and use
     union-find to find group IDs for each of the nodes in the graph.
 
@@ -679,13 +700,15 @@ def node_assignment_score(edge_index: nb.int64[:,:],
         (E, 2) Logits associated with each edge
     num_nodes : int
         Number of nodes in the graph, C
+    track_node : np.ndarray, optional
+        (C) Whether a node is a track fragment/particle or not
 
     Returns
     -------
     np.ndarray
         (C) Optimal group ID for each node
     """
-    return edge_assignment_score(edge_index, edge_pred, num_nodes)[1]
+    return edge_assignment_score(edge_index, edge_pred, num_nodes, track_node)[1]
 
 
 @nb.njit(cache=True)
