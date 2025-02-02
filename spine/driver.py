@@ -446,6 +446,11 @@ class Driver:
         if len(suffix):
             log_prefix += f'--{suffix}'
 
+        # Truncate file names that are too long
+        max_length = 230
+        if len(log_prefix) > max_length:
+            log_prefix = log_prefix[:max_length-3] + '---'
+
         # Always provide a single prefix for the log, adapt output prefix
         if not split_output:
             return log_prefix, log_prefix
