@@ -399,10 +399,10 @@ class Driver:
             Shared input summary string to be used to prefix outputs
         """
         # Fetch file base names (ignore where they live)
-        file_names = [os.path.basename(f) for f in file_paths]
+        file_names = [os.path.splitext(os.path.basename(f))[0] for f in file_paths]
 
         # Get the shared prefix of all files in the list
-        prefix = os.path.splitext(os.path.commonprefix(file_names))[0]
+        prefix = os.path.commonprefix(file_names)
 
         # If there is only one file, done
         if len(file_names) == 1:
@@ -411,21 +411,26 @@ class Driver:
             else:
                 return prefix, [prefix]
 
-        # Otherwise, form the suffix from the first and last file names
-        first = os.path.splitext(file_names[0][len(prefix):])
-        last = os.path.splitext(file_names[-1][len(prefix):])
-        first = first[0] if first[0] and first[0][0] != '.' else ''
-        last = last[0] if last[0] and last[0][0] != '.' else ''
+        # Get the shared suffix of all files in the list
+        file_names_f = [f[::-1] for f in file_names]
+        suffix = os.path.commonprefix(file_names_f)[::-1]
 
-        suffix = f'{first}--{len(file_names)-2}--{last}'
-        log_prefix = prefix + suffix
+        # Pad the center of the log name with compnents which are not shared
+        first = file_names[0][len(prefix):-len(suffix)]
+        last = file_names[-1][len(prefix):-len(suffix)]
+        if len(file_names) > 2:
+            center = f'{first}--{len(file_names) - 2}--{last}'
+        else:
+            center = f'{first}--{last}'
+
+        # Assemble log name
+        log_prefix = f'{prefix}--{center}--{suffix}'
 
         # Always provide a single prefix for the log, adapt output prefix
         if not split_output:
             return log_prefix, log_prefix
         else:
-            return (log_prefix,
-                    [os.path.splitext(name)[0] for name in file_names])
+            return log_prefix, file_names
 
     def initialize_log(self):
         """Initialize the output log for this driver process."""
