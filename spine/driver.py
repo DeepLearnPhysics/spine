@@ -411,20 +411,40 @@ class Driver:
             else:
                 return prefix, [prefix]
 
+        # Otherwise, assemble log name from input file names
+        sep = '--'
+        log_prefix = ''
+        if len(prefix):
+            log_prefix += prefix
+
         # Get the shared suffix of all files in the list
         file_names_f = [f[::-1] for f in file_names]
         suffix = os.path.commonprefix(file_names_f)[::-1]
+        if prefix == suffix:
+            suffix = ''
 
         # Pad the center of the log name with compnents which are not shared
-        first = file_names[0][len(prefix):-len(suffix)]
-        last = file_names[-1][len(prefix):-len(suffix)]
-        if len(file_names) > 2:
-            center = f'{first}--{len(file_names) - 2}--{last}'
-        else:
-            center = f'{first}--{last}'
+        first = file_names[0][len(prefix):len(file_names[0])-len(suffix)]
+        if len(first):
+            if len(log_prefix):
+                log_prefix += sep
+            log_prefix += first
 
-        # Assemble log name
-        log_prefix = f'{prefix}--{center}--{suffix}'
+        skip_count = len(file_names) - 2
+        if len(file_names) > 2:
+            if len(log_prefix):
+                log_prefix += sep
+            log_prefix += f'{skip_count}'
+
+        last = file_names[-1][len(prefix):len(file_names[-1])-len(suffix)]
+        if len(last):
+            if len(log_prefix):
+                log_prefix += sep
+            log_prefix += last
+
+        # Add the shared suffix
+        if len(suffix):
+            log_prefix += f'--{suffix}'
 
         # Always provide a single prefix for the log, adapt output prefix
         if not split_output:
