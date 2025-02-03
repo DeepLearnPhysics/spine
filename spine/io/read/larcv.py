@@ -33,7 +33,7 @@ class LArCVReader(ReaderBase):
                  max_print_files=10, n_entry=None, n_skip=None,
                  entry_list=None, skip_entry_list=None, run_event_list=None,
                  skip_run_event_list=None, create_run_map=False,
-                 run_info_key=None):
+                 run_info_key=None, allow_missing=False):
         """Initialize the LArCV file reader.
 
         Parameters
@@ -63,6 +63,8 @@ class LArCVReader(ReaderBase):
             For large files, this can be quite expensive (must load every entry).
         run_info_key : str, optional
             Key of the tree in the file to get the run information from
+        allow_missing : bool, default False
+            If `True`, allows missing entries in the entry or event list
         """
         # Process the file_paths
         self.process_file_paths(file_keys, limit_num_files, max_print_files)
@@ -111,7 +113,7 @@ class LArCVReader(ReaderBase):
         if create_run_map:
             # Initialize the TChain object
             assert run_info_key is not None and run_info_key in tree_keys, (
-                    "Must provide the `run_info_key` if a run maps is needed. "
+                    "Must provide the `run_info_key` if a run map is needed. "
                     "The key must appear in the list of `tree_keys`")
             chain = ROOT.TChain(f'{run_info_key}_tree') # pylint: disable=E1101
             for f in self.file_paths:
@@ -130,7 +132,7 @@ class LArCVReader(ReaderBase):
         # Process the entry list
         self.process_entry_list(
                 n_entry, n_skip, entry_list, skip_entry_list,
-                run_event_list, skip_run_event_list)
+                run_event_list, skip_run_event_list, allow_missing)
 
     def get(self, idx):
         """Returns a specific entry in the file.
