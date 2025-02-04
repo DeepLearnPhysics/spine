@@ -126,8 +126,8 @@ class CalibrationDatabase:
             range_z = [np.min(df_tpc.zlow), np.max(df_tpc.zhigh)]
             values = df_tpc[quantity].to_numpy().reshape(bins_y, bins_z)
 
-            lut = CalibrationLUT([1,2], [bins_y, bins_z],
-                    [range_y, range_z], values)
+            lut = CalibrationLUT(
+                    [1, 2], [bins_y, bins_z], [range_y, range_z], values)
             tpc_luts.append(lut)
 
         return tpc_luts
@@ -177,7 +177,7 @@ class CalibrationLUT:
     returns a calibration value.
     """
 
-    def __init__(self, dims, bins, range, values): # pylint: disable=W0622
+    def __init__(self, dims, bins, range, values, dummy=-999.0): # pylint: disable=W0622
         """Initialize the calibration map.
 
         Parameters
@@ -190,19 +190,25 @@ class CalibrationLUT:
             Axis range in each dimension
         values : np.ndarray
             Values in each bin
+        dummy : float
+            Dummy values which should be overwritten with 1. (no information)
         """
         # Store metadata information
         assert len(range) == len(dims) and len(bins) == len(dims), (
-                "Must provide a bin count and range per dimension")
+                "Must provide a bin count and range per dimension.")
         self.dims = dims
         self.range = np.array(range)
         self.bins = np.array(bins)
-        self.bin_sizes = (self.range[:,1]-self.range[:,0])/self.bins
+        self.bin_sizes = (self.range[:,1] - self.range[:,0])/self.bins
 
         # Store the values in each bin. Should be a dense matrix
         assert np.all(values.shape == self.bins), (
-                "Must provide one calibration value per bin")
+                "Must provide one calibration value per bin.")
         self.values = values
+
+        # Overwrite dummy values to 1.
+        if dummy is not None:
+            self.values[self.values == dummy] = 1.
 
     @property
     def edges(self):
@@ -234,12 +240,12 @@ class CalibrationLUT:
             Calibration constants
         """
         # Get the bin the position belongs to:
-        offsets = points[:,self.dims] - self.range[:,0]
+        offsets = points[:, self.dims] - self.range[:, 0]
         bin_ids = (offsets/self.bin_sizes).astype(int)
 
         # Collapse to the closest bin if it is outisde of range
         #assert np.all(bin_ids > -1) and np.all(bin_ids < self.bins), (
-        #        "Some of the points fall outside of the look-up table")
+        #        "Some of the points fall outside of the look-up table.")
         bad_mask = np.where(bin_ids < 0)
         bin_ids[bad_mask] = 0
         bad_mask = np.where(bin_ids >= self.bins)
