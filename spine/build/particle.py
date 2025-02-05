@@ -205,7 +205,10 @@ class ParticleBuilder(BuilderBase):
         List[TruthParticle]
             List of restored true particle instances
         """
-        # Loop over the true particle instance groups
+        # Fetch the group ID of each of the particles
+        group_ids = np.array([p.group_id for p in particles], dtype=int)
+
+        # Loop over the true *visible* particle instance groups
         truth_particles = []
         unique_group_ids = np.unique(label_tensor[:, GROUP_COL]).astype(int)
         valid_group_ids = unique_group_ids[unique_group_ids > -1]
@@ -215,11 +218,17 @@ class ParticleBuilder(BuilderBase):
                     "Invalid group ID, cannot build true particle.")
             particle = TruthParticle(**particles[group_id].as_dict())
             assert particle.id == group_id, (
-                    "The ordering of the true particle is wrong.")
+                    "The ordering of the true particles is wrong.")
 
             # Override the index of the particle but preserve it
             particle.orig_id = group_id
             particle.id = i
+
+            # Update the deposited energy attribute by summing that of all
+            # particles in the group (LArCV definition != SPINE definition)
+            particle.energy_deposit = 0.
+            for j in np.where(group_ids == group_id)[0]:
+                particle.energy_deposit += particles[j].energy_deposit
 
             # Update the attributes shared between reconstructed and true
             particle.length = particle.distance_travel
