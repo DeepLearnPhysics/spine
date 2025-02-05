@@ -432,11 +432,11 @@ class SegmentationLoss(torch.nn.modules.loss._Loss):
             (N) Updated set of weights for each pixel in the batch
         """
         # If there is no input, nothing to do
+        num_classes = logits.shape[1]
         if not len(logits):
             return 0., 1., np.ones(num_classes, dtype=np.float32), weights
 
         # Count the number of voxels in each class
-        num_classes = logits.shape[1]
         counts = torch.empty(num_classes,
                 dtype=torch.long, device=labels.device)
         for c in range(num_classes):
