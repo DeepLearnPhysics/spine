@@ -7,11 +7,12 @@ import argparse
 
 import h5py
 import numpy as np
+from tqdm import tqdm
 from ROOT import TFile # pylint: disable=E0611
 from larcv import larcv # pylint: disable=W0611
 
 
-def main(source, source_list, output, dest, suffix, tree_name):
+def main(source, source_list, output, dest, suffix, event_list, tree_name):
     """Checks the output of the SPINE process.
 
     The script loops over the input files, check that there is an output file
@@ -19,12 +20,13 @@ def main(source, source_list, output, dest, suffix, tree_name):
     count matches that of the input file.
 
     Produces a list of input files that have no or incomplete output in a text
-    file (the name of which is provided with the `-o` or `--output` flag. This
+    file (the name of which is provided with the `-o` or `--output` flag). This
     can be used to reprocess missing/incomplete input files.
 
     .. code-block:: bash
 
-        $ python3 -c SPINE_CONFIG -S missing_list.txt
+        $ python3 bin/output_check_valid.py -S file_list.py -o missing.txt
+          --dest /path/to/output/files/ --suffix output_file_suffix
 
     Parameters
     ----------
@@ -38,6 +40,9 @@ def main(source, source_list, output, dest, suffix, tree_name):
         Destination directory for the original SPINE process
     suffix : str
         Suffix added to the end of the input files by the original SPINE process
+    event_list : str
+        Path to a file containing a list of events to process. If provided, only
+        events which appear on this list are required for in the output.
     tree_name : str
         Name of the tree to use as a reference to count the number of entries.
         If not specified, takes the first tree in the list.
@@ -50,10 +55,17 @@ def main(source, source_list, output, dest, suffix, tree_name):
     # Initialize the output text file
     out_file = open(output, 'w', encoding='utf-8')
 
+    # If it is provided, parse the list of (run, subrun, event) triplets
+    if event_list is not None:
+        with open(event_list, 'r', encoding='utf-8') as f:
+            lines = f.read().splitlines()
+            line_list = [l.replace(',', ' ').split() for l in lines]
+            event_list = [(int(r), int(s), int(e)) for r, s, e in line_list]
+
     # Loop over the list of files in the input
     print("\nChecking existence and completeness of output files.")
     miss_list, inc_list = [], []
-    for idx, file_path in enumerate(source):
+    for idx, file_path in enumerate(tqdm(source)):
         # Find the base name of the input file (without extension)
         base = os.path.basename(file_path)
         stem, _ = os.path.splitext(base)
@@ -62,30 +74,51 @@ def main(source, source_list, output, dest, suffix, tree_name):
         out_base = f'{stem}_{suffix}.h5'
         out_path = f'{dest}/{out_base}'
         if not os.path.isfile(out_path):
-            print(f"- Missing: {out_base}")
+            tqdm.write(f"- Missing: {out_base}")
             out_file.write(f'{file_path}\n')
             miss_list.append(file_path)
             continue
 
         # If the output does exist, check that the input and output have the
-        # same number of entries. Get the tree name first.
+        # expected number of entries. Get the tree name first.
         f = TFile(file_path, 'r')
         if tree_name is None:
             key = [key.GetName() for key in f.GetListOfKeys()][0]
         else:
             key = f'{tree_name}_tree'
-            print(key)
+        key_b = key.replace('_tree', '_branch')
 
-        # Count the number of entries in the input file
-        num_entries = getattr(f, key).GetEntries()
-        f.Close()
+        # Dispatch depending if the event list is provided or not
+        if event_list is None:
+            # Count the number of entries in the input file
+            num_entries = getattr(f, key).GetEntries()
+            f.Close()
 
-        # Then check the number of events in the output file
-        with h5py.File(out_path) as f:
-            if len(f['events']) != num_entries:
-                print(f"- Incomplete: {out_base}")
-                out_file.write(f'{file_path}\n')
-                inc_list.append(file_path)
+            # Then check the number of events in the output file
+            with h5py.File(out_path) as f:
+                if len(f['events']) != num_entries:
+                    tqdm.write(f"- Incomplete: {out_base}")
+                    out_file.write(f'{file_path}\n')
+                    inc_list.append(file_path)
+
+        else:
+            # Fetch the list of (run, subrun, event) triplets that should appear
+            tree = getattr(f, key)
+            check_list = []
+            for i in range(tree.GetEntries()):
+                tree.GetEntry(i)
+                branch = getattr(tree, key_b)
+                run, subrun, event = branch.run(), branch.subrun(), branch.event()
+                if (run, subrun, event) in event_list:
+                    check_list.append((run, subrun, event))
+            f.Close()
+
+            # Check that the events which should appear are present
+            with h5py.File(out_path) as f:
+                if len(f['events']) != len(check_list):
+                    tqdm.write(f"- Incomplete: {out_base}")
+                    out_file.write(f'{file_path}\n')
+                    inc_list.append(file_path)
 
     num_miss = len(miss_list)
     num_inc = len(inc_list)
@@ -116,12 +149,16 @@ if __name__ == "__main__":
     parser.add_argument('--dest',
                         help='Destination directory for the original SPINE process',
                         type=str, required=True)
-        
+
     parser.add_argument('--suffix',
                         help='Suffix added to the input files by the original SPINE process',
                         type=str, required=True)
 
-    parser.add_argument('--tree_name',
+    parser.add_argument('--event-list',
+                        help='File containing a list of events to process.',
+                        type=str)
+
+    parser.add_argument('--tree-name',
                         help='TTree name used to count the entries.',
                         type=str)
 
@@ -129,4 +166,4 @@ if __name__ == "__main__":
 
     # Execute the main function
     main(args.source, args.source_list, args.output, args.dest, args.suffix,
-         args.tree_name)
+         args.event_list, args.tree_name)
