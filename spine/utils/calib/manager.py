@@ -119,7 +119,7 @@ class CalibrationManager:
                 tpc_values = self.modules['gain'].process(tpc_values, t) # e-
                 self.watch.stop('gain')
 
-            # Apply the recombination
+            # Apply the recombination correction
             if 'recombination' in self.modules:
                 self.watch.start('recombination')
                 tpc_values = self.modules['recombination'].process(
