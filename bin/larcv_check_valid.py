@@ -4,6 +4,7 @@
 import argparse
 
 import numpy as np
+from tqdm import tqdm
 from ROOT import TFile # pylint: disable=E0611
 from larcv import larcv # pylint: disable=W0611
 
@@ -39,8 +40,9 @@ def main(source, source_list, output):
     out_file = open(output, 'w', encoding='utf-8')
 
     # Loop over the list of files in the input, count the tree entries for each
+    print(f"\nCounting entries in every tree of {len(source)} files.")
     keys_list, unique_counts = [], []
-    for file_path in source:
+    for file_path in tqdm(source):
         # Count the number of entries in each tree
         f = TFile(file_path)
         keys = [key.GetName() for key in f.GetListOfKeys()]
@@ -57,19 +59,16 @@ def main(source, source_list, output):
     # Loop over the list of keys/counts for each file in the input
     print(f"\nChecking validity of {len(source)} file(s).")
     bad_files = []
-    for idx, file_path in enumerate(source):
+    for idx, file_path in enumerate(tqdm(source)):
         # Check that there is only one entry count and it's non-zero, and
         # that the list of keys matches expectation
         if (len(unique_counts[idx]) != 1 or unique_counts[idx][0] < 1 or
             (set(keys_list[idx]) != set(all_keys))):
-            print(f"- Bad file: {file_path}")
+            tqdm.write(f"- Bad file: {file_path}")
             out_file.write(f'{file_path}\n')
             bad_files.append(file_path)
 
-    suffix = ':' if len(bad_files) > 0 else '.'
-    print(f"\nFound {len(bad_files)} bad files{suffix}")
-    for bad_path in bad_files:
-        print(f"- {bad_path}")
+    print(f"\nFound {len(bad_files)} bad files.")
 
     # Close text file
     out_file.close()
