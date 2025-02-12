@@ -28,7 +28,7 @@ class ContainmentProcessor(PostBase):
                  geometry_file=None, mode='module',
                  allow_multi_module=False, min_particle_sizes=0,
                  obj_type=('particle', 'interaction'),
-                 truth_point_mode='points', run_mode='both'):
+                 truth_point_mode='points', run_mode='both', skip_showers=False):
         """Initialize the containment conditions.
 
         If the `source` method is used, the cut will be based on the source of
@@ -87,6 +87,7 @@ class ContainmentProcessor(PostBase):
 
         # Store parameters
         self.allow_multi_module = allow_multi_module
+        self.skip_showers = skip_showers
 
         # Store the particle size thresholds in a dictionary
         if np.isscalar(min_particle_sizes):
@@ -118,6 +119,12 @@ class ContainmentProcessor(PostBase):
             for obj in data[k]:
                 # Make sure the particle coordinates are expressed in cm
                 self.check_units(obj)
+                
+                # Skip showers for containment check if requested
+                if self.skip_showers:
+                    if hasattr(obj, 'shape') and obj.shape == 0:
+                        obj.is_contained = True
+                        continue
 
                 # Get point coordinates
                 points = self.get_points(obj)
