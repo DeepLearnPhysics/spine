@@ -3,6 +3,7 @@
 
 import argparse
 
+from tqdm import tqdm
 from ROOT import TFile # pylint: disable=E0611
 from larcv import larcv # pylint: disable=W0611
 
@@ -28,7 +29,7 @@ def main(source, source_list, tree_name):
     # Loop over the list of files in the input
     total_entries = 0
     print(f"\nCounting entries in {len(source)} file(s):")
-    for file_path in source:
+    for file_path in tqdm(source):
         # Get the tree to get the number of entries from
         f = TFile(file_path, 'r')
         if tree_name is None:
@@ -41,7 +42,7 @@ def main(source, source_list, tree_name):
         f.Close()
 
         # Dump number for this file, increment
-        print(f"- Counted {num_entries} entries in {file_path}")
+        tqdm.write(f"- Counted {num_entries} entries in {file_path}")
         total_entries += num_entries
 
     print(f"\nTotal number of entries: {total_entries}")
