@@ -20,7 +20,7 @@ def cluster_dedx2_with_PCA(voxels,
 
     # If start point is not in voxels, assign the closest point within voxels
     # as the startpoint
-    if start not in voxels:
+    if not np.isclose(start, voxels, atol=1e-2).all(axis=1).any():
         dists = np.linalg.norm(voxels - start, axis=1)
         perm = np.argsort(dists)
         start = voxels[perm[0]]
@@ -33,7 +33,7 @@ def cluster_dedx2_with_PCA(voxels,
     voxels_dedx = voxels[dist_mat <= dedx_dist]
     #print("thr: ", max_dist, ", num vox: ", len(voxels))
     if len(voxels_dedx) < 2:
-        return 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.
+        return 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.
     values_dedx = values[dist_mat <= dedx_dist]
     dist_dedx = dist_mat[dist_mat <= dedx_dist]
     # Calculate sum of values                                                                                                                                                                                                         
@@ -48,8 +48,8 @@ def cluster_dedx2_with_PCA(voxels,
     dist_cont = dist_mat[dist_mat <= cont_dist]
     # Perform DBSCAN clustering
     # parameters are not yet tuned
-    eps = 0.7
-    min_samples = 5
+    eps = 0.6
+    min_samples = 1
     dbscan = DBSCAN(eps, min_samples=min_samples)
     cluster_labels = dbscan.fit_predict(voxels_cont)
     #clusts, counts = np.unique(cluster_labels, return_counts=True)
@@ -61,7 +61,7 @@ def cluster_dedx2_with_PCA(voxels,
     true_p_clust2 = -1
     true_p_clust3 = -1
     for i in range(num_clust):
-        if start in voxels_cont[cluster_labels==i]:
+        if np.isclose(start, voxels_cont[cluster_labels==i], atol=1e-2).all(axis=1).any():
             start_clust = i
         if i==0:
             true_p_clust1 = len(voxels_cont[cluster_labels==i])
@@ -73,13 +73,18 @@ def cluster_dedx2_with_PCA(voxels,
     voxels_clust = voxels_cont[cluster_labels==start_clust]
     values_clust = values_cont[cluster_labels==start_clust]
     dist_clust = dist_cont[cluster_labels==start_clust]
-    voxels_clust = voxels_clust[dist_clust<dedx_dist]
-    values_clust = values_clust[dist_clust<dedx_dist]
-    dist_clust = dist_clust[dist_clust<dedx_dist]
     
+    voxels_clust = voxels_clust[dist_clust<=dedx_dist]
+    values_clust = values_clust[dist_clust<=dedx_dist]
+    dist_clust = dist_clust[dist_clust<=dedx_dist]
 
     if len(voxels_clust)<3:
-        return 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.
+        return sum_dedx, max_dist_dedx, 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.
+    dedx_clust_dist = np.max(dist_clust)
+    # include dE from other clusters
+    voxels_inc = voxels_cont[dist_cont<=dedx_clust_dist]
+    values_inc = values_cont[dist_cont<=dedx_clust_dist]
+    dist_inc = dist_cont[dist_cont<=dedx_clust_dist]
 
     # Perform PCA
     pca = PCA(n_components=3)
@@ -93,12 +98,30 @@ def cluster_dedx2_with_PCA(voxels,
     min_proj = np.min(p_voxels)
     max_proj = np.max(p_voxels)
     mask = (p_voxels >= min_proj) & (p_voxels <= max_proj)
-    
+
+    # inclusive voxels
+    p_voxels_inc = np.dot(voxels_inc - np.mean(voxels_clust, axis=0), p_axis)
+    min_proj_inc = np.min(p_voxels_inc)
+    max_proj_inc = np.max(p_voxels_inc)
+    #mask_inc = (p_voxels_inc >= min_proj_inc) & (p_voxels_inc <= max_proj_inc)
+    mask_inc = (p_voxels_inc >= min_proj) & (p_voxels_inc <= max_proj)
     #print("len: ", len(values_dedx), "proj len: ", len(values_dedx[mask]))
     p_sum = np.sum(values_clust[mask])
-    p_length = max_proj - min_proj
 
-    return sum_dedx, max_dist_dedx, p_sum, p_length, p_fit, num_clust, start_clust, true_p_clust1, true_p_clust2, true_p_clust3
+    voxels_de = voxels_inc[mask_inc]
+    values_de = values_inc[mask_inc]
+    p_sum_inc = np.sum(values_de)
+    p_length = max_proj - min_proj
+    p_length_inc = max_proj_inc - min_proj_inc
+
+    voxels_sp = voxels_de - np.mean(voxels_clust, axis=0)
+    p_voxels_sp = np.dot(voxels_sp, p_axis)
+    vectors_to_axis = voxels_sp - np.outer(p_voxels_sp, p_axis)
+    spread = np.linalg.norm(vectors_to_axis, axis=1)
+    spread = sum(spread)/len(voxels_sp)
+    print("spread: ", spread)
+    
+    return sum_dedx, max_dist_dedx, p_sum, p_length, p_sum_inc, p_length_inc, spread, p_fit, num_clust, start_clust, true_p_clust1, true_p_clust2, true_p_clust3
 
 class ShowerStartSingleParticle(AnaBase):
     """This analysis script computes the dE/dx value within some distance
@@ -135,7 +158,7 @@ class ShowerStartSingleParticle(AnaBase):
         # Initialize the CSV writer(s) you want
         for obj in self.obj_type:
             self.initialize_writer(obj)
-        self.update_keys({'clust_label_adapt': True, 'meta': True, 'particles': True})
+        self.update_keys({'clust_label_adapt': True, 'meta': True, 'particles': True, 'clust_label_g4': True})
         self.units = 'cm'
 
     def process(self, data):
@@ -168,33 +191,33 @@ class ShowerStartSingleParticle(AnaBase):
             out_dict['true_trackid3'] = None
 
             true_shower = data['truth_particles'][0]
-            out_dict['true_creation_process'] = -1
+            #out_dict['true_creation_process'] = -1
 
-            out_dict['is_pos'] = -1
+            #out_dict['is_pos'] = -1
             # photon cleanup
             # if primary's daughter is created via compton scattering, discard
-            if self.is_photon:
-                is_positron = False
-                true_particles = data['particles']
-                for part in true_particles:
-                    #print("pdg: ", part.parent_pdg_code)
-                    if part.parent_pdg_code == -11:
-                        is_positron = True
-                out_dict['is_pos'] = True if is_positron else False
+            #if self.is_photon:
+                #is_positron = False
+                #true_particles = data['particles']
+                #for part in true_particles:
+                #    #print("pdg: ", part.parent_pdg_code)
+                #    if part.parent_pdg_code == -11:
+                #        is_positron = True
+                #out_dict['is_pos'] = True if is_positron else False
 
-                for i in range(min(len(data['truth_particles']), 3)):
-                    if i==0:
-                        out_dict['true_crea1'] = data['truth_particles'][i].creation_process
-                        out_dict['true_trackid1'] = data['truth_particles'][i].pid
-                    elif i==1:
-                        out_dict['true_crea2'] = data['truth_particles'][i].creation_process
-                        out_dict['true_trackid2'] = data['truth_particles'][i].pid
-                    elif i==2:
-                        out_dict['true_crea3'] = data['truth_particles'][i].creation_process
-                        out_dict['true_trackid3'] = data['truth_particles'][i].pid
+            for i in range(min(len(data['truth_particles']), 3)):
+                if i==0:
+                    out_dict['true_crea1'] = data['truth_particles'][i].creation_process
+                    out_dict['true_trackid1'] = data['truth_particles'][i].pid
+                elif i==1:
+                    out_dict['true_crea2'] = data['truth_particles'][i].creation_process
+                    out_dict['true_trackid2'] = data['truth_particles'][i].pid
+                elif i==2:
+                    out_dict['true_crea3'] = data['truth_particles'][i].creation_process
+                    out_dict['true_trackid3'] = data['truth_particles'][i].pid
                 #    return
 
-                out_dict['true_creation_process'] = true_shower.creation_process
+            out_dict['true_creation_process'] = true_shower.creation_process
                 #    return
 #                group_id = data['truth_particles'][0].group_id
 
@@ -209,17 +232,17 @@ class ShowerStartSingleParticle(AnaBase):
             out_dict['true_particle_energy_init'] = true_shower.energy_init
             out_dict['true_particle_energy_deposit'] = true_shower.energy_deposit
             out_dict['true_is_contained'] = true_shower.is_contained
-            
-            t_de_1, t_dx_1, p_de, p_dx, p_fit, num_clust, start_clust, true_p_clusts0, true_p_clusts1, true_p_clusts2  = cluster_dedx2_with_PCA(true_shower.points, 
-                                  true_shower.depositions, 
-                                  startpoint, 
-                                  dedx_dist=self.radius)
+            #sum_dedx, max_dist_dedx, p_sum, p_length, p_sum_inc, p_length_inc, spread, p_fit, num_clust, start_clust, true_p_clust1, true_p_clust2, true_p_clust3
+            t_de_1, t_dx_1, p_de, p_dx, p_de_inc, p_dx_inc, spread, p_fit, num_clust, start_clust, true_p_clusts0, true_p_clusts1, true_p_clusts2  = cluster_dedx2_with_PCA(true_shower.points, true_shower.depositions, startpoint, dedx_dist=self.radius)
             
                         
             out_dict['true_de_1'] = t_de_1
             out_dict['true_dx_1'] = t_dx_1
             out_dict['true_PCA_de'] = p_de
             out_dict['true_PCA_dx'] = p_dx
+            out_dict['true_PCA_de_inc'] = p_de_inc
+            out_dict['true_PCA_dx_inc'] = p_dx_inc
+            out_dict['true_p_spread'] = spread
             out_dict['true_p_fit'] = p_fit
             out_dict['true_p_num_clust'] = num_clust
             #out_dict['true_l_1'] = t_l_1
@@ -228,6 +251,30 @@ class ShowerStartSingleParticle(AnaBase):
             out_dict['true_p_clust_size1'] = true_p_clusts0
             out_dict['true_p_clust_size2'] = true_p_clusts1
             out_dict['true_p_clust_size3'] = true_p_clusts2
+
+            sed_points = data['clust_label_g4'][:,1:4]
+            sed_points = data['meta'].to_cm(sed_points)
+            sed_vals = data['clust_label_g4'][:,4]
+            sed_t_de_1, sed_t_dx_1, sed_p_de, sed_p_dx, sed_p_de_inc, sed_p_dx_inc, sed_spread, sed_p_fit, sed_num_clust, sed_start_clust, sed_true_p_clusts0, sed_true_p_clusts1, sed_true_p_clusts2  = cluster_dedx2_with_PCA(sed_points,
+                                  sed_vals,
+                                  startpoint,
+                                  dedx_dist=self.radius)
+
+            out_dict['sed_true_de_1'] = sed_t_de_1
+            out_dict['sed_true_dx_1'] = sed_t_dx_1
+            out_dict['sed_true_PCA_de'] = sed_p_de
+            out_dict['sed_true_PCA_dx'] = sed_p_dx
+            out_dict['sed_true_PCA_de_inc'] = sed_p_de_inc
+            out_dict['sed_true_PCA_dx_inc'] = sed_p_dx_inc
+            out_dict['sed_true_p_spread'] = sed_spread
+            out_dict['sed_true_p_fit'] = sed_p_fit
+            out_dict['sed_true_p_num_clust'] = sed_num_clust
+            #out_dict['true_l_1'] = t_l_1                                                                                                                               
+            out_dict['sed_true_p_start_clust'] = sed_start_clust
+            out_dict['sed_true_p_clust_size1'] = sed_true_p_clusts0
+            out_dict['sed_true_p_clust_size2'] = sed_true_p_clusts1
+            out_dict['sed_true_p_clust_size3'] = sed_true_p_clusts2
+
             
             match_id = -1
             if true_shower.match_overlaps is not None and len(true_shower.match_overlaps)>0:
@@ -272,7 +319,24 @@ class ShowerStartSingleParticle(AnaBase):
             out_dict['reco_de_0'] = de_0
             out_dict['reco_dx_0'] = dx_0
             out_dict['reco_l_0'] = l_0
+
+            reco_de_1, reco_dx_1, reco_p_de, reco_p_dx, reco_p_de_inc, reco_p_dx_inc, reco_spread, reco_p_fit, reco_num_clust, reco_start_clust, reco_p_clusts0, reco_p_clusts1, reco_p_clusts2  = cluster_dedx2_with_PCA(reco_shower.points, reco_shower.depositions, startpoint, dedx_dist=self.radius)
+            out_dict['reco_de'] = reco_de_1
+            out_dict['reco_dx'] = reco_dx_1
+            out_dict['reco_PCA_de'] = reco_p_de
+            out_dict['reco_PCA_dx'] = reco_p_dx
+            out_dict['reco_PCA_de_inc'] = reco_p_de_inc
+            out_dict['reco_PCA_dx_inc'] = reco_p_dx_inc
+            out_dict['reco_p_spread'] = reco_spread
+            out_dict['reco_p_fit'] = reco_p_fit
+            out_dict['reco_p_num_clust'] = reco_num_clust
             
+            out_dict['reco_p_start_clust'] = reco_start_clust
+            out_dict['reco_p_clust_size1'] = reco_p_clusts0
+            out_dict['reco_p_clust_size2'] = reco_p_clusts1
+            out_dict['reco_p_clust_size3'] = reco_p_clusts2
+            #out_dict['reco__0']
+
             de_1, dx_1, l_1 = cluster_dedx2(reco_points,
                                   reco_vals,
                                   startpoint,
