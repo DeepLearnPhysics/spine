@@ -45,3 +45,4 @@ def ana_script_factory(name, cfg, overwrite=None, log_dir=None, prefix=None):
     else:
         return instantiate(
                 ANA_DICT, cfg, log_dir=log_dir, prefix=prefix)
+                
