@@ -66,7 +66,7 @@ class FlashMatchProcessor(PostBase):
         self.geo = Geometry(detector, geometry_file)
 
         # Get the volume within which each flash is confined
-        assert volume in ['tpc', 'module'], (
+        assert volume in ('tpc', 'module'), (
                 "The `volume` must be one of 'tpc' or 'module'.")
         self.volume = volume
         self.ref_volume_id = ref_volume_id
@@ -145,11 +145,15 @@ class FlashMatchProcessor(PostBase):
                     pe_per_ch = np.zeros(
                             self.geo.optical.num_detectors_per_volume,
                             dtype=flash.pe_per_ch.dtype)
-                    if self.ref_volume_id is not None:
+                    if (self.ref_volume_id is not None and
+                        len(flash.pe_per_ch) > len(pe_per_ch)):
+                        # If the flash spans > 1 optical volume, reshape
                         lower = flash.volume_id*len(pe_per_ch)
                         upper = (flash.volume_id + 1)*len(pe_per_ch)
                         pe_per_ch = flash.pe_per_ch[lower:upper]
+
                     else:
+                        # Otherwise, just pad if it does not fill the full length
                         pe_per_ch[:len(flash.pe_per_ch)] = flash.pe_per_ch
 
                     flash.pe_per_ch = pe_per_ch
