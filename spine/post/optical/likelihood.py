@@ -152,7 +152,9 @@ class LikelihoodFlashMatcher:
         # Build result, return
         result = []
         for m in self.matches:
-            result.append((interactions[m.tpc_id], flashes[m.flash_id], m))
+            tpc_id = self.qcluster_v[m.tpc_id].idx
+            flash_id = self.flash_v[m.flash_id].idx
+            result.append((interactions[tpc_id], flashes[flash_id], m))
 
         return result
 
@@ -173,13 +175,17 @@ class LikelihoodFlashMatcher:
         # Loop over the interacions
         from flashmatch import flashmatch
         qcluster_v = []
-        for inter in interactions:
+        for idx, inter in enumerate(interactions):
             # Produce a mask to remove negative value points (can happen)
             valid_mask = np.where(inter.depositions > 0.)[0]
 
+            # Skip interactions with less than 2 points
+            if len(valid_mask) < 2:
+                continue
+
             # Initialize qcluster
             qcluster = flashmatch.QCluster_t()
-            qcluster.idx = int(inter.id)
+            qcluster.idx = idx
             qcluster.time = 0
 
             # Get the point coordinates
@@ -238,8 +244,8 @@ class LikelihoodFlashMatcher:
         for idx, f in enumerate(flashes):
             # Initialize the Flash_t object
             flash = flashmatch.Flash_t()
-            flash.idx = int(f.id)  # Assign a unique index
-            flash.time = f.time  # Flash timing, a candidate T0
+            flash.idx = idx
+            flash.time = f.time
 
             # Assign the flash position and error on this position
             flash.x, flash.y, flash.z = 0, 0, 0
