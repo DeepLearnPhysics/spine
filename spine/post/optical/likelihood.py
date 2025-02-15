@@ -177,10 +177,6 @@ class LikelihoodFlashMatcher:
             # Produce a mask to remove negative value points (can happen)
             valid_mask = np.where(inter.depositions > 0.)[0]
 
-            # If the interaction has less than 2 points, skip
-            if len(valid_mask) < 2:
-                continue
-
             # Initialize qcluster
             qcluster = flashmatch.QCluster_t()
             qcluster.idx = int(inter.id)
