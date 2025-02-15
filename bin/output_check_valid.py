@@ -80,19 +80,25 @@ def main(source, source_list, output, dest, suffix, event_list, tree_name):
             continue
 
         # If the output does exist, check that the input and output have the
-        # expected number of entries. Get the tree name first.
-        f = TFile(file_path, 'r')
-        if tree_name is None:
-            key = [key.GetName() for key in f.GetListOfKeys()][0]
-        else:
-            key = f'{tree_name}_tree'
-        key_b = key.replace('_tree', '_branch')
+        # expected number of entries. If ROOT, get the tree name first.
+        larcv_input = file_path.endswith('.root')
+        if larcv_input:
+            f = TFile(file_path, 'r')
+            if tree_name is None:
+                key = [key.GetName() for key in f.GetListOfKeys()][0]
+            else:
+                key = f'{tree_name}_tree'
+            key_b = key.replace('_tree', '_branch')
 
         # Dispatch depending if the event list is provided or not
         if event_list is None:
             # Count the number of entries in the input file
-            num_entries = getattr(f, key).GetEntries()
-            f.Close()
+            if larcv_input:
+                num_entries = getattr(f, key).GetEntries()
+                f.Close()
+            else:
+                with h5py.File(file_path) as f:
+                    num_entries = len(f['events'])
 
             # Then check the number of events in the output file
             with h5py.File(out_path) as f:
@@ -103,15 +109,20 @@ def main(source, source_list, output, dest, suffix, event_list, tree_name):
 
         else:
             # Fetch the list of (run, subrun, event) triplets that should appear
-            tree = getattr(f, key)
             check_list = []
-            for i in range(tree.GetEntries()):
-                tree.GetEntry(i)
-                branch = getattr(tree, key_b)
-                run, subrun, event = branch.run(), branch.subrun(), branch.event()
-                if (run, subrun, event) in event_list:
-                    check_list.append((run, subrun, event))
-            f.Close()
+            if larcv_input:
+                tree = getattr(f, key)
+                for i in range(tree.GetEntries()):
+                    tree.GetEntry(i)
+                    branch = getattr(tree, key_b)
+                    run, subrun, event = branch.run(), branch.subrun(), branch.event()
+                    if (run, subrun, event) in event_list:
+                        check_list.append((run, subrun, event))
+                f.Close()
+            else:
+                with h5py.File(file_path) as f:
+                    for (run, subrun, event) in f['run_info']:
+                        check_list.append((run, subrun, event))
 
             # Check that the events which should appear are present
             with h5py.File(out_path) as f:
