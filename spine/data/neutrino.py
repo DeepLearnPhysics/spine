@@ -67,6 +67,8 @@ class Neutrino(PosDataBase):
         True amount of distance traveled by the neutrino before interacting
     theta : float
         Angle between incoming and outgoing leptons in radians
+    t : float
+        Interaction time (ns)
     creation_process : str
         Creation process of the neutrino
     position : np.ndarray
@@ -100,6 +102,7 @@ class Neutrino(PosDataBase):
     lepton_p: float = -1.
     distance_travel: float = -1.
     theta: float = -1.
+    t: float = -np.inf
     creation_process: str = ''
     position: np.ndarray = None
     momentum: np.ndarray = None
@@ -158,6 +161,8 @@ class Neutrino(PosDataBase):
                 obj_dict[key] = getattr(neutrino, key)()
             else:
                 obj_dict['track_id'] = getattr(neutrino, key)()
+
+        obj_dict['t'] = neutrino.position().t()
 
         # Load the positional attribute
         pos_attrs = ['x', 'y', 'z']
