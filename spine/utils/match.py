@@ -32,6 +32,8 @@ def overlap_count(index_x: nb.types.List(nb.int64[:]),
         if len(px):
             for j, py in enumerate(index_y):
                 if len(py):
+                    if np.max(px) < np.min(py) or np.max(py) < np.min(px):
+                        continue
                     overlap_matrix[i, j] = len(set(px).intersection(set(py)))
 
     return overlap_matrix
@@ -62,9 +64,12 @@ def overlap_iou(index_x: nb.types.List(nb.int64[:]),
         if len(px):
             for j, py in enumerate(index_y):
                 if len(py):
+                    if np.max(px) < np.min(py) or np.max(py) < np.min(px):
+                        continue
                     cap = len(set(px).intersection(set(py)))
-                    cup = len(set(px).union(set(py)))
-                    overlap_matrix[i, j] = cap/cup
+                    if cap > 0:
+                        cup = len(set(px).union(set(py)))
+                        overlap_matrix[i, j] = cap/cup
 
     return overlap_matrix
 
@@ -95,10 +100,13 @@ def overlap_weighted_iou(index_x: nb.types.List(nb.int64[:]),
         if len(px):
             for j, py in enumerate(index_y):
                 if len(py):
+                    if np.max(px) < np.min(py) or np.max(py) < np.min(px):
+                        continue
                     cap = len(set(px).intersection(set(py)))
-                    cup = len(set(px).union(set(py)))
-                    n, m = px.shape[0], py.shape[0]
-                    overlap_matrix[i, j] = (cap/cup) * (n + m)/(1 + abs(n - m))
+                    if cap > 0:
+                        cup = len(set(px).union(set(py)))
+                        n, m = px.shape[0], py.shape[0]
+                        overlap_matrix[i, j] = (cap/cup) * (n + m)/(1 + abs(n - m))
 
     return overlap_matrix
 
@@ -129,10 +137,13 @@ def overlap_dice(index_x: nb.types.List(nb.int64[:]),
         if len(px):
             for j, py in enumerate(index_y):
                 if len(py):
+                    if np.max(px) < np.min(py) or np.max(py) < np.min(px):
+                        continue
                     cap = len(set(px).intersection(set(py)))
-                    cup = len(px) + len(py)
-                    n, m = px.shape[0], py.shape[0]
-                    overlap_matrix[i, j] = 2.*cap/cup
+                    if cap > 0:
+                        cup = len(px) + len(py)
+                        n, m = px.shape[0], py.shape[0]
+                        overlap_matrix[i, j] = 2.*cap/cup
 
     return overlap_matrix
 
@@ -165,11 +176,14 @@ def overlap_weighted_dice(index_x: nb.types.List(nb.int64[:]),
         if len(px):
             for j, py in enumerate(index_y):
                 if len(py):
+                    if np.max(px) < np.min(py) or np.max(py) < np.min(px):
+                        continue
                     cap = len(set(px).intersection(set(py)))
-                    cup = len(px) + len(py)
-                    n, m = px.shape[0], py.shape[0]
-                    w = (n + m)/(1 + abs(n - m))
-                    overlap_matrix[i, j] = (2.*cap/cup) * w
+                    if cap > 0:
+                        cup = len(px) + len(py)
+                        n, m = px.shape[0], py.shape[0]
+                        w = (n + m)/(1 + abs(n - m))
+                        overlap_matrix[i, j] = (2.*cap/cup) * w
 
     return overlap_matrix
 
