@@ -9,6 +9,7 @@ from .mcs import *
 from .cathode_cross import *
 from .vertex import *
 from .calo import *
+from .pid import *
 from .kinematics import *
 from .label import *
 from .shower import *
