@@ -74,13 +74,13 @@ class Particle(PosDataBase):
     ancestor_pdg_code : int
         Particle PDG code of the ancestor particle
     t : float
-        Particle creation time
+        Particle creation time (ns)
     end_t : float
-        Particle death time
+        Particle death time (ns)
     parent_t : float
-        Particle creation time of the parent particle
+        Particle creation time of the parent particle (ns)
     ancestor_t : float
-        Particle creation time of the ancestor particle
+        Particle creation time of the ancestor particle (ns)
     position : np.ndarray
         Location of the creation point of the particle
     end_position : np.ndarray
