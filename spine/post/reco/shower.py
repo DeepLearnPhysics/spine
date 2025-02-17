@@ -8,6 +8,8 @@ from scipy.spatial.distance import cdist
 from sklearn.cluster import DBSCAN
 from sklearn.metrics.pairwise import cosine_similarity
 
+from spine.utils.gnn.cluster import cluster_dedx
+
 __all__ = ['ConversionDistanceProcessor', 'ShowerMultiArmCheck', 
            'ShowerStartpointCorrectionProcessor']
 
@@ -70,6 +72,14 @@ class ConversionDistanceProcessor(PostBase):
             leading_shower, energy = None, -np.inf
             
             for p in ia.particles:
+                
+                if (p.shape == 0 and p.is_primary):
+                    p.vertex_distance = criterion
+                    
+                    if p.ke > energy:
+                        leading_shower = p
+                        energy = p.ke
+                
                 if (p.shape == 0 and p.pid == 1 and p.is_primary):
                     if self.vertex_mode == 'protons':
                         criterion = self.convdist_protons(ia, p)
@@ -79,11 +89,6 @@ class ConversionDistanceProcessor(PostBase):
                         criterion = self.convdist_vertex_startpoint(ia, p)
                     else:
                         raise ValueError('Invalid point mode')
-                    p.vertex_distance = criterion
-                    
-                    if p.ke > energy:
-                        leading_shower = p
-                        energy = p.ke
                     
                     if self.modify_inplace:
                         if criterion >= self.threshold:
@@ -93,6 +98,10 @@ class ConversionDistanceProcessor(PostBase):
                 ia.vertex_distance = -np.inf
             else:
                 ia.vertex_distance = leading_shower.vertex_distance
+                ia.shower_dedx = cluster_dedx(leading_shower.points,
+                                              leading_shower.depositions,
+                                              leading_shower.start_point,
+                                              max_dist=3.0)
             
     @staticmethod        
     def convdist_protons(ia, shower_p):
@@ -235,17 +244,23 @@ class ShowerMultiArmCheck(PostBase):
             leading_shower, energy = None, -np.inf
             
             for p in ia.particles:
-                if p.pid == ELEC_PID and p.is_primary and (p.shape == 0):
+                
+                if p.shape == SHOWR_SHP and p.is_primary:
+                    
                     angle = self.compute_angular_criterion(p, ia.vertex, 
                                                      eps=self.eps, 
                                                      min_samples=self.min_samples)
+                    
                     p.shower_split_angle = angle
-                    if self.modify_inplace:
-                        if angle > self.threshold:
-                            p.pid = PHOT_PID
                     if p.ke > energy:
                         leading_shower = p
                         energy = p.ke
+                
+                if p.pid == ELEC_PID and p.is_primary and (p.shape == 0):
+
+                    if self.modify_inplace:
+                        if angle > self.threshold:
+                            p.pid = PHOT_PID
             
             if leading_shower is None:
                 ia.shower_split_angle = -np.inf

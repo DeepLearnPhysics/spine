@@ -282,6 +282,7 @@ class RecoInteraction(InteractionBase, RecoBase):
     
     vertex_distance: float = -1.
     shower_split_angle: float = -1.
+    shower_dedx: float = -1. 
 
     # Attributes that must never be stored to file
     _skip_attrs = (

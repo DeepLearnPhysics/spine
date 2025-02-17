@@ -110,7 +110,7 @@ class LikelihoodFlashMatcher:
             raise FileNotFoundError(
                     f"Cannot find flash-matcher config: {cfg}")
 
-        cfg = flashmatch.CreatePSetFromFile(cfg)
+        cfg = flashmatch.CreateFMParamsFromFile(cfg)
 
         # Initialize The OpT0Finder flash match manager
         self.mgr = flashmatch.FlashMatchManager()
@@ -119,7 +119,7 @@ class LikelihoodFlashMatcher:
         # Get the light path algorithm to produce QCluster_t objects
         self.light_path = flashmatch.CustomAlgoFactory.get().create(
                 'LightPath', 'ToyMCLightPath')
-        self.light_path.Configure(cfg.get['flashmatch::PSet']('LightPath'))
+        self.light_path.Configure(cfg.get['flashmatch::FMParams']('LightPath'))
 
     def get_matches(self, interactions, flashes):
         """Find TPC interactions compatible with optical flashes.
