@@ -53,8 +53,8 @@ def csda_table_spline(particle_type, value='T', table_dir='csda_tables'):
                     KAON_PID: 'ka',
                     PROT_PID: 'p'}
     if particle_type not in name_mapping.keys():
-        raise ValueError('CSDA table for particle type ' \
-                f'{particle_type} is not available')
+        raise ValueError(
+                f"CSDA table for particle type {particle_type} is not available.")
 
     # Fetch the table and fit a spline
     pid = name_mapping[particle_type]

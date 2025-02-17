@@ -23,7 +23,7 @@ class RecombinationCalibrator:
 
     def __init__(self, efield, drift_dir, model='mbox', birks_a=0.800,
                  birks_k=0.0486, mbox_alpha=0.906, mbox_beta=0.203,
-                 mbox_ell_r=1.25, mip_dedx=2.2, tracking_mode='bin_pca',
+                 mbox_ell_r=1.25, mip_dedx=2.105168, tracking_mode='bin_pca',
                  **kwargs):
         """Initialize the recombination model and its constants.
 
@@ -45,7 +45,7 @@ class RecombinationCalibrator:
             Modified box model beta parameter in (kV/cm)(g/cm^2)/MeV
         mbox_ell_r : float, default 1.25 (ICARUS fit)
             Modified box model ellipsoid correction R parameter
-        mip_dedx : float, default 2.2 (must be changed to 2.105168)
+        mip_dedx : float, default 2.105168
             Mean dE/dx value of a MIP in LAr. Used to apply a flat recombination
             correction if the local dE/dx is not evaluated through tracking.
         track_mode : float, default 'bin_pca'

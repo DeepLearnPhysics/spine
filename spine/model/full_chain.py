@@ -105,15 +105,19 @@ class FullChain(torch.nn.Module):
             'particle_identification': ['grappa', 'image'],
             'primary_identification': ['grappa'],
             'orientation_identification': ['grappa'],
-            'calibration': ['apply']
+            'calibration': ['apply'],
+            'calibration_stage': [
+                'segementation', 'fragmentation', 'particle_aggregation',
+                'inter_aggregation', 'particle_identification'
+            ]
     }
 
     def __init__(self, chain, uresnet_deghost=None, uresnet=None,
                  uresnet_ppn=None, adapt_labels=None, graph_spice=None,
                  dbscan=None, grappa_shower=None, grappa_track=None,
                  grappa_particle=None, grappa_inter=None, calibration=None,
-                 uresnet_deghost_loss=None, uresnet_loss=None,
-                 uresnet_ppn_loss=None, graph_spice_loss=None,
+                 calibration_stage=None, uresnet_deghost_loss=None,
+                 uresnet_loss=None, uresnet_ppn_loss=None, graph_spice_loss=None,
                  grappa_shower_loss=None, grappa_track_loss=None,
                  grappa_particle_loss=None, grappa_inter_loss=None):
         """Initialize the full chain model.
@@ -142,6 +146,8 @@ class FullChain(torch.nn.Module):
             Interaction aggregation model configuration
         caliration : dict, optional
             Calibration manager configuration
+        calibration_stage : str, optional
+            Stage at which to apply the calibration corrections
         """
         # Initialize the parent class
         super().__init__()
@@ -155,13 +161,6 @@ class FullChain(torch.nn.Module):
                     "If the deghosting is using UResNet, must provide the "
                     "`uresnet_deghost` configuration block.")
             self.uresnet_deghost = UResNetSegmentation(uresnet_deghost)
-
-        # Initialize the calibrater manager
-        if self.calibration == 'apply':
-            assert calibration is not None, (
-                    "If the calibration is to be applied, must provide the "
-                    "`calibration` configuration block.")
-            self.calibrator = CalibrationManager(**calibration)
 
         # Initialize the semantic segmentation model (+ point proposal)
         if self.segmentation is not None and self.segmentation == 'uresnet':
@@ -218,8 +217,21 @@ class FullChain(torch.nn.Module):
                 assert getattr(self, name).make_groups == True, (
                         "The aggregators should have `make_groups: true`")
 
+        # Initialize the standalone particle classifier
+        # TODO (likely an image classifier)
+
         # Initialize the interaction-classification module
         # TODO (could be done by either CNN or graph-level GNN)
+
+        # Initialize the calibrator manager
+        if self.calibration == 'apply':
+            assert calibration is not None, (
+                    "If the calibration is to be applied, must provide the "
+                    "`calibration` configuration block.")
+            assert self.calibration_stage is not None, (
+                    "If the calibration is to be applied, must provide the "
+                    "`calibration_stage` to specify where to apply it.")
+            self.calibrator = CalibrationManager(**calibration)
 
     def forward(self, data, sources=None, seg_label=None, clust_label=None,
                 coord_label=None, energy_label=None, run_info=None):
@@ -260,23 +272,31 @@ class FullChain(torch.nn.Module):
         # Run the deghosting step
         data, sources = self.run_deghosting(data, sources, seg_label, clust_label)
 
-        # Run the calibration step
-        data = self.run_calibration(data, sources, energy_label, run_info)
-
         # Run the semantic segmentation (and point proposal) stage
+        if self.calibration_stage == 'segementation':
+            data = self.run_calibration(data, sources, energy_label, run_info)
         clust_label = self.run_segmentation_ppn(data, seg_label, clust_label)
 
         # Run the fragmentation stage
+        if self.calibration_stage == 'fragmentation':
+            data = self.run_calibration(data, sources, energy_label, run_info)
         self.run_fragmentation(data, clust_label)
 
         # Run the particle aggregation
+        if self.calibration_stage == 'particle_aggregation':
+            data = self.run_calibration(data, sources, energy_label, run_info)
         self.run_part_aggregation(data, clust_label, coord_label)
 
-        # Run an independant particle classification stage
-        # TODO
-
         # Run the interaction aggregation
+        if self.calibration_stage == 'inter_aggregation':
+            print('YUP')
+            data = self.run_calibration(data, sources, energy_label, run_info)
         self.run_inter_aggregation(data, clust_label, coord_label)
+
+        # Run an independant particle classification stage
+        if self.calibration_stage == 'particle_classification':
+            data = self.run_calibration(data, sources, energy_label, run_info)
+        # TODO
 
         # Run the interaction classification
         # TODO
@@ -392,78 +412,6 @@ class FullChain(torch.nn.Module):
 
             # Nothing to do
             return data, sources_adapt
-
-    def run_calibration(self, data, sources=None, energy_label=None,
-                        run_info=None):
-        """Run the calibration algorithm.
-
-        This converts the raw charge values in ADC to energy depositions
-        expressed in MeV. It applies gain, recombination, transparency
-        and electron lifetime corrections.
-
-        Parameters
-        ----------
-        data : TensorBatch
-            (N, 1 + D + N_f) tensor of voxel/value pairs
-        sources : TensorBatch, optional
-            (N, 2) tensor of module/tpc pair for each voxel
-        energy_label : TensorBatch, optional
-            (N, 1 + D + 1) Tensor of true energy deposition values
-            - 1 is the energy deposition value in each voxel
-        run_info : List[RunInfo], optional
-            Object containing information about the run, subrun and event
-
-        Returns
-        -------
-        TensorBatch
-            (N, 1 + D + N_f) tensor of calibrated voxel/value pairs
-        """
-        if self.calibration == 'apply':
-            # Apply calibration routines
-            data_np = data.to_numpy().tensor
-            sources = sources.to_numpy().tensor if sources is not None else None
-            if run_info is None:
-                # Fetch points for the whole batch
-                voxels = data_np[:, COORD_COLS]
-                values = data_np[:, VALUE_COL]
-
-                # Calibrate voxel values
-                values = self.calibrator(voxels, values, sources)
-                data.tensor[:, value_col] = torch.tensor(
-                        values, dtype=data.dtype, device=data.device)
-
-            else:
-                # Loop over entries in the batch (might have different run IDs)
-                rep = data.batch_size//len(run_info)
-                for b in range(data.batch_size):
-                    # Fetch points for this batch entry
-                    lower, upper = data.edges[b], data.edges[b+1]
-                    data_b = data_np[lower:upper]
-                    voxels_b = data_b[:, COORD_COLS]
-                    values_b = data_b[:, VALUE_COL]
-
-                    # Fetch run ID for this batch entry
-                    run_id = run_info[b//rep].run
-
-                    # Calibrate voxel values
-                    sources_b = sources[lower:upper] if sources is not None else None
-                    values_b = self.calibrator(
-                            voxels_b, values_b, sources_b, run_id)
-
-                    data.tensor[lower:upper, VALUE_COL] = torch.tensor(
-                            values_b, dtype=data.dtype, device=data.device)
-
-            self.result['data_adapt'] = data
-
-        elif self.calibration == 'label':
-            # Use energy labels to give values to each voxel
-            assert energy_label is not None, (
-                    "Must provide `energy_label` to do label-based calibration.")
-            data.tensor[:, VALUE_COL] = energy_label.tensor[:, VALUE_COL]
-
-            self.result['data_adapt'] = data
-
-        return data
 
     def run_segmentation_ppn(self, data, seg_label=None, clust_label=None):
         """Run the semantic segmentation and the point proposal algorithms.
@@ -757,6 +705,78 @@ class FullChain(torch.nn.Module):
         # Store interaction objects
         if self.inter_aggregation is not None:
             self.result['interaction_clusts'] = interactions
+
+    def run_calibration(self, data, sources=None, energy_label=None,
+                        run_info=None):
+        """Run the calibration algorithm.
+
+        This converts the raw charge values in ADC to energy depositions
+        expressed in MeV. It applies gain, recombination, transparency
+        and electron lifetime corrections.
+
+        Parameters
+        ----------
+        data : TensorBatch
+            (N, 1 + D + N_f) tensor of voxel/value pairs
+        sources : TensorBatch, optional
+            (N, 2) tensor of module/tpc pair for each voxel
+        energy_label : TensorBatch, optional
+            (N, 1 + D + 1) Tensor of true energy deposition values
+            - 1 is the energy deposition value in each voxel
+        run_info : List[RunInfo], optional
+            Object containing information about the run, subrun and event
+
+        Returns
+        -------
+        TensorBatch
+            (N, 1 + D + N_f) tensor of calibrated voxel/value pairs
+        """
+        if self.calibration == 'apply':
+            # Apply calibration routines
+            data_np = data.to_numpy().tensor
+            sources = sources.to_numpy().tensor if sources is not None else None
+            if run_info is None:
+                # Fetch points for the whole batch
+                voxels = data_np[:, COORD_COLS]
+                values = data_np[:, VALUE_COL]
+
+                # Calibrate voxel values
+                values = self.calibrator(voxels, values, sources)
+                data.tensor[:, VALUE_COL] = torch.tensor(
+                        values, dtype=data.dtype, device=data.device)
+
+            else:
+                # Loop over entries in the batch (might have different run IDs)
+                rep = data.batch_size//len(run_info)
+                for b in range(data.batch_size):
+                    # Fetch points for this batch entry
+                    lower, upper = data.edges[b], data.edges[b+1]
+                    data_b = data_np[lower:upper]
+                    voxels_b = data_b[:, COORD_COLS]
+                    values_b = data_b[:, VALUE_COL]
+
+                    # Fetch run ID for this batch entry
+                    run_id = run_info[b//rep].run
+
+                    # Calibrate voxel values
+                    sources_b = sources[lower:upper] if sources is not None else None
+                    values_b = self.calibrator(
+                            voxels_b, values_b, sources_b, run_id)
+
+                    data.tensor[lower:upper, VALUE_COL] = torch.tensor(
+                            values_b, dtype=data.dtype, device=data.device)
+
+            self.result['data_adapt'] = data
+
+        elif self.calibration == 'label':
+            # Use energy labels to give values to each voxel
+            assert energy_label is not None, (
+                    "Must provide `energy_label` to do label-based calibration.")
+            data.tensor[:, VALUE_COL] = energy_label.tensor[:, VALUE_COL]
+
+            self.result['data_adapt'] = data
+
+        return data
 
     def run_grappa(self, prefix, model, data, clusts, clust_shapes,
                    clust_primaries=None, coord_label=None,

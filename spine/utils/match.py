@@ -9,7 +9,7 @@ __all__ = ['overlap_counts', 'overlap_iou', 'overlap_weighted_iou',
            'overlap_dice', 'overlap_weighted_dice', 'overlap_chamfer']
 
 
-@nb.njit(cache=True)
+@nb.njit(cache=True, parallel=True)
 def overlap_count(index_x: nb.types.List(nb.int64[:]),
                   index_y: nb.types.List(nb.int64[:])) -> nb.int64[:,:]:
     """Computes a set overlap matrix by overlap count.
@@ -27,16 +27,19 @@ def overlap_count(index_x: nb.types.List(nb.int64[:]),
         (M, N) Overlap count matrix
     """
     overlap_matrix = np.zeros((len(index_x), len(index_y)), dtype=np.int64)
-    for i, px in enumerate(index_x):
+    for i in nb.prange(len(index_x)):
+        px = index_x[i]
         if len(px):
             for j, py in enumerate(index_y):
                 if len(py):
+                    if np.max(px) < np.min(py) or np.max(py) < np.min(px):
+                        continue
                     overlap_matrix[i, j] = len(set(px).intersection(set(py)))
 
     return overlap_matrix
 
 
-@nb.njit(cache=True)
+@nb.njit(cache=True, parallel=True)
 def overlap_iou(index_x: nb.types.List(nb.int64[:]),
                 index_y: nb.types.List(nb.int64[:])) -> nb.float32[:,:]:
     """Computes a set overlap matrix by IoU.
@@ -56,18 +59,22 @@ def overlap_iou(index_x: nb.types.List(nb.int64[:]),
         (M, N) Overlap IoU matrix
     """
     overlap_matrix = np.zeros((len(index_x), len(index_y)), dtype=np.float32)
-    for i, px in enumerate(index_x):
+    for i in nb.prange(len(index_x)):
+        px = index_x[i]
         if len(px):
             for j, py in enumerate(index_y):
                 if len(py):
+                    if np.max(px) < np.min(py) or np.max(py) < np.min(px):
+                        continue
                     cap = len(set(px).intersection(set(py)))
-                    cup = len(set(px).union(set(py)))
-                    overlap_matrix[i, j] = cap/cup
+                    if cap > 0:
+                        cup = len(set(px).union(set(py)))
+                        overlap_matrix[i, j] = cap/cup
 
     return overlap_matrix
 
 
-@nb.njit(cache=True)
+@nb.njit(cache=True, parallel=True)
 def overlap_weighted_iou(index_x: nb.types.List(nb.int64[:]),
                          index_y: nb.types.List(nb.int64[:])) -> nb.float32[:,:]:
     """Computes a set overlap matrix by IoU, weighted by the set sizes.
@@ -88,19 +95,23 @@ def overlap_weighted_iou(index_x: nb.types.List(nb.int64[:]),
         (M, N) Overlap weighted IoU matrix
     """
     overlap_matrix = np.zeros((len(index_x), len(index_y)), dtype=np.float32)
-    for i, px in enumerate(index_x):
+    for i in nb.prange(len(index_x)):
+        px = index_x[i]
         if len(px):
             for j, py in enumerate(index_y):
                 if len(py):
+                    if np.max(px) < np.min(py) or np.max(py) < np.min(px):
+                        continue
                     cap = len(set(px).intersection(set(py)))
-                    cup = len(set(px).union(set(py)))
-                    n, m = px.shape[0], py.shape[0]
-                    overlap_matrix[i, j] = (cap/cup) * (n + m)/(1 + abs(n - m))
+                    if cap > 0:
+                        cup = len(set(px).union(set(py)))
+                        n, m = px.shape[0], py.shape[0]
+                        overlap_matrix[i, j] = (cap/cup) * (n + m)/(1 + abs(n - m))
 
     return overlap_matrix
 
 
-@nb.njit(cache=True)
+@nb.njit(cache=True, parallel=True)
 def overlap_dice(index_x: nb.types.List(nb.int64[:]),
                  index_y: nb.types.List(nb.int64[:])) -> nb.float32[:,:]:
     """Computes a set overlap matrix by Dice coefficient.
@@ -121,19 +132,23 @@ def overlap_dice(index_x: nb.types.List(nb.int64[:]),
         (M, N) Overlap weighted IoU matrix
     """
     overlap_matrix = np.zeros((len(index_x), len(index_y)), dtype=np.float32)
-    for i, px in enumerate(index_x):
+    for i in nb.prange(len(index_x)):
+        px = index_x[i]
         if len(px):
             for j, py in enumerate(index_y):
                 if len(py):
+                    if np.max(px) < np.min(py) or np.max(py) < np.min(px):
+                        continue
                     cap = len(set(px).intersection(set(py)))
-                    cup = len(px) + len(py)
-                    n, m = px.shape[0], py.shape[0]
-                    overlap_matrix[i, j] = 2.*cap/cup
+                    if cap > 0:
+                        cup = len(px) + len(py)
+                        n, m = px.shape[0], py.shape[0]
+                        overlap_matrix[i, j] = 2.*cap/cup
 
     return overlap_matrix
 
 
-@nb.njit(cache=True)
+@nb.njit(cache=True, parallel=True)
 def overlap_weighted_dice(index_x: nb.types.List(nb.int64[:]),
                           index_y: nb.types.List(nb.int64[:])) -> nb.float32[:,:]:
     """Computes a set overlap matrix by Dice coefficient, weighted by the
@@ -156,20 +171,24 @@ def overlap_weighted_dice(index_x: nb.types.List(nb.int64[:]),
         (M, N) Overlap weighted IoU matrix
     """
     overlap_matrix = np.zeros((len(index_x), len(index_y)), dtype=np.float32)
-    for i, px in enumerate(index_x):
+    for i in nb.prange(len(index_x)):
+        px = index_x[i]
         if len(px):
             for j, py in enumerate(index_y):
                 if len(py):
+                    if np.max(px) < np.min(py) or np.max(py) < np.min(px):
+                        continue
                     cap = len(set(px).intersection(set(py)))
-                    cup = len(px) + len(py)
-                    n, m = px.shape[0], py.shape[0]
-                    w = (n + m)/(1 + abs(n - m))
-                    overlap_matrix[i, j] = (2.*cap/cup) * w
+                    if cap > 0:
+                        cup = len(px) + len(py)
+                        n, m = px.shape[0], py.shape[0]
+                        w = (n + m)/(1 + abs(n - m))
+                        overlap_matrix[i, j] = (2.*cap/cup) * w
 
     return overlap_matrix
 
 
-@nb.njit(cache=True)
+@nb.njit(cache=True, parallel=True)
 def overlap_chamfer(points_x: nb.types.List(nb.int64[:]),
                     points_y: nb.types.List(nb.int64[:])) -> nb.float32[:,:]:
     """Computes a set overlap matrix by Chamfer distance.
@@ -195,7 +214,8 @@ def overlap_chamfer(points_x: nb.types.List(nb.int64[:]),
     """
     overlap_matrix = np.full(
             np.inf, (len(points_x), len(points_y)), dtype=np.float32)
-    for i, px in enumerate(points_x):
+    for i in nb.prange(len(points_x)):
+        px = points_x[i]
         if len(px):
             for j, py in enumerate(points_y):
                 if len(py):

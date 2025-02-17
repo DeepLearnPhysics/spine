@@ -519,7 +519,7 @@ def get_ppn_labels(particle_v, meta, dtype, dim=3, min_voxel_count=1,
         # If the particle is a nucleus, skip.
         # TODO: check if it's useful
         pdg_code = abs(particle.pdg_code())
-        if pdg_code > 1000000000:  # Skipping nucleus trackid
+        if pdg_code > 1000000000:
             continue
 
         # If a shower has its first step outside of detector boundaries, skip
