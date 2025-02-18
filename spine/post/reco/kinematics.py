@@ -1,12 +1,12 @@
 import numpy as np
 
 from spine.utils.globals import (
-        TRACK_SHP, PID_MASSES, SHP_TO_PID, SHP_TO_PRIMARY)
+        TRACK_SHP, MUON_PID, PION_PID, PID_MASSES, SHP_TO_PID, SHP_TO_PRIMARY)
 
 from spine.post.base import PostBase
 
 __all__ = ['ParticleShapeLogicProcessor', 'ParticleThresholdProcessor',
-           'InteractionTopologyProcessor']
+           'ParticleNeutrinoLogicProcessor', 'InteractionTopologyProcessor']
 
 
 class ParticleShapeLogicProcessor(PostBase):
@@ -158,6 +158,93 @@ class ParticleThresholdProcessor(PostBase):
             if self.primary_threshold is not None:
                 part.is_primary = bool(
                         part.primary_scores[1] >= self.primary_threshold)
+
+
+class ParticleNeutrinoLogicProcessor(PostBase):
+    """Enforce that there is at most 1 primary lepton per interaction.
+
+    In particular:
+    - If there is no muon and the interactions with a MIP are required to have
+      one, turn one of the MIPs into a muon (and neutralize the pion score)
+    - If there are more than 1 muon per interaction, pick one muon and switch
+      other muons to pions (and neutralize the muon score)
+    """
+
+    # Name of the post-processor (as specified in the configuration)
+    name = 'neutrino_logic'
+
+    # Alternative allowed names of the post-processor
+    aliases = ('enforce_neutrino_topology',)
+
+    # Lepton selection method
+    _methods = ('size', 'score')
+
+    def __init__(self, method='size', cc_only=True):
+        """Store information about how to enforce neutrino logic.
+
+        Parameters
+        ----------
+        method : str, default 'size'
+            Method used to select the lepton: select the largest MIP
+            ('size') or the MIP with the highest lepton score ('score')
+        cc_only : bool, default `True`
+            If there are no leptons but MIPs are present, ensure that one
+            of the MIPs is labeled as a lepton (CC-like)
+        """
+        # Intialize the parent class
+        super().__init__('particle', 'reco')
+
+        # Store parameters
+        assert method in self._methods, (
+                f"Lepton selection method not recognized ({method}). Must "
+                f"be one of {self._methods}.")
+        self.method = method
+        self.cc_only = cc_only
+
+    def process(self, data):
+        """Update PID and primary predictions of each particle in one entry
+
+        Parameters
+        ----------
+        data : dict
+            Dictionaries of data products
+        """
+        # Loop over unique interaction groups
+        particles = data['reco_particles']
+        inter_ids = np.array([part.interaction_id for part in particles])
+        pids = np.array([part.pid for part in particles])
+        pid_scores = np.vstack([part.pid_scores for part in particles])
+        for inter_id in np.unique(inter_ids):
+            # Build a mask for this interaction
+            inter_index = np.where(inter_ids == inter_id)[0]
+
+            # Count the number of MIPs in the event
+            muon_index = inter_index[pids[inter_index] == MUON_PID]
+            pion_index = inter_index[pids[inter_index] == PION_PID]
+            mip_index = np.concatenate((muon_index, pion_index))
+
+            # If this is a CC interaction but there are MIPs with no muons, correct
+            if self.cc_only and len(muon_index) < 1 and len(pion_index) > 0:
+                if self.method == 'size':
+                    amax = np.argmax([particles[i].size for i in mip_index])
+                else:
+                    amax = np.argmax([pid_scores[i][MUON_PID] for i in mip_index])
+
+                best_id = mip_index[amax]
+                particles[best_id].pid = MUON_PID
+                particles[best_id].pid_scores[PION_PID] = -1.
+
+            # If there are more then 1 muon, down-select to 1
+            if len(muon_index) > 1:
+                if self.method == 'size':
+                    amax = np.argmax([particles[i].size for i in muon_index])
+                else:
+                    amax = np.argmax([pid_scores[i][MUON_PID] for i in muon_index])
+
+                for i in muon_index:
+                    if i != muon_index[amax]:
+                        particles[i].pid = PION_PID
+                        particles[i].pid_scores[MUON_PID] = -1.
 
 
 class InteractionTopologyProcessor(PostBase):

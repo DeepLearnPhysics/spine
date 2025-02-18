@@ -107,7 +107,7 @@ class FullChain(torch.nn.Module):
             'orientation_identification': ['grappa'],
             'calibration': ['apply'],
             'calibration_stage': [
-                'segementation', 'fragmentation', 'particle_aggregation',
+                'segmentation', 'fragmentation', 'particle_aggregation',
                 'inter_aggregation', 'particle_identification'
             ]
     }
@@ -273,7 +273,7 @@ class FullChain(torch.nn.Module):
         data, sources = self.run_deghosting(data, sources, seg_label, clust_label)
 
         # Run the semantic segmentation (and point proposal) stage
-        if self.calibration_stage == 'segementation':
+        if self.calibration_stage == 'segmentation':
             data = self.run_calibration(data, sources, energy_label, run_info)
         clust_label = self.run_segmentation_ppn(data, seg_label, clust_label)
 
