@@ -51,6 +51,7 @@ class TemplateParticleIdentifier:
         self.use_table = use_table
         self.use_mpv = use_mpv
         self.optimize_rr = optimize_rr
+        self.max_rr = max_rr
         self.optimize_orient = optimize_orient
 
         # If needed, initialize the spline fits to the dE/dx templates once
@@ -151,7 +152,7 @@ class TemplateParticleIdentifier:
             Value of the chi2 for the optimal residual range
         """
         chi2 = lambda x: self.chi2(dedxs, x + rrs, pid)
-        res = minimize(chi2, 0., bounds=((0., 1e2),))
+        res = minimize(chi2, 0., bounds=((0., self.max_rr),))
         return res.x[0], res.fun
 
     def chi2(self, dedxs, rrs, pid):
