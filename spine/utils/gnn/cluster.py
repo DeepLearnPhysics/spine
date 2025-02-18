@@ -83,6 +83,36 @@ def get_cluster_label_batch(data, clusts, column=CLUST_COL):
     return TensorBatch(labels, clusts.counts)
 
 
+def get_cluster_closest_label_batch(data, coord_label, clusts, labels, default):
+    """Batched version of :func:`get_cluster_closest_label`.
+
+    Parameters
+    ----------
+    data : TensorBatch
+        Batch of cluster label data tensor
+    coord_label : TensorBatch
+        Batch of particle end points labels
+    clusts : IndexBatch
+        (C) List of cluster indexes
+    labels : TensorBatch
+        (C) Existing list of cluster labels (the new labels will be a subset)
+    default : Union[int, List[int]]
+        Default value to assign to secondary clusters
+
+    Returns
+    -------
+    TensorBatch
+        (C) List of individual cluster labels
+    """
+    labels_adapt = np.empty(len(clusts.index_list), dtype=np.int64)
+    for b in range(data.batch_size):
+        lower, upper = clusts.edges[b], clusts.edges[b+1]
+        labels_adapt[lower:upper] = get_cluster_closest_label(
+                data[b], coord_label[b], clusts[b], labels[b], default)
+
+    return TensorBatch(labels_adapt, clusts.counts)
+
+
 def get_cluster_primary_label_batch(data, clusts, column):
     """Batched version of :func:`get_cluster_primary_label`.
 
@@ -345,6 +375,74 @@ def _get_cluster_label(data: nb.float64[:,:],
         labels[i] = v[np.argmax(cts)]
 
     return labels
+
+
+@numbafy(cast_args=['data', 'coord_label'], list_args=['clusts'])
+def get_cluster_closest_label(data, coord_label, clusts, labels, default):
+    """Sets the label of clusters based on their proximity to the start point
+    of the particle which created them.
+
+    Parameters
+    ----------
+    data : np.ndarray
+        Cluster label data tensor
+    coord_label : np.ndarray
+        Coordinate labels associated with each particle
+    clusts : List[np.ndarray]
+        (C) List of cluster indexes
+    labels : np.ndarray
+        (C) Existing list of cluster labels (the new labels will be a subset)
+    default : np.ndarray
+        Default label to assign to secondary clusters
+
+    Returns
+    -------
+    np.ndarray
+        (C) List of cluster labels
+    """
+    if not len(clusts):
+        return np.empty(0, dtype=data.dtype)
+
+    return _get_cluster_closest_label(
+            data, coord_label, clusts, labels, default)
+
+@nb.njit(cache=True)
+def _get_cluster_closest_label(data: nb.float64[:,:],
+                               coord_label: nb.float64[:,:],
+                               clusts: nb.types.List(nb.int64[:]),
+                               labels: nb.float64[:],
+                               default: nb.int64[:]) -> (
+                                               nb.float64[:]):
+
+    # Loop over the unique cluster groups
+    group_ids = _get_cluster_label(data, clusts, GROUP_COL)
+    labels_adapt = labels.copy()
+    voxels = data[:, COORD_COLS]
+    points = coord_label[:, COORD_COLS]
+    for g in np.unique(group_ids.astype(np.int64)):
+        # If the group index does not exist in the points, do not touch labels
+        group_index = np.where(group_ids == g)[0]
+        if g < 0 or g >= len(points):
+            continue
+
+        # Get the coordinates of the start point
+        start_point = points[g].reshape(-1, 3)
+
+        # Minimize the point-cluster distances
+        dists = np.empty(len(group_index), dtype=data.dtype)
+        for i, c in enumerate(group_index):
+            dists[i] = np.min(nbl.cdist(start_point, voxels[clusts[c]]))
+
+        # Label the closest cluster as the original label only, assign default
+        # values ot the other clusters in the group
+        closest_index = group_index[np.argmin(dists)]
+        label = int(labels[closest_index])
+        deflt = default[label] if label > -1 and label < len(default) else -1
+
+        labels_adapt[group_index] = deflt
+        labels_adapt[closest_index] = label
+
+    return labels_adapt
 
 
 @numbafy(cast_args=['data'], list_args=['clusts'])
