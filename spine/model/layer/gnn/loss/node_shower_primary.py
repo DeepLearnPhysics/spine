@@ -40,12 +40,14 @@ class NodeShowerPrimaryLoss(torch.nn.Module):
     # Name of the loss (as specified in the configuration)
     name = 'shower_primary'
 
-    def __init__(self, balance_loss=False, high_purity=False, use_closest=False,
-                 use_group_pred=False, group_pred_alg='score', loss='ce'):
+    def __init__(self, loss='ce', balance_loss=False, high_purity=False,
+                 use_closest=False, use_group_pred=False, group_pred_alg='score'):
         """Initialize the EM shower primary identification loss function.
 
         Parameters
         ----------
+        loss : str, default 'ce'
+            Name of the loss function to apply
         balance_loss : bool, default False
             Whether to weight the loss to account for class imbalance
         high_purity : bool, default False
@@ -58,8 +60,6 @@ class NodeShowerPrimaryLoss(torch.nn.Module):
             Use predicted group to check for high purity
         group_pred_alg : str, default 'score'
             Method used to form a predicted group ('threshold' or 'score')
-        loss : str, default 'ce'
-            Name of the loss function to apply
         """
         # Initialize the parent class
         super().__init__()
