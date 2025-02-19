@@ -8,6 +8,9 @@ from scipy.spatial.distance import cdist
 from sklearn.cluster import DBSCAN
 from sklearn.metrics.pairwise import cosine_similarity
 
+from sklearn.decomposition import PCA
+from sklearn.cluster import DBSCAN
+
 from spine.utils.gnn.cluster import cluster_dedx
 
 __all__ = ['ConversionDistanceProcessor', 'ShowerMultiArmCheck', 
@@ -73,14 +76,8 @@ class ConversionDistanceProcessor(PostBase):
             
             for p in ia.particles:
                 
-                if (p.shape == 0 and p.is_primary):
-                    p.vertex_distance = criterion
+                if (p.shape == SHOWR_SHP and p.is_primary):
                     
-                    if p.ke > energy:
-                        leading_shower = p
-                        energy = p.ke
-                
-                if (p.shape == 0 and p.pid == 1 and p.is_primary):
                     if self.vertex_mode == 'protons':
                         criterion = self.convdist_protons(ia, p)
                     elif self.vertex_mode == 'vertex_points':
@@ -90,18 +87,29 @@ class ConversionDistanceProcessor(PostBase):
                     else:
                         raise ValueError('Invalid point mode')
                     
-                    if self.modify_inplace:
-                        if criterion >= self.threshold:
-                            p.pid = PHOT_PID
+                    p.vertex_distance = criterion
+                    
+                    if p.ke > energy:
+                        leading_shower = p
+                        energy = p.ke
+                    
+                    if p.pid == ELEC_PID:
+                        
+                        if self.modify_inplace:
+                            if criterion >= self.threshold:
+                                p.pid = PHOT_PID
                             
             if leading_shower is None:
                 ia.vertex_distance = -np.inf
+                ia.shower_dedx = -np.inf
+                ia.leading_shower_num_fragments = -1
             else:
                 ia.vertex_distance = leading_shower.vertex_distance
                 ia.shower_dedx = cluster_dedx(leading_shower.points,
                                               leading_shower.depositions,
                                               leading_shower.start_point,
                                               max_dist=3.0)
+                ia.leading_shower_num_fragments = leading_shower.num_fragments
             
     @staticmethod        
     def convdist_protons(ia, shower_p):
@@ -251,12 +259,18 @@ class ShowerMultiArmCheck(PostBase):
                                                      eps=self.eps, 
                                                      min_samples=self.min_samples)
                     
+                    straightness, continuity, spread = shower_quality_check(p, ia.vertex)
+                    
+                    p.trunk_straightness = straightness
+                    p.trunk_continuity = continuity
+                    p.shower_spread = spread
+                    
                     p.shower_split_angle = angle
                     if p.ke > energy:
                         leading_shower = p
                         energy = p.ke
                 
-                if p.pid == ELEC_PID and p.is_primary and (p.shape == 0):
+                if p.pid == ELEC_PID and p.is_primary and (p.shape == SHOWR_SHP):
 
                     if self.modify_inplace:
                         if angle > self.threshold:
@@ -264,8 +278,14 @@ class ShowerMultiArmCheck(PostBase):
             
             if leading_shower is None:
                 ia.shower_split_angle = -np.inf
+                ia.trunk_straightness = -np.inf
+                ia.trunk_continuity = -np.inf
+                ia.shower_spread = -np.inf
             else:
                 ia.shower_split_angle = leading_shower.shower_split_angle
+                ia.trunk_straightness = leading_shower.trunk_straightness
+                ia.trunk_continuity = leading_shower.trunk_continuity
+                ia.shower_spread = leading_shower.shower_spread
             
                 
     # @staticmethod
@@ -422,3 +442,65 @@ class ShowerStartpointCorrectionProcessor(PostBase):
             return shower_p.start_point
         guess = shower_p.points[closest_idx[0]]
         return guess
+
+
+def shower_quality_check(shower_p, vertex, r=3.0, n_components=3, eps=0.6, min_samples=1):
+    '''
+    Given a shower particle, compute the straightness, continuity, 
+    and spread of the shower.
+    
+    Straightness: The fraction of the total variance explained 
+        by the first principal component.
+    Continuity: The fraction of the shower points that 
+        belong to the primary cluster.
+    Spread: The average cosine of the angle between the shower points 
+        and the mean direction.
+        
+    Parameters
+    ----------
+    shower_p : RecoParticle
+        The shower particle to check.
+    vertex : np.ndarray
+        The vertex of the interaction.
+    r : float, default 3.0
+        The radius of the trunk to consider for straightness.
+    n_components : int, default 3
+        The number of principal components to compute.
+    eps : float, default 0.6
+        The maximum distance between two samples for one to be
+        considered as in the neighborhood of the other (DBSCAN).
+    min_samples : int, default 1
+        The number of samples in a neighborhood for a point to be
+        considered as a core point (DBSCAN).
+    '''
+    straightness, continuity, spread = -1, -1, -1
+
+    # Compute Straightness (trunk)
+    dists = np.linalg.norm(shower_p.points - vertex, axis=1)
+    mask = dists < r
+    if mask.sum() < n_components:
+        return straightness, continuity, spread
+    trunk = shower_p.points[mask]
+    pca = PCA(n_components=n_components)
+    pca.fit(trunk)
+    straightness = pca.explained_variance_ratio_[0]
+
+    # Compute Continuity (trunk)
+    model = DBSCAN(eps=eps, min_samples=min_samples).fit(trunk)
+    clusters, counts = np.unique(model.labels_, return_counts=True)
+    primary_cluster, primary_cluster_counts = clusters[np.argmax(counts)], counts.max()
+    
+    continuity = primary_cluster_counts / model.labels_.shape[0]
+
+    # Compute Spread (whole shower)
+    mean_free_path = 14.0 * 9.0 / 7.0
+    directions = (shower_p.points - vertex) / dists.reshape(-1, 1)
+    weights = np.exp(- dists / mean_free_path)
+    mean_direction = np.average(directions, weights=weights, axis=0)
+    if np.linalg.norm(mean_direction) > 1e-6:
+        mean_direction /= np.linalg.norm(mean_direction)
+
+        cosine = 1 - np.sum(directions * mean_direction.reshape(1, -1), axis=1)
+        spread = np.average(cosine, weights=weights)
+
+    return straightness, continuity, spread
