@@ -1,7 +1,9 @@
 """Particle direction reconstruction module."""
 
-from spine.utils.globals import TRACK_SHP, PID_LABELS
-from spine.utils.gnn.cluster import cluster_direction
+import numpy as np
+
+from spine.utils.globals import TRACK_SHP
+from spine.utils.gnn.cluster import get_cluster_directions
 
 from spine.post.base import PostBase
 
@@ -40,6 +42,12 @@ class DirectionProcessor(PostBase):
         self.neighborhood_radius = neighborhood_radius
         self.optimize = optimize
 
+        # Make sure the voxel coordinates are provided as a tensor
+        if run_mode != 'truth':
+            self.update_keys({'points': True})
+        if run_mode != 'reco':
+            self.update_keys({self.truth_point_key: True})
+
     def process(self, data):
         """Reconstruct the directions of all particles in one entry.
 
@@ -50,22 +58,38 @@ class DirectionProcessor(PostBase):
         """
         # Loop over particle objects
         for k in self.obj_keys:
+            # In order to parallelize the process, fetch all start points and
+            # clusters once before passing them to the a parallelized function
+            points_key = 'points' if not 'truth' in k else self.truth_point_key
+            attrs, part_ids = [], []
+            clusts, ref_points = [], []
             for obj in data[k]:
-                # Make sure the particle coordinates are expressed in cm
-                self.check_units(obj)
-
-                # Get point coordinates
-                points = self.get_points(obj)
-                if not len(points):
+                # Get index
+                index = self.get_index(obj)
+                if not len(index):
                     continue
 
-                # Reconstruct directions from either end of the particle
-                start_attr = 'reco_start_dir' if obj.is_truth else 'start_dir'
-                setattr(obj, start_attr, cluster_direction(
-                        points, obj.start_point, 
-                        self.neighborhood_radius, self.optimize))
-                if obj.shape == TRACK_SHP:
-                    end_attr = 'reco_end_dir' if obj.is_truth else 'end_dir'
-                    setattr(obj, end_attr, -cluster_direction(
-                            points, obj.end_point,
-                            self.neighborhood_radius, self.optimize))
+                # Store index, start point and the relevant mapping
+                for side in ('start', 'end'):
+                    if side == 'end' and obj.shape != TRACK_SHP:
+                        continue
+
+                    attr = f'reco_{side}_dir' if obj.is_truth else f'{side}_dir'
+                    attrs.append(attr)
+                    part_ids.append(obj.id)
+
+                    clusts.append(index)
+                    ref_points.append(getattr(obj, f'{side}_point'))
+
+            # Check that there is at least one direction to compute
+            if len(clusts) < 1:
+                continue
+
+            # Compute the direction vectors
+            dirs = get_cluster_directions(
+                    data[points_key], np.vstack(ref_points), clusts,
+                    self.neighborhood_radius, self.optimize)
+
+            # Assign directions to the appropriate particles
+            for i, part_id in enumerate(part_ids):
+                setattr(data[k][part_id], attrs[i], dirs[i])
