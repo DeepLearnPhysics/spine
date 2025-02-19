@@ -934,9 +934,11 @@ def get_cluster_directions(data, starts, clusts, max_dist=-1, optimize=False):
     """
     if not len(clusts):
         return np.empty(starts.shape, dtype=data.dtype)
+    if data.shape[1] > 3:
+        data = data[:, COORD_COLS]
 
     return _get_cluster_directions(
-            data[:, COORD_COLS], starts, clusts, max_dist, optimize)
+            data, starts, clusts, max_dist, optimize)
 
 @nb.njit(parallel=True, cache=True)
 def _get_cluster_directions(voxels: nb.float64[:,:],
