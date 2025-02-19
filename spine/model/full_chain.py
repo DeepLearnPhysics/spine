@@ -90,34 +90,36 @@ class FullChain(torch.nn.Module):
                'fragment_clustering',  'chain', 'dbscan_frag',
                ('uresnet_ppn', ['uresnet', 'ppn'])]
 
-    # Store the valid chain modes
-    modes = {
-            'deghosting': ['uresnet'],
-            'charge_rescaling': ['collection', 'average'],
-            'segmentation': ['uresnet'],
-            'point_proposal': ['ppn'],
-            'fragmentation': ['dbscan', 'graph_spice', 'dbscan_graph_spice'],
-            'shower_aggregation': ['skip', 'grappa'],
-            'shower_primary': ['skip', 'grappa'],
-            'track_aggregation': ['skip', 'grappa'],
-            'particle_aggregation': ['skip', 'grappa'],
-            'inter_aggregation': ['grappa'],
-            'particle_identification': ['grappa', 'image'],
-            'primary_identification': ['grappa'],
-            'orientation_identification': ['grappa'],
-            'calibration': ['apply'],
-            'calibration_stage': [
-                'segmentation', 'fragmentation', 'particle_aggregation',
-                'inter_aggregation', 'particle_identification'
-            ]
-    }
+    # Valid chain stage modes
+    _modes = (
+            ('deghosting', ('uresnet',)),
+            ('charge_rescaling', ('collection', 'average')),
+            ('segmentation', ('uresnet',)),
+            ('point_proposal', ('ppn',)),
+            ('fragmentation', ('dbscan', 'graph_spice', 'dbscan_graph_spice')),
+            ('shower_aggregation', ('skip', 'grappa')),
+            ('shower_primary', ('skip', 'grappa')),
+            ('track_aggregation', ('skip', 'grappa')),
+            ('particle_aggregation', ('skip', 'grappa')),
+            ('inter_aggregation', ('grappa',)),
+            ('particle_identification', ('grappa', 'image')),
+            ('primary_identification', ('grappa',)),
+            ('orientation_identification', ('grappa',)),
+            ('calibration', ('apply',))
+    )
+
+    # Valid calibration stages
+    _calib_stages = (
+            'segmentation', 'fragmentation', 'particle_aggregation',
+            'inter_aggregation', 'particle_identification'
+    )
 
     def __init__(self, chain, uresnet_deghost=None, uresnet=None,
                  uresnet_ppn=None, adapt_labels=None, graph_spice=None,
                  dbscan=None, grappa_shower=None, grappa_track=None,
                  grappa_particle=None, grappa_inter=None, calibration=None,
-                 calibration_stage=None, uresnet_deghost_loss=None,
-                 uresnet_loss=None, uresnet_ppn_loss=None, graph_spice_loss=None,
+                 uresnet_deghost_loss=None, uresnet_loss=None,
+                 uresnet_ppn_loss=None, graph_spice_loss=None,
                  grappa_shower_loss=None, grappa_track_loss=None,
                  grappa_particle_loss=None, grappa_inter_loss=None):
         """Initialize the full chain model.
@@ -144,10 +146,8 @@ class FullChain(torch.nn.Module):
             Global particle aggregation configuration
         grappa_inter : dict, optional
             Interaction aggregation model configuration
-        caliration : dict, optional
+        calibration : dict, optional
             Calibration manager configuration
-        calibration_stage : str, optional
-            Stage at which to apply the calibration corrections
         """
         # Initialize the parent class
         super().__init__()
@@ -224,14 +224,29 @@ class FullChain(torch.nn.Module):
         # TODO (could be done by either CNN or graph-level GNN)
 
         # Initialize the calibrator manager
+        self.calibration_stage = None
         if self.calibration == 'apply':
             assert calibration is not None, (
                     "If the calibration is to be applied, must provide the "
                     "`calibration` configuration block.")
-            assert self.calibration_stage is not None, (
+            assert 'stage' in calibration, (
                     "If the calibration is to be applied, must provide the "
-                    "`calibration_stage` to specify where to apply it.")
+                    "`stage` to specify where to apply it.")
+            self.calibration_stage = calibration.pop(stage)
             self.calibrator = CalibrationManager(**calibration)
+            calibration['stage'] = self.calibration_stage
+
+    @property
+    def modes(self):
+        """Dictionary of (stage, modes) pairs which determine which options
+        are available to each of the the reconstruction stage.
+
+        Returns
+        -------
+        Dict[str, Tuple(str)]
+            Dictionary of (stage, modes) pairs to be used
+        """
+        return dict(self._modes)
 
     def forward(self, data, sources=None, seg_label=None, clust_label=None,
                 coord_label=None, energy_label=None, run_info=None):
@@ -289,7 +304,6 @@ class FullChain(torch.nn.Module):
 
         # Run the interaction aggregation
         if self.calibration_stage == 'inter_aggregation':
-            print('YUP')
             data = self.run_calibration(data, sources, energy_label, run_info)
         self.run_inter_aggregation(data, clust_label, coord_label)
 
@@ -1109,7 +1123,9 @@ class FullChainLoss(torch.nn.Module):
     --------
     FullChain
     """
-    modes = FullChain.modes
+
+    # Valid chain stage modes
+    _modes = FullChain._modes
 
     def __init__(self, chain, uresnet_deghost=None, uresnet_deghost_loss=None,
                  uresnet=None, uresnet_loss=None, uresnet_ppn=None,
@@ -1187,6 +1203,18 @@ class FullChainLoss(torch.nn.Module):
                         f"If the {stage} aggregation is done using GrapPA, "
                         f"must provide the {name} configuration block.")
                 setattr(self, name, GrapPALoss(config))
+
+    @property
+    def modes(self):
+        """Dictionary of (stage, modes) pairs which determine which options
+        are available to each of the the reconstruction stage.
+
+        Returns
+        -------
+        Dict[str, Tuple(str)]
+            Dictionary of (stage, modes) pairs to be used
+        """
+        return dict(self._modes)
 
     def forward(self, seg_label=None, ppn_label=None, clust_label=None,
                 clust_label_adapt=None, coord_label=None, graph_label=None,
@@ -1347,7 +1375,7 @@ def process_chain_config(self, dump_config=False, **parameters):
     # Store the modes for each step of the reconstruction. Make sure that
     # that the configuration is recognized.
     for module, valid_modes in self.modes.items():
-        valid_modes = [None, 'label'] + valid_modes
+        valid_modes = (None, 'label', *valid_modes)
         assert module in parameters, (
                 f"Must configure the {module} stage in the `chain` block. "
                 f"The {module} mode should be one of {valid_modes}.")
