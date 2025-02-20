@@ -282,7 +282,7 @@ class RecoInteraction(InteractionBase, RecoBase):
     
     vertex_distance: float = -1.
     shower_split_angle: float = -1.
-    shower_dedx: float = -1. 
+    leading_shower_dedx: float = -1. 
     trunk_straightness: float = -1.
     trunk_continuity: float = -1.
     shower_spread: float = -1.

@@ -88,6 +88,10 @@ class ConversionDistanceProcessor(PostBase):
                         raise ValueError('Invalid point mode')
                     
                     p.vertex_distance = criterion
+                    p.shower_dedx = cluster_dedx(p.points,
+                                              p.depositions,
+                                              p.start_point,
+                                              max_dist=3.0)
                     
                     if p.ke > energy:
                         leading_shower = p
@@ -101,11 +105,11 @@ class ConversionDistanceProcessor(PostBase):
                             
             if leading_shower is None:
                 ia.vertex_distance = -np.inf
-                ia.shower_dedx = -np.inf
+                ia.leading_shower_dedx = -np.inf
                 ia.leading_shower_num_fragments = -1
             else:
                 ia.vertex_distance = leading_shower.vertex_distance
-                ia.shower_dedx = cluster_dedx(leading_shower.points,
+                ia.leading_shower_dedx = cluster_dedx(leading_shower.points,
                                               leading_shower.depositions,
                                               leading_shower.start_point,
                                               max_dist=3.0)

@@ -220,6 +220,7 @@ class RecoParticle(ParticleBase, RecoBase):
     trunk_straightness: float = -1.
     trunk_continuity: float = -1.
     shower_spread: float = -1.
+    shower_dedx: float = -1.
 
     # Fixed-length attributes
     _fixed_length_attrs = (
