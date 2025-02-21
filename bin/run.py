@@ -8,19 +8,10 @@ import argparse
 import pathlib
 import yaml
 
-# Add parent SPINE base directory to the python path
+# Add parent SPINE base directory to the python path, import
 current_directory = os.path.dirname(os.path.abspath(__file__))
 current_directory = os.path.dirname(current_directory)
 sys.path.insert(0, current_directory)
-
-# Have to do this here because the import order matters. Will
-# look into a cleaner way to do this later (TODO)
-if os.getenv('FMATCH_BUILDDIR') is not None:
-    print('Setting up OpT0Finder...')
-    sys.path.append(os.path.join(os.getenv('FMATCH_BASEDIR'), 'python'))
-    import flashmatch
-    from flashmatch import flashmatch, geoalgo
-    print('... done.')
 
 from spine.main import run
 
