@@ -263,10 +263,7 @@ class ShowerMultiArmCheck(PostBase):
                                                      eps=self.eps, 
                                                      min_samples=self.min_samples)
                     
-                    straightness, continuity, spread = shower_quality_check(p, ia.vertex)
-                    
-                    p.trunk_straightness = straightness
-                    p.trunk_continuity = continuity
+                    _, _, spread = shower_quality_check(p, ia.vertex)
                     p.shower_spread = spread
                     
                     p.shower_split_angle = angle
@@ -282,13 +279,9 @@ class ShowerMultiArmCheck(PostBase):
             
             if leading_shower is None:
                 ia.shower_split_angle = -np.inf
-                ia.trunk_straightness = -np.inf
-                ia.trunk_continuity = -np.inf
                 ia.shower_spread = -np.inf
             else:
                 ia.shower_split_angle = leading_shower.shower_split_angle
-                ia.trunk_straightness = leading_shower.trunk_straightness
-                ia.trunk_continuity = leading_shower.trunk_continuity
                 ia.shower_spread = leading_shower.shower_spread
             
                 
@@ -476,6 +469,16 @@ def shower_quality_check(shower_p, vertex, r=3.0, n_components=3, eps=0.6, min_s
     min_samples : int, default 1
         The number of samples in a neighborhood for a point to be
         considered as a core point (DBSCAN).
+        
+    Returns
+    -------
+    
+    straightness : float
+        The fraction of the total variance explained by the first principal component.
+    continuity : float
+        The fraction of the shower points that belong to the primary cluster.
+    spread : float
+        The average cosine of the angle between the shower points and the mean direction.
     '''
     straightness, continuity, spread = -1, -1, -1
 
