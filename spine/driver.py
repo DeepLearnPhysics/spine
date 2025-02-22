@@ -153,8 +153,8 @@ class Driver:
         ana : dict, optional
             Analysis script configurationdictionary
         rank : int, optional
-            Rank of the GPU. If not specified, the model will be run on CPU if
-            `world_size` is 0 and GPU is `world_size` is > 0.
+            Rank of the GPU. The model will be run on CPU if `world_size` is not
+            specified or 0 and on GPU is `world_size` is > 0.
 
         Returns
         -------
@@ -170,9 +170,15 @@ class Driver:
         logger.setLevel(verbosity.upper())
 
         # Set GPUs visible to CUDA
-        world_size = base.get('world_size', 0)
-        os.environ['CUDA_VISIBLE_DEVICES'] = ','.join(
-            [str(i) for i in range(world_size)])
+        gpus = base.get('gpus', None)
+        if gpus is not None:
+            os.environ['CUDA_VISIBLE_DEVICES'] = ','.join(
+                    [str(i) for i in gpus])
+
+        elif not os.environ['CUDA_VISIBLE_DEVICES']:
+            world_size = base.get('world_size', 0)
+            os.environ['CUDA_VISIBLE_DEVICES'] = ','.join(
+                [str(i) for i in range(world_size)])
 
         # If the seed is not set for the sampler, randomize it. This is done
         # here to keep a record of the seeds provided to the samplers
@@ -224,7 +230,7 @@ class Driver:
         # Return updated configuration
         return base, io, model, build, post, ana
 
-    def initialize_base(self, seed, dtype='float32', world_size=0,
+    def initialize_base(self, seed, dtype='float32', world_size=None, gpus=None,
                         log_dir='logs', prefix_log=False, overwrite_log=False,
                         parent_path=None, iterations=None, epochs=None,
                         unwrap=False, rank=None, log_step=1, distributed=False,
@@ -237,8 +243,10 @@ class Driver:
             Random number generator seed
         dtype : str, default 'float32'
             Data type of the model parameters and input data
-        world_size : int, default 0
+        world_size : int, optional
             Number of GPUs to use in the underlying model
+        gpus : List[int], optional
+            List of indexes of GPUs to expose to the model
         log_dir : str, default 'logs'
             Path to the directory where the logs will be written to
         prefix_log : bool, default False
@@ -278,6 +286,16 @@ class Driver:
         np.random.seed(seed)
         numba_seed(seed)
         torch.manual_seed(seed)
+
+        # Check on the number of GPUs to use
+        if gpus is not None:
+            assert world_size is None or len(gpus) == world_size, (
+                    f"The number of visible GPUs ({len(gpus)}) is not "
+                    f"compatible with the world size ({world_size}).")
+            world_size = len(gpus)
+
+        elif world_size is None:
+            world_size = 0
 
         # Set up the device the model will run on
         if rank is None and world_size > 0:
