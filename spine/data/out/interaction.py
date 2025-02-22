@@ -279,6 +279,10 @@ class InteractionBase:
 @inherit_docstring(RecoBase, InteractionBase)
 class RecoInteraction(InteractionBase, RecoBase):
     """Reconstructed interaction information."""
+    
+    leading_shower_vertex_distance: float = -1.
+    leading_shower_dedx: float = -1.
+    leading_shower_spread: float = -1.
 
     # Attributes that must never be stored to file
     _skip_attrs = (

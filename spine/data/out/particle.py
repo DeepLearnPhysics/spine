@@ -217,6 +217,8 @@ class RecoParticle(ParticleBase, RecoBase):
     ppn_points: np.ndarray = None
     vertex_distance: float = -1.
     shower_split_angle: float = -1.
+    shower_spread: float = -1.
+    shower_dedx: float = -1.
 
     # Fixed-length attributes
     _fixed_length_attrs = (
