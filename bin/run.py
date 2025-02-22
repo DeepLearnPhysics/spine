@@ -107,21 +107,16 @@ def main(config, source, source_list, output, n, nskip, detect_anomaly,
         if not 'train' in cfg['base']:
             raise KeyError("--weight_prefix flag provided: must specify "
                            "`train` in the `base` block.")
-        cfg['base']['train']['weight_prefix']=weight_prefix
+        cfg['base']['train']['weight_prefix'] = weight_prefix
 
     if weight_path is not None:
-        cfg['model']['weight_path']=weight_path
+        cfg['model']['weight_path'] = weight_path
 
     # Turn on PyTorch anomaly detection, if requested
     if detect_anomaly is not None:
         assert 'model' in cfg, (
                 "There is no model to detect anomalies for, add `model` block.")
         cfg['model']['detect_anomaly'] = detect_anomaly
-
-    # If the -1 option for GPUs is selected, expose the process to all GPUs
-    if os.environ.get('CUDA_VISIBLE_DEVICES') is not None \
-            and cfg['base'].get('gpus', '') == '-1':
-        cfg['base']['gpus'] = os.environ.get('CUDA_VISIBLE_DEVICES')
 
     # Execute train/validation process
     run(cfg)
