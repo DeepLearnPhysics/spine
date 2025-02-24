@@ -175,7 +175,7 @@ class Driver:
             os.environ['CUDA_VISIBLE_DEVICES'] = ','.join(
                     [str(i) for i in gpus])
 
-        elif not os.environ['CUDA_VISIBLE_DEVICES']:
+        elif not os.environ.get('CUDA_VISIBLE_DEVICES', None):
             world_size = base.get('world_size', 0)
             os.environ['CUDA_VISIBLE_DEVICES'] = ','.join(
                 [str(i) for i in range(world_size)])
