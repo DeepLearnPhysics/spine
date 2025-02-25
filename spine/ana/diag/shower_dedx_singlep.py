@@ -3,14 +3,14 @@
 import numpy as np
 
 from spine.ana.base import AnaBase
-from spine.utils.gnn.cluster import cluster_dedx2
+from spine.utils.gnn.cluster import cluster_dedx_legacy, cluster_dedx_DBScan_PCA, cluster_dedx_dir
 from sklearn.cluster import DBSCAN
 from sklearn.decomposition import PCA
 from scipy.spatial.distance import cdist
 
 __all__ = ['ShowerStartSingleParticle']
 
-def cluster_dedx2_with_PCA(voxels,
+def cluster_dedx2_with_PCA_temp(voxels,
                  values,
                  start,
                  dedx_dist=3, cont_dist=5, detailed=True, num_intervals=10):
@@ -123,6 +123,51 @@ def cluster_dedx2_with_PCA(voxels,
     
     return sum_dedx, max_dist_dedx, p_sum, p_length, p_sum_inc, p_length_inc, spread, p_fit, num_clust, start_clust, true_p_clust1, true_p_clust2, true_p_clust3, p_axis
 
+def cluster_dedx_reco_dir(voxels, values, start, reco_dir, dedx_dist=3):
+    assert voxels.shape[1] == 3, (
+            "The shape of the input is not compatible with voxel coordinates.")
+    # If start point is not in voxels, assign the closest point within voxels
+    # as the startpoint
+    if not np.isclose(start, voxels, atol=1e-2).all(axis=1).any():
+        dists = np.linalg.norm(voxels - start, axis=1)
+        perm = np.argsort(dists)
+        start = voxels[perm[0]]
+    # distance from the startpoint
+    dist_mat = cdist(start.reshape(1,-1), voxels).flatten()
+    # legacy dedx
+    #if dedx_dist > 0:
+    voxels_dedx = voxels[dist_mat <= dedx_dist]
+    values_dedx = values[dist_mat <= dedx_dist]
+    dist_dedx = dist_mat[dist_mat <= dedx_dist]
+
+    if len(voxels_dedx) < 2:
+        return 0., 0., 0., len(voxels_dedx)
+
+    end_pt = start+dedx_dist*reco_dir
+    p_voxels = np.dot(voxels_dedx - start, reco_dir)
+    mask = (p_voxels >= -1e-2) & (p_voxels <= 3)
+    #print("start :", start)
+    #print("reco dir :", reco_dir)
+    #print("end_pt ", end_pt)
+
+    voxels_de = voxels_dedx[mask]
+    values_de = values_dedx[mask]
+    #print("values_de: ", values_de)
+    if len(voxels_de) < 2:
+        return 0., 0., 0., len(voxels_de)
+    #print(len(voxels_de), len(voxels_dedx))
+    
+    p_voxels_de = np.dot(voxels_de - start, reco_dir)
+    dx = -min(p_voxels_de)+max(p_voxels_de)
+    voxels_sp = voxels_de - start
+    p_voxels_sp = np.dot(voxels_sp, reco_dir)
+    #print("projected voxels_de :", p_voxels_de)
+    vectors_to_axis = voxels_sp - np.outer(p_voxels_sp, reco_dir)
+    spread = np.linalg.norm(vectors_to_axis, axis=1)
+    spread = sum(spread)/len(voxels_sp)
+    #print(sum(values_de)/dx, spread)
+    return sum(values_de), dx, spread, len(values_de)
+
 class ShowerStartSingleParticle(AnaBase):
     """This analysis script computes the dE/dx value within some distance
     from the start point of an EM shower object.
@@ -170,7 +215,7 @@ class ShowerStartSingleParticle(AnaBase):
             Dictionary of data products
         """
         # Fetch the keys you want
-        print("indedx: ", data['index'], ", len of truth: ", len(data['truth_particles']))
+        print("index: ", data['index'], ", len of truth: ", len(data['truth_particles']))
         if (len(data['truth_particles']) > 0):
             
             out_dict = {}
@@ -191,29 +236,6 @@ class ShowerStartSingleParticle(AnaBase):
             out_dict['true_trackid3'] = None
 
             true_shower = data['truth_particles'][0]
-            #out_dict['true_creation_process'] = -1
-
-            #out_dict['is_pos'] = -1
-            # photon cleanup
-            # if primary's daughter is created via compton scattering, discard
-            #if self.is_photon:
-                #is_positron = False
-                #true_particles = data['particles']
-                #for part in true_particles:
-                #    #print("pdg: ", part.parent_pdg_code)
-                #    if part.parent_pdg_code == -11:
-                #        is_positron = True
-                #out_dict['is_pos'] = True if is_positron else False
-            p_dir = true_shower.momentum/np.linalg.norm(true_shower.momentum)
-            out_dict['true_dir_x'] = p_dir[0]
-            out_dict['true_dir_y'] = p_dir[1]
-            out_dict['true_dir_z'] = p_dir[2]
-
-            #reco_dir = reco_p.start_dir
-            #print("reco direction: ", reco_dir)
-            #print("true dedx direction: ", tr_p_axis)
-            #print("reco dedx direction: ", re_p_axis)
-            #print("cos:: reco_dir: ", abs(np.dot( p_dir, reco_dir)), ", true dedx: ", abs(np.dot( p_dir, tr_p_axis)), ", reco dedx: ", abs(np.dot( p_dir, re_p_axis)))
 
                 
             for i in range(min(len(data['truth_particles']), 3)):
@@ -229,13 +251,6 @@ class ShowerStartSingleParticle(AnaBase):
                 #    return
 
             out_dict['true_creation_process'] = true_shower.creation_process
-                #    return
-#                group_id = data['truth_particles'][0].group_id
-
- #               true_particles = data['particles']
- #               for part in true_particles:
- #                   if part.group_id == group_id:
-#                       out_dict['true_group_creation']=out_dict['true_group_creation']+part.creation_process
                 
             startpoint = true_shower.start_point
             out_dict['true_particle_id'] = true_shower.id
@@ -244,13 +259,15 @@ class ShowerStartSingleParticle(AnaBase):
             out_dict['true_particle_energy_deposit'] = true_shower.energy_deposit
             out_dict['true_is_contained'] = true_shower.is_contained
             #sum_dedx, max_dist_dedx, p_sum, p_length, p_sum_inc, p_length_inc, spread, p_fit, num_clust, start_clust, true_p_clust1, true_p_clust2, true_p_clust3
-            t_de_1, t_dx_1, p_de, p_dx, p_de_inc, p_dx_inc, spread, p_fit, num_clust, start_clust, true_p_clusts0, true_p_clusts1, true_p_clusts2, true_p_axis  = cluster_dedx2_with_PCA(true_shower.points, true_shower.depositions, startpoint, dedx_dist=self.radius)
-            
+            p_de_inc, p_dx_inc, spread, p_fit, num_clust, start_clust_size, true_p_axis, true_clust_sizes  = cluster_dedx_DBScan_PCA(true_shower.points, true_shower.depositions, startpoint, dedx_dist=self.radius, detailed=True)
+
+            print(true_p_axis)
+            print(true_clust_sizes)
                         
-            out_dict['true_de_1'] = t_de_1
-            out_dict['true_dx_1'] = t_dx_1
-            out_dict['true_PCA_de'] = p_de
-            out_dict['true_PCA_dx'] = p_dx
+            #out_dict['true_de_1'] = t_de_1
+            #out_dict['true_dx_1'] = t_dx_1
+            #out_dict['true_PCA_de'] = p_de
+            #out_dict['true_PCA_dx'] = p_dx
             out_dict['true_PCA_de_inc'] = p_de_inc
             out_dict['true_PCA_dx_inc'] = p_dx_inc
             out_dict['true_p_spread'] = spread
@@ -258,40 +275,54 @@ class ShowerStartSingleParticle(AnaBase):
             out_dict['true_p_num_clust'] = num_clust
             #out_dict['true_l_1'] = t_l_1
             out_dict['true_match_overlap'] = -1
-            out_dict['true_p_start_clust'] = start_clust
-            out_dict['true_p_clust_size1'] = true_p_clusts0
-            out_dict['true_p_clust_size2'] = true_p_clusts1
-            out_dict['true_p_clust_size3'] = true_p_clusts2
+            out_dict['true_p_start_clust_sisze'] = start_clust_size
+            #out_dict['true_p_clust_size1'] = true_p_clusts0
+            #out_dict['true_p_clust_size2'] = true_p_clusts1
+            #out_dict['true_p_clust_size3'] = true_p_clusts2
 
-            out_dict['true_p_axis_x'] = true_p_axis[0]
-            out_dict['true_p_axis_y'] = true_p_axis[1]
-            out_dict['true_p_axis_z'] = true_p_axis[2]
+            #out_dict['true_p_axis_x'] = true_p_axis[0]
+            #out_dict['true_p_axis_y'] = true_p_axis[1]
+            #out_dict['true_p_axis_z'] = true_p_axis[2]
+
+            true_p_dir = true_shower.momentum/np.linalg.norm(true_shower.momentum)
+            out_dict['true_dir_x'] = true_p_dir[0]
+            out_dict['true_dir_y'] = true_p_dir[1]
+            out_dict['true_dir_z'] = true_p_dir[2]
+
+            true_de_dir, true_dx_dir, true_spread_dir, true_size_dir =  cluster_dedx_dir(true_shower.points, true_shower.depositions, startpoint, true_p_dir)
+            out_dict['true_de_dir'] = true_de_dir
+            out_dict['true_dx_dir'] = true_dx_dir
+            out_dict['true_spread_dir'] = true_spread_dir
+            out_dict['true_size_dir'] = true_size_dir
             
             sed_points = data['clust_label_g4'][:,1:4]
             sed_points = data['meta'].to_cm(sed_points)
             sed_vals = data['clust_label_g4'][:,4]
-            sed_t_de_1, sed_t_dx_1, sed_p_de, sed_p_dx, sed_p_de_inc, sed_p_dx_inc, sed_spread, sed_p_fit, sed_num_clust, sed_start_clust, sed_true_p_clusts0, sed_true_p_clusts1, sed_true_p_clusts2, sed_true_p_axis  = cluster_dedx2_with_PCA(sed_points,
-                                  sed_vals,
-                                  startpoint,
-                                  dedx_dist=self.radius)
+            #sed_t_de_1, sed_t_dx_1, sed_p_de, sed_p_dx, sed_p_de_inc, sed_p_dx_inc, sed_spread, sed_p_fit, sed_num_clust, sed_start_clust, sed_true_p_clusts0, sed_true_p_clusts1, sed_true_p_clusts2, sed_true_p_axis  = cluster_dedx2_with_PCA(sed_points, sed_vals, startpoint, dedx_dist=self.radius)
 
-            out_dict['sed_true_de_1'] = sed_t_de_1
-            out_dict['sed_true_dx_1'] = sed_t_dx_1
-            out_dict['sed_true_PCA_de'] = sed_p_de
-            out_dict['sed_true_PCA_dx'] = sed_p_dx
-            out_dict['sed_true_PCA_de_inc'] = sed_p_de_inc
-            out_dict['sed_true_PCA_dx_inc'] = sed_p_dx_inc
-            out_dict['sed_true_p_spread'] = sed_spread
-            out_dict['sed_true_p_fit'] = sed_p_fit
-            out_dict['sed_true_p_num_clust'] = sed_num_clust
+            #out_dict['sed_true_de_1'] = sed_t_de_1
+            #out_dict['sed_true_dx_1'] = sed_t_dx_1
+            #out_dict['sed_true_PCA_de'] = sed_p_de
+            #out_dict['sed_true_PCA_dx'] = sed_p_dx
+            #out_dict['sed_true_PCA_de_inc'] = sed_p_de_inc
+            #out_dict['sed_true_PCA_dx_inc'] = sed_p_dx_inc
+            #out_dict['sed_true_p_spread'] = sed_spread
+            #out_dict['sed_true_p_fit'] = sed_p_fit
+            #out_dict['sed_true_p_num_clust'] = sed_num_clust
             #out_dict['true_l_1'] = t_l_1                                                                                                                               
-            out_dict['sed_true_p_start_clust'] = sed_start_clust
-            out_dict['sed_true_p_clust_size1'] = sed_true_p_clusts0
-            out_dict['sed_true_p_clust_size2'] = sed_true_p_clusts1
-            out_dict['sed_true_p_clust_size3'] = sed_true_p_clusts2
-            out_dict['sed_true_p_axis_x'] = sed_true_p_axis[0]
-            out_dict['sed_true_p_axis_y'] = sed_true_p_axis[1]
-            out_dict['sed_true_p_axis_z'] = sed_true_p_axis[2]
+            #out_dict['sed_true_p_start_clust'] = sed_start_clust
+            #out_dict['sed_true_p_clust_size1'] = sed_true_p_clusts0
+            #out_dict['sed_true_p_clust_size2'] = sed_true_p_clusts1
+            #out_dict['sed_true_p_clust_size3'] = sed_true_p_clusts2
+            #out_dict['sed_true_p_axis_x'] = sed_true_p_axis[0]
+            #out_dict['sed_true_p_axis_y'] = sed_true_p_axis[1]
+            #out_dict['sed_true_p_axis_z'] = sed_true_p_axis[2]
+
+            sed_de_dir, sed_dx_dir, sed_spread_dir, sed_size_dir =  cluster_dedx_dir(sed_points, sed_vals, startpoint, true_p_dir)
+            out_dict['sed_de_dir'] = sed_de_dir
+            out_dict['sed_dx_dir'] = sed_dx_dir
+            out_dict['sed_spread_dir'] = sed_spread_dir
+            out_dict['sed_size_dir'] = sed_size_dir
             
             match_id = -1
             if true_shower.match_overlaps is not None and len(true_shower.match_overlaps)>0:
@@ -307,6 +338,8 @@ class ShowerStartSingleParticle(AnaBase):
             reco_shower = data['reco_particles'][match_id]
 
             reco_dir = reco_shower.start_dir
+            #print("reco_dir: ", reco_dir)
+            #print("reco_startpint:", reco_shower.start_point)
             out_dict['reco_dir_x'] = reco_dir[0]
             out_dict['reco_dir_y'] = reco_dir[1]
             out_dict['reco_dir_z'] = reco_dir[2]
@@ -335,7 +368,7 @@ class ShowerStartSingleParticle(AnaBase):
             #    
             reco_points=data['meta'].to_cm(reco_points)
                         
-            de_0, dx_0, l_0 = cluster_dedx2(reco_shower.points, 
+            de_0, dx_0, l_0 = cluster_dedx_legacy(reco_shower.points, 
                                   reco_shower.depositions,
                                      startpoint, 
                                      max_dist=self.radius)
@@ -343,28 +376,36 @@ class ShowerStartSingleParticle(AnaBase):
             out_dict['reco_dx_0'] = dx_0
             out_dict['reco_l_0'] = l_0
 
-            reco_de_1, reco_dx_1, reco_p_de, reco_p_dx, reco_p_de_inc, reco_p_dx_inc, reco_spread, reco_p_fit, reco_num_clust, reco_start_clust, reco_p_clusts0, reco_p_clusts1, reco_p_clusts2, reco_p_axis  = cluster_dedx2_with_PCA(reco_shower.points, reco_shower.depositions, startpoint, dedx_dist=self.radius)
-            out_dict['reco_de'] = reco_de_1
-            out_dict['reco_dx'] = reco_dx_1
-            out_dict['reco_PCA_de'] = reco_p_de
-            out_dict['reco_PCA_dx'] = reco_p_dx
-            out_dict['reco_PCA_de_inc'] = reco_p_de_inc
-            out_dict['reco_PCA_dx_inc'] = reco_p_dx_inc
-            out_dict['reco_p_spread'] = reco_spread
-            out_dict['reco_p_fit'] = reco_p_fit
-            out_dict['reco_p_num_clust'] = reco_num_clust
+            #reco_de_1, reco_dx_1, reco_p_de, reco_p_dx, reco_p_de_inc, reco_p_dx_inc, reco_spread, reco_p_fit, reco_num_clust, reco_start_clust, reco_p_clusts0, reco_p_clusts1, reco_p_clusts2, reco_p_axis  = cluster_dedx2_with_PCA(reco_shower.points, reco_shower.depositions, startpoint, dedx_dist=self.radius)
+            #out_dict['reco_de'] = reco_de_1
+            #out_dict['reco_dx'] = reco_dx_1
+            #out_dict['reco_PCA_de'] = reco_p_de
+            #out_dict['reco_PCA_dx'] = reco_p_dx
+            #out_dict['reco_PCA_de_inc'] = reco_p_de_inc
+            #out_dict['reco_PCA_dx_inc'] = reco_p_dx_inc
+            #out_dict['reco_p_spread'] = reco_spread
+            #out_dict['reco_p_fit'] = reco_p_fit
+            #out_dict['reco_p_num_clust'] = reco_num_clust
             
-            out_dict['reco_p_start_clust'] = reco_start_clust
-            out_dict['reco_p_clust_size1'] = reco_p_clusts0
-            out_dict['reco_p_clust_size2'] = reco_p_clusts1
-            out_dict['reco_p_clust_size3'] = reco_p_clusts2
+            #out_dict['reco_p_start_clust'] = reco_start_clust
+            #out_dict['reco_p_clust_size1'] = reco_p_clusts0
+            #out_dict['reco_p_clust_size2'] = reco_p_clusts1
+            #out_dict['reco_p_clust_size3'] = reco_p_clusts2
 
-            out_dict['reco_p_axis_x'] = reco_p_axis[0]
-            out_dict['reco_p_axis_y'] = reco_p_axis[1]
-            out_dict['reco_p_axis_z'] = reco_p_axis[2]
+            #out_dict['reco_p_axis_x'] = reco_p_axis[0]
+            #out_dict['reco_p_axis_y'] = reco_p_axis[1]
+            #out_dict['reco_p_axis_z'] = reco_p_axis[2]
             #out_dict['reco__0']
 
-            de_1, dx_1, l_1 = cluster_dedx2(reco_points,
+            
+            reco_de_dir, reco_dx_dir, reco_spread_dir, reco_size_dir =  cluster_dedx_dir(reco_shower.points, reco_shower.depositions, reco_shower.start_point, reco_shower.start_dir)
+            out_dict['reco_de_dir'] = reco_de_dir
+            out_dict['reco_dx_dir'] = reco_dx_dir
+            out_dict['reco_spread_dir'] = reco_spread_dir
+            out_dict['reco_size_dir'] = reco_size_dir
+
+            
+            de_1, dx_1, l_1 = cluster_dedx_legacy(reco_points,
                                   reco_vals,
                                   startpoint,
                                      max_dist=self.radius)
@@ -373,7 +414,7 @@ class ShowerStartSingleParticle(AnaBase):
             out_dict['reco_l_1'] = l_1
             
             # dedx with true startpoint
-            de_02, dx_02, l_02 = cluster_dedx2(reco_shower.points, 
+            de_02, dx_02, l_02 = cluster_dedx_legacy(reco_shower.points, 
                                   reco_shower.depositions, 
                                   true_shower.start_point, 
                                      max_dist=self.radius)
@@ -381,7 +422,7 @@ class ShowerStartSingleParticle(AnaBase):
             out_dict['reco_dx_02'] = dx_02
             out_dict['reco_l_02'] = l_02
             
-            de_2, dx_2, l_2 = cluster_dedx2(reco_points,
+            de_2, dx_2, l_2 = cluster_dedx_legacy(reco_points,
                                   reco_vals,
                                   true_shower.start_point,
                                      max_dist=self.radius)
@@ -394,7 +435,7 @@ class ShowerStartSingleParticle(AnaBase):
             perm = np.argsort(dists)
             closest_point = reco_shower.points[perm[0]]
 
-            de_03, dx_03, l_03  = cluster_dedx2(reco_shower.points,                                                                                                                                
+            de_03, dx_03, l_03  = cluster_dedx_legacy(reco_shower.points,                                                                                                                                
                        reco_shower.depositions,                                                                                                                                
                       closest_point,                                                                                                                                          
                        max_dist=self.radius)
@@ -412,7 +453,7 @@ class ShowerStartSingleParticle(AnaBase):
                 #                      reco_shower.depositions,
                 #                      closest_point,
                 #                        max_dist=self.radius)
-                de_3, dx_3, l_3 = cluster_dedx2(reco_points,
+                de_3, dx_3, l_3 = cluster_dedx_legacy(reco_points,
                                   reco_vals,
                                   closest_point,
                                     max_dist=self.radius)
