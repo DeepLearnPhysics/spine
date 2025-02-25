@@ -26,7 +26,8 @@ class ContainmentProcessor(PostBase):
 
     def __init__(self, margin, cathode_margin=None, detector=None,
                  geometry_file=None, mode='module',
-                 allow_multi_module=False, min_particle_sizes=0,
+                 allow_multi_module=False, skip_showers=False, 
+                 min_particle_sizes=0,
                  obj_type=('particle', 'interaction'),
                  truth_point_mode='points', run_mode='both', skip_showers=False):
         """Initialize the containment conditions.
@@ -63,6 +64,8 @@ class ContainmentProcessor(PostBase):
               Note that this does not guarantee containment within the detector.
         allow_multi_module : bool, default False
             Whether to allow particles/interactions to span multiple modules
+        skip_showers : bool, default False
+            Whether to skip checking containment for showers
         min_particle_sizes : Union[int, dict], default 0
             When checking interaction containment, ignore particles below the
             size (in voxel count) specified by this parameter. If specified

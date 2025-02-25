@@ -1,7 +1,7 @@
 import numpy as np
 
 from spine.utils.globals import (
-        TRACK_SHP, MUON_PID, PION_PID, PID_MASSES, SHP_TO_PID, SHP_TO_PRIMARY)
+        SHOWR_SHP, TRACK_SHP, MICHL_SHP, MUON_PID, PION_PID, PID_MASSES, SHP_TO_PID, SHP_TO_PRIMARY)
 
 from spine.post.base import PostBase
 
@@ -25,7 +25,8 @@ class ParticleShapeLogicProcessor(PostBase):
     # Alternative allowed names of the post-processor
     aliases = ('enforce_particle_semantics',)
 
-    def __init__(self, enforce_pid=True, enforce_primary=True):
+    def __init__(self, enforce_pid=True, enforce_primary=True, 
+                 maximum_michel_ke=np.inf):
         """Store information about which particle properties should
         or should not be updated.
 
@@ -42,6 +43,7 @@ class ParticleShapeLogicProcessor(PostBase):
         # Store parameters
         self.enforce_pid = enforce_pid
         self.enforce_primary = enforce_primary
+        self.maximum_michel_ke = maximum_michel_ke
 
     def process(self, data):
         """Update PID and primary predictions of each particle in one entry
@@ -67,6 +69,13 @@ class ParticleShapeLogicProcessor(PostBase):
 
             # Reset the primary scores
             if self.enforce_primary:
+                
+                # If michel electrons exceeds the energy threshold, 
+                # determine if it is primary or secondary using the score. 
+                if part.shape == MICHL_SHP and part.ke > self.maximum_michel_ke:
+                    part.is_primary = bool(np.argmax(part.primary_scores))
+                    part.shape = SHOWR_SHP  # Change the shape to a shower
+                
                 primary_range = SHP_TO_PRIMARY[part.shape]
 
                 primary_scores = np.zeros(

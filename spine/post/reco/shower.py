@@ -8,13 +8,17 @@ from scipy.spatial.distance import cdist
 from sklearn.cluster import DBSCAN
 from sklearn.metrics.pairwise import cosine_similarity
 
+<<<<<<< HEAD
 from sklearn.decomposition import PCA
 from sklearn.cluster import DBSCAN
 
+=======
+>>>>>>> develop
 from spine.utils.gnn.cluster import cluster_dedx
 
 __all__ = ['ConversionDistanceProcessor', 'ShowerMultiArmCheck', 
-           'ShowerStartpointCorrectionProcessor']
+           'ShowerStartpointCorrectionProcessor', 'ShowerdEdXProcessor',
+           'ShowerSpreadProcessor']
 
 
 class ConversionDistanceProcessor(PostBase):
@@ -31,7 +35,11 @@ class ConversionDistanceProcessor(PostBase):
     # Alternative allowed names of the post-processor
     aliases = ('shower_separation_processor',)
     
+<<<<<<< HEAD
     def __init__(self, threshold=-1.0, vertex_mode='vertex_points', modify_inplace=True):
+=======
+    def __init__(self, threshold=-1.0, vertex_mode='vertex_points', inplace=True):
+>>>>>>> develop
         """Specify the EM shower conversion distance threshold and
         the type of vertex to use for the distance calculation.
 
@@ -52,7 +60,11 @@ class ConversionDistanceProcessor(PostBase):
         
         self.threshold = threshold
         self.vertex_mode = vertex_mode
+<<<<<<< HEAD
         self.modify_inplace = modify_inplace
+=======
+        self.inplace = inplace
+>>>>>>> develop
         
     def process(self, data):
         """Update reco interaction topologies using the conversion
@@ -215,8 +227,7 @@ class ShowerMultiArmCheck(PostBase):
     # Alternative allowed names of the post-processor
     aliases = ('shower_multi_arm',)
     
-    def __init__(self, threshold=70, min_samples=20, eps=0.02, 
-                 modify_inplace=True, largest_two=False, sort_by='energy'):
+    def __init__(self, threshold=70, min_samples=20, eps=0.02, inplace=True):
         """Specify the threshold for the number of arms of showers.
 
         Parameters
@@ -237,9 +248,7 @@ class ShowerMultiArmCheck(PostBase):
         self.threshold = threshold
         self.min_samples = min_samples
         self.eps = eps
-        self.modify_inplace = modify_inplace
-        self.largest_two = largest_two
-        self.sort_by = sort_by
+        self.inplace = inplace
         
     def process(self, data):
         """Update reco interaction topologies using the shower multi-arm check.
@@ -267,9 +276,9 @@ class ShowerMultiArmCheck(PostBase):
                     p.shower_spread = spread
                     
                     p.shower_split_angle = angle
-                    if p.ke > energy:
-                        leading_shower = p
-                        energy = p.ke
+                    if self.inplace:
+                        if angle > self.threshold:
+                            p.pid = PHOT_PID
                 
                 if p.pid == ELEC_PID and p.is_primary and (p.shape == SHOWR_SHP):
 
@@ -441,73 +450,153 @@ class ShowerStartpointCorrectionProcessor(PostBase):
         return guess
 
 
-def shower_quality_check(shower_p, vertex, r=3.0, n_components=3, eps=0.6, min_samples=1):
-    '''
-    Given a shower particle, compute the straightness, continuity, 
-    and spread of the shower.
+class ShowerdEdXProcessor(PostBase):
+    """Compute the dEdX of the primary EM shower
+    by summing the energy depositions along the shower trunk and dividing
+    by the total length of the trunk.
+    """
     
-    Straightness: The fraction of the total variance explained 
-        by the first principal component.
-    Continuity: The fraction of the shower points that 
-        belong to the primary cluster.
-    Spread: The average cosine of the angle between the shower points 
-        and the mean direction.
+    name = 'shower_dedx_processor'
+    aliases = ('shower_dedx',)
+    
+    def __init__(self, threshold=4.0, max_dist=3.0, inplace=True):
+        """Specify the EM shower dEdX threshold.
+
+        Parameters
+        ----------
+        threshold : float, default 4.0
+            If the dEdX of the shower is greater than this, the shower
+            will be considered a photon.
+        inplace : bool, default True
+            If True, the processor will update the reco interaction in-place.
+        """
+        super().__init__('interaction', 'reco')
+        self.threshold = threshold
+        self.max_dist = max_dist
+        self.inplace = inplace
         
+    def process(self, data):
+        """Compute the shower dEdX and modify the PID if inplace=True.
+
+        Parameters
+        ----------
+        data : dict
+            Dictionaries of data products
+        """
+        # Loop over the reco interactions
+        for ia in data['reco_interactions']:
+            
+            leading_shower, max_ke = None, -np.inf
+            
+            for p in ia.particles:
+                if (p.shape == SHOWR_SHP) and (p.is_primary):
+                    dedx = cluster_dedx(p.points, 
+                                        p.depositions, 
+                                        p.start_point, 
+                                        max_dist=self.max_dist)
+                    p.shower_dedx = dedx
+                    
+                    if p.ke > max_ke:
+                        leading_shower = p
+                        max_ke = p.ke
+                    
+                    if self.inplace:
+                        if dedx >= self.threshold:
+                            p.pid = PHOT_PID
+            
+            if leading_shower is not None:
+                ia.leading_shower_dedx = leading_shower.shower_dedx
+            else:
+                ia.leading_shower_dedx = -1.
+            
+            
+class ShowerSpreadProcessor(PostBase):
+    """Compute the spread of the primary EM shower
+    by computing the RMS of the energy depositions along the shower trunk.
+    """
+    
+    name = 'shower_spread_processor'
+    aliases = ('shower_spread',)
+    
+    def __init__(self, threshold=0.043, length_scale=14.0, inplace=True):
+        """Specify the EM shower spread threshold.
+
+        Parameters
+        ----------
+        threshold : float, default 4.0
+            If the spread of the shower is greater than this, the shower
+            will be considered a photon.
+        inplace : bool, default True
+            If True, the processor will update the reco interaction in-place.
+        """
+        super().__init__('interaction', 'reco')
+        self.threshold = threshold
+        self.length_scale = length_scale
+        self.inplace = inplace
+        
+    def process(self, data):
+        """Compute the shower spread and modify the PID if inplace=True.
+
+        Parameters
+        ----------
+        data : dict
+            Dictionaries of data products
+        """
+        # Loop over the reco interactions
+        for ia in data['reco_interactions']:
+            
+            leading_shower, max_ke = None, -np.inf
+            
+            for p in ia.particles:
+                if (p.shape == SHOWR_SHP) and (p.is_primary):
+                    spread = compute_shower_spread(p.points,
+                                                   ia.vertex,
+                                                   l=self.length_scale)
+                    p.shower_spread = spread
+                    
+                    if p.ke > max_ke:
+                        leading_shower = p
+                        max_ke = p.ke
+                    
+                    if self.inplace:
+                        if spread >= self.threshold:
+                            p.pid = PHOT_PID
+            
+            if leading_shower is not None:
+                ia.leading_shower_spread = leading_shower.shower_spread
+            else:
+                ia.leading_shower_spread = -1.
+                
+                
+
+def compute_shower_spread(points, vertex, l=14.0):
+    """Compute the spread of the shower by computing the mean direction and
+    the weighted average cosine distance with respect to the mean direction.
+    
     Parameters
     ----------
-    shower_p : RecoParticle
-        The shower particle to check.
-    vertex : np.ndarray
-        The vertex of the interaction.
-    r : float, default 3.0
-        The radius of the trunk to consider for straightness.
-    n_components : int, default 3
-        The number of principal components to compute.
-    eps : float, default 0.6
-        The maximum distance between two samples for one to be
-        considered as in the neighborhood of the other (DBSCAN).
-    min_samples : int, default 1
-        The number of samples in a neighborhood for a point to be
-        considered as a core point (DBSCAN).
+    points : np.ndarray
+        (N, 3) array of the shower points.
+    l : float, default 14.0
+        Length scale for the exponential weighting.
         
     Returns
     -------
-    
-    straightness : float
-        The fraction of the total variance explained by the first principal component.
-    continuity : float
-        The fraction of the shower points that belong to the primary cluster.
+
     spread : float
-        The average cosine of the angle between the shower points and the mean direction.
-    '''
-    straightness, continuity, spread = -1, -1, -1
-
-    # Compute Straightness (trunk)
-    dists = np.linalg.norm(shower_p.points - vertex, axis=1)
-    mask = dists < r
-    if mask.sum() < n_components:
-        return straightness, continuity, spread
-    trunk = shower_p.points[mask]
-    pca = PCA(n_components=n_components)
-    pca.fit(trunk)
-    straightness = pca.explained_variance_ratio_[0]
-
-    # Compute Continuity (trunk)
-    model = DBSCAN(eps=eps, min_samples=min_samples).fit(trunk)
-    clusters, counts = np.unique(model.labels_, return_counts=True)
-    primary_cluster, primary_cluster_counts = clusters[np.argmax(counts)], counts.max()
-    
-    continuity = primary_cluster_counts / model.labels_.shape[0]
-
+        Spread cut parameter of the shower.
+    """
+    dists = np.linalg.norm(points - vertex, axis=1)
     # Compute Spread (whole shower)
-    mean_free_path = 14.0 * 9.0 / 7.0
-    directions = (shower_p.points - vertex) / dists.reshape(-1, 1)
-    weights = np.exp(- dists / mean_free_path)
+    directions = (points - vertex) / dists.reshape(-1, 1)
+    weights = np.exp(- dists / l)
     mean_direction = np.average(directions, weights=weights, axis=0)
     if np.linalg.norm(mean_direction) > 1e-6:
         mean_direction /= np.linalg.norm(mean_direction)
 
         cosine = 1 - np.sum(directions * mean_direction.reshape(1, -1), axis=1)
         spread = np.average(cosine, weights=weights)
+    else:
+        spread = -1. 
 
-    return straightness, continuity, spread
+    return spread
