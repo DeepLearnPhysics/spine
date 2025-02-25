@@ -1053,51 +1053,36 @@ def cluster_dedx(voxels: nb.float64[:,:],
     return np.sum(values)/np.max(dist_mat)
 
 
-@nb.njit(cache=True)
-def cluster_dedx_legacy(voxels: nb.float64[:,:],
-                 values: nb.float64[:],
-                 start: nb.float64[:],
-                 max_dist: nb.float64=5.0) -> nb.types.Tuple((nb.float64, nb.float64, nb.float64)):
+#@nb.njit(cache=True)
+def cluster_dedx_legacy(voxels,
+                 values,
+                 start,
+                        max_dist=3, simple=False):
     # If max_dist is set, limit the set of voxels to those within a sphere of radius max_dist                                                                                     
     assert voxels.shape[1] == 3, (
             "The shape of the input is not compatible with voxel coordinates.")
 
     # If start point is not in voxels, assign the closest point within voxels                                                                                                                                                                                         
-    # as the startpoint                                                                                                                                                                                                                                                 # If start point is not in voxels, assign the closest point within voxels as the startpoint  # Check if start point is close to any voxel
-    closest_idx = -1
-    min_dist = np.inf
-    for i in range(voxels.shape[0]):
-        dist = np.sqrt((voxels[i, 0] - start[0])**2 + (voxels[i, 1] - start[1])**2 + (voxels[i, 2] - start[2])**2)
-        if dist < min_dist:
-            min_dist = dist
-            closest_idx = i
-
-    is_close = False
-    for i in range(voxels.shape[0]):
-        dist = np.sqrt((voxels[i, 0] - start[0])**2 + (voxels[i, 1] - start[1])**2 + (voxels[i, 2] - start[2])**2)
-        if dist < 1e-2:
-            is_close = True
-            break
-
-    if not is_close:
+    # as the startpoint        
+    if not np.isclose(start, voxels, atol=1e-2).all(axis=1).any():
         #print("not in vox")
-        start = voxels[closest_idx]
+        dists = np.linalg.norm(voxels - start, axis=1)
+        perm = np.argsort(dists)
+        start = voxels[perm[0]]
         
-    #if not np.isclose(start, voxels, atol=1e-2).all(axis=1).any():
-    #    print("not in vox")
-    #    dists = np.linalg.norm(voxels - start, axis=1)
-    #    perm = np.argsort(dists)
-    #    start = voxels[perm[0]]
-        
-    dist_mat = nbl.cdist(start.reshape(1,-1), voxels).flatten()
+    dist_mat = cdist(start.reshape(1,-1), voxels).flatten()
     if max_dist > 0:
         voxels = voxels[dist_mat <= max_dist]
         if len(voxels) < 2:
+            if simple:
+                return 0./0.
             return 0., 0., 0.
         values = values[dist_mat <= max_dist]
         dist_mat = dist_mat[dist_mat <= max_dist]
 
     if np.max(dist_mat) == 0.:
+        if simple:
+            return 0./0.
         return 0., 0., 0.
 
         # Calculate sum of values
@@ -1105,13 +1090,14 @@ def cluster_dedx_legacy(voxels: nb.float64[:,:],
     
     # Calculate max distance
     max_distance = np.max(dist_mat)
-    
+    if simple:
+        return sum_values/max_distance
     return sum_values, max_distance, len(dist_mat)
 
 def cluster_dedx_DBScan_PCA(voxels,
                  values,
                  start,
-                            dedx_dist=3, cont_dist=5, eps=0.59, min_samples=1, detailed=False):
+                            dedx_dist=3, cont_dist=5, eps=0.59, min_samples=1, detailed=False, simple=False):
     # If max_dist is set, limit the set of voxels to those within a sphere of radius max_dist
     assert voxels.shape[1] == 3, (
             "The shape of the input is not compatible with voxel coordinates.")
@@ -1151,6 +1137,8 @@ def cluster_dedx_DBScan_PCA(voxels,
         if i==2:
             true_p_clust3 = len(voxels_cont[cluster_labels==i])
     if start_clust == -1:
+        if simple:
+            return 0./0.
         if detailed:
             return 0., 0., 0., 0., 0., -1, [0.,0.,0.,], [0.,0.,0.]
         return 0., 0., 0., 0., 0., -1
@@ -1165,6 +1153,8 @@ def cluster_dedx_DBScan_PCA(voxels,
 
     #print("PCA start clust size: ", len(voxels_clust))
     if len(voxels_clust)<3:
+        if simple:
+            return 0./0.
         if detailed:
             return 0., 0., 0., 0., 0., -1, [0.,0.,0.,], [0.,0.,0.]
         return 0., 0., 0., 0., 0., len(voxels_clust)#, 0., 0., 0.
@@ -1210,12 +1200,13 @@ def cluster_dedx_DBScan_PCA(voxels,
     spread = np.linalg.norm(vectors_to_axis, axis=1)
     spread = sum(spread)/len(voxels_sp)
     #print("spread: ", spread)
-
+    if simple:
+        return p_sum_inc/p_length_inc
     if detailed:
         return p_sum_inc, p_length_inc, spread, p_fit, num_clust, len(voxels_clust), p_axis, [true_p_clust1, true_p_clust2, true_p_clust3]
     return p_sum_inc, p_length_inc, spread, p_fit, num_clust, len(voxels_clust)        
 
-def cluster_dedx_dir(voxels, values, start, reco_dir, dedx_dist=3):
+def cluster_dedx_dir(voxels, values, start, reco_dir, dedx_dist=3, simple=False):
     assert voxels.shape[1] == 3, (
             "The shape of the input is not compatible with voxel coordinates.")
     # If start point is not in voxels, assign the closest point within voxels                                                                                                  
@@ -1234,6 +1225,8 @@ def cluster_dedx_dir(voxels, values, start, reco_dir, dedx_dist=3):
     dist_dedx = dist_mat[dist_mat <= dedx_dist]
 
     if len(voxels_dedx) < 2:
+        if simple:
+            return 0./0.
         return 0., 0., 0., len(voxels_de)
 
     end_pt = start+dedx_dist*reco_dir
@@ -1247,6 +1240,8 @@ def cluster_dedx_dir(voxels, values, start, reco_dir, dedx_dist=3):
     values_de = values_dedx[mask]
     #print("values_de: ", values_de)
     if len(voxels_de) < 2:
+        if simple:
+            return 0./0.
         return 0., 0., 0., len(voxels_de)
     #print(len(voxels_de), len(voxels_dedx))                                                                                                                                   
 
@@ -1259,7 +1254,9 @@ def cluster_dedx_dir(voxels, values, start, reco_dir, dedx_dist=3):
     vectors_to_axis = voxels_sp - np.outer(p_voxels_sp, reco_dir)
     spread = np.linalg.norm(vectors_to_axis, axis=1)
     spread = sum(spread)/len(voxels_sp)
-    #print(sum(values_de)/dx, spread)                                                                                                                                          
+    #print(sum(values_de)/dx, spread)
+    if simple:
+        return sum(values_de)/dx
     return sum(values_de), dx, spread, len(values_de)
 
 @numbafy(cast_args=['data'], list_args=['clusts'],

@@ -261,6 +261,9 @@ class ShowerStartSingleParticle(AnaBase):
             #sum_dedx, max_dist_dedx, p_sum, p_length, p_sum_inc, p_length_inc, spread, p_fit, num_clust, start_clust, true_p_clust1, true_p_clust2, true_p_clust3
             p_de_inc, p_dx_inc, spread, p_fit, num_clust, start_clust_size, true_p_axis, true_clust_sizes  = cluster_dedx_DBScan_PCA(true_shower.points, true_shower.depositions, startpoint, dedx_dist=self.radius, detailed=True)
 
+            true_dedx_DBScan =  cluster_dedx_DBScan_PCA(true_shower.points, true_shower.depositions, startpoint, dedx_dist=self.radius, simple=True)
+            print("simple true DBScan PCA: ", true_dedx_DBScan)
+
             print(true_p_axis)
             print(true_clust_sizes)
                         
@@ -372,6 +375,11 @@ class ShowerStartSingleParticle(AnaBase):
                                   reco_shower.depositions,
                                      startpoint, 
                                      max_dist=self.radius)
+            dedx_legacy = cluster_dedx_legacy(reco_shower.points,
+                                  reco_shower.depositions,
+                                     startpoint,
+                                                  max_dist=self.radius, simple=True)
+            print("simple legacy :", dedx_legacy )
             out_dict['reco_de_0'] = de_0
             out_dict['reco_dx_0'] = dx_0
             out_dict['reco_l_0'] = l_0
@@ -404,6 +412,8 @@ class ShowerStartSingleParticle(AnaBase):
             out_dict['reco_spread_dir'] = reco_spread_dir
             out_dict['reco_size_dir'] = reco_size_dir
 
+            reco_dedx_dir =  cluster_dedx_dir(reco_shower.points, reco_shower.depositions, reco_shower.start_point, reco_shower.start_dir, simple=True)
+            print("simple dir: ", reco_dedx_dir)
             
             de_1, dx_1, l_1 = cluster_dedx_legacy(reco_points,
                                   reco_vals,
