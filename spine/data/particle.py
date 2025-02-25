@@ -117,7 +117,7 @@ class Particle(PosDataBase):
     interaction_primary: int = -1
     group_primary: int = -1
     parent_id: int = -1
-    children_id: int = None
+    children_id: np.ndarray = None
     track_id: int = -1
     parent_track_id: int = -1
     ancestor_track_id: int = -1
