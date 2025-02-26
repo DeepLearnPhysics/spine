@@ -283,6 +283,9 @@ class RecoInteraction(InteractionBase, RecoBase):
     leading_shower_vertex_distance: float = -1.
     leading_shower_dedx: float = -1.
     leading_shower_spread: float = -1.
+    leading_shower_axial_pearsonr: float = -1.
+    leading_shower_global_spread: float = -1.
+    leading_shower_trunk_validity: float = -1.
 
     # Attributes that must never be stored to file
     _skip_attrs = (

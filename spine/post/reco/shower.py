@@ -8,17 +8,14 @@ from scipy.spatial.distance import cdist
 from sklearn.cluster import DBSCAN
 from sklearn.metrics.pairwise import cosine_similarity
 
-<<<<<<< HEAD
 from sklearn.decomposition import PCA
-from sklearn.cluster import DBSCAN
 
-=======
->>>>>>> develop
 from spine.utils.gnn.cluster import cluster_dedx
+from scipy.stats import pearsonr
 
 __all__ = ['ConversionDistanceProcessor', 'ShowerMultiArmCheck', 
            'ShowerStartpointCorrectionProcessor', 'ShowerdEdXProcessor',
-           'ShowerSpreadProcessor']
+           'ShowerSpreadProcessor', 'ShowerTrunkValidityProcessor']
 
 
 class ConversionDistanceProcessor(PostBase):
@@ -35,11 +32,7 @@ class ConversionDistanceProcessor(PostBase):
     # Alternative allowed names of the post-processor
     aliases = ('shower_separation_processor',)
     
-<<<<<<< HEAD
-    def __init__(self, threshold=-1.0, vertex_mode='vertex_points', modify_inplace=True):
-=======
     def __init__(self, threshold=-1.0, vertex_mode='vertex_points', inplace=True):
->>>>>>> develop
         """Specify the EM shower conversion distance threshold and
         the type of vertex to use for the distance calculation.
 
@@ -60,11 +53,7 @@ class ConversionDistanceProcessor(PostBase):
         
         self.threshold = threshold
         self.vertex_mode = vertex_mode
-<<<<<<< HEAD
-        self.modify_inplace = modify_inplace
-=======
         self.inplace = inplace
->>>>>>> develop
         
     def process(self, data):
         """Update reco interaction topologies using the conversion
@@ -111,7 +100,7 @@ class ConversionDistanceProcessor(PostBase):
                     
                     if p.pid == ELEC_PID:
                         
-                        if self.modify_inplace:
+                        if self.inplace:
                             if criterion >= self.threshold:
                                 p.pid = PHOT_PID
                             
@@ -272,9 +261,6 @@ class ShowerMultiArmCheck(PostBase):
                                                      eps=self.eps, 
                                                      min_samples=self.min_samples)
                     
-                    _, _, spread = shower_quality_check(p, ia.vertex)
-                    p.shower_spread = spread
-                    
                     p.shower_split_angle = angle
                     if self.inplace:
                         if angle > self.threshold:
@@ -282,16 +268,14 @@ class ShowerMultiArmCheck(PostBase):
                 
                 if p.pid == ELEC_PID and p.is_primary and (p.shape == SHOWR_SHP):
 
-                    if self.modify_inplace:
+                    if self.inplace:
                         if angle > self.threshold:
                             p.pid = PHOT_PID
             
             if leading_shower is None:
                 ia.shower_split_angle = -np.inf
-                ia.shower_spread = -np.inf
             else:
                 ia.shower_split_angle = leading_shower.shower_split_angle
-                ia.shower_spread = leading_shower.shower_spread
             
                 
     # @staticmethod
@@ -548,11 +532,16 @@ class ShowerSpreadProcessor(PostBase):
             leading_shower, max_ke = None, -np.inf
             
             for p in ia.particles:
+                
+                if p.is_primary:
+                    p.axial_pearsonr = compute_axial_pearsonr(p)
+                
                 if (p.shape == SHOWR_SHP) and (p.is_primary):
                     spread = compute_shower_spread(p.points,
                                                    ia.vertex,
                                                    l=self.length_scale)
                     p.shower_spread = spread
+                    p.global_spread = compute_global_spread(p)
                     
                     if p.ke > max_ke:
                         leading_shower = p
@@ -564,10 +553,39 @@ class ShowerSpreadProcessor(PostBase):
             
             if leading_shower is not None:
                 ia.leading_shower_spread = leading_shower.shower_spread
+                ia.leading_shower_global_spread = leading_shower.global_spread
+                ia.leading_shower_axial_pearsonr = leading_shower.axial_pearsonr
             else:
                 ia.leading_shower_spread = -1.
+                ia.leading_shower_global_spread = -1.
+                ia.leading_shower_axial_pearsonr = -1.
                 
                 
+def compute_global_spread(shower_p):
+    pca = PCA(n_components=3)
+    if len(shower_p.points) <= 3:
+        return -1
+    else:
+        pca.fit(shower_p.points)
+        return (1-pca.explained_variance_ratio_[0])
+    
+    
+def compute_axial_pearsonr(shower_p):
+    
+    if len(shower_p.points) < 3:
+        return -1
+    
+    startpoint = shower_p.start_point
+    v0 = shower_p.start_dir
+    
+    dists = np.linalg.norm(shower_p.points - startpoint, axis=1)
+    v = (startpoint - shower_p.points) - np.sum((startpoint - shower_p.points) * v0, axis=1, keepdims=True) \
+      * np.broadcast_to(v0, shower_p.points.shape)
+    perps = np.linalg.norm(v, axis=1)
+    
+    out = pearsonr(dists, perps)
+    return out[0]
+
 
 def compute_shower_spread(points, vertex, l=14.0):
     """Compute the spread of the shower by computing the mean direction and
@@ -600,3 +618,70 @@ def compute_shower_spread(points, vertex, l=14.0):
         spread = -1. 
 
     return spread
+
+
+class ShowerTrunkValidityProcessor(PostBase):
+    """Compute the spread of the primary EM shower's trunk
+
+    """
+    
+    name = 'shower_trunk_validity'
+    aliases = ('shower_trunk_processor',)
+    
+    def __init__(self, threshold, inplace=True):
+        """Specify the EM shower spread thresholds.
+
+        Parameters
+        ----------
+        threshold : float
+            If the spread of the shower trunk is less than this value, the
+            particle is labeled as invalid.
+        inplace : bool, default True
+            If True, the processor will update the reco interaction in-place.
+        """
+        super().__init__('interaction', 'reco')
+        self.threshold = threshold
+        self.inplace = inplace
+        
+    def process(self, data):
+        """Compute the shower spread and modify the PID if inplace=True.
+
+        Parameters
+        ----------
+        data : dict
+            Dictionaries of data products
+        """
+        # Loop over the reco interactions
+        for ia in data['reco_interactions']:
+            
+            leading_shower, max_ke = None, -np.inf
+            
+            for p in ia.particles:
+                if (p.shape == SHOWR_SHP) and (p.is_primary):
+                    trunk_validity = compute_trunk_validity(p)
+                    p.trunk_validity = trunk_validity
+                    
+                    if p.ke > max_ke:
+                        leading_shower = p
+                        max_ke = p.ke
+                    
+                    if self.inplace:
+                        if trunk_validity >= self.threshold:
+                            p.is_valid = False
+            
+            if leading_shower is not None:
+                ia.leading_shower_trunk_validity = leading_shower.trunk_validity
+            else:
+                ia.leading_shower_trunk_validity = -1.
+                
+                
+def compute_trunk_validity(shower_p, r=3.0, n_components=3):
+    dists = np.linalg.norm(shower_p.points - shower_p.start_point, axis=1)
+    mask = dists < r
+    pts = shower_p.points[mask]
+    if len(pts) <= n_components:
+        return -1
+    else:
+        pca = PCA(n_components=n_components)
+        pca.fit(pts)
+        return pca.explained_variance_[0]

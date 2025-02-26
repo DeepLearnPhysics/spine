@@ -29,7 +29,7 @@ class ContainmentProcessor(PostBase):
                  allow_multi_module=False, skip_showers=False, 
                  min_particle_sizes=0,
                  obj_type=('particle', 'interaction'),
-                 truth_point_mode='points', run_mode='both', skip_showers=False):
+                 truth_point_mode='points', run_mode='both'):
         """Initialize the containment conditions.
 
         If the `source` method is used, the cut will be based on the source of
