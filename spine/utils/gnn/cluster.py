@@ -1176,25 +1176,29 @@ def cluster_dedx_DBScan_PCA(voxels,
     values_inc = values_cont[dist_cont<=dedx_clust_dist]
     dist_inc = dist_cont[dist_cont<=dedx_clust_dist]
 
-    
     # Perform PCA on the start_cluster                                                                                                                                                                                                                                 
     pca = PCA(n_components=3)
     pca.fit(voxels_clust)
     p_axis = pca.components_[0]
     p_fit = pca.explained_variance_ratio_[0]
-
-    # Project inclusive voxels on PCA principal axis                                                                                                                                                                                                                 
+    # Project voxels onto the principal axis, find dx
+    p_voxels = np.dot(voxels_clust - np.mean(voxels_clust, axis=0), p_axis)
+    min_proj = np.min(p_voxels)
+    max_proj = np.max(p_voxels)
+    # finding the dx
+    p_length = max_proj - min_proj
+    
+    # Project inclusive voxels on to the dx segment on the PCA principal axis                                                                                                                                                                                                                 
     p_voxels_inc = np.dot(voxels_inc - np.mean(voxels_clust, axis=0), p_axis)
-    min_proj_inc = np.min(p_voxels_inc)
-    max_proj_inc = np.max(p_voxels_inc)
+    #min_proj_inc = np.min(p_voxels_inc)
+    #max_proj_inc = np.max(p_voxels_inc)
     mask_inc = (p_voxels_inc >= min_proj) & (p_voxels_inc <= max_proj)
 
-    # Find the de, dx 
+    # Find the de 
     voxels_de = voxels_inc[mask_inc]
     values_de = values_inc[mask_inc]
     p_sum_inc = np.sum(values_de)
-    p_length_inc = max_proj_inc - min_proj_inc
-
+    
     # Calculate the mean spread from the PCA axis
     voxels_sp = voxels_de - np.mean(voxels_clust, axis=0)
     p_voxels_sp = np.dot(voxels_sp, p_axis)
@@ -1203,10 +1207,10 @@ def cluster_dedx_DBScan_PCA(voxels,
     spread = sum(spread)/len(voxels_sp)
     
     if simple:
-        return p_sum_inc/p_length_inc
+        return p_sum_inc/p_length
     if detailed:
-        return p_sum_inc, p_length_inc, spread, p_fit, num_clust, len(voxels_clust), p_axis, [true_p_clust1, true_p_clust2, true_p_clust3]
-    return p_sum_inc, p_length_inc, spread, p_fit, num_clust, len(voxels_clust)        
+        return p_sum_inc, p_length, spread, p_fit, num_clust, len(voxels_clust), p_axis, [true_p_clust1, true_p_clust2, true_p_clust3]
+    return p_sum_inc, p_length, spread, p_fit, num_clust, len(voxels_clust)        
 
 def cluster_dedx_dir(voxels, values, start, reco_dir, dedx_dist=3, simple=False):
     # When simple=False,
