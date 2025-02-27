@@ -10,7 +10,8 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 from sklearn.decomposition import PCA
 
-from spine.utils.gnn.cluster import cluster_dedx
+from spine.utils.gnn.cluster import cluster_dedx, cluster_dedx_dir
+
 from scipy.stats import pearsonr
 
 __all__ = ['ConversionDistanceProcessor', 'ShowerMultiArmCheck', 
@@ -89,10 +90,6 @@ class ConversionDistanceProcessor(PostBase):
                         raise ValueError('Invalid point mode')
                     
                     p.vertex_distance = criterion
-                    p.shower_dedx = cluster_dedx(p.points,
-                                              p.depositions,
-                                              p.start_point,
-                                              max_dist=3.0)
                     
                     if p.ke > energy:
                         leading_shower = p
@@ -105,15 +102,11 @@ class ConversionDistanceProcessor(PostBase):
                                 p.pid = PHOT_PID
                             
             if leading_shower is None:
-                ia.vertex_distance = -np.inf
+                ia.leading_shower_vertex_distance = -np.inf
                 ia.leading_shower_dedx = -np.inf
                 ia.leading_shower_num_fragments = -1
             else:
-                ia.vertex_distance = leading_shower.vertex_distance
-                ia.leading_shower_dedx = cluster_dedx(leading_shower.points,
-                                              leading_shower.depositions,
-                                              leading_shower.start_point,
-                                              max_dist=3.0)
+                ia.leading_shower_vertex_distance = leading_shower.vertex_distance
                 ia.leading_shower_num_fragments = leading_shower.num_fragments
             
     @staticmethod        
@@ -474,10 +467,13 @@ class ShowerdEdXProcessor(PostBase):
             
             for p in ia.particles:
                 if (p.shape == SHOWR_SHP) and (p.is_primary):
-                    dedx = cluster_dedx(p.points, 
-                                        p.depositions, 
-                                        p.start_point, 
-                                        max_dist=self.max_dist)
+                    
+                    dedx = cluster_dedx_dir(p.points,
+                                            p.depositions,
+                                            p.start_point,
+                                            p.start_dir,
+                                            dedx_dist=self.max_dist,
+                                            simple=True)
                     p.shower_dedx = dedx
                     
                     if p.ke > max_ke:
@@ -564,7 +560,7 @@ class ShowerSpreadProcessor(PostBase):
 def compute_global_spread(shower_p):
     pca = PCA(n_components=3)
     if len(shower_p.points) <= 3:
-        return -1
+        return -np.inf
     else:
         pca.fit(shower_p.points)
         return (1-pca.explained_variance_ratio_[0])
@@ -573,7 +569,7 @@ def compute_global_spread(shower_p):
 def compute_axial_pearsonr(shower_p):
     
     if len(shower_p.points) < 3:
-        return -1
+        return -np.inf
     
     startpoint = shower_p.start_point
     v0 = shower_p.start_dir
@@ -605,17 +601,17 @@ def compute_shower_spread(points, vertex, l=14.0):
         Spread cut parameter of the shower.
     """
     dists = np.linalg.norm(points - vertex, axis=1)
-    # Compute Spread (whole shower)
-    directions = (points - vertex) / dists.reshape(-1, 1)
-    weights = np.exp(- dists / l)
-    mean_direction = np.average(directions, weights=weights, axis=0)
-    if np.linalg.norm(mean_direction) > 1e-6:
-        mean_direction /= np.linalg.norm(mean_direction)
+    mask = dists > 0
+    if mask.sum() == 0:
+        return -np.inf
 
-        cosine = 1 - np.sum(directions * mean_direction.reshape(1, -1), axis=1)
-        spread = np.average(cosine, weights=weights)
-    else:
-        spread = -1. 
+    # Compute Spread (whole shower)
+    directions = (points[mask] - vertex) / dists[mask].reshape(-1, 1)
+    weights = np.clip(np.exp(- dists[mask] / l), min=1e-6)
+    mean_direction = np.average(directions, weights=weights, axis=0)
+    mean_direction /= np.linalg.norm(mean_direction)
+    cosine = 1 - np.sum(directions * mean_direction.reshape(1, -1), axis=1)
+    spread = np.average(cosine, weights=weights)
 
     return spread
 
@@ -680,7 +676,7 @@ def compute_trunk_validity(shower_p, r=3.0, n_components=3):
     mask = dists < r
     pts = shower_p.points[mask]
     if len(pts) <= n_components:
-        return -1
+        return -np.inf
     else:
         pca = PCA(n_components=n_components)
         pca.fit(pts)
