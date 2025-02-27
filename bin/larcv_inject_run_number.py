@@ -46,15 +46,15 @@ def initialize_manager(file_path, dest, overwrite, suffix):
     assert suffix is None or not overwrite, (
             "No point in providing a suffix if the original file is overwritten.")
     if suffix is not None:
-        out_path = file_path.replace('.root', f'_{suffix}.root')
+        out_path = out_path.replace('.root', f'_{suffix}.root')
     elif overwrite:
-        out_path = file_path.replace('.root', '_tmp.root')
+        out_path = out_path.replace('.root', '_tmp.root')
 
     # Check that the output file does is not the same as the original file
-        if file_path == out_path:
-            raise ValueError(
-                    "The input file name and the output file name are the same. "
-                    "This is not allowed by the LArCV IOManager.")
+    if file_path == out_path:
+        raise ValueError(
+                "The input file name and the output file name are the same. "
+                "This is not allowed by the LArCV IOManager.")
 
     # Update the configuration with the input/output file names
     cfg = CFG
