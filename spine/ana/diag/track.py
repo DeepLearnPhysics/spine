@@ -26,23 +26,18 @@ class TrackCompletenessAna(AnaBase):
     name = 'track_completeness'
 
     def __init__(self, time_window=None, run_mode='both',
-                 truth_point_mode='points', cluster_method='cheb', **kwargs):
+                 truth_point_mode='points', **kwargs):
         """Initialize the analysis script.
 
         Parameters
         ----------
         time_window : List[float]
             Time window within which to include particle (only works for `truth`)
-        cluster_method : str
-            Method to use for clustering, either 'cheb' or 'DBSCAN'
         **kwargs : dict, optional
             Additional arguments to pass to :class:`AnaBase`
         """
         # Initialize the parent class
         super().__init__('particle', run_mode, truth_point_mode, **kwargs)
-
-        self.cluster_method = cluster_method
-
         # Store the time window
         self.time_window = time_window
         assert time_window is None or len(time_window) == 2, (
@@ -111,7 +106,7 @@ class TrackCompletenessAna(AnaBase):
 
                 # Chunk out the track along gaps, estimate gap length
                 chunk_labels = self.cluster_track_chunks(
-                        points, start, end, pixel_size, self.cluster_method)
+                        points, start, end, pixel_size)
                 gaps = self.sequential_cluster_distances(
                         points, chunk_labels, start)
 
@@ -128,7 +123,7 @@ class TrackCompletenessAna(AnaBase):
                 self.append(prefix, **comp_dict)
 
     @staticmethod
-    def cluster_track_chunks(points, start_point, end_point, pixel_size, method='cheb'):
+    def cluster_track_chunks(points, start_point, end_point, pixel_size):
         """Find point where the track is broken, divide out the track
         into self-contained chunks which are Linf connect (Moore neighbors).
 
@@ -143,34 +138,22 @@ class TrackCompletenessAna(AnaBase):
         pixel_size : float
             Dimension of one pixel, used to identify what is big enough to
             constitute a break
-        method : str
-            Method to use for clustering, either 'cheb' or 'DBSCAN'
 
         Returns
         -------
         np.ndarray
             (N) Track chunk labels
         """
-        if method == 'cheb':
-            # Project and cluster on the projected axis
-            direction = (end_point-start_point)/np.linalg.norm(end_point-start_point)
-            projs = np.dot(points - start_point, direction)
-            perm = np.argsort(projs)
-            seps = projs[perm][1:] - projs[perm][:-1]
-            breaks = np.where(seps > pixel_size*1.1)[0] + 1
-            cluster_labels = np.empty(len(projs), dtype=int)
-            for i, index in enumerate(np.split(np.arange(len(projs)), breaks)):
-                cluster_labels[perm[index]] = i
-            #print(len(points),len(np.unique(cluster_labels)),points[0])
-        elif method == 'DBSCAN':
-            clustering = DBSCAN(eps=1.1, min_samples=1, metric='chebyshev').fit(points)
-            cluster_labels = clustering.labels_
-            #print(len(points),len(np.unique(cluster_labels)),points[0])
-            #print('+'*50)
-        else:
-            raise ValueError(f"Invalid clustering method: {method}")
+        # Project and cluster on the projected axis
+        direction = (end_point-start_point)/np.linalg.norm(end_point-start_point)
+        projs = np.dot(points - start_point, direction)
+        perm = np.argsort(projs)
+        seps = projs[perm][1:] - projs[perm][:-1]
+        breaks = np.where(seps > pixel_size*1.1)[0] + 1
+        cluster_labels = np.empty(len(projs), dtype=int)
+        for i, index in enumerate(np.split(np.arange(len(projs)), breaks)):
+            cluster_labels[perm[index]] = i
         
-            
         return cluster_labels
 
     @staticmethod
