@@ -2,7 +2,6 @@
 
 import numpy as np
 from scipy.spatial.distance import cdist
-from sklearn.cluster import DBSCAN
 
 from spine.ana.base import AnaBase
 
