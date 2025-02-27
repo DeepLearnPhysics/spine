@@ -1339,7 +1339,7 @@ def cluster_dedx_dir(voxels, values, start, reco_dir, dedx_dist=3, simple=False)
     # return if less than 2 voxels within the sphere
     if len(voxels_dedx) < 2:
         if simple:
-            return 0./0.
+            return -np.inf
         return 0., 0., 0., len(voxels_de)
 
     # project the voxels within the sphere on reco direction
@@ -1353,7 +1353,7 @@ def cluster_dedx_dir(voxels, values, start, reco_dir, dedx_dist=3, simple=False)
     # if less than 2 voxels in the top hemisphere, return
     if len(voxels_de) < 2:
         if simple:
-            return 0./0.
+            return -np.inf
         return 0., 0., 0., len(voxels_de)
 
     # project the top hemisphere voxels on the reco direction
