@@ -267,8 +267,9 @@ class InteractionTopologyProcessor(PostBase):
     # Alternative allowed names of the post-processor
     aliases = ('adjust_interaction_topology',)
 
-    def __init__(self, ke_thresholds, reco_ke_mode='ke',
-                 truth_ke_mode='energy_deposit', run_mode='both'):
+    def __init__(self, ke_thresholds=None, reco_ke_mode='ke',
+                 truth_ke_mode='energy_deposit', run_mode='both',
+                 reco_ke_thresholds=None, truth_ke_thresholds=None):
         """Store the new thresholds to be used to update interaction topologies.
 
         Parameters
@@ -293,15 +294,39 @@ class InteractionTopologyProcessor(PostBase):
         # Store the thresholds in a dictionary
         if np.isscalar(ke_thresholds):
             ke_thresholds = {'default': float(ke_thresholds)}
+            
+        if reco_ke_thresholds is None and truth_ke_thresholds is None:
+            
+            self.reco_ke_thresholds = None
+            self.truth_ke_thresholds = None
+            
+            self.ke_thresholds = {}
+            for pid in PID_MASSES.keys():
+                if pid in ke_thresholds:
+                    self.ke_thresholds[pid] = ke_thresholds[pid]
+                elif 'default' in ke_thresholds:
+                    self.ke_thresholds[pid] = ke_thresholds['default']
+                else:
+                    self.ke_thresholds[pid] = 0.
+        else:
+            assert reco_ke_thresholds is not None and truth_ke_thresholds is not None, (
+                    "Must specify both reco and truth KE thresholds.")
+            
+            self.reco_ke_thresholds = {}
+            self.truth_ke_thresholds = {}
+            
+            for pid in PID_MASSES.keys():
+                if pid in reco_ke_thresholds:
+                    self.reco_ke_thresholds[pid] = reco_ke_thresholds[pid]
+                if pid in truth_ke_thresholds:
+                    self.truth_ke_thresholds[pid] = truth_ke_thresholds[pid]
+                elif 'default' in reco_ke_thresholds:
+                    self.reco_ke_thresholds[pid] = reco_ke_thresholds['default']
+                    self.truth_ke_thresholds[pid] = truth_ke_thresholds['default']
+                else:
+                    self.reco_ke_thresholds[pid] = 0.
+                    self.truth_ke_thresholds[pid] = 0.
 
-        self.ke_thresholds = {}
-        for pid in PID_MASSES.keys():
-            if pid in ke_thresholds:
-                self.ke_thresholds[pid] = ke_thresholds[pid]
-            elif 'default' in ke_thresholds:
-                self.ke_thresholds[pid] = ke_thresholds['default']
-            else:
-                self.ke_thresholds[pid] = 0.
 
     def process(self, data):
         """Update each interaction topology in one interaction.
@@ -319,14 +344,33 @@ class InteractionTopologyProcessor(PostBase):
             else:
                 ke_attr = self.truth_ke_mode
 
-            # Loop over interactions
-            for inter in data[k]:
-                # Loop over particles, select the ones that pass a threshold
-                for part in inter.particles:
-                    ke = getattr(part, ke_attr)
-                    if ke_attr == 'energy_init' and part.pid > -1:
-                        ke -= PID_MASSES[part.pid]
-                    if part.pid > -1 and ke < self.ke_thresholds[part.pid]:
-                        part.is_valid = False
-                    else:
-                        part.is_valid = True
+            if (self.reco_ke_thresholds is None) and (self.truth_ke_thresholds is None):
+                # Loop over interactions
+                for inter in data[k]:
+                    # Loop over particles, select the ones that pass a threshold
+                    for part in inter.particles:
+                        ke = getattr(part, ke_attr)
+                        if ke_attr == 'energy_init' and part.pid > -1:
+                            ke -= PID_MASSES[part.pid]
+                        if part.pid > -1 and ke < self.ke_thresholds[part.pid]:
+                            part.is_valid = False
+                        else:
+                            part.is_valid = True
+            else:
+                # Loop over interactions
+                for inter in data[k]:
+                    # Loop over particles, select the ones that pass a threshold
+                    for part in inter.particles:
+                        ke = getattr(part, ke_attr)
+                        if ke_attr == 'energy_init' and part.pid > -1:
+                            ke -= PID_MASSES[part.pid]
+                        if k == 'reco_interactions':
+                            if part.pid > -1 and ke < self.reco_ke_thresholds[part.pid]:
+                                part.is_valid = False
+                            else:
+                                part.is_valid = True
+                        if k == 'truth_interactions':
+                            if part.pid > -1 and ke < self.truth_ke_thresholds[part.pid]:
+                                part.is_valid = False
+                            else:
+                                part.is_valid = True
