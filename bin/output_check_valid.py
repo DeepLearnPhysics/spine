@@ -25,7 +25,7 @@ def main(source, source_list, output, dest, suffix, event_list, tree_name):
 
     .. code-block:: bash
 
-        $ python3 bin/output_check_valid.py -S file_list.py -o missing.txt
+        $ python3 bin/output_check_valid.py -S file_list.txt -o missing.txt
           --dest /path/to/output/files/ --suffix output_file_suffix
 
     Parameters
