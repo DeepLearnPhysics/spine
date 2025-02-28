@@ -49,7 +49,8 @@ class CalibrationManager:
             # Append
             self.modules[key] = calibrator_factory(key, value)
 
-    def __call__(self, points, values, sources=None, run_id=None, track=None):
+    def __call__(self, points, values, sources=None, run_id=None, track=None,
+                 meta=None, module_id=None):
         """Main calibration driver.
 
         Parameters
@@ -67,12 +68,24 @@ class CalibrationManager:
         track : bool, defaut `False`
             Whether the object is a track or not. If it is, the track gets
             segmented to evaluate local dE/dx and track angle.
+        meta : Meta, optional
+            If provided, use to convert the coordinates from image pixel
+            coordinates to detector coordinates
+        module_id : int, optional
+            If provided, shift points to the requested module assuming that the
+            points currently live in module ID 0
 
         Returns
         -------
         np.ndarray
             (N) array of calibrated depositions in ADC, e- or MeV
         """
+        # If necessary, convert all points to detector coordinates
+        if meta is not None:
+            points = meta.to_cm(points, center=True)
+        if module_id is not None:
+            points = self.geo.translate(points, 0, module_id)
+
         # Create a mask for each of the TPC volume in the detector
         if sources is not None:
             tpc_indexes = []
