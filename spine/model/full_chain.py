@@ -372,14 +372,25 @@ class FullChain(torch.nn.Module):
             # If sources are provided, narrow them down to non-ghosts
             sources_adapt = None
             if sources is not None:
+                # Store the sources of the predicted non-ghosts
                 sources_adapt = TensorBatch(
                         sources.tensor[ghost_pred.tensor == 0],
                         data_adapt.counts)
                 self.result['sources_adapt'] = sources_adapt
-                if clust_label is not None:
+
+                # Store the sources of the true non-ghosts
+                if seg_label is not None:
                     ghost_label = seg_label.tensor[:, SHAPE_COL] < GHOST_SHP
+                    if clust_label is not None:
+                        counts = clust_label.counts
+                    else:
+                        counts = TensorBatch(
+                                seg_label.tensor[ghost_label],
+                                batch_size=seg_label.batch_size,
+                                has_batch_col=True).counts
+
                     sources_label = TensorBatch(
-                            sources.tensor[ghost_label], clust_label.counts)
+                            sources.tensor[ghost_label], counts)
                     self.result['sources_label'] = sources_label
 
             return data_adapt, sources_adapt
@@ -484,7 +495,6 @@ class FullChain(torch.nn.Module):
             if seg_label is not None and clust_label is not None:
                 seg_pred = self.result['seg_pred']
                 ghost_pred = self.result.get('ghost_pred', None)
-                old_clust_label = clust_label
                 clust_label = adapt_labels_batch(
                         clust_label, seg_label, seg_pred, ghost_pred,
                         **self.adapt_params)
