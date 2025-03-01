@@ -106,9 +106,6 @@ def main(source, source_list, dest, overwrite, run_number, suffix):
         with open(source_list, 'r', encoding='utf-8') as f:
             source = f.read().splitlines()
 
-    # Initialize the output text file
-    #out_file = open(output, 'w', encoding='utf-8')
-
     # Loop over the list of files in the input
     print("\nUpdating the run numbers of input files.")
     for idx, file_path in enumerate(tqdm(source)):

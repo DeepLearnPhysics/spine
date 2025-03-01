@@ -71,11 +71,12 @@ def main(source, source_list, output, tree_name):
         index = np.where(inverse == idx)[0]
 
         # All the files which are not the first in this class are duplicates
+        tqdm.write(f"- File {source[index[0]]} is duplicated:")
         for i in range(1, len(index)):
             file_path = source[index[i]]
             duplicate_files.append(file_path)
             out_file.write(f'{file_path}\n')
-            tqdm.write(f"- Duplicate file: {file_path}")
+            tqdm.write(f"  - Duplicate file: {file_path}")
 
     print(f"\nFound {len(duplicate_files)} duplicate files.")
 
