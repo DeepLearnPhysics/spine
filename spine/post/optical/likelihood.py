@@ -1,8 +1,9 @@
 """Module which supports likelihood-based flash matchin (OpT0Finder)."""
 
-import os, sys
+import os
+import sys
+
 import numpy as np
-import time
 
 
 class LikelihoodFlashMatcher:

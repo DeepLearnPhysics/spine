@@ -31,7 +31,7 @@ class BuildManager:
     _sources = (
             ('data_tensor', ('data_adapt', 'data')),
             ('label_tensor', ('clust_label',)),
-            ('label_adapt_tensor', ('clust_label_adapt')),
+            ('label_adapt_tensor', ('clust_label_adapt',)),
             ('label_g4_tensor', ('clust_label_g4',)),
             ('depositions_q_label', ('charge_label',)),
             ('sources', ('sources_adapt', 'sources')),
