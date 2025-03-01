@@ -19,11 +19,12 @@ from spine.utils.conditional import larcv
 from spine.utils.numba_local import dbscan
 
 from .base import ParserBase
-from .sparse import Sparse3DParser, Sparse3DChargeRescaledParser
+from .sparse import (
+        Sparse3DParser, Sparse3DAggregateParser, Sparse3DChargeRescaledParser)
 from .clean_data import clean_sparse_data
 
-__all__ = ['Cluster2DParser', 'Cluster3DParser',
-           'Cluster3DChargeRescaledParser', 'Cluster3DMultiModuleParser']
+__all__ = ['Cluster2DParser', 'Cluster3DParser', 'Cluster3DAggregateParser',
+           'Cluster3DChargeRescaledParser']
 
 
 class Cluster2DParser(ParserBase):
@@ -384,6 +385,80 @@ class Cluster3DParser(ParserBase):
         return np_voxels, np_features, Meta.from_larcv(meta)
 
 
+class Cluster3DAggregateParser(Cluster3DParser):
+    """Identical to :class:`Cluster3DParser`, but aggregates charge information
+    from multiple value sources.
+    """
+
+    # Name of the parser (as specified in the configuration)
+    name = 'cluster3d_aggr'
+
+    def __init__(self, dtype, sparse_value_event_list, value_aggr, **kwargs):
+        """Initialize the parser.
+
+        Parameters
+        ----------
+        sparse_value_event_list : List[larcv.EventSparseTensor3D]
+            List of sparse tensors used to compute the aggregated charge
+        value_aggr : str
+            Value aggregation function to apply ('sum', 'mean', 'max', etc.)
+        **kwargs : dict, optional
+            Data product arguments to be passed to the `process` function
+        """
+        # Initialize the parent class
+        super().__init__(
+                dtype, sparse_value_event_list=sparse_value_event_list, **kwargs)
+
+        # Initialize the sparse parser which computes the rescaled charge
+        self.sparse_aggr_parser = Sparse3DAggregateParser(
+                dtype, sparse_event_list=sparse_value_event_list,
+                aggr=value_aggr)
+
+    def __call__(self, trees):
+        """Parse one entry.
+
+        Parameters
+        ----------
+        trees : dict
+            Dictionary which maps each data product name to a LArCV object
+        """
+        return self.process_aggr(**self.get_input_data(trees))
+
+    def process_aggr(self, sparse_value_event_list, **kwargs):
+        """Parse a list of 3D clusters into a single tensor and fetch the
+        value column by aggregating multiple tensor features.
+
+        Parameters
+        ----------
+        sparse_value_event_list : List[larcv.EventSparseTensor3D]
+            List of sparse value tensors
+        **kwargs : dict, optional
+            Extra data products to pass to the parent Cluster3DParser
+
+        Returns
+        -------
+        np_voxels : np.ndarray
+            (N, 3) array of [x, y, z] coordinates
+        np_features : np.ndarray
+            (N, 2/14) array of features, minimally [voxel value, cluster ID].
+            If `add_particle_info` is `True`, the additonal columns are
+            [group ID, interaction ID, neutrino ID, particle type,
+            group primary bool, interaction primary bool, vertex x, vertex y,
+            vertex z, momentum, semantic type, particle ID]
+        meta : Meta
+            Metadata of the parsed image
+        """
+        # Process the input using the main parser
+        np_voxels, np_features, meta = self.process(**kwargs)
+
+        # Modify the value column using the aggregate tensor values
+        _, val_features, _  = self.sparse_aggr_parser.process_aggr(
+                sparse_value_event_list)
+        np_features[:, 0] = val_features[:, -1]
+
+        return np_voxels, np_features, meta
+
+
 class Cluster3DChargeRescaledParser(Cluster3DParser):
     """Identical to :class:`Cluster3DParser`, but computes rescaled charges
     on the fly.
@@ -392,7 +467,7 @@ class Cluster3DChargeRescaledParser(Cluster3DParser):
     # Name of the parser (as specified in the configuration)
     name = 'cluster3d_rescale_charge'
 
-    def __init__(self, sparse_value_event_list, collection_only=False,
+    def __init__(self, dtype, sparse_value_event_list, collection_only=False,
                  collection_id=2, **kwargs):
         """Initialize the parser.
 
@@ -411,11 +486,12 @@ class Cluster3DChargeRescaledParser(Cluster3DParser):
             Data product arguments to be passed to the `process` function
         """
         # Initialize the parent class
-        super().__init__(**kwargs)
+        super().__init__(
+                dtype, sparse_value_event_list=sparse_value_event_list, **kwargs)
 
         # Initialize the sparse parser which computes the rescaled charge
         self.sparse_rescale_parser = Sparse3DChargeRescaledParser(
-                sparse_event_list=sparse_value_event_list,
+                dtype, sparse_event_list=sparse_value_event_list,
                 collection_only=collection_only, collection_id=collection_id)
 
     def __call__(self, trees):
@@ -462,61 +538,5 @@ class Cluster3DChargeRescaledParser(Cluster3DParser):
         _, val_features, _  = self.sparse_rescale_parser.process_rescale(
                 sparse_value_event_list)
         np_features[:, 0] = val_features[:, -1]
-
-        return np_voxels, np_features, meta
-
-
-class Cluster3DMultiModuleParser(Cluster3DParser):
-    """Identical to :class:`Cluster3DParser`, but fetches charge information
-    from multiple detector modules independantly.
-    """
-
-    # Name of the parser (as specified in the configuration)
-    name = 'cluster3d_multi_module'
-
-    def __call__(self, trees):
-        """Parse one entry.
-
-        Parameters
-        ----------
-        trees : dict
-            Dictionary which maps each data product name to a LArCV object
-        """
-        return self.process_multi(**self.get_input_data(trees))
-
-    def process_multi(self, sparse_value_event_list, **kwargs):
-        """Parse a list of 3D clusters into a single tensor and fetch the
-        value column from multiple sparse tensors.
-
-        Parameters
-        ----------
-        sparse_value_event_list : List[larcv.EventSparseTensor3D]
-            (N_m) List of sparse value tensors, one per module
-        **kwargs : dict, optional
-            Extra data products to pass to the parent Cluster3DParser
-
-        Returns
-        -------
-        np_voxels : np.ndarray
-            (N, 3) array of [x, y, z] coordinates
-        np_features : np.ndarray
-            (N, 2/14) array of features, minimally [voxel value, cluster ID].
-            If `add_particle_info` is `True`, the additonal columns are
-            [group ID, interaction ID, neutrino ID, particle type,
-            group primary bool, interaction primary bool, vertex x, vertex y,
-            vertex z, momentum, semantic type, particle ID]
-        meta : Meta
-            Metadata of the parsed image
-        """
-        # Process the input using the main parser
-        np_voxels, np_features, meta = self.process(**kwargs)
-
-        # Fetch the charge information
-        charges = np.zeros((len(np_voxels), 1), dtype=np.float32)
-        for sparse_value_event in sparse_value_event_list:
-            _, charges_i, _ = self.sparse_parser.process(sparse_value_event)
-            charges[charges == 0.] = charges_i[charges == 0.]
-
-        np_features[:, 0] = charges.flatten()
 
         return np_voxels, np_features, meta
