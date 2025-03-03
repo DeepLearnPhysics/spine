@@ -47,6 +47,9 @@ class FMatchPerformance(AnaBase):
         # Add additional required data products
         self.update_keys({'interaction_matches_t2r': True}) 
         self.update_keys({'interaction_matches_t2r_overlap': True}) 
+
+        self.update_keys({'interaction_matches_r2t': True}) 
+        self.update_keys({'interaction_matches_r2t_overlap': True}) 
         
         # Initialize the flash time window
         self.flash_tmin = flash_tmin
@@ -62,12 +65,14 @@ class FMatchPerformance(AnaBase):
             Dictionary of data products
         """
         # Fetch the keys you want
+        interaction_matches_r2t = data['interaction_matches_r2t']
         interaction_matches_t2r = data['interaction_matches_t2r']
         
         # Loop over matched interactions (t2r)
         for idx, (true_inter, reco_inter) in enumerate(interaction_matches_t2r):
-            
-            if true_inter == None: continue
+        #for idx, (reco_inter, true_inter) in enumerate(interaction_matches_r2t):
+            #if true_inter == None: continue
+            #if reco_inter == None: continue
             
             # Storage
             row_dict = {}
@@ -181,6 +186,8 @@ class FMatchPerformance(AnaBase):
             row_dict[f'truth_flash_hypo_pe'] = true_inter.flash_hypo_pe
             row_dict[f'truth_reduced_flash_score'] = (true_inter.flash_total_pe - true_inter.flash_hypo_pe) / true_inter.flash_total_pe
                 
+            #Energy info - get E of all true particles
+            row_dict['truth_energy_init'] = 0
             # Energy info - get KE of all true particles
             row_dict['truth_calo_energy'] = 0
             # Also get average time of particles
@@ -189,11 +196,14 @@ class FMatchPerformance(AnaBase):
             nprim = 0
             for i,p in enumerate(true_inter.particles):
                 row_dict[f'truth_calo_energy'] += p.calo_ke
+                row_dict['truth_energy_init'] += p.energy_init
                 if p.is_primary:
                     row_dict[f'truth_avg_time'] += p.t*1e-3 #us
                     nprim += 1
             if nprim > 0:
                 row_dict['truth_avg_time'] /= nprim
+            else:
+                row_dict['truth_avg_time'] = -9999
             
             #Efficiency - is the flash time within the BNB window?
             # Truth values get some slack because of the time resolution +- 0.2 us
@@ -203,6 +213,7 @@ class FMatchPerformance(AnaBase):
                 row_dict['truth_in_bnb'] = False
             
             # Overlap
-            overlap = data['interaction_matches_t2r_overlap'][idx]
-            row_dict.update({'match_overlap': overlap})
+            #overlap = data['interaction_matches_t2r_overlap'][idx]
+            #overlap = data['interaction_matches_r2t_overlap'][idx]
+            #row_dict.update({'match_overlap': overlap})
             self.append(f'{self.log_name}_fmatch_performance', **row_dict)
