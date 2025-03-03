@@ -399,14 +399,10 @@ def get_inter_primary_ids(particles, valid_mask):
                  f"({INVAL_ID}). This may happen for old files.")
             continue
 
-        # If the particle originates from a primary pi0, label as primary
-        # Small issue with photo-nuclear activity here, but very rare
+        # Tag particles originating from a very short-lived particle as primary
         group_p = particles[group_id]
-        if group_p.ancestor_pdg_code() == 111 and group_p.parent_track_id()==group_p.ancestor_track_id():
-            primary_ids[i] = 1
-            continue
-        # If the particle is a photon and originates from a primary sigma baryon, label as primary
-        if abs(group_p.ancestor_pdg_code()) == 3212 and group_p.pdg_code()==22 and group_p.parent_track_id()==group_p.ancestor_track_id():
+        if (abs(group_p.parent_pdg_code()) in [111, 113, 221, 331, 3212] and
+            group_p.parent_track_id() == group_p.ancestor_track_id()):
             primary_ids[i] = 1
             continue
 
