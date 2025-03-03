@@ -3,6 +3,8 @@
 Contains the following parsers:
 - :class:`Cluster2DParser`
 - :class:`Cluster3DParser`
+- :class:`Cluster3DAggregateParser`
+- :class:`Cluster3DChargeRescaledParser`
 """
 
 from warnings import warn

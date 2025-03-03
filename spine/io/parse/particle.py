@@ -14,9 +14,10 @@ import numpy as np
 
 from spine.data import Meta, Particle, Neutrino, ObjectList
 
-from spine.utils.globals import TRACK_SHP, PDG_TO_PID, PID_MASSES
+from spine.utils.globals import TRACK_SHP, PDG_TO_PID, PID_MASSES, INVAL_ID
 from spine.utils.particles import process_particles
 from spine.utils.ppn import get_ppn_labels, get_vertex_labels, image_coordinates
+from spine.utils.gnn.network import filter_invalid_nodes
 from spine.utils.conditional import larcv
 
 from .base import ParserBase
@@ -494,11 +495,27 @@ class ParticleGraphParser(ParserBase):
             parser: particle_graph
             particle_event: particle_pcluster
             cluster_event: cluster3d_pcluster
-
+            include_fragment_edges: false
     """
 
     # Name of the parser (as specified in the configuration)
     name = 'particle_graph'
+
+    def __init__(self, include_fragment_edges=False, **kwargs):
+        """Initialize the parser.
+
+        Parameters
+        ----------
+        include_fragment_edges : bool, default False
+            If `True`, includes edges which join particles in the same group
+        **kwargs : dict, optional
+            Data product arguments to be passed to the `process` function
+        """
+        # Initialize the parent class
+        super().__init__(**kwargs)
+
+        # Store the revelant attributes
+        self.include_fragment_edges = include_fragment_edges
 
     def __call__(self, trees):
         """Parse one entry.
@@ -529,71 +546,47 @@ class ParticleGraphParser(ParserBase):
         int
             Number of particles in the input
         """
+        # Check on the cluster input, if provided
         particles_v   = particle_event.as_vector()
         num_particles = particles_v.size()
-        edges         = []
-        if cluster_event is None:
-            # Fill edges (directed [parent, child] pair)
-            edges = []
-            for cluster_id in range(num_particles):
-                p = particles_v[cluster_id]
-                if p.parent_id() != p.id():
-                    edges.append([int(p.parent_id()), cluster_id])
-                if p.parent_id() == p.id() and p.group_id() != p.id():
-                    edges.append([int(p.group_id()), cluster_id])
-
-            # Convert the list of edges to a numpy array
-            if not edges:
-                return np.empty((2, 0), dtype=np.int64), num_particles
-
-            edges = np.vstack(edges).astype(np.int64)
-
-        else:
-            # Check that the cluster and particle objects are consistent
-            num_clusters = cluster_event.size()
+        if cluster_event is not None:
+            # Check that the cluster list is of the expected length
+            clusters_v = cluster_event.as_vector()
+            num_clusters = len(clusters_v)
             assert (num_particles == num_clusters or
                     num_particles == num_clusters - 1), (
                     f"The number of particles ({num_particles}) must be "
                     f"aligned with the number of clusters ({num_clusters}). "
-                    f"There can me one more catch-all cluster at the end.")
+                     "There can me one more catch-all cluster at the end.")
 
-            # Fill edges (directed [parent, child] pair)
-            zero_nodes, zero_nodes_pid = [], []
-            for cluster_id in range(num_particles):
-                cluster = cluster_event.as_vector()[cluster_id]
-                num_points = cluster.as_vector().size()
-                p = particles_v[cluster_id]
-                if p.id() != p.group_id():
-                    continue
-                if p.parent_id() != p.group_id():
-                    edges.append([int(p.parent_id()), p.group_id()])
-                if num_points == 0:
-                    zero_nodes.append(p.group_id())
-                    zero_nodes_pid.append(cluster_id)
+        # Build a list of edges
+        edges, zero_nodes = [], []
+        for cluster_id, part in enumerate(particles_v):
+            # If the parent ID is invalid (broken parentage), skip
+            if part.parent_id() == INVAL_ID:
+                continue
 
-            # Convert the list of edges to a numpy array
-            if not edges:
-                return np.empty((2, 0), dtype=np.int64), num_particles
+            # Only include edges within particle groups if explicitely requested
+            if not self.include_fragment_edges and part.group_id() != cluster_id:
+                continue
 
-            edges = np.vstack(edges).astype(np.int64)
+            # Add edge between particle and its direct parent
+            if part.parent_id() != part.group_id():
+                edges.append([int(part.parent_id()), cluster_id])
 
-            # Remove zero pixel nodes
-            for zn in zero_nodes:
-                children = np.where(edges[:, 0] == zn)[0]
-                if len(children) == 0:
-                    edges = edges[edges[:, 0] != zn]
-                    edges = edges[edges[:, 1] != zn]
-                    continue
-                parent = np.where(edges[:, 1] == zn)[0]
-                assert len(parent) <= 1
+            # If the cluster event is provided, keep track of empty nodes
+            if cluster_event is not None and clusters_v[cluster_id].size() == 0:
+                zero_nodes.append(cluster_id)
 
-                # If zero node has a parent, then assign children to that parent
-                if len(parent) == 1:
-                    parent_id = edges[parent][0][0]
-                    edges[:, 0][children] = parent_id
-                else:
-                    edges = edges[edges[:, 0] != zn]
-                edges = edges[edges[:, 1] != zn]
+        # Convert the list of edges to a numpy array
+        if not edges:
+            return np.empty((2, 0), dtype=np.int64), num_particles
+
+        edges = np.vstack(edges).astype(np.int64)
+
+        # Remove zero-pixel nodes, if possible
+        if len(zero_nodes) > 0:
+            edges = filter_invalid_nodes(edges, zero_nodes)
 
         return edges.T, num_particles
 

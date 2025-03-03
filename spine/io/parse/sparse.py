@@ -3,8 +3,9 @@
 Contains the following parsers:
 - :class:`Sparse2DParser`
 - :class:`Sparse3DParser`
-- :class:`Sparse3DGhostParser`
+- :class:`Sparse3DAggregateParser`
 - :class:`Sparse3DChargeRescaledParser`
+- :class:`Sparse3DGhostParser`
 """
 
 import numpy as np
