@@ -18,7 +18,7 @@ class PIDTemplateProcessor(PostBase):
     # Name of the post-processor (as specified in the configuration)
     name = 'pid_template'
 
-    def __init__(self, fill_per_pid=False, obj_type='particle', run_mode='reco',
+    def __init__(self, fill_per_pid=True, obj_type='particle', run_mode='reco',
                  truth_point_mode='points', truth_dep_mode='depositions',
                  **identifier):
         """Store the necessary attributes to do template-based PID prediction.
@@ -64,15 +64,16 @@ class PIDTemplateProcessor(PostBase):
                     continue
 
                 # Run the particle identifier
-                pid, chi2_scores = self.identifier(
+                pid, chi2_values = self.identifier(
                         points, values, obj.end_point, obj.start_point)
 
                 # Store for this PID
-                obj.pid = pid
+                obj.chi2_pid = pid
                 if self.fill_per_pid:
                     chi2_per_pid = np.full(
-                            len(obj.pid_scores), -1., dtype=obj.pid_scores.dtype)
+                            len(obj.chi2_per_pid), -1.,
+                            dtype=obj.chi2_per_pid.dtype)
                     for i, pid in enumerate(self.identifier.include_pids):
-                        chi2_per_pid[pid] = chi2_scores[i]
+                        chi2_per_pid[pid] = chi2_values[i]
 
-                    obj.pid_scores = chi2_per_pid
+                    obj.chi2_per_pid = chi2_per_pid

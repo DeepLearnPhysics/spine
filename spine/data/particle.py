@@ -27,8 +27,6 @@ class Particle(PosDataBase):
         Index in the original MCTruth array from whence it came
     mcst_index : int
         Index in the original MCTrack/MCShower array from whence it came
-    gen_id : int
-        Index of the particle at the generator level
     group_id : int
         Index of the group the particle belongs to
     interaction_id : int
@@ -110,14 +108,13 @@ class Particle(PosDataBase):
     id: int = -1
     mct_index: int = -1
     mcst_index: int = -1
-    gen_id: int = -1
     group_id: int = -1
     interaction_id: int = -1
     nu_id: int = -1
     interaction_primary: int = -1
     group_primary: int = -1
     parent_id: int = -1
-    children_id: int = None
+    children_id: np.ndarray = None
     track_id: int = -1
     parent_track_id: int = -1
     ancestor_track_id: int = -1
@@ -248,7 +245,7 @@ class Particle(PosDataBase):
         for prefix in ('', 'parent_', 'ancestor_'):
             for key in ('track_id', 'pdg_code', 'creation_process', 't'):
                 obj_dict[prefix+key] = getattr(particle, prefix+key)()
-        for key in ('id', 'gen_id', 'group_id', 'interaction_id', 'parent_id',
+        for key in ('id', 'group_id', 'interaction_id', 'parent_id',
                     'mct_index', 'mcst_index', 'num_voxels', 'shape',
                     'energy_init', 'energy_deposit', 'distance_travel'):
             if not hasattr(particle, key):

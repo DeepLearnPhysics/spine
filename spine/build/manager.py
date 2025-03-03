@@ -34,6 +34,7 @@ class BuildManager:
             ('label_adapt_tensor', ('clust_label_adapt',)),
             ('label_g4_tensor', ('clust_label_g4',)),
             ('depositions_q_label', ('charge_label',)),
+            ('graph_label', ('graph_label',)),
             ('sources', ('sources_adapt', 'sources')),
             ('sources_label', ('sources_label',)),
             ('particles', ('particles',)),

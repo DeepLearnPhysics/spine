@@ -469,3 +469,54 @@ def complete_graph(counts: nb.int64[:]) -> nb.int64[:,:]:
         offset += c
 
     return edge_index
+
+
+@nb.njit(cache=True)
+def filter_invalid_nodes(edge_index: nb.int64[:, :],
+                         invalid_nodes: nb.int64[:]) -> nb.int64[:, :]:
+    """Remove invalid node from a graph, bridge gaps formed by the filtering.
+
+    Each time a node is removed, the function proceeds as follows:
+    - If the node has no children, remove any edges that connect to it
+    - If the node has children:
+      - If it does not have a parent, remove any edges from it
+      - If it has a parent, connect the parent to its children
+
+    Parameters
+    ----------
+    edge_index : np.ndarray
+        (E, 2) Original graph incidence map
+    invalid_nodes : np.ndarray
+        (N) List of nodes to remove from the original graph incidence map
+
+    Returns
+    -------
+    np.ndarray
+        (E', 2) Filtered graph incidence map
+    """
+    # Loop over the list of invalid nodes
+    edges = edge_index.copy()
+    for node in invalid_nodes:
+        # If the node has no children, remove edges to the node
+        children = np.where(edges[:, 0] == node)[0]
+        if len(children) == 0:
+            edges = edges[edges[:, 1] != node]
+            continue
+
+        # If it has children, find its parent and reassign its children
+        parent = np.where(edges[:, 1] == node)[0]
+        assert len(parent) <= 1, (
+                "Found a particle with multiple parents, not allowed.")
+
+        if len(parent) == 1:
+            # If it has a parent, then assign children to that parent
+            parent_id = edges[parent][0][0]
+            edges[:, 0][children] = parent_id
+        else:
+            # If it has no parent, remove the edges to it
+            edges = edges[edges[:, 0] != node]
+
+        # Remove edges to the node
+        edges = edges[edges[:, 1] != node]
+
+    return edges

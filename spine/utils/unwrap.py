@@ -35,6 +35,7 @@ class Unwrapper:
         self.geo = geometry
         self.num_volumes = self.geo.tpc.num_modules if self.geo else 1
         self.remove_batch_col = remove_batch_col
+        self.batch_size = None
 
     def __call__(self, data):
         """Main unwrapping function.
@@ -53,6 +54,7 @@ class Unwrapper:
             Dictionary of unwrapped data products
         """
         data_unwrapped = {}
+        self.batch_size = len(data['index'])
         for key, value in data.items():
             data_unwrapped[key] = self._unwrap(key, value)
 
@@ -111,7 +113,7 @@ class Unwrapper:
             Tensor batch product
         """
         # If there is one volume, trivial
-        if self.num_volumes == 1:
+        if self.num_volumes == 1 or data.batch_size == self.batch_size:
             if not self.remove_batch_col or not data.has_batch_col:
                 return data.split()
             else:
@@ -150,7 +152,7 @@ class Unwrapper:
             Index batch product
         """
         # Unwrap
-        if self.num_volumes == 1:
+        if self.num_volumes == 1 or data.batch_size == self.batch_size:
             # If there is only one volume, trivial
             indexes = data.split()
 

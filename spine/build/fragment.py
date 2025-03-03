@@ -220,10 +220,23 @@ class FragmentBuilder(BuilderBase):
                             ref_tensor[index_ref, PART_COL], return_counts=True)
                     part_id = int(part_ids[np.argmax(counts)])
                 if part_id > -1:
+                    # Load the MC particle information
                     assert part_id < len(particles), (
                             "Invalid particle ID found in fragment labels.")
-                    fragment = TruthFragment(**particles[part_id].as_dict())
+                    particle = particles[part_id]
+                    fragment = TruthFragment(**particle.as_dict())
+
+                    # Override the indexes of the fragment but preserve them
+                    fragment.orig_id = part_id
+                    fragment.orig_group_id = particle.group_id
+                    fragment.orig_parent_id = particle.parent_id
+                    fragment.orig_children_id = particle.children_id
+
                     fragment.id = i
+                    fragment.group_id = i
+                    fragment.parent_id = i
+                    fragment.children_id = np.empty(
+                            0, dtype=fragment.orig_children_id.dtype)
 
             # Fill long-form attributes
             if truth_only:
@@ -243,7 +256,7 @@ class FragmentBuilder(BuilderBase):
                         index_g4 = np.where(
                                 label_g4_tensor[:, CLUST_COL] == frag_id)[0]
                         fragment.index_g4 = index_g4
-                        fragment.points_g4 = poins_g4[index_g4]
+                        fragment.points_g4 = points_g4[index_g4]
                         fragment.depositions_g4 = depositions_g4[index_g4]
 
             else:

@@ -131,7 +131,13 @@ class TruthFragment(Particle, FragmentBase, TruthBase):
     Attributes
     ----------
     orig_interaction_id : int
-        Unaltered index of the interaction in the original MC paricle list
+        Unaltered index of the interaction in the original MC particle list
+    orig_parent_id : int
+        Unaltered index of the particle parent in the original MC particle list
+    orig_group_id : int
+        Unaltered index of the particle group in the original MC particle list
+    orig_children_id : np.ndarray
+        Unaltered list of the particle children in the original MC particle list
     children_counts : np.ndarray
         (P) Number of truth child fragment of each shape
     reco_length : float
@@ -143,6 +149,9 @@ class TruthFragment(Particle, FragmentBase, TruthBase):
         to track objects)
     """
     orig_interaction_id: int = -1
+    orig_parent_id: int = -1
+    orig_group_id: int = -1
+    orig_children_id: np.ndarray = -1
     children_counts: np.ndarray = None
     reco_length: float = -1.
     reco_start_dir: np.ndarray = None
@@ -157,7 +166,7 @@ class TruthFragment(Particle, FragmentBase, TruthBase):
 
     # Variable-length attributes
     _var_length_attrs = (
-            ('children_counts', np.int32),
+            ('orig_children_id', np.int64), ('children_counts', np.int32),
             *TruthBase._var_length_attrs,
             *Particle._var_length_attrs
     )

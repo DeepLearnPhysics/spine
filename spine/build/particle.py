@@ -5,7 +5,9 @@ import numpy as np
 from scipy.special import softmax
 
 from spine.data.out import RecoParticle, TruthParticle
+
 from spine.utils.globals import COORD_COLS, VALUE_COL, GROUP_COL, TRACK_SHP
+from spine.utils.gnn.network import filter_invalid_nodes
 
 from .base import BuilderBase
 
@@ -39,7 +41,8 @@ class ParticleBuilder(BuilderBase):
 
     # Necessary/optional data products to build a truth object
     _build_truth_keys = (
-            ('particles', False), ('truth_fragments', False),
+            ('particles', False), ('graph_label', False),
+            ('truth_fragments', False),
             *BuilderBase._build_truth_keys
     )
 
@@ -165,7 +168,8 @@ class ParticleBuilder(BuilderBase):
                      depositions_label, depositions_q_label=None,
                      label_adapt_tensor=None, points=None, depositions=None,
                      label_g4_tensor=None, points_g4=None, depositions_g4=None,
-                     sources_label=None, sources=None, truth_fragments=None):
+                     sources_label=None, sources=None, graph_label=None,
+                     truth_fragments=None):
         """Builds :class:`TruthParticle` objects from the full chain output.
 
         Parameters
@@ -199,6 +203,8 @@ class ParticleBuilder(BuilderBase):
             (N', 2) Tensor which contains the label module/tpc information
         sources : np.ndarray, optional
             (N, 2) Tensor which contains the module/tpc information
+        graph_label : np.ndarray, optional
+            (E, 2) Parentage relations in the set of particles
         truth_fragments : List[TruthFragment], optional
             (F) List of true fragments
 
@@ -222,9 +228,17 @@ class ParticleBuilder(BuilderBase):
             assert particle.id == group_id, (
                     "The ordering of the true particles is wrong.")
 
-            # Override the index of the particle but preserve it
+            # Override the index of the particle and its group, but preserve it
             particle.orig_id = group_id
+            particle.orig_group_id = group_id
+            particle.orig_parent_id = particle.parent_id
+            particle.orig_children_id = particle.children_id
+
             particle.id = i
+            particle.group_id = i
+            particle.parent_id = i
+            particle.children_id = np.empty(
+                    0, dtype=particle.orig_children_id.dtype)
 
             # Update the deposited energy attribute by summing that of all
             # particles in the group (LArCV definition != SPINE definition)
@@ -267,6 +281,23 @@ class ParticleBuilder(BuilderBase):
 
             # Append
             truth_particles.append(particle)
+
+        # If the parentage relations of non-empty particles are available,
+        # use them to assign parent/children IDs in the new particle set
+        if graph_label is not None:
+            # Narrow down the list of edges to those connecting visible particles
+            inval = set(np.unique(graph_label)).difference(set(valid_group_ids))
+            if len(inval) > 0:
+                graph_label = filter_invalid_nodes(graph_label, tuple(inval))
+
+            # Use the remaining edges to build parantage relations
+            mapping = {group_id: i for i, group_id in enumerate(valid_group_ids)}
+            for (source, target) in graph_label:
+                parent = truth_particles[mapping[source]]
+                child = truth_particles[mapping[target]]
+
+                child.parent_id = parent.id
+                parent.children_id = np.append(parent.children_id, child.id)
 
         return truth_particles
 
