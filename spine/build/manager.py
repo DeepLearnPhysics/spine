@@ -10,7 +10,6 @@ from spine.utils.globals import COORD_COLS, VALUE_COL
 from .fragment import FragmentBuilder
 from .particle import ParticleBuilder
 from .interaction import InteractionBuilder
-from .fill_hypothesis import FlashHypothesisBuilder
 
 class BuildManager:
     """Manager which constructs data representations based on the chain output.
