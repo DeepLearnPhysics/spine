@@ -35,8 +35,13 @@ class ParticleBase:
         Semantic type (shower (0), track (1), Michel (2), delta (3),
         low energy scatter (4)) of this particle
     pid : int
-        Particle spcies (Photon (0), Electron (1), Muon (2), Charged Pion (3),
-        Proton (4)) of this particle
+        Particle species (Photon (0), Electron (1), Muon (2), Charged Pion (3),
+        Proton (4), Kaon (5)) of this particle
+    chi2_pid : int
+        Particle species as predicted by the chi2 template method (Muon (2),
+        Charged Pion (3), Proton (4), Kaon (5)) of this particle
+    chi2_per_pid : np.ndarray
+        (P) Array of chi2 values associated with each particle class
     pdg_code : int
         PDG code corresponding to the PID number
     is_primary : bool
@@ -61,11 +66,11 @@ class ParticleBase:
     csda_ke : float
         Kinetic energy reconstructed from the particle range in MeV
     csda_ke_per_pid : np.ndarray
-        Same as `csda_ke` but for every available track PID hypothesis
+        (P) Same as `csda_ke` but for every available track PID hypothesis
     mcs_ke : float
         Kinetic energy reconstructed using the MCS method in MeV
     mcs_ke_per_pid : np.ndarray
-        Same as `mcs_ke` but for every available track PID hypothesis
+        (P) Same as `mcs_ke` but for every available track PID hypothesis
     momentum : np.ndarray
         3-momentum of the particle at the production point in MeV/c
     p : float
@@ -80,6 +85,8 @@ class ParticleBase:
     interaction_id: int = -1
     shape: int = -1
     pid: int = -1
+    chi2_pid: int = -1
+    chi2_per_pid: np.ndarray = None
     pdg_code: int = -1
     is_primary: bool = False
     length: float = -1.
@@ -102,6 +109,7 @@ class ParticleBase:
     _fixed_length_attrs = (
             ('start_point', 3), ('end_point', 3), ('start_dir', 3),
             ('end_dir', 3), ('momentum', 3),
+            ('chi2_per_pid', len(PID_LABELS) - 1),
             ('csda_ke_per_pid', len(PID_LABELS) - 1),
             ('mcs_ke_per_pid', len(PID_LABELS) - 1)
     )
@@ -197,7 +205,7 @@ class RecoParticle(ParticleBase, RecoBase):
     Attributes
     ----------
     pid_scores : np.ndarray
-        (P) Array of softmax scores associated with each of particle class
+        (P) Array of softmax scores associated with each particle class
     primary_scores : np.ndarray
         (2) Array of softmax scores associated with secondary and primary
     ppn_ids : np.ndarray

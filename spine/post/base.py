@@ -39,6 +39,9 @@ class PostBase(ABC):
     # List of recognized run modes
     _run_modes = ('reco', 'truth', 'both', 'all')
 
+    # List of known reconstructed particle identification modes
+    _pid_modes = ('pid', 'chi2_pid')
+
     # List of known point modes for true particles and their corresponding keys
     _point_modes = (
             ('points', 'points_label'),
@@ -63,7 +66,7 @@ class PostBase(ABC):
     )
 
     def __init__(self, obj_type=None, run_mode=None, truth_point_mode=None,
-                 truth_dep_mode=None, parent_path=None):
+                 truth_dep_mode=None, pid_mode=None, parent_path=None):
         """Initialize default post-processor object properties.
 
         Parameters
@@ -146,6 +149,13 @@ class PostBase(ABC):
                         f"{truth_dep_mode} are incompatible.")
             self.truth_dep_mode = truth_dep_mode
             self.truth_dep_key = self.dep_modes[truth_dep_mode]
+
+        # If a PID mode is specified, store it
+        if pid_mode is not None:
+            assert pid_mode in self._pid_modes, (
+                    f"The `pid_mode` argument must be one of {self.pid_modes}. "
+                    f"Got {pid_mode} instead.")
+            self.pid_mode = pid_mode
 
         # Store the parent path
         self.parent_path = parent_path
@@ -258,7 +268,7 @@ class PostBase(ABC):
         Results
         -------
         np.ndarray
-           (N) Object index
+            (N) Object index
         """
         if not obj.is_truth:
             return obj.index
@@ -280,7 +290,7 @@ class PostBase(ABC):
         Results
         -------
         np.ndarray
-           (N, 3) Point coordinates
+            (N, 3) Point coordinates
         """
         if not obj.is_truth:
             return obj.points
@@ -302,7 +312,7 @@ class PostBase(ABC):
         Results
         -------
         np.ndarray
-           (N, 2) Object sources
+            (N, 2) Object sources
         """
         if not obj.is_truth:
             return obj.sources
@@ -324,12 +334,33 @@ class PostBase(ABC):
         Results
         -------
         np.ndarray
-           (N) Depositions
+            (N) Depositions
         """
         if not obj.is_truth:
             return obj.depositions
         else:
             return getattr(obj, self.truth_dep_mode)
+
+    def get_pid(self, obj):
+        """Get a certain pre-defined PID prediction of an object.
+
+        The :class:`RecoParticle` PID predictions are obtained using the
+        `pid_mode` attribute of the class.
+
+        Parameters
+        ----------
+        obj : Union[ParticleBase]
+            Particle object
+
+        Results
+        -------
+        int
+            Particle identification enumerator
+        """
+        if not obj.is_truth:
+            return getattr(obj, self.pid_mode)
+        else:
+            return obj.pid
 
     def check_units(self, obj):
         """Check that the point coordinates of an object are as expected.
@@ -342,7 +373,7 @@ class PostBase(ABC):
         Results
         -------
         np.ndarray
-           (N, 3) Point coordinates
+            (N, 3) Point coordinates
         """
         if obj.units != self.units:
             raise ValueError(

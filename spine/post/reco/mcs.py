@@ -28,7 +28,7 @@ class MCSEnergyProcessor(PostBase):
                  include_pids=(MUON_PID, PION_PID, PROT_PID, KAON_PID),
                  fill_per_pid=False, only_uncontained=False,
                  obj_type='particle', run_mode='both',
-                 truth_point_mode='points', **kwargs):
+                 truth_point_mode='points', pid_mode='pid', **kwargs):
         """Store the necessary attributes to do MCS-based estimations.
 
         Parameters
@@ -54,7 +54,8 @@ class MCSEnergyProcessor(PostBase):
             Additional arguments to pass to the tracking algorithm
         """
         # Initialize the parent class
-        super().__init__(obj_type, run_mode, truth_point_mode)
+        super().__init__(
+                obj_type, run_mode, truth_point_mode, pid_mode=pid_mode)
 
         # Store the general parameters
         self.include_pids = include_pids
@@ -86,7 +87,7 @@ class MCSEnergyProcessor(PostBase):
             for obj in data[k]:
                 # Only run this algorithm on particle species that are needed
                 if not ((obj.shape == TRACK_SHP) and
-                        (obj.pid in self.include_pids)):
+                        (self.get_pid(obj) in self.include_pids)):
                     continue
                 if self.only_uncontained and obj.is_contained:
                     continue
@@ -112,7 +113,7 @@ class MCSEnergyProcessor(PostBase):
                     continue
 
                 # Store the length and the MCS kinetic energy
-                mass = PID_MASSES[obj.pid]
+                mass = PID_MASSES[self.get_pid(obj)]
                 obj.mcs_ke = mcs_fit(
                         theta, mass, self.segment_length, 1,
                         self.split_angle, self.res_a, self.res_b)
