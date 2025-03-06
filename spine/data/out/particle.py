@@ -217,6 +217,8 @@ class RecoParticle(ParticleBase, RecoBase):
     ppn_ids: np.ndarray = None
     ppn_points: np.ndarray = None
     vertex_distance: float = -1.
+    vertex_distance_alt: float = -1.
+    vertex_distance_relaxed: float = -1.
     shower_split_angle: float = -1.
     shower_spread: float = -1.
     global_spread: float = -1.
