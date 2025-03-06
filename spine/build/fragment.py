@@ -152,24 +152,17 @@ class FragmentBuilder(BuilderBase):
         """
         return self._build_truth(**data)
 
-    def _build_truth(self, label_tensor, label_adapt_tensor, points,
-                     depositions, points_label, depositions_label,
-                     depositions_q_label=None, label_g4_tensor=None,
-                     points_g4=None, depositions_g4=None, sources=None,
-                     sources_label=None, particles=None):
+    def _build_truth(self, label_tensor, points_label, depositions_label, 
+                     depositions_q_label=None, label_adapt_tensor=None,
+                     points=None, depositions=None, label_g4_tensor=None,
+                     points_g4=None, depositions_g4=None, sources_label=None,
+                     sources=None, particles=None):
         """Builds :class:`TruthFragment` objects from the full chain output.
 
         Parameters
         ----------
         label_tensor : np.ndarray
             Tensor which contains the cluster labels of each deposition
-        label_adapt_tensor : np.ndarray
-            Tensor which contains the cluster labels of each deposition,
-            adapted to the semantic segmentation prediction.
-        points : np.ndarray
-            (N, 3) Set of deposition coordinates in the image
-        depositions : np.ndarray
-            (N) Set of deposition values
         points_label : np.ndarray
             (N', 3) Set of deposition coordinates in the label image (identical
             for pixel TPCs, different if deghosting is involved)
@@ -177,17 +170,24 @@ class FragmentBuilder(BuilderBase):
             (N') Set of true deposition values in MeV
         depositions_q_label : np.ndarray, optional
             (N') Set of true deposition values in ADC, if relevant
+        label_adapt_tensor : np.ndarray, optional
+            Tensor which contains the cluster labels of each deposition,
+            adapted to the semantic segmentation prediction.
+        points : np.ndarray, optional
+            (N, 3) Set of deposition coordinates in the image
+        depositions : np.ndarray, optional
+            (N) Set of deposition values
         label_tensor_g4 : np.ndarray, optional
             Tensor which contains the cluster labels of each deposition
             in the Geant4 image (before the detector simulation)
-        points_g4 : np.ndarray
+        points_g4 : np.ndarray, optional
             (N'', 3) Set of deposition coordinates in the Geant4 image
-        depositions_g4 : np.ndarray
+        depositions_g4 : np.ndarray, optional
             (N'') Set of deposition values in the Geant4 image
-        sources : np.ndarray, optional
-            (N, 2) Tensor which contains the module/tpc information
         sources_label : np.ndarray, optional
             (N', 2) Tensor which contains the label module/tpc information
+        sources : np.ndarray, optional
+            (N, 2) Tensor which contains the module/tpc information
         particles : List[Particle], optional
             List of true particles
 
@@ -196,50 +196,58 @@ class FragmentBuilder(BuilderBase):
         List[TruthFragment]
             List of constructed true fragment instances
         """
-        # Check once if the fragment labels are untouched
+        # Check once if the fragment labels have been altered
         broken = (label_tensor[:, CLUST_COL] != label_tensor[:, PART_COL]).any()
+        truth_only = label_adapt_tensor is None
 
-        # Loop over the true fragment instances in the *adapted* label tensor.
-        # The label tensor does not necessarily contain the correct fragments.
+        # If the adapted labels are available (the full chain was run), use
+        # those as a basis to form fragments (fragments depend on upstream
+        # segmentation). Use original labels otherwise (pure truth mode)
         truth_fragments = []
-        unique_fragment_ids = np.unique(label_adapt_tensor[:, CLUST_COL])
+        ref_tensor = label_tensor if truth_only else label_adapt_tensor
+        unique_fragment_ids = np.unique(ref_tensor[:, CLUST_COL]).astype(int)
         valid_fragment_ids = unique_fragment_ids[unique_fragment_ids > -1]
         for i, frag_id in enumerate(valid_fragment_ids):
             # Initialize fragment
             fragment = TruthFragment(id=i)
 
             # Find the particle which matches this fragment best
-            index_adapt = np.where(
-                    label_adapt_tensor[:, CLUST_COL] == frag_id)[0]
+            index_ref = np.where(ref_tensor[:, CLUST_COL] == frag_id)[0]
             if particles is not None:
-                part_ids, counts = np.unique(
-                        label_adapt_tensor[index_adapt, PART_COL],
-                        return_counts=True)
-                part_id = int(part_ids[np.argmax(counts)])
+                part_id = frag_id
+                if not truth_only or broken:
+                    part_ids, counts = np.unique(
+                            ref_tensor[index_ref, PART_COL], return_counts=True)
+                    part_id = int(part_ids[np.argmax(counts)])
                 if part_id > -1:
+                    # Load the MC particle information
                     assert part_id < len(particles), (
                             "Invalid particle ID found in fragment labels.")
-                    fragment = TruthFragment(**particles[part_id].as_dict())
+                    particle = particles[part_id]
+                    fragment = TruthFragment(**particle.as_dict())
+
+                    # Override the indexes of the fragment but preserve them
+                    fragment.orig_id = part_id
+                    fragment.orig_group_id = particle.group_id
+                    fragment.orig_parent_id = particle.parent_id
+                    fragment.orig_children_id = particle.children_id
+
                     fragment.id = i
+                    fragment.group_id = i
+                    fragment.parent_id = i
+                    fragment.children_id = np.empty(
+                            0, dtype=fragment.orig_children_id.dtype)
 
-            # Always fill adapted long-form attributes
-            fragment.index_adapt = index_adapt
-            fragment.points_adapt = points[index_adapt]
-            fragment.depositions_adapt = depositions[index_adapt]
-            if sources is not None:
-                fragment.sources_adapt = sources[index_adapt]
-
-            # If the input cluster label is not adapted, fill other long-form
-            if id(label_tensor) == id(label_adapt_tensor):
-                # Update the fragment with its true long-form attributes
-                index = np.where(label_tensor[:, CLUST_COL] == frag_id)[0]
-                fragment.index = index
-                fragment.points = points_label[index]
-                fragment.depositions = depositions_label[index]
+            # Fill long-form attributes
+            if truth_only:
+                # Fill the true long-form attributes, if there was no adaptation
+                fragment.index = index_ref
+                fragment.points = points_label[index_ref]
+                fragment.depositions = depositions_label[index_ref]
                 if depositions_q_label is not None:
-                    fragment.depositions_q = depositions_q_label[index]
+                    fragment.depositions_q = depositions_q_label[index_ref]
                 if sources_label is not None:
-                    fragment.sources = sources_label[index]
+                    fragment.sources = sources_label[index_ref]
 
                 # If the fragments are not broken, can match to G4 info
                 if not broken:
@@ -248,8 +256,16 @@ class FragmentBuilder(BuilderBase):
                         index_g4 = np.where(
                                 label_g4_tensor[:, CLUST_COL] == frag_id)[0]
                         fragment.index_g4 = index_g4
-                        fragment.points_g4 = poins_g4[index_g4]
+                        fragment.points_g4 = points_g4[index_g4]
                         fragment.depositions_g4 = depositions_g4[index_g4]
+
+            else:
+                # Fill the adapted long-form attributes otherwise
+                fragment.index_adapt = index_ref
+                fragment.points_adapt = points[index_ref]
+                fragment.depositions_adapt = depositions[index_ref]
+                if sources is not None:
+                    fragment.sources_adapt = sources[index_ref]
 
             # Append
             truth_fragments.append(fragment)
@@ -319,19 +335,16 @@ class FragmentBuilder(BuilderBase):
         """
         return self._load_truth(**data)
 
-    def _load_truth(self, truth_fragments, points, depositions, points_label,
-                    depositions_label, depositions_q_label=None, points_g4=None,
-                    depositons_g4=None, sources=None, sources_label=None):
+    def _load_truth(self, truth_fragments, points_label, depositions_label,
+                    depositions_q_label=None, points=None, depositions=None,
+                    points_g4=None, depositons_g4=None, sources_label=None,
+                    sources=None):
         """Load :class:`TruthFragment` objects from their stored versions.
 
         Parameters
         ----------
-        reco_fragments : List[TruthFragment]
+        truth_fragments : List[TruthFragment]
             (F) List of partial truth fragments
-        points : np.ndarray
-            (N, 3) Set of deposition coordinates in the image
-        depositions : np.ndarray
-            (N) Set of deposition values
         points_label : np.ndarray
             (N', 3) Set of deposition coordinates in the label image (identical
             for pixel TPCs, different if deghosting is involved)
@@ -339,9 +352,13 @@ class FragmentBuilder(BuilderBase):
             (N') Set of true deposition values in MeV
         depositions_q_label : np.ndarray, optional
             (N') Set of true deposition values in ADC, if relevant
-        points_g4 : np.ndarray
+        points : np.ndarray, optional
+            (N, 3) Set of deposition coordinates in the image
+        depositions : np.ndarray, optional
+            (N) Set of deposition values
+        points_g4 : np.ndarray, optional
             (N'', 3) Set of deposition coordinates in the Geant4 image
-        depositions_g4 : np.ndarray
+        depositions_g4 : np.ndarray, optional
             (N'') Set of deposition values in the Geant4 image
         sources : np.ndarray, optional
             (N, 2) Tensor which contains the module/tpc information
@@ -367,10 +384,11 @@ class FragmentBuilder(BuilderBase):
             if sources_label is not None:
                 fragment.sources = sources_label[fragment.index]
 
-            fragment.points_adapt = points[fragment.index_adapt]
-            fragment.depositions_adapt = depositions[fragment.index_adapt]
-            if sources is not None:
-                fragment.sources_adapt = sources[fragment.index_adapt]
+            if points is not None:
+                fragment.points_adapt = points[fragment.index_adapt]
+                fragment.depositions_adapt = depositions[fragment.index_adapt]
+                if sources is not None:
+                    fragment.sources_adapt = sources[fragment.index_adapt]
 
             if points_g4 is not None:
                 fragment.points_g4 = points_g4[fragment.index_g4]

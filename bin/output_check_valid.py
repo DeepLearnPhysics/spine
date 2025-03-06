@@ -12,7 +12,7 @@ from ROOT import TFile # pylint: disable=E0611
 from larcv import larcv # pylint: disable=W0611
 
 
-def main(source, source_list, output, dest, suffix, event_list, tree_name):
+def main(source, source_list, output, dest, suffix, event_list, tree_name, larcv_output):
     """Checks the output of the SPINE process.
 
     The script loops over the input files, check that there is an output file
@@ -25,7 +25,7 @@ def main(source, source_list, output, dest, suffix, event_list, tree_name):
 
     .. code-block:: bash
 
-        $ python3 bin/output_check_valid.py -S file_list.py -o missing.txt
+        $ python3 bin/output_check_valid.py -S file_list.txt -o missing.txt
           --dest /path/to/output/files/ --suffix output_file_suffix
 
     Parameters
@@ -46,6 +46,8 @@ def main(source, source_list, output, dest, suffix, event_list, tree_name):
     tree_name : str
         Name of the tree to use as a reference to count the number of entries.
         If not specified, takes the first tree in the list.
+    larcv_output, bool
+        If `True`, the output file is also a ROOT file
     """
     # If using source list, read it in
     if source_list is not None:
@@ -71,7 +73,8 @@ def main(source, source_list, output, dest, suffix, event_list, tree_name):
         stem, _ = os.path.splitext(base)
 
         # Check that the output exists under the expected path
-        out_base = f'{stem}_{suffix}.h5'
+        ext = '.h5' if not larcv_output else '.root'
+        out_base = f'{stem}_{suffix}{ext}'
         out_path = f'{dest}/{out_base}'
         if not os.path.isfile(out_path):
             tqdm.write(f"- Missing: {out_base}")
@@ -101,11 +104,18 @@ def main(source, source_list, output, dest, suffix, event_list, tree_name):
                     num_entries = len(f['events'])
 
             # Then check the number of events in the output file
-            with h5py.File(out_path) as f:
-                if len(f['events']) != num_entries:
-                    tqdm.write(f"- Incomplete: {out_base}")
-                    out_file.write(f'{file_path}\n')
-                    inc_list.append(file_path)
+            if larcv_output:
+                f = TFile(out_path, 'r')
+                out_num_entries = getattr(f, key).GetEntries()
+                f.Close()
+            else:
+                with h5py.File(out_path) as f:
+                    out_num_entries = len(f['events'])
+
+            if out_num_entries != num_entries:
+                tqdm.write(f"- Incomplete: {out_base}")
+                out_file.write(f'{file_path}\n')
+                inc_list.append(file_path)
 
         else:
             # Fetch the list of (run, subrun, event) triplets that should appear
@@ -173,8 +183,12 @@ if __name__ == "__main__":
                         help='TTree name used to count the entries.',
                         type=str)
 
+    parser.add_argument('--larcv-output',
+                        help='The output of the process is another LArCV file',
+                        action='store_true')
+
     args = parser.parse_args()
 
     # Execute the main function
     main(args.source, args.source_list, args.output, args.dest, args.suffix,
-         args.event_list, args.tree_name)
+         args.event_list, args.tree_name, args.larcv_output)

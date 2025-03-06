@@ -572,7 +572,7 @@ class Drawer:
             point_list.append(getattr(obj, point_attr))
             hovertext.append(f'{obj_type} {i} ' + ' '.join(point_attr.split('_')))
 
-        points = np.empty((0, 3), dtype=self.data['points'].dtype)
+        points = np.empty((0, 3))
         if len(point_list):
             points = np.vstack(point_list)
 

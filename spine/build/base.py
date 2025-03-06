@@ -28,12 +28,12 @@ class BuilderBase(ABC):
 
     # Necessary/optional data products to build a truth object
     _build_truth_keys = (
-            ('label_tensor', True), ('label_adapt_tensor', True),
-            ('label_g4_tensor', False), ('points', True),
-            ('points_label', True), ('points_g4', False), ('depositions', True),
-            ('depositions_label', True), ('depositions_q_label', False),
-            ('depositions_g4', False), ('sources', False),
-            ('sources_label', False)
+            ('label_tensor', True), ('label_adapt_tensor', False),
+            ('label_g4_tensor', False), ('points_label', True),
+            ('points', False), ('points_g4', False),
+            ('depositions_label', True), ('depositions', False),
+            ('depositions_q_label', False), ('depositions_g4', False),
+            ('sources_label', False), ('sources', False)
     )
 
     # Necessary/optional data products to load a reconstructed object
@@ -43,10 +43,10 @@ class BuilderBase(ABC):
 
     # Necessary/optional data products to load a truth object
     _load_truth_keys  = (
-            ('points', True), ('points_label', True), ('points_g4', False),
-            ('depositions', True), ('depositions_label', True),
+            ('points_label', True), ('points', False), ('points_g4', False),
+            ('depositions_label', True), ('depositions', False),
             ('depositions_q_label', False), ('depositions_g4', False),
-            ('sources', False), ('sources_label', False)
+            ('sources_label', False), ('sources', False)
     )
 
     def __init__(self, mode, units):

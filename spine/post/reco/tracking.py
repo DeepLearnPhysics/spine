@@ -29,7 +29,7 @@ class CSDAEnergyProcessor(PostBase):
     def __init__(self, tracking_mode='step_next',
                  include_pids=(MUON_PID, PION_PID, PROT_PID, KAON_PID),
                  fill_per_pid=False, obj_type='particle', run_mode='both',
-                 truth_point_mode='points', **kwargs):
+                 truth_point_mode='points', pid_mode='pid', **kwargs):
         """Store the necessary attributes to do CSDA range-based estimation.
 
         Parameters
@@ -45,7 +45,8 @@ class CSDAEnergyProcessor(PostBase):
             Additional arguments to pass to the tracking algorithm
         """
         # Initialize the parent class
-        super().__init__(obj_type, run_mode, truth_point_mode)
+        super().__init__(
+                obj_type, run_mode, truth_point_mode, pid_mode=pid_mode)
 
         # Fetch the functions that map the range to a KE
         self.include_pids = include_pids
@@ -70,7 +71,7 @@ class CSDAEnergyProcessor(PostBase):
             for obj in data[k]:
                 # Only run this algorithm on tracks that have a CSDA table
                 if not ((obj.shape == TRACK_SHP) and
-                        (obj.pid in self.include_pids)):
+                        (self.get_pid(obj) in self.include_pids)):
                     continue
 
                 # Make sure the object coordinates are expressed in cm
@@ -94,7 +95,7 @@ class CSDAEnergyProcessor(PostBase):
 
                 # Compute the CSDA kinetic energy
                 if length > 0.:
-                    obj.csda_ke = self.splines[obj.pid](length).item()
+                    obj.csda_ke = self.splines[self.get_pid(obj)](length).item()
                     if self.fill_per_pid:
                         for pid in self.include_pids:
                             obj.csda_ke_per_pid[pid] = self.splines[pid](length).item()

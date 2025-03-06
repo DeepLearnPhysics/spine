@@ -31,9 +31,10 @@ class BuildManager:
     _sources = (
             ('data_tensor', ('data_adapt', 'data')),
             ('label_tensor', ('clust_label',)),
-            ('label_adapt_tensor', ('clust_label_adapt', 'clust_label')),
+            ('label_adapt_tensor', ('clust_label_adapt',)),
             ('label_g4_tensor', ('clust_label_g4',)),
             ('depositions_q_label', ('charge_label',)),
+            ('graph_label', ('graph_label',)),
             ('sources', ('sources_adapt', 'sources')),
             ('sources_label', ('sources_label',)),
             ('particles', ('particles',)),
@@ -114,7 +115,7 @@ class BuildManager:
         # If this is the first time the builders are called, build
         # the objects shared between fragments/particles/interactions
         load = True
-        if 'points' not in data:
+        if 'points' not in data and 'points_label' not in data:
             load = False
             if np.isscalar(data['index']):
                 sources = self.build_sources(data)
@@ -171,31 +172,35 @@ class BuildManager:
 
         # Build aditional information
         update = {}
-        update['points'] = sources['data_tensor'][:, COORD_COLS]
-        update['depositions'] = sources['data_tensor'][:, VALUE_COL]
+        if self.mode != 'truth' or 'label_adapt_tensor' in sources:
+            update['points'] = sources['data_tensor'][:, COORD_COLS]
+            update['depositions'] = sources['data_tensor'][:, VALUE_COL]
+
+            if 'sources' in sources:
+                update['sources'] = sources['sources'].astype(int)
         
         if self.mode != 'reco':
             update['label_tensor'] = sources['label_tensor']
             update['points_label'] = sources['label_tensor'][:, COORD_COLS]
             update['depositions_label'] = sources['label_tensor'][:, VALUE_COL]
 
-            update['label_adapt_tensor'] = sources['label_adapt_tensor']
-            update['depositions_label_adapt'] = (
-                    sources['label_adapt_tensor'][:, VALUE_COL])
-
             if 'depositions_q_label' in sources:
                 update['depositions_q_label'] = (
                         sources['depositions_q_label'][:, VALUE_COL])
 
-        if 'label_g4_tensor' in sources:
-            update['label_g4_tensor'] = sources['label_g4_tensor']
-            update['points_g4'] = sources['label_g4_tensor'][:, COORD_COLS]
-            update['depositions_g4'] = sources['label_g4_tensor'][:, VALUE_COL]
+            if 'label_adapt_tensor' in sources:
+                update['label_adapt_tensor'] = sources['label_adapt_tensor']
+                update['depositions_label_adapt'] = (
+                        sources['label_adapt_tensor'][:, VALUE_COL])
 
-        if 'sources' in sources:
-            update['sources'] = sources['sources'].astype(int)
-        if 'sources_label' in sources:
-            update['sources_label'] = sources['sources_label'].astype(int)
+            if 'label_g4_tensor' in sources:
+                update['label_g4_tensor'] = sources['label_g4_tensor']
+                update['points_g4'] = sources['label_g4_tensor'][:, COORD_COLS]
+                update['depositions_g4'] = (
+                        sources['label_g4_tensor'][:, VALUE_COL])
+
+            if 'sources_label' in sources:
+                update['sources_label'] = sources['sources_label'].astype(int)
 
         # If provided, etch the point attributes to check their units
         for obj in ['fragment', 'particle']:

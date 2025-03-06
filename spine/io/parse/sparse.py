@@ -3,8 +3,9 @@
 Contains the following parsers:
 - :class:`Sparse2DParser`
 - :class:`Sparse3DParser`
-- :class:`Sparse3DGhostParser`
+- :class:`Sparse3DAggregateParser`
 - :class:`Sparse3DChargeRescaledParser`
+- :class:`Sparse3DGhostParser`
 """
 
 import numpy as np
@@ -17,8 +18,8 @@ from spine.utils.conditional import larcv
 
 from .base import ParserBase
 
-__all__ = ['Sparse2DParser', 'Sparse3DParser', 'Sparse3DGhostParser',
-           'Sparse3DChargeRescaledParser']
+__all__ = ['Sparse2DParser', 'Sparse3DParser', 'Sparse3DAggregateParser',
+           'Sparse3DChargeRescaledParser', 'Sparse3DGhostParser']
 
 
 class Sparse2DParser(ParserBase):
@@ -303,19 +304,36 @@ class Sparse3DParser(ParserBase):
                     Meta.from_larcv(meta))
 
 
-class Sparse3DGhostParser(Sparse3DParser):
-    """Class that convert a tensor containing semantics to binary ghost labels.
+class Sparse3DAggregateParser(Sparse3DParser):
+    """Class that aggregates features from multiple sparse tensors
 
     .. code-block. yaml
 
         schema:
-          ghost_label:
-            parser: sparse3d
-            sparse_event_semantics: sparse3d_semantics
+          charge_label:
+            parser: sparse3d_aggr
+            aggr: sum
+            sparse_event_list:
+              - sparse3d_reco_cryoE_rescaled
+              - sparse3d_reco_cryoW_rescaled
     """
 
     # Name of the parser (as specified in the configuration)
-    name = 'sparse3d_ghost'
+    name = 'sparse3d_aggr'
+
+    def __init__(self, dtype, aggr, **kwargs):
+        """Initialize the parser.
+
+        Parameters
+        ----------
+        aggr : str
+            Aggregation function to apply ('sum', 'mean', 'max', etc.)
+        """
+        # Initialize the parent class
+        super().__init__(dtype, **kwargs)
+
+        # Store the revelant attributes
+        self.aggr_fn = getattr(np, aggr)
 
     def __call__(self, trees):
         """Parse one entry.
@@ -325,30 +343,34 @@ class Sparse3DGhostParser(Sparse3DParser):
         trees : dict
             Dictionary which maps each data product name to a LArCV object
         """
-        return self.process_ghost(**self.get_input_data(trees))
+        return self.process_aggr(**self.get_input_data(trees))
 
-    def process_ghost(self, sparse_event):
-        """Fetches one or a list of tensors, concatenate their feature vectors.
+    def process_aggr(self, sparse_event_list):
+        """Fetches a list of tensors, aggregate their feature vectors.
 
         Parameters
         -------------
-        sparse_event: larcv.EventSparseTensor3D, optional
-            Sparse tensor to get the voxel/features from
+        sparse_event_list: List[larcv.EventSparseTensor3D]
+            Sparse tensor list to get the voxel/features from
 
         Returns
         -------
         np_voxels : np.ndarray
             (N, 3) array of [x, y, z] coordinates
         np_features : np.ndarray
-            (N, 1) array of ghost labels (1 for ghosts, 0 otherwise)
+            (N, 1) array of aggregated features
         meta : Meta
             Metadata of the parsed image
         """
-        # Convert the semantics feature to a ghost feature
-        np_voxels, np_data, meta = self.process(sparse_event)
-        np_ghosts = (np_data == GHOST_SHP).astype(np_data.dtype)
+        # Fetch the list of features using the standard parser
+        np_voxels, np_data, meta = self.process(
+                sparse_event_list=sparse_event_list)
 
-        return np_voxels, np_ghosts, meta
+        # Combine them into a single feature using the aggregator function
+        np_data = self.aggr_fn(np_data, axis=1)[:, None]
+
+        return np_voxels, np_data, meta
+
 
 
 class Sparse3DChargeRescaledParser(Sparse3DParser):
@@ -368,7 +390,7 @@ class Sparse3DChargeRescaledParser(Sparse3DParser):
     # Alternative allowed names of the parser
     aliases = ('parse_sparse3d_charge_rescaled',)
 
-    def __init__(self, collection_only=False, collection_id=2, **kwargs):
+    def __init__(self, dtype, collection_only=False, collection_id=2, **kwargs):
         """Initialize the parser.
 
         Parameters
@@ -381,7 +403,7 @@ class Sparse3DChargeRescaledParser(Sparse3DParser):
             Data product arguments to be passed to the `process` function
         """
         # Initialize the parent class
-        super().__init__(**kwargs)
+        super().__init__(dtype, **kwargs)
 
         # Store the revelant attributes
         self.collection_only = collection_only
@@ -413,7 +435,7 @@ class Sparse3DChargeRescaledParser(Sparse3DParser):
         np_voxels : np.ndarray
             (N, 3) array of [x, y, z] coordinates
         np_features : np.ndarray
-            (N, 1) array of ghost labels (1 for ghosts, 0 otherwise)
+            (N, 1) array of rescaled charge values
         meta : Meta
             Metadata of the parsed image
         """
@@ -427,3 +449,51 @@ class Sparse3DChargeRescaledParser(Sparse3DParser):
                 collection_id=self.collection_id)
 
         return np_voxels[deghost_mask], charges[:, None], meta
+
+
+class Sparse3DGhostParser(Sparse3DParser):
+    """Class that convert a tensor containing semantics to binary ghost labels.
+
+    .. code-block. yaml
+
+        schema:
+          ghost_label:
+            parser: sparse3d_ghost
+            sparse_event_semantics: sparse3d_semantics
+    """
+
+    # Name of the parser (as specified in the configuration)
+    name = 'sparse3d_ghost'
+
+    def __call__(self, trees):
+        """Parse one entry.
+
+        Parameters
+        ----------
+        trees : dict
+            Dictionary which maps each data product name to a LArCV object
+        """
+        return self.process_ghost(**self.get_input_data(trees))
+
+    def process_ghost(self, sparse_event):
+        """Fetches one or a list of tensors, concatenate their feature vectors.
+
+        Parameters
+        -------------
+        sparse_event: larcv.EventSparseTensor3D
+            Sparse tensor to get the semantic labels
+
+        Returns
+        -------
+        np_voxels : np.ndarray
+            (N, 3) array of [x, y, z] coordinates
+        np_features : np.ndarray
+            (N, 1) array of ghost labels (1 for ghosts, 0 otherwise)
+        meta : Meta
+            Metadata of the parsed image
+        """
+        # Convert the semantics feature to a ghost feature
+        np_voxels, np_data, meta = self.process(sparse_event)
+        np_ghosts = (np_data == GHOST_SHP).astype(np_data.dtype)
+
+        return np_voxels, np_ghosts, meta

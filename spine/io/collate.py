@@ -169,12 +169,18 @@ class CollateAll:
                         has_batch_col=True, coord_cols=coord_cols)
 
             elif isinstance(ref_obj, tuple) and len(ref_obj) == 2:
-                # Case where an index and an offset is provided per entry.
+                # Case where an index and a count is provided per entry.
+                # Start by computing the necessary node ID offsets to apply
+                total_counts = [sample[key][1] for sample in batch]
+                offsets = np.zeros(len(total_counts), dtype=int)
+                offsets[1:] = np.cumsum(total_counts)[:-1]
+
                 # Stack the indexes, do not add a batch column
-                tensor  = np.concatenate(
-                        [sample[key][0] for sample in batch], axis=1)
+                tensor_list = []
+                for i, sample in enumerate(batch):
+                    tensor_list.append(sample[key][0] + offsets[i])
+                tensor = np.concatenate(tensor_list, axis=1)
                 counts  = [sample[key][0].shape[-1] for sample in batch]
-                offsets = [sample[key][1] for sample in batch]
 
                 if len(tensor.shape) == 1:
                     data[key] = IndexBatch(tensor, counts, offsets)
