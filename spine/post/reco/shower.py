@@ -10,9 +10,10 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 from sklearn.decomposition import PCA
 
-from spine.utils.gnn.cluster import cluster_dedx, cluster_dedx_dir
+from spine.utils.gnn.cluster import cluster_dedx_dir
 
 from scipy.stats import pearsonr
+from sklearn.cluster import DBSCAN
 
 __all__ = ['ConversionDistanceProcessor', 'ShowerMultiArmCheck', 
            'ShowerStartpointCorrectionProcessor', 'ShowerdEdXProcessor',
@@ -33,7 +34,8 @@ class ConversionDistanceProcessor(PostBase):
     # Alternative allowed names of the post-processor
     aliases = ('shower_separation_processor',)
     
-    def __init__(self, threshold=-1.0, vertex_mode='vertex_points', inplace=True):
+    def __init__(self, threshold=-1.0, vertex_mode='vertex_points', 
+                 inplace=True, eps=0.6, primary_override_ke=None):
         """Specify the EM shower conversion distance threshold and
         the type of vertex to use for the distance calculation.
 
@@ -55,6 +57,11 @@ class ConversionDistanceProcessor(PostBase):
         self.threshold = threshold
         self.vertex_mode = vertex_mode
         self.inplace = inplace
+        self.eps = eps
+        if primary_override_ke is None:
+            self.primary_override_ke = np.inf
+        else:
+            self.primary_override_ke = primary_override_ke
         
     def process(self, data):
         """Update reco interaction topologies using the conversion
@@ -73,10 +80,19 @@ class ConversionDistanceProcessor(PostBase):
         # Loop over the reco interactions
         for ia in data['reco_interactions']:
             criterion = -np.inf
+            criterion_alt = -np.inf
             
             leading_shower, energy = None, -np.inf
             
             for p in ia.particles:
+                
+                if p.shape == SHOWR_SHP and p.ke > self.primary_override_ke:
+                    # Check if shower is touching vertex
+                    points = p.points
+                    dists = np.linalg.norm(points - ia.vertex, axis=1)
+                    if np.min(dists) < self.threshold:
+                        p.is_primary = True
+                        p.is_valid = True
                 
                 if (p.shape == SHOWR_SHP and p.is_primary):
                     
@@ -84,12 +100,16 @@ class ConversionDistanceProcessor(PostBase):
                         criterion = self.convdist_protons(ia, p)
                     elif self.vertex_mode == 'vertex_points':
                         criterion = self.convdist_vertex_points(ia, p)
+                        criterion_alt = self.convdist_vertex_points(ia, p, mode='vertex_alt')
                     elif self.vertex_mode == 'vertex_startpoint':
                         criterion = self.convdist_vertex_startpoint(ia, p)
+                    # elif self.vertex_mode == 'vertex_relaxed':
                     else:
                         raise ValueError('Invalid point mode')
                     
                     p.vertex_distance = criterion
+                    p.vertex_distance_alt = criterion_alt
+                    p.vertex_distance_relaxed = self.convdist_relaxed(ia, p, eps=self.eps)
                     
                     if p.ke > energy:
                         leading_shower = p
@@ -103,11 +123,14 @@ class ConversionDistanceProcessor(PostBase):
                             
             if leading_shower is None:
                 ia.leading_shower_vertex_distance = -np.inf
-                ia.leading_shower_dedx = -np.inf
+                ia.leading_shower_vertex_distance_alt = -np.inf
                 ia.leading_shower_num_fragments = -1
+                ia.leading_shower_vertex_distance_relaxed = -np.inf
             else:
                 ia.leading_shower_vertex_distance = leading_shower.vertex_distance
+                ia.leading_shower_vertex_distance_alt = leading_shower.vertex_distance_alt
                 ia.leading_shower_num_fragments = leading_shower.num_fragments
+                ia.leading_shower_vertex_distance_relaxed = leading_shower.vertex_distance_relaxed
             
     @staticmethod        
     def convdist_protons(ia, shower_p):
@@ -141,7 +164,7 @@ class ConversionDistanceProcessor(PostBase):
         return start_to_closest_proton
 
     @staticmethod
-    def convdist_vertex_points(ia, shower_p):
+    def convdist_vertex_points(ia, shower_p, mode='vertex'):
         """Helper function to compute the closest distance 
         between the vertex and all shower points. 
 
@@ -159,7 +182,7 @@ class ConversionDistanceProcessor(PostBase):
             Closest distance between the shower startpoint and proton points.
         """
         vertex_dist = -np.inf
-        vertex = ia.vertex
+        vertex = getattr(ia, mode)
         vertex_dist = cdist(vertex.reshape(1, -1), shower_p.points)
         vertex_dist = vertex_dist.min()
         return vertex_dist
@@ -186,6 +209,25 @@ class ConversionDistanceProcessor(PostBase):
         vertex = ia.vertex
         vertex_dist = np.linalg.norm(vertex - shower_p.start_point)
         return vertex_dist
+    
+    @staticmethod
+    def convdist_relaxed(ia, shower_p, eps=0.6):
+        pts = np.vstack([p.points for p in ia.particles])
+        labels = np.hstack([np.ones(p.size) * p.id for p in ia.particles]).astype(int)
+        model = DBSCAN(eps=eps, min_samples=1).fit(pts)
+        clusts = model.labels_
+
+        conversion_dist = np.inf
+        
+        shower_clusts = clusts[labels == shower_p.id]
+        for c in np.unique(shower_clusts):
+            # print(c, (clusts == c).sum())
+            mask = (clusts == c)
+            dists = np.linalg.norm(pts[mask] - ia.vertex, axis=1)
+            sep = dists.min()
+            conversion_dist = min(sep, conversion_dist)
+
+        return conversion_dist
     
     
 class ShowerMultiArmCheck(PostBase):
@@ -551,10 +593,12 @@ class ShowerSpreadProcessor(PostBase):
                 ia.leading_shower_spread = leading_shower.shower_spread
                 ia.leading_shower_global_spread = leading_shower.global_spread
                 ia.leading_shower_axial_pearsonr = leading_shower.axial_pearsonr
+                ia.leading_shower_score = leading_shower.pid_scores[0]
             else:
                 ia.leading_shower_spread = -1.
                 ia.leading_shower_global_spread = -1.
                 ia.leading_shower_axial_pearsonr = -1.
+                ia.leading_shower_score = -1.
                 
                 
 def compute_global_spread(shower_p):
@@ -569,10 +613,15 @@ def compute_global_spread(shower_p):
 def compute_axial_pearsonr(shower_p):
     
     if len(shower_p.points) < 3:
-        return -np.inf
+        return -1.
     
     startpoint = shower_p.start_point
-    v0 = shower_p.start_dir
+    v_ref = shower_p.start_dir
+    pca = PCA(n_components=3)
+    pca.fit(shower_p.points)
+    v0 = pca.components_[0]
+    if np.dot(v_ref, v0) < 0:
+        v0 *= -1
     
     dists = np.linalg.norm(shower_p.points - startpoint, axis=1)
     v = (startpoint - shower_p.points) - np.sum((startpoint - shower_p.points) * v0, axis=1, keepdims=True) \
@@ -680,4 +729,4 @@ def compute_trunk_validity(shower_p, r=3.0, n_components=3):
     else:
         pca = PCA(n_components=n_components)
         pca.fit(pts)
-        return pca.explained_variance_[0]
+        return pca.explained_variance_ratio_[0]
