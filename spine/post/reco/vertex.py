@@ -115,6 +115,8 @@ class VertexProcessor(PostBase):
                     elif (np.linalg.norm(part.start_point - inter.vertex) 
                           < self.touching_threshold):
                         part.is_primary = True
-                    elif (part.shape == SHOWR_SHP and
-                          np.dot(part.start_point, inter.vertex) < self.angle_threshold):
-                        part.is_primary = True
+                    elif part.shape == SHOWR_SHP:
+                        vec = part.start_point - inter.vertex
+                        cos = np.dot(vec/np.linalg.norm(vec), part.start_dir)
+                        if cos < self.angle_threshold:
+                            part.is_primary = True
