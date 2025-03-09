@@ -683,7 +683,7 @@ def edge_assignment_score(edge_index: nb.int64[:,:],
             best_groups[best_groups == group_b] = group_a
             best_loss += combined_loss - current_loss
             best_ids = np.append(best_ids, k)
-            for pair in known_pairs:
+            for pair in list(known_pairs):
                 if group_a in pair or group_b in pair:
                     known_pairs.remove(pair)
         else:
