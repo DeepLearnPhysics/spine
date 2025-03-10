@@ -643,9 +643,8 @@ def edge_assignment_score(edge_index: nb.int64[:,:],
     track_used  = np.zeros(num_nodes, dtype=np.bool_)
     best_loss   = grouping_loss(pred_adj.flatten(), empty_adj.flatten())
     known_pairs = {(np.int64(-1), np.int64(-1))} # Cannot be empty (typing)
-    for k, e in enumerate(ord_index):
+    for k, (a, b) in enumerate(ord_index):
         # If the edge connect two nodes already in the same group, proceed
-        a, b = e
         group_a, group_b = best_groups[a], best_groups[b]
         if group_a == group_b:
             continue
@@ -680,7 +679,7 @@ def edge_assignment_score(edge_index: nb.int64[:,:],
         current_loss  = grouping_loss(sub_pred, sub_adj*current_adj)
         combined_loss = grouping_loss(sub_pred, sub_adj)
         if combined_loss < current_loss:
-            best_groups[best_groups == group_b] = group_a
+            best_groups[best_groups == pair[1]] = pair[0]
             best_loss += combined_loss - current_loss
             best_ids = np.append(best_ids, k)
             for pair in list(known_pairs):
