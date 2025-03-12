@@ -642,7 +642,7 @@ def edge_assignment_score(edge_index: nb.int64[:,:],
     best_groups = np.arange(num_nodes, dtype=np.int64)
     track_used  = np.zeros(num_nodes, dtype=np.bool_)
     best_loss   = grouping_loss(pred_adj.flatten(), empty_adj.flatten())
-    known_pairs = {(np.int64(-1), np.int64(-1))} # Cannot be empty (typing)
+    known_pairs = nb.typed.List.empty_list(nb.int64)
     for k, (a, b) in enumerate(ord_index):
         # If the edge connect two nodes already in the same group, proceed
         group_a, group_b = best_groups[a], best_groups[b]
@@ -651,7 +651,8 @@ def edge_assignment_score(edge_index: nb.int64[:,:],
 
         # If the group pair has already been checked against, proceed
         pair = (min(group_a, group_b), max(group_a, group_b))
-        if pair in known_pairs:
+        pair_hash = pair[0]*num_nodes + pair[1]
+        if pair_hash in known_pairs:
             continue
 
         # If requested, check whether there is already a track connection
@@ -682,11 +683,12 @@ def edge_assignment_score(edge_index: nb.int64[:,:],
             best_groups[best_groups == pair[1]] = pair[0]
             best_loss += combined_loss - current_loss
             best_ids = np.append(best_ids, k)
-            for pair in list(known_pairs):
-                if group_a in pair or group_b in pair:
-                    known_pairs.remove(pair)
+            for pair_hash in list(known_pairs):
+                pair_i = (pair_hash//num_nodes, pair_hash%num_nodes)
+                if group_a in pair_i or group_b in pair_i:
+                    known_pairs.remove(pair_hash)
         else:
-            known_pairs.add(pair)
+            known_pairs.append(pair_hash)
 
     # Build the edge index
     best_index = ord_index[best_ids]
