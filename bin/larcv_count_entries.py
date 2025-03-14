@@ -60,7 +60,7 @@ if __name__ == "__main__":
                        help='Path to a text file of data file paths',
                        type=str)
 
-    parser.add_argument('--tree_name',
+    parser.add_argument('--tree-name',
                         help='TTree name used to count the entries.',
                         type=str)
 

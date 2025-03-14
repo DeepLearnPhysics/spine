@@ -100,7 +100,7 @@ if __name__ == "__main__":
                         help='Path to the output text file with the duplicate list',
                         type=str, required=True)
 
-    parser.add_argument('--tree_name',
+    parser.add_argument('--tree-name',
                         help='TTree name used to count the entries.',
                         type=str)
 
