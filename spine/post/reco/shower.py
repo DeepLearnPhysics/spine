@@ -10,7 +10,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 from sklearn.decomposition import PCA
 
-from spine.utils.gnn.cluster import cluster_dedx_dir
+from spine.utils.gnn.cluster import cluster_dedx_dir, cluster_dedx_DBScan_PCA, cluster_dedx
 
 from scipy.stats import pearsonr
 from sklearn.cluster import DBSCAN
@@ -126,11 +126,13 @@ class ConversionDistanceProcessor(PostBase):
                 ia.leading_shower_vertex_distance_alt = -np.inf
                 ia.leading_shower_num_fragments = -1
                 ia.leading_shower_vertex_distance_relaxed = -np.inf
+                ia.leading_shower_vertex_angle = -np.inf
             else:
                 ia.leading_shower_vertex_distance = leading_shower.vertex_distance
                 ia.leading_shower_vertex_distance_alt = leading_shower.vertex_distance_alt
                 ia.leading_shower_num_fragments = leading_shower.num_fragments
                 ia.leading_shower_vertex_distance_relaxed = leading_shower.vertex_distance_relaxed
+                ia.leading_shower_vertex_angle = leading_shower.vertex_angle
             
     @staticmethod        
     def convdist_protons(ia, shower_p):
@@ -518,6 +520,13 @@ class ShowerdEdXProcessor(PostBase):
                                             simple=True)
                     p.shower_dedx = dedx
                     
+                    dedx = cluster_dedx(p.points, p.depositions, p.start_point, max_dist=self.max_dist)
+                    p.shower_dedx_legacy = dedx
+                    
+                    dedx = cluster_dedx_DBScan_PCA(p.points, p.depositions, p.start_point, 
+                                                   self.max_dist, simple=True)
+                    p.shower_dedx_dbscan = dedx
+                    
                     if p.ke > max_ke:
                         leading_shower = p
                         max_ke = p.ke
@@ -528,8 +537,12 @@ class ShowerdEdXProcessor(PostBase):
             
             if leading_shower is not None:
                 ia.leading_shower_dedx = leading_shower.shower_dedx
+                ia.leading_shower_dedx_legacy = leading_shower.shower_dedx_legacy
+                ia.leading_shower_dedx_dbscan = leading_shower.shower_dedx_dbscan
             else:
                 ia.leading_shower_dedx = -1.
+                ia.leading_shower_dedx_legacy = -1.
+                ia.leading_shower_dedx_dbscan = -1.
             
             
 class ShowerSpreadProcessor(PostBase):

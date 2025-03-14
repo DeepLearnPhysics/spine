@@ -221,7 +221,6 @@ class RecoParticle(ParticleBase, RecoBase):
     """
     pid_scores: np.ndarray = None
     primary_scores: np.ndarray = None
-    chi2_scores: np.ndarray = None
     ppn_ids: np.ndarray = None
     ppn_points: np.ndarray = None
     vertex_distance: float = -1.
@@ -233,11 +232,13 @@ class RecoParticle(ParticleBase, RecoBase):
     axial_pearsonr: float = -1.
     trunk_validity: float = -1.
     shower_dedx: float = -1.
+    shower_dedx_legacy: float = -1.
+    shower_dedx_dbscan: float = -1.
+    vertex_angle: float = -1.
 
     # Fixed-length attributes
     _fixed_length_attrs = (
             ('pid_scores', len(PID_LABELS) - 1), ('primary_scores', 2),
-            ('chi2_scores', len(PID_LABELS) - 1),
             *ParticleBase._fixed_length_attrs
     )
 

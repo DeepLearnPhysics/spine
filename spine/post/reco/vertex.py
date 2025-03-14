@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from spine.utils.globals import SHOWR_SHP, TRACK_SHP
+from spine.utils.globals import SHOWR_SHP, TRACK_SHP, ELEC_PID, PHOT_PID
 from spine.utils.vertex import get_vertex, get_weighted_pseudovertex
 
 from spine.post.base import PostBase
@@ -111,12 +111,24 @@ class VertexProcessor(PostBase):
                 for part in inter.particles:
                     if part.shape not in [SHOWR_SHP, TRACK_SHP]:
                         part.is_primary = False
-                    elif (np.linalg.norm(part.start_point - inter.vertex) 
-                          < self.touching_threshold):
-                        part.is_primary = True
-                    elif (part.shape == SHOWR_SHP and
-                          np.dot(part.start_point, inter.vertex) < self.angle_threshold):
-                        part.is_primary = True
+                        continue
+                    vertex_dist = np.linalg.norm(part.start_point - inter.vertex)
+                    v_dir = part.start_point - inter.vertex
+                    v_dir /= np.linalg.norm(v_dir)
+                    radians = np.dot(v_dir, part.start_dir)
+                    part.vertex_angle = radians
+                    if part.shape == TRACK_SHP:
+                        if (vertex_dist < self.touching_threshold):
+                            part.is_primary = True
+                        else:
+                            part.is_primary = False
+                        continue
+                    if (part.shape == SHOWR_SHP):
+                        if part.pid == ELEC_PID:
+                            if (vertex_dist < self.touching_threshold):
+                                part.is_primary = True
+                            else:
+                                part.is_primary = False
                         
                         
 class NueVertexProcessor(PostBase):
