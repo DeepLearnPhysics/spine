@@ -46,7 +46,8 @@ def set_visible_devices(gpus=None, world_size=None, **kwargs):
         assert torch.cuda.is_available, (
                 "Cannot use distributed training without access to GPUs.")
 
-        assert world_size <= torch.cuda.device_count(), (
+        visible_devices = torch.cuda.device_count()
+        assert world_size <= visible_devices, (
                  f"The number of GPUs requested ({world_size}) exceeds the "
                  f"number of visible devices ({visible_devices}).")
 
