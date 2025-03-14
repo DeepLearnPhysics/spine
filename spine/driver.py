@@ -24,6 +24,7 @@ from .io import loader_factory, reader_factory, writer_factory
 from .io.write import CSVWriter
 
 from .utils.logger import logger
+from .utils.cuda import set_visible_devices
 from .utils.numba_local import seed as numba_seed
 from .utils.unwrap import Unwrapper
 from .utils.stopwatch import StopwatchManager
@@ -170,15 +171,7 @@ class Driver:
         logger.setLevel(verbosity.upper())
 
         # Set GPUs visible to CUDA
-        gpus = base.get('gpus', None)
-        if gpus is not None:
-            os.environ['CUDA_VISIBLE_DEVICES'] = ','.join(
-                    [str(i) for i in gpus])
-
-        elif not os.environ.get('CUDA_VISIBLE_DEVICES', None):
-            world_size = base.get('world_size', 0)
-            os.environ['CUDA_VISIBLE_DEVICES'] = ','.join(
-                [str(i) for i in range(world_size)])
+        base['world_size'] = set_visible_devices(**base)
 
         # If the seed is not set for the sampler, randomize it. This is done
         # here to keep a record of the seeds provided to the samplers
@@ -286,16 +279,6 @@ class Driver:
         np.random.seed(seed)
         numba_seed(seed)
         torch.manual_seed(seed)
-
-        # Check on the number of GPUs to use
-        if gpus is not None:
-            assert world_size is None or len(gpus) == world_size, (
-                    f"The number of visible GPUs ({len(gpus)}) is not "
-                    f"compatible with the world size ({world_size}).")
-            world_size = len(gpus)
-
-        elif world_size is None:
-            world_size = 0
 
         # Set up the device the model will run on
         if rank is None and world_size > 0:

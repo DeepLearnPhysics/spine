@@ -13,6 +13,7 @@ import torch
 from torch.distributed import init_process_group, destroy_process_group
 
 from .utils.logger import logger
+from .utils.cuda import set_visible_devices
 
 from .driver import Driver
 
@@ -38,19 +39,9 @@ def run(cfg):
         assert 'train' in cfg['base'], (
                 "Must only used distributed execution for training processes.")
 
-        # Make sure the world size is consistent with the number of visible GPUs
-        assert torch.cuda.is_available, (
-                "Cannot use distributed training without access to GPUs.")
-
-        visible_devices = torch.cuda.device_count()
-        assert world_size <= visible_devices, (
-                 "The number of GPUs requested for distributed execution "
-                f"({world_size}) is smaller than the number of visible devices "
-                f"({visible_devices}).")
-
         # Launch the distributed training process
         torch.multiprocessing.spawn(
-                train_single, args=(cfg, distributed, world_size), 
+                train_single, args=(cfg, distributed, world_size),
                 nprocs=world_size)
 
 
@@ -93,6 +84,10 @@ def train_single(rank, cfg, distributed=False, world_size=None):
     # Run the training process
     driver.run()
 
+    # If distributed, destroy the process group
+    if distributed:
+        destroy_process_group()
+
 
 def inference_single(cfg):
     """
@@ -129,7 +124,7 @@ def inference_single(cfg):
 
 def process_world(base, **kwargs):
     """Check on the number of available GPUs and what has been requested.
-    
+
     Parameters
     ----------
     base : dict
@@ -149,8 +144,10 @@ def process_world(base, **kwargs):
     verbosity = base.get('verbosity', 'info')
     logger.setLevel(verbosity.upper())
 
+    # Parse information about the world size, set visible CUDA devices
+    world_size = set_visible_devices(**base)
+
     # If there is more than one GPU in use, must distribute
-    world_size = base.get('world_size', 0)
     distributed = base.get('distributed', world_size > 1)
     assert world_size < 2 or distributed, (
             "Cannot run process on multiple GPUs without distributing it.")
