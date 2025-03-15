@@ -107,9 +107,9 @@ def inference_single(cfg):
         preloaded = os.path.isfile(driver.model.weight_path)
         weights = sorted(glob.glob(driver.model.weight_path))
         if not preloaded and len(weights):
-            weight_list = "\n".join(weights)
-            logger.info("Looping over %d set of weights:\n"
-                        "%s", len(weights), weight_list)
+            weight_list = " - " + "\n - ".join(weights)
+            logger.info("Looping over %d set of weights:\n%s",
+                        len(weights), weight_list)
     if not weights:
         weights = [None]
 

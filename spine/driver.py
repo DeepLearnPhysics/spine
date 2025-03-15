@@ -785,7 +785,7 @@ class Driver:
         # Record
         self.logger.append(log_dict)
 
-        # If requested, print out basics of the training/inference process.
+        # If requested, log out basics of the training/inference process
         log = ((iteration + 1) % self.log_step) == 0
         if log:
             # Dump general information
@@ -803,7 +803,7 @@ class Driver:
                 msg  = f"Iter. {iteration} (epoch {epoch:.3f}) @ {tstamp}\n"
                 msg += header + '|\n'
                 msg += separator + '|'
-                print(msg, flush=True)
+                logger.info(msg)
             if self.distributed:
                 torch.distributed.barrier()
 
@@ -830,11 +830,11 @@ class Driver:
             msg = '  | ' + '| '.join(
                     [f'{values[i]:<{widths[i]}}' for i in range(len(keys))])
             msg += '|'
-            print(msg, flush=True)
+            logger.info(msg)
 
             # Start new line once only
             if self.distributed:
                 torch.distributed.barrier()
             if self.main_process:
-                print('', flush=True)
+                logger.info('')
 
