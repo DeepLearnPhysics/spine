@@ -97,7 +97,8 @@ class GraphSPICE(torch.nn.Module):
             If `True`, builds a list of cluster indexes
         """
         # Initialize the embedder
-        self.embedder = GraphSPICEEmbedder(**embedder)
+        self.embedder = GraphSPICEEmbedder(
+                **embedder, use_raw_features=use_raw_features)
 
         # Initialize the kernel function (must be owned here to be loaded)
         self.kernel_fn = kernel_factory(kernel)

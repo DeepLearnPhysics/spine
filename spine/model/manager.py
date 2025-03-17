@@ -50,7 +50,7 @@ class ModelManager:
         train : dict, default None
             Training regimen configuration
         dtype : str, default 'float32'
-            Data type of the model parameters and input data 
+            Data type of the model parameters and input data
         distributed : bool, default False
             Whether the model is part of a distributed training process
         rank : int, optional
@@ -101,12 +101,6 @@ class ModelManager:
             msg = f"Failed to instantiate {loss_cls}"
             raise type(err)(f"{err}\n{msg}")
 
-        # If the execution is distributed, wrap with DDP
-        if self.distributed:
-            self.net = DDP(
-                    self.net, device_ids=[rank], output_device=rank,
-                    find_unused_parameters=find_unused_parameters)
-
         # If requested, initialize the training process
         if train is not None:
             self.initialize_train(**train)
@@ -120,6 +114,12 @@ class ModelManager:
         # If requested, load the some/all the model weights
         self.weight_path = weight_path
         self.load_weights(weight_path)
+
+        # If the execution is distributed, wrap with DDP
+        if self.distributed:
+            self.net = DDP(
+                    self.net, device_ids=[rank], output_device=rank,
+                    find_unused_parameters=find_unused_parameters)
 
         # If requested, put the model in calibration mode
         if calibration is not None:
@@ -359,17 +359,16 @@ class ModelManager:
                 state_dict = checkpoint['state_dict']
 
                 # Check that all the needed weights are provided
-                model = self.net if not self.distributed else self.net.module
                 missing_keys = []
                 if module == self.model_name:
-                    for name in model.state_dict():
+                    for name in self.net.state_dict():
                         if not name in state_dict.keys():
                             missing_keys.append((name, name))
 
                 else:
                     # Update the key names according to the name used to store
                     state_dict = {}
-                    for name in model.state_dict():
+                    for name in self.net.state_dict():
                         if module in name:
                             suffix = '.' if len(model_name) else ''
                             key = name.replace(
@@ -390,7 +389,7 @@ class ModelManager:
                                      "must provide all necessary parameters.")
 
                 # Load checkpoint. Check that all weights are used
-                bad_keys = model.load_state_dict(state_dict, strict=False)
+                bad_keys = self.net.load_state_dict(state_dict, strict=False)
                 if len(bad_keys.unexpected_keys) > 0:
                     logger.warning(
                             "This weight file contains parameters that could "

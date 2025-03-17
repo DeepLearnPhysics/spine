@@ -1,5 +1,7 @@
 """Apply wire transparency corrections."""
 
+from warnings import warn
+
 from .database import CalibrationDatabase
 
 __all__ = ['TransparencyCalibrator']
@@ -11,10 +13,7 @@ class TransparencyCalibrator:
     """
     name = 'transparency'
 
-    def __init__(self,
-                 transparency_db,
-                 num_tpcs,
-                 value_key='scale'):
+    def __init__(self, transparency_db, num_tpcs, value_key='scale', run_id=None):
         """Load the calibration maps.
 
         Parameters
@@ -26,10 +25,19 @@ class TransparencyCalibrator:
             Number of TPCs in the detector
         value_key: str, default 'scale'
             Database key which provides the calibration factor
+        run_id : int
+            Static run ID to use to fetch the transparency map
         """
         # Load the transparency database
-        self.transparency = CalibrationDatabase(transparency_db,
-                num_tpcs=num_tpcs, db_type='map', value_key=value_key)
+        self.transparency = CalibrationDatabase(
+                transparency_db, num_tpcs=num_tpcs, db_type='map',
+                value_key=value_key)
+
+        # Set a static run ID, if requested (for simulation)
+        self.run_id = run_id
+        if run_id is not None:
+            warn("The run ID provided by the event will be ignored in fetching "
+                 f"the calibration transparency map in favor of {run_id}.")
 
     def process(self, points, values, tpc_id, run_id):
         """Apply the transparency correction.
@@ -50,6 +58,10 @@ class TransparencyCalibrator:
         np.ndarray
             (N) array of corrected values
         """
+        # If a static run ID was provided in the configuration, override
+        if self.run_id is not None:
+            run_id = self.run_id
+
         # Get the appropriate transparency map for this run
         transparency_lut = self.transparency[run_id]
 

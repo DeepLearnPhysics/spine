@@ -19,8 +19,9 @@ class MetaLayerGNN(nn.Module):
     # Name of the model (as specified in the configuration)
     name = 'meta'
 
-    def __init__(self, node_feats=0, node_layer=None, edge_feats=0,
-                 edge_layer=None, global_feats=0, global_layer=None,
+    def __init__(self, node_feats=0, node_layer=None, node_pred=True,
+                 edge_feats=0, edge_layer=None, edge_pred=True,
+                 global_feats=0, global_layer=None, global_pred=True,
                  num_mp=3, input_normalization='batch_norm'):
         """Initializes the message passing network.
 
@@ -30,14 +31,20 @@ class MetaLayerGNN(nn.Module):
             Number of node features
         node_layer : dict, optional
             Configuration of the node features update layer
+        node_pred : bool, default True
+            If `True`, return the node features (used for predictions)
         edge_feats : int, default 0
             Number of edge features
         edge_layer : dict, optional
             Configuration of the edge features update layer
+        edge_pred : bool, default True
+            If `True`, return the edge features (used for predictions)
         global_feats : int, default 0
             Number of global features
         global_layer : dict, optional
             Configuration of the global features update layer
+        global_pred : bool, default True
+            If `True`, return the global features (used for predictions)
         num_mp : int, default 3
             Number of message passing steps (node/edge/global feature updates)
         input_normalization : union[str, dict], default 'batch_norm'
@@ -50,7 +57,14 @@ class MetaLayerGNN(nn.Module):
         self.node_feats   = node_feats
         self.edge_feats   = edge_feats
         self.global_feats = global_feats
+        self.node_pred    = node_pred
+        self.edge_pred    = edge_pred
+        self.global_pred  = global_pred
         self.num_mp       = num_mp
+
+        # Check that at least one of the output features is needed
+        assert node_pred or edge_pred or global_pred, (
+                "Must request at least one type of GNN features to be output.")
 
         # Intialize the input normalization layers
         self.node_bn, self.edge_bn, self.global_bn = None, None, None
@@ -76,17 +90,20 @@ class MetaLayerGNN(nn.Module):
                 edge_nf = edge_model.feature_size
 
             # Initialize the node update layer
+            node_model = None
             if node_layer is not None:
-                node_model = node_layer_factory(
-                        node_layer, node_nf, edge_nf, glob_nf)
-                node_nf = node_model.feature_size
+                if (node_pred or global_pred) or l < (self.num_mp - 1):
+                    node_model = node_layer_factory(
+                            node_layer, node_nf, edge_nf, glob_nf)
+                    node_nf = node_model.feature_size
 
             # Initialize the global update layer
             global_model = None
             if global_layer is not None:
-                global_model = global_layer_factory(
-                        global_layer, node_nf, glob_nf)
-                glob_nf = global_model.feature_size
+                if global_pred or l < (self.num_mp - 1):
+                    global_model = global_layer_factory(
+                            global_layer, node_nf, glob_nf)
+                    glob_nf = global_model.feature_size
 
             # Build the complete metalayer
             self.mp_layers.append(
@@ -132,11 +149,11 @@ class MetaLayerGNN(nn.Module):
 
         # Initialize and return result dictionary
         result = {}
-        if self.mp_layers[0].node_model is not None:
+        if self.mp_layers[0].node_model is not None and self.node_pred:
             result['node_features'] = TensorBatch(x, node_feats.counts)
-        if self.mp_layers[0].edge_model is not None:
+        if self.mp_layers[0].edge_model is not None and self.edge_pred:
             result['edge_features'] = TensorBatch(e, edge_feats.counts)
-        if self.mp_layers[0].global_model is not None:
+        if self.mp_layers[0].global_model is not None and self.global_pred:
             result['global_features'] = TensorBatch(u, global_feats.counts)
 
         return result

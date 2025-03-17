@@ -29,13 +29,19 @@ def graph_factory(cfg, classes):
     return instantiate(graph_dict, cfg, classes=classes)
 
 
-def gnn_model_factory(cfg):
+def gnn_model_factory(cfg, node_pred, edge_pred, global_pred):
     """Instantiates a GNN model from a configuration dictionary.
 
     Parameters
     ----------
     cfg : dict
         GNN model configuration
+    node_pred : bool
+        Whether the model should return node features or not
+    edge_pred : bool
+        Whether the model should return edge features or not
+    global_pred : bool
+        Whether the model should return global features or not
 
     Returns
     -------
@@ -43,7 +49,9 @@ def gnn_model_factory(cfg):
         Instantiated GNN model
     """
     gnn_model_dict = module_dict(model)
-    return instantiate(gnn_model_dict, cfg)
+    return instantiate(
+            gnn_model_dict, cfg, node_pred=node_pred, edge_pred=edge_pred,
+            global_pred=global_pred)
 
 
 def node_encoder_factory(cfg):
