@@ -23,8 +23,12 @@ class GainCalibrator:
         """
         # Initialize the gain values
         assert np.isscalar(gain) or len(gain) == num_tpcs, (
-                "Gain must be a single value or given per TPC")
-        self.gain = gain
+                f"Gain must be a scalar or given per TPC ({num_tpcs}).")
+
+        if np.isscalar(gain):
+            self.gain = np.full(num_tpcs, gain)
+        else:
+            self.gain = gain
 
     def process(self, values, tpc_id):
         """Converts deposition values from ADC to a number of electrons.
@@ -41,9 +45,5 @@ class GainCalibrator:
         np.ndarray
             (N) array of depositions in number of electrons
         """
-        # If the gain is specified globally, use it as is
-        if np.isscalar(self.gain):
-            return values * self.gain
-
-        # If not, use the gain of the TPC at hand
+        # Apply the gain factor to all values in the current TPC
         return values * self.gain[tpc_id]
