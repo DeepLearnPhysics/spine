@@ -112,8 +112,6 @@ class CalibrationManager:
 
             # Apply the transparency correction
             if 'transparency' in self.modules:
-                assert run_id is not None, (
-                        "Must provide a run ID to get the transparency map.")
                 self.watch.start('transparency')
                 tpc_values = self.modules['transparency'].process(
                         tpc_points, tpc_values, t, run_id) # ADC
