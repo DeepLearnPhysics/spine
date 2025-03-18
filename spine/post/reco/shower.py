@@ -1,7 +1,7 @@
 import numpy as np
 
 from spine.utils.globals import (PHOT_PID, PROT_PID, PION_PID, ELEC_PID, 
-                                 SHOWR_SHP, TRACK_SHP)
+                                 SHOWR_SHP, TRACK_SHP, MICHL_SHP)
 
 from spine.post.base import PostBase
 from scipy.spatial.distance import cdist
@@ -11,13 +11,15 @@ from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.decomposition import PCA
 
 from spine.utils.gnn.cluster import cluster_dedx_dir, cluster_dedx_DBScan_PCA, cluster_dedx
+from spine.utils.tracking import get_track_segment_dedxs
 
 from scipy.stats import pearsonr
 from sklearn.cluster import DBSCAN
 
 __all__ = ['ConversionDistanceProcessor', 'ShowerMultiArmCheck', 
            'ShowerStartpointCorrectionProcessor', 'ShowerdEdXProcessor',
-           'ShowerSpreadProcessor', 'ShowerTrunkValidityProcessor']
+           'ShowerSpreadProcessor', 'ShowerTrunkValidityProcessor',
+           'MichelTaggingProcessor']
 
 
 class ConversionDistanceProcessor(PostBase):
@@ -743,3 +745,97 @@ def compute_trunk_validity(shower_p, r=3.0, n_components=3):
         pca = PCA(n_components=n_components)
         pca.fit(pts)
         return pca.explained_variance_ratio_[0]
+    
+    
+class MichelTaggingProcessor(PostBase):
+    """Compute the spread of the primary EM shower's trunk
+
+    """
+    
+    name = 'michel_tagging'
+    aliases = ('michel_tagging_processor',)
+    
+    def __init__(self, r=15.0, segment_length=2.0, method='bin_pca', min_count=5):
+        """Specify the EM shower spread thresholds.
+
+        Parameters
+        ----------
+        threshold : float
+            If the spread of the shower trunk is less than this value, the
+            particle is labeled as invalid.
+        inplace : bool, default True
+            If True, the processor will update the reco interaction in-place.
+        """
+        super().__init__('interaction', 'reco')
+        self.segment_length = segment_length
+        self.method = method
+        self.min_count = min_count
+        self.r = r
+        
+    def process(self, data):
+        """Compute the shower spread and modify the PID if inplace=True.
+
+        Parameters
+        ----------
+        data : dict
+            Dictionaries of data products
+        """
+        # Loop over the reco interactions
+        for ia in data['reco_interactions']:
+            
+            shower_p, max_ke = None, -np.inf
+            
+            for p in ia.particles:
+                
+                if p.pid == ELEC_PID and (p.shape == 0 or p.shape == 2):
+                    y, x = self.check_bragg_peak(p, ia, r=self.r)
+                    if (len(x) > 0) and (len(x) == len(y)):
+                        bragg = pearsonr(x, y)[0]
+                        p.adjacent_bragg = bragg
+                    else:
+                        p.adjacent_bragg = np.inf
+                        
+                if (p.shape == SHOWR_SHP) and (p.is_primary):
+                    if p.ke > max_ke:
+                        shower_p = p
+                        max_ke = p.ke
+            
+            if shower_p is not None:
+                ia.leading_shower_adjacent_bragg = shower_p.adjacent_bragg
+            else:
+                ia.leading_shower_adjacent_bragg = np.inf  
+                
+            
+    def check_bragg_peak(self, shower_p, nu_reco, r):
+
+        track_points = []
+        track_deps = []
+        for p in nu_reco.particles:
+            if p.shape == 1:
+                track_points.append(p.points)
+                track_deps.append(p.depositions)
+
+        if len(track_points) > 0:
+            track_points = np.vstack(track_points)
+            track_deps = np.hstack(track_deps)
+        else:
+            return np.array([]), np.array([])
+        
+        dists = np.linalg.norm(track_points - shower_p.start_point, axis=1)
+        mask = dists < r
+        near_pts = track_points[mask]
+        near_dps = track_deps[mask]
+        
+        if len(near_pts) == 0:
+            return np.array([]), np.array([])
+
+        adj_pt = track_points[np.argmin(dists)]
+
+        dedxs, _, rrs, clusts, _, lengths = get_track_segment_dedxs(near_pts, 
+            near_dps, 
+            adj_pt, 
+            segment_length=self.segment_length, 
+            method=self.method, 
+            min_count=self.min_count)
+
+        return dedxs, rrs
