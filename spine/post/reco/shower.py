@@ -128,13 +128,11 @@ class ConversionDistanceProcessor(PostBase):
                 ia.leading_shower_vertex_distance_alt = -np.inf
                 ia.leading_shower_num_fragments = -1
                 ia.leading_shower_vertex_distance_relaxed = -np.inf
-                ia.leading_shower_vertex_angle = -np.inf
             else:
                 ia.leading_shower_vertex_distance = leading_shower.vertex_distance
                 ia.leading_shower_vertex_distance_alt = leading_shower.vertex_distance_alt
                 ia.leading_shower_num_fragments = leading_shower.num_fragments
                 ia.leading_shower_vertex_distance_relaxed = leading_shower.vertex_distance_relaxed
-                ia.leading_shower_vertex_angle = leading_shower.vertex_angle
             
     @staticmethod        
     def convdist_protons(ia, shower_p):
@@ -555,7 +553,8 @@ class ShowerSpreadProcessor(PostBase):
     name = 'shower_spread_processor'
     aliases = ('shower_spread',)
     
-    def __init__(self, threshold=0.043, length_scale=14.0, inplace=True):
+    def __init__(self, threshold=0.043, length_scale=14.0, 
+                 refvox_mode='vertex', inplace=True):
         """Specify the EM shower spread threshold.
 
         Parameters
@@ -569,6 +568,7 @@ class ShowerSpreadProcessor(PostBase):
         super().__init__('interaction', 'reco')
         self.threshold = threshold
         self.length_scale = length_scale
+        self.refvox_mode = refvox_mode
         self.inplace = inplace
         
     def process(self, data):
@@ -590,9 +590,22 @@ class ShowerSpreadProcessor(PostBase):
                     p.axial_pearsonr = compute_axial_pearsonr(p)
                 
                 if (p.shape == SHOWR_SHP) and (p.is_primary):
-                    spread = compute_shower_spread(p.points,
-                                                   ia.vertex,
-                                                   l=self.length_scale)
+                    
+                    if self.refvox_mode == 'vertex':
+                    
+                        spread = compute_shower_spread(p.points,
+                                                    ia.vertex,
+                                                    l=self.length_scale)
+                    
+                    elif self.refvox_mode == 'startpoint':
+                        
+                        spread = compute_shower_spread(p.points,
+                                                    p.start_point,
+                                                    l=self.length_scale)
+                        
+                    else:
+                        raise ValueError('Invalid reference voxel mode')
+                    
                     p.shower_spread = spread
                     p.global_spread = compute_global_spread(p)
                     
@@ -717,17 +730,20 @@ class ShowerTrunkValidityProcessor(PostBase):
             leading_shower, max_ke = None, -np.inf
             
             for p in ia.particles:
-                if (p.shape == SHOWR_SHP) and (p.is_primary):
-                    trunk_validity = compute_trunk_validity(p)
-                    p.trunk_validity = trunk_validity
+                
+                trunk_validity = compute_trunk_validity(p)
+                p.trunk_validity = trunk_validity
+                
+                if p.is_primary:
                     
-                    if p.ke > max_ke:
+                    if p.shape == SHOWR_SHP and p.ke > max_ke:
                         leading_shower = p
                         max_ke = p.ke
                     
                     if self.inplace:
-                        if trunk_validity >= self.threshold:
+                        if trunk_validity < self.threshold:
                             p.is_valid = False
+                            p.is_primary = False
             
             if leading_shower is not None:
                 ia.leading_shower_trunk_validity = leading_shower.trunk_validity
@@ -789,7 +805,7 @@ class MichelTaggingProcessor(PostBase):
                 
                 if p.pid == ELEC_PID and (p.shape == 0 or p.shape == 2):
                     y, x = self.check_bragg_peak(p, ia, r=self.r)
-                    if (len(x) > 0) and (len(x) == len(y)):
+                    if (len(x) > 2) and (len(x) == len(y)):
                         bragg = pearsonr(x, y)[0]
                         p.adjacent_bragg = bragg
                     else:

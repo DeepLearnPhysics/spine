@@ -234,7 +234,6 @@ class RecoParticle(ParticleBase, RecoBase):
     shower_dedx: float = -1.
     shower_dedx_legacy: float = -1.
     shower_dedx_dbscan: float = -1.
-    vertex_angle: float = -1.
     adjacent_bragg: float = np.inf
 
     # Fixed-length attributes

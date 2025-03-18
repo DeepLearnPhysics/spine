@@ -292,7 +292,6 @@ class RecoInteraction(InteractionBase, RecoBase):
     leading_shower_global_spread: float = -1.
     leading_shower_trunk_validity: float = -1.
     leading_shower_score: float = -1.
-    leading_shower_vertex_angle: float = -1.
     leading_shower_adjacent_bragg: float = np.inf
 
     # Attributes that must never be stored to file
