@@ -263,8 +263,10 @@ class Particle(PosDataBase):
             obj_dict[key] = np.asarray(
                     [getattr(vector, a)() for a in pos_attrs], dtype=np.float32)
 
-        # Load the other array attributes (special care needed)
-        obj_dict['children_id'] = np.asarray(particle.children_id(), dtype=int)
+        # Load the other array attributes (special care needed). Note for future
+        # self: need the list comprehension. Direct casting is INSANELY slow...
+        obj_dict['children_id'] = np.asarray(
+                [i for i in particle.children_id()], dtype=int)
 
         mom_attrs = ('px', 'py', 'pz')
         for prefix in ('', 'end_'):
