@@ -2,6 +2,7 @@
 
 from torch.utils.data import Dataset
 
+from spine.utils.logger import logger
 from spine.utils.factory import module_dict, instantiate
 from spine.utils.augment import Augmenter
 
@@ -107,7 +108,7 @@ class LArCVDataset(Dataset):
             try:
                 result[name] = parser(data_dict)
             except Exception as err:
-                print(f"Failed to produce {name} using {parser}")
+                logger.error(f"Failed to produce {name} using {parser}")
                 raise err
 
         # If requested, augment the data

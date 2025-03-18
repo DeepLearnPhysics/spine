@@ -831,7 +831,7 @@ class MichelTaggingProcessor(PostBase):
 
         adj_pt = track_points[np.argmin(dists)]
 
-        dedxs, _, rrs, clusts, _, lengths = get_track_segment_dedxs(near_pts, 
+        dedxs, _, rrs, _, _, _ = get_track_segment_dedxs(near_pts, 
             near_dps, 
             adj_pt, 
             segment_length=self.segment_length, 

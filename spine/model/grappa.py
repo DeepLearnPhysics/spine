@@ -198,7 +198,9 @@ class GrapPA(torch.nn.Module):
             Paramters to initialize the GNN backbone
         """
         # Initialize the GNN backbone
-        self.gnn = gnn_model_factory(gnn_model)
+        self.gnn = gnn_model_factory(
+                gnn_model, node_pred is not None, edge_pred is not None,
+                global_pred is not None)
 
         # Initialize output layers based on the configuration
         self.process_final_config(node_pred, 'node')

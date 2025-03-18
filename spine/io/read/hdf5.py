@@ -6,6 +6,7 @@ from dataclasses import fields
 
 import spine.data
 
+from spine.utils.logger import logger
 from spine.utils.decorators import inherit_docstring
 
 from .base import ReaderBase
@@ -101,7 +102,7 @@ class HDF5Reader(ReaderBase):
                 self.num_entries += num_entries
 
         # Dump the number of entries to load
-        print(f"Total number of entries in the file(s): {self.num_entries}\n")
+        logger.info("Total number of entries in the file(s): %d\n", self.num_entries)
 
         # Concatenate the file indexes into one
         self.file_index = np.concatenate(self.file_index)

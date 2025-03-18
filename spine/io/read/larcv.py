@@ -2,6 +2,7 @@
 
 import numpy as np
 
+from spine.utils.logger import logger
 from spine.utils.decorators import inherit_docstring
 from spine.utils.conditional import ROOT
 
@@ -82,7 +83,7 @@ class LArCVReader(ReaderBase):
             # Check data TTree exists, and entries are identical across all
             # trees. Do not register these TTrees in yet in order to support
             # > 1 workers by the DataLoader object downstrean.
-            print("Loading tree", key)
+            logger.info("Loading tree %s", key)
             chain = ROOT.TChain(f'{key}_tree') # pylint: disable=E1101
             for i, f in enumerate(self.file_paths):
                 self.file_offsets[i] = chain.GetEntries()
@@ -100,10 +101,10 @@ class LArCVReader(ReaderBase):
                 self.num_entries = chain.GetEntries()
 
             self.trees[key] = None
-        print("")
+        logger.info("")
 
         # Dump the number of entries to load
-        print(f"Total number of entries in the file(s): {self.num_entries}\n")
+        logger.info("Total number of entries in the file(s): %d\n", self.num_entries)
 
         # Build a file index
         self.file_index = np.repeat(
