@@ -547,7 +547,8 @@ class ShowerdEdXProcessor(PostBase):
             
 class ShowerSpreadProcessor(PostBase):
     """Compute the spread of the primary EM shower
-    by computing the RMS of the energy depositions along the shower trunk.
+    by computing the mean direction and the weighted average cosine distance
+    with respect to the mean direction.
     """
     
     name = 'shower_spread_processor'
@@ -764,23 +765,24 @@ def compute_trunk_validity(shower_p, r=3.0, n_components=3):
     
     
 class MichelTaggingProcessor(PostBase):
-    """Compute the spread of the primary EM shower's trunk
-
-    """
     
     name = 'michel_tagging'
     aliases = ('michel_tagging_processor',)
     
     def __init__(self, r=15.0, segment_length=2.0, method='bin_pca', min_count=5):
-        """Specify the EM shower spread thresholds.
+        """Post-processor to tag Michel electrons by checking the Bragg peak
+        of the track adjacent to the shower startpoint.
 
         Parameters
         ----------
-        threshold : float
-            If the spread of the shower trunk is less than this value, the
-            particle is labeled as invalid.
-        inplace : bool, default True
-            If True, the processor will update the reco interaction in-place.
+        r : float, default 15.0
+            Distance of farthest track point to consider for bragg peak.
+        segment_length : float, default 2.0
+            Length of the track segment to consider for dedx calculation.
+        method : str, default 'bin_pca'
+            Method to use for dedx calculation.
+        min_count : int, default 5
+            Minimum number of points to consider for dedx calculation.
         """
         super().__init__('interaction', 'reco')
         self.segment_length = segment_length
@@ -789,7 +791,8 @@ class MichelTaggingProcessor(PostBase):
         self.r = r
         
     def process(self, data):
-        """Compute the shower spread and modify the PID if inplace=True.
+        """Compute the correlation of residual range vs. local dedx to use
+        as a feature for Michel electron tagging. 
 
         Parameters
         ----------
@@ -823,6 +826,29 @@ class MichelTaggingProcessor(PostBase):
                 
             
     def check_bragg_peak(self, shower_p, nu_reco, r):
+        """Given a primary shower and a reco interaction, finds track points 
+        near the shower startpoint within radius r and computes the 
+        residual range and local dedx arrays for the track points. 
+        
+        The purpose of this module is to locate the Bragg peak of the track
+        that is adjacent to the shower startpoint.
+
+        Parameters
+        ----------
+        shower_p : RecoParticle
+            Primary shower to check for Bragg peak.
+        nu_reco : RecoInteraction
+            RecoInteraction that contains the shower.
+        r : float
+            Radius to search for track points near the shower startpoint.
+
+        Returns
+        -------
+        dedxs : np.ndarray
+            Array of dedx values for the track points near the shower startpoint.
+        rrs : np.ndarray
+            Array of residual ranges for the track points near the shower startpoint.
+        """
 
         track_points = []
         track_deps = []
