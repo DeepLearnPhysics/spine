@@ -143,7 +143,7 @@ class ReaderBase:
         """
         # Check for duplicates
         if self.run_info is not None:
-            assert len(self.run_info) == self.num_entries  
+            assert len(self.run_info) == self.num_entries
             num_unique = len(np.unique(self.run_info, axis=0))
             assert num_unique == len(self.run_info), (
                     "Cannot create a run map if (run, subrun, event) triplets "
@@ -290,13 +290,13 @@ class ReaderBase:
     def get_run_event_index(self, run, subrun, event):
         """Returns an entry index corresponding to a specific
         (run, subrun, event) triplet.
-        
+
         Parameters
         ----------
         run : int
             Run number
         event : int
-            Event number 
+            Event number
         """
         # Get the appropriate entry index
         assert self.run_map is not None, (

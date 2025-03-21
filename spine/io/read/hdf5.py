@@ -32,7 +32,7 @@ class HDF5Reader(ReaderBase):
                  skip_entry_list=None, run_event_list=None,
                  skip_run_event_list=None, create_run_map=False,
                  build_classes=True, skip_unknown_attrs=False,
-                 run_info_key='run_info', handle_duplicates=False, allow_missing=False):
+                 run_info_key='run_info', allow_missing=False):
         """Initalize the HDF5 file reader.
 
         Parameters
