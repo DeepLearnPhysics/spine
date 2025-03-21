@@ -119,81 +119,32 @@ class VertexProcessor(PostBase):
                         cos = np.dot(vec/np.linalg.norm(vec), part.start_dir)
                         if cos < self.angle_threshold:
                             part.is_primary = True
-
-class NueVertexProcessor(PostBase):
-    """Reconstruct one vertex for each interaction in the provided list."""
-
-    # Name of the post-processor (as specified in the configuration)
-    name = 'vertex_nue'
-
-    # Alternative allowed names of the post-processor
-    aliases = ('reconstruct_vertex_nue',)
-
-    def __init__(self, r=10.0, min_track_length=1.0, min_shower_ke=100, 
-                 run_mode='both', truth_point_mode='points'):
-        """Initialize the vertex finder properties.
-
-        Parameters
-        ----------
-        include_shapes : List[int], default [0, 1]
-            List of semantic classes to consider for vertex reconstruction
-        use_primaries : bool, default True
-            If true, only considers primary particles to reconstruct the vertex
-        update_primaries : bool, default False
-            Use the reconstructed vertex to update primaries
-        anchor_vertex : bool, default True
-            If true, anchor the candidate vertex to particle objects,
-            with the expection of interactions only composed of showers
-        touching_threshold : float, default 2 cm
-            Maximum distance for two track points to be considered touching
-        angle_threshold : float, default 0.3 radians
-            Maximum angle between the vertex-to-start-point vector and a shower
-            direction to consider that a shower originated from the vertex
-        """
-        # Initialize the parent class
-        super().__init__('interaction', run_mode, truth_point_mode)
-
-        # Store the relevant parameters
-        self.r = r
-        self.min_track_length = min_track_length
-        self.min_shower_ke = min_shower_ke
-
-    def process(self, data):
-        """Reconstruct the vertex position for each interaction in one entry.
-
-        Parameters
-        ----------
-        data : dict
-            Dictionary of data products
-        """
-        # Loop over interaction objects
-        for k in self.interaction_keys:
-            for inter in data[k]:
-                self.reconstruct_vertex_single(inter)
-
-    def reconstruct_vertex_single(self, inter):
-        """Post-processor which reconstructs one vertex for each interaction
-        in the provided list.
-
-        Parameters
-        ----------
-        inter : List[RecoInteraction, TruthInteraction]
-            Reconstructed/truth interaction object
-        """
-        # Reconstruct the vertex for this interaction
-        vtx = get_vertex_alt(inter, r=self.r, 
-                             min_track_length=self.min_track_length, 
-                             min_shower_ke=self.min_shower_ke,
-                             default_vertex=inter.vertex)
-        # Assign it to the appropriate interaction attribute
-        if not inter.is_truth:
-            inter.vertex_alt = vtx
-        else:
-            inter.reco_vertex_alt = vtx
-
+                            
 
 def get_vertex_alt(nu_reco, r=np.inf, min_track_length=0.0, 
                    min_shower_ke=0.0, default_vertex=None):
+    """Alternative vertexing algorithm that uses the weighted pseudovertex.
+
+    Parameters
+    ----------
+    nu_reco : RecoInteraction
+        Reconstructed interaction object
+    r : float, default np.inf
+        Radius around initial vertex guess.
+        This is the maximum distance to consider a track point as touching
+        the vertex. 
+    min_track_length : float, default 0.0
+        Minimum track length to consider as valid for use in vertex reco.
+    min_shower_ke : float, default 0.0
+        Minimum shower kinetic energy to consider as valid for use in vertex reco.
+    default_vertex : np.ndarray, default None
+        Default vertex to return if no particles are found.
+        If None, the pseudovertex is returned.
+
+    Returns
+    -------
+    The reconstructed vertex position as a numpy array of shape (3,).
+    """
     
     if len(nu_reco.particles) == 0:
         return np.full(3, -np.inf)
