@@ -110,8 +110,6 @@ class ConversionDistanceProcessor(PostBase):
                         raise ValueError('Invalid point mode')
                     
                     p.vertex_distance = criterion
-                    p.vertex_distance_alt = criterion_alt
-                    p.vertex_distance_relaxed = self.convdist_relaxed(ia, p, eps=self.eps)
                     
                     if p.ke > energy:
                         leading_shower = p
@@ -125,14 +123,10 @@ class ConversionDistanceProcessor(PostBase):
                             
             if leading_shower is None:
                 ia.leading_shower_vertex_distance = -np.inf
-                ia.leading_shower_vertex_distance_alt = -np.inf
                 ia.leading_shower_num_fragments = -1
-                ia.leading_shower_vertex_distance_relaxed = -np.inf
             else:
                 ia.leading_shower_vertex_distance = leading_shower.vertex_distance
-                ia.leading_shower_vertex_distance_alt = leading_shower.vertex_distance_alt
                 ia.leading_shower_num_fragments = leading_shower.num_fragments
-                ia.leading_shower_vertex_distance_relaxed = leading_shower.vertex_distance_relaxed
             
     @staticmethod        
     def convdist_protons(ia, shower_p):
@@ -214,6 +208,25 @@ class ConversionDistanceProcessor(PostBase):
     
     @staticmethod
     def convdist_relaxed(ia, shower_p, eps=0.6):
+        """Helper function to compute the path-connected distance from the
+        vertex to the closest shower point.
+
+        Parameters
+        ----------
+        ia : RecoInteraction
+            Reco interaction to apply the conversion distance cut.
+        shower_p : RecoParticle
+            Member particle of the interaction, assumed to be the primary
+            electron/gamma shower.
+        eps : float, default 0.6
+            Maximum distance between two samples for one to be considered
+            as in the neighborhood of the other (DBSCAN).
+
+        Returns
+        -------
+        _type_
+            _description_
+        """
         pts = np.vstack([p.points for p in ia.particles])
         labels = np.hstack([np.ones(p.size) * p.id for p in ia.particles]).astype(int)
         model = DBSCAN(eps=eps, min_samples=1).fit(pts)
@@ -443,7 +456,7 @@ class ShowerStartpointCorrectionProcessor(PostBase):
     @staticmethod                
     def correct_shower_startpoint(shower_p, ia):
         """Function to correct the shower startpoint by finding the closest
-        point to the vertex.
+        point to a track.
 
         Parameters
         ----------
@@ -480,7 +493,7 @@ class ShowerdEdXProcessor(PostBase):
     name = 'shower_dedx_processor'
     aliases = ('shower_dedx',)
     
-    def __init__(self, threshold=4.0, max_dist=3.0, inplace=True):
+    def __init__(self, threshold=4.0, max_dist=3.0, mode='direction', inplace=True):
         """Specify the EM shower dEdX threshold.
 
         Parameters
@@ -488,12 +501,17 @@ class ShowerdEdXProcessor(PostBase):
         threshold : float, default 4.0
             If the dEdX of the shower is greater than this, the shower
             will be considered a photon.
+        max_dist : float, default 3.0
+            Maximum distance to consider for the dEdX calculation.
+        mode : str, default 'direction'
+            Method to use for dEdX calculation.
         inplace : bool, default True
             If True, the processor will update the reco interaction in-place.
         """
         super().__init__('interaction', 'reco')
         self.threshold = threshold
         self.max_dist = max_dist
+        self.mode = mode
         self.inplace = inplace
         
     def process(self, data):
@@ -512,20 +530,21 @@ class ShowerdEdXProcessor(PostBase):
             for p in ia.particles:
                 if (p.shape == SHOWR_SHP) and (p.is_primary):
                     
-                    dedx = cluster_dedx_dir(p.points,
-                                            p.depositions,
-                                            p.start_point,
-                                            p.start_dir,
-                                            dedx_dist=self.max_dist,
-                                            simple=True)
+                    if self.mode == 'legacy':
+                        dedx = cluster_dedx(p.points, p.depositions, p.start_point, max_dist=self.max_dist)
+                    elif self.mode == 'dbscan':
+                        dedx = cluster_dedx_DBScan_PCA(p.points, p.depositions, p.start_point, 
+                                                    self.max_dist, simple=True)
+                    elif self.mode == 'direction':
+                        dedx = cluster_dedx_dir(p.points,
+                                                p.depositions,
+                                                p.start_point,
+                                                p.start_dir,
+                                                dedx_dist=self.max_dist,
+                                                simple=True)
+                    else:
+                        raise ValueError('Invalid dEdX calculation mode')
                     p.shower_dedx = dedx
-                    
-                    dedx = cluster_dedx(p.points, p.depositions, p.start_point, max_dist=self.max_dist)
-                    p.shower_dedx_legacy = dedx
-                    
-                    dedx = cluster_dedx_DBScan_PCA(p.points, p.depositions, p.start_point, 
-                                                   self.max_dist, simple=True)
-                    p.shower_dedx_dbscan = dedx
                     
                     if p.ke > max_ke:
                         leading_shower = p
@@ -537,12 +556,8 @@ class ShowerdEdXProcessor(PostBase):
             
             if leading_shower is not None:
                 ia.leading_shower_dedx = leading_shower.shower_dedx
-                ia.leading_shower_dedx_legacy = leading_shower.shower_dedx_legacy
-                ia.leading_shower_dedx_dbscan = leading_shower.shower_dedx_dbscan
             else:
                 ia.leading_shower_dedx = -1.
-                ia.leading_shower_dedx_legacy = -1.
-                ia.leading_shower_dedx_dbscan = -1.
             
             
 class ShowerSpreadProcessor(PostBase):
@@ -620,14 +635,25 @@ class ShowerSpreadProcessor(PostBase):
             if leading_shower is not None:
                 ia.leading_shower_spread = leading_shower.shower_spread
                 ia.leading_shower_axial_pearsonr = leading_shower.axial_pearsonr
-                ia.leading_shower_score = leading_shower.pid_scores[0]
             else:
                 ia.leading_shower_spread = -1.
                 ia.leading_shower_axial_pearsonr = -1.
-                ia.leading_shower_score = -1.
     
     
 def compute_axial_pearsonr(shower_p):
+    """Compute the pearson R correlation coefficient between the
+    distance of the shower points from the startpoint along the shower
+    axis and the perpendicular distance from the shower axis.
+
+    Parameters
+    ----------
+    shower_p : RecoParticle
+        Primary EM shower to compute the axial pearson R.
+
+    Returns
+    -------
+    The pearson R correlation coefficient between (-1, 1)
+    """
     
     if len(shower_p.points) < 3:
         return -1.
@@ -678,8 +704,8 @@ def compute_shower_spread(points, vertex, l=14.0):
 
 
 class ShowerTrunkValidityProcessor(PostBase):
-    """Compute the spread of the primary EM shower's trunk
-
+    """Compute the validity of the shower trunk by computing the PCA
+    principal explained variance ratio of the shower points.
     """
     
     name = 'shower_trunk_validity'
@@ -736,6 +762,23 @@ class ShowerTrunkValidityProcessor(PostBase):
                 
                 
 def compute_trunk_validity(shower_p, r=3.0, n_components=3):
+    """Helper function to compute the validity of the shower trunk
+    by computing the PCA principal explained variance ratio. 
+
+    Parameters
+    ----------
+    shower_p : RecoParticle
+        Primary EM shower to compute the trunk validity. (Doesn't need
+        to be a shower, can be any particle with points)
+    r : float, default 3.0
+        Radius to search for points near the startpoint.
+    n_components : int, default 3
+        Number of components to keep
+
+    Returns
+    -------
+    The first explained variance ratio of the PCA of the shower trunk.
+    """
     dists = np.linalg.norm(shower_p.points - shower_p.start_point, axis=1)
     mask = dists < r
     pts = shower_p.points[mask]
