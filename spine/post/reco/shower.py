@@ -102,7 +102,6 @@ class ConversionDistanceProcessor(PostBase):
                         criterion = self.convdist_protons(ia, p)
                     elif self.vertex_mode == 'vertex_points':
                         criterion = self.convdist_vertex_points(ia, p)
-                        criterion_alt = self.convdist_vertex_points(ia, p, mode='vertex_alt')
                     elif self.vertex_mode == 'vertex_startpoint':
                         criterion = self.convdist_vertex_startpoint(ia, p)
                     # elif self.vertex_mode == 'vertex_relaxed':

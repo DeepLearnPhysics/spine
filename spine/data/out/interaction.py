@@ -93,7 +93,7 @@ class InteractionBase:
     )
 
     # Attributes specifying coordinates
-    _pos_attrs = ('vertex')
+    _pos_attrs = ('vertex',)
 
     # Boolean attributes
     _bool_attrs = ('is_fiducial', 'is_flash_matched')
