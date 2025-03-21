@@ -282,16 +282,10 @@ class RecoInteraction(InteractionBase, RecoBase):
     """Reconstructed interaction information."""
     
     leading_shower_vertex_distance: float = -1.
-    leading_shower_vertex_distance_relaxed: float = -1.
-    leading_shower_vertex_distance_alt: float = -1.
     leading_shower_dedx: float = -1.
-    leading_shower_dedx_legacy: float = -1.
-    leading_shower_dedx_dbscan: float = -1.
     leading_shower_spread: float = -1.
     leading_shower_axial_pearsonr: float = -1.
-    leading_shower_global_spread: float = -1.
     leading_shower_trunk_validity: float = -1.
-    leading_shower_score: float = -1.
     leading_shower_adjacent_bragg: float = np.inf
 
     # Attributes that must never be stored to file
