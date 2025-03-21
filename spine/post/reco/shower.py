@@ -608,7 +608,6 @@ class ShowerSpreadProcessor(PostBase):
                         raise ValueError('Invalid reference voxel mode')
                     
                     p.shower_spread = spread
-                    p.global_spread = compute_global_spread(p)
                     
                     if p.ke > max_ke:
                         leading_shower = p
@@ -620,23 +619,12 @@ class ShowerSpreadProcessor(PostBase):
             
             if leading_shower is not None:
                 ia.leading_shower_spread = leading_shower.shower_spread
-                ia.leading_shower_global_spread = leading_shower.global_spread
                 ia.leading_shower_axial_pearsonr = leading_shower.axial_pearsonr
                 ia.leading_shower_score = leading_shower.pid_scores[0]
             else:
                 ia.leading_shower_spread = -1.
-                ia.leading_shower_global_spread = -1.
                 ia.leading_shower_axial_pearsonr = -1.
                 ia.leading_shower_score = -1.
-                
-                
-def compute_global_spread(shower_p):
-    pca = PCA(n_components=3)
-    if len(shower_p.points) <= 3:
-        return -np.inf
-    else:
-        pca.fit(shower_p.points)
-        return (1-pca.explained_variance_ratio_[0])
     
     
 def compute_axial_pearsonr(shower_p):
@@ -645,12 +633,7 @@ def compute_axial_pearsonr(shower_p):
         return -1.
     
     startpoint = shower_p.start_point
-    v_ref = shower_p.start_dir
-    pca = PCA(n_components=3)
-    pca.fit(shower_p.points)
-    v0 = pca.components_[0]
-    if np.dot(v_ref, v0) < 0:
-        v0 *= -1
+    v0 = shower_p.start_dir
     
     dists = np.linalg.norm(shower_p.points - startpoint, axis=1)
     v = (startpoint - shower_p.points) - np.sum((startpoint - shower_p.points) * v0, axis=1, keepdims=True) \
@@ -769,7 +752,8 @@ class MichelTaggingProcessor(PostBase):
     name = 'michel_tagging'
     aliases = ('michel_tagging_processor',)
     
-    def __init__(self, r=15.0, segment_length=2.0, method='bin_pca', min_count=5):
+    def __init__(self, r=15.0, segment_length=2.0, method='bin_pca', 
+                 min_count=5, adj_threshold=1.0):
         """Post-processor to tag Michel electrons by checking the Bragg peak
         of the track adjacent to the shower startpoint.
 
@@ -789,6 +773,7 @@ class MichelTaggingProcessor(PostBase):
         self.method = method
         self.min_count = min_count
         self.r = r
+        self.adj_threshold = adj_threshold
         
     def process(self, data):
         """Compute the correlation of residual range vs. local dedx to use
@@ -807,7 +792,8 @@ class MichelTaggingProcessor(PostBase):
             for p in ia.particles:
                 
                 if p.pid == ELEC_PID and (p.shape == 0 or p.shape == 2):
-                    y, x = self.check_bragg_peak(p, ia, r=self.r)
+                    y, x = self.check_bragg_peak(p, ia, r=self.r, 
+                                                 adj_threshold=self.adj_threshold)
                     if (len(x) > 2) and (len(x) == len(y)):
                         bragg = pearsonr(x, y)[0]
                         p.adjacent_bragg = bragg
@@ -825,7 +811,7 @@ class MichelTaggingProcessor(PostBase):
                 ia.leading_shower_adjacent_bragg = np.inf  
                 
             
-    def check_bragg_peak(self, shower_p, nu_reco, r):
+    def check_bragg_peak(self, shower_p, nu_reco, r, adj_threshold=1.0):
         """Given a primary shower and a reco interaction, finds track points 
         near the shower startpoint within radius r and computes the 
         residual range and local dedx arrays for the track points. 
@@ -864,6 +850,9 @@ class MichelTaggingProcessor(PostBase):
             return np.array([]), np.array([])
         
         dists = np.linalg.norm(track_points - shower_p.start_point, axis=1)
+        if dists.min() > adj_threshold:
+            return np.array([]), np.array([])
+        
         mask = dists < r
         near_pts = track_points[mask]
         near_dps = track_deps[mask]
