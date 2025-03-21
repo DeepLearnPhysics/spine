@@ -112,8 +112,7 @@ class HDF5Reader(ReaderBase):
             self.run_info = np.vstack(self.run_info)
 
         # Process the run information
-        self.handle_duplicates = handle_duplicates
-        self.process_run_info(handle_duplicates=self.handle_duplicates)
+        self.process_run_info()
 
         # Process the entry list
         self.process_entry_list(

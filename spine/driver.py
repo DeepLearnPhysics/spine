@@ -569,7 +569,7 @@ class Driver:
             data = None
 
     def process(self, entry=None, run=None, subrun=None, event=None,
-                iteration=None, duplicate_index=None):
+                iteration=None):
         """Process one entry or a batch of entries.
 
         Run single step of main SPINE driver. This includes data loading,
@@ -599,8 +599,7 @@ class Driver:
         self.watch.start('iteration')
 
         # 1. Load data
-        data = self.load(entry, run, subrun, event, 
-                         duplicate_index=duplicate_index)
+        data = self.load(entry, run, subrun, event)
 
         # 2. Pass data through the model
         if self.model is not None:
@@ -648,8 +647,7 @@ class Driver:
         # Return
         return data
 
-    def load(self, entry=None, run=None, subrun=None, event=None,
-             duplicate_index=None):
+    def load(self, entry=None, run=None, subrun=None, event=None):
         """Loads one batch/entry to process.
 
         If the model is run on the fly, the data is batched. Otherwise,
@@ -700,7 +698,7 @@ class Driver:
             if entry is not None:
                 data = self.reader.get(entry)
             else:
-                data = self.reader.get_run_event(run, subrun, event, duplicate_index=duplicate_index)
+                data = self.reader.get_run_event(run, subrun, event)
             self.watch.stop('read')
 
         return data

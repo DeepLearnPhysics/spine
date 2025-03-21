@@ -135,7 +135,7 @@ class ReaderBase:
         file_list += "\n ... \n" if num_files > max_print_files else "\n"
         logger.info("Will load %d file(s):\n%s", num_files, file_list)
 
-    def process_run_info(self, handle_duplicates=False):
+    def process_run_info(self):
         """Process the run information.
 
         Check the run information for duplicates and initialize a dictionary
@@ -143,30 +143,11 @@ class ReaderBase:
         """
         # Check for duplicates
         if self.run_info is not None:
-            assert len(self.run_info) == self.num_entries
-            
-            if handle_duplicates:
-                # Make a new run map with duplicate handling. 
-                new_map = np.concatenate([self.run_info.copy(), np.zeros(
-                    (self.num_entries, 1), dtype=np.int64)], axis=1)
-                print("Warning: Duplicates (run, subrun, event) triplets found. ")
-                seen = defaultdict(int)
-                print("Building a new run map with duplicate handling. This might take a while.")
-                for i, x in enumerate(tqdm(self.run_info)):
-                    r, s, e = x
-                    if seen[(r, s, e)] > 0:
-                        new_map[i, 3] = seen[(r, s, e)]
-                    seen[(r, s, e)] += 1
-                self.run_info = new_map
-                print("The new run map will contain one additional column that specifies the duplicate index. "\
-                    "This index is 0 for the first occurrence of a (run, subrun, event) triplet and "\
-                        "increases by one for each subsequent occurrence.")
-            else:
-                # Disallow duplicates
-                num_unique = len(np.unique(self.run_info, axis=0))
-                assert num_unique == len(self.run_info), (
-                        "Cannot create a run map if (run, subrun, event) triplets "
-                        "are not unique in the dataset. Abort.")
+            assert len(self.run_info) == self.num_entries  
+            num_unique = len(np.unique(self.run_info, axis=0))
+            assert num_unique == len(self.run_info), (
+                    "Cannot create a run map if (run, subrun, event) triplets "
+                    "are not unique in the dataset. Abort.")
 
         # If run_info is set, flip it into a map from info to entry
         self.run_map = None
@@ -284,7 +265,7 @@ class ReaderBase:
 
         self.entry_index = entry_index
 
-    def get_run_event(self, run, subrun, event, duplicate_index=0):
+    def get_run_event(self, run, subrun, event):
         """Returns an entry corresponding to a specific (run, subrun, event)
         triplet.
 
@@ -304,38 +285,26 @@ class ReaderBase:
         result_blob : dict
             Ditionary of result data products corresponding to one event
         """
-        return self.get(self.get_run_event_index(run, subrun, event, duplicate_index=duplicate_index))
+        return self.get(self.get_run_event_index(run, subrun, event))
 
-    def get_run_event_index(self, run, subrun, event, duplicate_index=None):
-        """Returns an entry index corresponding to a specific (run, subrun, event) triplet.
-
+    def get_run_event_index(self, run, subrun, event):
+        """Returns an entry index corresponding to a specific
+        (run, subrun, event) triplet.
+        
         Parameters
         ----------
         run : int
             Run number
         event : int
-            Event number
-        duplicate_index : int
-            Additional index to handle duplicate (run, subrun, event) triplets.
-            This is only used when the reader was initialized with
-            `handle_duplicates=True`, and will have no effect on default 
-            reader behavior when the run map is created without duplicate handling. 
+            Event number 
         """
         # Get the appropriate entry index
         assert self.run_map is not None, (
                 "Must build a run map to get entries by (run, sunrun, event).")
-        if self.run_info[0].shape[0] == 4:
-            if duplicate_index is None: duplicate_index = 1
-            assert (run, subrun, event, duplicate_index) in self.run_map, (
-                f"Could not find (run={run}, subrun={subrun}, event={event}, duplicate={duplicate_index}).")
-            return self.run_map[(run, subrun, event, duplicate_index)]
-        elif self.run_info[0].shape[0] == 3:
-            if duplicate_index is not None:
-                warn("Duplicate index provided but the run map was created without duplicate handling. "\
-                    "The duplicate index will be ignored.")
-            assert (run, subrun, event) in self.run_map, (
-                    f"Could not find (run={run}, subrun={subrun}, event={event}).")
-            return self.run_map[(run, subrun, event)]
+        assert (run, subrun, event) in self.run_map, (
+                f"Could not find (run={run}, subrun={subrun}, event={event}).")
+
+        return self.run_map[(run, subrun, event)]
 
     def get_file_path(self, idx):
         """Returns the path to the file corresponding to a specific entry.

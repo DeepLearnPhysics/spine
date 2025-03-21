@@ -1,7 +1,7 @@
 import numpy as np
 
 from spine.utils.globals import (PHOT_PID, PROT_PID, PION_PID, ELEC_PID, 
-                                 SHOWR_SHP, TRACK_SHP, MICHL_SHP)
+                                 SHOWR_SHP, TRACK_SHP)
 
 from spine.post.base import PostBase
 from scipy.spatial.distance import cdist

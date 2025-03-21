@@ -68,7 +68,6 @@ class InteractionBase:
     particle_counts: np.ndarray = None
     primary_particle_counts: np.ndarray = None
     vertex: np.ndarray = None
-    vertex_alt: np.ndarray = None
     is_fiducial: bool = False
     is_flash_matched: bool = False
     flash_ids: np.ndarray = None
@@ -81,7 +80,7 @@ class InteractionBase:
 
     # Fixed-length attributes
     _fixed_length_attrs = (
-            ('vertex', 3), ('vertex_alt', 3), ('particle_counts', len(PID_LABELS) - 1),
+            ('vertex', 3), ('particle_counts', len(PID_LABELS) - 1),
             ('primary_particle_counts', len(PID_LABELS) - 1)
     )
 
@@ -94,7 +93,7 @@ class InteractionBase:
     )
 
     # Attributes specifying coordinates
-    _pos_attrs = ('vertex', 'vertex_alt')
+    _pos_attrs = ('vertex')
 
     # Boolean attributes
     _bool_attrs = ('is_fiducial', 'is_flash_matched')
@@ -334,12 +333,10 @@ class TruthInteraction(Neutrino, InteractionBase, TruthBase):
     """
     nu_id: int = -1
     reco_vertex: np.ndarray = None
-    reco_vertex_alt: np.ndarray = None
 
     # Fixed-length attributes
     _fixed_length_attrs = (
             ('reco_vertex', 3),
-            ('reco_vertex_alt', 3),
             *Neutrino._fixed_length_attrs,
             *InteractionBase._fixed_length_attrs
     )
@@ -353,7 +350,6 @@ class TruthInteraction(Neutrino, InteractionBase, TruthBase):
     # Attributes specifying coordinates
     _pos_attrs = (
             'reco_vertex',
-            'reco_vertex_alt',
             *InteractionBase._pos_attrs,
             *Neutrino._pos_attrs
     )

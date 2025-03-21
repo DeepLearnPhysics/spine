@@ -7,7 +7,7 @@ from spine.utils.vertex import get_vertex, get_weighted_pseudovertex
 
 from spine.post.base import PostBase
 
-__all__ = ['VertexProcessor', 'NueVertexProcessor']
+__all__ = ['VertexProcessor']
 
 
 class VertexProcessor(PostBase):
