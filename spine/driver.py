@@ -562,6 +562,8 @@ class Driver:
             entry = iteration if self.loader is None else None
             data = self.process(entry=entry, iteration=iteration)
 
+            print(f'(Driver) Data keys: {list(data.keys())}')
+
             # Log the output
             self.log(data, tstamp, iteration, epoch)
 

@@ -1,0 +1,1 @@
+#TODO: Make this the base class for the likelihood and hypothesis classes

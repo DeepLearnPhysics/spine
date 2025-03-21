@@ -80,6 +80,7 @@ class BuilderBase(ABC):
                 if np.isscalar(data['index']):
                     # Single entry to process
                     data[out_key] = self.process(data, mode)
+                    print(f'{out_key} has {len(data[out_key])} entries')
 
                 else:
                     # Batch of data to process
@@ -87,6 +88,7 @@ class BuilderBase(ABC):
                     for entry in range(len(data['index'])):
                         const_list.append(self.process(data, mode, entry))
                     data[out_key] = const_list
+                    print(f'{out_key} has {len(data[out_key])} entries')
 
     def process(self, data, mode, entry=None):
         """Build representations for a single entry.
@@ -100,14 +102,20 @@ class BuilderBase(ABC):
         entry : int, optional
             Entry to process
         """
+        print(f'Processing {self.name}s for {mode} mode')
+        print(f'Data keys: {list(data.keys())}')
+
         # Dispatch to the appropriate function
         key = f'{mode}_{self.name}s'
         if key in data:
             func = f'load_{mode}'
+            print(f'Loading {self.name}s for {mode} mode')
         else:
             func = f'build_{mode}'
+            print(f'Building {self.name}s for {mode} mode')
 
         result = self.construct(func, data, entry)
+        print(f'New data keys: {list(data.keys())}')
 
         # When loading, check that the units are as expected
         if 'load' in func:

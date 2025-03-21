@@ -20,6 +20,8 @@ class Flash(PosDataBase):
     ----------
     id : int
         Index of the flash in the list
+    interaction_id : int
+        Index of the interaction in the list
     volume_id : int
         Index of the optical volume in which the flahs was recorded
     time : float
@@ -48,6 +50,7 @@ class Flash(PosDataBase):
         Units in which the position coordinates are expressed
     """
     id: int = -1
+    interaction_id: int = -1
     volume_id: int = -1
     frame: int = -1
     in_beam_frame: bool = False
@@ -106,5 +109,44 @@ class Flash(PosDataBase):
                    in_beam_frame=flash.inBeamFrame(),
                    on_beam_time=flash.onBeamTime(), time=flash.time(),
                    time_abs=flash.absTime(), time_width=flash.timeWidth(),
+                   total_pe=flash.TotalPE(), pe_per_ch=pe_per_ch,
+                   center=center, width=width)
+
+    @classmethod
+    def from_hypothesis(cls, flash, interaction_id, id):
+        """Builds and returns a Flash object from a flashmatch::Flash_t object.
+        From the hypothesis flash.
+
+        Parameters
+        ----------
+        flash : flashmatch::Flash_t
+            Flash object
+        interaction_id : int
+            Interaction ID to make the flash
+        id : int
+            ID of the flash
+
+        Returns
+        -------
+        Flash
+            Flash object
+        """
+        # Get the number of PEs per optical channel
+        pe_per_ch = np.array(flash.pe_v, dtype=np.float32)
+
+        # Get the center and width of the flash
+        center = np.array([flash.x, flash.y, flash.z])
+        width = np.array([flash.x_err, flash.y_err, flash.z_err])
+        
+        #Get the volume ID
+        volume_id = -1
+        for attr in ('tpc', 'volume_id'):
+            if hasattr(flash, attr):
+                volume_id = getattr(flash, attr)()
+
+        # Create the Flash object
+        return cls(id=id, interaction_id=interaction_id, volume_id=volume_id,
+                   time=flash.time,
+                   time_width=flash.time_width,
                    total_pe=flash.TotalPE(), pe_per_ch=pe_per_ch,
                    center=center, width=width)

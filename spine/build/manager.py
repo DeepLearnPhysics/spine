@@ -10,7 +10,7 @@ from spine.utils.globals import COORD_COLS, VALUE_COL
 from .fragment import FragmentBuilder
 from .particle import ParticleBuilder
 from .interaction import InteractionBuilder
-
+from .fill_hypothesis import FlashHypothesisBuilder
 
 class BuildManager:
     """Manager which constructs data representations based on the chain output.
@@ -40,11 +40,14 @@ class BuildManager:
             ('particles', ('particles',)),
             ('neutrinos', ('neutrinos',)),
             ('flashes', ('flashes',)),
-            ('crthits', ('crthits',))
+            ('crthits', ('crthits',)),
+            ('flash_hypos', ('flash_hypos',)),
     )
 
-    def __init__(self, fragments, particles, interactions,
-                 mode='both', units='cm', sources=None):
+    def __init__(self, fragments, particles, interactions, flash_hypo, volume='tpc',
+                 mode='both', units='cm', sources=None,ref_volume_id=None, 
+                 detector=None, parent_path=None, geometry_file=None,truth_point_mode='points', 
+                 truth_dep_mode='depositions',cfg=None ):
         """Initializes the build manager.
 
         Parameters
@@ -55,12 +58,33 @@ class BuildManager:
             Build/load RecoParticle/TruthParticle objects
         interactions : bool
             Build/load RecoInteraction/TruthInteraction objects
+        flash_hypo : bool
+            Build/load RecoFlashHypothesis/TruthFlashHypothesis objects
+        volume : str, default 'tpc'
+            Optical volume to build/load flash hypotheses for
         mode : str, default 'both'
             Whether to construct reconstructed objects, true objects or both
         sources : Dict[str, str], optional
             Dictionary which maps the necessary data products onto a name
             in the input/output dictionary of the reconstruction chain.
+        ref_volume_id : str, optional
+            If specified, the flash matching expects all interactions/flashes
+            to live into a specific optical volume. Must shift everything.
+        detector : str, optional
+            Detector to get the geometry from
+        parent_path : str, optional
+            Path to the parent directory of the main analysis configuration.
+        geometry_file : str, optional
+            Path to a `.yaml` geometry file to load the geometry from
+        truth_point_mode : str, optional
+            If specified, the flash matching expects all interactions/flashes
+            to live into a specific optical volume. Must shift everything.
+        truth_dep_mode : str, optional
+            Detector to get the geometry from
+        cfg : str, optional
+            Flash matching configuration file path
         """
+        print(f'cfg: {cfg}')
         # Check on the mode, store it
         assert mode in self._run_modes, (
                 f"Run mode not recognized: {mode}. Must be one {self._run_modes}")
@@ -96,6 +120,8 @@ class BuildManager:
                     "Interactions are built from particles. If `interactions` "
                     "is True, so must `particles` be.")
             self.builders['interaction'] = InteractionBuilder(mode, units)
+        if flash_hypo:
+            self.builders['flash_hypo'] = FlashHypothesisBuilder(mode, units,cfg,volume, ref_volume_id, detector, parent_path, geometry_file, truth_point_mode, truth_dep_mode)
 
         assert len(self.builders), (
                 "Do not call the builder unless it does anything.")
@@ -133,6 +159,10 @@ class BuildManager:
             # Build representations
             builder(data)
 
+            # TODO:Can't generate match pairs for flash hypotheses
+            if name == 'flash_hypo':
+                continue
+
             # Generate match pairs from stored matches
             if load and self.mode in ['both', 'all']:
                 if np.isscalar(data['index']):
@@ -145,6 +175,7 @@ class BuildManager:
                             match_dict[key].append(val)
 
                 data.update(**match_dict)
+        print(f'Data keys: {list(data.keys())}')
 
     def build_sources(self, data, entry=None):
         """Construct the reference coordinate and value tensors used by
@@ -229,7 +260,7 @@ class BuildManager:
                     for obj in sources[key]:
                          if obj.units != self.units:
                              obj.to_cm(meta)
-
+        print(f'Update keys: {list(update.keys())}')
         return update
 
     @staticmethod
