@@ -9,8 +9,6 @@ import glob
 from warnings import warn
 
 import numpy as np
-from collections import defaultdict
-from tqdm import tqdm
 
 from spine.utils.logger import logger
 
