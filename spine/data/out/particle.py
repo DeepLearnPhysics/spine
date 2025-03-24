@@ -236,12 +236,12 @@ class RecoParticle(ParticleBase, RecoBase):
     ppn_ids: np.ndarray = None
     ppn_points: np.ndarray = None
     vertex_distance: float = -1.
-    shower_split_angle: float = -1.
-    shower_spread: float = -1.
-    axial_pearsonr: float = -1.
-    trunk_validity: float = -1.
-    shower_dedx: float = -1.
-    adjacent_bragg: float = np.inf
+    split_angle: float = -1.
+    directional_spread: float = -1.
+    axial_spread: float = -np.inf
+    trunk_straightness: float = -1.
+    start_dedx: float = -1.
+    adjacent_bragg_pearsonr: float = -np.inf
 
     # Fixed-length attributes
     _fixed_length_attrs = (
