@@ -109,11 +109,12 @@ class ParticleThresholdProcessor(PostBase):
         super().__init__('particle', 'reco')
 
         # Check that there is something to do, throw otherwise
-        if (shower_pid_thresholds is not None and
-            track_pid_thresholds is not None and primary_threshold is None):
+        if ((shower_pid_thresholds is None) and
+            (track_pid_thresholds is None) and
+            (primary_threshold is None)):
             raise ValueError(
                     "Specify one of `shower_pid_thresholds`, `track_pid_thresholds` "
-                    "or `primary_threshold` for this function to do anything.")
+                    "or `primary_threshold` for this class to do anything.")
 
         # Store the thresholds
         self.shower_pid_thresholds = shower_pid_thresholds
