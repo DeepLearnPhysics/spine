@@ -2,8 +2,8 @@
 
 import numpy as np
 
-from spine.utils.globals import SHOWR_SHP, TRACK_SHP, ELEC_PID, PHOT_PID
-from spine.utils.vertex import get_vertex, get_weighted_pseudovertex
+from spine.utils.globals import SHOWR_SHP, TRACK_SHP
+from spine.utils.vertex import get_vertex, get_vertex_alt
 
 from spine.post.base import PostBase
 
@@ -23,7 +23,7 @@ class VertexProcessor(PostBase):
                  use_primaries=True, update_primaries=False,
                  anchor_vertex=True, touching_threshold=2.0,
                  angle_threshold=0.3, run_mode='both',
-                 truth_point_mode='points'):
+                 truth_point_mode='points', vertexing_mode='default'):
         """Initialize the vertex finder properties.
 
         Parameters
@@ -42,6 +42,8 @@ class VertexProcessor(PostBase):
         angle_threshold : float, default 0.3 radians
             Maximum angle between the vertex-to-start-point vector and a shower
             direction to consider that a shower originated from the vertex
+        vertexing_mode: str, default 'default'
+            Vertexing mode to use (default, alternative)
         """
         # Initialize the parent class
         super().__init__('interaction', run_mode, truth_point_mode)
@@ -53,6 +55,7 @@ class VertexProcessor(PostBase):
         self.anchor_vertex = anchor_vertex
         self.touching_threshold = touching_threshold
         self.angle_threshold = angle_threshold
+        self.vertexing_mode = vertexing_mode
 
     def process(self, data):
         """Reconstruct the vertex position for each interaction in one entry.
@@ -97,9 +100,15 @@ class VertexProcessor(PostBase):
             shapes       = np.array([part.shape for part in particles])
 
             # Reconstruct the vertex for this interaction
-            vtx, _ = get_vertex(
-                start_points, end_points, directions, shapes,
-                self.anchor_vertex, self.touching_threshold, return_mode=True)
+            if self.vertexing_mode == 'default':
+                vtx, _ = get_vertex(
+                    start_points, end_points, directions, shapes,
+                    self.anchor_vertex, self.touching_threshold, return_mode=True)
+            elif self.vertexing_mode == 'alternative':
+                vtx = get_vertex_alt(inter, r=self.touching_threshold,
+                                     default_vertex=None)
+            else:
+                raise ValueError(f'Unknown vertexing mode: {self.vertexing_mode}')
             # Assign it to the appropriate interaction attribute
             if not inter.is_truth:
                 inter.vertex = vtx
@@ -119,86 +128,3 @@ class VertexProcessor(PostBase):
                         cos = np.dot(vec/np.linalg.norm(vec), part.start_dir)
                         if cos < self.angle_threshold:
                             part.is_primary = True
-                            
-
-def get_vertex_alt(nu_reco, r=np.inf, min_track_length=0.0, 
-                   min_shower_ke=0.0, default_vertex=None):
-    """Alternative vertexing algorithm that uses the weighted pseudovertex.
-
-    Parameters
-    ----------
-    nu_reco : RecoInteraction
-        Reconstructed interaction object
-    r : float, default np.inf
-        Radius around initial vertex guess.
-        This is the maximum distance to consider a track point as touching
-        the vertex. 
-    min_track_length : float, default 0.0
-        Minimum track length to consider as valid for use in vertex reco.
-    min_shower_ke : float, default 0.0
-        Minimum shower kinetic energy to consider as valid for use in vertex reco.
-    default_vertex : np.ndarray, default None
-        Default vertex to return if no particles are found.
-        If None, the pseudovertex is returned.
-
-    Returns
-    -------
-    The reconstructed vertex position as a numpy array of shape (3,).
-    """
-    
-    if len(nu_reco.particles) == 0:
-        return np.full(3, -np.inf)
-    
-    if len(nu_reco.particles) == 1:
-        return nu_reco.particles[0].start_point
-
-    particles = [p for p in nu_reco.particles if (p.is_primary)]
-        
-    if len(particles) == 0:
-        particles = [p for p in nu_reco.particles]
-
-    # Compute Pseudovertex
-    startpoints, directions, weights = [], [], []
-
-    points = []
-    
-    for p in particles:
-        if p.shape == 0 and p.pid == 1 and p.ke > min_shower_ke:
-            startpoints.append(p.start_point)
-            directions.append(p.start_dir)
-            weights.append(p.ke)
-            points.append(p.points)
-        if p.shape == 1 and p.length > min_track_length:
-            startpoints.append(p.start_point)
-            directions.append(p.start_dir)
-            weights.append(p.ke)
-            points.append(p.points)
-            
-    if len(startpoints) == 0:
-        startpoints = np.vstack([p.start_point for p in particles]).astype(np.float32)
-        directions = np.vstack([p.start_dir for p in particles]).astype(np.float32)
-        weights = np.array([p.ke for p in particles]).astype(np.float32)
-            
-    startpoints = np.vstack(startpoints).astype(np.float32)
-    directions = np.vstack(directions).astype(np.float32)
-    weights = np.array(weights).astype(np.float32)
-
-    pvtx = get_weighted_pseudovertex(startpoints, directions, weights)
-    
-    if default_vertex is None:
-        default_vertex = pvtx
-    
-    if len(points) == 0:
-        return default_vertex
-
-    points = np.vstack(points).astype(np.float32)
-    # Anchor to closest track point, if within r
-    dists = np.linalg.norm(points - pvtx, axis=1)
-    mask = dists < r
-    if not mask.any():
-        return default_vertex
-    else:
-        close_pts = points[mask]
-        dists = np.linalg.norm(close_pts - pvtx, axis=1)
-        perm = dists.argmin()
-        return close_pts[perm]
