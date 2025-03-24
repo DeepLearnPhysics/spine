@@ -1123,21 +1123,7 @@ def cluster_dedx(voxels: nb.float64[:,:],
     # If max_dist is set, limit the set of voxels to those within a sphere of radius max_dist
     assert voxels.shape[1] == 3, (
             "The shape of the input is not compatible with voxel coordinates.")
-    # If start point is not in voxels, assign the closest point within voxels as the startpoint  # Check if start point is close to any voxel                                                                                                                              
-    closest_idx = -1
-    min_dist = np.inf
-    for i in range(voxels.shape[0]):
-        dist = np.sqrt((voxels[i, 0] - start[0])**2 + (voxels[i, 1] - start[1])**2 + (voxels[i, 2] - start[2])**2)
-        if dist < min_dist:
-            min_dist = dist
-            closest_idx = i
 
-    is_close = False
-    for i in range(voxels.shape[0]):
-        dist = np.sqrt((voxels[i, 0] - start[0])**2 + (voxels[i, 1] - start[1])**2 + (voxels[i, 2] - start[2])**2)
-        if dist < 1e-2:
-            is_close = True
-            break
     dist_mat = nbl.cdist(start.reshape(1,-1), voxels).flatten()
     if max_dist > 0:
         voxels = voxels[dist_mat <= max_dist]

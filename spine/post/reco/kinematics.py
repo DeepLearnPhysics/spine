@@ -6,8 +6,7 @@ from spine.utils.globals import (
 from spine.post.base import PostBase
 
 __all__ = ['ParticleShapeLogicProcessor', 'ParticleThresholdProcessor',
-           'ParticleNeutrinoLogicProcessor', 'InteractionTopologyProcessor',
-           'SequentialPIDThresholdingProcessor']
+           'ParticleNeutrinoLogicProcessor', 'InteractionTopologyProcessor']
 
 
 from collections import OrderedDict
@@ -170,92 +169,6 @@ class ParticleThresholdProcessor(PostBase):
             if self.primary_threshold is not None:
                 part.is_primary = bool(
                         part.primary_scores[1] >= self.primary_threshold)
-                
-                
-class SequentialPIDThresholdingProcessor(PostBase):
-    """Adjust the particle PID and primary properties according to customizable
-    thresholds and priority orderings.
-    """
-
-    # Name of the post-processor (as specified in the configuration)
-    name = 'sequential_pid_thresholding'
-
-    # Alternative allowed names of the post-processor
-    aliases = ('adjust_sequential_pid',)
-
-    def __init__(self, shower_pid_thresholds=None, 
-                 track_pid_thresholds=None,
-                 track_priority=None,
-                 shower_priority=None):
-        """Store the new thresholds to be used to update the PID and primary
-        information of particles.
-
-        Parameters
-        ----------
-        shower_pid_thresholds : dict, optional
-            Dictionary which maps an EM PID output to a threshold value,
-            in order
-        track_pid_thresholds : dict, optional
-            Dictionary which maps a track PID output to a threshold value,
-            in order
-        primary_treshold : float, optional
-            Primary score above which a particle is considered a primary
-        """
-        # Intialize the parent class
-        super().__init__('particle', 'reco')
-
-        # Check that there is something to do, throw otherwise
-        if (shower_pid_thresholds is None and
-            track_pid_thresholds is None):
-            raise ValueError(
-                    "Specify one of `shower_pid_thresholds`, `track_pid_thresholds` "
-                    "or `primary_threshold` for this function to do anything.")
-
-        # Store the thresholds
-        self.shower_pid_thresholds = shower_pid_thresholds
-        self.track_pid_thresholds = track_pid_thresholds
-        self.track_priority = track_priority
-        self.shower_priority = shower_priority
-        
-
-    def process(self, data):
-        """Update PID predictions of each particle one entry.
-
-        Parameters
-        ----------
-        data : dict
-            Dictionary of data products
-        """
-        # Loop over the particle objects
-        for part in data['reco_particles']:
-            # Fetch the appropriate thresholds
-            if part.shape == TRACK_SHP:
-                priority = self.track_priority
-                pid_thresholds = OrderedDict(
-                    sorted(OrderedDict(self.track_pid_thresholds).items(), 
-                           key=lambda x: priority[x[0]], reverse=True))
-            elif part.shape == SHOWR_SHP:
-                priority = self.shower_priority
-                pid_thresholds = OrderedDict(
-                    sorted(OrderedDict(self.shower_pid_thresholds).items(), 
-                           key=lambda x: priority[x[0]], reverse=True))
-            else:
-                pid_thresholds = None
-
-            # Adjust the particle ID
-            if pid_thresholds is not None:
-                assigned = False
-                scores = np.copy(part.pid_scores)
-                for k, v in pid_thresholds.items():
-                    if scores[k] < 0: # Skip "-1" designated pid score thresholds
-                        continue
-                    if scores[k] >= v and not assigned:
-                        # Assign a PID
-                        part.pid = k
-                        assigned = True
-                        break
-                if not assigned:
-                    part.pid = np.argmax(scores)
 
 
 class ParticleNeutrinoLogicProcessor(PostBase):
