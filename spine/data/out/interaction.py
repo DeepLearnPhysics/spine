@@ -326,7 +326,7 @@ class RecoInteraction(InteractionBase, RecoBase):
         RecoParticle
             Primary shower with the highest reco kinetic energy.
         """
-        showers = [part for part in self.primary_particles if part.is_primary]
+        showers = [part for part in self.primary_particles if part.shape == 0]
         if len(showers) == 0:
             return None
         return max(showers, key=lambda x: x.ke)
