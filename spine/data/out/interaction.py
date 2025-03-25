@@ -430,7 +430,7 @@ class RecoInteraction(InteractionBase, RecoBase):
         """
         leading_shower = self.leading_shower
         if leading_shower is None:
-            return np.inf
+            return -np.inf
         return leading_shower.adjacent_bragg_pearsonr
     
     @leading_shower_adjacent_bragg_pearsonr.setter

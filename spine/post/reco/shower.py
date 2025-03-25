@@ -5,14 +5,10 @@ from spine.utils.globals import (PHOT_PID, PROT_PID, PION_PID, ELEC_PID,
 
 from spine.post.base import PostBase
 from sklearn.cluster import DBSCAN
-from sklearn.metrics.pairwise import cosine_similarity
 
 from spine.utils.tracking import get_track_segment_dedxs
-
 from spine.utils.numba_local import cdist
-
 from scipy.stats import pearsonr
-from sklearn.cluster import DBSCAN
 
 __all__ = ['ConversionDistanceProcessor', 
            'ShowerStartpointCorrectionProcessor', 
@@ -34,7 +30,7 @@ class ConversionDistanceProcessor(PostBase):
     aliases = ('shower_separation_processor',)
     
     def __init__(self, threshold=-1.0, vertex_mode='vertex_points', 
-                 inplace=True, eps=0.6, primary_override_ke=None):
+                 inplace=False, eps=0.6, primary_override_ke=None):
         """Specify the EM shower conversion distance threshold and
         the type of vertex to use for the distance calculation.
 
@@ -118,7 +114,7 @@ class ConversionDistanceProcessor(PostBase):
                                 p.pid = PHOT_PID
                             
             if leading_shower is None:
-                ia.leading_shower_vertex_distance = -np.inf
+                ia.leading_shower_vertex_distance = -1.
             else:
                 ia.leading_shower_vertex_distance = leading_shower.vertex_distance
             
@@ -237,90 +233,6 @@ class ConversionDistanceProcessor(PostBase):
             conversion_dist = min(sep, conversion_dist)
 
         return conversion_dist
-            
-                
-    # @staticmethod
-    def compute_angular_criterion(self, p, vertex, eps, min_samples):
-        """Compute the angular criterion for the given primary electron shower.
-
-        Parameters
-        ----------
-        p : RecoParticle
-            Primary electron shower to check for multi-arm.
-        vertex : np.ndarray
-            Vertex of the interaction with shape (3, )
-        eps : float
-            Maximum distance between two samples for one to be considered
-            as in the neighborhood of the other (DBSCAN).
-        min_samples : int
-            The number of samples (or total weight) in a neighborhood 
-            for a point to be considered as a core point (DBSCAN).
-
-        Returns
-        -------
-        max_angle : float
-            Maximum angle between the mean cluster direction vectors 
-            of the shower points (degrees)
-        """
-        points = p.points
-        depositions = p.depositions
-
-        # Draw vector from startpoint to all 
-        v = points - vertex
-        v_norm = np.linalg.norm(v, axis=1)
-        # If all vectors are zero, return 0
-        if (v_norm > 0).sum() == 0:
-            return 0
-        # Normalize the vectors
-        directions = v[v_norm > 0] / v_norm[v_norm > 0].reshape(-1, 1)
-        
-        # Filter out points that give zero vectors
-        points = points[v_norm > 0]
-        depositions = depositions[v_norm > 0]
-        
-        # If there are no valid directions, return -inf (will never be rejected)
-        if directions.shape[0] < 1:
-            return -np.inf
-        
-        # Run DBSCAN clustering on the unit sphere
-        model = DBSCAN(eps=eps, 
-                       min_samples=min_samples, 
-                       metric='cosine').fit(directions)
-        clusts, counts = np.unique(model.labels_, return_counts=True)
-        
-        if self.sort_by == 'energy':
-            if not np.all(clusts >= 0): # If there are outliers
-                labels = np.array(model.labels_ + 1, dtype=int)
-            else:
-                labels = np.array(model.labels_, dtype=int)
-            energies = np.bincount(labels, weights=depositions)
-            perm = np.argsort(energies)[::-1]
-            clusts, counts = clusts[perm], counts[perm]
-        elif self.sort_by == 'voxel_counts':
-            perm = np.argsort(counts)[::-1]
-            clusts, counts = clusts[perm], counts[perm]
-        else:
-            raise ValueError('Invalid sorting mode {}, must be either "energy" or "voxel_counts".'.format(self.sort_by))
-        
-        if self.largest_two:
-            clusts, counts = clusts[:2], counts[:2]
-        
-        vecs = []
-        for i, c in enumerate(clusts):
-            # Skip noise points that have cluster label -1
-            if c == -1: continue
-            # Compute the mean direction vector of the cluster
-            v = directions[model.labels_ == c].mean(axis=0)
-            vecs.append(v / np.linalg.norm(v))
-        if len(vecs) == 0:
-            return -np.inf
-        vecs = np.vstack(vecs)
-        cos_dist = cosine_similarity(vecs)
-        # max_angle ranges from 0 (parallel) to 2 (antiparallel)
-        max_angle = np.clip((1.0 - cos_dist).max(), a_min=0, a_max=2)
-        max_angle_deg = np.rad2deg(np.arccos(1 - max_angle))
-        # counts = counts[1:]
-        return max_angle_deg
     
     
 class ShowerStartpointCorrectionProcessor(PostBase):
@@ -443,7 +355,7 @@ class MichelTaggingProcessor(PostBase):
                         bragg = pearsonr(x, y)[0]
                         p.adjacent_bragg_pearsonr = bragg
                     else:
-                        p.adjacent_bragg_pearsonr = np.inf
+                        p.adjacent_bragg_pearsonr = -np.inf
                 
             
     def check_bragg_peak(self, shower_p, nu_reco, r, adj_threshold=1.0):

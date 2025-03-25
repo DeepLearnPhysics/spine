@@ -5,8 +5,10 @@ from spine.post.base import PostBase
 from spine.utils.gnn.cluster import (cluster_dedx_dir, 
                                      cluster_dedx_DBScan_PCA, 
                                      cluster_dedx)
+from sklearn.metrics.pairwise import cosine_similarity
 
 from sklearn.decomposition import PCA
+from sklearn.cluster import DBSCAN
 from scipy.stats import pearsonr
 
 __all__ = ['ParticleMultiArmCheck', 
@@ -36,7 +38,8 @@ class ParticleMultiArmCheck(PostBase):
     # Alternative allowed names of the post-processor
     aliases = ('particle_multi_arm',)
     
-    def __init__(self, threshold=70, min_samples=20, eps=0.02, inplace=True):
+    def __init__(self, threshold=70, min_samples=20, eps=0.02, inplace=False,
+                 sort_by='energy', largest_two=False):
         """Specify the threshold for the number of arms of showers.
 
         Parameters
@@ -51,6 +54,12 @@ class ParticleMultiArmCheck(PostBase):
         eps : float, default 0.02
             Maximum distance between two samples for one to be considered
             as in the neighborhood of the other (DBSCAN).
+        inplace: bool, default False
+            If True, the processor will update the reco interaction in-place.
+        sort_by : str, default 'energy'
+            Sorting mode for the clusters. Can be either 'energy' or 'voxel_counts'.
+        largest_two : bool, default False
+            If True, only the two largest clusters will be considered.
         """
         super().__init__('interaction', 'reco')
         
@@ -58,6 +67,8 @@ class ParticleMultiArmCheck(PostBase):
         self.min_samples = min_samples
         self.eps = eps
         self.inplace = inplace
+        self.sort_by = sort_by
+        self.largest_two = largest_two
         
     def process(self, data):
         """Update reco interaction topologies using the shower multi-arm check.
@@ -78,6 +89,89 @@ class ParticleMultiArmCheck(PostBase):
                                                         min_samples=self.min_samples)
                     
                     p.split_angle = angle
+    
+
+    def compute_angular_criterion(self, p, vertex, eps, min_samples):
+        """Compute the angular criterion for the given primary electron shower.
+
+        Parameters
+        ----------
+        p : RecoParticle
+            Primary electron shower to check for multi-arm.
+        vertex : np.ndarray
+            Vertex of the interaction with shape (3, )
+        eps : float
+            Maximum distance between two samples for one to be considered
+            as in the neighborhood of the other (DBSCAN).
+        min_samples : int
+            The number of samples (or total weight) in a neighborhood 
+            for a point to be considered as a core point (DBSCAN).
+
+        Returns
+        -------
+        max_angle : float
+            Maximum angle between the mean cluster direction vectors 
+            of the shower points (degrees)
+        """
+        points = p.points
+        depositions = p.depositions
+
+        # Draw vector from startpoint to all 
+        v = points - vertex
+        v_norm = np.linalg.norm(v, axis=1)
+        # If all vectors are zero, return -1. (cannot estimate direction)
+        if (v_norm > 0).sum() == 0:
+            return -1.
+        # Normalize the vectors
+        directions = v[v_norm > 0] / v_norm[v_norm > 0].reshape(-1, 1)
+        
+        # Filter out points that give zero vectors
+        points = points[v_norm > 0]
+        depositions = depositions[v_norm > 0]
+        
+        # If there are no valid directions, return -inf (will never be rejected)
+        if directions.shape[0] < 1:
+            return -1.
+        
+        # Run DBSCAN clustering on the unit sphere
+        model = DBSCAN(eps=eps, 
+                       min_samples=min_samples, 
+                       metric='cosine').fit(directions)
+        clusts, counts = np.unique(model.labels_, return_counts=True)
+        
+        if self.sort_by == 'energy':
+            if not np.all(clusts >= 0): # If there are outliers
+                labels = np.array(model.labels_ + 1, dtype=int)
+            else:
+                labels = np.array(model.labels_, dtype=int)
+            energies = np.bincount(labels, weights=depositions)
+            perm = np.argsort(energies)[::-1]
+            clusts, counts = clusts[perm], counts[perm]
+        elif self.sort_by == 'voxel_counts':
+            perm = np.argsort(counts)[::-1]
+            clusts, counts = clusts[perm], counts[perm]
+        else:
+            raise ValueError('Invalid sorting mode {}, must be either "energy" or "voxel_counts".'.format(self.sort_by))
+        
+        if self.largest_two:
+            clusts, counts = clusts[:2], counts[:2]
+        
+        vecs = []
+        for i, c in enumerate(clusts):
+            # Skip noise points that have cluster label -1
+            if c == -1: continue
+            # Compute the mean direction vector of the cluster
+            v = directions[model.labels_ == c].mean(axis=0)
+            vecs.append(v / np.linalg.norm(v))
+        if len(vecs) == 0:
+            return -1.
+        vecs = np.vstack(vecs)
+        cos_dist = cosine_similarity(vecs)
+        # max_angle ranges from 0 (parallel) to 2 (antiparallel)
+        max_angle = np.clip((1.0 - cos_dist).max(), a_min=0, a_max=2)
+        max_angle_deg = np.rad2deg(np.arccos(1 - max_angle))
+        # counts = counts[1:]
+        return max_angle_deg
 
 
 class ParticledEdXProcessor(PostBase):
@@ -256,7 +350,7 @@ def compute_particle_spread(points, vertex, l=14.0):
     dists = np.linalg.norm(points - vertex, axis=1)
     mask = dists > 0
     if mask.sum() == 0:
-        return -np.inf
+        return -1.
 
     # Compute Spread (whole shower)
     directions = (points[mask] - vertex) / dists[mask].reshape(-1, 1)
@@ -341,7 +435,7 @@ def compute_trunk_straightness(shower_p, r=3.0, n_components=3):
     mask = dists < r
     pts = shower_p.points[mask]
     if len(pts) <= n_components:
-        return -np.inf
+        return -1.
     else:
         pca = PCA(n_components=n_components)
         pca.fit(pts)
