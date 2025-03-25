@@ -4,12 +4,15 @@ from spine.utils.globals import (PHOT_PID, PROT_PID, PION_PID, ELEC_PID,
                                  SHOWR_SHP, TRACK_SHP)
 
 from spine.post.base import PostBase
-from scipy.spatial.distance import cdist
 from sklearn.cluster import DBSCAN
-from sklearn.metrics.pairwise import cosine_similarity
 
-__all__ = ['ConversionDistanceProcessor', 'ShowerMultiArmCheck', 
-           'ShowerStartpointCorrectionProcessor']
+from spine.utils.tracking import get_track_segment_dedxs
+from spine.utils.numba_local import cdist
+from scipy.stats import pearsonr
+
+__all__ = ['ConversionDistanceProcessor', 
+           'ShowerStartpointCorrectionProcessor', 
+           'MichelTaggingProcessor']
 
 
 class ConversionDistanceProcessor(PostBase):
@@ -26,7 +29,8 @@ class ConversionDistanceProcessor(PostBase):
     # Alternative allowed names of the post-processor
     aliases = ('shower_separation_processor',)
     
-    def __init__(self, threshold=-1.0, vertex_mode='vertex'):
+    def __init__(self, threshold=-1.0, vertex_mode='vertex_points', 
+                 inplace=False, eps=0.6, primary_override_ke=None):
         """Specify the EM shower conversion distance threshold and
         the type of vertex to use for the distance calculation.
 
@@ -47,6 +51,12 @@ class ConversionDistanceProcessor(PostBase):
         
         self.threshold = threshold
         self.vertex_mode = vertex_mode
+        self.inplace = inplace
+        self.eps = eps
+        if primary_override_ke is None:
+            self.primary_override_ke = np.inf
+        else:
+            self.primary_override_ke = primary_override_ke
         
     def process(self, data):
         """Update reco interaction topologies using the conversion
@@ -65,19 +75,48 @@ class ConversionDistanceProcessor(PostBase):
         # Loop over the reco interactions
         for ia in data['reco_interactions']:
             criterion = -np.inf
+            criterion_alt = -np.inf
+            
+            leading_shower, energy = None, -np.inf
+            
             for p in ia.particles:
-                if (p.shape == 0 and p.pid == 1 and p.is_primary):
+                
+                if p.shape == SHOWR_SHP and p.ke > self.primary_override_ke:
+                    # Check if shower is touching vertex
+                    points = p.points
+                    dists = np.linalg.norm(points - ia.vertex, axis=1)
+                    if np.min(dists) < self.threshold:
+                        p.is_primary = True
+                        p.is_valid = True
+                
+                if (p.shape == SHOWR_SHP and p.is_primary):
+                    
                     if self.vertex_mode == 'protons':
                         criterion = self.convdist_protons(ia, p)
                     elif self.vertex_mode == 'vertex_points':
                         criterion = self.convdist_vertex_points(ia, p)
                     elif self.vertex_mode == 'vertex_startpoint':
                         criterion = self.convdist_vertex_startpoint(ia, p)
+                    # elif self.vertex_mode == 'vertex_relaxed':
                     else:
                         raise ValueError('Invalid point mode')
+                    
                     p.vertex_distance = criterion
-                    if criterion >= self.threshold:
-                        p.pid = PHOT_PID
+                    
+                    if p.ke > energy:
+                        leading_shower = p
+                        energy = p.ke
+                    
+                    if p.pid == ELEC_PID:
+                        
+                        if self.inplace:
+                            if criterion >= self.threshold:
+                                p.pid = PHOT_PID
+                            
+            if leading_shower is None:
+                ia.leading_shower_vertex_distance = -1.
+            else:
+                ia.leading_shower_vertex_distance = leading_shower.vertex_distance
             
     @staticmethod        
     def convdist_protons(ia, shower_p):
@@ -111,7 +150,7 @@ class ConversionDistanceProcessor(PostBase):
         return start_to_closest_proton
 
     @staticmethod
-    def convdist_vertex_points(ia, shower_p):
+    def convdist_vertex_points(ia, shower_p, mode='vertex'):
         """Helper function to compute the closest distance 
         between the vertex and all shower points. 
 
@@ -129,7 +168,7 @@ class ConversionDistanceProcessor(PostBase):
             Closest distance between the shower startpoint and proton points.
         """
         vertex_dist = -np.inf
-        vertex = ia.vertex
+        vertex = getattr(ia, mode)
         vertex_dist = cdist(vertex.reshape(1, -1), shower_p.points)
         vertex_dist = vertex_dist.min()
         return vertex_dist
@@ -157,137 +196,43 @@ class ConversionDistanceProcessor(PostBase):
         vertex_dist = np.linalg.norm(vertex - shower_p.start_point)
         return vertex_dist
     
-    
-class ShowerMultiArmCheck(PostBase):
-    """Check whether given primary electron candidate is likely
-    to be a merged multi-particle shower.
-    
-    This processor computes direction vectors of the shower points
-    from the shower start and performs DBSCAN clustering on the unit sphere
-    using the cosine distance metric. If there are more than one cluster that
-    has a mean direction vector outside a certain angular threshold, the
-    shower is considered to be a multi-arm shower and is rejected as 
-    a valid primary electron candidate.
-    
-    NOTE: This processor can only change reco electron shower pid to
-    photon pid depending on the angle threshold. 
-    """
-
-    # Name of the post-processor (as specified in the configuration)
-    name = 'shower_multi_arm_check'
-
-    # Alternative allowed names of the post-processor
-    aliases = ('shower_multi_arm',)
-    
-    def __init__(self, threshold=70, min_samples=20, eps=0.02):
-        """Specify the threshold for the number of arms of showers.
-
-        Parameters
-        ----------
-        threshold : float, default 70 (deg)
-            If the electron shower's leading and subleading angle are
-            separated by more than this, the shower is considered to be
-            invalid and its PID will be changed to PHOT_PID.
-        min_samples : int, default 20
-            The number of samples (or total weight) in a neighborhood 
-            for a point to be considered as a core point (DBSCAN).
-        eps : float, default 0.02
-            Maximum distance between two samples for one to be considered
-            as in the neighborhood of the other (DBSCAN).
-        """
-        super().__init__('interaction', 'reco')
-        
-        self.threshold = threshold
-        self.min_samples = min_samples
-        self.eps = eps
-        
-    def process(self, data):
-        """Update reco interaction topologies using the shower multi-arm check.
-
-        Parameters
-        ----------
-        data : dict
-            Dictionaries of data products
-        """
-        # Loop over the reco interactions
-        for ia in data['reco_interactions']:
-            # Loop over particles, select the ones that pass a threshold
-            for p in ia.particles:
-                if p.pid == ELEC_PID and p.is_primary and (p.shape == 0):
-                    angle = self.compute_angular_criterion(p, ia.vertex, 
-                                                     eps=self.eps, 
-                                                     min_samples=self.min_samples)
-                    p.shower_split_angle = angle
-                    if angle > self.threshold:
-                        p.pid = PHOT_PID
-                
     @staticmethod
-    def compute_angular_criterion(p, vertex, eps, min_samples):
-        """Compute the angular criterion for the given primary electron shower.
+    def convdist_relaxed(ia, shower_p, eps=0.6):
+        """Helper function to compute the path-connected distance from the
+        vertex to the closest shower point.
 
         Parameters
         ----------
-        p : RecoParticle
-            Primary electron shower to check for multi-arm.
-        vertex : np.ndarray
-            Vertex of the interaction with shape (3, )
-        eps : float
+        ia : RecoInteraction
+            Reco interaction to apply the conversion distance cut.
+        shower_p : RecoParticle
+            Member particle of the interaction, assumed to be the primary
+            electron/gamma shower.
+        eps : float, default 0.6
             Maximum distance between two samples for one to be considered
             as in the neighborhood of the other (DBSCAN).
-        min_samples : int
-            The number of samples (or total weight) in a neighborhood 
-            for a point to be considered as a core point (DBSCAN).
 
         Returns
         -------
-        max_angle : float
-            Maximum angle between the mean cluster direction vectors 
-            of the shower points (degrees)
+        _type_
+            _description_
         """
-        points = p.points
-        depositions = p.depositions
+        pts = np.vstack([p.points for p in ia.particles])
+        labels = np.hstack([np.ones(p.size) * p.id for p in ia.particles]).astype(int)
+        model = DBSCAN(eps=eps, min_samples=1).fit(pts)
+        clusts = model.labels_
 
-        # Draw vector from startpoint to all 
-        v = points - vertex
-        v_norm = np.linalg.norm(v, axis=1)
-        # If all vectors are zero, return 0
-        if (v_norm > 0).sum() == 0:
-            return 0
-        # Normalize the vectors
-        directions = v[v_norm > 0] / v_norm[v_norm > 0].reshape(-1, 1)
+        conversion_dist = np.inf
         
-        # Filter out points that give zero vectors
-        points = points[v_norm > 0]
-        depositions = depositions[v_norm > 0]
-        
-        # If there are no valid directions, return 0
-        if directions.shape[0] < 1:
-            return 0
-        
-        # Run DBSCAN clustering on the unit sphere
-        model = DBSCAN(eps=eps, 
-                       min_samples=min_samples, 
-                       metric='cosine').fit(directions)
-        clusts, counts = np.unique(model.labels_, return_counts=True)
-        perm = np.argsort(counts)[::-1]
-        clusts, counts = clusts[perm], counts[perm]
-        
-        vecs = []
-        for i, c in enumerate(clusts):
-            # Skip noise points that have cluster label -1
-            if c == -1: continue
-            # Compute the mean direction vector of the cluster
-            v = directions[model.labels_ == c].mean(axis=0)
-            vecs.append(v / np.linalg.norm(v))
-        if len(vecs) == 0:
-            return 0
-        vecs = np.vstack(vecs)
-        cos_dist = cosine_similarity(vecs)
-        # max_angle ranges from 0 (parallel) to 2 (antiparallel)
-        max_angle = np.clip((1.0 - cos_dist).max(), a_min=0, a_max=2)
-        max_angle_deg = np.rad2deg(np.arccos(1 - max_angle))
-        # counts = counts[1:]
-        return max_angle_deg
+        shower_clusts = clusts[labels == shower_p.id]
+        for c in np.unique(shower_clusts):
+            # print(c, (clusts == c).sum())
+            mask = (clusts == c)
+            dists = np.linalg.norm(pts[mask] - ia.vertex, axis=1)
+            sep = dists.min()
+            conversion_dist = min(sep, conversion_dist)
+
+        return conversion_dist
     
     
 class ShowerStartpointCorrectionProcessor(PostBase):
@@ -324,7 +269,6 @@ class ShowerStartpointCorrectionProcessor(PostBase):
         """
         # Loop over the reco interactions
         for ia in data['reco_interactions']:
-            vertex = ia.vertex
             for p in ia.particles:
                 if (p.shape == SHOWR_SHP) and (p.is_primary):
                     new_point = self.correct_shower_startpoint(p, ia)
@@ -334,7 +278,7 @@ class ShowerStartpointCorrectionProcessor(PostBase):
     @staticmethod                
     def correct_shower_startpoint(shower_p, ia):
         """Function to correct the shower startpoint by finding the closest
-        point to the vertex.
+        point to a track.
 
         Parameters
         ----------
@@ -360,3 +304,116 @@ class ShowerStartpointCorrectionProcessor(PostBase):
             return shower_p.start_point
         guess = shower_p.points[closest_idx[0]]
         return guess
+    
+    
+class MichelTaggingProcessor(PostBase):
+    
+    name = 'michel_tagging'
+    aliases = ('michel_tagging_processor',)
+    
+    def __init__(self, r=15.0, segment_length=2.0, method='bin_pca', 
+                 min_count=5, adj_threshold=1.0):
+        """Post-processor to tag Michel electrons by checking the Bragg peak
+        of the track adjacent to the shower startpoint.
+
+        Parameters
+        ----------
+        r : float, default 15.0
+            Distance of farthest track point to consider for bragg peak.
+        segment_length : float, default 2.0
+            Length of the track segment to consider for dedx calculation.
+        method : str, default 'bin_pca'
+            Method to use for dedx calculation.
+        min_count : int, default 5
+            Minimum number of points to consider for dedx calculation.
+        """
+        super().__init__('interaction', 'reco')
+        self.segment_length = segment_length
+        self.method = method
+        self.min_count = min_count
+        self.r = r
+        self.adj_threshold = adj_threshold
+        
+    def process(self, data):
+        """Compute the correlation of residual range vs. local dedx to use
+        as a feature for Michel electron tagging. 
+
+        Parameters
+        ----------
+        data : dict
+            Dictionaries of data products
+        """
+        # Loop over the reco interactions
+        for ia in data['reco_interactions']:
+            
+            for p in ia.particles:
+                
+                if p.pid == ELEC_PID and (p.shape == 0 or p.shape == 2):
+                    y, x = self.check_bragg_peak(p, ia, r=self.r, 
+                                                 adj_threshold=self.adj_threshold)
+                    if (len(x) > 2) and (len(x) == len(y)):
+                        bragg = pearsonr(x, y)[0]
+                        p.adjacent_bragg_pearsonr = bragg
+                    else:
+                        p.adjacent_bragg_pearsonr = -np.inf
+                
+            
+    def check_bragg_peak(self, shower_p, nu_reco, r, adj_threshold=1.0):
+        """Given a primary shower and a reco interaction, finds track points 
+        near the shower startpoint within radius r and computes the 
+        residual range and local dedx arrays for the track points. 
+        
+        The purpose of this module is to locate the Bragg peak of the track
+        that is adjacent to the shower startpoint.
+
+        Parameters
+        ----------
+        shower_p : RecoParticle
+            Primary shower to check for Bragg peak.
+        nu_reco : RecoInteraction
+            RecoInteraction that contains the shower.
+        r : float
+            Radius to search for track points near the shower startpoint.
+
+        Returns
+        -------
+        dedxs : np.ndarray
+            Array of dedx values for the track points near the shower startpoint.
+        rrs : np.ndarray
+            Array of residual ranges for the track points near the shower startpoint.
+        """
+
+        track_points = []
+        track_deps = []
+        for p in nu_reco.particles:
+            if p.shape == 1:
+                track_points.append(p.points)
+                track_deps.append(p.depositions)
+
+        if len(track_points) > 0:
+            track_points = np.vstack(track_points)
+            track_deps = np.hstack(track_deps)
+        else:
+            return np.array([]), np.array([])
+        
+        dists = np.linalg.norm(track_points - shower_p.start_point, axis=1)
+        if dists.min() > adj_threshold:
+            return np.array([]), np.array([])
+        
+        mask = dists < r
+        near_pts = track_points[mask]
+        near_dps = track_deps[mask]
+        
+        if len(near_pts) == 0:
+            return np.array([]), np.array([])
+
+        adj_pt = track_points[np.argmin(dists)]
+
+        dedxs, _, rrs, _, _, _ = get_track_segment_dedxs(near_pts, 
+            near_dps, 
+            adj_pt, 
+            segment_length=self.segment_length, 
+            method=self.method, 
+            min_count=self.min_count)
+
+        return dedxs, rrs

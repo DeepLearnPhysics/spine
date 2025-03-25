@@ -218,13 +218,30 @@ class RecoParticle(ParticleBase, RecoBase):
     shower_split_angle: float
         Estimate of the opening angle of the shower. If particle is not a
         shower, then this is set to -1. (units of degrees)
+    shower_spread: float
+        Estimate of the spread of the shower (roughly mean cosine 
+        from mean direction)
+    axial_pearsonr: float
+        Pearson correlation coefficient of the axial profile of the shower.
+    trunk_validity: float
+        Explained variance ratio of the trunk of the particle. 
+    shower_dedx: float
+        dE/dx of the shower in MeV/cm, using direction reconstruction. 
+    adjacent_bragg: float
+        A number that represents whether the shower has a adjacent track
+        with a Bragg peak.
     """
     pid_scores: np.ndarray = None
     primary_scores: np.ndarray = None
     ppn_ids: np.ndarray = None
     ppn_points: np.ndarray = None
     vertex_distance: float = -1.
-    shower_split_angle: float = -1.
+    split_angle: float = -1.
+    directional_spread: float = -1.
+    axial_spread: float = -np.inf
+    trunk_straightness: float = -1.
+    start_dedx: float = -1.
+    adjacent_bragg_pearsonr: float = -np.inf
 
     # Fixed-length attributes
     _fixed_length_attrs = (

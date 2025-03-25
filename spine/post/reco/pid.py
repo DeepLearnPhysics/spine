@@ -18,7 +18,7 @@ class PIDTemplateProcessor(PostBase):
     # Name of the post-processor (as specified in the configuration)
     name = 'pid_template'
 
-    def __init__(self, fill_per_pid=True, obj_type='particle', run_mode='reco',
+    def __init__(self, fill_per_pid=False, obj_type='particle', run_mode='reco',
                  truth_point_mode='points', truth_dep_mode='depositions',
                  **identifier):
         """Store the necessary attributes to do template-based PID prediction.
