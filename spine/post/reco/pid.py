@@ -19,7 +19,7 @@ class PIDTemplateProcessor(PostBase):
     name = 'pid_template'
 
     def __init__(self, fill_per_pid=False, obj_type='particle', run_mode='reco',
-                 truth_point_mode='points', truth_dep_mode='depositions', inplace=False,
+                 truth_point_mode='points', truth_dep_mode='depositions',
                  **identifier):
         """Store the necessary attributes to do template-based PID prediction.
 
@@ -38,7 +38,6 @@ class PIDTemplateProcessor(PostBase):
 
         # Initialize the underlying template-fitter class
         self.identifier = TemplateParticleIdentifier(**identifier)
-        self.inplace = inplace
 
     def process(self, data):
         """Reconstruct the CSDA KE estimates for each particle in one entry.

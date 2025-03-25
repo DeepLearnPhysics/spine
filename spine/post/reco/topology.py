@@ -124,7 +124,7 @@ class ParticledEdXProcessor(PostBase):
                     
                 if p.is_primary:
                     
-                    if self.mode == 'legacy':
+                    if self.mode == 'default':
                         dedx = cluster_dedx(p.points, p.depositions, p.start_point, max_dist=self.max_dist)
                     elif self.mode == 'dbscan':
                         dedx = cluster_dedx_DBScan_PCA(p.points, p.depositions, p.start_point, 
@@ -277,7 +277,7 @@ class ParticleTrunkStraightnessProcessor(PostBase):
     name = 'particle_trunk_strightness'
     aliases = ('particle_trunk_processor',)
     
-    def __init__(self, threshold, inplace=True):
+    def __init__(self, threshold=0.0, r=3.0, n_components=3, inplace=False):
         """Specify the EM shower spread thresholds.
 
         Parameters
@@ -290,6 +290,8 @@ class ParticleTrunkStraightnessProcessor(PostBase):
         """
         super().__init__('interaction', 'reco')
         self.threshold = threshold
+        self.r = r
+        self.n_components = n_components
         self.inplace = inplace
         
     def process(self, data):
@@ -308,7 +310,8 @@ class ParticleTrunkStraightnessProcessor(PostBase):
                 if p.is_primary:
                     
                     p.trunk_straightness = compute_trunk_straightness(p,
-                                                                    r=self.threshold)
+                                                                      r=self.r,
+                                                                      n_components=self.n_components)
                         
                     if self.inplace:
                         if p.trunk_straightness < self.threshold:
