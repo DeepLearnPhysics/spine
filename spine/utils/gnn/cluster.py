@@ -1139,48 +1139,6 @@ def cluster_dedx(voxels: nb.float64[:,:],
     return np.sum(values)/np.max(dist_mat)
 
 
-#@nb.njit(cache=True)
-def cluster_dedx_legacy(voxels,
-                 values,
-                 start,
-                        max_dist=3, simple=False):
-    # when simple is set to True, return one dedx value, nothing else.
-    # If max_dist is set, limit the set of voxels to those within a sphere of radius max_dist                                                                                     
-    assert voxels.shape[1] == 3, (
-            "The shape of the input is not compatible with voxel coordinates.")
-
-    # If start point is not in voxels, assign the closest point within voxels                                                                                                                                                                                         
-    # as the startpoint        
-    if not np.isclose(start, voxels, atol=1e-2).all(axis=1).any():
-        #print("not in vox")
-        dists = np.linalg.norm(voxels - start, axis=1)
-        perm = np.argsort(dists)
-        start = voxels[perm[0]]
-        
-    dist_mat = cdist(start.reshape(1,-1), voxels).flatten()
-    if max_dist > 0:
-        voxels = voxels[dist_mat <= max_dist]
-        if len(voxels) < 2:
-            if simple:
-                return -1
-            return 0., 0., 0.
-        values = values[dist_mat <= max_dist]
-        dist_mat = dist_mat[dist_mat <= max_dist]
-
-    if np.max(dist_mat) == 0.:
-        if simple:
-            return -1
-        return 0., 0., 0.
-
-        # Calculate sum of values
-    sum_values = float(np.sum(values))
-    
-    # Calculate max distance
-    max_distance = np.max(dist_mat)
-    if simple:
-        return sum_values/max_distance
-    return sum_values, max_distance, len(dist_mat)
-
 def cluster_dedx_DBScan_PCA(voxels,
                  values,
                  start,
