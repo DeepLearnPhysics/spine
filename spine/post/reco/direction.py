@@ -26,7 +26,7 @@ class DirectionProcessor(PostBase):
     def __init__(self, neighborhood_radius=-1, optimize=True,
                  obj_type='particle', truth_point_mode='points',
                  run_mode='both'):
-        """Store the particle direction recosntruction parameters.
+        """Store the particle direction reconstruction parameters.
 
         Parameters
         ----------

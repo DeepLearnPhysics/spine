@@ -212,36 +212,28 @@ class RecoParticle(ParticleBase, RecoBase):
         (M) List of indexes of PPN points associated with this particle
     ppn_points : np.ndarray
         (M, 3) List of PPN points tagged to this particle
-    vertex_distance: float
+    vertex_distance : float
         Set-to-point distance between all particle points and the parent
-        interaction vertex. (untis of cm)
-    shower_split_angle: float
-        Estimate of the opening angle of the shower. If particle is not a
-        shower, then this is set to -1. (units of degrees)
-    shower_spread: float
-        Estimate of the spread of the shower (roughly mean cosine 
-        from mean direction)
-    axial_pearsonr: float
-        Pearson correlation coefficient of the axial profile of the shower.
-    trunk_validity: float
-        Explained variance ratio of the trunk of the particle. 
-    shower_dedx: float
-        dE/dx of the shower in MeV/cm, using direction reconstruction. 
-    adjacent_bragg: float
-        A number that represents whether the shower has a adjacent track
-        with a Bragg peak.
+        interaction vertex position in cm
+    start_dedx : float
+        dE/dx around a user-defined neighborhood of the start point in MeV/cm
+    start_straightness : float
+        Explained variance ratio of the beginning of the particle
+    directional_spread : float
+        Estimate of the angular spread of the particle (cosine spread)
+    axial_spread : float
+        Pearson correlation coefficient of the axial profile of the particle
+        w.r.t. to the distance from its start point
     """
     pid_scores: np.ndarray = None
     primary_scores: np.ndarray = None
     ppn_ids: np.ndarray = None
     ppn_points: np.ndarray = None
     vertex_distance: float = -1.
-    split_angle: float = -1.
+    start_dedx: float = -1.
+    start_straightness: float = -1.
     directional_spread: float = -1.
     axial_spread: float = -np.inf
-    trunk_straightness: float = -1.
-    start_dedx: float = -1.
-    adjacent_bragg_pearsonr: float = -np.inf
 
     # Fixed-length attributes
     _fixed_length_attrs = (
@@ -404,12 +396,12 @@ class RecoParticle(ParticleBase, RecoBase):
     def reco_ke(self):
         """Alias for `ke`, to match nomenclature in truth."""
         return self.ke
-    
+
     @property
     def reco_momentum(self):
         """Alias for `momentum`, to match nomenclature in truth."""
         return self.momentum
-    
+
     @property
     def reco_length(self):
         """Alias for `length`, to match nomenclature in truth."""
@@ -419,7 +411,7 @@ class RecoParticle(ParticleBase, RecoBase):
     def reco_start_dir(self):
         """Alias for `start_dir`, to match nomenclature in truth."""
         return self.start_dir
-    
+
     @property
     def reco_end_dir(self):
         """Alias for `end_dir`, to match nomenclature in truth."""

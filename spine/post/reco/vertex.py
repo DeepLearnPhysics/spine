@@ -3,7 +3,7 @@
 import numpy as np
 
 from spine.utils.globals import SHOWR_SHP, TRACK_SHP
-from spine.utils.vertex import get_vertex, get_vertex_alt
+from spine.utils.vertex import get_vertex
 
 from spine.post.base import PostBase
 
@@ -23,7 +23,7 @@ class VertexProcessor(PostBase):
                  use_primaries=True, update_primaries=False,
                  anchor_vertex=True, touching_threshold=2.0,
                  angle_threshold=0.3, run_mode='both',
-                 truth_point_mode='points', vertexing_mode='default'):
+                 truth_point_mode='points'):
         """Initialize the vertex finder properties.
 
         Parameters
@@ -42,8 +42,6 @@ class VertexProcessor(PostBase):
         angle_threshold : float, default 0.3 radians
             Maximum angle between the vertex-to-start-point vector and a shower
             direction to consider that a shower originated from the vertex
-        vertexing_mode: str, default 'default'
-            Vertexing mode to use (default, alternative)
         """
         # Initialize the parent class
         super().__init__('interaction', run_mode, truth_point_mode)
@@ -55,7 +53,6 @@ class VertexProcessor(PostBase):
         self.anchor_vertex = anchor_vertex
         self.touching_threshold = touching_threshold
         self.angle_threshold = angle_threshold
-        self.vertexing_mode = vertexing_mode
 
     def process(self, data):
         """Reconstruct the vertex position for each interaction in one entry.
@@ -100,15 +97,10 @@ class VertexProcessor(PostBase):
             shapes       = np.array([part.shape for part in particles])
 
             # Reconstruct the vertex for this interaction
-            if self.vertexing_mode == 'default':
-                vtx, _ = get_vertex(
-                    start_points, end_points, directions, shapes,
-                    self.anchor_vertex, self.touching_threshold, return_mode=True)
-            elif self.vertexing_mode == 'alternative':
-                vtx = get_vertex_alt(inter, r=self.touching_threshold,
-                                     default_vertex=None)
-            else:
-                raise ValueError(f'Unknown vertexing mode: {self.vertexing_mode}')
+            vtx, _ = get_vertex(
+                start_points, end_points, directions, shapes,
+                self.anchor_vertex, self.touching_threshold, return_mode=True)
+
             # Assign it to the appropriate interaction attribute
             if not inter.is_truth:
                 inter.vertex = vtx

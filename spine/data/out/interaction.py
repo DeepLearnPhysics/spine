@@ -6,7 +6,7 @@ from warnings import warn
 
 import numpy as np
 
-from spine.utils.globals import PID_LABELS, PID_TAGS
+from spine.utils.globals import SHOWR_SHP, PID_LABELS, PID_TAGS
 from spine.utils.decorators import inherit_docstring
 
 from spine.data.neutrino import Neutrino
@@ -278,15 +278,27 @@ class InteractionBase:
 @dataclass(eq=False)
 @inherit_docstring(RecoBase, InteractionBase)
 class RecoInteraction(InteractionBase, RecoBase):
-    """Reconstructed interaction information."""
-    
-    leading_shower_vertex_distance: float = -1.
-    leading_shower_axial_spread: float = None
-    leading_shower_directional_spread: float = None
+    """Reconstructed interaction information.
+
+    Attributes
+    ----------
+    leading_shower_dedx : float
+        dE/dx around the start point of the leading shower in MeV/cm
+    leading_shower_start_straightness : float
+        Explained variance ration of the beginning of the leading shower
+    leading_shower_directional_spread : float
+        Estimate of the angular spread of the leading shower (cosine spread)
+    leading_shower_axial_spread : float
+        Pearson correlation coefficient of the axial profile of the leading
+        shower w.r.t. to the distance from its start point
+    leading_shower_vertex_distance : float
+        Distance between the interaction vertex and the leading shower
+    """
     leading_shower_start_dedx: float = None
-    leading_shower_trunk_straightness: float = None
-    leading_shower_adjacent_bragg_pearsonr: float = None
-    leading_shower_split_angle: float = None
+    leading_shower_start_straightness: float = None
+    leading_shower_directional_spread: float = None
+    leading_shower_axial_spread: float = None
+    leading_shower_vertex_distance: float = None
 
     # Attributes that must never be stored to file
     _skip_attrs = (
@@ -315,29 +327,29 @@ class RecoInteraction(InteractionBase, RecoBase):
             Basic information about the interaction properties
         """
         return 'Reco' + super().__str__()
-    
-    
+
     @property
     def leading_shower(self):
-        """Leading shower of this interaction
+        """Leading primary shower of this interaction.
 
         Returns
         -------
         RecoParticle
-            Primary shower with the highest reco kinetic energy.
+            Primary shower with the highest kinetic energy
         """
-        showers = [part for part in self.primary_particles if part.shape == 0]
+        showers = [part for part in self.primary_particles if part.shape == SHOWR_SHP]
         if len(showers) == 0:
             return None
+
         return max(showers, key=lambda x: x.ke)
-    
+
     @leading_shower.setter
     def leading_shower(self, leading_shower):
         pass
-    
+
     @property
     def leading_shower_start_dedx(self):
-        """Leading shower dE/dx
+        """Leading primary shower start dE/dx.
 
         Returns
         -------
@@ -347,18 +359,36 @@ class RecoInteraction(InteractionBase, RecoBase):
         leading_shower = self.leading_shower
         if leading_shower is None:
             return -1.
+
         return leading_shower.start_dedx
-    
+
     @leading_shower_start_dedx.setter
     def leading_shower_start_dedx(self, leading_shower_start_dedx):
         pass
-    
+
+    @property
+    def leading_shower_start_straightness(self):
+        """Measure of how straight the start of the leading shower is.
+
+        Returns
+        -------
+        float
+            Measure of shower start straightness (between 0 and 1)
+        """
+        leading_shower = self.leading_shower
+        if leading_shower is None:
+            return -1.
+
+        return leading_shower.start_straightness
+
+    @leading_shower_start_straightness.setter
+    def leading_shower_start_straightness(self, leading_shower_start_straightness):
+        pass
+
     @property
     def leading_shower_directional_spread(self):
-        """Distance-weighted mean cosine distance from mean direction 
+        """Distance-weighted mean cosine distance from mean direction
         of the leading shower.
-        
-        See ShowerSpreadProcessor under post/reco/shower.py for more details.
 
         Returns
         -------
@@ -368,92 +398,53 @@ class RecoInteraction(InteractionBase, RecoBase):
         leading_shower = self.leading_shower
         if leading_shower is None:
             return -1.
+
         return leading_shower.directional_spread
-    
+
     @leading_shower_directional_spread.setter
     def leading_shower_directional_spread(self, leading_shower_directional_spread):
         pass
-    
+
     @property
     def leading_shower_axial_spread(self):
-        """Pearson R correlation coefficient between the distance from 
-        shower start to a shower point (x) and the perpendicular distance
-        from the shower point to the shower axis. 
+        """Pearson R correlation coefficient between the distance from
+        the primary leading shower start to a shower point (x) and the
+        perpendicular distance from the shower point to the shower axis (y).
 
         Returns
         -------
-        coeff
+        float
             Measure of shower axial spread
         """
         leading_shower = self.leading_shower
         if leading_shower is None:
             return -np.inf
+
         return leading_shower.axial_spread
-    
+
     @leading_shower_axial_spread.setter
     def leading_shower_axial_spread(self, leading_shower_axial_spread):
         pass
-    
+
     @property
-    def leading_shower_trunk_straightness(self):
-        """Measure of how straight the trunk of the leading shower is.
+    def leading_shower_vertex_distance(self):
+        """Leading primary shower vertex distance.
 
         Returns
         -------
         float
-            Measure of shower trunk straightness (between 0 and 1)
+            Vertex distance of the leading shower
         """
         leading_shower = self.leading_shower
         if leading_shower is None:
             return -1.
-        return leading_shower.trunk_straightness
-    
-    @leading_shower_trunk_straightness.setter
-    def leading_shower_trunk_straightness(self, leading_shower_trunk_straightness):
-        pass
-    
-    @property
-    def leading_shower_adjacent_bragg_pearsonr(self):
-        """Pearson R correlation coefficient between:
-        x: distance from shower start to a point on a track adjacent to the
-        shower. 
-        y: the local dedx value at that point.
-        
-        If this value is strongly negative (close to -1), it suggests that 
-        the shower is likely to be adjacent to a bragg peak. 
 
-        Returns
-        -------
-        float
-            Measure of how likely the leading shower is adjacent 
-            to a bragg peak (between -1 and 1)
-        """
-        leading_shower = self.leading_shower
-        if leading_shower is None:
-            return -np.inf
-        return leading_shower.adjacent_bragg_pearsonr
-    
-    @leading_shower_adjacent_bragg_pearsonr.setter
-    def leading_shower_adjacent_bragg_pearsonr(self, leading_shower_adjacent_bragg_pearsonr):
-        pass
-    
-    @property
-    def leading_shower_split_angle(self):
-        """Angle between the two branches of the leading shower.
+        return leading_shower.vertex_distance
 
-        Returns
-        -------
-        float
-            Angle between the two branches of the leading shower
-        """
-        leading_shower = self.leading_shower
-        if leading_shower is None:
-            return -1.
-        return leading_shower.split_angle
-    
-    @leading_shower_split_angle.setter
-    def leading_shower_split_angle(self, leading_shower_split_angle):
+    @leading_shower_vertex_distance.setter
+    def leading_shower_vertex_distance(self, leading_shower_vertex_distance):
         pass
+
 
 @dataclass(eq=False)
 @inherit_docstring(TruthBase, InteractionBase)

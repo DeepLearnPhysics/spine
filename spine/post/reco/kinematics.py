@@ -1,15 +1,16 @@
+"""Kinematics update module."""
+
 import numpy as np
 
 from spine.utils.globals import (
-        SHOWR_SHP, TRACK_SHP, MICHL_SHP, MUON_PID, PION_PID, PID_MASSES, SHP_TO_PID, SHP_TO_PRIMARY)
+        SHOWR_SHP, TRACK_SHP, MICHL_SHP, MUON_PID, PION_PID, PID_MASSES,
+        SHP_TO_PID, SHP_TO_PRIMARY)
 
 from spine.post.base import PostBase
 
 __all__ = ['ParticleShapeLogicProcessor', 'ParticleThresholdProcessor',
            'ParticleNeutrinoLogicProcessor', 'InteractionTopologyProcessor']
 
-
-from collections import OrderedDict
 
 class ParticleShapeLogicProcessor(PostBase):
     """Enforce logical connections between semantic predictions and
@@ -27,7 +28,7 @@ class ParticleShapeLogicProcessor(PostBase):
     # Alternative allowed names of the post-processor
     aliases = ('enforce_particle_semantics',)
 
-    def __init__(self, enforce_pid=True, enforce_primary=True, 
+    def __init__(self, enforce_pid=True, enforce_primary=True,
                  maximum_michel_ke=np.inf):
         """Store information about which particle properties should
         or should not be updated.
@@ -38,6 +39,9 @@ class ParticleShapeLogicProcessor(PostBase):
             Enforce the PID prediction based on the semantic type
         enforce_primary : bool, default True
             Enforce the primary prediction based on the semantic type
+        maximum_michel_ke : float, np.inf
+            If provided, the processor will not enforce secondary status
+            for reconstructed Michel electrons above a certain kinetic energy
         """
         # Intialize the parent class
         super().__init__('particle', 'reco')
@@ -57,7 +61,11 @@ class ParticleShapeLogicProcessor(PostBase):
         """
         # Loop over the particle objects
         for part in data['reco_particles']:
-            # Reset the PID scores
+            # If the particle is a Michel with too high a KE, override to shower
+            if part.shape == MICHL_SHP and part.ke > self.maximum_michel_ke:
+                part.shape = SHOWR_SHP
+
+            # Reset the PID scores based on shape
             if self.enforce_pid:
                 pid_range = SHP_TO_PID[part.shape]
                 pid_range = pid_range[pid_range < len(part.pid_scores)]
@@ -69,15 +77,8 @@ class ParticleShapeLogicProcessor(PostBase):
                 part.pid_scores = pid_scores
                 part.pid = np.argmax(pid_scores)
 
-            # Reset the primary scores
+            # Reset the primary scores based on shape
             if self.enforce_primary:
-                
-                # If michel electrons exceeds the energy threshold, 
-                # determine if it is primary or secondary using the score. 
-                if part.shape == MICHL_SHP and part.ke > self.maximum_michel_ke:
-                    part.is_primary = bool(np.argmax(part.primary_scores))
-                    part.shape = SHOWR_SHP  # Change the shape to a shower
-                
                 primary_range = SHP_TO_PRIMARY[part.shape]
 
                 primary_scores = np.zeros(
@@ -271,14 +272,13 @@ class InteractionTopologyProcessor(PostBase):
     aliases = ('adjust_interaction_topology',)
 
     def __init__(self, ke_thresholds=None, reco_ke_mode='ke',
-                 truth_ke_mode='energy_deposit', run_mode='both',
-                 reco_ke_thresholds=None, truth_ke_thresholds=None):
+                 truth_ke_mode='energy_deposit', run_mode='both'):
         """Store the new thresholds to be used to update interaction topologies.
 
         Parameters
         ----------
         ke_thresholds : Union[float, dict]
-            If a scalr, it specifies a blanket KE cut to apply to all
+            If a scalar, it specifies a blanket KE cut to apply to all
             particles. If it is a dictionary, it maps an PID to a KE threshold.
             If a 'default' key is provided, it is used for all particles,
             unless a number is provided for a specific PID.
@@ -297,39 +297,15 @@ class InteractionTopologyProcessor(PostBase):
         # Store the thresholds in a dictionary
         if np.isscalar(ke_thresholds):
             ke_thresholds = {'default': float(ke_thresholds)}
-            
-        if reco_ke_thresholds is None and truth_ke_thresholds is None:
-            
-            self.reco_ke_thresholds = None
-            self.truth_ke_thresholds = None
-            
-            self.ke_thresholds = {}
-            for pid in PID_MASSES.keys():
-                if pid in ke_thresholds:
-                    self.ke_thresholds[pid] = ke_thresholds[pid]
-                elif 'default' in ke_thresholds:
-                    self.ke_thresholds[pid] = ke_thresholds['default']
-                else:
-                    self.ke_thresholds[pid] = 0.
-        else:
-            assert reco_ke_thresholds is not None and truth_ke_thresholds is not None, (
-                    "Must specify both reco and truth KE thresholds.")
-            
-            self.reco_ke_thresholds = {}
-            self.truth_ke_thresholds = {}
-            
-            for pid in PID_MASSES.keys():
-                if pid in reco_ke_thresholds:
-                    self.reco_ke_thresholds[pid] = reco_ke_thresholds[pid]
-                if pid in truth_ke_thresholds:
-                    self.truth_ke_thresholds[pid] = truth_ke_thresholds[pid]
-                elif 'default' in reco_ke_thresholds:
-                    self.reco_ke_thresholds[pid] = reco_ke_thresholds['default']
-                    self.truth_ke_thresholds[pid] = truth_ke_thresholds['default']
-                else:
-                    self.reco_ke_thresholds[pid] = 0.
-                    self.truth_ke_thresholds[pid] = 0.
 
+        self.ke_thresholds = {}
+        for pid in PID_MASSES.keys():
+            if pid in ke_thresholds:
+                self.ke_thresholds[pid] = ke_thresholds[pid]
+            elif 'default' in ke_thresholds:
+                self.ke_thresholds[pid] = ke_thresholds['default']
+            else:
+                self.ke_thresholds[pid] = 0.
 
     def process(self, data):
         """Update each interaction topology in one interaction.
@@ -347,33 +323,14 @@ class InteractionTopologyProcessor(PostBase):
             else:
                 ke_attr = self.truth_ke_mode
 
-            if (self.reco_ke_thresholds is None) and (self.truth_ke_thresholds is None):
-                # Loop over interactions
-                for inter in data[k]:
-                    # Loop over particles, select the ones that pass a threshold
-                    for part in inter.particles:
-                        ke = getattr(part, ke_attr)
-                        if ke_attr == 'energy_init' and part.pid > -1:
-                            ke -= PID_MASSES[part.pid]
-                        if part.pid > -1 and ke < self.ke_thresholds[part.pid]:
-                            part.is_valid = False
-                        else:
-                            part.is_valid = True
-            else:
-                # Loop over interactions
-                for inter in data[k]:
-                    # Loop over particles, select the ones that pass a threshold
-                    for part in inter.particles:
-                        ke = getattr(part, ke_attr)
-                        if ke_attr == 'energy_init' and part.pid > -1:
-                            ke -= PID_MASSES[part.pid]
-                        if k == 'reco_interactions':
-                            if part.pid > -1 and ke < self.reco_ke_thresholds[part.pid]:
-                                part.is_valid = False
-                            else:
-                                part.is_valid = True
-                        if k == 'truth_interactions':
-                            if part.pid > -1 and ke < self.truth_ke_thresholds[part.pid]:
-                                part.is_valid = False
-                            else:
-                                part.is_valid = True
+            # Loop over interactions
+            for inter in data[k]:
+                # Loop over particles, select the ones that pass a threshold
+                for part in inter.particles:
+                    ke = getattr(part, ke_attr)
+                    if ke_attr == 'energy_init' and part.pid > -1:
+                        ke -= PID_MASSES[part.pid]
+                    if part.pid > -1 and ke < self.ke_thresholds[part.pid]:
+                        part.is_valid = False
+                    else:
+                        part.is_valid = True

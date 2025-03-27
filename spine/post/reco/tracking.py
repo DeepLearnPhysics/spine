@@ -269,7 +269,7 @@ def merge_track_to_shower(p1, p2):
 
     # Select track startpoint as new startpoint
     p1.start_point = np.copy(p2.start_point)
-    p1.calo_ke = p1.calo_ke + p2.ke
+    p1.calo_ke = p1.calo_ke + p2.calo_ke
 
     # If one of the two particles is a primary, the new one is
     p1.is_primary = max(p1.is_primary, p2.is_primary)
