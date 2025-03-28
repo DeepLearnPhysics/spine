@@ -5,10 +5,13 @@ from scipy.stats import pearsonr
 
 from spine.utils.globals import SHOWR_SHP, TRACK_SHP, PROT_PID, PION_PID
 from spine.utils.numba_local import cdist
+from spine.utils.gnn.cluster import cluster_direction, cluster_dedx
+
+from spine.data import ObjectList, RecoParticle
 
 from spine.post.base import PostBase
 
-__all__ = ['ShowerConversionDistanceProcessor',
+__all__ = ['ShowerConversionDistanceProcessor', 'ShowerStartMergeProcessor',
            'ShowerStartCorrectionProcessor']
 
 
@@ -159,18 +162,165 @@ class ShowerConversionDistanceProcessor(PostBase):
         return dists.min()
 
 
+class ShowerStartMergeProcessor(PostBase):
+    """Merge shower start if it was classified as track points.
+
+    This post-processor is used to patch upstream semantic segmentation mistakes
+    where part of the shower trunk is assigned to track points and subsequantly
+    classified as a separate particle.
+    """
+
+    # Name of the post-processor (as specified in the configuration)
+    name = 'shower_start_merge'
+
+    def __init__(self, angle_threshold=10.0, distance_threshold=1.0,
+                 track_length_limit=50, track_dedx_limit=None, **kwargs):
+        """Store the shower start merging parameters.
+
+        Parameters
+        ----------
+        angle_threshold : float, default 10.0
+            Track and shower angular agreement threshold to be merged (degrees)
+        distance_threshold : float, default 1.0
+            Track and shower distance threshold to be merged (cm)
+        track_length_limit : int, default 50
+            Maximum track length allowed to mitigate merging legitimate tracks
+        track_dedx_limit : float, optional
+            Maximum track dE/dx allowed to mitigate proton merging (MeV/cm)
+        """
+        # Initialize the parent class
+        super().__init__('interaction', 'reco')
+
+        # Store the shower start merging parameters
+        self.angle_threshold = abs(np.cos(np.radians(angle_threshold)))
+        self.distance_threshold = distance_threshold
+        self.track_length_limit = track_length_limit
+        self.track_dedx_limit = track_dedx_limit
+
+    def process(self, data):
+        """Merge split shower starts for all particles in one entry.
+
+        Parameters
+        ----------
+        data : dict
+            Dictionary of data products
+
+        Returns
+        -------
+        List[RecoParticle]
+            Updated set of particles (interactions modified in place)
+        """
+        # Loop over the reco interactions
+        particles = ObjectList([], default=RecoParticle())
+        offset = 0
+        for inter in data['reco_interactions']:
+            # Fetch the leading shower in the interaction, skip if None
+            shower = inter.leading_shower
+            if shower is None:
+                for part in inter.particles:
+                    part.id = offset
+                    offset += 1
+
+                particles.extend(inter.particles)
+                inter.particle_ids = np.array(
+                        [part.id for part in inter.particles])
+                continue
+
+            # Merge tracks which fit the criteria into the leading shower
+            merge_ids = []
+            for part in inter.particles:
+                # Only check mergeability of primary tracks
+                if part.shape == TRACK_SHP and part.is_primary:
+                    if self.check_merge(shower, part):
+                        shower.merge(part)
+                        merge_ids.append(part.id)
+
+            # Update the particle list of the interaction
+            new_particles = []
+            for part in inter.particles:
+                if part.id not in merge_ids:
+                    part.id = offset
+                    new_particles.append(part)
+                    offset += 1
+
+            particles.extend(new_particles)
+            inter.particles = new_particles
+            inter.particle_ids = np.array(
+                    [part.id for part in new_particles])
+
+        return {'reco_particles': particles}
+
+    def check_merge(self, shower, track):
+        """Check if a shower and a track can be merged.
+
+        Parameters
+        ----------
+        shower : RecoParticle
+            Shower particle to merge the track into
+        track : RecoParticle
+            Track particle that may be merged into the shower
+
+        Returns
+        -------
+        bool
+            Whether the track can be merged into the shower or not
+        """
+        # Check if the track is not too long to be merged
+        if track.length > self.track_length_limit:
+            return False
+
+        # Check that the track dE/dx is not too large to be merged
+        if self.track_dedx_limit is not None:
+            dedx = cluster_dedx(
+                    track.points, track.depositions, track.start_point)
+            if dedx > self.track_dedx_limit:
+                return False
+
+        # Check that the angular agreement between particles is sufficient
+        angular_sep = abs(np.sum(track.start_dir * shower.start_dir))
+        if angular_sep < self.angle_threshold:
+            return False
+
+        # Check that the distance between particles is not too large
+        dist = cdist(shower.points, track.points).min()
+        if dist > self.distance_threshold:
+            return False
+
+        # If all checks passed, return True
+        return True
+
+
 class ShowerStartCorrectionProcessor(PostBase):
     """Correct the start point of primary EM showers by finding the closest
     point to the vertex.
+
+    This post-processor is used to patch upstream point proposal mistakes
+    where the shower start point is not placed correctly.
     """
 
     # Name of the post-processor (as specified in the configuration)
     name = 'shower_start_correction'
 
-    def __init__(self):
-        """Store the shower start corrector parameters."""
+    def __init__(self, update_directions=True, radius=-1, optimize=True):
+        """Store the shower start corrector parameters.
+
+        Parameters
+        ----------
+        update_directions : bool, default True
+            If `True`, the direction of showers for which the start point
+            has been updated are recomputed with the updated start point
+        radius : float, default -1
+            Radius around the start voxel to include in the direction estimate
+        optimize : bool, default True
+            Optimize the number of points involved in the direction estimate
+        """
         # Initialize the parent class
         super().__init__('interaction', 'reco')
+
+        # Store start corrector parameters
+        self.update_directions = update_directions
+        self.radius = radius
+        self.optimize = optimize
 
     def process(self, data):
         """Update the shower start point using the closest point to the vertex.
@@ -188,8 +338,18 @@ class ShowerStartCorrectionProcessor(PostBase):
                 if part.shape != SHOWR_SHP or not part.is_primary:
                     continue
 
-                # Override the start point attribute of the particle
-                part.start_point = self.correct_shower_start(inter, part)
+                # Find the new start point of a shower
+                new_start = self.correct_shower_start(inter, part)
+                
+                # If requested and needed, update the shower direction
+                if (self.update_directions and 
+                    (new_start != part.start_point).any()):
+                    part.start_dir = cluster_direction(
+                            part.points, new_start, max_dist=self.radius,
+                            optimize=self.optimize)
+
+                # Store the new start position
+                part.start_point = new_start
 
     @staticmethod
     def correct_shower_start(inter, shower):

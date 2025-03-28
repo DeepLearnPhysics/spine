@@ -7,7 +7,7 @@ import numpy as np
 from scipy.spatial.distance import cdist
 
 from spine.utils.globals import (
-        TRACK_SHP, SHAPE_LABELS, PID_LABELS, PID_MASSES, PID_TO_PDG)
+        SHOWR_SHP, TRACK_SHP, SHAPE_LABELS, PID_LABELS, PID_MASSES, PID_TO_PDG)
 from spine.utils.decorators import inherit_docstring
 
 from spine.data.particle import Particle
@@ -274,19 +274,34 @@ class RecoParticle(ParticleBase, RecoBase):
     def merge(self, other):
         """Merge another particle instance into this one.
 
-        This method can only merge two track objects with well defined start
-        and end points.
+        The merging strategy differs depending on the the particle shapes
+        merged together. There are two categories:
+        - Track + track
+          - The start/end points are produced by finding the combination of points
+            which are farthest away from each other (one from each constituent)
+          - The primary scores/primary status match that of the constituent
+            particle with the highest primary score
+          - The PID scores/PID value match that of the constituent particle with
+            the highest primary score
+        - Shower + Track
+          - The track is always merged into the shower, not the other way around
+          - The start point of the shower is updated to be the track end point
+          further away from the current shower start point
+          - The primary scores/primary status match that of the constituent
+            particle with the highest primary score
+          - The PID scores/PID value is kept unchanged (that of the shower)
 
         Parameters
         ----------
         other : RecoParticle
             Other reconstructed particle to merge into this one
         """
-        # Check that both particles being merged are tracks
-        assert self.shape == TRACK_SHP and other.shape == TRACK_SHP, (
-                "Can only merge two track particles.")
+        # Check that the particles being merged fit one of two categories
+        assert (self.shape in (SHOWR_SHP, TRACK_SHP) and
+                other.shape == TRACK_SHP), (
+                "Can only merge two track particles or a track into a shower.")
 
-        # Check that neither particle has yet been matches
+        # Check that neither particle has yet been matched
         assert not self.is_matched and not other.is_matched, (
                 "Cannot merge particles that already have matches.")
 
@@ -296,27 +311,40 @@ class RecoParticle(ParticleBase, RecoBase):
             setattr(self, attr, val)
 
         # Select end points and end directions appropriately
-        points_i = np.vstack([self.start_point, self.end_point])
-        points_j = np.vstack([other.start_point, other.end_point])
-        dirs_i = np.vstack([self.start_dir, self.end_dir])
-        dirs_j = np.vstack([other.start_dir, other.end_dir])
+        if other.shape == TRACK_SHP:
+            # If two tracks, pick points furthest apart
+            points_i = np.vstack([self.start_point, self.end_point])
+            points_j = np.vstack([other.start_point, other.end_point])
+            dirs_i = np.vstack([self.start_dir, self.end_dir])
+            dirs_j = np.vstack([other.start_dir, other.end_dir])
 
-        dists = cdist(points_i, points_j)
-        max_index = np.argmax(dists)
-        max_i, max_j = max_index//2, max_index%2
+            dists = cdist(points_i, points_j)
+            max_index = np.argmax(dists)
+            max_i, max_j = max_index//2, max_index%2
 
-        self.start_point = points_i[max_i]
-        self.end_point = points_j[max_j]
-        self.start_dir = dirs_i[max_i]
-        self.end_dir = dirs_j[max_j]
+            self.start_point = points_i[max_i]
+            self.end_point = points_j[max_j]
+            self.start_dir = dirs_i[max_i]
+            self.end_dir = dirs_j[max_j]
+        else:
+            # If a shower and a track, pick track point furthest from shower
+            points_i = self.start_point.reshape(-1, 3)
+            points_j = np.vstack([other.start_point, other.end_point])
+            dirs_j = np.vstack([other.start_dir, other.end_dir])
 
-        # If one of the two particles is a primary, the new one is
+            dists = cdist(points_i, points_j)
+            max_j = np.argmax(dists)
+
+            self.start_point = points_j[max_j]
+            self.start_dir = dirs_j[max_j]
+
+        # Match primary/PID to the most primary particle
         if other.primary_scores[-1] > self.primary_scores[-1]:
             self.primary_scores = other.primary_scores
-
-        # For PID, pick the most confident prediction (could be better...)
-        if np.max(other.pid_scores) > np.max(self.pid_scores):
-            self.pid_scores = other.pid_scores
+            self.is_primary = other.is_primary
+            if self.shape == TRACK_SHP:
+                self.pid_scores = other.pid_scores
+                self.pid = other.pid
 
     @property
     def mass(self):

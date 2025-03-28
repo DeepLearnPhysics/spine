@@ -23,23 +23,22 @@ class DirectionProcessor(PostBase):
     # Alternative allowed names of the post-processor
     aliases = ('reconstruct_directions',)
 
-    def __init__(self, neighborhood_radius=-1, optimize=True,
-                 obj_type='particle', truth_point_mode='points',
-                 run_mode='both'):
+    def __init__(self, radius=-1, optimize=True, obj_type='particle',
+                 truth_point_mode='points', run_mode='both'):
         """Store the particle direction reconstruction parameters.
 
         Parameters
         ----------
-        neighborhood_radius : float, default 5
-            Max distance between start voxel and other voxels
+        radius : float, default -1
+            Radius around the start voxel to include in the direction estimate
         optimize : bool, default True
-            Optimizes the number of points involved in the estimate
+            Optimize the number of points involved in the direction estimate
         """
         # Initialize the parent class
         super().__init__(obj_type, run_mode, truth_point_mode)
 
         # Store the direction reconstruction parameters
-        self.neighborhood_radius = neighborhood_radius
+        self.radius = radius
         self.optimize = optimize
 
         # Make sure the voxel coordinates are provided as a tensor
@@ -88,7 +87,7 @@ class DirectionProcessor(PostBase):
             # Compute the direction vectors
             dirs = get_cluster_directions(
                     data[points_key], np.vstack(ref_points), clusts,
-                    self.neighborhood_radius, self.optimize)
+                    max_dist=self.radius, optimize=self.optimize)
 
             # Assign directions to the appropriate particles
             for i, part_id in enumerate(part_ids):
