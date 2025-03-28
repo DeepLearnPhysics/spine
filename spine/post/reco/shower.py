@@ -340,9 +340,9 @@ class ShowerStartCorrectionProcessor(PostBase):
 
                 # Find the new start point of a shower
                 new_start = self.correct_shower_start(inter, part)
-                
+
                 # If requested and needed, update the shower direction
-                if (self.update_directions and 
+                if (self.update_directions and
                     (new_start != part.start_point).any()):
                     part.start_dir = cluster_direction(
                             part.points, new_start, max_dist=self.radius,
