@@ -10,7 +10,7 @@ from spine.utils.energy_loss import csda_table_spline
 from spine.utils.tracking import get_track_length
 from spine.post.base import PostBase
 
-__all__ = ['CSDAEnergyProcessor', 'TrackValidityProcessor']
+__all__ = ['CSDAEnergyProcessor']
 
 
 class CSDAEnergyProcessor(PostBase):
@@ -102,58 +102,3 @@ class CSDAEnergyProcessor(PostBase):
                     if self.fill_per_pid:
                         for pid in self.include_pids:
                             obj.csda_ke_per_pid[pid] = 0.
-
-
-class TrackValidityProcessor(PostBase):
-    """Check if track is valid based on the proximity to reconstructed vertex.
-    Can also reject small tracks that are close to the vertex (optional).
-    """
-
-    # Name of the post-processor (as specified in the configuration)
-    name = 'track_validity'
-
-    def __init__(self, threshold=3., ke_threshold=50.,
-                 check_small_track=False, **kwargs):
-        """Initialize the track validity post-processor.
-
-        Parameters
-        ----------
-        threshold : float, default 3.0
-            Vertex distance above which a track is not considered a primary
-        ke_theshold : float, default 50.0
-            Kinetic energy threshold below which a track close to the vertex
-            is deemed not primary/not valid
-        check_small_track : bool, default False
-            Whether or not to apply the small track KE cut
-        """
-        # Initialize the parent class
-        super().__init__('interaction', 'reco')
-
-        self.threshold = threshold
-        self.ke_threshold = ke_threshold
-        self.check_small_track = check_small_track
-
-    def process(self, data):
-        """Loop through reco interactions and modify reco particle's
-        primary label based on the proximity to reconstructed vertex.
-
-        Parameters
-        ----------
-        data : dict
-            Dictionary of data products
-        """
-        # Loop over particle objects
-        for ia in data['reco_interactions']:
-            for p in ia.particles:
-                if p.shape == TRACK_SHP and p.is_primary:
-                    # Check vertex attachment
-                    dist = np.linalg.norm(p.points - ia.vertex, axis=1)
-                    p.vertex_distance = dist.min()
-                    if p.vertex_distance > self.threshold:
-                        p.is_primary = False
-                    # Check if track is small and within radius from vertex
-                    if self.check_small_track:
-                        if ((dist < self.threshold).all()
-                            and p.ke < self.ke_threshold):
-                            p.is_valid = False
-                            p.is_primary = False
