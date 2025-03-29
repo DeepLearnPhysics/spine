@@ -311,7 +311,7 @@ class RecoParticle(ParticleBase, RecoBase):
             setattr(self, attr, val)
 
         # Select end points and end directions appropriately
-        if other.shape == TRACK_SHP:
+        if self.shape == TRACK_SHP:
             # If two tracks, pick points furthest apart
             points_i = np.vstack([self.start_point, self.end_point])
             points_j = np.vstack([other.start_point, other.end_point])
@@ -326,6 +326,7 @@ class RecoParticle(ParticleBase, RecoBase):
             self.end_point = points_j[max_j]
             self.start_dir = dirs_i[max_i]
             self.end_dir = dirs_j[max_j]
+
         else:
             # If a shower and a track, pick track point furthest from shower
             points_i = self.start_point.reshape(-1, 3)
@@ -345,6 +346,10 @@ class RecoParticle(ParticleBase, RecoBase):
             if self.shape == TRACK_SHP:
                 self.pid_scores = other.pid_scores
                 self.pid = other.pid
+
+        # If the calorimetric KEs have been computed, can safely sum
+        if other.calo_ke > 0.:
+            self.calo_ke += other.calo_ke
 
     @property
     def mass(self):
