@@ -1,6 +1,8 @@
 """Loads all requested calibration modules and executes them
 in the appropriate sequence."""
 
+from copy import deepcopy
+
 import numpy as np
 
 from spine.utils.geo import Geometry
@@ -41,6 +43,7 @@ class CalibrationManager:
             self.watch.initialize(key)
 
             # Add necessary geometry information
+            value = deepcopy(value)
             if key != 'recombination':
                 value['num_tpcs'] = self.geo.tpc.num_chambers
             else:
