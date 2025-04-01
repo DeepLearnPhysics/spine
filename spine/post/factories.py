@@ -2,11 +2,11 @@
 
 from spine.utils.factory import module_dict, instantiate
 
-from . import reco, metric, optical, crt, trigger
+from . import reco, truth, optical, crt, trigger
 
 # Build a dictionary of available calibration modules
 POST_DICT = {}
-for module in [reco, metric, optical, crt, trigger]:
+for module in [reco, truth, optical, crt, trigger]:
     POST_DICT.update(**module_dict(module))
 
 
@@ -29,8 +29,7 @@ def post_processor_factory(name, cfg, parent_path=None):
     cfg['name'] = name
 
     # Instantiate the post-processor module
-    # TODO: This is hacky, fix it
-    if name == 'flash_match':
+    if name in POST_DICT and POST_DICT[name].need_parent_path:
         return instantiate(POST_DICT, cfg, parent_path=parent_path)
     else:
         return instantiate(POST_DICT, cfg)

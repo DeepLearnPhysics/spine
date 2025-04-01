@@ -25,8 +25,8 @@ class ContainmentProcessor(PostBase):
     aliases = ('check_containment',)
 
     def __init__(self, margin, cathode_margin=None, detector=None,
-                 geometry_file=None, mode='module',
-                 allow_multi_module=False, min_particle_sizes=0,
+                 geometry_file=None, mode='module', allow_multi_module=False,
+                 exclude_pids=None, min_particle_sizes=0,
                  obj_type=('particle', 'interaction'),
                  truth_point_mode='points', run_mode='both'):
         """Initialize the containment conditions.
@@ -63,6 +63,9 @@ class ContainmentProcessor(PostBase):
               Note that this does not guarantee containment within the detector.
         allow_multi_module : bool, default False
             Whether to allow particles/interactions to span multiple modules
+        exclude_pids : List[int], optional
+            When checking interaction containment, ignore particles which
+            have a species specified by this list
         min_particle_sizes : Union[int, dict], default 0
             When checking interaction containment, ignore particles below the
             size (in voxel count) specified by this parameter. If specified
@@ -87,6 +90,7 @@ class ContainmentProcessor(PostBase):
 
         # Store parameters
         self.allow_multi_module = allow_multi_module
+        self.exclude_pids = exclude_pids
 
         # Store the particle size thresholds in a dictionary
         if np.isscalar(min_particle_sizes):
@@ -141,6 +145,11 @@ class ContainmentProcessor(PostBase):
                 inter.is_contained = True
                 for part in inter.particles:
                     if not part.is_contained:
+                        # Do not check for particles with excluded PID
+                        if (self.exclude_pids is not None and
+                            part.pid in self.exclude_pids):
+                            continue
+
                         # Do not account for particles below a certain size
                         if (part.pid > -1 and
                             part.size < self.min_particle_sizes[part.pid]):
@@ -162,6 +171,12 @@ class FiducialProcessor(PostBase):
 
     # Alternative allowed names of the post-processor
     aliases = ('check_fiducial',)
+
+    # Set of post-processors which must be run before this one is
+    _upstream = ('vertex',)
+
+    # List of valid ways to fetch a true vertex
+    _truth_vertex_modes = ('vertex', 'reco_vertex')
 
     def __init__(self, margin, cathode_margin=None, detector=None,
                  geometry_file=None, mode='module', run_mode='both',
@@ -212,9 +227,9 @@ class FiducialProcessor(PostBase):
             self.margin = margin
 
         # Store the true vertex source
-        assert truth_vertex_mode in ['vertex', 'reco_vertex'], (
+        assert truth_vertex_mode in self._truth_vertex_modes, (
                 f"`truth_vertex_mode not recognized: `{truth_vertex_mode}`. "
-                 "Must be one one of `vertex` or `reco_vertex`.")
+                f"Must be one one of {self._truth_vertex_modes}.")
         self.truth_vertex_mode = truth_vertex_mode
 
     def process(self, data):
@@ -236,11 +251,7 @@ class FiducialProcessor(PostBase):
                 self.check_units(inter)
 
                 # Get point coordinates
-                if not inter.is_truth:
-                    vertex = inter.vertex
-                else:
-                    vertex = getattr(inter, self.truth_vertex_mode)
-                vertex = vertex.reshape(-1,3)
+                vertex = self.get_vertex(inter).reshape(-1, 3)
 
                 # Check containment
                 if not self.use_meta:
@@ -249,3 +260,24 @@ class FiducialProcessor(PostBase):
                     inter.is_fiducial = (
                             (vertex > (meta.lower + self.margin)).all() and
                             (vertex < (meta.upper - self.margin)).all())
+
+    def get_vertex(self, inter):
+        """Get a certain pre-defined vertex attribute of an interaction.
+
+        The :class:`TruthInteraction` vertexes are obtained using the
+        `truth_vertex_mode` attribute of the class.
+
+        Parameters
+        ----------
+        obj : InteractionBase
+            Interaction object
+
+        Results
+        -------
+        np.ndarray
+            (N) Interaction vertex
+        """
+        if not inter.is_truth:
+            return inter.vertex
+        else:
+            return getattr(inter, self.truth_vertex_mode)

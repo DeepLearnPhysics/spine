@@ -1,7 +1,10 @@
+"""Kinematics update module."""
+
 import numpy as np
 
 from spine.utils.globals import (
-        TRACK_SHP, MUON_PID, PION_PID, PID_MASSES, SHP_TO_PID, SHP_TO_PRIMARY)
+        SHOWR_SHP, TRACK_SHP, MICHL_SHP, MUON_PID, PION_PID, PID_MASSES,
+        SHP_TO_PID, SHP_TO_PRIMARY)
 
 from spine.post.base import PostBase
 
@@ -17,6 +20,9 @@ class ParticleShapeLogicProcessor(PostBase):
     - If a particle has shower shape, it can only have a shower PID
     - If a particle has track shape, it can only have a track PID
     - If a particle has delta/michel shape, it can only be a secondary electron
+
+    Optionally:
+    - If it has a calorimetric KE above some threshold, it cannot be a Michel
     """
 
     # Name of the post-processor (as specified in the configuration)
@@ -25,7 +31,8 @@ class ParticleShapeLogicProcessor(PostBase):
     # Alternative allowed names of the post-processor
     aliases = ('enforce_particle_semantics',)
 
-    def __init__(self, enforce_pid=True, enforce_primary=True):
+    def __init__(self, enforce_pid=True, enforce_primary=True,
+                 maximum_michel_ke=None):
         """Store information about which particle properties should
         or should not be updated.
 
@@ -35,6 +42,9 @@ class ParticleShapeLogicProcessor(PostBase):
             Enforce the PID prediction based on the semantic type
         enforce_primary : bool, default True
             Enforce the primary prediction based on the semantic type
+        maximum_michel_ke : float, optional
+            If provided, the processor will not enforce secondary status
+            for reconstructed Michel electrons above a certain kinetic energy
         """
         # Intialize the parent class
         super().__init__('particle', 'reco')
@@ -42,6 +52,11 @@ class ParticleShapeLogicProcessor(PostBase):
         # Store parameters
         self.enforce_pid = enforce_pid
         self.enforce_primary = enforce_primary
+        self.maximum_michel_ke = maximum_michel_ke
+
+        # If the Michel KE is to be checked, must run the calorimetric KE PP
+        if self.maximum_michel_ke is not None:
+            self._upstream = ('calo_ke',)
 
     def process(self, data):
         """Update PID and primary predictions of each particle in one entry
@@ -53,7 +68,12 @@ class ParticleShapeLogicProcessor(PostBase):
         """
         # Loop over the particle objects
         for part in data['reco_particles']:
-            # Reset the PID scores
+            # If the particle is a Michel with too high a KE, override to shower
+            if (self.maximum_michel_ke is not None and
+                part.shape == MICHL_SHP and part.ke > self.maximum_michel_ke):
+                part.shape = SHOWR_SHP
+
+            # Reset the PID scores based on shape
             if self.enforce_pid:
                 pid_range = SHP_TO_PID[part.shape]
                 pid_range = pid_range[pid_range < len(part.pid_scores)]
@@ -65,7 +85,7 @@ class ParticleShapeLogicProcessor(PostBase):
                 part.pid_scores = pid_scores
                 part.pid = np.argmax(pid_scores)
 
-            # Reset the primary scores
+            # Reset the primary scores based on shape
             if self.enforce_primary:
                 primary_range = SHP_TO_PRIMARY[part.shape]
 
@@ -109,11 +129,12 @@ class ParticleThresholdProcessor(PostBase):
         super().__init__('particle', 'reco')
 
         # Check that there is something to do, throw otherwise
-        if (shower_pid_thresholds is not None and
-            track_pid_thresholds is not None and primary_threshold is None):
+        if ((shower_pid_thresholds is None) and
+            (track_pid_thresholds is None) and
+            (primary_threshold is None)):
             raise ValueError(
                     "Specify one of `shower_pid_thresholds`, `track_pid_thresholds` "
-                    "or `primary_threshold` for this function to do anything.")
+                    "or `primary_threshold` for this class to do anything.")
 
         # Store the thresholds
         self.shower_pid_thresholds = shower_pid_thresholds
@@ -258,14 +279,17 @@ class InteractionTopologyProcessor(PostBase):
     # Alternative allowed names of the post-processor
     aliases = ('adjust_interaction_topology',)
 
-    def __init__(self, ke_thresholds, reco_ke_mode='ke',
+    # Set of post-processors which must be run before this one is
+    _upstream = ('calo_ke', 'csda_ke', 'mcs_ke')
+
+    def __init__(self, ke_thresholds=None, reco_ke_mode='ke',
                  truth_ke_mode='energy_deposit', run_mode='both'):
         """Store the new thresholds to be used to update interaction topologies.
 
         Parameters
         ----------
         ke_thresholds : Union[float, dict]
-            If a scalr, it specifies a blanket KE cut to apply to all
+            If a scalar, it specifies a blanket KE cut to apply to all
             particles. If it is a dictionary, it maps an PID to a KE threshold.
             If a 'default' key is provided, it is used for all particles,
             unless a number is provided for a specific PID.

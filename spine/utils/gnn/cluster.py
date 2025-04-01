@@ -1052,7 +1052,7 @@ def cluster_direction(voxels: nb.float64[:,:],
 
 @numbafy(cast_args=['data', 'starts'], list_args=['clusts'],
          keep_torch=True, ref_arg='data')
-def get_cluster_dedxs(data, starts, clusts, max_dist=-1):
+def get_cluster_dedxs(data, starts, clusts, max_dist=-1, anchor=False):
     """Computes the initial local dE/dxs of each cluster.
 
     Parameters
@@ -1065,6 +1065,8 @@ def get_cluster_dedxs(data, starts, clusts, max_dist=-1):
         (C) List of cluster indexes
     max_dist : float, default -1
         Neighborhood radius around the point used to compute the dE/dx
+    anchor : bool, default False
+        If true, anchor the start point to the closest cluster point
 
     Returns
     -------
@@ -1075,21 +1077,23 @@ def get_cluster_dedxs(data, starts, clusts, max_dist=-1):
         return np.empty(0, dtype=data.dtype)
 
     return _get_cluster_dedxs(
-            data[:, COORD_COLS], data[:, VALUE_COL], starts, clusts, max_dist)
+            data[:, COORD_COLS], data[:, VALUE_COL],
+            starts, clusts, max_dist, anchor)
 
 @nb.njit(parallel=True, cache=True)
 def _get_cluster_dedxs(voxels: nb.float64[:,:],
                        values: nb.float64[:],
                        starts: nb.float64[:,:],
                        clusts: nb.types.List(nb.int64[:]),
-                       max_dist: nb.float64 = -1) -> nb.float64[:,:]:
+                       max_dist: nb.float64 = -1,
+                       anchor: nb.boolean = False) -> nb.float64[:,:]:
 
     dedxs = np.empty(len(clusts), voxels.dtype)
     ids   = np.arange(len(clusts)).astype(np.int64)
     for k in nb.prange(len(clusts)):
         dedxs[k] = cluster_dedx(
                 voxels[clusts[ids[k]]], values[clusts[ids[k]]],
-                starts[k].astype(np.float64), max_dist)
+                starts[k].astype(np.float64), max_dist, anchor)
 
     return dedxs
 
@@ -1098,7 +1102,8 @@ def _get_cluster_dedxs(voxels: nb.float64[:,:],
 def cluster_dedx(voxels: nb.float64[:,:],
                  values: nb.float64[:],
                  start: nb.float64[:],
-                 max_dist: nb.float64=5.0) -> nb.float64[:]:
+                 max_dist: nb.float64=5.0,
+                 anchor: nb.boolean=False) -> nb.float64[:]:
     """Computes the initial local dE/dx of a cluster.
 
     Parameters
@@ -1107,8 +1112,64 @@ def cluster_dedx(voxels: nb.float64[:,:],
         (N, 3) Voxel coordinates
     values : np.ndarray
         (N) Voxel values
-    starts : np.ndarray
+    start : np.ndarray
         (3) Start point w.r.t. which to compute the local dE/dx
+    max_dist : float, default 5.0
+        Neighborhood radius around the point used to compute the dE/dx
+    anchor : bool, default False
+        If true, anchor the start point to the closest cluster point
+
+    Returns
+    -------
+    float
+        Local dE/dx value around the start point
+    """
+    # Sanity check
+    assert voxels.shape[1] == 3, (
+            "The shape of the input is not compatible with voxel coordinates.")
+
+    # If necessary, anchor start point to the closest cluster point
+    if anchor:
+        dists = nbl.cdist(start.reshape(1, -1), voxels).flatten()
+        start = voxels[np.argmin(dists)].astype(start.dtype) # Dirty
+
+    # If max_dist is set, limit the set of voxels to those within a sphere of
+    # radius max_dist around the start point
+    dists = nbl.cdist(start.reshape(1, -1), voxels).flatten()
+    if max_dist > 0.:
+        index = np.where(dists <= max_dist)[0]
+        if len(index) < 2:
+            return 0.
+
+        values, dists = values[index], dists[index]
+
+    # Compute the total energy in the neighborhood and the max distance, return ratio
+    if np.max(dists) == 0.:
+        return 0.
+
+    return np.sum(values)/np.max(dists)
+
+
+@nb.njit(cache=True)
+def cluster_dedx_dir(voxels: nb.float64[:,:],
+                     values: nb.float64[:],
+                     start: nb.float64[:],
+                     start_dir: nb.float64[:],
+                     max_dist: nb.float64=3.0,
+                     anchor: nb.boolean=False) -> nb.float64[:]:
+    """Computes the initial local dE/dx of a cluster by leveraging an
+    existing cluster direction estimate.
+
+    Parameters
+    ----------
+    voxels : np.ndarray
+        (N, 3) Voxel coordinates
+    values : np.ndarray
+        (N) Voxel values
+    start : np.ndarray
+        (3) Start point w.r.t. which to compute the local dE/dx
+    start_dir : np.ndarray
+        (3) Start direction of the cluster
     max_dist : float, default 5.0
         Neighborhood radius around the point used to compute the dE/dx
 
@@ -1116,24 +1177,55 @@ def cluster_dedx(voxels: nb.float64[:,:],
     -------
     float
         Local dE/dx value around the start point
+    float
+        Energy deposited around the start point (dE)
+    float
+        Length around the start point (dx)
+    float
+        Relative spread around the cluster direction (quality metric)
+    int
+        Number of voxels in the neighborhood around the start poin
     """
-    # If max_dist is set, limit the set of voxels to those within a sphere of radius max_dist
+    # Sanity check
     assert voxels.shape[1] == 3, (
             "The shape of the input is not compatible with voxel coordinates.")
 
-    dist_mat = nbl.cdist(start.reshape(1,-1), voxels).flatten()
-    if max_dist > 0:
-        voxels = voxels[dist_mat <= max_dist]
-        if len(voxels) < 2:
-            return 0.
-        values = values[dist_mat <= max_dist]
-        dist_mat = dist_mat[dist_mat <= max_dist]
+    # If necessary, anchor start point to the closest cluster point
+    if anchor:
+        dists = nbl.cdist(start.reshape(1, -1), voxels).flatten()
+        start = voxels[np.argmin(dists)].astype(start.dtype) # Dirty
 
-    # Compute the total energy in the neighborhood and the max distance, return ratio
-    if np.max(dist_mat) == 0.:
-        return 0.
+    # If max_dist is set, limit the set of voxels to those within a sphere of
+    # radius max_dist around the start point
+    dists = nbl.cdist(start.reshape(1, -1), voxels).flatten()
+    if max_dist > 0.:
+        index = np.where(dists <= max_dist)[0]
+        if len(index) < 2:
+            return 0., 0., 0., -1., len(index)
 
-    return np.sum(values)/np.max(dist_mat)
+        voxels, values, dists = voxels[index], values[index], dists[index]
+
+    # Project the voxels within the sphere onto the reco direction
+    voxels_proj = np.dot(voxels - start, start_dir)
+
+    # Mask the voxels to only include the top hemisphere
+    index = np.where((voxels_proj >= -1e-3) & (voxels_proj <= max_dist))[0]
+    if len(index) < 2:
+        return 0., 0., 0., -1., len(index)
+
+    voxels, voxels_proj, values = voxels[index], voxels_proj[index], values[index]
+
+    # Compute length as the length along the start direction
+    dE = np.sum(values)
+    dx = np.max(voxels_proj) - np.min(voxels_proj)
+
+    # Calculate the mean spread from the reco direction (quality metric)
+    voxels_sp = voxels - start
+    vectors_to_axis = voxels_sp - np.outer(voxels_proj, start_dir)
+    spreads = np.sqrt(np.sum(vectors_to_axis**2, axis=1))
+    spread = np.sum(spreads)/len(index)
+    
+    return dE/dx, dE, dx, spread, len(index)
 
 
 @numbafy(cast_args=['data'], list_args=['clusts'],
