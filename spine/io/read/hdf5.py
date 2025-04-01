@@ -1,6 +1,7 @@
 """Contains a reader class dedicated to loading data from HDF5 files."""
 
 import h5py
+import yaml
 import numpy as np
 from dataclasses import fields
 
@@ -122,6 +123,46 @@ class HDF5Reader(ReaderBase):
         # Store other attributes
         self.build_classes = build_classes
         self.skip_unknown_attrs = skip_unknown_attrs
+
+        # Process the configuration used to produce the HDF5 file
+        self.cfg = self.process_cfg()
+
+        # Process the SPINE version used to produced the HDF5 file
+        self.version = self.process_version()
+
+    def process_cfg(self):
+        """Fetches the SPINE configuration used to produce the HDF5 file.
+
+        Returns
+        -------
+        dict
+            Configuration dictionary
+        """
+        # Fetch the string-form configuration
+        with h5py.File(self.file_paths[0], 'r') as in_file:
+            cfg_str = in_file['info'].attrs['cfg']
+
+        # Attempt to parse it (need try for now for SPINE versions < v0.4.0)
+        try:
+            cfg = yaml.safe_load(cfg_str)
+        except:
+            return None
+
+        return cfg
+
+    def process_version(self):
+        """Returns the SPINE release version used to produce the HDF5 file.
+
+        Returns
+        -------
+        str
+            SPINE release tag
+        """
+        # Fetch the string-form configuration
+        with h5py.File(self.file_paths[0], 'r') as in_file:
+            version = in_file['info'].attrs['version']
+
+        return version
 
     def get(self, idx):
         """Returns a specific entry in the file.
