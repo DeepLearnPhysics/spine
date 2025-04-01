@@ -1019,7 +1019,7 @@ def cluster_direction(voxels: nb.float64[:,:],
                     if (w[0] + w[1]) / w[2] > 1e-6 else 0.
 
             # If the value is the same as the previous, choose this one
-            if dist_mat[i] == dist_mat[i-1]:
+            if labels[i] == labels[i-1]:
                 labels[i-1] = -1.
 
             # Increment mean and matrix
