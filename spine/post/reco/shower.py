@@ -54,6 +54,10 @@ class ShowerConversionDistanceProcessor(PostBase):
         # Store the vertex distance computation parameters
         self.include_secondary = include_secondary
 
+        # If the method involves the vertex, must run the vertex PP
+        if 'vertex' in self.mode:
+            self._upstream = ('vertex',)
+
     def process(self, data):
         """Compute the conversion distance of showers in each interaction.
 
@@ -173,14 +177,17 @@ class ShowerStartMergeProcessor(PostBase):
     # Name of the post-processor (as specified in the configuration)
     name = 'shower_start_merge'
 
-    def __init__(self, angle_threshold=10.0, distance_threshold=1.0,
+    # Set of post-processors which must be run before this one is
+    _upstream = ('direction',)
+
+    def __init__(self, angle_threshold=0.175, distance_threshold=1.0,
                  track_length_limit=50, track_dedx_limit=None, **kwargs):
         """Store the shower start merging parameters.
 
         Parameters
         ----------
-        angle_threshold : float, default 10.0
-            Track and shower angular agreement threshold to be merged (degrees)
+        angle_threshold : float, default 0.175
+            Track and shower angular agreement threshold to be merged (radians)
         distance_threshold : float, default 1.0
             Track and shower distance threshold to be merged (cm)
         track_length_limit : int, default 50
@@ -192,7 +199,7 @@ class ShowerStartMergeProcessor(PostBase):
         super().__init__('interaction', 'reco')
 
         # Store the shower start merging parameters
-        self.angle_threshold = abs(np.cos(np.radians(angle_threshold)))
+        self.angle_threshold = abs(np.cos(angle_threshold))
         self.distance_threshold = distance_threshold
         self.track_length_limit = track_length_limit
         self.track_dedx_limit = track_dedx_limit
@@ -277,7 +284,7 @@ class ShowerStartMergeProcessor(PostBase):
                 return False
 
         # Check that the angular agreement between particles is sufficient
-        angular_sep = abs(np.sum(track.start_dir * shower.start_dir))
+        angular_sep = abs(np.dot(track.start_dir, shower.start_dir))
         if angular_sep < self.angle_threshold:
             return False
 
@@ -300,6 +307,9 @@ class ShowerStartCorrectionProcessor(PostBase):
 
     # Name of the post-processor (as specified in the configuration)
     name = 'shower_start_correction'
+
+    # Set of post-processors which must be run before this one is
+    _upstream = ('direction',)
 
     def __init__(self, update_directions=True, radius=-1, optimize=True):
         """Store the shower start corrector parameters.
@@ -359,7 +369,7 @@ class ShowerStartCorrectionProcessor(PostBase):
         Parameters
         ----------
         inter : RecoInteraction
-            Reco interaction to provide a vertex estimate
+            Reco interaction to provide track points
         shower : RecoParticle
             Primary EM shower to find the shower start point for
 

@@ -172,6 +172,9 @@ class FiducialProcessor(PostBase):
     # Alternative allowed names of the post-processor
     aliases = ('check_fiducial',)
 
+    # Set of post-processors which must be run before this one is
+    _upstream = ('vertex',)
+
     # List of valid ways to fetch a true vertex
     _truth_vertex_modes = ('vertex', 'reco_vertex')
 

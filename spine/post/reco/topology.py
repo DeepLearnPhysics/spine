@@ -57,6 +57,10 @@ class ParticleStartDEDXProcessor(PostBase):
         self.include_pids = include_pids
         self.include_secondary = include_secondary
 
+        # If the method involves the direction, must run the direction PP
+        if mode == 'direction':
+            self._upstream = ('direction',)
+
     def process(self, data):
         """Compute the start dE/dx for all particles in one entry.
 
@@ -194,6 +198,9 @@ class ParticleSpreadProcessor(PostBase):
 
     # List of recognized start reference modes for spread evaluation
     _start_modes = ('vertex', 'start_point')
+
+    # Set of post-processors which must be run before this one is
+    _upstream = ('direction',)
 
     def __init__(self, start_mode='vertex', length_scale=14.0, use_start_dir=False,
                  include_pids=(PHOT_PID, ELEC_PID), include_secondary=False):

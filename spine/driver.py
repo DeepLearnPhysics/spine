@@ -124,7 +124,8 @@ class Driver:
             assert self.model is None or self.unwrap, (
                     "Must unwrap the model output to run post-processors.")
             self.watch.initialize('post')
-            self.post = PostManager(post, parent_path=self.parent_path)
+            self.post = PostManager(
+                    post, post_list=self.post_list, parent_path=self.parent_path)
 
         # Initialize the analysis scripts
         self.ana = None
@@ -354,11 +355,20 @@ class Driver:
                 self.watch.initialize('unwrap')
                 self.unwrapper = Unwrapper(geometry=geo)
 
+            # If working from LArCV files, no post-processor was yet run
+            self.post_list = ()
+
         else:
             # Initialize the reader
             self.watch.initialize('read')
             self.reader = reader_factory(reader)
             self.iter_per_epoch = len(self.reader)
+
+            # Fetch the list of previously run post-processors
+            # TODO: this only works with two runs in a row, not 3 and above
+            self.post_list = None
+            if self.reader.cfg is not None:
+                self.post_list = tuple(self.reader.cfg['post'])
 
         # Fetch an appropriate common prefix for all input files
         self.log_prefix, self.output_prefix = self.get_prefixes(

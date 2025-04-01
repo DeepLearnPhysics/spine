@@ -20,6 +20,9 @@ class ParticleShapeLogicProcessor(PostBase):
     - If a particle has shower shape, it can only have a shower PID
     - If a particle has track shape, it can only have a track PID
     - If a particle has delta/michel shape, it can only be a secondary electron
+
+    Optionally:
+    - If it has a calorimetric KE above some threshold, it cannot be a Michel
     """
 
     # Name of the post-processor (as specified in the configuration)
@@ -29,7 +32,7 @@ class ParticleShapeLogicProcessor(PostBase):
     aliases = ('enforce_particle_semantics',)
 
     def __init__(self, enforce_pid=True, enforce_primary=True,
-                 maximum_michel_ke=np.inf):
+                 maximum_michel_ke=None):
         """Store information about which particle properties should
         or should not be updated.
 
@@ -39,7 +42,7 @@ class ParticleShapeLogicProcessor(PostBase):
             Enforce the PID prediction based on the semantic type
         enforce_primary : bool, default True
             Enforce the primary prediction based on the semantic type
-        maximum_michel_ke : float, np.inf
+        maximum_michel_ke : float, optional
             If provided, the processor will not enforce secondary status
             for reconstructed Michel electrons above a certain kinetic energy
         """
@@ -50,6 +53,10 @@ class ParticleShapeLogicProcessor(PostBase):
         self.enforce_pid = enforce_pid
         self.enforce_primary = enforce_primary
         self.maximum_michel_ke = maximum_michel_ke
+
+        # If the Michel KE is to be checked, must run the calorimetric KE PP
+        if self.maximum_michel_ke is not None:
+            self._upstream = ('calo_ke',)
 
     def process(self, data):
         """Update PID and primary predictions of each particle in one entry
@@ -62,7 +69,8 @@ class ParticleShapeLogicProcessor(PostBase):
         # Loop over the particle objects
         for part in data['reco_particles']:
             # If the particle is a Michel with too high a KE, override to shower
-            if part.shape == MICHL_SHP and part.ke > self.maximum_michel_ke:
+            if (self.maximum_michel_ke is not None and
+                part.shape == MICHL_SHP and part.ke > self.maximum_michel_ke):
                 part.shape = SHOWR_SHP
 
             # Reset the PID scores based on shape
@@ -270,6 +278,9 @@ class InteractionTopologyProcessor(PostBase):
 
     # Alternative allowed names of the post-processor
     aliases = ('adjust_interaction_topology',)
+
+    # Set of post-processors which must be run before this one is
+    _upstream = ('calo_ke', 'csda_ke', 'mcs_ke')
 
     def __init__(self, ke_thresholds=None, reco_ke_mode='ke',
                  truth_ke_mode='energy_deposit', run_mode='both'):

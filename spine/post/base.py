@@ -36,6 +36,9 @@ class PostBase(ABC):
     # Set of data keys needed for this post-processor to operate
     _keys = ()
 
+    # Set of post-processors which must be run before this one is
+    _upstream = ()
+
     # List of recognized object types
     _obj_types = ('fragment', 'particle', 'interaction')
 

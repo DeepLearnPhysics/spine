@@ -30,6 +30,9 @@ class CathodeCrosserProcessor(PostBase):
     # Alternative allowed names of the post-processor
     aliases = ('find_cathode_crossers',)
 
+    # Set of post-processors which must be run before this one is
+    _upstream = ('direction',)
+
     def __init__(self, crossing_point_tolerance, offset_tolerance,
                  angle_tolerance, adjust_crossers=True, merge_crossers=True,
                  detector=None, geometry_file=None, run_mode='reco',

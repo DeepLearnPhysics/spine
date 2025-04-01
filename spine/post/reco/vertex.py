@@ -19,6 +19,9 @@ class VertexProcessor(PostBase):
     # Alternative allowed names of the post-processor
     aliases = ('reconstruct_vertex',)
 
+    # Set of post-processors which must be run before this one is
+    _upstream = ('direction',)
+
     def __init__(self, include_shapes=(SHOWR_SHP, TRACK_SHP),
                  use_primaries=True, update_primaries=False,
                  anchor_vertex=True, touching_threshold=2.0,
@@ -37,8 +40,8 @@ class VertexProcessor(PostBase):
         anchor_vertex : bool, default True
             If true, anchor the candidate vertex to particle objects,
             with the expection of interactions only composed of showers
-        touching_threshold : float, default 2 cm
-            Maximum distance for two track points to be considered touching
+        touching_threshold : float, default 2.0
+            Maximum distance for two track points to be considered touching (cm)
         angle_threshold : float, default 0.3 radians
             Maximum angle between the vertex-to-start-point vector and a shower
             direction to consider that a shower originated from the vertex
@@ -117,6 +120,6 @@ class VertexProcessor(PostBase):
                         part.is_primary = True
                     elif part.shape == SHOWR_SHP:
                         vec = part.start_point - inter.vertex
-                        cos = np.dot(vec/np.linalg.norm(vec), part.start_dir)
-                        if cos < self.angle_threshold:
+                        cosang = np.dot(vec/np.linalg.norm(vec), part.start_dir)
+                        if np.arccos(cosang) < self.angle_threshold:
                             part.is_primary = True
