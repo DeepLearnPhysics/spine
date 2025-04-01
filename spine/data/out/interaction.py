@@ -278,27 +278,7 @@ class InteractionBase:
 @dataclass(eq=False)
 @inherit_docstring(RecoBase, InteractionBase)
 class RecoInteraction(InteractionBase, RecoBase):
-    """Reconstructed interaction information.
-
-    Attributes
-    ----------
-    leading_shower_dedx : float
-        dE/dx around the start point of the leading shower in MeV/cm
-    leading_shower_start_straightness : float
-        Explained variance ration of the beginning of the leading shower
-    leading_shower_directional_spread : float
-        Estimate of the angular spread of the leading shower (cosine spread)
-    leading_shower_axial_spread : float
-        Pearson correlation coefficient of the axial profile of the leading
-        shower w.r.t. to the distance from its start point
-    leading_shower_vertex_distance : float
-        Distance between the interaction vertex and the leading shower
-    """
-    leading_shower_start_dedx: float = None
-    leading_shower_start_straightness: float = None
-    leading_shower_directional_spread: float = None
-    leading_shower_axial_spread: float = None
-    leading_shower_vertex_distance: float = None
+    """Reconstructed interaction information."""
 
     # Attributes that must never be stored to file
     _skip_attrs = (
@@ -342,108 +322,6 @@ class RecoInteraction(InteractionBase, RecoBase):
             return None
 
         return max(showers, key=lambda x: x.ke)
-
-    @leading_shower.setter
-    def leading_shower(self, leading_shower):
-        pass
-
-    @property
-    def leading_shower_start_dedx(self):
-        """Leading primary shower start dE/dx.
-
-        Returns
-        -------
-        float
-            dE/dx of the leading shower
-        """
-        leading_shower = self.leading_shower
-        if leading_shower is None:
-            return -1.
-
-        return leading_shower.start_dedx
-
-    @leading_shower_start_dedx.setter
-    def leading_shower_start_dedx(self, leading_shower_start_dedx):
-        pass
-
-    @property
-    def leading_shower_start_straightness(self):
-        """Measure of how straight the start of the leading shower is.
-
-        Returns
-        -------
-        float
-            Measure of shower start straightness (between 0 and 1)
-        """
-        leading_shower = self.leading_shower
-        if leading_shower is None:
-            return -1.
-
-        return leading_shower.start_straightness
-
-    @leading_shower_start_straightness.setter
-    def leading_shower_start_straightness(self, leading_shower_start_straightness):
-        pass
-
-    @property
-    def leading_shower_directional_spread(self):
-        """Distance-weighted mean cosine distance from mean direction
-        of the leading shower.
-
-        Returns
-        -------
-        float
-            Measure of shower directional spread
-        """
-        leading_shower = self.leading_shower
-        if leading_shower is None:
-            return -1.
-
-        return leading_shower.directional_spread
-
-    @leading_shower_directional_spread.setter
-    def leading_shower_directional_spread(self, leading_shower_directional_spread):
-        pass
-
-    @property
-    def leading_shower_axial_spread(self):
-        """Pearson R correlation coefficient between the distance from
-        the primary leading shower start to a shower point (x) and the
-        perpendicular distance from the shower point to the shower axis (y).
-
-        Returns
-        -------
-        float
-            Measure of shower axial spread
-        """
-        leading_shower = self.leading_shower
-        if leading_shower is None:
-            return -np.inf
-
-        return leading_shower.axial_spread
-
-    @leading_shower_axial_spread.setter
-    def leading_shower_axial_spread(self, leading_shower_axial_spread):
-        pass
-
-    @property
-    def leading_shower_vertex_distance(self):
-        """Leading primary shower vertex distance.
-
-        Returns
-        -------
-        float
-            Vertex distance of the leading shower
-        """
-        leading_shower = self.leading_shower
-        if leading_shower is None:
-            return -1.
-
-        return leading_shower.vertex_distance
-
-    @leading_shower_vertex_distance.setter
-    def leading_shower_vertex_distance(self, leading_shower_vertex_distance):
-        pass
 
 
 @dataclass(eq=False)
