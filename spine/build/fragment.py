@@ -337,7 +337,7 @@ class FragmentBuilder(BuilderBase):
 
     def _load_truth(self, truth_fragments, points_label, depositions_label,
                     depositions_q_label=None, points=None, depositions=None,
-                    points_g4=None, depositons_g4=None, sources_label=None,
+                    points_g4=None, depositions_g4=None, sources_label=None,
                     sources=None):
         """Load :class:`TruthFragment` objects from their stored versions.
 
