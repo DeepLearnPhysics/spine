@@ -185,7 +185,7 @@ class Hypothesis:
 
         return qcluster_v
     
-    def make_hypothesis_list(self, interactions, id_offset=0):
+    def make_hypothesis_list(self, interactions, id_offset=0, volume_id=None):
         """
         Runs the hypothesis algorithm on a list of interactions to create
         a list of flashmatch::Flash_t objects.
@@ -196,6 +196,8 @@ class Hypothesis:
             List of TPC interactions
         id_offset : int, default 0
             Offset to add to the flash ID
+        volume_id : int, optional
+            Volume ID to use for the hypothesis
         """
         # Make the QCluster_t objects
         qcluster_v = self.make_qcluster_list(interactions)
@@ -210,10 +212,9 @@ class Hypothesis:
 
             # Run the hypothesis algorithm
             flash = self.hypothesis.GetEstimate(qcluster)
-            print(type(flash))
 
             # Create a new Flash object
-            flash = Flash.from_hypothesis(flash, int.id, i + id_offset)
+            flash = Flash.from_hypothesis(flash, int.id, i+id_offset, volume_id)
 
             # Append
             self.hypothesis_v.append(flash)

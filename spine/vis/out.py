@@ -159,7 +159,7 @@ class Drawer:
     def get(self, obj_type, attr=None, color_attr=None, draw_raw=False,
             draw_end_points=False, draw_vertices=False, draw_flashes=False,
             synchronize=False, titles=None, split_traces=False,
-            matched_flash_only=True):
+            matched_flash_only=True, draw_flash_hypotheses=False, hypo_interaction_id=None):
         """Draw the requested object type with the requested mode.
 
         Parameters
@@ -187,6 +187,10 @@ class Drawer:
             If `True`, one trace is produced for each object
         matched_flash_only : bool, default True
             If `True`, only flashes matched to interactions are drawn
+        draw_flash_hypotheses : bool, default False
+            If `True`, draw the flash hypotheses for the given interaction ID
+        hypo_interaction_id : int, optional
+            Interaction ID of the hypothesis to draw
 
         Returns
         -------
@@ -232,13 +236,26 @@ class Drawer:
 
         # Fetch the flashes, if requested
         if draw_flashes:
+            # This means we will scale the PDS size by the number of PEs
+            if draw_flash_hypotheses:
+                use_size = True
+            else:
+                use_size = False
             assert 'flashes' in self.data, (
                     "Must provide the `flashes` objects to draw them.")
             for prefix in self.prefixes:
                 obj_name = f'{prefix}_interactions'
                 assert obj_name in self.data, (
                         "Must provide interactions to draw matched flashes.")
-                traces[prefix] += self._flash_trace(obj_name, matched_flash_only)
+                traces[prefix] += self._flash_trace(obj_name, matched_flash_only, use_size)
+
+        # Fetch the flash hypotheses, if requested
+        if draw_flash_hypotheses:
+            assert 'flash_hypos' in self.data, (
+                    "Must provide the `flash_hypos` objects to draw them.")
+            for prefix in self.prefixes:
+                obj_name = f'flash_hypos'
+                traces[prefix] += self._hypothesis_trace(obj_name, hypo_interaction_id)
 
         # Add the TPC traces, if available
         if self.geo_drawer is not None:
@@ -579,7 +596,7 @@ class Drawer:
         return scatter_points(
                 points, hovertext=np.array(hovertext), name=name, **kwargs)
 
-    def _flash_trace(self, obj_name, matched_only, **kwargs):
+    def _flash_trace(self, obj_name, matched_only, use_size, **kwargs):
         """Draw the cumlative PEs of flashes that have been matched to
         interactions specified by `obj_name`.
 
@@ -589,6 +606,8 @@ class Drawer:
             Name of the object to draw
         matched_only : bool
             If `True`, only flashes matched to interactions are drawn
+        use_size : bool
+            If `True`, scale the size of the flashes by the number of PEs. Otherwise, the size is fixed and the color is scaled by the number of PEs.
         **kwargs : dict, optional
             List of additional arguments to pass to :func:`optical_traces`
 
@@ -614,17 +633,88 @@ class Drawer:
             flash_ids = np.arange(len(self.data['flashes']))
 
         # Sum values from each flash to build a a global color scale
-        color = np.zeros(self.geo_drawer.geo.optical.num_detectors)
+        size = np.zeros(self.geo_drawer.geo.optical.num_detectors)
+        color = size.copy()
         opt_det_ids = self.geo_drawer.geo.optical.det_ids
         for flash_id in flash_ids:
             flash = self.data['flashes'][flash_id]
             index = self.geo_drawer.geo.optical.volume_index(flash.volume_id)
             pe_per_ch = flash.pe_per_ch
+            time = flash.time
             if opt_det_ids is not None:
                 pe_per_ch = np.bincount(opt_det_ids, weights=pe_per_ch)
-            color[index] += pe_per_ch
+            if use_size:
+                size[index] += pe_per_ch
+                color[index] += pe_per_ch
+            else:
+                color[index] += pe_per_ch
+
+        color = np.where(size == 0, 0, color)
+        #Normalize the size to be between 0.5 and 2
+        size = (size - np.min(size))/(np.max(size) - np.min(size))
+        size = size*(2 - 0.5) + 0.5
+        
+        #If we are using size for PE, we need to mask out the flashes with no PE
+        #if use_size:
 
         # Return the set of optical detectors with a color scale
         return self.geo_drawer.optical_traces(
-                meta=self.meta, color=color, zero_supress=True,
-                colorscale='Inferno', name=name)
+                meta=self.meta, color=color, size=size, zero_supress=True,
+                colorscale='Inferno', name=name, opacity=0.5)
+    
+    def _hypothesis_trace(self, obj_name, interaction_id, **kwargs):
+        """Draw the hypothesis object.
+
+        Parameters
+        ----------
+        obj_name : str
+            Name of the object to draw
+        interaction_id : int
+            Interaction ID of the hypothesis to draw
+        **kwargs : dict, optional
+            List of additional arguments to pass to :func:`optical_traces`
+
+        Returns
+        -------
+        list
+            List of optical detector traces
+        """
+        # If there was no geometry provided by the user, nothing to do here
+        assert self.geo_drawer is not None, (
+                "Cannot draw optical detectors without geometry information.")
+        assert interaction_id in [hypo.interaction_id for hypo in self.data['flash_hypos']], (
+                f"Interaction ID {interaction_id} not found in flash hypotheses. Available IDs: {np.unique([int(hypo.interaction_id) for hypo in self.data['flash_hypos']])}.")
+
+        # Define the name of the trace
+        name = ' '.join(obj_name.split('_')).capitalize()[:-1] + ' hypothesis'
+
+        # Find the list of flash IDs to draw that match the interaction ID
+        flash_ids = [hypo.id for hypo in self.data['flash_hypos'] if hypo.interaction_id == interaction_id]
+        print(f'hypo flash ids: {flash_ids}')
+
+        # Sum values from each flash to build a a global color scale
+        size = np.zeros(self.geo_drawer.geo.optical.num_detectors)
+        color = size.copy()
+        opt_det_ids = self.geo_drawer.geo.optical.det_ids
+
+        for flash_id in flash_ids:
+            flash = self.data['flash_hypos'][flash_id]
+            index = self.geo_drawer.geo.optical.volume_index(flash.volume_id)
+            pe_per_ch = flash.pe_per_ch
+            time = flash.time
+            if opt_det_ids is not None:
+                pe_per_ch = np.bincount(opt_det_ids, weights=pe_per_ch)
+            size[index] += pe_per_ch
+            color[index] += pe_per_ch
+
+        color = np.where(size > 0, color, 0)
+        #Normalize the size to be between 0.5 and 2
+        size = (size - np.min(size))/(np.max(size) - np.min(size))
+        size = size*(2 - 0.5) + 0.5
+
+        print('draw_flash_hypotheses')
+        # Return the set of optical detectors with a color scale
+        return self.geo_drawer.optical_traces(
+                meta=self.meta, color=color, size=size, zero_supress=True,
+                colorscale='Inferno', name=name, offset=[40,0,0], opacity=0.5)
+

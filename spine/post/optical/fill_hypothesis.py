@@ -15,18 +15,21 @@ class FillFlashHypothesisProcessor(PostBase):
     """Fills the hypothesis into the data product."""
 
     # Name of the post-processor (as specified in the configuration)
-    name = 'fill_flash_hypothesis'
+    name = 'fill_hypothesis'
 
     # Alternative allowed names of the post-processor
-    aliases = ('fill_hypothesis',)
+    aliases = ('fill_hypo',)
 
-    def __init__(self, volume, ref_volume_id=None, detector=None, parent_path=None,
+    def __init__(self, flash_key, volume, ref_volume_id=None, detector=None, parent_path=None,
                  geometry_file=None, run_mode='reco', truth_point_mode='points',
-                 truth_dep_mode='depositions', hypothesis_key='flash_hypo', **kwargs):
+                 truth_dep_mode='depositions', hypothesis_key='flash_hypos', **kwargs):
         """Initialize the fill hypothesis processor.
 
         Parameters
         ----------
+        flash_key : str
+            Flash data product name. In most cases, this is unambiguous, unless
+            there are multiple types of segregated optical detectors
         volume : str
             Physical volume corresponding to each flash ('module' or 'tpc')
         ref_volume_id : str, optional
@@ -48,6 +51,7 @@ class FillFlashHypothesisProcessor(PostBase):
                 parent_path=parent_path)
         
         # Initialize the hypothesis key
+        self.flash_key = flash_key
         self.hypothesis_key = hypothesis_key
 
         # Initialize the detector geometry
@@ -61,6 +65,37 @@ class FillFlashHypothesisProcessor(PostBase):
 
         # Initialize the hypothesis algorithm
         self.hypothesis = Hypothesis(detector=detector, parent_path=self.parent_path, **kwargs)
+
+        #Assert that we have flashes and interactions
+        self.update_keys({self.flash_key: True})
+
+    def match_hypothesis(self, hypothesis_v, flash_info_v):
+        """Match the hypothesis to the flash. The hypothesis has the interaction ID,
+        whereas the interaction has the flash ID. So we will match the hypothesis interaction ID to 
+        the interaction that's matched to the flash, then set the flash ID to the hypothesis ID.
+
+        Parameters
+        ----------
+        hypothesis_v : list
+            List of hypothesis objects
+        flash_info_v : list
+            List of tuples of interaction ID, flash IDs, and flash volumes
+
+        Returns
+        -------
+        None
+            Modifies the hypothesis objects in place
+        """
+
+        #Make a dictionary of the flash IDs and volumes
+        int_id_dict = {ii[0]: (ii[1],ii[2]) for ii in flash_info_v}
+        
+        #Modify the hypothesis objects
+        for hypo in hypothesis_v:
+            #If the interaction ID is in the dictionary, and the hypothesis volume matches the flash volume, set the flash IDs
+            if hypo.interaction_id in int_id_dict and int_id_dict[hypo.interaction_id][1] == hypo.volume_id:
+                hypo.id = int_id_dict[hypo.interaction_id][0]
+        
         
     def process(self, data):
         """Fills the hypothesis into the data product.
@@ -82,12 +117,12 @@ class FillFlashHypothesisProcessor(PostBase):
             self.check_units(interactions[0])
 
             # Loop over the optical volumes
-            #TODO: Use the specific detector or geometry file to get the list of optical volumes
             id_offset = 0
             hypothesis_v = []
-            for volume_id in [0,1]:
+            for volume_id in [0,1]: #TODO: Use the specific detector or geometry file to get the list of optical volumes
                 # Crop interactions to only include depositions in the optical volume
                 interactions_v = []
+                flash_info_v = []
                 for inter in interactions:
                     # Fetch the points in the current optical volume
                     sources = self.get_sources(inter)
@@ -115,12 +150,17 @@ class FillFlashHypothesisProcessor(PostBase):
                     inter_v = OutBase(
                             id=inter.id, points=points, depositions=depositions)
                     interactions_v.append(inter_v)
-                
+                    for fid,fvol in zip(inter.flash_ids,inter.flash_volume_ids):
+                        if fvol == volume_id:
+                            flash_info_v.append((inter.id,fid,fvol)) #needed for matching
                 # Make the hypothesis
-                _hypo_v = self.hypothesis.make_hypothesis_list(interactions_v, id_offset)
+                print('volume_id', volume_id)
+                _hypo_v = self.hypothesis.make_hypothesis_list(interactions_v, id_offset, volume_id)
                 hypothesis_v.extend(_hypo_v)
                 id_offset += len(_hypo_v) #increment the offset for the next volume
+
+                # Match the matched hypothesis to the flash if provided in interactions_v
+                self.match_hypothesis(hypothesis_v, flash_info_v)
                 
         # Fill the hypothesis into the data product
-        data[self.hypothesis_key] = hypothesis_v
-        return data
+        return {self.hypothesis_key: hypothesis_v}

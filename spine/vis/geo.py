@@ -89,7 +89,7 @@ class GeoDrawer:
 
     def optical_traces(self, meta=None, shared_legend=True, legendgroup=None,
                        name='Optical', color='rgba(0,0,255,0.25)', cmin=None,
-                       cmax=None, zero_supress=False, volume_id=None, **kwargs):
+                       cmax=None, zero_supress=False, volume_id=None,size=1, offset=[0,0,0], **kwargs):
         """Function which produces a list of traces which represent the optical
         detectors in a 3D event display.
 
@@ -115,6 +115,10 @@ class GeoDrawer:
         volume_id : int, optional
             Specifies which optical volume to represent. If not specified, all
             the optical volumes are drawn
+        size : Union[int, np.ndarray], optional
+            Size of the optical detectors. Default is 1 (no scaling)
+        offest : List[float], optional
+            Offset of the optical detectors [x,y,z]
         **kwargs : dict, optional
             List of additional arguments to pass to
             spine.vis.ellipsoid.ellipsoid_traces or spine.vis.box.box_traces
@@ -134,7 +138,7 @@ class GeoDrawer:
         else:
             positions = self.geo.optical.positions[volume_id]
         half_dimensions = self.geo.optical.dimensions/2
-
+        positions += offset*np.sign(positions)
         # If there is more than one detector shape, fetch shape IDs
         shape_ids = None
         if self.geo.optical.shape_ids is not None:
@@ -174,13 +178,22 @@ class GeoDrawer:
             if shape_ids is None:
                 pos = positions
                 col = color
+                sz = size
             else:
                 index = np.where(np.asarray(shape_ids) == i)[0]
                 pos = positions[index]
+                #Set the color of the optical detectors
                 if color is not None and not np.isscalar(color):
                     col = color[index]
                 else:
                     col = color
+
+                #Set the size of the optical detectors
+                if not np.isscalar(size):
+                    sz = size[index]
+                else:
+                    sz = size
+
 
             # If zero-supression is requested, only draw the optical detectors
             # which record a non-zero signal
@@ -211,7 +224,7 @@ class GeoDrawer:
                 # Build ellipsoids
                 traces += ellipsoid_traces(
                         pos, covmat, shared_legend=shared_legend, name=name,
-                        color=col, cmin=cmin, cmax=cmax,
+                        color=col, cmin=cmin, cmax=cmax, size_scale=sz,
                         legendgroup=legendgroup, showlegend=showlegend, **kwargs)
 
         return traces

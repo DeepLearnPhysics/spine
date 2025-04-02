@@ -9,7 +9,7 @@ import plotly.graph_objs as go
 
 def ellipsoid_trace(points=None, centroid=None, covmat=None, contour=0.5,
                     num_samples=10, color=None, intensity=None, hovertext=None,
-                    showscale=False, **kwargs):
+                    showscale=False, size_scale=1, **kwargs):
     """Converts a cloud of points or a covariance matrix into a 3D ellipsoid.
 
     This function uses the centroid and the covariance matrix of a cloud of
@@ -39,6 +39,8 @@ def ellipsoid_trace(points=None, centroid=None, covmat=None, contour=0.5,
         Text associated with the box
     showscale : bool, default False
         If True, show the colorscale of the :class:`plotly.graph_objs.Mesh3d`
+    size_scale : float, optional, default 1
+        Scale factor for the size of the ellipsoid
     **kwargs : dict, optional
         Additional parameters to pass to the underlying
         :class:`plotly.graph_objs.Mesh3d` object
@@ -78,8 +80,7 @@ def ellipsoid_trace(points=None, centroid=None, covmat=None, contour=0.5,
                 "The `contour` parameter should be a probability.")
         radius = np.sqrt(2*gammaincinv(1.5, contour))
 
-    ell_points = centroid + radius*np.dot(unit_points, rotmat)
-
+    ell_points = centroid + size_scale*radius*np.dot(unit_points, rotmat)
     # Convert the color provided to a set of intensities, if needed
     if color is not None and not isinstance(color, str):
         assert intensity is None, (
@@ -105,7 +106,7 @@ def ellipsoid_trace(points=None, centroid=None, covmat=None, contour=0.5,
 
 def ellipsoid_traces(centroids, covmat, color=None, hovertext=None, cmin=None,
                      cmax=None, shared_legend=True, legendgroup=None,
-                     showlegend=True, name=None, **kwargs):
+                     showlegend=True, name=None, size_scale=1, **kwargs):
     """Function which produces a list of plotly traces of ellipsoids given a
     list of centroids and one covariance matrix in x, y and z.
 
@@ -131,6 +132,8 @@ def ellipsoid_traces(centroids, covmat, color=None, hovertext=None, cmin=None,
         Whether to show legends on not
     name : str, optional
         Name of the trace(s)
+    size_scale : List[float], optional
+        List of scale factors for the size of the ellipsoids
     **kwargs : dict, optional
         List of additional arguments to pass to the underlying list of
         :class:`plotly.graph_objs.Mesh3D`
@@ -181,10 +184,15 @@ def ellipsoid_traces(centroids, covmat, color=None, hovertext=None, cmin=None,
         else:
             name_i = f'{name} {i}'
 
+        if size_scale is not None:
+            size_scale_i = size_scale[i]
+        else:
+            size_scale_i = 1
+
         # Append list of traces
         traces.append(ellipsoid_trace(
             centroid=centroid, covmat=covmat, contour=None, color=col,
             hovertext=hov, cmin=cmin, cmax=cmax, legendgroup=legendgroup,
-            showlegend=showlegend, name=name_i, **kwargs))
+            showlegend=showlegend, name=name_i, size_scale=size_scale_i, **kwargs))
 
     return traces

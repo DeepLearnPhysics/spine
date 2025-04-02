@@ -102,6 +102,10 @@ def layout3d(ranges=None, meta=None, detector=None, titles=None,
         ranges[:, 0] -= lengths*0.1
         ranges[:, 1] += lengths*0.1
 
+        # Add extra padding to the x-axis
+        ranges[0, 0] -= lengths[0]*0.2
+        ranges[0, 1] += lengths[0]*0.2
+
         # If pixel coordinates are requested, use meta to make the conversion
         if detector_coords is False:
             assert meta is not None, (
