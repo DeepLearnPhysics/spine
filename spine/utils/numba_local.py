@@ -394,10 +394,11 @@ def pdist(x: nb.float32[:,:],
     """
     # Initialize the return matrix
     assert x.shape[1] == 3, "Only supports 3D points for now."
-    res = np.zeros((len(x), len(x)), dtype=x.dtype)
+    res = np.empty((len(x), len(x)), dtype=x.dtype)
 
     if metric == 'euclidean':
         for i in range(x.shape[0]):
+            res[i, i] = 0.
             for j in range(i+1, x.shape[0]):
                 res[i, j] = res[j, i] = np.sqrt(
                         (x[i][0] - x[j][0])**2 +
@@ -406,6 +407,7 @@ def pdist(x: nb.float32[:,:],
 
     elif metric == 'cityblock':
         for i in range(x.shape[0]):
+            res[i, i] = 0.
             for j in range(i+1, x.shape[0]):
                 res[i, j] = res[j, i] = (
                         abs(x[i][0] - x[j][0]) +
@@ -414,10 +416,11 @@ def pdist(x: nb.float32[:,:],
 
     elif metric == 'chebyshev':
         for i in range(x.shape[0]):
+            res[i, i] = 0.
             for j in range(i+1, x.shape[0]):
                 res[i, j] = res[j, i] = max(
-                        max(abs(x[i][0] - x[j][0]),
-                        abs(x[i][1] - x[j][1])),
+                        abs(x[i][0] - x[j][0]),
+                        abs(x[i][1] - x[j][1]),
                         abs(x[i][2] - x[j][2]))
 
     else:
@@ -468,6 +471,73 @@ def cdist(x1: nb.float32[:,:],
                         (x1[i1][2]-x2[i2][2])**2)
 
     return res
+
+
+@nb.njit(cache=True)
+def radius_graph(x: nb.float32[:,:],
+                 radius: nb.float32,
+                 metric: str = 'euclidean') -> nb.float32[:,:]:
+    """Numba implementation of a radius-graph construction.
+
+    This function generates a list of edges in a graph which connects all nodes
+    within some radius R of each other.
+
+    Parameters
+    ----------
+    x : np.ndarray
+        (N, 3) array of node coordinates
+    radius : float
+        Radius within which to build connections in the graph
+    metric : str, default 'euclidean'
+        Distance metric
+
+    Returns
+    -------
+    np.ndarray
+        (E, 2) array of edges in the radius graph
+    """
+    # Initialize an empty list of edges to add to the graph
+    assert x.shape[1] == 3, "Only supports 3D points for now."
+    out = nb.typed.List.empty_list(nb.int64[:])
+
+    if metric == 'euclidean':
+        for i in range(x.shape[0]):
+            for j in range(i+1, x.shape[0]):
+                dist = np.sqrt(
+                        (x[i][0] - x[j][0])**2 +
+                        (x[i][1] - x[j][1])**2 +
+                        (x[i][2] - x[j][2])**2)
+                if dist <= radius:
+                    out.append(np.array([i, j]))
+
+    elif metric == 'cityblock':
+        for i in range(x.shape[0]):
+            for j in range(i+1, x.shape[0]):
+                dist = (
+                        abs(x[i][0] - x[j][0]) +
+                        abs(x[i][1] - x[j][1]) +
+                        abs(x[i][2] - x[j][2]))
+                if dist <= radius:
+                    out.append(np.array([i, j]))
+
+    elif metric == 'chebyshev':
+        for i in range(x.shape[0]):
+            for j in range(i+1, x.shape[0]):
+                dist = max(
+                        abs(x[i][0] - x[j][0]),
+                        abs(x[i][1] - x[j][1]),
+                        abs(x[i][2] - x[j][2]))
+                if dist <= radius:
+                    out.append(np.array([i, j]))
+
+    else:
+        raise ValueError("Distance metric not recognized.")
+
+    edges = np.empty((len(out), 2), dtype=np.int64)
+    for i, e in enumerate(out):
+        edges[i] = e
+
+    return edges
 
 
 @nb.njit(cache=True)
@@ -533,7 +603,7 @@ def dbscan(x: nb.float32[:, :],
         (N) Group assignments
     """
     # Produce a sparse adjacency matrix (edge index)
-    edges = np.vstack(np.where(pdist(x, metric) < eps)).T
+    edges = radius_graph(x, eps, metric)
     
     # Build groups
     return union_find(edges, len(x), return_inverse=True)
