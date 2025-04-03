@@ -498,7 +498,7 @@ def radius_graph(x: nb.float32[:,:],
     """
     # Initialize an empty list of edges to add to the graph
     assert x.shape[1] == 3, "Only supports 3D points for now."
-    out = nb.typed.List.empty_list(nb.int64[:])
+    edges = nb.typed.List.empty_list(nb.int64[:])
 
     if metric == 'euclidean':
         for i in range(x.shape[0]):
@@ -508,7 +508,7 @@ def radius_graph(x: nb.float32[:,:],
                         (x[i][1] - x[j][1])**2 +
                         (x[i][2] - x[j][2])**2)
                 if dist <= radius:
-                    out.append(np.array([i, j]))
+                    edges.append(np.array([i, j]))
 
     elif metric == 'cityblock':
         for i in range(x.shape[0]):
@@ -518,7 +518,7 @@ def radius_graph(x: nb.float32[:,:],
                         abs(x[i][1] - x[j][1]) +
                         abs(x[i][2] - x[j][2]))
                 if dist <= radius:
-                    out.append(np.array([i, j]))
+                    edges.append(np.array([i, j]))
 
     elif metric == 'chebyshev':
         for i in range(x.shape[0]):
@@ -528,16 +528,16 @@ def radius_graph(x: nb.float32[:,:],
                         abs(x[i][1] - x[j][1]),
                         abs(x[i][2] - x[j][2]))
                 if dist <= radius:
-                    out.append(np.array([i, j]))
+                    edges.append(np.array([i, j]))
 
     else:
         raise ValueError("Distance metric not recognized.")
 
-    edges = np.empty((len(out), 2), dtype=np.int64)
-    for i, e in enumerate(out):
-        edges[i] = e
+    edge_index = np.empty((len(edges), 2), dtype=np.int64)
+    for i, e in enumerate(edges):
+        edge_index[i] = e
 
-    return edges
+    return edge_index
 
 
 @nb.njit(cache=True)
@@ -562,11 +562,17 @@ def union_find(edge_index: nb.int64[:,:],
     -------
     np.ndarray
         (C) Group assignments for each of the nodes in the graph
+    Dict[int, np.ndarray]
+        Dictionary which maps groups to indexes
     """
     labels = np.arange(count)
+    groups = {i: np.array([i]) for i in labels}
     for e in edge_index:
-        if labels[e[0]] != labels[e[1]]:
-            labels[labels == labels[e[1]]] = labels[e[0]]
+        li, lj = labels[e[0]], labels[e[1]]
+        if li != lj:
+            labels[groups[lj]] = li
+            groups[li] = np.concatenate((groups[li], groups[lj]))
+            del groups[lj]
 
     if return_inverse:
         mask = np.zeros(count, dtype=np.bool_)
@@ -575,7 +581,7 @@ def union_find(edge_index: nb.int64[:,:],
         mapping[mask] = np.arange(np.sum(mask))
         labels = mapping[labels]
 
-    return labels
+    return labels, groups
 
 
 @nb.njit(cache=True)
@@ -603,10 +609,10 @@ def dbscan(x: nb.float32[:, :],
         (N) Group assignments
     """
     # Produce a sparse adjacency matrix (edge index)
-    edges = radius_graph(x, eps, metric)
+    edge_index = radius_graph(x, eps, metric)
     
     # Build groups
-    return union_find(edges, len(x), return_inverse=True)
+    return union_find(edge_index, len(x), return_inverse=True)[0]
 
 
 @nb.njit(cache=True)

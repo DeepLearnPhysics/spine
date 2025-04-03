@@ -390,43 +390,6 @@ def edge_assignment_forest(edge_index, edge_pred, group_ids):
 
 
 @nb.njit(cache=True)
-def union_find(edge_index: nb.int64[:,:],
-               num_nodes: nb.int64) -> (
-                       nb.int64[:], nb.types.DictType(nb.int64, nb.int64[:])):
-    """Implementation of the Union-Find algorithm.
-
-    This algorithm forms group based on the connectivity of its consistuents.
-    If two entities are connected, they belong to the same group.
-
-    Parameters
-    ----------
-    edge_index : np.ndarray
-        (E, 2) Sparse incidence matrix
-    num_nodes : int
-        Number of nodes in the graph, C
-
-    Returns
-    -------
-    np.ndarray
-        (C) Node group IDs
-    Dict[int, np.ndarray]
-        Dictionary which maps group IDs onto constituent cluster IDs
-    """
-    # Find the group_ids by merging groups when they are connected
-    group_ids = np.arange(n, dtype=np.int64)
-    for e in edge_index:
-        if group_ids[e[0]] != group_ids[e[1]]:
-            group_ids[group_ids == group_ids[e[1]]] = group_ids[e[0]]
-
-    # Build group dictionary
-    groups = nb.typed.Dict.empty(nb.int64, int_array)
-    for g in np.unique(group_ids):
-        groups[g] = np.where(group_ids == g)[0]
-
-    return group_ids, groups
-
-
-@nb.njit(cache=True)
 def node_assignment(edge_index: nb.int64[:,:],
                     edge_pred: nb.int64[:,:],
                     num_nodes: nb.int64) -> nb.int64[:]:
@@ -451,7 +414,7 @@ def node_assignment(edge_index: nb.int64[:,:],
     # Loop over on edges, reset the group IDs of connected node
     on_edges = edge_index[np.where(edge_pred[:, 1] > edge_pred[:, 0])[0]]
 
-    return union_find(on_edges, num_nodes)[0]
+    return nbl.union_find(on_edges, num_nodes)[0]
 
 
 @nb.njit(cache=True)
