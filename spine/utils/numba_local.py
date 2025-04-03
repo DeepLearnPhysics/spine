@@ -610,7 +610,7 @@ def dbscan(x: nb.float32[:, :],
     """
     # Produce a sparse adjacency matrix (edge index)
     edge_index = radius_graph(x, eps, metric)
-    
+
     # Build groups
     return union_find(edge_index, len(x), return_inverse=True)[0]
 

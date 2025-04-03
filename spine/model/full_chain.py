@@ -23,8 +23,8 @@ from spine.utils.globals import (
 from spine.utils.calib import CalibrationManager
 from spine.utils.logger import logger
 from spine.utils.ppn import get_particle_points
-from spine.utils.ghost import (
-        compute_rescaled_charge_batch, adapt_labels_batch)
+from spine.utils.ghost import compute_rescaled_charge_batch
+from spine.utils.cluster.label import ClusterLabelAdapter
 from spine.utils.gnn.cluster import (
         form_clusters_batch, get_cluster_label_batch)
 from spine.utils.gnn.evaluation import primary_assignment_batch
@@ -173,8 +173,7 @@ class FullChain(torch.nn.Module):
                 self.uresnet_ppn = UResNetPPN(**uresnet_ppn)
 
         # Initialize the relabeling process (adapt to the semantic predictions)
-        # TODO: make this a class which holds onto these parameters?
-        self.adapt_params = adapt_labels if adapt_labels is not None else {}
+        self.label_adapter = ClusterLabelAdapter(**(adapt_labels or {}))
 
         # Initialize the dense clustering model
         self.fragment_shapes = []
@@ -495,9 +494,8 @@ class FullChain(torch.nn.Module):
             if seg_label is not None and clust_label is not None:
                 seg_pred = self.result['seg_pred']
                 ghost_pred = self.result.get('ghost_pred', None)
-                clust_label = adapt_labels_batch(
-                        clust_label, seg_label, seg_pred, ghost_pred,
-                        **self.adapt_params)
+                clust_label = self.label_adapter(
+                        clust_label, seg_label, seg_pred, ghost_pred)
 
                 self.result['clust_label_adapt'] = clust_label
 

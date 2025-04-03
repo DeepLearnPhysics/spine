@@ -340,6 +340,67 @@ def form_clusters(data, min_size=-1, column=CLUST_COL, shapes=None):
     return clusts, counts
 
 
+@numbafy(cast_args=['data'], list_args=['clusts'],
+         keep_torch=True, ref_arg='data')
+def break_clusters(data, clusts, eps, metric):
+    """Runs DBSCAN on each invididual cluster to segment them further if needed.
+
+    Parameters
+    ----------
+    data : np.ndarray
+        Cluster label data tensor
+    clusts : List[np.ndarray]
+        (C) List of cluster indexes
+    eps : float
+        DBSCAN clustering distance scale
+    metric : str
+        DBSCAN clustering distance metric
+
+    Returns
+    -------
+    np.ndarray
+        New array of broken cluster labels
+    """
+    if not len(clusts):
+        return np.copy(data[:, CLUST_COL])
+
+    return _break_clusters(data, clusts, eps, metric)
+
+@nb.njit(cache=True)
+def _break_clusters(data: nb.float64[:,:],
+                    clusts: nb.types.List(nb.int64[:]),
+                    eps: nb.float64,
+                    metric: str) -> nb.float64[:]:
+    # Get the relevant data products
+    points = data[:, COORD_COLS]
+    labels = data[:, CLUST_COL]
+
+    # Loop over clusters to break, run DBSCAN
+    break_ids = np.full_like(labels, -1)
+    ids = np.arange(len(clusts)).astype(np.int64)
+    for k in range(len(clusts)):
+        # Restrict the points to those in the cluster
+        clust = clusts[ids[k]]
+        points_c = points[clust]
+
+        # Run DBSCAN on the cluster, update labels
+        clust_ids = nbl.dbscan(points_c, eps=eps, metric=metric)
+
+        # Store the breaking IDs
+        break_ids[clust] = clust_ids
+
+    # Update the break IDs to ensure no overlap (has to be sequential)
+    break_labels = np.copy(labels)
+    offset = np.max(labels) + 1
+    for k, clust in enumerate(clusts):
+        # Update IDs, offset
+        ids = break_ids[clust]
+        break_labels[clust] = offset + ids
+        offset += len(np.unique(ids))
+
+    return break_labels
+
+
 @numbafy(cast_args=['data'], list_args=['clusts'])
 def get_cluster_label(data, clusts, column=CLUST_COL):
     """Returns the majority label of each cluster, specified by the
@@ -486,7 +547,7 @@ def _get_cluster_primary_label(data: nb.float64[:,:],
         if len(primary_mask):
             # Only use the primary component to label the cluster
             v, cts = nbl.unique(data[clusts[i][primary_mask], column])
-        else: 
+        else:
             # If there is no primary contribution, use the whole cluster
             v, cts = nbl.unique(data[clusts[i], column])
         labels[i] = v[np.argmax(cts)]
@@ -851,7 +912,7 @@ def _get_cluster_features_extended(data: nb.float64[:,:],
          keep_torch=True, ref_arg='data')
 def get_cluster_points_label(data, coord_label, clusts, random_order=True):
     """Gets label points for each cluster.
-    
+
     Returns start point of primary shower fragment twice if shower, delta or
     Michel and both end points of tracks if track.
 
@@ -908,7 +969,7 @@ def _get_cluster_points_label(data: nb.float64[:,:],
     return points
 
 
-@numbafy(cast_args=['data', 'starts'], list_args=['clusts'], 
+@numbafy(cast_args=['data', 'starts'], list_args=['clusts'],
          keep_torch=True, ref_arg='data')
 def get_cluster_directions(data, starts, clusts, max_dist=-1, optimize=False):
     """Estimates the direction of each cluster.
@@ -1224,14 +1285,14 @@ def cluster_dedx_dir(voxels: nb.float64[:,:],
     vectors_to_axis = voxels_sp - np.outer(voxels_proj, start_dir)
     spreads = np.sqrt(np.sum(vectors_to_axis**2, axis=1))
     spread = np.sum(spreads)/len(index)
-    
+
     return dE/dx, dE, dx, spread, len(index)
 
 
 @numbafy(cast_args=['data'], list_args=['clusts'],
          keep_torch=True, ref_arg='data')
 def get_cluster_start_points(data, clusts):
-    """Estimates the start point of clusters based on their PCA and the 
+    """Estimates the start point of clusters based on their PCA and the
     local curvature at each of the PCA extrema.
 
     Parameters
