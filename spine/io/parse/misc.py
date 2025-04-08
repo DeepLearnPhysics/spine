@@ -4,19 +4,18 @@ Contains the following parsers:
 - :class:`Meta2DParser`
 - :class:`Meta3DParser`
 - :class:`RunInfoParser`
-- :class:`OpFlashParser`
 - :class:`CRTHitParser`
 - :class:`TriggerParser`
 """
 
 
-from spine.data import Meta, RunInfo, Flash, CRTHit, Trigger, ObjectList
+from spine.data import Meta, RunInfo, CRTHit, Trigger, ObjectList
 
 from spine.utils.conditional import larcv
 
 from .base import ParserBase
 
-__all__ = ['MetaParser', 'RunInfoParser', 'FlashParser',
+__all__ = ['MetaParser', 'RunInfoParser',
            'CRTHitParser', 'TriggerParser']
 
 
@@ -145,84 +144,6 @@ class RunInfoParser(ParserBase):
         ref_event = sparse_event if sparse_event is not None else cluster_event
 
         return RunInfo.from_larcv(ref_event)
-
-
-class FlashParser(ParserBase):
-    """Copy construct Flash and return an array of `Flash`.
-
-    This parser also takes care of flashes that have been split between their
-    respective optical volumes, provided a `flash_event_list`. This parser
-    assumes that the trees are provided in order of the volume ID they
-    correspond to.
-
-    .. code-block. yaml
-        schema:
-          flashes:
-            parser: flash
-            flash_event_list:
-              - flash_cryoE
-              - flash_cryoW
-    """
-
-    # Name of the parser (as specified in the configuration)
-    name = 'flash'
-
-    # Alternative allowed names of the parser
-    aliases = ('opflash',)
-
-    def __call__(self, trees):
-        """Parse one entry.
-
-        Parameters
-        ----------
-        trees : dict
-            Dictionary which maps each data product name to a LArCV object
-        """
-        return self.process(**self.get_input_data(trees))
-
-    def process(self, flash_event=None, flash_event_list=None):
-        """Fetches the list of optical flashes.
-
-        Parameters
-        -------------
-        flash_event : larcv.EventFlash, optional
-            Optical flash event which contains a list of flash objects
-        flash_event_list : List[larcv.EventFlash], optional
-            List of optical flash events, each a list of flash objects
-
-        Returns
-        -------
-        List[Flash]
-            List of optical flash objects
-        """
-        # Check on the input
-        assert ((flash_event is not None) ^
-                (flash_event_list is not None)), (
-                "Must specify either `flash_event` or `flash_event_list`.")
-
-        # Parse flash objects
-        if flash_event is not None:
-            # If there is a single flash event, parse it as is
-            flash_list = flash_event.as_vector()
-            flashes = [Flash.from_larcv(larcv.Flash(f)) for f in flash_list]
-
-        else:
-            # Otherwise, set the volume ID of the flash to the source index
-            # and count the flash index from 0 to the largest number
-            flashes = []
-            idx = 0
-            for volume_id, flash_event in enumerate(flash_event_list):
-                for f in flash_event.as_vector():
-                    # Cast and update attributes
-                    flash = Flash.from_larcv(f)
-                    flash.id = idx
-                    flash.volume_id = volume_id
-
-                    # Append, increment counter
-                    flashes.append(flash)
-                    idx += 1
-
-        return ObjectList(flashes, Flash())
 
 
 class CRTHitParser(ParserBase):

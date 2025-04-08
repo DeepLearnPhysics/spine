@@ -9,6 +9,7 @@ from spine.post.base import PostBase
 from spine.data.out.base import OutBase
 
 from spine.utils.geo import Geometry
+from spine.utils.optical import merge_flashes
 
 from .barycenter import BarycenterFlashMatcher
 from .likelihood import LikelihoodFlashMatcher
@@ -31,7 +32,8 @@ class FlashMatchProcessor(PostBase):
     def __init__(self, flash_key, volume, ref_volume_id=None,
                  method='likelihood', detector=None, geometry_file=None,
                  run_mode='reco', truth_point_mode='points',
-                 truth_dep_mode='depositions', parent_path=None, **kwargs):
+                 truth_dep_mode='depositions', parent_path=None, merge_flashes=False, 
+                 merge_threshold=1.0, time_method='min', **kwargs):
         """Initialize the flash matching algorithm.
 
         Parameters
@@ -53,6 +55,12 @@ class FlashMatchProcessor(PostBase):
         parent_path : str, optional
             Path to the parent directory of the main analysis configuration.
             This allows for the use of relative paths in the post-processors.
+        merge_flashes : bool, default False
+            Whether to merge flashes
+        merge_threshold : float, default 1.0
+            Threshold for merging flashes
+        time_method : str, default 'min'
+            Method for merging flashes
         **kwargs : dict
             Keyword arguments to pass to specific flash matching algorithms
         """
@@ -84,6 +92,11 @@ class FlashMatchProcessor(PostBase):
 
         else:
             raise ValueError(f'Flash matching method not recognized: {method}')
+        
+        # Set the merge parameters
+        self.merge_flashes = merge_flashes
+        self.merge_threshold = merge_threshold
+        self.time_method = time_method
 
     def process(self, data):
         """Find [interaction, flash] pairs.
@@ -113,6 +126,10 @@ class FlashMatchProcessor(PostBase):
         # Fetch the optical volume each flash belongs to
         flashes = data[self.flash_key]
         volume_ids = np.asarray([f.volume_id for f in flashes])
+
+        # Merge flashes
+        if self.merge_flashes:
+            flashes = merge_flashes(flashes, merge_threshold=self.merge_threshold, time_method=self.time_method)
         
         # Loop over the optical volumes, run flash matching
         for k in self.interaction_keys:
