@@ -87,6 +87,7 @@ class ClusterAna(AnaBase):
         self.label_key = label_key
 
         # Parse the label_col column, if necessary
+        self.label_col = None
         if label_col is not None:
             self.label_col = enum_factory('cluster', label_col)
 
@@ -106,7 +107,8 @@ class ClusterAna(AnaBase):
                 keys[label_key] = True
                 for obj in self.obj_type:
                     keys[f'{obj}_clusts'] = True
-                    keys[f'{obj}_shapes'] = True
+                    if obj != 'interaction':
+                        keys[f'{obj}_shapes'] = True
 
             else:
                 keys['points'] = True
@@ -150,7 +152,8 @@ class ClusterAna(AnaBase):
                 label_col = self.label_col or self.label_cols[obj_type]
                 num_points = len(data[self.label_key])
                 labels = data[self.label_key][:, label_col]
-                shapes = data[self.label_key][:, SHAPE_COL]
+                if obj_type != 'interaction':
+                    shapes = data[self.label_key][:, SHAPE_COL]
                 num_truth = len(np.unique(labels[labels > -1]))
 
             else:
@@ -170,7 +173,8 @@ class ClusterAna(AnaBase):
                     num_reco = len(data[f'{obj_type}_clusts'])
                     for i, index in enumerate(data[f'{obj_type}_clusts']):
                         preds[index] = i
-                        shapes[index] = data[f'{obj_type}_shapes'][i]
+                        if obj_type != 'interaction':
+                            shapes[index] = data[f'{obj_type}_shapes'][i]
 
                 else:
                     # Use clusters from the object indexes

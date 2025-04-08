@@ -62,6 +62,9 @@ class TransparencyCalibrator:
         if self.run_id is not None:
             run_id = self.run_id
 
+        assert run_id is not None, (
+                "Must provide a run ID to get the transparency map.")
+
         # Get the appropriate transparency map for this run
         transparency_lut = self.transparency[run_id]
 

@@ -25,6 +25,9 @@ class FlashMatchProcessor(PostBase):
     # Alternative allowed names of the post-processor
     aliases = ('run_flash_matching',)
 
+    # Whether this post-processor needs to know where the configuration lives
+    need_parent_path = True
+
     def __init__(self, flash_key, volume, ref_volume_id=None,
                  method='likelihood', detector=None, geometry_file=None,
                  run_mode='reco', truth_point_mode='points',

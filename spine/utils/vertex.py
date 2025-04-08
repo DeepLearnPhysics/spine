@@ -247,3 +247,39 @@ def get_pseudovertex(start_points: nb.float32[:,:],
     pseudovtx = np.linalg.pinv(S) @ C
 
     return pseudovtx
+
+
+@nb.njit(cache=True)
+def get_weighted_pseudovertex(start_points: nb.float32[:,:],
+                     directions:  nb.float32[:,:],
+                     weights: nb.float32[:],
+                     dim: int = 3) -> nb.float32[:]:
+    """Finds the vertex which minimizes the total distance from itself to all
+    the lines defined by the start points of particles and their directions.
+
+    Parameters
+    ----------
+    start_points : np.ndarray
+        (P, 3) Particle start points
+    directions : np.ndarray
+        (P, 3) Particle directions
+    dim : int
+        Number of dimensions
+    """
+    assert len(start_points), (
+            "Cannot reconstruct pseudovertex without points.")
+
+    if len(start_points) == 1:
+        return start_points[0]
+
+    pseudovtx = np.zeros((dim, ), dtype=start_points.dtype)
+    S = np.zeros((dim, dim), dtype=start_points.dtype)
+    C = np.zeros((dim, ), dtype=start_points.dtype)
+
+    for i, (p, d) in enumerate(zip(start_points, directions)):
+        S += weights[i] * (np.outer(d, d) - np.eye(dim, dtype=start_points.dtype))
+        C += weights[i] * (np.outer(d, d) - np.eye(dim, dtype=start_points.dtype)) @ np.ascontiguousarray(p)
+
+    pseudovtx = np.linalg.pinv(S) @ C
+
+    return pseudovtx
