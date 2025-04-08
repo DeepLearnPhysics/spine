@@ -172,7 +172,7 @@ class ClusterLabelAdapter:
         true_deghost = seg_label < GHOST_SHP
         seg_mismatch = ~compat_mat[(seg_pred, seg_label)]
         new_label[true_deghost] = clust_label
-        new_label[true_deghost & seg_mismatch, VALUE_COL:] = -1.
+        new_label[seg_mismatch & true_deghost, VALUE_COL:] = -self._ones(1)
 
         # For mismatched predictions, attempt to find a touching instance of the
         # same class to assign it sensible cluster labels.
@@ -205,7 +205,7 @@ class ClusterLabelAdapter:
                 distances = self._compute_distances(X_pred, X_true[closest_ids])
 
                 # Label unlabeled voxels that touch a compatible true voxel
-                select_mask = distances <= 1
+                select_mask = distances < 1.1
                 select_index = self._where(select_mask)[0]
                 tagged_voxels_count = len(select_index)
                 if tagged_voxels_count > 0:
