@@ -364,39 +364,38 @@ def break_clusters(data, clusts, eps, metric):
     if not len(clusts):
         return np.copy(data[:, CLUST_COL])
 
-    return _break_clusters(data, clusts, eps, metric)
+    # Break labels
+    break_labels = _break_clusters(data, clusts, eps, metric)
 
-@nb.njit(cache=True)
+    # Offset individual broken labels to prevent overlap
+    labels = np.copy(data[:, CLUST_COL])
+    offset = np.max(labels) + 1
+    for k, clust in enumerate(clusts):
+        # Update IDs, offset
+        ids = break_labels[clust]
+        labels[clust] = offset + ids
+        offset += len(np.unique(ids))
+
+    return labels
+
+@nb.njit(cache=True, parallel=True, nogil=True)
 def _break_clusters(data: nb.float64[:,:],
                     clusts: nb.types.List(nb.int64[:]),
                     eps: nb.float64,
                     metric: str) -> nb.float64[:]:
-    # Get the relevant data products
-    points = data[:, COORD_COLS]
-    labels = data[:, CLUST_COL]
-
     # Loop over clusters to break, run DBSCAN
-    break_ids = np.full_like(labels, -1)
-    ids = np.arange(len(clusts)).astype(np.int64)
-    for k in range(len(clusts)):
+    break_labels = np.full(len(data), -1, dtype=data.dtype)
+    points = data[:, COORD_COLS]
+    for k in nb.prange(len(clusts)):
         # Restrict the points to those in the cluster
-        clust = clusts[ids[k]]
+        clust = clusts[k]
         points_c = points[clust]
 
         # Run DBSCAN on the cluster, update labels
         clust_ids = nbl.dbscan(points_c, eps=eps, metric=metric)
 
         # Store the breaking IDs
-        break_ids[clust] = clust_ids
-
-    # Update the break IDs to ensure no overlap (has to be sequential)
-    break_labels = np.copy(labels)
-    offset = np.max(labels) + 1
-    for k, clust in enumerate(clusts):
-        # Update IDs, offset
-        ids = break_ids[clust]
-        break_labels[clust] = offset + ids
-        offset += len(np.unique(ids))
+        break_labels[clust] = clust_ids
 
     return break_labels
 

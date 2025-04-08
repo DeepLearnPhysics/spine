@@ -47,7 +47,7 @@ class ClusterLabelAdapter:
             Distance scale used in the break up procedure
         break_metric : str, default 'chebyshev'
             Distance metric used in the break up produce
-        break_classes : List[int], default 
+        break_classes : List[int], default
                         [SHOWR_SHP, TRACK_SHP, MICHL_SHP, DELTA_SHP]
             Classes to run DBSCAN on to break up
         """
@@ -141,12 +141,12 @@ class ClusterLabelAdapter:
         if not len(clust_label):
             if ghost_pred is None:
                 shape = (len(coords), num_cols)
-                dummy_labels = -1 * self._ones(shape)
+                dummy_labels = -self._ones(shape)
                 dummy_labels[:, :VALUE_COL] = coords
 
             else:
                 shape = (len(deghost_index), num_cols)
-                dummy_labels = -1 * self._ones(shape)
+                dummy_labels = -self._ones(shape)
                 dummy_labels[:, :VALUE_COL] = coords[deghost_index]
 
             return dummy_labels
@@ -159,7 +159,7 @@ class ClusterLabelAdapter:
             seg_pred = seg_pred_long
 
         # Prepare new labels
-        new_label = -1. * self._ones((len(coords), num_cols))
+        new_label = -self._ones((len(coords), num_cols))
         new_label[:, :VALUE_COL] = coords
 
         # Check if the segment labels and predictions are compatible. If they are
@@ -172,7 +172,7 @@ class ClusterLabelAdapter:
         true_deghost = seg_label < GHOST_SHP
         seg_mismatch = ~compat_mat[(seg_pred, seg_label)]
         new_label[true_deghost] = clust_label
-        new_label[seg_mismatch & true_deghost, VALUE_COL:] = -self._ones(1)
+        new_label[true_deghost & seg_mismatch, VALUE_COL:] = -self._ones(1)
 
         # For mismatched predictions, attempt to find a touching instance of the
         # same class to assign it sensible cluster labels.
@@ -182,7 +182,7 @@ class ClusterLabelAdapter:
                 continue
 
             # Restrict to points in this class that have incompatible segment
-            # labels. Track points do not mix, EM points are allowed to. 
+            # labels. Track points do not mix, EM points are allowed to.
             bad_index = self._where(
                     (seg_pred == s) & (~true_deghost | seg_mismatch))[0]
             if len(bad_index) == 0:
@@ -211,7 +211,7 @@ class ClusterLabelAdapter:
                 if tagged_voxels_count > 0:
                     # Use the label of the touching true voxel
                     additional_clust_label = self._cat(
-                            [X_pred[select_index], 
+                            [X_pred[select_index],
                              X_true[closest_ids[select_index], VALUE_COL:]], 1)
                     new_label[bad_index[select_index]] = additional_clust_label
 
