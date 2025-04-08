@@ -34,47 +34,6 @@ def compute_rescaled_charge_batch(data, collection_only=False, collection_id=2):
     return charges
 
 
-def adapt_labels_batch(clust_label, seg_label, seg_pred, ghost_pred=None,
-                       break_classes=[SHOWR_SHP,TRACK_SHP,MICHL_SHP,DELTA_SHP],
-                       break_eps=1.1, break_metric='chebyshev'):
-    """Batched version of :func:`adapt_labels`.
-
-    Parameters
-    ----------
-    clust_label : TensorBatch
-        (N, N_l) Cluster label tensor
-    seg_label : TensorBatch
-        (M, 5) Segmentation label tensor
-    seg_pred : TensorBatch
-        (M/N_deghost) Segmentation predictions for each voxel
-    ghost_pred : TensorBatch, optional
-        (M) Ghost predictions for each voxel
-    break_classes : List[int], default 
-                    [SHOWR_SHP, TRACK_SHP, MICHL_SHP, DELTA_SHP]
-        Classes to run DBSCAN on to break up
-    break_eps : float, default 1.1
-        Distance scale used in the break up procedure
-    break_metric : str, default 'chebyshev'
-        Distance metric used in the break up produce
-
-    Returns
-    -------
-    TensorBatch
-        (N_deghost, N_l) Adapted cluster label tensor
-    """
-    shape = (seg_pred.shape[0], clust_label.shape[1])
-    clust_label_adapted = torch.empty(
-            shape, dtype=clust_label.dtype, device=clust_label.device)
-    for b in range(clust_label.batch_size):
-        lower, upper = seg_pred.edges[b], seg_pred.edges[b+1]
-        ghost_pred_b = ghost_pred[b] if ghost_pred is not None else None
-        clust_label_adapted[lower:upper] = adapt_labels(
-                clust_label[b], seg_label[b], seg_pred[b],
-                ghost_pred_b, break_classes, break_eps, break_metric)
-
-    return TensorBatch(clust_label_adapted, seg_pred.counts)
-
-
 def compute_rescaled_charge(data, collection_only=False, collection_id=2):
     """Computes rescaled charge after deghosting.
 
