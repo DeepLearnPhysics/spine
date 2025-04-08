@@ -2,19 +2,23 @@
 
 import os
 import sys
-
 import numpy as np
 
+# Import the base class
+from .opt0_interface import OpT0Interface
 
-class LikelihoodFlashMatcher:
-    """Interface class between full chain outputs and OpT0Finder
 
+class LikelihoodFlashMatcher(OpT0Interface):
+    """
+    Interface class between full chain outputs and OpT0Finder for likelihood matching.
+
+    Inherits common initialization and QCluster creation from OpT0Interface.
     See https://github.com/drinkingkazu/OpT0Finder for more details about it.
     """
 
     def __init__(self, cfg, detector, parent_path=None,
                  reflash_merging_window=None, scaling=1., alpha=0.21,
-                 recombination_mip=0.65, legacy=False):
+                 recombination_mip=0.6, legacy=False):
         """Initialize the likelihood-based flash matching algorithm.
 
         Parameters
@@ -31,96 +35,37 @@ class LikelihoodFlashMatcher:
             Global scaling factor for the depositions (can be an expression)
         alpha : float, default 0.21
             Number of excitons (Ar*) divided by number of electron-ion pairs (e-,Ar+)
-        recombination_mip : float, default 0.65
+        recombination_mip : float, default 0.6
             Recombination factor for MIP-like particles in LAr
         legacy : bool, default False
             Use the legacy OpT0Finder function(s). TODO: remove when dropping legacy
         """
-        # Initialize the flash manager (OpT0Finder wrapper)
-        self.initialize_backend(cfg, detector, parent_path)
+        # Call the parent class initializer for common setup
+        super().__init__(cfg, detector, parent_path, scaling, alpha,
+                         recombination_mip, legacy)
 
-        # Get the external parameters
+        # Store likelihood-specific parameters
         self.reflash_merging_window = reflash_merging_window
-        self.scaling = scaling
-        if isinstance(self.scaling, str):
-            self.scaling = eval(self.scaling)
-        self.alpha = alpha
-        if isinstance(self.alpha, str):
-            self.alpha = eval(self.alpha)
-        self.recombination_mip = recombination_mip
-        if isinstance(self.recombination_mip, str):
-            self.recombination_mip = eval(self.recombination_mip)
-        self.legacy = legacy
 
-        # Initialize flash matching attributes
+        # Initialize flash matching attributes specific to likelihood matching
         self.matches = None
-        self.qcluster_v = None
+        # self.qcluster_v is initialized in the base class
         self.flash_v = None
+        # self.mgr is initialized in _initialize_algorithm
 
-    def initialize_backend(self, cfg, detector, parent_path):
-        """Initialize OpT0Finder (backend).
-
-        Expects that the environment variable `FMATCH_BASEDIR` is set.
-        You can either set it by hand (to the path where one can find
-        OpT0Finder) or you can source `OpT0Finder/configure.sh` if you
-        are running code from a command line.
+    def _initialize_algorithm(self, cfg_params):
+        """
+        Initialize the FlashMatchManager for likelihood matching.
 
         Parameters
         ----------
-        cfg: str
-            Path to config for OpT0Finder
-        detector : str, optional
-            Detector to get the geometry from
-        parent_path : str, optional
-            Path to the parent configuration file (allows for relative paths)
+        cfg_params : flashmatch::PSet
+            The loaded OpT0Finder configuration parameters.
         """
-        # Add OpT0finder python interface to the python path
-        basedir = os.getenv('FMATCH_BASEDIR')
-        assert basedir is not None, (
-                "You need to source OpT0Finder's configure.sh or set the "
-                "FMATCH_BASEDIR environment variable before running flash "
-                "matching.")
-        sys.path.append(os.path.join(basedir, 'python'))
-
-        # Add the OpT0Finder library to the dynamic link loader
-        lib_path = os.path.join(basedir, 'build/lib')
-        os.environ['LD_LIBRARY_PATH'] = '{}:{}'.format(
-                lib_path, os.environ['LD_LIBRARY_PATH'])
-
-        # Add the OpT0Finder data directory if it is not yet set
-        if 'FMATCH_DATADIR' not in os.environ:
-            os.environ['FMATCH_DATADIR'] = os.path.join(basedir, 'dat')
-
-        # Load up the detector specifications
-        if detector is None:
-            det_cfg = os.path.join(basedir, 'dat/detector_specs.cfg')
-        else:
-            det_cfg = os.path.join(basedir, f'dat/detector_specs_{detector}.cfg')
-
-        if not os.path.isfile(det_cfg):
-            raise FileNotFoundError(
-                    f"Cannot file detector specification file: {det_cfg}.")
-
         from flashmatch import flashmatch
-        flashmatch.DetectorSpecs.GetME(det_cfg)
-
-        # Fetch and initialize the OpT0Finder configuration
-        if parent_path is not None and not os.path.isfile(cfg):
-            cfg = os.path.join(parent_path, cfg)
-        if not os.path.isfile(cfg):
-            raise FileNotFoundError(
-                    f"Cannot find flash-matcher config: {cfg}")
-
-        cfg = flashmatch.CreateFMParamsFromFile(cfg)
-
         # Initialize The OpT0Finder flash match manager
         self.mgr = flashmatch.FlashMatchManager()
-        self.mgr.Configure(cfg)
-
-        # Get the light path algorithm to produce QCluster_t objects
-        self.light_path = flashmatch.CustomAlgoFactory.get().create(
-                'LightPath', 'ToyMCLightPath')
-        self.light_path.Configure(cfg.get['flashmatch::FMParams']('LightPath'))
+        self.mgr.Configure(cfg_params)
 
     def get_matches(self, interactions, flashes):
         """Find TPC interactions compatible with optical flashes.
@@ -142,6 +87,7 @@ class LikelihoodFlashMatcher:
             return []
 
         # Build a list of QCluster_t (OpT0Finder interaction representation)
+        # Use the method from the base class
         self.qcluster_v = self.make_qcluster_list(interactions)
 
         # Build a list of Flash_t (OpT0Finder optical flash representation)
@@ -153,61 +99,37 @@ class LikelihoodFlashMatcher:
         # Build result, return
         result = []
         for m in self.matches:
-            tpc_id = self.qcluster_v[m.tpc_id].idx
-            flash_id = self.flash_v[m.flash_id].idx
-            result.append((interactions[tpc_id], flashes[flash_id], m))
+            # Find the original interaction index from the qcluster index
+            tpc_idx_orig = -1
+            for qc in self.qcluster_v:
+                if qc.tpc_id == m.tpc_id: # Note: flashmatch::FlashMatch_t uses tpc_id which is the index in the manager's internal vector
+                    tpc_idx_orig = qc.idx # qc.idx stores the original index from the input interactions list
+                    break
+            if tpc_idx_orig == -1:
+                 raise ValueError(f"Could not find original TPC index for match TPC ID {m.tpc_id}")
+
+            # Find the original flash index from the flash_t index
+            flash_idx_orig = -1
+            for fl in self.flash_v:
+                 if fl.flash_id == m.flash_id: # Note: flashmatch::FlashMatch_t uses flash_id which is the index in the manager's internal vector
+                     flash_idx_orig = fl.idx # fl.idx stores the original index from the input flashes list
+                     break
+            if flash_idx_orig == -1:
+                 raise ValueError(f"Could not find original Flash index for match Flash ID {m.flash_id}")
+
+            # Find the corresponding interaction and flash objects using original indices
+            interaction_obj = next((inter for inter in interactions if inter.id == tpc_idx_orig), None)
+            flash_obj = next((flash for flash in flashes if flash.id == flash_idx_orig), None) # Use the potentially modified flashes list
+
+            if interaction_obj is None:
+                raise ValueError(f"Could not find interaction with original index {tpc_idx_orig}")
+            if flash_obj is None:
+                raise ValueError(f"Could not find flash with original index {flash_idx_orig}")
+
+            result.append((interaction_obj, flash_obj, m))
+
 
         return result
-
-    def make_qcluster_list(self, interactions):
-        """Converts a list of SPINE interaction into a list of OpT0Finder
-        flashmatch.QCluster_t objects.
-
-        Parameters
-        ----------
-        interactions : List[Union[Interaction, TruthInteraction]]
-            List of TPC interactions
-
-        Returns
-        -------
-        List[QCluster_t]
-           List of OpT0Finder flashmatch::QCluster_t objects
-        """
-        # Loop over the interacions
-        from flashmatch import flashmatch
-        qcluster_v = []
-        for idx, inter in enumerate(interactions):
-            # Produce a mask to remove negative value points (can happen)
-            valid_mask = np.where(inter.depositions > 0.)[0]
-
-            # Skip interactions with less than 2 points
-            if len(valid_mask) < 2:
-                continue
-
-            # Initialize qcluster
-            qcluster = flashmatch.QCluster_t()
-            qcluster.idx = idx
-            qcluster.time = 0
-
-            # Get the point coordinates
-            points = inter.points[valid_mask]
-
-            # Get the depositions
-            depositions = inter.depositions[valid_mask]
-
-            # Fill the trajectory
-            pytraj = np.hstack([points, depositions[:, None]])
-            traj = flashmatch.as_geoalgo_trajectory(pytraj)
-            if self.legacy:
-                qcluster += self.light_path.MakeQCluster(traj, self.scaling)
-            else:
-                qcluster += self.light_path.MakeQCluster(
-                        traj, self.scaling, self.alpha, self.recombination_mip)
-
-            # Append
-            qcluster_v.append(qcluster)
-
-        return qcluster_v
 
     def make_flash_list(self, flashes):
         """Creates a list of flashmatch.Flash_t from the local class.
@@ -341,7 +263,7 @@ class LikelihoodFlashMatcher:
             if array: return flashmatch.as_ndarray(flash)
             else: return flash
 
-        raise Exception('Flash {idx} does not exist in self.flash_v')
+        raise Exception(f'Flash {idx} does not exist in self.flash_v')
 
 
     def get_match(self, idx):
@@ -387,7 +309,7 @@ class LikelihoodFlashMatcher:
         flash_id = m.flash_id
         if flash_id is None: return None
         if flash_id > len(self.flash_v):
-            raise Exception('Flash {flash_id} does not exist in self.flash_v')
+            raise Exception(f'Flash {flash_id} does not exist in self.flash_v')
 
         return self.flash_v[flash_id]
 

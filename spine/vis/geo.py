@@ -201,7 +201,7 @@ class GeoDrawer:
                 index = np.where(np.asarray(col) != 0)[0]
                 pos = pos[index]
                 col = col[index]
-
+                sz = sz[index]
             # Determine wheter to show legends or not
             showlegend = not shared_legend or i == 0
 
@@ -210,7 +210,6 @@ class GeoDrawer:
             if shape == 'box':
                 # Convert the positions/dimensions to box lower/upper bounds
                 lower, upper = pos - hd, pos + hd
-
                 # Build boxes
                 traces += box_traces(
                         lower, upper, shared_legend=shared_legend, name=name,
@@ -220,7 +219,6 @@ class GeoDrawer:
             else:
                 # Convert the optical detector dimensions to a covariance matrix
                 covmat = np.diag(hd**2)
-
                 # Build ellipsoids
                 traces += ellipsoid_traces(
                         pos, covmat, shared_legend=shared_legend, name=name,

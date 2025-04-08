@@ -106,6 +106,8 @@ class FillFlashHypothesisProcessor(PostBase):
             Data product to fill the hypothesis into
         """
 
+        volume_ids = np.asarray([f.volume_id for f in data[self.flash_key]])
+
         #Loop over optical volumes, make the hypotheses in each
         for k in self.interaction_keys:
             # Fetch interactions, nothing to do if there are not any
@@ -119,7 +121,7 @@ class FillFlashHypothesisProcessor(PostBase):
             # Loop over the optical volumes
             id_offset = 0
             hypothesis_v = []
-            for volume_id in [0,1]: #TODO: Use the specific detector or geometry file to get the list of optical volumes
+            for volume_id in np.unique(volume_ids):
                 # Crop interactions to only include depositions in the optical volume
                 interactions_v = []
                 flash_info_v = []
@@ -154,7 +156,6 @@ class FillFlashHypothesisProcessor(PostBase):
                         if fvol == volume_id:
                             flash_info_v.append((inter.id,fid,fvol)) #needed for matching
                 # Make the hypothesis
-                print('volume_id', volume_id)
                 _hypo_v = self.hypothesis.make_hypothesis_list(interactions_v, id_offset, volume_id)
                 hypothesis_v.extend(_hypo_v)
                 id_offset += len(_hypo_v) #increment the offset for the next volume

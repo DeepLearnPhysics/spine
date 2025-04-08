@@ -28,7 +28,7 @@ class FlashMatchProcessor(PostBase):
     def __init__(self, flash_key, volume, ref_volume_id=None,
                  method='likelihood', detector=None, geometry_file=None,
                  run_mode='reco', truth_point_mode='points',
-                 truth_dep_mode='depositions', parent_path=None,store_matches=False, **kwargs):
+                 truth_dep_mode='depositions', parent_path=None, **kwargs):
         """Initialize the flash matching algorithm.
 
         Parameters
@@ -50,8 +50,6 @@ class FlashMatchProcessor(PostBase):
         parent_path : str, optional
             Path to the parent directory of the main analysis configuration.
             This allows for the use of relative paths in the post-processors.
-        store_matches : bool, default False
-            If True, the matches will be stored in the data product
         **kwargs : dict
             Keyword arguments to pass to specific flash matching algorithms
         """

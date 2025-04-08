@@ -6,13 +6,23 @@ import os
 import sys
 import numpy as np
 import re
+
+# Import the base class and Flash data structure
+from .opt0_interface import OpT0Interface
 from spine.data.optical import Flash
 
-class Hypothesis:
-    """Interface class between flash hypothesis and OpT0Finder."""
 
-    def __init__(self, cfg, detector, parent_path=None,scaling=1., alpha=0.21,
-                 recombination_mip=0.65, legacy=False):
+class Hypothesis(OpT0Interface):
+    """
+    Interface class between flash hypothesis generation and OpT0Finder.
+
+    Inherits common initialization and QCluster creation from OpT0Interface.
+    Uses an OpT0Finder hypothesis algorithm (e.g., SemiAnalyticalModel,
+    PhotonLibHypothesis) to generate predicted flash PEs from TPC interactions.
+    """
+
+    def __init__(self, cfg, detector, parent_path=None, scaling=1., alpha=0.21,
+                 recombination_mip=0.6, legacy=False):
         """Initialize the flash hypothesis algorithm.
 
         Parameters
@@ -27,168 +37,83 @@ class Hypothesis:
             Global scaling factor for the depositions (can be an expression)
         alpha : float, default 0.21
             Number of excitons (Ar*) divided by number of electron-ion pairs (e-,Ar+)
-        recombination_mip : float, default 0.65
+        recombination_mip : float, default 0.6
             Recombination factor for MIP-like particles in LAr
         legacy : bool, default False
             Use the legacy OpT0Finder function(s). TODO: remove when dropping legacy
         """
-        # Initialize the flash manager (OpT0Finder wrapper)
-        self.initialize_backend(cfg, detector, parent_path)
+        # Call the parent class initializer for common setup
+        super().__init__(cfg, detector, parent_path, scaling, alpha,
+                         recombination_mip, legacy)
 
-        # Get the external parameters
-        self.scaling = scaling
-        if isinstance(self.scaling, str):
-            self.scaling = eval(self.scaling)
-        self.alpha = alpha
-        if isinstance(self.alpha, str):
-            self.alpha = eval(self.alpha)
-        self.recombination_mip = recombination_mip
-        if isinstance(self.recombination_mip, str):
-            self.recombination_mip = eval(self.recombination_mip)
-        self.legacy = legacy
-        
-        #Initialize hypotheses
+        # Initialize hypothesis-specific attributes
         self.hypothesis_v = None
+        # self.hypothesis is initialized in _initialize_algorithm
+        # self.light_path is initialized in the base class
 
-    def initialize_backend(self, cfg, detector, parent_path):
-        """Initialize the flash manager (OpT0Finder wrapper).
-
-        Expects that the environment variable `FMATCH_BASEDIR` is set.
-        You can either set it by hand (to the path where one can find
-        OpT0Finder) or you can source `OpT0Finder/configure.sh` if you
-        are running code from a command line.
+    def _initialize_algorithm(self, cfg_params):
+        """
+        Initialize the specific Hypothesis algorithm based on configuration.
 
         Parameters
         ----------
-        cfg : str
-            Path to config for OpT0Finder
-        detector : str, optional
-            Detector to get the geometry from
-        parent_path : str, optional
-            Path to the parent configuration file (allows for relative paths)
+        cfg_params : flashmatch::PSet
+            The loaded OpT0Finder configuration parameters.
         """
-        # Add OpT0finder python interface to the python path
-        basedir = os.getenv('FMATCH_BASEDIR')
-        assert basedir is not None, (
-                "You need to source OpT0Finder's configure.sh or set the "
-                "FMATCH_BASEDIR environment variable before running flash "
-                "matching.")
-        sys.path.append(os.path.join(basedir, 'python'))
-
-        # Add the OpT0Finder library to the dynamic link loader
-        lib_path = os.path.join(basedir, 'build/lib')
-        os.environ['LD_LIBRARY_PATH'] = '{}:{}'.format(
-                lib_path, os.environ['LD_LIBRARY_PATH'])
-
-        # Add the OpT0Finder data directory if it is not yet set
-        if 'FMATCH_DATADIR' not in os.environ:
-            os.environ['FMATCH_DATADIR'] = os.path.join(basedir, 'dat')
-
-        # Load up the detector specifications
-        if detector is None:
-            det_cfg = os.path.join(basedir, 'dat/detector_specs.cfg')
-        else:
-            det_cfg = os.path.join(basedir, f'dat/detector_specs_{detector}.cfg')
-
-        if not os.path.isfile(det_cfg):
-            raise FileNotFoundError(
-                    f"Cannot file detector specification file: {det_cfg}.")
-
         from flashmatch import flashmatch
-        flashmatch.DetectorSpecs.GetME(det_cfg)
+        # Get FlashMatchManager configuration section to find the HypothesisAlgo name
+        # Assuming the relevant parameters are under 'FlashMatchManager' PSet
+        # Adjust 'FlashMatchManager' if your config structure is different
+        manager_params = cfg_params.get['flashmatch::FMParams']('FlashMatchManager')
 
-        # Fetch and initialize the OpT0Finder configuration
-        if parent_path is not None and not os.path.isfile(cfg):
-            cfg = os.path.join(parent_path, cfg)
-        if not os.path.isfile(cfg):
-            raise FileNotFoundError(
-                    f"Cannot find flash-matcher config: {cfg}")
-
-        cfg = flashmatch.CreateFMParamsFromFile(cfg)
-        
-        # Get FlashMatchManager configuration
-        fmatch_params = cfg.get['flashmatch::FMParams']('FlashMatchManager')
-        
         # Parse the configuration dump to find the HypothesisAlgo value
-        config_dump = fmatch_params.dump()
+        config_dump = manager_params.dump()
         match = re.search(r'HypothesisAlgo\s*:\s*"([^"]+)"', config_dump)
         if match:
-            algo = match.group(1)
+            algo_name = match.group(1)
         else:
-            raise ValueError(f"Could not find HypothesisAlgo in configuration: {config_dump}")
+            # Fallback: Check if the hypothesis algo config exists directly under top level
+            # This depends on how the .cfg file is structured
+            found_algo = False
+            for name in ['SemiAnalyticalModel', 'PhotonLibHypothesis']: # Add other known hypothesis algos
+                 if cfg_params.contains_pset(name):
+                     algo_name = name
+                     found_algo = True
+                     break
+            if not found_algo:
+                raise ValueError(f"Could not find HypothesisAlgo parameter within "
+                                 f"'FlashMatchManager' PSet in configuration: {config_dump}")
 
-        print(f'HypothesisAlgo: {algo}')
-        
-        # Get the light path algorithm to produce QCluster_t objects
-        self.light_path = flashmatch.CustomAlgoFactory.get().create(
-                'LightPath', 'ToyMCLightPath')
-        self.light_path.Configure(cfg.get['flashmatch::FMParams']('LightPath'))
+
+        print(f'HypothesisAlgo: {algo_name}')
 
         # Create the hypothesis algorithm based on the extracted name
-        if algo == 'SemiAnalyticalModel':
+        # Ensure the factory name matches the class name used in OpT0Finder registration
+        try:
             self.hypothesis = flashmatch.FlashHypothesisFactory.get().create(
-                'SemiAnalyticalModel','SemiAnalyticalModel')
-        elif algo == 'PhotonLibHypothesis':
-            self.hypothesis = flashmatch.FlashHypothesisFactory.get().create(
-                'PhotonLibHypothesis','PhotonLibHypothesis')
-        else:
-            raise ValueError(f"Unknown hypothesis algorithm: {algo}")
-        self.hypothesis.Configure(cfg.get['flashmatch::FMParams'](f'{algo}'))
+                algo_name, algo_name) # Factory name and instance name often match
+        except Exception as e:
+             raise ValueError(f"Failed to create hypothesis algorithm '{algo_name}'. "
+                              f"Is it registered correctly in OpT0Finder? Error: {e}")
 
-    def make_qcluster_list(self, interactions):
-        """Converts a list of SPINE interaction into a list of OpT0Finder
-        flashmatch.QCluster_t objects.
+        # Configure the hypothesis algorithm using its own PSet
+        try:
+            algo_pset = cfg_params.get['flashmatch::FMParams'](algo_name)
+            self.hypothesis.Configure(algo_pset)
+        except Exception as e:
+             raise ValueError(f"Failed to configure hypothesis algorithm '{algo_name}' "
+                              f"using PSet '{algo_name}'. Error: {e}")
 
-        Parameters
-        ----------
-        interactions : List[Union[Interaction, TruthInteraction]]
-            List of TPC interactions
 
-        Returns
-        -------
-        List[QCluster_t]
-           List of OpT0Finder flashmatch::QCluster_t objects
-        """
-        # Loop over the interacions
-        from flashmatch import flashmatch
-        qcluster_v = []
-        for idx, inter in enumerate(interactions):
-            # Produce a mask to remove negative value points (can happen)
-            valid_mask = np.where(inter.depositions > 0.)[0]
+    # Remove initialize_backend - handled by base class
+    # Remove make_qcluster_list - handled by base class
 
-            # Skip interactions with less than 2 points
-            if len(valid_mask) < 2:
-                continue
+    # make_qcluster_list is now inherited
 
-            # Initialize qcluster
-            qcluster = flashmatch.QCluster_t()
-            qcluster.idx = idx
-            qcluster.time = 0
-
-            # Get the point coordinates
-            points = inter.points[valid_mask]
-
-            # Get the depositions
-            depositions = inter.depositions[valid_mask]
-
-            # Fill the trajectory
-            pytraj = np.hstack([points, depositions[:, None]])
-            traj = flashmatch.as_geoalgo_trajectory(pytraj)
-            if self.legacy:
-                qcluster += self.light_path.MakeQCluster(traj, self.scaling)
-            else:
-                qcluster += self.light_path.MakeQCluster(
-                        traj, self.scaling, self.alpha, self.recombination_mip)
-
-            # Append
-            qcluster_v.append(qcluster)
-
-        return qcluster_v
-    
     def make_hypothesis_list(self, interactions, id_offset=0, volume_id=None):
         """
         Runs the hypothesis algorithm on a list of interactions to create
-        a list of flashmatch::Flash_t objects.
+        a list of spine Flash objects representing the predicted light.
 
         Parameters
         ----------
@@ -198,25 +123,39 @@ class Hypothesis:
             Offset to add to the flash ID
         volume_id : int, optional
             Volume ID to use for the hypothesis
-        """
-        # Make the QCluster_t objects
-        qcluster_v = self.make_qcluster_list(interactions)
 
-        # Initialize the list of flashmatch::Flash_t objects
+        Returns
+        -------
+        List[Flash]
+            List of generated spine Flash objects.
+        """
+        # Make the QCluster_t objects using the base class method
+        # Store them in self.qcluster_v as the base class expects
+        self.qcluster_v = self.make_qcluster_list(interactions)
+
+        # Map original interaction index to qcluster object for easy lookup
+        qcluster_map = {qc.idx: qc for qc in self.qcluster_v}
+
+        # Initialize the list of generated spine Flash objects
         self.hypothesis_v = []
 
-        # Run the hypothesis algorithm
-        for i,int in enumerate(interactions):
-            # Make the QCluster_t object
-            qcluster = qcluster_v[i]
+        # Run the hypothesis algorithm for each interaction that produced a valid qcluster
+        for i, inter in enumerate(interactions):
+            # Find the corresponding QCluster_t object using the original index
+            qcluster = qcluster_map.get(inter.id) # Assuming inter.id is the original index used in make_qcluster_list
+
+            # Skip if no valid qcluster was created for this interaction
+            if qcluster is None:
+                continue
 
             # Run the hypothesis algorithm
-            flash = self.hypothesis.GetEstimate(qcluster)
+            flash_hypothesis_fm = self.hypothesis.GetEstimate(qcluster) # flashmatch::Flash_t
 
-            # Create a new Flash object
-            flash = Flash.from_hypothesis(flash, int.id, i+id_offset, volume_id)
+            # Create a new spine Flash object from the hypothesis result
+            # Pass the original interaction ID (inter.id)
+            flash = Flash.from_hypothesis(flash_hypothesis_fm, inter.id, i + id_offset, volume_id)
 
-            # Append
+            # Append the generated spine Flash object
             self.hypothesis_v.append(flash)
 
         return self.hypothesis_v
