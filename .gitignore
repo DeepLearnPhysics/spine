@@ -21,7 +21,7 @@ mlreco/models/cluster_cnn/deprecated
 
 # Distribution / packaging
 .Python
-#build/ #This causes git to ignore spine/build
+build/
 develop-eggs/
 dist/
 downloads/
