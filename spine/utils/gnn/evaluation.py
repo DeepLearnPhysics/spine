@@ -287,9 +287,9 @@ def primary_assignment_batch(node_pred, group_ids=None):
 
 
 def edge_assignment(edge_index, group_ids):
-    """Determines which edges are turned on based on the group ID of the 
-    clusters they are connecting. 
-    
+    """Determines which edges are turned on based on the group ID of the
+    clusters they are connecting.
+
     Parameters
     ----------
     edge_index: np.ndarray
@@ -302,7 +302,7 @@ def edge_assignment(edge_index, group_ids):
     np.ndarray:
         (E) Array specifying on/off edges
     """
-    # Set the edge as true if it connects two nodes that belong to the same 
+    # Set the edge as true if it connects two nodes that belong to the same
     # entry (free; no edges between entries) and the same group
     mask = (group_ids[edge_index[:, 0]] == group_ids[edge_index[:, 1]])
 
@@ -332,13 +332,13 @@ def edge_assignment_from_graph(edge_index, true_edge_index, part_ids):
 
     # Compare with the reference sparse incidence matrix
     compare_index = lambda x, y: (x.T == y[..., None]).all(axis=1).any(axis=1)
-    
+
     return compare_index(edge_index_part, true_edge_index)
 
 
 def edge_assignment_forest(edge_index, edge_pred, group_ids):
     """Determines which edges must be turned on based on to form a
-    minimum-spanning tree (MST) for each node group. 
+    minimum-spanning tree (MST) for each node group.
 
     For each group, find the most likely spanning tree, label the edges in the
     tree as 1. For all other edges, apply loss only if in separate groups. If
@@ -390,43 +390,6 @@ def edge_assignment_forest(edge_index, edge_pred, group_ids):
 
 
 @nb.njit(cache=True)
-def union_find(edge_index: nb.int64[:,:],
-               num_nodes: nb.int64) -> (
-                       nb.int64[:], nb.types.DictType(nb.int64, nb.int64[:])):
-    """Implementation of the Union-Find algorithm.
-
-    This algorithm forms group based on the connectivity of its consistuents.
-    If two entities are connected, they belong to the same group.
-
-    Parameters
-    ----------
-    edge_index : np.ndarray
-        (E, 2) Sparse incidence matrix
-    num_nodes : int
-        Number of nodes in the graph, C
-
-    Returns
-    -------
-    np.ndarray
-        (C) Node group IDs
-    Dict[int, np.ndarray]
-        Dictionary which maps group IDs onto constituent cluster IDs
-    """
-    # Find the group_ids by merging groups when they are connected
-    group_ids = np.arange(n, dtype=np.int64)
-    for e in edge_index:
-        if group_ids[e[0]] != group_ids[e[1]]:
-            group_ids[group_ids == group_ids[e[1]]] = group_ids[e[0]]
-
-    # Build group dictionary
-    groups = nb.typed.Dict.empty(nb.int64, int_array)
-    for g in np.unique(group_ids):
-        groups[g] = np.where(group_ids == g)[0]
-
-    return group_ids, groups
-
-
-@nb.njit(cache=True)
 def node_assignment(edge_index: nb.int64[:,:],
                     edge_pred: nb.int64[:,:],
                     num_nodes: nb.int64) -> nb.int64[:]:
@@ -451,7 +414,7 @@ def node_assignment(edge_index: nb.int64[:,:],
     # Loop over on edges, reset the group IDs of connected node
     on_edges = edge_index[np.where(edge_pred[:, 1] > edge_pred[:, 0])[0]]
 
-    return union_find(on_edges, num_nodes)[0]
+    return nbl.union_find(on_edges, num_nodes, return_inverse=True)[0]
 
 
 @nb.njit(cache=True)
@@ -460,7 +423,7 @@ def node_assignment_bipartite(edge_index: nb.int64[:,:],
                               primaries: nb.int64[:],
                               num_nodes: nb.int64) -> nb.int64[:]:
     """Assigns each node to a group represented by a primary node.
-    
+
     This function loops over secondaries and associates it to the primary with
     that is connected to it with the strongest edge.
 
@@ -616,7 +579,7 @@ def edge_assignment_score(edge_index: nb.int64[:,:],
     """
     # If there is no edge, do not bother
     if not len(edge_index):
-        return (np.empty((0,2), dtype=np.int64), 
+        return (np.empty((0,2), dtype=np.int64),
                 np.arange(num_nodes, dtype=np.int64), 0.)
 
     # Build an input adjacency matrix to constrain the edge selection to
@@ -734,7 +697,7 @@ def node_purity_mask(group_ids: nb.int64[:],
     ill-defined.
 
     Note: It is possible that the single true primary has been broken into
-    several nodes. In that case, the primary is also ambiguous, skip. 
+    several nodes. In that case, the primary is also ambiguous, skip.
     TODO: pick the most sensible primary in that case, too restrictive
     otherwise (complicated, though).
 
@@ -765,8 +728,8 @@ def edge_purity_mask(edge_index: nb.int64[:,:],
                      group_ids: nb.int64[:],
                      primary_ids: nb.int64[:]) -> nb.boolean[:]:
     """Creates a mask that is `True` only for edges which connect two nodes
-    that both belong to a common group which has a single clear primary. 
-    
+    that both belong to a common group which has a single clear primary.
+
     This is useful for shower clustering only, for which there can be no or
     multiple primaries in the group, making the the edge classification
     ill-defined (no primary typically indicates a shower which originates

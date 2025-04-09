@@ -485,7 +485,7 @@ class TruthParticle(Particle, ParticleBase, TruthBase):
     orig_interaction_id: int = -1
     orig_parent_id: int = -1
     orig_group_id: int = -1
-    orig_children_id: np.ndarray = -1
+    orig_children_id: np.ndarray = None
     children_counts: np.ndarray = None
     reco_length: float = -1.
     reco_start_dir: np.ndarray = None
