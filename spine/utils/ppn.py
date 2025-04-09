@@ -348,8 +348,8 @@ def get_particle_points(data, clusts, clusts_seg, ppn_points,
         def farthest_pair(x):
             if len(x) < 2:
                 return [0, 0]
-            return list(torch.triu_indices(
-                len(x), len(x), 1)[:, torch.argmax(torch.pdist(x))])
+            idx = torch.argmax(torch.cdist(x, x))
+            return sorted([idx//len(x), idx%len(x)])
 
     else:
         cat, argmin, argmax = np.concatenate, np.argmin, np.argmax
