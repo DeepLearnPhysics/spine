@@ -184,9 +184,10 @@ class ReaderBase:
                    entry_list is not None, skip_entry_list is not None,
                    run_event_list is not None,
                    skip_run_event_list is not None]):
-            assert (bool(n_entry or n_skip) ^
-                    bool(entry_list or skip_entry_list) ^
-                    bool(run_event_list or skip_run_event_list)), (
+            assert ((n_entry is not None or n_skip is not None) ^
+                    (entry_list is not None or skip_entry_list is not None) ^
+                    (run_event_list is not None
+                     or skip_run_event_list is not None)), (
                     "Cannot specify `n_entry` or `n_skip` at the same time "
                     "as `entry_list` or `skip_entry_list` or at the same time "
                     "as `run_event_list` or `skip_run_event_list`.")
