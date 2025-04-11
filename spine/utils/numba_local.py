@@ -643,8 +643,8 @@ def principal_components(x: nb.float32[:,:]) -> nb.float32[:,:]:
 @nb.njit(cache=True)
 def farthest_pair(x: nb.float32[:,:],
                   algorithm: str = 'brute') -> (nb.int32, nb.int32, nb.float32):
-    """Algorithm which finds the two points which are
-    farthest from each other in a set.
+    """Algorithm which finds the two points which are farthest from each other
+    in a set.
 
     Two algorithms:
     - `brute`: compute pdist, use argmax
@@ -675,7 +675,9 @@ def farthest_pair(x: nb.float32[:,:],
         dist = dist_mat[idxs[0], idxs[1]]
 
     elif algorithm == 'recursive':
-        idxs, subidx, dist, tempdist = [0, 0], 0, 0., -1.
+        centroid = mean(x, 0)
+        start_idx = np.argmax(cdist(centroid.reshape(1, -1), x))
+        idxs, subidx, dist, tempdist = [start_idx, start_idx], 0, 0., -1.
         while dist > tempdist:
             tempdist = dist
             dists = cdist(np.ascontiguousarray(x[idxs[subidx]]).reshape(1,-1), x).flatten()
