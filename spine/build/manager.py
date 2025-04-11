@@ -70,7 +70,7 @@ class BuildManager:
         assert units in self._units, (
                 f"Units not recognized: {units}. Must be one {self._units}")
         self.units = units
-        
+
         # If custom sources are provided, update the tuple
         if sources is not None:
             sources_dict = dict(self._sources)
@@ -178,7 +178,7 @@ class BuildManager:
 
             if 'sources' in sources:
                 update['sources'] = sources['sources'].astype(int)
-        
+
         if self.mode != 'reco':
             update['label_tensor'] = sources['label_tensor']
             update['points_label'] = sources['label_tensor'][:, COORD_COLS]
