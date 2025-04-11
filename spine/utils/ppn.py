@@ -16,6 +16,7 @@ from scipy.spatial.distance import cdist as cdist_sp
 from spine.data import TensorBatch
 
 from . import numba_local as nbl
+from .decorators import numbafy
 from .dbscan import dbscan_points
 from .torch_local import local_cdist
 from .globals import (
@@ -373,135 +374,22 @@ class ParticlePointPredictor:
 
         # Get cluster point coordinates, dispatch
         points = data[:, COORD_COLS]
-        if self.use_numpy:
-            # Bring to numpy, pass to numpy function
-            is_tensor = False
-            if isinstance(points, torch.Tensor):
-                is_tensor = True
-                points = points.detach().cpu().numpy()
-                ppn_points = ppn_points.detach().cpu().numpy()
-
-            clusts = nb.typed.List(clusts)
-            end_points = self.get_end_points_numpy(
-                    points, clusts, clust_shapes, ppn_points,
-                    self.contained_first, self.anchor_points,
-                    self.enhance_track_points, self.farthest_pair_algo)
-
-            # If needed, cast back to torch.Tensor
-            if is_tensor:
-                end_points = torch.tensor(
-                        end_points, dtype=data.dtype, device=data.device)
-
-        else:
+        if not self.use_numpy:
             # Check type, pass to torch function
             assert isinstance(data, torch.Tensor), (
                     "When using `use_numpy=False`, must use torch data.")
             end_points = self.get_end_points_torch(
                     points, clusts, clust_shapes, ppn_points)
 
+        else:
+            # Pass to numpy function (takes care of object conversion)
+            end_points = self.get_end_points_numpy(
+                    points, clusts, clust_shapes, ppn_points)
+
         # Transform back to TensorBatch, if needed, then return
         if is_batch:
             end_points = TensorBatch(
                     end_points, counts, coord_cols=np.arange(6))
-
-        return end_points
-
-    @staticmethod
-    @nb.njit(cache=True, parallel=True, nogil=True)
-    def get_end_points_numpy(points: nb.float32[:,:],
-                             clusts: nb.types.List(nb.int64[:]),
-                             clust_shapes: nb.int64[:],
-                             ppn_points: nb.float32[:,:],
-                             contained_first: nb.boolean,
-                             anchor_points: nb.boolean,
-                             enhance_track_points: nb.boolean,
-                             farthest_pair_algo: str):
-        """Parallelized numba function to fetch each of the cluster end points.
-
-        Parameters
-        ----------
-        points : np.darray
-            (N, 3) Image point coordinates
-        clusts : List[np.ndarray]
-            List of particle clusters
-        clust_shapes : np.darray
-            Semantic type of each of the clusters
-        ppn_points : np.ndarray
-            Raw output of PPN
-        contained_first : bool
-            If `True`, for shower points, give precedence to voxels which
-            predict a point within one voxel of their location
-        anchor_points : bool
-            If `True`, the point estimates are brought to the closest cluster voxel
-        enhance_track_points
-            If `True`, tracks leverage PPN predictions to provide a more
-            accurate estimate of the end points. This needs to be avoided for
-            track fragments, as PPN is typically not trained to find end points
-            for them. If set to `False`, the two voxels farthest away from each
-            other are picked.
-        farthest_pair_algo: str
-            If `True`, approximate the computation of the two farthest points
-        """
-        # Loop over the relevant clusters
-        end_points = np.empty((len(clusts), 6), dtype=points.dtype)
-        for k in nb.prange(len(clusts)):
-            # Get cluster coordinates
-            c = clusts[k]
-            points_c = points[c]
-            ppn_points_c = ppn_points[c]
-
-            # For tracks, find the two poins farthest away from each other
-            if clust_shapes[k] == TRACK_SHP:
-                # Get the two most separated points in the cluster
-                idxs = np.sort(np.array(
-                        nbl.farthest_pair(points_c, farthest_pair_algo)[:2]))
-                track_points = points_c[idxs]
-
-                # If requested, enhance using the PPN predictions. Only consider
-                # points in the cluster that have a positive score
-                if enhance_track_points:
-                    pos_mask = (ppn_points_c[idxs, PPN_RPOS_COLS[1]] >=
-                                ppn_points_c[idxs, PPN_RPOS_COLS[0]])
-                    track_points += pos_mask * (
-                            ppn_points_c[idxs][:, PPN_ROFF_COLS]
-                            + np.array(0.5, dtype=points.dtype))
-
-                    # If needed, anchor the track endpoints to the track cluster
-                    if anchor_points:
-                        dist_mat = nbl.cdist(track_points, points_c)
-                        track_points = points_c[np.argmin(dist_mat, 1)]
-
-                # Store
-                end_points[k] = track_points.flatten()
-
-            # For showers, find the most likely point
-            else:
-                # Only use positive voxels and give precedence to predictions
-                # that are contained within the voxel making the prediction.
-                ppn_scores = nbl.softmax(ppn_points_c[:, PPN_RPOS_COLS], 1)[:, -1]
-                if contained_first:
-                    dists = np.abs(ppn_points_c[:, PPN_ROFF_COLS])
-
-                    val_index = np.where(
-                            (ppn_scores > 0.5) & nbl.all(dists < 1., 1))[0]
-                    if len(val_index):
-                        best_id = val_index[np.argmax(ppn_scores[val_index])]
-                    else:
-                        best_id = np.argmax(ppn_scores)
-                else:
-                    best_id = np.argmax(ppn_scores)
-
-                start_point = (points_c[best_id]
-                               + ppn_points_c[best_id, PPN_ROFF_COLS]
-                               + np.array(0.5, dtype=points.dtype))
-
-                # If needed, anchor the shower start point to the shower cluster
-                if anchor_points:
-                    dists = nbl.cdist(start_point[None, :], points_c)
-                    start_point = points_c[np.argmin(dists)]
-
-                # Store twice to preserve the feature vector length
-                end_points[k] = np.concatenate((start_point, start_point))
 
         return end_points
 
@@ -578,6 +466,104 @@ class ParticlePointPredictor:
                 end_points[i] = torch.cat((start_point, start_point), 0)
 
         # Return points
+        return end_points
+
+    @numbafy(cast_args=['points', 'ppn_points'], list_args=['clusts'],
+             keep_torch=True, ref_arg='points')
+    def get_end_points_numpy(self, points, clusts, clust_shapes, ppn_points): 
+        """Parallelized numba function to fetch each of the cluster end points.
+
+        Parameters
+        ----------
+        points : np.darray
+            (N, 3) Image point coordinates
+        clusts : List[np.ndarray]
+            List of particle clusters
+        clust_shapes : np.darray
+            Semantic type of each of the clusters
+        ppn_points : np.ndarray
+            Raw output of PPN
+        """
+        # If there are no clusters, nothing to do
+        if len(clusts) == 0:
+            return np.empty((0, 6), dtype=points.dtype)
+
+        return self._get_end_points_numpy(
+                points, clusts, clust_shapes, ppn_points,
+                self.contained_first, self.anchor_points,
+                self.enhance_track_points, self.farthest_pair_algo)
+
+    @staticmethod
+    @nb.njit(cache=True, parallel=True, nogil=True)
+    def _get_end_points_numpy(points: nb.float32[:,:],
+                              clusts: nb.types.List(nb.int64[:]),
+                              clust_shapes: nb.int64[:],
+                              ppn_points: nb.float32[:,:],
+                              contained_first: nb.boolean,
+                              anchor_points: nb.boolean,
+                              enhance_track_points: nb.boolean,
+                              farthest_pair_algo: str):
+        # Loop over the relevant clusters
+        end_points = np.empty((len(clusts), 6), dtype=points.dtype)
+        for k in nb.prange(len(clusts)):
+            # Get cluster coordinates
+            c = clusts[k]
+            points_c = points[c]
+            ppn_points_c = ppn_points[c]
+
+            # For tracks, find the two poins farthest away from each other
+            if clust_shapes[k] == TRACK_SHP:
+                # Get the two most separated points in the cluster
+                idxs = np.sort(np.array(
+                        nbl.farthest_pair(points_c, farthest_pair_algo)[:2]))
+                track_points = points_c[idxs]
+
+                # If requested, enhance using the PPN predictions. Only consider
+                # points in the cluster that have a positive score
+                if enhance_track_points:
+                    pos_mask = (ppn_points_c[idxs, PPN_RPOS_COLS[1]] >=
+                                ppn_points_c[idxs, PPN_RPOS_COLS[0]])
+                    track_points += pos_mask * (
+                            ppn_points_c[idxs][:, PPN_ROFF_COLS]
+                            + np.array(0.5, dtype=points.dtype))
+
+                    # If needed, anchor the track endpoints to the track cluster
+                    if anchor_points:
+                        dist_mat = nbl.cdist(track_points, points_c)
+                        track_points = points_c[np.argmin(dist_mat, 1)]
+
+                # Store
+                end_points[k] = track_points.flatten()
+
+            # For showers, find the most likely point
+            else:
+                # Only use positive voxels and give precedence to predictions
+                # that are contained within the voxel making the prediction.
+                ppn_scores = nbl.softmax(ppn_points_c[:, PPN_RPOS_COLS], 1)[:, -1]
+                if contained_first:
+                    dists = np.abs(ppn_points_c[:, PPN_ROFF_COLS])
+
+                    val_index = np.where(
+                            (ppn_scores > 0.5) & nbl.all(dists < 1., 1))[0]
+                    if len(val_index):
+                        best_id = val_index[np.argmax(ppn_scores[val_index])]
+                    else:
+                        best_id = np.argmax(ppn_scores)
+                else:
+                    best_id = np.argmax(ppn_scores)
+
+                start_point = (points_c[best_id]
+                               + ppn_points_c[best_id, PPN_ROFF_COLS]
+                               + np.array(0.5, dtype=points.dtype))
+
+                # If needed, anchor the shower start point to the shower cluster
+                if anchor_points:
+                    dists = nbl.cdist(start_point[None, :], points_c)
+                    start_point = points_c[np.argmin(dists)]
+
+                # Store twice to preserve the feature vector length
+                end_points[k] = np.concatenate((start_point, start_point))
+
         return end_points
 
 
