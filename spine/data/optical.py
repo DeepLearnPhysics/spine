@@ -277,4 +277,3 @@ class Flash(PosDataBase):
         # print('Old center:', old_center, 'New center:', self.center)
         # print('Old width:', old_width, 'New width:', self.width)
         # print('Old total_pe:', old_total_pe, 'New total_pe:', self.total_pe)
-
