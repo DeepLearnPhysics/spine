@@ -92,7 +92,7 @@ class BuildManager:
         if particles:
             self.builders['particle'] = ParticleBuilder(mode, units)
         if interactions:
-            assert particles is not None, (
+            assert particles, (
                     "Interactions are built from particles. If `interactions` "
                     "is True, so must `particles` be.")
             self.builders['interaction'] = InteractionBuilder(mode, units)
