@@ -158,7 +158,7 @@ class Drawer:
             return getattr(obj, self.truth_index_mode)
     #TODO: Add a function to draw flash hypotheses
     def get(self, obj_type, attr=None, color_attr=None, draw_raw=False,
-            draw_end_points=False, draw_vertices=False, draw_flashes=False,
+            draw_end_points=False, draw_directions=False, draw_vertices=False, draw_flashes=False,
             synchronize=False, titles=None, split_traces=False,
             matched_flash_only=True, draw_flash_hypotheses=False, hypo_interaction_id=None,
             use_size_for_flash=False):
