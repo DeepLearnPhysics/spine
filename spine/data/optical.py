@@ -269,11 +269,3 @@ class Flash(PosDataBase):
 
         # Perform addition and ensure final dtype is float32
         self.pe_per_ch = (pe_self_padded + pe_other_final).astype(np.float32)
-
-        #DEBUG - print the old and new values
-        # print('Old time:', old_time, 'New time:', self.time)
-        # print('Old time_abs:', old_time_abs, 'New time_abs:', self.time_abs)
-        # print('Old time_width:', old_time_width, 'New time_width:', self.time_width)
-        # print('Old center:', old_center, 'New center:', self.center)
-        # print('Old width:', old_width, 'New width:', self.width)
-        # print('Old total_pe:', old_total_pe, 'New total_pe:', self.total_pe)
