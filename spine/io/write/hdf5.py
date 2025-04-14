@@ -679,8 +679,6 @@ class HDF5Writer:
         dataset = out_file[key]
         current_id = len(dataset)
         dataset.resize(current_id + len(array), axis=0)
-        #print("Objects dtype:", objects.dtype)
-        #print("Objects sample:", objects[:5]) 
         dataset[current_id:current_id + len(array)] = objects
 
         # Define region reference, store it at the event level
