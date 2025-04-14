@@ -6,7 +6,7 @@ from warnings import warn
 
 import numpy as np
 
-from spine.utils.globals import PID_LABELS, PID_TAGS
+from spine.utils.globals import SHOWR_SHP, PID_LABELS, PID_TAGS
 from spine.utils.decorators import inherit_docstring
 
 from spine.data.neutrino import Neutrino
@@ -307,6 +307,21 @@ class RecoInteraction(InteractionBase, RecoBase):
             Basic information about the interaction properties
         """
         return 'Reco' + super().__str__()
+
+    @property
+    def leading_shower(self):
+        """Leading primary shower of this interaction.
+
+        Returns
+        -------
+        RecoParticle
+            Primary shower with the highest kinetic energy
+        """
+        showers = [part for part in self.primary_particles if part.shape == SHOWR_SHP]
+        if len(showers) == 0:
+            return None
+
+        return max(showers, key=lambda x: x.ke)
 
 
 @dataclass(eq=False)

@@ -32,8 +32,8 @@ def set_visible_devices(gpus=None, world_size=None, **kwargs):
                 len(gpus) == world_size), (
                         f"The world size ({world_size}) does not match the "
                         f"number of exposed GPUs ({len(gpus)}).")
-        world_size = world_size or len(gpus)
-        gpus = gpus or list(range(world_size))
+        world_size = world_size if world_size is not None else len(gpus)
+        gpus = gpus if gpus is not None else list(range(world_size))
 
     # Set the visible CUDA devices
     if not os.environ.get('CUDA_VISIBLE_DEVICES', None) and gpus is not None:

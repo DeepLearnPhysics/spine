@@ -17,13 +17,15 @@ class PostManager:
     It loads all the post-processor objects once and feeds them data.
     """
 
-    def __init__(self, cfg, parent_path=None):
+    def __init__(self, cfg, post_list=None, parent_path=None):
         """Initialize the post-processing manager.
 
         Parameters
         ----------
         cfg : dict
             Post-processor configurations
+        post_list : List[str], optional
+            List of post-processors which have already been run
         parent_path : str, optional
             Path to the analysis tools configuration file
         """
@@ -31,21 +33,29 @@ class PostManager:
         cfg = deepcopy(cfg)
         keys = np.array(list(cfg.keys()))
         priorities = -np.ones(len(keys), dtype=np.int32)
-        for i, k in enumerate(keys):
-            if 'priority' in cfg[k]:
-                priorities[i] = cfg[k].pop('priority')
+        for i, key in enumerate(keys):
+            if 'priority' in cfg[key]:
+                priorities[i] = cfg[key].pop('priority')
 
         # Add the modules to a processor list in decreasing order of priority
         self.watch = StopwatchManager()
         self.modules = OrderedDict()
         keys = keys[np.argsort(-priorities)]
-        for k in keys:
+        for key in keys:
             # Profile the module
-            self.watch.initialize(k)
+            self.watch.initialize(key)
 
             # Append
-            self.modules[k] = post_processor_factory(
-                    k, cfg[k], parent_path=parent_path)
+            self.modules[key] = post_processor_factory(
+                    key, cfg[key], parent_path=parent_path)
+
+            # Check dependencies
+            if post_list is not None:
+                ups_post = tuple(self.modules)
+                for post in self.modules[key]._upstream:
+                    assert post in (post_list + ups_post), (
+                            f"Post-processor `{key}` is missing an essential "
+                            f"upstream post-processor: `{post}`.")
 
     def __call__(self, data):
         """Pass one batch of data through the post-processors.

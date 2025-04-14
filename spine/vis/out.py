@@ -10,6 +10,7 @@ from spine.utils.globals import COORD_COLS, PID_LABELS, SHAPE_LABELS, TRACK_SHP
 
 from .geo import GeoDrawer
 from .point import scatter_points
+from .arrow import scatter_arrows
 from .cluster import scatter_clusters
 from .layout import (
         layout3d, dual_figure3d, PLOTLY_COLORS_WGRAY, HIGH_CONTRAST_COLORS)
@@ -176,6 +177,8 @@ class Drawer:
             If `True`, add a trace which corresponds to the raw depositions
         draw_end_points : bool, default False
             If `True`, draw the fragment or particle end points
+        draw_directions : bool, default False
+            If `True`, draw the fragment or particle start directions
         draw_vertices : bool, default False
             If `True`, draw the interaction vertices
         draw_flashes : bool, default False
@@ -228,6 +231,14 @@ class Drawer:
                 obj_name = f'{prefix}_{obj_type}'
                 traces[prefix] += self._start_point_trace(obj_name)
                 traces[prefix] += self._end_point_trace(obj_name)
+
+        # Fetch the directions, if requested
+        if draw_directions:
+            assert obj_name != 'interactions', (
+                    "Interactions do not have direction attributes.")
+            for prefix in self.prefixes:
+                obj_name = f'{prefix}_{obj_type}'
+                traces[prefix] += self._direction_trace(obj_name)
 
         # Fetch the vertices, if requested
         if draw_vertices:
@@ -486,9 +497,9 @@ class Drawer:
         ----------
         obj_name : str
             Name of the object to draw
-        color : Union[str, np.ndarray], optional
+        color : Union[str, np.ndarray], default 'black'
             Color of markers/lines or (N) list of color of markers/lines
-        markersize : float, default 5
+        markersize : float, default 7
             Marker size
         marker_symbol : float, default 'circle'
             Marker style
@@ -512,9 +523,9 @@ class Drawer:
         ----------
         obj_name : str
             Name of the object to draw
-        color : Union[str, np.ndarray], optional
+        color : Union[str, np.ndarray], default 'black'
             Color of markers/lines or (N) list of color of markers/lines
-        markersize : float, default 5
+        markersize : float, default 7
             Marker size
         marker_symbol : float, default 'circle-open'
             Marker style
@@ -538,7 +549,7 @@ class Drawer:
         ----------
         obj_name : str
             Name of the object to draw
-        color : Union[str, np.ndarray], optional
+        color : Union[str, np.ndarray], default 'green'
             Color of markers/lines or (N) list of color of markers/lines
         markersize : float, default 10
             Marker size
@@ -600,6 +611,47 @@ class Drawer:
         return scatter_points(
                 points, hovertext=np.array(hovertext), name=name, **kwargs)
 
+    def _direction_trace(self, obj_name, color='black', **kwargs):
+        """Scatters a set of discrete points per object instance.
+
+        Parameters
+        ----------
+        obj_name : str
+            Name of the object to draw
+        color : Union[str, np.ndarray], default 'black'
+            Color of markers/lines or (N) list of color of markers/lines
+        **kwargs : dict, optional
+            List of additional arguments to pass to :func:`scatter_arrows`
+
+        Returns
+        -------
+        list
+            List of point traces
+        """
+        # Define the name of the trace
+        name = ' '.join(obj_name.split('_')).capitalize()[:-1] + ' directions'
+
+        # Fetch the direction of each object
+        obj_type = obj_name.split('_')[-1][:-1].capitalize()
+        point_list, dir_list, hovertext = [], [], []
+        for i, obj in enumerate(self.data[obj_name]):
+            # Skip empty true objects
+            if obj.is_truth and not len(getattr(obj, self.truth_index_mode)):
+                continue
+
+            # Append the direction of this object and the label
+            point_list.append(obj.start_point)
+            dir_list.append(obj.start_dir)
+            hovertext.append(f'{obj_type} {i} direction')
+
+        points, dirs = np.empty((0, 3)), np.empty((0, 3))
+        if len(point_list):
+            points = np.vstack(point_list)
+            dirs = np.vstack(dir_list)
+
+        return scatter_arrows(
+                points, dirs, hovertext=np.array(hovertext), name=name,
+                color=color, **kwargs)
     def _flash_trace(self, obj_name, matched_only, use_size, opacity, **kwargs):
         """Draw the cumlative PEs of flashes that have been matched to
         interactions specified by `obj_name`.

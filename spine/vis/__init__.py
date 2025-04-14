@@ -4,6 +4,7 @@ from .out import Drawer
 from .geo import GeoDrawer
 from .train import TrainDrawer
 from .point import scatter_points
+from .arrow import scatter_arrows
 from .cluster import scatter_clusters
 from .box import scatter_boxes
 from .particle import scatter_particles

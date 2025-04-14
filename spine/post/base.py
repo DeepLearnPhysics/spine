@@ -30,8 +30,14 @@ class PostBase(ABC):
     # Units in which the post-processor expects objects to be expressed in
     units = 'cm'
 
+    # Whether this post-processor needs to know where the configuration lives
+    need_parent_path = False
+
     # Set of data keys needed for this post-processor to operate
     _keys = ()
+
+    # Set of post-processors which must be run before this one is
+    _upstream = ()
 
     # List of recognized object types
     _obj_types = ('fragment', 'particle', 'interaction')
