@@ -48,8 +48,6 @@ class Hypothesis(OpT0Interface):
 
         # Initialize hypothesis-specific attributes
         self.hypothesis_v = None
-        # self.hypothesis is initialized in _initialize_algorithm
-        # self.light_path is initialized in the base class
 
     def _initialize_algorithm(self, cfg_params):
         """
@@ -103,12 +101,6 @@ class Hypothesis(OpT0Interface):
         except Exception as e:
              raise ValueError(f"Failed to configure hypothesis algorithm '{algo_name}' "
                               f"using PSet '{algo_name}'. Error: {e}")
-
-
-    # Remove initialize_backend - handled by base class
-    # Remove make_qcluster_list - handled by base class
-
-    # make_qcluster_list is now inherited
 
     def make_hypothesis_list(self, interactions, id_offset=0, volume_id=None):
         """
