@@ -3,6 +3,7 @@
 
 import numpy as np
 from warnings import warn
+import copy
 
 from spine.post.base import PostBase
 
@@ -33,7 +34,7 @@ class FlashMatchProcessor(PostBase):
                  method='likelihood', detector=None, geometry_file=None,
                  run_mode='reco', truth_point_mode='points',
                  truth_dep_mode='depositions', parent_path=None, merge_flashes=False, 
-                 merge_threshold=1.0, time_method='min', **kwargs):
+                 merge_threshold=1.0, time_method='min', modify_flashes=False, **kwargs):
         """Initialize the flash matching algorithm.
 
         Parameters
@@ -61,6 +62,8 @@ class FlashMatchProcessor(PostBase):
             Threshold for merging flashes
         time_method : str, default 'min'
             Method for merging flashes
+        modify_flashes : bool, default False
+            Whether to modify the flashes in place. Relevant only if merge_flashes is True.
         **kwargs : dict
             Keyword arguments to pass to specific flash matching algorithms
         """
@@ -97,7 +100,7 @@ class FlashMatchProcessor(PostBase):
         self.merge_flashes = merge_flashes
         self.merge_threshold = merge_threshold
         self.time_method = time_method
-
+        self.modify_flashes = modify_flashes
     def process(self, data):
         """Find [interaction, flash] pairs.
 
@@ -124,12 +127,15 @@ class FlashMatchProcessor(PostBase):
                Total number of PEss associated with the hypothesis flash
         """
         # Fetch the optical volume each flash belongs to
-        flashes = data[self.flash_key]
+        if self.modify_flashes:
+            flashes = data[self.flash_key] #This will modify the flashes in place
+        else:
+            flashes = copy.deepcopy(data[self.flash_key])
         volume_ids = np.asarray([f.volume_id for f in flashes])
 
         # Merge flashes
         if self.merge_flashes:
-            flashes = merge_flashes(flashes, merge_threshold=self.merge_threshold, time_method=self.time_method)
+            flashes, flash2oldflash_dict = merge_flashes(flashes, merge_threshold=self.merge_threshold, time_method=self.time_method)
         
         # Loop over the optical volumes, run flash matching
         for k in self.interaction_keys:
@@ -223,19 +229,27 @@ class FlashMatchProcessor(PostBase):
                         hypo_pe = float(np.sum(list(match.hypothesis)))
                     if hasattr(match, 'score'):
                         score = float(match.score)
-
-                    # Append
-                    inter.flash_ids.append(int(flash.id))
-                    inter.flash_volume_ids.append(int(flash.volume_id))
-                    inter.flash_times.append(float(flash.time))
+                    #If we are merging, we want to store the old flash information
+                    if self.merge_flashes:
+                        _flashes = flash2oldflash_dict[flash.id] #This could be one or multiple flashes
+                        for _flash in _flashes:
+                            inter.flash_ids.append(int(_flash.id))
+                            inter.flash_volume_ids.append(int(_flash.volume_id))
+                            inter.flash_times.append(float(_flash.time))
+                    else:
+                        # Append
+                        inter.flash_ids.append(int(flash.id))
+                        inter.flash_volume_ids.append(int(flash.volume_id))
+                        inter.flash_times.append(float(flash.time))
+                    #The score is for whatever flash is used in the match
                     inter.flash_scores.append(score)
                     if inter.is_flash_matched:
-                        inter.flash_total_pe += float(flash.total_pe)
+                        inter.flash_total_pe += float(flash.total_pe) #The total PE is the same whether we use the merged or unmerged flash, since the merge just sums the PEs
                         inter.flash_hypo_pe += hypo_pe
 
                     else:
                         inter.is_flash_matched = True
-                        inter.flash_total_pe = float(flash.total_pe)
+                        inter.flash_total_pe = float(flash.total_pe) #Same as above
                         inter.flash_hypo_pe = hypo_pe
 
             # Cast list attributes to numpy arrays
