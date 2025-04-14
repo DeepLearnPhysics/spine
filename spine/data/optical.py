@@ -121,16 +121,6 @@ class Flash(PosDataBase):
         """
         assert self.units == other.units, f'Flash units are not the same: {self.units} != {other.units}'
 
-        old_time = self.time
-        old_time_abs = self.time_abs
-        old_time_width = self.time_width
-        old_in_beam_frame = self.in_beam_frame
-        old_on_beam_time = self.on_beam_time
-        old_frame = self.frame
-        old_total_pe = self.total_pe
-        old_fast_to_total = self.fast_to_total
-        old_center = self.center
-        old_width = self.width
 
         #Merge the times
         if time_method == 'min':
