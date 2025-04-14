@@ -40,18 +40,13 @@ class LikelihoodFlashMatcher(OpT0Interface):
         legacy : bool, default False
             Use the legacy OpT0Finder function(s). TODO: remove when dropping legacy
         """
-        # Call the parent class initializer for common setup
         super().__init__(cfg, detector, parent_path, scaling, alpha,
                          recombination_mip, legacy)
 
-        # Store likelihood-specific parameters
         self.reflash_merging_window = reflash_merging_window
 
-        # Initialize flash matching attributes specific to likelihood matching
         self.matches = None
-        # self.qcluster_v is initialized in the base class
         self.flash_v = None
-        # self.mgr is initialized in _initialize_algorithm
 
     def _initialize_algorithm(self, cfg_params):
         """
@@ -87,7 +82,6 @@ class LikelihoodFlashMatcher(OpT0Interface):
             return []
 
         # Build a list of QCluster_t (OpT0Finder interaction representation)
-        # Use the method from the base class
         self.qcluster_v = self.make_qcluster_list(interactions)
 
         # Build a list of Flash_t (OpT0Finder optical flash representation)
@@ -99,35 +93,9 @@ class LikelihoodFlashMatcher(OpT0Interface):
         # Build result, return
         result = []
         for m in self.matches:
-            # Find the original interaction index from the qcluster index
-            tpc_idx_orig = -1
-            for qc in self.qcluster_v:
-                if qc.tpc_id == m.tpc_id: # Note: flashmatch::FlashMatch_t uses tpc_id which is the index in the manager's internal vector
-                    tpc_idx_orig = qc.idx # qc.idx stores the original index from the input interactions list
-                    break
-            if tpc_idx_orig == -1:
-                 raise ValueError(f"Could not find original TPC index for match TPC ID {m.tpc_id}")
-
-            # Find the original flash index from the flash_t index
-            flash_idx_orig = -1
-            for fl in self.flash_v:
-                 if fl.flash_id == m.flash_id: # Note: flashmatch::FlashMatch_t uses flash_id which is the index in the manager's internal vector
-                     flash_idx_orig = fl.idx # fl.idx stores the original index from the input flashes list
-                     break
-            if flash_idx_orig == -1:
-                 raise ValueError(f"Could not find original Flash index for match Flash ID {m.flash_id}")
-
-            # Find the corresponding interaction and flash objects using original indices
-            interaction_obj = next((inter for inter in interactions if inter.id == tpc_idx_orig), None)
-            flash_obj = next((flash for flash in flashes if flash.id == flash_idx_orig), None) # Use the potentially modified flashes list
-
-            if interaction_obj is None:
-                raise ValueError(f"Could not find interaction with original index {tpc_idx_orig}")
-            if flash_obj is None:
-                raise ValueError(f"Could not find flash with original index {flash_idx_orig}")
-
-            result.append((interaction_obj, flash_obj, m))
-
+            tpc_id = self.qcluster_v[m.tpc_id].idx
+            flash_id = self.flash_v[m.flash_id].idx
+            result.append((interactions[tpc_id], flashes[flash_id], m))
 
         return result
 
