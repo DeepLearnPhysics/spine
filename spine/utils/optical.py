@@ -45,10 +45,12 @@ def merge_flashes(flashes, merge_threshold=1.0, time_method='min'):
     #Remove the flashes that were merged
     for i in sorted(flashes_to_pop, reverse=True):
         flashes.pop(i)
+        #Remove the flashes from the dictionary and reassign the ids
         flash2oldflash_dict.pop(i)
+    #Reassign the keys for the dictionary
+    flash2oldflash_dict = {i: flash2oldflash_dict[f.id] for i,f in enumerate(flashes)}
     #Reassign the flash id
     for i,flash in enumerate(flashes):
         flash.id = i
         flash.volume_id = 0 #TODO: Set to whatever level of volume you're merging to. If we're merging at TPC level to the module lebel this should be the module id.
-
     return flashes, flash2oldflash_dict
