@@ -102,5 +102,5 @@ class FlashParser(ParserBase):
                     idx += 1
             # If we are merging, find flashes within merge_threshold that are in different volumes
             if self.merge:
-                flashes = merge_flashes(flashes, self.merge_threshold, self.time_method)
+                flashes,_ = merge_flashes(flashes, self.merge_threshold, self.time_method)
         return ObjectList(flashes, Flash())
