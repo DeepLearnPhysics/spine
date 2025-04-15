@@ -136,7 +136,6 @@ class FlashMatchProcessor(PostBase):
         # Merge flashes
         if self.merge_flashes:
             flashes, flash2oldflash_dict = merge_flashes(flashes, merge_threshold=self.merge_threshold, time_method=self.time_method)
-        
         # Loop over the optical volumes, run flash matching
         for k in self.interaction_keys:
             # Fetch interactions, nothing to do if there are not any
@@ -230,11 +229,9 @@ class FlashMatchProcessor(PostBase):
                     if hasattr(match, 'score'):
                         score = float(match.score)
                     #If we are merging, we want to store the old flash information
-                    if self.merge_flashes:
+                    if self.merge_flashes and not self.modify_flashes:
                         _flashes = flash2oldflash_dict[flash.id] #This could be one or multiple flashes
                         for _flash in _flashes:
-                            if _flash is None: #this indicates the flash was not merged
-                                continue
                             inter.flash_ids.append(int(_flash.id))
                             inter.flash_volume_ids.append(int(_flash.volume_id))
                             inter.flash_times.append(float(_flash.time))
