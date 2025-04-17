@@ -232,6 +232,8 @@ class FlashMatchProcessor(PostBase):
                     if self.merge_flashes and not self.modify_flashes:
                         _flashes = flash2oldflash_dict[flash.id] #This could be one or multiple flashes
                         for _flash in _flashes:
+                            if _flash is None:
+                                continue
                             inter.flash_ids.append(int(_flash.id))
                             inter.flash_volume_ids.append(int(_flash.volume_id))
                             inter.flash_times.append(float(_flash.time))
