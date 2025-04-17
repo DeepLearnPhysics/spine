@@ -167,6 +167,11 @@ class GeoDrawer:
         if shared_legend and legendgroup is None:
             legendgroup = 'group_' + str(time.time())
 
+        # Add a hovertext to the optical detectors
+        hovertexts = [f'PD ID: {i}' for i in range(len(positions))]
+        if color is not None and not np.isscalar(color):
+            hovertexts = [f'{ht}<br>PE: {c:.3f}' for ht, c in zip(hovertexts, color)]
+
         # Draw each of the optical detectors
         traces = []
         for i, shape in enumerate(self.geo.optical.shape):
@@ -174,6 +179,7 @@ class GeoDrawer:
             if shape_ids is None:
                 pos = positions
                 col = color
+                ht = hovertexts
             else:
                 index = np.where(np.asarray(shape_ids) == i)[0]
                 pos = positions[index]
@@ -181,6 +187,7 @@ class GeoDrawer:
                     col = color[index]
                 else:
                     col = color
+                ht = [hovertexts[i] for i in index]
 
             # If zero-supression is requested, only draw the optical detectors
             # which record a non-zero signal
@@ -188,6 +195,7 @@ class GeoDrawer:
                 index = np.where(np.asarray(col) != 0)[0]
                 pos = pos[index]
                 col = col[index]
+                ht = [ht[i] for i in index]
 
             # Determine wheter to show legends or not
             showlegend = not shared_legend or i == 0
@@ -202,7 +210,7 @@ class GeoDrawer:
                 traces += box_traces(
                         lower, upper, shared_legend=shared_legend, name=name,
                         color=col, cmin=cmin, cmax=cmax, draw_faces=True,
-                        legendgroup=legendgroup, showlegend=showlegend, **kwargs)
+                        hovertext=ht, legendgroup=legendgroup, showlegend=showlegend, **kwargs)
 
             else:
                 # Convert the optical detector dimensions to a covariance matrix
@@ -212,7 +220,7 @@ class GeoDrawer:
                 traces += ellipsoid_traces(
                         pos, covmat, shared_legend=shared_legend, name=name,
                         color=col, cmin=cmin, cmax=cmax,
-                        legendgroup=legendgroup, showlegend=showlegend, **kwargs)
+                        hovertext=ht, legendgroup=legendgroup, showlegend=showlegend, **kwargs)
 
         return traces
 
