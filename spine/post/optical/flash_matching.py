@@ -228,7 +228,7 @@ class FlashMatchProcessor(PostBase):
                         hypo_pe = float(np.sum(list(match.hypothesis)))
                     if hasattr(match, 'score'):
                         score = float(match.score)
-                    #If we are merging, we want to store the old flash information
+                    #If we are merging, we may want to store the old flash information
                     if self.merge_flashes and not self.modify_flashes:
                         _flashes = flash2oldflash_dict[flash.id] #This could be one or multiple flashes
                         for _flash in _flashes:
