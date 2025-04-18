@@ -72,8 +72,6 @@ class FlashParser(ParserBase):
         List[Flash]
             List of optical flash objects
         """
-        print('*'*50)
-        print(f'Processing flash event list: {flash_event_list}')
         # Check on the input
         assert ((flash_event is not None) ^
                 (flash_event_list is not None)), (
