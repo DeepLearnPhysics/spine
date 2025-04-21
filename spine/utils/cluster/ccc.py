@@ -1,10 +1,11 @@
 """Connected component clustering module."""
 
 import numpy as np
-from scipy.sparse import coo_matrix, csgraph
 import torch
 
 from spine.data import TensorBatch
+
+from spine.utils.graph import connected_components
 
 from .orphan import OrphanAssigner
 
@@ -162,14 +163,9 @@ class ConnectedComponentClusterer:
                 "The edge index must be of shape (E, 2)")
         edges = edge_index[edge_assn == 1]
 
-        # Convert the set of edges to a coordinate-format sparse adjacency matrix
+        # Find connected components
         num_nodes = len(node_coords)
-        edge_assn = np.ones(len(edges), dtype=int)
-        adj = coo_matrix((edge_assn, tuple(edges.T)), (num_nodes, num_nodes))
-
-        # Find connected components, allow for unidirectional connections
-        _, node_pred = csgraph.connected_components(adj, connection='weak')
-        node_pred = node_pred.astype(np.int64)
+        node_pred = connected_components(edges, num_nodes)
 
         # If min_size is set, downselect the points considered labeled
         min_size = min_size if min_size is not None else self.min_size
