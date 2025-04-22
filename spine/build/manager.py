@@ -44,7 +44,7 @@ class BuildManager:
     )
 
     def __init__(self, fragments, particles, interactions,
-                 mode='both', units='cm', sources=None):
+                 mode='both', units='cm', sources=None, lite=False):
         """Initializes the build manager.
 
         Parameters
@@ -60,6 +60,9 @@ class BuildManager:
         sources : Dict[str, str], optional
             Dictionary which maps the necessary data products onto a name
             in the input/output dictionary of the reconstruction chain.
+        lite : bool, default False
+            If `True`, the objects being loaded are lite and do not map
+            to long-form attributes. Simply load the matches.
         """
         # Check on the mode, store it
         assert mode in self._run_modes, (
@@ -100,6 +103,9 @@ class BuildManager:
         assert len(self.builders), (
                 "Do not call the builder unless it does anything.")
 
+        # Store whether to load the long-form attributes or not
+        self.lite = lite
+
     def __call__(self, data):
         """Build the representations for one entry.
 
@@ -115,7 +121,7 @@ class BuildManager:
         # If this is the first time the builders are called, build
         # the objects shared between fragments/particles/interactions
         load = True
-        if 'points' not in data and 'points_label' not in data:
+        if not self.lite and 'points' not in data and 'points_label' not in data:
             load = False
             if np.isscalar(data['index']):
                 sources = self.build_sources(data)
@@ -131,7 +137,8 @@ class BuildManager:
         # Loop over builders
         for name, builder in self.builders.items():
             # Build representations
-            builder(data)
+            if not self.lite:
+                builder(data)
 
             # Generate match pairs from stored matches
             if load and self.mode in ['both', 'all']:
