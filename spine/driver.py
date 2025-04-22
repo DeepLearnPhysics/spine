@@ -367,7 +367,7 @@ class Driver:
             # Fetch the list of previously run post-processors
             # TODO: this only works with two runs in a row, not 3 and above
             self.post_list = None
-            if self.reader.cfg is not None:
+            if self.reader.cfg is not None and 'post' in self.reader.cfg:
                 self.post_list = tuple(self.reader.cfg['post'])
 
         # Fetch an appropriate common prefix for all input files
