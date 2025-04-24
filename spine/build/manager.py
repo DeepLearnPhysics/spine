@@ -137,8 +137,7 @@ class BuildManager:
         # Loop over builders
         for name, builder in self.builders.items():
             # Build representations
-            if not self.lite:
-                builder(data)
+            builder(data)
 
             # Generate match pairs from stored matches
             if load and self.mode in ['both', 'all']:
