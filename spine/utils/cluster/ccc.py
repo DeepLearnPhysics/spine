@@ -5,7 +5,7 @@ import torch
 
 from spine.data import TensorBatch
 
-from spine.utils.graph import connected_components
+from spine.math.graph import connected_components
 
 from .orphan import OrphanAssigner
 
@@ -132,7 +132,7 @@ class ConnectedComponentClusterer:
             if len(nindex):
                 node_pred[nindex] = node_pred_s
                 offset = int(node_pred.max()) + 1
-        
+
         return node_pred
 
     def fit_predict_one(self, node_coords, edge_index, edge_assn, offset,
@@ -160,12 +160,11 @@ class ConnectedComponentClusterer:
         """
         # Narrow down the list of edges to those turned on
         assert edge_index.shape[1] == 2, (
-                "The edge index must be of shape (E, 2)")
-        edges = edge_index[edge_assn == 1]
+                "The edge index must be of shape (E, 2).")
+        edges = edge_index[np.where(edge_assn)[0]]
 
         # Find connected components
-        num_nodes = len(node_coords)
-        node_pred = connected_components(edges, num_nodes)
+        node_pred = connected_components(edges, len(node_coords))
 
         # If min_size is set, downselect the points considered labeled
         min_size = min_size if min_size is not None else self.min_size
