@@ -3,11 +3,12 @@
 import numpy as np
 import torch
 from torch_cluster import knn
-from scipy.spatial.distance import cdist
 
 from spine.data import TensorBatch
 
-from spine.utils.gnn.cluster import form_clusters, break_clusters
+from spine.math.distance import METRICS, get_metric_id, cdist
+
+from spine.utils.gnn.cluster import break_clusters
 from spine.utils.globals import (
         COORD_COLS, VALUE_COL, CLUST_COL, SHAPE_COL, SHOWR_SHP, TRACK_SHP,
         MICHL_SHP, DELTA_SHP, GHOST_SHP)
@@ -35,7 +36,7 @@ class ClusterLabelAdapter:
 
     """
 
-    def __init__(self, break_eps=1.1, break_metric='chebyshev',
+    def __init__(self, break_eps=1.1, break_metric='chebyshev', break_p=2.,
                  break_classes=[SHOWR_SHP, TRACK_SHP, MICHL_SHP, DELTA_SHP]):
         """Initialize the adapter class.
 
@@ -47,13 +48,16 @@ class ClusterLabelAdapter:
             Distance scale used in the break up procedure
         break_metric : str, default 'chebyshev'
             Distance metric used in the break up produce
+        p : float, default 2.
+            p-norm factor for the Minkowski metric, if used
         break_classes : List[int], default
                         [SHOWR_SHP, TRACK_SHP, MICHL_SHP, DELTA_SHP]
             Classes to run DBSCAN on to break up
         """
         # Store relevant parameters
         self.break_eps = break_eps
-        self.break_metric = break_metric
+        self.break_metric_id = get_metric_id(break_metric, break_p)
+        self.break_p = break_p
         self.break_classes = break_classes
 
         # Attributes used to fetch the correct functions
@@ -253,7 +257,7 @@ class ClusterLabelAdapter:
 
         # Now if an instance was broken up, assign it different cluster IDs
         new_label[:, CLUST_COL] = break_clusters(
-                new_label, clusts, self.break_eps, self.break_metric)
+                new_label, clusts, self.break_eps, self.break_metric_id, self.break_p)
 
         return new_label
 

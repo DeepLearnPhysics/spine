@@ -10,7 +10,8 @@ from .graph import radius_graph, connected_components
 DBSCAN_DTYPE = (
     ('eps', nb.float32),
     ('min_samples', nb.int64),
-    ('metric_id', nb.int64)
+    ('metric_id', nb.int64),
+    ('p', nb.float32)
 )
 
 
@@ -48,9 +49,16 @@ class DBSCAN:
         p : float, default 2.
             p-norm factor for the Minkowski metric, if used
         """
+        # For Euclidean, save time by using squared Euclidean
+        if metric == 'euclidean':
+            metric = 'sqeuclidean'
+            eps = eps*eps
+
+        # Store parameters
         self.eps = eps
         self.min_samples = min_samples
         self.metric_id = get_metric_id(metric, p)
+        self.p = p
 
     def fit_predict(self, x):
         """Runs DBSCAN on 3D points and returns the group assignments.
@@ -77,7 +85,7 @@ class DBSCAN:
             (N) Group assignments
         """
         # Produce a radius graph
-        edge_index = radius_graph(x, self.eps, self.metric_id)
+        edge_index = radius_graph(x, self.eps, self.metric_id, self.p)
 
         # Build groups
         return connected_components(
@@ -88,7 +96,8 @@ class DBSCAN:
 def dbscan(x: nb.float32[:, :],
            eps: nb.float32,
            min_samples: nb.int64 = 1,
-           metric_id: nb.int64 = METRICS['euclidean']) -> nb.float32[:]:
+           metric_id: nb.int64 = METRICS['euclidean'],
+           p: nb.float32 = 2.) -> nb.float32[:]:
     """Runs DBSCAN on 3D points and returns the group assignments.
 
     Notes
@@ -105,6 +114,8 @@ def dbscan(x: nb.float32[:, :],
         Minimum number of neighbors for a point to be a core point
     metric : str, default 'euclidean'
         Distance metric used to compute pdist
+    p : float, default 2.
+        p-norm factor for the Minkowski metric, if used
 
     Returns
     -------
@@ -112,7 +123,7 @@ def dbscan(x: nb.float32[:, :],
         (N) Group assignments
     """
     # Produce a radius graph
-    edge_index = radius_graph(x, eps, metric_id)
+    edge_index = radius_graph(x, eps, metric_id, p)
 
     # Build groups
     return connected_components(edge_index, len(x), min_samples, directed=False)

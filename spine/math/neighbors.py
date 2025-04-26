@@ -74,7 +74,7 @@ class RadiusNeighborsClassifier:
         iterate : bool, default True
             Whether to recurse the search until no new labels are assigned
         """
-        # When using Euclidean, save time by using squared Euclidean
+        # For Euclidean, save time by using squared Euclidean
         if metric == 'euclidean':
             metric = 'sqeuclidean'
             radius = radius*radius
@@ -195,7 +195,7 @@ class KNeighborsClassifier:
         p : float, default 2.
             p-norm factor for the Minkowski metric, if used
         """
-        # When using Euclidean, save time by using squared Euclidean
+        # For Euclidean, save time by using squared Euclidean
         if metric == 'euclidean':
             metric = 'sqeuclidean'
 

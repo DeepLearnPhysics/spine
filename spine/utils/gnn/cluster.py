@@ -11,6 +11,8 @@ from typing import List
 
 from spine.data import TensorBatch, IndexBatch
 
+from spine.math.cluster import dbscan
+
 from spine.utils.decorators import numbafy
 from spine.utils.globals import (
         BATCH_COL, COORD_COLS, VALUE_COL, CLUST_COL, PART_COL, GROUP_COL,
@@ -342,7 +344,7 @@ def form_clusters(data, min_size=-1, column=CLUST_COL, shapes=None):
 
 @numbafy(cast_args=['data'], list_args=['clusts'],
          keep_torch=True, ref_arg='data')
-def break_clusters(data, clusts, eps, metric):
+def break_clusters(data, clusts, eps, metric_id, p):
     """Runs DBSCAN on each invididual cluster to segment them further if needed.
 
     Parameters
@@ -353,8 +355,10 @@ def break_clusters(data, clusts, eps, metric):
         (C) List of cluster indexes
     eps : float
         DBSCAN clustering distance scale
-    metric : str
-        DBSCAN clustering distance metric
+    metric_id : int
+        DBSCAN clustering distance metric enumerator
+    p : float
+        p-norm factor for the Minkowski metric, if used
 
     Returns
     -------
@@ -365,7 +369,7 @@ def break_clusters(data, clusts, eps, metric):
         return np.copy(data[:, CLUST_COL])
 
     # Break labels
-    break_labels = _break_clusters(data, clusts, eps, metric)
+    break_labels = _break_clusters(data, clusts, eps, metric_id, p)
 
     # Offset individual broken labels to prevent overlap
     labels = np.copy(data[:, CLUST_COL])
@@ -379,10 +383,11 @@ def break_clusters(data, clusts, eps, metric):
     return labels
 
 @nb.njit(cache=True, parallel=True, nogil=True)
-def _break_clusters(data: nb.float64[:,:],
+def _break_clusters(data: nb.float32[:,:],
                     clusts: nb.types.List(nb.int64[:]),
                     eps: nb.float64,
-                    metric: str) -> nb.float64[:]:
+                    metric_id: nb.int64,
+                    p: nb.float64) -> nb.int64[:]:
     # Loop over clusters to break, run DBSCAN
     break_labels = np.full(len(data), -1, dtype=data.dtype)
     points = data[:, COORD_COLS]
@@ -392,7 +397,7 @@ def _break_clusters(data: nb.float64[:,:],
         points_c = points[clust]
 
         # Run DBSCAN on the cluster, update labels
-        clust_ids = nbl.dbscan(points_c, eps=eps, metric=metric)
+        clust_ids = dbscan(points_c, eps=eps, metric_id=metric_id, p=p)
 
         # Store the breaking IDs
         break_labels[clust] = clust_ids

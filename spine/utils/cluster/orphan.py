@@ -49,10 +49,10 @@ class OrphanAssigner:
 
         # If needed, initialize DBSCAN
         if mode == 'radius' and assign_all:
+            radius = kwargs.get('radius')
             metric = kwargs.get('metric', 'euclidean')
             self.dbscan = DBSCAN(
-                    eps=self.classifier.radius, min_samples=1,
-                    metric=metric, p=self.classifier.p)
+                    eps=radius, min_samples=1, metric=metric, p=self.classifier.p)
 
     def __call__(self, X, y):
         """Place-holder for a function which assigns labels to orphan points.

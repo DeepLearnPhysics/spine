@@ -7,7 +7,7 @@ which tremendously speeds up graph construction and computation in Numba.
 import numba as nb
 import numpy as np
 
-from .distance import METRICS, cdist, cityblock, sqeuclidean, chebyshev
+from .distance import METRICS, cdist, minkowski, cityblock, sqeuclidean, chebyshev
 
 
 CSR_DTYPE = (
@@ -220,7 +220,8 @@ def dfs(graph: CSR_DTYPE,
 @nb.njit(cache=True)
 def radius_graph(x: nb.float32[:, :],
                  radius: nb.float32,
-                 metric_id: nb.int64 = METRICS['euclidean']) -> nb.int64[:, :]:
+                 metric_id: nb.int64 = METRICS['euclidean'],
+                 p: nb.float32 = 2.) -> nb.int64[:, :]:
     """Builds an undirected radius graph.
 
     This function generates a list of edges in a graph which connects all nodes
@@ -234,6 +235,8 @@ def radius_graph(x: nb.float32[:, :],
         Radius within which to build connections in the graph
     metric_id : int, default 2 (Euclidean)
         Distance metric enumerator 
+    p : float, default 2.
+        p-norm factor for the Minkowski metric, if used
 
     Returns
     -------
@@ -242,29 +245,34 @@ def radius_graph(x: nb.float32[:, :],
     """
     # Determine the distance function to use. If the metric is Euclidean, it
     # is cheaper to square the radius and use the squared Euclidean metric
-    if metric_id == np.int64(1):
+    if metric_id == np.int64(0):
+        return _radius_graph_minkowski(x, radius, p)
+    elif metric_id == np.int64(1):
         return _radius_graph_cityblock(x, radius)
     elif metric_id == np.int64(2):
-        return _radius_graph_euclidean(x, radius)
+        radius = radius*radius
+        return _radius_graph_sqeuclidean(x, radius)
+    elif metric_id == np.int64(3):
+        return _radius_graph_sqeuclidean(x, radius)
     elif metric_id == np.int64(4):
         return _radius_graph_chebyshev(x, radius)
     else:
         raise ValueError("Distance metric not recognized.")
 
 @nb.njit(cache=True)
-def _radius_graph_euclidean(x: nb.float32[:, :],
-                            radius: nb.float32) -> nb.float32[:, :]:
+def _radius_graph_minkowski(x: nb.float32[:, :],
+                            radius: nb.float32,
+                            p: nb.float32) -> nb.float32[:, :]:
     # Initialize a data structure to hold edges
     num_nodes = len(x)
     max_edges = num_nodes*(num_nodes - 1)//2
     edge_index = np.empty((max_edges, 2), dtype=np.int64)
 
     # Loop over pairs of nodes, ass edges if the distance fits the bill
-    radius = radius*radius
     edge_count = 0
     for i in range(num_nodes):
         for j in range(i + 1, num_nodes):
-            if sqeuclidean(x[i], x[j]) <= radius:
+            if minkowski(x[i], x[j], p) <= radius:
                 edge_index[edge_count, 0], edge_index[edge_count, 1] = i, j
                 edge_count += 1
 
@@ -287,6 +295,25 @@ def _radius_graph_cityblock(x: nb.float32[:, :],
                 edge_count += 1
 
     return edge_index[:edge_count]
+
+@nb.njit(cache=True)
+def _radius_graph_sqeuclidean(x: nb.float32[:, :],
+                              radius: nb.float32) -> nb.float32[:, :]:
+    # Initialize a data structure to hold edges
+    num_nodes = len(x)
+    max_edges = num_nodes*(num_nodes - 1)//2
+    edge_index = np.empty((max_edges, 2), dtype=np.int64)
+
+    # Loop over pairs of nodes, ass edges if the distance fits the bill
+    edge_count = 0
+    for i in range(num_nodes):
+        for j in range(i + 1, num_nodes):
+            if sqeuclidean(x[i], x[j]) <= radius:
+                edge_index[edge_count, 0], edge_index[edge_count, 1] = i, j
+                edge_count += 1
+
+    return edge_index[:edge_count]
+
 
 @nb.njit(cache=True)
 def _radius_graph_chebyshev(x: nb.float32[:, :],
