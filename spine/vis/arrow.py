@@ -7,6 +7,8 @@ from plotly import graph_objs as go
 
 from .point import scatter_points
 
+__all__ = ['scatter_arrows']
+
 
 def scatter_arrows(points, directions, length=10.0, tip_ratio=0.25, color=None,
                    hovertext=None, line=None, linewidth=5, name=None):

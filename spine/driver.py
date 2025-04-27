@@ -23,9 +23,10 @@ import torch
 from .io import loader_factory, reader_factory, writer_factory
 from .io.write import CSVWriter
 
+from .math import seed as numba_seed
+
 from .utils.logger import logger
 from .utils.cuda import set_visible_devices
-from .utils.numba_local import seed as numba_seed
 from .utils.unwrap import Unwrapper
 from .utils.stopwatch import StopwatchManager
 

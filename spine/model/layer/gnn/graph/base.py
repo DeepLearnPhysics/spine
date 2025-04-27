@@ -17,6 +17,12 @@ class GraphBase:
     # Name of the graph constructor (as specified in the configuration)
     name = None
 
+    # List of recognized distance methods
+    _dist_methods = ('voxel', 'centroid')
+
+    # List of recognized distance algorithms
+    _dist_algorithms = ('brute', 'iterative', 'recursive')
+
     def __init__(self, directed=False, max_length=None, classes=None,
                  max_count=None, dist_method='voxel', dist_algorithm='brute'):
         """Initializes attributes shared accross all graph constructors.
@@ -37,14 +43,21 @@ class GraphBase:
         dist_method : str, default 'voxel'
             Method used to compute inter-node distance ('voxel' or 'centroid')
         dist_algorithm : str, default 'brute'
-            Algorithm used to comppute inter-node distance
-            ('brute' or 'recursive')
+            Algorithm used to comppute inter-node distance ('brute' or 'iterative')
         """
+        # Check on enumarated strings
+        assert dist_method in self._dist_methods, (
+                f"Distance computation method not recognized: {dist_method}. "
+                f"Must be one of {self._dist_methods}.")
+        assert dist_algorithm in self._dist_algorithms, (
+                f"Distance computation algorithm not recognized: {dist_algorithm}. "
+                f"Must be one of {self._dist_algorithms}.")
+
         # Store attributes
         self.directed = directed
         self.max_count = max_count
-        self.dist_method = dist_method
-        self.dist_algorithm = dist_algorithm
+        self.dist_centroid = dist_method == 'centroid'
+        self.dist_iterative = dist_algorithm != 'brute'
 
         # Convert `max_length` to a matrix, if provided as a `triu`
         self.max_length = max_length
@@ -98,8 +111,8 @@ class GraphBase:
         if self.compute_dist:
             dist_mat, closest_index = inter_cluster_distance(
                     data.tensor[:, COORD_COLS], clusts.index_list,
-                    clusts.counts, method=self.dist_method,
-                    algorithm=self.dist_algorithm, return_index=True)
+                    clusts.counts, centroid=self.dist_centroid,
+                    iterative=self.dist_iterative, return_index=True)
 
         # Generate the edge index
         edge_index, edge_counts = self.generate(

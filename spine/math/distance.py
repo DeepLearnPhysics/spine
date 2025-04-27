@@ -345,7 +345,7 @@ def _cdist_minkowski(x1: nb.float32[:,:],
 
 @nb.njit(cache=True)
 def farthest_pair(x: nb.float32[:,:],
-                  recursive: nb.bool_ = False,
+                  iterative: nb.boolean = False,
                   metric_id: nb.int64 = METRICS['euclidean'],
                   p: nb.float32 = 2.) -> (nb.int64, nb.int64, nb.float32):
     """Algorithm which finds the two points which are farthest from each other
@@ -353,7 +353,7 @@ def farthest_pair(x: nb.float32[:,:],
 
     Two algorithms on offer:
     - `brute`: compute pdist, use argmax (exact)
-    - `recursive`: Start with the first point in one set, find the farthest
+    - `iterative`: Start with the first point in one set, find the farthest
                    point in the other, move to that point, repeat. This
                    algorithm is *not* exact, but a good and very quick proxy.
 
@@ -361,8 +361,8 @@ def farthest_pair(x: nb.float32[:,:],
     ----------
     x : np.ndarray
         (N, 3) array of point coordinates
-    recursive : bool
-        If `True`, uses a recursive, fast approximation
+    iterative : bool
+        If `True`, uses an iterative, fast approximation
     metric_id : int, default 2 (Euclidean)
         Distance metric enumerator
     p : float
@@ -384,7 +384,7 @@ def farthest_pair(x: nb.float32[:,:],
         metric_id = np.int64(3)
 
     # Dispatch
-    if not recursive:
+    if not iterative:
         # Find the distance between every pair of points
         dist_mat = pdist(x, metric_id, p)
 
@@ -422,8 +422,8 @@ def farthest_pair(x: nb.float32[:,:],
 @nb.njit(cache=True)
 def closest_pair(x1: nb.float32[:,:],
                  x2: nb.float32[:,:],
-                 recursive: nb.bool_ = False,
-                 seed: nb.bool_ = True,
+                 iterative: nb.boolean = False,
+                 seed: nb.boolean = True,
                  metric_id: nb.int64 = METRICS['euclidean'],
                  p: nb.float32 = 2.) -> (nb.int64, nb.int64, nb.float32):
     """Algorithm which finds the two points which are closest to each other
@@ -431,7 +431,7 @@ def closest_pair(x1: nb.float32[:,:],
 
     Two algorithms on offer:
     - `brute`: compute cdist, use argmin
-    - `recursive`: Start with one point in one set, find the closest
+    - `iterative`: Start with one point in one set, find the closest
                    point in the other set, move to theat point, repeat. This
                    algorithm is *not* exact, but a good and very quick proxy.
 
@@ -441,11 +441,11 @@ def closest_pair(x1: nb.float32[:,:],
         (Nx3) array of point coordinates in the first set
     x1 : np.ndarray
         (Nx3) array of point coordinates in the second set
-    recursive : bool
-        If `True`, uses a recursive, fast approximation
+    iterative : bool
+        If `True`, uses an iterative, fast approximation
     seed : bool
         Whether or not to use the two farthest points in one of the two sets
-        to seed the recursive algorithm
+        to seed the iterative algorithm
     metric_id : int, default 2 (Euclidean)
         Distance metric enumerator
     p : float, default 2.
@@ -467,7 +467,7 @@ def closest_pair(x1: nb.float32[:,:],
         metric_id = np.int64(3)
 
     # Find the two points in two sets of points that are closest to each other
-    if not recursive:
+    if not iterative:
         # Compute every pair-wise distances between the two sets
         dist_mat = cdist(x1, x2, metric_id, p)
 

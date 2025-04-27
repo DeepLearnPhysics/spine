@@ -28,7 +28,7 @@ def seed(seed: nb.int64) -> None:
 
 
 @nb.njit(cache=True)
-def unique(x: nb.int32[:]) -> (nb.int32[:], nb.int64[:]):
+def unique(x: nb.int64[:]) -> (nb.int64[:], nb.int64[:]):
     """Numba implementation of `np.unique(x, return_counts=True)`.
 
     Parameters
@@ -43,23 +43,32 @@ def unique(x: nb.int32[:]) -> (nb.int32[:], nb.int64[:]):
     np.ndarray
         (U) array of counts of each unique value in the original array
     """
-    b = np.sort(x.flatten())
-    unique = list(b[:1])
-    counts = [1 for _ in unique]
-    for v in b[1:]:
-        if v != unique[-1]:
-            unique.append(v)
-            counts.append(1)
-        else:
-            counts[-1] += 1
+    # Nothing to do if the input is empty
+    uniques = np.empty(len(x), dtype=x.dtype)
+    counts = np.empty(len(x), dtype=np.int64)
+    if len(x) == 0:
+        return uniques, counts
 
-    unique_np = np.empty(len(unique), dtype=x.dtype)
-    counts_np = np.empty(len(counts), dtype=np.int32)
-    for i in range(len(unique)):
-        unique_np[i] = unique[i]
-        counts_np[i] = counts[i]
+    # Build the list of unique values and counts
+    x = np.sort(x.flatten())
+    uniques[0] = x[0]
+    idx = 1
+    for i in range(len(x) - 1):
+        if x[i] != x[i+1]:
+            uniques[idx] = x[i+1]
+            counts[idx-1] = i + 1
+            idx += 1
 
-    return unique_np, counts_np
+    counts[idx-1] = len(x)
+
+    # Narrow vectors down
+    uniques = uniques[:idx]
+    counts = counts[:idx]
+
+    # Adjust counts
+    counts[1:] = counts[1:] - counts[:-1]
+
+    return uniques, counts
 
 
 @nb.njit(cache=True)
@@ -281,11 +290,11 @@ def softmax(x: nb.float32[:,:],
     if axis == 0:
         xmax = amax(x, axis=0)
         logsumexp = np.log(np.sum(np.exp(x-xmax), axis=0)) + xmax
+        return np.exp(x - logsumexp)
     else:
         xmax = amax(x, axis=1).reshape(-1,1)
         logsumexp = np.log(np.sum(np.exp(x-xmax), axis=1)).reshape(-1,1) + xmax
-
-    return np.exp(x - logsumexp)
+        return np.exp(x - logsumexp)
 
 
 @nb.njit(cache=True)

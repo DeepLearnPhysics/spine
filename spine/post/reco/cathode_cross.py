@@ -1,13 +1,13 @@
 """Cathode crossing identification + merging module."""
 
 import numpy as np
-from scipy.spatial.distance import cdist
 
 from spine.data import RecoInteraction, TruthInteraction
 
+from spine.math.distance import cdist, farthest_pair
+
 from spine.utils.globals import TRACK_SHP
 from spine.utils.geo import Geometry
-from spine.utils.numba_local import farthest_pair
 from spine.utils.gnn.cluster import cluster_direction
 
 from spine.post.base import PostBase

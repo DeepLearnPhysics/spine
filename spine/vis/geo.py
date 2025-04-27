@@ -10,6 +10,8 @@ from spine.utils.geo import Geometry
 from .box import box_traces
 from .ellipsoid import ellipsoid_traces
 
+__all__ = ['GeoDrawer']
+
 
 class GeoDrawer:
     """Handles drawing all things related to the detector geometry.

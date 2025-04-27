@@ -14,6 +14,8 @@ import time
 import numpy as np
 import plotly.graph_objs as go
 
+__all__ = ['scatter_boxes']
+
 
 def box_trace(lower, upper, draw_faces=False, line=None, linewidth=None,
               color=None, cmin=None, cmax=None, colorscale=None,

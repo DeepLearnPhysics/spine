@@ -4,6 +4,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.ticker import Formatter
 
+__all__ = ['heatmap', 'annotate_heatmap']
+
 
 class UncertaintyFormatter(Formatter):
     """Use a new-style format string (as used by `str.format`) to format the tick.

@@ -3,7 +3,7 @@
 import numpy as np
 import numba as nb
 
-from .numba_local import cdist
+from spine.math.distance import cdist
 
 __all__ = ['overlap_counts', 'overlap_iou', 'overlap_weighted_iou',
            'overlap_dice', 'overlap_weighted_dice', 'overlap_chamfer']

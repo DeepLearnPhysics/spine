@@ -9,15 +9,14 @@ import numba as nb
 import torch
 from typing import List
 
-from spine.data import TensorBatch, IndexBatch
+import spine.math as sm
 
-from spine.math.cluster import dbscan
+from spine.data import TensorBatch, IndexBatch
 
 from spine.utils.decorators import numbafy
 from spine.utils.globals import (
         BATCH_COL, COORD_COLS, VALUE_COL, CLUST_COL, PART_COL, GROUP_COL,
         MOM_COL, SHAPE_COL, COORD_START_COLS, COORD_END_COLS, COORD_TIME_COL)
-import spine.utils.numba_local as nbl
 
 
 def form_clusters_batch(data, min_size=-1, column=CLUST_COL, shapes=None,
@@ -397,7 +396,8 @@ def _break_clusters(data: nb.float32[:,:],
         points_c = points[clust]
 
         # Run DBSCAN on the cluster, update labels
-        clust_ids = dbscan(points_c, eps=eps, metric_id=metric_id, p=p)
+        clust_ids = sm.cluster.dbscan(
+                points_c, eps=eps, metric_id=metric_id, p=p)
 
         # Store the breaking IDs
         break_labels[clust] = clust_ids
@@ -436,7 +436,7 @@ def _get_cluster_label(data: nb.float64[:,:],
 
     labels = np.empty(len(clusts), dtype=data.dtype)
     for i, c in enumerate(clusts):
-        v, cts = nbl.unique(data[c, column])
+        v, cts = sm.unique(data[c, column])
         labels[i] = v[np.argmax(cts)]
 
     return labels
@@ -496,7 +496,7 @@ def _get_cluster_closest_label(data: nb.float64[:,:],
         # Minimize the point-cluster distances
         dists = np.empty(len(group_index), dtype=data.dtype)
         for i, c in enumerate(group_index):
-            dists[i] = np.min(nbl.cdist(start_point, voxels[clusts[c]]))
+            dists[i] = np.min(sm.distance.cdist(start_point, voxels[clusts[c]]))
 
         # Label the closest cluster as the original label only, assign default
         # values ot the other clusters in the group
@@ -550,10 +550,10 @@ def _get_cluster_primary_label(data: nb.float64[:,:],
         primary_mask = np.where(part_ids == group_ids[i])[0]
         if len(primary_mask):
             # Only use the primary component to label the cluster
-            v, cts = nbl.unique(data[clusts[i][primary_mask], column])
+            v, cts = sm.unique(data[clusts[i][primary_mask], column])
         else:
             # If there is no primary contribution, use the whole cluster
-            v, cts = nbl.unique(data[clusts[i], column])
+            v, cts = sm.unique(data[clusts[i], column])
         labels[i] = v[np.argmax(cts)]
 
     return labels
@@ -611,7 +611,7 @@ def _get_cluster_closest_primary_label(data: nb.float64[:,:],
         # Minimize the point-cluster distances
         dists = np.empty(len(group_index), dtype=data.dtype)
         for i, c in enumerate(group_index):
-            dists[i] = np.min(nbl.cdist(start_point, voxels[clusts[c]]))
+            dists[i] = np.min(sm.cdist(start_point, voxels[clusts[c]]))
 
         # Label the closest cluster as the only primary cluster
         labels[group_index] = 0
@@ -803,7 +803,7 @@ def _get_cluster_features_base(data: nb.float64[:,:],
         x = data[clust][:, COORD_COLS]
 
         # Get cluster center
-        center = nbl.mean(x, 0)
+        center = sm.mean(x, 0)
 
         # Get orientation matrix
         A = np.cov(x.T, ddof = len(x) - 1).astype(x.dtype)
@@ -905,7 +905,7 @@ def _get_cluster_features_extended(data: nb.float64[:,:],
 
         # Get the cluster semantic class, if requested
         if add_shape:
-            types, cnts = nbl.unique(data[clust, SHAPE_COL])
+            types, cnts = sm.unique(data[clust, SHAPE_COL])
             major_sem_type = types[np.argmax(cnts)]
             feats[k, -1] = major_sem_type
 
@@ -966,8 +966,8 @@ def _get_cluster_points_label(data: nb.float64[:,:],
 
     # Bring the start points to the closest point in the corresponding cluster
     for i, c in enumerate(clusts):
-        dist_mat = nbl.cdist(points[i].reshape(-1,3), data[c][:, COORD_COLS])
-        argmins  = nbl.argmin(dist_mat, axis=1)
+        dist_mat = sm.distance.cdist(points[i].reshape(-1,3), data[c][:, COORD_COLS])
+        argmins  = sm.argmin(dist_mat, axis=1)
         points[i] = data[c][argmins][:, COORD_COLS].reshape(-1)
 
     return points
@@ -1062,20 +1062,20 @@ def cluster_direction(voxels: nb.float64[:,:],
             "The shape of the input is not compatible with voxel coordinates.")
 
     if max_dist > 0:
-        dist_mat = nbl.cdist(start.reshape(1,-1), voxels).flatten()
+        dist_mat = sm.distance.cdist(start.reshape(1,-1), voxels).flatten()
         voxels = voxels[dist_mat <= max(max_dist, np.min(dist_mat))]
 
     # If optimize is set, select the radius by minimizing the transverse spread
     if optimize and len(voxels) > 2:
         # Order the cluster points by increasing distance to the start point
-        dist_mat = nbl.cdist(start.reshape(1,-1), voxels).flatten()
+        dist_mat = sm.distance.cdist(start.reshape(1,-1), voxels).flatten()
         order = np.argsort(dist_mat)
         voxels = voxels[order]
         dist_mat = dist_mat[order]
 
         # Find the PCA relative secondary spread for each point
         labels = -np.ones(len(voxels), dtype=voxels.dtype)
-        meank = nbl.mean(voxels[:3], 0)
+        meank = sm.mean(voxels[:3], 0)
         covk = (np.transpose(voxels[:3] - meank) @ (voxels[:3] - meank))/3
         for i in range(2, len(voxels)):
             # Get the eigenvalues, compute relative transverse spread
@@ -1107,7 +1107,7 @@ def cluster_direction(voxels: nb.float64[:,:],
     for i in range(len(voxels)):
         rel_voxels[i] = voxels[i] - start
 
-    mean = nbl.mean(rel_voxels, 0)
+    mean = sm.mean(rel_voxels, 0)
     norm = np.sqrt(np.sum(mean**2))
     if norm:
         return mean/norm
@@ -1195,12 +1195,12 @@ def cluster_dedx(voxels: nb.float64[:,:],
 
     # If necessary, anchor start point to the closest cluster point
     if anchor:
-        dists = nbl.cdist(start.reshape(1, -1), voxels).flatten()
+        dists = sm.distance.cdist(start.reshape(1, -1), voxels).flatten()
         start = voxels[np.argmin(dists)].astype(start.dtype) # Dirty
 
     # If max_dist is set, limit the set of voxels to those within a sphere of
     # radius max_dist around the start point
-    dists = nbl.cdist(start.reshape(1, -1), voxels).flatten()
+    dists = sm.distance.cdist(start.reshape(1, -1), voxels).flatten()
     if max_dist > 0.:
         index = np.where(dists <= max_dist)[0]
         if len(index) < 2:
@@ -1257,12 +1257,12 @@ def cluster_dedx_dir(voxels: nb.float64[:,:],
 
     # If necessary, anchor start point to the closest cluster point
     if anchor:
-        dists = nbl.cdist(start.reshape(1, -1), voxels).flatten()
+        dists = sm.distance.cdist(start.reshape(1, -1), voxels).flatten()
         start = voxels[np.argmin(dists)].astype(start.dtype) # Dirty
 
     # If max_dist is set, limit the set of voxels to those within a sphere of
     # radius max_dist around the start point
-    dists = nbl.cdist(start.reshape(1, -1), voxels).flatten()
+    dists = sm.distance.cdist(start.reshape(1, -1), voxels).flatten()
     if max_dist > 0.:
         index = np.where(dists <= max_dist)[0]
         if len(index) < 2:
@@ -1352,7 +1352,7 @@ def cluster_end_points(voxels: nb.float64[:,:]) -> (
         Index of the end voxel
     """
     # Get the axis of maximum spread
-    axis = nbl.principal_components(voxels)[0]
+    axis = sm.decomposition.principal_components(voxels)[0]
 
     # Compute coord values along that axis
     coords = np.empty(len(voxels))
@@ -1395,7 +1395,7 @@ def umbrella_curv(voxels: nb.float64[:,:],
     # Find the mean direction from that point
     refvox = voxels[vox_id]
     diffs = voxels - refvox
-    axis = nbl.mean(voxels - refvox, axis=0)
+    axis = sm.mean(voxels - refvox, axis=0)
     axis /= np.linalg.norm(axis)
 
     # Compute the dot product of every displacement vector w.r.t. the axis

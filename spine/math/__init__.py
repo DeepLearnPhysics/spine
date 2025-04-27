@@ -10,3 +10,11 @@ This includes multiple submodules:
 
 # Expose all base functions directly
 from .base import *
+
+# Expose submodules
+from . import cluster
+from . import decomposition
+from . import distance
+from . import graph
+from . import linalg
+from . import neighbors

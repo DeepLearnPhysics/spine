@@ -89,7 +89,7 @@ class CSRGraph:
 @nb.njit
 def csr_graph(edge_index: nb.int64[:,:],
               num_nodes: nb.int64,
-              directed: nb.bool_ = True) -> CSR_DTYPE:
+              directed: nb.boolean = True) -> CSR_DTYPE:
     """Construct the Compressed Sparse Row (CSR) representation of a sparse
     matrix based on a list of nodes and edges.
 
@@ -135,7 +135,7 @@ def csr_graph(edge_index: nb.int64[:,:],
 def connected_components(edge_index: nb.int64[:,:],
                          num_nodes: nb.int64,
                          min_samples: nb.int64 = 1,
-                         directed: nb.bool_ = True) -> nb.int64[:]:
+                         directed: nb.boolean = True) -> nb.int64[:]:
     """Find connected components.
 
     Parameters
@@ -157,7 +157,7 @@ def connected_components(edge_index: nb.int64[:,:],
 
     # Initialize output
     labels = np.arange(graph.num_nodes)
-    visited = np.zeros(graph.num_nodes, dtype=nb.bool_)
+    visited = np.zeros(graph.num_nodes, dtype=nb.boolean)
     component = np.empty(graph.num_nodes, dtype=nb.int64)
     comp_idx = np.empty(1, dtype=nb.int64) # Acts as pointer
 
@@ -187,7 +187,7 @@ def connected_components(edge_index: nb.int64[:,:],
 
 @nb.njit(cache=True)
 def dfs(graph: CSR_DTYPE,
-        visited: nb.bool_[:],
+        visited: nb.boolean[:],
         node: nb.int64,
         component: nb.int64[:],
         comp_idx: nb.int64[:]):

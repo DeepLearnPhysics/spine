@@ -11,9 +11,10 @@ import numba as nb
 from scipy.sparse import csr_array
 from scipy.sparse.csgraph import minimum_spanning_tree
 
+import spine.math as sm
+
 from spine.data import TensorBatch, IndexBatch, EdgeIndexBatch
 
-import spine.utils.numba_local as nbl
 from spine.utils.metrics import sbd, ami, ari, pur_eff
 
 int_array = nb.int64[:]
@@ -370,7 +371,7 @@ def edge_assignment_forest(edge_index, edge_pred, group_ids):
 
     # Convert the sparse incidence matrix scores to a CSR matrix
     n = len(group_ids)
-    off_scores = nbl.softmax(edge_pred, axis=1)[:, 0]
+    off_scores = sm.softmax(edge_pred, axis=1)[:, 0]
     score_mat = csr_array((off_scores, edge_index.T), shape=(n,n))
 
     # Build the MST graph to minimize off scores
@@ -414,7 +415,7 @@ def node_assignment(edge_index: nb.int64[:,:],
     # Loop over on edges, reset the group IDs of connected node
     on_edges = edge_index[np.where(edge_pred[:, 1] > edge_pred[:, 0])[0]]
 
-    return nbl.union_find(on_edges, num_nodes, return_inverse=True)[0]
+    return sm.graph.union_find(on_edges, num_nodes, return_inverse=True)[0]
 
 
 @nb.njit(cache=True)
@@ -476,10 +477,10 @@ def primary_assignment(node_pred: nb.float32[:,:],
         (C) Primary labels
     """
     if group_ids is None:
-        return nbl.argmax(node_pred, axis=1).astype(np.bool_)
+        return sm.argmax(node_pred, axis=1).astype(np.bool_)
 
     primary_ids = np.zeros(len(node_pred), dtype=np.bool_)
-    node_pred = nbl.softmax(node_pred, axis=1)
+    node_pred = sm.softmax(node_pred, axis=1)
     for g in np.unique(group_ids):
         mask = np.where(group_ids == g)[0]
         idx  = np.argmax(node_pred[mask][:,1])
@@ -538,7 +539,7 @@ def grouping_loss(pred_mat: nb.float32[:],
         Graph grouping loss
     """
     if loss == 'ce':
-        return nbl.log_loss(target_mat, pred_mat)
+        return sm.log_loss(target_mat, pred_mat)
     elif loss == 'l1':
         return np.mean(np.absolute(pred_mat-target_mat))
     elif loss == 'l2':
@@ -587,7 +588,7 @@ def edge_assignment_score(edge_index: nb.int64[:,:],
     adj_mat = adjacency_matrix(edge_index, num_nodes)
 
     # Interpret the softmax score as a dense adjacency matrix probability
-    edge_scores = nbl.softmax(edge_pred, axis=1)
+    edge_scores = sm.softmax(edge_pred, axis=1)
     pred_adj    = np.eye(num_nodes, dtype=edge_pred.dtype)
     for k, (i, j) in enumerate(edge_index):
         pred_adj[i, j] = edge_scores[k, 1]
@@ -632,8 +633,8 @@ def edge_assignment_score(edge_index: nb.int64[:,:],
         # the two candidate groups
         node_mask = np.where(
             (best_groups == group_a) | (best_groups == group_b))[0]
-        sub_pred = nbl.submatrix(pred_adj, node_mask, node_mask).flatten()
-        sub_adj  = nbl.submatrix(adj_mat, node_mask, node_mask).flatten()
+        sub_pred = sm.linalg.submatrix(pred_adj, node_mask, node_mask).flatten()
+        sub_adj  = sm.linalg.submatrix(adj_mat, node_mask, node_mask).flatten()
 
         # Compute the current adjacency matrix between the two groups
         current_adj = (best_groups[node_mask] ==

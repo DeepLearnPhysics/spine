@@ -18,7 +18,7 @@ RNC_DTYPE = (
     ('radius', nb.float32),
     ('metric_id', nb.int64),
     ('p', nb.float32),
-    ('iterate', nb.bool_)
+    ('iterate', nb.boolean)
 )
 
 
@@ -60,7 +60,7 @@ class RadiusNeighborsClassifier:
                  radius: nb.float32,
                  metric: nb.types.string = 'euclidean',
                  p: nb.float32 = 2.,
-                 iterate: nb.bool_ = True):
+                 iterate: nb.boolean = True):
         """Initialize the RadiusNeighborsClassifier parameters.
 
         Parameters
@@ -119,7 +119,7 @@ class RadiusNeighborsClassifier:
             mask = dists < self.radius
 
             # Loop over query points
-            assigned = np.zeros(num_query, dtype=nb.bool_)
+            assigned = np.zeros(num_query, dtype=nb.boolean)
             for i in range(num_query):
                 # Find the set of points within the predefined radius
                 index = np.where(mask[i])[0]
