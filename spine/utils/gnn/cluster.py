@@ -299,44 +299,68 @@ def form_clusters(data, min_size=-1, column=CLUST_COL, shapes=None):
     -------
     List[Union[np.ndarray, torch.Tensor]]
         (C) List of arrays of voxel indexes in each cluster
-    List[int]
+    np.ndarray
         (C) Number of pixels in the mask for each cluster
     """
-    # Fetch the right functions depending on input type
+    # Dispatch to the right functions based on input type
     if isinstance(data, torch.Tensor):
-        zeros = lambda x: torch.zeros(x, dtype=torch.bool, device=data.device)
-        where, unique = torch.where, torch.unique
+        return _form_clusters_torch(data, min_size, column, shapes)
     else:
-        zeros = lambda x: np.zeros(x, dtype=bool)
-        where, unique = np.where, np.unique
+        return _form_clusters_np(data, min_size, column, shapes)
 
+def _form_clusters_torch(data, min_size, column, shapes):
     # If requested, restrict data to a specific set of semantic classes
     if shapes is not None:
-        mask = zeros(len(data))
-        for s in shapes:
-            mask |= (data[:, SHAPE_COL] == s)
-        mask = where(mask)[0]
-        data = data[mask]
+        shapes = torch.as_tensor(shapes, dtype=data.dtype, device=data.device)
+        shape_index = torch.where(torch.any(data[:, SHAPE_COL] == shapes[:, None], 0))[0]
+        data = data[shape_index]
+
+    # Get the list of unique clusters in this entry, order indices
+    clust_ids = data[:, column]
+    uniques, counts = torch.unique(clust_ids, return_counts=True)
+    full_index = torch.argsort(clust_ids, stable=True)
+    if shapes is not None:
+        full_index = shape_index[full_index]
+
+    # Build valid index
+    valid_index = torch.where(
+            (counts >= min_size) & (uniques > -1))[0].detach().cpu().numpy()
+
+    # Build index list, restrict to valid clusters
+    counts = counts.detach().cpu().numpy()
+    breaks = tuple(np.cumsum(counts)[:-1])
+    clusts = torch.tensor_split(full_index, breaks)
+
+    # Restrict to valid clusters
+    clusts = [clusts[i] for i in valid_index]
+    counts = counts[valid_index]
+
+    return clusts, counts
+
+def _form_clusters_np(data, min_size, column, shapes):
+    # If requested, restrict data to a specific set of semantic classes
+    if shapes is not None:
+        shapes = np.array(shapes, dtype=data.dtype)
+        shape_index = np.where(np.any(data[:, SHAPE_COL] == shapes[:, None], 0))[0]
+        data = data[shape_index]
 
     # Get the clusters in this entry
     clust_ids = data[:, column]
-    clusts, counts = [], []
-    for c in unique(clust_ids):
-        # Skip if the cluster ID is invalid
-        if c < 0:
-            continue
-        clust = where(clust_ids == c)[0]
+    uniques, counts = np.unique(clust_ids, return_counts=True)
+    full_index = np.argsort(clust_ids, stable=True)
+    if shapes is not None:
+        full_index = shape_index[full_index]
 
-        # Skip if the cluster size is below threshold
-        if len(clust) < min_size:
-            continue
+    # Build valid index
+    valid_index = np.where((counts >= min_size) & (uniques > -1))[0]
 
-        # If a mask was applied, get the appropriate IDs
-        if shapes is not None:
-            clust = mask[clust]
+    # Build index list, restrict to valid clusters
+    breaks = tuple(np.cumsum(counts)[:-1])
+    clusts = list(np.split(full_index, breaks))
 
-        clusts.append(clust)
-        counts.append(len(clust))
+    # Restrict to valid clusters
+    clusts = [clusts[i] for i in valid_index]
+    counts = counts[valid_index]
 
     return clusts, counts
 
