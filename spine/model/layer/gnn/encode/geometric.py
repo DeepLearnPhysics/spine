@@ -3,7 +3,7 @@ import torch
 
 from spine.data import TensorBatch
 
-from spine.utils.torch_local import local_cdist
+from spine.utils.torch_local import cdist_fast
 from spine.utils.globals import COORD_COLS, VALUE_COL, SHAPE_COL
 from spine.utils.gnn.cluster import (
         get_cluster_features_batch, get_cluster_points_label_batch,
@@ -401,7 +401,7 @@ class ClustGeoEdgeEncoder(torch.nn.Module):
 
             # Find the closest set point in each cluster
             if closest_index is None:
-                d12 = local_cdist(x1, x2)
+                d12 = cdist_fast(x1, x2)
                 imin = torch.argmin(d12)
             else:
                 imin = closest_index[e[0], e[1]]

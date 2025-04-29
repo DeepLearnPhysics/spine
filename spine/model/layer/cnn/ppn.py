@@ -11,7 +11,7 @@ from .act_norm import act_factory
 from .blocks import ResNetBlock, SPP, ASPP
 
 from spine.data import TensorBatch
-from spine.utils.torch_local import local_cdist
+from spine.utils.torch_local import cdist_fast
 from spine.utils.logger import logger
 from spine.utils.globals import (
         COORD_COLS, VALUE_COL, PART_COL, SHAPE_COL, TRACK_SHP, GHOST_SHP,
@@ -537,7 +537,7 @@ class PPNLoss(torch.nn.modules.loss._Loss):
 
             # Compute the pairwise distance between the particle voxels and its
             # label points
-            dist_mat = local_cdist(coords[index], points)
+            dist_mat = cdist_fast(coords[index], points)
 
             # Generate a positive mask for all particle voxels within some
             # distance of its label points
@@ -632,7 +632,7 @@ class PPNLoss(torch.nn.modules.loss._Loss):
             else:
                 # Compute the pairwise distances between each label point
                 # and all the voxels in the image.
-                dist_mat = local_cdist(points_entry, points_label[:, COORD_COLS])
+                dist_mat = cdist_fast(points_entry, points_label[:, COORD_COLS])
                 min_return = torch.min(dist_mat, dim=1)
                 closest = offset + min_return.indices
 

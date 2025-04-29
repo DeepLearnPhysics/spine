@@ -14,7 +14,7 @@ import spine.math as sm
 from spine.data import TensorBatch
 
 from .decorators import numbafy
-from .torch_local import local_cdist
+from .torch_local import cdist_fast
 from .globals import (
         BATCH_COL, COORD_COLS, PPN_ROFF_COLS, PPN_RTYPE_COLS, PPN_RPOS_COLS,
         PPN_SCORE_COLS, PPN_OCC_COL, PPN_CLASS_COLS, PPN_SHAPE_COL,
@@ -190,7 +190,7 @@ class PPNPredictor:
             dtype, device = ppn_raw.dtype, ppn_raw.device
             cat, unique, argmax = torch.cat, torch.unique, torch.argmax
             where, mean, softmax = torch.where, torch.mean, torch.softmax
-            cdist = local_cdist
+            cdist = cdist_fast
             empty = lambda x: torch.empty(x, dtype=dtype, device=device)
             zeros = lambda x: torch.zeros(x, dtype=dtype, device=device)
             pool_fn = getattr(torch, self.pool_score_fn)
@@ -434,7 +434,7 @@ class ParticlePointPredictor:
             # For tracks, find the two poins farthest away from each other
             if clusts_seg[i] == TRACK_SHP:
                 # Get the two most separated points in the cluster
-                idx = torch.argmax(local_cdist(points_c, points_c))
+                idx = torch.argmax(cdist_fast(points_c, points_c))
                 idxs = sorted([int(idx//len(points_c)), int(idx%len(points_c))])
                 track_points = points_c[idxs]
 
@@ -448,7 +448,7 @@ class ParticlePointPredictor:
 
                     # If needed, anchor the track endpoints to the track cluster
                     if self.anchor_points:
-                        dist_mat = local_cdist(track_points, points_c)
+                        dist_mat = cdist_fast(track_points, points_c)
                         track_points = points_c[torch.argmin(dist_mat, 1)]
 
                 # Store
@@ -475,7 +475,7 @@ class ParticlePointPredictor:
 
                 # If needed, anchor the shower start point to the shower cluster
                 if self.anchor_points:
-                    dists = local_cdist(start_point[None, :], points_c)
+                    dists = cdist_fast(start_point[None, :], points_c)
                     start_point = points_c[torch.argmin(dists)]
 
                 # Store twice to preserve the feature vector length

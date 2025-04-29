@@ -8,6 +8,7 @@ from spine.data import TensorBatch
 
 from spine.math.distance import METRICS, get_metric_id, cdist
 
+from spine.utils.torch_local import cdist_fast
 from spine.utils.gnn.cluster import break_clusters
 from spine.utils.globals import (
         COORD_COLS, VALUE_COL, CLUST_COL, SHAPE_COL, SHOWR_SHP, TRACK_SHP,
@@ -20,12 +21,12 @@ class ClusterLabelAdapter:
     """Adapts the cluster labels to account for the predicted semantics.
 
     Points wrongly predicted get the cluster label of the closest touching
-    cluster, if there is one. Points that are predicted as ghosts get invalid
-    (-1) cluster labels everywhere.
+    compatible cluster, if there is one. Points that are predicted as ghosts
+    get invalid (-1) cluster labels everywhere.
 
     Instances that have been broken up by the deghosting or semantic
     segmentation process get assigned distinct cluster labels for each
-    effective fragment, provided they appearing in the `break_classes` list.
+    effective fragment, provided they appear in the `break_classes` list.
 
     Notes
     -----
@@ -33,7 +34,6 @@ class ClusterLabelAdapter:
 
     It uses the GPU implementation from `torch_cluster.knn` to speed up the
     label adaptation computation (instead of cdist).
-
     """
 
     def __init__(self, break_eps=1.1, break_metric='chebyshev', break_p=2.,
@@ -202,11 +202,9 @@ class ClusterLabelAdapter:
             X_pred = coords[bad_index]
             tagged_voxels_count = 1
             while tagged_voxels_count > 0 and len(X_pred) > 0:
-                # Find the nearest neighbor to each predicted point
-                closest_ids = self._compute_neighbor(X_pred, X_true)
-
-                # Compute Chebyshev distance between predicted and closest true.
-                distances = self._compute_distances(X_pred, X_true[closest_ids])
+                # Compute Chebyshev distance between predicted and closest true
+                distances = self._compute_distances(X_pred, X_true)
+                distances, closest_ids = self._min(distances, 1)
 
                 # Label unlabeled voxels that touch a compatible true voxel
                 select_mask = distances < 1.1
@@ -285,6 +283,12 @@ class ClusterLabelAdapter:
         else:
             return np.eye(x, dtype=bool)
 
+    def _min(self, x, axis):
+        if self.torch:
+            return torch.min(x, axis)
+        else:
+            return np.min(x, axis), np.argmin(x, axis)
+
     def _unique(self, x):
         if self.torch:
             return torch.unique(x).long()
@@ -297,14 +301,10 @@ class ClusterLabelAdapter:
         else:
             return x.astype(int64)
 
-    def _compute_neighbor(self, x, y):
-        if self.torch:
-            return knn(y[:, COORD_COLS], x[:, COORD_COLS], 1)[1]
-        else:
-            return cdist(x[:, COORD_COLS], y[:, COORD_COLS]).argmin(axis=1)
-
     def _compute_distances(self, x, y):
         if self.torch:
-            return torch.amax(torch.abs(y[:, COORD_COLS] - x[:, COORD_COLS]), dim=1)
+            return cdist_fast(x[:, COORD_COLS], y[:, COORD_COLS],
+                              metric='chebyshev')
         else:
-            return np.amax(np.abs(x[:, COORD_COLS] - y[:, COORD_COLS]), axis=1)
+            return cdist(x[:, COORD_COLS], y[:, COORD_COLS],
+                         metric_id=METRICS['chebyshev'])

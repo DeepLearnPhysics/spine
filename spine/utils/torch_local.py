@@ -3,7 +3,7 @@
 import torch
 
 
-def local_cdist(v1, v2):
+def cdist_fast(v1, v2, metric='euclidean'):
     """Computes the pairwise distances between two `torch.Tensor` objects.
 
     This is necessary because the torch.cdist implementation is either
@@ -17,6 +17,8 @@ def local_cdist(v1, v2):
         (N, D) tensor of coordinates
     v2 : torch.Tensor
         (M, D) tensor of coordinates
+    metric : str
+        Distance metric
 
     Returns
     -------
@@ -25,33 +27,9 @@ def local_cdist(v1, v2):
     """
     v1_2 = v1.unsqueeze(1).expand(v1.size(0), v2.size(0), v1.size(1))
     v2_2 = v2.unsqueeze(0).expand(v1.size(0), v2.size(0), v1.size(1))
-    return torch.sqrt(torch.pow(v2_2 - v1_2, 2).sum(2))
-
-
-def unique_index(x, dim=None):
-    """Returns the list of unique indexes in the tensor and their first index.
-
-    This is a temporary implementation until PyTorch adds support for the
-    `return_index` argument in their `torch.unique` function.
-
-    Parameters
-    ----------
-    x : torch.Tensor
-        (N) Tensor of values
-
-    Returns
-    -------
-    unique : torch.Tensor
-        (U) List of unique values in the input tensor
-    index : torch.Tensor
-        (U) List of the first index of each unique values
-    """
-    unique, inverse = torch.unique(
-        x, sorted=True, return_inverse=True, dim=dim)
-    perm = torch.arange(inverse.size(0), dtype=inverse.dtype,
-                        device=inverse.device)
-    inverse, perm = inverse.flip([0]), perm.flip([0])
-
-    index = inverse.new_empty(unique.size(0)).scatter_(0, inverse, perm)
-
-    return unique.long(), index
+    if metric == 'cityblock':
+        return torch.abs(v2_2 - v1_2).sum(2)
+    elif metric == 'euclidean':
+        return torch.sqrt(torch.pow(v2_2 - v1_2, 2).sum(2))
+    elif metric == 'chebyshev':
+        return torch.abs(v2_2 - v1_2).amax(2)
