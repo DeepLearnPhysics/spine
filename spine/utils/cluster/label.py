@@ -2,7 +2,6 @@
 
 import numpy as np
 import torch
-from torch_cluster import knn
 
 from spine.data import TensorBatch
 
@@ -31,9 +30,6 @@ class ClusterLabelAdapter:
     Notes
     -----
     This class supports both Numpy arrays and Torch tensors.
-
-    It uses the GPU implementation from `torch_cluster.knn` to speed up the
-    label adaptation computation (instead of cdist).
     """
 
     def __init__(self, break_eps=1.1, break_metric='chebyshev', break_p=2.,
