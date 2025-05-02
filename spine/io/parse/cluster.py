@@ -12,7 +12,8 @@ from collections import OrderedDict
 
 import numpy as np
 
-from spine.math.cluster import DBSCAN
+from spine.math.distance import METRICS
+from spine.math.cluster import dbscan
 
 from spine.data import Meta
 
@@ -190,8 +191,8 @@ class Cluster3DParser(ParserBase):
 
         # Intialize DBSCAN if the clusters are to be broken up
         self.break_clusters = break_clusters
-        if break_clusters:
-            self.dbscan = DBSCAN(break_eps, min_samples=1, metric=break_metric)
+        self.break_eps = break_eps
+        self.break_metric_id = METRICS[break_metric]
 
         # Intialize the sparse and particle parsers
         self.sparse_parser = Sparse3DParser(dtype, sparse_event='dummy')
@@ -337,7 +338,9 @@ class Cluster3DParser(ParserBase):
 
                 # If requested, break cluster into detached pieces
                 if self.break_clusters:
-                    frag_labels = self.dbscan.fit_predict(voxels)
+                    frag_labels = dbscan(
+                            voxels, eps=self.break_eps, min_samples=1,
+                            metric_id=self.break_metric_id)
                     features[1] = id_offset + frag_labels
                     id_offset += max(frag_labels) + 1
 

@@ -91,4 +91,7 @@ class DirectionProcessor(PostBase):
 
             # Assign directions to the appropriate particles
             for i, part_id in enumerate(part_ids):
-                setattr(data[k][part_id], attrs[i], dirs[i])
+                if attrs[i].startswith('start'):
+                    setattr(data[k][part_id], attrs[i], dirs[i])
+                else:
+                    setattr(data[k][part_id], attrs[i], -dirs[i])
