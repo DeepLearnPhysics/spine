@@ -635,7 +635,7 @@ def _get_cluster_closest_primary_label(data: nb.float64[:,:],
         # Minimize the point-cluster distances
         dists = np.empty(len(group_index), dtype=data.dtype)
         for i, c in enumerate(group_index):
-            dists[i] = np.min(sm.cdist(start_point, voxels[clusts[c]]))
+            dists[i] = np.min(sm.distance.cdist(start_point, voxels[clusts[c]]))
 
         # Label the closest cluster as the only primary cluster
         labels[group_index] = 0
