@@ -2,11 +2,14 @@
 
 import numpy as np
 
+from spine.math.distance import closest_pair
+
 from spine.utils.globals import COORD_COLS
-from spine.utils.numba_local import closest_pair
 
 from .point import scatter_points
 from .cluster import scatter_clusters
+
+__all__ = ['network_topology', 'network_schematic']
 
 
 def network_topology(points, clusts, edge_index, clust_labels=None,

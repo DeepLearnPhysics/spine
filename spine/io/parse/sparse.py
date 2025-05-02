@@ -150,7 +150,7 @@ class Sparse3DParser(ParserBase):
 
     def __init__(self, dtype, sparse_event=None, sparse_event_list=None,
                  num_features=None, hit_keys=None, nhits_idx=None,
-                 feature_only=False):
+                 feature_only=False, lexsort=False):
         """Initialize the parser.
 
         Parameters
@@ -175,6 +175,9 @@ class Sparse3DParser(ParserBase):
             (doublet vs triplet) should be inserted.
         feature_only : bool, default False
             If `True`, only return the feature vector without the coordinates
+        lexsort : bool, default False
+            When merging points from multiple sources (num_features is not
+            `None`), this allows to lexicographically sort coordinates
         """
         # Initialize the parent class
         super().__init__(
@@ -192,6 +195,10 @@ class Sparse3DParser(ParserBase):
         if self.compute_nhits and nhits_idx is None:
             raise ValueError("The argument nhits_idx needs to be specified if "
                              "you want to compute the nhits feature.")
+
+        self.lexsort = lexsort
+        if self.num_features is None and lexsort:
+            raise ValueError
 
         # Get the number of features in the output tensor
         assert (sparse_event is not None) ^ (sparse_event_list is not None), (
@@ -265,7 +272,7 @@ class Sparse3DParser(ParserBase):
 
                 if num_points is None:
                     num_points = sparse_event.as_vector().size()
-                    if not self.feature_only:
+                    if not self.feature_only or self.lexsort:
                         np_voxels = np.empty((num_points, 3), dtype=self.itype)
                         larcv.fill_3d_voxels(sparse_event, np_voxels)
                 else:
@@ -293,15 +300,27 @@ class Sparse3DParser(ParserBase):
                 np_features.insert(self.nhits_idx, nhits)
 
             # Append to the global list of voxel/features
-            if not self.feature_only:
+            if not self.feature_only or self.lexsort:
                 all_voxels.append(np_voxels)
             all_features.append(np.hstack(np_features))
 
+        # Stack coordinates/features
+        all_features = np.vstack(all_features)
+        if not self.feature_only or self.lexsort:
+            all_voxels = np.vstack(all_voxels)
+
+        # Lexicographically sort coordinates/features, if requested
+        if self.lexsort:
+            perm = np.lexsort(all_voxels.T)
+            all_features = all_features[perm]
+            if not self.feature_only:
+                all_voxels = all_voxels[perm]
+
+        # Return
         if self.feature_only:
-            return np.vstack(all_features)
+            return all_features
         else:
-            return (np.vstack(all_voxels), np.vstack(all_features),
-                    Meta.from_larcv(meta))
+            return all_voxels, all_features, Meta.from_larcv(meta)
 
 
 class Sparse3DAggregateParser(Sparse3DParser):

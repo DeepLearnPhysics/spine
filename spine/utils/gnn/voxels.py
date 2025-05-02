@@ -4,11 +4,12 @@
 import numpy as np
 import numba as nb
 
+import spine.math as sm
+
 from spine.data import TensorBatch
 
 from spine.utils.globals import COORD_COLS
 from spine.utils.decorators import numbafy
-import spine.utils.numba_local as nbl
 
 
 def get_voxel_features_batch(data, max_dist=5.0):
@@ -72,7 +73,7 @@ def _get_voxel_features(data: nb.float32[:,:], max_dist=5.0):
 
     # Compute intervoxel distance matrix
     voxels = data[:, COORD_COLS]
-    dist_mat = nbl.cdist(voxels, voxels)
+    dist_mat = sm.distance.cdist(voxels, voxels)
 
     # Get local geometrical features for each voxel
     feats = np.empty((len(voxels), 16), dtype=data.dtype)

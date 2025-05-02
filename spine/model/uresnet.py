@@ -10,7 +10,7 @@ import MinkowskiEngine as ME
 from spine.data import TensorBatch
 from spine.utils.globals import BATCH_COL, COORD_COLS, VALUE_COL, GHOST_SHP
 from spine.utils.logger import logger
-from spine.utils.torch_local import local_cdist
+from spine.utils.torch_local import cdist_fast
 
 from .layer.factories import loss_fn_factory
 
@@ -391,7 +391,7 @@ class SegmentationLoss(torch.nn.modules.loss._Loss):
                 continue
 
             # Compute the minimal distance to any point in this entry
-            dist_mat = local_cdist(voxels_b, points_b)
+            dist_mat = cdist_fast(voxels_b, points_b)
             dists_b = torch.min(dist_mat, dim=1).values
 
             # Record information in the batch-wise tensor

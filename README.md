@@ -5,7 +5,7 @@
 [![Build Status](https://app.travis-ci.com/francois-drielsma/lartpc_mlreco3d.svg?token=WB4oxAv87vEXhuxUGH7e&branch=develop&status=passed)](https://app.travis-ci.com/github/francois-drielsma/lartpc_mlreco3d/logscans?serverType=git)
 [![Documentation Status](https://readthedocs.org/projects/lartpc-mlreco3d/badge/?version=latest)](https://lartpc-mlreco3d.readthedocs.io/en/latest/?badge=latest)
 
-The Scalable Particle Imaging with Neural Embeddings (SPINE) package leverages state-of-the-art Machine Learning (ML) algorithms -- in particular Deep Neural Networks (DNNs) -- to reconstruct particle imagaging detector data. This package was primarily developed for Liquid Argon Time-Projection Chamber (LArTPC) data and relies on Convolutional Neural Networks (CNNs) for pixel-level feature extraction and Graph Neural Networks (GNNs) for superstructure formation. The schematic below breaks down the full end-to-end reconstruction flow.
+The Scalable Particle Imaging with Neural Embeddings (SPINE) package leverages state-of-the-art Machine Learning (ML) algorithms -- in particular Deep Neural Networks (DNNs) -- to reconstruct particle imaging detector data. This package was primarily developed for Liquid Argon Time-Projection Chamber (LArTPC) data and relies on Convolutional Neural Networks (CNNs) for pixel-level feature extraction and Graph Neural Networks (GNNs) for superstructure formation. The schematic below breaks down the full end-to-end reconstruction flow.
 
 ![Full chain](https://github.com/DeepLearnPhysics/spine/blob/develop/docs/source/_static/img/spine-chain-alpha.png)
 

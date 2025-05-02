@@ -311,16 +311,17 @@ class ParticleBuilder(BuilderBase):
         """
         return self._load_reco(**data)
 
-    def _load_reco(self, reco_particles, points, depositions, sources=None):
+    def _load_reco(self, reco_particles, points=None, depositions=None,
+                   sources=None):
         """Construct :class:`RecoParticle` objects from their stored versions.
 
         Parameters
         ----------
         reco_particles : List[RecoParticle]
             (P) List of partial reconstructed particles
-        points : np.ndarray
+        points : np.ndarray, optional
             (N, 3) Set of deposition coordinates in the image
-        depositions : np.ndarray
+        depositions : np.ndarray, optional
             (N) Set of deposition values
         sources : np.ndarray, optional
             (N, 2) Tensor which contains the module/tpc information
@@ -337,10 +338,11 @@ class ParticleBuilder(BuilderBase):
                     "The ordering of the stored particles is wrong.")
 
             # Update the particle with its long-form attributes
-            particle.points = points[particle.index]
-            particle.depositions = depositions[particle.index]
-            if sources is not None:
-                particle.sources = sources[particle.index]
+            if points is not None:
+                particle.points = points[particle.index]
+                particle.depositions = depositions[particle.index]
+                if sources is not None:
+                    particle.sources = sources[particle.index]
 
         return reco_particles
 
@@ -354,20 +356,20 @@ class ParticleBuilder(BuilderBase):
         """
         return self._load_truth(**data)
 
-    def _load_truth(self, truth_particles, points_label, depositions_label,
-                    depositions_q_label=None, points=None, depositions=None,
-                    points_g4=None, depositions_g4=None, sources_label=None,
-                    sources=None):
+    def _load_truth(self, truth_particles, points_label=None,
+                    depositions_label=None, depositions_q_label=None,
+                    points=None, depositions=None, points_g4=None,
+                    depositions_g4=None, sources_label=None, sources=None):
         """Construct :class:`TruthParticle` objects from their stored versions.
 
         Parameters
         ----------
         truth_particles : List[TruthParticle]
             (P) List of partial truth particles
-        points_label : np.ndarray
+        points_label : np.ndarray, optional
             (N', 3) Set of deposition coordinates in the label image (identical
             for pixel TPCs, different if deghosting is involved)
-        depositions_label : np.ndarray
+        depositions_label : np.ndarray, optional
             (N') Set of true deposition values in MeV
         depositions_q_label : np.ndarray, optional
             (N') Set of true deposition values in ADC, if relevant
@@ -396,12 +398,13 @@ class ParticleBuilder(BuilderBase):
                     "The ordering of the stored particles is wrong.")
 
             # Update the particle with its long-form attributes
-            particle.points = points_label[particle.index]
-            particle.depositions = depositions_label[particle.index]
-            if depositions_q_label is not None:
-                particle.depositions_q = depositions_q_label[particle.index]
-            if sources_label is not None:
-                particle.sources = sources_label[particle.index]
+            if points_label is not None:
+                particle.points = points_label[particle.index]
+                particle.depositions = depositions_label[particle.index]
+                if depositions_q_label is not None:
+                    particle.depositions_q = depositions_q_label[particle.index]
+                if sources_label is not None:
+                    particle.sources = sources_label[particle.index]
 
             if points is not None:
                 particle.points_adapt = points[particle.index_adapt]

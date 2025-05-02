@@ -5,6 +5,8 @@ import numpy as np
 
 from spine.utils.globals import COORD_COLS
 
+__all__ = ['scatter_points']
+
 
 def scatter_points(points, color=None, markersize=2, linewidth=2,
                    colorscale=None, cmin=None, cmax=None, opacity=None,

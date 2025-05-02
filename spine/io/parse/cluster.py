@@ -12,13 +12,14 @@ from collections import OrderedDict
 
 import numpy as np
 
+from spine.math.cluster import DBSCAN
+
 from spine.data import Meta
 
 from spine.utils.globals import DELTA_SHP, SHAPE_PREC
 from spine.utils.particles import process_particle_event
 from spine.utils.ppn import image_coordinates
 from spine.utils.conditional import larcv
-from spine.utils.numba_local import dbscan
 
 from .base import ParserBase
 from .sparse import (
@@ -185,10 +186,12 @@ class Cluster3DParser(ParserBase):
         self.type_include_mpr = type_include_mpr
         self.type_include_secondary = type_include_secondary
         self.primary_include_mpr = primary_include_mpr
-        self.break_clusters = break_clusters
-        self.break_eps = break_eps
-        self.break_metric = break_metric
         self.shape_precedence = shape_precedence
+
+        # Intialize DBSCAN if the clusters are to be broken up
+        self.break_clusters = break_clusters
+        if break_clusters:
+            self.dbscan = DBSCAN(break_eps, min_samples=1, metric=break_metric)
 
         # Intialize the sparse and particle parsers
         self.sparse_parser = Sparse3DParser(dtype, sparse_event='dummy')
@@ -334,8 +337,7 @@ class Cluster3DParser(ParserBase):
 
                 # If requested, break cluster into detached pieces
                 if self.break_clusters:
-                    frag_labels = dbscan(
-                            voxels, self.break_eps, self.break_metric)
+                    frag_labels = self.dbscan.fit_predict(voxels)
                     features[1] = id_offset + frag_labels
                     id_offset += max(frag_labels) + 1
 

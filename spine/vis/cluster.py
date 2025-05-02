@@ -9,6 +9,8 @@ from .ellipsoid import ellipsoid_trace
 from .cone import cone_trace
 from .hull import hull_trace
 
+__all__ = ['scatter_clusters']
+
 
 def scatter_clusters(points, clusts, color=None, hovertext=None,
                      single_trace=False, name=None, mode='scatter',

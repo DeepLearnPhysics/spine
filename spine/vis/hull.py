@@ -3,6 +3,8 @@
 import numpy as np
 import plotly.graph_objs as go
 
+__all__ = ['hull_trace']
+
 
 def hull_trace(points, color=None, intensity=None, hovertext=None,
                showscale=False, alphahull=0, **kwargs):

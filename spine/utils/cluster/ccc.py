@@ -1,10 +1,11 @@
 """Connected component clustering module."""
 
 import numpy as np
-from scipy.sparse import coo_matrix, csgraph
 import torch
 
 from spine.data import TensorBatch
+
+from spine.math.graph import connected_components
 
 from .orphan import OrphanAssigner
 
@@ -131,7 +132,7 @@ class ConnectedComponentClusterer:
             if len(nindex):
                 node_pred[nindex] = node_pred_s
                 offset = int(node_pred.max()) + 1
-        
+
         return node_pred
 
     def fit_predict_one(self, node_coords, edge_index, edge_assn, offset,
@@ -159,17 +160,11 @@ class ConnectedComponentClusterer:
         """
         # Narrow down the list of edges to those turned on
         assert edge_index.shape[1] == 2, (
-                "The edge index must be of shape (E, 2)")
-        edges = edge_index[edge_assn == 1]
+                "The edge index must be of shape (E, 2).")
+        edges = edge_index[np.where(edge_assn)[0]]
 
-        # Convert the set of edges to a coordinate-format sparse adjacency matrix
-        num_nodes = len(node_coords)
-        edge_assn = np.ones(len(edges), dtype=int)
-        adj = coo_matrix((edge_assn, tuple(edges.T)), (num_nodes, num_nodes))
-
-        # Find connected components, allow for unidirectional connections
-        _, node_pred = csgraph.connected_components(adj, connection='weak')
-        node_pred = node_pred.astype(np.int64)
+        # Find connected components
+        node_pred = connected_components(edges, len(node_coords))
 
         # If min_size is set, downselect the points considered labeled
         min_size = min_size if min_size is not None else self.min_size

@@ -3,7 +3,9 @@
 import numpy as np
 from plotly import graph_objs as go
 
-from spine.utils.numba_local import principal_components
+from spine.math.decomposition import principal_components
+
+__all__ = ['cone_trace']
 
 
 def cone_trace(points, fraction=0.5, num_samples=10, color=None, hovertext=None,

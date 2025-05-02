@@ -1,10 +1,10 @@
 """Shower reconstruction module."""
 
 import numpy as np
-from scipy.stats import pearsonr
+
+from spine.math.distance import cdist
 
 from spine.utils.globals import SHOWR_SHP, TRACK_SHP, PROT_PID, PION_PID
-from spine.utils.numba_local import cdist
 from spine.utils.gnn.cluster import cluster_direction, cluster_dedx
 
 from spine.data import ObjectList, RecoParticle

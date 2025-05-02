@@ -15,6 +15,8 @@ from .cluster import scatter_clusters
 from .layout import (
         layout3d, dual_figure3d, PLOTLY_COLORS_WGRAY, HIGH_CONTRAST_COLORS)
 
+__all__ = ['Drawer']
+
 
 class Drawer:
     """Handles drawing the true/reconstructed output.

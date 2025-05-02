@@ -6,6 +6,8 @@ import numpy as np
 from scipy.special import gammaincinv # pylint: disable=E0611
 import plotly.graph_objs as go
 
+__all__ = ['ellipsoid_trace']
+
 
 def ellipsoid_trace(points=None, centroid=None, covmat=None, contour=0.5,
                     num_samples=10, color=None, intensity=None, hovertext=None,

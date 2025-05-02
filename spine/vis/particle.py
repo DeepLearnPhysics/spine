@@ -8,6 +8,8 @@ from spine.utils.globals import PART_COL
 from .point import scatter_points
 from .layout import HIGH_CONTRAST_COLORS
 
+__all__ = ['scatter_particles']
+
 
 def scatter_particles(cluster_label, particles, part_col=PART_COL,
                       markersize=1, **kwargs):
