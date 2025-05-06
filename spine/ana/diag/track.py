@@ -85,8 +85,8 @@ class TrackCompletenessAna(AnaBase):
                 points = self.get_points(part)
 
                 # Find start/end points, collapse onto track cluster
-                start = points[np.argmin(cdist([part.start_point], points))]
-                end = points[np.argmin(cdist([part.end_point], points))]
+                start = points[np.argmin(cdist(part.start_point[None, :], points))]
+                end = points[np.argmin(cdist(part.end_point[None, :], points))]
 
                 # Add the direction of the track
                 vec = end - start
@@ -172,7 +172,7 @@ class TrackCompletenessAna(AnaBase):
             return np.empty(0, dtype=float), np.empty(0, dtype=float)
         
         # Order clusters
-        start_dist = cdist([start_point], points).flatten()
+        start_dist = cdist(start_point[None, :], points).flatten()
         start_clust_dist = np.empty(len(unique_labels))
         for i, c in enumerate(unique_labels):
             start_clust_dist[i] = np.min(start_dist[labels == c])
