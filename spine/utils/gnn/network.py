@@ -338,7 +338,7 @@ def inter_cluster_distance(voxels, clusts, counts=None, centroid=False,
             return np.empty((0, 0), dtype=voxels.dtype)
 
         return _inter_cluster_distance(
-                voxels, clusts, counts, method, iterative)
+                voxels, clusts, counts, centroid, iterative)
 
     else:
         # If there are no clusters, return empty
