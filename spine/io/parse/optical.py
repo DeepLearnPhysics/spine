@@ -30,7 +30,7 @@ class FlashParser(ParserBase):
     # Alternative allowed names of the parser
     aliases = ('opflash',)
 
-    def __init__(self, merge=False, merge_threshold=1.0, time_method='min', **kwargs):
+    def __init__(self, merge=False, merge_threshold=1.0, time_method='min', merge_window=None, **kwargs):
         """Initialize the parser.
 
         Parameters
@@ -41,11 +41,14 @@ class FlashParser(ParserBase):
             Threshold for merging flashes
         time_method : str, default 'min'
             Method to use to merge the flash times. Options are 'min' or 'mean'
+        merge_window : list, default None
+            Time window (in us) to merge flashes, by default None. If flash times are outside of this window they are not considered for merging.
         """
         super().__init__(**kwargs)
         self.merge = merge
         self.merge_threshold = merge_threshold
         self.time_method = time_method
+        self.merge_window = merge_window
 
     def __call__(self, trees):
         """Parse one entry.
@@ -72,8 +75,6 @@ class FlashParser(ParserBase):
         List[Flash]
             List of optical flash objects
         """
-        print('*'*50)
-        print(f'Processing flash event list: {flash_event_list}')
         # Check on the input
         assert ((flash_event is not None) ^
                 (flash_event_list is not None)), (
@@ -102,5 +103,5 @@ class FlashParser(ParserBase):
                     idx += 1
             # If we are merging, find flashes within merge_threshold that are in different volumes
             if self.merge:
-                flashes,_ = merge_flashes(flashes, self.merge_threshold, self.time_method)
+                flashes,_ = merge_flashes(flashes, self.merge_threshold, self.time_method, self.merge_window)
         return ObjectList(flashes, Flash())

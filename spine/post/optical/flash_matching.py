@@ -34,7 +34,7 @@ class FlashMatchProcessor(PostBase):
                  method='likelihood', detector=None, geometry_file=None,
                  run_mode='reco', truth_point_mode='points',
                  truth_dep_mode='depositions', parent_path=None, merge_flashes=False, 
-                 merge_threshold=1.0, time_method='min', modify_flashes=False, **kwargs):
+                 merge_threshold=1.0, time_method='min', modify_flashes=False, merge_window=None, **kwargs):
         """Initialize the flash matching algorithm.
 
         Parameters
@@ -64,6 +64,8 @@ class FlashMatchProcessor(PostBase):
             Method for merging flashes
         modify_flashes : bool, default False
             Whether to modify the flashes in place. Relevant only if merge_flashes is True.
+        merge_window : list, default None
+            Time window (in us) to merge flashes, by default None. If flash times are outside of this window they are not considered for merging.
         **kwargs : dict
             Keyword arguments to pass to specific flash matching algorithms
         """
@@ -101,6 +103,7 @@ class FlashMatchProcessor(PostBase):
         self.merge_threshold = merge_threshold
         self.time_method = time_method
         self.modify_flashes = modify_flashes
+        self.merge_window = merge_window
     def process(self, data):
         """Find [interaction, flash] pairs.
 
@@ -135,7 +138,7 @@ class FlashMatchProcessor(PostBase):
 
         # Merge flashes
         if self.merge_flashes:
-            flashes, flash2oldflash_dict = merge_flashes(flashes, merge_threshold=self.merge_threshold, time_method=self.time_method)
+            flashes, flash2oldflash_dict = merge_flashes(flashes, merge_threshold=self.merge_threshold, time_method=self.time_method, merge_window=self.merge_window)
         # Loop over the optical volumes, run flash matching
         for k in self.interaction_keys:
             # Fetch interactions, nothing to do if there are not any

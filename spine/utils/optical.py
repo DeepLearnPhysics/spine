@@ -1,7 +1,7 @@
 import numpy as np
 import copy
 
-def merge_flashes(flashes, merge_threshold=1.0, time_method='min'):
+def merge_flashes(flashes, merge_threshold=1.0, time_method='min', merge_window=None):
     """Merge flashes from a list of flash events and track original IDs.
 
     Parameters
@@ -15,6 +15,8 @@ def merge_flashes(flashes, merge_threshold=1.0, time_method='min'):
     time_method : str, optional
         Method used to determine the time of the merged flash ('min', 'max', 'weighted', etc.),
         passed to the flash.merge method, by default 'min'.
+    merge_window : list, optional
+        Time window (in us) to merge flashes, by default None. If flash times are outside of this window they are not considered for merging.
 
     Returns
     -------
@@ -37,6 +39,10 @@ def merge_flashes(flashes, merge_threshold=1.0, time_method='min'):
             if i != j and flash.volume_id != other_flash.volume_id and j not in flashes_to_pop and i not in flashes_to_pop:
                 #Check if the two flashes are compatible in time, if so merge them
                 if np.abs(flash.time - other_flash.time) < merge_threshold:
+                    if merge_window is not None:
+                        #Check if the flashes are within the merge window
+                        if flash.time < merge_window[0] or flash.time > merge_window[1] or other_flash.time < merge_window[0] or other_flash.time > merge_window[1]:
+                            continue
                     flash2oldflash_dict[old_flashes[i].id] = [old_flashes[i],old_flashes[j]]
                     flash.merge(other_flash, time_method=time_method)
                     #Remove the other flash

@@ -239,6 +239,7 @@ class LikelihoodFlashMatcher:
             for i in range(len(f.pe_per_ch)):
                 flash.pe_v.push_back(f.pe_per_ch[i])
                 flash.pe_err_v.push_back(0.)
+                flash.closest_pds_v.push_back(1e9)
 
             # Append
             flash_v.append(flash)
