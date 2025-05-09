@@ -392,7 +392,7 @@ class Driver:
                 self.iterations = self.iter_per_epoch
             self.epochs = 1.
         elif self.epochs is not None:
-            self.iterations = self.epochs*self.iter_per_epoch
+            self.iterations = int(self.epochs*self.iter_per_epoch)
 
     @staticmethod
     def get_prefixes(file_paths, split_output):
