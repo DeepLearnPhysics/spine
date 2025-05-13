@@ -144,7 +144,7 @@ class LArCVDataset(Dataset):
         Dict[str, str]
             Dictionary of overlay methods
         """
-        overlay_methods = {key: 'first' for key in self._index_keys}
+        overlay_methods = {key: 'cat' for key in self._index_keys}
         for name, parser in self.parsers.items():
             overlay_methods[name] = parser.overlay
 

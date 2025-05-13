@@ -680,6 +680,9 @@ class SingleParticlePIDParser(ParserBase):
     # Type of object(s) returned by the parser
     returns = 'scalar'
 
+    # Overlay strategy for the objects returned by the parser
+    overlay = 'cat'
+
     def __call__(self, trees):
         """Parse one entry.
 
@@ -730,6 +733,9 @@ class SingleParticleEnergyParser(ParserBase):
 
     # Type of object(s) returned by the parser
     returns = 'scalar'
+
+    # Overlay strategy for the objects returned by the parser
+    overlay = 'cat'
 
     def __call__(self, trees):
         """Parse one entry.

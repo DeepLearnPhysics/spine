@@ -122,6 +122,9 @@ class RunInfoParser(ParserBase):
     # Type of object(s) returned by the parser
     returns = 'object'
 
+    # Overlay strategy for the objects returned by the parser
+    overlay = 'cat'
+
     def __call__(self, trees):
         """Parse one entry.
 
@@ -298,6 +301,9 @@ class TriggerParser(ParserBase):
 
     # Type of object(s) returned by the parser
     returns = 'object'
+
+    # Overlay strategy for the objects returned by the parser
+    overlay = 'cat'
 
     def __call__(self, trees):
         """Parse one entry.

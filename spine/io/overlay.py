@@ -182,6 +182,10 @@ class Overlayer:
             # Sum the values within each overlay
             return np.sum(scalars)
 
+        elif self.methods[key] == 'cat':
+            # Concatenate the scalars in a single array (type change)
+            return scalars
+
         else:
             if self.methods[key] is None:
                 raise ValueError(
@@ -209,7 +213,7 @@ class Overlayer:
         object
             Single object for the batch
         """
-        objects = np.array([batch[idx][key] for idx in index])
+        objects = [batch[idx][key] for idx in index]
         if self.methods[key] in ['first', 'match']:
             # Make sure that all objects match within the overlay, if needed
             if self.methods[key] == 'match':
@@ -218,6 +222,10 @@ class Overlayer:
                             f"The objects to overlay do not match for {key}.")
 
             return objects[0]
+
+        elif self.methods[key] == 'cat':
+            # Concatenate the objects in a single list (type change)
+            return ParserObjectList(objects, default=objects[0])
 
         else:
             if self.methods[key] is None:
