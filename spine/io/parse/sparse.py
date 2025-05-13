@@ -120,8 +120,9 @@ class Sparse2DParser(ParserBase):
             if meta is None:
                 meta = tensor.meta()
                 num_points = tensor.as_vector().size()
-                np_voxels = np.empty((num_points, 2), dtype=self.itype)
+                np_voxels = np.empty((num_points, 2), dtype=np.int32)
                 larcv.fill_2d_voxels(tensor, np_voxels)
+                np_voxels = np_voxels.astype(self.itype)
             else:
                 assert meta == tensor.meta(), (
                         "The metadata must match between tensors.")
@@ -129,8 +130,9 @@ class Sparse2DParser(ParserBase):
                         "The number of pixels must match between tensors.")
 
             # Get the feature vector for this tensor
-            np_data = np.empty((num_points, 1), dtype=self.ftype)
+            np_data = np.empty((num_points, 1), dtype=np.float32)
             larcv.fill_2d_pcloud(tensor, np_data)
+            np_data = np_data.astype(self.ftype)
             np_features.append(np_data)
 
         return ParserTensor(
@@ -286,15 +288,18 @@ class Sparse3DParser(ParserBase):
                 if num_points is None:
                     num_points = sparse_event.as_vector().size()
                     if not self.feature_only or self.lexsort:
-                        np_voxels = np.empty((num_points, 3), dtype=self.itype)
+                        np_voxels = np.empty((num_points, 3), dtype=np.int32)
                         larcv.fill_3d_voxels(sparse_event, np_voxels)
+                        np_voxels = np_voxels.astype(self.itype)
                 else:
                     assert num_points == sparse_event.as_vector().size(), (
                             "The number of pixels must match between tensors.")
 
                 # Get the feature vector for this tensor
-                np_data = np.empty((num_points, 1), dtype=self.ftype)
+                np_data = np.empty((num_points, 1), dtype=np.float32)
                 larcv.fill_3d_pcloud(sparse_event, np_data)
+                np_data = np_data.astype(self.ftype)
+                print(np_data.shape)
                 np_features.append(np_data)
 
                 # If the number of hits is to be computed, keep track of the

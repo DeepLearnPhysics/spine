@@ -108,12 +108,14 @@ class Cluster2DParser(ParserBase):
             cluster = cluster_event_p.as_vector()[i]
             num_points = cluster.as_vector().size()
             if num_points > 0:
-                x = np.empty(num_points, dtype=self.itype)
-                y = np.empty(num_points, dtype=self.itype)
-                value = np.empty(num_points, dtype=self.ftype)
+                x = np.empty(num_points, dtype=np.int32)
+                y = np.empty(num_points, dtype=np.int32)
+                value = np.empty(num_points, dtype=np.float32)
                 larcv.as_flat_arrays(cluster, meta, x, y, value)
+                pixels = np.stack([x, y], axis=1).astype(self.itype)
+                value = value.astype(self.ftype)
                 cluster_id = np.full(num_points, i, dtype=self.ftype)
-                clusters_voxels.append(np.stack([x, y], axis=1))
+                clusters_voxels.append(pixels)
                 clusters_features.append(np.column_stack([value, cluster_id]))
 
         # Concatenate clusters
@@ -349,12 +351,13 @@ class Cluster3DParser(ParserBase):
             num_points = cluster.as_vector().size()
             if num_points > 0:
                 # Get the position and pixel value from EventSparseTensor3D
-                x = np.empty(num_points, dtype=self.itype)
-                y = np.empty(num_points, dtype=self.itype)
-                z = np.empty(num_points, dtype=self.itype)
-                value = np.empty(num_points, dtype=self.ftype)
+                x = np.empty(num_points, dtype=np.int32)
+                y = np.empty(num_points, dtype=np.int32)
+                z = np.empty(num_points, dtype=np.int32)
+                value = np.empty(num_points, dtype=np.float32)
                 larcv.as_flat_arrays(cluster, meta, x, y, z, value)
-                voxels = np.stack([x, y, z], axis=1)
+                voxels = np.stack([x, y, z], axis=1).astype(self.itype)
+                value = value.astype(self.ftype)
                 clusters_voxels.append(voxels)
 
                 # Append the cluster-wise information
