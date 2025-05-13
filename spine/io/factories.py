@@ -77,7 +77,8 @@ def loader_factory(dataset, dtype, batch_size=None, minibatch_size=None,
 
     # Initialize the collate function
     if collate_fn is not None:
-        collate_fn = collate_factory(collate_fn)
+        collate_fn = collate_factory(
+                collate_fn, dataset.data_types, dataset.overlay_methods)
 
     # Initialize the loader
     loader = DataLoader(
@@ -161,7 +162,7 @@ def sampler_factory(sampler_cfg, dataset, minibatch_size, distributed=False,
     return sampler
 
 
-def collate_factory(collate_cfg):
+def collate_factory(collate_cfg, data_types, overlay_methods):
     """Instantiates collate function based on type specified in configuration
     under `io.collate.name`. The name must match the name of a class
     under `spine.io.collates`.
@@ -170,6 +171,10 @@ def collate_factory(collate_cfg):
     ----------
     collate_cfg : dict
         Collate function configuration dictionary
+    data_types : dict
+        Dictionary of data types
+    overlay_methods : dict
+        Dictionary of overlay methods
 
     Returns
     -------
@@ -177,7 +182,9 @@ def collate_factory(collate_cfg):
         Initialized collate function
     """
     # Initialize collate function
-    return instantiate(COLLATE_DICT, collate_cfg, 'collate_fn')
+    return instantiate(
+            COLLATE_DICT, collate_cfg, 'collate_fn', data_types=data_types,
+            overlay_methods=overlay_methods)
 
 
 def reader_factory(reader_cfg):

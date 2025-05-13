@@ -10,11 +10,12 @@ Contains the following parsers:
 """
 
 
-from spine.data import Meta, RunInfo, Flash, CRTHit, Trigger, ObjectList
+from spine.data import Meta, RunInfo, Flash, CRTHit, Trigger
 
 from spine.utils.conditional import larcv
 
 from .base import ParserBase
+from .data import ParserObjectList
 
 __all__ = ['MetaParser', 'RunInfoParser', 'FlashParser',
            'CRTHitParser', 'TriggerParser']
@@ -41,6 +42,12 @@ class MetaParser(ParserBase):
 
     # Alternative allowed names of the parser
     aliases = ('meta2d', 'meta3d')
+
+    # Type of object(s) returned by the parser
+    returns = 'object'
+
+    # Overlay strategy for the objects returned by the parser
+    overlay = 'match'
 
     def __call__(self, trees):
         """Parse one entry.
@@ -112,6 +119,9 @@ class RunInfoParser(ParserBase):
     # Name of the parser (as specified in the configuration)
     name = 'run_info'
 
+    # Type of object(s) returned by the parser
+    returns = 'object'
+
     def __call__(self, trees):
         """Parse one entry.
 
@@ -170,6 +180,9 @@ class FlashParser(ParserBase):
     # Alternative allowed names of the parser
     aliases = ('opflash',)
 
+    # Type of object(s) returned by the parser
+    returns = 'object_list'
+
     def __call__(self, trees):
         """Parse one entry.
 
@@ -222,7 +235,7 @@ class FlashParser(ParserBase):
                     flashes.append(flash)
                     idx += 1
 
-        return ObjectList(flashes, Flash())
+        return ParserObjectList(flashes, Flash())
 
 
 class CRTHitParser(ParserBase):
@@ -237,6 +250,9 @@ class CRTHitParser(ParserBase):
 
     # Name of the parser (as specified in the configuration)
     name = 'crthit'
+
+    # Type of object(s) returned by the parser
+    returns = 'object_list'
 
     def __call__(self, trees):
         """Parse one entry.
@@ -264,7 +280,7 @@ class CRTHitParser(ParserBase):
         crthit_list = crthit_event.as_vector()
         crthits = [CRTHit.from_larcv(larcv.CRTHit(c)) for c in crthit_list]
 
-        return ObjectList(crthits, CRTHit())
+        return ParserObjectList(crthits, CRTHit())
 
 
 class TriggerParser(ParserBase):
@@ -279,6 +295,9 @@ class TriggerParser(ParserBase):
 
     # Name of the parser (as specified in the configuration)
     name = 'trigger'
+
+    # Type of object(s) returned by the parser
+    returns = 'object'
 
     def __call__(self, trees):
         """Parse one entry.

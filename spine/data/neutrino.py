@@ -127,6 +127,9 @@ class Neutrino(PosDataBase):
     # String attributes
     _str_attrs = ('creation_process',)
 
+    # Index attributes
+    _index_attrs = ('id', 'interaction_id')
+
     @classmethod
     def from_larcv(cls, neutrino):
         """Builds and returns a Neutrino object from a LArCV Neutrino object.
