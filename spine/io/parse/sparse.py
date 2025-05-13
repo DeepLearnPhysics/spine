@@ -299,7 +299,6 @@ class Sparse3DParser(ParserBase):
                 np_data = np.empty((num_points, 1), dtype=np.float32)
                 larcv.fill_3d_pcloud(sparse_event, np_data)
                 np_data = np_data.astype(self.ftype)
-                print(np_data.shape)
                 np_features.append(np_data)
 
                 # If the number of hits is to be computed, keep track of the
