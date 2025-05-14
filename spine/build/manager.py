@@ -100,9 +100,6 @@ class BuildManager:
                     "is True, so must `particles` be.")
             self.builders['interaction'] = InteractionBuilder(mode, units)
 
-        assert len(self.builders), (
-                "Do not call the builder unless it does anything.")
-
         # Store whether to load the long-form attributes or not
         self.lite = lite
 
