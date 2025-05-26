@@ -11,7 +11,7 @@ from spine.math.cluster import DBSCAN
 from spine.math.decomposition import PCA
 
 from spine.data import ObjectList
-from spine.data.out import RecoParticle
+from spine.data.out import RecoParticle, TruthParticle
 
 from spine.utils.globals import TRACK_SHP
 from spine.utils.geo import Geometry
@@ -36,8 +36,14 @@ class TrackClusterer(PostBase):
     # List of recognized volumes one can split between
     _split_volumes = ('tpc', 'module')
 
+    # List of recognized output particle classes
+    _particle_classes = (
+            ('reco', RecoParticle), ('truth', TruthParticle)
+    )
+
     def __init__(self, eps=5., min_samples=1, metric='euclidean', min_size=10,
-                 max_rel_spread=0.1, max_axis_dist=None, split_volume=None):
+                 max_rel_spread=0.1, max_axis_dist=None, split_volume=None,
+                 particle_type='reco'):
         """Initialize the track factory.
 
         Parameters
@@ -57,6 +63,8 @@ class TrackClusterer(PostBase):
         split_volume : str, optional
             If specified, the track clusters are restricted within either
             a detecor 'module' or 'tpc'
+        particle_type : str, default 'reco'
+            Type of particle output by this algorithm
         """
         # Initialize DBSCAN
         self.dbscan = DBSCAN(eps=eps, min_samples=min_samples, metric=metric)
@@ -70,10 +78,28 @@ class TrackClusterer(PostBase):
         self.max_axis_dist = max_axis_dist
 
         # Initialize the splitting procedure
-        self.split_volume = split_volume
         assert split_volume is None or split_volume in self._split_volumes, (
                 f"Track clustering split volume not recognized: {split_volume}. "
                 f"Must be one of {self._volume_modes}.")
+        self.split_volume = split_volume
+
+        # Check on which type of object to output
+        assert particle_type in self.particle_classes, (
+                f"Output particle type not recognized: {particle_type}. "
+                f"Must be one of {self.particle_classes.keys()}")
+        self.particle_type = particle_type
+        self.particle_class = self.particle_classes[particle_type]
+
+    @property
+    def particle_classes(self):
+        """Dictionary which maps particle type to particle classes.
+
+        Returns
+        -------
+        dict
+            Dictionary of particle classes
+        """
+        return dict(self._particle_classes)
 
     def process(self, data):
         """Produce track clusters for one entry.
@@ -125,7 +151,7 @@ class TrackClusterer(PostBase):
         particles = []
         for i, index in enumerate(clusts):
             # Create particle
-            particle = RecoParticle(
+            particle = self.particle_class(
                 id=i, index=index, shape=TRACK_SHP, points=points[index],
                 depositions=depositions[index], sources=sources[index])
 
@@ -133,9 +159,9 @@ class TrackClusterer(PostBase):
             particles.append(particle)
 
         # Return
-        particles = ObjectList(particles, default=RecoParticle())
+        particles = ObjectList(particles, default=self.particle_class())
 
-        return {'reco_particles': particles}
+        return {f'{self.particle_type}_particles': particles}
 
     def process_volume(self, points):
         """Produce track clusters for one volume.
