@@ -82,4 +82,4 @@ class TrackExtremaProcessor(PostBase):
                     part.start_point, part.end_point = (
                             part.end_point, part.start_point)
                     part.start_dir, part.end_dir = (
-                            part.end_dir, part.start_dir)
+                            -part.end_dir, -part.start_dir)
