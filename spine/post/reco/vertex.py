@@ -123,7 +123,7 @@ class VertexProcessor(PostBase):
                         part.start_point, part.end_point = (
                                 part.end_point, part.start_point)
                         part.start_dir, part.end_dir = (
-                                part.end_dir, part.start_dir)
+                                -part.end_dir, -part.start_dir)
 
             # If requested, update primaries on the basis of the vertex
             if not inter.is_truth and self.update_primaries:
