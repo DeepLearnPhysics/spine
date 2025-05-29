@@ -152,8 +152,8 @@ class Geometry:
         return sources
 
     def get_contributors(self, sources):
-        """Gets the list of [module ID, tpc ID] pairs that contributed to a
-        particle or interaction object, as defined in this geometry.
+        """Gets the list of [module ID, tpc ID] pairs that contributed to an
+        object, as defined in this geometry.
 
         Parameters
         ----------
@@ -465,7 +465,7 @@ class Geometry:
             (S, 2) : List of [module ID, tpc ID] pairs that created the
             point cloud
         allow_multi_module : bool, default `False`
-            Whether to allow particles/interactions to span multiple modules
+            Whether to allow points to span multiple modules
         summarize : bool, default `True`
             If `True`, only returns a single flag for the whole cloud.
             Otherwise, returns a boolean array corresponding to each point.
@@ -473,7 +473,7 @@ class Geometry:
         Returns
         -------
         Union[bool, np.ndarray]
-            `True` if the particle is contained, `False` if not
+            `True` if the points are contained, `False` if not
         """
         # If the containment volumes are not defined, throw
         if self._cont_volumes is None:

@@ -26,7 +26,7 @@ class ContainmentProcessor(PostBase):
 
     def __init__(self, margin, cathode_margin=None, detector=None,
                  geometry_file=None, mode='module', allow_multi_module=False,
-                 exclude_pids=None, min_particle_sizes=0,
+                 exclude_pids=None, min_particle_sizes=0, exc_planes=None,
                  obj_type=('particle', 'interaction'),
                  truth_point_mode='points', run_mode='both'):
         """Initialize the containment conditions.
@@ -70,6 +70,9 @@ class ContainmentProcessor(PostBase):
             When checking interaction containment, ignore particles below the
             size (in voxel count) specified by this parameter. If specified
             as a dictionary, it maps a specific particle type to its own cut.
+        exc_planes : List[dict], optional
+            Defines a list of planes (interecpt + normal vector + margin)
+            which set boundaries against which to check containment
         """
         # Initialize the parent class
         super().__init__(obj_type, run_mode, truth_point_mode)
@@ -105,6 +108,63 @@ class ContainmentProcessor(PostBase):
             else:
                 self.min_particle_sizes[pid] = 0
 
+        # Intialize additional boundary planes, if provided
+        self.exc_planes = []
+        if exc_planes is not None:
+            for plane in exc_planes:
+                if 'margin' not in plane and np.isscalar(margin):
+                    plane['margin'] = margin
+                self.exc_planes.append(self.Boundary(**plane))
+
+    class Boundary:
+        """Data structure which stores 3D plane boundary information and
+        provides a containment check against itself.
+        """
+
+        def __init__(self, intercept, norm, margin):
+            """Initialize a containment rule based on a boundary plane.
+
+            Parameters
+            ----------
+            intercept : np.ndarray
+                (3) Coordinates of a point which belongs to the plane
+            norm : np.ndarray
+                (3) Vector perpendicular to the plane. The direction of the norm
+                points towards the *excluded* region
+            margin : float
+                Minimum distance from the boundary to be considered contained
+            """
+            # Store the normal vector
+            self.norm = np.asarray(norm)
+
+            # Convert the intercept point as a boundary along the normal vector
+            self.limit = np.dot(self.norm, np.asarray(intercept)) - margin
+
+        def check_containment(self, points, summarize=True):
+            """Check whether a point cloud comes within some distance of the
+            boundary.
+
+            Parameters
+            ----------
+            points : np.ndarray
+                (N, 3) Set of point coordinates
+            summarize : bool, default `True`
+                If `True`, only returns a single flag for the whole cloud.
+                Otherwise, returns a boolean array corresponding to each point.
+
+            Returns
+            -------
+            Union[bool, np.ndarray]
+                `True` if the points are contained, `False` if not
+            """
+            # Collapse the points onto the norm, check
+            projs = np.dot(points, self.norm)
+            contained = projs < self.limit
+            if summarize:
+                return contained.all()
+            else:
+                return contained
+
     def process(self, data):
         """Check the containment of all objects in one entry.
 
@@ -129,7 +189,7 @@ class ContainmentProcessor(PostBase):
                     obj.is_contained = True
                     continue
 
-                # Check particle containment
+                # Check particle containment against detector/meta
                 if not self.use_meta:
                     obj.is_contained = self.geo.check_containment(
                             points, obj.sources, self.allow_multi_module)
@@ -137,6 +197,11 @@ class ContainmentProcessor(PostBase):
                     obj.is_contained = (
                             (points > (meta.lower + self.margin)).all() and
                             (points < (meta.upper - self.margin)).all())
+
+                # If requested, further check containment against bounding planes
+                if obj.is_contained:
+                    for plane in self.exc_planes:
+                        obj.is_contained &= plane.check_containment(points)
 
         # Loop over interaction objects
         for k in self.interaction_keys:
