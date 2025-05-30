@@ -8,12 +8,12 @@ from dataclasses import dataclass
 
 import numpy as np
 
-__all__ = ['Box']
+__all__ = ['Box', 'Plane']
 
 
 @dataclass
 class Box:
-    """Class which holds all methods associated with a box-shapes component.
+    """Class which holds all methods associated with a box-shaped component.
 
     Attributes
     ----------
@@ -80,3 +80,38 @@ class Box:
             Box dimensions
         """
         return self.boundaries[:, 1] - self.boundaries[:, 0]
+
+
+@dataclass
+class Plane:
+    """Class which holds all methods associated with a plane.
+
+    Attributes
+    ----------
+    intercept : np.ndarray
+        (3) Coordinates of a point which belongs to the plane
+    norm : np.ndarray
+        (3) Vector perpendicular to the plane
+    boundary : float
+        Dot product between the interecept and the norm
+    """
+    intercept: np.ndarray
+    norm: np.ndarray
+    boundary: float
+
+    def __init__(self, intercept, norm):
+        """Initialize the box object.
+
+        Parameters
+        ----------
+        intercept : np.ndarray
+            (3) Coordinates of a point which belongs to the plane
+        norm : np.ndarray
+            (3) Vector perpendicular to the plane
+        """
+        # Store the intercept and norm
+        self.intercept = np.asarray(intercept)
+        self.norm = np.asarray(norm)
+
+        # Compute their dot product (projection boundary)
+        self.boundary = np.dot(intercept, norm)

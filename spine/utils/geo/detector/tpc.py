@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .base import Box
+from .base import Box, Plane
 
 __all__ = ['TPCDetector']
 
@@ -261,13 +261,16 @@ class TPCDetector(Box):
         (N_t) List of individual TPC associated with this detector
     det_ids : np.ndarray, optional
         (N_c) Map between logical and physical TPC index
+    limits : List[Plane], optional
+        (N_i) List of bounding planes which restrict the active volume
     """
-    modules : List[Module]
+    modules: List[Module]
     chambers: List[Chamber]
+    limits: List[Plane] = None
     det_ids : np.ndarray = None
 
     def __init__(self, dimensions, positions, module_ids, det_ids=None,
-                 drift_dirs=None):
+                 drift_dirs=None, limits=None):
         """Parse the detector boundary configuration.
 
         Parameters
@@ -287,6 +290,9 @@ class TPCDetector(Box):
             (N_t) List of drift direction vectors. If this is not provided, it
             is inferred from the module configuration, provided that modules
             are composed of two TPCs (with a shared cathode)
+        limits: Dict[str, List[List[float]]], optional
+            (N_i) Dictionary which defines a list of bounding planes which
+            restrict the active region of the detector
         """
         # Check the sanity of the configuration
         assert len(dimensions) == 3, (
@@ -328,6 +334,31 @@ class TPCDetector(Box):
         lower = np.min(np.vstack([m.lower for m in self.modules]), axis=0)
         upper = np.max(np.vstack([m.upper for m in self.modules]), axis=0)
         super().__init__(lower, upper)
+
+        # Initialize the active region limits
+        if limits is not None:
+            self.limits = self.initialize_limits(**limits)
+
+    def initialize_limits(self, intercepts, norms):
+        """Initialize a list of bounding planes which restrict the active region.
+
+        Parameters
+        ----------
+        intercepts : List[List[float]]
+            List of plane intercept points
+        norms : List[List[float]]
+            List of vectors normal to the planes
+
+        Returns
+        -------
+        List[Plane]
+            List of bounding planes
+        """
+        limits = []
+        for intercept, norm in zip(intercepts, norms):
+            limits.append(Plane(intercept, norm))
+
+        return limits
 
     @property
     def num_chambers(self):
