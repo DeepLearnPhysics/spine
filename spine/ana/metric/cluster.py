@@ -83,7 +83,6 @@ class ClusterAna(AnaBase):
 
         # Store the time window
         self.time_window = time_window
-        print(f'Time window: {self.time_window}')
 
         # If the clustering is not done per object, fix target
         if not per_object:
@@ -174,7 +173,6 @@ class ClusterAna(AnaBase):
                 # Create a mapping from truth object index to label
                 truth_to_label = {}
                 for i, obj in enumerate(truth_objects):
-                    #print(f'{obj.index_adapt} {len(labels)}')
                     if (obj.index_adapt < len(labels)).all():
                         truth_to_label[i] = labels[obj.index_adapt]
                 
