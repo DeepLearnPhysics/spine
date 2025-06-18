@@ -20,22 +20,34 @@ class ParserTensor:
     features : np.ndarray
         (N, N_f) Feature vectors
     coords : np.ndarray, optional
-        (N, 3) Voxel coordinates
+        (N, 3) Point coordinates
     meta : Meta, optional
         Metadata to convert from voxel ID to detector coordinates
+    global_shift : int, optional
+        Global shift to apply to all features to prevent overlap
     index_shifts : np.ndarray, optional
-        (C/R) Shifts to apply to index columns to prevent overlap
+        (C) Shifts to apply to index columns to prevent overlap
     index_cols : np.ndarray, optional
         (C) Columns which contain indexes
-    index_rows : np.ndarray, optional
-        (R) Rows which contain indexes
+    remove_duplicates : bool, default False
+        If `True`, remove duplicated voxel coordinates
+    sum_cols : np.ndarray, optional
+        (C) Columns which should be summed when removing duplicates
+    prec_col : int, optional
+        Column to be used as a precedence source
+    precedence : np.ndarray, optional
+        Order of precedence among the classes in prec_col
     """
     features: np.ndarray
     coords: np.ndarray = None
     meta: Meta = None
+    global_shift: int = None
     index_shifts: np.ndarray = None
     index_cols: np.ndarray = None
-    index_rows: np.ndarray = None
+    remove_duplicates = False
+    sum_cols: np.ndarray = None
+    prec_col: int = None
+    precedence: np.ndarray = None
 
     @property
     def feat_index_cols(self):
@@ -50,6 +62,34 @@ class ParserTensor:
             return self.index_cols
 
         return self.index_cols - VALUE_COL
+
+    @property
+    def feat_sum_cols(self):
+        """Returns the columns to be summed in the feature tensor.
+
+        Returns
+        -------
+        np.ndarray
+            Columns to be summed in the feature tensor
+        """
+        if self.sum_cols is None or self.coords is None:
+            return self.sum_cols
+
+        return self.sum_cols - VALUE_COL
+
+    @property
+    def feat_prec_col(self):
+        """Returns the column providing a precedence source.
+
+        Returns
+        -------
+        int
+            Column providing a precedence source
+        """
+        if self.prec_col is None or self.coords is None:
+            return self.prec_col
+
+        return self.prec_col - VALUE_COL
 
 
 class ParserObjectList(ObjectList):

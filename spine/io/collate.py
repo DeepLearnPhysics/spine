@@ -108,7 +108,7 @@ class CollateAll:
                     # are provided, along with the metadata information
                     data[key] = self.stack_coord_tensors(batch, key)
 
-                elif ref_data.index_rows is not None:
+                elif ref_data.global_shift is not None:
                     # Case where an index and a count is provided per entry
                     data[key] = self.stack_index_tensors(batch, key)
 
@@ -212,7 +212,7 @@ class CollateAll:
             Batched index tensor
         """
         # Start by computing the necessary node ID offsets to apply
-        total_counts = [sample[key].index_shifts[0] for sample in batch]
+        total_counts = [sample[key].global_shift for sample in batch]
         offsets = np.zeros(len(total_counts), dtype=int)
         offsets[1:] = np.cumsum(total_counts)[:-1]
 

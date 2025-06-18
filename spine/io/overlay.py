@@ -81,6 +81,7 @@ class Overlayer:
             # If there is only a single index in the overlay, nothing to do
             if len(index) < 2:
                 overlay_batch.append(batch[index[0]])
+                continue
 
             # Loop over the keys to overlay
             overlay = {}
@@ -309,19 +310,31 @@ class Overlayer:
                         "The metadata must match across all overlayed tensor.")
             coords = np.vstack([batch[idx][key].coords for idx in index])
 
-        # If required, offset index feature columns in the feature tensor
-        shifts = None
-        if ref_data.feat_index_cols is not None:
-            # Apply offsets to the relevant columns
-            shifts = ref_data.index_shifts.copy()
+        # If required, offset indexes in the feature tensor
+        global_shift, index_shifts = None, None
+        if ref_data.global_shift is not None:
+            # Shift the whole feature tensor (index tensor)
+            global_shift = ref_data.global_shift
+            for idx in index[1:]:
+                mask = batch[idx][key].features > -1
+                batch[idx][key].features[mask] += global_shift
+                global_shift += batch[idx][key].global_shift
+
+        elif ref_data.feat_index_cols is not None:
+            # Apply offsets to the relevant columns only (mixed features)
+            index_shifts = ref_data.index_shifts.copy()
             for idx in index[1:]:
                 for i, col in enumerate(ref_data.feat_index_cols):
                     mask = batch[idx][key].features[:, col] > -1
-                    batch[idx][key].features[mask, col] += shifts[i]
-                shifts += batch[idx][key].index_shifts
+                    batch[idx][key].features[mask, col] += index_shifts[i]
+                index_shifts += batch[idx][key].index_shifts
 
         # Stack features
-        features = np.vstack([batch[idx][key].features for idx in index])
+        if ref_data.global_shift is None:
+            features = np.vstack([batch[idx][key].features for idx in index])
+        else:
+            features = np.concatenate(
+                    [batch[idx][key].features for idx in index], axis=-1)
 
         # TODO must add option to remove duplicates, this should come
         # with instructions as to how to deal with label discrepancies
@@ -329,4 +342,5 @@ class Overlayer:
         # Returns
         return ParserTensor(
                 coords=coords, features=features, meta=ref_data.meta,
-                index_cols=ref_data.index_cols, index_shifts=shifts)
+                global_shift=global_shift, index_shifts=index_shifts,
+                index_cols=ref_data.index_cols)

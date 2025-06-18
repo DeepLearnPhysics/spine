@@ -584,9 +584,6 @@ class ParticleGraphParser(ParserBase):
         # Store the revelant attributes
         self.include_fragment_edges = include_fragment_edges
 
-        # Define the output columns containing indexes
-        self.index_rows = np.array([0, 1])
-
     def __call__(self, trees):
         """Parse one entry.
 
@@ -650,17 +647,15 @@ class ParticleGraphParser(ParserBase):
 
         # Convert the list of edges to a numpy array
         if not edges:
-            return np.empty((2, 0), dtype=np.int64), num_particles
-
-        edges = np.vstack(edges).astype(np.int64)
+            edges = np.empty((0, 2), dtype=np.int64)
+        else:
+            edges = np.vstack(edges).astype(np.int64)
 
         # Remove zero-pixel nodes, if possible
-        if len(zero_nodes) > 0:
+        if len(zero_nodes) > 0 and len(edges) > 0:
             edges = filter_invalid_nodes(edges, zero_nodes)
 
-        return ParserTensor(
-                features=edges.T, index_rows=self.index_rows,
-                index_shifts=np.repeat(num_particles, 2))
+        return ParserTensor(features=edges.T, global_shift=num_particles)
 
 
 class SingleParticlePIDParser(ParserBase):

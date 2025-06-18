@@ -18,7 +18,8 @@ from spine.math.distance import METRICS
 from spine.math.cluster import dbscan
 
 from spine.utils.globals import (
-        DELTA_SHP, SHAPE_PREC, CLUST_COL, PART_COL, GROUP_COL, INTER_COL, NU_COL)
+        DELTA_SHP, SHAPE_PREC, VALUE_COL, CLUST_COL, PART_COL, GROUP_COL,
+        INTER_COL, NU_COL)
 from spine.utils.particles import process_particle_event
 from spine.utils.ppn import image_coordinates
 from spine.utils.conditional import larcv
@@ -68,6 +69,9 @@ class Cluster2DParser(ParserBase):
 
         # Define the output columns containing indexes
         self.index_cols = np.array([CLUST_COL])
+
+        # Define the voxel filtering strategy
+        self.sum_cols = np.array([VALUE_COL])
 
     def __call__(self, trees):
         """Parse one entry.
@@ -131,7 +135,8 @@ class Cluster2DParser(ParserBase):
 
         return ParserTensor(
                 coords=np_voxels, feats=np_features, meta=Meta.from_larcv(meta),
-                index_cols=self.index_cols, index_shifts=index_shifts)
+                index_cols=self.index_cols, index_shifts=index_shifts,
+                remove_duplicates=True, )
 
 
 class Cluster3DParser(ParserBase):
@@ -416,7 +421,7 @@ class Cluster3DParser(ParserBase):
             # If a value tree is provided, override value colum
             if sparse_value_event:
                 tensor_val = self.sparse_parser.process(sparse_value_event)
-                tensor.features[:, 0] = tensor_val.features[:, 0]
+                np_features[:, 0] = tensor_val.features[:, 0]
 
         # Evaluate shifts to apply to each index column
         clust_shift = np.max(np_features[:, 1], initial=-1) + 1
