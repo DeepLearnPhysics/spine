@@ -6,6 +6,7 @@ import numpy as np
 from .distance import METRICS, get_metric_id
 from .graph import radius_graph, connected_components
 
+__all__ = ['DBSCAN', 'dbscan']
 
 DBSCAN_DTYPE = (
     ('eps', nb.float32),
@@ -63,11 +64,6 @@ class DBSCAN:
     def fit_predict(self, x):
         """Runs DBSCAN on 3D points and returns the group assignments.
 
-
-        Notes
-        -----
-        The traditional 'min_samples' is always set to 1 here.
-
         Parameters
         ----------
         x : np.ndarray
@@ -99,10 +95,6 @@ def dbscan(x: nb.float32[:, :],
            metric_id: nb.int64 = METRICS['euclidean'],
            p: nb.float32 = 2.) -> nb.float32[:]:
     """Runs DBSCAN on 3D points and returns the group assignments.
-
-    Notes
-    -----
-    The traditional 'min_samples' is always set to 1 here.
 
     Parameters
     ----------

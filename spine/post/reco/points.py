@@ -77,7 +77,9 @@ class TrackExtremaProcessor(PostBase):
                              "Point assignment method not recognized: "
                             f"{self.method}")
 
-                # If needed, flip en end points
+                # If needed, flip the end points and the directions
                 if flip:
                     part.start_point, part.end_point = (
                             part.end_point, part.start_point)
+                    part.start_dir, part.end_dir = (
+                            -part.end_dir, -part.start_dir)

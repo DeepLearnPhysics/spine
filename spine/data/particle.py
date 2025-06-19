@@ -176,6 +176,12 @@ class Particle(PosDataBase):
     _str_attrs = ('creation_process', 'parent_creation_process',
                   'ancestor_creation_process')
 
+    # Index attributes
+    _index_attrs = (
+            'id', 'parent_id', 'group_id', 'parent_id', 'interaction_id',
+            'nu_id', 'children_id'
+    )
+
     @property
     def p(self):
         """Computes the magnitude of the initial momentum.

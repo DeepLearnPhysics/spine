@@ -169,7 +169,7 @@ def connected_components(edge_index: nb.int64[:,:],
             if graph.num_neighbors(node) > min_neighbors:
                 # Perform DFS and collect all nodes in this connected component
                 comp_idx[0] = 0
-                dfs(graph, visited, node, component, comp_idx)
+                dfs_iterative(graph, visited, node, component, comp_idx)
 
                 # Collect all nodes that belong to the same connected component
                 for i in range(comp_idx[0]):
@@ -205,6 +205,12 @@ def dfs(graph: CSR_DTYPE,
         (N) Current component (padded)
     comp_idx : np.ndarray
         Current component index (pointer)
+
+    Notes
+    -----
+    This implementation is recursive, which is the fastest implementation but
+    silently throws segementation faults if the maximum recursion depth is
+    reached. The :func:`dfs_iterative` function is safer, but slightly slower.
     """
     # Mark the node as visited, incremant pointer
     visited[node] = True
@@ -215,6 +221,55 @@ def dfs(graph: CSR_DTYPE,
     for neighbor in graph[node]:
         if not visited[neighbor]:
             dfs(graph, visited, neighbor, component, comp_idx)
+
+
+@nb.njit(cache=True)
+def dfs_iterative(graph: CSR_DTYPE,
+                  visited: nb.boolean[:],
+                  start_node: nb.int64,
+                  component: nb.int64[:],
+                  comp_idx: nb.int64[:]):
+    """Does a depth-first search and builds a connected component.
+
+    Parameters
+    ----------
+    graph : CSRGraph
+        CSR representation of a graph
+    visitied : np.ndarray
+        (N) Boolean array which specified weather a node has been visited or not.
+    node : int
+        Current node index
+    component : np.ndarray
+        (N) Current component (padded)
+    comp_idx : np.ndarray
+        Current component index (pointer)
+
+    Notes
+    -----
+    This implementation is iterative and does not suffer from the recursion
+    depth maximum issue which affects the recursive version, at a small cost
+    to the overall execution speed.
+    """
+    # Initialize a node stack (fixed size)
+    stack = np.empty(graph.num_nodes, dtype=nb.int64)
+    stack[0] = start_node
+    stack_idx = 1
+
+    visited[start_node] = True
+
+    # Loop until there is no more node to visit
+    while stack_idx > 0:
+        stack_idx -= 1
+        node = stack[stack_idx]
+
+        component[comp_idx[0]] = node
+        comp_idx[0] += 1
+
+        for neighbor in graph[node]:
+            if not visited[neighbor]:
+                visited[neighbor] = True
+                stack[stack_idx] = neighbor
+                stack_idx += 1
 
 
 @nb.njit(cache=True)

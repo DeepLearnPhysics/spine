@@ -33,6 +33,9 @@ class DataBase:
     # Boolean attributes
     _bool_attrs = ()
 
+    # Index attributes
+    _index_attrs = ()
+
     # Attributes to concatenate when merging objects
     _cat_attrs = ()
 
@@ -132,6 +135,26 @@ class DataBase:
             val = getattr(self, attr)
             dtype = f'{val.dtype.str[:-1]}{precision}'
             setattr(self, attr, val.astype(dtype))
+
+    def shift_indexes(self, shifts):
+        """Apply offsets to index attributes in place.
+
+        Invalid indexes (-1) are not offset to prevent making them valid.
+
+        Parameters
+        ----------
+        shifts : Union[int, Dict[str, int]]
+            Shift(s) to apply to the index attributes. If provided as a
+            dictionary, the shifts are tied to a specific attribute.
+        """
+        # Dispatch
+        for attr in self._index_attrs:
+            value = getattr(self, attr)
+            if value > -1:
+                if not isinstance(shifts, dict):
+                    setattr(self, attr, value + shifts)
+                else:
+                    setattr(self, attr, value + shifts[attr])
 
     def as_dict(self, lite=False):
         """Returns the data class as dictionary of (key, value) pairs.
@@ -258,6 +281,17 @@ class DataBase:
             Dictionary which maps names onto enumerator descriptors
         """
         return {k: dict(v) for k, v in self._enum_attrs}
+
+    @property
+    def index_attrs(self):
+        """Fetches the list of attributes that correspond to indexes.
+
+        Returns
+        -------
+        List[str]
+            List of attributes that specificy indexes
+        """
+        return self._index_attrs
 
     @property
     def skip_attrs(self):

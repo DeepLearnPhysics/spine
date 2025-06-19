@@ -369,7 +369,7 @@ class ModelManager:
                     # Update the key names according to the name used to store
                     state_dict = {}
                     for name in self.net.state_dict():
-                        if module in name:
+                        if f'{module}.' in name:
                             suffix = '.' if len(model_name) else ''
                             key = name.replace(
                                     f'{module}.', f'{model_name}{suffix}')

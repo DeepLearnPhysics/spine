@@ -77,6 +77,9 @@ class CRTHit(PosDataBase):
     # String attributes
     _str_attrs = ('tagger', 'units')
 
+    # Index attributes
+    _index_attrs = ('id',)
+
     @classmethod
     def from_larcv(cls, crthit):
         """Builds and returns a CRTHit object from a LArCV CRTHit object.

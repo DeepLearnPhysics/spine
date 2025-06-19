@@ -129,7 +129,7 @@ class ContainmentProcessor(PostBase):
                     obj.is_contained = True
                     continue
 
-                # Check particle containment
+                # Check particle containment against detector/meta
                 if not self.use_meta:
                     obj.is_contained = self.geo.check_containment(
                             points, obj.sources, self.allow_multi_module)
@@ -216,7 +216,8 @@ class FiducialProcessor(PostBase):
         if mode != 'meta':
             self.use_meta = False
             self.geo = Geometry(detector, geometry_file)
-            self.geo.define_containment_volumes(margin, cathode_margin, mode)
+            self.geo.define_containment_volumes(
+                    margin, cathode_margin, mode, include_limits=False)
 
         else:
             assert detector is None and geometry_file is None, (

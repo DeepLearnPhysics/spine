@@ -6,10 +6,9 @@ from .globals import LAR_X0
 from .energy_loss import step_energy_loss_lar
 
 
-def mcs_fit(theta, M, dx, z = 1, \
-        split_angle = False, res_a = 0.25, res_b = 1.25):
-    '''
-    Finds the kinetic energy which best fits a set of scattering angles
+def mcs_fit(theta, M, dx, z=1, split_angle=False, res_a=0.25, res_b=1.25,
+            lower_bound=10., upper_bound=100000.):
+    """Finds the kinetic energy which best fits a set of scattering angles
     measured between successive segments along a particle track.
 
     Parameters
@@ -28,20 +27,22 @@ def mcs_fit(theta, M, dx, z = 1, \
         Parameter a in the a/dx^b which models the angular uncertainty
     res_b : float, default 1.25
         Parameter b in the a/dx^b which models the angular uncertainty
-    '''
-    # TODO: give a lower bound using CSDA (upper bound?)
-    fit_min = scipy.optimize.minimize_scalar(mcs_nll_lar,
-            args=(theta, M, dx, z, split_angle, res_a, res_b),
-            bounds=[10., 100000.])
+    lower_bound : float, default 10.
+        Minimum allowed kinetic energy in MeV
+    upper_bound : float, default 100000.
+        Maximum allowed kinetic energy in MeV
+    """
+    # Optimize the initial kinetic energy given a set of angles
+    fit_min = scipy.optimize.minimize_scalar(
+            mcs_nll_lar, args=(theta, M, dx, z, split_angle, res_a, res_b),
+            bounds=[lower_bound, upper_bound])
 
     return fit_min.x
 
 
 @nb.njit(cache=True)
-def mcs_nll_lar(T0, theta, M, dx, z = 1,
-        split_angle = False, res_a = 0.25, res_b = 1.25):
-    '''
-    Computes the MCS negative log likelihood for a given list of segment angles
+def mcs_nll_lar(T0, theta, M, dx, z=1, split_angle=False, res_a=0.25, res_b=1.25):
+    """Computes the MCS negative log likelihood for a given list of segment angles
     and an initial momentum. This function checks the agreement between the
     scattering expection and the observed scattering at each step.
 
@@ -63,7 +64,7 @@ def mcs_nll_lar(T0, theta, M, dx, z = 1,
         Parameter a in the a/dx^b which models the angular uncertainty
     res_b : float, default 1.25
         Parameter b in the a/dx^b which models the angular uncertainty
-    '''
+    """
     # Compute the kinetic energy at each step
     assert len(theta), 'Must provide angles to esimate the MCS loss'
     num_steps = len(theta + 1)
@@ -91,16 +92,16 @@ def mcs_nll_lar(T0, theta, M, dx, z = 1,
         nll = np.sum(0.5 * (theta/theta0)**2 + 2*np.log(theta0))
     else:
         theta1, theta2 = split_angles(theta)
-        nll = np.sum(0.5 * (theta1/theta0)**2 \
-                + 0.5 * (theta2/theta0)**2 + 2*np.log(theta0))
+        nll = np.sum(
+                0.5 * (theta1/theta0)**2 + 0.5 * (theta2/theta0)**2 +
+                2*np.log(theta0))
 
     return nll
 
 
 @nb.njit(cache=True)
-def highland(p, M, dx, z = 1, X0 = LAR_X0):
-    '''
-    Highland scattering formula
+def highland(p, M, dx, z=1, X0=LAR_X0):
+    """Highland scattering formula.
 
     Parameters
     ----------
@@ -115,23 +116,22 @@ def highland(p, M, dx, z = 1, X0 = LAR_X0):
     X0 : float, default LAR_X0
        Radiation length in the material of interest in cm
 
-    Results
+    Returns
     -------
     float
         Expected scattering angle in radians
-    '''
+    """
     # Highland formula
-    beta = p / np.sqrt(p**2 + M**2)
-    prefactor = 13.6 * z / beta / p
+    beta = p/np.sqrt(p**2 + M**2)
+    prefactor = 13.6 * z/beta/p
 
-    return prefactor * np.sqrt(dx/LAR_X0) * \
-            (1. + 0.038*np.log(z**2 * dx / LAR_X0 / beta**2))
+    return prefactor * (
+            np.sqrt(dx/LAR_X0) * (1. + 0.038*np.log(z**2 * dx/LAR_X0/beta**2)))
 
 
 @nb.njit(cache=True)
 def split_angles(theta):
-    '''
-    Split 3D angles between vectors to two 2D projected angles
+    """Split 3D angles between vectors to two 2D projected angles.
 
     Parameters
     ----------
@@ -144,7 +144,7 @@ def split_angles(theta):
         Frist array of 2D angle in [-np.pi, np.pi]
     float
         Second array of 2D angle in [-np.pi, np.pi]
-    '''
+    """
     # Randomize the azimuthal angle
     phi = np.random.uniform(0, 2*np.pi, len(theta))
     offset = (theta > np.pi/2) * np.pi
