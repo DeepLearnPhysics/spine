@@ -103,7 +103,7 @@ class CollateAll:
             # Dispatch
             ref_data = batch[0][key]
             if data_type == 'tensor':
-                if ref_data.coords is not None:
+                if ref_data.coords is not None and not ref_data.feats_only:
                     # Case where a coordinates tensor and a feature tensor
                     # are provided, along with the metadata information
                     data[key] = self.stack_coord_tensors(batch, key)

@@ -20,7 +20,7 @@ class ParserTensor:
     features : np.ndarray
         (N, N_f) Feature vectors
     coords : np.ndarray, optional
-        (N, 3) Point coordinates
+        (N, 3) Sparse tensor coordinates (voxel indexes)
     meta : Meta, optional
         Metadata to convert from voxel ID to detector coordinates
     global_shift : int, optional
@@ -32,11 +32,13 @@ class ParserTensor:
     remove_duplicates : bool, default False
         If `True`, remove duplicated voxel coordinates
     sum_cols : np.ndarray, optional
-        (C) Columns which should be summed when removing duplicates
+        (S) Columns which should be summed when removing duplicates
     prec_col : int, optional
-        Column to be used as a precedence source
+        Column to be used as a precedence source when removing duplicates
     precedence : np.ndarray, optional
         Order of precedence among the classes in prec_col
+    feats_only : np.ndarray, default False
+        If `True`, only the features of the sparse tensor are exposed
     """
     features: np.ndarray
     coords: np.ndarray = None
@@ -44,10 +46,11 @@ class ParserTensor:
     global_shift: int = None
     index_shifts: np.ndarray = None
     index_cols: np.ndarray = None
-    remove_duplicates = False
+    remove_duplicates: bool = False
     sum_cols: np.ndarray = None
     prec_col: int = None
     precedence: np.ndarray = None
+    feats_only: bool = False
 
     @property
     def feat_index_cols(self):
@@ -58,7 +61,7 @@ class ParserTensor:
         np.ndarray
             Index columns in the feature tensor
         """
-        if self.index_cols is None or self.coords is None:
+        if self.index_cols is None:
             return self.index_cols
 
         return self.index_cols - VALUE_COL
@@ -72,21 +75,22 @@ class ParserTensor:
         np.ndarray
             Columns to be summed in the feature tensor
         """
-        if self.sum_cols is None or self.coords is None:
+        if self.sum_cols is None:
             return self.sum_cols
 
         return self.sum_cols - VALUE_COL
 
     @property
     def feat_prec_col(self):
-        """Returns the column providing a precedence source.
+        """Returns the column providing a precedence source in the feature
+        tensor.
 
         Returns
         -------
         int
-            Column providing a precedence source
+            Column providing a precedence source in the feature tensor
         """
-        if self.prec_col is None or self.coords is None:
+        if self.prec_col is None or self.prec_col < 0:
             return self.prec_col
 
         return self.prec_col - VALUE_COL

@@ -11,18 +11,19 @@ import numba as nb
 from spine.utils.globals import SHAPE_COL, SHAPE_PREC
 
 
-def clean_sparse_data(cluster_voxels, cluster_data, sparse_voxels,
-                      precedence=SHAPE_PREC):
+def clean_sparse_data(cluster_voxels, cluster_data, sparse_voxels=None,
+                      prec_col=SHAPE_COL, precedence=SHAPE_PREC):
     """Helper that factorizes common cleaning operations required when trying
     to match cluster3d data products to sparse3d data products.
 
     This function does the following:
     1. Lexicographically sort group data (images are lexicographically sorted)
-    2. Remove voxels from group data that are not in image
-    3. Choose only one group per voxel (by lexicographic order)
+    2. Choose only one group per voxel (by lexicographic order or precedence)
+    3. Remove voxels from cluster data that are not in the image data (optional)
 
     The set of sparse voxels must be a subset of the set of cluster voxels and
-    it must not contain any duplicates.
+    it must not contain any duplicates. If not provided, this function can also
+    be used to remove duplicates when overlaying multiple images together.
 
     Parameters
     ----------
@@ -31,8 +32,10 @@ def clean_sparse_data(cluster_voxels, cluster_data, sparse_voxels,
     cluster_data : np.ndarray
         (N, F) Matrix of voxel values corresponding to each voxel
         in the cluster3d tensor
-    sparse_voxels : np.ndarray
+    sparse_voxels : np.ndarray, optional
         (M, 3) Matrix of voxel coordinates in the reference sparse tensor
+    prec_col : int, default SHAPE_COL
+        Column in the input feature tensor to use as a precdence source
     precedence: list, default SHAPE_PREC
         (C) Array of classes in the reference array, ordered by precedence
 
@@ -48,22 +51,27 @@ def clean_sparse_data(cluster_voxels, cluster_data, sparse_voxels,
     cluster_voxels = cluster_voxels[perm]
     cluster_data = cluster_data[perm]
 
-    perm = np.lexsort(sparse_voxels.T)
-    sparse_voxels = sparse_voxels[perm]
-
     # Remove duplicates
-    duplicate_mask = filter_duplicate_voxels_ref(
-            cluster_voxels, cluster_data[:, SHAPE_COL],
-            nb.typed.List(precedence))
+    if prec_col is not None:
+        duplicate_mask = filter_duplicate_voxels_ref(
+                cluster_voxels, cluster_data[:, prec_col],
+                nb.typed.List(precedence))
+    else:
+        duplicate_mask = filter_duplicate_voxels(cluster_voxels)
+
     duplicate_index = np.where(duplicate_mask)[0]
     cluster_voxels = cluster_voxels[duplicate_index]
     cluster_data = cluster_data[duplicate_index]
 
-    # Remove voxels not present in the sparse matrix
-    non_ref_mask = filter_voxels_ref(cluster_voxels, sparse_voxels)
-    non_ref_index = np.where(non_ref_mask)[0]
-    cluster_voxels = cluster_voxels[non_ref_index]
-    cluster_data = cluster_data[non_ref_index]
+    # Remove voxels not present in the sparse matrix, if needed
+    if sparse_voxels is not None:
+        perm = np.lexsort(sparse_voxels.T)
+        sparse_voxels = sparse_voxels[perm]
+
+        non_ref_mask = filter_voxels_ref(cluster_voxels, sparse_voxels)
+        non_ref_index = np.where(non_ref_mask)[0]
+        cluster_voxels = cluster_voxels[non_ref_index]
+        cluster_data = cluster_data[non_ref_index]
 
     return cluster_voxels, cluster_data
 
@@ -98,7 +106,8 @@ def filter_duplicate_voxels(data: nb.int32[:,:]) -> nb.boolean[:]:
 @nb.njit(cache=True)
 def filter_duplicate_voxels_ref(data: nb.int32[:,:],
                                 reference: nb.int32[:],
-                                precedence: nb.types.List(nb.int32)) -> nb.boolean[:]:
+                                precedence: nb.types.List(nb.int32)) -> (
+                                        nb.boolean[:]):
     """Returns an array with no duplicate voxel coordinates.
 
     If there are multiple voxels with the same coordinates, this algorithm
@@ -123,18 +132,18 @@ def filter_duplicate_voxels_ref(data: nb.int32[:,:],
     # Find all the voxels which are duplicated and organize them in groups
     n = data.shape[0]
     ret = np.ones(n, dtype=np.bool_)
-    temp_list = nb.typed.List.empty_list(nb.int64)
+    tmp_list = nb.typed.List.empty_list(nb.int64)
     groups = []
     for i in range(1, n):
         same = np.all(data[i-1] == data[i])
         if same:
-            if not temp_list:
-                temp_list.extend([i-1, i])
+            if not tmp_list:
+                tmp_list.extend([i-1, i])
             else:
-                temp_list.append(i)
-        if temp_list and (not same or i == n-1):
-            groups.append(temp_list)
-            temp_list = nb.typed.List.empty_list(nb.int64)
+                tmp_list.append(i)
+        if tmp_list and (not same or i == n-1):
+            groups.append(tmp_list)
+            tmp_list = nb.typed.List.empty_list(nb.int64)
 
     # For each group, pick the voxel with the label that comes first
     # in order of precedence

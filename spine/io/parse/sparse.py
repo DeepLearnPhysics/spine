@@ -12,7 +12,7 @@ import numpy as np
 
 from spine.data import Meta
 
-from spine.utils.globals import GHOST_SHP
+from spine.utils.globals import GHOST_SHP, SHAPE_PREC
 from spine.utils.ghost import compute_rescaled_charge
 from spine.utils.conditional import larcv
 
@@ -162,7 +162,8 @@ class Sparse3DParser(ParserBase):
 
     def __init__(self, dtype, sparse_event=None, sparse_event_list=None,
                  num_features=None, hit_keys=None, nhits_idx=None,
-                 feature_only=False, lexsort=False):
+                 feature_only=False, lexsort=False, index_cols=None,
+                 sum_cols=None, prec_col=None, precedence=SHAPE_PREC):
         """Initialize the parser.
 
         Parameters
@@ -190,6 +191,14 @@ class Sparse3DParser(ParserBase):
         lexsort : bool, default False
             When merging points from multiple sources (num_features is not
             `None`), this allows to lexicographically sort coordinates
+        index_cols : np.ndarray, optional
+            (C) Columns which contain indexes
+        sum_cols : np.ndarray, optional
+            (S) Columns which should be summed when removing duplicates
+        prec_col : int, optional
+            Column to be used as a precedence source when removing duplicates
+        precedence : np.ndarray, default SHAPE_PREC
+            Order of precedence among the classes in prec_col
         """
         # Initialize the parent class
         super().__init__(
@@ -228,6 +237,12 @@ class Sparse3DParser(ParserBase):
                         "be a divider of the `sparse_event_list` length.")
         else:
             self.num_features = num_tensors
+
+        # Define the overlay strategy parameters
+        self.index_cols = index_cols
+        self.sum_cols = sum_cols
+        self.prec_col = prec_col
+        self.precedence = precedence
 
     def __call__(self, trees):
         """Parse one entry.
@@ -287,10 +302,9 @@ class Sparse3DParser(ParserBase):
 
                 if num_points is None:
                     num_points = sparse_event.as_vector().size()
-                    if not self.feature_only or self.lexsort:
-                        np_voxels = np.empty((num_points, 3), dtype=np.int32)
-                        larcv.fill_3d_voxels(sparse_event, np_voxels)
-                        np_voxels = np_voxels.astype(self.itype)
+                    np_voxels = np.empty((num_points, 3), dtype=np.int32)
+                    larcv.fill_3d_voxels(sparse_event, np_voxels)
+                    np_voxels = np_voxels.astype(self.itype)
                 else:
                     assert num_points == sparse_event.as_vector().size(), (
                             "The number of pixels must match between tensors.")
@@ -317,29 +331,26 @@ class Sparse3DParser(ParserBase):
                 np_features.insert(self.nhits_idx, nhits)
 
             # Append to the global list of voxel/features
-            if not self.feature_only or self.lexsort:
-                all_voxels.append(np_voxels)
+            all_voxels.append(np_voxels)
             all_features.append(np.hstack(np_features))
 
         # Stack coordinates/features
+        all_voxels = np.vstack(all_voxels)
         all_features = np.vstack(all_features)
-        if not self.feature_only or self.lexsort:
-            all_voxels = np.vstack(all_voxels)
 
         # Lexicographically sort coordinates/features, if requested
         if self.lexsort:
             perm = np.lexsort(all_voxels.T)
+            all_voxels = all_voxels[perm]
             all_features = all_features[perm]
-            if not self.feature_only:
-                all_voxels = all_voxels[perm]
 
         # Return
-        if self.feature_only:
-            return ParserTensor(features=all_features)
-        else:
-            return ParserTensor(
-                    coords=all_voxels, features=all_features,
-                    meta=Meta.from_larcv(meta))
+        return ParserTensor(
+                coords=all_voxels, features=all_features,
+                meta=Meta.from_larcv(meta), remove_duplicates=True,
+                index_cols=self.index_cols, sum_cols=self.sum_cols,
+                prec_col=self.prec_col, precedence=self.precedence,
+                feats_only=self.feature_only)
 
 
 class Sparse3DAggregateParser(Sparse3DParser):

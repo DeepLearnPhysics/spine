@@ -6,6 +6,7 @@ from warnings import warn
 import numpy as np
 
 from .parse.data import ParserTensor, ParserObjectList
+from .parse.clean_data import clean_sparse_data
 
 __all__ = ['Overlayer']
 
@@ -336,11 +337,22 @@ class Overlayer:
             features = np.concatenate(
                     [batch[idx][key].features for idx in index], axis=-1)
 
-        # TODO must add option to remove duplicates, this should come
-        # with instructions as to how to deal with label discrepancies
+        # If requested, remove rows corresponding to duplicate coordinates
+        if ref_data.remove_duplicates:
+            # Check that we have coordinates to make the check
+            assert ref_data.coords is not None, (
+                        "Must provide coordinates to filter duplicates.")
+
+            # Filter out duplicates. This currently does not take care of
+            # summing the requested columns (TODO)
+            coords, features = clean_sparse_data(
+                    coords, features, prec_col=ref_data.feat_prec_col,
+                    precedence=ref_data.precedence)
 
         # Returns
         return ParserTensor(
                 coords=coords, features=features, meta=ref_data.meta,
                 global_shift=global_shift, index_shifts=index_shifts,
-                index_cols=ref_data.index_cols)
+                index_cols=ref_data.index_cols, sum_cols=ref_data.sum_cols,
+                prec_col=ref_data.prec_col, precedence=ref_data.precedence,
+                feats_only=ref_data.feats_only)

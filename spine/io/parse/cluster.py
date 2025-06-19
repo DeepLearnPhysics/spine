@@ -19,7 +19,7 @@ from spine.math.cluster import dbscan
 
 from spine.utils.globals import (
         DELTA_SHP, SHAPE_PREC, VALUE_COL, CLUST_COL, PART_COL, GROUP_COL,
-        INTER_COL, NU_COL)
+        INTER_COL, NU_COL, SHAPE_COL)
 from spine.utils.particles import process_particle_event
 from spine.utils.ppn import image_coordinates
 from spine.utils.conditional import larcv
@@ -67,10 +67,8 @@ class Cluster2DParser(ParserBase):
         # Store the revelant attributes
         self.projection_id = projection_id
 
-        # Define the output columns containing indexes
+        # Define the overlay strategy parameters
         self.index_cols = np.array([CLUST_COL])
-
-        # Define the voxel filtering strategy
         self.sum_cols = np.array([VALUE_COL])
 
     def __call__(self, trees):
@@ -135,8 +133,8 @@ class Cluster2DParser(ParserBase):
 
         return ParserTensor(
                 coords=np_voxels, feats=np_features, meta=Meta.from_larcv(meta),
-                index_cols=self.index_cols, index_shifts=index_shifts,
-                remove_duplicates=True, )
+                remove_duplicates=True, index_shifts=index_shifts,
+                index_cols=self.index_cols, sum_cols=self.sum_cols)
 
 
 class Cluster3DParser(ParserBase):
@@ -220,16 +218,22 @@ class Cluster3DParser(ParserBase):
         # Intialize the sparse and particle parsers
         self.sparse_parser = Sparse3DParser(dtype, sparse_event='dummy')
 
-        # Define the output columns containing indexes, do basic check
-        self.index_cols = np.array([CLUST_COL])
+        # If particle information is to be incldued, check that it is provided
         if self.add_particle_info:
             # Must provide particle event to build particle info
             assert particle_event is not None, (
                     "If `add_particle_info` is `True`, must provide the "
                     "`particle_event` argument.")
 
+        # Define the overlay strategy parameters
+        self.sum_cols = np.array([VALUE_COL])
+        if not self.add_particle_info:
+            self.index_cols = np.array([CLUST_COL])
+            self.prec_col = None
+        else:
             self.index_cols = np.array(
                     [CLUST_COL, PART_COL, GROUP_COL, INTER_COL, NU_COL])
+            self.prec_col = SHAPE_COL
 
     def __call__(self, trees):
         """Parse one entry.
@@ -409,7 +413,7 @@ class Cluster3DParser(ParserBase):
             tensor_seg = self.sparse_parser.process(sparse_semantics_event)
             np_voxels, np_features = clean_sparse_data(
                         np_voxels, np_features, tensor_seg.coords,
-                        self.shape_precedence)
+                        precedence=self.shape_precedence)
 
             # Match the semantic column to the reference tensor
             np_features[:, -1] = tensor_seg.features[:, -1]
@@ -433,8 +437,10 @@ class Cluster3DParser(ParserBase):
 
         return ParserTensor(
                 coords=np_voxels, features=np_features,
-                meta=Meta.from_larcv(meta), index_cols=self.index_cols,
-                index_shifts=index_shifts)
+                meta=Meta.from_larcv(meta), remove_duplicates=True,
+                index_shifts=index_shifts, index_cols=self.index_cols,
+                sum_cols=self.sum_cols, prec_col=self.prec_col,
+                precedence=self.shape_precedence)
 
 
 class Cluster3DAggregateParser(Cluster3DParser):
