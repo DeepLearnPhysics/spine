@@ -343,10 +343,10 @@ class Overlayer:
             assert ref_data.coords is not None, (
                         "Must provide coordinates to filter duplicates.")
 
-            # Filter out duplicates. This currently does not take care of
-            # summing the requested columns (TODO)
+            # Filter out duplicates, aggregate features
             coords, features = clean_sparse_data(
-                    coords, features, prec_col=ref_data.feat_prec_col,
+                    coords, features, sum_cols=ref_data.feat_sum_cols,
+                    prec_col=ref_data.feat_prec_col,
                     precedence=ref_data.precedence)
 
         # Returns

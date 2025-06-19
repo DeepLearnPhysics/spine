@@ -12,7 +12,7 @@ from spine.utils.globals import SHAPE_COL, SHAPE_PREC
 
 
 def clean_sparse_data(cluster_voxels, cluster_data, sparse_voxels=None,
-                      prec_col=SHAPE_COL, precedence=SHAPE_PREC):
+                      sum_cols=None, prec_col=SHAPE_COL, precedence=SHAPE_PREC):
     """Helper that factorizes common cleaning operations required when trying
     to match cluster3d data products to sparse3d data products.
 
@@ -34,6 +34,8 @@ def clean_sparse_data(cluster_voxels, cluster_data, sparse_voxels=None,
         in the cluster3d tensor
     sparse_voxels : np.ndarray, optional
         (M, 3) Matrix of voxel coordinates in the reference sparse tensor
+    sum_cols : np.ndarray, optional
+        List of feature columns to sum when removing duplicates
     prec_col : int, default SHAPE_COL
         Column in the input feature tensor to use as a precdence source
     precedence: list, default SHAPE_PREC
@@ -51,14 +53,20 @@ def clean_sparse_data(cluster_voxels, cluster_data, sparse_voxels=None,
     cluster_voxels = cluster_voxels[perm]
     cluster_data = cluster_data[perm]
 
-    # Remove duplicates
-    if prec_col is not None:
-        duplicate_mask = filter_duplicate_voxels_ref(
-                cluster_voxels, cluster_data[:, prec_col],
-                nb.typed.List(precedence))
+    # Find duplicates (and the groups they belong to)
+    if prec_col is not None or sum_cols is not None:
+        reference = cluster_data[:, prec_col] if prec_col else None
+        duplicate_mask, groups = filter_duplicate_voxels_group(
+                cluster_voxels, reference, nb.typed.List(precedence))
+
     else:
         duplicate_mask = filter_duplicate_voxels(cluster_voxels)
 
+    # Sum the values of duplicate voxels, if requested
+    if sum_cols is not None and len(groups) > 0:
+        cluster_data = aggregate_features(cluster_data, groups, sum_cols)
+
+    # Remove duplicates
     duplicate_index = np.where(duplicate_mask)[0]
     cluster_voxels = cluster_voxels[duplicate_index]
     cluster_data = cluster_data[duplicate_index]
@@ -78,10 +86,10 @@ def clean_sparse_data(cluster_voxels, cluster_data, sparse_voxels=None,
 
 @nb.njit(cache=True)
 def filter_duplicate_voxels(data: nb.int32[:,:]) -> nb.boolean[:]:
-    """Returns an array with no duplicate voxel coordinates.
+    """Returns a mask of non-duplicate voxels.
 
     If there are multiple voxels with the same coordinates, this algorithm
-    simply picks the first one.
+    simply keeps the last one in the list.
 
     Parameters
     ----------
@@ -94,66 +102,89 @@ def filter_duplicate_voxels(data: nb.int32[:,:]) -> nb.boolean[:]:
         (N) Boolean mask which is False for pixels to remove
     """
     # For each voxel, check if the next one shares its coordinates
-    n = data.shape[0]
-    ret = np.ones(n, dtype=np.bool_)
-    for i in range(1, n):
+    num_voxels = data.shape[0]
+    mask = np.ones(num_voxels, dtype=np.bool_)
+    for i in range(1, num_voxels):
         if np.all(data[i-1] == data[i]):
-            ret[i-1] = False
+            mask[i-1] = False
 
-    return ret
+    return mask
 
 
 @nb.njit(cache=True)
-def filter_duplicate_voxels_ref(data: nb.int32[:,:],
-                                reference: nb.int32[:],
-                                precedence: nb.types.List(nb.int32)) -> (
+def filter_duplicate_voxels_group(data: nb.int32[:,:],
+                                  reference: nb.int32[:]=None,
+                                  precedence: nb.types.List(nb.int32)=None) -> (
                                         nb.boolean[:]):
-    """Returns an array with no duplicate voxel coordinates.
+    """Returns a mask of non-duplicate voxels and a list of duplicate groups.
 
     If there are multiple voxels with the same coordinates, this algorithm
-    picks the voxel which has the shape label that comes first in order of
-    precedence. If multiple voxels with the same precedence index share voxel
-    coordinates, the first one is picked.
+    simply keeps the last one in the list.
+
+    If a precedence is defined and there are multiple voxels with the same
+    coordinates, this algorithm picks the voxel which has the label that comes
+    first in order of precedence. If multiple voxels with the same precedence
+    index share voxel coordinates, the last one is picked.
+
+    The duplicate voxel groups map the chosen voxel indices to the set of voxels
+    which share voxel coordinates.
 
     Parameters
     ----------
     data: np.ndarray
         (N, 3) Lexicographically sorted matrix of voxel coordinates
-    reference: np.ndarray
+    reference: np.ndarray, optional
         (N) Array of values which have to follow the precedence order
-    precedence: list
+    precedence: list, optional
         (C) Array of classes in the reference array, ordered by precedence
 
     Returns
     -------
     np.ndarray
         (N) Boolean mask which is False for pixels to remove
+    Dict[int, np.ndarray]
+        Map between kept voxel indexes onto voxels which share the same coordinates
     """
     # Find all the voxels which are duplicated and organize them in groups
-    n = data.shape[0]
-    ret = np.ones(n, dtype=np.bool_)
+    num_voxels = data.shape[0]
+    mask = np.ones(num_voxels, dtype=np.bool_)
     tmp_list = nb.typed.List.empty_list(nb.int64)
     groups = []
-    for i in range(1, n):
+    for i in range(1, num_voxels):
+        # Check if the current voxel matches the previous one
         same = np.all(data[i-1] == data[i])
+
+        # If it does, create/append the duplicate group
         if same:
             if not tmp_list:
                 tmp_list.extend([i-1, i])
             else:
                 tmp_list.append(i)
-        if tmp_list and (not same or i == n-1):
-            groups.append(tmp_list)
+
+        # If it does not, store an any existing duplicate group
+        if tmp_list and (not same or i == num_voxels - 1):
+            groups.append(np.asarray(tmp_list))
             tmp_list = nb.typed.List.empty_list(nb.int64)
 
     # For each group, pick the voxel with the label that comes first
-    # in order of precedence
+    # in order of precedence, track duplicate groups
+    merge = nb.typed.Dict.empty(key_type=nb.int64, value_type=nb.int64[:])
     for group in groups:
-        group = np.asarray(group)
-        ref = np.array([precedence.index(int(r)) for r in reference[group]])
-        args = np.argsort(-ref, kind='mergesort') # Preserve duplicate order
-        ret[group[args[:-1]]] = False
+        if reference is not None:
+            # Order the voxels in the group by precedence
+            ref = np.array([precedence.index(int(r)) for r in reference[group]])
+            args = np.argsort(-ref, kind='mergesort') # Preserve duplicate order
 
-    return ret
+            # Modify the mask and store the group indexes
+            mask[group[args[:-1]]] = False
+            merge[group[args[-1]]] = group
+
+        else:
+            # Pick the last element in the group
+            mask[group[:-1]] = False
+            merge[group[-1]] = group
+
+    return mask, merge
 
 
 @nb.njit(cache=True)
@@ -183,7 +214,7 @@ def filter_voxels_ref(data: nb.int32[:,:],
     # Try to match each voxel in the data tensor to one in the reference tensor
     n_data, n_ref = data.shape[0], reference.shape[0]
     d, r = 0, 0
-    ret = np.ones(n_data, dtype=np.bool_)
+    mask = np.ones(n_data, dtype=np.bool_)
     while d < n_data and r < n_ref:
         if np.all(data[d] == reference[r]):
             # Voxel is in both matrices
@@ -191,12 +222,39 @@ def filter_voxels_ref(data: nb.int32[:,:],
             r += 1
         else:
             # Voxel is in data, but not reference
-            ret[d] = False
+            mask[d] = False
             d += 1
 
     # Need to go through rest of data, if any is left
     while d < n_data:
-        ret[d] = False
+        mask[d] = False
         d += 1
 
-    return ret
+    return mask
+
+
+@nb.njit(cache=True)
+def aggregate_features(data: nb.float32[:,:],
+                       groups: nb.typed.Dict,
+                       cols: nb.int64[:]):
+    """Aggregate the information in pre-defined voxel groups.
+
+    Parameters
+    ----------
+    data : np.ndarray
+        (N, F) Matrix of voxel features to aggregate
+    groups : Dict[int, np.ndarray]
+        Map between kept voxel indexes onto voxels which share the same coordinates
+    cols : np.ndarray
+        List of feature columns to modify
+
+    Returns
+    -------
+    np.ndarray
+        (N, F) Matrix of aggregated voxel features
+    """
+    for col in cols:
+        for idx, group in groups.items():
+            data[idx, col] = np.sum(data[group, col])
+
+    return data

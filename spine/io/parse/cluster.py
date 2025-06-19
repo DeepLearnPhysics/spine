@@ -413,7 +413,8 @@ class Cluster3DParser(ParserBase):
             tensor_seg = self.sparse_parser.process(sparse_semantics_event)
             np_voxels, np_features = clean_sparse_data(
                         np_voxels, np_features, tensor_seg.coords,
-                        precedence=self.shape_precedence)
+                        precedence=self.shape_precedence,
+                        sum_cols=self.sum_cols - VALUE_COL)
 
             # Match the semantic column to the reference tensor
             np_features[:, -1] = tensor_seg.features[:, -1]

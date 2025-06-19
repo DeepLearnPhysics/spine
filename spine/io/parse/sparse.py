@@ -239,8 +239,12 @@ class Sparse3DParser(ParserBase):
             self.num_features = num_tensors
 
         # Define the overlay strategy parameters
-        self.index_cols = index_cols
-        self.sum_cols = sum_cols
+        self.index_cols = None
+        if index_cols is not None:
+            self.index_cols = np.asarray(index_cols)
+        self.sum_cols = None
+        if sum_cols is not None:
+            self.sum_cols = np.asarray(sum_cols)
         self.prec_col = prec_col
         self.precedence = precedence
 
