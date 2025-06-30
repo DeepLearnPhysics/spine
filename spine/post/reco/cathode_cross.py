@@ -5,6 +5,7 @@ import numpy as np
 from spine.data import RecoInteraction, TruthInteraction
 
 from spine.math.distance import cdist, farthest_pair
+from scipy.spatial.distance import cdist as scipy_cdist
 
 from spine.utils.globals import TRACK_SHP
 from spine.utils.geo import Geometry
@@ -188,7 +189,7 @@ class CathodeCrosserProcessor(PostBase):
                     # Check if the two particles stop at roughly the same
                     # position in the plane of the cathode
                     compat = True
-                    dist_mat = cdist(
+                    dist_mat = scipy_cdist(
                             end_points_i[:, caxes], end_points_j[:, caxes])
                     argmin = np.argmin(dist_mat)
                     pair_i, pair_j = np.unravel_index(argmin, (2, 2))
@@ -270,6 +271,10 @@ class CathodeCrosserProcessor(PostBase):
         points_key = 'points' if not truth else self.truth_point_key
         particles = data[part_key]
         if idx_j is not None:
+            # Unmatch the particles from their interactions
+            particles[idx_i].unmatch()
+            particles[idx_j].unmatch()
+
             # Merge particles
             int_id_i = particles[idx_i].interaction_id
             int_id_j = particles[idx_j].interaction_id
