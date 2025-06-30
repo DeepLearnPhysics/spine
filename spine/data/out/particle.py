@@ -217,6 +217,8 @@ class RecoParticle(ParticleBase, RecoBase):
         interaction vertex position in cm
     start_dedx : float
         dE/dx around a user-defined neighborhood of the start point in MeV/cm
+    end_dedx : float
+        dE/dx around a user-defined neighborhood of the end point in MeV/cm
     start_straightness : float
         Explained variance ratio of the beginning of the particle
     directional_spread : float
@@ -231,6 +233,7 @@ class RecoParticle(ParticleBase, RecoBase):
     ppn_points: np.ndarray = None
     vertex_distance: float = -1.
     start_dedx: float = -1.
+    end_dedx: float = -1.
     start_straightness: float = -1.
     directional_spread: float = -1.
     axial_spread: float = -np.inf
