@@ -117,9 +117,8 @@ class ClusterAna(AnaBase):
                     keys[f'{obj}_clusts'] = True
                     if obj != 'interaction':
                         keys[f'{obj}_shapes'] = True
-                    if self.time_window is not None:
-                        # Need truth objects for time filtering
-                        keys[f'truth_{obj}s'] = True
+                    # Need truth objects for time filtering
+                    keys[f'truth_{obj}s'] = True
 
             else:
                 keys['points'] = True
