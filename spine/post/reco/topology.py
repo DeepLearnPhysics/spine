@@ -22,7 +22,7 @@ class ParticleStartDEDXProcessor(PostBase):
     name = 'start_dedx'
 
     # Aliases for the post-processor
-    aliases = ('end_dedx',)
+    aliases = ('end_dedx','start_dedx_track')
 
     # List of recognized dE/dx computation modes
     _modes = ('default', 'direction')
