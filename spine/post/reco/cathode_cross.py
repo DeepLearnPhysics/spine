@@ -1,13 +1,14 @@
 """Cathode crossing identification + merging module."""
 
 import numpy as np
-from scipy.spatial.distance import cdist
 
 from spine.data import RecoInteraction, TruthInteraction
 
+from spine.math.distance import cdist, farthest_pair
+from scipy.spatial.distance import cdist as scipy_cdist
+
 from spine.utils.globals import TRACK_SHP
 from spine.utils.geo import Geometry
-from spine.utils.numba_local import farthest_pair
 from spine.utils.gnn.cluster import cluster_direction
 
 from spine.post.base import PostBase
@@ -81,7 +82,6 @@ class CathodeCrosserProcessor(PostBase):
             keys['points'] = True
         if run_mode != 'reco':
             keys[truth_point_mode] = True
-
         keys['meta'] = True #Needed to find shift in the cathode
         self.update_keys(keys)
 
@@ -191,7 +191,7 @@ class CathodeCrosserProcessor(PostBase):
                     # Check if the two particles stop at roughly the same
                     # position in the plane of the cathode
                     compat = True
-                    dist_mat = cdist(
+                    dist_mat = scipy_cdist(
                             end_points_i[:, caxes], end_points_j[:, caxes])
                     argmin = np.argmin(dist_mat)
                     pair_i, pair_j = np.unravel_index(argmin, (2, 2))
@@ -213,7 +213,7 @@ class CathodeCrosserProcessor(PostBase):
                     # If compatible, merge
                     if compat:
                         # Merge particle and adjust positions
-                        self.adjust_positions(data, ci, dx_res,cj, truth=pi.is_truth)
+                        self.adjust_positions(data, ci,dx_res, cj, truth=pi.is_truth)
 
                         # Update the candidate list to remove matched particle
                         candidate_ids[j:-1] = candidate_ids[j+1:] - 1
@@ -262,7 +262,6 @@ class CathodeCrosserProcessor(PostBase):
             Index of a matched cathode crosser fragment
         truth : bool, default False
             If True, adjust truth object positions
-
         Results
         -------
         np.ndarray
