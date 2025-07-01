@@ -1,14 +1,13 @@
 """Cathode crossing identification + merging module."""
 
 import numpy as np
+from scipy.spatial.distance import cdist
 
 from spine.data import RecoInteraction, TruthInteraction
 
-from spine.math.distance import cdist, farthest_pair
-from scipy.spatial.distance import cdist as scipy_cdist
-
 from spine.utils.globals import TRACK_SHP
 from spine.utils.geo import Geometry
+from spine.utils.numba_local import farthest_pair
 from spine.utils.gnn.cluster import cluster_direction
 
 from spine.post.base import PostBase
@@ -83,6 +82,7 @@ class CathodeCrosserProcessor(PostBase):
         if run_mode != 'reco':
             keys[truth_point_mode] = True
 
+        keys['meta'] = True #Needed to find shift in the cathode
         self.update_keys(keys)
 
     def process(self, data):
@@ -93,6 +93,8 @@ class CathodeCrosserProcessor(PostBase):
         data : dict
             Dictionary of data products
         """
+        #Get the drift pixel resolution
+        dx_res = data['meta'].size[0]
         # Loop over particle types
         update_dict = {}
         for part_key in self.particle_keys:
@@ -133,7 +135,7 @@ class CathodeCrosserProcessor(PostBase):
                 if (part.is_cathode_crosser and self.adjust_crossers and
                     len(tpcs) == 2):
                     # Adjust positions
-                    self.adjust_positions(data, i)
+                    self.adjust_positions(data, i,dx_res)
 
             # If we do not want to merge broken crossers, our job here is done
             if not self.merge_crossers:
@@ -189,7 +191,7 @@ class CathodeCrosserProcessor(PostBase):
                     # Check if the two particles stop at roughly the same
                     # position in the plane of the cathode
                     compat = True
-                    dist_mat = scipy_cdist(
+                    dist_mat = cdist(
                             end_points_i[:, caxes], end_points_j[:, caxes])
                     argmin = np.argmin(dist_mat)
                     pair_i, pair_j = np.unravel_index(argmin, (2, 2))
@@ -211,7 +213,7 @@ class CathodeCrosserProcessor(PostBase):
                     # If compatible, merge
                     if compat:
                         # Merge particle and adjust positions
-                        self.adjust_positions(data, ci, cj, truth=pi.is_truth)
+                        self.adjust_positions(data, ci, dx_res,cj, truth=pi.is_truth)
 
                         # Update the candidate list to remove matched particle
                         candidate_ids[j:-1] = candidate_ids[j+1:] - 1
@@ -244,7 +246,7 @@ class CathodeCrosserProcessor(PostBase):
 
         return update_dict
 
-    def adjust_positions(self, data, idx_i, idx_j=None, truth=False):
+    def adjust_positions(self, data, idx_i,dx_res, idx_j=None, truth=False):
         """Given a cathode crosser (either in one or two pieces), apply the
         necessary position offsets to match it at the cathode.
 
@@ -254,6 +256,8 @@ class CathodeCrosserProcessor(PostBase):
             Dictionary of data products
         idx_i : int
             Index of a cathode crosser (or a cathode crosser fragment)
+        dx_res : float
+            Drift pixel resolution [cm]. Offset the drift position by this amount.
         idx_j : int, optional
             Index of a matched cathode crosser fragment
         truth : bool, default False
@@ -326,18 +330,18 @@ class CathodeCrosserProcessor(PostBase):
                     continue
 
                 # Update the sister position and the main position tensor
-                self.get_points(sister)[tpc_index, daxis] -= offsets[i]
-                data[points_key][index, daxis] -= offsets[i]
+                self.get_points(sister)[tpc_index, daxis] -= offsets[i] + dx_res
+                data[points_key][index, daxis] -= offsets[i] + dx_res
 
                 # Update the start/end points appropriately
                 if sister.id == idx_i:
                     for attr, closest_tpc in closest_tpcs.items():
                         if closest_tpc == t:
-                            getattr(sister, attr)[daxis] -= offsets[i]
+                            getattr(sister, attr)[daxis] -= offsets[i] + dx_res
 
                 else:
-                    sister.start_point[daxis] -= offsets[i]
-                    sister.end_point[daxis] -= offsets[i]
+                    sister.start_point[daxis] -= offsets[i] + dx_res
+                    sister.end_point[daxis] -= offsets[i] + dx_res
 
         # Store crosser information
         particle.is_cathode_crosser = True
