@@ -222,23 +222,6 @@ class LikelihoodFlashMatcher:
         List[Flash_t]
             List of flashmatch::Flash_t objects
         """
-        # If requested, merge flashes that are compatible in time
-        if self.reflash_merging_window is not None:
-            times = [f.time for f in flashes]
-            perm = np.argsort(times)
-            new_flashes = [flashes[perm[0]]]
-            for i in range(1, len(perm)):
-                prev, curr = perm[i-1], perm[i]
-                if ((flashes[curr].time - flashes[prev].time)
-                    < self.reflash_merging_window):
-                    # If compatible, simply add up the PEs
-                    pe_v = flashes[prev].pe_per_ch + flashes[curr].pe_per_ch
-                    new_flashes[-1].pe_per_ch = pe_v
-                else:
-                    new_flashes.append(flashes[curr])
-
-            flashes = new_flashes
-
         # Loop over the optical flashes
         from flashmatch import flashmatch
         flash_v = []
@@ -256,6 +239,7 @@ class LikelihoodFlashMatcher:
             for i in range(len(f.pe_per_ch)):
                 flash.pe_v.push_back(f.pe_per_ch[i])
                 flash.pe_err_v.push_back(0.)
+                flash.closest_pds_v.push_back(1e9)
 
             # Append
             flash_v.append(flash)

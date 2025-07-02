@@ -4,7 +4,6 @@ Contains the following parsers:
 - :class:`Meta2DParser`
 - :class:`Meta3DParser`
 - :class:`RunInfoParser`
-- :class:`OpFlashParser`
 - :class:`CRTHitParser`
 - :class:`TriggerParser`
 """
@@ -17,7 +16,7 @@ from spine.utils.conditional import larcv
 from .base import ParserBase
 from .data import ParserObjectList
 
-__all__ = ['MetaParser', 'RunInfoParser', 'FlashParser',
+__all__ = ['MetaParser', 'RunInfoParser',
            'CRTHitParser', 'TriggerParser']
 
 

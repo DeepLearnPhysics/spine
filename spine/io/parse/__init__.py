@@ -84,3 +84,4 @@ from .sparse import *
 from .cluster import *
 from .particle import *
 from .misc import *
+from .optical import *
