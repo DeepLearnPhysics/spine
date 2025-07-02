@@ -1,13 +1,12 @@
 """Module to evaluate diagnostic metrics on tracks."""
 
 import numpy as np
-from scipy.spatial.distance import cdist
 
-from spine.ana.base import AnaBase
+from spine.math.distance import cdist
 
 from spine.utils.globals import TRACK_SHP
-from spine.utils.numba_local import principal_components
 
+from spine.ana.base import AnaBase
 
 __all__ = ['TrackCompletenessAna']
 
@@ -86,8 +85,8 @@ class TrackCompletenessAna(AnaBase):
                 points = self.get_points(part)
 
                 # Find start/end points, collapse onto track cluster
-                start = points[np.argmin(cdist([part.start_point], points))]
-                end = points[np.argmin(cdist([part.end_point], points))]
+                start = points[np.argmin(cdist(part.start_point[None, :], points))]
+                end = points[np.argmin(cdist(part.end_point[None, :], points))]
 
                 # Add the direction of the track
                 vec = end - start
@@ -142,10 +141,11 @@ class TrackCompletenessAna(AnaBase):
         """
         # Project and cluster on the projected axis
         direction = (end_point-start_point)/np.linalg.norm(end_point-start_point)
+        scale = pixel_size*np.max(direction)
         projs = np.dot(points - start_point, direction)
         perm = np.argsort(projs)
         seps = projs[perm][1:] - projs[perm][:-1]
-        breaks = np.where(seps > pixel_size*1.1)[0] + 1
+        breaks = np.where(seps > scale*1.1)[0] + 1
         cluster_labels = np.empty(len(projs), dtype=int)
         for i, index in enumerate(np.split(np.arange(len(projs)), breaks)):
             cluster_labels[perm[index]] = i
@@ -172,7 +172,7 @@ class TrackCompletenessAna(AnaBase):
             return np.empty(0, dtype=float), np.empty(0, dtype=float)
         
         # Order clusters
-        start_dist = cdist([start_point], points).flatten()
+        start_dist = cdist(start_point[None, :], points).flatten()
         start_clust_dist = np.empty(len(unique_labels))
         for i, c in enumerate(unique_labels):
             start_clust_dist[i] = np.min(start_dist[labels == c])

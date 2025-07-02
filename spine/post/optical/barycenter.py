@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from spine.utils.numba_local import cdist
+from spine.math.distance import cdist
 
 
 class BarycenterFlashMatcher:

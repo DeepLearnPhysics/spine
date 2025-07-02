@@ -111,7 +111,7 @@ class SegmentAna(AnaBase):
             if self.ghost:
                 # If there are ghost, must combine the predictions
                 full_seg_pred = np.full_like(seg_label, GHOST_SHP, dtype=np.int32)
-                deghost_mask = data['ghost'][:, 0] > data['ghost'][:, 1]
+                deghost_mask = np.argmax(data['ghost'], axis=1) == 0
                 full_seg_pred[deghost_mask] = seg_pred
                 seg_pred = full_seg_pred
 

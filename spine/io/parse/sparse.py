@@ -12,11 +12,12 @@ import numpy as np
 
 from spine.data import Meta
 
-from spine.utils.globals import GHOST_SHP
+from spine.utils.globals import GHOST_SHP, SHAPE_PREC
 from spine.utils.ghost import compute_rescaled_charge
 from spine.utils.conditional import larcv
 
 from .base import ParserBase
+from .data import ParserTensor
 
 __all__ = ['Sparse2DParser', 'Sparse3DParser', 'Sparse3DAggregateParser',
            'Sparse3DChargeRescaledParser', 'Sparse3DGhostParser']
@@ -39,6 +40,9 @@ class Sparse2DParser(ParserBase):
 
     # Name of the parser (as specified in the configuration)
     name = 'parse_sparse2d'
+
+    # Type of object(s) returned by the parser
+    returns = 'tensor'
 
     def __init__(self, dtype, projection_id, sparse_event=None,
                  sparse_event_list=None):
@@ -93,12 +97,13 @@ class Sparse2DParser(ParserBase):
 
         Returns
         -------
-        np_voxels : np.ndarray
-            (N, 2) array of [x, y] coordinates
-        np_features : np.ndarray
-            (N, C) array of [pixel value 0, pixel value 1, ...]
-        meta : Meta
-            Metadata of the parsed images
+        ParserTensor
+            coords : np.ndarray
+                (N, 2) array of [x, y] coordinates
+            features : np.ndarray
+                (N, C) array of [pixel value 0, pixel value 1, ...]
+            meta : Meta
+                Metadata of the parsed images
         """
         # Parse input into a list
         if sparse_event_list is None:
@@ -115,8 +120,9 @@ class Sparse2DParser(ParserBase):
             if meta is None:
                 meta = tensor.meta()
                 num_points = tensor.as_vector().size()
-                np_voxels = np.empty((num_points, 2), dtype=self.itype)
+                np_voxels = np.empty((num_points, 2), dtype=np.int32)
                 larcv.fill_2d_voxels(tensor, np_voxels)
+                np_voxels = np_voxels.astype(self.itype)
             else:
                 assert meta == tensor.meta(), (
                         "The metadata must match between tensors.")
@@ -124,11 +130,14 @@ class Sparse2DParser(ParserBase):
                         "The number of pixels must match between tensors.")
 
             # Get the feature vector for this tensor
-            np_data = np.empty((num_points, 1), dtype=self.ftype)
+            np_data = np.empty((num_points, 1), dtype=np.float32)
             larcv.fill_2d_pcloud(tensor, np_data)
+            np_data = np_data.astype(self.ftype)
             np_features.append(np_data)
 
-        return np_voxels, np.hstack(np_features), Meta.from_larcv(meta)
+        return ParserTensor(
+                coords=np_voxels, features=np.hstack(np_features),
+                meta=Meta.from_larcv(meta))
 
 
 class Sparse3DParser(ParserBase):
@@ -148,9 +157,13 @@ class Sparse3DParser(ParserBase):
     # Name of the parser (as specified in the configuration)
     name = 'sparse3d'
 
+    # Type of object(s) returned by the parser
+    returns = 'tensor'
+
     def __init__(self, dtype, sparse_event=None, sparse_event_list=None,
                  num_features=None, hit_keys=None, nhits_idx=None,
-                 feature_only=False):
+                 feature_only=False, lexsort=False, index_cols=None,
+                 sum_cols=None, prec_col=None, precedence=SHAPE_PREC):
         """Initialize the parser.
 
         Parameters
@@ -175,6 +188,17 @@ class Sparse3DParser(ParserBase):
             (doublet vs triplet) should be inserted.
         feature_only : bool, default False
             If `True`, only return the feature vector without the coordinates
+        lexsort : bool, default False
+            When merging points from multiple sources (num_features is not
+            `None`), this allows to lexicographically sort coordinates
+        index_cols : np.ndarray, optional
+            (C) Columns which contain indexes
+        sum_cols : np.ndarray, optional
+            (S) Columns which should be summed when removing duplicates
+        prec_col : int, optional
+            Column to be used as a precedence source when removing duplicates
+        precedence : np.ndarray, default SHAPE_PREC
+            Order of precedence among the classes in prec_col
         """
         # Initialize the parent class
         super().__init__(
@@ -186,6 +210,12 @@ class Sparse3DParser(ParserBase):
         self.hit_keys = hit_keys
         self.nhits_idx = nhits_idx
         self.feature_only = feature_only
+
+        # Only lexsort when needed and if there is more than one sparse3d source
+        self.lexsort = lexsort
+        if self.num_features is None and lexsort:
+            raise ValueError(
+                    "No need to lexsort if there is only one coordinate source.")
 
         # Check on the parameters
         self.compute_nhits = hit_keys is not None
@@ -207,6 +237,16 @@ class Sparse3DParser(ParserBase):
                         "be a divider of the `sparse_event_list` length.")
         else:
             self.num_features = num_tensors
+
+        # Define the overlay strategy parameters
+        self.index_cols = None
+        if index_cols is not None:
+            self.index_cols = np.asarray(index_cols)
+        self.sum_cols = None
+        if sum_cols is not None:
+            self.sum_cols = np.asarray(sum_cols)
+        self.prec_col = prec_col
+        self.precedence = precedence
 
     def __call__(self, trees):
         """Parse one entry.
@@ -230,12 +270,13 @@ class Sparse3DParser(ParserBase):
 
         Returns
         -------
-        np_voxels : np.ndarray
-            (N, 3) array of [x, y, z] coordinates
-        np_features : np.ndarray
-            (N, C) array of [pixel value 0, pixel value 1, ...]
-        meta : Meta
-            Metadata of the parsed images
+        ParserTensor
+            coords : np.ndarray
+                (N, 3) array of [x, y, z] coordinates
+            features : np.ndarray
+                (N, C) array of [pixel value 0, pixel value 1, ...]
+            meta : Meta
+                Metadata of the parsed images
         """
         # Parse input into a list
         if sparse_event_list is None:
@@ -265,16 +306,17 @@ class Sparse3DParser(ParserBase):
 
                 if num_points is None:
                     num_points = sparse_event.as_vector().size()
-                    if not self.feature_only:
-                        np_voxels = np.empty((num_points, 3), dtype=self.itype)
-                        larcv.fill_3d_voxels(sparse_event, np_voxels)
+                    np_voxels = np.empty((num_points, 3), dtype=np.int32)
+                    larcv.fill_3d_voxels(sparse_event, np_voxels)
+                    np_voxels = np_voxels.astype(self.itype)
                 else:
                     assert num_points == sparse_event.as_vector().size(), (
                             "The number of pixels must match between tensors.")
 
                 # Get the feature vector for this tensor
-                np_data = np.empty((num_points, 1), dtype=self.ftype)
+                np_data = np.empty((num_points, 1), dtype=np.float32)
                 larcv.fill_3d_pcloud(sparse_event, np_data)
+                np_data = np_data.astype(self.ftype)
                 np_features.append(np_data)
 
                 # If the number of hits is to be computed, keep track of the
@@ -293,15 +335,26 @@ class Sparse3DParser(ParserBase):
                 np_features.insert(self.nhits_idx, nhits)
 
             # Append to the global list of voxel/features
-            if not self.feature_only:
-                all_voxels.append(np_voxels)
+            all_voxels.append(np_voxels)
             all_features.append(np.hstack(np_features))
 
-        if self.feature_only:
-            return np.vstack(all_features)
-        else:
-            return (np.vstack(all_voxels), np.vstack(all_features),
-                    Meta.from_larcv(meta))
+        # Stack coordinates/features
+        all_voxels = np.vstack(all_voxels)
+        all_features = np.vstack(all_features)
+
+        # Lexicographically sort coordinates/features, if requested
+        if self.lexsort:
+            perm = np.lexsort(all_voxels.T)
+            all_voxels = all_voxels[perm]
+            all_features = all_features[perm]
+
+        # Return
+        return ParserTensor(
+                coords=all_voxels, features=all_features,
+                meta=Meta.from_larcv(meta), remove_duplicates=True,
+                index_cols=self.index_cols, sum_cols=self.sum_cols,
+                prec_col=self.prec_col, precedence=self.precedence,
+                feats_only=self.feature_only)
 
 
 class Sparse3DAggregateParser(Sparse3DParser):
@@ -355,22 +408,21 @@ class Sparse3DAggregateParser(Sparse3DParser):
 
         Returns
         -------
-        np_voxels : np.ndarray
-            (N, 3) array of [x, y, z] coordinates
-        np_features : np.ndarray
-            (N, 1) array of aggregated features
-        meta : Meta
-            Metadata of the parsed image
+        ParserTensor
+            coords : np.ndarray
+                (N, 3) array of [x, y, z] coordinates
+            features : np.ndarray
+                (N, 1) array of aggregated features
+            meta : Meta
+                Metadata of the parsed image
         """
         # Fetch the list of features using the standard parser
-        np_voxels, np_data, meta = self.process(
-                sparse_event_list=sparse_event_list)
+        tensor = self.process(sparse_event_list=sparse_event_list)
 
         # Combine them into a single feature using the aggregator function
-        np_data = self.aggr_fn(np_data, axis=1)[:, None]
+        tensor.features = self.aggr_fn(tensor.features, axis=1)[:, None]
 
-        return np_voxels, np_data, meta
-
+        return tensor
 
 
 class Sparse3DChargeRescaledParser(Sparse3DParser):
@@ -432,23 +484,27 @@ class Sparse3DChargeRescaledParser(Sparse3DParser):
 
         Returns
         -------
-        np_voxels : np.ndarray
-            (N, 3) array of [x, y, z] coordinates
-        np_features : np.ndarray
-            (N, 1) array of rescaled charge values
-        meta : Meta
-            Metadata of the parsed image
+        ParserTensor
+            coords : np.ndarray
+                (N, 3) array of [x, y, z] coordinates
+            features : np.ndarray
+                (N, 1) array of rescaled charge values
+            meta : Meta
+                Metadata of the parsed image
         """
-        np_voxels, np_data, meta = self.process(
-                sparse_event_list=sparse_event_list)
+        # Fetch the list of features using the standard parser
+        tensor = self.process(sparse_event_list=sparse_event_list)
 
-        deghost_mask = np.where(np_data[:, -1] < GHOST_SHP)[0]
+        # Use individual hit informations to compute a rescaled charge
+        deghost_mask = np.where(tensor.features[:, -1] < GHOST_SHP)[0]
         charges = compute_rescaled_charge(
-                np_data[deghost_mask, :-1],
+                tensor.features[deghost_mask, :-1],
                 collection_only=self.collection_only,
                 collection_id=self.collection_id)
 
-        return np_voxels[deghost_mask], charges[:, None], meta
+        tensor.features = charges[:, None]
+
+        return tensor
 
 
 class Sparse3DGhostParser(Sparse3DParser):
@@ -485,15 +541,18 @@ class Sparse3DGhostParser(Sparse3DParser):
 
         Returns
         -------
-        np_voxels : np.ndarray
-            (N, 3) array of [x, y, z] coordinates
-        np_features : np.ndarray
-            (N, 1) array of ghost labels (1 for ghosts, 0 otherwise)
-        meta : Meta
-            Metadata of the parsed image
+        ParserTensor
+            coords : np.ndarray
+                (N, 3) array of [x, y, z] coordinates
+            features : np.ndarray
+                (N, 1) array of ghost labels (1 for ghosts, 0 otherwise)
+            meta : Meta
+                Metadata of the parsed image
         """
-        # Convert the semantics feature to a ghost feature
-        np_voxels, np_data, meta = self.process(sparse_event)
-        np_ghosts = (np_data == GHOST_SHP).astype(np_data.dtype)
+        # Fetch the list of features using the standard parser
+        tensor = self.process(sparse_event)
 
-        return np_voxels, np_ghosts, meta
+        # Convert the semantics feature to a ghost feature
+        tensor.features = (tensor.features == GHOST_SHP).astype(tensor.features.dtype)
+
+        return tensor

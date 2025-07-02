@@ -38,13 +38,13 @@ class BuilderBase(ABC):
 
     # Necessary/optional data products to load a reconstructed object
     _load_reco_keys   = (
-            ('points', True), ('depositions', True), ('sources', False)
+            ('points', False), ('depositions', False), ('sources', False)
     )
 
     # Necessary/optional data products to load a truth object
     _load_truth_keys  = (
-            ('points_label', True), ('points', False), ('points_g4', False),
-            ('depositions_label', True), ('depositions', False),
+            ('points_label', False), ('points', False), ('points_g4', False),
+            ('depositions_label', False), ('depositions', False),
             ('depositions_q_label', False), ('depositions_g4', False),
             ('sources_label', False), ('sources', False)
     )

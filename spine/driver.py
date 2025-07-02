@@ -23,9 +23,10 @@ import torch
 from .io import loader_factory, reader_factory, writer_factory
 from .io.write import CSVWriter
 
+from .math import seed as numba_seed
+
 from .utils.logger import logger
 from .utils.cuda import set_visible_devices
-from .utils.numba_local import seed as numba_seed
 from .utils.unwrap import Unwrapper
 from .utils.stopwatch import StopwatchManager
 
@@ -367,7 +368,7 @@ class Driver:
             # Fetch the list of previously run post-processors
             # TODO: this only works with two runs in a row, not 3 and above
             self.post_list = None
-            if self.reader.cfg is not None:
+            if self.reader.cfg is not None and 'post' in self.reader.cfg:
                 self.post_list = tuple(self.reader.cfg['post'])
 
         # Fetch an appropriate common prefix for all input files
@@ -391,7 +392,7 @@ class Driver:
                 self.iterations = self.iter_per_epoch
             self.epochs = 1.
         elif self.epochs is not None:
-            self.iterations = self.epochs*self.iter_per_epoch
+            self.iterations = int(self.epochs*self.iter_per_epoch)
 
     @staticmethod
     def get_prefixes(file_paths, split_output):

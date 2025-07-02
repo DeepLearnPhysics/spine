@@ -44,7 +44,13 @@ def main(source, source_list, output):
     keys_list, unique_counts = [], []
     for file_path in tqdm(source):
         # Count the number of entries in each tree
-        f = TFile(file_path)
+        try:
+            f = TFile(file_path)
+        except OSError:
+            keys_list.append([])
+            unique_counts.append([])
+            continue
+
         keys = [key.GetName() for key in f.GetListOfKeys()]
         trees = [f.Get(key) for key in keys]
         num_entries = [tree.GetEntries() for tree in trees]

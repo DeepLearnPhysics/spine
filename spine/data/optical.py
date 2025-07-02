@@ -74,6 +74,9 @@ class Flash(PosDataBase):
     # Attributes specifying vector components
     _vec_attrs = ('width',)
 
+    # Index attributes
+    _index_attrs = ('id',)
+
     @classmethod
     def from_larcv(cls, flash):
         """Builds and returns a Flash object from a LArCV Flash object.

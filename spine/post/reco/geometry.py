@@ -88,6 +88,13 @@ class ContainmentProcessor(PostBase):
             self.use_meta = True
             self.margin = margin
 
+        # If G4 truth points are used for truth containment, use dedicated check
+        self.truth_geo = None
+        if 'g4' in self.truth_point_mode and mode != 'meta':
+            truth_mode = 'module' if mode != 'detector' else mode
+            self.truth_geo = Geometry(detector, geometry_file)
+            self.truth_geo.define_containment_volumes(margin, mode=truth_mode)
+
         # Store parameters
         self.allow_multi_module = allow_multi_module
         self.exclude_pids = exclude_pids
@@ -129,10 +136,15 @@ class ContainmentProcessor(PostBase):
                     obj.is_contained = True
                     continue
 
-                # Check particle containment
+                # Check particle containment against detector/meta
                 if not self.use_meta:
-                    obj.is_contained = self.geo.check_containment(
-                            points, obj.sources, self.allow_multi_module)
+                    if not obj.is_truth or self.truth_geo is None:
+                        sources = self.get_sources(obj)
+                        obj.is_contained = self.geo.check_containment(
+                                points, sources, self.allow_multi_module)
+                    else:
+                        obj.is_contained = self.truth_geo.check_containment(
+                                points, allow_multi_module=self.allow_multi_module)
                 else:
                     obj.is_contained = (
                             (points > (meta.lower + self.margin)).all() and
@@ -216,7 +228,8 @@ class FiducialProcessor(PostBase):
         if mode != 'meta':
             self.use_meta = False
             self.geo = Geometry(detector, geometry_file)
-            self.geo.define_containment_volumes(margin, cathode_margin, mode)
+            self.geo.define_containment_volumes(
+                    margin, cathode_margin, mode, include_limits=False)
 
         else:
             assert detector is None and geometry_file is None, (

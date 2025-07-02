@@ -1,13 +1,13 @@
 """Module which centralizes all tools used to visualize data."""
 
-from .out import Drawer
-from .geo import GeoDrawer
-from .train import TrainDrawer
-from .point import scatter_points
-from .arrow import scatter_arrows
-from .cluster import scatter_clusters
-from .box import scatter_boxes
-from .particle import scatter_particles
-from .network import network_topology, network_schematic
-from .evaluation import heatmap, annotate_heatmap
-from .layout import layout3d, dual_figure3d
+from .out import *
+from .geo import *
+from .train import *
+from .point import *
+from .arrow import *
+from .cluster import *
+from .box import *
+from .particle import *
+from .network import *
+from .evaluation import *
+from .layout import *

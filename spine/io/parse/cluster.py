@@ -14,13 +14,18 @@ import numpy as np
 
 from spine.data import Meta
 
-from spine.utils.globals import DELTA_SHP, SHAPE_PREC
+from spine.math.distance import METRICS
+from spine.math.cluster import dbscan
+
+from spine.utils.globals import (
+        DELTA_SHP, SHAPE_PREC, VALUE_COL, CLUST_COL, PART_COL, GROUP_COL,
+        INTER_COL, NU_COL, SHAPE_COL)
 from spine.utils.particles import process_particle_event
 from spine.utils.ppn import image_coordinates
 from spine.utils.conditional import larcv
-from spine.utils.numba_local import dbscan
 
 from .base import ParserBase
+from .data import ParserTensor
 from .sparse import (
         Sparse3DParser, Sparse3DAggregateParser, Sparse3DChargeRescaledParser)
 from .clean_data import clean_sparse_data
@@ -43,6 +48,9 @@ class Cluster2DParser(ParserBase):
     # Name of the parser (as specified in the configuration)
     name = 'cluster2d'
 
+    # Type of object(s) returned by the parser
+    returns = 'tensor'
+
     def __init__(self, dtype, cluster_event, projection_id):
         """Initialize the parser.
 
@@ -58,6 +66,10 @@ class Cluster2DParser(ParserBase):
 
         # Store the revelant attributes
         self.projection_id = projection_id
+
+        # Define the overlay strategy parameters
+        self.index_cols = np.array([CLUST_COL])
+        self.sum_cols = np.array([VALUE_COL])
 
     def __call__(self, trees):
         """Parse one entry.
@@ -79,12 +91,13 @@ class Cluster2DParser(ParserBase):
 
         Returns
         -------
-        np_voxels : np.ndarray
-            (N, 2) array of [x, y] coordinates
-        np_features : np.ndarray
-            (N, 2) array of [pixel value, cluster ID]
-        meta : Meta
-            Metadata of the parsed image
+        ParserTensor
+            coords : np.ndarray
+                (N, 2) array of [x, y] coordinates
+            features : np.ndarray
+                (N, 2) array of [pixel value, cluster ID]
+            meta : Meta
+                Metadata of the parsed image
         """
         # Get the cluster from the appropriate projection
         cluster_event_p = cluster_event.cluster_pixel_2d(self.projection_id)
@@ -97,24 +110,31 @@ class Cluster2DParser(ParserBase):
             cluster = cluster_event_p.as_vector()[i]
             num_points = cluster.as_vector().size()
             if num_points > 0:
-                x = np.empty(num_points, dtype=self.itype)
-                y = np.empty(num_points, dtype=self.itype)
-                value = np.empty(num_points, dtype=self.ftype)
+                x = np.empty(num_points, dtype=np.int32)
+                y = np.empty(num_points, dtype=np.int32)
+                value = np.empty(num_points, dtype=np.float32)
                 larcv.as_flat_arrays(cluster, meta, x, y, value)
+                pixels = np.stack([x, y], axis=1).astype(self.itype)
+                value = value.astype(self.ftype)
                 cluster_id = np.full(num_points, i, dtype=self.ftype)
-                clusters_voxels.append(np.stack([x, y], axis=1))
+                clusters_voxels.append(pixels)
                 clusters_features.append(np.column_stack([value, cluster_id]))
 
-        # If there are no non-empty clusters, return. Concatenate otherwise
+        # Concatenate clusters
         if not clusters_voxels:
-            return (np.empty((0, 2), dtype=self.ftype),
-                    np.empty((0, 2), dtype=self.ftype),
-                    Meta.from_larcv(meta))
+            np_voxels = np.empty((0, 2), dtype=self.ftype)
+            np_features = np.empty((0, 2), dtype=self.ftype)
+        else:
+            np_voxels   = np.concatenate(clusters_voxels, axis=0)
+            np_features = np.concatenate(clusters_features, axis=0)
 
-        np_voxels   = np.concatenate(clusters_voxels, axis=0)
-        np_features = np.concatenate(clusters_features, axis=0)
+        # Evaluate shifts to apply to each index column
+        index_shifts = np.max(np_features[:, -1], keepdims=True, initial=-1) + 1
 
-        return np_voxels, np_features, Meta.from_larcv(meta)
+        return ParserTensor(
+                coords=np_voxels, feats=np_features, meta=Meta.from_larcv(meta),
+                remove_duplicates=True, index_shifts=index_shifts,
+                index_cols=self.index_cols, sum_cols=self.sum_cols)
 
 
 class Cluster3DParser(ParserBase):
@@ -141,6 +161,9 @@ class Cluster3DParser(ParserBase):
 
     # Name of the parser (as specified in the configuration)
     name = 'cluster3d'
+
+    # Type of object(s) returned by the parser
+    returns = 'tensor'
 
     def __init__(self, dtype, particle_event=None, add_particle_info=False,
                  clean_data=False, type_include_mpr=True,
@@ -185,19 +208,32 @@ class Cluster3DParser(ParserBase):
         self.type_include_mpr = type_include_mpr
         self.type_include_secondary = type_include_secondary
         self.primary_include_mpr = primary_include_mpr
+        self.shape_precedence = shape_precedence
+
+        # Intialize DBSCAN if the clusters are to be broken up
         self.break_clusters = break_clusters
         self.break_eps = break_eps
-        self.break_metric = break_metric
-        self.shape_precedence = shape_precedence
+        self.break_metric_id = METRICS[break_metric]
 
         # Intialize the sparse and particle parsers
         self.sparse_parser = Sparse3DParser(dtype, sparse_event='dummy')
 
-        # Do basic sanity checks
+        # If particle information is to be incldued, check that it is provided
         if self.add_particle_info:
+            # Must provide particle event to build particle info
             assert particle_event is not None, (
                     "If `add_particle_info` is `True`, must provide the "
                     "`particle_event` argument.")
+
+        # Define the overlay strategy parameters
+        self.sum_cols = np.array([VALUE_COL])
+        if not self.add_particle_info:
+            self.index_cols = np.array([CLUST_COL])
+            self.prec_col = None
+        else:
+            self.index_cols = np.array(
+                    [CLUST_COL, PART_COL, GROUP_COL, INTER_COL, NU_COL])
+            self.prec_col = SHAPE_COL
 
     def __call__(self, trees):
         """Parse one entry.
@@ -237,16 +273,17 @@ class Cluster3DParser(ParserBase):
 
         Returns
         -------
-        np_voxels : np.ndarray
-            (N, 3) array of [x, y, z] coordinates
-        np_features : np.ndarray
-            (N, 2/14) array of features, minimally [voxel value, cluster ID].
-            If `add_particle_info` is `True`, the additonal columns are
-            [particle ID, group ID, interaction ID, neutrino ID, particle type,
-            group primary bool, interaction primary bool, vertex x, vertex y,
-            vertex z, momentum, semantic type]
-        meta : Meta
-            Metadata of the parsed image
+        ParserTensor
+            coords : np.ndarray
+                (N, 3) array of [x, y, z] coordinates
+            features : np.ndarray
+                (N, 2/14) array of features, minimally [voxel value, cluster ID].
+                If `add_particle_info` is `True`, the additonal columns are
+                [particle ID, group ID, interaction ID, neutrino ID, particle type,
+                group primary bool, interaction primary bool, vertex x, vertex y,
+                vertex z, momentum, semantic type]
+            meta : Meta
+                Metadata of the parsed image
         """
         # Get the cluster-wise information first
         meta = cluster_event.meta()
@@ -309,6 +346,12 @@ class Cluster3DParser(ParserBase):
                     labels['pinter'] = np.asarray(labels['pinter'])
                     labels['pinter'][mpr_mask] = -1
 
+            # Count the number of neutrinos
+            if neutrino_event is not None:
+                num_neutrinos = len(neutrino_event.as_vector())
+            else:
+                num_neutrinos = np.max(nu_ids, initial=-1) + 1
+
         # Loop over clusters, store information
         clusters_voxels, clusters_features = [], []
         id_offset = 0
@@ -317,12 +360,13 @@ class Cluster3DParser(ParserBase):
             num_points = cluster.as_vector().size()
             if num_points > 0:
                 # Get the position and pixel value from EventSparseTensor3D
-                x = np.empty(num_points, dtype=self.itype)
-                y = np.empty(num_points, dtype=self.itype)
-                z = np.empty(num_points, dtype=self.itype)
-                value = np.empty(num_points, dtype=self.ftype)
+                x = np.empty(num_points, dtype=np.int32)
+                y = np.empty(num_points, dtype=np.int32)
+                z = np.empty(num_points, dtype=np.int32)
+                value = np.empty(num_points, dtype=np.float32)
                 larcv.as_flat_arrays(cluster, meta, x, y, z, value)
-                voxels = np.stack([x, y, z], axis=1)
+                voxels = np.stack([x, y, z], axis=1).astype(self.itype)
+                value = value.astype(self.ftype)
                 clusters_voxels.append(voxels)
 
                 # Append the cluster-wise information
@@ -335,25 +379,26 @@ class Cluster3DParser(ParserBase):
                 # If requested, break cluster into detached pieces
                 if self.break_clusters:
                     frag_labels = dbscan(
-                            voxels, self.break_eps, self.break_metric)
+                            voxels, eps=self.break_eps, min_samples=1,
+                            metric_id=self.break_metric_id)
                     features[1] = id_offset + frag_labels
-                    id_offset += max(frag_labels) + 1
+                    id_offset += np.max(frag_labels, initial=-1) + 1
 
                 clusters_features.append(np.column_stack(features))
 
         # If there are no non-empty clusters, return. Concatenate otherwise
         if not clusters_voxels:
-            return (np.empty((0, 3), dtype=self.itype),
-                    np.empty((0, len(labels) + 1), dtype=self.ftype),
-                    Meta.from_larcv(meta))
-
-        np_voxels   = np.concatenate(clusters_voxels, axis=0)
-        np_features = np.concatenate(clusters_features, axis=0)
+            np_voxels = np.empty((0, 3), dtype=self.itype)
+            np_features = np.empty((0, len(labels) + 1), dtype=self.ftype)
+        else:
+            np_voxels   = np.concatenate(clusters_voxels, axis=0)
+            np_features = np.concatenate(clusters_features, axis=0)
 
         # If requested, remove duplicate voxels (cluster overlaps) and
         # match the semantics to those of the provided reference
-        if ((sparse_semantics_event is not None) or
-            (sparse_value_event is not None)):
+        if (len(np_voxels) and
+            ((sparse_semantics_event is not None) or
+             (sparse_value_event is not None))):
             if not self.clean_data:
                 warn("You must set `clean_data` to `True` if you specify a "
                      "sparse tensor in `Cluster3DParser`.")
@@ -365,26 +410,38 @@ class Cluster3DParser(ParserBase):
                     "semantics for each voxel.")
             assert sparse_semantics_event is not None, (
                     "Need to provide a semantics tensor to clean up output.")
-            sem_voxels, sem_features, _ = (
-                    self.sparse_parser.process(sparse_semantics_event))
-            np_voxels, np_features = (
-                    clean_sparse_data(
-                        np_voxels, np_features, sem_voxels, self.shape_precedence))
+            tensor_seg = self.sparse_parser.process(sparse_semantics_event)
+            np_voxels, np_features = clean_sparse_data(
+                        np_voxels, np_features, tensor_seg.coords,
+                        precedence=self.shape_precedence,
+                        sum_cols=self.sum_cols - VALUE_COL)
 
             # Match the semantic column to the reference tensor
-            np_features[:, -1] = sem_features[:, -1]
+            np_features[:, -1] = tensor_seg.features[:, -1]
 
             # Set all cluster labels to -1 if semantic class is LE or ghost
-            shape_mask = sem_features[:, -1] > DELTA_SHP
+            shape_mask = tensor_seg.features[:, -1] > DELTA_SHP
             np_features[shape_mask, 1:-1] = -1
 
             # If a value tree is provided, override value colum
             if sparse_value_event:
-                _, val_features, _  = (
-                        self.sparse_parser.process(sparse_value_event))
-                np_features[:, 0] = val_features[:, -1]
+                tensor_val = self.sparse_parser.process(sparse_value_event)
+                np_features[:, 0] = tensor_val.features[:, 0]
 
-        return np_voxels, np_features, Meta.from_larcv(meta)
+        # Evaluate shifts to apply to each index column
+        clust_shift = np.max(np_features[:, 1], initial=-1) + 1
+        if not self.add_particle_info:
+            index_shifts = np.array([clust_shift])
+        else:
+            cs, ps, ns = clust_shift, num_particles, num_neutrinos
+            index_shifts = np.array([cs, ps, ps, ps, ns])
+
+        return ParserTensor(
+                coords=np_voxels, features=np_features,
+                meta=Meta.from_larcv(meta), remove_duplicates=True,
+                index_shifts=index_shifts, index_cols=self.index_cols,
+                sum_cols=self.sum_cols, prec_col=self.prec_col,
+                precedence=self.shape_precedence)
 
 
 class Cluster3DAggregateParser(Cluster3DParser):
@@ -439,26 +496,27 @@ class Cluster3DAggregateParser(Cluster3DParser):
 
         Returns
         -------
-        np_voxels : np.ndarray
-            (N, 3) array of [x, y, z] coordinates
-        np_features : np.ndarray
-            (N, 2/14) array of features, minimally [voxel value, cluster ID].
-            If `add_particle_info` is `True`, the additonal columns are
-            [group ID, interaction ID, neutrino ID, particle type,
-            group primary bool, interaction primary bool, vertex x, vertex y,
-            vertex z, momentum, semantic type, particle ID]
-        meta : Meta
-            Metadata of the parsed image
+        ParserTensor
+            coords : np.ndarray
+                (N, 3) array of [x, y, z] coordinates
+            features : np.ndarray
+                (N, 2/14) array of features, minimally [voxel value, cluster ID].
+                If `add_particle_info` is `True`, the additonal columns are
+                [group ID, interaction ID, neutrino ID, particle type,
+                group primary bool, interaction primary bool, vertex x, vertex y,
+                vertex z, momentum, semantic type, particle ID]
+            meta : Meta
+                Metadata of the parsed image
         """
         # Process the input using the main parser
-        np_voxels, np_features, meta = self.process(**kwargs)
+        tensor = self.process(**kwargs)
 
         # Modify the value column using the aggregate tensor values
-        _, val_features, _  = self.sparse_aggr_parser.process_aggr(
+        tensor_val = self.sparse_aggr_parser.process_aggr(
                 sparse_value_event_list)
-        np_features[:, 0] = val_features[:, -1]
+        tensor.features[:, 0] = tensor_val.features[:, 0]
 
-        return np_voxels, np_features, meta
+        return tensor
 
 
 class Cluster3DChargeRescaledParser(Cluster3DParser):
@@ -522,23 +580,24 @@ class Cluster3DChargeRescaledParser(Cluster3DParser):
 
         Returns
         -------
-        np_voxels : np.ndarray
-            (N, 3) array of [x, y, z] coordinates
-        np_features : np.ndarray
-            (N, 2/14) array of features, minimally [voxel value, cluster ID].
-            If `add_particle_info` is `True`, the additonal columns are
-            [group ID, interaction ID, neutrino ID, particle type,
-            group primary bool, interaction primary bool, vertex x, vertex y,
-            vertex z, momentum, semantic type, particle ID]
-        meta : Meta
-            Metadata of the parsed image
+        ParserTensor
+            coords : np.ndarray
+                (N, 3) array of [x, y, z] coordinates
+            features : np.ndarray
+                (N, 2/14) array of features, minimally [voxel value, cluster ID].
+                If `add_particle_info` is `True`, the additonal columns are
+                [group ID, interaction ID, neutrino ID, particle type,
+                group primary bool, interaction primary bool, vertex x, vertex y,
+                vertex z, momentum, semantic type, particle ID]
+            meta : Meta
+                Metadata of the parsed image
         """
         # Process the input using the main parser
-        np_voxels, np_features, meta = self.process(**kwargs)
+        tensor = self.process(**kwargs)
 
         # Modify the value column using the charge rescaled on the fly
-        _, val_features, _  = self.sparse_rescale_parser.process_rescale(
+        tensor_val = self.sparse_rescale_parser.process_rescale(
                 sparse_value_event_list)
-        np_features[:, 0] = val_features[:, -1]
+        tensor.features[:, 0] = tensor_val.features[:, 0]
 
-        return np_voxels, np_features, meta
+        return tensor

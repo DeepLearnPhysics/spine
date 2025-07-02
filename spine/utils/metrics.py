@@ -5,7 +5,7 @@ import numba as nb
 
 from sklearn.metrics import adjusted_rand_score, adjusted_mutual_info_score
 
-from .numba_local import contingency_table
+from spine.math.linalg import contingency_table
 
 __all__ = ['pur', 'eff', 'pur_eff', 'ari', 'ami', 'sbd']
 

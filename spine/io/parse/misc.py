@@ -9,11 +9,12 @@ Contains the following parsers:
 """
 
 
-from spine.data import Meta, RunInfo, CRTHit, Trigger, ObjectList
+from spine.data import Meta, RunInfo, Flash, CRTHit, Trigger
 
 from spine.utils.conditional import larcv
 
 from .base import ParserBase
+from .data import ParserObjectList
 
 __all__ = ['MetaParser', 'RunInfoParser',
            'CRTHitParser', 'TriggerParser']
@@ -40,6 +41,12 @@ class MetaParser(ParserBase):
 
     # Alternative allowed names of the parser
     aliases = ('meta2d', 'meta3d')
+
+    # Type of object(s) returned by the parser
+    returns = 'object'
+
+    # Overlay strategy for the objects returned by the parser
+    overlay = 'match'
 
     def __call__(self, trees):
         """Parse one entry.
@@ -111,6 +118,12 @@ class RunInfoParser(ParserBase):
     # Name of the parser (as specified in the configuration)
     name = 'run_info'
 
+    # Type of object(s) returned by the parser
+    returns = 'object'
+
+    # Overlay strategy for the objects returned by the parser
+    overlay = 'cat'
+
     def __call__(self, trees):
         """Parse one entry.
 
@@ -146,6 +159,87 @@ class RunInfoParser(ParserBase):
         return RunInfo.from_larcv(ref_event)
 
 
+class FlashParser(ParserBase):
+    """Copy construct Flash and return an array of `Flash`.
+
+    This parser also takes care of flashes that have been split between their
+    respective optical volumes, provided a `flash_event_list`. This parser
+    assumes that the trees are provided in order of the volume ID they
+    correspond to.
+
+    .. code-block. yaml
+        schema:
+          flashes:
+            parser: flash
+            flash_event_list:
+              - flash_cryoE
+              - flash_cryoW
+    """
+
+    # Name of the parser (as specified in the configuration)
+    name = 'flash'
+
+    # Alternative allowed names of the parser
+    aliases = ('opflash',)
+
+    # Type of object(s) returned by the parser
+    returns = 'object_list'
+
+    def __call__(self, trees):
+        """Parse one entry.
+
+        Parameters
+        ----------
+        trees : dict
+            Dictionary which maps each data product name to a LArCV object
+        """
+        return self.process(**self.get_input_data(trees))
+
+    def process(self, flash_event=None, flash_event_list=None):
+        """Fetches the list of optical flashes.
+
+        Parameters
+        -------------
+        flash_event : larcv.EventFlash, optional
+            Optical flash event which contains a list of flash objects
+        flash_event_list : List[larcv.EventFlash], optional
+            List of optical flash events, each a list of flash objects
+
+        Returns
+        -------
+        List[Flash]
+            List of optical flash objects
+        """
+        # Check on the input
+        assert ((flash_event is not None) ^
+                (flash_event_list is not None)), (
+                "Must specify either `flash_event` or `flash_event_list`.")
+
+        # Parse flash objects
+        if flash_event is not None:
+            # If there is a single flash event, parse it as is
+            flash_list = flash_event.as_vector()
+            flashes = [Flash.from_larcv(larcv.Flash(f)) for f in flash_list]
+
+        else:
+            # Otherwise, set the volume ID of the flash to the source index
+            # and count the flash index from 0 to the largest number
+            flashes = []
+            idx = 0
+            for volume_id, flash_event in enumerate(flash_event_list):
+                for f in flash_event.as_vector():
+                    # Cast and update attributes
+                    flash = Flash.from_larcv(f)
+                    flash.id = idx
+                    flash.volume_id = volume_id
+
+                    # Append, increment counter
+                    flashes.append(flash)
+                    idx += 1
+
+        return ParserObjectList(flashes, Flash())
+
+
 class CRTHitParser(ParserBase):
     """Copy construct CRTHit and return an array of `CRTHit`.
 
@@ -158,6 +252,9 @@ class CRTHitParser(ParserBase):
 
     # Name of the parser (as specified in the configuration)
     name = 'crthit'
+
+    # Type of object(s) returned by the parser
+    returns = 'object_list'
 
     def __call__(self, trees):
         """Parse one entry.
@@ -185,7 +282,7 @@ class CRTHitParser(ParserBase):
         crthit_list = crthit_event.as_vector()
         crthits = [CRTHit.from_larcv(larcv.CRTHit(c)) for c in crthit_list]
 
-        return ObjectList(crthits, CRTHit())
+        return ParserObjectList(crthits, CRTHit())
 
 
 class TriggerParser(ParserBase):
@@ -200,6 +297,12 @@ class TriggerParser(ParserBase):
 
     # Name of the parser (as specified in the configuration)
     name = 'trigger'
+
+    # Type of object(s) returned by the parser
+    returns = 'object'
+
+    # Overlay strategy for the objects returned by the parser
+    overlay = 'cat'
 
     def __call__(self, trees):
         """Parse one entry.

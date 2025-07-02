@@ -4,10 +4,10 @@ from torch.utils.data import Dataset
 
 from spine.utils.logger import logger
 from spine.utils.factory import module_dict, instantiate
-from spine.utils.augment import Augmenter
 
 from . import parse
 from .read import LArCVReader
+from .augment import Augmenter
 
 PARSER_DICT  = module_dict(parse)
 
@@ -30,6 +30,9 @@ class LArCVDataset(Dataset):
     """
     name = 'larcv'
 
+    # List of index keys produced with each entry
+    _index_keys = ('index', 'file_index', 'file_entry_index')
+
     def __init__(self, schema, dtype, augment=None, **kwargs):
         """Instantiates the LArCVDataset.
 
@@ -40,7 +43,7 @@ class LArCVDataset(Dataset):
             name of a data chunk in a batch and the associated dictionary
             must include:
               - parser: name of the parser
-              - args: (key, value) pairs that correspond to parser argument
+              - kwargs: (key, value) pairs that correspond to parser argument
                 names and their values
         dtype : str
             Data type to cast the input data to (to match the downstream model)
@@ -96,7 +99,7 @@ class LArCVDataset(Dataset):
         # Read in a specific entry
         data_dict = self.reader[idx]
 
-        # Get the index
+        # Get the indexes
         entry_idx = self.reader.entry_index[idx]
         file_idx = self.reader.get_file_index(idx)
         file_entry_idx = self.reader.get_file_entry_index(idx)
@@ -117,6 +120,37 @@ class LArCVDataset(Dataset):
 
         return result
 
+    @property
+    def data_types(self):
+        """Returns the data type returned by each parser.
+
+        Returns
+        -------
+        Dict[str, str]
+            Dictionary of data types
+        """
+        data_types = {key: 'scalar' for key in self._index_keys}
+        for name, parser in self.parsers.items():
+            data_types[name] = parser.returns
+
+        return data_types
+
+    @property
+    def overlay_methods(self):
+        """Returns a dictionary mapping data products to overlay methods.
+
+        Returns
+        -------
+        Dict[str, str]
+            Dictionary of overlay methods
+        """
+        overlay_methods = {key: 'cat' for key in self._index_keys}
+        for name, parser in self.parsers.items():
+            overlay_methods[name] = parser.overlay
+
+        return overlay_methods
+
+    @property
     def data_keys(self):
         """Returns a list of data product names.
 
@@ -125,7 +159,7 @@ class LArCVDataset(Dataset):
         List[str]
             List of data product names
         """
-        return list(self.parsers.keys()) + ['index']
+        return (*self._index_keys, *self.parsers.keys())
 
     @staticmethod
     def list_data(file_path):

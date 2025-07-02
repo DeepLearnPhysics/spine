@@ -44,7 +44,7 @@ class BuildManager:
     )
 
     def __init__(self, fragments, particles, interactions,
-                 mode='both', units='cm', sources=None):
+                 mode='both', units='cm', sources=None, lite=False):
         """Initializes the build manager.
 
         Parameters
@@ -60,6 +60,9 @@ class BuildManager:
         sources : Dict[str, str], optional
             Dictionary which maps the necessary data products onto a name
             in the input/output dictionary of the reconstruction chain.
+        lite : bool, default False
+            If `True`, the objects being loaded are lite and do not map
+            to long-form attributes. Simply load the matches.
         """
         # Check on the mode, store it
         assert mode in self._run_modes, (
@@ -70,7 +73,7 @@ class BuildManager:
         assert units in self._units, (
                 f"Units not recognized: {units}. Must be one {self._units}")
         self.units = units
-        
+
         # If custom sources are provided, update the tuple
         if sources is not None:
             sources_dict = dict(self._sources)
@@ -92,13 +95,13 @@ class BuildManager:
         if particles:
             self.builders['particle'] = ParticleBuilder(mode, units)
         if interactions:
-            assert particles is not None, (
+            assert particles, (
                     "Interactions are built from particles. If `interactions` "
                     "is True, so must `particles` be.")
             self.builders['interaction'] = InteractionBuilder(mode, units)
 
-        assert len(self.builders), (
-                "Do not call the builder unless it does anything.")
+        # Store whether to load the long-form attributes or not
+        self.lite = lite
 
     def __call__(self, data):
         """Build the representations for one entry.
@@ -115,7 +118,7 @@ class BuildManager:
         # If this is the first time the builders are called, build
         # the objects shared between fragments/particles/interactions
         load = True
-        if 'points' not in data and 'points_label' not in data:
+        if not self.lite and 'points' not in data and 'points_label' not in data:
             load = False
             if np.isscalar(data['index']):
                 sources = self.build_sources(data)
@@ -178,7 +181,7 @@ class BuildManager:
 
             if 'sources' in sources:
                 update['sources'] = sources['sources'].astype(int)
-        
+
         if self.mode != 'reco':
             update['label_tensor'] = sources['label_tensor']
             update['points_label'] = sources['label_tensor'][:, COORD_COLS]

@@ -27,6 +27,15 @@ class ParserBase(ABC):
     # Alternative allowed names of the parser
     aliases = ()
 
+    # Type of object(s) returned by the parser
+    returns = None
+
+    # Overlay method for the objects returned by the parser
+    overlay = None
+
+    # List of recognized data type returns
+    _data_types = ('tensor', 'object', 'object_list', 'scalar')
+
     def __init__(self, dtype, **kwargs):
         """Loops over data product names, stores them.
 
@@ -45,6 +54,11 @@ class ParserBase(ABC):
         # Store the type in which the parsers should return their data
         self.ftype = dtype
         self.itype = dtype.replace('float', 'int')
+
+        # Do a self-consistency check on return data types
+        assert self.returns in self._data_types, (
+                f"Parser return data type not recognized for '{self.name}': "
+                f"{self.returns}. Should be one of {self._data_types}.")
 
         # Find data keys, append them to the map
         self.data_map = {}

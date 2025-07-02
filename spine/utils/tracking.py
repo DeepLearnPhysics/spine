@@ -3,7 +3,7 @@ import numba as nb
 
 from scipy.interpolate import UnivariateSpline
 
-from . import numba_local as nbl
+import spine.math as sm
 
 
 def get_track_length(coordinates: nb.float32[:,:],
@@ -42,7 +42,7 @@ def get_track_length(coordinates: nb.float32[:,:],
     """
     if method == 'displacement':
         # Project points along the principal component, compute displacement
-        track_dir = nbl.principal_components(coordinates)[0]
+        track_dir = sm.decomposition.principal_components(coordinates)[0]
         pcoordinates = np.dot(coordinates, track_dir)
 
         return np.max(pcoordinates) - np.min(pcoordinates)
@@ -111,8 +111,8 @@ def check_track_orientation(coordinates: nb.float32[:,:],
         # If requested, anchor the end points to the closest track points
         end_points = np.vstack((start_point, end_point))
         if anchor_points:
-            dist_mat = nbl.cdist(end_points, coordinates)
-            end_ids  = nbl.argmin(dist_mat, axis=1)
+            dist_mat = sm.distance.cdist(end_points, coordinates)
+            end_ids  = sm.argmin(dist_mat, axis=1)
             end_points = coordinates[end_ids]
 
         # Compute the local dE/dx around each end, pick the end with the lowest
@@ -322,12 +322,12 @@ def get_track_segments(coordinates: nb.float32[:,:],
         if point is not None:
             start_point = point
             if anchor_point:
-                start_id    = np.argmin(nbl.cdist(np.atleast_2d(point),
-                    coordinates))
+                start_id = np.argmin(sm.distance.cdist(
+                    np.atleast_2d(point), coordinates))
                 start_point = coordinates[start_id]
         else:
             # If not specified, pick a random end point of the track
-            start_id    = nbl.farthest_pair(coordinates)[0]
+            start_id    = sm.distance.farthest_pair(coordinates)[0]
             start_point = coordinates[start_id]
 
         # Step through the track iteratively
@@ -340,8 +340,8 @@ def get_track_segments(coordinates: nb.float32[:,:],
         while len(left_index):
             # Compute distances from the segment start point to the all
             # the leftover points
-            dists = nbl.cdist(np.atleast_2d(seg_start),
-                    coordinates[left_index]).flatten()
+            dists = sm.distance.cdist(
+                    np.atleast_2d(seg_start), coordinates[left_index]).flatten()
 
             # Select the points that belong to this segment
             dist_mask  = dists <= segment_length
@@ -361,11 +361,11 @@ def get_track_segments(coordinates: nb.float32[:,:],
 
             # Estimate the direction of the segment
             seg_coords = coordinates[seg_index]
-            if method == 'step' \
-                    and len(seg_index) > min_count \
-                    and np.max(dists[pass_index]) > 0.:
+            if (method == 'step'
+                and len(seg_index) > min_count
+                and np.max(dists[pass_index]) > 0.):
                 # Estimate direction w.r.t. the segment start point ('step')
-                direction = nbl.mean(seg_coords - seg_start, axis=0)
+                direction = sm.mean(seg_coords - seg_start, axis=0)
             elif len(fail_index):
                 # Take direction as the vector joining the next closest point
                 # ('step_next'). Also apply this method is the `min_count`
@@ -414,7 +414,7 @@ def get_track_segments(coordinates: nb.float32[:,:],
 
     elif method == 'bin_pca':
         # Find the principal component of the whole track
-        track_dir = nbl.principal_components(coordinates)[0]
+        track_dir = sm.decomposition.principal_components(coordinates)[0]
 
         # If a track end point is provided, check which end the track end point
         # is on and flip the principal axis coordinates, if needed
@@ -452,7 +452,7 @@ def get_track_segments(coordinates: nb.float32[:,:],
 
             # Compute principal component of the segment, use it as direction
             if len(seg) > min_count:
-                direction = nbl.principal_components(coordinates[seg])[0]
+                direction = sm.decomposition.principal_components(coordinates[seg])[0]
                 if np.dot(direction, track_dir) < 0.:
                     direction = -direction
             else:
@@ -510,7 +510,7 @@ def get_track_spline(coordinates, segment_length, s=None):
         The estimate of the total length of the curve
     """
     # Compute the principal component along which to segment the track
-    track_dir = nbl.principal_components(coordinates)[0]
+    track_dir = sm.decomposition.principal_components(coordinates)[0]
     pcoords   = np.dot(coordinates, track_dir)
     perm      = np.argsort(pcoords.squeeze())
     u         = pcoords[perm]

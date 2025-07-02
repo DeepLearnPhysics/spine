@@ -19,6 +19,8 @@ PLOTLY_COLORS_WGRAY = ['#808080'] + PLOTLY_COLORS
 HIGH_CONTRAST_COLORS = np.concatenate(
         [colors.qualitative.Dark24, colors.qualitative.Light24])
 
+__all__ = ['layout3d', 'dual_figure3d']
+
 
 def layout3d(ranges=None, meta=None, detector=None, titles=None,
              detector_coords=False, backgroundcolor='white',

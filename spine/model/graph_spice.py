@@ -217,6 +217,7 @@ class GraphSPICE(torch.nn.Module):
         else:
             features = result['hypergraph_features']
 
+        coords = TensorBatch(coords.data[:, coords.coord_cols], coords.counts)
         graph = self.constructor(coords, features, seg_label, clust_label)
 
         # If requested, convert edge predictions to node predictions

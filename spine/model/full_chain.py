@@ -17,14 +17,14 @@ from .layer.common.dbscan import DBSCAN
 # TODO: raname it something more generic like ParticleClusterImageClassifier?
 
 from spine.data import TensorBatch, IndexBatch, RunInfo
+from spine.utils.logger import logger
 from spine.utils.globals import (
         COORD_COLS, VALUE_COL, CLUST_COL, SHAPE_COL, SHOWR_SHP, TRACK_SHP,
         MICHL_SHP, DELTA_SHP, GHOST_SHP)
 from spine.utils.calib import CalibrationManager
-from spine.utils.logger import logger
-from spine.utils.ppn import get_particle_points
-from spine.utils.ghost import (
-        compute_rescaled_charge_batch, adapt_labels_batch)
+from spine.utils.ppn import ParticlePointPredictor
+from spine.utils.ghost import compute_rescaled_charge_batch
+from spine.utils.cluster.label import ClusterLabelAdapter
 from spine.utils.gnn.cluster import (
         form_clusters_batch, get_cluster_label_batch)
 from spine.utils.gnn.evaluation import primary_assignment_batch
@@ -115,10 +115,10 @@ class FullChain(torch.nn.Module):
     )
 
     def __init__(self, chain, uresnet_deghost=None, uresnet=None,
-                 uresnet_ppn=None, adapt_labels=None, graph_spice=None,
-                 dbscan=None, grappa_shower=None, grappa_track=None,
-                 grappa_particle=None, grappa_inter=None, calibration=None,
-                 uresnet_deghost_loss=None, uresnet_loss=None,
+                 uresnet_ppn=None, adapt_labels=None, predict_points=None,
+                 graph_spice=None, dbscan=None, grappa_shower=None,
+                 grappa_track=None, grappa_particle=None, grappa_inter=None,
+                 calibration=None, uresnet_deghost_loss=None, uresnet_loss=None,
                  uresnet_ppn_loss=None, graph_spice_loss=None,
                  grappa_shower_loss=None, grappa_track_loss=None,
                  grappa_particle_loss=None, grappa_inter_loss=None):
@@ -134,6 +134,8 @@ class FullChain(torch.nn.Module):
             Segmentation and point proposal model configuration
         adapt_labels : dict, optional
             Parameters for the cluster label adaptation (if non-standard)
+        predict_points : dict, optional
+            Parameters for the particle point predictor (if non-standard)
         dbscan : dict, optional
             Connected component clustering configuration
         graph_spice : dict, optional
@@ -173,8 +175,10 @@ class FullChain(torch.nn.Module):
                 self.uresnet_ppn = UResNetPPN(**uresnet_ppn)
 
         # Initialize the relabeling process (adapt to the semantic predictions)
-        # TODO: make this a class which holds onto these parameters?
-        self.adapt_params = adapt_labels if adapt_labels is not None else {}
+        self.label_adapter = ClusterLabelAdapter(**(adapt_labels or {}))
+
+        # Initialize the point predictor (for fragment/particle clusters)
+        self.point_predictor = ParticlePointPredictor(**(predict_points or {}))
 
         # Initialize the dense clustering model
         self.fragment_shapes = []
@@ -495,9 +499,8 @@ class FullChain(torch.nn.Module):
             if seg_label is not None and clust_label is not None:
                 seg_pred = self.result['seg_pred']
                 ghost_pred = self.result.get('ghost_pred', None)
-                clust_label = adapt_labels_batch(
-                        clust_label, seg_label, seg_pred, ghost_pred,
-                        **self.adapt_params)
+                clust_label = self.label_adapter(
+                        clust_label, seg_label, seg_pred, ghost_pred)
 
                 self.result['clust_label_adapt'] = clust_label
 
@@ -1019,7 +1022,7 @@ class FullChain(torch.nn.Module):
                 ref_clusts = clust_primaries
 
             # Get and store the points
-            points = get_particle_points(
+            points = self.point_predictor(
                     data, ref_clusts, clust_shapes, self.result['ppn_points'])
 
             grappa_input['points'] = points

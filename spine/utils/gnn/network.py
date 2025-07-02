@@ -3,15 +3,16 @@
 import numpy as np
 import numba as nb
 
+import spine.math as sm
+
 from spine.data import TensorBatch
 
 from spine.utils.decorators import numbafy
 from spine.utils.globals import COORD_COLS
-import spine.utils.numba_local as nbl
 
 
 def get_cluster_edge_features_batch(data, clusts, edge_index,
-                                    closest_index=True, algorithm='brute'):
+                                    closest_index=None, iterative=False):
     """Batched version of :func:`get_cluster_edge_features`.
 
     Parameters
@@ -24,8 +25,8 @@ def get_cluster_edge_features_batch(data, clusts, edge_index,
         (2, E) Sparse incidence matrix
     closest_index : Union[np.ndarray, torch.Tensor], optional
         (C, C) : Combined index of the closest pair of voxels per edge
-    algorithm : str, default 'brute'
-        Method used to compute the inter-cluster distance
+    iterative : bool, default False
+        If `True`, uses an iterative, fast approximation for distance computations
 
     Returns
     -------
@@ -36,7 +37,7 @@ def get_cluster_edge_features_batch(data, clusts, edge_index,
     index = edge_index.index_t if directed else edge_index.directed_index_t
     counts = edge_index.counts if directed else edge_index.directed_counts
     feats = get_cluster_edge_features(
-            data.tensor, clusts.index_list, index, closest_index, algorithm)
+            data.tensor, clusts.index_list, index, closest_index, iterative)
 
     return TensorBatch(feats, counts)
 
@@ -67,7 +68,7 @@ def get_voxel_edge_features_batch(data, edge_index, max_dist=5.0):
 @numbafy(cast_args=['data'], list_args=['clusts'],
          keep_torch=True, ref_arg='data')
 def get_cluster_edge_features(data, clusts, edge_index,
-                              closest_index=None, algorithm='brute'):
+                              closest_index=None, iterative=False):
     """Returns a tensor of edge features for each edge connecting 
     point clusters in the graph.
 
@@ -88,8 +89,8 @@ def get_cluster_edge_features(data, clusts, edge_index,
         (2, E) Incidence map between voxels
     closest_index : Union[np.ndarray, torch.Tensor], optional
         (C, C) : Combined index of the closest pair of voxels per edge
-    algorithm : str, default 'brute'
-        Method used to compute the inter-cluster distance
+    iterative : bool, default False
+        If `True`, uses an iterative, fast approximation for distance computations
 
     Returns
     -------
@@ -100,16 +101,16 @@ def get_cluster_edge_features(data, clusts, edge_index,
         return np.empty((0, 19), dtype=data.dtype) # Cannot type empty list
 
     return _get_cluster_edge_features(
-            data, clusts, edge_index, closest_index, algorithm)
+            data, clusts, edge_index, closest_index, iterative)
     # return _get_cluster_edge_features_vec(
-    #         data, clusts, edge_index, closest_index, algorithm)
+    #         data, clusts, edge_index, closest_index, iterative)
 
 @nb.njit(parallel=True, cache=True)
 def _get_cluster_edge_features(data: nb.float32[:,:],
                                clusts: nb.types.List(nb.int64[:]),
                                edge_index: nb.int64[:,:],
                                closest_index: nb.int64[:] = None,
-                               algorithm: str = 'brute') -> (
+                               iterative: nb.boolean = False) -> (
                                        nb.float32[:,:]):
 
     feats = np.empty((len(edge_index), 19), dtype=data.dtype)
@@ -124,7 +125,7 @@ def _get_cluster_edge_features(data: nb.float32[:,:],
             imin = closest_index[c1, c2]
             i1, i2 = imin//len(x2), imin%len(x2)
         else:
-            i1, j2, _ = nbl.closest_pair(x1, x2, algorithm)
+            i1, j2, _ = sm.distance.closest_pair(x1, x2, iterative)
         v1 = x1[i1,:]
         v2 = x2[i2,:]
 
@@ -148,13 +149,13 @@ def _get_cluster_edge_features_vec(data: nb.float32[:,:],
                                    clusts: nb.types.List(nb.int64[:]),
                                    edge_index: nb.int64[:,:],
                                    closest_index: nb.int64[:] = None,
-                                   algorithm: str = 'brute') -> (
+                                   iterative: nb.boolean = False) -> (
                                            nb.float32[:,:]):
 
     # Get the closest points of approach IDs for each edge
     if closest_index is None:
         lend, idxs1, idxs2 = _get_edge_distances(
-                data[:,COORD_COLS], clusts, edge_index, algorithm)
+                data[:,COORD_COLS], clusts, edge_index, iterative)
     else:
         idxs1, idxs2 = closest_index[(edge_index[0], edge_index[1])]
 
@@ -240,7 +241,7 @@ def _get_voxel_edge_features(data: nb.float32[:,:],
 
 
 @numbafy(cast_args=['voxels'], list_args=['clusts'])
-def get_edge_distances(voxels, clusts, edge_index, algorithm='brute'):
+def get_edge_distances(voxels, clusts, edge_index, iterative):
     """For each edge, finds the closest points of approach (CPAs) between the
     two voxel clusters it connects, and the distance that separates them.
 
@@ -256,6 +257,8 @@ def get_edge_distances(voxels, clusts, edge_index, algorithm='brute'):
         (C) List of arrays of voxel IDs in each cluster
     edge_index : Union[np.ndarray, torch.Tensor]
         (2, E) Incidence matrix
+    iterative : bool, default False
+        If `True`, uses an iterative, fast approximation for distance computations
 
     Returns
     -------
@@ -266,13 +269,13 @@ def get_edge_distances(voxels, clusts, edge_index, algorithm='brute'):
     np.ndarray
         (E) List of voxel IDs corresponding to the second edge cluster CPA
     """
-    return _get_edge_distances(voxels, clusts, edge_index, algorithm)
+    return _get_edge_distances(voxels, clusts, edge_index, iterative)
 
 @nb.njit(parallel=True, cache=True)
 def _get_edge_distances(voxels: nb.float32[:,:],
                         clusts: nb.types.List(nb.int64[:]),
                         edge_index:  nb.int64[:,:],
-                        algorithm: str = 'brute') -> (
+                        iterative: nb.boolean = False) -> (
                                 nb.float32[:], nb.int64[:], nb.int64[:]):
 
     # Loop over the provided edges 
@@ -286,8 +289,8 @@ def _get_edge_distances(voxels: nb.float32[:,:],
             ii = jj = 0
             dist = 0.
         else:
-            ii, jj, dist = nbl.closest_pair(
-                    voxels[clusts[i]], voxels[clusts[j]], algorithm)
+            ii, jj, dist = sm.distance.closest_pair(
+                    voxels[clusts[i]], voxels[clusts[j]], iterative)
 
         lend[k] = dist
         resi[k] = clusts[i][ii]
@@ -297,8 +300,8 @@ def _get_edge_distances(voxels: nb.float32[:,:],
 
 
 @numbafy(cast_args=['voxels'], list_args=['clusts'])
-def inter_cluster_distance(voxels, clusts, counts=None, method='voxel',
-                           algorithm='brute', return_index=False):
+def inter_cluster_distance(voxels, clusts, counts=None, centroid=False,
+                           iterative=False, return_index=False):
     """Finds the inter-cluster distance between every pair of clusters within
     each batch, returned as a block-diagonal matrix.
 
@@ -310,15 +313,13 @@ def inter_cluster_distance(voxels, clusts, counts=None, method='voxel',
         (C) List of cluster indexes
     counts : np.ndarray, optional
         (B) Number of clusters in each entry of the batch
-    method : str, default 'voxel'
-        Either the closest voxel distance ('voxel') of the cluster centroid
-        distance ('centroid')
-    algorithm : str, default 'brute'
-        Algorithm used to compute the 'voxel' distance. The 'brute' method
-        is exact but slow, 'recursive' uses a fast but approximate method.
+    centroid : bool, default False
+        If `True`, use the centroid distance as a fast, approximate proxy
+    iterative : bool, default False
+        If `True`, uses an iterative, fast approximation to compute voxel distance
     return_index : bool, default True
         Returns a combined index of the closest pair of voxels for each
-        cluster, if the 'voxel' distance method is used
+        cluster, if the 'centroid' distance method is not used
 
     Returns
     -------
@@ -337,49 +338,47 @@ def inter_cluster_distance(voxels, clusts, counts=None, method='voxel',
             return np.empty((0, 0), dtype=voxels.dtype)
 
         return _inter_cluster_distance(
-                voxels, clusts, counts, method, algorithm)
+                voxels, clusts, counts, centroid, iterative)
 
     else:
         # If there are no clusters, return empty
-        assert method == 'voxel', "Cannot return index for centroid method."
+        assert not centroid, "Cannot return index for centroid method."
         if len(clusts) == 0:
             return (np.empty((0, 0), dtype=voxels.dtype),
                     np.empty((0, 0), dtype=np.int64))
 
         return _inter_cluster_distance_index(
-                voxels, clusts, counts, algorithm)
+                voxels, clusts, counts, iterative)
 
 @nb.njit(parallel=True, cache=True)
 def _inter_cluster_distance(voxels: nb.float32[:,:],
                             clusts: nb.types.List(nb.int64[:]),
                             counts: nb.int64[:],
-                            method: str = 'voxel',
-                            algorithm: str = 'brute') -> nb.float32[:,:]:
+                            centroid: nb.boolean = False,
+                            iterative: nb.boolean = False) -> nb.float32[:,:]:
 
     # Loop over the upper diagonal elements of each block on the diagonal
     dist_mat = np.zeros((len(clusts), len(clusts)), dtype=voxels.dtype)
     indxi, indxj = complete_graph(counts)
-    if method == 'voxel':
+    if not centroid:
         for k in nb.prange(len(indxi)):
             # Identifiy the two voxels closest to each other in each cluster
             i, j = indxi[k], indxj[k]
-            dist_mat[i, j] = dist_mat[j, i] = nbl.closest_pair(
-                    voxels[clusts[i]], voxels[clusts[j]], algorithm)[-1]
+            dist_mat[i, j] = dist_mat[j, i] = sm.distance.closest_pair(
+                    voxels[clusts[i]], voxels[clusts[j]], iterative)[-1]
 
-    elif method == 'centroid':
+    else:
         # Compute the centroid of each cluster
         dtype = voxels.dtype
         centroids = np.empty((len(clusts), voxels.shape[1]), dtype=dtype)
         for i in nb.prange(len(clusts)):
-            centroids[i] = nbl.mean(voxels[clusts[i]], axis=0)
+            centroids[i] = sm.mean(voxels[clusts[i]], axis=0)
 
         # Measure the distance between cluster centroids
         for k in nb.prange(len(indxi)):
             i, j = indxi[k], indxj[k]
             dist_mat[i,j] = dist_mat[j,i] = np.sqrt(
                     np.sum((centroids[j]-centroids[i])**2))
-    else:
-        raise ValueError("Inter-cluster distance method not supported.")
 
     return dist_mat
 
@@ -387,7 +386,7 @@ def _inter_cluster_distance(voxels: nb.float32[:,:],
 def _inter_cluster_distance_index(voxels: nb.float32[:,:],
                                   clusts: nb.types.List(nb.int64[:]),
                                   counts: nb.int64[:],
-                                  algorithm: str = 'brute') -> (
+                                  iterative: nb.boolean = False) -> (
                                           nb.float32[:,:], nb.int64[:,:]):
 
     # Loop over the upper diagonal elements of each block on the diagonal
@@ -397,8 +396,8 @@ def _inter_cluster_distance_index(voxels: nb.float32[:,:],
     for k in nb.prange(len(indxi)):
         # Identify the two voxels closest to each other in each cluster
         i, j = indxi[k], indxj[k]
-        ii, jj, dist = nbl.closest_pair(
-                voxels[clusts[i]], voxels[clusts[j]], algorithm)
+        ii, jj, dist = sm.distance.closest_pair(
+                voxels[clusts[i]], voxels[clusts[j]], iterative)
         index = ii*len(clusts[j]) + jj
 
         # Store the index and the distance in a matrix

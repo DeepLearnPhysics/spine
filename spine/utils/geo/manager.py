@@ -81,6 +81,7 @@ class Geometry:
         # Initialize place-holders for the containment conditions to be defined
         # by the end-user using :func:`define_containment_volumes`
         self._cont_volumes = None
+        self._cont_limits = None
         self._cont_use_source = False
 
     def parse_configuration(self, tpc, optical=None, crt=None):
@@ -152,8 +153,8 @@ class Geometry:
         return sources
 
     def get_contributors(self, sources):
-        """Gets the list of [module ID, tpc ID] pairs that contributed to a
-        particle or interaction object, as defined in this geometry.
+        """Gets the list of [module ID, tpc ID] pairs that contributed to an
+        object, as defined in this geometry.
 
         Parameters
         ----------
@@ -465,7 +466,7 @@ class Geometry:
             (S, 2) : List of [module ID, tpc ID] pairs that created the
             point cloud
         allow_multi_module : bool, default `False`
-            Whether to allow particles/interactions to span multiple modules
+            Whether to allow points to span multiple modules
         summarize : bool, default `True`
             If `True`, only returns a single flag for the whole cloud.
             Otherwise, returns a boolean array corresponding to each point.
@@ -473,7 +474,7 @@ class Geometry:
         Returns
         -------
         Union[bool, np.ndarray]
-            `True` if the particle is contained, `False` if not
+            `True` if the points are contained, `False` if not
         """
         # If the containment volumes are not defined, throw
         if self._cont_volumes is None:
@@ -510,10 +511,19 @@ class Geometry:
                 contained |= ((points > v[:, 0]).all(axis=1) &
                               (points < v[:, 1]).all(axis=1))
 
+        # If requested, check points against the active volume limits
+        if self._cont_limits is not None:
+            if not summarize or contained:
+                for norm, limit in self._cont_limits:
+                    active = np.dot(points, norm) < limit
+                    if summarize:
+                        active = active.all()
+                    contained &= active
+
         return contained
 
     def define_containment_volumes(self, margin, cathode_margin=None,
-                                   mode ='module'):
+                                   mode='module', include_limits=True):
         """This function defines a list of volumes to check containment against.
 
         If the containment is checked against a constant volume, it is more
@@ -538,6 +548,8 @@ class Geometry:
             - If 'detector', makes sure it is contained within in the detector
             - If 'source', use the origin of voxels to determine which TPC(s)
               contributed to them, and define volumes accordingly
+        include_limits : bool, default True
+            If `True`, the TPC active region limits are checked against
         """
         # Translate the margin parameter to a (3,2) matrix
         if np.isscalar(margin):
@@ -576,6 +588,16 @@ class Geometry:
             raise ValueError(f"Containement check mode not recognized: {mode}.")
 
         self._cont_volumes = np.array(self._cont_volumes)
+
+        # Establish active region limits to check against, if requested
+        if include_limits and self.tpc.limits is not None:
+            assert np.all(margin == margin[0, 0]), (
+                    "No clear way to include active region limit checks when "
+                    "margins are different in different axes. Abort.")
+            margin = margin[0, 0]
+            self._cont_limits = []
+            for limit in self.tpc.limits:
+                self._cont_limits.append((limit.norm, limit.boundary - margin))
 
     def adapt_volume(self, ref_volume, margin, cathode_margin=None,
                      module_id=None, tpc_id=None):

@@ -14,6 +14,8 @@ from plotly import colors as pcolors
 
 from .layout import PLOTLY_COLORS_TUPLE, color_rgba, apply_latex_style
 
+__all__ = ['TrainDrawer']
+
 
 class TrainDrawer:
     """Class which centralizes function used to monitor a training process."""

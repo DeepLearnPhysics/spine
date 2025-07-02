@@ -3,7 +3,7 @@
 import numpy as np
 import numba as nb
 
-import spine.utils.numba_local as nbl
+from spine.math.linalg import submatrix
 
 from .base import GraphBase
 
@@ -75,7 +75,7 @@ class KNNGraph(GraphBase):
             clust_ids = np.where(batch_ids == b)[0]
             if len(clust_ids) > 1:
                 subk = min(k+1, len(clust_ids))
-                submat = nbl.submatrix(dist_mat, clust_ids, clust_ids)
+                submat = submatrix(dist_mat, clust_ids, clust_ids)
                 for i in range(len(submat)):
                     idxs = np.argsort(submat[i])[1:subk]
                     edges = np.empty((subk-1,2), dtype=np.int64)
