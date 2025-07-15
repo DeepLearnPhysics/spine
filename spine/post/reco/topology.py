@@ -21,11 +21,14 @@ class ParticleStartDEDXProcessor(PostBase):
     # Name of the post-processor (as specified in the configuration)
     name = 'start_dedx'
 
+    # Aliases for the post-processor
+    aliases = ('end_dedx','start_dedx_track')
+
     # List of recognized dE/dx computation modes
     _modes = ('default', 'direction')
 
     def __init__(self, radius=3.0, anchor=False, mode='direction',
-                 include_pids=(PHOT_PID, ELEC_PID), include_secondary=False):
+                 include_pids=(PHOT_PID, ELEC_PID), include_secondary=False, use_point='start'):
         """Store the particle start dE/dx reconstruction parameters.
 
         Parameters
@@ -41,6 +44,8 @@ class ParticleStartDEDXProcessor(PostBase):
             Particle species to compute the start dE/dx for
         include_secondary : bool, default False
             If `True`, computes the start dE/dx for secondary particles
+        use_point : str, default 'start'
+            Point to use for dE/dx calculation. Can be 'start' or 'end'
         """
         # Initialize the parent class
         super().__init__('particle', 'reco')
@@ -56,6 +61,7 @@ class ParticleStartDEDXProcessor(PostBase):
         self.anchor = anchor
         self.include_pids = include_pids
         self.include_secondary = include_secondary
+        self.use_point = use_point
 
         # If the method involves the direction, must run the direction PP
         if mode == 'direction':
@@ -79,19 +85,30 @@ class ParticleStartDEDXProcessor(PostBase):
             if part.pid not in self.include_pids:
                 continue
 
+            # Fetch the appropriate reference point
+            if self.use_point == 'start':
+                ref_point = part.start_point
+            elif self.use_point == 'end':
+                ref_point = part.end_point
+            else:
+                raise ValueError(f"Invalid use_point: {self.use_point}")
+
             # Compute the particle start dE/dx
             if self.mode == 'default':
                 # Use all depositions within a radius of the particle start
-                part.start_dedx = cluster_dedx(
-                        part.points, part.depositions, part.start_point,
+                dedx = cluster_dedx(
+                        part.points, part.depositions, ref_point,
                         max_dist=self.radius, anchor=self.anchor)
 
             else:
                 # Use the particle direction estimate as a guide
-                part.start_dedx = cluster_dedx_dir(
-                        part.points, part.depositions, part.start_point,
+                dedx = cluster_dedx_dir(
+                        part.points, part.depositions, ref_point,
                         part.start_dir, max_dist=self.radius,
                         anchor=self.anchor)[0]
+
+            # Store the dE/dx
+            setattr(part, f'{self.use_point}_dedx', dedx)
 
 
 class ParticleStartStraightnessProcessor(PostBase):
