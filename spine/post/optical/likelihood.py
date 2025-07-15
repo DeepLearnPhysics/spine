@@ -12,8 +12,7 @@ class LikelihoodFlashMatcher:
     See https://github.com/drinkingkazu/OpT0Finder for more details about it.
     """
 
-    def __init__(self, cfg, detector, parent_path=None,
-                 reflash_merging_window=None, scaling=1., alpha=0.21,
+    def __init__(self, cfg, detector, parent_path=None, scaling=1., alpha=0.21,
                  recombination_mip=0.65, legacy=False):
         """Initialize the likelihood-based flash matching algorithm.
 
@@ -25,8 +24,6 @@ class LikelihoodFlashMatcher:
             Detector to get the geometry from
         parent_path : str, optional
             Path to the parent configuration file (allows for relative paths)
-        reflash_merging_window : float, optional
-            Maximum time between successive flashes to be considered a reflash
         scaling : Union[float, str], default 1.
             Global scaling factor for the depositions (can be an expression)
         alpha : float, default 0.21
@@ -40,7 +37,6 @@ class LikelihoodFlashMatcher:
         self.initialize_backend(cfg, detector, parent_path)
 
         # Get the external parameters
-        self.reflash_merging_window = reflash_merging_window
         self.scaling = scaling
         if isinstance(self.scaling, str):
             self.scaling = eval(self.scaling)
@@ -239,7 +235,6 @@ class LikelihoodFlashMatcher:
             for i in range(len(f.pe_per_ch)):
                 flash.pe_v.push_back(f.pe_per_ch[i])
                 flash.pe_err_v.push_back(0.)
-                flash.closest_pds_v.push_back(1e9)
 
             # Append
             flash_v.append(flash)
@@ -326,7 +321,6 @@ class LikelihoodFlashMatcher:
             else: return flash
 
         raise Exception('Flash {idx} does not exist in self.flash_v')
-
 
     def get_match(self, idx):
         """Fetch a match for a given TPC interaction ID.

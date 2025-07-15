@@ -12,6 +12,7 @@ Contains the following parsers:
 from spine.data import Meta, RunInfo, Flash, CRTHit, Trigger
 
 from spine.utils.conditional import larcv
+from spine.utils.optical import FlashMerger
 
 from .base import ParserBase
 from .data import ParserObjectList
@@ -66,7 +67,7 @@ class MetaParser(ParserBase):
         projection_id : int, optional
             Projection ID to get the 2D image from (if fetching from 2D)
         **kwargs : dict, optional
-            Data product arguments to be passed to the `process` function
+            data product arguments to be passed to the `process` function
         """
         # Initialize the parent class
         super().__init__(**kwargs)
@@ -185,6 +186,24 @@ class FlashParser(ParserBase):
     # Type of object(s) returned by the parser
     returns = 'object_list'
 
+    def __init__(self, merge=None, **kwargs):
+        """Initialize the flash parser.
+
+        Parameters
+        ----------
+        merge : dict, optional
+            Flash merging configuration
+        **kwargs : dict, optional
+            data product arguments to be passed to the `process` function
+        """
+        # Initialize the parent class
+        super().__init__(**kwargs)
+
+        # Initialize the flash merging class, if needed
+        self.merger = None
+        if merge is not None:
+            self.merger = FlashMerger(**merge)
+
     def __call__(self, trees):
         """Parse one entry.
 
@@ -236,6 +255,10 @@ class FlashParser(ParserBase):
                     # Append, increment counter
                     flashes.append(flash)
                     idx += 1
+
+        # If requested, merge flashes which match in time
+        if self.merger is not None:
+            flashes, _ = merger(flashes)
 
         return ParserObjectList(flashes, Flash())
 

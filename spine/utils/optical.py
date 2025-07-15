@@ -1,62 +1,123 @@
+"""Defines objects and methods related to optical information."""
+
+from copy import deepcopy
+
 import numpy as np
-import copy
 
-def merge_flashes(flashes, merge_threshold=1.0, time_method='min', merge_window=None):
-    """Merge flashes from a list of flash events and track original IDs.
+from .geo import Geometry
 
-    Parameters
-    ----------
-    flashes : list
-        List of flash objects (e.g., FlashEvent). Assumes each flash has
-        an 'id' attribute and a 'merge' method.
-    merge_threshold : float, optional
-        Time difference threshold (in seconds or consistent units with flash.time)
-        for merging flashes from different volumes, by default 1.0.
-    time_method : str, optional
-        Method used to determine the time of the merged flash ('min', 'max', 'weighted', etc.),
-        passed to the flash.merge method, by default 'min'.
-    merge_window : list, optional
-        Time window (in us) to merge flashes, by default None. If flash times are outside of this window they are not considered for merging.
+__all__ = ['FlashMerger']
 
-    Returns
-    -------
-    flashes : list
-        List of merged flashes
-    flash2oldflash_dict : dict
-        Dictionary of flash to old flash mapping
-    """
-    if not flashes: # Handle empty input list
-        return [], {}
-    
-    #Initialize the list of old flashes and the dictionary of flash to old flash mapping
-    old_flashes = copy.deepcopy(flashes)
-    unique_volume_ids = [0,1] #TODO: Use the detector geometry to get the unique volume ids
-    flash2oldflash_dict = {f.id: [f]+[None]*(len(unique_volume_ids)-1) for f in old_flashes}
 
-    flashes_to_pop = []
-    for i,flash in enumerate(flashes):
-        for j,other_flash in enumerate(flashes):
-            if i != j and flash.volume_id != other_flash.volume_id and j not in flashes_to_pop and i not in flashes_to_pop:
-                #Check if the two flashes are compatible in time, if so merge them
-                if np.abs(flash.time - other_flash.time) < merge_threshold:
-                    if merge_window is not None:
-                        #Check if the flashes are within the merge window
-                        if flash.time < merge_window[0] or flash.time > merge_window[1] or other_flash.time < merge_window[0] or other_flash.time > merge_window[1]:
-                            continue
-                    flash2oldflash_dict[old_flashes[i].id] = [old_flashes[i],old_flashes[j]]
-                    flash.merge(other_flash, time_method=time_method)
-                    #Remove the other flash
-                    flashes_to_pop.append(j)
+class FlashMerger:
+    """Class which takes care of merging flashes together."""
 
-    #Remove the flashes that were merged
-    for i in sorted(flashes_to_pop, reverse=True):
-        flashes.pop(i)
-        #Remove the flashes from the dictionary and reassign the ids
-        flash2oldflash_dict.pop(i)
-    #Reassign the keys for the dictionary
-    flash2oldflash_dict = {i: flash2oldflash_dict[f.id] for i,f in enumerate(flashes)}
-    #Reassign the flash id
-    for i,flash in enumerate(flashes):
-        flash.id = i
-        flash.volume_id = 0 #TODO: Set to whatever level of volume you're merging to. If we're merging at TPC level to the module lebel this should be the module id.
-    return flashes, flash2oldflash_dict
+    def __init__(self, threshold=1.0, window=None, combine_volumes=True):
+        """Initialize the flash merging class.
+
+        Parameters
+        ----------
+        threshold : float, default 1.0
+            Maximum time difference (in us) between two successive flashes for
+            them to be merged into one combined flash
+        window : List[float], optional
+            Time window (in us) within which to merge flashes. If flash times
+            are outside of this window they are not considered for merging.
+        combine_volumes : bool, default True
+            If `True`, merge flashes from different optical volumes
+        """
+        # Store merging parameters
+        self.threshold = threshold
+        self.window = window
+        self.combine_volumes = combine_volumes
+
+        # Check on the merging time window formatting
+        assert window is None or (hasattr(window, '__len__') and len(window) == 2), (
+                "The `window` parameter should be a list/tuple of two numbers.")
+
+    def __call__(self, flashes):
+        """Combine flashes if they are compatible in time.
+
+        Parameters
+        ----------
+        flashes : List[Flash]
+            List of flash objects
+
+        Returns
+        -------
+        List[Flash]
+            (M) List of merged flashes
+        List[List[int]]
+            (M) List of original flash indexes which make up the merged flashes
+        """
+        # If there is less than two flashes, nothing to do
+        if len(flashes) < 2:
+            return flashes, np.arange(len(flashes))
+
+        # Dispatch
+        if not self.combine_volumes:
+            # Only merge flashes when they belong to the same volume
+            volume_ids = np.array([f.volume_id for f in flashes])
+            new_flashes, orig_ids = [], []
+            for volume_id in np.unique(volume_ids):
+                index = np.where(volume_ids == volume_id)[0]
+                flashes_i, orig_ids_i = self.merge([flashes[i] for i in index])
+                new_flashes.extend(flashes_i)
+                for ids in orig_ids_i:
+                    orig_ids.append(index[ids])
+
+            return new_flashes, orig_ids
+
+        else:
+            # Merge flashes regardless of their optical volume
+            return self.merge(flashes)
+
+    def merge(self, flashes):
+        """Merge flashes if they are compatible in time.
+
+        Parameters
+        ----------
+        flashes : List[Flash]
+            List of flash objects
+
+        Returns
+        -------
+        List[Flash]
+            (M) List of merged flashes
+        List[List[int]]
+            (M) List of original flash indexes which make up the merged flashes
+        """
+        # Order the flashes in time, merge them if they are compatible
+        times = [f.time for f in flashes]
+        perm = np.argsort(times)
+        new_flashes = [deepcopy(flashes[perm[0]])]
+        new_flashes[-1].id = 0
+        orig_ids = [[perm[0]]]
+        in_window = True
+        for i in range(1, len(perm)):
+            # Check the both flashes to be merged are in the merging window
+            prev, curr = flashes[perm[i-1]], flashes[perm[i]]
+            if self.window is not None:
+                in_window = (prev.time > self.window[0] and
+                             curr.time < self.window[1])
+
+            # Check that the two consecutive flashes are compatible in time
+            if in_window and (curr.time - prev.time) < self.threshold:
+                # Merge the successive flashes if they are comptible in time
+                new_flashes[-1].merge(curr)
+                orig_ids[-1].append(perm[i])
+
+            else:
+                # If the two flashes are not compatible, add a new one
+                new_flashes.append(deepcopy(curr))
+                orig_ids.append([perm[i]])
+
+                # Reset the flash index to match the new list
+                new_flashes[-1].id = len(new_flashes) - 1
+
+        # Reset the volume IDs, if necessary
+        if self.combine_volumes:
+            for flash in new_flashes:
+                flash.volume_id = 0
+
+        return new_flashes, orig_ids
