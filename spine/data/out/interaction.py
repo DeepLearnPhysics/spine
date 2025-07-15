@@ -120,6 +120,28 @@ class InteractionBase:
 
         return info
 
+    def reset_flash_match(self, typed=True):
+        """Reset all the flash matching attributes.
+
+        Parameters
+        ----------
+        typed : bool, default True
+            If `True`, the underlying arrays are reset to typed empty arrays
+        """
+        self.is_flash_matched = False
+        self.flash_total_pe = -1.
+        self.flash_type_pe = -1.
+        if typed:
+            self.flash_ids = np.empty(0, dtype=np.int32)
+            self.flash_volume_ids = np.empty(0, dtype=np.int32)
+            self.flash_times = np.empty(0, dtype=np.float32)
+            self.flash_scores = np.empty(0, dtype=np.float32)
+        else:
+            self.flash_ids = []
+            self.flash_volume_ids = []
+            self.flash_times = []
+            self.flash_scores = []
+
     @property
     def primary_particles(self):
         """List of primary particles associated with this interaction.

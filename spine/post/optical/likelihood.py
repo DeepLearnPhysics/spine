@@ -12,8 +12,7 @@ class LikelihoodFlashMatcher:
     See https://github.com/drinkingkazu/OpT0Finder for more details about it.
     """
 
-    def __init__(self, cfg, detector, parent_path=None,
-                 reflash_merging_window=None, scaling=1., alpha=0.21,
+    def __init__(self, cfg, detector, parent_path=None, scaling=1., alpha=0.21,
                  recombination_mip=0.65, legacy=False):
         """Initialize the likelihood-based flash matching algorithm.
 
@@ -25,8 +24,6 @@ class LikelihoodFlashMatcher:
             Detector to get the geometry from
         parent_path : str, optional
             Path to the parent configuration file (allows for relative paths)
-        reflash_merging_window : float, optional
-            Maximum time between successive flashes to be considered a reflash
         scaling : Union[float, str], default 1.
             Global scaling factor for the depositions (can be an expression)
         alpha : float, default 0.21
@@ -40,7 +37,6 @@ class LikelihoodFlashMatcher:
         self.initialize_backend(cfg, detector, parent_path)
 
         # Get the external parameters
-        self.reflash_merging_window = reflash_merging_window
         self.scaling = scaling
         if isinstance(self.scaling, str):
             self.scaling = eval(self.scaling)
@@ -222,23 +218,6 @@ class LikelihoodFlashMatcher:
         List[Flash_t]
             List of flashmatch::Flash_t objects
         """
-        # If requested, merge flashes that are compatible in time
-        if self.reflash_merging_window is not None:
-            times = [f.time for f in flashes]
-            perm = np.argsort(times)
-            new_flashes = [flashes[perm[0]]]
-            for i in range(1, len(perm)):
-                prev, curr = perm[i-1], perm[i]
-                if ((flashes[curr].time - flashes[prev].time)
-                    < self.reflash_merging_window):
-                    # If compatible, simply add up the PEs
-                    pe_v = flashes[prev].pe_per_ch + flashes[curr].pe_per_ch
-                    new_flashes[-1].pe_per_ch = pe_v
-                else:
-                    new_flashes.append(flashes[curr])
-
-            flashes = new_flashes
-
         # Loop over the optical flashes
         from flashmatch import flashmatch
         flash_v = []
@@ -342,7 +321,6 @@ class LikelihoodFlashMatcher:
             else: return flash
 
         raise Exception('Flash {idx} does not exist in self.flash_v')
-
 
     def get_match(self, idx):
         """Fetch a match for a given TPC interaction ID.
