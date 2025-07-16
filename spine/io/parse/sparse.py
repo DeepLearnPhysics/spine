@@ -13,7 +13,7 @@ import numpy as np
 from spine.data import Meta
 
 from spine.utils.globals import GHOST_SHP, SHAPE_PREC
-from spine.utils.ghost import compute_rescaled_charge
+from spine.utils.ghost import ChargeRescaler
 from spine.utils.conditional import larcv
 
 from .base import ParserBase
@@ -457,9 +457,8 @@ class Sparse3DChargeRescaledParser(Sparse3DParser):
         # Initialize the parent class
         super().__init__(dtype, **kwargs)
 
-        # Store the revelant attributes
-        self.collection_only = collection_only
-        self.collection_id = collection_id
+        # Initialize the charge rescaler
+        self.rescaler = ChargeRescaler(collection_only, collection_id)
 
     def __call__(self, trees):
         """Parse one entry.
@@ -497,10 +496,7 @@ class Sparse3DChargeRescaledParser(Sparse3DParser):
 
         # Use individual hit informations to compute a rescaled charge
         deghost_mask = np.where(tensor.features[:, -1] < GHOST_SHP)[0]
-        charges = compute_rescaled_charge(
-                tensor.features[deghost_mask, :-1],
-                collection_only=self.collection_only,
-                collection_id=self.collection_id)
+        charges = self.rescaler.process_single(tensor.features[deghost_mask, :-1])
 
         tensor.features = charges[:, None]
 

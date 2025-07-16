@@ -17,13 +17,14 @@ from .layer.common.dbscan import DBSCAN
 # TODO: raname it something more generic like ParticleClusterImageClassifier?
 
 from spine.data import TensorBatch, IndexBatch, RunInfo
+
 from spine.utils.logger import logger
 from spine.utils.globals import (
         COORD_COLS, VALUE_COL, CLUST_COL, SHAPE_COL, SHOWR_SHP, TRACK_SHP,
         MICHL_SHP, DELTA_SHP, GHOST_SHP)
+from spine.utils.ghost import ChargeRescaler
 from spine.utils.calib import CalibrationManager
 from spine.utils.ppn import ParticlePointPredictor
-from spine.utils.ghost import compute_rescaled_charge_batch
 from spine.utils.cluster.label import ClusterLabelAdapter
 from spine.utils.gnn.cluster import (
         form_clusters_batch, get_cluster_label_batch)
@@ -163,6 +164,11 @@ class FullChain(torch.nn.Module):
                     "If the deghosting is using UResNet, must provide the "
                     "`uresnet_deghost` configuration block.")
             self.uresnet_deghost = UResNetSegmentation(uresnet_deghost)
+
+        # Initialize the charge rescaling process (adapt to ghost predictions)
+        if self.charge_rescaling is not None:
+            self.charge_rescaler = ChargeRescaler(
+                    collection_only=self.charge_rescaling == 'collection')
 
         # Initialize the semantic segmentation model (+ point proposal)
         if self.segmentation is not None and self.segmentation == 'uresnet':
@@ -363,8 +369,7 @@ class FullChain(torch.nn.Module):
 
             # Rescale the charge, if requested
             if self.charge_rescaling is not None:
-                charges = compute_rescaled_charge_batch(
-                        data_adapt, self.charge_rescaling == 'collection')
+                charges = self.charge_rescaler(data_adapt)
                 tensor_deghost = data_adapt.tensor[:, :-6]
                 tensor_deghost[:, VALUE_COL] = charges
                 data_adapt.data = tensor_deghost
