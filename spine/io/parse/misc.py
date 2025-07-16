@@ -17,7 +17,7 @@ from spine.utils.optical import FlashMerger
 from .base import ParserBase
 from .data import ParserObjectList
 
-__all__ = ['MetaParser', 'RunInfoParser',
+__all__ = ['MetaParser', 'RunInfoParser', 'FlashParser',
            'CRTHitParser', 'TriggerParser']
 
 
