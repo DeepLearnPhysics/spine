@@ -253,7 +253,7 @@ class CollateAll:
         # Dispatch
         if not self.split or sources is None:
             tensor = np.concatenate([sample[key].features for sample in batch])
-            counts = [len(sample[key]) for sample in batch]
+            counts = [len(sample[key].features) for sample in batch]
 
         else:
             batch_size = len(batch)
