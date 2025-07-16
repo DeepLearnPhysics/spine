@@ -4,22 +4,25 @@ import numpy as np
 from scipy.stats import pearsonr
 from sklearn.decomposition import PCA
 
-from spine.utils.globals import PHOT_PID, ELEC_PID
+from spine.utils.globals import SHOWR_SHP, PHOT_PID, ELEC_PID
 from spine.utils.gnn.cluster import cluster_dedx, cluster_dedx_dir
 
 from spine.post.base import PostBase
 
-__all__ = ['ParticleStartDEDXProcessor', 'ParticleStartStraightnessProcessor',
+__all__ = ['ParticleDEDXProcessor', 'ParticleStartStraightnessProcessor',
            'ParticleSpreadProcessor']
 
 
-class ParticleStartDEDXProcessor(PostBase):
+class ParticleDEDXProcessor(PostBase):
     """Compute the dE/dx of the particle start by summing the energy depositions
     along the particle start and dividing by the total length of the start.
     """
 
     # Name of the post-processor (as specified in the configuration)
-    name = 'start_dedx'
+    name = 'local_dedx'
+
+    # Aliases for the post-processor
+    aliases = ('start_dedx', 'end_dedx')
 
     # List of recognized dE/dx computation modes
     _modes = ('default', 'direction')
@@ -79,19 +82,31 @@ class ParticleStartDEDXProcessor(PostBase):
             if part.pid not in self.include_pids:
                 continue
 
-            # Compute the particle start dE/dx
-            if self.mode == 'default':
-                # Use all depositions within a radius of the particle start
-                part.start_dedx = cluster_dedx(
-                        part.points, part.depositions, part.start_point,
-                        max_dist=self.radius, anchor=self.anchor)
+            # Loop over the two sides of the particle
+            for side in ('start', 'end'):
+                # Showers have no end points, skip
+                if side == 'end' and part.shape == SHOWR_SHP:
+                    continue
 
-            else:
-                # Use the particle direction estimate as a guide
-                part.start_dedx = cluster_dedx_dir(
-                        part.points, part.depositions, part.start_point,
-                        part.start_dir, max_dist=self.radius,
-                        anchor=self.anchor)[0]
+                # Fetch the point
+                ref_point = getattr(part, f'{side}_point')
+
+                # Compute the particle end dE/dx
+                if self.mode == 'default':
+                    # Use all depositions within a radius of the particle point
+                    dedx = cluster_dedx(
+                            part.points, part.depositions, ref_point,
+                            max_dist=self.radius, anchor=self.anchor)
+
+                else:
+                    # Use the particle direction estimate as a guide
+                    ref_dir = getattr(part, f'{side}_dir')*(-1)**(end == 'end')
+                    dedx = cluster_dedx_dir(
+                            part.points, part.depositions, ref_point, ref_dir,
+                            max_dist=self.radius, anchor=self.anchor)[0]
+
+                # Store the dE/dx
+                setattr(part, f'{side}_dedx', dedx)
 
 
 class ParticleStartStraightnessProcessor(PostBase):
