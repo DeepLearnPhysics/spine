@@ -1,10 +1,11 @@
 """Cathode crossing identification + merging module."""
 
 import numpy as np
+from scipy.spatial.distance import cdist
 
 from spine.data import RecoInteraction, TruthInteraction
 
-from spine.math.distance import cdist, farthest_pair
+from spine.math.distance import farthest_pair
 
 from spine.utils.globals import TRACK_SHP
 from spine.utils.geo import Geometry
@@ -81,7 +82,6 @@ class CathodeCrosserProcessor(PostBase):
             keys['points'] = True
         if run_mode != 'reco':
             keys[truth_point_mode] = True
-
         self.update_keys(keys)
 
     def process(self, data):
@@ -92,6 +92,11 @@ class CathodeCrosserProcessor(PostBase):
         data : dict
             Dictionary of data products
         """
+        # Reset all particle/interaction matches, they are broken by merging
+        for obj_key in self.obj_keys:
+            for obj in data[obj_key]:
+                obj.reset_match()
+
         # Loop over particle types
         update_dict = {}
         for part_key in self.particle_keys:
@@ -188,8 +193,7 @@ class CathodeCrosserProcessor(PostBase):
                     # Check if the two particles stop at roughly the same
                     # position in the plane of the cathode
                     compat = True
-                    dist_mat = cdist(
-                            end_points_i[:, caxes], end_points_j[:, caxes])
+                    dist_mat = cdist(end_points_i[:, caxes], end_points_j[:, caxes])
                     argmin = np.argmin(dist_mat)
                     pair_i, pair_j = np.unravel_index(argmin, (2, 2))
                     compat &= (
@@ -257,7 +261,6 @@ class CathodeCrosserProcessor(PostBase):
             Index of a matched cathode crosser fragment
         truth : bool, default False
             If True, adjust truth object positions
-
         Results
         -------
         np.ndarray

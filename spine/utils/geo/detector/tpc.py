@@ -195,6 +195,17 @@ class Module(Box):
         """
         return np.mean([c.cathode_pos for c in self.chambers])
 
+    @property
+    def cathode_thickness(self):
+        """Thickness of the cathode.
+
+        Returns
+        -------
+        float
+            Thickness of the cathode
+        """
+        return abs(self.chambers[1].cathode_pos - self.chambers[0].cathode_pos)
+
     def __len__(self):
         """Returns the number of TPCs in the module.
 

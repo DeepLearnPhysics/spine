@@ -89,6 +89,11 @@ class OutBase(PosDataBase):
     # Attributes that must not be stored to file when storing lite files
     _lite_skip_attrs = ('index',)
 
+    def reset_match(self):
+        """Resets the reco/truth matching information for the object."""
+        self.is_matched = False
+        self.match_ids = np.empty(0, dtype=np.int64)
+
     @property
     def size(self):
         """Total number of voxels that make up the object.
