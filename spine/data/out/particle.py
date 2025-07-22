@@ -196,13 +196,6 @@ class ParticleBase:
     def p(self, p):
         pass
 
-    def unmatch(self):
-        """
-        Unmatch the particle from its reco or truth particle match.
-        """
-        self.match_ids = []
-        self.is_matched = False
-
 
 @dataclass(eq=False)
 @inherit_docstring(RecoBase, ParticleBase)
