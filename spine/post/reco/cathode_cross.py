@@ -193,8 +193,7 @@ class CathodeCrosserProcessor(PostBase):
                     # Check if the two particles stop at roughly the same
                     # position in the plane of the cathode
                     compat = True
-                    dist_mat = scipy_cdist(
-                            end_points_i[:, caxes], end_points_j[:, caxes])
+                    dist_mat = cdist(end_points_i[:, caxes], end_points_j[:, caxes])
                     argmin = np.argmin(dist_mat)
                     pair_i, pair_j = np.unravel_index(argmin, (2, 2))
                     compat &= (
