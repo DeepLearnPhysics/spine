@@ -195,9 +195,9 @@ def get_track_deposition_gradient(coordinates: nb.float32[:,:],
     seg_dedxs = seg_dedxs[valid_index]
     seg_rrs = seg_rrs[valid_index]
 
-    # Compute the dE/dx gradient
-    gradient = np.cov(seg_rrs, seg_dedxs)[0,1]/np.std(seg_rrs)**2 \
-            if np.std(seg_rrs) > 0. else 0.
+    # Compute the dE/dx gradient = Cov(x,y) / Var(x)
+    cov = np.cov(seg_rrs, seg_dedxs)
+    gradient = cov[0,1]/cov[0,0] if cov[0,0] > 0. else 0.
 
     return gradient, seg_dedxs, seg_rrs, seg_lengths
 
