@@ -90,8 +90,9 @@ class GeoDrawer:
         return detectors
 
     def optical_traces(self, meta=None, shared_legend=True, legendgroup=None,
-                       name='Optical', color='rgba(0,0,255,0.25)', cmin=None,
-                       cmax=None, zero_supress=False, volume_id=None, **kwargs):
+                       name='Optical', color='rgba(0,0,255,0.25)',
+                       hovertext=None, cmin=None, cmax=None, zero_supress=False,
+                       volume_id=None, **kwargs):
         """Function which produces a list of traces which represent the optical
         detectors in a 3D event display.
 
@@ -108,6 +109,8 @@ class GeoDrawer:
             Name(s) of the detector volumes
         color : Union[int, str, np.ndarray]
             Color of optical detectors or list of color of optical detectors
+        hovertext : Union[str, List[str]], optional
+            Label or list of labels associated with each optical detector
         cmin : float, optional
             Minimum value along the color scale
         cmax : float, optional
@@ -157,6 +160,21 @@ class GeoDrawer:
             assert len(color) == len(positions), (
                     "Must provide one value for each optical detector.")
 
+        # Build the hovertext vectors
+        if hovertext is not None:
+            if np.isscalar(hovertext):
+                hovertext = [hovertext]*len(positions)
+            elif len(hovertext) != len(positions):
+                raise ValueError(
+                        "The `hovertext` attribute should be provided as a scalar, "
+                        "one value per point or one value per optical detector.")
+
+        else:
+            hovertext = [f'PD ID: {i}' for i in range(len(positions))]
+            if color is not None and not np.isscalar(color):
+                for i, hc in enumerate(hovertext):
+                    hovertext[i] = hc + f'<br>Value: {color[i]:.3f}'
+
         # If cmin/cmax are not provided, must build them so that all optical
         # detectors share the same colorscale range (not guaranteed otherwise)
         if color is not None and not np.isscalar(color) and len(color) > 0:
@@ -176,6 +194,7 @@ class GeoDrawer:
             if shape_ids is None:
                 pos = positions
                 col = color
+                ht = hovertext
             else:
                 index = np.where(np.asarray(shape_ids) == i)[0]
                 pos = positions[index]
@@ -183,6 +202,7 @@ class GeoDrawer:
                     col = color[index]
                 else:
                     col = color
+                ht = [hovertext[i] for i in index]
 
             # If zero-supression is requested, only draw the optical detectors
             # which record a non-zero signal
@@ -190,6 +210,7 @@ class GeoDrawer:
                 index = np.where(np.asarray(col) != 0)[0]
                 pos = pos[index]
                 col = col[index]
+                ht = [ht[i] for i in index]
 
             # Determine wheter to show legends or not
             showlegend = not shared_legend or i == 0
@@ -204,7 +225,8 @@ class GeoDrawer:
                 traces += box_traces(
                         lower, upper, shared_legend=shared_legend, name=name,
                         color=col, cmin=cmin, cmax=cmax, draw_faces=True,
-                        legendgroup=legendgroup, showlegend=showlegend, **kwargs)
+                        hovertext=ht, legendgroup=legendgroup,
+                        showlegend=showlegend, **kwargs)
 
             else:
                 # Convert the optical detector dimensions to a covariance matrix
@@ -214,7 +236,8 @@ class GeoDrawer:
                 traces += ellipsoid_traces(
                         pos, covmat, shared_legend=shared_legend, name=name,
                         color=col, cmin=cmin, cmax=cmax,
-                        legendgroup=legendgroup, showlegend=showlegend, **kwargs)
+                        hovertext=ht, legendgroup=legendgroup,
+                        showlegend=showlegend, **kwargs)
 
         return traces
 
