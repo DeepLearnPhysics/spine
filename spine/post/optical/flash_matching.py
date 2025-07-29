@@ -153,7 +153,6 @@ class FlashMatchProcessor(PostBase):
         # Merge flashes based on timing, if requested
         if self.merger is not None:
             flashes, orig_ids = self.merger(flashes)
-            print(orig_ids)
 
         # Loop over the optical volumes, run flash matching
         for k in self.interaction_keys:
