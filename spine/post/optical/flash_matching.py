@@ -98,7 +98,7 @@ class FlashMatchProcessor(PostBase):
         if merge is not None:
             self.merger = FlashMerger(**merge)
         self.update_flashes = update_flashes
-        
+
     def process(self, data):
         """Find [interaction, flash] pairs.
 
@@ -130,6 +130,26 @@ class FlashMatchProcessor(PostBase):
         flashes = data[self.flash_key]
         volume_ids = np.asarray([f.volume_id for f in flashes])
 
+        # Resize the PE vectors to match the optical geometry
+        # TODO: ideally this should not happen in the flash matcher...
+        for flash in flashes:
+            # Reshape the flash based on geometry
+            pe_per_ch = np.zeros(
+                    self.geo.optical.num_detectors_per_volume,
+                    dtype=flash.pe_per_ch.dtype)
+            if (self.ref_volume_id is not None and
+                len(flash.pe_per_ch) > len(pe_per_ch)):
+                # If the flash spans > 1 optical volume, reshape
+                lower = flash.volume_id*len(pe_per_ch)
+                upper = (flash.volume_id + 1)*len(pe_per_ch)
+                pe_per_ch = flash.pe_per_ch[lower:upper]
+
+            else:
+                # Otherwise, just pad if it does not fill the full length
+                pe_per_ch[:len(flash.pe_per_ch)] = flash.pe_per_ch
+
+            flash.pe_per_ch = pe_per_ch
+
         # Merge flashes based on timing, if requested
         if self.merger is not None:
             flashes, orig_ids = self.merger(flashes)
@@ -153,27 +173,9 @@ class FlashMatchProcessor(PostBase):
                 # Get the list of flashes associated with this optical volume
                 flashes_v = []
                 for flash in flashes:
-                    # Skip if the flash is not associated with the right volume
-                    if flash.volume_id != volume_id:
-                        continue
-
-                    # Reshape the flash based on geometry
-                    pe_per_ch = np.zeros(
-                            self.geo.optical.num_detectors_per_volume,
-                            dtype=flash.pe_per_ch.dtype)
-                    if (self.ref_volume_id is not None and
-                        len(flash.pe_per_ch) > len(pe_per_ch)):
-                        # If the flash spans > 1 optical volume, reshape
-                        lower = flash.volume_id*len(pe_per_ch)
-                        upper = (flash.volume_id + 1)*len(pe_per_ch)
-                        pe_per_ch = flash.pe_per_ch[lower:upper]
-
-                    else:
-                        # Otherwise, just pad if it does not fill the full length
-                        pe_per_ch[:len(flash.pe_per_ch)] = flash.pe_per_ch
-
-                    flash.pe_per_ch = pe_per_ch
-                    flashes_v.append(flash)
+                    if flash.volume_id == volume_id:
+                        flash.pe_per_ch = pe_per_ch
+                        flashes_v.append(flash)
 
                 # Crop interactions to only include depositions in the optical volume
                 interactions_v = []
