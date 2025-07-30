@@ -174,7 +174,6 @@ class FlashMatchProcessor(PostBase):
                 flashes_v = []
                 for flash in flashes:
                     if flash.volume_id == volume_id:
-                        flash.pe_per_ch = pe_per_ch
                         flashes_v.append(flash)
 
                 # Crop interactions to only include depositions in the optical volume
