@@ -494,18 +494,20 @@ class PPNLoss(torch.nn.modules.loss._Loss):
 
     @staticmethod
     def get_ppn_positives(coords: torch.Tensor,
-                          labels: torch.Tensor,
                           ppn_labels: torch.Tensor,
                           resolution: float,
-                          offset: int):
-        """Get ppn positive label mask, but with cluster restrictions.
+                          offset: int,
+                          labels: torch.Tensor=None):
+        """Get ppn positive label mask.
+
+        If the voxel `labels` are provided, they are used to restrict the mask
+        applied to voxels within some distance of label points associated with
+        the correct particle instance.
 
         Parameters
         ----------
         coords : torch.Tensor
             (N, 3) 3D coordinates of the image voxels
-        labels : torch.Tensor
-            (N) tensor of the particle id label for each voxel
         ppn_label : torch.Tensor
             (N, 1 + D + N_l) Tensor of PPN labels for the batch
         resolution : float
@@ -514,6 +516,8 @@ class PPNLoss(torch.nn.modules.loss._Loss):
         offset : int
             The index offset needed to transform within-batch index to
             global (image) index.
+        labels : torch.Tensor, optional
+            (N) tensor of the particle id label for each voxel
 
         Returns
         -------
@@ -522,26 +526,28 @@ class PPNLoss(torch.nn.modules.loss._Loss):
         closests : torch.Tensor
             (N) tensor of the closest label point index
         """
+        # Detach this process from the computation graph (mask not learnable)
+        with torch.no_grad():
+            # Compute the distance from the PPN labels to all the image points
+            dist_mat = cdist_fast(ppn_labels[:, COORD_COLS], coords)
 
-        # Compute the distance from the PPN labels to all the image points
-        dist_mat = cdist_fast(ppn_labels[:, COORD_COLS], coords)
+            # Mask out particle voxels for which the particle ID disagrees
+            if labels is not None:
+                bad_mask = ppn_labels[:, [PPN_LPART_COL]] != labels
+                dist_mat[bad_mask] = torch.inf
 
-        # Mask out particle voxels for which the particle ID disagrees
-        bad_mask = ppn_labels[:, [PPN_LPART_COL]] != labels
-        dist_mat[bad_mask] = torch.inf
+            # Generate a positive mask for all particle voxels within some
+            # distance of their label points
+            positives = (dist_mat < resolution).any(dim=0)
 
-        # Generate a positive mask for all particle voxels within some
-        # distance of their label points
-        positives = (dist_mat < resolution).any(dim=0)
+            # Assign the closest label point to each postive particle voxel
+            pos_index = torch.where(positives)[0]
+            closests = torch.full(
+                    (len(labels),), -1, dtype=torch.long, device=labels.device)
+            closests[pos_index] = offset + torch.argmin(
+                    dist_mat[:, pos_index], dim=0)
 
-        # Assign the closest label point to each postive particle voxel
-        pos_index = torch.where(positives)[0]
-        closests = torch.full(
-                (len(labels),), -1, dtype=torch.long, device=labels.device)
-        closests[pos_index] = offset + torch.argmin(
-                dist_mat[:, pos_index], dim=0)
-
-        return positives, closests
+            return positives, closests
 
     def forward(self, ppn_label, ppn_points, ppn_masks, ppn_layers, ppn_coords,
                 ppn_output_coords, ppn_classify_endpoints=None, clust_label=None, **kwargs):
@@ -598,6 +604,7 @@ class PPNLoss(torch.nn.modules.loss._Loss):
         # label point is closest to each image voxel (defines label for it)
         coords_final = ppn_coords[-1]
         closest_list, positive_list = [], []
+        part_labels = None
         offset = 0
         for b in range(batch_size):
             # If there are no label points, there are no positive points
@@ -611,28 +618,20 @@ class PPNLoss(torch.nn.modules.loss._Loss):
                 closest_list.append(closest)
                 continue
 
-            # Assign positive/negative labels to each voxel in the image
-            points_entry = coords_final[b][:, COORD_COLS] + 0.5
+            # If needed, find which particle instance voxels belong to
             if self.restrict_to_clusters:
-                # Option to restrict the positive labels to the same cluster
-                # using particle cluster labels.
                 assert clust_label is not None, (
                         "When using 'restrict_to_clusters', must provide "
                         "'clust_label' to the PPN loss.")
-                positive, closest = self.get_ppn_positives(
-                        points_entry, clust_label[b][:, PART_COL], points_label,
-                        resolution=self.resolution, offset=offset)
+                part_labels = clust_label[b][:, PART_COL]
 
-            else:
-                # Compute the pairwise distances between each label point
-                # and all the voxels in the image.
-                dist_mat = cdist_fast(points_entry, points_label[:, COORD_COLS])
-                min_return = torch.min(dist_mat, dim=1)
-                closest = offset + min_return.indices
+            # Assign positive/negative labels to each voxel in the image
+            points_entry = coords_final[b][:, COORD_COLS] + 0.5
+            positive, closest = self.get_ppn_positives(
+                    points_entry, points_label, resolution=self.resolution,
+                    offset=offset, labels=part_labels)
 
-                # Define voxels as positive if they are within threshold
-                positive = (dist_mat < self.resolution).any(dim=1)
-
+            # Append
             positive_list.append(positive)
             closest_list.append(closest)
             offset += len(points_label)
