@@ -46,15 +46,15 @@ class SparseResidualEncoder(UResNetEncoder):
 
         if pool_mode == 'avg':
             # Average pooling
-            self.pool = ME.MinkowskiGlobalPooling()
+            self.pool = ME.MinkowskiGlobalAvgPooling()
+
+        if pool_mode == 'sum':
+            # Sum pooling
+            self.pool = ME.MinkowskiGlobalSumPooling()
 
         elif pool_mode == 'max':
             # Max pooling
-            self.pool = torch.nn.Sequential(
-                ME.MinkowskiMaxPooling(
-                    final_tensor_shape, stride=final_tensor_shape,
-                    dimension=self.dim),
-                ME.MinkowskiGlobalPooling())
+            self.pool = ME.MinkowskiGlobalMaxPooling()
 
         elif pool_mode == 'conv':
             # Strided convolution
@@ -69,7 +69,7 @@ class SparseResidualEncoder(UResNetEncoder):
         else:
             raise ValueError(
                     f"Pooling mode not recognized: {self.pool_mode}. Must be "
-                     "one of 'avg', 'max' or 'conv'")
+                     "one of 'avg', 'sum', 'max' or 'conv'")
 
         # Initialize the final linear layer
         self.feature_size = feature_size
