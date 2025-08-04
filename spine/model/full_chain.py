@@ -1188,24 +1188,26 @@ class FullChainLoss(torch.nn.Module):
         process_chain_config(self, **chain)
 
         # Initialize the deghosting loss
-        if self.deghosting == 'uresnet':
+        if self.deghosting == 'uresnet' and uresnet_deghost_loss is not None:
             self.deghost_loss = SegmentationLoss(
                     uresnet_deghost, uresnet_deghost_loss)
 
         # Initialize the segmentation/PPN losses
         if self.segmentation == 'uresnet':
-            assert ((uresnet_loss is not None) ^
-                    (uresnet_ppn_loss is not None)), (
-                    "If the segmentation is using UResNet, must provide the "
+            assert not ((uresnet_loss is not None) and
+                        (uresnet_ppn_loss is not None)), (
+                    "If the segmentation is using UResNet, can provide either "
                     "`uresnet_loss` or `uresnet_ppn_loss` configuration block.")
             if uresnet_loss is not None:
                 self.uresnet_loss = SegmentationLoss(uresnet, uresnet_loss)
-            else:
+            elif uresnet_ppn_loss is not None:
                 self.uresnet_ppn_loss = UResNetPPNLoss(
                         **uresnet_ppn, **uresnet_ppn_loss)
 
         # Initialize the graph-SPICE loss
-        if self.fragmentation is not None and 'graph_spice' in self.fragmentation:
+        if (self.fragmentation is not None and
+            'graph_spice' in self.fragmentation and
+            graph_spice_loss is not None):
             self.graph_spice_loss = GraphSPICELoss(graph_spice, graph_spice_loss)
 
         # Initialize the GraPA lossses
@@ -1214,11 +1216,9 @@ class FullChainLoss(torch.nn.Module):
                 'particle': grappa_particle_loss, 'inter': grappa_inter_loss
         }
         for stage, config in self.grappa_losses.items():
-            if getattr(self, f'{stage}_aggregation') == 'grappa':
+            if (getattr(self, f'{stage}_aggregation') == 'grappa' and
+                config is not None):
                 name = f'grappa_{stage}_loss'
-                assert config is not None, (
-                        f"If the {stage} aggregation is done using GrapPA, "
-                        f"must provide the {name} configuration block.")
                 setattr(self, name, GrapPALoss(config))
 
     @property
@@ -1275,7 +1275,7 @@ class FullChainLoss(torch.nn.Module):
         self.result = {'accuracy': 1., 'loss': 0., 'num_losses': 0}
 
         # Apply the deghosting loss
-        if self.deghosting == 'uresnet':
+        if self.deghosting == 'uresnet' and hasattr(self, 'deghost_loss'):
             # Convert segmentation labels to ghost labels
             ghost_label_tensor = seg_label.tensor.clone()
             ghost_label_tensor[:, SHAPE_COL] = (
@@ -1307,13 +1307,13 @@ class FullChainLoss(torch.nn.Module):
             # reconstructed semantic segmentation of the image
             clust_label = clust_label_adapt
 
-            # Store the loss dictionary
+            # Store the loss dictionary, if requested
             if hasattr(self, 'uresnet_loss'):
                 res_seg = self.uresnet_loss(
                         seg_label=seg_label, segmentation=segmentation)
                 self.update_result(res_seg, 'uresnet')
 
-            else:
+            elif hasattr(self, 'uresnet_ppn_loss'):
                 res_seg = self.uresnet_ppn_loss(
                         seg_label=seg_label, ppn_label=ppn_label,
                         clust_label=clust_label, segmentation=segmentation,
@@ -1321,7 +1321,9 @@ class FullChainLoss(torch.nn.Module):
                 self.update_result(res_seg)
 
         # Apply the Graph-SPICE loss
-        if self.fragmentation is not None and 'graph_spice' in self.fragmentation:
+        if (self.fragmentation is not None and
+            'graph_spice' in self.fragmentation and
+            hasattr(self, 'graph_spice_loss')):
             # Prepare Graph-SPICE loss input
             loss_dict = {}
             for key, value in output.items():
@@ -1336,9 +1338,10 @@ class FullChainLoss(torch.nn.Module):
 
         # Apply the aggregation losses
         for stage in self.grappa_losses.keys():
-            if getattr(self, f'{stage}_aggregation') == 'grappa':
+            name = f'grappa_{stage}_loss'
+            if (getattr(self, f'{stage}_aggregation') == 'grappa' and
+                hasattr(self, name)):
                 # Prepare the input to the loss function
-                name = f'grappa_{stage}_loss'
                 prefix = f'{stage}_fragment' if stage != 'inter' else 'particle'
                 loss_dict = {}
                 for k, v in output.items():
