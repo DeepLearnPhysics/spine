@@ -502,7 +502,7 @@ class PPNLoss(torch.nn.modules.loss._Loss):
 
         If the voxel `labels` are provided, they are used to restrict the mask
         applied to voxels within some distance of label points associated with
-        the correct particle instance.
+        the correct particle instance, not any particle instance.
 
         Parameters
         ----------
@@ -543,7 +543,7 @@ class PPNLoss(torch.nn.modules.loss._Loss):
             # Assign the closest label point to each postive particle voxel
             pos_index = torch.where(positives)[0]
             closests = torch.full(
-                    (len(labels),), -1, dtype=torch.long, device=labels.device)
+                    (len(points),), -1, dtype=torch.long, device=points.device)
             closests[pos_index] = offset + torch.argmin(
                     dist_mat[:, pos_index], dim=0)
 
