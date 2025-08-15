@@ -150,7 +150,7 @@ class DataBase:
         # Dispatch
         for attr in self._index_attrs:
             value = getattr(self, attr)
-            if value > -1:
+            if not np.isscalar(value) or value > -1:
                 if not isinstance(shifts, dict):
                     setattr(self, attr, value + shifts)
                 else:
