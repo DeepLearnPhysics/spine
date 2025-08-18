@@ -56,7 +56,7 @@ class ParticleShapeLogicProcessor(PostBase):
 
         # If the Michel KE is to be checked, must run the calorimetric KE PP
         if self.maximum_michel_ke is not None:
-            self._upstream = ('calo_ke',)
+            self.update_upstream('calo_ke')
 
     def process(self, data):
         """Update PID and primary predictions of each particle in one entry

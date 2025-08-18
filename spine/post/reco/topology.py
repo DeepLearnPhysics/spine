@@ -62,7 +62,7 @@ class ParticleDEDXProcessor(PostBase):
 
         # If the method involves the direction, must run the direction PP
         if mode == 'direction':
-            self._upstream = ('direction',)
+            self.update_upstream('direction')
 
     def process(self, data):
         """Compute the start dE/dx for all particles in one entry.

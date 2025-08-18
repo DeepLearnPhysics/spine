@@ -227,6 +227,16 @@ class PostBase(ABC):
             keys.update(update_dict)
             self._keys = tuple(keys.items())
 
+    def update_upstream(self, key):
+        """Update the underlying set of required upstream modules in place.
+
+        Parameters
+        ----------
+        key : str
+            Post-processor module name to add to the list
+        """
+        self._upstream = (*self._upstream, key)
+
     def __call__(self, data, entry=None):
         """Calls the post processor on one entry.
 

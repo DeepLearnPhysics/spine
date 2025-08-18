@@ -32,6 +32,7 @@ class FlashMatchProcessor(PostBase):
 
     def __init__(self, flash_key, volume, ref_volume_id=None,
                  method='likelihood', detector=None, geometry_file=None,
+                 time_contained=False, max_cathode_offset=None,
                  run_mode='reco', truth_point_mode='points',
                  truth_dep_mode='depositions', parent_path=None, merge=None,
                  update_flashes=False, **kwargs):
@@ -53,6 +54,11 @@ class FlashMatchProcessor(PostBase):
             Detector to get the geometry from
         geometry_file : str, optional
             Path to a `.yaml` geometry file to load the geometry from
+        time_contained : bool, default False
+            If `True`, only match interactions which are time contained
+        max_cathode_offset : float, optional
+            If specified, only match cathode-crossing interactions which are
+            offset from the cathode less than this threshold
         parent_path : str, optional
             Path to the parent directory of the main analysis configuration.
             This allows for the use of relative paths in the post-processors.
@@ -81,6 +87,14 @@ class FlashMatchProcessor(PostBase):
                 "The `volume` must be one of 'tpc' or 'module'.")
         self.volume = volume
         self.ref_volume_id = ref_volume_id
+
+        # Store the timing checks to be performed
+        self.time_contained = time_contained
+        self.max_cathode_offset = max_cathode_offset
+        if self.time_contained:
+            self.update_upstream('time_containment')
+        if self.max_cathode_offset is not None:
+            self.update_upstream('cathode_crosser')
 
         # Initialize the flash matching algorithm
         if method == 'barycenter':
@@ -126,9 +140,8 @@ class FlashMatchProcessor(PostBase):
         - interaction.flash_hypo_pe: float, optional
                Total number of PEss associated with the hypothesis flash
         """
-        # Fetch the optical volume each flash belongs to
+        # Fetch the optical flashes
         flashes = data[self.flash_key]
-        volume_ids = np.asarray([f.volume_id for f in flashes])
 
         # Resize the PE vectors to match the optical geometry
         # TODO: ideally this should not happen in the flash matcher...
@@ -155,6 +168,7 @@ class FlashMatchProcessor(PostBase):
             flashes, orig_ids = self.merger(flashes)
 
         # Loop over the optical volumes, run flash matching
+        volume_ids = np.asarray([f.volume_id for f in flashes])
         for k in self.interaction_keys:
             # Fetch interactions, nothing to do if there are not any
             interactions = data[k]
@@ -179,6 +193,16 @@ class FlashMatchProcessor(PostBase):
                 # Crop interactions to only include depositions in the optical volume
                 interactions_v = []
                 for inter in interactions:
+                    # If requested, skip interactions which are not time contained
+                    if self.time_contained and not inter.is_time_contained:
+                        continue
+
+                    # If requested, skip out-of-time cathode crossers
+                    if (self.max_cathode_offset is not None and
+                        inter.is_cathode_crosser and
+                        abs(inter.cathode_offset) > self.max_cathode_offset):
+                        continue
+
                     # Fetch the points in the current optical volume
                     sources = self.get_sources(inter)
                     if self.volume == 'module':

@@ -56,7 +56,7 @@ class ShowerConversionDistanceProcessor(PostBase):
 
         # If the method involves the vertex, must run the vertex PP
         if 'vertex' in self.mode:
-            self._upstream = ('vertex',)
+            self.update_upstream('vertex')
 
     def process(self, data):
         """Compute the conversion distance of showers in each interaction.
