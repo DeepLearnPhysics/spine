@@ -22,11 +22,11 @@ class ContainmentProcessor(PostBase):
     name = 'containment'
 
     # Alternative allowed names of the post-processor
-    aliases = ('check_containment',)
+    aliases = ('time_containment', 'check_containment', 'check_time_containment')
 
     def __init__(self, margin, cathode_margin=None, detector=None,
                  geometry_file=None, mode='module', allow_multi_module=False,
-                 exclude_pids=None, min_particle_sizes=0,
+                 logical=False, exclude_pids=None, min_particle_sizes=0,
                  obj_type=('particle', 'interaction'),
                  truth_point_mode='points', run_mode='both'):
         """Initialize the containment conditions.
@@ -62,7 +62,11 @@ class ContainmentProcessor(PostBase):
             - If 'meta', use the metadata range as a basis for containment.
               Note that this does not guarantee containment within the detector.
         allow_multi_module : bool, default False
-            Whether to allow particles/interactions to span multiple modules
+            If `True`, allow particles/interactions to span multiple modules
+        logical : bool, default False
+            If `True`, the module is checking for logical containment, i.e. that
+            particles/interactions do not span outside of the drift window, with
+            padding defined by the margin/cathode margin parameters
         exclude_pids : List[int], optional
             When checking interaction containment, ignore particles which
             have a species specified by this list
@@ -99,6 +103,11 @@ class ContainmentProcessor(PostBase):
         self.allow_multi_module = allow_multi_module
         self.exclude_pids = exclude_pids
 
+        # Check which type of containment check is being operated
+        assert not logical or mode == 'source', (
+                "For logical containment, must use the individual point sources.")
+        self.attr = 'is_contained' if not logical else 'is_time_contained'
+
         # Store the particle size thresholds in a dictionary
         if np.isscalar(min_particle_sizes):
             min_particle_sizes = {'default': min_particle_sizes}
@@ -133,18 +142,18 @@ class ContainmentProcessor(PostBase):
                 # Get point coordinates
                 points = self.get_points(obj)
                 if not len(points):
-                    obj.is_contained = True
+                    setattr(obj, self.attr, True)
                     continue
 
                 # Check particle containment against detector/meta
                 if not self.use_meta:
                     if not obj.is_truth or self.truth_geo is None:
                         sources = self.get_sources(obj)
-                        obj.is_contained = self.geo.check_containment(
-                                points, sources, self.allow_multi_module)
+                        setattr(obj, self.attr, self.geo.check_containment(
+                                points, sources, allow_multi_module=self.allow_multi_module))
                     else:
-                        obj.is_contained = self.truth_geo.check_containment(
-                                points, allow_multi_module=self.allow_multi_module)
+                        setattr(obj, self.attr, self.truth_geo.check_containment(
+                                points, allow_multi_module=self.allow_multi_module))
                 else:
                     obj.is_contained = (
                             (points > (meta.lower + self.margin)).all() and
@@ -154,9 +163,9 @@ class ContainmentProcessor(PostBase):
         for k in self.interaction_keys:
             for inter in data[k]:
                 # Check that all the particles in the interaction are contained
-                inter.is_contained = True
+                setattr(inter, self.attr, True)
                 for part in inter.particles:
-                    if not part.is_contained:
+                    if not getattr(part, self.attr):
                         # Do not check for particles with excluded PID
                         if (self.exclude_pids is not None and
                             part.pid in self.exclude_pids):
@@ -167,7 +176,7 @@ class ContainmentProcessor(PostBase):
                             part.size < self.min_particle_sizes[part.pid]):
                             continue
 
-                        inter.is_contained = False
+                        setattr(inter, self.attr, False)
                         break
 
 
