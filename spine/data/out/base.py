@@ -43,8 +43,9 @@ class OutBase(PosDataBase):
         True if the particle crossed a cathode, i.e. if it is made up
         of space points coming from > 1 TPC in one module
     cathode_offset : float
-        If the particle is a cathode crosser, this corresponds to the offset
-        to apply to the particle to match its components at the cathode
+        If the particle is a cathode crosser, this is how far in cm one needs to
+        move its points along the drift direction to reconcile at the cathode.
+        This is directly proportional to time through time=offset/vdrift
     is_truth: bool
         Whether this object contains truth information or not
     units : str

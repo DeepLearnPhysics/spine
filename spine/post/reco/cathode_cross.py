@@ -34,10 +34,13 @@ class CathodeCrosserProcessor(PostBase):
     # Set of post-processors which must be run before this one is
     _upstream = ('direction',)
 
+    # List of recognized offset methods
+    _adjust_methods = ('distance', 'projection', 'dot')
+
     def __init__(self, crossing_point_tolerance, offset_tolerance,
                  angle_tolerance, merge_crossers=True, adjust_crossers=True,
-                 detector=None, geometry_file=None, run_mode='reco',
-                 truth_point_mode='points'):
+                 adjust_method='distance', detector=None, geometry_file=None,
+                 run_mode='reco', truth_point_mode='points'):
         """Initialize the cathode crosser finder algorithm.
 
         Parameters
@@ -57,6 +60,13 @@ class CathodeCrosserProcessor(PostBase):
             the crosser belongs to
         adjust_crossers : bool, default True
             If True, shifts cathode crosser positions to match at the cathode
+        adjust_method : str, default distance
+            Method used to adjust the cathode crossers:
+            - 'distance': make the tracks meet at the cathode
+            - 'projection': make the y-intercepts of the two tracks match in the
+              xy and xz projection (in the least-squares sense)
+            - 'dot': Make the dot-product of the two track directions match with
+              the vector which joins the two end-points
         detector : str, optional
             Detector to get the geometry from
         geometry_file : str, optional
@@ -65,6 +75,11 @@ class CathodeCrosserProcessor(PostBase):
         # Initialize the parent class
         super().__init__(
                 ('particle', 'interaction'), run_mode, truth_point_mode)
+
+        # Check on the moving method
+        assert adjust_method in self._adjust_methods, (
+                 "Method used to adjust cathode crossers is not recognize: "
+                f"{adjust_method}. It should be one of {self._adjust_methods}.")
 
         # Initialize the geometry
         self.geo = Geometry(detector, geometry_file)
@@ -75,6 +90,7 @@ class CathodeCrosserProcessor(PostBase):
         self.angle_tolerance = angle_tolerance
         self.merge_crossers = merge_crossers
         self.adjust_crossers = adjust_crossers
+        self.adjust_method = adjust_method
 
         # Add the points to the list of keys to load
         keys = {}
@@ -141,13 +157,13 @@ class CathodeCrosserProcessor(PostBase):
                     continue
 
                 # Store the displacement
-                offsets, global_offset = self.get_cathode_offsets(part)
-                part.cathode_offset = global_offset
+                offset = self.get_cathode_offset(part)
+                part.cathode_offset = offset
 
                 # Adjust positions, if requested
                 if self.adjust_crossers:
                     self.adjust_positions(
-                            data, particles, interactions, part.id, offsets)
+                            data, particles, interactions, part.id, offset)
 
             # Update crossing interactions information
             for inter in interactions:
@@ -323,7 +339,7 @@ class CathodeCrosserProcessor(PostBase):
 
         return particles
 
-    def get_cathode_offsets(self, particle):
+    def get_cathode_offset(self, particle):
         """Find the distance one must shift a particle points by to make
         both TPC contributions align at the cathode.
 
@@ -348,56 +364,128 @@ class CathodeCrosserProcessor(PostBase):
         module = modules[0]
         daxis = self.geo.tpc[module].drift_axis
 
-        # Check which side of the cathode each TPC lives
-        flip = (-1) ** (
-                self.geo.tpc[module, tpcs[0]].boundaries[daxis].mean()
-                > self.geo.tpc[module, tpcs[1]].boundaries[daxis].mean())
-
         # Loop over the contributing TPCs, find closest points/directions
-        # closest_points = np.empty((2, 3))
         offsets = np.empty(2)
-        for i, t in enumerate(tpcs):
+        closest_points = np.empty((2, 3))
+        closest_dirs = np.empty((2, 3))
+        for i, tpc in enumerate(tpcs):
             # Get the end points of the track segment
             index  = self.geo.get_volume_index(
-                    self.get_sources(particle), module, t)
+                    self.get_sources(particle), module, tpc)
             points = self.get_points(particle)[index]
             idx0, idx1, _ = farthest_pair(points, 'recursive')
             end_points = points[[idx0, idx1]]
 
             # Find the point closest to the cathode
             tpc_offset = self.geo.get_min_volume_offset(
-                end_points, module, t)[daxis]
-            cpos = self.geo.tpc[module][t].cathode_pos
-            cdists = end_points[:, daxis] - tpc_offset - cpos
+                end_points, module, tpc)[daxis]
+            cpos = self.geo.tpc[module][tpc].cathode_pos
+            cdists = tpc_offset + cpos - end_points[:, daxis]
             argmin = np.argmin(np.abs(cdists))
-            # closest_points[i] = end_points[argmin]
 
-            # Compute the offset to bring it to the cathode
-            offsets[i] = cdists[argmin] + tpc_offset
+            # Compute the offset to bring it to the cathode along the drift dir
+            if self.adjust_method == 'distance':
+                dsign = self.geo.tpc[module][tpc].drift_sign
+                offsets[i] = dsign*(cdists[argmin] - tpc_offset)
+            else:
+                closest_points[i] = end_points[argmin]
+                closest_dirs[i] = -cluster_direction(points, closest_points[i])
 
-        # Now optimize the offsets based on angular matching
-        # cpos = self.geo.tpc[module].cathode_pos
-        # dvector = (np.arange(3) == daxis).astype(float)
-        # xing_point = np.mean(closest_points, axis=0)
-        # xing_point[daxis] = cpos
-        # for i, t in enumerate(tpcs):
-        #     end_dir = -cluster_direction(points, closest_points[i])
-        #     factor = (cpos - closest_points[i, daxis])/end_dir[daxis]
-        #     intersection = closest_points[i] + factor * end_dir
-        #     vplane = dvector - end_dir/end_dir[daxis] if end_dir[daxis] else -end_dir
-        #     dplane = intersection - xing_point
-        #     disp = np.dot(dplane, vplane)/np.dot(vplane, vplane)
-        #     offsets[i] = [disp, offsets[i]][np.argmin(np.abs([disp, offsets[i]]))]
+        # Dispatch the offset estimation based on method
+        if self.adjust_method == 'distance':
+            # Align the offsets to match the smallest of the two
+            argmin = np.argmin(np.abs(offsets))
+            global_offset = offsets[argmin]
 
-        # Align the offsets to match the smallest of the two
-        offsets = np.sign(offsets) * np.min(np.abs(offsets))
+        else:
+            # Align based on angle, rather than distance to cathode
+            if self.adjust_method == 'projection':
+                global_offset = self.projection_offset(closest_points, closest_dirs)
+            else:
+                global_offset = self.dot_offset(closest_points, closest_dirs)
 
-        # Take the smallest of the two offsets (avoid moving into the cathode)
-        global_offset = flip * (offsets[1] - offsets[0])/2.
+            # Check which side of the cathode each TPC lives
+            flip = (-1) ** (
+                    self.geo.tpc[module, tpcs[0]].boundaries[daxis].mean()
+                    > self.geo.tpc[module, tpcs[1]].boundaries[daxis].mean())
+            global_offset *= flip
 
-        return offsets, global_offset
+        return global_offset
 
-    def adjust_positions(self, data, particles, interactions, idx, offsets):
+    @staticmethod
+    def projection_offset(points, directions):
+        """Finds the offset to optimize the alignment in xy and xz.
+
+        It minimizes (xy intercept mismatch)^2 + (xz intercept mismatch)^2.
+
+        Parameters
+        ----------
+        points : np.ndarray
+            (2, 3) Set of two points (one per track fragment to merge)
+        directions : np.ndarray
+            (2, 3) Set of two directions (one per track fragment to merge)
+
+        Returns
+        -------
+        float
+            Optimal offset based on projection projection interecepts
+        """
+        # Check that the x component of the two vector is non-zero
+        assert np.all(np.abs(directions[:, 0]) > 0.), (
+                "Cannot use the projection method if one the pieces of track "
+                "is perfectly perpendicular to the x axis.")
+
+        # Loop over the two projections
+        diffs, weights = np.zeros(2), np.zeros(2)
+        for proj in (1, 2):
+            # Loop over the two track segments
+            intercepts = np.empty(2)
+            for idx in (0, 1):
+                # Compute the y-intercept, store angle
+                a = directions[idx, proj]/directions[idx, 0]
+                intercepts[idx] = points[idx, proj] - a*points[idx, 0]
+                weights[proj-1] += a
+
+            # Store the intercept offset between the two segments
+            diffs[proj-1] = intercepts[0] - intercepts[1]
+
+        # Return
+        return -np.sum(weights*diffs)/np.sum(weights**2)
+
+    @staticmethod
+    def dot_offset(points, directions):
+        """Finds the offset to optimize the alignment between the line
+        directions and the vector joining the two line points.
+
+        It minimizes np.dot(norm, p2 - p1)
+
+        Parameters
+        ----------
+        points : np.ndarray
+            (2, 3) Set of two points (one per track fragment to merge)
+        directions : np.ndarray
+            (2, 3) Set of two directions (one per track fragment to merge)
+
+        Returns
+        -------
+        float
+            Optimal offset based on cross product
+        """
+        # Check that the x component of either vector is non-zero
+        assert np.any(np.abs(directions[:, 0]) > 0.), (
+                "Cannot use the projection method if one the pieces of track "
+                "is perfectly perpendicular to the x axis.")
+
+        # Compute the norm of the two vectors
+        norm = np.cross(directions[0], directions[1])
+
+        # Compute the displacement vector
+        v = points[1] - points[0]
+
+        # Optimize delta such that the norm displacement vector are perpendicular
+        return -np.dot(norm, v)/2*norm[0]
+
+    def adjust_positions(self, data, particles, interactions, idx, offset):
         """Given a cathode crosser, apply the necessary position offsets to
         match it at the cathode.
 
@@ -411,8 +499,8 @@ class CathodeCrosserProcessor(PostBase):
             List of interactions
         idx : int
             Index of a cathode crosser
-        offsets : np.ndarray
-            Offsets to apply to the positions
+        offset : float
+            Offset to apply along the drift direction
         """
         # Fetch the appropriate point indexes to update
         truth = particles[idx].is_truth
@@ -446,6 +534,7 @@ class CathodeCrosserProcessor(PostBase):
         # Loop over contributing TPCs, shift the points in each independently
         for i, t in enumerate(tpcs):
             # Move each of the sister particles by the same amount
+            offset_t = self.geo.tpc[m][t].drift_sign*offset
             for sister in sisters:
                 # Find the index corresponding to the sister particle
                 tpc_index = self.geo.get_volume_index(
@@ -455,18 +544,18 @@ class CathodeCrosserProcessor(PostBase):
                     continue
 
                 # Update the sister position and the main position tensor
-                self.get_points(sister)[tpc_index, daxis] -= offsets[i]
-                data[points_key][index, daxis] -= offsets[i]
+                self.get_points(sister)[tpc_index, daxis] += offset_t
+                data[points_key][index, daxis] += offset_t
 
                 # Update the start/end points appropriately
                 if sister.id == idx:
                     for attr, closest_tpc in closest_tpcs.items():
                         if closest_tpc == t:
-                            getattr(sister, attr)[daxis] -= offsets[i]
+                            getattr(sister, attr)[daxis] += offset_t
 
                 else:
-                    sister.start_point[daxis] -= offsets[i]
-                    sister.end_point[daxis] -= offsets[i]
+                    sister.start_point[daxis] += offset_t
+                    sister.end_point[daxis] += offset_t
 
         # Update the position attribute of the interaction
         points = [self.get_points(sister) for sister in sisters]
