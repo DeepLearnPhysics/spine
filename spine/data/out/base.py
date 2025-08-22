@@ -173,8 +173,6 @@ class TruthBase(OutBase):
         label tensor
     points_adapt : np.ndarray
         (N', 3) Set of voxel coordinates using adapted cluster labels
-    sources_adapt : np.ndarray
-        (N', 2) Set of voxel sources as (Module ID, TPC ID) pairs, adapted
     depositions_adapt : np.ndarray
         (N') Array of values for each voxel in the adapted cluster label tensor
     depositions_adapt_sum : float

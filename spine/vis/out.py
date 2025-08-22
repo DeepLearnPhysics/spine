@@ -46,6 +46,12 @@ class Drawer:
             ('depositions_g4', 'depositions_g4')
     )
 
+    # List of known source modes for true particles and their corresponding keys
+    _source_modes = (
+            ('sources', 'sources_label'),
+            ('sources_adapt', 'sources')
+    )
+
     def __init__(self, data, draw_mode='both', truth_point_mode='points',
                  split_scene=True, detector=None, detector_coords=True,
                  **kwargs):
@@ -136,6 +142,18 @@ class Drawer:
             Dictionary of (attribute, key) mapping for point depositions
         """
         return dict(self._dep_modes)
+
+    @property
+    def source_mode(self):
+        """Dictionary which makes the correspondance between the name of a true
+        object source attribute with the underlying source array it points to.
+
+        Returns
+        -------
+        Dict[str, str]
+            Dictionary of (attribute, key) mapping for point source
+        """
+        return dict(self._source_modes)
 
     def get_index(self, obj):
         """Get a certain pre-defined index attribute of an object.
@@ -366,7 +384,7 @@ class Drawer:
             for attr in attrs:
                 # If it is a true deposition attribute, check that it matches
                 # the point mode that is being used to draw the true objects
-                if 'truth' in obj_name and attr.startswith('depositions'):
+                if 'truth' in obj_name and self._is_depositions(attr):
                     prefix = self.truth_point_mode.replace('points', 'depositions')
                     assert attr.startswith(prefix), (
                             f"Points mode {self.truth_point_mode} and deposition "
@@ -377,7 +395,7 @@ class Drawer:
                 values = [getattr(obj, attr) for obj in self.data[obj_name]]
                 if single_attr or attr == color_attr:
                     color = values
-                if not attr.startswith('depositions'):
+                if not self._is_depositions(attr):
                     for i, hc in enumerate(hovertext):
                         if isinstance(hc, str):
                             hovertext[i] = hc + f'<br>{attr_name}: {values[i]}'
@@ -401,9 +419,9 @@ class Drawer:
                 else:
                     color_attr = 'id'
                     color = np.arange(len(self.data[obj_name]))
-                
+
         # Set up the appropriate color scheme
-        if color_attr.startswith('depositions'):
+        if self._is_depositions(color_attr):
             # Continuous values shared between objects
             dep_mode = self.dep_modes[color_attr] if 'truth' in obj_name else 'depositions'
             colorscale = 'Inferno'
@@ -683,3 +701,19 @@ class Drawer:
         return self.geo_drawer.optical_traces(
                 meta=self.meta, color=color, zero_supress=True,
                 colorscale='Inferno', name=name)
+
+    @staticmethod
+    def _is_depositions(attr):
+        """Check if an attribute represents one deposition value per point.
+
+        Parameters
+        ----------
+        attr : str
+            Object attribute to check
+
+        Returns
+        -------
+        bool
+            `True` is the attribute is a deposition attribute
+        """
+        return attr.startswith('depositions') and not attr.endswith('sum')
