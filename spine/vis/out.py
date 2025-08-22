@@ -674,6 +674,10 @@ class Drawer:
         assert self.geo_drawer is not None, (
                 "Cannot draw optical detectors without geometry information.")
 
+        # Check that there is optical detectors to draw
+        assert self.geo_drawer.geo.optical is not None, (
+                "This geometry does not have optical detectors to draw.")
+
         # Define the name of the trace
         name = ' '.join(obj_name.split('_')).capitalize()[:-1] + ' flashes'
 
