@@ -243,8 +243,8 @@ class Drawer:
                     "Interactions do not have end point attributes.")
             for prefix in self.prefixes:
                 obj_name = f'{prefix}_{obj_type}'
-                traces[prefix] += self._start_point_trace(obj_name)
-                traces[prefix] += self._end_point_trace(obj_name)
+                traces[prefix] += self._start_point_trace(obj_name, split_traces)
+                traces[prefix] += self._end_point_trace(obj_name, split_traces)
 
         # Fetch the directions, if requested
         if draw_directions:
@@ -252,7 +252,7 @@ class Drawer:
                     "Interactions do not have direction attributes.")
             for prefix in self.prefixes:
                 obj_name = f'{prefix}_{obj_type}'
-                traces[prefix] += self._direction_trace(obj_name)
+                traces[prefix] += self._direction_trace(obj_name, split_traces)
 
         # Fetch the vertices, if requested
         if draw_vertices:
@@ -260,7 +260,7 @@ class Drawer:
                 obj_name = f'{prefix}_interactions'
                 assert obj_name in self.data, (
                         "Must provide interactions to draw their vertices.")
-                traces[prefix] += self._vertex_trace(obj_name)
+                traces[prefix] += self._vertex_trace(obj_name, split_traces)
 
         # Fetch the flashes, if requested
         if draw_flashes:
@@ -527,7 +527,7 @@ class Drawer:
                 points, color=deps, cmin=cmin, cmax=cmax, colorscale='Inferno',
                 name='Raw input')
 
-    def _start_point_trace(self, obj_name, color='black', markersize=7,
+    def _start_point_trace(self, obj_name, split_traces, color='black', markersize=7,
                            marker_symbol='circle', **kwargs):
         """Scatters the start points of the requested object type.
 
@@ -535,6 +535,8 @@ class Drawer:
         ----------
         obj_name : str
             Name of the object to draw
+        split_traces : bool
+            If `True`, one trace is produced for each object
         color : Union[str, np.ndarray], default 'black'
             Color of markers/lines or (N) list of color of markers/lines
         markersize : float, default 7
@@ -550,10 +552,10 @@ class Drawer:
             List of start point traces
         """
         return self._point_trace(
-                obj_name, 'start_point', color=color, markersize=markersize,
-                marker_symbol=marker_symbol, **kwargs)
+                obj_name, 'start_point', split_traces, color=color,
+                markersize=markersize, marker_symbol=marker_symbol, **kwargs)
 
-    def _end_point_trace(self, obj_name, color='black', markersize=7,
+    def _end_point_trace(self, obj_name, split_traces, color='black', markersize=7,
                           marker_symbol='circle-open', **kwargs):
         """Scatters the end points of the requested object type.
 
@@ -561,6 +563,8 @@ class Drawer:
         ----------
         obj_name : str
             Name of the object to draw
+        split_traces : bool
+            If `True`, one trace is produced for each object
         color : Union[str, np.ndarray], default 'black'
             Color of markers/lines or (N) list of color of markers/lines
         markersize : float, default 7
@@ -576,10 +580,10 @@ class Drawer:
             List of end point traces
         """
         return self._point_trace(
-                obj_name, 'end_point', color=color, markersize=markersize,
-                marker_symbol=marker_symbol, **kwargs)
+                obj_name, 'end_point', split_traces, color=color,
+                markersize=markersize, marker_symbol=marker_symbol, **kwargs)
 
-    def _vertex_trace(self, obj_name, vertex_attr='vertex', color='green',
+    def _vertex_trace(self, obj_name, split_traces, vertex_attr='vertex', color='green',
                       markersize=10, marker_symbol='diamond', **kwargs):
         """Scatters the vertex of the requested object type.
 
@@ -587,6 +591,8 @@ class Drawer:
         ----------
         obj_name : str
             Name of the object to draw
+        split_traces : bool
+            If `True`, one trace is produced for each object
         color : Union[str, np.ndarray], default 'green'
             Color of markers/lines or (N) list of color of markers/lines
         markersize : float, default 10
@@ -602,10 +608,10 @@ class Drawer:
             List of vertex point traces
         """
         return self._point_trace(
-                obj_name, vertex_attr, color=color, markersize=markersize,
-                marker_symbol=marker_symbol, **kwargs)
+                obj_name, vertex_attr, split_traces, color=color,
+                markersize=markersize, marker_symbol=marker_symbol, **kwargs)
 
-    def _point_trace(self, obj_name, point_attr, **kwargs):
+    def _point_trace(self, obj_name, point_attr, split_traces, **kwargs):
         """Scatters a set of discrete points per object instance.
 
         Parameters
@@ -614,6 +620,8 @@ class Drawer:
             Name of the object to draw
         point_attr : str
             Name of the attribute specifying end point to draw
+        split_traces : bool
+            If `True`, one trace is produced for each object
         **kwargs : dict, optional
             List of additional arguments to pass to :func:`scatter_points`
 
@@ -628,7 +636,7 @@ class Drawer:
 
         # Fetch the particular end point of each object
         obj_type = obj_name.split('_')[-1][:-1].capitalize()
-        point_list, hovertext = [], []
+        point_list, hovertext, idxs = [], [], []
         for i, obj in enumerate(self.data[obj_name]):
             # If it is an end point, skip if the object is not a track
             if point_attr == 'end_point' and obj.shape != TRACK_SHP:
@@ -641,21 +649,34 @@ class Drawer:
             # Append the particular end point of this object and the label
             point_list.append(getattr(obj, point_attr))
             hovertext.append(f'{obj_type} {i} ' + ' '.join(point_attr.split('_')))
+            idxs.append(i)
 
         points = np.empty((0, 3))
         if len(point_list):
             points = np.vstack(point_list)
 
-        return scatter_points(
-                points, hovertext=np.array(hovertext), name=name, **kwargs)
+        if not split_traces:
+            traces = scatter_points(
+                    points, hovertext=np.array(hovertext), name=name, **kwargs)
 
-    def _direction_trace(self, obj_name, color='black', **kwargs):
+        else:
+            traces = []
+            for i, point in enumerate(point_list):
+                traces += scatter_points(
+                        point[None, :], hovertext=hovertext[i],
+                        name=f'{name} {idxs[i]}', **kwargs)
+
+        return traces
+
+    def _direction_trace(self, obj_name, split_traces, color='black', **kwargs):
         """Scatters a set of discrete points per object instance.
 
         Parameters
         ----------
         obj_name : str
             Name of the object to draw
+        split_traces : bool
+            If `True`, one trace is produced for each object
         color : Union[str, np.ndarray], default 'black'
             Color of markers/lines or (N) list of color of markers/lines
         **kwargs : dict, optional
@@ -671,7 +692,7 @@ class Drawer:
 
         # Fetch the direction of each object
         obj_type = obj_name.split('_')[-1][:-1].capitalize()
-        point_list, dir_list, hovertext = [], [], []
+        point_list, dir_list, hovertext, idxs = [], [], [], []
         for i, obj in enumerate(self.data[obj_name]):
             # Skip empty true objects
             if obj.is_truth and not len(getattr(obj, self.truth_index_mode)):
@@ -681,15 +702,26 @@ class Drawer:
             point_list.append(obj.start_point)
             dir_list.append(obj.start_dir)
             hovertext.append(f'{obj_type} {i} direction')
+            idxs.append(i)
 
         points, dirs = np.empty((0, 3)), np.empty((0, 3))
         if len(point_list):
             points = np.vstack(point_list)
             dirs = np.vstack(dir_list)
 
-        return scatter_arrows(
-                points, dirs, hovertext=np.array(hovertext), name=name,
-                color=color, **kwargs)
+        if not split_traces:
+            traces = scatter_arrows(
+                    points, dirs, hovertext=np.array(hovertext), name=name,
+                    color=color, **kwargs)
+
+        else:
+            traces = []
+            for i, (point, start_dir) in enumerate(zip(point_list, dir_list)):
+                traces += scatter_arrows(
+                        point[None, :], start_dir[None, :], color=color,
+                        hovertext=hovertext[i], name=f'{name} {idxs[i]}', **kwargs)
+
+        return traces
 
     def _flash_trace(self, obj_name, matched_only, **kwargs):
         """Draw the cumlative PEs of flashes that have been matched to
