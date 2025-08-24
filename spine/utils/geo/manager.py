@@ -152,6 +152,23 @@ class Geometry:
 
         return sources
 
+    def get_chambers(self, sources):
+        """Converts logical TPC indexes to unique chamber indexes.
+
+        Parameters
+        ----------
+        sources : np.ndarray
+            (N, 2) Array of logical [module ID, tpc ID] pairs, one per point
+
+        Returns
+        ----------
+        np.ndarray
+            (N) Array of physical chamber indexes, one per point
+        """
+        # Convert the physical indexes to unique chamber indexes
+        sources = self.get_sources(sources)
+        return sources[:, 0]*self.tpc.num_chambers_per_module + sources[:, 1]
+
     def get_contributors(self, sources):
         """Gets the list of [module ID, tpc ID] pairs that contributed to an
         object, as defined in this geometry.

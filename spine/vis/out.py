@@ -105,12 +105,13 @@ class Drawer:
         self.truth_point_key = self.point_modes[self.truth_point_mode]
         self.truth_index_mode = truth_point_mode.replace('points', 'index')
 
-        # If detector information is provided, initialie the geometry drawer
-        self.geo_drawer = None
+        # If detector information is provided, initialize the geometry drawer
+        self.geo, self.geo_drawer = None, None
         self.meta = data.get('meta', None)
         if detector is not None:
             self.geo_drawer = GeoDrawer(
                     detector=detector, detector_coords=detector_coords)
+            self.geo = self.geo_drawer.geo
 
         # Initialize the layout
         self.split_scene = split_scene
@@ -144,7 +145,7 @@ class Drawer:
         return dict(self._dep_modes)
 
     @property
-    def source_mode(self):
+    def source_modes(self):
         """Dictionary which makes the correspondance between the name of a true
         object source attribute with the underlying source array it points to.
 
@@ -382,35 +383,56 @@ class Drawer:
             single_attr = isinstance(attr, str)
             attrs = [attr] if single_attr else attr
             for attr in attrs:
-                # If it is a true deposition attribute, check that it matches
+                # If it is a true deposition/source attribute, check that it matches
                 # the point mode that is being used to draw the true objects
-                if 'truth' in obj_name and self._is_depositions(attr):
-                    prefix = self.truth_point_mode.replace('points', 'depositions')
-                    assert attr.startswith(prefix), (
-                            f"Points mode {self.truth_point_mode} and deposition "
-                            f"mode {attr} are incompatible.")
+                if 'truth' in obj_name:
+                    if self._is_depositions(attr):
+                        prefix = self.truth_point_mode.replace('points', 'depositions')
+                        assert attr.startswith(prefix), (
+                                f"Points mode {self.truth_point_mode} and deposition "
+                                f"mode {attr} are incompatible.")
+                    if self._is_sources(attr):
+                        ref_name = self.truth_point_mode.replace('points', 'sources')
+                        assert attr == ref_name, (
+                                f"Points mode {self.truth_point_mode} and source "
+                                f"mode {attr} are incompatible.")
 
                 # Get the value, color and hovertext
                 attr_name = ' '.join(attr.split('_')).capitalize()
                 values = [getattr(obj, attr) for obj in self.data[obj_name]]
                 if single_attr or attr == color_attr:
-                    color = values
-                if not self._is_depositions(attr):
+                    if not self._is_sources(attr):
+                        color = values
+                    else:
+                        assert self.geo is not None, (
+                                "Provide detector name/geometry if the TPC "
+                                "sources are to be displayed.")
+                        color = [self.geo.get_chambers(v) for v in values]
+
+                if self._is_depositions(attr):
+                    tostr = lambda v: f'<br>Deposition: {v:0.3f}'
                     for i, hc in enumerate(hovertext):
                         if isinstance(hc, str):
-                            hovertext[i] = hc + f'<br>{attr_name}: {values[i]}'
+                            hovertext[i] = [hc + tostr(v) for v in values[i]]
                         else:
-                            hovertext[i] = [
-                                    hcj + f'<br>{attr_name}: {values[i]}' for hcj in hc]
+                            hovertext[i] = [hc[i] + tostr(v) for i, v in enumerate(values[i])]
+
+                elif self._is_sources(attr):
+                    tostr = lambda v: f'<br>Module, TPC: {v[0]:d}, {v[1]:d}'
+                    values = [self.geo.get_sources(v) for v in values]
+                    for i, hc in enumerate(hovertext):
+                        if isinstance(hc, str):
+                            hovertext[i] = [hc + tostr(v) in values[i]]
+                        else:
+                            hovertext[i] = [hc[i] + tostr(v) for i, v in enumerate(values[i])]
 
                 else:
+                    tostr = lambda v: f'<br>{attr_name}: {v}'
                     for i, hc in enumerate(hovertext):
                         if isinstance(hc, str):
-                            hovertext[i] = [
-                                    hc + f'<br>Value: {v:0.3f}' for v in values[i]]
+                            hovertext[i] = hc + tostr(values[i])
                         else:
-                            hovertext[i] = [
-                                    hc[i] + f'<br>Value: {v:0.3f}' for i, v in enumerate(values[i])]
+                            hovertext[i] = [hcj + tostr(values[i]) for hcj in hc]
 
             # Determine which attribute to define the colorscale
             if color_attr is None:
@@ -427,6 +449,23 @@ class Drawer:
             colorscale = 'Inferno'
             cmin = 0.
             cmax = 2*np.median(self.data[dep_mode])
+
+        elif self._is_sources(color_attr):
+            # Variable-length descrete values
+            count = self.geo.tpc.num_chambers
+            colorscale = HIGH_CONTRAST_COLORS
+            if count == 0:
+                colorscale = None
+            elif count == 1:
+                colorscale = [colorscale[0]] * 2 # Avoid length 0 colorscale
+            elif count <= len(colorscale):
+                colorscale = colorscale[:count]
+            else:
+                repeat = (count - 1)//len(colorscale) + 1
+                self._colorscale = np.repeat(colorscale, repeat)[:count]
+
+            cmin = 0
+            cmax = count
 
         elif color_attr.startswith('is_'):
             # Boolean
@@ -445,9 +484,9 @@ class Drawer:
 
         elif color_attr.endswith('id'):
             # Variable-lengh discrete values
-            color = np.unique(color, return_inverse=True)[-1]
+            unique, color = np.unique(color, return_inverse=True)
             colorscale = HIGH_CONTRAST_COLORS
-            count = len(color)
+            count = len(unique)
             if count == 0:
                 colorscale = None
             elif count == 1:
@@ -459,7 +498,7 @@ class Drawer:
                 self._colorscale = np.repeat(colorscale, repeat)[:count]
 
             cmin = 0
-            cmax = count# - 1
+            cmax = count
 
         else:
             raise ValueError(
@@ -489,7 +528,7 @@ class Drawer:
                 name='Raw input')
 
     def _start_point_trace(self, obj_name, color='black', markersize=7,
-                            marker_symbol='circle', **kwargs):
+                           marker_symbol='circle', **kwargs):
         """Scatters the start points of the requested object type.
 
         Parameters
@@ -675,7 +714,7 @@ class Drawer:
                 "Cannot draw optical detectors without geometry information.")
 
         # Check that there is optical detectors to draw
-        assert self.geo_drawer.geo.optical is not None, (
+        assert self.geo.optical is not None, (
                 "This geometry does not have optical detectors to draw.")
 
         # Define the name of the trace
@@ -691,11 +730,11 @@ class Drawer:
             flash_ids = np.arange(len(self.data['flashes']))
 
         # Sum values from each flash to build a a global color scale
-        color = np.zeros(self.geo_drawer.geo.optical.num_detectors)
-        opt_det_ids = self.geo_drawer.geo.optical.det_ids
+        color = np.zeros(self.geo.optical.num_detectors)
+        opt_det_ids = self.geo.optical.det_ids
         for flash_id in flash_ids:
             flash = self.data['flashes'][flash_id]
-            index = self.geo_drawer.geo.optical.volume_index(flash.volume_id)
+            index = self.geo.optical.volume_index(flash.volume_id)
             pe_per_ch = flash.pe_per_ch
             if opt_det_ids is not None:
                 pe_per_ch = np.bincount(opt_det_ids, weights=pe_per_ch)
@@ -721,3 +760,19 @@ class Drawer:
             `True` is the attribute is a deposition attribute
         """
         return attr.startswith('depositions') and not attr.endswith('sum')
+
+    @staticmethod
+    def _is_sources(attr):
+        """Check if an attribute represents one source value per point.
+
+        Parameters
+        ----------
+        attr : str
+            Object attribute to check
+
+        Returns
+        -------
+        bool
+            `True` is the attribute is a source attribute
+        """
+        return attr.startswith('sources')

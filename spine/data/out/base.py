@@ -30,7 +30,7 @@ class OutBase(PosDataBase):
     sources : np.ndarray
         (N, 2) Set of voxel sources as (Module ID, TPC ID) pairs
     module_ids : np.ndarray
-        (M) List of module indexes that make up this object
+        (M) List of unique module indexes that make up this object
     is_contained : bool
         Whether this object is fully contained within the detector
     is_time_contained : bool

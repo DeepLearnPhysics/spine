@@ -373,7 +373,7 @@ class TPCDetector(Box):
 
     @property
     def num_chambers(self):
-        """Number of individual TPC voulmes.
+        """Number of individual TPC volumes.
 
         Returns
         -------
@@ -400,7 +400,7 @@ class TPCDetector(Box):
         Returns
         -------
         int
-            Number of TPC volumes per module, N_t
+            Number of TPC volumes per module, N_t/N_m
         """
         return len(self.modules[0])
 
