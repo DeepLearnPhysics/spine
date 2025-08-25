@@ -89,6 +89,7 @@ class ClusterLabelAdapter:
             self.device = clust_label.device
 
         # Dispatch depending on the data type
+        self._offset = 0
         if isinstance(clust_label, TensorBatch):
             # If it is batch data, call the main process function of each entry
             shape = (seg_pred.shape[0], clust_label.shape[1])
@@ -250,8 +251,9 @@ class ClusterLabelAdapter:
                 clusts.append(index_s[labels_s == c])
 
         # Now if an instance was broken up, assign it different cluster IDs
-        new_label[:, CLUST_COL] = break_clusters(
+        new_label[:, CLUST_COL] = self._offset + break_clusters(
                 new_label, clusts, self.break_eps, self.break_metric_id, self.break_p)
+        self._offset = new_label[:, CLUST_COL].max() + 1
 
         return new_label
 

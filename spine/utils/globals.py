@@ -68,6 +68,7 @@ SHAPE_LABELS = {
    DELTA_SHP: 'Delta',
    LOWES_SHP: 'LE',
    GHOST_SHP: 'Ghost',
+   UNKWN_SHP: 'Unknown'
 }
 
 # Invalid larcv.Particle labels
