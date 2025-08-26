@@ -54,7 +54,7 @@ class ParticleBuilder(BuilderBase):
 
     # Necessary/optional data products to load a truth object
     _load_truth_keys  = (
-            ('truth_particles', True),
+            ('truth_particles', True), ('truth_fragments', False),
             *BuilderBase._load_truth_keys
     )
 
@@ -230,6 +230,11 @@ class ParticleBuilder(BuilderBase):
         # Fetch the group ID of each of the particles
         group_ids = np.array([p.group_id for p in particles], dtype=int)
 
+        # Prepare fragment associations, if they were built
+        if truth_fragments is not None:
+            fragment_group_ids = np.array(
+                    [frag.orig_group_id for frag in truth_fragments])
+
         # Loop over the true *visible* particle instance groups
         truth_particles = []
         unique_group_ids = np.unique(label_tensor[:, GROUP_COL]).astype(int)
@@ -246,6 +251,7 @@ class ParticleBuilder(BuilderBase):
             particle.orig_id = group_id
             particle.orig_group_id = group_id
             particle.orig_parent_id = particle.parent_id
+            particle.orig_interaction_id = particle.interaction_id
             particle.orig_children_id = particle.children_id
 
             particle.id = i
@@ -293,6 +299,14 @@ class ParticleBuilder(BuilderBase):
                 particle.points_g4 = points_g4[index_g4]
                 particle.depositions_g4 = depositions_g4[index_g4]
 
+            # Build fragment associations, if available
+            if truth_fragments is not None:
+                fragment_ids = np.where(fragment_group_ids == group_id)[0]
+                particle.fragments = [truth_fragments[j] for j in fragment_ids]
+                particle.fragment_ids = fragment_ids
+                for frag in particle.fragments:
+                    frag.particle_id = i
+
             # Append
             truth_particles.append(particle)
 
@@ -304,7 +318,7 @@ class ParticleBuilder(BuilderBase):
             if len(inval) > 0:
                 graph_label = filter_invalid_nodes(graph_label, tuple(inval))
 
-            # Use the remaining edges to build parantage relations
+            # Use the remaining edges to build parentage relations
             mapping = {group_id: i for i, group_id in enumerate(valid_group_ids)}
             for (source, target) in graph_label:
                 parent = truth_particles[mapping[source]]
@@ -380,7 +394,8 @@ class ParticleBuilder(BuilderBase):
     def _load_truth(self, truth_particles, points_label=None,
                     depositions_label=None, depositions_q_label=None,
                     points=None, depositions=None, points_g4=None,
-                    depositions_g4=None, sources_label=None, sources=None):
+                    depositions_g4=None, sources_label=None, sources=None,
+                    truth_fragments=None):
         """Construct :class:`TruthParticle` objects from their stored versions.
 
         Parameters
@@ -406,6 +421,8 @@ class ParticleBuilder(BuilderBase):
             (N', 2) Tensor which contains the label module/tpc information
         sources : np.ndarray, optional
             (N, 2) Tensor which contains the module/tpc information
+        truth_fragments : List[TruthFragment], optional
+            (F) List of true fragments
 
         Returns
         -------
@@ -436,5 +453,10 @@ class ParticleBuilder(BuilderBase):
             if points_g4 is not None:
                 particle.points_g4 = points_g4[particle.index_g4]
                 particle.depositions_g4 = depositions_g4[particle.index_g4]
+
+            # Load the fragment associations, if available
+            if truth_fragments is not None:
+                particle.fragments = [
+                        truth_fragments[j] for j in particle.fragment_ids]
 
         return truth_particles

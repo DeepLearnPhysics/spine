@@ -148,6 +148,8 @@ class InteractionBuilder(BuilderBase):
             for part in inter_particles:
                 part.orig_interaction_id = inter_id
                 part.interaction_id = i
+                for frag in part.fragments:
+                    frag.interaction_id = i
 
             # Append the neutrino information, if it is provided
             nu_ids = [part.nu_id for part in inter_particles]

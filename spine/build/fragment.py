@@ -231,6 +231,7 @@ class FragmentBuilder(BuilderBase):
                     fragment.orig_id = part_id
                     fragment.orig_group_id = particle.group_id
                     fragment.orig_parent_id = particle.parent_id
+                    fragment.orig_interaction_id = particle.interaction_id
                     fragment.orig_children_id = particle.children_id
 
                     fragment.id = i
