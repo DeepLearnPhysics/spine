@@ -24,7 +24,7 @@ class ParticleBase:
     Attributes
     ----------
     fragments : List[object]
-        List of fragments that make up the interaction
+        List of fragments that make up this particle
     fragment_ids : np.ndarray
         List of Fragment IDs that make up this particle
     num_fragments : int

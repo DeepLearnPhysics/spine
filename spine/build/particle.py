@@ -48,7 +48,7 @@ class ParticleBuilder(BuilderBase):
 
     # Necessary/optional data products to load a reconstructed object
     _load_reco_keys  = (
-            ('reco_particles', True),
+            ('reco_particles', True), ('reco_fragments', False),
             *BuilderBase._load_reco_keys
     )
 
@@ -115,6 +115,11 @@ class ParticleBuilder(BuilderBase):
         if particle_node_orient_pred is not None:
             orient_pred = np.argmax(particle_node_orient_pred, axis=1)
 
+        # Prepare fragment associations, if they were built
+        if reco_fragments is not None:
+            particle_ids = [frag.particle_id for frag in reco_fragments]
+            particle_ids = np.unique(particle_ids, return_inverse=True)[-1]
+
         # Loop over the particle instances
         reco_particles = []
         for i, index in enumerate(particle_clusts):
@@ -148,6 +153,15 @@ class ParticleBuilder(BuilderBase):
             # Add optional arguments
             if sources is not None:
                 particle.sources = sources[index]
+
+            # Build fragment associations, if available
+            if reco_fragments is not None:
+                fragment_ids = np.where(particle_ids == i)[0]
+                particle.fragments = [reco_fragments[j] for j in fragment_ids]
+                particle.fragment_ids = fragment_ids
+                for frag in particle.fragments:
+                    frag.particle_id = i
+                    frag.interaction_id = particle.interaction_id
 
             # Append
             reco_particles.append(particle)
@@ -312,7 +326,7 @@ class ParticleBuilder(BuilderBase):
         return self._load_reco(**data)
 
     def _load_reco(self, reco_particles, points=None, depositions=None,
-                   sources=None):
+                   sources=None, reco_fragments=None):
         """Construct :class:`RecoParticle` objects from their stored versions.
 
         Parameters
@@ -325,6 +339,8 @@ class ParticleBuilder(BuilderBase):
             (N) Set of deposition values
         sources : np.ndarray, optional
             (N, 2) Tensor which contains the module/tpc information
+        reco_fragments : List[RecoFragment], optional
+            (F) List of reconstructed fragments
 
         Returns
         -------
@@ -343,6 +359,11 @@ class ParticleBuilder(BuilderBase):
                 particle.depositions = depositions[particle.index]
                 if sources is not None:
                     particle.sources = sources[particle.index]
+
+            # Load the fragment associations, if available
+            if reco_fragments is not None:
+                particle.fragments = [
+                        reco_fragments[j] for j in particle.fragment_ids]
 
         return reco_particles
 

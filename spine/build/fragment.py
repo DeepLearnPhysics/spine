@@ -219,6 +219,7 @@ class FragmentBuilder(BuilderBase):
                     part_ids, counts = np.unique(
                             ref_tensor[index_ref, PART_COL], return_counts=True)
                     part_id = int(part_ids[np.argmax(counts)])
+
                 if part_id > -1:
                     # Load the MC particle information
                     assert part_id < len(particles), (

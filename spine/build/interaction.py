@@ -79,7 +79,7 @@ class InteractionBuilder(BuilderBase):
         """
         # Loop over unique interaction IDs
         reco_interactions = []
-        inter_ids = np.array([p.interaction_id for p in reco_particles])
+        inter_ids = np.array([part.interaction_id for part in reco_particles])
         for i, inter_id in enumerate(np.unique(inter_ids)):
             # Get the list of particles associates with this interaction
             assert inter_id > -1, (
@@ -92,8 +92,10 @@ class InteractionBuilder(BuilderBase):
             interaction.id = i
 
             # Match the interaction ID of the constituent particles
-            for p in inter_particles:
-                p.interaction_id = i
+            for part in inter_particles:
+                part.interaction_id = i
+                for frag in part.fragments:
+                    frag.interaction_id = i
 
             # Append
             reco_interactions.append(interaction)
@@ -129,7 +131,7 @@ class InteractionBuilder(BuilderBase):
         """
         # Loop over unique interaction IDs
         truth_interactions = []
-        inter_ids = np.array([p.interaction_id for p in truth_particles])
+        inter_ids = np.array([part.interaction_id for part in truth_particles])
         unique_inter_ids = np.unique(inter_ids)
         valid_inter_ids = unique_inter_ids[unique_inter_ids > -1]
         for i, inter_id in enumerate(valid_inter_ids):
@@ -143,9 +145,9 @@ class InteractionBuilder(BuilderBase):
             interaction.orig_id = inter_id
 
             # Match the interaction ID of the constituent particles
-            for p in inter_particles:
-                p.orig_interaction_id = inter_id
-                p.interaction_id = i
+            for part in inter_particles:
+                part.orig_interaction_id = inter_id
+                part.interaction_id = i
 
             # Append the neutrino information, if it is provided
             nu_ids = [part.nu_id for part in inter_particles]
@@ -209,14 +211,14 @@ class InteractionBuilder(BuilderBase):
 
             # Fetch and assign the list of particles matched to this interaction
             inter_particles = [
-                    reco_particles[p] for p in interaction.particle_ids]
+                    reco_particles[j] for j in interaction.particle_ids]
             assert len(inter_particles), (
                     "Every interaction should contain >= 1 particle.")
             interaction.particles = inter_particles
 
             # Update the interaction with its long-form attributes
             for attr in interaction._cat_attrs:
-                val_list = [getattr(p, attr) for p in inter_particles]
+                val_list = [getattr(part, attr) for part in inter_particles]
                 setattr(interaction, attr, np.concatenate(val_list))
 
         return reco_interactions
@@ -264,14 +266,14 @@ class InteractionBuilder(BuilderBase):
 
             # Fetch and assign the list of particles matched to this interaction
             inter_particles = [
-                    truth_particles[p] for p in interaction.particle_ids]
+                    truth_particles[j] for j in interaction.particle_ids]
             assert len(inter_particles), (
                     "Every interaction should contain >= 1 particle.")
             interaction.particles = inter_particles
 
             # Update the interaction with its long-form attributes
             for attr in interaction._cat_attrs:
-                val_list = [getattr(p, attr) for p in inter_particles]
+                val_list = [getattr(part, attr) for part in inter_particles]
                 setattr(interaction, attr, np.concatenate(val_list))
 
         return truth_interactions
