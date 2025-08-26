@@ -687,8 +687,9 @@ class FullChain(torch.nn.Module):
         # Store merged fragment properties, if needed
         if merge:
             for key, value in merge.items():
+                coord_cols = np.array([0, 1, 2]) if key.endswith('points') else None
                 self.result[f'fragment_{key}'] = TensorBatch(
-                        value, counts=fragments.counts)
+                        value, counts=fragments.counts, coord_cols=coord_cols)
 
         # Store particle objects
         self.result['particle_clusts'] = particles
