@@ -462,10 +462,10 @@ class Drawer:
                 colorscale = colorscale[:count]
             else:
                 repeat = (count - 1)//len(colorscale) + 1
-                self._colorscale = np.repeat(colorscale, repeat)[:count]
+                colorscale = np.tile(colorscale, repeat)[:count]
 
             cmin = 0
-            cmax = count
+            cmax = count - 1
 
         elif color_attr.startswith('is_'):
             # Boolean
@@ -495,10 +495,10 @@ class Drawer:
                 colorscale = colorscale[:count]
             else:
                 repeat = (count - 1)//len(colorscale) + 1
-                self._colorscale = np.repeat(colorscale, repeat)[:count]
+                colorscale = np.tile(colorscale, repeat)[:count]
 
             cmin = 0
-            cmax = count
+            cmax = count - 1
 
         else:
             raise ValueError(
