@@ -242,11 +242,17 @@ class RecombinationCalibrator:
 
         corr_values = np.empty(len(values), dtype=values.dtype)
         for i, c in enumerate(seg_clusts):
-            if not self.use_angles:
-                corr = self.inv_recombination_factor(seg_dqdxs[i])
+            if seg_dqdxs[i] > 0.:
+                # If the dQ/dx was reliably estimated, use it
+                if not self.use_angles:
+                    corr = self.inv_recombination_factor(seg_dqdxs[i])
+                else:
+                    seg_cosphi = np.abs(np.dot(seg_dirs[i], self.drift_dir))
+                    corr = self.inv_recombination_factor(seg_dqdxs[i], seg_cosphi)
+
             else:
-                seg_cosphi = np.abs(np.dot(seg_dirs[i], self.drift_dir))
-                corr = self.inv_recombination_factor(seg_dqdxs[i], seg_cosphi)
+                # If not, assume a MIP correction
+                corr = LAR_WION / self.mip_recomb
 
             corr_values[c] = corr * values[c]
 
