@@ -24,7 +24,7 @@ def norm(x: nb.float32[:,:],
         (N) or (M) array of `norm` values
     """
     assert axis == 0 or axis == 1
-    xnorm = np.empty(x.shape[1-axis], dtype=np.int32)
+    xnorm = np.empty(x.shape[1-axis], dtype=x.dtype)
     if axis == 0:
         for i in range(len(xnorm)):
             xnorm[i] = np.linalg.norm(x[:,i])
