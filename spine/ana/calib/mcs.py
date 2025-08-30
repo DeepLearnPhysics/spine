@@ -38,9 +38,8 @@ class MCSCalibAna(AnaBase):
     _projs = ('yz', 'xz', 'xy')
 
     def __init__(self, min_ke, segment_length, segment_method='bin_pca',
-                 anchor_point=True, min_count=10, length_tolerance=0.1,
-                 angle_method='atan2', run_mode='truth',
-                 truth_point_mode='points', **kwargs):
+                 anchor_point=True, angle_method='atan2', time_window=None,
+                 run_mode='truth', truth_point_mode='points', **kwargs):
         """Initialize the analysis script.
 
         Parameters
@@ -55,14 +54,11 @@ class MCSCalibAna(AnaBase):
             or 'bin_pca')
         anchor_point : bool, default True
             Weather or not to collapse end point onto the closest track point
-        min_count : int, default 10
-            Minimum number of points in a segment to use it to evaluate the
-            direction of the next step along the track.
         angle_method : str, default 'atan2'
             Angular reconstruction method
-        length_tolerance : float, default 0.1
-            Relative length tolerance between two sucessive segments for them to
-            be considered in the angular calculation
+        time_window : List[float], optional
+            Time within which the particle must occur to be used for calibration.
+            This is only used with true instances to remove out-of-time objects
         **kwargs : dict, optional
             Additional arguments to pass to :class:`AnaBase`
         """
@@ -72,10 +68,8 @@ class MCSCalibAna(AnaBase):
 
         # Store the kinematic cut
         self.min_ke = min_ke
-        self.min_count = min_count
 
         # Store the segmentation parameters
-        self.length_tolerance = length_tolerance
         self.segment_length = segment_length
         if np.isscalar(segment_length):
             self.segment_length = [segment_length]
@@ -83,13 +77,21 @@ class MCSCalibAna(AnaBase):
         # Partially initialize the segmentation algorithm
         self.get_track_segments = partial(
                 get_track_segments, method=segment_method,
-                anchor_point=anchor_point, min_count=min_count)
+                anchor_point=anchor_point)
 
         # Store the angle computation parameters
         assert angle_method in ANGLE_METHODS, (
                 f"Angular reconstruction method not recognized: {angle_method}. "
                 f"Must be one of {ANGLE_METHODS.keys()}")
         self.angle_method = ANGLE_METHODS[angle_method]
+
+        # Store the time window, if provided
+        assert time_window is None or run_mode == 'truth', (
+                "Cannot enforce time window containment on reconstructed objects.")
+        assert (time_window is None or 
+                (not np.isscalar(time_window) and len(time_window) == 2)), (
+                    "If a time window is provided, it must be a list of two scalars.")
+        self.time_window = time_window
 
         # Initialize the CSV writer(s) you want (one per segment length)
         for prefix in self.prefixes:
@@ -112,6 +114,12 @@ class MCSCalibAna(AnaBase):
                 if part.pid != MUON_PID or part.ke < self.min_ke:
                     continue
 
+                # Enfore time, if requested
+                if self.time_window is not None:
+                    if (part.t < self.time_window[0] or
+                        part.t > self.time_window[1]):
+                        continue
+
                 # Loop over segment lengths
                 for sl in self.segment_length:
                     # Segment the track
@@ -123,23 +131,22 @@ class MCSCalibAna(AnaBase):
                     angles_proj = mcs_angles_proj(dirs, self.angle_method)
                     dirs = (dirs[:-1] + dirs[1:])/2
 
-                    # Check that successive segments meet the size criterion
+                    # Record the size of the smallest of the two segments
                     counts = np.array([len(seg) for seg in segments])
                     min_counts = np.min(np.vstack((counts[:-1], counts[1:])), axis=0)
-                    mask = min_counts > self.min_count
 
-                    # Check that the length between two successive segment
-                    # centers is compatible with the segmentation length
-                    lengths = (lengths[:-1] + lengths[1:])/2
-                    mask &= np.abs(lengths - sl)/sl < self.length_tolerance
+                    # Record the distance between two successive segment centers
+                    distances = (lengths[:-1] + lengths[1:])/2
 
                     # Write to the file
-                    base = {'ke': part.ke}
                     file_name = f'{prefix}_mcs_sl{sl}'
-                    index = np.where(mask)[0]
-                    for i in index:
+                    base = {'ke': part.ke}
+                    if part.is_truth:
+                        base['time'] = part.t
+                    for i in range(len(angles)):
                         dir_dict = {f'dir_{a}': dirs[i, j] for j, a in enumerate(self._axes)}
                         proj_dict = {f'angle_{p}': angles_proj[i, j] for j, p in enumerate(self._projs)}
                         self.append(
                                 file_name, **base, **dir_dict, **proj_dict,
-                                angle=angles[i])
+                                angle=angles[i], min_count=min_counts[i],
+                                distance=distances[i])
