@@ -2,8 +2,16 @@ import scipy
 import numpy as np
 import numba as nb
 
+import spine.math as sm
+
 from .globals import LAR_X0
 from .energy_loss import step_energy_loss_lar
+
+ANGLE_METHODS = {
+        'cos': 0,
+        'atan2': 1,
+        'kahan': 2
+}
 
 
 def mcs_fit(theta, M, dx, z=1, split_angle=False, res_a=0.25, res_b=1.25,
@@ -127,6 +135,146 @@ def highland(p, M, dx, z=1, X0=LAR_X0):
 
     return prefactor * (
             np.sqrt(dx/LAR_X0) * (1. + 0.038*np.log(z**2 * dx/LAR_X0/beta**2)))
+
+
+@nb.njit(cache=True)
+def mcs_angles(dirs, method=ANGLE_METHODS['atan2'], axis=None):
+    """Compute successive angles based on a list of directions of segments.
+
+    Parameters
+    ----------
+    dirs : np.ndarray
+        (N, 3) Array of segments directions
+    method : int, default 1
+        Enumerated angle computation method
+    axis : int, optional
+        Axis with respect to which to orient a projected angle
+
+    Returns
+    -------
+    np.ndarray
+        (N - 1) Array of successive angles
+    """
+    if method == 0:
+        return angles_cos(dirs, axis)
+    elif method == 1:
+        return angles_atan2(dirs, axis)
+    elif method == 2:
+        return angles_kahan(dirs, axis)
+    else:
+        raise ValueError('Angle measurement method not recognized')
+
+
+@nb.njit(cache=True)
+def mcs_angles_proj(dirs, method=ANGLE_METHODS['atan2']):
+    """Compute successive projected angles based on a list of directions of
+    segments.
+
+    Parameters
+    ----------
+    dirs : np.ndarray
+        (N, 3) Array of segments directions
+    method : int, default 1
+        Enumerated angle computation method
+
+    Returns
+    -------
+    np.ndarray
+        (N - 1, 3) Array of successive angles (one per projection)
+    """
+    # Loop over axes to zero-out
+    angles_proj = np.empty((len(dirs) - 1, 3), dtype=dirs.dtype)
+    for axis in range(3):
+        # Zero-out axis, normalize
+        dirs_proj = np.copy(dirs)
+        dirs_proj[:, axis] = 0.
+        dirs_proj /= sm.linalg.norm(dirs_proj, axis=1)[:, None]
+
+        # Compute angles, provide a reference axis to return a signed angle
+        angles_proj[:, axis] = mcs_angles(dirs_proj, method, axis=axis)
+
+    return angles_proj
+
+
+@nb.njit(cache=True)
+def angles_cos(dirs, axis=None):
+    """Compute successive angles based on a list of directions of segments using
+    the simple cosine method (unstable near 0).
+
+    Parameters
+    ----------
+    dirs : np.ndarray
+        (N, 3) Array of segments directions
+    axis : int, optional
+        Axis with respect to which to orient a projected angle
+
+    Returns
+    -------
+    np.ndarray
+        (N - 1) Array of successive angles
+    """
+    cos = sm.sum(dirs[:-1]*dirs[1:], axis=1)
+    angles = np.arccos(np.clip(cos, -1., 1.))
+    if axis is not None:
+        signs = np.sign(np.cross(dirs[:-1], dirs[1:])[:, axis])
+        angles *= signs
+
+    return angles
+
+
+@nb.njit(cache=True)
+def angles_atan2(dirs, axis=None):
+    """Compute successive angles based on a list of directions of segments using
+    the atan2 method (with dot and cross products).
+
+    Parameters
+    ----------
+    dirs : np.ndarray
+        (N, 3) Array of segments directions
+    axis : int, optional
+        Axis with respect to which to orient a projected angle
+
+    Returns
+    -------
+    np.ndarray
+        (N - 1) Array of successive angles
+    """
+    cross = np.cross(dirs[:-1], dirs[1:])
+    if axis is None:
+        cross = sm.linalg.norm(cross, axis=1)
+    else:
+        cross = cross[:, axis]
+
+    dot = sm.sum(dirs[:-1]*dirs[1:], axis=1)
+
+    return np.arctan2(cross, dot)
+
+
+@nb.njit(cache=True)
+def angles_kahan(dirs, axis):
+    """Compute successive angles based on a list of directions of segments using
+    Kahan's half-angle trick.
+
+    Parameters
+    ----------
+    dirs : np.ndarray
+        (N, 3) Array of segments directions
+    axis : int, optional
+        Axis with respect to which to orient a projected angle
+
+    Returns
+    -------
+    np.ndarray
+        (N - 1) Array of successive angles
+    """
+    diff = sm.linalg.norm(dirs[1:] - dirs[:-1], axis=1)
+    summ = sm.linalg.norm(dirs[1:] + dirs[:-1], axis=1)
+    angles = 2*np.arctan(diff/summ)
+    if axis is not None:
+        signs = np.sign(np.cross(dirs[:-1], dirs[1:])[:, axis])
+        angles *= signs
+
+    return angles
 
 
 @nb.njit(cache=True)

@@ -8,8 +8,8 @@ support optional arguments, such as `axis` for most functions or
 import numpy as np
 import numba as nb
 
-__all__ = ['seed', 'unique', 'mean', 'mode', 'argmax', 'argmin', 'amax', 'amin',
-           'all', 'softmax', 'log_loss']
+__all__ = ['seed', 'unique', 'sum', 'mean', 'mode', 'argmax', 'argmin',
+           'amax', 'amin', 'all', 'softmax', 'log_loss']
 
 
 @nb.njit(cache=True)
@@ -69,6 +69,35 @@ def unique(x: nb.int64[:]) -> (nb.int64[:], nb.int64[:]):
     counts[1:] = counts[1:] - counts[:-1]
 
     return uniques, counts
+
+
+@nb.njit(cache=True)
+def sum(x: nb.float32[:,:],
+        axis: nb.int32) -> nb.float32[:]:
+    """Numba implementation of `np.sum(x, axis)`.
+
+    Parameters
+    ----------
+    x : np.ndarray
+        (N,M) array of values
+    axis : int
+        Array axis ID
+
+    Returns
+    -------
+    np.ndarray
+        (N) or (M) array of `sum` values
+    """
+    assert axis == 0 or axis == 1
+    summ = np.empty(x.shape[1-axis], dtype=x.dtype)
+    if axis == 0:
+        for i in range(len(summ)):
+            summ[i] = np.sum(x[:,i])
+    else:
+        for i in range(len(summ)):
+            summ[i] = np.sum(x[i])
+
+    return summ
 
 
 @nb.njit(cache=True)
