@@ -25,6 +25,7 @@ class MCSEnergyProcessor(PostBase):
 
     def __init__(self, tracking_mode='bin_pca', segment_length=5.0,
                  res_a=0.25, res_b=1.25, res_mixture=False,
+                 res_weight_ratio=0.5, res_scale_ratio=2.25,
                  include_pids=(MUON_PID, PION_PID, PROT_PID, KAON_PID),
                  fill_per_pid=False, only_uncontained=False,
                  angle_method='atan2', obj_type='particle', run_mode='both',
@@ -44,6 +45,10 @@ class MCSEnergyProcessor(PostBase):
             Parameter b in the a/dx^b which models the angular uncertainty
         res_mixture : bool, default False
             If `True`, the detector resolution is modeled by a Rayleigh mixture
+        res_weight_ratio : float, default 0.5
+            When using a Rayleigh mixture, defines the weight ratio between components
+        res_scale_ratio : float, default 2.25
+            When using a Rayleigh mixture, defines the scale ratio between components
         include_pids : list, default [2, 3, 4, 5]
             Particle species to compute the kinetic energy for
         fill_per_pid : bool, default False
@@ -81,6 +86,8 @@ class MCSEnergyProcessor(PostBase):
         self.res_a = res_a
         self.res_b = res_b
         self.res_mixture = res_mixture
+        self.res_weight_ratio = res_weight_ratio
+        self.res_scale_ratio = res_scale_ratio
 
     def process(self, data):
         """Reconstruct the MCS KE estimates for each particle in one entry.
@@ -122,7 +129,8 @@ class MCSEnergyProcessor(PostBase):
                 mass = PID_MASSES[self.get_pid(obj)]
                 obj.mcs_ke = mcs_fit(
                         theta, mass, self.segment_length, 1,
-                        self.res_a, self.res_b, self.res_mixture)
+                        self.res_a, self.res_b, self.res_mixture,
+                        self.res_weight_ratio, self.res_scale_ratio)
 
                 # If requested, convert the KE to other PID hypotheses
                 if self.fill_per_pid:

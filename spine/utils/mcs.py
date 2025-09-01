@@ -15,7 +15,8 @@ ANGLE_METHODS = {
 
 
 def mcs_fit(theta, M, dx, z=1, res_a=0.25, res_b=1.25, res_mixture=False,
-            lower_bound=10., upper_bound=100000.):
+            res_weight_ratio=0.5, res_scale_ratio=2.25, lower_bound=10.,
+            upper_bound=100000.):
     """Finds the kinetic energy which best fits a set of scattering angles
     measured between successive segments along a particle track.
 
@@ -36,6 +37,10 @@ def mcs_fit(theta, M, dx, z=1, res_a=0.25, res_b=1.25, res_mixture=False,
     res_mixture : bool, default False
         If `True`, a Rayleigh mixture is used to describe the angular resolution.
         Otherwise, a simple Rayleigh distribution is used
+    res_weight_ratio : float, default 0.5
+        When using a Rayleigh mixture, defines the weight ratio between components
+    res_scale_ratio : float, default 2.25
+        When using a Rayleigh mixture, defines the scale ratio between components
     lower_bound : float, default 10.
         Minimum allowed kinetic energy in MeV
     upper_bound : float, default 100000.
@@ -43,14 +48,15 @@ def mcs_fit(theta, M, dx, z=1, res_a=0.25, res_b=1.25, res_mixture=False,
     """
     # Optimize the initial kinetic energy given a set of angles
     fit_min = scipy.optimize.minimize_scalar(
-            mcs_nll_lar, args=(theta, M, dx, z, res_a, res_b, res_mixture),
+            mcs_nll_lar, args=(theta, M, dx, z, res_a, res_b, res_mixture, res_weight_ratio, res_scale_ratio),
             bounds=[lower_bound, upper_bound])
 
     return fit_min.x
 
 
 @nb.njit(cache=True)
-def mcs_nll_lar(T0, theta, M, dx, z=1, res_a=0.25, res_b=1.25, res_mixture=False):
+def mcs_nll_lar(T0, theta, M, dx, z=1, res_a=0.25, res_b=1.25,
+                res_mixture=False, res_weight_ratio=0.5, res_scale_ratio=2.25):
     """Computes the MCS negative log likelihood for a given list of segment
     angles and an initial momentum. This function checks the agreement between
     the scattering expection and the observed scattering at each step.
@@ -74,6 +80,10 @@ def mcs_nll_lar(T0, theta, M, dx, z=1, res_a=0.25, res_b=1.25, res_mixture=False
     res_mixture : bool, default False
         If `True`, a Rayleigh mixture is used to describe the angular resolution.
         Otherwise, a simple Rayleigh distribution is used
+    res_weight_ratio : float, default 0.5
+        When using a Rayleigh mixture, defines the weight ratio between components
+    res_scale_ratio : float, default 2.25
+        When using a Rayleigh mixture, defines the scale ratio between components
     """
     # Compute the kinetic energy at each step
     assert len(theta), 'Must provide angles to esimate the MCS loss'
@@ -103,13 +113,13 @@ def mcs_nll_lar(T0, theta, M, dx, z=1, res_a=0.25, res_b=1.25, res_mixture=False
         nll = np.sum(0.5 * (theta/theta0)**2 + 2*np.log(theta0))
 
     else:
-        # Add a mixture of resolutions (2-to-1 weight, 1-to-2 scale)
-        res1, res2 = res, res*2
+        # Add a mixture of resolutions
+        res1, res2 = res, res*res_scale_ratio
         s1 = np.sqrt(theta0**2 + np.asarray(res1)**2)
         s2 = np.sqrt(theta0**2 + np.asarray(res2)**2)
         a = -2*np.log(s1) - theta**2/(2*s1**2)
         b = -2*np.log(s2) - theta**2/(2*s2**2)
-        ll = np.logaddexp(np.log(2./3.) + a, np.log(1./3) + b)
+        ll = np.logaddexp(a, np.log(res_weight_ratio) + b)
         nll = -np.sum(ll)
 
     return nll
