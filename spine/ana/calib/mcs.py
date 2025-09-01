@@ -125,6 +125,8 @@ class MCSCalibAna(AnaBase):
                     # Segment the track
                     segments, dirs, lengths = self.get_track_segments(
                             self.get_points(part), sl, part.start_point)
+                    if len(segments) < 1:
+                        continue
 
                     # Compute angles and directions
                     angles = mcs_angles(dirs, self.angle_method)
