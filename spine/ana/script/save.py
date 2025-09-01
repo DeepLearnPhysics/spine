@@ -108,7 +108,7 @@ class SaveAna(AnaBase):
         keys = {}
         if match_mode is not None:
             for prefix in self.prefixes:
-                for obj_name in obj_type:
+                for obj_name in self.obj_type:
                     if prefix == 'reco' and match_mode != 'truth_to_reco':
                         keys[f'{obj_name}_matches_r2t'] = True
                         keys[f'{obj_name}_matches_r2t_overlap'] = True
