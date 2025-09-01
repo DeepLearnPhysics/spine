@@ -14,7 +14,7 @@ ANGLE_METHODS = {
 }
 
 
-def mcs_fit(theta, M, dx, z=1, split_angle=False, res_a=0.25, res_b=1.25,
+def mcs_fit(theta, M, dx, z=1, res_a=0.25, res_b=1.25, res_mixture=False,
             lower_bound=10., upper_bound=100000.):
     """Finds the kinetic energy which best fits a set of scattering angles
     measured between successive segments along a particle track.
@@ -29,12 +29,13 @@ def mcs_fit(theta, M, dx, z=1, split_angle=False, res_a=0.25, res_b=1.25,
         Step length in cm
     z : int, default 1
         Impinging partile charge in multiples of electron charge
-    split_angle : bool, default False
-        Whether or not to project the 3D angle onto two 2D planes
     res_a : float, default 0.25 rad*cm^res_b
         Parameter a in the a/dx^b which models the angular uncertainty
     res_b : float, default 1.25
         Parameter b in the a/dx^b which models the angular uncertainty
+    res_mixture : bool, default False
+        If `True`, a Rayleigh mixture is used to describe the angular resolution.
+        Otherwise, a simple Rayleigh distribution is used
     lower_bound : float, default 10.
         Minimum allowed kinetic energy in MeV
     upper_bound : float, default 100000.
@@ -42,17 +43,17 @@ def mcs_fit(theta, M, dx, z=1, split_angle=False, res_a=0.25, res_b=1.25,
     """
     # Optimize the initial kinetic energy given a set of angles
     fit_min = scipy.optimize.minimize_scalar(
-            mcs_nll_lar, args=(theta, M, dx, z, split_angle, res_a, res_b),
+            mcs_nll_lar, args=(theta, M, dx, z, res_a, res_b, res_mixture),
             bounds=[lower_bound, upper_bound])
 
     return fit_min.x
 
 
 @nb.njit(cache=True)
-def mcs_nll_lar(T0, theta, M, dx, z=1, split_angle=False, res_a=0.25, res_b=1.25):
-    """Computes the MCS negative log likelihood for a given list of segment angles
-    and an initial momentum. This function checks the agreement between the
-    scattering expection and the observed scattering at each step.
+def mcs_nll_lar(T0, theta, M, dx, z=1, res_a=0.25, res_b=1.25, res_mixture=False):
+    """Computes the MCS negative log likelihood for a given list of segment
+    angles and an initial momentum. This function checks the agreement between
+    the scattering expection and the observed scattering at each step.
 
     Parameters
     ----------
@@ -66,12 +67,13 @@ def mcs_nll_lar(T0, theta, M, dx, z=1, split_angle=False, res_a=0.25, res_b=1.25
         Step length in cm
     z : int, default 1
        Impinging partile charge in multiples of electron charge
-    split_angle : bool, default False
-        Whether or not to project the 3D angle onto two 2D planes
     res_a : float, default 0.25 rad*cm^res_b
         Parameter a in the a/dx^b which models the angular uncertainty
     res_b : float, default 1.25
         Parameter b in the a/dx^b which models the angular uncertainty
+    res_mixture : bool, default False
+        If `True`, a Rayleigh mixture is used to describe the angular resolution.
+        Otherwise, a simple Rayleigh distribution is used
     """
     # Compute the kinetic energy at each step
     assert len(theta), 'Must provide angles to esimate the MCS loss'
@@ -93,16 +95,22 @@ def mcs_nll_lar(T0, theta, M, dx, z=1, split_angle=False, res_a=0.25, res_b=1.25
 
     # Update the expected scattering angle to account for angular resolution
     res = res_a/dx**res_b
-    theta0 = np.sqrt(theta0**2 + res**2)
 
-    # Compute the negative log likelihood, return
-    if not split_angle:
+    # Compute the negative log likelihood
+    if not res_mixture:
+        # Add the resolution in quadrature
+        theta0 = np.sqrt(theta0**2 + res**2)
         nll = np.sum(0.5 * (theta/theta0)**2 + 2*np.log(theta0))
+
     else:
-        theta1, theta2 = split_angles(theta)
-        nll = np.sum(
-                0.5 * (theta1/theta0)**2 + 0.5 * (theta2/theta0)**2 +
-                2*np.log(theta0))
+        # Add a mixture of resolutions (2-to-1 weight, 1-to-2 scale)
+        res1, res2 = res, res*2
+        s1 = np.sqrt(theta0**2 + np.asarray(res1)**2)
+        s2 = np.sqrt(theta0**2 + np.asarray(res2)**2)
+        a = -2*np.log(s1) - theta**2/(2*s1**2)
+        b = -2*np.log(s2) - theta**2/(2*s2**2)
+        ll = np.logaddexp(np.log(2./3.) + a, np.log(1./3) + b)
+        nll = -np.sum(ll)
 
     return nll
 

@@ -360,7 +360,7 @@ class PostBase(ABC):
     def get_pid(self, obj):
         """Get a certain pre-defined PID prediction of an object.
 
-        The :class:`RecoParticle` PID predictions are obtained using the
+        The :class:`TruthParticle` PID predictions are obtained using the
         `pid_mode` attribute of the class.
 
         Parameters
