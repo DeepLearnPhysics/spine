@@ -1,9 +1,9 @@
 tpc:
-  dimensions: [201.1, 400.016, 501.31562]
+  dimensions: [201.4, 400.016, 501.31562]
   module_ids: [0, 0]
   positions:
-  - [-100.75, 0.0, 254.70019]
-  - [100.75, 0.0, 254.70019]
+  - [-100.9, 0.0, 254.70019]
+  - [100.9, 0.0, 254.70019]
 optical:
   volume: module
   shape: [box, ellipsoid]
