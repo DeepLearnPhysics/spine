@@ -99,6 +99,11 @@ class OutBase(PosDataBase):
         self.is_matched = False
         self.match_ids = np.empty(0, dtype=np.int64)
 
+    def reset_cathode_crosser(self):
+        """Resets the cathode crossing information for the object."""
+        self.is_cathode_crosser = False
+        self.cathode_offset = -np.inf
+
     @property
     def size(self):
         """Total number of voxels that make up the object.

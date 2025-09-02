@@ -108,6 +108,11 @@ class CathodeCrosserProcessor(PostBase):
         data : dict
             Dictionary of data products
         """
+        # Reset all particle/interaction cathode crossers
+        for obj_key in self.obj_keys:
+            for obj in data[obj_key]:
+                obj.reset_cathode_crosser()
+
         # Reset all particle/interaction matches if any merging is to be done
         if self.merge_crossers:
             for obj_key in self.obj_keys:
@@ -125,6 +130,10 @@ class CathodeCrosserProcessor(PostBase):
 
             # Tag particles which live across multiple TPCs as crossers
             for part in particles:
+                # Only track objects can be tagged as clear cathode crossers
+                if part.shape != TRACK_SHP:
+                    continue
+
                 # Make sure the particle coordinates are expressed in cm
                 self.check_units(part)
 
@@ -139,7 +148,15 @@ class CathodeCrosserProcessor(PostBase):
                         "The cathode crosser identification/mergin post-"
                         "processor does not support multi-module crossers.")
 
-                part.is_cathode_crosser = len(np.unique(tpcs)) > 1
+                # A particle is a cathode crosser if there are two TPC sources
+                # and points on either side of the cathode
+                if len(np.unique(tpcs)) > 1:
+                    points = self.get_points(part)
+                    cpos = self.geo.tpc[modules[0]].cathode_pos
+                    daxis = self.geo.tpc[modules[0]].drift_axis
+                    if (np.any(points[:, daxis] < cpos) and
+                        np.any(points[:, daxis] > cpos)):
+                        part.is_cathode_crosser = len(np.unique(tpcs)) > 1
 
             # Merge particles which were split at the cathode, if requested.
             # Skip true particles which never need to be manually merged
@@ -152,8 +169,8 @@ class CathodeCrosserProcessor(PostBase):
 
             # Find the cathode offsets for cathode crossers
             for i, part in enumerate(particles):
-                # Only bother to compute offsets for tracks that cross cathodes
-                if not part.is_cathode_crosser or part.shape != TRACK_SHP:
+                # Only bother to compute offsets for cathode crossers
+                if not part.is_cathode_crosser:
                     continue
 
                 # Store the displacement
@@ -169,13 +186,13 @@ class CathodeCrosserProcessor(PostBase):
             for inter in interactions:
                 crosser, offsets = False, []
                 parts = [p for p in particles if p.interaction_id == inter.id]
-                for p in parts:
-                    if p.is_cathode_crosser:
+                for part in parts:
+                    if part.is_cathode_crosser:
                         crosser = True
-                        offsets.append(p.cathode_offset)
+                        offsets.append(part.cathode_offset)
 
+                inter.is_cathode_crosser = crosser
                 if crosser:
-                    inter.is_cathode_crosser = crosser
                     inter.cathode_offset = np.mean(offsets)
 
             # Update
@@ -233,7 +250,6 @@ class CathodeCrosserProcessor(PostBase):
             # Loop over other tracks
             j = i + 1
             while j < len(candidate_ids):
-
                 # Get the second particle object and its properties
                 cj = candidate_ids[j]
                 pj = particles[cj]
