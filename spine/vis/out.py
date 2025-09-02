@@ -422,7 +422,7 @@ class Drawer:
                     values = [self.geo.get_sources(v) for v in values]
                     for i, hc in enumerate(hovertext):
                         if isinstance(hc, str):
-                            hovertext[i] = [hc + tostr(v) in values[i]]
+                            hovertext[i] = [hc + tostr(v) for v in values[i]]
                         else:
                             hovertext[i] = [hc[i] + tostr(v) for i, v in enumerate(values[i])]
 
