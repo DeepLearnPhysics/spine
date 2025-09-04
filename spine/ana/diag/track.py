@@ -36,7 +36,6 @@ class TrackCompletenessAna(AnaBase):
         """
         # Initialize the parent class
         super().__init__('particle', run_mode, truth_point_mode, **kwargs)
-
         # Store the time window
         self.time_window = time_window
         assert time_window is None or len(time_window) == 2, (
@@ -78,8 +77,6 @@ class TrackCompletenessAna(AnaBase):
                     if part.t < self.time_window[0] or part.t > self.time_window[1]:
                         continue
 
-                # Initialize the particle dictionary
-                comp_dict = {'particle_id': part.id}
 
                 # Fetch the particle point coordinates
                 points = self.get_points(part)
@@ -91,8 +88,14 @@ class TrackCompletenessAna(AnaBase):
                 # Add the direction of the track
                 vec = end - start
                 length = np.linalg.norm(vec)
-                if length:
+                if length and length > 0:
                     vec /= length
+                else: # track has no length
+                    continue
+                
+                # Initialize the particle dictionary
+                comp_dict = {'particle_id': part.id}
+
 
                 comp_dict['size'] = len(points)
                 comp_dict['length'] = length
@@ -149,7 +152,7 @@ class TrackCompletenessAna(AnaBase):
         cluster_labels = np.empty(len(projs), dtype=int)
         for i, index in enumerate(np.split(np.arange(len(projs)), breaks)):
             cluster_labels[perm[index]] = i
-            
+        
         return cluster_labels
 
     @staticmethod
