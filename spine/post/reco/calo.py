@@ -106,14 +106,14 @@ class CalibrationProcessor(PostBase):
             keys.update({
                 'points': True,
                 'depositions': True,
-                'sources': True
+                'sources': False
             })
 
         if run_mode != 'reco':
             keys.update({
                 self.truth_point_key: True,
                 self.truth_dep_key: True,
-                self.truth_source_key: True
+                self.truth_source_key: False
             })
 
         self.update_keys(keys)
@@ -134,6 +134,7 @@ class CalibrationProcessor(PostBase):
 
         # Loop over particle objects
         for k in self.particle_keys:
+            sources = None
             points_key = 'points' if not 'truth' in k else self.truth_point_key
             source_key = 'sources' if not 'truth' in k else self.truth_source_key
             dep_key = 'depositions' if not 'truth' in k else self.truth_dep_key
@@ -147,15 +148,16 @@ class CalibrationProcessor(PostBase):
                 if not len(points):
                     continue
 
-                sources = self.get_sources(part)
                 deps = self.get_depositions(part)
+                if source_key in data:
+                    sources = self.get_sources(part)
 
                 # Apply calibration
                 if not self.do_tracking or part.shape != TRACK_SHP:
                     depositions = self.calibrator(
                             points, deps, sources, run_id)
                 else:
-                    depositions = self.calibrator.process(
+                    depositions = self.calibrator(
                             points, deps, sources, run_id, track=True)
 
                 # Update the particle *and* the reference tensor
@@ -169,9 +171,13 @@ class CalibrationProcessor(PostBase):
 
             # Apply calibration corrections to unassociated depositions
             unass_index = np.where(unass_mask)[0]
+            points = data[points_key][unass_index]
+            depositions = data[dep_key][unass_index]
+            if source_key in data:
+                sources = data[source_key][unass_index]
+
             data[dep_key][unass_index] = self.calibrator(
-                    data[points_key][unass_index], data[dep_key][unass_index],
-                    data[source_key][unass_index], run_id)
+                    points, depositions, sources, run_id)
 
         # If requested, updated the depositions attribute of interactions
         for k in self.interaction_keys:
