@@ -77,7 +77,6 @@ class InteractionBase:
     flash_total_pe: float = -1.
     flash_hypo_pe: float = -1.
     topology: str = None
-
     # Fixed-length attributes
     _fixed_length_attrs = (
             ('vertex', 3), ('particle_counts', len(PID_LABELS) - 1),
@@ -363,10 +362,12 @@ class TruthInteraction(Neutrino, InteractionBase, TruthBase):
     """
     nu_id: int = -1
     reco_vertex: np.ndarray = None
+    t: float = -np.inf
 
     # Fixed-length attributes
     _fixed_length_attrs = (
             ('reco_vertex', 3),
+            ('t', 1),
             *Neutrino._fixed_length_attrs,
             *InteractionBase._fixed_length_attrs
     )
@@ -405,6 +406,25 @@ class TruthInteraction(Neutrino, InteractionBase, TruthBase):
             Basic information about the interaction properties
         """
         return 'Truth' + super().__str__()
+
+    @property
+    def t(self):
+        """Time of the interaction.
+        
+        Returns
+        -------
+        float
+            Time of the interaction
+        """
+        min_time = np.inf
+        for part in self.particles:
+            if part.t < min_time and part.is_valid:
+                min_time = part.t
+        return min_time
+    
+    @t.setter
+    def t(self, time):
+        pass
 
     def attach_neutrino(self, neutrino):
         """Attach neutrino generator information to this interaction.
