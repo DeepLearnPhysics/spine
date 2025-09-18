@@ -42,7 +42,7 @@ class GeoDrawer:
         self.detector_coords = detector_coords
 
     def tpc_traces(self, meta=None, draw_faces=False, shared_legend=True,
-                   name='Detector', color='rgba(0,0,0,0.150)', linewidth=5,
+                   name='TPC', color='rgba(0,0,0,0.150)', linewidth=5,
                    **kwargs):
         """Function which produces a list of traces which represent the TPCs in
         a 3D event display.
@@ -241,8 +241,9 @@ class GeoDrawer:
 
         return traces
 
-    def crt_traces(self, meta=None, detector_coords=True, shared_legend=True,
-                   name='CRT', color='rgba(0,255,0,0.25)', **kwargs):
+    def crt_traces(self, meta=None, draw_faces=True, shared_legend=True,
+                   name='CRT', color='rgba(0,256,256,0.150)', draw_ids=None,
+                   **kwargs):
         """Function which produces a list of traces which represent the optical
         detectors in a 3D event display.
 
@@ -250,8 +251,8 @@ class GeoDrawer:
         ----------
         meta : Meta, optional
             Metadata information (only needed if pixel_coordinates is True)
-        detector_coords : bool, default False
-            If False, the coordinates are converted to pixel indices
+        draw_faces : bool, default True
+            Weather or not to draw the box faces, or only the edges
         shared_legend : bool, default True
             If True, the legend entry in plotly is shared between all the
             detector volumes
@@ -259,6 +260,8 @@ class GeoDrawer:
             Name(s) of the detector volumes
         color : Union[int, str, np.ndarray]
             Color of CRT detectors or list of color of CRT detectors
+        draw_ids : List[int], optional
+            If specified, only the requested CRT planes are drawn
         **kwargs : dict, optional
             List of additional arguments to pass to
             spine.vis.ellipsoid.ellipsoid_traces or spine.vis.box.box_traces
@@ -272,21 +275,27 @@ class GeoDrawer:
         assert self.geo.crt is not None, (
                 "This geometry does not have CRT planes to draw.")
 
-        # Fetch the CRT element positions and dimensions
-        positions = self.geo.crt.positions
-        half_dimensions = self.geo.crt.dimensions/2
+        # Load the list of CRT plane boundaries
+        boundaries = np.stack([p.boundaries for p in self.geo.crt.planes])
+
+        # If required, convert to pixel coordinates
         if not self.detector_coords:
             assert meta is not None, (
-                    "Must provide meta information to convert the CRT "
-                    "element positions/dimensions to pixel coordinates.")
-            positions = meta.to_px(positions)
-            half_dimensions = meta.to_px(half_dimensions)
+                    "Must provide meta information to convert the CRT plane "
+                    "boundaries to pixel coordinates.")
+            boundaries = meta.to_px(boundaries.transpose(0,2,1)).transpose(0,2,1)
 
-        # Convert the positions/dimensions to box lower/upper bounds
-        lower = positions - half_dimensions
-        upper = positions + half_dimensions
+        # Restrict the list of boundaries, if requested
+        if draw_ids is not None:
+            tmp = np.empty((len(draw_ids), *boundaries.shape[1:]), dtype=boundaries.dtype)
+            for i, idx in enumerate(draw_ids):
+                tmp[i] = boundaries[idx]
 
-        # Build and return boxes
-        return box_traces(
-                lower, upper, shared_legend=shared_legend, name=name,
-                color=color, draw_faces=True, **kwargs)
+            boundaries = tmp
+
+        # Get a trace per detector volume
+        detectors = box_traces(
+                boundaries[..., 0], boundaries[..., 1], draw_faces=draw_faces,
+                color=color, shared_legend=shared_legend, name=name, **kwargs)
+
+        return detectors

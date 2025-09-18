@@ -53,8 +53,8 @@ class Drawer:
     )
 
     def __init__(self, data, draw_mode='both', truth_point_mode='points',
-                 split_scene=True, detector=None, detector_coords=True,
-                 **kwargs):
+                 split_scene=True, detector=None, show_crt=False,
+                 detector_coords=True, **kwargs):
         """Initialize the drawer attributes
 
         Parameters
@@ -114,11 +114,12 @@ class Drawer:
             self.geo = self.geo_drawer.geo
 
         # Initialize the layout
+        self.show_crt = show_crt
         self.split_scene = split_scene
         meta = self.meta if detector is None else None
         self.layout = layout3d(
                 detector=detector, meta=meta, detector_coords=detector_coords,
-                **kwargs)
+                show_crt=show_crt, **kwargs)
 
     @property
     def point_modes(self):
@@ -180,8 +181,9 @@ class Drawer:
 
     def get(self, obj_type, attr=None, color_attr=None, draw_raw=False,
             draw_end_points=False, draw_directions=False, draw_vertices=False,
-            draw_flashes=False, synchronize=False, titles=None,
-            split_traces=False, matched_flash_only=True):
+            draw_flashes=False, matched_flash_only=True, draw_crthits=False,
+            matched_crthit_only=True, synchronize=False, titles=None,
+            split_traces=False):
         """Draw the requested object type with the requested mode.
 
         Parameters
@@ -202,15 +204,19 @@ class Drawer:
         draw_vertices : bool, default False
             If `True`, draw the interaction vertices
         draw_flashes : bool, default False
-            If `True`, draw flashes that have been matched to interactions
+            If `True`, draw the flashes
+        matched_flash_only : bool, default True
+            If `True`, only flashes matched to interactions are drawn
+        draw_crthits : bool, default False
+            If `True`, draw the CRT hits
+        matched_crthit_only : bool, default True
+            If `True`, only CRT hits matched to interactions are drawn
         synchronize : bool, default False
             If `True`, matches the camera position/angle of one plot to the other
         titles : List[str], optional
-            Titles of the two scenes (only relevant for split_scene True
+            Titles of the two scenes (only relevant for split_scene=True)
         split_traces : bool, default False
             If `True`, one trace is produced for each object
-        matched_flash_only : bool, default True
-            If `True`, only flashes matched to interactions are drawn
 
         Returns
         -------
@@ -271,6 +277,14 @@ class Drawer:
                 assert obj_name in self.data, (
                         "Must provide interactions to draw matched flashes.")
                 traces[prefix] += self._flash_trace(obj_name, matched_flash_only)
+
+        # Fetch the CRT hits, if requested
+        if draw_crthits:
+            assert 'crthits' in self.data, (
+                    "Must provide the `crthits` objects to draw them.")
+            for prefix in self.prefixes:
+                obj_name = f'{prefix}_{obj_type}'
+                traces[prefix] += self._crt_trace(obj_name, matched_crthit_only)
 
         # Add the TPC traces, if available
         if self.geo_drawer is not None:
@@ -724,8 +738,7 @@ class Drawer:
         return traces
 
     def _flash_trace(self, obj_name, matched_only, **kwargs):
-        """Draw the cumlative PEs of flashes that have been matched to
-        interactions specified by `obj_name`.
+        """Draw the cumulative PEs of flashes.
 
         Parameters
         ----------
@@ -745,7 +758,7 @@ class Drawer:
         assert self.geo_drawer is not None, (
                 "Cannot draw optical detectors without geometry information.")
 
-        # Check that there is optical detectors to draw
+        # Check that there are optical detectors to draw
         assert self.geo.optical is not None, (
                 "This geometry does not have optical detectors to draw.")
 
@@ -776,6 +789,72 @@ class Drawer:
         return self.geo_drawer.optical_traces(
                 meta=self.meta, color=color, zero_supress=True,
                 colorscale='Inferno', name=name)
+
+    def _crt_trace(self, obj_name, matched_only, **kwargs):
+        """Draw the CRT planes and the hits.
+
+        Parameters
+        ----------
+        obj_name : str
+            Name of the object to draw
+        matched_only : bool
+            If `True`, only CRT hits matched to interactions are drawn
+        **kwargs : dict, optional
+            List of additional arguments to pass to :func:`optical_traces`
+
+        Returns
+        -------
+        list
+            List of optical detector traces
+        """
+        # If there was no geometry provided by the user, nothing to do here
+        assert self.geo_drawer is not None, (
+                "Cannot draw CRT detectors without geometry information.")
+
+        # Check that there are CRT planes to draw
+        assert self.geo.crt is not None, (
+                "This geometry does not have CRT planes to draw.")
+
+        # Define the names of the traces
+        name_pl = ' '.join(obj_name.split('_')).capitalize()[:-1] + ' CRT planes'
+        name_hits = ' '.join(obj_name.split('_')).capitalize()[:-1] + ' CRT hits'
+
+        # Fetch CRT hits. Restrict to matched hits, if requested
+        crthits = self.data['crthits']
+        if matched_only:
+            crt_ids = []
+            for inter in self.data[obj_name]:
+                if inter.is_crt_matched:
+                    crt_ids.extend(inter.crt_ids)
+            crt_ids = np.unique(crt_ids)
+            crthits = [crthits[idx] for idx in crt_ids]
+
+        # Identify which of the CRT planes were hit (to know what to draw)
+        det_ids = [self.geo.crt.det_ids[hit.plane] for hit in crthits]
+        unique_det_ids = np.unique(det_ids)
+
+        # Initialize the hovertext for the planes and hits
+        hovertext_pl, hovertext_hits = [], []
+        for i, det_id in enumerate(unique_det_ids):
+            hovertext_pl.append(f'CRT Plane {det_id}')
+        for i, hit in enumerate(crthits):
+            hovertext_hits.append(f'CRT hit {hit.id}<br>CRT Plane ID: {det_ids[i]}')
+
+        # Initialize the CRT plane traces
+        traces = self.geo_drawer.crt_traces(
+                meta=self.meta, draw_ids=unique_det_ids,
+                hovertext=hovertext_pl, name=name_pl)
+
+        # Build a scatter plot of CRT hits
+        points = np.empty((0, 3))
+        if len(crthits) > 0:
+            points = np.vstack([hit.center for hit in crthits])
+
+        traces += scatter_points(
+                points, color='gray', markersize=5,
+                hovertext=hovertext_hits, name=name_hits, **kwargs)
+
+        return traces
 
     @staticmethod
     def _is_depositions(attr):

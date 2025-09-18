@@ -123,8 +123,8 @@ class FlashMatchProcessor(PostBase):
 
         Notes
         -----
-        This post-processor modifies the list of `interaction` objectss
-        in-place by filling the following attributes
+        This post-processor modifies the list of `interaction` objects
+        in-place by filling the following attributes:
         - interaction.is_flash_matched: (bool)
                Indicator for whether the given interaction has a flash match
         - interaction.flash_ids: np.ndarray
@@ -273,6 +273,6 @@ class FlashMatchProcessor(PostBase):
                 inter.flash_times = np.asarray(inter.flash_times, dtype=np.float32)
                 inter.flash_scores = np.asarray(inter.flash_scores, dtype=np.float32)
 
-            # Return an updated flash list, if requested
-            if self.update_flashes:
-                return {self.flash_key: flashes}
+        # Return an updated flash list, if requested
+        if self.update_flashes:
+            return {self.flash_key: flashes}

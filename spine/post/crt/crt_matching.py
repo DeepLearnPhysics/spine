@@ -1,4 +1,11 @@
+"""Post-processor in charge of finding matches between charge and CRT.
+"""
+
+import numpy as np
+
 from spine.post.base import PostBase
+
+from .match import CRTMatcher
 
 __all__ = ['CRTMatchProcessor']
 
@@ -13,83 +20,79 @@ class CRTMatchProcessor(PostBase):
     # Alternative allowed names of the post-processor
     aliases = ('run_crt_matching',)
 
-    def __init__(self, crthit_key, obj_type='particle', run_mode='reco'):
+    # Set of post-processors which must be run before this one is
+    _upstream = ('direction',)
+
+    def __init__(self, crt_key, run_mode='reco', **kwargs):
         """Initialize the CRT/TPC matching post-processor.
         
         Parameters
         ----------
-        crthit_key : str
+        crt_key : str
             Data product key which provides the CRT information
         **kwargs : dict
             Keyword arguments to pass to the CRT-TPC matching algorithm
         """
         # Initialize the parent class
-        super().__init__(obj_type, run_mode)
+        super().__init__('particle', run_mode)
 
-        # Store the relevant attributes
-        self.crthit_key = crthit_key
+        # Make sure the CRT hit data product is available, store
+        self.crt_key = crt_key
+        self.update_keys({crt_key: True})
 
-    def process(self, data_dict, result_dict):
-        """Find particle/CRT matches for one entry.
+        # Initialzie the matcher
+        self.matcher = CRTMatcher(**kwargs)
+
+    def process(self, data):
+        """Find [particle, crthit] pairs.
+
         Parameters
-
         ----------
         data : dict
             Dictionary of data products
 
         Notes
         -----
-        This post-processor also modifies the list of Interactions
-        in-place by adding the following attributes:
-            particle.is_crthit_matched: bool
-                Indicator for whether the given particle has a CRT-TPC match
-            particle.crthit_ids: List[int]
-                List of IDs for CRT hits that were matched to that particle
+        This post-processor modifies the list of `particle` objects
+        in-place by filling the following attributes:
+        - particle.is_crt_matched: (bool)
+               Indicator for whether the given particle has a CRT hit match
+        - particle.crt_ids: np.ndarray
+               The CRT hit IDs in the CRT hit list
+        - particle.crt_times: np.ndarray
+               The CRT hit time(s) in microseconds
         """
-        crthits = {}
-        assert len(self.crthit_keys) > 0
-        for key in self.crthit_keys:
-            crthits[key] = data_dict[key]
-        
-        interactions = result_dict['interactions']
-        
-        crt_tpc_matches = crt_tpc_manager.get_crt_tpc_matches(int(entry), 
-                                                              interactions,
-                                                              crthits,
-                                                              use_true_tpc_objects=False,
-                                                              restrict_interactions=[])
+        # Fetch the CRT hits, nothing to do here if there are none
+        crthits = data[self.crt_key]
+        if not len(crthits):
+            return 
 
-        from matcha.match_candidate import MatchCandidate
-        assert all(isinstance(item, MatchCandidate) for item in crt_tpc_matches)
+        # Loop over the object types
+        for k in self.particle_keys:
+            # Fetch particle list, nothing to do here if there are none
+            particles = data[k]
+            if not len(particles):
+                continue
 
-        # crt_tpc_matches is a list of matcha.MatchCandidates. Each MatchCandidate
-        # contains a Track and CRTHit instance. The Track class contains the 
-        # interaction_id.
-        #matched_interaction_ids = [int_id for int_id in crt_tpc_matches.track.interaction_id]
-        #matched_interaction_ids = []
-        #for match in crt_tpc_matches:
-        #    matched_interaction_ids.append(match.track.interaction_id)
-        #
-        #matched_interactions = [i for i in interactions 
-        #                        if i.id in matched_interaction_ids]
+            # Make sure the particle coordinates are expressed in cm
+            self.check_units(particles[0])
 
+            # Clear previous crt matching information
+            for part in particles:
+                part.reset_crt_match(typed=False)
 
-        for match in crt_tpc_matches:
-            matched_track = match.track
-            # To modify the interaction in place, we need to find it in the interactions list
-            matched_interaction = None
-            for interaction in interactions:
-                if matched_track.interaction_id == interaction.id:
-                    matched_interaction = interaction
-                    break
-            matched_crthit = match.crthit
-            # Sanity check
-            if matched_interaction is None: continue
-            matched_interaction.crthit_matched = True
-            matched_interaction.crthit_matched_particle_id = matched_track.id
-            matched_interaction.crthit_id = matched_crthit.id
+            # Run CRT matching
+            matches = self.matcher.get_matches(particles, crthits)
 
-            # update_dict['interactions'].append(matched_interaction)
-        # update_dict['crt_tpc_matches'].append(crt_tpc_dict)
+            # Store the CRT information
+            for part, crt, match in matches:
+                part.is_crt_matched = True
+                part.crt_ids.append(crt.id)
+                part.crt_times.append(crt.time)
+                part.crt_scores.append(match)
 
-        return {}, {}
+            # Cast list attributes to numpy arrays
+            for part in particles:
+                part.crt_ids = np.asarray(part.crt_ids, dtype=np.int32)
+                part.crt_times = np.asarray(part.crt_times, dtype=np.float32)
+                part.crt_scores = np.asarray(part.crt_scores, dtype=np.float32)

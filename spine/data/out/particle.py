@@ -75,6 +75,14 @@ class ParticleBase:
         3-momentum of the particle at the production point in MeV/c
     p : float
         Momentum magnitude of the particle at the production point in MeV/c
+    is_crt_matched : bool
+        True if the particle was matched to a CRT hit
+    crt_ids : np.ndarray
+        (C) Indices of the CRT hits the particle is matched to
+    crt_times : np.ndarray
+        (C) Times at which the CRT hits occurred in microseconds
+    crt_scores : np.ndarray
+        (C) Quality metric associated with the CRT matches
     is_valid : bool
         Whether this particle counts towards an interaction topology. This
         may be False if a particle is below some defined energy threshold.
@@ -103,6 +111,10 @@ class ParticleBase:
     mcs_ke_per_pid: np.ndarray = None
     momentum: np.ndarray = None
     p: float = None
+    is_crt_matched: bool = False
+    crt_ids: np.ndarray = None
+    crt_times: np.ndarray = None
+    crt_scores: np.ndarray = None
     is_valid: bool = True
 
     # Fixed-length attributes
@@ -116,7 +128,9 @@ class ParticleBase:
 
     # Variable-length attributes as (key, dtype) pairs
     _var_length_attrs = (
-            ('fragments', object), ('fragment_ids', np.int32)
+            ('fragments', object), ('fragment_ids', np.int32),
+            ('crt_ids', np.int32), ('crt_times', np.float32),
+            ('crt_scores', np.float32)
     )
 
     # Attributes specifying coordinates
@@ -126,7 +140,7 @@ class ParticleBase:
     _vec_attrs = ('start_dir', 'end_dir', 'momentum')
 
     # Boolean attributes
-    _bool_attrs = ('is_primary', 'is_valid')
+    _bool_attrs = ('is_primary', 'is_crt_matched', 'is_valid')
 
     # Enumerated attributes
     _enum_attrs = (
@@ -150,6 +164,24 @@ class ParticleBase:
         return (f"Particle(ID: {self.id:<3} | PID: {pid_label:<8} "
                 f"| Primary: {self.is_primary:<2} "
                 f"| Size: {self.size:<5} | Match: {match:<3})")
+
+    def reset_crt_match(self, typed=True):
+        """Reset all the CRT hit matching attributes.
+
+        Parameters
+        ----------
+        typed : bool, default True
+            If `True`, the underlying arrays are reset to typed empty arrays
+        """
+        self.is_crt_matched = False
+        if typed:
+            self.crt_ids = np.empty(0, dtype=np.int32)
+            self.crt_times = np.empty(0, dtype=np.float32)
+            self.crt_scores = np.empty(0, dtype=np.float32)
+        else:
+            self.crt_ids = []
+            self.crt_times = []
+            self.crt_scores = []
 
     @property
     def num_fragments(self):

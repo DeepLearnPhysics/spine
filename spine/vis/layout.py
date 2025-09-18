@@ -22,8 +22,8 @@ HIGH_CONTRAST_COLORS = np.concatenate(
 __all__ = ['layout3d', 'dual_figure3d']
 
 
-def layout3d(ranges=None, meta=None, detector=None, titles=None,
-             detector_coords=False, backgroundcolor='white',
+def layout3d(ranges=None, meta=None, detector=None, show_crt=False,
+             titles=None, detector_coords=False, backgroundcolor='white',
              gridcolor='lightgray', width=800, height=800, showlegend=True,
              camera=None, aspectmode='manual', aspectratio=None, dark=False,
              margin=None, hoverlabel=None, **kwargs):
@@ -42,8 +42,10 @@ def layout3d(ranges=None, meta=None, detector=None, titles=None,
         the region based on a set of points that is not same as what's plotted.
     meta : Meta, optional
         Metadata information used to infer the full image range
-    detector : str
+    detector : str, optional
         Name of a recognized detector to get the geometry from
+    show_crt : bool, default False
+        If True, the drawing range is extended to include the CRT modules
     titles : List[str], optional
         (3) Array of strings for (x,y,z) axis title respectively
     detector_coords : bool, default False
@@ -97,8 +99,15 @@ def layout3d(ranges=None, meta=None, detector=None, titles=None,
         assert ranges is None or None in ranges, (
                 "Should not specify `detector` along with `ranges`.")
         geo = Geometry(detector)
-        lengths = geo.tpc.dimensions
-        ranges = geo.tpc.boundaries
+        if not show_crt:
+            lengths = geo.tpc.dimensions
+            ranges = geo.tpc.boundaries
+        else:
+            assert geo.crt is not None, (
+                    "If the layout is to be made big enough in include CRT "
+                    "objects, they must must be defined in the geometry.")
+            lengths = geo.crt.dimensions
+            ranges = geo.crt.boundaries
 
         # Add some padding
         ranges[:, 0] -= lengths*0.1

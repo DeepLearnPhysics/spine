@@ -56,6 +56,14 @@ class InteractionBase:
         Total number of photoelectrons associated with the flash
     flash_hypo_pe : float
         Total number of photoelectrons expected to be produced by the interaction
+    is_crt_matched : bool
+        True if any particle in the interaction was matched to a CRT hit
+    crt_ids : np.ndarray
+        (C) Indices of the CRT hits the interaction is matched to
+    crt_times : np.ndarray
+        (C) Times at which the CRT hits occurred in microseconds
+    crt_scores : np.ndarray
+        (C) Quality metric associated with the CRT matches
     topology : str
         String representing the interaction topology
     """
@@ -76,6 +84,9 @@ class InteractionBase:
     flash_scores: np.ndarray = None
     flash_total_pe: float = -1.
     flash_hypo_pe: float = -1.
+    is_crt_matched: bool = False
+    crt_ids: np.ndarray = None
+    crt_times: np.ndarray = None
     topology: str = None
 
     # Fixed-length attributes
@@ -89,14 +100,16 @@ class InteractionBase:
             ('particles', object), ('primary_particles', object),
             ('particle_ids', np.int32), ('primary_particle_ids', np.int32),
             ('flash_ids', np.int32), ('flash_volume_ids', np.int32),
-            ('flash_times', np.float32), ('flash_scores', np.float32)
+            ('flash_times', np.float32), ('flash_scores', np.float32),
+            ('crt_ids', np.int32), ('crt_times', np.float32),
+            ('crt_scores', np.float32)
     )
 
     # Attributes specifying coordinates
     _pos_attrs = ('vertex',)
 
     # Boolean attributes
-    _bool_attrs = ('is_fiducial', 'is_flash_matched')
+    _bool_attrs = ('is_fiducial', 'is_flash_matched', 'is_crt_matched')
 
     # Attributes that must never be stored to file
     _skip_attrs = ('particles', 'primary_particles')
@@ -240,6 +253,75 @@ class InteractionBase:
 
     @primary_particle_counts.setter
     def primary_particle_counts(self, primary_particle_counts):
+        pass
+
+    @property
+    def is_crt_matched(self):
+        """Checks if any particle in the interactionw as matched to a CRT hit.
+
+        Returns
+        -------
+        bool
+            `True` if any of the particle was matched to a CRT hit
+        """
+        return np.any([part.is_crt_matched for part in self.particles])
+
+    @is_crt_matched.setter
+    def is_crt_matched(self, is_crt_matched):
+        pass
+
+    @property
+    def crt_ids(self):
+        """Returns the list of CRT hit IDs matched to this interaction.
+
+        Returns
+        -------
+        np.ndarray
+            (C) List of CRT hit IDs matched to this interaction
+        """
+        if self.is_crt_matched:
+            return np.concatenate([part.crt_ids for part in self.particles])
+        else:
+            return np.empty(0, dtype=np.int32)
+
+    @crt_ids.setter
+    def crt_ids(self, crt_ids):
+        pass
+
+    @property
+    def crt_times(self):
+        """Returns the list of CRT hit times matched to this interaction.
+
+        Returns
+        -------
+        np.ndarray
+            (C) List of CRT hit times matched to this interaction
+        """
+        if self.is_crt_matched:
+            return np.concatenate([part.crt_times for part in self.particles])
+        else:
+            return np.empty(0, dtype=np.int32)
+
+    @crt_times.setter
+    def crt_times(self, crt_times):
+        pass
+
+    @property
+    def crt_scores(self):
+        """Returns the list of quality metrics of CRT hits matched to this interaction.
+
+        Returns
+        -------
+        np.ndarray
+            (C) List of quality metrics of CRT hits matched to this interaction
+        """
+        if self.is_crt_matched:
+            return np.concatenate([part.crt_scores for part in self.particles])
+        else:
+            return np.empty(0, dtype=np.int32)
+
+    @crt_scores.setter
+    def crt_scores(self, crt_scores):
         pass
 
     @property

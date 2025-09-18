@@ -11,7 +11,7 @@ __all__ = ['TPCDetector']
 
 
 @dataclass
-class Chamber(Box):
+class TPCChamber(Box):
     """Class which holds all properties of an individual time-projection
     chamber (TPC).
 
@@ -110,17 +110,17 @@ class Chamber(Box):
 
 
 @dataclass
-class Module(Box):
+class TPCModule(Box):
     """Class which holds all properties of a TPC module.
 
     A module can hold either one chamber or two chambers with a shared cathode.
 
     Attributes
     ----------
-    chambers : List[Chamber]
+    chambers : List[TPCChamber]
         List of individual TPCs that make up the module
     """
-    chambers: List[Chamber]
+    chambers: List[TPCChamber]
 
     def __init__(self, positions, dimensions, drift_dirs=None):
         """Intialize the TPC module.
@@ -155,7 +155,7 @@ class Module(Box):
                 drift_dir /= np.linalg.norm(drift_dir)
 
             # Instantiate TPC
-            self.chambers.append(Chamber(positions[t], dimensions, drift_dir))
+            self.chambers.append(TPCChamber(positions[t], dimensions, drift_dir))
 
         # Initialize the underlying box object
         lower = np.min(np.vstack([c.lower for c in self.chambers]), axis=0)
@@ -226,8 +226,8 @@ class Module(Box):
 
         Returns
         -------
-        Chamber
-            Chamber object
+        TPCChamber
+            TPCChamber object
         """
         return self.chambers[idx]
 
@@ -236,7 +236,7 @@ class Module(Box):
 
         Returns
         -------
-        Module
+        TPCModule
             The module itself
         """
         self._counter = 0
@@ -247,8 +247,8 @@ class Module(Box):
 
         Returns
         -------
-        Chamber
-            Next Chamber instance in the list
+        TPCChamber
+            Next TPCChamber instance in the list
         """
         # If there are more TPCs to go through, return it
         if self._counter < len(self):
@@ -266,17 +266,17 @@ class TPCDetector(Box):
 
     Attributes
     ----------
-    modules : List[Module]
+    modules : List[TPCModule]
         (N_m) List of TPC modules associated with this detector
-    chambers : List[Chamber]
+    chambers : List[TPCChamber]
         (N_t) List of individual TPC associated with this detector
     det_ids : np.ndarray, optional
         (N_c) Map between logical and physical TPC index
     limits : List[Plane], optional
         (N_i) List of bounding planes which restrict the active volume
     """
-    modules: List[Module]
-    chambers: List[Chamber]
+    modules: List[TPCModule]
+    chambers: List[TPCChamber]
     limits: List[Plane] = None
     det_ids : np.ndarray = None
 
@@ -330,7 +330,7 @@ class TPCDetector(Box):
                 module_drift_dirs = drift_dirs[module_index]
 
             # Initialize the module, store
-            module = Module(module_positions, dimensions, module_drift_dirs)
+            module = TPCModule(module_positions, dimensions, module_drift_dirs)
             self.modules.append(module)
             self.chambers.extend(module.chambers)
 
@@ -428,8 +428,8 @@ class TPCDetector(Box):
 
         Returns
         -------
-        Union[Module, Chamber]
-            Module or Chamber object
+        Union[TPCModule, TPCChamber]
+            TPCModule or TPCChamber object
         """
         if np.isscalar(idx):
             return self.modules[idx]
@@ -444,18 +444,18 @@ class TPCDetector(Box):
         Returns
         -------
         TPCDetector
-            The module itself
+            The detector itself
         """
         self._counter = 0
         return self
 
     def __next__(self):
-        """Defines how to process the next Module in the detector.
+        """Defines how to process the next TPCModule in the detector.
 
         Returns
         -------
-        Module
-            Next Module instance in the list
+        TPCModule
+            Next TPCModule instance in the list
         """
         # If there are more TPCs to go through, return it
         if self._counter < len(self):

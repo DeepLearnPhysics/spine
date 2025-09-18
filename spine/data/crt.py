@@ -36,6 +36,8 @@ class CRTHit(PosDataBase):
         Unclear in the documentation, placeholder at this point
     ts1_ns : float
         Time relative to the trigger (nanoseconds component)
+    time : float
+        Alias for ts1_ns, but scaled to microseconds
     total_pe : float
         Total number of PE in the CRT hit
     pe_per_ch : np.ndarray
@@ -56,6 +58,7 @@ class CRTHit(PosDataBase):
     ts0_s_corr: float = -1.0
     ts0_ns_corr: float = -1.0
     ts1_ns: float = -1.0
+    time: float = -1.0
     total_pe: float = -1.0
     # pe_per_ch: np.ndarray = None
     center: np.ndarray = None
@@ -79,6 +82,21 @@ class CRTHit(PosDataBase):
 
     # Index attributes
     _index_attrs = ('id',)
+
+    @property
+    def time(self):
+        """Time w.r.t. to the trigger.
+
+        Returns
+        -------
+        float
+            Time of the CRT hit w.r.t. to the trigger in microseconds.
+        """
+        return self.ts1_ns/1000.
+
+    @time.setter
+    def time(self, time):
+        pass
 
     @classmethod
     def from_larcv(cls, crthit):
