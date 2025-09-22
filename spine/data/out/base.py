@@ -223,7 +223,7 @@ class TruthBase(OutBase):
     _var_length_attrs = (
             ('depositions_q', np.float32), ('index_adapt', np.int64),
             ('depositions_adapt', np.float32), ('depositions_adapt_q', np.float32),
-            ('index_g4', np.int64), ('depositions_g4', np.int64),
+            ('index_g4', np.int64), ('depositions_g4', np.float32),
             ('points_adapt', (3, np.float32)), ('sources_adapt', (2, np.int64)),
             ('points_g4', (3, np.float32)), *OutBase._var_length_attrs
     )
