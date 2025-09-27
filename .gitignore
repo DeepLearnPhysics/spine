@@ -5,7 +5,10 @@ weights*
 *.txt
 *.csv
 *.root
+# Keep API documentation but ignore other auto-generated rst files
 *.rst
+!docs/source/api/*.rst
+!docs/source/*.rst
 *.hdf5
 *.h5
 *.ipynb
