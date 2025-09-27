@@ -1,4 +1,8 @@
-"""Test that the collate function(s) work as intended."""
+"""Test that the collate function(s) work as intended.
+
+Note: This test requires PyTorch and spine.Meta which may not be available
+in core CI environments. Excluded from basic CI tests.
+"""
 
 import numpy as np
 import pytest

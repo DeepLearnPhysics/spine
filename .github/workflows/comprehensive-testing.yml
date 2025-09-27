@@ -91,6 +91,7 @@ jobs:
     - name: Test torch-dependent functionality
       run: |
         pytest test/test_conditional_imports.py::TestConditionalUtilities -v
+        pytest test/test_optional_io.py -v
         pytest test/test_utils/ -v -k "torch" || echo "Some torch tests may be skipped"
 
   # NOTE: Model testing is currently disabled in CI due to complex dependency requirements
@@ -179,20 +180,16 @@ jobs:
     
     - name: Run comprehensive test suite with coverage
       run: |
-        echo "ℹ️ Running comprehensive tests excluding model tests and parse tests (require optional deps)"
+        echo "ℹ️ Running comprehensive tests excluding model tests, parse tests, and IO tests (require optional deps)"
         # Run specific test directories/files to avoid loading problematic conftest.py files
+        # Excluding test_loader.py and test_io/ because they require PyTorch, ROOT, and other optional deps
         pytest \
           test/test_conditional_imports.py \
           test/test_driver_import.py \
-          test/test_loader.py \
+          test/test_optional_io.py \
           test/test_ana/ \
           test/test_construct/ \
           test/test_data/ \
-          test/test_io/test_collate.py \
-          test/test_io/test_dataset.py \
-          test/test_io/test_read.py \
-          test/test_io/test_sample.py \
-          test/test_io/test_write.py \
           test/test_math/ \
           test/test_post/ \
           test/test_utils/ \

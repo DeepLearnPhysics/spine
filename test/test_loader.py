@@ -1,4 +1,8 @@
-"""Test that the loading of data using a full-fledged configuration."""
+"""Test that the loading of data using a full-fledged configuration.
+
+Note: This test requires PyTorch and spine.io.factories which are optional dependencies.
+It's excluded from CI core tests and runs only in torch-enabled environments.
+"""
 
 import os
 import time
