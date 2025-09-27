@@ -51,9 +51,21 @@ Documentation = "https://spine-ml.readthedocs.io/"
 # Neural network modeling dependencies 
 model = [
     "torch>=1.9.0",
-    "MinkowskiEngine>=0.5.0",
     "torch-geometric>=2.0.0",
     "torch-scatter>=2.0.0",
+]
+
+# MinkowskiEngine (separate due to complex build requirements)
+minkowski = [
+    "MinkowskiEngine>=0.5.0",
+]
+
+# All model dependencies including MinkowskiEngine
+model-full = [
+    "torch>=1.9.0",
+    "torch-geometric>=2.0.0", 
+    "torch-scatter>=2.0.0",
+    "MinkowskiEngine>=0.5.0",
 ]
 
 # Visualization dependencies
