@@ -98,16 +98,31 @@ html_theme_options = {
     "includehidden": True,
     "titles_only": False,
     "logo_only": True,
+    "display_version": True,
+    "version_selector": True,
 }
 
 # The name of an image file (relative to this directory) to place at the top
 # of the sidebar.
 html_logo = "_static/img/spine-logo-dark.png"
 
+# The name of an image file (within the static path) to use as favicon of the docs
+html_favicon = "_static/img/favicon.ico"
+
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
 html_static_path = ["_static"]
+
+# Custom CSS files
+html_css_files = [
+    "css/custom.css",
+]
+
+# Custom JavaScript files
+html_js_files = [
+    "js/version.js",
+]
 
 # Napoleon custom sections
 napoleon_custom_sections = [

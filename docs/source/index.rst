@@ -1,12 +1,7 @@
-.. image:: _static/img/spine-logo-dark.png
-   :alt: SPINE Logo
-   :width: 400px
-   :align: center
-
 SPINE Documentation
 ===================
 
-**Scalable Particle Imaging with Neural Embeddings (SPINE)** is a Python package for machine learning in particle physics, providing tools for 3D reconstruction in sparse detectors like Liquid Argon Time Projection Chambers (LArTPCs).
+`Scalable Particle Imaging with Neural Embeddings (SPINE) <https://github.com/DeepLearnPhysics/spine>`_ is a Python package for machine learning in particle physics, providing tools for 3D reconstruction in sparse detectors like Liquid Argon Time Projection Chambers (LArTPCs).
 
 .. toctree::
    :maxdepth: 2

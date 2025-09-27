@@ -1,0 +1,11 @@
+/* Custom styles for SPINE documentation */
+
+/* Style the version display created by JavaScript */
+.wy-side-nav-search .version-display {
+    color: #fcfcfc;
+    font-size: 0.85em;
+    margin-top: 8px;        /* Close to logo above */
+    margin-bottom: 20px;    /* More space from search bar below */
+    text-align: center;
+    opacity: 0.8;
+}
