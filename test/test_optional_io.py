@@ -25,11 +25,11 @@ def test_torch_io_conditional_import():
 
 
 def test_meta_import():
-    """Test that Meta can be imported from spine."""
-    from spine import Meta
+    """Test that Meta can be imported from spine.data.meta."""
+    from spine.data.meta import Meta
 
     assert Meta is not None
-    print("✅ Meta class successfully imported")
+    print("✅ Meta class successfully imported from spine.data.meta")
 
 
 @pytest.mark.skipif(condition=True, reason="ROOT tests require optional dependencies")

@@ -1,13 +1,13 @@
 """Test that the collate function(s) work as intended.
 
-Note: This test requires PyTorch and spine.Meta which may not be available
+Note: This test requires PyTorch and spine.data.meta.Meta which may not be available
 in core CI environments. Excluded from basic CI tests.
 """
 
 import numpy as np
 import pytest
 
-from spine import Meta
+from spine.data.meta import Meta
 from spine.io.torch.collate import CollateAll
 
 

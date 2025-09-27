@@ -22,11 +22,10 @@ def test_driver_always_importable():
 
 def test_driver_import_with_other_classes():
     """Test that Driver can be imported alongside other main spine exports."""
-    from spine import Driver, Meta, __version__
+    from spine import Driver, __version__
 
     # All should be successfully imported
     assert Driver is not None
-    assert Meta is not None
     assert __version__ is not None
 
     # Version should be a string
@@ -34,14 +33,15 @@ def test_driver_import_with_other_classes():
 
     # Classes should be classes
     assert callable(Driver)
-    assert callable(Meta)
 
     # Test that we can also import other key components conditionally
     try:
+        from spine.data.meta import Meta
         from spine.data.particle import Particle
         from spine.data.neutrino import Neutrino
         from spine.data.batch.tensor import TensorBatch
         
+        assert callable(Meta)
         assert callable(Particle)
         assert callable(Neutrino) 
         assert callable(TensorBatch)
