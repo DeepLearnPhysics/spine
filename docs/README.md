@@ -1,8 +1,8 @@
 # Documentation
 
-[![Documentation Status](https://readthedocs.org/projects/spine/badge/?version=latest)](https://spine.readthedocs.io/en/latest/?badge=latest)
+[![Documentation Status](https://readthedocs.org/projects/spine-ml/badge/?version=latest)](https://spine-ml.readthedocs.io/en/latest/?badge=latest)
 
-We use Sphinx to generate the documentation, and ReadTheDocs.org to host it at https://spine.readthedocs.io/en/latest/.
+We use Sphinx to generate the documentation, and ReadTheDocs.org to host it at https://spine-ml.readthedocs.io/en/latest/.
 The online documentation gets built and updated automatically every time the main branch changes.
 
 ## Writing docstrings
