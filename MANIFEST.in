@@ -1,0 +1,13 @@
+include README.md
+include CONTRIBUTING.md
+include LICENSE
+recursive-include src *.py
+recursive-include src *.yaml *.yml *.cfg
+recursive-include config *.cfg
+recursive-exclude test *
+recursive-exclude docs *
+global-exclude __pycache__
+global-exclude *.py[co]
+global-exclude .DS_Store
+global-exclude *.so
+global-exclude .git*

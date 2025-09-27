@@ -1,0 +1,159 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spine-ml"
+dynamic = ["version"]
+description = "SPINE: Scalable Particle Imaging with Neural Embeddings for 3D high energy physics data analysis"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "DeepLearnPhysics Collaboration", email = "drielsma@stanford.edu"}
+]
+maintainers = [
+    {name = "Francois Drielsma", email = "drielsma@stanford.edu"}
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence"
+]
+keywords = ["machine learning", "physics", "neutrino", "sparse convolution", "graph neural network"]
+requires-python = ">=3.8"
+
+# Core dependencies (minimal functionality)
+dependencies = [
+    "numpy>=1.19.0",
+    "scipy>=1.7.0",
+    "pandas>=1.3.0",
+    "PyYAML>=5.4.0",
+    "h5py>=3.1.0",
+    "numba>=0.56.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/DeepLearnPhysics/spine"
+Repository = "https://github.com/DeepLearnPhysics/spine.git"
+Documentation = "https://spine.readthedocs.io/"
+"Bug Tracker" = "https://github.com/DeepLearnPhysics/spine/issues"
+
+[project.optional-dependencies]
+# Neural network modeling dependencies 
+model = [
+    "torch>=1.9.0",
+    "MinkowskiEngine>=0.5.0",
+    "torch-geometric>=2.0.0",
+    "torch-scatter>=2.0.0",
+]
+
+# Visualization dependencies
+viz = [
+    "matplotlib>=3.3.0",
+    "plotly>=4.14.0",
+    "seaborn>=0.11.0",
+]
+
+# Development and testing
+dev = [
+    "pytest>=6.0.0",
+    "pytest-cov>=2.10.0",
+    "black>=23.0.0",
+    "flake8>=6.0.0",
+    "isort>=5.12.0",
+    "pre-commit>=3.0.0",
+    "build>=0.8.0",
+    "twine>=4.0.0",
+    "wheel>=0.38.0",
+    "sphinx>=4.0.0",
+    "sphinx-rtd-theme>=1.0.0",
+    "sphinx-copybutton>=0.5.0",
+    "numpydoc>=1.4.0",
+]
+
+# All optional dependencies
+all = [
+    "spine[model]",
+    "spine[viz]", 
+    "spine[dev]",
+]
+
+# Lightweight core package (data structures, utilities, basic I/O)
+core = [
+    # Only core dependencies are included by default
+]
+
+[project.scripts]
+spine = "spine.bin.cli:cli"
+
+[tool.setuptools.dynamic]
+version = {attr = "spine.version.__version__"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["spine*"]
+exclude = ["test*", "docs*"]
+
+[tool.setuptools.package-data]
+spine = ["config/*.cfg", "*.yaml", "*.yml"]
+
+# Black code formatting
+[tool.black]
+line-length = 88
+target-version = ['py38', 'py39', 'py310', 'py311']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+# Pytest configuration
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -q --strict-markers"
+testpaths = ["test"]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "gpu: marks tests that require GPU",
+    "integration: marks tests as integration tests",
+]
+
+# Coverage configuration
+[tool.coverage.run]
+source = ["src/spine"]
+omit = [
+    "*/test/*",
+    "*/tests/*",
+    "setup.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]

@@ -1,9 +1,9 @@
 # Documentation
 
-[![Documentation Status](https://readthedocs.org/projects/lartpc-mlreco3d/badge/?version=latest)](https://lartpc-mlreco3d.readthedocs.io/en/latest/?badge=latest)
+[![Documentation Status](https://readthedocs.org/projects/spine/badge/?version=latest)](https://spine.readthedocs.io/en/latest/?badge=latest)
 
-We use Sphinx to generate the documentation, and Readthedocs.io to host it at https://lartpc-mlreco3d.readthedocs.io/en/latest/.
-In theory the online documentation gets built and updated automatically every time the source branch changes (for now, this is set to `Temigo/lartpc_mlreco3d`, branch `me`).
+We use Sphinx to generate the documentation, and ReadTheDocs.org to host it at https://spine.readthedocs.io/en/latest/.
+The online documentation gets built and updated automatically every time the main branch changes.
 
 ## Writing docstrings
 Use NumPy style. See [Napoleon](https://sphinxcontrib-napoleon.readthedocs.io/en/latest/index.html) and [NumPy](https://numpydoc.readthedocs.io/en/latest/format.html) style guides.
