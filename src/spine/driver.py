@@ -20,10 +20,10 @@ import psutil
 import yaml
 
 from .ana import AnaManager
+from .banner import ascii_logo
 from .construct import BuildManager
 from .io import reader_factory, writer_factory
 from .io.core.write.csv import CSVWriter
-from .logo import ascii_logo
 from .math import seed as numba_seed
 # Import managers (ModelManager can be safely imported without PyTorch)
 from .model import ModelManager
