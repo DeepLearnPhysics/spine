@@ -2,8 +2,9 @@ import torch
 import torch.nn as nn
 
 from spine.model.layer.cluster import loss_factory
-from spine.model.layer.cluster.embeddings import \
-    SPICE as SPICE_base  # TODO why does this live out of this module?
+from spine.model.layer.cluster.embeddings import (
+    SPICE as SPICE_base,  # TODO why does this live out of this module?
+)
 
 
 class SPICE(SPICE_base):

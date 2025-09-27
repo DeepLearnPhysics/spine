@@ -455,9 +455,14 @@ class TestOutDataIntegration:
 
     def test_complete_event_reconstruction(self):
         """Test complete event with full reconstruction hierarchy."""
-        from spine.data.out import (RecoFragment, RecoInteraction,
-                                    RecoParticle, TruthFragment,
-                                    TruthInteraction, TruthParticle)
+        from spine.data.out import (
+            RecoFragment,
+            RecoInteraction,
+            RecoParticle,
+            TruthFragment,
+            TruthInteraction,
+            TruthParticle,
+        )
 
         # Truth interaction
         truth_interaction = TruthInteraction(

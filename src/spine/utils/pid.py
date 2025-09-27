@@ -3,10 +3,13 @@
 import numpy as np
 from scipy.optimize import minimize
 
-from .energy_loss import (bethe_bloch_lar, bethe_bloch_mpv_lar, csda_ke_lar,
-                          csda_table_spline)
-from .globals import (KAON_PID, MUON_PID, PID_MASSES, PION_PID, PROT_PID,
-                      TRACK_SHP)
+from .energy_loss import (
+    bethe_bloch_lar,
+    bethe_bloch_mpv_lar,
+    csda_ke_lar,
+    csda_table_spline,
+)
+from .globals import KAON_PID, MUON_PID, PID_MASSES, PION_PID, PROT_PID, TRACK_SHP
 from .tracking import get_track_segment_dedxs
 
 

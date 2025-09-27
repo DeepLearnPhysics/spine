@@ -7,8 +7,14 @@ import torch
 from spine.data import IndexBatch, TensorBatch
 from spine.utils.cluster.graph import ClusterGraphConstructor
 from spine.utils.enums import enum_factory
-from spine.utils.globals import (COORD_COLS, DELTA_SHP, MICHL_SHP, SHAPE_COL,
-                                 SHOWR_SHP, TRACK_SHP)
+from spine.utils.globals import (
+    COORD_COLS,
+    DELTA_SHP,
+    MICHL_SHP,
+    SHAPE_COL,
+    SHOWR_SHP,
+    TRACK_SHP,
+)
 
 from .layer.cluster import kernel_factory, loss_factory
 from .layer.cluster.graph_spice_embedder import GraphSPICEEmbedder

@@ -6,8 +6,7 @@ from torch_geometric.nn import MetaLayer
 from spine.data import TensorBatch
 from spine.model.layer.common.act_norm import norm_factory
 
-from .factories import (edge_layer_factory, global_layer_factory,
-                        node_layer_factory)
+from .factories import edge_layer_factory, global_layer_factory, node_layer_factory
 
 __all__ = ["MetaLayerGNN"]
 

@@ -8,8 +8,7 @@ from scipy.special import softmax
 import spine.utils.metrics
 from spine.ana.base import AnaBase
 from spine.utils.enums import enum_factory
-from spine.utils.globals import (CLUST_COL, GROUP_COL, INTER_COL, LOWES_SHP,
-                                 SHAPE_COL)
+from spine.utils.globals import CLUST_COL, GROUP_COL, INTER_COL, LOWES_SHP, SHAPE_COL
 
 __all__ = ["ClusterAna"]
 

@@ -2,8 +2,7 @@
 
 from torch import nn
 
-from spine.model.experimental.bayes.evidential import (EDLRegressionLoss,
-                                                       EVDLoss)
+from spine.model.experimental.bayes.evidential import EDLRegressionLoss, EVDLoss
 from spine.utils.factory import instantiate, module_dict
 
 from .cnn.encoder import SparseResidualEncoder

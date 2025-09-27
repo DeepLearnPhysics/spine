@@ -15,8 +15,10 @@ import yaml
 
 from spine.io.factories import loader_factory
 from spine.main_funcs import cycle, process_config
-from spine.model.experimental.hyperopt.utils import (UniformDistribution,
-                                                     construct_eval_func)
+from spine.model.experimental.hyperopt.utils import (
+    UniformDistribution,
+    construct_eval_func,
+)
 from spine.trainval import trainval
 from spine.utils import utils
 

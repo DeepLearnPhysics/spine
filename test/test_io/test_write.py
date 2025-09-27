@@ -6,8 +6,16 @@ import h5py
 import numpy as np
 import pytest
 
-from spine.data import (CRTHit, Flash, Meta, Neutrino, ObjectList, Particle,
-                        RunInfo, Trigger)
+from spine.data import (
+    CRTHit,
+    Flash,
+    Meta,
+    Neutrino,
+    ObjectList,
+    Particle,
+    RunInfo,
+    Trigger,
+)
 from spine.io.core.write import *
 
 

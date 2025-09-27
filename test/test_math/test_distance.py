@@ -12,10 +12,17 @@ class TestMathDistance:
     def test_distance_imports(self):
         """Test that distance functions can be imported."""
         try:
-            from spine.math.distance import (cdist, chebyshev, cityblock,
-                                             closest_pair, euclidean,
-                                             farthest_pair, minkowski, pdist,
-                                             sqeuclidean)
+            from spine.math.distance import (
+                cdist,
+                chebyshev,
+                cityblock,
+                closest_pair,
+                euclidean,
+                farthest_pair,
+                minkowski,
+                pdist,
+                sqeuclidean,
+            )
 
             assert callable(cityblock)
             assert callable(euclidean)

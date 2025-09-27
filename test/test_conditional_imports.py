@@ -166,8 +166,13 @@ class TestMainEntryPoints:
 
     def test_main_functions_import(self):
         """Test all main functions can be imported."""
-        from spine.main import (inference_single, process_world, run,
-                                run_single, train_single)
+        from spine.main import (
+            inference_single,
+            process_world,
+            run,
+            run_single,
+            train_single,
+        )
 
         assert callable(run)
         assert callable(run_single)
@@ -218,6 +223,7 @@ class TestConditionalUtilities:
     def test_jit_conditional_behavior(self):
         """Test JIT utilities handle torch unavailability."""
         from spine.utils.conditional import TORCH_AVAILABLE
+
         # Test that jit module can be imported regardless of torch availability
         from spine.utils.jit import numbafy
 
