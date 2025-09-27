@@ -48,6 +48,8 @@ pip install spine-ml[dev]
 pip install spine-ml[all]
 ```
 
+### PyTorch ecosystem
+
 #### Option 1: Container Approach (Recommended)
 
 The easiest way to get a working PyTorch environment with LArCV support:
@@ -65,7 +67,7 @@ singularity exec spine-ml.sif spine --config your_config.cfg --source data.h5
 
 > This container includes: PyTorch 2.5.1, CUDA 12.1, torch-geometric, torch-scatter, torch-cluster, MinkowskiEngine, and **LArCV2**.
 
-**Manual Installation** (advanced users):
+#### Option 2: Manual Installation** (advanced users):
 ```bash
 # Step 1: Install PyTorch with CUDA
 pip install torch --index-url https://download.pytorch.org/whl/cu118
@@ -77,17 +79,17 @@ pip install --no-build-isolation torch-scatter torch-cluster torch-geometric Min
 pip install spine-ml[all]
 ```
 
-### Other Dependencies
+> **� Why separate?** The PyTorch ecosystem (torch, torch-geometric, torch-scatter, torch-cluster, MinkowskiEngine) forms an interdependent group requiring exact version compatibility and complex compilation. Installing them together ensures compatibility.
 
-**LArCV2** (for LArTPC data processing):
+### LArCV2
 
-*Option 1: Use the container (recommended)*
+#### Option 1: Use the container (recommended)*
 ```bash
 # LArCV2 is pre-installed in the DeepLearnPhysics container
 singularity pull spine-ml.sif docker://deeplearnphysics/larcv2:ub2204-cu121-torch251-larndsim
 ```
 
-*Option 2: Build from source*
+#### Option 2: Build from source*
 ```bash
 # Clone and build the latest LArCV2
 git clone https://github.com/DeepLearnPhysics/larcv2.git
@@ -97,8 +99,6 @@ cd larcv2
 
 > **Note**: Avoid conda-forge larcv packages as they may be outdated. Use the container or build from the official source.
 
-> **� Why separate?** The PyTorch ecosystem (torch, torch-geometric, torch-scatter, torch-cluster, MinkowskiEngine) forms an interdependent group requiring exact version compatibility and complex compilation. Installing them together ensures compatibility.
-
 ### Development Installation
 
 For developers who want to work with the source code:
@@ -107,6 +107,28 @@ git clone https://github.com/DeepLearnPhysics/spine.git
 cd spine
 pip install -e .[dev]
 ```
+
+#### Quick Development Testing (No Installation)
+
+For rapid development and testing without reinstalling the package:
+
+```bash
+# Clone the repository
+git clone https://github.com/DeepLearnPhysics/spine.git
+cd spine
+
+# Install only the dependencies (not the package itself)
+pip install -r requirements.txt  # or pip install numpy scipy pandas pyyaml h5py numba
+
+# Run directly from source
+python src/spine/bin/run.py --config config/train_uresnet.cfg --source /path/to/data.h5
+
+# Or make it executable and run directly
+chmod +x src/spine/bin/run.py
+./src/spine/bin/run.py --config your_config.cfg --source data.h5
+```
+
+> **💡 Development Tip**: This approach lets you test code changes immediately without reinstalling. Perfect for rapid iteration during development.
 
 To build and test packages locally:
 ```bash
@@ -121,11 +143,18 @@ pip install dist/spine_ml-*.whl[all]
 
 ### Command Line Interface
 
-After installation, use the `spine` command:
+**Option 1: After installation, use the `spine` command:**
 
 ```bash
 # Run training/inference/analysis
 spine --config config/train_uresnet.cfg --source /path/to/data.h5
+```
+
+**Option 2: Run directly from source (development):**
+
+```bash
+# From the spine repository directory
+python src/spine/bin/run.py --config config/train_uresnet.cfg --source /path/to/data.h5
 ```
 
 ### Python API

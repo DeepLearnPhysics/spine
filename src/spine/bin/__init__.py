@@ -7,7 +7,7 @@ Main Components
 ---------------
 
 **Primary CLI**:
-    cli.py : Consolidated command-line interface for training, validation,
+    run.py : Consolidated command-line interface for training, validation,
              inference, and analysis with conditional PyTorch imports
 
 **Data Processing Utilities**:
