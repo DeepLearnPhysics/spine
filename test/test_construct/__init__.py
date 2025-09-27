@@ -1,0 +1,1 @@
+"""Test initialization for construct module tests."""

@@ -6,12 +6,11 @@ from spine import Meta
 from spine.io.parse.sparse import *
 
 
-@pytest.mark.parametrize('projection_id', [0, 1, 2])
+@pytest.mark.parametrize("projection_id", [0, 1, 2])
 def test_parse_sparse2d(sparse2d_event, projection_id):
     """Tests the parsing of LArCV 2D sparse data."""
     # Initialize the parser
-    parser = Sparse2DParser(
-            sparse_event=sparse2d_event, projection_id=projection_id)
+    parser = Sparse2DParser(sparse_event=sparse2d_event, projection_id=projection_id)
 
     # Parse the data
     result = parser.process(sparse_event=sparse2d_event)
@@ -26,13 +25,14 @@ def test_parse_sparse2d(sparse2d_event, projection_id):
     assert isinstance(result[2], Meta)
 
 
-@pytest.mark.parametrize('projection_id', [0, 1, 2])
-@pytest.mark.parametrize('sparse2d_event_list', [1, 2], indirect=True)
+@pytest.mark.parametrize("projection_id", [0, 1, 2])
+@pytest.mark.parametrize("sparse2d_event_list", [1, 2], indirect=True)
 def test_parse_sparse2d_list(sparse2d_event_list, projection_id):
     """Tests the parsing of a LArCV 2D sparse data list (multi-features)."""
     # Initialize the parser
     parser = Sparse2DParser(
-            sparse_event_list=sparse2d_event_list, projection_id=projection_id)
+        sparse_event_list=sparse2d_event_list, projection_id=projection_id
+    )
 
     # Parse the data
     result = parser.process(sparse_event_list=sparse2d_event_list)
@@ -65,13 +65,14 @@ def test_parse_sparse3d(sparse3d_event):
     assert isinstance(result[2], Meta)
 
 
-@pytest.mark.parametrize('num_features', [None, 1])
-@pytest.mark.parametrize('sparse3d_event_list', [1, 2], indirect=True)
+@pytest.mark.parametrize("num_features", [None, 1])
+@pytest.mark.parametrize("sparse3d_event_list", [1, 2], indirect=True)
 def test_parse_sparse3d_list(sparse3d_event_list, num_features):
     """Tests the parsing of a LArCV 3D sparse data list (multi-features)."""
     # Initialize the parser
     parser = Sparse3DParser(
-            sparse_event_list=sparse3d_event_list, num_features=num_features)
+        sparse_event_list=sparse3d_event_list, num_features=num_features
+    )
 
     # Parse the data
     result = parser.process(sparse_event_list=sparse3d_event_list)
@@ -80,10 +81,10 @@ def test_parse_sparse3d_list(sparse3d_event_list, num_features):
     # - The first has all 3 coordinates for each point
     # - The second has the feature tensor (one per input tensor)
     # - The third has the metadata
-    div = len(sparse3d_event_list)/num_features if num_features else 1
+    div = len(sparse3d_event_list) / num_features if num_features else 1
     assert len(result) == 3
     assert result[0].shape[1] == 3
-    assert result[1].shape[1] == len(sparse3d_event_list)/div
+    assert result[1].shape[1] == len(sparse3d_event_list) / div
     assert isinstance(result[2], Meta)
 
 
@@ -106,12 +107,13 @@ def test_parse_sparse3d_ghost(sparse3d_seg_event):
     assert isinstance(result[2], Meta)
 
 
-@pytest.mark.parametrize('collection_only', [False, True])
-@pytest.mark.parametrize('sparse3d_event_list', [6], indirect=True)
-def test_parse_spars3d_rescale(sparse3d_event_list, sparse3d_seg_event,
-                               collection_only):
+@pytest.mark.parametrize("collection_only", [False, True])
+@pytest.mark.parametrize("sparse3d_event_list", [6], indirect=True)
+def test_parse_spars3d_rescale(
+    sparse3d_event_list, sparse3d_seg_event, collection_only
+):
     """Tests the parsing of 3D LArCV sparse data into a set of rescaled charges.
-    
+
     This parser takes 6 values (3 charges, 3 indexes) and combines this
     with segementation labels to produce a single rescaled charge feature.
     """
@@ -120,8 +122,8 @@ def test_parse_spars3d_rescale(sparse3d_event_list, sparse3d_seg_event,
 
     # Initialize the parser
     parser = Sparse3DChargeRescaledParser(
-            sparse_event_list=sparse3d_event_list,
-            collection_only=collection_only)
+        sparse_event_list=sparse3d_event_list, collection_only=collection_only
+    )
 
     # Parse the data
     result = parser.process_rescale(sparse_event_list=sparse3d_event_list)

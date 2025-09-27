@@ -9,25 +9,42 @@ from spine.io.parse.particle import *
 
 
 @pytest.mark.parametrize(
-        'asis, pixel_coordinates, post_process',
-        [(True, False, False), (False, False, False),
-         (False, True, False), (False, True, True)])
-@pytest.mark.parametrize('particle_event', [0, 1, 20], indirect=True)
-@pytest.mark.parametrize('neutrino_event', [0, 1, 2], indirect=True)
-@pytest.mark.filterwarnings('ignore::UserWarning')
-def test_parse_particles(particle_event, neutrino_event, sparse3d_event, asis,
-                         pixel_coordinates, post_process):
+    "asis, pixel_coordinates, post_process",
+    [
+        (True, False, False),
+        (False, False, False),
+        (False, True, False),
+        (False, True, True),
+    ],
+)
+@pytest.mark.parametrize("particle_event", [0, 1, 20], indirect=True)
+@pytest.mark.parametrize("neutrino_event", [0, 1, 2], indirect=True)
+@pytest.mark.filterwarnings("ignore::UserWarning")
+def test_parse_particles(
+    particle_event,
+    neutrino_event,
+    sparse3d_event,
+    asis,
+    pixel_coordinates,
+    post_process,
+):
     """Tests the parsing of LArCV particle information."""
     # Initialize the parser
     parser = ParticleParser(
-            particle_event=particle_event, neutrino_event=neutrino_event,
-            sparse_event=sparse3d_event, asis=asis,
-            pixel_coordinates=pixel_coordinates, post_process=post_process)
+        particle_event=particle_event,
+        neutrino_event=neutrino_event,
+        sparse_event=sparse3d_event,
+        asis=asis,
+        pixel_coordinates=pixel_coordinates,
+        post_process=post_process,
+    )
 
     # Parse the data
     result = parser.process(
-            particle_event=particle_event, neutrino_event=neutrino_event,
-            sparse_event=sparse3d_event)
+        particle_event=particle_event,
+        neutrino_event=neutrino_event,
+        sparse_event=sparse3d_event,
+    )
 
     # Do a few basic checks
     # - The list produced is of the expected size
@@ -42,21 +59,22 @@ def test_parse_particles(particle_event, neutrino_event, sparse3d_event, asis,
 
 
 @pytest.mark.parametrize(
-        'asis, pixel_coordinates',
-        [(True, False), (False, False), (False, True)])
-@pytest.mark.parametrize('neutrino_event', [0, 1, 10], indirect=True)
-@pytest.mark.filterwarnings('ignore::UserWarning')
-def test_parse_neutrinos(neutrino_event, sparse3d_event, asis,
-                         pixel_coordinates):
+    "asis, pixel_coordinates", [(True, False), (False, False), (False, True)]
+)
+@pytest.mark.parametrize("neutrino_event", [0, 1, 10], indirect=True)
+@pytest.mark.filterwarnings("ignore::UserWarning")
+def test_parse_neutrinos(neutrino_event, sparse3d_event, asis, pixel_coordinates):
     """Tests the parsing of LArCV neutrino information."""
     # Initialize the parser
     parser = NeutrinoParser(
-            neutrino_event=neutrino_event, sparse_event=sparse3d_event,
-            asis=asis, pixel_coordinates=pixel_coordinates)
+        neutrino_event=neutrino_event,
+        sparse_event=sparse3d_event,
+        asis=asis,
+        pixel_coordinates=pixel_coordinates,
+    )
 
     # Parse the data
-    result = parser.process(
-            neutrino_event=neutrino_event, sparse_event=sparse3d_event)
+    result = parser.process(neutrino_event=neutrino_event, sparse_event=sparse3d_event)
 
     # Do a few basic checks
     # - The list produced is of the expected size
@@ -70,19 +88,19 @@ def test_parse_neutrinos(neutrino_event, sparse3d_event, asis,
         assert isinstance(result.default, Neutrino)
 
 
-@pytest.mark.parametrize('include_point_tagging', [True, False])
-@pytest.mark.parametrize('particle_event', [0, 1, 20], indirect=True)
-def test_parse_particle_points(particle_event, sparse3d_event,
-                               include_point_tagging):
+@pytest.mark.parametrize("include_point_tagging", [True, False])
+@pytest.mark.parametrize("particle_event", [0, 1, 20], indirect=True)
+def test_parse_particle_points(particle_event, sparse3d_event, include_point_tagging):
     """Tests the parsing of LArCV particle points (PPN labels)."""
     # Initialize the parser
     parser = ParticlePointParser(
-            particle_event=particle_event, sparse_event=sparse3d_event,
-            include_point_tagging=include_point_tagging)
+        particle_event=particle_event,
+        sparse_event=sparse3d_event,
+        include_point_tagging=include_point_tagging,
+    )
 
     # Parse the data
-    result = parser.process(
-            particle_event=particle_event, sparse_event=sparse3d_event)
+    result = parser.process(particle_event=particle_event, sparse_event=sparse3d_event)
 
     # There should be 3 components of the output
     # - The first has all 3 coordinates for each point
@@ -95,18 +113,18 @@ def test_parse_particle_points(particle_event, sparse3d_event,
     assert isinstance(result[2], Meta)
 
 
-@pytest.mark.parametrize('particle_event', [0, 1, 20], indirect=True)
+@pytest.mark.parametrize("particle_event", [0, 1, 20], indirect=True)
 def test_parse_particle_coordinates(particle_event, sparse3d_event):
     """Tests the parsing of LArCV particle coordinates (GrapPA
     end cluster end points label for standalone training).
     """
     # Initialize the parser
     parser = ParticleCoordinateParser(
-            particle_event=particle_event, sparse_event=sparse3d_event)
+        particle_event=particle_event, sparse_event=sparse3d_event
+    )
 
     # Parse the data
-    result = parser.process(
-            particle_event=particle_event, sparse_event=sparse3d_event)
+    result = parser.process(particle_event=particle_event, sparse_event=sparse3d_event)
 
     # There should be 3 components of the output
     # - The first has all 6 (!) coordinates for each particle (start/end)
@@ -122,19 +140,21 @@ def test_parse_particle_coordinates(particle_event, sparse3d_event):
 
 
 @pytest.mark.parametrize(
-        'particle_event, cluster3d_event',
-        [(0, 0), (1, 1), (20, 20)], indirect=True)
+    "particle_event, cluster3d_event", [(0, 0), (1, 1), (20, 20)], indirect=True
+)
 def test_parse_particle_graph(particle_event, cluster3d_event):
     """Tests the parsing of LArCV particle information into a set of
     parentage relations.
     """
     # Initialize the parser
     parser = ParticleGraphParser(
-            particle_event=particle_event, cluster_event=cluster3d_event)
+        particle_event=particle_event, cluster_event=cluster3d_event
+    )
 
     # Parse the data
     result = parser.process(
-            particle_event=particle_event, cluster_event=cluster3d_event)
+        particle_event=particle_event, cluster_event=cluster3d_event
+    )
 
     # There should be 2 components of the output
     # - The first contains an (2, E) matrix with E the number of edges
@@ -144,7 +164,7 @@ def test_parse_particle_graph(particle_event, cluster3d_event):
     assert result[1] == particle_event.size()
 
 
-@pytest.mark.parametrize('particle_event', [0, 1], indirect=True)
+@pytest.mark.parametrize("particle_event", [0, 1], indirect=True)
 def test_parse_particle_pid(particle_event):
     """Tests the parsing of LArCV single particle PID parser."""
     # Initialize the parser
@@ -156,10 +176,10 @@ def test_parse_particle_pid(particle_event):
     # The output should be a simple integer
     assert isinstance(result, int)
     if particle_event.size():
-        assert result == 1 # Electron
+        assert result == 1  # Electron
 
 
-@pytest.mark.parametrize('particle_event', [0, 1], indirect=True)
+@pytest.mark.parametrize("particle_event", [0, 1], indirect=True)
 def test_parse_particle_energy(particle_event):
     """Tests the parsing of LArCV single particle energy parser."""
     # Initialize the parser

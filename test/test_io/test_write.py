@@ -7,11 +7,19 @@ import numpy as np
 import h5py
 
 from spine.data import (
-        ObjectList, Particle, Neutrino, Meta, Flash, CRTHit, RunInfo, Trigger)
-from spine.io.write import *
+    ObjectList,
+    Particle,
+    Neutrino,
+    Meta,
+    Flash,
+    CRTHit,
+    RunInfo,
+    Trigger,
+)
+from spine.io.core.write import *
 
 
-@pytest.fixture(name='hdf5_output')
+@pytest.fixture(name="hdf5_output")
 def fixture_hdf5_output(tmp_path):
     """Create a dummy output path for an HDF5 file.
 
@@ -20,10 +28,10 @@ def fixture_hdf5_output(tmp_path):
     tmp_path : str
        Generic pytest fixture used to handle temporary test files
     """
-    return os.path.join(tmp_path, 'dummy.h5')
+    return os.path.join(tmp_path, "dummy.h5")
 
 
-@pytest.fixture(name='tensor_list')
+@pytest.fixture(name="tensor_list")
 def fixture_tensor_list(request):
     """Generates a dummy list of unwrapped tensors."""
     # Set the random seed so that there are no surprises
@@ -41,7 +49,7 @@ def fixture_tensor_list(request):
     return tensors
 
 
-@pytest.fixture(name='index_list')
+@pytest.fixture(name="index_list")
 def fixture_index_list(request):
     """Generates a dummy list of unwrapped index lists."""
     # Set the random seed so that there are no surprises
@@ -67,7 +75,7 @@ def fixture_index_list(request):
     return indexes
 
 
-@pytest.fixture(name='edge_index_list')
+@pytest.fixture(name="edge_index_list")
 def fixture_edge_index_list(request):
     """Generates a dummy list of unwrapped edge indexes."""
     # Set the random seed so that there are no surprises
@@ -86,28 +94,28 @@ def fixture_edge_index_list(request):
 
 
 @pytest.mark.parametrize(
-        'tensor_list, index_list, edge_index_list',
-        [(0, 0, 0), (10, 10, 25), ((0, 0), (0, 0), (0, 0)),
-         ((5, 10), (5, 10), (8, 25))],
-        indirect=True)
+    "tensor_list, index_list, edge_index_list",
+    [(0, 0, 0), (10, 10, 25), ((0, 0), (0, 0), (0, 0)), ((5, 10), (5, 10), (8, 25))],
+    indirect=True,
+)
 def test_hdf5_writer(hdf5_output, tensor_list, index_list, edge_index_list):
     """Tests the HDF5 writer."""
     # Create an output similar to that of the full chain
     batch_size = len(tensor_list)
     sizes = [len(t) for t in tensor_list]
     data = {
-            'index': np.arange(batch_size),
-            'dummy_data': tensor_list,
-            'dummy_meta': [Meta()] * batch_size,
-            'dummy_run_info': [RunInfo()] * batch_size,
-            'dummy_trigger': [Trigger()] * batch_size,
-            'dummy_particles': generate_object_list(Particle, sizes),
-            'dummy_neutrinos': generate_object_list(Neutrino, sizes),
-            'dummy_flashes': generate_object_list(Flash, sizes),
-            'dummy_crthits': generate_object_list(CRTHit, sizes),
-            'dummy_tensor': tensor_list,
-            'dummy_clusts': index_list,
-            'dummy_edge_index': edge_index_list
+        "index": np.arange(batch_size),
+        "dummy_data": tensor_list,
+        "dummy_meta": [Meta()] * batch_size,
+        "dummy_run_info": [RunInfo()] * batch_size,
+        "dummy_trigger": [Trigger()] * batch_size,
+        "dummy_particles": generate_object_list(Particle, sizes),
+        "dummy_neutrinos": generate_object_list(Neutrino, sizes),
+        "dummy_flashes": generate_object_list(Flash, sizes),
+        "dummy_crthits": generate_object_list(CRTHit, sizes),
+        "dummy_tensor": tensor_list,
+        "dummy_clusts": index_list,
+        "dummy_edge_index": edge_index_list,
     }
 
     # Initialize the writer

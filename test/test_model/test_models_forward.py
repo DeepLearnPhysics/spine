@@ -6,7 +6,7 @@ import torch
 
 from spine.model.factories import model_factory
 
-os.environ['CUDA_VISIBLE_DEVICES'] = ''
+os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
 
 @pytest.mark.parametrize("num_voxels_low", [20])
@@ -28,38 +28,46 @@ def test_model_forward(config_simple, xfail_models, N, num_voxels_low, num_voxel
     num_voxels_high: int, optional
         Upper boundary for generating (random) number of voxels.
     """
-    if config_simple['model']['name'] in xfail_models:
-        pytest.xfail("%s is expected to fail at the moment." % config_simple['model']['name'])
+    if config_simple["model"]["name"] in xfail_models:
+        pytest.xfail(
+            "%s is expected to fail at the moment." % config_simple["model"]["name"]
+        )
 
     config = config_simple
-    model, criterion = model_factory(config['model']['name'])
-    net = model(config['model']['modules'])
-    loss = criterion(config['model']['modules'])
+    model, criterion = model_factory(config["model"]["name"])
+    net = model(config["model"]["modules"])
+    loss = criterion(config["model"]["modules"])
 
     if not hasattr(net, "INPUT_SCHEMA"):
-        pytest.skip('No test defined for network of %s' % config['model']['name'])
+        pytest.skip("No test defined for network of %s" % config["model"]["name"])
 
-    net_input, voxels = generate_data(N, net.INPUT_SCHEMA,
-                                      num_voxels_low=num_voxels_low,
-                                      num_voxels_high=num_voxels_high)
+    net_input, voxels = generate_data(
+        N,
+        net.INPUT_SCHEMA,
+        num_voxels_low=num_voxels_low,
+        num_voxels_high=num_voxels_high,
+    )
     output = net.forward(net_input)
 
     if not hasattr(loss, "INPUT_SCHEMA"):
-        pytest.skip('No test defined for criterion of %s' % config['model']['name'])
+        pytest.skip("No test defined for criterion of %s" % config["model"]["name"])
 
-
-    loss_input = generate_data(N, loss.INPUT_SCHEMA,
-                                 num_voxels_low=num_voxels_low,
-                                 num_voxels_high=num_voxels_high,
-                                 voxels=voxels,
-                                 loss=True)[0]
+    loss_input = generate_data(
+        N,
+        loss.INPUT_SCHEMA,
+        num_voxels_low=num_voxels_low,
+        num_voxels_high=num_voxels_high,
+        voxels=voxels,
+        loss=True,
+    )[0]
     res = loss.forward(output, *loss_input)
 
-    res['loss'].backward()
+    res["loss"].backward()
 
 
-def generate_data(N, input_schema, num_voxels_low=20, num_voxels_high=100,
-                  voxels=None, loss=False):
+def generate_data(
+    N, input_schema, num_voxels_low=20, num_voxels_high=100, voxels=None, loss=False
+):
     """
     Generates dummy data for the network and loss input to be used in tests.
 
@@ -85,7 +93,7 @@ def generate_data(N, input_schema, num_voxels_low=20, num_voxels_high=100,
     original_voxels = voxels
     for schema in input_schema:
         obj = None
-        shapes = schema[2] #parsers[schema[0]]
+        shapes = schema[2]  # parsers[schema[0]]
         types = schema[1]
         if isinstance(shapes, list):
             out = []
@@ -95,17 +103,31 @@ def generate_data(N, input_schema, num_voxels_low=20, num_voxels_high=100,
             voxels = original_voxels
             values = []
             for t in types:
-                values.append(np.random.random((voxels.shape[0], shapes[0][1])).astype(t))
-            out.append(np.concatenate([voxels, np.zeros((voxels.shape[0], 1))] + values, axis=1))
+                values.append(
+                    np.random.random((voxels.shape[0], shapes[0][1])).astype(t)
+                )
+            out.append(
+                np.concatenate(
+                    [voxels, np.zeros((voxels.shape[0], 1))] + values, axis=1
+                )
+            )
 
             for shape in shapes[1:]:
-                voxels = np.floor(voxels/float(2))
+                voxels = np.floor(voxels / float(2))
                 voxels, indices = np.unique(voxels, axis=0, return_index=True)
                 for i in range(len(values)):
                     values[i] = values[i][indices]
-                out.append(np.concatenate([voxels, np.zeros((voxels.shape[0], 1))] + values, axis=1))
+                out.append(
+                    np.concatenate(
+                        [voxels, np.zeros((voxels.shape[0], 1))] + values, axis=1
+                    )
+                )
             obj = out
-            net_input += ([torch.tensor(x) for x in obj],) if not loss else ([[torch.tensor(x) for x in obj]],)
+            net_input += (
+                ([torch.tensor(x) for x in obj],)
+                if not loss
+                else ([[torch.tensor(x) for x in obj]],)
+            )
         elif isinstance(shapes, tuple):
             if original_voxels is None:
                 original_voxels = np.random.random((num_voxels, shapes[0])) * N
@@ -115,7 +137,9 @@ def generate_data(N, input_schema, num_voxels_low=20, num_voxels_high=100,
             assert len(types) == shapes[1]
             for t in types:
                 values.append(np.random.random((voxels.shape[0], 1)).astype(t))
-            obj = np.concatenate([voxels, np.zeros((voxels.shape[0], 1))] + values, axis=1)
+            obj = np.concatenate(
+                [voxels, np.zeros((voxels.shape[0], 1))] + values, axis=1
+            )
             net_input += (torch.tensor(obj),) if not loss else ([torch.tensor(obj)],)
 
     return net_input, original_voxels

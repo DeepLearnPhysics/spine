@@ -12,11 +12,11 @@ from spine.io.read import *
 def test_larcv_reader(larcv_data):
     """Tests the loading of a LArCV file."""
     # Get the list of tree keys in the larcv file
-    root_file = ROOT.TFile(larcv_data, 'r')
+    root_file = ROOT.TFile(larcv_data, "r")
     num_entries = None
     tree_keys = []
     for tree in root_file.GetListOfKeys():
-        tree_keys.append(tree.GetName().split('_tree')[0])
+        tree_keys.append(tree.GetName().split("_tree")[0])
         if num_entries is None:
             num_entries = getattr(root_file, tree.GetName()).GetEntries()
 
@@ -24,8 +24,8 @@ def test_larcv_reader(larcv_data):
 
     # Intialize the reader
     reader = LArCVReader(
-            larcv_data, tree_keys, create_run_map=True,
-            run_info_key=tree_keys[0])
+        larcv_data, tree_keys, create_run_map=True, run_info_key=tree_keys[0]
+    )
 
     # Check that the number of events in the dataset is as expected
     assert reader.num_entries == num_entries
@@ -49,10 +49,10 @@ def test_larcv_reader(larcv_data):
     reader.process_entry_list(n_entry=3, n_skip=2)
     assert len(reader) == 3
 
-    reader.process_entry_list(entry_list=[1,3,4])
+    reader.process_entry_list(entry_list=[1, 3, 4])
     assert len(reader) == 3
 
-    reader.process_entry_list(skip_entry_list=[1,3,4])
+    reader.process_entry_list(skip_entry_list=[1, 3, 4])
     assert len(reader) == reader.num_entries - 3
 
     reader.process_entry_list(run_event_list=[tuple(reader.run_info[0])])
@@ -65,7 +65,7 @@ def test_larcv_reader(larcv_data):
 
     # Try loading a file list
     reader = LArCVReader([larcv_data, larcv_data], tree_keys[:1])
-    assert reader.num_entries == 2*num_entries
+    assert reader.num_entries == 2 * num_entries
     for i in range(len(reader)):
         reader[i]
 
@@ -84,8 +84,7 @@ def test_larcv_reader(larcv_data):
     assert len(reader) == reader.num_entries - 2
 
     # Try to restrict the number of files to be loaded
-    reader = LArCVReader(
-            [larcv_data, larcv_data], tree_keys[:1], limit_num_files=1)
+    reader = LArCVReader([larcv_data, larcv_data], tree_keys[:1], limit_num_files=1)
     assert reader.num_entries == num_entries
 
 
@@ -93,9 +92,9 @@ def test_hdf5_reader(hdf5_data):
     """Tests the loading of a LArCV file."""
     # Get the list of tree keys in the HDF5 file
     data_keys = None
-    with h5py.File(hdf5_data, 'r') as h5_file:
+    with h5py.File(hdf5_data, "r") as h5_file:
         data_keys = list(h5_file.keys())
-        num_entries = len(h5_file['events'])
+        num_entries = len(h5_file["events"])
 
     # Intialize the reader
     reader = HDF5Reader(hdf5_data, create_run_map=True)
@@ -107,7 +106,7 @@ def test_hdf5_reader(hdf5_data):
     for i in range(len(reader)):
         entry = reader[i]
         for key in data_keys:
-            if key not in ['info', 'events']:
+            if key not in ["info", "events"]:
                 assert key in entry
 
     # Check that the run map exists
@@ -123,10 +122,10 @@ def test_hdf5_reader(hdf5_data):
     reader.process_entry_list(n_entry=3, n_skip=2)
     assert len(reader) == 3
 
-    reader.process_entry_list(entry_list=[1,3,4])
+    reader.process_entry_list(entry_list=[1, 3, 4])
     assert len(reader) == 3
 
-    reader.process_entry_list(skip_entry_list=[1,3,4])
+    reader.process_entry_list(skip_entry_list=[1, 3, 4])
     assert len(reader) == reader.num_entries - 3
 
     reader.process_entry_list(run_event_list=[tuple(reader.run_info[0])])
@@ -139,7 +138,7 @@ def test_hdf5_reader(hdf5_data):
 
     # Try loading a file list
     reader = HDF5Reader([hdf5_data, hdf5_data])
-    assert reader.num_entries == 2*num_entries
+    assert reader.num_entries == 2 * num_entries
     for i in range(len(reader)):
         reader[i]
 

@@ -9,7 +9,7 @@ import pytest
 
 import urllib
 
-os.environ['CUDA_VISIBLE_DEVICES'] = ''
+os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
 
 def pytest_addoption(parser):
@@ -18,33 +18,37 @@ def pytest_addoption(parser):
     """
     # Optional command line argument to specify one or several image sizes
     parser.addoption(
-        '--N', type=int, nargs='+', action='store',
-        default=[192], help='Image size (default: 192)')
+        "--N",
+        type=int,
+        nargs="+",
+        action="store",
+        default=[192],
+        help="Image size (default: 192)",
+    )
 
     # Adds an option to the pytest.ini file
     parser.addini(
-        'larcv_datafile', 'URL to small LArCV data file for testing.', type='linelist')
+        "larcv_datafile", "URL to small LArCV data file for testing.", type="linelist"
+    )
     parser.addini(
-        'hdf5_datafile', 'URL to small HDF5 file for testing.', type='linelist')
+        "hdf5_datafile", "URL to small HDF5 file for testing.", type="linelist"
+    )
 
 
 def pytest_generate_tests(metafunc):
     """Appends general parameters to all tests."""
     # If a test requires the fixture N, use the command line option.
-    if 'N' in metafunc.fixturenames:
-        metafunc.parametrize("N",
-                             metafunc.config.getoption('--N'))
+    if "N" in metafunc.fixturenames:
+        metafunc.parametrize("N", metafunc.config.getoption("--N"))
 
     # If a test requires the fixture datafile use the command line option.
-    if 'larcv_datafile' in metafunc.fixturenames:
-        metafunc.parametrize(
-                'larcv_datafile', metafunc.config.getini('larcv_datafile'))
-    if 'hdf5_datafile' in metafunc.fixturenames:
-        metafunc.parametrize(
-                'hdf5_datafile', metafunc.config.getini('hdf5_datafile'))
+    if "larcv_datafile" in metafunc.fixturenames:
+        metafunc.parametrize("larcv_datafile", metafunc.config.getini("larcv_datafile"))
+    if "hdf5_datafile" in metafunc.fixturenames:
+        metafunc.parametrize("hdf5_datafile", metafunc.config.getini("hdf5_datafile"))
 
 
-@pytest.fixture(name='larcv_data')
+@pytest.fixture(name="larcv_data")
 def fixture_larcv_data(tmp_path, larcv_datafile):
     """Download a LArCV ROOT datafile here and cache it.
 
@@ -55,15 +59,15 @@ def fixture_larcv_data(tmp_path, larcv_datafile):
     larcv_datafile : str
        Name of the datafile to pull (default defined in pytest.ini)
     """
-    filename = 'test'
+    filename = "test"
     datafile_url = larcv_datafile
-    data_path = os.path.join(tmp_path, filename + '.root')
+    data_path = os.path.join(tmp_path, filename + ".root")
     urllib.request.urlretrieve(datafile_url, data_path)
 
     return data_path
 
 
-@pytest.fixture(name='hdf5_data')
+@pytest.fixture(name="hdf5_data")
 def fixture_hdf5_data(tmp_path, hdf5_datafile):
     """Download an HDF5 datafile here and cache it.
 
@@ -74,9 +78,9 @@ def fixture_hdf5_data(tmp_path, hdf5_datafile):
     hdf5_datafile : str
        Name of the datafile to pull (default defined in pytest.ini)
     """
-    filename = 'test'
+    filename = "test"
     datafile_url = hdf5_datafile
-    data_path = os.path.join(tmp_path, filename + '.h5')
+    data_path = os.path.join(tmp_path, filename + ".h5")
     urllib.request.urlretrieve(datafile_url, data_path)
 
     return data_path

@@ -14,11 +14,11 @@ def test_larcv_dataset(larcv_data):
     :class:`LArCVReader` class which is tested elsewhere.
     """
     # Get the list of tree keys in the larcv file
-    root_file = ROOT.TFile(larcv_data, 'r')
+    root_file = ROOT.TFile(larcv_data, "r")
     num_entries = None
     tree_keys = []
     for tree in root_file.GetListOfKeys():
-        tree_keys.append(tree.GetName().split('_tree')[0])
+        tree_keys.append(tree.GetName().split("_tree")[0])
         if num_entries is None:
             num_entries = getattr(root_file, tree.GetName()).GetEntries()
 
@@ -27,18 +27,18 @@ def test_larcv_dataset(larcv_data):
     # Create a dummy schema based on the data keys
     schema = {}
     for key in tree_keys:
-        datatype = key.split('_')[0]
+        datatype = key.split("_")[0]
         el = {}
-        if datatype == 'sparse3d':
-            el['parser'] = datatype
-            el['sparse_event'] = key
-        elif datatype == 'cluster3d':
-            el['parser'] = datatype
-            el['cluster_event'] = key
-        elif datatype == 'particle':
-            el['parser'] = datatype
-            el['particle_event'] = key
-            el['pixel_coordinates'] = False
+        if datatype == "sparse3d":
+            el["parser"] = datatype
+            el["sparse_event"] = key
+        elif datatype == "cluster3d":
+            el["parser"] = datatype
+            el["cluster_event"] = key
+        elif datatype == "particle":
+            el["parser"] = datatype
+            el["particle_event"] = key
+            el["pixel_coordinates"] = False
         else:
             raise ValueError("Unrecognized data product, cannot set up schema.")
 
@@ -52,8 +52,8 @@ def test_larcv_dataset(larcv_data):
         entry = dataset[i]
         for key in tree_keys:
             assert key in entry
-        assert 'index' in entry
-        assert entry['index'] == i
+        assert "index" in entry
+        assert entry["index"] == i
 
     # Check that the data keys are as expected
     for key in tree_keys:

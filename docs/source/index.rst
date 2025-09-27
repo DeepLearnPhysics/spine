@@ -1,42 +1,64 @@
-.. lartpc_mlreco3d documentation master file, created by
-   sphinx-quickstart on Wed Apr 12 23:23:15 2023.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
+SPINE Documentation
+===================
 
-Welcome to lartpc_mlreco3d's documentation!
-===========================================
-
-This repository contains code used for training and running machine learning models on LArTPC data.
-
-.. toctree::
-   :maxdepth: 1
-   :caption: Install lartpc_mlreco3d
-
-.. toctree::
-   :maxdepth: 1
-   :caption: Usage
-
-.. toctree::
-   :maxdepth: 1
-   :caption: Tutorials
+**Scalable Particle Imaging with Neural Embeddings (SPINE)** is a Python package for machine learning in particle physics, providing tools for 3D reconstruction in sparse detectors like Liquid Argon Time Projection Chambers (LArTPCs).
 
 .. toctree::
    :maxdepth: 2
-   :caption: Package Reference
-   :glob:
+   :caption: Contents:
+   
+   installation
+   quickstart
+   api/index
 
-   Analysis Tools <analysis/analysis>
-   mlreco <mlreco>
-   mlreco.iotools <mlreco.iotools>
-   mlreco.models <mlreco.models>
-   mlreco.visualization <mlreco.visualization>
-   mlreco.utils <mlreco.utils>
+Installation
+============
 
+Install SPINE from PyPI:
 
+.. code-block:: bash
 
-.. Indices and tables
-.. ==================
+   # Core functionality
+   pip install spine-ml
+   
+   # With neural network modeling
+   pip install spine-ml[model]
+   
+   # With visualization tools
+   pip install spine-ml[viz]
+   
+   # For development
+   pip install spine-ml[dev]
+   
+   # Everything
+   pip install spine-ml[all]
 
-.. * :ref:`genindex`
-.. * :ref:`modindex`
-.. * :ref:`search`
+Quick Start
+===========
+
+.. code-block:: python
+
+   import spine
+   import numpy as np
+   
+   # Use SPINE's custom math functions
+   from spine.math.cluster import DBSCAN
+   from spine.math.decomposition import PCA
+   
+   # Example: Cluster 3D points
+   points = np.random.rand(100, 3).astype(np.float32)
+   
+   # Fast numba-accelerated DBSCAN
+   dbscan = DBSCAN(eps=0.1, min_samples=5)
+   labels = dbscan.fit_predict(points)
+   
+   # Principal component analysis
+   pca = PCA(n_components=2)
+   components, variance = pca.fit(points)
+
+Indices and tables
+==================
+
+* :ref:`genindex`
+* :ref:`modindex`
+* :ref:`search`

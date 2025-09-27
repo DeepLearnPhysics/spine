@@ -10,7 +10,7 @@ import numpy as np
 from larcv import larcv
 
 
-@pytest.fixture(name='sparse2d_event')
+@pytest.fixture(name="sparse2d_event")
 def fixture_sparse2d_event(request, N):
     """Generates one larcv.EventSparseTensor2D.
 
@@ -31,7 +31,7 @@ def fixture_sparse2d_event(request, N):
     return generate_sparse2d_event(meta)
 
 
-@pytest.fixture(name='sparse2d_event_list')
+@pytest.fixture(name="sparse2d_event_list")
 def fixture_sparse2d_event_list(request, N):
     """Generates one larcv.EventSparseTensor2D.
 
@@ -56,7 +56,7 @@ def fixture_sparse2d_event_list(request, N):
     return event_list
 
 
-@pytest.fixture(name='sparse3d_event')
+@pytest.fixture(name="sparse3d_event")
 def fixture_sparse3d_event(request, N):
     """Generates one larcv.EventSparseTensor3D.
 
@@ -75,7 +75,7 @@ def fixture_sparse3d_event(request, N):
     return generate_sparse3d_event(meta)
 
 
-@pytest.fixture(name='sparse3d_event_list')
+@pytest.fixture(name="sparse3d_event_list")
 def fixture_sparse3d_event_list(request, N):
     """Generates a list of larcv.EventSparseTensor3D.
 
@@ -98,7 +98,7 @@ def fixture_sparse3d_event_list(request, N):
     return event_list
 
 
-@pytest.fixture(name='sparse3d_seg_event')
+@pytest.fixture(name="sparse3d_seg_event")
 def fixture_sparse3d_seg_event(request, N):
     """Generates a single segmentation label larcv.EventSparseTensor3D.
 
@@ -117,7 +117,7 @@ def fixture_sparse3d_seg_event(request, N):
     return generate_sparse3d_event(meta, segmentation=True)
 
 
-@pytest.fixture(name='cluster2d_event')
+@pytest.fixture(name="cluster2d_event")
 def fixture_cluster2d_event(request, N):
     """Generates one larcv.EventClusterPixel2D.
 
@@ -162,7 +162,7 @@ def fixture_cluster2d_event(request, N):
     return event
 
 
-@pytest.fixture(name='cluster3d_event')
+@pytest.fixture(name="cluster3d_event")
 def fixture_cluster3d_event(request, N):
     """Generates one larcv.EventClusterVoxel3D.
 
@@ -198,7 +198,7 @@ def fixture_cluster3d_event(request, N):
     return event
 
 
-@pytest.fixture(name='particle_event')
+@pytest.fixture(name="particle_event")
 def fixture_particle_event(request):
     """Generates one larcv.EventParticle.
 
@@ -222,7 +222,7 @@ def fixture_particle_event(request):
     return particles
 
 
-@pytest.fixture(name='neutrino_event')
+@pytest.fixture(name="neutrino_event")
 def fixture_neutrino_event(request):
     """Generates one larcv.EventNeutrino.
 
@@ -246,7 +246,7 @@ def fixture_neutrino_event(request):
     return neutrinos
 
 
-@pytest.fixture(name='flash_event')
+@pytest.fixture(name="flash_event")
 def fixture_flash_event(request):
     """Generates one larcv.EventFlash.
 
@@ -264,7 +264,7 @@ def fixture_flash_event(request):
     return event
 
 
-@pytest.fixture(name='flash_event_list')
+@pytest.fixture(name="flash_event_list")
 def fixture_flash_event_list(request):
     """Generates a list of larcv.EventFlash.
 
@@ -288,7 +288,7 @@ def fixture_flash_event_list(request):
     return events
 
 
-@pytest.fixture(name='crthit_event')
+@pytest.fixture(name="crthit_event")
 def fixture_crthit_event(request):
     """Generates one larcv.EventCRTHit.
 
@@ -306,7 +306,7 @@ def fixture_crthit_event(request):
     return event
 
 
-@pytest.fixture(name='trigger_event')
+@pytest.fixture(name="trigger_event")
 def fixture_trigger_event(request):
     """Generates one larcv.EventTrigger.
 
@@ -339,9 +339,8 @@ def generate_meta2d(shape, projection):
     """
     xmin, ymin = np.random.uniform(-500, 500, size=2)
     meta = larcv.ImageMeta(
-            xmin, ymin,
-            xmin + shape*0.3, ymin + shape*0.3,
-            shape, shape, projection)
+        xmin, ymin, xmin + shape * 0.3, ymin + shape * 0.3, shape, shape, projection
+    )
 
     return meta
 
@@ -361,9 +360,17 @@ def generate_meta3d(shape):
     """
     meta = larcv.Voxel3DMeta()
     xmin, ymin, zmin = np.random.uniform(-500, 500, size=3)
-    meta.set(xmin, ymin, zmin,
-             xmin + shape*0.3, ymin + shape*0.3, zmin + shape*0.3,
-             shape, shape, shape)
+    meta.set(
+        xmin,
+        ymin,
+        zmin,
+        xmin + shape * 0.3,
+        ymin + shape * 0.3,
+        zmin + shape * 0.3,
+        shape,
+        shape,
+        shape,
+    )
 
     return meta
 
@@ -395,24 +402,23 @@ def generate_sparse2d_event(meta, num_voxels=10, segmentation=False):
         # Generate tensor
         # TODO: Must convert point coordinates to pixel indexes manually
         # TODO: because of a LArCV2 bug. Fix this in the future.
-        pixels = boundaries[:, 0] + np.random.random((num_voxels, 2))*ranges
-        for i, pix in enumerate(pixels): # TMP
-            pixels[i] = [meta_p.col(pix[0]), meta_p.row(pix[1])] # TMP
-        pixels = pixels.astype(np.int32) # TMP
-        features = 10*np.random.rand(num_voxels, 1)
-        features = features.flatten().astype(np.float32) # TMP
-        #data = np.hstack((pixels, features)).astype(np.float32)
+        pixels = boundaries[:, 0] + np.random.random((num_voxels, 2)) * ranges
+        for i, pix in enumerate(pixels):  # TMP
+            pixels[i] = [meta_p.col(pix[0]), meta_p.row(pix[1])]  # TMP
+        pixels = pixels.astype(np.int32)  # TMP
+        features = 10 * np.random.rand(num_voxels, 1)
+        features = features.flatten().astype(np.float32)  # TMP
+        # data = np.hstack((pixels, features)).astype(np.float32)
 
         # Build a SparseTensor2D, append it
-        #pixel_set = larcv.as_tensor2d(data, meta_p, -0.01)
-        pixel_set = larcv.as_tensor2d(pixels, features, meta_p, -0.01) # TMP
+        # pixel_set = larcv.as_tensor2d(data, meta_p, -0.01)
+        pixel_set = larcv.as_tensor2d(pixels, features, meta_p, -0.01)  # TMP
         event.set(pixel_set, meta_p)
 
     return event
 
 
-def generate_sparse3d_event(meta, num_voxels=10, segmentation=False,
-                            ghost=True):
+def generate_sparse3d_event(meta, num_voxels=10, segmentation=False, ghost=True):
     """Generates a dummy 3D larcv tensor.
 
     Parameters
@@ -439,9 +445,9 @@ def generate_sparse3d_event(meta, num_voxels=10, segmentation=False,
     ranges = boundaries[:, 1] - boundaries[:, 0]
 
     # Generate tensor
-    voxels = boundaries[:, 0] + np.random.random((num_voxels, 3))*ranges
+    voxels = boundaries[:, 0] + np.random.random((num_voxels, 3)) * ranges
     if not segmentation:
-        features = 10*np.random.rand(num_voxels, 1)
+        features = 10 * np.random.rand(num_voxels, 1)
     else:
         features = np.random.randint(0, 5 + int(ghost), size=(num_voxels, 1))
     data = np.hstack((voxels, features)).astype(np.float32)
@@ -472,22 +478,21 @@ def generate_particle(idx):
 
     # Set IDs
     p.id(idx)
-    p.track_id(idx+1)
-    p.parent_id(max(0, idx-1))
+    p.track_id(idx + 1)
+    p.parent_id(max(0, idx - 1))
     p.group_id(idx)
     p.interaction_id(0)
-    
+
     # Set energy deposition
     p.num_voxels(10)
-    p.energy_deposit(np.random.random()*100)
+    p.energy_deposit(np.random.random() * 100)
 
     # Set shape and particle type attributes
     shape = np.random.randint(low=0, high=5)
     p.shape(shape)
     if shape == 0:
         p.pdg_code(int(np.random.choice([22, 11])))
-        p.creation_process(np.random.choice(
-            ["primary", "nCapture", "conv"]))
+        p.creation_process(np.random.choice(["primary", "nCapture", "conv"]))
 
     elif shape == 2:
         p.pdg_code(int(np.random.choice([2112, 211, -211, 13, -13])))
@@ -495,14 +500,14 @@ def generate_particle(idx):
     elif shape == 3:
         p.pdg_code(11)
         p.parent_pdg_code(13)
-        p.creation_process(np.random.choice(
-            ["muMinusCaptureAtRest", "muPlusCaptureAtRest", "Decay"]))
+        p.creation_process(
+            np.random.choice(["muMinusCaptureAtRest", "muPlusCaptureAtRest", "Decay"])
+        )
 
     elif shape == 4:
         p.pdg_code(11)
         p.parent_pdg_code(13)
-        p.creation_process(np.random.choice(
-            ["muIoni", "hIoni"]))
+        p.creation_process(np.random.choice(["muIoni", "hIoni"]))
 
     return p
 
