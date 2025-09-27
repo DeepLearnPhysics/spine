@@ -13,10 +13,24 @@ import spine.math as sm
 from spine.data import TensorBatch
 
 from .conditional import torch
-from .globals import (BATCH_COL, COORD_COLS, DELTA_SHP, LOWES_SHP, MICHL_SHP,
-                      PPN_CLASS_COLS, PPN_END_COLS, PPN_OCC_COL, PPN_ROFF_COLS,
-                      PPN_RPOS_COLS, PPN_RTYPE_COLS, PPN_SCORE_COLS,
-                      PPN_SHAPE_COL, SHOWR_SHP, TRACK_SHP, UNKWN_SHP)
+from .globals import (
+    BATCH_COL,
+    COORD_COLS,
+    DELTA_SHP,
+    LOWES_SHP,
+    MICHL_SHP,
+    PPN_CLASS_COLS,
+    PPN_END_COLS,
+    PPN_OCC_COL,
+    PPN_ROFF_COLS,
+    PPN_RPOS_COLS,
+    PPN_RTYPE_COLS,
+    PPN_SCORE_COLS,
+    PPN_SHAPE_COL,
+    SHOWR_SHP,
+    TRACK_SHP,
+    UNKWN_SHP,
+)
 from .jit import numbafy
 from .torch.scripts import cdist_fast
 

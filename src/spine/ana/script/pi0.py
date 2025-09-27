@@ -2,8 +2,7 @@ from collections import defaultdict
 from itertools import combinations
 
 import numpy as np
-from analysis.post_processing.reconstruction.utils import \
-    closest_distance_two_lines
+from analysis.post_processing.reconstruction.utils import closest_distance_two_lines
 
 from spine.utils.gnn.cluster import cluster_direction
 

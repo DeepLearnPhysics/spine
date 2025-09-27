@@ -12,10 +12,19 @@ import numpy as np
 import spine.math as sm
 from spine.data import IndexBatch, TensorBatch
 from spine.utils.conditional import TORCH_AVAILABLE, torch
-from spine.utils.globals import (BATCH_COL, CLUST_COL, COORD_COLS,
-                                 COORD_END_COLS, COORD_START_COLS,
-                                 COORD_TIME_COL, GROUP_COL, MOM_COL, PART_COL,
-                                 SHAPE_COL, VALUE_COL)
+from spine.utils.globals import (
+    BATCH_COL,
+    CLUST_COL,
+    COORD_COLS,
+    COORD_END_COLS,
+    COORD_START_COLS,
+    COORD_TIME_COL,
+    GROUP_COL,
+    MOM_COL,
+    PART_COL,
+    SHAPE_COL,
+    VALUE_COL,
+)
 from spine.utils.jit import numbafy
 
 

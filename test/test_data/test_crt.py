@@ -23,7 +23,7 @@ class TestCRTHitBasic:
         """Test CRTHit creation with explicit values."""
         feb_id = np.array([42, 15, 3, 8], dtype=np.ubyte)
         center = np.array([100.0, 50.0, 200.0])
-        
+
         hit = CRTHit(
             plane=1,
             tagger="CRT_Top_01",
@@ -31,9 +31,9 @@ class TestCRTHitBasic:
             ts0_s=1234567890,
             ts0_ns=500000000.0,
             total_pe=54.7,
-            center=center
+            center=center,
         )
-        
+
         assert hit.plane == 1
         assert hit.tagger == "CRT_Top_01"
         assert hit.ts0_s == 1234567890
@@ -54,12 +54,12 @@ class TestCRTHitBasic:
             ts0_ns=123456789.0,
             ts1_ns=50000.0,
             total_pe=150.0,
-            center=np.array([10.0, 300.0, 50.0])
+            center=np.array([10.0, 300.0, 50.0]),
         )
-        
+
         # Low quality hit (default/invalid parameters)
         lq_hit = CRTHit()
-        
+
         # Quality indicators
         assert hq_hit.plane >= 0
         assert hq_hit.tagger != ""
@@ -68,7 +68,7 @@ class TestCRTHitBasic:
         assert hq_hit.ts0_ns >= 0
         assert hq_hit.total_pe > 0
         assert hq_hit.center is not None
-        
+
         # Check low quality flags
         assert lq_hit.plane < 0
         assert lq_hit.tagger == ""
@@ -82,6 +82,6 @@ class TestCRTHitBasic:
         # Test time property converts ts1_ns to microseconds
         hit = CRTHit(ts1_ns=50000.0)  # 50 microseconds in nanoseconds
         assert hit.time == 50.0  # Should be 50 microseconds
-        
+
         hit2 = CRTHit(ts1_ns=123456.0)  # 123.456 microseconds in nanoseconds
         assert abs(hit2.time - 123.456) < 1e-10

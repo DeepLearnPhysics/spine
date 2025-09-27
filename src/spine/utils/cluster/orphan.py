@@ -3,8 +3,7 @@
 import numpy as np
 
 from spine.math.cluster import DBSCAN
-from spine.math.neighbors import (KNeighborsClassifier,
-                                  RadiusNeighborsClassifier)
+from spine.math.neighbors import KNeighborsClassifier, RadiusNeighborsClassifier
 
 __all__ = ["OrphanAssigner"]
 
