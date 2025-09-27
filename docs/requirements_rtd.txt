@@ -1,10 +1,10 @@
-numpy
-pandas
-PyYAML
 h5py
 numba
-psutil
-sphinx>=4.0.0
-sphinx-rtd-theme>=1.0.0
-sphinx-copybutton>=0.5.0
+numpy
 numpydoc>=1.4.0
+pandas
+psutil
+PyYAML
+sphinx>=4.0.0
+sphinx-copybutton>=0.5.0
+sphinx-rtd-theme>=1.0.0

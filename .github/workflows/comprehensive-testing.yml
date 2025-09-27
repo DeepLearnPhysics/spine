@@ -16,18 +16,18 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v4
       with:
         python-version: ${{ matrix.python-version }}
-    
+
     - name: Install core dependencies only
       run: |
         python -m pip install --upgrade pip
         pip install -e .  # Core installation without optional deps
         pip install pytest pytest-cov pytest-xdist
-    
+
     - name: Test imports without optional dependencies
       run: |
         # Verify torch and networkx are NOT available
@@ -38,19 +38,19 @@ jobs:
           exit(1)
         except ImportError:
           print('✅ torch correctly unavailable')
-        
+
         try:
-          import networkx  
+          import networkx
           print('ERROR: networkx should not be available')
           exit(1)
         except ImportError:
           print('✅ networkx correctly unavailable')
         "
-    
+
     - name: Run core functionality tests
       run: |
         pytest test/test_conditional_imports.py -v --cov=spine --cov-report=xml
-    
+
     - name: Test CLI functionality
       run: |
         python -m spine.bin.cli --version
@@ -65,19 +65,19 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v4
       with:
         python-version: ${{ matrix.python-version }}
-    
+
     - name: Install with PyTorch
       run: |
         python -m pip install --upgrade pip
         pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
         pip install -e .
         pip install pytest pytest-cov
-    
+
     - name: Test conditional imports with torch available
       run: |
         python -c "
@@ -87,7 +87,7 @@ jobs:
         assert hasattr(torch, '__version__')
         print('✅ PyTorch conditional imports working')
         "
-    
+
     - name: Test torch-dependent functionality
       run: |
         pytest test/test_conditional_imports.py::TestConditionalUtilities -v
@@ -101,83 +101,83 @@ jobs:
   test-performance-benchmarks:
     name: Performance Tests
     runs-on: ubuntu-latest
-    
+
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Set up Python 3.10
       uses: actions/setup-python@v4
       with:
         python-version: '3.10'
-    
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -e .
         pip install pytest psutil
-    
+
     - name: Run performance tests
       run: |
         pytest test/test_conditional_imports.py::TestPerformanceRegression -v
-        
+
     - name: Benchmark NetworkX vs Dictionary performance
       run: |
         python -c "
         import time
         import sys
         sys.path.insert(0, 'src')
-        
-        # Test dictionary-based implementation performance  
+
+        # Test dictionary-based implementation performance
         from collections import defaultdict
-        
+
         print('🚀 Performance Benchmark: Dictionary vs NetworkX')
         print('=' * 60)
-        
+
         sizes = [1000, 5000, 10000]
         for size in sizes:
             print(f'Testing size: {size} nodes')
-            
+
             # Generate test data
             parent_ids = [max(0, i // 2) for i in range(size)]
-            
+
             # Dictionary approach (current SPINE implementation)
             start_time = time.time()
             children = defaultdict(list)
             for child_id, parent_id in enumerate(parent_ids):
                 if child_id != parent_id:
                     children[parent_id].append(child_id)
-            
+
             children_counts = {}
             for node_id in range(size):
                 children_counts[node_id] = len(children[node_id])
-            
+
             dict_time = time.time() - start_time
             print(f'  Dictionary: {dict_time:.4f}s ({size/dict_time:.0f} nodes/sec)')
-            
+
             # Memory efficient and fast!
             assert dict_time < 0.1, f'Too slow for {size} nodes: {dict_time:.4f}s'
-        
+
         print('✅ All performance benchmarks passed!')
         "
 
   test-coverage:
     name: Coverage Analysis
     runs-on: ubuntu-latest
-    
+
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Set up Python 3.10
       uses: actions/setup-python@v4
       with:
         python-version: '3.10'
-    
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -e .
         pip install pytest pytest-cov coverage[toml]
-    
+
     - name: Run comprehensive test suite with coverage
       run: |
         echo "ℹ️ Running comprehensive tests excluding model tests, parse tests, and IO tests (require optional deps)"
@@ -200,7 +200,7 @@ jobs:
           --cov-report=xml \
           --cov-report=term \
           --maxfail=10
-    
+
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v3
       with:
@@ -214,58 +214,58 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        install-method: 
+        install-method:
           - "pip install -e ."
           - "pip install ."
-    
+
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Set up Python 3.9
       uses: actions/setup-python@v4
       with:
         python-version: '3.9'
-    
+
     - name: Install via ${{ matrix.install-method }}
       run: |
         python -m pip install --upgrade pip
         ${{ matrix.install-method }}
-    
+
     - name: Test basic functionality
       run: |
         python -c "
         import spine
         print(f'SPINE version: {spine.__version__}')
-        
+
         from spine.driver import Driver
         from spine.main import run
         from spine.bin.cli import main
-        
+
         print('✅ All critical components importable')
         "
-        
+
     - name: Test CLI works
       run: |
         python -m spine.bin.cli --version || echo "CLI version check completed"
 
   integration-tests:
-    name: Integration Tests  
+    name: Integration Tests
     runs-on: ubuntu-latest
-    
+
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Set up Python 3.10
       uses: actions/setup-python@v4
       with:
         python-version: '3.10'
-    
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -e .
         pip install pytest
-    
+
     - name: Run integration tests
       run: |
         pytest test/test_conditional_imports.py::TestIntegrationWithoutDependencies -v -m integration
@@ -273,27 +273,27 @@ jobs:
   code-quality:
     name: Code Quality Checks
     runs-on: ubuntu-latest
-    
+
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Set up Python 3.10
       uses: actions/setup-python@v4
       with:
         python-version: '3.10'
-    
+
     - name: Install quality tools
       run: |
         python -m pip install --upgrade pip
         pip install flake8 black isort mypy
         pip install -e .
-    
+
     - name: Run Black
       run: black --check --diff src/spine/
-    
+
     - name: Run isort
       run: isort --check-only --diff src/spine/
-    
+
     - name: Run flake8
       run: |
         # Configure flake8 to focus on critical issues while allowing common library patterns
@@ -303,7 +303,7 @@ jobs:
         flake8 src/spine/ \
           --max-line-length=88 \
           --extend-ignore=E203,W503,F401,F403,F405,W605,E731,E741,F811,F821,F541,F841,E501,W391,W291,W293,E221,E265,E266,F822,F601,F823,E722,E711,E712,E713
-    
+
     - name: Run mypy on critical modules
       run: |
         mypy src/spine/utils/conditional.py --ignore-missing-imports || echo "mypy completed with warnings"

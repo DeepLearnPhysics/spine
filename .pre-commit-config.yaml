@@ -1,29 +1,42 @@
+# Pre-commit configuration for SPINE
+# Run: pip install pre-commit && pre-commit install
+# Automatically runs code quality checks before each commit
+
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.4.0
+    rev: v4.6.0  # Updated to latest
     hooks:
       - id: trailing-whitespace
+        exclude: '\.md$'  # Allow trailing spaces in Markdown
       - id: end-of-file-fixer
       - id: check-yaml
+      - id: check-toml  # Added for pyproject.toml
+      - id: check-json
       - id: check-added-large-files
+        args: [--maxkb=1000]
       - id: check-merge-conflict
       - id: debug-statements
       - id: requirements-txt-fixer
 
   - repo: https://github.com/psf/black
-    rev: 23.3.0
+    rev: 24.8.0  # Updated to latest
     hooks:
       - id: black
-        language_version: python3.9
-
-  - repo: https://github.com/pycqa/flake8
-    rev: 6.0.0
-    hooks:
-      - id: flake8
-        args: [--max-line-length=88, --extend-ignore=E203,W503]
+        language_version: python3
+        args: [--line-length=88]  # Explicit line length
 
   - repo: https://github.com/pycqa/isort
-    rev: 5.12.0
+    rev: 5.13.2  # Updated to latest
     hooks:
       - id: isort
-        args: [--profile=black]
+        args: [--profile=black, --line-length=88]  # Match Black config
+
+  - repo: https://github.com/pycqa/flake8
+    rev: 7.1.1  # Updated to latest
+    hooks:
+      - id: flake8
+        # Use same ignore list as CI for consistency
+        args: [
+          --max-line-length=88,
+          '--extend-ignore=E203,W503,F401,F403,F405,W605,E731,E741,F811,F821,F541,F841,E501,W391,W291,W293,E221,E265,E266,F822,F601,F823,E722,E711,E712,E713,E402,E721'
+        ]

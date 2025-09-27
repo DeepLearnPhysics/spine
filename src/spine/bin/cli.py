@@ -139,10 +139,10 @@ def cli():
         epilog="""
 Examples:
   spine --version         Show version information
-  spine --info           Show system and dependency info  
+  spine --info           Show system and dependency info
   spine config.cfg       Run ML training/inference with config file
   spine --help           Show this help message
-  
+
 For ML training/inference functionality, ensure PyTorch is installed:
   pip install spine-ml[model]
 """,

@@ -6,7 +6,7 @@ SPINE Documentation
 .. toctree::
    :maxdepth: 2
    :caption: Contents:
-   
+
    installation
    quickstart
    api/index
@@ -20,16 +20,16 @@ Install SPINE from PyPI:
 
    # Core functionality
    pip install spine-ml
-   
+
    # With neural network modeling
    pip install spine-ml[model]
-   
+
    # With visualization tools
    pip install spine-ml[viz]
-   
+
    # For development
    pip install spine-ml[dev]
-   
+
    # Everything
    pip install spine-ml[all]
 
@@ -40,18 +40,18 @@ Quick Start
 
    import spine
    import numpy as np
-   
+
    # Use SPINE's custom math functions
    from spine.math.cluster import DBSCAN
    from spine.math.decomposition import PCA
-   
+
    # Example: Cluster 3D points
    points = np.random.rand(100, 3).astype(np.float32)
-   
+
    # Fast numba-accelerated DBSCAN
    dbscan = DBSCAN(eps=0.1, min_samples=5)
    labels = dbscan.fit_predict(points)
-   
+
    # Principal component analysis
    pca = PCA(n_components=2)
    components, variance = pca.fit(points)
