@@ -1,7 +1,8 @@
 """Analysis scripts and performance evaluation tools.
 
-This module provides high-level analysis capabilities for neutrino physics reconstruction
-results, building upon the output of the ML reconstruction chain and post-processing modules.
+This module provides high-level analysis capabilities for neutrino physics
+reconstruction results, building upon the output of the ML reconstruction
+chain and post-processing modules.
 
 **Core Analysis Management:**
 - `AnaManager`: Central orchestrator for analysis workflows

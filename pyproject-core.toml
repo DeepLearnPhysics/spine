@@ -1,0 +1,93 @@
+# Alternative pyproject.toml for the core/minimal version
+# To build: python -m build -C--config-setting="--profile=core"
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spine-ml-core"
+dynamic = ["version"]
+description = "SPINE Core: Data structures and utilities for 3D high energy physics data analysis"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "DeepLearnPhysics Collaboration", email = "francois@slac.stanford.edu"}
+]
+maintainers = [
+    {name = "Francois Drielsma", email = "francois@slac.stanford.edu"}
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Physics"
+]
+keywords = ["physics", "neutrino", "data structures"]
+requires-python = ">=3.8"
+
+# Minimal core dependencies only
+dependencies = [
+    "numpy>=1.19.0",
+    "scipy>=1.7.0", 
+    "pandas>=1.3.0",
+    "PyYAML>=5.4.0",
+    "h5py>=3.1.0",
+    "numba>=0.56.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/DeepLearnPhysics/SPINE"
+Repository = "https://github.com/DeepLearnPhysics/SPINE.git"
+Documentation = "https://spine.readthedocs.io/"
+"Bug Tracker" = "https://github.com/DeepLearnPhysics/SPINE/issues"
+
+[project.optional-dependencies]
+# Visualization dependencies
+viz = [
+    "matplotlib>=3.3.0",
+    "plotly>=4.14.0", 
+]
+
+# I/O and data processing
+io = [
+    "larcv>=3.3.0",
+]
+
+# Machine learning algorithms
+ml = [
+    "scikit-learn>=0.24.0",
+]
+
+# Development and testing
+dev = [
+    "pytest>=6.0.0",
+    "pytest-cov>=2.10.0",
+]
+
+# All optional dependencies for core package
+all = [
+    "matplotlib>=3.3.0",
+    "plotly>=4.14.0",
+    "larcv>=3.3.0",
+    "scikit-learn>=0.24.0",
+    "pytest>=6.0.0",
+    "pytest-cov>=2.10.0",
+]
+
+[tool.setuptools.dynamic]
+version = {attr = "spine.version.__version__"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["spine*"]
+exclude = ["test*", "docs*", "spine/model*"]  # Exclude ML model code
+
+[tool.setuptools.package-data]
+spine = ["config/*.cfg", "*.yaml", "*.yml"]
