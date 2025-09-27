@@ -36,10 +36,10 @@ def test_driver_import_with_other_classes():
 
     # Test that we can also import other key components conditionally
     try:
-        from spine.data.meta import Meta
-        from spine.data.particle import Particle
-        from spine.data.neutrino import Neutrino
         from spine.data.batch.tensor import TensorBatch
+        from spine.data.meta import Meta
+        from spine.data.neutrino import Neutrino
+        from spine.data.particle import Particle
         
         assert callable(Meta)
         assert callable(Particle)
