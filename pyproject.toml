@@ -48,26 +48,6 @@ Documentation = "https://spine-ml.readthedocs.io/"
 "Bug Tracker" = "https://github.com/DeepLearnPhysics/spine/issues"
 
 [project.optional-dependencies]
-# Neural network modeling dependencies
-model = [
-    "torch>=1.9.0",
-    "torch-geometric>=2.0.0",
-    "torch-scatter>=2.0.0",
-]
-
-# MinkowskiEngine (separate due to complex build requirements)
-minkowski = [
-    "MinkowskiEngine>=0.5.0",
-]
-
-# All model dependencies including MinkowskiEngine
-model-full = [
-    "torch>=1.9.0",
-    "torch-geometric>=2.0.0",
-    "torch-scatter>=2.0.0",
-    "MinkowskiEngine>=0.5.0",
-]
-
 # Visualization dependencies
 viz = [
     "matplotlib>=3.3.0",
@@ -92,9 +72,8 @@ dev = [
     "numpydoc>=1.4.0",
 ]
 
-# All optional dependencies
+# All optional dependencies (PyTorch ecosystem installed separately)
 all = [
-    "spine[model]",
     "spine[viz]",
     "spine[dev]",
 ]

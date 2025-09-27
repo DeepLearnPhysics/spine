@@ -70,6 +70,7 @@ autodoc_default_options = {
 }
 
 # Mock imports for optional dependencies that may not be available during doc build
+# These packages need to be installed separately by users for full functionality
 autodoc_mock_imports = [
     "larcv",
     "torch",

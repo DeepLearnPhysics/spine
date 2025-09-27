@@ -16,7 +16,7 @@ SPINE is now available on PyPI with flexible installation options to suit differ
 
 ### Quick Start (Recommended)
 
-For most users, install with all optional dependencies:
+For data analysis and visualization without machine learning:
 
 ```bash
 pip install spine-ml[all]
@@ -30,46 +30,74 @@ pip install spine-ml[all]
 pip install spine-ml
 ```
 
-**2. With Deep Learning Support**
-```bash
-# Adds PyTorch, MinkowskiEngine, and torch-geometric for neural networks
-pip install spine-ml[model]
-```
-
-**3. With Visualization Tools**
+**2. With Visualization Tools**
 ```bash
 # Adds plotly, matplotlib, seaborn for data visualization
 pip install spine-ml[viz]
 ```
 
-**4. Development Environment**
+**3. Development Environment**
 ```bash
 # Adds testing, formatting, and documentation tools
 pip install spine-ml[dev]
 ```
 
-**5. Everything**
+**4. Everything (except PyTorch)**
 ```bash
-# All optional dependencies included
+# All optional dependencies (visualization + development tools)
 pip install spine-ml[all]
 ```
 
-### Special Dependencies
+#### Option 1: Container Approach (Recommended)
 
-**MinkowskiEngine** (for sparse CNNs):
+The easiest way to get a working PyTorch environment with LArCV support:
+
 ```bash
-# Install via pip (recommended)
-pip install MinkowskiEngine
+# Pull the SPINE-compatible container with complete PyTorch ecosystem + LArCV
+singularity pull spine-ml.sif docker://deeplearnphysics/larcv2:ub2204-cu121-torch251-larndsim
 
-# For CUDA support, ensure CUDA toolkit is installed first
-# See: https://nvidia.github.io/MinkowskiEngine/quick_start.html
+# Install SPINE in the container
+singularity exec spine-ml.sif pip install spine-ml[all]
+
+# Run your analysis
+singularity exec spine-ml.sif spine --config your_config.cfg --source data.h5
 ```
 
-**LArCV** (for LArTPC data):
+> This container includes: PyTorch 2.5.1, CUDA 12.1, torch-geometric, torch-scatter, torch-cluster, MinkowskiEngine, and **LArCV2**.
+
+**Manual Installation** (advanced users):
 ```bash
-# Install from conda-forge
-conda install -c conda-forge larcv
+# Step 1: Install PyTorch with CUDA
+pip install torch --index-url https://download.pytorch.org/whl/cu118
+
+# Step 2: Install ecosystem packages (critical order)
+pip install --no-build-isolation torch-scatter torch-cluster torch-geometric MinkowskiEngine
+
+# Step 3: Install SPINE
+pip install spine-ml[all]
 ```
+
+### Other Dependencies
+
+**LArCV2** (for LArTPC data processing):
+
+*Option 1: Use the container (recommended)*
+```bash
+# LArCV2 is pre-installed in the DeepLearnPhysics container
+singularity pull spine-ml.sif docker://deeplearnphysics/larcv2:ub2204-cu121-torch251-larndsim
+```
+
+*Option 2: Build from source*
+```bash
+# Clone and build the latest LArCV2
+git clone https://github.com/DeepLearnPhysics/larcv2.git
+cd larcv2
+# Follow build instructions in the repository
+```
+
+> **Note**: Avoid conda-forge larcv packages as they may be outdated. Use the container or build from the official source.
+
+> **� Why separate?** The PyTorch ecosystem (torch, torch-geometric, torch-scatter, torch-cluster, MinkowskiEngine) forms an interdependent group requiring exact version compatibility and complex compilation. Installing them together ensures compatibility.
 
 ### Development Installation
 
@@ -88,22 +116,6 @@ To build and test packages locally:
 # Install locally built package
 pip install dist/spine_ml-*.whl[all]
 ```
-
-### Docker/Singularity (Alternative)
-
-We provide containers with all dependencies pre-installed:
-```bash
-# Pull the latest container
-docker pull deeplearnphysics/spine-ml
-```
-
-The container includes:
-* `MinkowskiEngine` (sparse convolutions)
-* `larcv2` (LArTPC data I/O)
-* `torch` (deep learning framework)
-* `torch_geometric` (graph neural networks)
-* `numba` (just-in-time compilation)
-* All Python scientific libraries
 
 ## Usage
 
@@ -225,7 +237,7 @@ Before you start contributing to the code, please see the [contribution guidelin
 
 The SPINE framework is designed to be extensible. To add a new model:
 
-1. **Data Loading**: Parsers exist for various sparse tensor and particle outputs in `spine.io.parse`. If you need fundamentally different data formats, you may need to add new parsers or collation functions.
+1. **Data Loading**: Parsers exist for various sparse tensor and particle outputs in `spine.io.core.parse`. If you need fundamentally different data formats, you may need to add new parsers or collation functions.
 
 2. **Model Implementation**: Add your model to the `spine.model` package. Include your model in the factory dictionary in `spine.model.factories` so it can be found by the configuration system.
 
