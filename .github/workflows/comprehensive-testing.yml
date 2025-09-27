@@ -179,8 +179,8 @@ jobs:
     
     - name: Run comprehensive test suite with coverage
       run: |
-        echo "ℹ️ Running comprehensive tests excluding model tests (run separately with full deps)"
-        # Run specific test directories to avoid loading test_model/conftest.py
+        echo "ℹ️ Running comprehensive tests excluding model tests and parse tests (require optional deps)"
+        # Run specific test directories/files to avoid loading problematic conftest.py files
         pytest \
           test/test_conditional_imports.py \
           test/test_driver_import.py \
@@ -188,7 +188,11 @@ jobs:
           test/test_ana/ \
           test/test_construct/ \
           test/test_data/ \
-          test/test_io/ \
+          test/test_io/test_collate.py \
+          test/test_io/test_dataset.py \
+          test/test_io/test_read.py \
+          test/test_io/test_sample.py \
+          test/test_io/test_write.py \
           test/test_math/ \
           test/test_post/ \
           test/test_utils/ \
