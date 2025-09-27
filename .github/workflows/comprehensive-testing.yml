@@ -49,7 +49,7 @@ jobs:
     
     - name: Run core functionality tests
       run: |
-        pytest test/test_imports.py test/test_conditional_imports.py -v --cov=spine --cov-report=xml
+        pytest test/test_conditional_imports.py -v --cov=spine --cov-report=xml
     
     - name: Test CLI functionality
       run: |

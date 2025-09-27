@@ -6,7 +6,7 @@ o    - name: Run tests
         # Install package in development mode for tests
         pip install -e .
         # Run basic import tests (core dependencies only)
-        python -m pytest test/test_imports.py -v
+        python -m pytest test/test_conditional_imports.py -v
         # Note: More comprehensive tests require torch/sklearn and are run separately:
     tags:
       - 'v*'  # Trigger on version tags
@@ -44,7 +44,7 @@ jobs:
         # Install package in development mode for tests
         pip install -e .
         # Run basic import and utility tests that don't require external data
-        python -m pytest test/test_imports.py test/test_utils/ -v -x
+        python -m pytest test/test_conditional_imports.py test/test_utils/ -v -x
         # Skip other tests that require external data files or heavy dependencies
         
     - name: Build packages (Python 3.9 only)
