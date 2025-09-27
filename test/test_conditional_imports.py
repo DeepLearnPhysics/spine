@@ -199,18 +199,17 @@ class TestConditionalUtilities:
         """Test JIT utilities handle torch unavailability."""
         from spine.utils.conditional import TORCH_AVAILABLE
         
-        if TORCH_AVAILABLE:
-            from spine.utils.jit import tensor_to_numpy_nonzero
-            assert callable(tensor_to_numpy_nonzero)
-        else:
-            # Should either import with conditional behavior or be unavailable
-            try:
-                from spine.utils.jit import tensor_to_numpy_nonzero
-                # If imported, should handle conditional behavior
-                assert callable(tensor_to_numpy_nonzero)
-            except ImportError:
-                # Acceptable if not available without torch
-                pass
+        # Test that jit module can be imported regardless of torch availability
+        from spine.utils.jit import numbafy
+        assert callable(numbafy)
+        
+        # The numbafy decorator should work with or without torch
+        # Test a simple numbafy-decorated function
+        @numbafy(cast_args=[], keep_torch=False)
+        def simple_function(x):
+            return x * 2
+            
+        assert callable(simple_function)
 
 
 class TestPerformanceRegression:
