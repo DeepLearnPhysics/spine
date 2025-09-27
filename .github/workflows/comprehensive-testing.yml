@@ -199,7 +199,6 @@ jobs:
         install-method: 
           - "pip install -e ."
           - "pip install ."
-          - "python setup.py develop"
     
     steps:
     - uses: actions/checkout@v4
