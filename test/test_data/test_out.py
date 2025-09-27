@@ -1,8 +1,9 @@
 """Comprehensive test suite for spine.data.out module."""
 
-import pytest
-import numpy as np
 from unittest.mock import Mock
+
+import numpy as np
+import pytest
 
 
 class TestFragmentCreation:
@@ -383,7 +384,7 @@ class TestOutDataIntegration:
 
     def test_particle_to_interaction_hierarchy(self):
         """Test hierarchy from particles to interactions."""
-        from spine.data.out import RecoParticle, RecoInteraction
+        from spine.data.out import RecoInteraction, RecoParticle
 
         # Multiple particles in one interaction
         particles = [
@@ -410,7 +411,7 @@ class TestOutDataIntegration:
 
     def test_truth_reco_matching(self):
         """Test matching between truth and reconstruction objects."""
-        from spine.data.out import TruthFragment, RecoFragment
+        from spine.data.out import RecoFragment, TruthFragment
 
         # Truth fragment
         truth_fragment = TruthFragment(
@@ -454,14 +455,9 @@ class TestOutDataIntegration:
 
     def test_complete_event_reconstruction(self):
         """Test complete event with full reconstruction hierarchy."""
-        from spine.data.out import (
-            RecoFragment,
-            RecoParticle,
-            RecoInteraction,
-            TruthFragment,
-            TruthParticle,
-            TruthInteraction,
-        )
+        from spine.data.out import (RecoFragment, RecoInteraction,
+                                    RecoParticle, TruthFragment,
+                                    TruthInteraction, TruthParticle)
 
         # Truth interaction
         truth_interaction = TruthInteraction(

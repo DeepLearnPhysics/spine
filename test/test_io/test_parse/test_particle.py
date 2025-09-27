@@ -1,10 +1,9 @@
 """Test that the particle/neutrino data parsers work as intended."""
 
 import pytest
-
 from larcv import larcv
 
-from spine import Meta, Particle, Neutrino
+from spine import Meta, Neutrino, Particle
 from spine.io.parse.particle import *
 
 

@@ -7,10 +7,8 @@ import torch
 
 from spine.model.layer.factories import loss_fn_factory
 from spine.utils.enums import enum_factory
-from spine.utils.gnn.cluster import (
-    get_cluster_closest_label_batch,
-    get_cluster_label_batch,
-)
+from spine.utils.gnn.cluster import (get_cluster_closest_label_batch,
+                                     get_cluster_label_batch)
 from spine.utils.weighting import get_class_weights
 
 __all__ = ["NodeClassLoss"]

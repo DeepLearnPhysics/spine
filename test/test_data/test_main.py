@@ -1,7 +1,7 @@
 """Comprehensive test suite for spine.data module."""
 
-import pytest
 import numpy as np
+import pytest
 
 
 class TestDataStructures:
@@ -43,7 +43,7 @@ class TestDataStructures:
     def test_batch_structures_import(self):
         """Test that batch structures can be imported."""
         try:
-            from spine.data import TensorBatch, IndexBatch, EdgeIndexBatch
+            from spine.data import EdgeIndexBatch, IndexBatch, TensorBatch
 
             assert TensorBatch is not None
             assert IndexBatch is not None
@@ -63,8 +63,8 @@ class TestDataStructures:
 
 """Comprehensive test suite for spine.data module."""
 
-import pytest
 import numpy as np
+import pytest
 
 
 class TestDataStructures:
@@ -106,7 +106,7 @@ class TestDataStructures:
     def test_batch_structures_import(self):
         """Test that batch structures can be imported."""
         try:
-            from spine.data import TensorBatch, IndexBatch, EdgeIndexBatch
+            from spine.data import EdgeIndexBatch, IndexBatch, TensorBatch
 
             assert TensorBatch is not None
             assert IndexBatch is not None

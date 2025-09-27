@@ -7,7 +7,8 @@ which tremendously speeds up graph construction and computation in Numba.
 import numba as nb
 import numpy as np
 
-from .distance import METRICS, cdist, chebyshev, cityblock, minkowski, sqeuclidean
+from .distance import (METRICS, cdist, chebyshev, cityblock, minkowski,
+                       sqeuclidean)
 
 CSR_DTYPE = (
     ("num_nodes", nb.int64),

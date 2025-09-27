@@ -1,10 +1,9 @@
 """Test that the reader classes work as intended."""
 
-import pytest
-
-import numpy as np
-import ROOT
 import h5py
+import numpy as np
+import pytest
+import ROOT
 
 from spine.io.read import *
 

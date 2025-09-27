@@ -1,7 +1,6 @@
 """Test that the dataset classes work as intended."""
 
 import pytest
-
 import ROOT
 
 from spine.io.dataset import *

@@ -1,12 +1,12 @@
 """Test that the miscellaneous data parsers work as intended."""
 
-import pytest
-from warnings import warn
 from dataclasses import asdict
+from warnings import warn
 
 import numpy as np
+import pytest
 
-from spine import Meta, RunInfo, Flash, CRTHit, Trigger
+from spine import CRTHit, Flash, Meta, RunInfo, Trigger
 from spine.io.parse.misc import *
 
 

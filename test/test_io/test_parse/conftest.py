@@ -4,9 +4,8 @@ These fixtures generate dummy LArCV data, which is what the parsers expect
 to receive as an input.
 """
 
-import pytest
-
 import numpy as np
+import pytest
 from larcv import larcv
 
 

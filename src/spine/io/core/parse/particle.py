@@ -14,17 +14,12 @@ import numpy as np
 
 from spine.data import Meta, Neutrino, Particle
 from spine.utils.conditional import larcv
-from spine.utils.globals import (
-    INVAL_ID,
-    PDG_TO_PID,
-    PID_MASSES,
-    PPN_LPART_COL,
-    TRACK_SHP,
-    VALUE_COL,
-)
+from spine.utils.globals import (INVAL_ID, PDG_TO_PID, PID_MASSES,
+                                 PPN_LPART_COL, TRACK_SHP, VALUE_COL)
 from spine.utils.gnn.network import filter_invalid_nodes
 from spine.utils.particles import process_particles
-from spine.utils.ppn import get_ppn_labels, get_vertex_labels, image_coordinates
+from spine.utils.ppn import (get_ppn_labels, get_vertex_labels,
+                             image_coordinates)
 
 from .base import ParserBase
 from .data import ParserObjectList, ParserTensor

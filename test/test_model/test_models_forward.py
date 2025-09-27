@@ -1,7 +1,7 @@
 import os
-import pytest
 
 import numpy as np
+import pytest
 import torch
 
 from spine.model.factories import model_factory

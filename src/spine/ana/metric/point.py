@@ -7,14 +7,8 @@ from scipy.spatial.distance import cdist
 from scipy.special import softmax
 
 from spine.ana.base import AnaBase
-from spine.utils.globals import (
-    COORD_COLS,
-    LOWES_SHP,
-    PPN_END_COLS,
-    PPN_LENDP_COL,
-    PPN_LTYPE_COL,
-    PPN_SHAPE_COL,
-)
+from spine.utils.globals import (COORD_COLS, LOWES_SHP, PPN_END_COLS,
+                                 PPN_LENDP_COL, PPN_LTYPE_COL, PPN_SHAPE_COL)
 
 __all__ = ["PointProposalAna"]
 

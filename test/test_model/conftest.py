@@ -1,5 +1,7 @@
-import pytest
 import os
+
+import pytest
+
 from spine.model.factories import model_dict, model_factory
 
 os.environ["CUDA_VISIBLE_DEVICES"] = ""

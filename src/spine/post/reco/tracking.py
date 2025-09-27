@@ -5,14 +5,8 @@ from scipy.spatial.distance import cdist
 
 from spine.post.base import PostBase
 from spine.utils.energy_loss import csda_table_spline
-from spine.utils.globals import (
-    KAON_PID,
-    MUON_PID,
-    PION_PID,
-    PROT_PID,
-    SHOWR_SHP,
-    TRACK_SHP,
-)
+from spine.utils.globals import (KAON_PID, MUON_PID, PION_PID, PROT_PID,
+                                 SHOWR_SHP, TRACK_SHP)
 from spine.utils.tracking import get_track_length
 
 __all__ = ["CSDAEnergyProcessor"]

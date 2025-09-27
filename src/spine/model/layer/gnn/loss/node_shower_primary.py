@@ -5,10 +5,8 @@ import torch
 
 from spine.model.layer.factories import loss_fn_factory
 from spine.utils.globals import COORD_START_COLS, GROUP_COL, PRGRP_COL
-from spine.utils.gnn.cluster import (
-    get_cluster_closest_primary_label_batch,
-    get_cluster_label_batch,
-)
+from spine.utils.gnn.cluster import (get_cluster_closest_primary_label_batch,
+                                     get_cluster_label_batch)
 from spine.utils.gnn.evaluation import node_purity_mask_batch
 from spine.utils.weighting import get_class_weights
 

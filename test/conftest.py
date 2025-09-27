@@ -5,9 +5,9 @@ inside this directory.
 """
 
 import os
-import pytest
-
 import urllib
+
+import pytest
 
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
 

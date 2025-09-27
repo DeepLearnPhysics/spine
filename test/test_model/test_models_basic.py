@@ -1,4 +1,5 @@
 import os
+
 import pytest
 
 from spine.model.factories import model_factory

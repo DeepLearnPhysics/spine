@@ -22,7 +22,7 @@ def test_driver_always_importable():
 
 def test_driver_import_with_other_classes():
     """Test that Driver can be imported alongside other spine classes."""
-    from spine import Driver, Particle, Neutrino, TensorBatch, __version__
+    from spine import Driver, Neutrino, Particle, TensorBatch, __version__
 
     # All should be successfully imported
     assert Driver is not None

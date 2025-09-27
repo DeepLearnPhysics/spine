@@ -3,16 +3,9 @@
 import numpy as np
 
 from spine.post.base import PostBase
-from spine.utils.globals import (
-    MICHL_SHP,
-    MUON_PID,
-    PID_MASSES,
-    PION_PID,
-    SHOWR_SHP,
-    SHP_TO_PID,
-    SHP_TO_PRIMARY,
-    TRACK_SHP,
-)
+from spine.utils.globals import (MICHL_SHP, MUON_PID, PID_MASSES, PION_PID,
+                                 SHOWR_SHP, SHP_TO_PID, SHP_TO_PRIMARY,
+                                 TRACK_SHP)
 
 __all__ = [
     "ParticleShapeLogicProcessor",

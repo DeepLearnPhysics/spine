@@ -1,9 +1,10 @@
 """Comprehensive tests for conditional imports and dependency management."""
 
-import pytest
-import sys
 import importlib
+import sys
 from unittest.mock import patch
+
+import pytest
 
 
 class TestConditionalImports:
@@ -165,13 +166,8 @@ class TestMainEntryPoints:
 
     def test_main_functions_import(self):
         """Test all main functions can be imported."""
-        from spine.main import (
-            run,
-            run_single,
-            train_single,
-            inference_single,
-            process_world,
-        )
+        from spine.main import (inference_single, process_world, run,
+                                run_single, train_single)
 
         assert callable(run)
         assert callable(run_single)
@@ -181,7 +177,7 @@ class TestMainEntryPoints:
 
     def test_cli_import_and_version(self):
         """Test CLI imports and version detection works."""
-        from spine.bin.cli import main, get_version, check_dependencies
+        from spine.bin.cli import check_dependencies, get_version, main
 
         assert callable(main)
 
@@ -222,7 +218,6 @@ class TestConditionalUtilities:
     def test_jit_conditional_behavior(self):
         """Test JIT utilities handle torch unavailability."""
         from spine.utils.conditional import TORCH_AVAILABLE
-
         # Test that jit module can be imported regardless of torch availability
         from spine.utils.jit import numbafy
 
@@ -255,10 +250,10 @@ class TestPerformanceRegression:
 
         # Test manager imports are fast
         start_time = time.time()
-        from spine.model import ModelManager
-        from spine.construct import BuildManager
-        from spine.post import PostManager
         from spine.ana import AnaManager
+        from spine.construct import BuildManager
+        from spine.model import ModelManager
+        from spine.post import PostManager
 
         manager_time = time.time() - start_time
 
@@ -268,8 +263,9 @@ class TestPerformanceRegression:
     def test_memory_usage_reasonable(self):
         """Test memory usage of imports is reasonable."""
         try:
-            import psutil
             import os
+
+            import psutil
 
             process = psutil.Process(os.getpid())
             before_memory = process.memory_info().rss / 1024 / 1024  # MB
@@ -298,9 +294,9 @@ class TestIntegrationWithoutDependencies:
         """Test complete import chain works without optional dependencies."""
         # This mimics a real user importing spine for the first time
         import spine
+        from spine.bin.cli import main as cli_main
         from spine.driver import Driver
         from spine.main import run
-        from spine.bin.cli import main as cli_main
 
         # All should be available
         assert spine.__version__ is not None

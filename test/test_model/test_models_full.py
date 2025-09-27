@@ -1,11 +1,11 @@
 import os
 import sys
-import pytest
 
+import pytest
 import yaml
 
-from spine.model.factories import model_factory
 from spine.main import run
+from spine.model.factories import model_factory
 
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
 

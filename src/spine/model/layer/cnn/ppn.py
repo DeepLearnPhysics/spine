@@ -7,20 +7,10 @@ import torch
 import torch.nn as nn
 
 from spine.data import TensorBatch
-from spine.utils.globals import (
-    COORD_COLS,
-    GHOST_SHP,
-    PART_COL,
-    PPN_LENDP_COL,
-    PPN_LPART_COL,
-    PPN_LTYPE_COL,
-    PPN_ROFF_COLS,
-    PPN_RPOS_COLS,
-    PPN_RTYPE_COLS,
-    SHAPE_COL,
-    TRACK_SHP,
-    VALUE_COL,
-)
+from spine.utils.globals import (COORD_COLS, GHOST_SHP, PART_COL,
+                                 PPN_LENDP_COL, PPN_LPART_COL, PPN_LTYPE_COL,
+                                 PPN_ROFF_COLS, PPN_RPOS_COLS, PPN_RTYPE_COLS,
+                                 SHAPE_COL, TRACK_SHP, VALUE_COL)
 from spine.utils.logger import logger
 from spine.utils.torch.scripts import cdist_fast
 from spine.utils.weighting import get_class_weights

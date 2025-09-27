@@ -7,24 +7,13 @@ from torch import nn
 
 from spine.data import EdgeIndexBatch, IndexBatch, TensorBatch
 from spine.utils.enums import enum_factory
-from spine.utils.globals import (
-    BATCH_COL,
-    CLUST_COL,
-    COORD_COLS,
-    GROUP_COL,
-    LOWES_SHP,
-    SHAPE_COL,
-    TRACK_SHP,
-)
-from spine.utils.gnn.cluster import (
-    form_clusters_batch,
-    get_cluster_label_batch,
-    get_cluster_primary_label_batch,
-)
-from spine.utils.gnn.evaluation import (
-    node_assignment_batch,
-    node_assignment_score_batch,
-)
+from spine.utils.globals import (BATCH_COL, CLUST_COL, COORD_COLS, GROUP_COL,
+                                 LOWES_SHP, SHAPE_COL, TRACK_SHP)
+from spine.utils.gnn.cluster import (form_clusters_batch,
+                                     get_cluster_label_batch,
+                                     get_cluster_primary_label_batch)
+from spine.utils.gnn.evaluation import (node_assignment_batch,
+                                        node_assignment_score_batch)
 
 from .layer.common.dbscan import DBSCAN
 from .layer.factories import final_factory

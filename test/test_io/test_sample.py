@@ -1,9 +1,9 @@
 """Test that the collate function(s) work as intended."""
 
-import pytest
 from dataclasses import dataclass
 
 import numpy as np
+import pytest
 
 from spine.io.sample import *
 from spine.io.sample import DistributedProxySampler

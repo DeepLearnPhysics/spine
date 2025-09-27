@@ -16,28 +16,17 @@ from spine.data import Meta
 from spine.math.cluster import dbscan
 from spine.math.distance import METRICS
 from spine.utils.conditional import larcv
-from spine.utils.globals import (
-    CLUST_COL,
-    DELTA_SHP,
-    GROUP_COL,
-    INTER_COL,
-    NU_COL,
-    PART_COL,
-    SHAPE_COL,
-    SHAPE_PREC,
-    VALUE_COL,
-)
+from spine.utils.globals import (CLUST_COL, DELTA_SHP, GROUP_COL, INTER_COL,
+                                 NU_COL, PART_COL, SHAPE_COL, SHAPE_PREC,
+                                 VALUE_COL)
 from spine.utils.particles import process_particle_event
 from spine.utils.ppn import image_coordinates
 
 from .base import ParserBase
 from .clean_data import clean_sparse_data
 from .data import ParserTensor
-from .sparse import (
-    Sparse3DAggregateParser,
-    Sparse3DChargeRescaledParser,
-    Sparse3DParser,
-)
+from .sparse import (Sparse3DAggregateParser, Sparse3DChargeRescaledParser,
+                     Sparse3DParser)
 
 __all__ = [
     "Cluster2DParser",

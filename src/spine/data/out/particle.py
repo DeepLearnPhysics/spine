@@ -8,14 +8,8 @@ from scipy.spatial.distance import cdist
 
 from spine.data.particle import Particle
 from spine.utils.docstring import inherit_docstring
-from spine.utils.globals import (
-    PID_LABELS,
-    PID_MASSES,
-    PID_TO_PDG,
-    SHAPE_LABELS,
-    SHOWR_SHP,
-    TRACK_SHP,
-)
+from spine.utils.globals import (PID_LABELS, PID_MASSES, PID_TO_PDG,
+                                 SHAPE_LABELS, SHOWR_SHP, TRACK_SHP)
 
 from .base import RecoBase, TruthBase
 

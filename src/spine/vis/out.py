@@ -11,7 +11,8 @@ from spine.utils.globals import COORD_COLS, PID_LABELS, SHAPE_LABELS, TRACK_SHP
 from .arrow import scatter_arrows
 from .cluster import scatter_clusters
 from .geo import GeoDrawer
-from .layout import HIGH_CONTRAST_COLORS, PLOTLY_COLORS_WGRAY, dual_figure3d, layout3d
+from .layout import (HIGH_CONTRAST_COLORS, PLOTLY_COLORS_WGRAY, dual_figure3d,
+                     layout3d)
 from .point import scatter_points
 
 __all__ = ["Drawer"]

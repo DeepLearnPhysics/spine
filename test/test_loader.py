@@ -1,14 +1,14 @@
 """Test that the loading of data using a full-fledged configuration."""
 
 import os
-import yaml
 import time
-import pytest
 
 import numpy as np
+import pytest
+import yaml
 
-from spine.io.factories import loader_factory
 from spine.io.core.write.csv import CSVWriter
+from spine.io.factories import loader_factory
 
 MAX_ITER = 10
 

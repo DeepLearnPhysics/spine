@@ -7,13 +7,8 @@ import torch
 
 from spine.data import IndexBatch
 from spine.model.layer.factories import loss_fn_factory
-from spine.utils.globals import (
-    COORD_END_COLS,
-    COORD_START_COLS,
-    PART_COL,
-    SHAPE_COL,
-    TRACK_SHP,
-)
+from spine.utils.globals import (COORD_END_COLS, COORD_START_COLS, PART_COL,
+                                 SHAPE_COL, TRACK_SHP)
 from spine.utils.gnn.cluster import get_cluster_label_batch
 
 __all__ = ["NodeOrientLoss"]

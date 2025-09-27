@@ -1,7 +1,7 @@
 """Comprehensive tests for spine.math.cluster module."""
 
-import pytest
 import numpy as np
+import pytest
 
 
 class TestMathCluster:

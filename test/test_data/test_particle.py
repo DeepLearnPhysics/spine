@@ -1,7 +1,7 @@
 """Comprehensive test suite for spine.data.particle module."""
 
-import pytest
 import numpy as np
+import pytest
 
 
 class TestParticleCreation:
@@ -393,7 +393,7 @@ class TestParticleIntegration:
 
     def test_particle_with_neutrino_relationship(self):
         """Test Particle objects linked to Neutrino interactions."""
-        from spine.data import Particle, Neutrino
+        from spine.data import Neutrino, Particle
 
         # Create neutrino interaction
         neutrino = Neutrino(

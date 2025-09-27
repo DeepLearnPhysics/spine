@@ -1,7 +1,7 @@
 """Comprehensive tests for the optical data module."""
 
-import pytest
 import numpy as np
+import pytest
 
 from spine.data.optical import Flash
 

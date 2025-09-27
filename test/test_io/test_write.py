@@ -1,21 +1,13 @@
 """Test that the writer classes work as intended."""
 
 import os
+
+import h5py
+import numpy as np
 import pytest
 
-import numpy as np
-import h5py
-
-from spine.data import (
-    ObjectList,
-    Particle,
-    Neutrino,
-    Meta,
-    Flash,
-    CRTHit,
-    RunInfo,
-    Trigger,
-)
+from spine.data import (CRTHit, Flash, Meta, Neutrino, ObjectList, Particle,
+                        RunInfo, Trigger)
 from spine.io.core.write import *
 
 

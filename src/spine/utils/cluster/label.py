@@ -5,17 +5,9 @@ import torch
 
 from spine.data import TensorBatch
 from spine.math.distance import METRICS, cdist, get_metric_id
-from spine.utils.globals import (
-    CLUST_COL,
-    COORD_COLS,
-    DELTA_SHP,
-    GHOST_SHP,
-    MICHL_SHP,
-    SHAPE_COL,
-    SHOWR_SHP,
-    TRACK_SHP,
-    VALUE_COL,
-)
+from spine.utils.globals import (CLUST_COL, COORD_COLS, DELTA_SHP, GHOST_SHP,
+                                 MICHL_SHP, SHAPE_COL, SHOWR_SHP, TRACK_SHP,
+                                 VALUE_COL)
 from spine.utils.gnn.cluster import break_clusters
 from spine.utils.torch.scripts import cdist_fast
 

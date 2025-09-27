@@ -10,7 +10,7 @@ This includes multiple submodules:
 """
 
 # Expose submodules
-from . import cluster, decomposition, distance, graph, linalg, metrics, neighbors
-
+from . import (cluster, decomposition, distance, graph, linalg, metrics,
+               neighbors)
 # Expose all base functions directly
 from .base import *

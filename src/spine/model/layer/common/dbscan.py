@@ -5,16 +5,9 @@ import torch
 
 from spine.data import IndexBatch, TensorBatch
 from spine.math.cluster import DBSCAN as spine_dbscan
-from spine.utils.globals import (
-    COORD_COLS,
-    COORD_END_COLS,
-    COORD_START_COLS,
-    DELTA_SHP,
-    MICHL_SHP,
-    PPN_SHAPE_COL,
-    SHOWR_SHP,
-    TRACK_SHP,
-)
+from spine.utils.globals import (COORD_COLS, COORD_END_COLS, COORD_START_COLS,
+                                 DELTA_SHP, MICHL_SHP, PPN_SHAPE_COL,
+                                 SHOWR_SHP, TRACK_SHP)
 from spine.utils.point_break_clustering import PointBreakClusterer
 from spine.utils.ppn import PPNPredictor
 

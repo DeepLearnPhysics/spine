@@ -1,10 +1,9 @@
 """Test that the batch objects can be unwrapped properly."""
 
+import numpy as np
 import pytest
 
-import numpy as np
-
-from spine.data import TensorBatch, IndexBatch
+from spine.data import IndexBatch, TensorBatch
 from spine.utils.unwrap import Unwrapper
 
 

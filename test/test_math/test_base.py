@@ -1,8 +1,8 @@
 """Comprehensive tests for spine.math.base module."""
 
-import pytest
-import numpy as np
 import numba as nb
+import numpy as np
+import pytest
 
 
 class TestMathBase:
@@ -11,7 +11,7 @@ class TestMathBase:
     def test_imports(self):
         """Test that base math functions can be imported."""
         try:
-            from spine.math.base import seed, unique, sum, mean, mode
+            from spine.math.base import mean, mode, seed, sum, unique
 
             assert callable(seed)
             assert callable(unique)
@@ -53,7 +53,7 @@ class TestMathBase:
     def test_aggregation_functions(self):
         """Test aggregation functions (sum, mean, mode)."""
         try:
-            from spine.math.base import sum, mean, mode
+            from spine.math.base import mean, mode, sum
 
             # Test data (2D array for sum/mean functions)
             x = np.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]], dtype=np.float32)
@@ -79,7 +79,7 @@ class TestMathBase:
     def test_argmax_argmin_functions(self):
         """Test argmax and argmin functions."""
         try:
-            from spine.math.base import argmax, argmin, amax, amin
+            from spine.math.base import amax, amin, argmax, argmin
 
             # 2D array for axis-based functions
             x = np.array([[1.0, 8.0], [5.0, 2.0], [3.0, 6.0]], dtype=np.float32)
@@ -145,7 +145,7 @@ class TestMathBaseIntegration:
     def test_numba_compilation(self):
         """Test that functions are properly JIT compiled."""
         try:
-            from spine.math.base import unique, sum
+            from spine.math.base import sum, unique
 
             # Test that functions work with numba types
             x = np.array([1, 2, 2, 3], dtype=np.int64)
@@ -161,7 +161,7 @@ class TestMathBaseIntegration:
     def test_function_consistency(self):
         """Test consistency with numpy equivalents where applicable."""
         try:
-            from spine.math.base import sum, mean
+            from spine.math.base import mean, sum
 
             # Create test data (2D for axis-based functions)
             x = np.random.random((10, 5)).astype(np.float32)

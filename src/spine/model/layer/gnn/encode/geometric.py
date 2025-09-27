@@ -3,12 +3,10 @@ import torch
 
 from spine.data import TensorBatch
 from spine.utils.globals import COORD_COLS, SHAPE_COL, VALUE_COL
-from spine.utils.gnn.cluster import (
-    get_cluster_dedxs_batch,
-    get_cluster_directions_batch,
-    get_cluster_features_batch,
-    get_cluster_points_label_batch,
-)
+from spine.utils.gnn.cluster import (get_cluster_dedxs_batch,
+                                     get_cluster_directions_batch,
+                                     get_cluster_features_batch,
+                                     get_cluster_points_label_batch)
 from spine.utils.gnn.network import get_cluster_edge_features_batch
 from spine.utils.torch.scripts import cdist_fast
 

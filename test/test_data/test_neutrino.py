@@ -1,7 +1,7 @@
 """Comprehensive test suite for spine.data.neutrino module."""
 
-import pytest
 import numpy as np
+import pytest
 
 
 class TestNeutrinoCreation:

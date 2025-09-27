@@ -15,24 +15,9 @@ from scipy.interpolate import CubicSpline
 from scipy.optimize import brentq
 from scipy.special import digamma
 
-from .globals import (
-    ELEC_MASS,
-    KAON_PID,
-    LAR_A,
-    LAR_DENSITY,
-    LAR_MEE,
-    LAR_Z,
-    MUON_MASS,
-    MUON_PID,
-    PION_PID,
-    PROT_PID,
-    LAR_a,
-    LAR_Cbar,
-    LAR_delta0,
-    LAR_k,
-    LAR_x0,
-    LAR_x1,
-)
+from .globals import (ELEC_MASS, KAON_PID, LAR_A, LAR_DENSITY, LAR_MEE, LAR_Z,
+                      MUON_MASS, MUON_PID, PION_PID, PROT_PID, LAR_a, LAR_Cbar,
+                      LAR_delta0, LAR_k, LAR_x0, LAR_x1)
 
 
 def csda_table_spline(particle_type, value="T", table_dir="csda_tables"):

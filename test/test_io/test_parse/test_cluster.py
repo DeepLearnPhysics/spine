@@ -1,8 +1,7 @@
 """Test that the cluster data parsers work as intended."""
 
-import pytest
-
 import numpy as np
+import pytest
 from larcv import larcv
 
 from spine import Meta

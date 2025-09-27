@@ -1,7 +1,7 @@
 """Comprehensive tests for spine.construct module."""
 
-import pytest
 import numpy as np
+import pytest
 
 
 class TestConstructManager:

@@ -3,14 +3,8 @@
 from warnings import warn
 
 from spine.ana.base import AnaBase
-from spine.data.out import (
-    RecoFragment,
-    RecoInteraction,
-    RecoParticle,
-    TruthFragment,
-    TruthInteraction,
-    TruthParticle,
-)
+from spine.data.out import (RecoFragment, RecoInteraction, RecoParticle,
+                            TruthFragment, TruthInteraction, TruthParticle)
 
 __all__ = ["SaveAna"]
 
