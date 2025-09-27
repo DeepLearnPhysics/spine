@@ -1,5 +1,5 @@
 <h1 align="center">
-<img src="https://github.com/DeepLearnPhysics/spine/blob/main/docs/source/_static/img/spine-logo-dark.png" alt='SPINE', width="400">
+<img src="https://raw.githubusercontent.com/DeepLearnPhysics/spine/main/docs/source/_static/img/spine-logo-dark.png" alt='SPINE', width="400">
 </h1><br>
 
 [![PyPI version](https://badge.fury.io/py/spine-ml.svg)](https://badge.fury.io/py/spine-ml)
@@ -8,7 +8,7 @@
 
 The Scalable Particle Imaging with Neural Embeddings (SPINE) package leverages state-of-the-art Machine Learning (ML) algorithms -- in particular Deep Neural Networks (DNNs) -- to reconstruct particle imaging detector data. This package was primarily developed for Liquid Argon Time-Projection Chamber (LArTPC) data and relies on Convolutional Neural Networks (CNNs) for pixel-level feature extraction and Graph Neural Networks (GNNs) for superstructure formation. The schematic below breaks down the full end-to-end reconstruction flow.
 
-![Full chain](https://github.com/DeepLearnPhysics/spine/blob/main/docs/source/_static/img/spine-chain-alpha.png)
+![Full chain](https://raw.githubusercontent.com/DeepLearnPhysics/spine/main/docs/source/_static/img/spine-chain-alpha.png)
 
 ## Installation
 
