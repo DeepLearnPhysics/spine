@@ -40,10 +40,10 @@ def test_driver_import_with_other_classes():
         from spine.data.meta import Meta
         from spine.data.neutrino import Neutrino
         from spine.data.particle import Particle
-        
+
         assert callable(Meta)
         assert callable(Particle)
-        assert callable(Neutrino) 
+        assert callable(Neutrino)
         assert callable(TensorBatch)
         print("✅ Data classes successfully imported")
     except ImportError as e:

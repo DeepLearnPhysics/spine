@@ -11,24 +11,26 @@
 #
 import os
 import sys
-sys.path.insert(0, os.path.abspath('../../src'))
-sys.path.insert(0, os.path.abspath('./'))
+
+sys.path.insert(0, os.path.abspath("../../src"))
+sys.path.insert(0, os.path.abspath("./"))
 
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-project = 'SPINE'
-copyright = '2025, DeepLearningPhysics Collaboration'
-author = 'DeepLearningPhysics Collaboration'
+project = "SPINE"
+copyright = "2025, DeepLearningPhysics Collaboration"
+author = "DeepLearningPhysics Collaboration"
 
 # Get version from spine package
 try:
     from spine.version import __version__
+
     release = __version__
     version = __version__
 except ImportError:
-    release = '0.1.0'
-    version = '0.1.0'
+    release = "0.1.0"
+    version = "0.1.0"
 
 # -- General configuration ---------------------------------------------------
 
@@ -36,22 +38,22 @@ except ImportError:
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
 extensions = [
-    'sphinx.ext.autodoc',
-    'sphinx.ext.napoleon',
-    'sphinx.ext.viewcode',
-    'sphinx.ext.autosectionlabel',
-    'sphinx_rtd_theme',
-    'sphinx_copybutton',
-    'numpydoc',
+    "sphinx.ext.autodoc",
+    "sphinx.ext.napoleon",
+    "sphinx.ext.viewcode",
+    "sphinx.ext.autosectionlabel",
+    "sphinx_rtd_theme",
+    "sphinx_copybutton",
+    "numpydoc",
 ]
 
 # Add any paths that contain templates here, relative to this directory.
-templates_path = ['_templates']
+templates_path = ["_templates"]
 
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
 # This pattern also affects html_static_path and html_extra_path.
-exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
+exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 
 # Napoleon settings
 napoleon_google_docstring = True
@@ -60,18 +62,18 @@ napoleon_include_init_with_doc = False
 napoleon_include_private_with_doc = False
 
 autodoc_default_options = {
-    'members': True,
-    'member-order': 'bysource',
-    'special-members': True,
-    'undoc-members': True,
-    'exclude-members': '__weakref__',
+    "members": True,
+    "member-order": "bysource",
+    "special-members": True,
+    "undoc-members": True,
+    "exclude-members": "__weakref__",
 }
 
 # Mock imports for optional dependencies that may not be available during doc build
 autodoc_mock_imports = [
     "larcv",
     "torch",
-    "torch_geometric", 
+    "torch_geometric",
     "torch_scatter",
     "torch_cluster",
     "torch_sparse",
@@ -99,15 +101,15 @@ html_theme_options = {
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
-html_static_path = ['_static']
+html_static_path = ["_static"]
 
 # Napoleon custom sections
 napoleon_custom_sections = [
-    "Shapes", 
-    ("Configuration", "params_style"), 
-    ("Output", "params_style")
+    "Shapes",
+    ("Configuration", "params_style"),
+    ("Output", "params_style"),
 ]
 
 autosectionlabel_prefix_document = True
 
-master_doc = 'index'
+master_doc = "index"
