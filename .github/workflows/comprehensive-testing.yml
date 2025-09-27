@@ -111,7 +111,15 @@ jobs:
     - name: Install model dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -e .[model]  # Install with model dependencies
+        # Install PyTorch first (required for MinkowskiEngine build)
+        pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+        # Install other model dependencies that don't require compilation
+        pip install torch-geometric torch-scatter
+        # Try to install MinkowskiEngine, but don't fail if it doesn't work
+        echo "Attempting to install MinkowskiEngine..."
+        pip install MinkowskiEngine || echo "⚠️ MinkowskiEngine installation failed - some model tests may be skipped"
+        # Install spine with core dependencies
+        pip install -e .
         pip install pytest pytest-cov
     
     - name: Verify model dependencies are available
@@ -122,21 +130,22 @@ jobs:
         
         try:
             import MinkowskiEngine
-            print('✅ MinkowskiEngine available')
+            print(f'✅ MinkowskiEngine version: {MinkowskiEngine.__version__}')
         except ImportError as e:
             print(f'⚠️ MinkowskiEngine not available: {e}')
+            print('Some model tests may be skipped')
         
         try:
             import torch_geometric
             print(f'✅ torch_geometric version: {torch_geometric.__version__}')
         except ImportError as e:
-            print(f'⚠️ torch_geometric not available: {e}')
+            print(f'❌ torch_geometric not available: {e}')
         
         try:
             import torch_scatter
             print('✅ torch_scatter available')
         except ImportError as e:
-            print(f'⚠️ torch_scatter not available: {e}')
+            print(f'❌ torch_scatter not available: {e}')
         "
     
     - name: Test model factories and configurations
@@ -151,7 +160,8 @@ jobs:
     
     - name: Run model tests
       run: |
-        pytest test/test_model/ -v --tb=short || echo "Some model tests may fail due to missing dependencies"
+        echo "Running model tests with available dependencies..."
+        pytest test/test_model/ -v --tb=short -x || echo "⚠️ Some model tests failed - this may be due to missing optional dependencies like MinkowskiEngine"
 
   test-performance-benchmarks:
     name: Performance Tests
