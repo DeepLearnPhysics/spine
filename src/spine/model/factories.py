@@ -1,5 +1,3 @@
-
-
 def model_dict():
     """Returns dictionary of model classes using name keys (strings).
 
