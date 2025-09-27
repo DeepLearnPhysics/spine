@@ -180,12 +180,24 @@ jobs:
     - name: Run comprehensive test suite with coverage
       run: |
         echo "ℹ️ Running comprehensive tests excluding model tests (run separately with full deps)"
-        pytest test/ -v \
+        # Run specific test directories to avoid loading test_model/conftest.py
+        pytest \
+          test/test_conditional_imports.py \
+          test/test_driver_import.py \
+          test/test_loader.py \
+          test/test_ana/ \
+          test/test_construct/ \
+          test/test_data/ \
+          test/test_io/ \
+          test/test_math/ \
+          test/test_post/ \
+          test/test_utils/ \
+          test/test_vis/ \
+          -v \
           --cov=spine \
           --cov-report=html \
           --cov-report=xml \
           --cov-report=term \
-          --ignore=test/test_model \
           --maxfail=10
     
     - name: Upload coverage to Codecov
