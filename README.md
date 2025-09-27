@@ -118,7 +118,8 @@ git clone https://github.com/DeepLearnPhysics/spine.git
 cd spine
 
 # Install only the dependencies (not the package itself)
-pip install -r requirements.txt  # or pip install numpy scipy pandas pyyaml h5py numba
+# Or alternatively simple run the commands inside the above container
+pip install numpy scipy pandas pyyaml h5py numba psutil
 
 # Run directly from source
 python src/spine/bin/run.py --config config/train_uresnet.cfg --source /path/to/data.h5
