@@ -1,3 +1,8 @@
+.. image:: _static/img/spine-logo-dark.png
+   :alt: SPINE Logo
+   :width: 400px
+   :align: center
+
 SPINE Documentation
 ===================
 
