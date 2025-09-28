@@ -80,7 +80,7 @@ jobs:
         twine upload --repository testpypi dist/*
 
   publish-prod:
-    needs: [build, publish-test]
+    needs: build
     runs-on: ubuntu-latest
     if: github.event_name == 'release' && github.event.action == 'published'
 
