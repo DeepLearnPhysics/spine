@@ -98,6 +98,24 @@ class Stopwatch:
         self._time = Time(0.0, 0.0)
         self._total = Time(0.0, 0.0)
 
+    def reset(self):
+        """Reset the stopwatch to its initial state."""
+        self._start = Time()
+        self._stop = Time()
+        self._pause = Time()
+        self._time = Time(0.0, 0.0)
+        self._total = Time(0.0, 0.0)
+
+    @property
+    def running(self):
+        """Whether the stopwatch is currently running."""
+        return self._start is not None and self._stop is None
+
+    @property
+    def paused(self):
+        """Whether the stopwatch is currently paused."""
+        return self._pause is not None and self._stop is None
+
     @property
     def start(self):
         """Time when the stopwatch was last started."""
@@ -106,13 +124,13 @@ class Stopwatch:
     @start.setter
     def start(self, start):
         # Check that the watch was not already started
-        if self.start != None and self._stop == None:
+        if self.running:
             raise ValueError("Cannot restart a watch that has not been stopped.")
 
         # Start watch, reinitialize stop
         self._start = start
         self._stop = Time()
-        if self._pause == None:
+        if self._pause is None:
             self._time = Time(0.0, 0.0)
 
     @property
@@ -123,11 +141,11 @@ class Stopwatch:
     @stop.setter
     def stop(self, stop):
         # Check that the watch was started
-        if self._start == None:
+        if self._start is None:
             raise ValueError("Cannot stop a watch that has not been started.")
 
         # Check that the watch was not already stopped
-        if self._stop != None:
+        if self._stop is not None:
             raise ValueError("Cannot stop a watch more than once.")
 
         # Stop the watch, record the relevant quantities
@@ -144,11 +162,11 @@ class Stopwatch:
     @pause.setter
     def pause(self, pause):
         # Check that the watch was started
-        if self._start == None:
+        if self._start is None:
             raise ValueError("Cannot pause a watch that has not been started.")
 
         # Check that the watch was not already stopped
-        if self._stop != None:
+        if self._stop is not None:
             raise ValueError("Cannot pause a watch that has been stopped.")
 
         # Increment the time, reset the start
@@ -160,7 +178,7 @@ class Stopwatch:
     def time(self):
         """Time between the last start and the last stop."""
         # Check that the watch was stopped
-        if self._stop == None:
+        if self._stop is None:
             raise ValueError("Cannot get time of watch that has not been stopped.")
 
         return self._time
@@ -169,7 +187,7 @@ class Stopwatch:
     def time_sum(self):
         """Sum of times between all watch starts en stops."""
         # Check that the watch was stopped
-        if self._stop == None:
+        if self._stop is None:
             raise ValueError("Cannot get time of watch that has not been stopped.")
 
         return self._total
@@ -227,6 +245,25 @@ class StopwatchManager:
         for k in keys:
             # Initialize stopwatch
             self._watch[k] = Stopwatch()
+
+    def reset(self, key=None):
+        """Reset a stopwatch to its initial state.
+
+        Parameters
+        ----------
+        key : Union[str, List[str]], optional
+            Key or list of keys to reset a `Stopwatch` for. If None, reset all stopwatches.
+        """
+        # Loop over keys
+        keys = self.keys() if key is None else key
+        keys = [key] if isinstance(key, str) else key
+        for k in keys:
+            # Check that a stopwatch exists
+            if not k in self._watch:
+                raise KeyError(f"No stopwatch initialized under the name: {k}")
+
+            # Reset stopwatch
+            self._watch[k].reset()
 
     def start(self, key):
         """Starts a stopwatch for a unique key.

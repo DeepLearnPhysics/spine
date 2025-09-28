@@ -660,7 +660,12 @@ class Driver:
         Union[dict, List[dict]]
             Either one combined data dictionary, or one per entry in the batch
         """
-        # 0. Start the timer for the iteration
+        # 0. Make sure there is no watch running, start the iteration timer
+        for watch in self.watch.values():
+            if watch.running or watch.paused:
+                self.watch.reset()
+                break
+
         self.watch.start("iteration")
 
         # 1. Load data
