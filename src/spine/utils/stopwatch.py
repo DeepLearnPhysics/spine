@@ -98,14 +98,6 @@ class Stopwatch:
         self._time = Time(0.0, 0.0)
         self._total = Time(0.0, 0.0)
 
-    def reset(self):
-        """Reset the stopwatch to its initial state."""
-        self._start = Time()
-        self._stop = Time()
-        self._pause = Time()
-        self._time = Time(0.0, 0.0)
-        self._total = Time(0.0, 0.0)
-
     @property
     def running(self):
         """Whether the stopwatch is currently running."""
@@ -263,7 +255,7 @@ class StopwatchManager:
                 raise KeyError(f"No stopwatch initialized under the name: {k}")
 
             # Reset stopwatch
-            self._watch[k].reset()
+            self._watch[k] = Stopwatch()
 
     def start(self, key):
         """Starts a stopwatch for a unique key.
