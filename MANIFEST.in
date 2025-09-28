@@ -1,6 +1,5 @@
 include README.md
 include CONTRIBUTING.md
-include LICENSE
 recursive-include src *.py
 recursive-include src *.yaml *.yml *.cfg
 recursive-include config *.cfg

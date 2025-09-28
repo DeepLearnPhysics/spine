@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=70.0", "wheel"]
+requires = ["setuptools>=70.0", "wheel", "build>=0.8.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,6 +7,7 @@ name = "spine-ml"
 dynamic = ["version"]
 description = "SPINE: Scalable Particle Imaging with Neural Embeddings for 3D high energy physics data analysis"
 readme = "README.md"
+license = {text = "MIT"}
 authors = [
     {name = "DeepLearnPhysics Collaboration", email = "drielsma@stanford.edu"}
 ]

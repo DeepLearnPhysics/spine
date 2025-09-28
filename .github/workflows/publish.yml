@@ -44,7 +44,8 @@ jobs:
     - name: Build packages (Python 3.9 only)
       if: matrix.python-version == '3.9'
       run: |
-        python -m build
+        pip install build>=1.0.0
+        python -m build --wheel --sdist
 
     - name: Check packages
       if: matrix.python-version == '3.9'
@@ -75,8 +76,11 @@ jobs:
         TWINE_USERNAME: __token__
         TWINE_PASSWORD: ${{ secrets.TEST_PYPI_API_TOKEN }}
       run: |
-        pip install twine
-        twine upload --repository testpypi dist/*
+        pip install twine>=4.0.0
+        # Check package metadata before upload
+        twine check dist/*
+        # Try to upload with verbose output
+        twine upload --repository testpypi --verbose dist/*
 
   publish-prod:
     needs: [build, publish-test]
