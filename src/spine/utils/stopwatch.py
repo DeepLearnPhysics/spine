@@ -246,8 +246,10 @@ class StopwatchManager:
         key : Union[str, List[str]], optional
             Key or list of keys to reset a `Stopwatch` for. If None, reset all stopwatches.
         """
+        # Get the list of keys to reset. If not specified, reset all
+        key = self.keys() if key is None else key
+
         # Loop over keys
-        keys = self.keys() if key is None else key
         keys = [key] if isinstance(key, str) else key
         for k in keys:
             # Check that a stopwatch exists
