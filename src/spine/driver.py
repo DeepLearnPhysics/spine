@@ -25,15 +25,13 @@ from .construct import BuildManager
 from .io import reader_factory, writer_factory
 from .io.core.write.csv import CSVWriter
 from .math import seed as numba_seed
-
-# Import managers (ModelManager can be safely imported without PyTorch)
 from .model import ModelManager
 from .post import PostManager
 from .utils.conditional import TORCH_AVAILABLE
-
-# Import basic utilities
 from .utils.logger import logger
 from .utils.stopwatch import StopwatchManager
+from .utils.torch import runtime
+from .utils.torch.devices import set_visible_devices
 from .utils.unwrap import Unwrapper
 from .version import __version__
 
@@ -190,13 +188,8 @@ class Driver:
         verbosity = base.get("verbosity", "info")
         logger.setLevel(verbosity.upper())
 
-        # Set GPUs visible to CUDA (only if PyTorch available)
-        if TORCH_AVAILABLE:
-            from .utils.torch.devices import set_visible_devices
-
-            base["world_size"] = set_visible_devices(**base)
-        else:
-            base["world_size"] = 0
+        # Set GPUs visible to CUDA (function handles torch availability)
+        base["world_size"] = set_visible_devices(**base)
 
         # If the seed is not set for the sampler, randomize it. This is done
         # here to keep a record of the seeds provided to the samplers
@@ -320,10 +313,7 @@ class Driver:
         # Set up the seed
         np.random.seed(seed)
         numba_seed(seed)
-        if TORCH_AVAILABLE:
-            from .utils.torch import runtime
-
-            runtime.manual_seed(seed)
+        runtime.manual_seed(seed)
 
         # Set up the device the model will run on
         if rank is None and world_size > 0:
@@ -845,13 +835,10 @@ class Driver:
         log_dict["cpu_mem"] = psutil.virtual_memory().used / 1.0e9
         log_dict["cpu_mem_perc"] = psutil.virtual_memory().percent
         log_dict["gpu_mem"], log_dict["gpu_mem_perc"] = 0.0, 0.0
-        if TORCH_AVAILABLE:
-            from .utils.torch import runtime
-
-            if runtime.cuda_is_available():
-                gpu_total = runtime.cuda_mem_info()[-1] / 1.0e9
-                log_dict["gpu_mem"] = runtime.cuda_max_memory_allocated() / 1.0e9
-                log_dict["gpu_mem_perc"] = 100 * log_dict["gpu_mem"] / gpu_total
+        if runtime.cuda_is_available():
+            gpu_total = runtime.cuda_mem_info()[-1] / 1.0e9
+            log_dict["gpu_mem"] = runtime.cuda_max_memory_allocated() / 1.0e9
+            log_dict["gpu_mem_perc"] = 100 * log_dict["gpu_mem"] / gpu_total
 
         # Fetch the times
         suff = "_time"
@@ -866,11 +853,8 @@ class Driver:
         for key in data:
             if np.isscalar(data[key]):
                 log_dict[key] = data[key]
-            elif TORCH_AVAILABLE:
-                from .utils.torch import runtime
-
-                if runtime.is_tensor(data[key]) and data[key].dim() == 0:
-                    log_dict[key] = data[key].item()
+            elif runtime.is_tensor(data[key]) and data[key].dim() == 0:
+                log_dict[key] = data[key].item()
 
         # Record
         self.logger.append(log_dict)
@@ -898,10 +882,7 @@ class Driver:
                 msg += separator + "|"
                 logger.info(msg)
             if self.distributed:
-                if TORCH_AVAILABLE:
-                    from .utils.torch import runtime
-
-                    runtime.distributed_barrier()
+                runtime.distributed_barrier()
 
             # Dump information pertaining to a specific process
             t_iter = self.watch.time("iteration").wall
@@ -934,9 +915,6 @@ class Driver:
 
             # Start new line once only
             if self.distributed:
-                if TORCH_AVAILABLE:
-                    from .utils.torch import runtime
-
-                    runtime.distributed_barrier()
+                runtime.distributed_barrier()
             if self.main_process:
                 logger.info("")
