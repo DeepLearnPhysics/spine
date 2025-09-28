@@ -179,7 +179,7 @@ class GeoDrawer:
                 "element positions/dimensions to pixel coordinates."
             )
             positions = meta.to_px(positions)
-            half_dimensions = meta.to_px(half_dimensions)
+            half_dimensions = half_dimensions / meta.size
 
         # Check that the colors provided fix the appropriate range
         if color is not None and not np.isscalar(color):
