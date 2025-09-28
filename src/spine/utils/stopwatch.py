@@ -101,12 +101,12 @@ class Stopwatch:
     @property
     def running(self):
         """Whether the stopwatch is currently running."""
-        return self._start is not None and self._stop is None
+        return self._start != Time() and self._stop == Time()
 
     @property
     def paused(self):
         """Whether the stopwatch is currently paused."""
-        return self._pause is not None and self._stop is None
+        return self._pause != Time() and self._stop == Time()
 
     @property
     def start(self):
@@ -122,7 +122,7 @@ class Stopwatch:
         # Start watch, reinitialize stop
         self._start = start
         self._stop = Time()
-        if self._pause is None:
+        if self._pause == Time():
             self._time = Time(0.0, 0.0)
 
     @property
@@ -133,11 +133,11 @@ class Stopwatch:
     @stop.setter
     def stop(self, stop):
         # Check that the watch was started
-        if self._start is None:
+        if self._start == Time():
             raise ValueError("Cannot stop a watch that has not been started.")
 
         # Check that the watch was not already stopped
-        if self._stop is not None:
+        if self._stop != Time():
             raise ValueError("Cannot stop a watch more than once.")
 
         # Stop the watch, record the relevant quantities
@@ -154,11 +154,11 @@ class Stopwatch:
     @pause.setter
     def pause(self, pause):
         # Check that the watch was started
-        if self._start is None:
+        if self._start == Time():
             raise ValueError("Cannot pause a watch that has not been started.")
 
         # Check that the watch was not already stopped
-        if self._stop is not None:
+        if self._stop != Time():
             raise ValueError("Cannot pause a watch that has been stopped.")
 
         # Increment the time, reset the start
@@ -170,7 +170,7 @@ class Stopwatch:
     def time(self):
         """Time between the last start and the last stop."""
         # Check that the watch was stopped
-        if self._stop is None:
+        if self._stop == Time():
             raise ValueError("Cannot get time of watch that has not been stopped.")
 
         return self._time
@@ -179,7 +179,7 @@ class Stopwatch:
     def time_sum(self):
         """Sum of times between all watch starts en stops."""
         # Check that the watch was stopped
-        if self._stop is None:
+        if self._stop == Time():
             raise ValueError("Cannot get time of watch that has not been stopped.")
 
         return self._total
