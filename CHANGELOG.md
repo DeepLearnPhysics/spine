@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.3] - 2025-09-30
+
+### Changed
+- **CLI improvements**: `-s/--source` and `-S/--source-list` are now mutually exclusive arguments.
+- **Input validation**: CLI now checks that `source` is not only not None, but also not an empty list before overriding file keys.
+
+### Fixed
+- **Robust file key handling**: Prevents empty input lists from being used in configuration.
+
+### Other
+- **Pre-commit checks**: All code changes pass pre-commit hooks.
+- **Version bump**: Updated to v0.7.3 for release.
+
 ## [0.7.2] - 2025-09-30
 
 ### Changed
@@ -20,13 +33,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.7.1] - 2025-09-27
 
-### Fixed
-- **Stopwatch timing inconsistencies**: Added validation in Driver.process() to prevent timing conflicts
-- **"Cannot stop a watch more than once" errors**: Fixed Time object comparisons using value checks instead of identity
-- **Iteration errors in StopwatchManager**: Fixed parameter handling in reset() method
-- **Dimension scaling in visualization**: Corrected pixel coordinate conversion in vis/geo.py
-
-### Changed
 - **Driver import optimization**: Moved torch utilities to top-level imports for cleaner code structure
 - **Eliminated conditional imports**: Reduced code complexity by removing scattered conditional imports
 
