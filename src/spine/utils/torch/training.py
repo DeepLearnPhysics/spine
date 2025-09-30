@@ -8,6 +8,17 @@ for custom optimizers like AdaBound.
 from ..conditional import TORCH_AVAILABLE, torch
 from ..factory import instantiate, module_dict
 
+# Conditionally import AdaBound optimizers
+AdaBound = None
+AdaBoundW = None
+_ADABOUND_AVAILABLE = False
+try:
+    from .adabound import AdaBound, AdaBoundW
+
+    _ADABOUND_AVAILABLE = True
+except ImportError:
+    pass
+
 __all__ = ["optim_dict", "optim_factory", "lr_sched_factory"]
 
 
@@ -23,7 +34,7 @@ def optim_dict():
     optimizers = {}
 
     # Add AdaBound optimizers if available
-    if _ADABOUND_AVAILABLE:
+    if _ADABOUND_AVAILABLE and AdaBound is not None and AdaBoundW is not None:
         optimizers["AdaBound"] = AdaBound
         optimizers["AdaBoundW"] = AdaBoundW
 
