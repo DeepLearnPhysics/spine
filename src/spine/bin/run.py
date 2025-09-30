@@ -76,7 +76,7 @@ def main(
     assert "io" in cfg, "Must provide an `io` block in the configuration."
 
     # Override the input/output command-line information into the configuration
-    if source is not None or source_list is not None:
+    if (source is not None and len(source) > 0) or source_list is not None:
         if "reader" in cfg["io"]:
             cfg["io"]["reader"]["file_keys"] = source or source_list
         elif "loader" in cfg["io"]:
