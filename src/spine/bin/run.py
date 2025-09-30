@@ -161,10 +161,11 @@ For ML training/inference functionality, ensure PyTorch is installed:
         help="Show system and dependency information",
     )
 
-    # Add main run functionality (requires torch)
+    # Add config file argument (-c/--config only)
     parser.add_argument(
-        "config",
-        nargs="?",
+        "-c",
+        "--config",
+        required=True,
         help="Path to the configuration file (requires torch dependencies)",
     )
 
@@ -217,14 +218,11 @@ For ML training/inference functionality, ensure PyTorch is installed:
         show_info()
         return
 
-    # If no config file provided, show help
-    if not args.config:
-        parser.print_help()
-        return
+    config_file = args.config
 
     # For actual training/inference, call the main function
     main(
-        config=args.config,
+        config=config_file,
         source=args.source or [],
         source_list=args.source_list,
         output=args.output,
