@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.2] - 2025-09-30
+
+### Changed
+- **CLI config argument**: The CLI now requires `-c/--config` to specify the configuration file (no more positional config argument).
+- **CLI help and validation**: Improved help text and argument validation for configuration files.
+
+### Fixed
+- **Stopwatch/timing logic**: Improved equality checks and state handling in `Stopwatch` and `Time` classes to prevent timing errors and double-stop issues.
+
+### Other
+- **Code formatting**: Codebase fully formatted and linted (pre-commit checks enforced).
+- **Version bump**: Updated to v0.7.2 for release.
+
 ## [0.7.1] - 2025-09-27
 
 ### Fixed
