@@ -169,12 +169,12 @@ For ML training/inference functionality, ensure PyTorch is installed:
         help="Path to the configuration file (requires torch dependencies)",
     )
 
-    parser.add_argument(
-        "-s", "--source", nargs="*", help="List of paths to the input files"
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument(
+        "-s", "--source", nargs="+", type=str, help="List of paths to the input files"
     )
-
-    parser.add_argument(
-        "-sl",
+    group.add_argument(
+        "-S",
         "--source-list",
         help="Path to a text file containing a list of data file paths",
     )
