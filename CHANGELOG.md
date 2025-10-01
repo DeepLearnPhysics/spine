@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.7.4] - 2025-10-01
+
+### Changed
+- **Cluster feature extraction:** Improved memory handling and LAPACK buffer allocation in geometric feature routines.
+- **Manual edits:** Updated and refactored `cluster.py` for stability and performance.
+
+### Fixed
+- **LAPACK/Numba errors:** Addressed buffer allocation and parallelization issues in cluster feature extraction.
+
+### Other
+- **Pre-commit checks:** All code changes pass pre-commit hooks.
+- **Version bump:** Updated to v0.7.4 for release.
+
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
