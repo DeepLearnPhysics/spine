@@ -4,23 +4,19 @@ A cluster is typically represented as a list of row indexes pointing at the
 voxels that up the cluster out of a tensor of pixels.
 """
 
-from typing import List
-
 import numba as nb
 import numpy as np
 
 import spine.math as sm
 from spine.data import IndexBatch, TensorBatch
-from spine.utils.conditional import TORCH_AVAILABLE, torch
+from spine.utils.conditional import torch
 from spine.utils.globals import (
-    BATCH_COL,
     CLUST_COL,
     COORD_COLS,
     COORD_END_COLS,
     COORD_START_COLS,
     COORD_TIME_COL,
     GROUP_COL,
-    MOM_COL,
     PART_COL,
     SHAPE_COL,
     VALUE_COL,
@@ -858,7 +854,9 @@ def _get_cluster_features_base(
         # Get eigenvectors, normalize orientation matrix and eigenvalues to
         # largest. If points are superimposed, i.e. if the largest eigenvalue
         # != 0, no need to keep going
-        w, v = np.linalg.eigh(A)
+        # TODO: get rid of casting, this is complex LAPACK issue currently
+        w, v = np.linalg.eigh(A.astype(np.float64))
+        w, v = w.astype(x.dtype), v.astype(x.dtype)
         if w[2] == 0.0:
             feats[k] = np.concatenate((center, np.zeros(12), np.array([len(clust)])))
             continue
@@ -1070,7 +1068,7 @@ def _get_cluster_directions(
     ids = np.arange(len(clusts)).astype(np.int64)
     for k in nb.prange(len(clusts)):
         dirs[k] = cluster_direction(
-            voxels[clusts[ids[k]]], starts[k].astype(np.float64), max_dist, optimize
+            voxels[clusts[ids[k]]], starts[k], max_dist, optimize
         )
 
     return dirs
@@ -1136,7 +1134,8 @@ def cluster_direction(
         covk = (np.transpose(voxels[:3] - meank) @ (voxels[:3] - meank)) / 3
         for i in range(2, len(voxels)):
             # Get the eigenvalues, compute relative transverse spread
-            w, _ = np.linalg.eigh(covk)
+            # TODO: get rid of casting, this is complex LAPACK issue currently
+            w = np.linalg.eigvalsh(covk.astype(np.float64)).astype(voxels.dtype)
             labels[i] = (
                 np.sqrt(w[2] / (w[0] + w[1])) if (w[0] + w[1]) / w[2] > 1e-6 else 0.0
             )
