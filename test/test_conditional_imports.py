@@ -182,7 +182,7 @@ class TestMainEntryPoints:
 
     def test_cli_import_and_version(self):
         """Test CLI imports and version detection works."""
-        from spine.bin.run import check_dependencies, get_version, main
+        from spine.bin.cli import check_dependencies, get_version, main
 
         assert callable(main)
 
@@ -300,7 +300,7 @@ class TestIntegrationWithoutDependencies:
         """Test complete import chain works without optional dependencies."""
         # This mimics a real user importing spine for the first time
         import spine
-        from spine.bin.run import main as cli_main
+        from spine.bin.cli import main as cli_main
         from spine.driver import Driver
         from spine.main import run
 
