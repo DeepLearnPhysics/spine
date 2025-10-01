@@ -53,8 +53,8 @@ jobs:
 
     - name: Test CLI functionality
       run: |
-        python -m spine.bin.run --version
-        python -c "from spine.bin.run import check_dependencies; deps = check_dependencies(); print('Dependencies:', deps)"
+        python -m spine.bin.cli --version
+        python -c "from spine.bin.cli import check_dependencies; deps = check_dependencies(); print('Dependencies:', deps)"
 
   test-with-torch:
     name: Test with PyTorch Available
@@ -239,14 +239,14 @@ jobs:
 
         from spine.driver import Driver
         from spine.main import run
-        from spine.bin.run import main
+        from spine.bin.cli import main
 
         print('✅ All critical components importable')
         "
 
     - name: Test CLI works
       run: |
-        python -m spine.bin.run --version || echo "CLI version check completed"
+        python -m spine.bin.cli --version || echo "CLI version check completed"
 
   integration-tests:
     name: Integration Tests
