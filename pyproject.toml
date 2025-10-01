@@ -84,7 +84,7 @@ core = [
 ]
 
 [project.scripts]
-spine = "spine.bin.run:cli"
+spine = "spine.bin.cli:cli"
 
 [tool.setuptools.dynamic]
 version = {attr = "spine.version.__version__"}
