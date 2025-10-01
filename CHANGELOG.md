@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.7.5] - 2025-10-01
+
+### Changed
+- Reorganized binary scripts: moved non-package scripts to top-level `bin/`, added `bin/run.py` for CLI convenience.
+- Renamed CLI entry point from `run.py` to `cli.py` in `src/spine/bin/`.
+- Updated `pyproject.toml` to reference new CLI entry point.
+ 
+### Fixed
+- Switched to `spine.bin.cli` import for tests and user code.
+- Pre-commit hooks and code formatting issues resolved.
+
+### Other
+- General codebase cleanup and documentation improvements.
+
 ## [0.7.4] - 2025-10-01
 
 ### Changed
