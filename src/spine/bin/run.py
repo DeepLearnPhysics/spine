@@ -118,7 +118,7 @@ def main(
         cfg["model"]["weight_path"] = weight_path
 
     # Turn on PyTorch anomaly detection, if requested
-    if detect_anomaly is not None:
+    if detect_anomaly:
         assert (
             "model" in cfg
         ), "There is no model to detect anomalies for, add `model` block."
