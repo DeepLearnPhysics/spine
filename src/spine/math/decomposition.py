@@ -87,7 +87,9 @@ def principal_components(x: nb.float32[:, :]) -> nb.float32[:, :]:
     A = np.cov(x.T, ddof=len(x) - 1).astype(x.dtype)  # Casting needed...
 
     # Get eigenvectors
-    _, v = np.linalg.eigh(A)
+    # TODO: get rid of casting, this is a complex LAPACK issue currently
+    _, v = np.linalg.eigh(A.astype(np.float64))
+    v = v.astype(x.dtype)
     v = np.ascontiguousarray(np.fliplr(v).T)
 
     return v
