@@ -854,7 +854,7 @@ def _get_cluster_features_base(
         # Get eigenvectors, normalize orientation matrix and eigenvalues to
         # largest. If points are superimposed, i.e. if the largest eigenvalue
         # != 0, no need to keep going
-        # TODO: get rid of casting, this is complex LAPACK issue currently
+        # TODO: get rid of casting, this is a complex LAPACK issue currently
         w, v = np.linalg.eigh(A.astype(np.float64))
         w, v = w.astype(x.dtype), v.astype(x.dtype)
         if w[2] == 0.0:

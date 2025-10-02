@@ -90,7 +90,9 @@ def _get_voxel_features(data: nb.float32[:, :], max_dist=5.0):
         # Get eigenvectors, normalize orientation matrix and eigenvalues to
         # largest. If points are superimposed, i.e. if the largest eigenvalue
         # != 0, no need to keep going
-        w, v = np.linalg.eigh(A)
+        # TODO: get rid of casting, this is a complex LAPACK issue currently
+        w, v = np.linalg.eigh(A.astype(np.float64))
+        w, v = w.astype(x.dtype), v.astype(x.dtype)
         if w[2] == 0.0:
             feats[k] = np.concatenate((center, np.zeros(12), np.array([len(clust)])))
             continue

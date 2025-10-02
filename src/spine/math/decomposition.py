@@ -59,7 +59,9 @@ class PCA:
         A = np.cov(x.T, ddof=len(x) - 1).astype(x.dtype)
 
         # Eigen-decompose the covariance matrix
-        w, v = np.linalg.eigh(A)
+        # TODO: get rid of casting, this is a complex LAPACK issue currently
+        w, v = np.linalg.eigh(A.astype(np.float64))
+        w, v = w.astype(x.dtype), v.astype(x.dtype)
         w, v = np.flip(w), np.ascontiguousarray(np.fliplr(v).T)
 
         # Store output
