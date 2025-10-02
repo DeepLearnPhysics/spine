@@ -73,10 +73,10 @@ def csda_table_spline(particle_type, value="T", table_dir="csda_tables"):
     # Fetch the table and fit a spline
     pid = name_mapping[particle_type]
     file_name = os.path.join(path, table_dir, f"{pid}{suffix}")
-    if os.path.isfile(f"{file_name}.txt"):
-        path = f"{file_name}.txt"
+    if os.path.isfile(f"{file_name}.table"):
+        path = f"{file_name}.table"
     else:
-        path = f"{file_name}_bethe.txt"
+        path = f"{file_name}_bethe.table"
 
     tab = pd.read_csv(path, delimiter=" ", index_col=False)
     f = CubicSpline(tab["CSDARange"] / LAR_DENSITY, tab[value] * factor)
