@@ -272,7 +272,9 @@ def get_pseudovertex(
             np.outer(d, d) - np.eye(dim, dtype=start_points.dtype)
         ) @ np.ascontiguousarray(p)
 
-    pseudovtx = np.linalg.pinv(S) @ C
+    # TODO remove casting to float64 when the crash goes away
+    # TODO check for singular matrix or go back to pinv when fixed
+    pseudovtx = np.linalg.inv(S.astype(np.float64)).astype(start_points.dtype) @ C
 
     return pseudovtx
 
@@ -313,6 +315,8 @@ def get_weighted_pseudovertex(
             @ np.ascontiguousarray(p)
         )
 
-    pseudovtx = np.linalg.pinv(S) @ C
+    # TODO remove casting to float64 when the crash goes away
+    # TODO check for singular matrix or go back to pinv when fixed
+    pseudovtx = np.linalg.inv(S.astype(np.float64)).astype(start_points.dtype) @ C
 
     return pseudovtx
