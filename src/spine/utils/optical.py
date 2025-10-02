@@ -53,7 +53,7 @@ class FlashMerger:
         """
         # If there is less than two flashes, nothing to do
         if len(flashes) < 2:
-            return flashes, np.arange(len(flashes))
+            return flashes, np.arange(len(flashes))[:, None]
 
         # Dispatch
         if not self.combine_volumes:
