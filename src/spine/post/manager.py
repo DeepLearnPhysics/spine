@@ -91,7 +91,8 @@ class PostManager:
                 for key, val in result.items():
                     if not single_entry:
                         assert len(val) == num_entries, (
-                            f"The number {key} ({len(val)}) does not match "
-                            f"the number of entries ({num_entries})."
+                            f"The number of {key} ({len(val)}) returned by the {key} "
+                            "post-processor does not match the number of entries "
+                            f"({num_entries}) in the batch."
                         )
                     data[key] = val

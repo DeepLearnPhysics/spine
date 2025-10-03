@@ -132,6 +132,8 @@ class CathodeCrosserProcessor(PostBase):
             inter_key = part_key.replace("particle", "interaction")
             particles, interactions = data[part_key], data[inter_key]
             if len(particles) == 0:
+                update_dict.update({part_key: particles})
+                update_dict.update({inter_key: interactions})
                 continue
 
             # Tag particles which live across multiple TPCs as crossers
