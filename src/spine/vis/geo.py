@@ -240,9 +240,6 @@ class GeoDrawer:
                 col = col[index]
                 ht = [ht[i] for i in index]
 
-            # Determine wheter to show legends or not
-            showlegend = not shared_legend or i == 0
-
             # Dispatch the drawing based on the type of optical detector
             hd = half_dimensions[i]
             if shape == "box":
@@ -261,7 +258,6 @@ class GeoDrawer:
                     draw_faces=True,
                     hovertext=ht,
                     legendgroup=legendgroup,
-                    showlegend=showlegend,
                     **kwargs,
                 )
 
@@ -280,7 +276,6 @@ class GeoDrawer:
                     cmax=cmax,
                     hovertext=ht,
                     legendgroup=legendgroup,
-                    showlegend=showlegend,
                     **kwargs,
                 )
 
