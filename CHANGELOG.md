@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.7.6] - 2025-10-03
+
+### Changed
+- Improved eigen-decomposition handling in cluster feature extraction (fixed `.astype` usage).
+- Clarified Plotly legend behavior and usage in visualization modules.
+- Manual edits to cluster and visualization code for stability and clarity.
+
+### Fixed
+- Addressed errors related to `EighResult` and legend handling in Plotly.
+
+### Other
+- General codebase maintenance and documentation updates.
+
 ## [0.7.5] - 2025-10-01
 
 ### Changed
