@@ -4,7 +4,7 @@
 
 [![PyPI version](https://badge.fury.io/py/spine-ml.svg)](https://badge.fury.io/py/spine-ml)
 [![Python version](https://img.shields.io/pypi/pyversions/spine-ml.svg)](https://pypi.org/project/spine-ml/)
-[![Documentation Status](https://readthedocs.org/projects/spine-ml/badge/?version=latest)](https://spine-ml.readthedocs.io/en/latest/?badge=latest)
+[![Documentation Status](https://readthedocs.org/projects/spine/badge/?version=latest)](https://spine.readthedocs.io/en/latest/?badge=latest)
 
 The Scalable Particle Imaging with Neural Embeddings (SPINE) package leverages state-of-the-art Machine Learning (ML) algorithms -- in particular Deep Neural Networks (DNNs) -- to reconstruct particle imaging detector data. This package was primarily developed for Liquid Argon Time-Projection Chamber (LArTPC) data and relies on Convolutional Neural Networks (CNNs) for pixel-level feature extraction and Graph Neural Networks (GNNs) for superstructure formation. The schematic below breaks down the full end-to-end reconstruction flow.
 
@@ -178,7 +178,7 @@ driver = Driver(cfg)
 driver.run()
 ```
 
-* Documentation is available at https://spine-ml.readthedocs.io/.
+* Documentation is available at https://spine.readthedocs.io/.
 * Tutorials and examples can be found in the documentation.
 
 ### Example Configuration Files
@@ -248,7 +248,7 @@ print(df.columns.values)
 ```
 
 ### Recording network output or running analysis
-Documentation for analysis tools and output formatting is available in the main documentation at https://spine-ml.readthedocs.io/.
+Documentation for analysis tools and output formatting is available in the main documentation at https://spine.readthedocs.io/.
 
 ## Repository Structure
 * `bin` contains utility scripts for data processing

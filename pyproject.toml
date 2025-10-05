@@ -44,7 +44,7 @@ dependencies = [
 [project.urls]
 Homepage = "https://github.com/DeepLearnPhysics/spine"
 Repository = "https://github.com/DeepLearnPhysics/spine.git"
-Documentation = "https://spine-ml.readthedocs.io/"
+Documentation = "https://spine.readthedocs.io/"
 "Bug Tracker" = "https://github.com/DeepLearnPhysics/spine/issues"
 
 [project.optional-dependencies]
