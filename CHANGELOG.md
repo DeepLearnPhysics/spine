@@ -13,6 +13,19 @@
 ### Other
 - General codebase maintenance and documentation updates.
 
+
+## [0.7.7] - 2025-10-13
+
+### Changed
+- Small API clarifications in `post.manager`
+- Updated the ReadTheDocs path to match the new spine.readthedocs.io URL
+
+### Fixed
+- Fixed an issue with the cathode crosser post-processor which did not return anything when there are no particles
+
+### Other
+- Version bump and release housekeeping.
+
 ## [0.7.5] - 2025-10-01
 
 ### Changed
