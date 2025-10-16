@@ -370,6 +370,8 @@ class Driver:
 
         # Initialize the data loader/reader
         self.loader = None
+        self.loader_iter = None
+        self.counter = None
         self.unwrapper = None
         if loader is not None:
             # Initialize the torch data loader - requires PyTorch
@@ -391,7 +393,6 @@ class Driver:
                 distributed=self.distributed,
             )
 
-            self.loader_iter = None
             self.iter_per_epoch = len(self.loader)
             self.reader = self.loader.dataset.reader
 
@@ -570,7 +571,6 @@ class Driver:
         # If a loader is used, reinitialize it. Otherwise set an entry counter
         if self.loader is not None:
             self.loader_iter = iter(self.loader)
-            self.counter = None
         else:
             self.counter = 0
 
@@ -585,14 +585,17 @@ class Driver:
             Either one combined data dictionary, or one per entry in the batch
         """
         # If there are more iterations to go through, return data
-        if self.counter < len(self):
-            data = self.process(self.counter)
-            if self.counter is not None:
+        if self.loader is not None:
+            return self.process()
+        else:
+            self.counter = 0 if self.counter is None else self.counter
+            if self.counter < len(self):
+                data = self.process(self.counter)
                 self.counter += 1
 
-            return data
+                return data
 
-        raise StopIteration
+            raise StopIteration
 
     def run(self):
         """Loop over the requested number of iterations, process them."""
