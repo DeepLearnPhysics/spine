@@ -168,9 +168,9 @@ class Driver:
         build : dict, optional
             Representation building configuration dictionary
         post : dict, optional
-            Post-processor configutation dictionary
+            Post-processor configuration dictionary
         ana : dict, optional
-            Analysis script configurationdictionary
+            Analysis script configuration dictionary
         rank : int, optional
             Rank of the GPU. The model will be run on CPU if `world_size` is not
             specified or 0 and on GPU is `world_size` is > 0.
@@ -226,7 +226,7 @@ class Driver:
         # Log information for the main process only
         if rank is None or rank < 1:
             # Log package logo
-            logger.info(f"\n%s", ascii_logo)
+            logger.info("\n%s", ascii_logo)
 
             # Log environment information
             logger.info("Release version: %s\n", __version__)
@@ -848,9 +848,9 @@ class Driver:
         # Fetch the times
         suff = "_time"
         for key, watch in self.watch.items():
-            time, time_sum = watch.time, watch.time_sum
-            log_dict[f"{key}{suff}"] = time.wall
-            log_dict[f"{key}{suff}_cpu"] = time.cpu
+            time_iter, time_sum = watch.time, watch.time_sum
+            log_dict[f"{key}{suff}"] = time_iter.wall
+            log_dict[f"{key}{suff}_cpu"] = time_iter.cpu
             log_dict[f"{key}{suff}_sum"] = time_sum.wall
             log_dict[f"{key}{suff}_sum_cpu"] = time_sum.cpu
 

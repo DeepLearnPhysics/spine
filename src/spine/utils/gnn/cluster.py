@@ -24,9 +24,7 @@ from spine.utils.globals import (
 from spine.utils.jit import numbafy
 
 
-def form_clusters_batch(
-    data, min_size=-1, column=CLUST_COL, shapes=None, batch_size=None
-):
+def form_clusters_batch(data, min_size=-1, column=CLUST_COL, shapes=None):
     """Batched version of :func:`form_clusters`.
 
     Parameters
@@ -53,8 +51,8 @@ def form_clusters_batch(
         clusts_b, counts_b = form_clusters(data_b, min_size, column, shapes)
 
         # Offset the cluster indexes appropriately
-        for i in range(len(clusts_b)):
-            clusts_b[i] += offsets[-1]
+        for i, clust in enumerate(clusts_b):
+            clusts_b[i] = clust + offsets[-1]
 
         # Append
         clusts.extend(clusts_b)
@@ -206,7 +204,7 @@ def get_cluster_points_label_batch(data, coord_label, clusts, random_order=True)
     return TensorBatch(points, clusts.counts, coord_cols=points.shape[1])
 
 
-def get_cluster_directions_batch(data, starts, clusts, max_dist=-1, optimize=False):
+def get_cluster_directions_batch(data, starts, clusts, max_dist=-1.0, optimize=False):
     """Batched version of :func:`get_cluster_directions`.
 
     Parameters
@@ -217,7 +215,7 @@ def get_cluster_directions_batch(data, starts, clusts, max_dist=-1, optimize=Fal
         (C, 3) Start points w.r.t. which to estimate the direction
     clusts : IndexBatch
         (C) List of cluster indexes
-    max_dist : float, default -1
+    max_dist : float, default -1.0
         Neighborhood radius around the point used to estimate the direction
     optimize : bool, default False
         If `True`, the neighborhood radius is optimized on the fly for
@@ -228,12 +226,14 @@ def get_cluster_directions_batch(data, starts, clusts, max_dist=-1, optimize=Fal
     TensorBatch
         (C, 3) List of cluster directions
     """
-    dirs = get_cluster_directions(data.tensor, starts.tensor, clusts.index_list)
+    dirs = get_cluster_directions(
+        data.tensor, starts.tensor, clusts.index_list, max_dist, optimize
+    )
 
     return TensorBatch(dirs, clusts.counts)
 
 
-def get_cluster_dedxs_batch(data, starts, clusts, max_dist=-1):
+def get_cluster_dedxs_batch(data, starts, clusts, max_dist=-1.0):
     """Batched version of :func:`get_cluster_dedxs`.
 
     Parameters
@@ -244,7 +244,7 @@ def get_cluster_dedxs_batch(data, starts, clusts, max_dist=-1):
         (C, 3) Start points w.r.t. which to estimate the direction
     clusts : IndexBatch
         (C) List of cluster indexes
-    max_dist : float, default -1
+    max_dist : float, default -1.0
         Neighborhood radius around the point used t compute the dE/dx
 
     Returns
@@ -252,7 +252,7 @@ def get_cluster_dedxs_batch(data, starts, clusts, max_dist=-1):
     TensorBatch
         (C) List of cluster dE/dx value close to the start points
     """
-    dedxs = get_cluster_dedxs(data.tensor, starts.tensor, clusts.index_list)
+    dedxs = get_cluster_dedxs(data.tensor, starts.tensor, clusts.index_list, max_dist)
 
     return TensorBatch(dedxs, clusts.counts)
 
@@ -268,7 +268,7 @@ def get_cluster_features_batch(data, clusts, add_value=False, add_shape=False):
         (C, 3) Start points w.r.t. which to estimate the direction
     clusts : IndexBatch
         (C) List of cluster indexes
-    max_dist : float, default -1
+    max_dist : float, default -1.0
         Neighborhood radius around the point used t compute the dE/dx
 
     Returns
@@ -313,6 +313,7 @@ def form_clusters(data, min_size=-1, column=CLUST_COL, shapes=None):
 
 def _form_clusters_torch(data, min_size, column, shapes):
     # If requested, restrict data to a specific set of semantic classes
+    shape_index = None
     if shapes is not None:
         shapes = torch.as_tensor(shapes, dtype=data.dtype, device=data.device)
         shape_index = torch.where(torch.any(data[:, SHAPE_COL] == shapes[:, None], 0))[
@@ -324,7 +325,7 @@ def _form_clusters_torch(data, min_size, column, shapes):
     clust_ids = data[:, column]
     uniques, counts = torch.unique(clust_ids, return_counts=True)
     full_index = torch.argsort(clust_ids, stable=True)
-    if shapes is not None:
+    if shape_index is not None:
         full_index = shape_index[full_index]
 
     # Build valid index
@@ -346,6 +347,7 @@ def _form_clusters_torch(data, min_size, column, shapes):
 
 def _form_clusters_np(data, min_size, column, shapes):
     # If requested, restrict data to a specific set of semantic classes
+    shape_index = None
     if shapes is not None:
         shapes = np.array(shapes, dtype=data.dtype)
         shape_index = np.where(np.any(data[:, SHAPE_COL] == shapes[:, None], 0))[0]
@@ -355,7 +357,7 @@ def _form_clusters_np(data, min_size, column, shapes):
     clust_ids = data[:, column]
     uniques, counts = np.unique(clust_ids, return_counts=True)
     full_index = np.argsort(clust_ids, stable=True)
-    if shapes is not None:
+    if shape_index is not None:
         full_index = shape_index[full_index]
 
     # Build valid index
@@ -394,7 +396,7 @@ def break_clusters(data, clusts, eps, metric_id, p):
     np.ndarray
         New array of broken cluster labels
     """
-    if not len(clusts):
+    if len(clusts) == 0:
         return np.copy(data[:, CLUST_COL])
 
     # Break labels
@@ -403,7 +405,7 @@ def break_clusters(data, clusts, eps, metric_id, p):
     # Offset individual broken labels to prevent overlap
     labels = np.copy(data[:, CLUST_COL])
     offset = np.max(labels) + 1
-    for k, clust in enumerate(clusts):
+    for clust in clusts:
         # Update IDs, offset
         ids = break_labels[clust]
         labels[clust] = offset + ids
@@ -456,7 +458,7 @@ def get_cluster_label(data, clusts, column=CLUST_COL):
     np.ndarray
         (C) List of individual cluster labels
     """
-    if not len(clusts):
+    if len(clusts) == 0:
         return np.empty(0, dtype=data.dtype)
 
     return _get_cluster_label(data, clusts, column)
@@ -500,7 +502,7 @@ def get_cluster_closest_label(data, coord_label, clusts, labels, default):
     np.ndarray
         (C) List of cluster labels
     """
-    if not len(clusts):
+    if len(clusts) == 0:
         return np.empty(0, dtype=data.dtype)
 
     return _get_cluster_closest_label(data, coord_label, clusts, labels, default)
@@ -569,7 +571,7 @@ def get_cluster_primary_label(data, clusts, column):
     np.ndarray
         (C) List of cluster primary labels
     """
-    if not len(clusts):
+    if len(clusts) == 0:
         return np.empty(0, dtype=data.dtype)
 
     return _get_cluster_primary_label(data, clusts, column)
@@ -582,15 +584,15 @@ def _get_cluster_primary_label(
 
     labels = np.empty(len(clusts), dtype=data.dtype)
     group_ids = _get_cluster_label(data, clusts, GROUP_COL)
-    for i in range(len(clusts)):
-        part_ids = data[clusts[i], PART_COL]
+    for i, clust in enumerate(clusts):
+        part_ids = data[clust, PART_COL]
         primary_mask = np.where(part_ids == group_ids[i])[0]
         if len(primary_mask):
             # Only use the primary component to label the cluster
-            v, cts = sm.unique(data[clusts[i][primary_mask], column])
+            v, cts = sm.unique(data[clust[primary_mask], column])
         else:
             # If there is no primary contribution, use the whole cluster
-            v, cts = sm.unique(data[clusts[i], column])
+            v, cts = sm.unique(data[clust, column])
         labels[i] = v[np.argmax(cts)]
 
     return labels
@@ -617,7 +619,7 @@ def get_cluster_closest_primary_label(data, coord_label, clusts, primary_ids):
     np.ndarray
         (C) List of cluster primary labels
     """
-    if not len(clusts):
+    if len(clusts) == 0:
         return np.empty(0, dtype=data.dtype)
 
     return _get_cluster_closest_primary_label(data, coord_label, clusts, primary_ids)
@@ -674,7 +676,7 @@ def get_cluster_centers(data, clusts):
     np.ndarray
         (C, 3) Tensor of cluster centers
     """
-    if not len(clusts):
+    if len(clusts) == 0:
         return np.empty((0, 3), dtype=data.dtype)
 
     return _get_cluster_centers(data, clusts)
@@ -708,7 +710,7 @@ def get_cluster_sizes(data, clusts):
     np.ndarray
         (C) List of cluster sizes
     """
-    if not len(clusts):
+    if len(clusts) == 0:
         return np.empty(0, dtype=np.int64)
 
     return _get_cluster_sizes(data, clusts)
@@ -742,7 +744,7 @@ def get_cluster_energies(data, clusts):
     np.ndarray
         (C) List of cluster pixel sums
     """
-    if not len(clusts):
+    if len(clusts) == 0:
         return np.empty(0, dtype=data.dtype)
 
     return _get_cluster_energies(data, clusts)
@@ -821,7 +823,7 @@ def get_cluster_features_base(data, clusts):
     np.ndarray
         (C, 16) Tensor of cluster features
     """
-    if not len(clusts):
+    if len(clusts) == 0:
         return np.empty((0, 16), dtype=data.dtype)  # Cannot type empty list
 
     return _get_cluster_features_base(data, clusts)
@@ -921,7 +923,7 @@ def get_cluster_features_extended(data, clusts, add_value=True, add_shape=True):
     assert (
         add_value or add_shape
     ), "Must add either value or shape for this function to do anything"
-    if not len(clusts):
+    if len(clusts) == 0:
         return np.empty((0, add_value * 2 + add_shape), dtype=data.dtype)
 
     return _get_cluster_features_extended(data, clusts, add_value, add_shape)
@@ -985,7 +987,7 @@ def get_cluster_points_label(data, coord_label, clusts, random_order=True):
     np.ndarray
         (C, 6) Cluster start and end points (in random order if requested)
     """
-    if not len(clusts):
+    if len(clusts) == 0:
         return np.empty((0, 6), dtype=data.dtype)
 
     return _get_cluster_points_label(data, coord_label, clusts, random_order)
@@ -1025,7 +1027,7 @@ def _get_cluster_points_label(
 @numbafy(
     cast_args=["data", "starts"], list_args=["clusts"], keep_torch=True, ref_arg="data"
 )
-def get_cluster_directions(data, starts, clusts, max_dist=-1, optimize=False):
+def get_cluster_directions(data, starts, clusts, max_dist=-1.0, optimize=False):
     """Estimates the direction of each cluster.
 
     Parameters
@@ -1036,7 +1038,7 @@ def get_cluster_directions(data, starts, clusts, max_dist=-1, optimize=False):
         (C, 3) Start points w.r.t. which to estimate the direction
     clusts : List[np.ndarray]
         (C) List of cluster indexes
-    max_dist : float, default -1
+    max_dist : float, default -1.0
         Neighborhood radius around the point used to estimate the direction
     optimize : bool, default False
         If `True`, the neighborhood radius is optimized on the fly for
@@ -1047,7 +1049,7 @@ def get_cluster_directions(data, starts, clusts, max_dist=-1, optimize=False):
     torch.tensor:
         (C, 3) Direction vector of each cluster
     """
-    if not len(clusts):
+    if len(clusts) == 0:
         return np.empty(starts.shape, dtype=data.dtype)
     if data.shape[1] > 3:
         data = data[:, COORD_COLS]
@@ -1060,7 +1062,7 @@ def _get_cluster_directions(
     voxels: nb.float64[:, :],
     starts: nb.float64[:, :],
     clusts: nb.types.List(nb.int64[:]),
-    max_dist: nb.float64 = -1,
+    max_dist: nb.float64 = -1.0,
     optimize: nb.boolean = False,
 ) -> nb.float64[:, :]:
 
@@ -1099,7 +1101,7 @@ def cluster_direction(
         (C, 3) Start points w.r.t. which to estimate the direction
     clusts : List[np.ndarray]
         (C) List of cluster indexes
-    max_dist : float, default -1
+    max_dist : float, default -1.0
         Neighborhood radius around the point used to estimate the direction
     optimize : bool, default False
         If `True`, the neighborhood radius is optimized on the fly for
@@ -1156,7 +1158,7 @@ def cluster_direction(
         voxels = voxels[: max_id + 1]
 
     # If no voxels were selected, return dummy value
-    if not len(voxels) or (len(voxels) == 1 and np.all(voxels[0] == start)):
+    if len(voxels) == 0 or (len(voxels) == 1 and np.all(voxels[0] == start)):
         return np.array([1.0, 0.0, 0.0], dtype=voxels.dtype)
 
     # Compute mean direction with respect to start point, normalize it
@@ -1175,7 +1177,7 @@ def cluster_direction(
 @numbafy(
     cast_args=["data", "starts"], list_args=["clusts"], keep_torch=True, ref_arg="data"
 )
-def get_cluster_dedxs(data, starts, clusts, max_dist=-1, anchor=False):
+def get_cluster_dedxs(data, starts, clusts, max_dist=-1.0, anchor=False):
     """Computes the initial local dE/dxs of each cluster.
 
     Parameters
@@ -1186,7 +1188,7 @@ def get_cluster_dedxs(data, starts, clusts, max_dist=-1, anchor=False):
         (C, 3) Start points w.r.t. which to estimate the local dE/dxs
     clusts : List[np.ndarray]
         (C) List of cluster indexes
-    max_dist : float, default -1
+    max_dist : float, default -1.0
         Neighborhood radius around the point used to compute the dE/dx
     anchor : bool, default False
         If true, anchor the start point to the closest cluster point
@@ -1196,7 +1198,7 @@ def get_cluster_dedxs(data, starts, clusts, max_dist=-1, anchor=False):
     np.ndarray
         (C) Local dE/dx values for each cluster
     """
-    if not len(clusts):
+    if len(clusts) == 0:
         return np.empty(0, dtype=data.dtype)
 
     return _get_cluster_dedxs(
@@ -1381,7 +1383,7 @@ def get_cluster_start_points(data, clusts):
     np.ndarray
         (C, 3) Cluster start points
     """
-    if not len(clusts):
+    if len(clusts) == 0:
         return np.empty((0, 3), dtype=data.dtype)
 
     return _get_cluster_start_points(data, clusts)
