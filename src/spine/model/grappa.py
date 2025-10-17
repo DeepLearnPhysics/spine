@@ -391,7 +391,7 @@ class GrapPA(torch.nn.Module):
             shapes.data = shapes.data.astype(np.int64)
 
         # Initialize the input graph
-        edge_index, dist_mat, closest_index = self.graph_constructor(
+        edge_index, _, closest_index = self.graph_constructor(
             data_np, clusts, shapes, groups
         )
 
@@ -415,9 +415,11 @@ class GrapPA(torch.nn.Module):
             )
 
         # Fetch the edge features
-        edge_features = self.edge_encoder(
-            data, clusts, edge_index, closest_index=closest_index
-        )
+        edge_features = None
+        if self.edge_encoder is not None:
+            edge_features = self.edge_encoder(
+                data, clusts, edge_index, closest_index=closest_index
+            )
 
         # Feath the global_features
         global_features = None
