@@ -1,21 +1,20 @@
-import random
-from typing import Dict, List, Union
+"""GrapPA: Graph Neural Network for Particle Aggregation.
+
+This module implements the GrapPA (Graph Particle Aggregation) architecture,
+a graph neural network designed for clustering and grouping particle instances.
+
+GrapPA learns to aggregate fragment-level features into particle-level clusters
+through message passing and edge classification, enabling particle instance
+segmentation and identification.
+"""
 
 import numpy as np
 import torch
 from torch import nn
 
-from spine.data import EdgeIndexBatch, IndexBatch, TensorBatch
+from spine.data import TensorBatch
 from spine.utils.enums import enum_factory
-from spine.utils.globals import (
-    BATCH_COL,
-    CLUST_COL,
-    COORD_COLS,
-    GROUP_COL,
-    LOWES_SHP,
-    SHAPE_COL,
-    TRACK_SHP,
-)
+from spine.utils.globals import GROUP_COL, LOWES_SHP, SHAPE_COL, TRACK_SHP
 from spine.utils.gnn.cluster import (
     form_clusters_batch,
     get_cluster_label_batch,
@@ -28,7 +27,16 @@ from spine.utils.gnn.evaluation import (
 
 from .layer.common.dbscan import DBSCAN
 from .layer.factories import final_factory
-from .layer.gnn.factories import *
+from .layer.gnn.factories import (
+    edge_encoder_factory,
+    edge_loss_factory,
+    global_encoder_factory,
+    global_loss_factory,
+    gnn_model_factory,
+    graph_factory,
+    node_encoder_factory,
+    node_loss_factory,
+)
 
 __all__ = ["GrapPA", "GrapPALoss"]
 
@@ -277,7 +285,7 @@ class GrapPA(torch.nn.Module):
 
         setattr(self, f"{prefix}_pred_keys", out_keys)
 
-    def process_dbscan_config(shapes=None, min_size=None, **kwargs):
+    def process_dbscan_config(self, shapes=None, min_size=None, **kwargs):
         """Process the DBSCAN fragmenter configuration.
 
         Parameters
@@ -431,35 +439,40 @@ class GrapPA(torch.nn.Module):
 
         # If requested, build node groups from edge predictions
         if self.make_groups:
+            edge_pred_keys = [
+                key for key in result if key.startswith("edge") and key.endswith("pred")
+            ]
             assert (
-                "edge_pred" in result
+                len(edge_pred_keys) > 0
             ), "Must provide edge predictions to build node groups."
-            edge_pred = result["edge_pred"].to_numpy()
-            if self.grouping_method == "threshold":
-                result["group_pred"] = node_assignment_batch(
-                    edge_index, edge_pred, clusts
-                )
-            elif self.grouping_method == "score":
-                if not self.grouping_through_track:
-                    result["group_pred"] = node_assignment_score_batch(
+            for key in edge_pred_keys:
+                edge_pred = result[key].to_numpy()
+                prefix = "group" + key.replace("edge", "").replace("_pred", "")
+                if self.grouping_method == "threshold":
+                    result[f"{prefix}_pred"] = node_assignment_batch(
                         edge_index, edge_pred, clusts
                     )
-                else:
-                    assert (
-                        shapes is not None
-                    ), "Must provide shapes to restrict track association."
-                    track_node = TensorBatch(
-                        shapes.data == TRACK_SHP, counts=shapes.counts
-                    )
-                    result["group_pred"] = node_assignment_score_batch(
-                        edge_index, edge_pred, clusts, track_node
-                    )
+                elif self.grouping_method == "score":
+                    if not self.grouping_through_track:
+                        result[f"{prefix}_pred"] = node_assignment_score_batch(
+                            edge_index, edge_pred, clusts
+                        )
+                    else:
+                        assert (
+                            shapes is not None
+                        ), "Must provide shapes to restrict track association."
+                        track_node = TensorBatch(
+                            shapes.data == TRACK_SHP, counts=shapes.counts
+                        )
+                        result[f"{prefix}_pred"] = node_assignment_score_batch(
+                            edge_index, edge_pred, clusts, track_node
+                        )
 
-            else:
-                raise ValueError(
-                    "Group prediction algorithm not " "recognized:",
-                    self.grouping_method,
-                )
+                else:
+                    raise ValueError(
+                        "Group prediction algorithm not recognized:",
+                        self.grouping_method,
+                    )
 
         return result
 
