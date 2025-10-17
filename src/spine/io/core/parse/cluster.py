@@ -395,7 +395,6 @@ class Cluster3DParser(ParserBase):
                     labels["pinter"][mpr_mask] = -1
 
             # Count the number of neutrinos
-            print(len(labels))
             if neutrino_event is not None:
                 num_neutrinos = len(neutrino_event.as_vector())
             else:
@@ -494,7 +493,6 @@ class Cluster3DParser(ParserBase):
             cs, ps, ns = clust_shift, num_particles, num_neutrinos
             index_shifts = np.array([cs, ps, ps, ps, ns])
 
-        print(np_voxels.shape, np_features.shape)
         return ParserTensor(
             coords=np_voxels,
             features=np_features,
