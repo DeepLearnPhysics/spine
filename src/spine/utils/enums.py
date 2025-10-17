@@ -59,6 +59,7 @@ class ClusterLabelEnum(IntEnum):
     CLUSTER = CLUST_COL
     PARTICLE = PART_COL
     GROUP = GROUP_COL
+    ANCESTOR = ANCST_COL
     INTERACTION = INTER_COL
     NU = NU_COL
     PID = PID_COL

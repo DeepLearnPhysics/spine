@@ -16,11 +16,25 @@ def process_particles(
     """Process Particle object list to add/correct attributes in place.
 
     Does the following:
+    - Checks that the group ID and parent ID are valid, assign -1 if not
+    - Checks that the ancestor track ID is valid, assign -1 if not
     - Adds interaction ID information if it is not provided
     - Adds the true neutrino ID this particle came from
     - Adds a simplified enumerated particle species ID
     - Adds a flag as to whether a particle is a primary within its interaction
     - Adds a flag as to whether a particle is a primary within its group
+
+    Notes
+    -----
+    The following issues have been observed in the wild:
+    - In the case of generic (v04) files
+        - The parent ID and the interaction ID might not be filled properly (INVAL_IDX)
+        - The ancestor track ID might not filled properly (INVAL_TID)
+    - In the case of ICARUS/SBND files
+        - The parent ID and the interaction ID might not be filled properly (INVAL_ID)
+        - The ancestor track ID might not filled properly (INVAL_TID)
+    - In the case of DUNE-ND/2x2 files
+        - The group ID might not be filled properly (INVAL_ID)
 
     Parameters
     ----------
@@ -38,13 +52,23 @@ def process_particles(
         return
 
     # Get the additional attributes
-    (interaction_ids, nu_ids, group_primary_ids, inter_primary_ids, pids) = (
-        process_particle_event(particle_event, particle_mpv_event, neutrino_event)
-    )
+    (
+        parent_ids,
+        group_ids,
+        ancestor_ids,
+        interaction_ids,
+        nu_ids,
+        group_primary_ids,
+        inter_primary_ids,
+        pids,
+    ) = process_particle_event(particle_event, particle_mpv_event, neutrino_event)
 
     # Update the particles objects in place
     for i, p in enumerate(particles):
         if p.id > -1:
+            p.parent_id = parent_ids[i]
+            p.group_id = group_ids[i]
+            p.ancestor_track_id = ancestor_ids[i]
             p.interaction_id = interaction_ids[i]
             p.nu_id = nu_ids[i]
             p.group_primary = group_primary_ids[i]
@@ -58,11 +82,25 @@ def process_particle_event(
     """Corrects/fetches attributes for a larcv.EventParticle object.
 
     Does the following:
+    - Checks that the group ID and parent ID are valid, assign -1 if not
+    - Checks that the ancestor track ID is valid, assign -1 if not
     - Builds the interaction ID information if it is not provided
     - Gets the true neutrino ID this particle came from
     - Gets a simplified enumerated particle species ID
     - Gets a flag as to whether a particle is a primary within its interaction
     - Gets a flag as to whether a particle is a primary within its group
+
+    Notes
+    -----
+    The following issues have been observed in the wild:
+    - In the case of generic (v04) files
+        - The parent ID and the interaction ID might not be filled properly (INVAL_IDX)
+        - The ancestor track ID might not filled properly (INVAL_TID)
+    - In the case of ICARUS/SBND files
+        - The parent ID and the interaction ID might not be filled properly (INVAL_ID)
+        - The ancestor track ID might not filled properly (INVAL_TID)
+    - In the case of DUNE-ND/2x2 files
+        - The group ID might not be filled properly (INVAL_ID)
 
     Parameters
     ----------
@@ -75,6 +113,12 @@ def process_particle_event(
 
     Returns
     -------
+    group_ids : np.ndarray
+        (P) List of group IDs, one per true particle instance
+    parent_ids : np.ndarray
+        (P) List of parent IDs, one per true particle instance
+    ancestor_ids : np.ndarray
+        (P) List of ancestor IDs, one per true particle instance
     interaction_ids : np.ndarray
         (P) List of interaction IDs, one per true particle instance
     nu_ids : np.ndarray
@@ -93,6 +137,25 @@ def process_particle_event(
         particles_mpv = list(particle_mpv_event.as_vector())
     if neutrino_event is not None:
         neutrinos = list(neutrino_event.as_vector())
+
+    # Check on the parent ID of each particle
+    parent_ids = np.array([p.parent_id() for p in particles], dtype=int)
+    if np.any(parent_ids == INVAL_ID):
+        # This takes care of ICARUS/SBND file issues
+        parent_ids[parent_ids == INVAL_ID] = -1
+    elif len(particles) <= INVAL_IDX:
+        # This takes care of generic file issues
+        parent_ids[parent_ids == INVAL_IDX] = -1
+
+    # Check on the group ID of each particle
+    # This takes care of DUNE-ND/2x2 file issues
+    group_ids = np.array([p.group_id() for p in particles], dtype=int)
+    group_ids[group_ids == INVAL_ID] = -1
+
+    # Check on the ancestor track ID of each particle
+    # This takes care of generic/ICARUS/SBND file issues
+    ancestor_ids = np.array([p.ancestor_track_id() for p in particles], dtype=int)
+    ancestor_ids[ancestor_ids == INVAL_TID] = -1
 
     # Get the mask of valid particle labels
     valid_mask = get_valid_mask(particles)
@@ -113,7 +176,16 @@ def process_particle_event(
     pids = get_particle_ids(particles, valid_mask)
 
     # Return
-    return interaction_ids, nu_ids, group_primary_ids, inter_primary_ids, pids
+    return (
+        parent_ids,
+        group_ids,
+        ancestor_ids,
+        interaction_ids,
+        nu_ids,
+        group_primary_ids,
+        inter_primary_ids,
+        pids,
+    )
 
 
 def get_valid_mask(particles):
@@ -138,9 +210,9 @@ def get_valid_mask(particles):
         return np.empty(0, dtype=bool)
 
     # If the interaction IDs are set in the particle tree, simply use that
-    inter_ids = np.array([p.interaction_id() for p in particles], dtype=int)
-    if np.any((inter_ids != INVAL_ID) & (inter_ids != INVAL_IDX)):
-        return inter_ids != INVAL_ID
+    interaction_ids = np.array([p.interaction_id() for p in particles], dtype=int)
+    if np.any((interaction_ids != INVAL_ID) & (interaction_ids != INVAL_IDX)):
+        return interaction_ids != INVAL_ID
 
     # Otherwise, check that the ancestor track ID and creation process are valid
     mask = np.array([p.ancestor_track_id() != INVAL_TID for p in particles])
@@ -180,23 +252,23 @@ def get_interaction_ids(particles, valid_mask=None):
         valid_mask = get_valid_mask(particles)
 
     # If the interaction IDs are set in the particle tree, simply use that
-    inter_ids = np.array([p.interaction_id() for p in particles], dtype=int)
-    if np.any((inter_ids != INVAL_ID) & (inter_ids != INVAL_IDX)):
-        inter_ids[~valid_mask] = -1  # pylint: disable=E1130
-        return inter_ids
+    interaction_ids = np.array([p.interaction_id() for p in particles], dtype=int)
+    if np.any((interaction_ids != INVAL_ID) & (interaction_ids != INVAL_IDX)):
+        interaction_ids[~valid_mask] = -1
+        return interaction_ids
 
     # Otherwise, define interaction IDs on the basis of sharing
     # an ancestor vertex position
     anc_pos = np.vstack([get_coords(p.ancestor_position()) for p in particles])
-    inter_ids = np.unique(anc_pos, axis=0, return_inverse=True)[-1]
+    interaction_ids = np.unique(anc_pos, axis=0, return_inverse=True)[-1]
 
     # Now set the interaction ID of particles with an undefined ancestor to -1
-    inter_ids[~valid_mask] = -1  # pylint: disable=E1130
+    interaction_ids[~valid_mask] = -1
 
-    return inter_ids
+    return interaction_ids
 
 
-def get_nu_ids(particles, inter_ids, particles_mpv=None, neutrinos=None):
+def get_nu_ids(particles, interaction_ids, particles_mpv=None, neutrinos=None):
     """Gets the neutrino-like ID of each partcile
 
     Convention: -1 for non-neutrinos, neutrino index for others
@@ -213,7 +285,7 @@ def get_nu_ids(particles, inter_ids, particles_mpv=None, neutrinos=None):
     ----------
     particles : List[larcv.Particle]
         (P) List of true particle instances
-    inter_ids : np.ndarray
+    interaction_ids : np.ndarray
         (P) Array of interaction ID values, one per true particle instance
     particles_mpv : List[larcv.Particle], optional
         (M) List of true MPV particle instances
@@ -246,15 +318,15 @@ def get_nu_ids(particles, inter_ids, particles_mpv=None, neutrinos=None):
         )
 
         # Loop over the interactions
-        primary_ids = get_inter_primary_ids(particles, inter_ids > -1)
+        primary_ids = get_inter_primary_ids(particles, interaction_ids > -1)
         nu_id = 0
-        for i in np.unique(inter_ids):
+        for i in np.unique(interaction_ids):
             # If the interaction ID is invalid, skip
             if i < 0:
                 continue
 
             # If there are at least two primaries, the interaction is nu-like
-            inter_index = np.where(inter_ids == i)[0]
+            inter_index = np.where(interaction_ids == i)[0]
             if np.sum(primary_ids[inter_index] == 1) > 1:
                 nu_ids[inter_index] = nu_id
                 nu_id += 1
@@ -278,13 +350,13 @@ def get_nu_ids(particles, inter_ids, particles_mpv=None, neutrinos=None):
 
         # If an interaction ID is provided for neutrinos, the matching is trivial
         if ref_ids is not None:
-            for i in np.unique(inter_ids):
+            for i in np.unique(interaction_ids):
                 # If the interaction is invalid, skip
                 if i < 0:
                     continue
 
                 # Loop over positions in the interaction find a reference match
-                inter_index = np.where(inter_ids == i)[0]
+                inter_index = np.where(interaction_ids == i)[0]
                 for nu_id, ref_id in enumerate(ref_ids):
                     if i == ref_id:
                         nu_ids[inter_index] = nu_id
@@ -302,13 +374,13 @@ def get_nu_ids(particles, inter_ids, particles_mpv=None, neutrinos=None):
             )
 
             anc_pos = np.vstack([get_coords(p.ancestor_position()) for p in particles])
-            for i in np.unique(inter_ids):
+            for i in np.unique(interaction_ids):
                 # If the interaction is invalid, skip
                 if i < 0:
                     continue
 
                 # Loop over positions in the interaction find a reference match
-                inter_index = np.where(inter_ids == i)[0]
+                inter_index = np.where(interaction_ids == i)[0]
                 for ref_id, pos in enumerate(ref_pos):
                     if np.any((anc_pos[inter_index] == pos).all(axis=1)):
                         nu_ids[inter_index] = ref_id

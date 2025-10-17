@@ -17,6 +17,7 @@ from spine.math.cluster import dbscan
 from spine.math.distance import METRICS
 from spine.utils.conditional import larcv
 from spine.utils.globals import (
+    ANCST_COL,
     CLUST_COL,
     DELTA_SHP,
     GROUP_COL,
@@ -146,7 +147,7 @@ class Cluster2DParser(ParserBase):
 
         return ParserTensor(
             coords=np_voxels,
-            feats=np_features,
+            features=np_features,
             meta=Meta.from_larcv(meta),
             remove_duplicates=True,
             index_shifts=index_shifts,
@@ -261,7 +262,7 @@ class Cluster3DParser(ParserBase):
             self.prec_col = None
         else:
             self.index_cols = np.array(
-                [CLUST_COL, PART_COL, GROUP_COL, INTER_COL, NU_COL]
+                [CLUST_COL, PART_COL, GROUP_COL, ANCST_COL, INTER_COL, NU_COL]
             )
             self.prec_col = SHAPE_COL
 
@@ -340,17 +341,25 @@ class Cluster3DParser(ParserBase):
             particles = list(particle_event.as_vector())
 
             # Fetch the variables missing from the larcv objects
-            (inter_ids, nu_ids, group_primaries, inter_primaries, types) = (
-                process_particle_event(
-                    particle_event, particle_mpv_event, neutrino_event
-                )
+            (
+                _,
+                group_ids,
+                ancestor_ids,
+                interaction_ids,
+                nu_ids,
+                group_primaries,
+                inter_primaries,
+                types,
+            ) = process_particle_event(
+                particle_event, particle_mpv_event, neutrino_event
             )
 
             # Store the cluster ID information
             labels["cluster"] = [p.id() for p in particles]
             labels["part"] = [p.id() for p in particles]
-            labels["group"] = [p.group_id() for p in particles]
-            labels["inter"] = inter_ids
+            labels["group"] = group_ids
+            labels["ancst"] = ancestor_ids
+            labels["inter"] = interaction_ids
             labels["nu"] = nu_ids
 
             # Store the type/primary status
@@ -386,6 +395,7 @@ class Cluster3DParser(ParserBase):
                     labels["pinter"][mpr_mask] = -1
 
             # Count the number of neutrinos
+            print(len(labels))
             if neutrino_event is not None:
                 num_neutrinos = len(neutrino_event.as_vector())
             else:
@@ -484,6 +494,7 @@ class Cluster3DParser(ParserBase):
             cs, ps, ns = clust_shift, num_particles, num_neutrinos
             index_shifts = np.array([cs, ps, ps, ps, ns])
 
+        print(np_voxels.shape, np_features.shape)
         return ParserTensor(
             coords=np_voxels,
             features=np_features,

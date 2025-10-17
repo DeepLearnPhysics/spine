@@ -17,13 +17,14 @@ VALUE_COL = 4
 CLUST_COL = 5  # Fragment ID
 PART_COL = 6  # Particle ID
 GROUP_COL = 7  # Group ID
-INTER_COL = 8  # Interaction ID
-NU_COL = 9  # Neutrino ID
-PID_COL = 10  # Particle species
-PRGRP_COL = 11  # Group primary flag
-PRINT_COL = 12  # Interaction primary flag
-VTX_COLS = np.array([13, 14, 15])  # Interaction vertex location
-MOM_COL = 16  # Absolute momentum in GeV
+ANCST_COL = 8  # Ancestor ID
+INTER_COL = 9  # Interaction ID
+NU_COL = 10  # Neutrino ID
+PID_COL = 11  # Particle species
+PRGRP_COL = 12  # Group primary flag
+PRINT_COL = 13  # Interaction primary flag
+VTX_COLS = np.array([14, 15, 16])  # Interaction vertex location
+MOM_COL = 17  # Absolute momentum in GeV
 
 # Column which specifies the shape ID of a voxel in a label tensor
 SHAPE_COL = -1
