@@ -389,7 +389,7 @@ def get_nu_ids(particles, interaction_ids, particles_mpv=None, neutrinos=None):
     return nu_ids
 
 
-def get_group_primary_ids(particles, valid_mask):
+def get_group_primary_ids(particles, valid_mask=None):
     """Gets the group primary status of particle fragments.
 
     This could be handled somewhere else (e.g. Supera).
@@ -446,7 +446,7 @@ def get_group_primary_ids(particles, valid_mask):
     return primary_ids
 
 
-def get_inter_primary_ids(particles, valid_mask):
+def get_inter_primary_ids(particles, valid_mask=None):
     """Gets the interaction primary ID for each particle.
 
     Parameters
@@ -499,7 +499,7 @@ def get_inter_primary_ids(particles, valid_mask):
     return primary_ids
 
 
-def get_particle_ids(particles, valid_mask):
+def get_particle_ids(particles, valid_mask=None):
     """Gets a particle species ID (PID) for each particle.
 
     This function ensures:
