@@ -5,6 +5,7 @@
 [![PyPI version](https://badge.fury.io/py/spine-ml.svg)](https://badge.fury.io/py/spine-ml)
 [![Python version](https://img.shields.io/pypi/pyversions/spine-ml.svg)](https://pypi.org/project/spine-ml/)
 [![Documentation Status](https://readthedocs.org/projects/spine/badge/?version=latest)](https://spine.readthedocs.io/latest/)
+[![codecov](https://codecov.io/gh/DeepLearnPhysics/spine/branch/main/graph/badge.svg)](https://codecov.io/gh/DeepLearnPhysics/spine)
 
 The Scalable Particle Imaging with Neural Embeddings (SPINE) package leverages state-of-the-art Machine Learning (ML) algorithms -- in particular Deep Neural Networks (DNNs) -- to reconstruct particle imaging detector data. This package was primarily developed for Liquid Argon Time-Projection Chamber (LArTPC) data and relies on Convolutional Neural Networks (CNNs) for pixel-level feature extraction and Graph Neural Networks (GNNs) for superstructure formation. The schematic below breaks down the full end-to-end reconstruction flow.
 
@@ -258,6 +259,42 @@ Documentation for analysis tools and output formatting is available in the main 
 * `test` contains unit tests using pytest
 
 Please consult the documentation for detailed information about each component.
+
+## Testing and Coverage
+
+### Running Tests
+
+The SPINE package includes comprehensive unit tests using pytest:
+
+```bash
+# Run all tests
+pytest
+
+# Run tests for a specific module
+pytest test/test_data/
+
+# Run with verbose output
+pytest -v
+```
+
+### Checking Test Coverage
+
+Test coverage tracking helps ensure code quality and identify untested areas. Coverage reports are automatically generated in our CI pipeline and uploaded to [Codecov](https://codecov.io/gh/DeepLearnPhysics/spine).
+
+To check coverage locally:
+
+```bash
+# Run the coverage script (generates terminal, HTML, and XML reports)
+./bin/coverage.sh
+
+# Or run pytest with coverage flags directly
+pytest --cov=spine --cov-report=term --cov-report=html
+
+# View the HTML report
+open htmlcov/index.html
+```
+
+The coverage configuration is defined in `pyproject.toml` under `[tool.coverage.run]` and `[tool.coverage.report]`.
 
 ## Contributing
 
