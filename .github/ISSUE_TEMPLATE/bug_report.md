@@ -33,10 +33,13 @@ A clear and concise description of what you expected to happen.
 **Screenshots, histograms, event displays**
 If applicable, add figures to help explain your problem.
 
-**Code base**
+**System Information**
 Provide the following:
+ - OS: [e.g., Ubuntu 22.04, macOS 14.0, CentOS 7]
+ - Python version: [e.g., 3.9.7]
  - SPINE release version (or github commit tag if not using a tagged release)
- - Singularity/apptainer/docker image
+ - Key dependencies: [e.g., PyTorch 2.0.1, NumPy 1.24.3]
+ - Singularity/apptainer/docker image (if applicable)
 
 **Additional context**
 Add any other context about the problem here.
