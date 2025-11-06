@@ -492,9 +492,7 @@ def get_inter_primary_ids(particles, valid_mask=None):
 
         # If the origin of a particle agrees with the origin of its ancestor,
         # label as primary
-        group_position = get_coords(group_p.position())
-        ancestor_position = get_coords(p.ancestor_position())
-        primary_ids[i] = (group_position == ancestor_position).all()
+        primary_ids[i] = p.track_id() == p.ancestor_track_id()
 
     return primary_ids
 

@@ -306,11 +306,20 @@ def dual_figure3d(
     if synchronize:
         fig = go.FigureWidget(fig)
 
-        def cam_change_left(scene, camera):  # pylint: disable=W0613
-            fig.layout.scene2.camera = camera
+        # Track if we're currently syncing to prevent infinite loops
+        _syncing = [False]
 
-        def cam_change_right(scene, camera):  # pylint: disable=W0613
-            fig.layout.scene1.camera = camera
+        def cam_change_left(layout_obj, camera):
+            if not _syncing[0]:
+                _syncing[0] = True
+                fig.layout.scene2.camera = camera
+                _syncing[0] = False
+
+        def cam_change_right(layout_obj, camera):
+            if not _syncing[0]:
+                _syncing[0] = True
+                fig.layout.scene1.camera = camera
+                _syncing[0] = False
 
         fig.layout.scene1.on_change(cam_change_left, "camera")
         fig.layout.scene2.on_change(cam_change_right, "camera")
