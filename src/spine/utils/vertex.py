@@ -262,21 +262,18 @@ def get_pseudovertex(
     if len(start_points) == 1:
         return start_points[0]
 
-    pseudovtx = np.zeros((dim,), dtype=start_points.dtype)
+    if np.all(directions[1:] == directions[0]):
+        return sm.mean(start_points, axis=0)
+
     S = np.zeros((dim, dim), dtype=start_points.dtype)
     C = np.zeros((dim,), dtype=start_points.dtype)
-
     for p, d in zip(start_points, directions):
-        S += np.outer(d, d) - np.eye(dim, dtype=start_points.dtype)
-        C += (
-            np.outer(d, d) - np.eye(dim, dtype=start_points.dtype)
-        ) @ np.ascontiguousarray(p)
+        x = np.outer(d, d) - np.eye(dim, dtype=start_points.dtype)
+        S += x
+        C += x @ np.ascontiguousarray(p)
 
     # TODO remove casting to float64 when the crash goes away
-    # TODO check for singular matrix or go back to pinv when fixed
-    pseudovtx = np.linalg.inv(S.astype(np.float64)).astype(start_points.dtype) @ C
-
-    return pseudovtx
+    return np.linalg.inv(S.astype(np.float64)).astype(start_points.dtype) @ C
 
 
 @nb.njit(cache=True)
@@ -303,20 +300,16 @@ def get_weighted_pseudovertex(
     if len(start_points) == 1:
         return start_points[0]
 
-    pseudovtx = np.zeros((dim,), dtype=start_points.dtype)
+    if np.all(directions[1:] == directions[0]):
+        return sm.sum(weights*start_points, axis=0)/np.sum(weights)
+
     S = np.zeros((dim, dim), dtype=start_points.dtype)
     C = np.zeros((dim,), dtype=start_points.dtype)
-
     for i, (p, d) in enumerate(zip(start_points, directions)):
-        S += weights[i] * (np.outer(d, d) - np.eye(dim, dtype=start_points.dtype))
-        C += (
-            weights[i]
-            * (np.outer(d, d) - np.eye(dim, dtype=start_points.dtype))
-            @ np.ascontiguousarray(p)
-        )
+        x = weights[i] * (np.outer(d, d) - np.eye(dim, dtype=start_points.dtype))
+        S += x
+        C += x @ np.ascontiguousarray(p)
 
     # TODO remove casting to float64 when the crash goes away
     # TODO check for singular matrix or go back to pinv when fixed
-    pseudovtx = np.linalg.inv(S.astype(np.float64)).astype(start_points.dtype) @ C
-
-    return pseudovtx
+    return np.linalg.inv(S.astype(np.float64)).astype(start_points.dtype) @ C
