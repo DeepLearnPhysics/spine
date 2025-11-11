@@ -301,7 +301,7 @@ def get_weighted_pseudovertex(
         return start_points[0]
 
     if np.all(directions[1:] == directions[0]):
-        return sm.sum(weights*start_points, axis=0) / np.sum(weights)
+        return sm.sum(weights * start_points, axis=0) / np.sum(weights)
 
     S = np.zeros((dim, dim), dtype=start_points.dtype)
     C = np.zeros((dim,), dtype=start_points.dtype)
