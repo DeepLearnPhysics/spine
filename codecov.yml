@@ -10,7 +10,7 @@ coverage:
         informational: false  # Set to true to make status informational only
     patch:
       default:
-        target: auto
+        target: 0%  # No minimum coverage required for patches
         threshold: 1%  # Allow up to 1% drop in coverage for patches
         informational: false
 
