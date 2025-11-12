@@ -262,7 +262,7 @@ def get_pseudovertex(
     if len(start_points) == 1:
         return start_points[0]
 
-    if np.all(directions[1:] == directions[0]):
+    if np.all((directions[1:] == directions[0]) | (directions[1:] == -directions[0])):
         return sm.mean(start_points, axis=0)
 
     S = np.zeros((dim, dim), dtype=start_points.dtype)
@@ -300,7 +300,7 @@ def get_weighted_pseudovertex(
     if len(start_points) == 1:
         return start_points[0]
 
-    if np.all(directions[1:] == directions[0]):
+    if np.all(directions[1:] == directions[0] | directions[1:] == -directions[0]):
         return sm.sum(weights * start_points, axis=0) / np.sum(weights)
 
     S = np.zeros((dim, dim), dtype=start_points.dtype)
