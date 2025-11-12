@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.7.8] - 2025-11-11
+
+### Added
+- Added test coverage tools and codecov badge to README
+- Created `bin/coverage.sh` script for local coverage checking
+- Added codecov.yml configuration with 1% coverage drop threshold
+
+### Fixed
+- Fixed camera synchronization in `dual_figure3d()` for Jupyter notebooks
+  - Corrected callback signature from `(scene, camera)` to `(layout_obj, camera)`
+  - Added mutex flag to prevent infinite loop between synchronized scenes
+- Fixed issue with `np.inv` on singular matrices in the vertexer (issue with parallel directions)
+- Fixed Codecov CI integration with proper token and verbose logging
+
+### Changed
+- Set codecov patch coverage target to 0% to allow untested code changes
+- Enhanced GitHub issue templates with system information section
+- Improved PR template with comprehensive checklist
+
 ## [0.7.7] - 2025-10-13
 
 ### Changed
