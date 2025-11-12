@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.7.9] - 2025-11-12
+
+### Fixed
+- Fixed pseudovertex computation to properly check for antiparallel particles
+  - Prevents `np.inv` fail when particles are parallel but opposite in direction
+
 ## [0.7.8] - 2025-11-11
 
 ### Added
