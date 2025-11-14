@@ -380,6 +380,9 @@ def main(source, output=None, cathode_thickness=0.0, pixel_size=0.0):
     # Sort TPCs by cryostat and TPC number for consistent ordering
     tpc_list.sort(key=lambda x: (x["cryostat"], x["tpc"]))
 
+    # Keep track of all TPCs (including filtered ones) for det_ids mapping
+    all_tpcs = tpc_list.copy()
+
     # Filter out very small TPCs (likely inactive gaps or edges)
     # These are common in ProtoDUNE-style detectors with <10cm drift
     filtered_tpc_list = []
@@ -488,9 +491,33 @@ def main(source, output=None, cathode_thickness=0.0, pixel_size=0.0):
     tpc_yaml = {
         "dimensions": None,  # Will be set from first combined TPC
         "module_ids": [],
-        "det_ids": [],
         "positions": [],
     }
+
+    # Build det_ids: map ALL logical TPC IDs (within first cryostat) to physical TPC indices
+    # This must include filtered TPCs, which map to -1
+    # This describes the TPC structure per module (same for all modules)
+    first_cryo = combined_tpcs[0]["cryostat"]
+    first_cryo_combined = [
+        tpc for tpc in combined_tpcs if tpc["cryostat"] == first_cryo
+    ]
+    first_cryo_all = [tpc for tpc in all_tpcs if tpc["cryostat"] == first_cryo]
+
+    # Map logical TPC IDs to physical indices (or -1 if filtered)
+    logical_to_physical = {}
+    for phys_idx, combined_tpc in enumerate(first_cryo_combined):
+        for tpc_info in combined_tpc["tpc_group"]:
+            logical_to_physical[tpc_info["tpc"]] = phys_idx
+
+    # Build det_ids for ALL logical TPCs (including filtered ones)
+    det_ids = []
+    for tpc in first_cryo_all:
+        logical_id = tpc["tpc"]
+        det_ids.append(logical_to_physical.get(logical_id, -1))
+
+    # Only include det_ids if not trivial (not [0, 1, 2, ...])
+    if det_ids != list(range(len(det_ids))):
+        tpc_yaml["det_ids"] = det_ids
 
     # Extract data from each combined TPC
     for combined_tpc in combined_tpcs:
@@ -500,9 +527,6 @@ def main(source, output=None, cathode_thickness=0.0, pixel_size=0.0):
 
         # Module ID is the cryostat number
         tpc_yaml["module_ids"].append(combined_tpc["cryostat"])
-
-        # Det ID is also the cryostat number (for ICARUS)
-        tpc_yaml["det_ids"].append(combined_tpc["cryostat"])
 
         # Position is the combined position (rounded to 4 decimal places)
         tpc_yaml["positions"].append([round(p, 4) for p in combined_tpc["position"]])
