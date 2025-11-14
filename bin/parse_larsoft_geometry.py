@@ -366,6 +366,35 @@ def main(source, output=None, cathode_thickness=0.0, pixel_size=0.0):
     with open(source, "r", encoding="utf-8") as f:
         lines = f.readlines()
 
+    # Extract detector from file name (e.g. ProtoDUNE-SP-geometry.txt -> ProtoDUNE-SP)
+    base = os.path.basename(source)
+    detector_match = re.match(r"([A-Za-z0-9_-]+)-geometry", base)
+    if not detector_match:
+        raise ValueError("Could not extract detector name from file name.")
+    detector = detector_match.group(1)
+
+    # Extract tag and version from the second line
+    assert len(lines) > 1, "Geometry text file is too short."
+    tag_match = re.search(r"Detector\s+([a-zA-Z0-9_-]+)", lines[1])
+    if not tag_match:
+        raise ValueError("Could not extract tag from geometry file.")
+    tag = tag_match.group(1)
+
+    # Version: last number in tag
+    version_match = re.search(r"(\d+)$", tag)
+    if not version_match:
+        raise ValueError("Could not extract version from tag.")
+    version = int(version_match.group(1))
+
+    # Extract GDML file name from the first line (always 'Detector description: ...')
+    gdml = None
+    if lines:
+        line = lines[0].strip()
+        if line.startswith("Detector description:") and ".gdml" in line:
+            match = re.search(r"'([^']+\.gdml)'", line)
+            if match:
+                gdml = os.path.basename(match.group(1))
+
     # Parse all TPC blocks
     tpc_list = []
     for i, line in enumerate(lines):
@@ -559,27 +588,10 @@ def main(source, output=None, cathode_thickness=0.0, pixel_size=0.0):
 
     # Build top-level YAML structure
     yaml_data = {}
-
-    # Extract detector from file name (e.g. ProtoDUNE-SP-geometry.txt -> ProtoDUNE-SP)
-    base = os.path.basename(source)
-    detector_match = re.match(r"([A-Za-z0-9_-]+)-geometry", base)
-    if not detector_match:
-        raise ValueError("Could not extract detector name from file name.")
-    yaml_data["detector"] = detector_match.group(1)
-
-    # Extract tag and version from the second line
-    assert len(lines) > 1, "Geometry text file is too short."
-    tag_match = re.search(r"Detector\s+([a-zA-Z0-9_-]+)", lines[1])
-    if not tag_match:
-        raise ValueError("Could not extract tag from geometry file.")
-    tag = tag_match.group(1)
+    yaml_data["name"] = detector
     yaml_data["tag"] = tag
-
-    # Version: last number in tag
-    version_match = re.search(r"(\d+)$", tag)
-    if not version_match:
-        raise ValueError("Could not extract version from tag.")
-    yaml_data["version"] = int(version_match.group(1))
+    yaml_data["version"] = version
+    yaml_data["gdml"] = gdml
 
     # Add the TPC geometry information
     yaml_data["tpc"] = tpc_yaml

@@ -1,6 +1,7 @@
-detector: ProtoDUNE-VD
+name: ProtoDUNE-VD
 tag: protodunevd_v5
 version: 5
+gdml: protodunevd_v5_ggd.gdml
 tpc:
   dimensions: [338.5, 673.4, 298.65]
   module_ids: [0, 0]

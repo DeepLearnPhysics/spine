@@ -1,6 +1,7 @@
-detector: ProtoDUNE-SP
+name: ProtoDUNE-SP
 tag: protodunev7
 version: 7
+gdml: protodune_v7.gdml
 tpc:
   dimensions:
   - [1.474, 598.39, 693.6569]

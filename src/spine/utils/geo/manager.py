@@ -27,17 +27,29 @@ class Geometry:
 
     Attributes
     ----------
+    name : str
+        Name of the detector
+    tag : str
+        Tag or label for the geometry instance
+    version : int
+        Version number of the geometry
     tpc : TPCDetector
         TPC detector properties
     optical : OptDetector, optional
         Optical detector properties
     crt : CRTDetector, optional
         CRT detector properties
+    gdml : str, optional
+        GDML file name associated with the geometry
     """
 
+    name: str
+    tag: str
+    version: int
     tpc: TPCDetector
     optical: OptDetector = None
     crt: CRTDetector = None
+    gdml: str = None
 
     def __init__(self, detector=None, file_path=None):
         """Initializes a detector geometry object.
@@ -86,18 +98,34 @@ class Geometry:
         self._cont_limits = None
         self._cont_use_source = False
 
-    def parse_configuration(self, tpc, optical=None, crt=None):
+    def parse_configuration(
+        self, name, tag, version, tpc, optical=None, crt=None, gdml=""
+    ):
         """Parse the geometry configuration.
 
         Parameters
         ----------
+        name : str
+            Name of the detector
+        tag : str
+            Tag or label for the geometry instance
+        version : int
+            Version number of the geometry
         tpc : dict
             Detector boundary configuration
         optical : dict, optional
             Optical detector configuration
         crt : dict, optional
             CRT detector configuration
+        gdml : str, optional
+            GDML file name associated with the geometry
         """
+        # Store basic geometry information
+        self.name = name
+        self.tag = tag
+        self.version = version
+        self.gdml = gdml
+
         # Load the charge detector boundaries
         self.tpc = TPCDetector(**tpc)
 

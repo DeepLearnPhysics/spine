@@ -133,35 +133,35 @@ class TPCModule(Box):
         positions : np.ndarray
             (N_t) List of TPC center positions, one per TPC
         dimensions : np.ndarray
-            (3) Dimensions of one TPC
+            (N_t) List of dimensions for each TPC
         drift_dirs : np.ndarray, optional
             (N_t, 3) List of drift directions. If this is not provided, it is
             inferred from the module configuration, provided that the module
             is composed of two TPCs with a shared cathode.
         """
         # Sanity checks
-        assert len(positions) in [
+        assert len(positions) in (
             1,
             2,
-        ], "A TPC module must contain exactly one or two TPCs."
-        assert (drift_dirs is not None) ^ (len(positions) == 2), (
-            "For TPC modules with one TPC, the drift direction cannot be "
-            "inferred and must be provided explicitely. For modules with "
-            "two TPCs, must not set the drift direction arbitrarily."
+            4,
+        ), "A TPC module must contain exactly one, two, or four TPCs."
+        assert (drift_dirs is not None) or (len(positions) == 2), (
+            "For TPC modules with one or four TPC, the drift direction cannot be "
+            "inferred and must be provided explicitely."
         )
 
         # Build TPCs
         self.chambers = []
-        for t in range(len(positions)):
+        for t, position in enumerate(positions):
             # Fetch the drift axis. If not provided, join the two TPC centers
             if drift_dirs is not None:
                 drift_dir = drift_dirs[t]
             else:
-                drift_dir = positions[t] - positions[1 - t]
+                drift_dir = position - positions[1 - t]
                 drift_dir /= np.linalg.norm(drift_dir)
 
             # Instantiate TPC
-            self.chambers.append(TPCChamber(positions[t], dimensions, drift_dir))
+            self.chambers.append(TPCChamber(positions[t], dimensions[t], drift_dir))
 
         # Initialize the underlying box object
         lower = np.min(np.vstack([c.lower for c in self.chambers]), axis=0)
@@ -300,8 +300,8 @@ class TPCDetector(Box):
 
         Parameters
         ----------
-        dimensions : List[float]
-            (3) Dimensions of one TPC
+        dimensions : Union[List[float], List[List[float]]]
+            (3/N_t) Dimensions of one TPC (if shared) or list of dimensions for each TPC
         positions : List[List[float]]
             (N_t) List of TPC center positions, one per TPC
         module_ids : List[int]
@@ -319,9 +319,17 @@ class TPCDetector(Box):
             (N_i) Dictionary which defines a list of bounding planes which
             restrict the active region of the detector
         """
+        # If only one set of dimensions is provided, assume all TPCs share it
+        assert len(dimensions) == 3 or len(dimensions) == len(positions), (
+            "Must provide either one set of TPC dimensions for all TPCs, "
+            "or one set of dimensions per TPC."
+        )
+        if len(dimensions) == 3 and isinstance(dimensions[0], (float, int)):
+            dimensions = [dimensions for _ in range(len(positions))]
+
         # Check the sanity of the configuration
-        assert (
-            len(dimensions) == 3
+        assert np.all(
+            [len(dim) == 3 for dim in dimensions]
         ), "Should provide the TPC dimension along 3 dimensions."
         assert np.all(
             [len(pos) == 3 for pos in positions]
@@ -334,20 +342,23 @@ class TPCDetector(Box):
         dimensions = np.asarray(dimensions)
         positions = np.asarray(positions)
         module_ids = np.asarray(module_ids, dtype=int)
+        if drift_dirs is not None:
+            drift_dirs = np.asarray(drift_dirs)
 
         # Construct TPC chambers, organized by module
         self.modules = []
         self.chambers = []
+        module_drift_dirs = None
         for m in np.unique(module_ids):
             # Narrow down the set of TPCs to those in this module
             module_index = np.where(module_ids == m)[0]
             module_positions = positions[module_index]
-            module_drift_dirs = None
+            module_dimensions = dimensions[module_index]
             if drift_dirs is not None:
                 module_drift_dirs = drift_dirs[module_index]
 
             # Initialize the module, store
-            module = TPCModule(module_positions, dimensions, module_drift_dirs)
+            module = TPCModule(module_positions, module_dimensions, module_drift_dirs)
             self.modules.append(module)
             self.chambers.extend(module.chambers)
 
