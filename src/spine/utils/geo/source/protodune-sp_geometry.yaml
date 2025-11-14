@@ -1,3 +1,6 @@
+detector: ProtoDUNE-SP
+tag: protodunev7
+version: 7
 tpc:
   dimensions:
   - [1.474, 598.39, 693.6569]

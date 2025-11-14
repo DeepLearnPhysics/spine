@@ -1,3 +1,6 @@
+detector: ICARUS
+tag: icarus_v4
+version: 4
 tpc:
   dimensions: [148.2, 316.82, 1789.902]
   module_ids: [0, 0, 1, 1]

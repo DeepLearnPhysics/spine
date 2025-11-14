@@ -1,3 +1,6 @@
+detector: SBND
+tag: sbndv2
+version: 2
 tpc:
   dimensions: [201.4, 400.016, 501.31562]
   module_ids: [0, 0]
