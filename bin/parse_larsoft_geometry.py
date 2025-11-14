@@ -556,10 +556,38 @@ def main(source, output=None, cathode_thickness=0.0, pixel_size=0.0):
     if tpcs_per_module != 2:
         tpc_yaml["drift_dirs"] = drift_dirs
 
+    # Build top-level YAML structure
+    yaml_data = {}
+    # Parse geometry header from the second line (e.g. 'Detector icarus_v4')
+    import os
+
+    detector = None
+    name = None
+    version = None
+    # Extract detector from file name (e.g. ProtoDUNE-SP-geometry.txt -> ProtoDUNE-SP)
+    base = os.path.basename(source)
+    detector_match = re.match(r"([A-Za-z0-9_-]+)-geometry", base)
+    if detector_match:
+        detector = detector_match.group(1)
+    if len(lines) > 1:
+        match = re.search(r"Detector\s+([a-zA-Z0-9_-]+)", lines[1])
+        if match:
+            name = match.group(1)
+            # Version: last number in name
+            version_match = re.search(r"(\d+)$", name)
+            version = int(version_match.group(1)) if version_match else None
+    if detector:
+        yaml_data["detector"] = detector
+    if name:
+        yaml_data["name"] = name
+    if version is not None:
+        yaml_data["version"] = version
+    yaml_data["tpc"] = tpc_yaml
+
     # Print the YAML structure
     print("TPC section for YAML file:")
     print("=" * 60)
-    print(yaml.dump({"tpc": tpc_yaml}, default_flow_style=None, sort_keys=False))
+    print(yaml.dump(yaml_data, default_flow_style=None, sort_keys=False))
     print("=" * 60)
 
     # Also print a summary
@@ -578,7 +606,7 @@ def main(source, output=None, cathode_thickness=0.0, pixel_size=0.0):
     # Write the final YAML to file
     output_path = output if output is not None else source.replace(".txt", "_tpc.yaml")
     with open(output_path, "w", encoding="utf-8") as f:
-        yaml.dump({"tpc": tpc_yaml}, f, default_flow_style=None, sort_keys=False)
+        yaml.dump(yaml_data, f, default_flow_style=None, sort_keys=False)
     print(f"\nYAML file written to: {output_path}")
 
 
