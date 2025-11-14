@@ -380,31 +380,8 @@ def main(source, output=None, cathode_thickness=0.0, pixel_size=0.0):
     # Sort TPCs by cryostat and TPC number for consistent ordering
     tpc_list.sort(key=lambda x: (x["cryostat"], x["tpc"]))
 
-    # Keep track of all TPCs (including filtered ones) for det_ids mapping
+    # Keep track of all TPCs for det_ids mapping
     all_tpcs = tpc_list.copy()
-
-    # Filter out very small TPCs (likely inactive gaps or edges)
-    # These are common in ProtoDUNE-style detectors with <10cm drift
-    filtered_tpc_list = []
-    skipped_tpcs = []
-    for tpc in tpc_list:
-        drift_dist = tpc.get("drift_distance", tpc["dimensions"][0])
-        if drift_dist > 10.0:  # Only keep TPCs with >10cm drift distance
-            filtered_tpc_list.append(tpc)
-        else:
-            skipped_tpcs.append(
-                f"C:{tpc['cryostat']} T:{tpc['tpc']} (drift={drift_dist:.2f}cm)"
-            )
-
-    # Track whether we filtered any TPCs (indicates ProtoDUNE-style geometry)
-    has_filtered_tpcs = len(skipped_tpcs) > 0
-
-    if skipped_tpcs:
-        print(
-            f"Skipping {len(skipped_tpcs)} small edge TPCs: {', '.join(skipped_tpcs)}\n"
-        )
-
-    tpc_list = filtered_tpc_list
 
     # Group TPCs by shared cathode position (physical drift volumes)
     # TPCs that drift from the same cathode are part of the same physical TPC
@@ -456,27 +433,52 @@ def main(source, output=None, cathode_thickness=0.0, pixel_size=0.0):
     combined_tpcs = []
     for group_tpcs in sorted_groups:
 
-        # Sort by z position
-        group_tpcs.sort(key=lambda t: t["position"][2])
+        # Sort by z position, then by y position
+        group_tpcs.sort(key=lambda t: (t["position"][2], t["position"][1]))
 
         # Get dimensions from first TPC
         dims = group_tpcs[0]["dimensions"].copy()
 
-        # Compute combined z-dimension (sum of all TPCs in group along z)
-        total_z_length = sum(tpc["dimensions"][2] for tpc in group_tpcs)
-        dims[2] = total_z_length
+        # Check if TPCs are arranged in a multi-dimensional grid
+        # by looking at unique Y and Z positions
+        unique_y = sorted(set(round(tpc["position"][1], 1) for tpc in group_tpcs))
+        unique_z = sorted(set(round(tpc["position"][2], 1) for tpc in group_tpcs))
 
-        # For ProtoDUNE-style detectors (where we filtered small TPCs), use drift distance
-        # For other detectors (ICARUS, SBND), keep the active volume dimensions
-        if has_filtered_tpcs and all("drift_distance" in tpc for tpc in group_tpcs):
-            # Use the drift distance from the first TPC (should be same for all in group)
-            dims[0] = group_tpcs[0]["drift_distance"]
+        if len(unique_y) > 1 or len(unique_z) > 1:
+            # Multi-dimensional arrangement - compute bounding box
+            # Get min/max positions for each axis
+            min_y = min(
+                tpc["position"][1] - tpc["dimensions"][1] / 2 for tpc in group_tpcs
+            )
+            max_y = max(
+                tpc["position"][1] + tpc["dimensions"][1] / 2 for tpc in group_tpcs
+            )
+            min_z = min(
+                tpc["position"][2] - tpc["dimensions"][2] / 2 for tpc in group_tpcs
+            )
+            max_z = max(
+                tpc["position"][2] + tpc["dimensions"][2] / 2 for tpc in group_tpcs
+            )
 
-        # Position: for single TPC, keep original z; for multiple TPCs combined along z, set z=0.0 (center)
-        pos = group_tpcs[0]["position"].copy()
-        if len(group_tpcs) > 1:
-            # Multiple TPCs combined along z-axis - center at z=0
-            pos[2] = 0.0
+            # Set combined dimensions
+            dims[1] = max_y - min_y
+            dims[2] = max_z - min_z
+
+            # Position is at the center of the bounding box
+            pos = group_tpcs[0]["position"].copy()
+            pos[1] = (min_y + max_y) / 2
+            pos[2] = (min_z + max_z) / 2
+        else:
+            # Single-dimensional arrangement along z-axis (original logic)
+            # Compute combined z-dimension (sum of all TPCs in group along z)
+            total_z_length = sum(tpc["dimensions"][2] for tpc in group_tpcs)
+            dims[2] = total_z_length
+
+            # Position: for single TPC, keep original z; for multiple TPCs combined along z, set z=0.0 (center)
+            pos = group_tpcs[0]["position"].copy()
+            if len(group_tpcs) > 1:
+                # Multiple TPCs combined along z-axis - center at z=0
+                pos[2] = 0.0
 
         combined_tpcs.append(
             {
@@ -519,17 +521,40 @@ def main(source, output=None, cathode_thickness=0.0, pixel_size=0.0):
     if det_ids != list(range(len(det_ids))):
         tpc_yaml["det_ids"] = det_ids
 
-    # Extract data from each combined TPC
+    # Collect all dimensions for each physical TPC
+    all_dimensions = [
+        [round(d, 4) for d in combined_tpc["dimensions"]]
+        for combined_tpc in combined_tpcs
+    ]
+
+    # Check if all dimensions are the same
+    if all(dim == all_dimensions[0] for dim in all_dimensions):
+        tpc_yaml["dimensions"] = all_dimensions[0]
+    else:
+        tpc_yaml["dimensions"] = all_dimensions
+
+    # Extract module IDs, positions, and drift directions
+    drift_dirs = []
+
+    def clean_zero(val):
+        # Convert -0.0 to 0.0
+        return 0.0 if val == 0 or val == -0.0 else val
+
     for combined_tpc in combined_tpcs:
-        # Set dimensions from first TPC (assuming all are the same)
-        if tpc_yaml["dimensions"] is None:
-            tpc_yaml["dimensions"] = [round(d, 4) for d in combined_tpc["dimensions"]]
-
-        # Module ID is the cryostat number
         tpc_yaml["module_ids"].append(combined_tpc["cryostat"])
-
-        # Position is the combined position (rounded to 4 decimal places)
         tpc_yaml["positions"].append([round(p, 4) for p in combined_tpc["position"]])
+        # Collect drift direction from first TPC in group
+        drift_dir = combined_tpc["tpc_group"][0].get("drift_direction")
+        if drift_dir:
+            drift_dirs.append([clean_zero(round(x, 4)) for x in drift_dir])
+
+    # Store drift_dirs only if the number of combined TPCs per module is not 2
+    num_modules = len(set(tpc_yaml["module_ids"]))
+    tpcs_per_module = (
+        len(combined_tpcs) // num_modules if num_modules > 0 else len(combined_tpcs)
+    )
+    if tpcs_per_module != 2:
+        tpc_yaml["drift_dirs"] = drift_dirs
 
     # Print the YAML structure
     print("TPC section for YAML file:")
