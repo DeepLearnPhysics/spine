@@ -332,30 +332,6 @@ def parse_tpc_block(lines, start_idx, cathode_thickness=0.0, pixel_size=0.0):
     return tpc_info
 
 
-def compute_wire_plane_limits(tpc_list):
-    """Compute wire plane intercepts and normals from TPC geometry.
-
-    For ICARUS-style detectors with angled wire planes, compute the
-    plane equations that bound the TPC active volumes.
-
-    Parameters
-    ----------
-    tpc_list : list
-        List of TPC info dictionaries
-
-    Returns
-    -------
-    dict
-        Dictionary with 'intercepts' and 'norms' lists
-    """
-    # TODO: Implement wire plane limit calculation
-    # For now, return empty lists
-    intercepts = []
-    norms = []
-
-    return {"intercepts": intercepts, "norms": norms}
-
-
 def main(source, output=None, cathode_thickness=0.0, pixel_size=0.0):
     """Main function for parsing LArSoft geometry files.
 
@@ -462,7 +438,6 @@ def main(source, output=None, cathode_thickness=0.0, pixel_size=0.0):
         "module_ids": [],
         "det_ids": [],
         "positions": [],
-        "limits": None,
     }
 
     # Extract data from each combined TPC
@@ -480,18 +455,11 @@ def main(source, output=None, cathode_thickness=0.0, pixel_size=0.0):
         # Position is the combined position
         tpc_yaml["positions"].append(combined_tpc["position"])
 
-    # Compute wire plane limits using original TPC list
-    tpc_yaml["limits"] = compute_wire_plane_limits(tpc_list)
-
     # Print the YAML structure
     print("TPC section for YAML file:")
     print("=" * 60)
     print(yaml.dump({"tpc": tpc_yaml}, default_flow_style=None, sort_keys=False))
     print("=" * 60)
-    print("\nNOTE: The wire plane limits may need manual adjustment.")
-    print("The intercepts and norms are computed from the first induction")
-    print("plane angle in each TPC. You may need to verify these match")
-    print("the actual detector geometry constraints.")
 
     # Also print a summary
     print(
