@@ -444,7 +444,7 @@ def main(source, output=None, cathode_thickness=0.0, pixel_size=0.0):
     for combined_tpc in combined_tpcs:
         # Set dimensions from first TPC (assuming all are the same)
         if tpc_yaml["dimensions"] is None:
-            tpc_yaml["dimensions"] = combined_tpc["dimensions"]
+            tpc_yaml["dimensions"] = [round(d, 4) for d in combined_tpc["dimensions"]]
 
         # Module ID is the cryostat number
         tpc_yaml["module_ids"].append(combined_tpc["cryostat"])
@@ -452,8 +452,8 @@ def main(source, output=None, cathode_thickness=0.0, pixel_size=0.0):
         # Det ID is also the cryostat number (for ICARUS)
         tpc_yaml["det_ids"].append(combined_tpc["cryostat"])
 
-        # Position is the combined position
-        tpc_yaml["positions"].append(combined_tpc["position"])
+        # Position is the combined position (rounded to 4 decimal places)
+        tpc_yaml["positions"].append([round(p, 4) for p in combined_tpc["position"]])
 
     # Print the YAML structure
     print("TPC section for YAML file:")
