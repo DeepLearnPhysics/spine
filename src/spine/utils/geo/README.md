@@ -40,8 +40,8 @@ For wire-based liquid argon TPCs (SBND, ICARUS, ProtoDUNE, etc.) that use LArSof
    lar -c dump_<detector>_geometry.fcl > geometry_dump.txt
    
    # For example:
-   # lar -c dump_sbnd_geometry.fcl > SBND-geometry.txt
-   # lar -c dump_icarus_geometry.fcl > ICARUS-geometry.txt
+   # lar -c dump_sbnd_geometry.fcl
+   # lar -c dump_icarus_geometry.fcl
    ```
 
 2. **Run the SPINE geometry parser:**

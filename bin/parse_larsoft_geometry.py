@@ -98,11 +98,24 @@ def parse_tpc_block(lines, start_idx, cathode_thickness=0.0, pixel_size=0.0):
         ) and i > start_idx + 8:
             break
 
-        # Parse drift direction
+        # Parse drift direction and cathode position
         if "drift direction" in line:
             drift_dir = parse_vector(line)
             if drift_dir:
                 tpc_info["drift_direction"] = drift_dir
+
+            # Also extract cathode position and drift distance
+            # Format: "drift direction (x,y,z) from cathode around (x,y,z) through XXX cm"
+            cathode_match = re.search(
+                r"from cathode around\s*\(([-\d.eE+]+),([-\d.eE+]+),([-\d.eE+]+)\)",
+                line,
+            )
+            if cathode_match:
+                tpc_info["cathode_x"] = float(cathode_match.group(1))
+
+            drift_dist_match = re.search(r"through\s+([-\d.eE+]+)\s+cm", line)
+            if drift_dist_match:
+                tpc_info["drift_distance"] = float(drift_dist_match.group(1))
 
         # Parse active volume dimensions and front face position
         elif "active volume" in line and "front face at" in line:
@@ -367,23 +380,57 @@ def main(source, output=None, cathode_thickness=0.0, pixel_size=0.0):
     # Sort TPCs by cryostat and TPC number for consistent ordering
     tpc_list.sort(key=lambda x: (x["cryostat"], x["tpc"]))
 
-    # Group TPCs by shared wire plane X positions
-    # TPCs that share the same wire plane X positions should be in the same group
-    # This handles both ICARUS (TPCs 0/1 share planes, 2/3 share planes) and
-    # SBND (each TPC has unique plane positions)
+    # Filter out very small TPCs (likely inactive gaps or edges)
+    # These are common in ProtoDUNE-style detectors with <10cm drift
+    filtered_tpc_list = []
+    skipped_tpcs = []
+    for tpc in tpc_list:
+        drift_dist = tpc.get("drift_distance", tpc["dimensions"][0])
+        if drift_dist > 10.0:  # Only keep TPCs with >10cm drift distance
+            filtered_tpc_list.append(tpc)
+        else:
+            skipped_tpcs.append(
+                f"C:{tpc['cryostat']} T:{tpc['tpc']} (drift={drift_dist:.2f}cm)"
+            )
 
-    # For each TPC, create a "signature" based on wire plane X positions (rounded)
+    # Track whether we filtered any TPCs (indicates ProtoDUNE-style geometry)
+    has_filtered_tpcs = len(skipped_tpcs) > 0
+
+    if skipped_tpcs:
+        print(
+            f"Skipping {len(skipped_tpcs)} small edge TPCs: {', '.join(skipped_tpcs)}\n"
+        )
+
+    tpc_list = filtered_tpc_list
+
+    # Group TPCs by shared cathode position (physical drift volumes)
+    # TPCs that drift from the same cathode are part of the same physical TPC
+    # However, TPCs drifting in opposite directions from the same cathode are separate
+    # This handles:
+    # - ICARUS: TPCs 0/1 share wire planes and cathode → same drift volume
+    # - SBND: same cathode but opposite drift directions → separate drift volumes
+    # - ProtoDUNE: multiple readout TPCs drift same direction from same cathode → same drift volume
+
+    # For each TPC, create a "signature" based on cathode X position and drift direction
+    # If no cathode info, fall back to wire plane X positions and X dimension
     tpc_signatures = []
     for tpc in tpc_list:
-        if "plane_positions" in tpc and len(tpc["plane_positions"]) > 0:
-            # Use the X positions of all planes as the signature
+        if "cathode_x" in tpc and "drift_direction" in tpc:
+            # Use cathode X position and drift direction sign as the signature
+            cathode_x = round(tpc["cathode_x"], 1)
+            drift_sign = 1 if tpc["drift_direction"][0] > 0 else -1
+            tpc_signatures.append((cathode_x, drift_sign))
+        elif "plane_positions" in tpc and len(tpc["plane_positions"]) > 0:
+            # Fallback: Use wire plane X positions and X dimension
             plane_x_positions = tuple(
                 round(pos[0], 1) for pos in tpc["plane_positions"]
             )
-            tpc_signatures.append(plane_x_positions)
+            x_dimension = round(tpc["dimensions"][0], 1)
+            tpc_signatures.append((plane_x_positions, x_dimension))
         else:
-            # Fallback: use TPC center X position
-            tpc_signatures.append((round(tpc["position"][0], 1),))
+            # Last fallback: use TPC center X position and X dimension
+            x_dimension = round(tpc["dimensions"][0], 1)
+            tpc_signatures.append(((round(tpc["position"][0], 1),), x_dimension))
 
     # Group TPCs with matching signatures
     signature_to_group = {}
@@ -415,6 +462,12 @@ def main(source, output=None, cathode_thickness=0.0, pixel_size=0.0):
         # Compute combined z-dimension (sum of all TPCs in group along z)
         total_z_length = sum(tpc["dimensions"][2] for tpc in group_tpcs)
         dims[2] = total_z_length
+
+        # For ProtoDUNE-style detectors (where we filtered small TPCs), use drift distance
+        # For other detectors (ICARUS, SBND), keep the active volume dimensions
+        if has_filtered_tpcs and all("drift_distance" in tpc for tpc in group_tpcs):
+            # Use the drift distance from the first TPC (should be same for all in group)
+            dims[0] = group_tpcs[0]["drift_distance"]
 
         # Position: for single TPC, keep original z; for multiple TPCs combined along z, set z=0.0 (center)
         pos = group_tpcs[0]["position"].copy()
