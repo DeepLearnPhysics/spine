@@ -13,7 +13,6 @@ Then run this script on the dumped text file.
 import argparse
 import re
 
-import numpy as np
 import yaml
 
 
