@@ -13,7 +13,9 @@ Then run this script on the dumped text file.
 import argparse
 import os
 import re
+from warnings import warn
 
+import numpy as np
 import yaml
 
 
@@ -62,6 +64,7 @@ def parse_tpc_block(lines, start_idx, cathode_thickness=0.0, pixel_size=0.0):
         - drift_direction: Drift direction vector
         - plane_angles: List of plane angles in radians
     """
+    # Initialize dictionary to hold TPC info
     tpc_info = {}
 
     # Parse TPC header: "TPC C:X T:Y (dimensions) at (position)"
@@ -345,6 +348,118 @@ def parse_tpc_block(lines, start_idx, cathode_thickness=0.0, pixel_size=0.0):
     return tpc_info
 
 
+def parse_optical_block(lines, start_idx):
+    """Parse a single optical block from the geometry file.
+
+    Parameters
+    ----------
+    lines : list
+        List of text lines from the geometry file
+    start_idx : int
+        Index where the Optical block starts
+
+    Returns
+    -------
+    dict
+        Dictionary containing TPC information:
+        - shape: List of optical detector shapes
+        - dimensions: List of optical detector dimensions
+        - shape_ids: List of optical detector shape IDs
+        - positions: List of center positions of the optical detectors
+    """
+
+    # Loop over the lines to find all optical detectors in the cryostat
+    shapes = []
+    dimensions = []
+    positions = []
+    for i in range(start_idx, len(lines)):
+        if lines[i].strip().startswith("[OpDet #"):
+            # Fetch line
+            line = lines[i]
+
+            # Extract the type of optical detector (hemispherical or bar)
+            # Look for the first word after the comma
+            type_match = re.search(r",\s*([a-zA-Z]+)", line)
+            print(line)
+            if type_match:
+                shape = type_match.group(1).lower()
+                if shape == "hemispherical":
+                    shape = "ellipsoid"
+                elif shape == "bar":
+                    shape = "box"
+                else:
+                    raise ValueError(
+                        f"Unknown optical detector shape: {shape}. "
+                        f"Should be 'hemispherical' or 'bar'."
+                    )
+
+                shapes.append(shape)
+            else:
+                raise ValueError("Could not parse optical detector shape.")
+
+            # Extract dimension of the optical detector
+            if shape == "ellipsoid":
+                radius_match = re.search(r"external radius\s+([-\d.eE+]+)\s+cm", line)
+                if radius_match:
+                    radius = float(radius_match.group(1))
+                    dimensions.append([radius, 2 * radius, 2 * radius])
+                else:
+                    raise ValueError(
+                        "Could not parse hemispherical optical detector radius."
+                    )
+            elif shape == "box":
+                size_match = re.search(
+                    r"bar size\s+([-\d.eE+]+)\s+x\s+([-\d.eE+]+)\s+x\s+([-\d.eE+]+)\s+cm",
+                    line,
+                )
+                if size_match:
+                    dim_x = float(size_match.group(1))
+                    dim_y = float(size_match.group(2))
+                    dim_z = float(size_match.group(3))
+                    dimensions.append([dim_x, dim_y, dim_z])
+                else:
+                    raise ValueError("Could not parse box optical detector size.")
+
+            # Extract the position of the optical detector
+            pos_match = parse_vector(line.split("centered at")[1].split(" cm,")[0])
+            if pos_match:
+                positions.append(pos_match)
+            else:
+                raise ValueError("Could not parse optical detector position.")
+        else:
+            break
+
+    # Initialize dictionary to hold optical detector info
+    op_info = {
+        "shape": [],
+        "dimensions": [],
+        "positions": np.array(positions),
+        "shape_ids": np.zeros(len(positions), dtype=int),
+    }
+
+    # Clean up redundancy in optical detector shapes
+    idx = 0
+    for shape in np.unique(shapes):
+        # Get list of optical detectors with this shape
+        index = np.where(np.array(shapes) == shape)[0]
+
+        # Loop over all detectors to get dimensions
+        for dim in np.unique(np.array(dimensions)[index], axis=0):
+            index_d = index[(np.array(dimensions)[index] == dim).all(axis=1)]
+            op_info["shape"].append(shape)
+            op_info["dimensions"].append(dim.tolist())
+            op_info["shape_ids"][index_d] = idx
+            idx += 1
+
+    # If there is a single type of optical detector, simplify
+    if idx < 2:
+        op_info["shape"] = op_info["shape"][0]
+        op_info["dimensions"] = op_info["dimensions"][0]
+        del op_info["shape_ids"]  # No need for det_ids if only one shape/size
+
+    return op_info
+
+
 def main(source, output=None, cathode_thickness=0.0, pixel_size=0.0):
     """Main function for parsing LArSoft geometry files.
 
@@ -395,8 +510,9 @@ def main(source, output=None, cathode_thickness=0.0, pixel_size=0.0):
             if match:
                 gdml = os.path.basename(match.group(1))
 
-    # Parse all TPC blocks
+    # Parse all TPC and optical detector blocks
     tpc_list = []
+    op_info_list = []
     for i, line in enumerate(lines):
         if line.strip().startswith("TPC C:"):
             tpc_info = parse_tpc_block(
@@ -404,8 +520,13 @@ def main(source, output=None, cathode_thickness=0.0, pixel_size=0.0):
             )
             if tpc_info and "position" in tpc_info and "dimensions" in tpc_info:
                 tpc_list.append(tpc_info)
+        elif line.strip().startswith("[OpDet #0]"):
+            op_info = parse_optical_block(lines, i)
+            if op_info and "positions" in op_info and "dimensions" in op_info:
+                op_info_list.append(op_info)
 
-    print(f"Found {len(tpc_list)} TPCs\n")
+    print(f"Found {len(tpc_list)} TPCs")
+    print(f"Found {len(op_info_list)} optical detector blocks\n")
 
     # Sort TPCs by cryostat and TPC number for consistent ordering
     tpc_list.sort(key=lambda x: (x["cryostat"], x["tpc"]))
@@ -446,7 +567,6 @@ def main(source, output=None, cathode_thickness=0.0, pixel_size=0.0):
     signature_to_group = {}
     group_counter = 0
     tpc_groups = {}
-
     for tpc, signature in zip(tpc_list, tpc_signatures):
         if signature not in signature_to_group:
             signature_to_group[signature] = group_counter
@@ -498,6 +618,7 @@ def main(source, output=None, cathode_thickness=0.0, pixel_size=0.0):
             pos = group_tpcs[0]["position"].copy()
             pos[1] = (min_y + max_y) / 2
             pos[2] = (min_z + max_z) / 2
+
         else:
             # Single-dimensional arrangement along z-axis (original logic)
             # Compute combined z-dimension (sum of all TPCs in group along z)
@@ -586,6 +707,54 @@ def main(source, output=None, cathode_thickness=0.0, pixel_size=0.0):
     if tpcs_per_module != 2:
         tpc_yaml["drift_dirs"] = drift_dirs
 
+    # Add optical detector info if available
+    op_yaml = {}
+    if op_info_list:
+        # If there are multiple optical detector blocks, warn and only use the first
+        if len(op_info_list) > 1:
+            warn(
+                f"Multiple optical detector blocks found ({len(op_info_list)}). "
+                "Only the first block will be used in the YAML output."
+            )
+        op_info = op_info_list[0]
+
+        # Fetch the module central position to offset optical detector positions
+        offset = np.zeros(3, dtype=float)
+        for i, positions in enumerate(tpc_yaml["positions"]):
+            if tpc_yaml["module_ids"][i] == 0:
+                offset += np.array(positions) / tpcs_per_module
+
+        # Offset the positions to represent relative offsets w.r.t. to the module center
+        op_info["positions"] = op_info["positions"] - offset
+
+        # Specify optical volume and indexing strategy
+        op_yaml["volume"] = "module"
+        op_yaml["global_index"] = (
+            len(op_info_list) < 2
+        )  # True if single block, else False
+
+        # Add shape and dimensions
+        op_yaml["shape"] = (
+            str(op_info["shape"])
+            if isinstance(op_info["shape"], str)
+            else [str(s) for s in op_info["shape"]]
+        )
+        op_yaml["dimensions"] = (
+            [float(round(d, 4)) for d in op_info["dimensions"]]
+            if isinstance(op_info["dimensions"], list)
+            and isinstance(op_info["dimensions"][0], float)
+            else [[float(round(d, 4)) for d in dim] for dim in op_info["dimensions"]]
+        )
+
+        # Add shape_ids if multiple shapes
+        if "shape_ids" in op_info:
+            op_yaml["shape_ids"] = op_info["shape_ids"].tolist()
+
+        # Convert positions to rounded floats
+        op_yaml["positions"] = [
+            [float(round(p, 4)) for p in pos] for pos in op_info["positions"]
+        ]
+
     # Build top-level YAML structure
     yaml_data = {}
     yaml_data["name"] = detector
@@ -596,8 +765,12 @@ def main(source, output=None, cathode_thickness=0.0, pixel_size=0.0):
     # Add the TPC geometry information
     yaml_data["tpc"] = tpc_yaml
 
+    # Add the optical geometry information if available
+    if op_yaml:
+        yaml_data["optical"] = op_yaml
+
     # Print the YAML structure
-    print("TPC section for YAML file:")
+    print("YAML file:")
     print("=" * 60)
     print(yaml.dump(yaml_data, default_flow_style=None, sort_keys=False))
     print("=" * 60)

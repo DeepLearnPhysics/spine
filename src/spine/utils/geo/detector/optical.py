@@ -1,7 +1,7 @@
 """Optical detector geometry classes."""
 
 from dataclasses import dataclass
-from typing import List
+from typing import List, Optional, Union
 
 import numpy as np
 
@@ -21,7 +21,7 @@ class OptDetector:
         (N_v, N_o, 3) Location of the center of each of the optical detectors
         - N_v is the number of optical volumes
         - N_o is the number of optical detectors in each volume
-    shape : List[str]
+    shape : Union[str, List[str]]
         (N_d) Optical detector shape(s), combination of 'ellipsoid' and 'box'
         - N_d is the number of detector types
     dimensions : np.ndarray
@@ -39,10 +39,10 @@ class OptDetector:
 
     volume: str
     positions: np.ndarray
-    shape: list
     dimensions: np.ndarray
-    shape_ids: np.ndarray = None
-    det_ids: np.ndarray = None
+    shape: Union[str, List[str]]
+    shape_ids: Optional[np.ndarray] = None
+    det_ids: Optional[np.ndarray] = None
 
     def __init__(
         self,
@@ -85,8 +85,8 @@ class OptDetector:
             TPC of each module
         """
         # Parse the detector shape(s) and its mapping, store is as a list
-        assert shape in ["ellipsoid", "box"] or np.all(
-            [s in ["ellipsoid", "box"] for s in shape]
+        assert shape in ("ellipsoid", "box") or np.all(
+            [s in ("ellipsoid", "box") for s in shape]
         ), (
             "The shape of optical detectors must be represented as either "
             "an 'ellipsoid' or a 'box', or a list of them."
@@ -119,19 +119,19 @@ class OptDetector:
 
         # Parse the relative optical detector posiitons
         rel_positions = np.asarray(positions)
+        rel_positions_m = np.copy(rel_positions)
         if mirror:
-            rel_positions_m = np.copy(rel_positions)
             rel_positions_m[:, -1] = -rel_positions_m[:, -1]
 
         # Store the optical detector positions in each optical volume
         count = len(positions)
         offsets = np.asarray(volume_offsets)
         self.positions = np.empty((len(offsets), count, 3))
-        for v in range(len(offsets)):
+        for v, offset in enumerate(offsets):
             if mirror and v % 2 != 0:
-                self.positions[v] = rel_positions_m + offsets[v]
+                self.positions[v] = rel_positions_m + offset
             else:
-                self.positions[v] = rel_positions + offsets[v]
+                self.positions[v] = rel_positions + offset
 
         # Store if the flash points to the entire index of optical detectors
         self.global_index = global_index
