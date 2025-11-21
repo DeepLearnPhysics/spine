@@ -1,7 +1,7 @@
 """CRT detector geometry classes."""
 
 from dataclasses import dataclass
-from typing import List
+from typing import Dict, List, Optional
 
 import numpy as np
 
@@ -61,7 +61,7 @@ class CRTDetector(Box):
     """
 
     planes: List[CRTPlane]
-    det_ids: dict = None
+    det_ids: Optional[Dict[int, int]] = None
 
     def __init__(self, dimensions, positions, normals, logical_ids=None):
         """Parse the CRT detector configuration.
@@ -99,15 +99,15 @@ class CRTDetector(Box):
 
         # Construct the CRT planes
         self.planes = []
-        for i in range(len(positions)):
-            plane = CRTPlane(positions[i], dimensions[i], normals[i])
+        for i, position in enumerate(positions):
+            plane = CRTPlane(position, dimensions[i], normals[i])
             self.planes.append(plane)
 
         # Store CRT detector parameters
         if logical_ids is not None:
             self.det_ids = {idx: i for i, idx in enumerate(logical_ids)}
         else:
-            self.det_ids = np.arange(len(positions), dtype=int)
+            self.det_ids = {i: i for i in range(len(positions))}
 
         # Initialize the underlying all-encompasing box object
         lower = np.min(np.vstack([p.lower for p in self.planes]), axis=0)
@@ -158,22 +158,4 @@ class CRTDetector(Box):
         CRTDetector
             The detector itself
         """
-        self._counter = 0
-        return self
-
-    def __next__(self):
-        """Defines how to process the next CRTPlane in the detector.
-
-        Returns
-        -------
-        CRTPlane
-            Next CRTPlane instance in the list
-        """
-        # If there are more TPCs to go through, return it
-        if self._counter < len(self):
-            plane = self.planes[self._counter]
-            self._counter += 1
-
-            return plane
-
-        raise StopIteration
+        return iter(self.planes)
