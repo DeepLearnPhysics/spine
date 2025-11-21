@@ -165,9 +165,14 @@ def layout3d(
         if aspectratio is None:
             axes = ["x", "y", "z"]
             ratios = np.ones(len(ranges))
-            if ranges[0] is not None:
-                max_range = np.max(ranges[:, 1] - ranges[:, 0])
-                ratios = (ranges[:, 1] - ranges[:, 0]) / max_range
+            if ranges is not None and ranges[0] is not None:
+                ranges_arr = np.array(ranges)
+                assert ranges_arr.shape == (
+                    3,
+                    2,
+                ), "If ranges is provided to infer aspectratio, it must be of shape (3, 2)."
+                max_range = np.max(ranges_arr[:, 1] - ranges_arr[:, 0])
+                ratios = (ranges_arr[:, 1] - ranges_arr[:, 0]) / max_range
             aspectratio = {axes[i]: v for i, v in enumerate(ratios)}
 
     # Check on the axis titles, define default
@@ -309,13 +314,13 @@ def dual_figure3d(
         # Track if we're currently syncing to prevent infinite loops
         _syncing = [False]
 
-        def cam_change_left(layout_obj, camera):
+        def cam_change_left(_, camera):
             if not _syncing[0]:
                 _syncing[0] = True
                 fig.layout.scene2.camera = camera
                 _syncing[0] = False
 
-        def cam_change_right(layout_obj, camera):
+        def cam_change_right(_, camera):
             if not _syncing[0]:
                 _syncing[0] = True
                 fig.layout.scene1.camera = camera
