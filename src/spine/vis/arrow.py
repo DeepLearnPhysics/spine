@@ -50,11 +50,11 @@ def scatter_arrows(
         color_trunks = np.repeat(color, 3)
 
     hovertext_arrows = []
-    for i in range(len(directions)):
-        vx, vy, vz = directions[i]
+    for i, direction in enumerate(directions):
+        vx, vy, vz = direction
         ht = f"vx: {vx:0.3f}<br>vy: {vy:0.3f}<br>vz: {vz:0.3f}"
         if hovertext is not None:
-            if np.isscalar(hovertext):
+            if not isinstance(hovertext, (list, tuple, np.ndarray)):
                 ht += f"<br>{hovertext}"
             else:
                 ht += f"<br>{hovertext[i]}"

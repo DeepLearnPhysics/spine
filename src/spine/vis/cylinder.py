@@ -1,19 +1,18 @@
-"""Module to convert a point cloud into an ellipsoidal envelope."""
+"""Module to draw cylinders."""
 
 import time
 
 import numpy as np
 import plotly.graph_objs as go
-from scipy.special import gammaincinv  # pylint: disable=E0611
 
-__all__ = ["ellipsoid_trace", "ellipsoid_traces"]
+__all__ = ["cylinder_traces"]
 
 
-def ellipsoid_trace(
-    points=None,
-    centroid=None,
-    covmat=None,
-    contour=0.5,
+def cylinder_trace(
+    centroid,
+    axis,
+    height,
+    diameter,
     num_samples=10,
     color=None,
     intensity=None,
@@ -21,89 +20,63 @@ def ellipsoid_trace(
     showscale=False,
     **kwargs,
 ):
-    """Converts a cloud of points or a covariance matrix into a 3D ellipsoid.
-
-    This function uses the centroid and the covariance matrix of a cloud of
-    points to define an ellipsoid which would encompass a user-defined fraction
-    `contour` of all the points, were the points distributed following
-    a 3D Gaussian.
+    """Draw a cylinder centered at a given position.
 
     Parameters
     ----------
-    points : np.ndarray, optional
-        (N, 3) Array of point coordinates
-    centroid : np.ndarray, optional
-        (3) Centroid
-    covmat : np.ndarray, optional
-        (3, 3) Covariance matrix which defines the ellipsoid shape
-    contour : float, default 0.5
-        Fraction of the points contained in the ellipsoid, under the
-        Gaussian distribution assumption
+    centroid : np.ndarray
+        (3) Centroid of the cylinder
+    axis : np.ndarray
+        (3) Axis direction of the cylinder
+    height : float
+        Height of the cylinder
+    diameter : float
+        Diameter of the cylinder
     num_samples : int, default 10
-        Number of points sampled along theta and phi in the spherical coordinate
-        system of the ellipsoid. A larger number increases the resolution.
+        Number of points sampled along theta and h in the cylindrical coordinate
+        system of the cylinder. A larger number increases the resolution.
     color : Union[str, float], optional
-        Color of ellipse
+        Color of cylinder
     intensity : Union[int, float], optional
-        Color intensity of the ellipsoid along the colorscale axis
+        Color intensity of the cylinder along the colorscale axis
     hovertext : Union[int, str, np.ndarray], optional
-        Text associated with the ellipsoid
+        Text associated with the cylinder
     showscale : bool, default False
         If True, show the colorscale of the :class:`plotly.graph_objs.Mesh3d`
     **kwargs : dict, optional
         Additional parameters to pass to the underlying
         :class:`plotly.graph_objs.Mesh3d` object
     """
-    # Ensure that either a cloud of points or a covariance matrix is provided
-    assert (points is not None) ^ (
-        centroid is not None and covmat is not None
-    ), "Must provide either `points` or both `centroid` and `covmat`."
-
-    # Compute the points on a unit sphere
+    # Compute the points on a unit cylinder
     phi = np.linspace(0, 2 * np.pi, num=num_samples)
-    theta = np.linspace(-np.pi / 2, np.pi / 2, num=num_samples)
-    phi, theta = np.meshgrid(phi, theta)
-    x = np.cos(theta) * np.sin(phi)
-    y = np.cos(theta) * np.cos(phi)
-    z = np.sin(theta)
+    h = np.linspace(-0.5, 0.5, num=num_samples)
+    phi, h = np.meshgrid(phi, h)
+    x = 0.5 * np.cos(phi)
+    y = 0.5 * np.sin(phi)
+    z = h
     unit_points = np.vstack((x.flatten(), y.flatten(), z.flatten())).T
 
-    # Get the centroid and the covariance matrix, if needed
-    covmat_provided = True
-    if covmat is None:
-        assert points is not None, (
-            "Points must be provided to compute covariance matrix "
-            "if it is not provided explicitly."
-        )
-        covmat_provided = False
+    # Compute the rotation matrix which aligns the z axis to the cylinder axis
+    axis = axis / np.linalg.norm(axis)
+    z_axis = np.array([0.0, 0.0, 1.0])
+    rotmat = np.eye(3)
+    if (axis != z_axis).any():
+        v = np.cross(z_axis, axis)
+        c = np.dot(z_axis, axis)
+        s = np.linalg.norm(v)
+        kmat = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
+        rotmat = np.eye(3) + kmat + kmat.dot(kmat) * ((1 - c) / (s**2))
 
-        if len(points) > 1:
-            centroid = np.mean(points, axis=0)
-            covmat = np.cov((points - centroid).T)
-        else:
-            centroid = points[0]
-            covmat = np.zeros((3, 3))
+    # Compute the scaling vectors for radius and height
+    scale = np.diag([diameter, diameter, height])
 
-    # Diagonalize the covariance matrix, get rotation matrix
-    w, v = np.linalg.eigh(covmat)
-    diag = np.diag(np.sqrt(w))
-    rotmat = np.dot(diag, v.T)
-
-    # Compute the radius corresponding to the contour probability and rotate
-    # the points into the basis of the covariance matrix
-    radius = 1.0
-    if not covmat_provided:
-        assert (
-            contour > 0.0 and contour < 1.0
-        ), "The `contour` parameter should be a probability."
-        radius = np.sqrt(2 * gammaincinv(1.5, contour))
-
-    ell_points = centroid + radius * np.dot(unit_points, rotmat)
+    # Compute the cylinder points
+    cyl_points = centroid + np.dot(unit_points.dot(scale), rotmat)
 
     # Convert the color provided to a set of intensities, if needed
     if color is not None and not isinstance(color, str):
         assert intensity is None, "Must not provide both `color` and `intensity`."
-        intensity = np.full(len(ell_points), color)
+        intensity = np.full(len(cyl_points), color)
         color = None
 
     # Update hovertemplate style
@@ -117,9 +90,9 @@ def ellipsoid_trace(
 
     # Append Mesh3d object
     return go.Mesh3d(
-        x=ell_points[:, 0],
-        y=ell_points[:, 1],
-        z=ell_points[:, 2],
+        x=cyl_points[:, 0],
+        y=cyl_points[:, 1],
+        z=cyl_points[:, 2],
         color=color,
         intensity=intensity,
         alphahull=0,
@@ -129,9 +102,11 @@ def ellipsoid_trace(
     )
 
 
-def ellipsoid_traces(
+def cylinder_traces(
     centroids,
-    covmat,
+    axis,
+    height,
+    diameter,
     color=None,
     hovertext=None,
     cmin=None,
@@ -142,19 +117,23 @@ def ellipsoid_traces(
     name=None,
     **kwargs,
 ):
-    """Function which produces a list of plotly traces of ellipsoids given a
+    """Function which produces a list of plotly traces of cylinders given a
     list of centroids and one covariance matrix in x, y and z.
 
     Parameters
     ----------
     centroids : np.ndarray
-        (N, 3) Positions of each of the ellipsoid centroids
-    covmat : np.ndarray
-        (3, 3) Covariance matrix which defines any of the base ellipsoid shape
+        (N, 3) Positions of each of the cylinder centroids
+    axis : np.ndarray
+        (3,) or (N, 3) Axis direction of the cylinders
+    height : Union[float, np.ndarray]
+        Height of the cylinders
+    diameter : Union[float, np.ndarray]
+        Diameter of the cylinders
     color : Union[str, np.ndarray], optional
-        Color of ellipsoids or list of color of ellispoids
+        Color of cylinders or list of color of cylinders
     hovertext : Union[int, str, np.ndarray], optional
-        Text associated with every ellipsoid or each ellipsoid
+        Text associated with every cylinder or each cylinder
     cmin : float, optional
         Minimum value along the color scale
     cmax : float, optional
@@ -162,7 +141,7 @@ def ellipsoid_traces(
     shared_legend : bool, default True
         If True, the plotly legend of all ellipsoids is shared as one
     legendgroup : str, optional
-        Legend group to be shared between all ellipsoids
+        Legend group to be shared between all cylinders
     showlegend : bool, default `True`
         Whether to show legends on not
     name : str, optional
@@ -179,16 +158,26 @@ def ellipsoid_traces(
     # Check the parameters
     assert (
         color is None or np.isscalar(color) or len(color) == len(centroids)
-    ), "Specify one color for all ellipsoids, or one color per ellipsoid."
+    ), "Specify one color for all cylinders, or one color per cylinder."
     assert (
         hovertext is None or np.isscalar(hovertext) or len(hovertext) == len(centroids)
-    ), "Specify one hovertext for all ellipsoids, or one hovertext per ellipsoid."
+    ), "Specify one hovertext for all cylinders, or one hovertext per cylinder."
+    assert axis.shape == (3,) or axis.shape == (
+        len(centroids),
+        3,
+    ), "Specify one axis for all cylinders, or one axis per cylinder."
+    assert np.isscalar(height) or len(height) == len(
+        centroids
+    ), "Specify one height for all cylinders, or one height per cylinder."
+    assert np.isscalar(diameter) or len(diameter) == len(
+        centroids
+    ), "Specify one diameter for all cylinders, or one diameter per cylinder."
 
-    # If one color is provided per ellipsoid, give an associated hovertext
+    # If one color is provided per cylinder, give an associated hovertext
     if hovertext is None and isinstance(color, (list, tuple, np.ndarray)):
         hovertext = [f"Value: {v:0.3f}" for v in color]
 
-    # If cmin/cmax are not provided, must build them so that all ellipsoids
+    # If cmin/cmax are not provided, must build them so that all cylinders
     # share the same colorscale range (not guaranteed otherwise)
     if color is not None and isinstance(color, (list, tuple, np.ndarray)):
         if len(color) > 0:
@@ -201,7 +190,7 @@ def ellipsoid_traces(
     if shared_legend and legendgroup is None:
         legendgroup = "group_" + str(time.time())
 
-    # Loop over the list of ellipsoid centroids
+    # Loop over the list of cylinder centroids
     traces = []
     col, hov = color, hovertext
     for i, centroid in enumerate(centroids):
@@ -218,11 +207,25 @@ def ellipsoid_traces(
         else:
             name_i = f"{name} {i}"
 
+        # If any of the axis, height or diameter are arrays, fetch the right one
+        axis_i = axis
+        if len(axis.shape) == 2:
+            axis_i = axis[i]
+        height_i = height
+        if isinstance(height, (list, tuple, np.ndarray)):
+            height_i = height[i]
+        diameter_i = diameter
+        if isinstance(diameter, (list, tuple, np.ndarray)):
+            diameter_i = diameter[i]
+
         # Append list of traces
         traces.append(
-            ellipsoid_trace(
+            cylinder_trace(
                 centroid=centroid,
-                covmat=covmat,
+                axis=axis_i,
+                height=height_i,
+                diameter=diameter_i,
+                contour=None,
                 color=col,
                 hovertext=hov,
                 cmin=cmin,
