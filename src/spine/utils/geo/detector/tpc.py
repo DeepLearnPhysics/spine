@@ -1,7 +1,7 @@
 """TPC detector geometry classes."""
 
 from dataclasses import dataclass
-from typing import List
+from typing import List, Optional
 
 import numpy as np
 
@@ -245,25 +245,7 @@ class TPCModule(Box):
         TPCModule
             The module itself
         """
-        self._counter = 0
-        return self
-
-    def __next__(self):
-        """Defines how to process the next TPC in the module.
-
-        Returns
-        -------
-        TPCChamber
-            Next TPCChamber instance in the list
-        """
-        # If there are more TPCs to go through, return it
-        if self._counter < len(self):
-            tpc = self.chambers[self._counter]
-            self._counter += 1
-
-            return tpc
-
-        raise StopIteration
+        return iter(self.chambers)
 
 
 @dataclass
@@ -284,8 +266,8 @@ class TPCDetector(Box):
 
     modules: List[TPCModule]
     chambers: List[TPCChamber]
-    limits: List[Plane] = None
-    det_ids: np.ndarray = None
+    limits: Optional[List[Plane]] = None
+    det_ids: Optional[np.ndarray] = None
 
     def __init__(
         self,
@@ -459,10 +441,14 @@ class TPCDetector(Box):
         Union[TPCModule, TPCChamber]
             TPCModule or TPCChamber object
         """
-        if np.isscalar(idx):
+        if isinstance(idx, int):
             return self.modules[idx]
 
         else:
+            assert isinstance(idx, (list, tuple)) and len(idx) == 2, (
+                "If indexing a specific TPC chamber, must provide a list or "
+                "tuple of [module ID, chamber ID]."
+            )
             module_id, chamber_id = idx
             return self.modules[module_id].chambers[chamber_id]
 
@@ -474,22 +460,4 @@ class TPCDetector(Box):
         TPCDetector
             The detector itself
         """
-        self._counter = 0
-        return self
-
-    def __next__(self):
-        """Defines how to process the next TPCModule in the detector.
-
-        Returns
-        -------
-        TPCModule
-            Next TPCModule instance in the list
-        """
-        # If there are more TPCs to go through, return it
-        if self._counter < len(self):
-            module = self.modules[self._counter]
-            self._counter += 1
-
-            return module
-
-        raise StopIteration
+        return iter(self.modules)
