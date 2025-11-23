@@ -22,7 +22,7 @@ class OptDetector:
         - N_v is the number of optical volumes
         - N_o is the number of optical detectors in each volume
     shape : Union[str, List[str]]
-        (N_d) Optical detector shape(s), combination of 'ellipsoid' and 'box'
+        (N_d) Optical detector shape(s), combination of 'ellipsoid', 'box' and 'disk'
         - N_d is the number of detector types
     dimensions : np.ndarray
         (N_d, 3) Dimensions of each of the optical detector types
@@ -65,10 +65,10 @@ class OptDetector:
         volume_offsets : np.ndarray
             Offsets of the optical volumes w.r.t. to the origin
         shape : Union[str, List[str]]
-            Optical detector geomtry (combination of 'ellipsoid' and/or 'box')
+            Optical detector geomtry (combination of 'ellipsoid', 'box' and/or 'disk')
         dimensions : Union[List[float], List[List[float]]]]
             (N_o, 3) List of optical detector dimensions along each axis
-            (either the ellipsoid axis lenghts or the box edge lengths)
+            (either the ellipsoid axis lenghts, box edge lengths or disk radius+thickness)
         positions : List[List[float]]
             (N_o, 3) Positions of each of the optical detectors
         shape_ids : List[int], optional
@@ -85,11 +85,11 @@ class OptDetector:
             TPC of each module
         """
         # Parse the detector shape(s) and its mapping, store is as a list
-        assert shape in ("ellipsoid", "box") or np.all(
-            [s in ("ellipsoid", "box") for s in shape]
+        assert shape in ("ellipsoid", "box", "disk") or np.all(
+            [s in ("ellipsoid", "box", "disk") for s in shape]
         ), (
             "The shape of optical detectors must be represented as either "
-            "an 'ellipsoid' or a 'box', or a list of them."
+            "an 'ellipsoid', a 'box', a 'disk', or a list of them."
         )
         assert (
             isinstance(shape, str) or shape_ids is not None

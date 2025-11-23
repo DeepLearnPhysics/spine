@@ -31,9 +31,9 @@ class Box:
         Parameters
         ----------
         lower : np.ndarray
-            (3) Lower bounds of the box
+            (3,) Lower bounds of the box
         upper : np.ndarray
-            (3) Upper bounds of the box
+            (3,) Upper bounds of the box
         """
         # Store lower and upper boundaries in one array
         self.boundaries = np.vstack((lower, upper)).T
@@ -82,6 +82,43 @@ class Box:
         """
         return self.boundaries[:, 1] - self.boundaries[:, 0]
 
+    @property
+    def volume(self):
+        """Volume of the box.
+
+        Returns
+        -------
+        float
+            Box volume
+        """
+        return np.prod(self.dimensions)
+
+    @property
+    def faces(self):
+        """Returns the 6 faces of the box as Plane objects.
+
+        Returns
+        -------
+        List[Plane]
+            List of 6 Plane objects corresponding to the box faces
+        """
+        faces = []
+        # Loop over each axis
+        for axis in range(3):
+            # Create normal vector for the face
+            norm = np.zeros(3)
+            norm[axis] = 1.0
+
+            # Lower face
+            intercept_lower = self.lower.copy()
+            faces.append(Plane(intercept_lower, norm))
+
+            # Upper face
+            intercept_upper = self.upper.copy()
+            faces.append(Plane(intercept_upper, -norm))
+
+        return faces
+
 
 @dataclass
 class Plane:
@@ -117,3 +154,18 @@ class Plane:
 
         # Compute their dot product (projection boundary)
         self.boundary = np.dot(intercept, norm)
+
+    def distance(self, point):
+        """Computes the perpendicular distance from a point to the plane.
+
+        Parameters
+        ----------
+        point : np.ndarray
+            (3) Coordinates of the point to compute the distance to
+
+        Returns
+        -------
+        float
+            Perpendicular distance from the point to the plane
+        """
+        return (np.dot(point, self.norm) - self.boundary) / np.linalg.norm(self.norm)

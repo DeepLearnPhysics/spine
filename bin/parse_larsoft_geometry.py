@@ -380,17 +380,18 @@ def parse_optical_block(lines, start_idx):
             # Extract the type of optical detector (hemispherical or bar)
             # Look for the first word after the comma
             type_match = re.search(r",\s*([a-zA-Z]+)", line)
-            print(line)
             if type_match:
                 shape = type_match.group(1).lower()
-                if shape == "hemispherical":
+                if shape in ("hemispherical", "spherical"):
                     shape = "ellipsoid"
                 elif shape == "bar":
                     shape = "box"
+                elif shape == "radius":
+                    shape = "disk"
                 else:
                     raise ValueError(
                         f"Unknown optical detector shape: {shape}. "
-                        f"Should be 'hemispherical' or 'bar'."
+                        f"Should be 'hemispherical', 'spherical', 'bar' or 'radius'."
                     )
 
                 shapes.append(shape)
@@ -398,15 +399,17 @@ def parse_optical_block(lines, start_idx):
                 raise ValueError("Could not parse optical detector shape.")
 
             # Extract dimension of the optical detector
-            if shape == "ellipsoid":
+            if shape == "ellipsoid" or shape == "spherical":
                 radius_match = re.search(r"external radius\s+([-\d.eE+]+)\s+cm", line)
                 if radius_match:
+                    # The default PMT is pointed along Y, so the height is the radius
                     radius = float(radius_match.group(1))
-                    dimensions.append([radius, 2 * radius, 2 * radius])
+                    dimensions.append([2 * radius, radius, 2 * radius])
                 else:
                     raise ValueError(
                         "Could not parse hemispherical optical detector radius."
                     )
+
             elif shape == "box":
                 size_match = re.search(
                     r"bar size\s+([-\d.eE+]+)\s+x\s+([-\d.eE+]+)\s+x\s+([-\d.eE+]+)\s+cm",
@@ -419,6 +422,40 @@ def parse_optical_block(lines, start_idx):
                     dimensions.append([dim_x, dim_y, dim_z])
                 else:
                     raise ValueError("Could not parse box optical detector size.")
+
+            elif shape == "disk":
+                # The default disk is pointed along Y, so length is thickness, radius gives X and Z
+                radius_match = re.search(r"radius:\s+([-\d.eE+]+)\s+cm", line)
+                length_match = re.search(r"length:\s+([-\d.eE+]+)\s+cm", line)
+                if radius_match and length_match:
+                    radius = float(radius_match.group(1))
+                    thickness = float(length_match.group(1))
+                    dimensions.append([2 * radius, thickness, 2 * radius])
+                else:
+                    raise ValueError("Could not parse disk optical detector size.")
+
+            # Extract a roration angle, if prresent
+            angle_match = re.search(r"theta\(z\):\s+([-\d.eE+]+)\s+rad", line)
+            if angle_match:
+                # Rotation angle around Z axis (in radians)
+                z_angle = float(angle_match.group(1))
+
+                # Make rotation matrix, apply to dimensions if needed
+                rot_matrix = np.array(
+                    [
+                        [np.cos(z_angle), -np.sin(z_angle), 0],
+                        [np.sin(z_angle), np.cos(z_angle), 0],
+                        [0, 0, 1],
+                    ]
+                )
+                dimensions[-1] = np.abs(
+                    rot_matrix.dot(np.array(dimensions[-1]))
+                ).tolist()
+            elif shape != "box":
+                # If the angle is not defined, the normal is along Z by default
+                # because Z is the rotation axis (cannot be rotated around itself)
+                dims = dimensions[-1]
+                dimensions[-1] = [dims[0], dims[2], dims[1]]
 
             # Extract the position of the optical detector
             pos_match = parse_vector(line.split("centered at")[1].split(" cm,")[0])

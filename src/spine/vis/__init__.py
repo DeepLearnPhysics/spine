@@ -36,11 +36,11 @@ ML model outputs, and analysis results using Plotly for interactive 3D visualiza
 
 **Example Usage:**
 ```python
-from spine.vis import scatter_points, scatter_clusters, plotly_layout3d
+from spine.vis import scatter_points, scatter_clusters, layout3d
 
 # Visualize detector hits
 fig = scatter_points(coordinates, features, color='energy')
-fig.update_layout(plotly_layout3d)
+fig.update_layout(layout3d)
 
 # Visualize clustering results
 fig = scatter_clusters(data, cluster_labels, method='dbscan')

@@ -46,7 +46,11 @@ def scatter_arrows(
     """
     # Process color and hovertext information for the arrows
     color_trunks, hovertext_trunks = color, hovertext
-    if color is not None and not np.isscalar(color):
+    if isinstance(color, (list, tuple, np.ndarray)):
+        assert len(color) == len(points), (
+            "If providing a list of colors for the arrows, "
+            "its length must match the number of points."
+        )
         color_trunks = np.repeat(color, 3)
 
     hovertext_arrows = []

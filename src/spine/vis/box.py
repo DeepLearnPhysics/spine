@@ -101,7 +101,7 @@ def box_trace(
     # Update hovertemplate style
     hovertemplate = "x: %{x}<br>y: %{y}<br>z: %{z}"
     if hovertext is not None:
-        if not np.isscalar(hovertext):
+        if isinstance(hovertext, (list, tuple, np.ndarray)):
             hovertemplate += "<br>%{text}"
         else:
             hovertemplate += f"<br>{hovertext}"
@@ -191,7 +191,6 @@ def box_traces(
     shared_legend=True,
     legendgroup=None,
     showlegend=True,
-    group_name=None,
     name=None,
     **kwargs,
 ):
@@ -247,12 +246,12 @@ def box_traces(
     ), "Specify one hovertext for all boxes, or one hovertext per box."
 
     # If one color is provided per box, give an associated hovertext
-    if hovertext is None and color is not None and not np.isscalar(color):
+    if hovertext is None and isinstance(color, (list, tuple, np.ndarray)):
         hovertext = [f"Value: {v:0.3f}" for v in color]
 
     # If cmin/cmax are not provided, must build them so that all boxes
     # share the same colorscale range (not guaranteed otherwise)
-    if color is not None and not np.isscalar(color) and len(color) > 0:
+    if isinstance(color, (list, tuple, np.ndarray)) and len(color) > 0:
         if cmin is None:
             cmin = np.min(color)
         if cmax is None:
@@ -267,9 +266,9 @@ def box_traces(
     for i, (lower, upper) in enumerate(zip(lowers, uppers)):
         # Fetch the right color/hovertext combination
         col, hov = color, hovertext
-        if color is not None and not np.isscalar(color):
+        if isinstance(color, (list, tuple, np.ndarray)):
             col = color[i]
-        if hovertext is not None and not np.isscalar(hovertext):
+        if isinstance(hovertext, (list, tuple, np.ndarray)):
             hov = hovertext[i]
 
         # If the legend is shared, only draw the legend of the first trace
@@ -348,7 +347,7 @@ def scatter_boxes(
         Box traces
     """
     # Check the input
-    if not np.isscalar(dimension):
+    if isinstance(dimension, (list, tuple, np.ndarray)):
         assert len(dimension) == 3, "Must specify three dimensions for the box size."
         dimension = np.asarray(dimension)
 

@@ -1,11 +1,11 @@
 """Draw detectors based on their geometry definition."""
 
 import time
-from functools import partial
 
 import numpy as np
 
 from spine.utils.geo import Geometry
+from spine.vis.cylinder import cylinder_traces
 
 from .box import box_traces
 from .ellipsoid import ellipsoid_traces
@@ -199,13 +199,13 @@ class GeoDrawer:
 
         else:
             hovertext = [f"PD ID: {i}" for i in range(len(positions))]
-            if color is not None and not np.isscalar(color):
+            if isinstance(color, (list, tuple, np.ndarray)):
                 for i, hc in enumerate(hovertext):
                     hovertext[i] = hc + f"<br>Value: {color[i]:.3f}"
 
         # If cmin/cmax are not provided, must build them so that all optical
         # detectors share the same colorscale range (not guaranteed otherwise)
-        if color is not None and not np.isscalar(color) and len(color) > 0:
+        if isinstance(color, (list, tuple, np.ndarray)) and len(color) > 0:
             if cmin is None:
                 cmin = np.min(color)
             if cmax is None:
@@ -226,7 +226,7 @@ class GeoDrawer:
             else:
                 index = np.where(np.asarray(shape_ids) == i)[0]
                 pos = positions[index]
-                if color is not None and not np.isscalar(color):
+                if isinstance(color, (list, tuple, np.ndarray)):
                     col = color[index]
                 else:
                     col = color
@@ -234,7 +234,7 @@ class GeoDrawer:
 
             # If zero-supression is requested, only draw the optical detectors
             # which record a non-zero signal
-            if zero_supress and color is not None and not np.isscalar(color):
+            if zero_supress and isinstance(col, (list, tuple, np.ndarray)):
                 index = np.where(np.asarray(col) != 0)[0]
                 pos = pos[index]
                 col = col[index]
@@ -261,7 +261,7 @@ class GeoDrawer:
                     **kwargs,
                 )
 
-            else:
+            elif shape == "ellipsoid":
                 # Convert the optical detector dimensions to a covariance matrix
                 covmat = np.diag(hd**2)
 
@@ -277,6 +277,35 @@ class GeoDrawer:
                     hovertext=ht,
                     legendgroup=legendgroup,
                     **kwargs,
+                )
+
+            elif shape == "disk":
+                # Build disks as very flat cylinders
+                axis = np.zeros(3, dtype=hd.dtype)
+                axis[np.argmin(hd)] = 1.0
+                length = 2.0 * hd[np.argmin(hd)]
+                diameter = 2.0 * hd[np.argmax(hd)]
+
+                # Build disks
+                traces += cylinder_traces(
+                    pos,
+                    axis,
+                    length,
+                    diameter,
+                    shared_legend=shared_legend,
+                    name=name,
+                    color=col,
+                    cmin=cmin,
+                    cmax=cmax,
+                    hovertext=ht,
+                    legendgroup=legendgroup,
+                    **kwargs,
+                )
+
+            else:
+                raise ValueError(
+                    f"Optical detector shape '{shape}' not recognized. "
+                    "Should be one of 'box', 'ellipsoid' or 'disk'."
                 )
 
         return traces

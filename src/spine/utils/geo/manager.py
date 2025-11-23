@@ -11,12 +11,13 @@ It also provides a plethora of useful functions to query the geometry.
 import os
 import pathlib
 from dataclasses import dataclass
+from typing import Optional
 
 import numpy as np
 import yaml
 from scipy.spatial.distance import cdist
 
-from .detector import *
+from .detector import CRTDetector, OptDetector, TPCDetector
 
 
 @dataclass
@@ -47,9 +48,9 @@ class Geometry:
     tag: str
     version: int
     tpc: TPCDetector
-    optical: OptDetector = None
-    crt: CRTDetector = None
-    gdml: str = None
+    optical: Optional[OptDetector] = None
+    crt: Optional[CRTDetector] = None
+    gdml: Optional[str] = None
 
     def __init__(self, detector=None, file_path=None):
         """Initializes a detector geometry object.
@@ -83,7 +84,7 @@ class Geometry:
             )
 
         # Check that the geometry configuration file exists
-        if not os.path.isfile(file_path):
+        if not file_path or not os.path.isfile(file_path):
             raise FileNotFoundError(f"Could not find the geometry file: {file_path}")
 
         # Load the geometry file, parse it
@@ -479,8 +480,8 @@ class Geometry:
 
         else:
             # If the points are expressed in pixel coordinates, translate
-            convert = meta is not None
-            if convert:
+            if meta is not None:
+                convert = True
                 points = meta.to_cm(points, center=True)
 
             # If not provided, find module each point belongs to by proximity
@@ -498,7 +499,7 @@ class Geometry:
             )
 
         # Bring the coordinates back to pixels, if they were shifted
-        if convert:
+        if meta is not None and convert:
             points = meta.to_px(points, floor=True)
 
         return points, module_indexes
@@ -535,7 +536,7 @@ class Geometry:
         # If sources are provided, only consider source volumes
         if self._cont_use_source:
             # Get the contributing TPCs
-            assert len(points) == len(
+            assert sources is not None and len(points) == len(
                 sources
             ), "Need to provide sources to make a source-based check."
             contributors = self.get_contributors(sources)
