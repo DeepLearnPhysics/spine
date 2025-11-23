@@ -62,9 +62,9 @@ class GeoDrawer:
             Weather or not to draw the box faces, or only the edges
         shared_legend : bool, default True
             If True, the legend entry in plotly is shared between all the
-            detector volumes
-        name : Union[str, List[str]], default 'Detector'
-            Name(s) of the detector volumes
+            TPC volumes
+        name : str, default 'TPC'
+            Name of the TPC volumes
         color : Union[int, str, np.ndarray]
             Color of boxes or list of color of boxes
         linewidth : int, default 2
@@ -89,7 +89,7 @@ class GeoDrawer:
             )
             boundaries = meta.to_px(boundaries.transpose(0, 2, 1)).transpose(0, 2, 1)
 
-        # Get a trace per detector volume
+        # Get a trace per TPC volume
         detectors = box_traces(
             boundaries[..., 0],
             boundaries[..., 1],
@@ -126,11 +126,11 @@ class GeoDrawer:
             Metadata information (only needed if pixel_coordinates is True)
         shared_legend : bool, default True
             If True, the legend entry in plotly is shared between all the
-            detector volumes
+            optical volumes
         legendgroup : str, optional
             Legend group to be shared between all boxes
-        name : Union[str, List[str]], default 'Detector'
-            Name(s) of the detector volumes
+        name : str, default 'Optical'
+            Name of the optical volumes
         color : Union[int, str, np.ndarray]
             Color of optical detectors or list of color of optical detectors
         hovertext : Union[str, List[str]], optional
@@ -308,6 +308,19 @@ class GeoDrawer:
                     "Should be one of 'box', 'ellipsoid' or 'disk'."
                 )
 
+        # If the legend is shared, ensure that only the first trace shows the legend
+        if shape_ids is not None:
+            if shared_legend:
+                for i, trace in enumerate(traces):
+                    if i == 0:
+                        trace.showlegend = True
+                    else:
+                        trace.showlegend = False
+            else:
+                # If the legend is not shared, ensure that the names are unique
+                for i, trace in enumerate(traces):
+                    trace.name = f"{name} {i}"
+
         return traces
 
     def crt_traces(
@@ -331,9 +344,9 @@ class GeoDrawer:
             Weather or not to draw the box faces, or only the edges
         shared_legend : bool, default True
             If True, the legend entry in plotly is shared between all the
-            detector volumes
-        name : Union[str, List[str]], default 'Detector'
-            Name(s) of the detector volumes
+            CRT volumes
+        name : str, default 'CRT'
+            Name of the CRT volumes
         color : Union[int, str, np.ndarray]
             Color of CRT detectors or list of color of CRT detectors
         draw_ids : List[int], optional
@@ -373,7 +386,7 @@ class GeoDrawer:
 
             boundaries = tmp
 
-        # Get a trace per detector volume
+        # Get a trace per CRT plane
         detectors = box_traces(
             boundaries[..., 0],
             boundaries[..., 1],
