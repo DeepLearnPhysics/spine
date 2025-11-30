@@ -158,28 +158,24 @@ class GeoDrawer:
             self.geo.optical is not None
         ), "This geometry does not have optical detectors to draw."
 
-        # Fetch the optical element positions and dimensions
+        # Fetch the optical element positions and sizes
         if volume_id is None:
-            positions = self.geo.optical.positions.reshape(-1, 3)
+            positions = self.geo.optical.positions
         else:
-            positions = self.geo.optical.positions[volume_id]
-        half_dimensions = self.geo.optical.dimensions / 2
+            positions = self.geo.optical.volumes[volume_id].positions
+        half_sizes = self.geo.optical.sizes / 2
 
         # If there is more than one detector shape, fetch shape IDs
-        shape_ids = None
-        if self.geo.optical.shape_ids is not None:
-            shape_ids = self.geo.optical.shape_ids
-            if volume_id is None:
-                shape_ids = np.tile(shape_ids, self.geo.optical.num_volumes)
+        shape_ids = self.geo.optical.shape_ids
 
         # Convert the positions to pixel coordinates, if needed
         if not self.detector_coords:
             assert meta is not None, (
                 "Must provide meta information to convert the optical "
-                "element positions/dimensions to pixel coordinates."
+                "element positions/sizes to pixel coordinates."
             )
             positions = meta.to_px(positions)
-            half_dimensions = half_dimensions / meta.size
+            half_sizes = half_sizes / meta.size
 
         # Check that the colors provided fix the appropriate range
         if color is not None and not np.isscalar(color):
@@ -241,9 +237,9 @@ class GeoDrawer:
                 ht = [ht[i] for i in index]
 
             # Dispatch the drawing based on the type of optical detector
-            hd = half_dimensions[i]
+            hd = half_sizes[i]
             if shape == "box":
-                # Convert the positions/dimensions to box lower/upper bounds
+                # Convert the positions/sizes to box lower/upper bounds
                 lower, upper = pos - hd, pos + hd
 
                 # Build boxes
@@ -262,7 +258,7 @@ class GeoDrawer:
                 )
 
             elif shape == "ellipsoid":
-                # Convert the optical detector dimensions to a covariance matrix
+                # Convert the optical detector sizes to a covariance matrix
                 covmat = np.diag(hd**2)
 
                 # Build ellipsoids
@@ -308,8 +304,9 @@ class GeoDrawer:
                     "Should be one of 'box', 'ellipsoid' or 'disk'."
                 )
 
-        # If the legend is shared, ensure that only the first trace shows the legend
+        # Set the legend display options
         if shape_ids is not None:
+            # If the legend is shared, ensure that only the first trace shows the legend
             if shared_legend:
                 for i, trace in enumerate(traces):
                     if i == 0:

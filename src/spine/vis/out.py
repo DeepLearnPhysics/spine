@@ -1,18 +1,18 @@
 """Draw reconstruction output-level objects"""
 
-from collections import defaultdict
-from warnings import warn
-
 import numpy as np
 from plotly import graph_objs as go
 
-from spine.utils.globals import COORD_COLS, PID_LABELS, SHAPE_LABELS, TRACK_SHP
+from spine.utils.globals import PID_LABELS, SHAPE_LABELS, TRACK_SHP
 
 from .arrow import scatter_arrows
 from .cluster import scatter_clusters
 from .geo import GeoDrawer
 from .layout import HIGH_CONTRAST_COLORS, PLOTLY_COLORS_WGRAY, dual_figure3d, layout3d
 from .point import scatter_points
+
+# from spine.vis.cone import cone_trace
+
 
 __all__ = ["Drawer"]
 
@@ -56,7 +56,6 @@ class Drawer:
         truth_point_mode="points",
         split_scene=True,
         detector=None,
-        show_crt=False,
         detector_coords=True,
         **kwargs,
     ):
@@ -121,17 +120,12 @@ class Drawer:
             )
             self.geo = self.geo_drawer.geo
 
-        # Initialize the layout
-        self.show_crt = show_crt
+        # Store the layout information
         self.split_scene = split_scene
-        meta = self.meta if detector is None else None
-        self.layout = layout3d(
-            detector=detector,
-            meta=meta,
-            detector_coords=detector_coords,
-            show_crt=show_crt,
-            **kwargs,
-        )
+        self.detector = detector
+        self.detector_coords = detector_coords
+        self.meta = self.meta if detector is None else None
+        self.layout_kwargs = kwargs
 
     @property
     def point_modes(self):
@@ -298,10 +292,12 @@ class Drawer:
                 traces[prefix] += self._vertex_trace(obj_name, split_traces)
 
         # Fetch the flashes, if requested
+        show_optical = False
         if draw_flashes:
             assert (
                 "flashes" in self.data
             ), "Must provide the `flashes` objects to draw them."
+            show_optical = True
             for prefix in self.prefixes:
                 obj_name = f"{prefix}_interactions"
                 assert (
@@ -310,10 +306,12 @@ class Drawer:
                 traces[prefix] += self._flash_trace(obj_name, matched_flash_only)
 
         # Fetch the CRT hits, if requested
+        show_crt = False
         if draw_crthits:
             assert (
                 "crthits" in self.data
             ), "Must provide the `crthits` objects to draw them."
+            show_crt = True
             for prefix in self.prefixes:
                 obj_name = f"{prefix}_{obj_type}"
                 traces[prefix] += self._crt_trace(obj_name, matched_crthit_only)
@@ -326,6 +324,16 @@ class Drawer:
             else:
                 traces[self.prefixes[-1]] += self.geo_drawer.tpc_traces(meta=self.meta)
 
+        # Initialize the layout based on what needs to be shown
+        layout = layout3d(
+            detector=self.detector,
+            meta=self.meta,
+            detector_coords=self.detector_coords,
+            show_optical=show_optical,
+            show_crt=show_crt,
+            **self.layout_kwargs,
+        )
+
         # Initialize the figure, return
         if len(self.prefixes) > 1 and self.split_scene:
             if titles is None:
@@ -333,7 +341,7 @@ class Drawer:
             figure = dual_figure3d(
                 traces["reco"],
                 traces["truth"],
-                layout=self.layout,
+                layout=layout,
                 synchronize=synchronize,
                 titles=titles,
             )
@@ -345,7 +353,7 @@ class Drawer:
             all_traces = []
             for trace_group in traces.values():
                 all_traces += trace_group
-            figure = go.Figure(all_traces, layout=self.layout)
+            figure = go.Figure(all_traces, layout=layout)
 
         return figure
 
@@ -368,8 +376,14 @@ class Drawer:
         List[plotly.graph_objs.Scatter3d]
             List of traces, one per object being drawn up
         """
-        # Fetch the clusters and the points
+        # Fetch object representations
         point_key = self.truth_point_key if "truth" in obj_name else "points"
+        assert point_key in self.data, (
+            f"The `{point_key}` attribute must be provided if the full "
+            f"version of the `{obj_name}` objects is to be drawn."
+        )
+
+        # Fetch the points and the clusters
         points = self.data[point_key]
         clusts = [self.get_index(obj) for obj in self.data[obj_name]]
 
@@ -377,13 +391,15 @@ class Drawer:
         color_dict = self._object_colors(obj_name, attr, color_attr, split_traces)
 
         # Return
-        return scatter_clusters(
+        traces = scatter_clusters(
             points,
             clusts,
             single_trace=not split_traces,
             shared_legend=not split_traces,
             **color_dict,
         )
+
+        return traces
 
     def _object_colors(self, obj_name, attr, color_attr, split_traces):
         """Provides an appropriate colorscale and range for a given attribute.
@@ -878,7 +894,7 @@ class Drawer:
 
         # Check that there are optical detectors to draw
         assert (
-            self.geo.optical is not None
+            self.geo is not None and self.geo.optical is not None
         ), "This geometry does not have optical detectors to draw."
 
         # Define the name of the trace
@@ -895,13 +911,15 @@ class Drawer:
 
         # Sum values from each flash to build a a global color scale
         color = np.zeros(self.geo.optical.num_detectors)
-        opt_det_ids = self.geo.optical.det_ids
+        op_det_ids = self.geo.optical.det_ids
         for flash_id in flash_ids:
             flash = self.data["flashes"][flash_id]
-            index = self.geo.optical.volume_index(flash.volume_id)
             pe_per_ch = flash.pe_per_ch
-            if opt_det_ids is not None:
-                pe_per_ch = np.bincount(opt_det_ids, weights=pe_per_ch)
+            if not self.geo.optical.global_index:
+                op_det_ids = self.geo.optical.volumes[flash.volume_id].det_ids
+            if op_det_ids is not None:
+                pe_per_ch = np.bincount(op_det_ids, weights=pe_per_ch)
+            index = self.geo.optical.volume_index(flash.volume_id)
             color[index] += pe_per_ch
 
         # Return the set of optical detectors with a color scale

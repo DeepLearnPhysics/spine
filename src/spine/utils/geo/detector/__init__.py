@@ -6,6 +6,7 @@ This includes:
 - :class:`CRTDetector` for a set of organized CRT planes
 """
 
+from .base import Box
 from .crt import CRTDetector
 from .optical import OptDetector
 from .tpc import TPCDetector

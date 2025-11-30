@@ -28,7 +28,9 @@ def layout3d(
     ranges=None,
     meta=None,
     detector=None,
+    show_optical=False,
     show_crt=False,
+    detector_padding=0.1,
     titles=None,
     detector_coords=False,
     backgroundcolor="white",
@@ -61,8 +63,12 @@ def layout3d(
         Metadata information used to infer the full image range
     detector : str, optional
         Name of a recognized detector to get the geometry from
+    show_optical : bool, default False
+        If True, the drawing range is extended to include the optical detectors
     show_crt : bool, default False
         If True, the drawing range is extended to include the CRT modules
+    detector_padding : float, default 0.1
+        Fraction of padding to add to the drawing range around the detector
     titles : List[str], optional
         (3) Array of strings for (x,y,z) axis title respectively
     detector_coords : bool, default False
@@ -117,20 +123,12 @@ def layout3d(
             ranges is None or None in ranges
         ), "Should not specify `detector` along with `ranges`."
         geo = Geometry(detector)
-        if not show_crt:
-            lengths = geo.tpc.dimensions
-            ranges = geo.tpc.boundaries
-        else:
-            assert geo.crt is not None, (
-                "If the layout is to be made big enough in include CRT "
-                "objects, they must must be defined in the geometry."
-            )
-            lengths = geo.crt.dimensions
-            ranges = geo.crt.boundaries
+        ranges = geo.get_boundaries(with_optical=show_optical, with_crt=show_crt)
+        lengths = ranges[:, 1] - ranges[:, 0]
 
         # Add some padding
-        ranges[:, 0] -= lengths * 0.1
-        ranges[:, 1] += lengths * 0.1
+        ranges[:, 0] -= lengths * detector_padding
+        ranges[:, 1] += lengths * detector_padding
 
         # If pixel coordinates are requested, use meta to make the conversion
         if detector_coords is False:

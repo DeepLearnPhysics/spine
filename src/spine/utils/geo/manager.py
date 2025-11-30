@@ -17,11 +17,11 @@ import numpy as np
 import yaml
 from scipy.spatial.distance import cdist
 
-from .detector import CRTDetector, OptDetector, TPCDetector
+from .detector import Box, CRTDetector, OptDetector, TPCDetector
 
 
 @dataclass
-class Geometry:
+class Geometry(Box):
     """Handles all geometry functions for a collection of box-shaped TPCs with
     a arbitrary set of optical detectors organized in optical volumes and CRT
     planes.
@@ -91,7 +91,10 @@ class Geometry:
         with open(file_path, "r", encoding="utf-8") as cfg_yaml:
             cfg = yaml.safe_load(cfg_yaml)
 
-        self.parse_configuration(**cfg)
+        lower, upper = self.parse_configuration(**cfg)
+
+        # Initialize the base Box object
+        super().__init__(lower=lower, upper=upper)
 
         # Initialize place-holders for the containment conditions to be defined
         # by the end-user using :func:`define_containment_volumes`
@@ -120,6 +123,13 @@ class Geometry:
             CRT detector configuration
         gdml : str, optional
             GDML file name associated with the geometry
+
+        Returns
+        -------
+        np.ndarray
+            Lower boundaries of the overall geometry
+        np.ndarray
+            Upper boundaries of the overall geometry
         """
         # Store basic geometry information
         self.name = name
@@ -129,14 +139,23 @@ class Geometry:
 
         # Load the charge detector boundaries
         self.tpc = TPCDetector(**tpc)
+        lower = self.tpc.lower
+        upper = self.tpc.upper
 
         # Load the optical detectors
         if optical is not None:
-            self.parse_optical(**optical)
+            self.optical = self.parse_optical(**optical)
+            lower = np.minimum(lower, self.optical.lower)
+            upper = np.maximum(upper, self.optical.upper)
 
         # Load the CRT detectors
         if crt is not None:
             self.crt = CRTDetector(**crt)
+            lower = np.minimum(lower, self.crt.lower)
+            upper = np.maximum(upper, self.crt.upper)
+
+        # Return all-emcompassing boundaries
+        return lower, upper
 
     def parse_optical(self, volume, **optical):
         """Parse the optical detector configuration.
@@ -147,6 +166,11 @@ class Geometry:
             Optical volume boundaries (one of 'tpc' or 'module')
         **optical : dict
             Reset of the optical detector configuration
+
+        Returns
+        -------
+        OptDetector
+            Optical detector object
         """
         # Get the number of optical volumes based on the the volume type
         assert volume in [
@@ -160,7 +184,44 @@ class Geometry:
             offsets = [chamber.center for chamber in self.tpc.chambers]
 
         # Initialize the optical detector object
-        self.optical = OptDetector(volume, offsets, **optical)
+        return OptDetector(volume, offsets, **optical)
+
+    def get_boundaries(self, with_optical=True, with_crt=True):
+        """Fetch the overall geometry boundaries, optionally including
+        optical and CRT detectors.
+
+        Parameters
+        ----------
+        with_optical : bool, default True
+            Whether to include optical detector boundaries
+        with_crt : bool, default True
+            Whether to include CRT detector boundaries
+
+        Returns
+        -------
+        Tuple[np.ndarray, np.ndarray]
+            Lower and upper boundaries of the overall geometry
+        """
+        # Get the TPC boundaries
+        lower = self.tpc.lower
+        upper = self.tpc.upper
+
+        # Expand to include optical and CRT detectors, if requested
+        if with_optical:
+            assert (
+                self.optical is not None
+            ), "This geometry does not have optical detectors to include."
+            lower = np.minimum(lower, self.optical.lower)
+            upper = np.maximum(upper, self.optical.upper)
+
+        if with_crt:
+            assert (
+                self.crt is not None
+            ), "This geometry does not have CRT detectors to include."
+            lower = np.minimum(lower, self.crt.lower)
+            upper = np.maximum(upper, self.crt.upper)
+
+        return np.vstack((lower, upper)).T
 
     def get_sources(self, sources):
         """Converts logical TPC indexes to physical TPC indexes.
