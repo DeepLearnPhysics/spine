@@ -238,6 +238,7 @@ LAR_A = 39.9481  # Nuclear mass [g/mol]
 LAR_MEE = 188.0 * 1e-6  # Mean excitation energy [MeV]
 LAR_X0 = 14.0  # Radiation length [cm]
 LAR_WION = 23.6 * 1e-6  # Ionization work function [MeV]
+LAR_E_CRIT = 32.84  # Critical energy for electrons [MeV]
 
 # Sternheimer parametrization of density effects in liquid argon
 LAR_a = 0.19559

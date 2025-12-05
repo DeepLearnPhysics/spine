@@ -14,6 +14,7 @@ def cone_trace(
     num_samples=10,
     color=None,
     hovertext=None,
+    intensity=None,
     showscale=False,
     **kwargs,
 ):
@@ -37,8 +38,12 @@ def cone_trace(
         Color of the cone
     hovertext : Union[int, str, np.ndarray], optional
         Text associated with the cone
+    intensity : Union[str, float, np.ndarray], optional
+        Intensity of the cone colors
+    showscale : bool, default False
+        Whether to show the color scale for the mesh
     **kwargs : dict, optional
-        Additional parameters to pass to the
+        Additional parameters to pass to the :class:`plotly.graph_objs.Mesh3d` object
     """
     # Get the centroid and the principal components
     centroid = np.mean(points, axis=0)
@@ -92,6 +97,7 @@ def cone_trace(
 
     # Convert the color provided to a set of intensities
     if color is not None:
+        assert intensity is None, "Provide either `color` or `intensity`, not both."
         assert np.isscalar("color"), "Should provide a single color for the cone."
         intensity = [color] * len(cone_points)
 

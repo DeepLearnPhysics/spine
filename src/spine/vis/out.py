@@ -9,10 +9,8 @@ from .arrow import scatter_arrows
 from .cluster import scatter_clusters
 from .geo import GeoDrawer
 from .layout import HIGH_CONTRAST_COLORS, PLOTLY_COLORS_WGRAY, dual_figure3d, layout3d
+from .lite import scatter_lite
 from .point import scatter_points
-
-# from spine.vis.cone import cone_trace
-
 
 __all__ = ["Drawer"]
 
@@ -57,6 +55,7 @@ class Drawer:
         split_scene=True,
         detector=None,
         detector_coords=True,
+        lite=False,
         **kwargs,
     ):
         """Initialize the drawer attributes
@@ -78,6 +77,8 @@ class Drawer:
             Name of the detector to be drawn
         detector_coords : bool, default True
             Whether the object coordinates are expressed in detector coordinates
+        lite : bool, default False
+            If `True`, load the objects in their lite version (no space points)
         **kwargs : dict, optional
             Additional arguments to pass to the :func:`layout3d` function
         """
@@ -119,6 +120,9 @@ class Drawer:
                 detector=detector, detector_coords=detector_coords
             )
             self.geo = self.geo_drawer.geo
+
+        # Store whether to draw in lite mode
+        self.lite = lite
 
         # Store the layout information
         self.split_scene = split_scene
@@ -207,8 +211,8 @@ class Drawer:
         Parameters
         ----------
         obj_type : str
-            Name of the object type to draw (one of 'fragment', 'particle' or
-            'interaction'
+            Name of the object type to draw (one of 'fragments', 'particles' or
+            'interactions'
         attr : Union[str, List[str]], optional
             Name of list of names of attributes to draw
         color_attr : str, optional
@@ -266,7 +270,7 @@ class Drawer:
         # Fetch the end points, if requested
         if draw_end_points:
             assert (
-                obj_name != "interactions"
+                obj_type != "interactions"
             ), "Interactions do not have end point attributes."
             for prefix in self.prefixes:
                 obj_name = f"{prefix}_{obj_type}"
@@ -276,7 +280,7 @@ class Drawer:
         # Fetch the directions, if requested
         if draw_directions:
             assert (
-                obj_name != "interactions"
+                obj_type != "interactions"
             ), "Interactions do not have direction attributes."
             for prefix in self.prefixes:
                 obj_name = f"{prefix}_{obj_type}"
@@ -318,7 +322,7 @@ class Drawer:
 
         # Add the TPC traces, if available
         if self.geo_drawer is not None:
-            if len(self.prefixes) and self.split_scene:
+            if self.prefixes and self.split_scene:
                 for prefix in self.prefixes:
                     traces[prefix] += self.geo_drawer.tpc_traces(meta=self.meta)
             else:
@@ -376,41 +380,53 @@ class Drawer:
         List[plotly.graph_objs.Scatter3d]
             List of traces, one per object being drawn up
         """
-        # Fetch object representations
-        point_key = self.truth_point_key if "truth" in obj_name else "points"
-        assert point_key in self.data, (
-            f"The `{point_key}` attribute must be provided if the full "
-            f"version of the `{obj_name}` objects is to be drawn."
-        )
-
-        # Fetch the points and the clusters
-        points = self.data[point_key]
-        clusts = [self.get_index(obj) for obj in self.data[obj_name]]
-
         # Get the colors
+        if attr is not None and isinstance(attr, str):
+            attr = [attr]
         color_dict = self._object_colors(obj_name, attr, color_attr, split_traces)
 
-        # Return
-        traces = scatter_clusters(
-            points,
-            clusts,
-            single_trace=not split_traces,
-            shared_legend=not split_traces,
-            **color_dict,
-        )
+        # Fetch object representations
+        if not self.lite:
+            # Check that the object has points to be drawn
+            point_key = self.truth_point_key if "truth" in obj_name else "points"
+            assert point_key in self.data, (
+                f"The `{point_key}` attribute must be provided if the full "
+                f"version of the `{obj_name}` objects is to be drawn."
+            )
+
+            # Fetch the points and the clusters
+            points = self.data[point_key]
+            clusts = [self.get_index(obj) for obj in self.data[obj_name]]
+
+            # Initialize traces
+            traces = scatter_clusters(
+                points,
+                clusts,
+                single_trace=not split_traces,
+                shared_legend=not split_traces,
+                **color_dict,
+            )
+
+        else:
+            # Initialize traces
+            traces = scatter_lite(
+                self.data[obj_name],
+                shared_legend=not split_traces,
+                **color_dict,
+            )
 
         return traces
 
-    def _object_colors(self, obj_name, attr, color_attr, split_traces):
+    def _object_colors(self, obj_name, attrs, color_attr, split_traces):
         """Provides an appropriate colorscale and range for a given attribute.
 
         Parameters
         ----------
         obj_name : str
             Name of the object to draw
-        attr : Union[str, List[str]]
+        attrs : Optional[List[str]]
             Attribute name(s) used to set the color/hovertext
-        color_attr : str
+        color_attr : Optional[str]
             Name of the attribute to use to determine the color
         split_traces : bool
             If `True`, one trace is produced for each object
@@ -425,35 +441,46 @@ class Drawer:
         if split_traces:
             name = name[:-1]
 
-        # Make sure that the color attribute is requested
+        # Make sure the color attribute is included in the hovertext attributes
         if color_attr is not None:
-            if isinstance(attr, str):
-                assert attr == color_attr, (
-                    "The attribute used to define the color scale cannot differ "
-                    "from the attribute used for the hovertext information."
-                )
-            else:
-                assert color_attr in attr, (
-                    "The attribute used to define the color scale must be "
-                    "included in the list of hovertext attributes."
-                )
+            assert color_attr in attrs, (
+                "The attribute used to define the color scale must be "
+                "included in the list of hovertext attributes."
+            )
+
+        # Make sure that the geometry is provided if needed
+        if any(self._is_sources(attr) for attr in attrs or []):
+            assert self.geo is not None, (
+                "Provide detector name/geometry if the TPC "
+                "sources are to be displayed."
+            )
 
         # Initialize hovertext per object
         obj_type = obj_name.split("_")[-1][:-1].capitalize()
         count = len(self.data[obj_name])
-        hovertext = [f"{obj_type} {i}" for i in range(count)]
+        hovertext = [[f"{obj_type} {i}"] for i in range(count)]
+        has_long_form = False
+        if attrs is not None and any(self._is_long_form(attr) for attr in attrs):
+            if self.lite:
+                raise ValueError(
+                    "Long-form attributes are not available when drawing "
+                    "lite-version objects."
+                )
+            point_key = self.truth_point_key if "truth" in obj_name else "points"
+            hovertext = [ht * len(self.data[point_key]) for ht in hovertext]
+            has_long_form = True
 
-        # Fetch the list of color values and attributes
-        if attr is None:
-            attr = "id"
+        # Fetch the list of colors and hovertexts
+        color = np.arange(len(self.data[obj_name]))
+        if color_attr is None:
             color_attr = "id"
-            color = np.arange(len(self.data[obj_name]))
 
-        else:
+        if attrs is not None:
             # Fetch hover information for each of the requested attributes
-            single_attr = isinstance(attr, str)
-            attrs = [attr] if single_attr else attr
             for attr in attrs:
+                # Get the atribute name in display format
+                attr_name = " ".join(attr.split("_")).capitalize()
+
                 # If it is a true deposition/source attribute, check that it matches
                 # the point mode that is being used to draw the true objects
                 if "truth" in obj_name:
@@ -470,10 +497,14 @@ class Drawer:
                             f"mode {attr} are incompatible."
                         )
 
-                # Get the value, color and hovertext
-                attr_name = " ".join(attr.split("_")).capitalize()
+                # Get the list of values
                 values = [getattr(obj, attr) for obj in self.data[obj_name]]
-                if single_attr or attr == color_attr:
+                if self._is_sources(attr):
+                    assert self.geo is not None  # For the linter's sake
+                    values = [self.geo.get_sources(v) for v in values]
+
+                # Get the colors, if needed
+                if len(attrs) == 1 or attr == color_attr:
                     if not self._is_sources(attr):
                         color = values
                     else:
@@ -483,42 +514,31 @@ class Drawer:
                         )
                         color = [self.geo.get_chambers(v) for v in values]
 
+                # Get the hovertext for this attribute
                 if self._is_depositions(attr):
-                    tostr = lambda v: f"<br>Deposition: {v:0.3f}"
-                    for i, hc in enumerate(hovertext):
-                        if isinstance(hc, str):
-                            hovertext[i] = [hc + tostr(v) for v in values[i]]
-                        else:
-                            hovertext[i] = [
-                                hc[i] + tostr(v) for i, v in enumerate(values[i])
-                            ]
-
+                    for i, ht in enumerate(hovertext):
+                        hovertext[i] = [
+                            ht[j] + self._dep_tostr(v) for j, v in enumerate(values[i])
+                        ]
                 elif self._is_sources(attr):
-                    tostr = lambda v: f"<br>Module, TPC: {v[0]:d}, {v[1]:d}"
-                    values = [self.geo.get_sources(v) for v in values]
-                    for i, hc in enumerate(hovertext):
-                        if isinstance(hc, str):
-                            hovertext[i] = [hc + tostr(v) for v in values[i]]
-                        else:
-                            hovertext[i] = [
-                                hc[i] + tostr(v) for i, v in enumerate(values[i])
-                            ]
-
+                    for i, ht in enumerate(hovertext):
+                        hovertext[i] = [
+                            ht[j] + self._src_tostr(v) for j, v in enumerate(values[i])
+                        ]
                 else:
-                    tostr = lambda v: f"<br>{attr_name}: {v}"
-                    for i, hc in enumerate(hovertext):
-                        if isinstance(hc, str):
-                            hovertext[i] = hc + tostr(values[i])
-                        else:
-                            hovertext[i] = [hcj + tostr(values[i]) for hcj in hc]
+                    for i, ht in enumerate(hovertext):
+                        val_str = self._tostr(attr_name, values[i])
+                        hovertext[i] = [
+                            ht[j] + val_str for j in range(len(hovertext[i]))
+                        ]
 
-            # Determine which attribute to define the colorscale
-            if color_attr is None:
-                if single_attr:
-                    color_attr = attrs[0]
-                else:
-                    color_attr = "id"
-                    color = np.arange(len(self.data[obj_name]))
+            # If there is only one attribute and no color attribute specified, use it
+            if color_attr is None and len(attrs) == 1:
+                color_attr = attrs[0]
+
+        # Flatten hovertext if no long-form attributes are used
+        if not has_long_form:
+            hovertext = [ht[0] for ht in hovertext]
 
         # Set up the appropriate color scheme
         if self._is_depositions(color_attr):
@@ -532,6 +552,7 @@ class Drawer:
 
         elif self._is_sources(color_attr):
             # Variable-length descrete values
+            assert self.geo is not None  # For the linter's sake
             count = self.geo.tpc.num_chambers
             colorscale = HIGH_CONTRAST_COLORS
             if count == 0:
@@ -600,6 +621,10 @@ class Drawer:
         List[plotly.graph_objs.Scatter3d]
             List of one trace containing the input to the reconstruction
         """
+        # Throw if drawing in lite mode
+        if self.lite:
+            raise RuntimeError("Cannot draw raw input in lite mode.")
+
         # Fetch the input attributes
         points = self.data["points"]
         deps = self.data["depositions"]
@@ -776,7 +801,7 @@ class Drawer:
                 continue
 
             # Skip empty true objects
-            if obj.is_truth and not len(getattr(obj, self.truth_index_mode)):
+            if obj.is_truth and not len(getattr(obj, self.truth_index_mode)) > 0:
                 continue
 
             # Append the particular end point of this object and the label
@@ -785,7 +810,7 @@ class Drawer:
             idxs.append(i)
 
         points = np.empty((0, 3))
-        if len(point_list):
+        if point_list:
             points = np.vstack(point_list)
 
         if not split_traces:
@@ -832,7 +857,7 @@ class Drawer:
         point_list, dir_list, hovertext, idxs = [], [], [], []
         for i, obj in enumerate(self.data[obj_name]):
             # Skip empty true objects
-            if obj.is_truth and not len(getattr(obj, self.truth_index_mode)):
+            if obj.is_truth and not len(getattr(obj, self.truth_index_mode)) > 0:
                 continue
 
             # Append the direction of this object and the label
@@ -842,7 +867,7 @@ class Drawer:
             idxs.append(i)
 
         points, dirs = np.empty((0, 3)), np.empty((0, 3))
-        if len(point_list):
+        if point_list:
             points = np.vstack(point_list)
             dirs = np.vstack(dir_list)
 
@@ -929,6 +954,7 @@ class Drawer:
             zero_supress=True,
             colorscale="Inferno",
             name=name,
+            **kwargs,
         )
 
     def _crt_trace(self, obj_name, matched_only, **kwargs):
@@ -950,7 +976,7 @@ class Drawer:
         """
         # If there was no geometry provided by the user, nothing to do here
         assert (
-            self.geo_drawer is not None
+            self.geo is not None and self.geo_drawer is not None
         ), "Cannot draw CRT detectors without geometry information."
 
         # Check that there are CRT planes to draw
@@ -993,7 +1019,7 @@ class Drawer:
 
         # Build a scatter plot of CRT hits
         points = np.empty((0, 3))
-        if len(crthits) > 0:
+        if crthits:
             points = np.vstack([hit.center for hit in crthits])
 
         traces += scatter_points(
@@ -1006,6 +1032,21 @@ class Drawer:
         )
 
         return traces
+
+    def _is_long_form(self, attr):
+        """Check if an attribute is a long-form attribute (depositions or sources).
+
+        Parameters
+        ----------
+        attr : str
+            Object attribute to check
+
+        Returns
+        -------
+        bool
+            `True` is the attribute is a long-form attribute
+        """
+        return self._is_depositions(attr) or self._is_sources(attr)
 
     @staticmethod
     def _is_depositions(attr):
@@ -1038,3 +1079,50 @@ class Drawer:
             `True` is the attribute is a source attribute
         """
         return attr.startswith("sources")
+
+    def _tostr(self, attr_name, value):
+        """Convert a scalar attribute value to a human-readable string.
+
+        Parameters
+        ----------
+        attr_name : str
+            Name of the attribute
+        value : Any
+            Attribute value
+
+        Returns
+        -------
+        str
+            Human-readable string
+        """
+        return f"<br>{attr_name}: {value}"
+
+    def _dep_tostr(self, value):
+        """Convert a deposition value to a human-readable string.
+
+        Parameters
+        ----------
+        value : str
+            Deposition value
+
+        Returns
+        -------
+        str
+            Human-readable string
+        """
+        return f"<br>Deposition: {value:0.3f}"
+
+    def _src_tostr(self, value):
+        """Convert a source value to a human-readable string.
+
+        Parameters
+        ----------
+        value : str
+            Source value
+
+        Returns
+        -------
+        str
+            Human-readable string
+        """
+        return f"<br>Module, TPC: {value[0]:d}, {value[1]:d}"

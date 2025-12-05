@@ -1,7 +1,7 @@
 """CRT detector geometry classes."""
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 import numpy as np
 
@@ -61,7 +61,7 @@ class CRTDetector(Box):
     """
 
     planes: List[CRTPlane]
-    det_ids: Optional[Dict[int, int]] = None
+    det_ids: Dict[int, int]
 
     def __init__(self, dimensions, positions, normals, logical_ids=None):
         """Parse the CRT detector configuration.
