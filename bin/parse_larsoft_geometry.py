@@ -497,6 +497,136 @@ def parse_optical_block(lines, start_idx):
     return op_info
 
 
+def parse_crt_block(lines, start_idx):
+    """Parse a single CRT block from the geometry file.
+
+    Parameters
+    ----------
+    lines : list
+        List of text lines from the geometry file
+    start_idx : int
+        Index where the CRT block starts
+
+    Returns
+    -------
+    dict
+        Dictionary containing CRT information:
+        - dimensions: Aggregated dimensions of the CRT plane based on sensitive volumes
+        - position: Center position of the aggregated CRT plane
+        - normal: Axis perpendicular to the CRT plane (0, 1, or 2)
+    """
+
+    # Extract plane information from the header
+    header = lines[start_idx]
+    name_match = re.search(r"\"volAuxDet.*\"", header)
+    if name_match:
+        name = name_match.group(0).replace('"', "")
+    else:
+        raise ValueError("Could not parse CRT module name.")
+
+    # Parse the second line to get the number of sensitive volumes
+    if start_idx + 1 >= len(lines):
+        raise ValueError(
+            "CRT block is incomplete (missing sensitive volume count line)."
+        )
+
+    second_line = lines[start_idx + 1]
+    sensitive_match = re.search(r"with\s+(\d+)\s+sensitive volumes", second_line)
+    if not sensitive_match:
+        raise ValueError("Could not parse number of sensitive volumes.")
+
+    num_sensitive = int(sensitive_match.group(1))
+
+    # Parse the normal vector from the second line
+    plane_normal = parse_vector(second_line)
+    if plane_normal is None:
+        raise ValueError("Could not parse CRT plane normal vector.")
+
+    # Parse all sensitive volumes to aggregate dimensions
+    sensitive_volumes = []
+    for i in range(num_sensitive):
+        line_idx = start_idx + 2 + i
+        if line_idx >= len(lines):
+            break
+
+        volume_line = lines[line_idx]
+
+        # Parse position
+        vol_pos = parse_vector(volume_line.split("centered at")[1].split(" cm,")[0])
+        if vol_pos is None:
+            continue
+
+        # Parse size
+        size_match = re.search(
+            r"size\s+\(\s+([-\d.eE+]+)\s+x\s+([-\d.eE+]+)\s+x\s+([-\d.eE+]+)\s+\)\s+cm",
+            volume_line,
+        )
+        if not size_match:
+            continue
+
+        vol_size = [
+            float(size_match.group(1)),
+            float(size_match.group(2)),
+            float(size_match.group(3)),
+        ]
+
+        # Parse normal vector for this volume
+        vol_normal = parse_vector(volume_line.split("normal facing")[1])
+        if vol_normal is None:
+            continue
+
+        sensitive_volumes.append(
+            {
+                "position": vol_pos,
+                "size": vol_size,
+                "normal": vol_normal,
+            }
+        )
+
+    if not sensitive_volumes:
+        raise ValueError("No valid sensitive volumes found in CRT block.")
+
+    # Aggregate: find the bounding box of all sensitive volumes
+    positions = np.array([v["position"] for v in sensitive_volumes])
+    sizes = np.array([v["size"] for v in sensitive_volumes])
+
+    # Calculate min and max bounds for each axis
+    min_bounds = positions - sizes / 2
+    max_bounds = positions + sizes / 2
+
+    overall_min = np.min(min_bounds, axis=0)
+    overall_max = np.max(max_bounds, axis=0)
+
+    # Calculate aggregated dimensions and center position
+    aggregated_size = overall_max - overall_min
+    aggregated_position = ((overall_min + overall_max) / 2).tolist()
+
+    # Determine normal axis: the axis with the largest absolute component in the normal vector
+    # Use the first sensitive volume's normal vector to determine orientation
+    vol_normal = np.array(sensitive_volumes[0]["normal"])
+    normal_axis = int(np.argmax(np.abs(vol_normal)))
+
+    # Verify that the dimension along the normal axis is the smallest
+    # If not, swap dimensions to ensure consistency
+    # The CRT plane should have its smallest dimension along the normal
+    if aggregated_size[normal_axis] != np.min(aggregated_size):
+        # Find which axis has the smallest dimension
+        min_dim_axis = int(np.argmin(aggregated_size))
+        # Swap the dimensions (but keep normal_axis unchanged)
+        aggregated_size[[normal_axis, min_dim_axis]] = aggregated_size[
+            [min_dim_axis, normal_axis]
+        ]
+
+    crt_info = {
+        "name": name,
+        "dimensions": aggregated_size.tolist(),
+        "position": aggregated_position,
+        "normal": normal_axis,
+    }
+
+    return crt_info
+
+
 def main(source, output=None, cathode_thickness=0.0, pixel_size=0.0):
     """Main function for parsing LArSoft geometry files.
 
@@ -550,6 +680,7 @@ def main(source, output=None, cathode_thickness=0.0, pixel_size=0.0):
     # Parse all TPC and optical detector blocks
     tpc_list = []
     op_info_list = []
+    crt_info_list = []
     for i, line in enumerate(lines):
         if line.strip().startswith("TPC C:"):
             tpc_info = parse_tpc_block(
@@ -561,9 +692,14 @@ def main(source, output=None, cathode_thickness=0.0, pixel_size=0.0):
             op_info = parse_optical_block(lines, i)
             if op_info and "positions" in op_info and "dimensions" in op_info:
                 op_info_list.append(op_info)
+        elif line.strip().split("]")[-1].startswith(' "volAuxDet'):
+            crt_info = parse_crt_block(lines, i)
+            if crt_info and "position" in crt_info and "dimensions" in crt_info:
+                crt_info_list.append(crt_info)
 
-    print(f"Found {len(tpc_list)} TPCs")
-    print(f"Found {len(op_info_list)} optical detector blocks\n")
+    print(f"Found {len(tpc_list)} logical TPCs")
+    print(f"Found {len(op_info_list)} optical detector blocks")
+    print(f"Found {len(crt_info_list)} CRT detector blocks\n")
 
     # Sort TPCs by cryostat and TPC number for consistent ordering
     tpc_list.sort(key=lambda x: (x["cryostat"], x["tpc"]))
@@ -792,6 +928,68 @@ def main(source, output=None, cathode_thickness=0.0, pixel_size=0.0):
             [float(round(p, 4)) for p in pos] for pos in op_info["positions"]
         ]
 
+    # Add CRT info if available
+    crt_yaml = {}
+    if crt_info_list:
+        # Look for matching names in the CRT planes (in which case we can merge them)
+        # The names should match (modulo numbering) for modules that are part of the same plane
+        # Start by creating a list of unique base names
+        # TODO
+        base_names = []
+        for i, crt_info in enumerate(crt_info_list):
+            base_name = re.sub(r"\d+", "", crt_info["name"]).rstrip("_")
+            base_names.append(base_name)
+
+        # Combine CRT modules with the same base name
+        combined_crt_info = []
+        for base_name in set(base_names):
+            matching_modules = [
+                crt_info
+                for i, crt_info in enumerate(crt_info_list)
+                if base_names[i] == base_name
+            ]
+
+            if len(matching_modules) > 1:
+                # Combine dimensions and positions
+                # For simplicity, take the bounding box of all modules
+                min_pos = np.min(
+                    [
+                        np.array(mod["position"]) - np.array(mod["dimensions"]) / 2
+                        for mod in matching_modules
+                    ],
+                    axis=0,
+                )
+                max_pos = np.max(
+                    [
+                        np.array(mod["position"]) + np.array(mod["dimensions"]) / 2
+                        for mod in matching_modules
+                    ],
+                    axis=0,
+                )
+                combined_dimensions = (max_pos - min_pos).tolist()
+                combined_position = ((min_pos + max_pos) / 2).tolist()
+
+                combined_crt_info.append(
+                    {
+                        "normal": matching_modules[0]["normal"],
+                        "dimensions": combined_dimensions,
+                        "position": combined_position,
+                    }
+                )
+            else:
+                combined_crt_info.append(matching_modules[0])
+
+        # Loop over all CRT blocks and add them to the YAML, round values
+        crt_yaml = {
+            "normals": [],
+            "dimensions": [],
+            "positions": [],
+        }
+        for crt_info in combined_crt_info:
+            crt_yaml["normals"].append(crt_info["normal"])
+            crt_yaml["dimensions"].append([round(d, 4) for d in crt_info["dimensions"]])
+            crt_yaml["positions"].append([round(p, 4) for p in crt_info["position"]])
+
     # Build top-level YAML structure
     yaml_data = {}
     yaml_data["name"] = detector
@@ -805,6 +1003,10 @@ def main(source, output=None, cathode_thickness=0.0, pixel_size=0.0):
     # Add the optical geometry information if available
     if op_yaml:
         yaml_data["optical"] = op_yaml
+
+    # Add the CRT geometry information if available
+    if crt_yaml:
+        yaml_data["crt"] = crt_yaml
 
     # Print the YAML structure
     print("YAML file:")
