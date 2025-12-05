@@ -392,32 +392,30 @@ def parse_crt_block(lines, start_idx):
     if not sensitive_volumes:
         raise ValueError("No valid sensitive volumes found in CRT block")
 
+    # Check for mixed orientations first, before aggregation
+    normals = np.array([v["normal"] for v in sensitive_volumes])
+
+    # Round normals to identify unique orientations (accounting for tiny floating point errors)
+    unique_normals = np.unique(np.round(normals, decimals=6), axis=0)
+
     # Aggregate: find bounding box of all sensitive volumes
     positions = np.array([v["position"] for v in sensitive_volumes])
     sizes = np.array([v["size"] for v in sensitive_volumes])
 
-    min_bounds = positions - sizes / 2
-    max_bounds = positions + sizes / 2
-
-    overall_min = np.min(min_bounds, axis=0)
-    overall_max = np.max(max_bounds, axis=0)
-
-    aggregated_size = overall_max - overall_min
-    aggregated_position = ((overall_min + overall_max) / 2).tolist()
-
-    # Check for mixed orientations: group sensitive volumes by their normal vectors
-    normals = np.array([v["normal"] for v in sensitive_volumes])
-
-    # Round normals to identify unique orientations
-    unique_normals = np.unique(np.round(normals, decimals=1), axis=0)
-
     if len(unique_normals) > 1:
         # Mixed orientations detected - these sub-planes are stacked along one axis
+        # Aggregate in original coordinates first
+        min_bounds = positions - sizes / 2
+        max_bounds = positions + sizes / 2
+        overall_min = np.min(min_bounds, axis=0)
+        overall_max = np.max(max_bounds, axis=0)
+        aggregated_size = overall_max - overall_min
+
         # That stacking axis is the true normal direction for the combined detector plane
         normal_groups = {}
         normal_groups_indices = {}
         for i, sv in enumerate(sensitive_volumes):
-            normal_key = tuple(np.round(sv["normal"], decimals=1))
+            normal_key = tuple(np.round(sv["normal"], decimals=6))
             if normal_key not in normal_groups:
                 normal_groups[normal_key] = []
                 normal_groups_indices[normal_key] = []
@@ -440,12 +438,25 @@ def parse_crt_block(lines, start_idx):
         # The stacking axis is the true normal direction
         normal_axis = stacking_axis
 
-        # For mixed-orientation modules, use the module-level dimensions
-        # but ensure the thin dimension corresponds to the stacking axis
+        # For mixed-orientation modules, we still need to apply coordinate transformation
+        # based on the dominant normal vector, then ensure thin dimension matches stacking axis
+
+        # Get the dominant normal from the first sensitive volume
+        normal_vector = np.array(sensitive_volumes[0]["normal"])
+        abs_normal = np.abs(normal_vector)
+        dominant_axis = int(np.argmax(abs_normal))
+
+        # Apply coordinate transformation to module dimensions
         transformed_size = module_size.copy()
 
-        # Find which dimension is thinnest and swap it with the stacking axis dimension
-        thin_idx = int(np.argmin(module_size))
+        if dominant_axis == 0:  # X-axis dominant: swap X ↔ Z
+            transformed_size[[0, 2]] = transformed_size[[2, 0]]
+        elif dominant_axis == 1:  # Y-axis dominant: swap Y ↔ Z
+            transformed_size[[1, 2]] = transformed_size[[2, 1]]
+        # If dominant_axis == 2, no swap needed
+
+        # Now ensure the thin dimension corresponds to the stacking axis
+        thin_idx = int(np.argmin(transformed_size))
         if thin_idx != stacking_axis:
             # Swap the thin dimension with the stacking axis dimension
             transformed_size[thin_idx], transformed_size[stacking_axis] = (
@@ -456,28 +467,41 @@ def parse_crt_block(lines, start_idx):
         transformed_size = transformed_size.tolist()
         aggregated_position = module_position
     else:
-        # Single orientation: use coordinate transformation based on local normal vector
+        # Single orientation: transform each sensitive volume to global coordinates FIRST,
+        # then aggregate in global coordinates
         # The local normal indicates which axis to swap with Z to get global coordinates
         # - (0,0,±1): no transformation needed
         # - (1,0,0) or (-1,0,0): swap X ↔ Z
         # - (0,1,0) or (0,-1,0): swap Y ↔ Z
-        # IMPORTANT: Only transform the SIZE/DIMENSIONS, not the position (already in global coords)
-        normal_vector = np.array(sensitive_volumes[0]["normal"])
 
-        # Determine which axis has the largest absolute component
+        normal_vector = np.array(sensitive_volumes[0]["normal"])
         abs_normal = np.abs(normal_vector)
         dominant_axis = int(np.argmax(abs_normal))
 
-        # Transform dimensions: swap the dominant axis with Z (axis 2)
-        transformed_size = aggregated_size.copy()
+        # Transform each sensitive volume's size to global coordinates
+        transformed_sizes = []
+        for size in sizes:
+            t_size = size.copy()
+            if dominant_axis == 0:  # X-axis dominant: swap X ↔ Z
+                t_size[[0, 2]] = t_size[[2, 0]]
+            elif dominant_axis == 1:  # Y-axis dominant: swap Y ↔ Z
+                t_size[[1, 2]] = t_size[[2, 1]]
+            transformed_sizes.append(t_size)
 
-        if dominant_axis == 0:  # X-axis dominant: swap X ↔ Z
-            transformed_size[[0, 2]] = transformed_size[[2, 0]]
-        elif dominant_axis == 1:  # Y-axis dominant: swap Y ↔ Z
-            transformed_size[[1, 2]] = transformed_size[[2, 1]]
-        # If dominant_axis == 2, no swap needed (Z is already Z)
+        transformed_sizes = np.array(transformed_sizes)
 
-        # Now the thinnest dimension in transformed coordinates gives the global normal
+        # Now aggregate in global coordinates
+        # Positions are already in global coords, just use transformed sizes
+        min_bounds = positions - transformed_sizes / 2
+        max_bounds = positions + transformed_sizes / 2
+
+        overall_min = np.min(min_bounds, axis=0)
+        overall_max = np.max(max_bounds, axis=0)
+
+        transformed_size = (overall_max - overall_min).tolist()
+        aggregated_position = ((overall_min + overall_max) / 2).tolist()
+
+        # Now the thinnest dimension in global coordinates gives the normal
         normal_axis = int(np.argmin(transformed_size))
 
     return {
@@ -774,41 +798,88 @@ def build_crt_yaml(crt_info_list):
         ]
 
         if len(matching_modules) > 1:
-            # Combine into bounding box
-            min_pos = np.min(
-                [
-                    np.array(mod["position"]) - np.array(mod["dimensions"]) / 2
-                    for mod in matching_modules
-                ],
-                axis=0,
-            )
-            max_pos = np.max(
-                [
-                    np.array(mod["position"]) + np.array(mod["dimensions"]) / 2
-                    for mod in matching_modules
-                ],
-                axis=0,
-            )
-            combined_dimensions = (max_pos - min_pos).tolist()
-            combined_position = ((min_pos + max_pos) / 2).tolist()
+            # Group modules by normal direction first, then by coplanarity
+            # This handles cases like SBND where all modules have the same name pattern
+            # but belong to different physical planes
 
-            # Determine normal: prefer consensus from individual modules
-            # (handles mixed-orientation modules correctly), otherwise use thinnest dimension
-            individual_normals = [mod["normal"] for mod in matching_modules]
-            if len(set(individual_normals)) == 1:
-                # All modules agree on normal direction
-                combined_normal = individual_normals[0]
-            else:
-                # Disagreement or ambiguity: use thinnest dimension of aggregated result
-                combined_normal = int(np.argmin(combined_dimensions))
+            # First, group by normal
+            normal_groups = {}
+            for mod in matching_modules:
+                normal_axis = mod["normal"]
+                if normal_axis not in normal_groups:
+                    normal_groups[normal_axis] = []
+                normal_groups[normal_axis].append(mod)
 
-            combined_crt_info.append(
-                {
-                    "normal": combined_normal,
-                    "dimensions": combined_dimensions,
-                    "position": combined_position,
-                }
-            )
+            # Then, within each normal group, subdivide by coplanarity
+            coplanar_groups = []
+            for normal_axis, modules_with_normal in normal_groups.items():
+                # Create sub-groups for this normal direction
+                normal_coplanar_groups = []
+
+                # Group by position along the normal axis
+                for mod in modules_with_normal:
+                    pos_along_normal = mod["position"][normal_axis]
+
+                    # Find existing coplanar group with similar position along normal
+                    found_group = False
+                    for group in normal_coplanar_groups:
+                        # Check all modules in group to prevent chain drift
+                        # Module must be within 25cm of ALL existing modules in group
+                        all_close = all(
+                            abs(pos_along_normal - m["position"][normal_axis]) < 25.0
+                            for m in group
+                        )
+
+                        if all_close:
+                            group.append(mod)
+                            found_group = True
+                            break
+
+                    if not found_group:
+                        normal_coplanar_groups.append([mod])
+
+                # Add this normal's groups to the overall list
+                coplanar_groups.extend(normal_coplanar_groups)
+
+            # Now process each coplanar group separately
+            for group in coplanar_groups:
+                if len(group) > 1:
+                    # Combine into bounding box
+                    min_pos = np.min(
+                        [
+                            np.array(mod["position"]) - np.array(mod["dimensions"]) / 2
+                            for mod in group
+                        ],
+                        axis=0,
+                    )
+                    max_pos = np.max(
+                        [
+                            np.array(mod["position"]) + np.array(mod["dimensions"]) / 2
+                            for mod in group
+                        ],
+                        axis=0,
+                    )
+                    combined_dimensions = (max_pos - min_pos).tolist()
+                    combined_position = ((min_pos + max_pos) / 2).tolist()
+
+                    # Determine normal: prefer consensus from individual modules
+                    individual_normals = [mod["normal"] for mod in group]
+                    if len(set(individual_normals)) == 1:
+                        # All modules agree on normal direction
+                        combined_normal = individual_normals[0]
+                    else:
+                        # Disagreement: use thinnest dimension of aggregated result
+                        combined_normal = int(np.argmin(combined_dimensions))
+
+                    combined_crt_info.append(
+                        {
+                            "normal": combined_normal,
+                            "dimensions": combined_dimensions,
+                            "position": combined_position,
+                        }
+                    )
+                else:
+                    combined_crt_info.append(group[0])
         else:
             combined_crt_info.append(matching_modules[0])
 
