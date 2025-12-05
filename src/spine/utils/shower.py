@@ -257,6 +257,8 @@ def shower_angle_params(energy: float) -> Tuple[float, float, float]:
     """Compute the shower angle parameters a, b and c according to a Stacy
     parametrization of the angular distribution.
 
+    Source: https://arxiv.org/pdf/2303.10226
+
     Parameters
     ----------
     energy : float

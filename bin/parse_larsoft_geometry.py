@@ -331,6 +331,16 @@ def parse_crt_block(lines, start_idx):
     else:
         raise ValueError("Could not parse CRT module name")
 
+    # Parse module-level position and size from header
+    module_position = parse_vector(header.split("centered at")[1].split(" cm,")[0])
+    size_match = re.search(
+        r"size\s+\(\s+([-\d.eE+]+)\s+x\s+([-\d.eE+]+)\s+x\s+([-\d.eE+]+)\s+\)\s+cm",
+        header,
+    )
+    if not size_match:
+        raise ValueError("Could not parse module size")
+    module_size = np.array([float(size_match.group(i)) for i in range(1, 4)])
+
     # Parse number of sensitive volumes
     if start_idx + 1 >= len(lines):
         raise ValueError("CRT block is incomplete")
@@ -395,21 +405,89 @@ def parse_crt_block(lines, start_idx):
     aggregated_size = overall_max - overall_min
     aggregated_position = ((overall_min + overall_max) / 2).tolist()
 
-    # Determine normal axis from first sensitive volume's normal vector
-    vol_normal = np.array(sensitive_volumes[0]["normal"])
-    normal_axis = int(np.argmax(np.abs(vol_normal)))
+    # Check for mixed orientations: group sensitive volumes by their normal vectors
+    normals = np.array([v["normal"] for v in sensitive_volumes])
 
-    # Ensure smallest dimension aligns with normal axis
-    if aggregated_size[normal_axis] != np.min(aggregated_size):
-        min_dim_axis = int(np.argmin(aggregated_size))
-        aggregated_size[[normal_axis, min_dim_axis]] = aggregated_size[
-            [min_dim_axis, normal_axis]
-        ]
+    # Round normals to identify unique orientations
+    unique_normals = np.unique(np.round(normals, decimals=1), axis=0)
+
+    if len(unique_normals) > 1:
+        # Mixed orientations detected - these sub-planes are stacked along one axis
+        # That stacking axis is the true normal direction for the combined detector plane
+        normal_groups = {}
+        normal_groups_indices = {}
+        for i, sv in enumerate(sensitive_volumes):
+            normal_key = tuple(np.round(sv["normal"], decimals=1))
+            if normal_key not in normal_groups:
+                normal_groups[normal_key] = []
+                normal_groups_indices[normal_key] = []
+            normal_groups[normal_key].append(sv["position"])
+            normal_groups_indices[normal_key].append(i)
+
+        # Calculate mean position for each orientation group
+        group_means = np.array(
+            [np.mean(positions, axis=0) for positions in normal_groups.values()]
+        )
+
+        # Find which axis has the SMALLEST non-zero separation (the stacking axis)
+        # The two orientation groups are stacked with a tiny offset along the normal direction
+        separations = np.max(group_means, axis=0) - np.min(group_means, axis=0)
+
+        # Filter out near-zero separations (< 0.1 cm) and find minimum
+        non_zero_separations = np.where(separations > 0.1, separations, np.inf)
+        stacking_axis = int(np.argmin(non_zero_separations))
+
+        # The stacking axis is the true normal direction
+        normal_axis = stacking_axis
+
+        # For mixed-orientation modules, use the module-level dimensions
+        # but ensure the thin dimension corresponds to the stacking axis
+        transformed_size = module_size.copy()
+
+        # Find which dimension is thinnest and swap it with the stacking axis dimension
+        thin_idx = int(np.argmin(module_size))
+        if thin_idx != stacking_axis:
+            # Swap the thin dimension with the stacking axis dimension
+            transformed_size[thin_idx], transformed_size[stacking_axis] = (
+                transformed_size[stacking_axis],
+                transformed_size[thin_idx],
+            )
+
+        transformed_size = transformed_size.tolist()
+        aggregated_position = module_position
+    else:
+        # Single orientation: use coordinate transformation based on local normal vector
+        # The local normal indicates which axis to swap with Z to get global coordinates
+        # - (0,0,±1): no transformation needed
+        # - (1,0,0) or (-1,0,0): swap X ↔ Z
+        # - (0,1,0) or (0,-1,0): swap Y ↔ Z
+        # IMPORTANT: Only transform the SIZE/DIMENSIONS, not the position (already in global coords)
+        normal_vector = np.array(sensitive_volumes[0]["normal"])
+
+        # Determine which axis has the largest absolute component
+        abs_normal = np.abs(normal_vector)
+        dominant_axis = int(np.argmax(abs_normal))
+
+        # Transform dimensions: swap the dominant axis with Z (axis 2)
+        transformed_size = aggregated_size.copy()
+
+        if dominant_axis == 0:  # X-axis dominant: swap X ↔ Z
+            transformed_size[[0, 2]] = transformed_size[[2, 0]]
+        elif dominant_axis == 1:  # Y-axis dominant: swap Y ↔ Z
+            transformed_size[[1, 2]] = transformed_size[[2, 1]]
+        # If dominant_axis == 2, no swap needed (Z is already Z)
+
+        # Now the thinnest dimension in transformed coordinates gives the global normal
+        normal_axis = int(np.argmin(transformed_size))
 
     return {
         "name": name,
-        "dimensions": aggregated_size.tolist(),
-        "position": aggregated_position,
+        "dimensions": (
+            transformed_size.tolist()
+            if isinstance(transformed_size, np.ndarray)
+            else transformed_size
+        ),
+        "position": aggregated_position,  # Position stays in original global coordinates
         "normal": normal_axis,
     }
 
@@ -666,8 +744,20 @@ def build_crt_yaml(crt_info_list):
     if not crt_info_list:
         return {}
 
-    # Extract base names and group modules with same base name
-    base_names = [re.sub(r"\d+", "", crt["name"]).rstrip("_") for crt in crt_info_list]
+    # Extract base names by removing module numbers and normalizing numeric patterns
+    # Replace all digit sequences with 'N' to group similar modules together
+    # e.g., "volAuxDetMINOSmodule104cut400South" -> "volAuxDetMINOSmoduleNcutNSouth"
+    base_names = []
+    for crt in crt_info_list:
+        name = crt["name"]
+        # Remove the volAuxDet prefix temporarily for easier pattern matching
+        if name.startswith("volAuxDet"):
+            name = name[9:]  # Remove "volAuxDet"
+
+        # Replace all digit sequences with 'N'
+        base = re.sub(r"\d+", "N", name)
+        base = "volAuxDet" + base
+        base_names.append(base)
 
     # Preserve order by using dict to track first occurrence
     seen_base_names = {}
@@ -678,6 +768,7 @@ def build_crt_yaml(crt_info_list):
     combined_crt_info = []
     # Iterate in order of first appearance
     for base_name in sorted(seen_base_names.keys(), key=lambda x: seen_base_names[x]):
+        print(base_name)
         matching_modules = [
             crt for i, crt in enumerate(crt_info_list) if base_names[i] == base_name
         ]
@@ -701,9 +792,19 @@ def build_crt_yaml(crt_info_list):
             combined_dimensions = (max_pos - min_pos).tolist()
             combined_position = ((min_pos + max_pos) / 2).tolist()
 
+            # Determine normal: prefer consensus from individual modules
+            # (handles mixed-orientation modules correctly), otherwise use thinnest dimension
+            individual_normals = [mod["normal"] for mod in matching_modules]
+            if len(set(individual_normals)) == 1:
+                # All modules agree on normal direction
+                combined_normal = individual_normals[0]
+            else:
+                # Disagreement or ambiguity: use thinnest dimension of aggregated result
+                combined_normal = int(np.argmin(combined_dimensions))
+
             combined_crt_info.append(
                 {
-                    "normal": matching_modules[0]["normal"],
+                    "normal": combined_normal,
                     "dimensions": combined_dimensions,
                     "position": combined_position,
                 }
