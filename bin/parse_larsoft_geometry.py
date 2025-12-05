@@ -449,11 +449,17 @@ def parse_crt_block(lines, start_idx):
         # Apply coordinate transformation to module dimensions
         transformed_size = module_size.copy()
 
-        if dominant_axis == 0:  # X-axis dominant: swap X ↔ Z
-            transformed_size[[0, 2]] = transformed_size[[2, 0]]
-        elif dominant_axis == 1:  # Y-axis dominant: swap Y ↔ Z
-            transformed_size[[1, 2]] = transformed_size[[2, 1]]
-        # If dominant_axis == 2, no swap needed
+        if dominant_axis == 0:  # X-axis dominant: LOCAL-X is normal
+            # LOCAL [X, Y, Z] → GLOBAL [Z, Y, X]
+            transformed_size = np.array(
+                [module_size[2], module_size[1], module_size[0]]
+            )
+        elif dominant_axis == 1:  # Y-axis dominant: LOCAL-Y is normal
+            # LOCAL [X, Y, Z] → GLOBAL [Y, Z, X]
+            transformed_size = np.array(
+                [module_size[1], module_size[2], module_size[0]]
+            )
+        # If dominant_axis == 2, no transformation needed
 
         # Now ensure the thin dimension corresponds to the stacking axis
         thin_idx = int(np.argmin(transformed_size))
@@ -467,42 +473,67 @@ def parse_crt_block(lines, start_idx):
         transformed_size = transformed_size.tolist()
         aggregated_position = module_position
     else:
-        # Single orientation: transform each sensitive volume to global coordinates FIRST,
-        # then aggregate in global coordinates
-        # The local normal indicates which axis to swap with Z to get global coordinates
-        # - (0,0,±1): no transformation needed
-        # - (1,0,0) or (-1,0,0): swap X ↔ Z
-        # - (0,1,0) or (0,-1,0): swap Y ↔ Z
+        # Single orientation:
+        # 1. Apply coordinate swap to LOCAL dimensions based on normal_facing
+        # 2. Find thinnest dimension after swap - that's the normal axis
+        # 3. Find stacking axis from position variance (global coords)
+        # 4. Assign: thin→normal, second-thin→stacking (aggregated), long→remaining
 
         normal_vector = np.array(sensitive_volumes[0]["normal"])
         abs_normal = np.abs(normal_vector)
-        dominant_axis = int(np.argmax(abs_normal))
+        normal_axis_local = int(np.argmax(abs_normal))
 
-        # Transform each sensitive volume's size to global coordinates
-        transformed_sizes = []
-        for size in sizes:
-            t_size = size.copy()
-            if dominant_axis == 0:  # X-axis dominant: swap X ↔ Z
-                t_size[[0, 2]] = t_size[[2, 0]]
-            elif dominant_axis == 1:  # Y-axis dominant: swap Y ↔ Z
-                t_size[[1, 2]] = t_size[[2, 1]]
-            transformed_sizes.append(t_size)
+        # Get the size of a single sensitive volume (LOCAL coordinates)
+        single_size_local = np.array(sizes[0])
 
-        transformed_sizes = np.array(transformed_sizes)
+        # Step 1: Apply swap based on normal_facing
+        # normal_facing tells us which swap to apply to LOCAL coordinates:
+        # - (0, 0, ±1): no swap [X,Y,Z] → [X,Y,Z]
+        # - (0, ±1, 0): swap Y↔Z [X,Y,Z] → [X,Z,Y]
+        # - (±1, 0, 0): swap X↔Z [X,Y,Z] → [Z,Y,X]
+        if normal_axis_local == 2:  # Z-normal: no swap
+            swap_indices = [0, 1, 2]
+        elif normal_axis_local == 1:  # Y-normal: swap Y↔Z
+            swap_indices = [0, 2, 1]
+        else:  # X-normal: swap X↔Z
+            swap_indices = [2, 1, 0]
 
-        # Now aggregate in global coordinates
-        # Positions are already in global coords, just use transformed sizes
-        min_bounds = positions - transformed_sizes / 2
-        max_bounds = positions + transformed_sizes / 2
+        # Apply swap to get dimensions after coordinate transformation
+        single_size_swapped = single_size_local[swap_indices]
 
-        overall_min = np.min(min_bounds, axis=0)
-        overall_max = np.max(max_bounds, axis=0)
+        # Step 2: Find thinnest dimension after swap - that's the normal axis
+        normal_axis = int(np.argmin(single_size_swapped))
 
-        transformed_size = (overall_max - overall_min).tolist()
-        aggregated_position = ((overall_min + overall_max) / 2).tolist()
+        # Step 3: Find stacking axis from position variance (positions are in global coords)
+        position_variance = np.var(positions, axis=0)
+        stacking_axis = int(np.argmax(position_variance))
 
-        # Now the thinnest dimension in global coordinates gives the normal
-        normal_axis = int(np.argmin(transformed_size))
+        # The third axis
+        remaining_axis = [
+            i for i in [0, 1, 2] if i not in [normal_axis, stacking_axis]
+        ][0]
+
+        # Step 4: Sort the swapped dimensions
+        sorted_sizes = sorted(single_size_swapped)
+        thinnest = sorted_sizes[0]
+        second_thinnest = sorted_sizes[1]
+        longest = sorted_sizes[2]
+
+        # Calculate stacking span
+        stacking_span = (
+            positions[:, stacking_axis].max() - positions[:, stacking_axis].min()
+        )
+        stacking_span += second_thinnest  # Add one strip width
+
+        # Build final dimensions
+        transformed_size = np.zeros(3)
+        transformed_size[normal_axis] = thinnest
+        transformed_size[stacking_axis] = stacking_span
+        transformed_size[remaining_axis] = longest
+
+        # Calculate aggregated position (average - positions are already global)
+        aggregated_position = np.mean(positions, axis=0).tolist()
+        transformed_size = transformed_size.tolist()
 
     return {
         "name": name,
@@ -954,6 +985,7 @@ def main(source, output=None, cathode_thickness=0.0, pixel_size=0.0):
                 op_info_list.append(op_info)
         elif line.strip().split("]")[-1].startswith(' "volAuxDet'):
             crt_info = parse_crt_block(lines, i)
+            print(crt_info)
             if "position" in crt_info and "dimensions" in crt_info:
                 crt_info_list.append(crt_info)
 
