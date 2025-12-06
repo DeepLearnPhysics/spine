@@ -404,13 +404,6 @@ def parse_crt_block(lines, start_idx):
 
     if len(unique_normals) > 1:
         # Mixed orientations detected - these sub-planes are stacked along one axis
-        # Aggregate in original coordinates first
-        min_bounds = positions - sizes / 2
-        max_bounds = positions + sizes / 2
-        overall_min = np.min(min_bounds, axis=0)
-        overall_max = np.max(max_bounds, axis=0)
-        aggregated_size = overall_max - overall_min
-
         # That stacking axis is the true normal direction for the combined detector plane
         normal_groups = {}
         normal_groups_indices = {}
@@ -472,12 +465,15 @@ def parse_crt_block(lines, start_idx):
 
         transformed_size = transformed_size.tolist()
         aggregated_position = module_position
+
     else:
         # Single orientation:
-        # 1. Apply coordinate swap to LOCAL dimensions based on normal_facing
-        # 2. Find thinnest dimension after swap - that's the normal axis
-        # 3. Find stacking axis from position variance (global coords)
-        # 4. Assign: thin→normal, second-thin→stacking (aggregated), long→remaining
+        # 1. Find stacking axis from position variance (in GLOBAL coords)
+        # 2. Replace that dimension with stacking_span (this is 'b', second thinnest)
+        # 3. Apply normal_facing swap logic based on which axis is the normal:
+        #    - normal_axis_local = 2 (Z-normal): no swap
+        #    - normal_axis_local = 1 (Y-normal): swap Y↔Z only if stacking is NOT on Z
+        #    - normal_axis_local = 0 (X-normal): always swap the two non-stacking dims
 
         normal_vector = np.array(sensitive_volumes[0]["normal"])
         abs_normal = np.abs(normal_vector)
@@ -486,54 +482,60 @@ def parse_crt_block(lines, start_idx):
         # Get the size of a single sensitive volume (LOCAL coordinates)
         single_size_local = np.array(sizes[0])
 
-        # Step 1: Apply swap based on normal_facing
-        # normal_facing tells us which swap to apply to LOCAL coordinates:
-        # - (0, 0, ±1): no swap [X,Y,Z] → [X,Y,Z]
-        # - (0, ±1, 0): swap Y↔Z [X,Y,Z] → [X,Z,Y]
-        # - (±1, 0, 0): swap X↔Z [X,Y,Z] → [Z,Y,X]
-        if normal_axis_local == 2:  # Z-normal: no swap
-            swap_indices = [0, 1, 2]
-        elif normal_axis_local == 1:  # Y-normal: swap Y↔Z
-            swap_indices = [0, 2, 1]
-        else:  # X-normal: swap X↔Z
-            swap_indices = [2, 1, 0]
-
-        # Apply swap to get dimensions after coordinate transformation
-        single_size_swapped = single_size_local[swap_indices]
-
-        # Step 2: Find thinnest dimension after swap - that's the normal axis
-        normal_axis = int(np.argmin(single_size_swapped))
-
-        # Step 3: Find stacking axis from position variance (positions are in global coords)
+        # Step 1: Find stacking axis (positions are in global coords)
         position_variance = np.var(positions, axis=0)
         stacking_axis = int(np.argmax(position_variance))
 
-        # The third axis
-        remaining_axis = [
-            i for i in [0, 1, 2] if i not in [normal_axis, stacking_axis]
-        ][0]
+        # Step 2: Sort the LOCAL dimensions, find the bar width (second thinnest)
+        size_perm = np.argsort(single_size_local)
+        width = single_size_local[size_perm[1]]
 
-        # Step 4: Sort the swapped dimensions
-        sorted_sizes = sorted(single_size_swapped)
-        thinnest = sorted_sizes[0]
-        second_thinnest = sorted_sizes[1]
-        longest = sorted_sizes[2]
-
-        # Calculate stacking span
+        # Step 3: Calculate stacking span (including half strip width on each end)
         stacking_span = (
             positions[:, stacking_axis].max() - positions[:, stacking_axis].min()
         )
-        stacking_span += second_thinnest  # Add one strip width
+        stacking_span += width  # Add one strip width
 
-        # Build final dimensions
-        transformed_size = np.zeros(3)
-        transformed_size[normal_axis] = thinnest
+        # Step 4: Build dimensions with stacking_span on the global stacking axis
+        # If it is different from its original position, rearrange
+        transformed_size = single_size_local.copy()
+        transformed_size[size_perm[1]] = single_size_local[stacking_axis]
         transformed_size[stacking_axis] = stacking_span
-        transformed_size[remaining_axis] = longest
+
+        # Step 5: Apply the coordinate swap based on normal_axis_local
+        # Rule: Don't apply a swap that involves the stacking axis
+        if normal_axis_local == 2:  # Z-normal: no swap needed
+            final_size = transformed_size
+        elif normal_axis_local == 1:  # Y-normal: wants to swap Y↔Z
+            if stacking_axis == 1 or stacking_axis == 2:
+                # Swap involves stacking axis, don't do it
+                final_size = transformed_size
+            else:
+                # Stacking is on X, safe to swap Y↔Z
+                final_size = transformed_size[[0, 2, 1]]
+        else:  # normal_axis_local == 0 (X-normal): wants to swap X↔Z
+            if stacking_axis == 0:
+                # Stacking on X, swap the other two (Y↔Z)
+                final_size = transformed_size[[0, 2, 1]]
+            elif stacking_axis == 2:
+                # Stacking on Z, X↔Z would move stacking
+                # But we may need to swap X↔Y depending on which local dim is thinnest
+                # If Z is thinnest in local coords, swap X↔Y so X becomes thinnest
+                # If Y is thinnest in local coords, don't swap to keep Y thinnest
+                if np.argmin(single_size_local) == 2:  # Z thinnest in local
+                    final_size = transformed_size[[1, 0, 2]]  # Swap X↔Y
+                else:
+                    final_size = transformed_size  # Keep as is
+            else:
+                # Stacking is on Y, safe to swap X↔Z
+                final_size = transformed_size[[2, 1, 0]]
+
+        # Step 6: Determine final normal axis (thinnest dimension)
+        normal_axis = int(np.argmin(final_size))
 
         # Calculate aggregated position (average - positions are already global)
         aggregated_position = np.mean(positions, axis=0).tolist()
-        transformed_size = transformed_size.tolist()
+        transformed_size = final_size.tolist()
 
     return {
         "name": name,
@@ -799,9 +801,9 @@ def build_crt_yaml(crt_info_list):
     if not crt_info_list:
         return {}
 
-    # Extract base names by removing module numbers and normalizing numeric patterns
-    # Replace all digit sequences with 'N' to group similar modules together
-    # e.g., "volAuxDetMINOSmodule104cut400South" -> "volAuxDetMINOSmoduleNcutNSouth"
+    # Extract base names by removing ALL numbers
+    # e.g., "volAuxDetMINOSmodule104cut400South" -> "volAuxDetMINOSmodulecutSouth"
+    # e.g., "volAuxDetCRTStripArray5" -> "volAuxDetCRTStripArray"
     base_names = []
     for crt in crt_info_list:
         name = crt["name"]
@@ -809,8 +811,8 @@ def build_crt_yaml(crt_info_list):
         if name.startswith("volAuxDet"):
             name = name[9:]  # Remove "volAuxDet"
 
-        # Replace all digit sequences with 'N'
-        base = re.sub(r"\d+", "N", name)
+        # Remove ALL digit sequences
+        base = re.sub(r"\d+", "", name)
         base = "volAuxDet" + base
         base_names.append(base)
 
@@ -823,7 +825,6 @@ def build_crt_yaml(crt_info_list):
     combined_crt_info = []
     # Iterate in order of first appearance
     for base_name in sorted(seen_base_names.keys(), key=lambda x: seen_base_names[x]):
-        print(base_name)
         matching_modules = [
             crt for i, crt in enumerate(crt_info_list) if base_names[i] == base_name
         ]
@@ -985,7 +986,6 @@ def main(source, output=None, cathode_thickness=0.0, pixel_size=0.0):
                 op_info_list.append(op_info)
         elif line.strip().split("]")[-1].startswith(' "volAuxDet'):
             crt_info = parse_crt_block(lines, i)
-            print(crt_info)
             if "position" in crt_info and "dimensions" in crt_info:
                 crt_info_list.append(crt_info)
 
