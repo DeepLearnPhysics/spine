@@ -858,7 +858,7 @@ def build_crt_yaml(crt_info_list):
                         # Check all modules in group to prevent chain drift
                         # Module must be within 25cm of ALL existing modules in group
                         all_close = all(
-                            abs(pos_along_normal - m["position"][normal_axis]) < 25.0
+                            abs(pos_along_normal - m["position"][normal_axis]) < 22.0
                             for m in group
                         )
 
