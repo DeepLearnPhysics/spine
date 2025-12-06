@@ -785,13 +785,15 @@ def build_optical_yaml(op_info_list, tpc_yaml):
     return op_yaml
 
 
-def build_crt_yaml(crt_info_list):
+def build_crt_yaml(crt_info_list, crt_mapping=None):
     """Build YAML structure for CRT section.
 
     Parameters
     ----------
     crt_info_list : list
         List of CRT info dictionaries
+    crt_mapping : str, optional
+        Path to file with mapping between CRT module names and logical IDs
 
     Returns
     -------
@@ -816,15 +818,27 @@ def build_crt_yaml(crt_info_list):
         base = "volAuxDet" + base
         base_names.append(base)
 
-    # Preserve order by using dict to track first occurrence
-    seen_base_names = {}
-    for i, base_name in enumerate(base_names):
-        if base_name not in seen_base_names:
-            seen_base_names[base_name] = i
+    # Order alphabetically, unless a mapping file is provided
+    sorted_base_names = sorted(set(base_names))
+    print(sorted_base_names)
+    mapping_data = None
+    if crt_mapping is not None:
+        # Reorder sorted_base_names according to mapping file
+        with open(crt_mapping, "r", encoding="utf-8") as f:
+            mapping_data = yaml.safe_load(f)
 
-    combined_crt_info = []
+        assert len(mapping_data) == len(
+            sorted_base_names
+        ), "CRT mapping file does not match number of unique CRT module base names"
+        assert (
+            sorted(mapping_data.keys()) == sorted_base_names
+        ), "CRT mapping file keys do not match expected CRT module base names"
+
+        sorted_base_names = list(mapping_data.keys())
+
     # Iterate in order of first appearance
-    for base_name in sorted(seen_base_names.keys(), key=lambda x: seen_base_names[x]):
+    combined_crt_info = []
+    for base_name in sorted_base_names:
         matching_modules = [
             crt for i, crt in enumerate(crt_info_list) if base_names[i] == base_name
         ]
@@ -856,7 +870,7 @@ def build_crt_yaml(crt_info_list):
                     found_group = False
                     for group in normal_coplanar_groups:
                         # Check all modules in group to prevent chain drift
-                        # Module must be within 25cm of ALL existing modules in group
+                        # Module must be within 22cm of ALL existing modules in group
                         all_close = all(
                             abs(pos_along_normal - m["position"][normal_axis]) < 22.0
                             for m in group
@@ -915,7 +929,7 @@ def build_crt_yaml(crt_info_list):
         else:
             combined_crt_info.append(matching_modules[0])
 
-    return {
+    crt_yaml = {
         "normals": [crt["normal"] for crt in combined_crt_info],
         "dimensions": [
             [round(d, 4) for d in crt["dimensions"]] for crt in combined_crt_info
@@ -925,8 +939,13 @@ def build_crt_yaml(crt_info_list):
         ],
     }
 
+    if mapping_data is not None:
+        crt_yaml["logical_ids"] = list(mapping_data.values())
 
-def main(source, output=None, cathode_thickness=0.0, pixel_size=0.0):
+    return crt_yaml
+
+
+def main(source, output=None, cathode_thickness=0.0, pixel_size=0.0, crt_mapping=None):
     """Main function for parsing LArSoft geometry files.
 
     Parameters
@@ -939,6 +958,8 @@ def main(source, output=None, cathode_thickness=0.0, pixel_size=0.0):
         Cathode thickness in cm (default: 0.0)
     pixel_size : float, optional
         Pixel size in cm (default: 0.0)
+    crt_mapping : str, optional
+        Path to CRT module mapping YAML file
     """
     # Read geometry file
     with open(source, "r", encoding="utf-8") as f:
@@ -1004,7 +1025,7 @@ def main(source, output=None, cathode_thickness=0.0, pixel_size=0.0):
     # Build YAML structures
     tpc_yaml = build_tpc_yaml(combined_tpcs, all_tpcs)
     op_yaml = build_optical_yaml(op_info_list, tpc_yaml)
-    crt_yaml = build_crt_yaml(crt_info_list)
+    crt_yaml = build_crt_yaml(crt_info_list, crt_mapping)
 
     # Build top-level YAML
     yaml_data = {
@@ -1067,7 +1088,6 @@ if __name__ == "__main__":
 
     parser.add_argument(
         "--cathode-thickness",
-        "-c",
         help="Cathode thickness in cm (default: 0.0)",
         type=float,
         default=0.0,
@@ -1075,10 +1095,16 @@ if __name__ == "__main__":
 
     parser.add_argument(
         "--pixel-size",
-        "-p",
         help="Pixel size in cm (default: 0.0)",
         type=float,
         default=0.0,
+    )
+
+    parser.add_argument(
+        "--crt-mapping",
+        help="Path to file with mapping between CRT module names and logical IDs",
+        type=str,
+        default=None,
     )
 
     args = parser.parse_args()
@@ -1088,4 +1114,5 @@ if __name__ == "__main__":
         output=args.output,
         cathode_thickness=args.cathode_thickness,
         pixel_size=args.pixel_size,
+        crt_mapping=args.crt_mapping,
     )
