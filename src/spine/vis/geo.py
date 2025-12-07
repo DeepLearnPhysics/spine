@@ -3,12 +3,14 @@
 import time
 
 import numpy as np
+import plotly.graph_objs as go
 
 from spine.utils.geo import Geometry
 from spine.vis.cylinder import cylinder_traces
 
 from .box import box_traces
 from .ellipsoid import ellipsoid_traces
+from .layout import layout3d
 
 __all__ = ["GeoDrawer"]
 
@@ -36,10 +38,81 @@ class GeoDrawer:
             If False, the coordinates are converted to pixel indices
         """
         # Initialize the detector geometry
+        self.detector = detector
         self.geo = Geometry(detector, file_path)
 
         # Store whether to use detector cooordinates or not
         self.detector_coords = detector_coords
+
+    def show(
+        self, meta=None, show_tpc=True, show_optical=True, show_crt=True, **kwargs
+    ):
+        """Displays the detector geometry in a 3D plotly figure.
+
+        Parameters
+        ----------
+        meta : Meta, optional
+            Metadata information (only needed if pixel_coordinates is True)
+        show_tpc : bool, default True
+            Whether or not to include TPC traces
+        show_optical : bool, default True
+            Whether or not to include optical detector traces
+        show_crt : bool, default True
+            Whether or not to include CRT detector traces
+        **kwargs : dict, optional
+            Additional arguments to pass to layout3d
+        """
+
+        # Get all the detector traces
+        traces = self.traces(
+            meta=meta,
+            show_tpc=show_tpc,
+            show_optical=show_optical,
+            show_crt=show_crt,
+        )
+
+        # Initialize the layout
+        layout = layout3d(
+            detector=self.detector,
+            meta=meta,
+            detector_coords=self.detector_coords,
+            **kwargs,
+        )
+
+        # Build the 3D layout
+        fig = go.Figure(data=traces, layout=layout)
+
+        # Show the figure
+        fig.show()
+
+    def traces(self, meta=None, show_tpc=True, show_optical=True, show_crt=True):
+        """Returns all traces associated with the detector geometry.
+
+        Parameters
+        ----------
+        meta : Meta, optional
+            Metadata information (only needed if pixel_coordinates is True)
+        show_tpc : bool, default True
+            Whether or not to include TPC traces
+        show_optical : bool, default True
+            Whether or not to include optical detector traces
+        show_crt : bool, default True
+            Whether or not to include CRT detector traces
+
+        Returns
+        -------
+        List[plotly.graph_objs.BaseTraceType]
+            List of detector traces
+        """
+        traces = []
+        if show_tpc:
+            traces += self.tpc_traces(meta=meta)
+        if show_optical and self.geo.optical is not None:
+            traces += self.optical_traces(meta=meta)
+        if show_crt and self.geo.crt is not None:
+            traces += self.crt_traces(meta=meta)
+
+        return traces
 
     def tpc_traces(
         self,
