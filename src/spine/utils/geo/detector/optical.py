@@ -219,9 +219,9 @@ class OptDetector(Box):
 
         # Store remaining optical detector parameter
         if det_ids is not None:
-            assert len(det_ids) == len(
+            assert len(set(det_ids)) == len(
                 positions
-            ), "If provided, must provide a detector ID for each optical channel."
+            ), "If det_ids are provided, must map to the correct number of detectors."
             det_ids = np.asarray(det_ids, dtype=int)
 
         # Parse the relative optical detector posiitons
