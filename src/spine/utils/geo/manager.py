@@ -11,7 +11,7 @@ It also provides a plethora of useful functions to query the geometry.
 import os
 import pathlib
 from dataclasses import dataclass
-from typing import Optional
+from typing import List, Optional
 
 import numpy as np
 import yaml
@@ -42,6 +42,10 @@ class Geometry(Box):
         CRT detector properties
     gdml : str, optional
         GDML file name associated with the geometry
+    crs_files : List[str], optional
+        CRS (Charge Readout System) geometry file(s) reference (flow only)
+    lrs_file : str, optional
+        LRS (Light Readout System) geometry file reference (flow only)
     """
 
     name: str
@@ -51,6 +55,8 @@ class Geometry(Box):
     optical: Optional[OptDetector] = None
     crt: Optional[CRTDetector] = None
     gdml: Optional[str] = None
+    crs_files: Optional[List[str]] = None
+    lrs_file: Optional[str] = None
 
     def __init__(self, detector=None, file_path=None):
         """Initializes a detector geometry object.
@@ -103,7 +109,16 @@ class Geometry(Box):
         self._cont_use_source = False
 
     def parse_configuration(
-        self, name, tag, version, tpc, optical=None, crt=None, gdml=""
+        self,
+        name,
+        tag,
+        version,
+        tpc,
+        optical=None,
+        crt=None,
+        gdml=None,
+        crs_files=None,
+        lrs_file=None,
     ):
         """Parse the geometry configuration.
 
@@ -123,6 +138,10 @@ class Geometry(Box):
             CRT detector configuration
         gdml : str, optional
             GDML file name associated with the geometry
+        crs_files : str or list of str, optional
+            CRS (Cosmic Ray System) geometry file(s)
+        lrs_file : str, optional
+            LRS (Light Readout System) geometry file
 
         Returns
         -------
@@ -136,6 +155,8 @@ class Geometry(Box):
         self.tag = tag
         self.version = version
         self.gdml = gdml
+        self.crs_files = crs_files
+        self.lrs_file = lrs_file
 
         # Load the charge detector boundaries
         self.tpc = TPCDetector(**tpc)
