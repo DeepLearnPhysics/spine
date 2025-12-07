@@ -204,6 +204,11 @@ def main(source, tag, output=None, opdet_thickness=None):
         # Sort det_ids for consistent ordering
         sorted_det_ids = sorted(det_id_groups.keys())
 
+        # Split det_ids into two equal groups for the two hemispheres
+        # First half → negative Z offset, second half → positive Z offset
+        num_det_ids = len(sorted_det_ids)
+        half_point = num_det_ids // 2
+
         for det_id in sorted_det_ids:
             group = det_id_groups[det_id]
             det_positions = group["positions"]
@@ -211,14 +216,14 @@ def main(source, tag, output=None, opdet_thickness=None):
             # Calculate average Y position (project X to 0, average across all instances)
             avg_y = round(float(np.mean([p[1] for p in det_positions])), 2)
 
-            # Determine which hemisphere this det_id primarily belongs to
-            # Assign offset with matching sign to hemisphere
-            z_values = [p[2] for p in det_positions]
-            avg_z_raw = np.mean(z_values)
-            if avg_z_raw > 0:
-                avg_z = -optical_z_pos  # positive hemisphere gets negative offset
+            # Assign Z offset based on det_id position in sorted list:
+            # First half → negative Z offset
+            # Second half → positive Z offset
+            det_id_index = sorted_det_ids.index(det_id)
+            if det_id_index < half_point:
+                avg_z = -optical_z_neg  # negative offset for first half
             else:
-                avg_z = -optical_z_neg  # negative hemisphere gets positive offset
+                avg_z = -optical_z_pos  # positive offset for second half
 
             # Use x=0 for all positions (central plane)
             aggregated_positions.append([0, avg_y, avg_z])
