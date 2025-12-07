@@ -74,8 +74,8 @@ class GeoDrawer:
             detector=self.detector,
             meta=meta,
             detector_coords=self.detector_coords,
-            show_optical=optical,
-            show_crt=crt,
+            show_optical=optical and self.geo.optical is not None,
+            show_crt=crt and self.geo.crt is not None,
             **kwargs,
         )
 
