@@ -62,6 +62,7 @@ def main(source, output=None, opdet_thickness=None):
         # Extract TPC geometry information
         positions = []
         dimensions = None
+        tpc_z_centers = []  # Track TPC Z centers for optical offset calculation
         for i in range(bounds.shape[0]):
             min_coords = bounds[i, 0].astype(float).tolist()
             max_coords = bounds[i, 1].astype(float).tolist()
@@ -70,6 +71,7 @@ def main(source, output=None, opdet_thickness=None):
             tpc_width = round(half_width - cathode_thickness / 2, 4)
             center_y = round((min_coords[1] + max_coords[1]) / 2, 4)
             center_z = round((min_coords[2] + max_coords[2]) / 2, 4)
+            tpc_z_centers.append(center_z)
             # Flip order: TPC 2 (higher x) first, then TPC 1 (lower x)
             positions.append([round(center_x + tpc_width / 2, 4), center_y, center_z])
             positions.append([round(center_x - tpc_width / 2, 4), center_y, center_z])
@@ -122,7 +124,7 @@ def main(source, output=None, opdet_thickness=None):
             )
 
         # Aggregate optical detectors: Group by det_id (each det_id is mirrored across TPCs)
-        # Project to central plane (x=0) for position, use Z-sign grouping
+        # Project to central plane (x=0) for position
 
         aggregated_positions = []
         aggregated_det_ids = []
@@ -131,7 +133,50 @@ def main(source, output=None, opdet_thickness=None):
         # Track unique dimension types
         unique_dimensions = {}
 
-        # Group detectors by det_id
+        # Get unique TPC Z centers to calculate optical offsets
+        unique_tpc_z = sorted(set(tpc_z_centers))
+
+        # Find the Z value closest to TPC center for each hemisphere
+        # This represents where optical detectors are positioned relative to TPC
+        z_positive = [
+            info["position"][2] for info in all_det_info if info["position"][2] > 0
+        ]
+        z_negative = [
+            info["position"][2] for info in all_det_info if info["position"][2] < 0
+        ]
+
+        unique_z_pos = sorted(set(z_positive))
+        unique_z_neg = sorted(set(z_negative))
+
+        # Find TPC centers for each hemisphere and calculate optical offset
+        if len(unique_tpc_z) > 0:
+            tpc_z_pos = (
+                [z for z in unique_tpc_z if z > 0][0]
+                if any(z > 0 for z in unique_tpc_z)
+                else 0
+            )
+            tpc_z_neg = (
+                [z for z in unique_tpc_z if z < 0][0]
+                if any(z < 0 for z in unique_tpc_z)
+                else 0
+            )
+
+            # Optical detectors are at the innermost Z position (smallest absolute value)
+            optical_z_abs_pos = (
+                min(unique_z_pos, key=abs) if unique_z_pos else tpc_z_pos
+            )
+            optical_z_abs_neg = (
+                max(unique_z_neg, key=lambda z: -abs(z)) if unique_z_neg else tpc_z_neg
+            )
+
+            # Calculate offset from TPC center
+            optical_z_pos = round(float(optical_z_abs_pos - tpc_z_pos), 2)
+            optical_z_neg = round(float(optical_z_abs_neg - tpc_z_neg), 2)
+        else:
+            optical_z_pos = 0
+            optical_z_neg = 0
+
+        # Group detectors by det_id only
         det_id_groups = defaultdict(lambda: {"positions": [], "dims": None})
 
         for info in all_det_info:
@@ -147,12 +192,17 @@ def main(source, output=None, opdet_thickness=None):
             group = det_id_groups[det_id]
             det_positions = group["positions"]
 
-            # Calculate average Y position (project X to 0)
+            # Calculate average Y position (project X to 0, average across all instances)
             avg_y = round(float(np.mean([p[1] for p in det_positions])), 2)
 
-            # Calculate Z as midpoint between the two detector planes (not weighted by count)
+            # Determine which hemisphere this det_id primarily belongs to
+            # Assign offset with matching sign to hemisphere
             z_values = [p[2] for p in det_positions]
-            avg_z = round(float((max(z_values) + min(z_values)) / 2), 2)
+            avg_z_raw = np.mean(z_values)
+            if avg_z_raw > 0:
+                avg_z = -optical_z_pos  # positive hemisphere gets negative offset
+            else:
+                avg_z = -optical_z_neg  # negative hemisphere gets positive offset
 
             # Use x=0 for all positions (central plane)
             aggregated_positions.append([0, avg_y, avg_z])
