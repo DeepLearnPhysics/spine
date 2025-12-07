@@ -15,7 +15,7 @@ import numpy as np
 import yaml
 
 
-def main(source, output=None, opdet_thickness=None):
+def main(source, tag, output=None, opdet_thickness=None):
     """
     Main function for parsing LArND geometry HDF5 files.
 
@@ -23,6 +23,8 @@ def main(source, output=None, opdet_thickness=None):
     ----------
     source : str
         Path to the LArND geometry HDF5 file
+    tag : str
+        Tag to identify the geometry revision (e.g., 'mr5', 'mr6').
     output : str, optional
         Path to output YAML file (if None, define it based on input file name)
     opdet_thickness : float, optional
@@ -38,6 +40,20 @@ def main(source, output=None, opdet_thickness=None):
         # Extract metadata
         class_version = f["geometry_info"].attrs["class_version"]
         runlist_file = f["run_info"].attrs["runlist_file"]
+
+        # Extract geometry file references if available
+        crs_geometry_files = None
+        if "crs_geometry_files" in f["geometry_info"].attrs:
+            crs_files_raw = f["geometry_info"].attrs["crs_geometry_files"]
+            # Convert numpy array to list of strings
+            if isinstance(crs_files_raw, np.ndarray):
+                crs_geometry_files = [str(f) for f in crs_files_raw]
+            else:
+                crs_geometry_files = str(crs_files_raw)
+
+        lrs_geometry_file = None
+        if "lrs_geometry_file" in f["geometry_info"].attrs:
+            lrs_geometry_file = str(f["geometry_info"].attrs["lrs_geometry_file"])
 
         # Parse detector name from runlist file path
         # e.g., 'data/proto_nd_flow/runlist-2x2-mcexample.txt' -> '2x2'
@@ -240,10 +256,37 @@ def main(source, output=None, opdet_thickness=None):
         geometry_yaml = {}
 
         # Add metadata fields
-        if detector_name:
-            geometry_yaml["name"] = detector_name.upper()
-            geometry_yaml["tag"] = detector_name.lower()
-        geometry_yaml["version"] = class_version
+        assert (
+            detector_name is not None
+        ), "Could not determine detector name from runlist file."
+
+        # Determine tag and extract version from it
+        geometry_yaml["name"] = detector_name
+        geometry_yaml["tag"] = tag
+
+        # Extract version number from tag (e.g., 'mr5' -> 5, 'mr6.5' -> 6.5, 'mr6-5' -> 6.5)
+        import re
+
+        # Match patterns like 'mr5', 'mr6.5', 'mr6-5', etc.
+        match = re.search(r"(\d+)([.\-](\d+))?", tag)
+        if match:
+            major = match.group(1)
+            minor = match.group(3) if match.group(3) else None
+            if minor:
+                version = float(f"{major}.{minor}")
+            else:
+                version = int(major)
+        else:
+            # Fallback to class_version if no version can be extracted from tag
+            version = class_version
+
+        geometry_yaml["version"] = version
+
+        # Add geometry file references if available
+        if crs_geometry_files is not None:
+            geometry_yaml["crs_files"] = crs_geometry_files
+        if lrs_geometry_file is not None:
+            geometry_yaml["lrs_file"] = lrs_geometry_file
 
         # Add geometry sections
         geometry_yaml["tpc"] = {
@@ -301,6 +344,19 @@ if __name__ == "__main__":
         type=float,
     )
 
+    parser.add_argument(
+        "--tag",
+        "-t",
+        help="Tag to identify geometry revision (e.g., 'mr5', 'mr6').",
+        type=str,
+        required=True,
+    )
+
     args = parser.parse_args()
 
-    main(source=args.source, output=args.output, opdet_thickness=args.opdet_thickness)
+    main(
+        source=args.source,
+        tag=args.tag,
+        output=args.output,
+        opdet_thickness=args.opdet_thickness,
+    )
