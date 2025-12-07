@@ -44,20 +44,18 @@ class GeoDrawer:
         # Store whether to use detector cooordinates or not
         self.detector_coords = detector_coords
 
-    def show(
-        self, meta=None, show_tpc=True, show_optical=True, show_crt=True, **kwargs
-    ):
+    def show(self, meta=None, tpc=True, optical=True, crt=True, **kwargs):
         """Displays the detector geometry in a 3D plotly figure.
 
         Parameters
         ----------
         meta : Meta, optional
             Metadata information (only needed if pixel_coordinates is True)
-        show_tpc : bool, default True
+        tpc : bool, default True
             Whether or not to include TPC traces
-        show_optical : bool, default True
+        optical : bool, default True
             Whether or not to include optical detector traces
-        show_crt : bool, default True
+        crt : bool, default True
             Whether or not to include CRT detector traces
         **kwargs : dict, optional
             Additional arguments to pass to layout3d
@@ -66,9 +64,9 @@ class GeoDrawer:
         # Get all the detector traces
         traces = self.traces(
             meta=meta,
-            show_tpc=show_tpc,
-            show_optical=show_optical,
-            show_crt=show_crt,
+            tpc=tpc,
+            optical=optical,
+            crt=crt,
         )
 
         # Initialize the layout
@@ -76,6 +74,8 @@ class GeoDrawer:
             detector=self.detector,
             meta=meta,
             detector_coords=self.detector_coords,
+            show_optical=optical,
+            show_crt=crt,
             **kwargs,
         )
 
@@ -85,18 +85,18 @@ class GeoDrawer:
         # Show the figure
         fig.show()
 
-    def traces(self, meta=None, show_tpc=True, show_optical=True, show_crt=True):
+    def traces(self, meta=None, tpc=True, optical=True, crt=True):
         """Returns all traces associated with the detector geometry.
 
         Parameters
         ----------
         meta : Meta, optional
             Metadata information (only needed if pixel_coordinates is True)
-        show_tpc : bool, default True
+        tpc : bool, default True
             Whether or not to include TPC traces
-        show_optical : bool, default True
+        optical : bool, default True
             Whether or not to include optical detector traces
-        show_crt : bool, default True
+        crt : bool, default True
             Whether or not to include CRT detector traces
 
         Returns
@@ -105,11 +105,11 @@ class GeoDrawer:
             List of detector traces
         """
         traces = []
-        if show_tpc:
+        if tpc:
             traces += self.tpc_traces(meta=meta)
-        if show_optical and self.geo.optical is not None:
+        if optical and self.geo.optical is not None:
             traces += self.optical_traces(meta=meta)
-        if show_crt and self.geo.crt is not None:
+        if crt and self.geo.crt is not None:
             traces += self.crt_traces(meta=meta)
 
         return traces
