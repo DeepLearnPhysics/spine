@@ -1,0 +1,14 @@
+volAuxDetCERNmoduleTop: 30
+volAuxDetCERNmoduleRimWest: 31
+volAuxDetCERNmoduleRimEast: 32
+volAuxDetCERNmoduleRimSouth: 33
+volAuxDetCERNmoduleRimNorth: 34
+volAuxDetMINOSmoduleWestSouth: 40
+volAuxDetMINOSmoduleWestCenter: 41
+volAuxDetMINOSmoduleWestNorth: 42
+volAuxDetMINOSmoduleEastSouth: 43
+volAuxDetMINOSmoduleEastCenter: 44
+volAuxDetMINOSmoduleEastNorth: 45
+volAuxDetMINOSmodulecutSouth: 46
+volAuxDetMINOSmodulecutNorth: 47
+volAuxDetDCmoduleBottom: 50
