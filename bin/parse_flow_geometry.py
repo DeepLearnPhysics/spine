@@ -9,11 +9,194 @@ Example usage:
 
 import argparse
 import re
-from collections import defaultdict
 
 import h5py
 import numpy as np
 import yaml
+
+
+def extract_tpc_geometry(f):
+    """
+    Extract TPC geometry information from HDF5 file.
+
+    Parameters
+    ----------
+    f : h5py.File
+        Open HDF5 file handle
+
+    Returns
+    -------
+    dict
+        Dictionary containing:
+        - positions: list of TPC center positions
+        - dimensions: TPC dimensions [x, y, z]
+        - module_ids: list of module IDs
+    """
+    bounds = np.array(f["geometry_info"].attrs["module_RO_bounds"])
+    cathode_thickness = float(np.array(f["geometry_info"].attrs["cathode_thickness"]))
+
+    positions = []
+    dimensions = None
+
+    for i in range(bounds.shape[0]):
+        min_coords = bounds[i, 0].astype(float).tolist()
+        max_coords = bounds[i, 1].astype(float).tolist()
+        center_x = round((min_coords[0] + max_coords[0]) / 2, 4)
+        half_width = round((max_coords[0] - min_coords[0]) / 2, 4)
+        tpc_width = round(half_width - cathode_thickness / 2, 4)
+        center_y = round((min_coords[1] + max_coords[1]) / 2, 4)
+        center_z = round((min_coords[2] + max_coords[2]) / 2, 4)
+
+        # Flip order: TPC 2 (higher x) first, then TPC 1 (lower x)
+        positions.append([round(center_x + tpc_width / 2, 4), center_y, center_z])
+        positions.append([round(center_x - tpc_width / 2, 4), center_y, center_z])
+
+        dims = [
+            round(tpc_width, 4),
+            round(max_coords[1] - min_coords[1], 4),
+            round(max_coords[2] - min_coords[2], 4),
+        ]
+        if dimensions is None:
+            dimensions = dims
+
+    module_ids = [i for i in range(bounds.shape[0]) for _ in range(2)]
+
+    return {
+        "positions": positions,
+        "dimensions": dimensions,
+        "module_ids": module_ids,
+    }
+
+
+def extract_optical_geometry(f, tpc_positions, opdet_thickness=None):
+    """
+    Extract optical detector geometry information from HDF5 file.
+
+    Parameters
+    ----------
+    f : h5py.File
+        Open HDF5 file handle
+    tpc_positions : list
+        List of TPC center positions
+    opdet_thickness : float, optional
+        Thickness for optical detectors if calculated z extent is 0
+
+    Returns
+    -------
+    dict or None
+        Dictionary containing optical geometry info, or None if not available:
+        - dimensions: list of unique dimension types
+        - positions: list of detector positions (one per channel)
+        - det_ids: list of detector IDs (one per channel)
+        - shape_ids: list of shape IDs (one per channel)
+    """
+    if "det_id" not in f["geometry_info"]:
+        return None
+
+    det_id_data = f["geometry_info"]["det_id"]["data"][:]
+    det_bounds_data = f["geometry_info"]["det_bounds"]["data"][:]
+
+    num_tpcs = len(tpc_positions)
+    first_tpc_center = tpc_positions[0]
+
+    # Build mapping: unique_det_id -> geometry info (from TPC 0)
+    det_id_geometry = {}
+    det_ids = np.array([x for x, valid in det_id_data if valid and x >= 0])
+    unique_det_ids = sorted(set(det_ids))
+    channel_det_ids = []
+
+    for det_id in unique_det_ids:
+        # For TPC 0: bounds_idx = 1 + det_id * num_tpcs
+        bounds_idx = 1 + det_id * num_tpcs
+
+        if bounds_idx >= len(det_bounds_data):
+            continue
+
+        bounds_entry = det_bounds_data[bounds_idx]
+        if not bounds_entry[1]:  # Check validity
+            continue
+
+        min_pos, max_pos = bounds_entry[0]
+
+        # Calculate center position
+        center_x = float((min_pos[0] + max_pos[0]) / 2)
+        center_y = float((min_pos[1] + max_pos[1]) / 2)
+        center_z = float((min_pos[2] + max_pos[2]) / 2)
+
+        # Calculate dimensions
+        x_extent = float(max_pos[0] - min_pos[0])
+        y_extent = float(max_pos[1] - min_pos[1])
+        z_extent = float(max_pos[2] - min_pos[2])
+        if z_extent == 0:
+            if opdet_thickness is None:
+                raise ValueError(
+                    "Calculated z extent is 0, please provide --opdet-thickness argument."
+                )
+            z_extent = opdet_thickness
+
+        # Offset position relative to first TPC center
+        rel_x = center_x - first_tpc_center[0]
+        rel_y = center_y - first_tpc_center[1]
+        rel_z = center_z - first_tpc_center[2]
+
+        det_id_geometry[det_id] = {
+            "position": [round(rel_x, 2), round(rel_y, 2), round(rel_z, 2)],
+            "dimensions": [
+                round(x_extent, 2),
+                round(y_extent, 2),
+                round(z_extent, 2),
+            ],
+        }
+
+        # Extract the det ID of each channel based on the det_id multiplicity
+        # associated with each detector ID, assuming channels are in order
+        # TODO: This could be extracted from `det_id_data` more robustrly,
+        # but I currently do not understand the data structure well enough.
+        channel_det_ids.extend([int(det_id)] * (np.sum(det_ids == det_id) // num_tpcs))
+
+    # Build aggregated positions and shape_ids (one per unique det_id)
+    aggregated_positions = []
+    aggregated_shape_ids = []
+    unique_dimensions = {}
+
+    for det_id in sorted(det_id_geometry.keys()):
+        geom = det_id_geometry[det_id]
+
+        # Project to x=0, keep Y and Z as-is from bounds
+        pos_y = geom["position"][1]
+        pos_z = geom["position"][2]
+
+        aggregated_positions.append([0, pos_y, pos_z])
+
+        # Track unique dimensions
+        dim_key = tuple(geom["dimensions"])
+        if dim_key not in unique_dimensions:
+            unique_dimensions[dim_key] = geom["dimensions"]
+
+        aggregated_shape_ids.append(dim_key)
+
+    # Create final dimensions list sorted by Y extent (tall first)
+    optical_dimensions = sorted(
+        unique_dimensions.values(), key=lambda d: d[1], reverse=True
+    )
+
+    # Create mapping from dimension key to shape_id based on sorted order
+    dim_to_shape_id = {}
+    for idx, dim in enumerate(optical_dimensions):
+        dim_key = tuple(dim)
+        dim_to_shape_id[dim_key] = idx
+
+    # Convert stored dimension keys to shape_ids
+    aggregated_shape_ids = [
+        dim_to_shape_id[dim_key] for dim_key in aggregated_shape_ids
+    ]
+
+    return {
+        "dimensions": optical_dimensions,
+        "positions": aggregated_positions,
+        "det_ids": channel_det_ids,
+        "shape_ids": aggregated_shape_ids,
+    }
 
 
 def main(source, tag, output=None, opdet_thickness=None):
@@ -57,8 +240,6 @@ def main(source, tag, output=None, opdet_thickness=None):
             lrs_geometry_file = str(f["geometry_info"].attrs["lrs_geometry_file"])
 
         # Parse detector name from runlist file path
-        # e.g., 'data/proto_nd_flow/runlist-2x2-mcexample.txt' -> '2x2'
-        # e.g., 'data/fsd_flow/runlist.fsd.txt' -> 'fsd'
         detector_name = None
         if "2x2" in runlist_file:
             detector_name = "2x2"
@@ -68,140 +249,16 @@ def main(source, tag, output=None, opdet_thickness=None):
             # Fallback: extract from directory name
             parts = runlist_file.split("/")
             if len(parts) > 1:
-                dir_name = parts[1]  # e.g., 'proto_nd_flow' or 'fsd_flow'
+                dir_name = parts[1]
                 detector_name = dir_name.replace("_flow", "")
 
-        bounds = np.array(f["geometry_info"].attrs["module_RO_bounds"])
-        cathode_thickness = float(
-            np.array(f["geometry_info"].attrs["cathode_thickness"])
+        # Extract TPC geometry
+        tpc_geometry = extract_tpc_geometry(f)
+
+        # Extract optical geometry (if available)
+        optical_geometry = extract_optical_geometry(
+            f, tpc_geometry["positions"], opdet_thickness
         )
-
-        # Extract TPC geometry information
-        positions = []
-        dimensions = None
-        tpc_z_centers = []  # Track TPC Z centers for optical offset calculation
-        for i in range(bounds.shape[0]):
-            min_coords = bounds[i, 0].astype(float).tolist()
-            max_coords = bounds[i, 1].astype(float).tolist()
-            center_x = round((min_coords[0] + max_coords[0]) / 2, 4)
-            half_width = round((max_coords[0] - min_coords[0]) / 2, 4)
-            tpc_width = round(half_width - cathode_thickness / 2, 4)
-            center_y = round((min_coords[1] + max_coords[1]) / 2, 4)
-            center_z = round((min_coords[2] + max_coords[2]) / 2, 4)
-            tpc_z_centers.append(center_z)
-            # Flip order: TPC 2 (higher x) first, then TPC 1 (lower x)
-            positions.append([round(center_x + tpc_width / 2, 4), center_y, center_z])
-            positions.append([round(center_x - tpc_width / 2, 4), center_y, center_z])
-            dims = [
-                round(tpc_width, 4),
-                round(max_coords[1] - min_coords[1], 4),
-                round(max_coords[2] - min_coords[2], 4),
-            ]
-            if dimensions is None:
-                dimensions = dims
-        module_ids = [i for i in range(bounds.shape[0]) for _ in range(2)]
-
-        # Extract optical detector information from HDF5 groups
-        det_id_data = f["geometry_info"]["det_id"]["data"][:]
-        det_bounds_data = f["geometry_info"]["det_bounds"]["data"][:]
-
-        # Get unique valid det_ids (tells us number of unique light modules per TPC)
-        unique_det_ids = sorted(
-            set(int(x[0]) for x in det_id_data if x[1] and x[0] >= 0)
-        )
-        num_tpcs = len(positions)
-
-        # Get first TPC center for calculating relative positions
-        first_tpc_center = positions[0]
-
-        # Extract bounds for TPC 0 only (bounds alternate between TPCs)
-        # Skip first entry (validity=False), then take every num_tpcs entry starting from 0
-        det_info = []
-        for det_id in unique_det_ids:
-            # Bounds are ordered: det_id 0 TPC0, det_id 0 TPC1, det_id 1 TPC0, etc.
-            # For TPC 0: bounds_idx = 1 + det_id * num_tpcs
-            bounds_idx = 1 + det_id * num_tpcs
-
-            if bounds_idx >= len(det_bounds_data):
-                continue
-
-            bounds_entry = det_bounds_data[bounds_idx]
-            if not bounds_entry[1]:  # Check validity
-                continue
-
-            min_pos, max_pos = bounds_entry[0]
-
-            # Calculate center position
-            center_x = float((min_pos[0] + max_pos[0]) / 2)
-            center_y = float((min_pos[1] + max_pos[1]) / 2)
-            center_z = float((min_pos[2] + max_pos[2]) / 2)
-
-            # Calculate dimensions
-            x_extent = float(max_pos[0] - min_pos[0])
-            y_extent = float(max_pos[1] - min_pos[1])
-            z_extent = float(max_pos[2] - min_pos[2])
-            if z_extent == 0:
-                if opdet_thickness is None:
-                    raise ValueError(
-                        "Calculated z extent is 0, please provide --opdet-thickness argument."
-                    )
-                z_extent = opdet_thickness
-
-            # Offset position relative to first TPC center
-            rel_x = center_x - first_tpc_center[0]
-            rel_y = center_y - first_tpc_center[1]
-            rel_z = center_z - first_tpc_center[2]
-
-            det_info.append(
-                {
-                    "det_id": det_id,
-                    "position": [round(rel_x, 2), round(rel_y, 2), round(rel_z, 2)],
-                    "dimensions": [
-                        round(x_extent, 2),
-                        round(y_extent, 2),
-                        round(z_extent, 2),
-                    ],
-                }
-            )
-
-        # Now aggregate: project to x=0
-        aggregated_positions = []
-        aggregated_det_ids = []
-        aggregated_shape_ids = []
-        unique_dimensions = {}
-
-        for info in det_info:
-            det_id = info["det_id"]
-
-            # Project to x=0, keep Y and Z as-is from bounds
-            pos_y = info["position"][1]
-            pos_z = info["position"][2]
-
-            aggregated_positions.append([0, pos_y, pos_z])
-            aggregated_det_ids.append(det_id)
-
-            # Each det_id has exactly one dimension (from TPC 0)
-            dim_key = tuple(info["dimensions"])
-            if dim_key not in unique_dimensions:
-                unique_dimensions[dim_key] = info["dimensions"]
-
-            aggregated_shape_ids.append(dim_key)
-
-        # Create final dimensions list sorted by Y extent (tall first)
-        optical_dimensions = sorted(
-            unique_dimensions.values(), key=lambda d: d[1], reverse=True
-        )
-
-        # Create mapping from dimension key to shape_id based on sorted order
-        dim_to_shape_id = {}
-        for idx, dim in enumerate(optical_dimensions):
-            dim_key = tuple(dim)
-            dim_to_shape_id[dim_key] = idx
-
-        # Convert stored dimension keys to shape_ids
-        aggregated_shape_ids = [
-            dim_to_shape_id[dim_key] for dim_key in aggregated_shape_ids
-        ]
 
         # Compose the YAML structure
         geometry_yaml = {}
@@ -238,19 +295,22 @@ def main(source, tag, output=None, opdet_thickness=None):
 
         # Add geometry sections
         geometry_yaml["tpc"] = {
-            "dimensions": dimensions,
-            "module_ids": module_ids,
-            "positions": positions,
+            "dimensions": tpc_geometry["dimensions"],
+            "module_ids": tpc_geometry["module_ids"],
+            "positions": tpc_geometry["positions"],
         }
-        geometry_yaml["optical"] = {
-            "volume": "tpc",
-            "shape": ["box", "box"],
-            "mirror": True,
-            "dimensions": optical_dimensions,
-            "shape_ids": aggregated_shape_ids,
-            "det_ids": aggregated_det_ids,
-            "positions": aggregated_positions,
-        }
+
+        # Only add optical section if detector info was available
+        if optical_geometry is not None:
+            geometry_yaml["optical"] = {
+                "volume": "tpc",
+                "shape": ["box", "box"],
+                "mirror": True,
+                "dimensions": optical_geometry["dimensions"],
+                "shape_ids": optical_geometry["shape_ids"],
+                "det_ids": optical_geometry["det_ids"],
+                "positions": optical_geometry["positions"],
+            }
 
         # Print the YAML structure to console
         print("TPC section for YAML file:")
