@@ -8,6 +8,7 @@ Example usage:
 """
 
 import argparse
+import re
 from collections import defaultdict
 
 import h5py
@@ -102,25 +103,40 @@ def main(source, tag, output=None, opdet_thickness=None):
 
         # Extract optical detector information from HDF5 groups
         det_id_data = f["geometry_info"]["det_id"]["data"][:]
-        sipm_abs_pos_data = f["geometry_info"]["sipm_abs_pos"]["data"][:]
         det_bounds_data = f["geometry_info"]["det_bounds"]["data"][:]
 
-        # Filter to only include valid optical detectors (validity flag True and det_id >= 0)
-        valid_indices = [i for i, x in enumerate(det_id_data) if x[1] and x[0] >= 0]
-        # Further filter to only include those with valid bounds
-        valid_indices = [
-            i for i in valid_indices if det_bounds_data[i % len(det_bounds_data)][1]
-        ]
+        # Get unique valid det_ids (tells us number of unique light modules per TPC)
+        unique_det_ids = sorted(
+            set(int(x[0]) for x in det_id_data if x[1] and x[0] >= 0)
+        )
+        num_tpcs = len(positions)
 
-        # Collect all valid detector info
-        all_det_info = []
-        for idx in valid_indices:
-            det_id = int(det_id_data[idx][0])
-            pos = sipm_abs_pos_data[idx][0]
+        # Get first TPC center for calculating relative positions
+        first_tpc_center = positions[0]
 
-            # Calculate dimensions from bounds
-            bounds_idx = idx % len(det_bounds_data)
-            min_pos, max_pos = det_bounds_data[bounds_idx][0]
+        # Extract bounds for TPC 0 only (bounds alternate between TPCs)
+        # Skip first entry (validity=False), then take every num_tpcs entry starting from 0
+        det_info = []
+        for det_id in unique_det_ids:
+            # Bounds are ordered: det_id 0 TPC0, det_id 0 TPC1, det_id 1 TPC0, etc.
+            # For TPC 0: bounds_idx = 1 + det_id * num_tpcs
+            bounds_idx = 1 + det_id * num_tpcs
+
+            if bounds_idx >= len(det_bounds_data):
+                continue
+
+            bounds_entry = det_bounds_data[bounds_idx]
+            if not bounds_entry[1]:  # Check validity
+                continue
+
+            min_pos, max_pos = bounds_entry[0]
+
+            # Calculate center position
+            center_x = float((min_pos[0] + max_pos[0]) / 2)
+            center_y = float((min_pos[1] + max_pos[1]) / 2)
+            center_z = float((min_pos[2] + max_pos[2]) / 2)
+
+            # Calculate dimensions
             x_extent = float(max_pos[0] - min_pos[0])
             y_extent = float(max_pos[1] - min_pos[1])
             z_extent = float(max_pos[2] - min_pos[2])
@@ -131,131 +147,61 @@ def main(source, tag, output=None, opdet_thickness=None):
                     )
                 z_extent = opdet_thickness
 
-            all_det_info.append(
+            # Offset position relative to first TPC center
+            rel_x = center_x - first_tpc_center[0]
+            rel_y = center_y - first_tpc_center[1]
+            rel_z = center_z - first_tpc_center[2]
+
+            det_info.append(
                 {
                     "det_id": det_id,
-                    "position": [float(pos[0]), float(pos[1]), float(pos[2])],
-                    "dimensions": [x_extent, y_extent, z_extent],
+                    "position": [round(rel_x, 2), round(rel_y, 2), round(rel_z, 2)],
+                    "dimensions": [
+                        round(x_extent, 2),
+                        round(y_extent, 2),
+                        round(z_extent, 2),
+                    ],
                 }
             )
 
-        # Aggregate optical detectors: Group by det_id (each det_id is mirrored across TPCs)
-        # Project to central plane (x=0) for position
-
+        # Now aggregate: project to x=0
         aggregated_positions = []
         aggregated_det_ids = []
         aggregated_shape_ids = []
-
-        # Track unique dimension types
         unique_dimensions = {}
 
-        # Get unique TPC Z centers to calculate optical offsets
-        unique_tpc_z = sorted(set(tpc_z_centers))
-
-        # Find the Z value closest to TPC center for each hemisphere
-        # This represents where optical detectors are positioned relative to TPC
-        z_positive = [
-            info["position"][2] for info in all_det_info if info["position"][2] > 0
-        ]
-        z_negative = [
-            info["position"][2] for info in all_det_info if info["position"][2] < 0
-        ]
-
-        unique_z_pos = sorted(set(z_positive))
-        unique_z_neg = sorted(set(z_negative))
-
-        # Find TPC centers for each hemisphere and calculate optical offset
-        if len(unique_tpc_z) > 0:
-            tpc_z_pos = (
-                [z for z in unique_tpc_z if z > 0][0]
-                if any(z > 0 for z in unique_tpc_z)
-                else 0
-            )
-            tpc_z_neg = (
-                [z for z in unique_tpc_z if z < 0][0]
-                if any(z < 0 for z in unique_tpc_z)
-                else 0
-            )
-
-            # Optical detectors are at the innermost Z position (smallest absolute value)
-            optical_z_abs_pos = (
-                min(unique_z_pos, key=abs) if unique_z_pos else tpc_z_pos
-            )
-            optical_z_abs_neg = (
-                max(unique_z_neg, key=lambda z: -abs(z)) if unique_z_neg else tpc_z_neg
-            )
-
-            # Calculate offset from TPC center
-            optical_z_pos = round(float(optical_z_abs_pos - tpc_z_pos), 2)
-            optical_z_neg = round(float(optical_z_abs_neg - tpc_z_neg), 2)
-        else:
-            optical_z_pos = 0
-            optical_z_neg = 0
-
-        # Group detectors by det_id only
-        det_id_groups = defaultdict(lambda: {"positions": [], "dims": None})
-
-        for info in all_det_info:
+        for info in det_info:
             det_id = info["det_id"]
-            det_id_groups[det_id]["positions"].append(info["position"])
-            if det_id_groups[det_id]["dims"] is None:
-                det_id_groups[det_id]["dims"] = info["dimensions"]
 
-        # Sort det_ids for consistent ordering
-        sorted_det_ids = sorted(det_id_groups.keys())
+            # Project to x=0, keep Y and Z as-is from bounds
+            pos_y = info["position"][1]
+            pos_z = info["position"][2]
 
-        # Split det_ids into two equal groups for the two hemispheres
-        # First half → negative Z offset, second half → positive Z offset
-        num_det_ids = len(sorted_det_ids)
-        half_point = num_det_ids // 2
+            aggregated_positions.append([0, pos_y, pos_z])
+            aggregated_det_ids.append(det_id)
 
-        for det_id in sorted_det_ids:
-            group = det_id_groups[det_id]
-            det_positions = group["positions"]
-
-            # Calculate average Y position (project X to 0, average across all instances)
-            avg_y = round(float(np.mean([p[1] for p in det_positions])), 2)
-
-            # Assign Z offset based on det_id position in sorted list:
-            # First half → negative Z offset
-            # Second half → positive Z offset
-            det_id_index = sorted_det_ids.index(det_id)
-            if det_id_index < half_point:
-                avg_z = -optical_z_neg  # negative offset for first half
-            else:
-                avg_z = -optical_z_pos  # positive offset for second half
-
-            # Use x=0 for all positions (central plane)
-            aggregated_positions.append([0, avg_y, avg_z])
-
-            # Determine shape ID based on y extent (height)
-            dims = group["dims"]
-            shape_id = 0 if dims[1] > 20 else 1
-            aggregated_shape_ids.append(shape_id)
-
-            # Determine mirror count based on det_id pattern
-            # Det_ids 0, 4, 8, 12, ... (multiples of 4) appear 6 times (mirrored across 3 module pairs)
-            # Other det_ids appear 2 times (mirrored across 1 module pair)
-            if det_id % 4 == 0:
-                mirror_count = 6
-                # Update shape_id to 0 for these (they're the "tall" category)
-                aggregated_shape_ids[-1] = 0
-            else:
-                mirror_count = 2
-                # Update shape_id to 1 for these
-                aggregated_shape_ids[-1] = 1
-
-            aggregated_det_ids.extend([det_id] * mirror_count)
-
-            # Track unique dimension type
-            dim_key = (round(dims[0], 2), round(dims[1], 2), round(dims[2], 2))
+            # Each det_id has exactly one dimension (from TPC 0)
+            dim_key = tuple(info["dimensions"])
             if dim_key not in unique_dimensions:
-                unique_dimensions[dim_key] = list(dim_key)
+                unique_dimensions[dim_key] = info["dimensions"]
 
-        # Create final dimensions list (2 unique types sorted by shape_id: tall first, then short)
+            aggregated_shape_ids.append(dim_key)
+
+        # Create final dimensions list sorted by Y extent (tall first)
         optical_dimensions = sorted(
             unique_dimensions.values(), key=lambda d: d[1], reverse=True
         )
+
+        # Create mapping from dimension key to shape_id based on sorted order
+        dim_to_shape_id = {}
+        for idx, dim in enumerate(optical_dimensions):
+            dim_key = tuple(dim)
+            dim_to_shape_id[dim_key] = idx
+
+        # Convert stored dimension keys to shape_ids
+        aggregated_shape_ids = [
+            dim_to_shape_id[dim_key] for dim_key in aggregated_shape_ids
+        ]
 
         # Compose the YAML structure
         geometry_yaml = {}
@@ -268,9 +214,6 @@ def main(source, tag, output=None, opdet_thickness=None):
         # Determine tag and extract version from it
         geometry_yaml["name"] = detector_name
         geometry_yaml["tag"] = tag
-
-        # Extract version number from tag (e.g., 'mr5' -> 5, 'mr6.5' -> 6.5, 'mr6-5' -> 6.5)
-        import re
 
         # Match patterns like 'mr5', 'mr6.5', 'mr6-5', etc.
         match = re.search(r"(\d+)([.\-](\d+))?", tag)
