@@ -6,8 +6,8 @@ tpc:
   dimensions: [30.2723, 124.152, 62.076]
   module_ids: [0, 0]
   positions:
-  - [15.1362, 0.0, 33.5]
-  - [-15.1362, 0.0, 33.5]
+  - [15.1362, 0.0, 0.0]
+  - [-15.1362, 0.0, 0.0]
 optical:
   volume: tpc
   shape: [box, box]
