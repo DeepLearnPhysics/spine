@@ -213,29 +213,124 @@ tpc:
 
 ---
 
-## Pixel Detectors (ndlar-flow files)
+## Pixel Detectors (ndlar-flow/FLOW files)
 
-For pixel-based liquid argon TPCs (2x2, ND-LAr, Module-0, etc.) that use charge-light reconstruction.
+For pixel-based liquid argon TPCs (2x2, ND-LAr, FSD, etc.) that use charge-light reconstruction.
 
 ### Requirements
-- Access to ndlar-flow or larnd-sim geometry files
-- Detector configuration YAML from simulation/reconstruction
+- Access to FLOW HDF5 files from ndlar-flow or larnd-sim
+- The `parse_flow_geometry.py` script in `bin/`
 
-### Method: Using ndlar-flow/larnd-sim Geometry
+### Method: Automated Extraction from FLOW Files (Recommended)
 
-1. **Locate the detector geometry file:**
+**This is the easiest and most reliable method for extracting geometry from pixel detectors.**
+
+1. **Locate a FLOW data file:**
+   
+   FLOW files contain embedded geometry information and are typically named:
+   ```
+   <detector>_<run>.flow.<event>.FLOW.hdf5
+   # Examples:
+   # FSD_CosmicRun3.flow.0000000.FLOW.hdf5
+   # 2x2_run1.flow.0000000.FLOW.hdf5
+   # ndlar_simulation.flow.0000000.FLOW.hdf5
+   ```
+
+2. **Run the SPINE geometry parser:**
+   
+   Use the `parse_flow_geometry.py` script to automatically extract both TPC and optical geometry:
+   
+   ```bash
+   # Basic usage
+   python bin/parse_flow_geometry.py \
+       --source path/to/detector.flow.hdf5 \
+       --tag mr6 \
+       --opdet-thickness 1.0 \
+       --output detector_geometry.yaml
+   
+   # For FSD with optical detectors
+   python bin/parse_flow_geometry.py \
+       --source FSD_CosmicRun3.flow.0000000.FLOW.hdf5 \
+       --tag cr3 \
+       --opdet-thickness 1.0 \
+       --output fsd_cr3_geometry.yaml
+   ```
+   
+   **Command-line options:**
+   - `--source, -s`: Path to the FLOW HDF5 file (required)
+   - `--tag, -t`: Tag to identify geometry revision, e.g., 'mr5', 'mr6' (required)
+   - `--output, -o`: Path for output YAML file (optional, defaults to `<source>_geometry.yaml`)
+   - `--opdet-thickness`: Thickness for optical detectors in cm (always needed)
+     - Use when optical detector bounds have zero thickness
+     - Typical value: 1.0 cm for ACL/LCM
+
+3. **The script automatically:**
+   - Extracts TPC module boundaries and positions from `module_RO_bounds`
+   - Accounts for cathode thickness in TPC center calculations
+   - Extracts optical detector geometry from `det_id` and `det_bounds` datasets
+   - Groups optical detectors by unique dimensions (shape types)
+   - Creates per-channel detector ID mappings for light reconstruction
+   - Detects detector name from embedded geometry file references
+   - Generates complete YAML with TPC and optical sections
+
+4. **Example output:**
+   ```yaml
+   name: FSD
+   tag: cr3
+   version: 6.0
+   crs_files: [data/fsd_flow/multi_tile_layout-3.0.40_NDLArModule_v3.yaml]
+   lrs_file: data/fsd_flow/light_module_desc-6.0.1.yaml
+   tpc:
+     dimensions: [46.788, 297.6, 95.232]
+     module_ids: [0, 0]
+     positions:
+     - [23.394, 0.0, 0.0]
+     - [-23.394, 0.0, 0.0]
+   optical:
+     volume: tpc
+     shape: [box, box]
+     mirror: true
+     dimensions:
+     - [48.0, 31.02, 0.5]  # Tall modules
+     - [48.0, 10.34, 0.5]  # Short modules
+     shape_ids: [1, 1, 1, 0, ...]  # Shape ID per unique detector
+     det_ids: [20, 39, 20, 39, ...]  # Detector ID per channel
+     positions:
+     - [0, -149.93, -49.0]
+     - [0, -139.59, -49.0]
+     # ... one position per unique detector
+   ```
+
+5. **Understanding the output:**
+   - **TPC section:**
+     - `dimensions`: [x, y, z] size of each TPC module in cm
+     - `positions`: Center position of each TPC (accounting for cathode)
+     - `module_ids`: Module identifier for each TPC
+   
+   - **Optical section** (if available):
+     - `dimensions`: List of unique optical detector shapes [x, y, z] in cm
+     - `positions`: Position of each unique optical detector (projected to x=0)
+     - `shape_ids`: Shape type index for each unique detector
+     - `det_ids`: Detector ID for each channel (multiple channels per detector)
+     - `mirror`: Whether to mirror detectors across cathode
+
+6. **Move the file to the geometry source directory:**
+   ```bash
+   mv detector_geometry.yaml src/spine/utils/geo/source/
+   ```
+
+### Manual Extraction (Legacy)
+
+**Note:** The automated script is strongly preferred. Use manual extraction only if you need to customize geometry not provided by the automated script.
+
+1. **Locate the detector geometry configuration:**
    ```bash
    # ndlar-flow geometries are typically in:
    # - ndlar_flow/reco/config/
    # - ndlar_flow/detector_properties/
    ```
 
-2. **Key files to reference:**
-   - `detector_properties.yaml` - Contains TPC dimensions, pixel pitch
-   - `module_*.yaml` - Module-specific layouts
-   - Simulation configuration files with detector dimensions
-
-3. **Extract geometry information:**
+2. **Extract geometry information from configuration files:**
    
    From the ndlar-flow configuration:
    ```yaml
@@ -246,7 +341,7 @@ For pixel-based liquid argon TPCs (2x2, ND-LAr, Module-0, etc.) that use charge-
    drift_length:       # Drift distance [cm]
    ```
 
-4. **Create the SPINE geometry file:**
+3. **Create the SPINE geometry file:**
    
    ```yaml
    # Example: 2x2_geometry.yaml
@@ -306,24 +401,52 @@ For detectors with multiple TPC modules (2x2, ND-LAr, etc.):
 
 #### 2x2 Demonstrator
 ```yaml
-detector: 2x2
+name: 2x2
+tag: mr6
+version: 6.0
 tpc:
-  boundaries:
-    - [-67.5, -67.5, 0.0]
-    - [67.5, 67.5, 100.8]
-  pixel_pitch: 0.434
+  dimensions: [30.6, 129.6, 64.0]
+  module_ids: [0, 0, 1, 1, 2, 2, 3, 3]
+  positions:
+    # Extracted from FLOW file with cathode corrections
+optical:
+  # Automatically extracted if available in FLOW file
+```
+
+#### FSD (Final System Demonstrator)
+```yaml
+name: FSD
+tag: cr3
+version: 6.0
+crs_files: [data/fsd_flow/multi_tile_layout-3.0.40_NDLArModule_v3.yaml]
+lrs_file: data/fsd_flow/light_module_desc-6.0.1.yaml
+tpc:
+  dimensions: [46.788, 297.6, 95.232]
+  module_ids: [0, 0]
+  positions:
+  - [23.394, 0.0, 0.0]
+  - [-23.394, 0.0, 0.0]
+optical:
+  volume: tpc
+  shape: [box, box]
+  mirror: true
+  dimensions:
+  - [48.0, 31.02, 0.5]  # 120 channels across tall modules
+  - [48.0, 10.34, 0.5]  # 120 channels across short modules
+  shape_ids: [1, 1, 1, 0, ...]  # 40 unique detectors
+  det_ids: [20, 39, 20, 39, ...]  # 120 total channels
+  positions: # 40 unique detector positions
+    - [0, -149.93, -49.0]
+    # ...
 ```
 
 #### ND-LAr (ArgonCube 2x2 modules)
 ```yaml
-detector: ndlar
+name: ND-LAr
+tag: mr6
 tpc:
-  boundaries:
-    - [-304.4, -304.4, -635.95]
-    - [304.4, 304.4, 635.95]
-  modules:
-    # 35 modules in a 5x7 grid
-    # Each module: 101.6 cm × 101.6 cm × 101.6 cm
+  # Multi-module configuration extracted from FLOW file
+  # Accounts for 35 modules in 5×7 grid
 ```
 
 ---
@@ -341,6 +464,21 @@ tpc:
 - Time in **microseconds [μs]**
 - Drift velocity in **cm/μs**
 
+### Optical Detector Conventions
+
+For optical detector geometries extracted from FLOW files:
+
+- **Positions**: Projected to x=0 plane (cathode position)
+- **det_ids**: Each channel has a detector ID (multiple channels per physical detector)
+- **shape_ids**: Index into the dimensions list for each unique detector shape
+- **Mirroring**: When `mirror: true`, detectors are mirrored across the cathode to both TPCs
+
+**Channel-to-Detector Mapping:**
+- Physical detectors may have multiple readout channels (e.g., SiPM arrays)
+- `det_ids` array contains one entry per channel
+- `positions` and `shape_ids` arrays contain one entry per unique physical detector
+- Use `det_ids` to map channels to their corresponding position/shape
+
 ---
 
 ## Validation
@@ -353,19 +491,43 @@ from spine.utils.geo import Geometry
 # Load your geometry
 geo = Geometry('your_detector')
 
-# Check TPC boundaries
-print(f"TPC boundaries: {geo.tpc.boundaries}")
+# Check TPC information
 print(f"TPC dimensions: {geo.tpc.dimensions}")
-print(f"TPC center: {geo.tpc.center}")
+print(f"TPC positions: {geo.tpc.positions}")
+print(f"Number of TPCs: {len(geo.tpc.positions)}")
 
-# Visualize (if CRT is defined)
-if geo.crt is not None:
-    print(f"CRT boundaries: {geo.crt.boundaries}")
+# Check optical detector information (if available)
+if hasattr(geo, 'optical') and geo.optical is not None:
+    print(f"\nOptical detector dimensions: {geo.optical.dimensions}")
+    print(f"Number of unique detectors: {len(geo.optical.positions)}")
+    print(f"Number of channels: {len(geo.optical.det_ids)}")
+    print(f"Number of shape types: {len(geo.optical.dimensions)}")
+    
+    # Verify channel-to-detector mapping
+    unique_det_ids = len(set(geo.optical.det_ids))
+    print(f"Unique detector IDs in channels: {unique_det_ids}")
 
-# Test point containment
-test_point = [0.0, 0.0, 0.0]
-print(f"Is {test_point} in TPC? {geo.tpc.contains(test_point)}")
+# Test point containment (if boundaries defined)
+if hasattr(geo.tpc, 'contains'):
+    test_point = [0.0, 0.0, 0.0]
+    print(f"\nIs {test_point} in TPC? {geo.tpc.contains(test_point)}")
 ```
+
+### Validation Checklist
+
+For **TPC geometry**:
+- [ ] Number of TPC positions matches expected detector configuration
+- [ ] TPC dimensions are physically reasonable
+- [ ] Module IDs correctly identify separate detector modules
+- [ ] Cathode corrections properly account for dead space
+
+For **Optical geometry**:
+- [ ] Number of unique detectors matches physical detector count
+- [ ] Number of channels equals sum of channels across all detectors
+- [ ] Shape IDs correctly index into dimensions list
+- [ ] Positions are projected to x=0 (cathode plane)
+- [ ] All det_ids in channel list reference valid detectors
+- [ ] Dimensions include proper thickness (not zero unless intended)
 
 ---
 
@@ -398,6 +560,26 @@ To add a new detector geometry:
 - **Solution**: Double-check module positions and boundaries
 - Account for dead spaces or gaps between modules explicitly
 
+**Issue**: Optical detector z-extent is zero
+- **Solution**: Use `--opdet-thickness` argument to specify physical thickness
+- Typical value: 0.5 cm for SiPM arrays
+- This is common when detector bounds only specify the active plane
+
+**Issue**: Optical detector channel count doesn't match expectations
+- **Solution**: Verify that `det_ids` array has one entry per readout channel
+- Physical detectors may have multiple channels (e.g., 4-12 per module)
+- Check that filtering correctly accounts for multi-TPC configurations
+
+**Issue**: Cathode corrections not properly applied
+- **Solution**: Ensure `parse_flow_geometry.py` is using cathode_thickness from HDF5
+- TPC positions should account for cathode dead space between drift regions
+- Verify TPC width = (module_width - cathode_thickness) / 2
+
+**Issue**: Geometry version mismatch between data and YAML
+- **Solution**: Use `--tag` argument to specify the correct geometry revision
+- Tag should match the detector configuration used in simulation/reconstruction
+- Version is automatically extracted from tag (e.g., 'mr6' → version 6.0)
+
 ---
 
 ## References
@@ -405,5 +587,19 @@ To add a new detector geometry:
 - **LArSoft Geometry**: https://larsoft.github.io/LArSoftWiki/Geometry
 - **ndlar-flow**: https://github.com/DUNE/ndlar_flow
 - **larnd-sim**: https://github.com/DUNE/larnd-sim
+- **FLOW File Format**: HDF5 files with embedded geometry information
+  - `geometry_info/module_RO_bounds`: TPC module boundaries
+  - `geometry_info/det_id`: Optical detector channel IDs
+  - `geometry_info/det_bounds`: Optical detector physical boundaries
+
+### Recent Improvements
+
+**December 2024:**
+- Added `parse_flow_geometry.py` script for automated extraction from FLOW HDF5 files
+- Implemented optical detector geometry extraction with per-channel detector ID mapping
+- Added support for multi-shape optical detector configurations
+- Improved cathode thickness corrections for accurate TPC center calculations
+- Added automatic detector name detection from embedded geometry file references
+- Implemented geometry version extraction from tags (e.g., 'mr6' → 6.0)
 
 For questions or issues, please open an issue on the SPINE GitHub repository.
