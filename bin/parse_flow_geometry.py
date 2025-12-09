@@ -230,7 +230,7 @@ def main(source, tag, output=None, opdet_thickness=None):
             crs_file_raw = f["geometry_info"].attrs["crs_geometry_file"]
             assert isinstance(
                 crs_file_raw, str
-            ), "CRT geometry file attribute is not a string."
+            ), "CRS geometry file attribute is not a string."
             crs_geometry_files = [str(crs_file_raw)]
         elif "crs_geometry_files" in f["geometry_info"].attrs:
             # Convert numpy array to list of strings
