@@ -1,4 +1,4 @@
-name: fsd
+name: FSD
 tag: cr3
 version: 3
 crs_files: [data/fsd_flow/multi_tile_layout-3.0.40_NDLArModule_v3.yaml]

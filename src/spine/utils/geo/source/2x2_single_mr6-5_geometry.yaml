@@ -1,4 +1,4 @@
-name: 2x2_single
+name: 2x2-Single
 tag: mr6.5
 version: 6.5
 crs_files: [data/proto_nd_flow/multi_tile_layout-2.4.16_v4.yaml]

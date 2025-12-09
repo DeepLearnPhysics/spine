@@ -4,7 +4,8 @@ Parse LArND geometry HDF5 files and extract relevant detector information
 in YAML format to be used by SPINE.
 
 Example usage:
-    python3 parse_larnd_geometry.py --source FSD_CosmicRun3.flow.0000000.FLOW.hdf5 --output larnd_geometry.yaml
+    python3 parse_larnd_geometry.py --source FSD_CosmicRun3.flow.0000000.FLOW.hdf5
+    --output larnd_geometry.yaml --opdet-thickness 1.0 --tag cr3
 """
 
 import argparse
@@ -223,34 +224,53 @@ def main(source, tag, output=None, opdet_thickness=None):
     with h5py.File(source, "r") as f:
         # Extract metadata
         class_version = f["geometry_info"].attrs["class_version"]
-        runlist_file = f["run_info"].attrs["runlist_file"]
 
         # Extract geometry file references if available
-        crs_geometry_files = None
-        if "crs_geometry_files" in f["geometry_info"].attrs:
-            crs_files_raw = f["geometry_info"].attrs["crs_geometry_files"]
+        if "crs_geometry_file" in f["geometry_info"].attrs:
+            crs_file_raw = f["geometry_info"].attrs["crs_geometry_file"]
+            assert isinstance(
+                crs_file_raw, str
+            ), "CRT geometry file attribute is not a string."
+            crs_geometry_files = [str(crs_file_raw)]
+        elif "crs_geometry_files" in f["geometry_info"].attrs:
             # Convert numpy array to list of strings
-            if isinstance(crs_files_raw, np.ndarray):
-                crs_geometry_files = [str(f) for f in crs_files_raw]
-            else:
-                crs_geometry_files = str(crs_files_raw)
+            crs_files_raw = f["geometry_info"].attrs["crs_geometry_files"]
+            assert isinstance(
+                crs_files_raw, np.ndarray
+            ), "CRS geometry files attribute is not a numpy array."
+            crs_geometry_files = [str(f) for f in crs_files_raw]
+        else:
+            raise ValueError("CRS geometry files not found in HDF5 attributes.")
 
         lrs_geometry_file = None
         if "lrs_geometry_file" in f["geometry_info"].attrs:
             lrs_geometry_file = str(f["geometry_info"].attrs["lrs_geometry_file"])
 
-        # Parse detector name from runlist file path
-        detector_name = None
-        if "2x2" in runlist_file:
-            detector_name = "2x2"
-        elif "fsd" in runlist_file.lower():
-            detector_name = "fsd"
+        # Parse detector name from the geometry name
+        detector_match = re.search(r"(\w+)_flow", crs_geometry_files[0])
+        backup_match = re.search(r"(\w+)_layout", crs_geometry_files[0])
+        if detector_match:
+            detector_name = detector_match.group(1)
+            if detector_name == "proto_nd":
+                detector_name = "2x2"
+            elif detector_name == "fsd":
+                detector_name = "FSD"
+            elif detector_name == "ndlar":
+                detector_name = "ND-LAr"
+            else:
+                raise ValueError(
+                    f"Unknown detector name parsed from CRS geometry file: {detector_name}"
+                )
+        elif backup_match:
+            detector_name = backup_match.group(1)
+            if detector_name.startswith("module"):
+                detector_name = "2x2-Single"
+            else:
+                raise ValueError(
+                    f"Unknown detector name parsed from CRS geometry file: {detector_name}"
+                )
         else:
-            # Fallback: extract from directory name
-            parts = runlist_file.split("/")
-            if len(parts) > 1:
-                dir_name = parts[1]
-                detector_name = dir_name.replace("_flow", "")
+            raise ValueError("Could not parse detector name from CRS geometry file.")
 
         # Extract TPC geometry
         tpc_geometry = extract_tpc_geometry(f)
