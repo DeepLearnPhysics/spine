@@ -1,12 +1,18 @@
 """Construct a geometry module class from its name."""
 
-from importlib.resources import files
 from pathlib import Path
 from typing import Optional, Union
 
 import yaml
 
 from .base import Geometry
+
+# Handle Python 3.8 compatibility for importlib.resources
+try:
+    from importlib.resources import files
+except ImportError:
+    # Python 3.8: use importlib_resources backport
+    from importlib_resources import files  # type: ignore[import-not-found]
 
 GEO_CONFIG_DIR = Path(str(files(__package__).joinpath("config")))
 
