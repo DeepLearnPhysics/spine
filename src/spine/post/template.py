@@ -15,7 +15,7 @@ from spine.post.base import PostBase
 # Must list the post-processor(s) here to be found by the factory.
 # You must also add it to the list of imported modules in the
 # `spine.post.factories`!
-__all__ = ["TemplateProcssor"]
+__all__ = ["TemplateProcessor"]
 
 
 class TemplateProcessor(PostBase):

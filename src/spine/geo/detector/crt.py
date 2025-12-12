@@ -1,7 +1,7 @@
 """CRT detector geometry classes."""
 
 from dataclasses import dataclass
-from typing import Dict, List
+from typing import Dict, Iterator, List, Optional
 
 import numpy as np
 
@@ -25,15 +25,15 @@ class CRTPlane(Box):
     normal: np.ndarray
     normal_axis: int
 
-    def __init__(self, position, dimensions, normal_axis):
+    def __init__(self, position: np.ndarray, dimensions: np.ndarray, normal_axis: int):
         """Initialize the CRT plane object.
 
         Parameters
         ----------
         position : np.ndarray
-            (3) Position of the center of the TPC
+            (3,) Position of the center of the TPC
         dimensions : np.ndarray
-            (3) Dimension of the TPC
+            (3,) Dimension of the TPC
         normal_axis : int
             Axis along which the normal vector of this CRT plane is pointing
         """
@@ -61,9 +61,15 @@ class CRTDetector(Box):
     """
 
     planes: List[CRTPlane]
-    det_ids: Dict[int, int]
+    det_ids: Optional[Dict[int, int]] = None
 
-    def __init__(self, dimensions, positions, normals, logical_ids=None):
+    def __init__(
+        self,
+        dimensions: List[List[float]],
+        positions: List[List[float]],
+        normals: List[int],
+        logical_ids: Optional[List[int]] = None,
+    ):
         """Parse the CRT detector configuration.
 
         The assumption here is that the CRT detectors collectively cover the
@@ -76,9 +82,9 @@ class CRTDetector(Box):
         positions : List[List[float]]
             (N_c, 3) Positions of each of the CRT plane
         normals : List[int]
-            (N_c, 3) Axes along which the normal vectors of each CRT plane is pointing
+            (N_c,) Axes along which the normal vectors of each CRT plane is pointing
         logical_ids : List[int], optional
-            (N_c) Logical index corresponding to each CRT channel. If not
+            (N_c,) Logical index corresponding to each CRT channel. If not
             specified, it is assumed that there is a one-to-one correspondance
             between physical and logical CRT planes.
         """
@@ -87,27 +93,24 @@ class CRTDetector(Box):
             "Must provide the dimensions of each of the CRT element. "
             f"Got {len(dimensions)}, but expected {len(positions)}."
         )
+        assert len(positions) == len(normals), (
+            "Must provide the normal axis of each of the CRT element. "
+            f"Got {len(normals)}, but expected {len(positions)}."
+        )
         assert logical_ids is None or len(logical_ids) == len(positions), (
             "Must provide the logical ID of each of the CRT element. "
             f"Got {len(logical_ids)}, but expected {len(positions)}."
         )
 
-        # Cast the dimensions, positions, normal to arrays
-        positions = np.asarray(positions)
-        dimensions = np.asarray(dimensions)
-        normals = np.asarray(normals, dtype=int)
-
         # Construct the CRT planes
         self.planes = []
-        for i, position in enumerate(positions):
-            plane = CRTPlane(position, dimensions[i], normals[i])
+        for pos, dim, norm in zip(positions, dimensions, normals):
+            plane = CRTPlane(np.asarray(pos), np.asarray(dim), norm)
             self.planes.append(plane)
 
         # Store CRT detector parameters
         if logical_ids is not None:
             self.det_ids = {idx: i for i, idx in enumerate(logical_ids)}
-        else:
-            self.det_ids = {i: i for i in range(len(positions))}
 
         # Initialize the underlying all-encompasing box object
         lower = np.min(np.vstack([p.lower for p in self.planes]), axis=0)
@@ -115,7 +118,7 @@ class CRTDetector(Box):
         super().__init__(lower, upper)
 
     @property
-    def num_planes(self):
+    def num_planes(self) -> int:
         """Returns the number of CRT planes around the detector.
 
         Returns
@@ -125,7 +128,7 @@ class CRTDetector(Box):
         """
         return len(self.planes)
 
-    def __len__(self):
+    def __len__(self) -> int:
         """Returns the number of CRT planes in the detector.
 
         Returns
@@ -135,7 +138,7 @@ class CRTDetector(Box):
         """
         return self.num_planes
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: int) -> CRTPlane:
         """Returns an underlying CRT plane.
 
         Parameters
@@ -150,7 +153,7 @@ class CRTDetector(Box):
         """
         return self.planes[idx]
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[CRTPlane]:
         """Resets an iterator counter, return self.
 
         Returns
@@ -159,3 +162,55 @@ class CRTDetector(Box):
             The detector itself
         """
         return iter(self.planes)
+
+    def get_plane_id(self, hit: np.ndarray, plane_idx: int) -> int:
+        """Returns the ID of the CRT plane that is closest to the given hit position.
+
+        If the detector ID mapping is available, the physical plane ID is used.
+
+        Parameters
+        ----------
+        hit : np.ndarray
+            (3,) Position of the hit in the detector
+        plane_idx : int
+            Index of the CRT plane
+
+        Returns
+        -------
+        int
+            ID of the CRT plane that is closest to the hit
+        """
+        # If the detector ID mapping is available, use the plane ID
+        if self.det_ids is not None:
+            assert (
+                plane_idx in self.det_ids
+            ), "Provided plane index is not in the detector ID mapping."
+            return self.det_ids[plane_idx]
+
+        # Calculate the distance from the hit to each plane
+        distances = [float(plane.distance(hit)) for plane in self.planes]
+
+        # Find the index of the closest plane
+        closest_idx = int(np.argmin(distances))
+
+        # Return the closest plane ID
+        return closest_idx
+
+    def get_plane(self, hit: np.ndarray, plane_idx: int) -> CRTPlane:
+        """Returns the CRT plane that is closest to the given hit position.
+
+        If the detector ID mapping is available, the physical plane ID is used.
+
+        Parameters
+        ----------
+        hit : np.ndarray
+            (3,) Position of the hit in the detector
+        plane_idx : int
+            Index of the CRT plane
+
+        Returns
+        -------
+        CRTPlane
+            CRT plane that is closest to the hit
+        """
+        return self.planes[self.get_plane_id(hit, plane_idx)]

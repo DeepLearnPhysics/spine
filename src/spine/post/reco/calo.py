@@ -1,5 +1,6 @@
 """Calorimetric energy reconstruction module."""
 
+import numexpr as ne
 import numpy as np
 
 from spine.post.base import PostBase
@@ -43,12 +44,12 @@ class CalorimetricEnergyProcessor(PostBase):
         # Store the conversion factor
         self.scaling = scaling
         if isinstance(self.scaling, str):
-            self.scaling = eval(self.scaling)
+            self.scaling = ne.evaluate(self.scaling)
 
         # Store the shower fudge factor
         self.shower_fudge = shower_fudge
         if isinstance(self.shower_fudge, str):
-            self.shower_fudge = eval(self.shower_fudge)
+            self.shower_fudge = ne.evaluate(self.shower_fudge)
 
     def process(self, data):
         """Reconstruct the calorimetric KE for each particle in one entry.
@@ -154,7 +155,7 @@ class CalibrationProcessor(PostBase):
 
                 # Get point coordinates, sources and depositions
                 points = self.get_points(part)
-                if not len(points):
+                if len(points) == 0:
                     continue
 
                 deps = self.get_depositions(part)
@@ -195,7 +196,7 @@ class CalibrationProcessor(PostBase):
             for inter in data[k]:
                 # Update depositions for the interaction
                 depositions = data[dep_key][inter.index]
-                if not part.is_truth:
+                if not inter.is_truth:
                     inter.depositions = depositions
                 else:
                     setattr(inter, self.truth_dep_mode, depositions)

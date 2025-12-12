@@ -1,7 +1,7 @@
 """TPC detector geometry classes."""
 
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Dict, Iterator, List, Optional
 
 import numpy as np
 
@@ -18,7 +18,7 @@ class TPCChamber(Box):
     Attributes
     ----------
     drift_dir : np.ndarray
-        (3) TPC drift direction vector (normalized)
+        (3,) TPC drift direction vector (normalized)
     drift_axis : int
         Axis along which the electrons drift (0, 1 or 2)
     """
@@ -26,17 +26,19 @@ class TPCChamber(Box):
     drift_dir: np.ndarray
     drift_axis: int
 
-    def __init__(self, position, dimensions, drift_dir):
+    def __init__(
+        self, position: np.ndarray, dimensions: np.ndarray, drift_dir: np.ndarray
+    ):
         """Initialize the TPC object.
 
         Parameters
         ----------
         position : np.ndarray
-            (3) Position of the center of the TPC
+            (3,) Position of the center of the TPC
         dimensions : np.ndarray
-            (3) Dimension of the TPC
+            (3,) Dimension of the TPC
         drift_dir : np.ndarray
-            (3) Drift direction vector
+            (3,) Drift direction vector
         """
         # Initialize the underlying box object
         lower = position - dimensions / 2
@@ -54,7 +56,7 @@ class TPCChamber(Box):
         self.drift_axis = nonzero_axes[0]
 
     @property
-    def drift_sign(self):
+    def drift_sign(self) -> int:
         """Sign of drift w.r.t. to the drift axis orientation.
 
         Returns
@@ -65,7 +67,7 @@ class TPCChamber(Box):
         return int(self.drift_dir[self.drift_axis])
 
     @property
-    def anode_side(self):
+    def anode_side(self) -> int:
         """Returns whether the anode is on the lower or upper boundary of
         the TPC along the drift axis (0 for lower, 1 for upper).
 
@@ -77,7 +79,7 @@ class TPCChamber(Box):
         return (self.drift_sign + 1) // 2
 
     @property
-    def cathode_side(self):
+    def cathode_side(self) -> int:
         """Returns whether the cathode is on the lower or upper boundary of
         the TPC along the drift axis (0 for lower, 1 for upper).
 
@@ -89,7 +91,7 @@ class TPCChamber(Box):
         return 1 - self.anode_side
 
     @property
-    def anode_pos(self):
+    def anode_pos(self) -> float:
         """Position of the anode along the drift direction.
 
         Returns
@@ -100,7 +102,7 @@ class TPCChamber(Box):
         return self.boundaries[self.drift_axis, self.anode_side]
 
     @property
-    def cathode_pos(self):
+    def cathode_pos(self) -> float:
         """Position of the cathode along the drift direction.
 
         Returns
@@ -125,7 +127,12 @@ class TPCModule(Box):
 
     chambers: List[TPCChamber]
 
-    def __init__(self, positions, dimensions, drift_dirs=None):
+    def __init__(
+        self,
+        positions: np.ndarray,
+        dimensions: np.ndarray,
+        drift_dirs: Optional[np.ndarray] = None,
+    ):
         """Intialize the TPC module.
 
         Parameters
@@ -169,7 +176,7 @@ class TPCModule(Box):
         super().__init__(lower, upper)
 
     @property
-    def num_chambers(self):
+    def num_chambers(self) -> int:
         """Number of individual TPCs that make up this module.
 
         Returns
@@ -180,7 +187,7 @@ class TPCModule(Box):
         return len(self.chambers)
 
     @property
-    def drift_axis(self):
+    def drift_axis(self) -> int:
         """Drift axis for the module (shared between chambers).
 
         Returns
@@ -191,7 +198,7 @@ class TPCModule(Box):
         return self.chambers[0].drift_axis
 
     @property
-    def cathode_pos(self):
+    def cathode_pos(self) -> float:
         """Location of the cathode plane along the drift axis.
 
         Returns
@@ -199,10 +206,10 @@ class TPCModule(Box):
         float
             Location of the cathode plane along the drift axis
         """
-        return np.mean([c.cathode_pos for c in self.chambers])
+        return np.mean([c.cathode_pos for c in self.chambers]).item()
 
     @property
-    def cathode_thickness(self):
+    def cathode_thickness(self) -> float:
         """Thickness of the cathode.
 
         Returns
@@ -212,7 +219,7 @@ class TPCModule(Box):
         """
         return abs(self.chambers[1].cathode_pos - self.chambers[0].cathode_pos)
 
-    def __len__(self):
+    def __len__(self) -> int:
         """Returns the number of TPCs in the module.
 
         Returns
@@ -222,7 +229,7 @@ class TPCModule(Box):
         """
         return self.num_chambers
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: int) -> TPCChamber:
         """Returns an underlying TPC of index idx.
 
         Parameters
@@ -237,7 +244,7 @@ class TPCModule(Box):
         """
         return self.chambers[idx]
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[TPCChamber]:
         """Resets an iterator counter, return self.
 
         Returns
@@ -271,12 +278,12 @@ class TPCDetector(Box):
 
     def __init__(
         self,
-        dimensions,
-        positions,
-        module_ids,
-        det_ids=None,
-        drift_dirs=None,
-        limits=None,
+        dimensions: List[List[float]],
+        positions: List[List[float]],
+        module_ids: List[int],
+        det_ids: Optional[List[int]] = None,
+        drift_dirs: Optional[List[List[float]]] = None,
+        limits: Optional[Dict[str, List[List[float]]]] = None,
     ):
         """Parse the detector boundary configuration.
 
@@ -301,18 +308,7 @@ class TPCDetector(Box):
             (N_i) Dictionary which defines a list of bounding planes which
             restrict the active region of the detector
         """
-        # If only one set of dimensions is provided, assume all TPCs share it
-        assert len(dimensions) == 3 or len(dimensions) == len(positions), (
-            "Must provide either one set of TPC dimensions for all TPCs, "
-            "or one set of dimensions per TPC."
-        )
-        if len(dimensions) == 3 and isinstance(dimensions[0], (float, int)):
-            dimensions = [dimensions for _ in range(len(positions))]
-
         # Check the sanity of the configuration
-        assert np.all(
-            [len(dim) == 3 for dim in dimensions]
-        ), "Should provide the TPC dimension along 3 dimensions."
         assert np.all(
             [len(pos) == 3 for pos in positions]
         ), "Must provide the TPC position along 3 dimensions."
@@ -320,12 +316,29 @@ class TPCDetector(Box):
             positions
         ), "Must provide one module ID for each TPC."
 
+        # If only one set of dimensions is provided, assume all TPCs share it
+        if isinstance(dimensions[0], (float, int)):
+            assert (
+                len(dimensions) == 3
+            ), "If only one set of dimensions is provided, it must be along 3 dimensions."
+        else:
+            assert len(dimensions) == len(positions), (
+                "Must provide either one set of TPC dimensions for all TPCs, "
+                "or one set of dimensions per TPC."
+            )
+            assert np.all(
+                [len(dim) == 3 for dim in dimensions]
+            ), "Each set of TPC dimensions must be along 3 dimensions."
+
         # Cast the dimensions, positions, ids to arrays
-        dimensions = np.asarray(dimensions)
-        positions = np.asarray(positions)
-        module_ids = np.asarray(module_ids, dtype=int)
+        module_ids_arr = np.asarray(module_ids, dtype=int)
+        dimensions_arr = np.asarray(dimensions)
+        if len(dimensions_arr.shape) == 1:
+            dimensions_arr = np.tile(dimensions_arr, (len(positions), 1))
+        positions_arr = np.asarray(positions)
+        drift_dirs_arr = None
         if drift_dirs is not None:
-            drift_dirs = np.asarray(drift_dirs)
+            drift_dirs_arr = np.asarray(drift_dirs)
 
         # Construct TPC chambers, organized by module
         self.modules = []
@@ -333,11 +346,11 @@ class TPCDetector(Box):
         module_drift_dirs = None
         for m in np.unique(module_ids):
             # Narrow down the set of TPCs to those in this module
-            module_index = np.where(module_ids == m)[0]
-            module_positions = positions[module_index]
-            module_dimensions = dimensions[module_index]
-            if drift_dirs is not None:
-                module_drift_dirs = drift_dirs[module_index]
+            module_index = np.where(module_ids_arr == m)[0]
+            module_positions = positions_arr[module_index]
+            module_dimensions = dimensions_arr[module_index]
+            if drift_dirs_arr is not None:
+                module_drift_dirs = drift_dirs_arr[module_index]
 
             # Initialize the module, store
             module = TPCModule(module_positions, module_dimensions, module_drift_dirs)
@@ -360,7 +373,9 @@ class TPCDetector(Box):
         if limits is not None:
             self.limits = self.initialize_limits(**limits)
 
-    def initialize_limits(self, intercepts, norms):
+    def initialize_limits(
+        self, intercepts: List[List[float]], norms: List[List[float]]
+    ) -> List[Plane]:
         """Initialize a list of bounding planes which restrict the active region.
 
         Parameters
@@ -377,12 +392,12 @@ class TPCDetector(Box):
         """
         limits = []
         for intercept, norm in zip(intercepts, norms):
-            limits.append(Plane(intercept, norm))
+            limits.append(Plane(np.asarray(intercept), np.asarray(norm)))
 
         return limits
 
     @property
-    def num_chambers(self):
+    def num_chambers(self) -> int:
         """Number of individual TPC volumes.
 
         Returns
@@ -393,7 +408,7 @@ class TPCDetector(Box):
         return len(self.chambers)
 
     @property
-    def num_modules(self):
+    def num_modules(self) -> int:
         """Number of detector modules.
 
         Returns
@@ -404,7 +419,7 @@ class TPCDetector(Box):
         return len(self.modules)
 
     @property
-    def num_chambers_per_module(self):
+    def num_chambers_per_module(self) -> int:
         """Number of TPC volumes per module.
 
         Returns
@@ -414,7 +429,7 @@ class TPCDetector(Box):
         """
         return len(self.modules[0])
 
-    def __len__(self):
+    def __len__(self) -> int:
         """Returns the number of modules in the detector.
 
         Returns
@@ -424,35 +439,22 @@ class TPCDetector(Box):
         """
         return self.num_modules
 
-    def __getitem__(self, idx):
-        """Returns an underlying module or TPC, depending on the index type.
-
-        If the index is specified as a simple integer, a module is returned. If
-        the index is specified with two integers, a specific chamber within a
-        module is returned instead.
+    def __getitem__(self, idx: int) -> TPCModule:
+        """Returns an underlying module of index idx.
 
         Parameters
         ----------
-        idx : Uniont[int, List[int]]
-            Module index or pair of [module ID, chamber ID]
+        idx : int
+            Module index
 
         Returns
         -------
-        Union[TPCModule, TPCChamber]
-            TPCModule or TPCChamber object
+        TPCModule
+            TPCModule object
         """
-        if isinstance(idx, int):
-            return self.modules[idx]
+        return self.modules[idx]
 
-        else:
-            assert isinstance(idx, (list, tuple)) and len(idx) == 2, (
-                "If indexing a specific TPC chamber, must provide a list or "
-                "tuple of [module ID, chamber ID]."
-            )
-            module_id, chamber_id = idx
-            return self.modules[module_id].chambers[chamber_id]
-
-    def __iter__(self):
+    def __iter__(self) -> Iterator[TPCModule]:
         """Resets an iterator counter, return self.
 
         Returns

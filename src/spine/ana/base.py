@@ -51,11 +51,21 @@ class AnaBase(ABC):
         ("points_g4", "points_g4"),
     )
 
+    # List of known deposition modes for true particles and their corresponding keys
+    _dep_modes = (
+        ("depositions", "depositions_label"),
+        ("depositions_q", "depositions_q_label"),
+        ("depositions_adapt", "depositions_label_adapt"),
+        ("depositions_adapt_q", "depositions"),
+        ("depositions_g4", "depositions_g4"),
+    )
+
     def __init__(
         self,
         obj_type=None,
         run_mode=None,
         truth_point_mode=None,
+        truth_dep_mode=None,
         append=False,
         overwrite=False,
         log_dir=None,
@@ -75,6 +85,10 @@ class AnaBase(ABC):
             If specified, tells which attribute of the :class:`TruthFragment`,
             :class:`TruthParticle` or :class:`TruthInteraction` object to use
             to fetch its point coordinates
+        truth_dep_mode : str, optional
+            If specified, tells which attribute of the :class:`TruthFragment`,
+            :class:`TruthParticle` or :class:`TruthInteraction` object to use
+            to fetch its energy depositions
         append : bool, default False
             If True, appends existing CSV files instead of creating new ones
         overwrite : bool, default False
@@ -121,6 +135,9 @@ class AnaBase(ABC):
                 )
 
         # Make a list of object keys to process
+        self.fragment_keys = []
+        self.particle_keys = []
+        self.interaction_keys = []
         for name in self._obj_types:
             # Initialize one list per object type
             setattr(self, f"{name}_keys", [])
@@ -146,11 +163,27 @@ class AnaBase(ABC):
             self.truth_point_mode = truth_point_mode
             self.truth_index_mode = truth_point_mode.replace("points", "index")
 
+        # If a truth deposition mode is specified, store it
+        if truth_dep_mode is not None:
+            assert truth_dep_mode in self.dep_modes, (
+                "The `truth_dep_mode` argument must be one of "
+                f"{self.dep_modes.keys()}. Got `{truth_dep_mode}` instead."
+            )
+            if truth_point_mode is not None:
+                prefix = truth_point_mode.replace("points", "depositions")
+                assert truth_dep_mode.startswith(prefix), (
+                    f"Points mode {truth_point_mode} and deposition mode "
+                    f"{truth_dep_mode} are incompatible."
+                )
+            self.truth_dep_mode = truth_dep_mode
+            self.truth_dep_key = self.dep_modes[truth_dep_mode]
+
         # Store the append flag
         self.append_file = append
         self.overwrite_file = overwrite
 
         # Initialize a writer dictionary to be filled by the children classes
+        self.base_dict = {}
         self.log_dir = log_dir
         self.output_prefix = prefix
         self.writers = {}
@@ -210,6 +243,18 @@ class AnaBase(ABC):
             Dictionary of (attribute, key) mapping for point coordinates
         """
         return dict(self._point_modes)
+
+    @property
+    def dep_modes(self):
+        """Dictionary which makes the correspondance between the name of a true
+        object deposition attribute with the underlying deposition array it points to.
+
+        Returns
+        -------
+        Dict[str, str]
+            Dictionary of (attribute, key) mapping for point depositions
+        """
+        return dict(self._dep_modes)
 
     def update_keys(self, update_dict):
         """Update the underlying set of keys and their necessity in place.

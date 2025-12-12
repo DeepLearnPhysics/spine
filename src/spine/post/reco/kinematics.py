@@ -328,13 +328,13 @@ class InteractionTopologyProcessor(PostBase):
         self.reco_ke_mode = reco_ke_mode
         self.truth_ke_mode = truth_ke_mode
 
-        # Store the thresholds in a dictionary
-        if np.isscalar(ke_thresholds):
-            ke_thresholds = {"default": float(ke_thresholds)}
-
+        # Store the particle KE thresholds in a dictionary
+        ke_thresholds = ke_thresholds or 0.0
         self.ke_thresholds = {}
-        for pid in PID_MASSES.keys():
-            if pid in ke_thresholds:
+        for pid in PID_MASSES:
+            if isinstance(ke_thresholds, (int, float)):
+                self.ke_thresholds[pid] = ke_thresholds
+            elif pid in ke_thresholds:
                 self.ke_thresholds[pid] = ke_thresholds[pid]
             elif "default" in ke_thresholds:
                 self.ke_thresholds[pid] = ke_thresholds["default"]

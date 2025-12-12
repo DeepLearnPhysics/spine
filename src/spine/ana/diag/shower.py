@@ -36,14 +36,10 @@ class ShowerStartDEdxAna(AnaBase):
             Additional arguments to pass to :class:`AnaBase`
         """
         # Initialize the parent class
-        super().__init__(obj_type, run_mode, **kwargs)
+        super().__init__(obj_type, run_mode, truth_point_mode, truth_dep_mode, **kwargs)
 
         # Store parameters
         self.radius = radius
-
-        # Initialize the CSV writer(s) you want
-        for obj in self.obj_type:
-            self.initialize_writer(obj)
 
     def process(self, data):
         """Evaluate shower start dE/dx for one entry.
@@ -53,18 +49,5 @@ class ShowerStartDEdxAna(AnaBase):
         data : dict
             Dictionary of data products
         """
-        # Fetch the keys you want
-        data = data["prod"]
-
-        # Loop over all requested object types
-        for key in self.obj_keys:
-            # Loop over all objects of that type
-            for obj in data[key]:
-                # Do something with the object
-                disp = p.end_point - p.start_point
-
-                # Make a dictionary of integer out of it
-                out = {"disp_x": disp[0], "disp_y": disp[1], "disp_z": disp[2]}
-
-                # Write the row to file
-                self.append("template", **out)
+        # TODO: Implement shower start dE/dx calculation
+        raise NotImplementedError("ShowerStartDEdxAna is not yet implemented.")

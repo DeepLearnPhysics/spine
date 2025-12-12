@@ -1,13 +1,10 @@
 """Post-processor in charge of finding matches between charge and light."""
 
-import copy
-from warnings import warn
-
 import numpy as np
 
 from spine.data.out.base import OutBase
+from spine.geo import GeoManager
 from spine.post.base import PostBase
-from spine.utils.geo import Geometry
 from spine.utils.optical import FlashMerger
 
 from .barycenter import BarycenterFlashMatcher
@@ -28,14 +25,15 @@ class FlashMatchProcessor(PostBase):
     # Whether this post-processor needs to know where the configuration lives
     need_parent_path = True
 
+    # Whether the post-processor needs geometry information
+    need_geometry = True
+
     def __init__(
         self,
         flash_key,
         volume,
         ref_volume_id=None,
         method="likelihood",
-        detector=None,
-        geometry_file=None,
         time_contained=False,
         max_cathode_offset=None,
         run_mode="reco",
@@ -60,10 +58,6 @@ class FlashMatchProcessor(PostBase):
             to live into a specific optical volume. Must shift everything.
         method : str, default 'likelihood'
             Flash matching method (one of 'likelihood' or 'barycenter')
-        detector : str, optional
-            Detector to get the geometry from
-        geometry_file : str, optional
-            Path to a `.yaml` geometry file to load the geometry from
         time_contained : bool, default False
             If `True`, only match interactions which are time contained
         max_cathode_offset : float, optional
@@ -93,9 +87,6 @@ class FlashMatchProcessor(PostBase):
         self.flash_key = flash_key
         self.update_keys({flash_key: True})
 
-        # Initialize the detector geometry
-        self.geo = Geometry(detector, geometry_file)
-
         # Get the volume within which each flash is confined
         assert volume in (
             "tpc",
@@ -112,13 +103,16 @@ class FlashMatchProcessor(PostBase):
         if self.max_cathode_offset is not None:
             self.update_upstream("cathode_crosser")
 
+        # Fetch the detector geometry
+        self.geo = GeoManager.get_instance()
+
         # Initialize the flash matching algorithm
         if method == "barycenter":
             self.matcher = BarycenterFlashMatcher(**kwargs)
 
         elif method == "likelihood":
             self.matcher = LikelihoodFlashMatcher(
-                detector=detector, parent_path=self.parent_path, **kwargs
+                detector=self.geo.name.lower(), parent_path=self.parent_path, **kwargs
             )
 
         else:
@@ -160,26 +154,8 @@ class FlashMatchProcessor(PostBase):
         # Fetch the optical flashes
         flashes = data[self.flash_key]
 
-        # Resize the PE vectors to match the optical geometry
-        # TODO: ideally this should not happen in the flash matcher...
-        for flash in flashes:
-            # Reshape the flash based on geometry
-            pe_per_ch = np.zeros(
-                self.geo.optical.num_detectors_per_volume, dtype=flash.pe_per_ch.dtype
-            )
-            if self.ref_volume_id is not None and len(flash.pe_per_ch) > len(pe_per_ch):
-                # If the flash spans > 1 optical volume, reshape
-                lower = flash.volume_id * len(pe_per_ch)
-                upper = (flash.volume_id + 1) * len(pe_per_ch)
-                pe_per_ch = flash.pe_per_ch[lower:upper]
-
-            else:
-                # Otherwise, just pad if it does not fill the full length
-                pe_per_ch[: len(flash.pe_per_ch)] = flash.pe_per_ch
-
-            flash.pe_per_ch = pe_per_ch
-
         # Merge flashes based on timing, if requested
+        orig_ids = np.arange(len(flashes))
         if self.merger is not None:
             flashes, orig_ids = self.merger(flashes)
 
@@ -230,6 +206,8 @@ class FlashMatchProcessor(PostBase):
                         num_cpm = self.geo.tpc.num_chambers_per_module
                         module_id, tpc_id = volume_id // num_cpm, volume_id % num_cpm
                         index = self.geo.get_volume_index(sources, module_id, tpc_id)
+                    else:
+                        raise ValueError(f"Volume not recognized: {self.volume}")
 
                     # If there are no points in this volume, proceed
                     if len(index) == 0:

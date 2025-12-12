@@ -91,6 +91,7 @@ class PPNProcessor(PostBase):
             ppn_points = ppn_pred[:, COORD_COLS]
             for part in data["reco_particles"]:
                 # Get the valid list of candidates
+                valid_index = np.arange(len(ppn_pred))
                 if not self.restrict_shape:
                     candidates = ppn_points
                 else:

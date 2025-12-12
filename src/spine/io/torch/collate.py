@@ -7,7 +7,7 @@ to :class:`torch.utils.data.DataLoader` as the `collate_fn` argumement.
 import numpy as np
 
 from spine.data import EdgeIndexBatch, IndexBatch, TensorBatch
-from spine.utils.geo import Geometry
+from spine.geo import GeoManager
 
 from .overlay import Overlayer
 
@@ -34,8 +34,6 @@ class CollateAll:
         data_types,
         split=False,
         target_id=0,
-        detector=None,
-        geometry_file=None,
         source=None,
         overlay=None,
         overlay_methods=None,
@@ -51,10 +49,6 @@ class CollateAll:
             own batch ID, multiplies the number of batches by `num_modules`)
         target_id : int, default 0
             If split is `True`, specifies where to relocate the points
-        detector : str, optional
-            Name of a recognized detector to the geometry from
-        geometry_file : str, optional
-            Path to a `.yaml` geometry file to load the geometry from
         source : dict, optional
             Dictionary which maps keys to their corresponding sources. This can
             be used to split tensors without having to check the geometry
@@ -70,15 +64,8 @@ class CollateAll:
         self.split = split
         self.source = None
         if split:
-            assert (detector is not None) or (
-                geometry_file is not None
-            ), "If splitting the input per module, must provide detector."
-            assert (
-                overlay is None
-            ), "Cannot overlay and split at the same time, for now."
-
             self.target_id = target_id
-            self.geo = Geometry(detector, geometry_file)
+            self.geo = GeoManager.get_instance()
             self.num_modules = self.geo.tpc.num_modules
             self.source = source
 

@@ -227,7 +227,7 @@ For ML training/inference functionality, ensure PyTorch is installed:
         source_list=args.source_list,
         output=args.output,
         n=args.iterations,
-        nskip=args.nskip or 0,
+        nskip=args.nskip,
         detect_anomaly=args.detect_anomaly,
         log_dir=args.log_dir,
         weight_prefix=args.weight_prefix,

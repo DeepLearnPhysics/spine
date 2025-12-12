@@ -1,10 +1,7 @@
 """Analysis script used to evaluate the point proposal accuracy."""
 
-from warnings import warn
-
 import numpy as np
 from scipy.spatial.distance import cdist
-from scipy.special import softmax
 
 from spine.ana.base import AnaBase
 from spine.utils.globals import (
@@ -105,13 +102,13 @@ class PointProposalAna(AnaBase):
 
         # Store one row per predicted point
         matches = (("truth", "reco"), ("reco", "truth"))
-        for k, (source, target) in enumerate(matches):
+        for source, target in matches:
             # If there is no source points, nothing to do
-            if not len(points[source]):
+            if len(points[source]) == 0:
                 continue
 
             # If there are no target points, record no match
-            if not len(points[target]):
+            if len(points[target]) == 0:
                 # Append dummy values
                 dummy = {**self.dummy_dict}
                 for i in range(len(points[source])):

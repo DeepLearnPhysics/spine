@@ -1,3 +1,3 @@
 """Detector geometry module."""
 
-from .manager import Geometry
+from .manager import GeoManager

@@ -22,6 +22,7 @@ import yaml
 from .ana import AnaManager
 from .banner import ascii_logo
 from .construct import BuildManager
+from .geo import GeoManager
 from .io import reader_factory, writer_factory
 from .io.core.write.csv import CSVWriter
 from .math import seed as numba_seed
@@ -56,6 +57,8 @@ class Driver:
 
         base:
           <Base driver configuration>
+        geo:
+          <Geometry configuration>
         io:
           <Input/output configuration>
         model:
@@ -84,13 +87,18 @@ class Driver:
         self.watch.initialize("iteration")
 
         # Process the full configuration dictionary and store it
-        base, io, model, build, post, ana = self.process_config(**cfg, rank=rank)
+        base, io, geo, model, build, post, ana = self.process_config(**cfg, rank=rank)
 
         # Initialize the base driver configuration parameters
         train = self.initialize_base(**base, rank=rank)
 
         # Initialize the input/output
         self.initialize_io(**io)
+
+        # Initialize the detector geometry singleton once and for all modules
+        if geo is not None:
+            GeoManager.reset()
+            GeoManager.initialize(**geo)
 
         # Initialize the ML model
         self.model = None
@@ -120,8 +128,8 @@ class Driver:
                 train is None
             ), "Received a train block but there is no model to train."
 
-        # Initialize the data representation builder
         self.builder = None
+        # Initialize the data representation builder
         if build is not None:
             assert (
                 self.model is None or self.unwrap
@@ -140,7 +148,9 @@ class Driver:
             ), "Must unwrap the model output to run post-processors."
             self.watch.initialize("post")
             self.post = PostManager(
-                post, post_list=self.post_list, parent_path=self.parent_path
+                post,
+                post_list=self.post_list,
+                parent_path=self.parent_path,
             )
 
         # Initialize the analysis scripts
@@ -153,7 +163,15 @@ class Driver:
             self.ana = AnaManager(ana, log_dir=self.log_dir, prefix=self.log_prefix)
 
     def process_config(
-        self, io, base=None, model=None, build=None, post=None, ana=None, rank=None
+        self,
+        io=None,
+        base=None,
+        geo=None,
+        model=None,
+        build=None,
+        post=None,
+        ana=None,
+        rank=None,
     ):
         """Reads the configuration and dumps it to the logger.
 
@@ -163,6 +181,8 @@ class Driver:
             I/O configuration dictionary
         base : dict, optional
             Base driver configuration dictionary
+        geo : dict, optional
+            Geometry configuration dictionary
         model : dict, optional
             Model configuration dictionary
         build : dict, optional
@@ -193,6 +213,7 @@ class Driver:
 
         # If the seed is not set for the sampler, randomize it. This is done
         # here to keep a record of the seeds provided to the samplers
+        assert io is not None, "The `io` block is always required."
         if "loader" in io:
             if "sampler" in io["loader"]:
                 if isinstance(io["loader"]["sampler"], str):
@@ -214,6 +235,8 @@ class Driver:
 
         # Rebuild global configuration dictionary
         self.cfg = {"base": base, "io": io}
+        if geo is not None:
+            self.cfg["geo"] = geo
         if model is not None:
             self.cfg["model"] = model
         if build is not None:
@@ -241,7 +264,7 @@ class Driver:
             logger.info(yaml.dump(self.cfg, default_flow_style=None, sort_keys=False))
 
         # Return updated configuration
-        return base, io, model, build, post, ana
+        return base, io, geo, model, build, post, ana
 
     def initialize_base(
         self,
@@ -398,14 +421,8 @@ class Driver:
 
             # If requested, initialize the unwrapper
             if self.unwrap:
-                geo = None
-                if hasattr(self.loader, "collate_fn") and hasattr(
-                    self.loader.collate_fn, "geo"
-                ):
-                    geo = self.loader.collate_fn.geo
-
                 self.watch.initialize("unwrap")
-                self.unwrapper = Unwrapper(geometry=geo)
+                self.unwrapper = Unwrapper()
 
             # If working from LArCV files, no post-processor was yet run
             self.post_list = ()

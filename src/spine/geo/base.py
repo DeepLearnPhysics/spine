@@ -8,13 +8,10 @@ This class supports the storage of:
 It also provides a plethora of useful functions to query the geometry.
 """
 
-import os
-import pathlib
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
-import yaml
 from scipy.spatial.distance import cdist
 
 from .detector import Box, CRTDetector, OptDetector, TPCDetector
@@ -23,8 +20,8 @@ from .detector import Box, CRTDetector, OptDetector, TPCDetector
 @dataclass
 class Geometry(Box):
     """Handles all geometry functions for a collection of box-shaped TPCs with
-    a arbitrary set of optical detectors organized in optical volumes and CRT
-    planes.
+    a arbitrary set of optical detectors organized in optical volumes and
+    auxiliary CRT planes.
 
     Attributes
     ----------
@@ -50,7 +47,7 @@ class Geometry(Box):
 
     name: str
     tag: str
-    version: int
+    version: str
     tpc: TPCDetector
     optical: Optional[OptDetector] = None
     crt: Optional[CRTDetector] = None
@@ -58,69 +55,19 @@ class Geometry(Box):
     crs_files: Optional[List[str]] = None
     lrs_file: Optional[str] = None
 
-    def __init__(self, detector=None, file_path=None):
-        """Initializes a detector geometry object.
-
-        The geometry configuration file is a YAML file which contains all the
-        necessary information to construct the physical boundaries of the
-        a detector (TPC size, positions, etc.) and (optionally) the set
-        of optical detectors and CRTs.
-
-        If the detector is already supported, the name is sufficient.
-        Supported: 'icarus', 'sbnd', '2x2', '2x2_single', 'ndlar'
-
-        Parameters
-        ----------
-        detector : str, optional
-            Name of a recognized detector to the geometry from
-        file_path : str, optional
-            Path to a `.yaml` geometry configuration
-        """
-        # Check that we are provided with either a detector name or a file
-        assert (detector is not None) ^ (file_path is not None), (
-            "Must provide either a `detector` name or a geometry "
-            "`file_path`, not neither, not both."
-        )
-
-        # If a detector name is provided, find the corresponding geometry file
-        if detector is not None:
-            path = pathlib.Path(__file__).parent
-            file_path = os.path.join(
-                path, "source", f"{detector.lower()}_geometry.yaml"
-            )
-
-        # Check that the geometry configuration file exists
-        if not file_path or not os.path.isfile(file_path):
-            raise FileNotFoundError(f"Could not find the geometry file: {file_path}")
-
-        # Load the geometry file, parse it
-        with open(file_path, "r", encoding="utf-8") as cfg_yaml:
-            cfg = yaml.safe_load(cfg_yaml)
-
-        lower, upper = self.parse_configuration(**cfg)
-
-        # Initialize the base Box object
-        super().__init__(lower=lower, upper=upper)
-
-        # Initialize place-holders for the containment conditions to be defined
-        # by the end-user using :func:`define_containment_volumes`
-        self._cont_volumes = None
-        self._cont_limits = None
-        self._cont_use_source = False
-
-    def parse_configuration(
+    def __init__(
         self,
-        name,
-        tag,
-        version,
-        tpc,
-        optical=None,
-        crt=None,
-        gdml=None,
-        crs_files=None,
-        lrs_file=None,
+        name: str,
+        tag: str,
+        version: str,
+        tpc: Dict[str, Any],
+        optical: Optional[Dict[str, Any]] = None,
+        crt: Optional[Dict[str, Any]] = None,
+        gdml: Optional[str] = None,
+        crs_files: Optional[List[str]] = None,
+        lrs_file: Optional[str] = None,
     ):
-        """Parse the geometry configuration.
+        """Initialize the detector geometry.
 
         Parameters
         ----------
@@ -175,10 +122,10 @@ class Geometry(Box):
             lower = np.minimum(lower, self.crt.lower)
             upper = np.maximum(upper, self.crt.upper)
 
-        # Return all-emcompassing boundaries
-        return lower, upper
+        # Initialize the parent Box
+        super().__init__(lower, upper)
 
-    def parse_optical(self, volume, **optical):
+    def parse_optical(self, volume: str, **optical: Any) -> OptDetector:
         """Parse the optical detector configuration.
 
         Parameters
@@ -207,7 +154,30 @@ class Geometry(Box):
         # Initialize the optical detector object
         return OptDetector(volume, offsets, **optical)
 
-    def get_boundaries(self, with_optical=True, with_crt=True):
+    @dataclass
+    class ContDefinition:
+        """Helper class to store containment volume definitions.
+
+        Attributes
+        ----------
+        volumes : List[np.ndarray]
+            (N, 3, 2) set of volume boundaries
+        use_source : bool
+            Whether to use the source of the points to determine the volume
+        limit_normals : List[np.ndarray]
+            List of limit plane normals
+        limit_thresholds : List[float]
+            List of limit thresholds along the plane normal
+        """
+
+        volumes: np.ndarray
+        use_source: bool
+        limit_normals: List[np.ndarray]
+        limit_thresholds: List[float]
+
+    def get_boundaries(
+        self, with_optical: bool = True, with_crt: bool = True
+    ) -> np.ndarray:
         """Fetch the overall geometry boundaries, optionally including
         optical and CRT detectors.
 
@@ -220,7 +190,7 @@ class Geometry(Box):
 
         Returns
         -------
-        Tuple[np.ndarray, np.ndarray]
+        np.ndarray
             Lower and upper boundaries of the overall geometry
         """
         # Get the TPC boundaries
@@ -244,7 +214,7 @@ class Geometry(Box):
 
         return np.vstack((lower, upper)).T
 
-    def get_sources(self, sources):
+    def get_sources(self, sources: np.ndarray) -> np.ndarray:
         """Converts logical TPC indexes to physical TPC indexes.
 
         Parameters
@@ -267,7 +237,7 @@ class Geometry(Box):
 
         return sources
 
-    def get_chambers(self, sources):
+    def get_chambers(self, sources: np.ndarray) -> np.ndarray:
         """Converts logical TPC indexes to unique chamber indexes.
 
         Parameters
@@ -284,7 +254,7 @@ class Geometry(Box):
         sources = self.get_sources(sources)
         return sources[:, 0] * self.tpc.num_chambers_per_module + sources[:, 1]
 
-    def get_contributors(self, sources):
+    def get_contributors(self, sources: np.ndarray) -> List[np.ndarray]:
         """Gets the list of [module ID, tpc ID] pairs that contributed to an
         object, as defined in this geometry.
 
@@ -310,7 +280,9 @@ class Geometry(Box):
         # Return as a list of physical [module ID, tpc ID] pairs
         return list(sources.T)
 
-    def get_volume_index(self, sources, module_id, tpc_id=None):
+    def get_volume_index(
+        self, sources: np.ndarray, module_id: int, tpc_id: Optional[int] = None
+    ) -> np.ndarray:
         """Gets the list of indices of points that belong to a certain
         detector volume (module or individual TPC).
 
@@ -338,7 +310,7 @@ class Geometry(Box):
         else:
             return np.where((sources == [module_id, tpc_id]).all(axis=-1))[0]
 
-    def get_closest_tpc(self, points):
+    def get_closest_tpc(self, points: np.ndarray) -> np.ndarray:
         """For each point, find the ID of the closest TPC.
 
         There is a natural assumption that all TPCs are boxes of identical
@@ -364,7 +336,7 @@ class Geometry(Box):
         # Return the closest center index as the closest centers
         return np.argmin(dists, axis=1)
 
-    def get_closest_module(self, points):
+    def get_closest_module(self, points: np.ndarray) -> np.ndarray:
         """For each point, find the ID of the closest module.
 
         There is a natural assumption that all modules are boxes of identical
@@ -390,7 +362,7 @@ class Geometry(Box):
         # Return the closest center index as the closest centers
         return np.argmin(dists, axis=1)
 
-    def get_closest_tpc_indexes(self, points):
+    def get_closest_tpc_indexes(self, points: np.ndarray) -> List[np.ndarray]:
         """For each TPC, get the list of points that live closer to it than any
         other TPC in the detector.
 
@@ -414,7 +386,7 @@ class Geometry(Box):
 
         return tpc_indexes
 
-    def get_closest_module_indexes(self, points):
+    def get_closest_module_indexes(self, points: np.ndarray) -> List[np.ndarray]:
         """For each module, get the list of points that live closer to it
         than any other module in the detector.
 
@@ -438,7 +410,9 @@ class Geometry(Box):
 
         return module_indexes
 
-    def get_volume_offsets(self, points, module_id, tpc_id=None):
+    def get_volume_offsets(
+        self, points: np.ndarray, module_id: int, tpc_id: Optional[int] = None
+    ) -> np.ndarray:
         """Compute how far each point is from a certain detector volume.
 
         Parameters
@@ -457,8 +431,11 @@ class Geometry(Box):
             (N, 3) Offsets w.r.t. to the volume boundaries
         """
         # Compute the axis-wise distances of each point to each boundary
-        idx = module_id if tpc_id is None else (module_id, tpc_id)
-        boundaries = self.tpc[idx].boundaries
+        module = self.tpc[module_id]
+        if tpc_id is None:
+            boundaries = module.boundaries
+        else:
+            boundaries = module[tpc_id].boundaries
         dists = points[..., None] - boundaries
 
         # If a point is between two boundaries, the distance is 0. If it is
@@ -468,7 +445,9 @@ class Geometry(Box):
 
         return offsets
 
-    def get_min_volume_offset(self, points, module_id, tpc_id=None):
+    def get_min_volume_offset(
+        self, points: np.ndarray, module_id: int, tpc_id: Optional[int] = None
+    ) -> np.ndarray:
         """Get the minimum offset to apply to a point cloud to bring it
         within the boundaries of a volume.
 
@@ -493,7 +472,13 @@ class Geometry(Box):
 
         return offsets
 
-    def translate(self, points, source_id, target_id, factor=None):
+    def translate(
+        self,
+        points: np.ndarray,
+        source_id: int,
+        target_id: int,
+        factor: Optional[Union[float, np.ndarray]] = None,
+    ) -> np.ndarray:
         """Moves a point cloud from one module to another one
 
         Parameters
@@ -525,7 +510,13 @@ class Geometry(Box):
         # Translate
         return points + offset
 
-    def split(self, points, target_id, sources=None, meta=None):
+    def split(
+        self,
+        points: np.ndarray,
+        target_id: int,
+        sources: Optional[np.ndarray] = None,
+        meta: Optional[Any] = None,
+    ) -> Tuple[np.ndarray, List[np.ndarray]]:
         """Migrate all points to a target module, organize them by module ID.
 
         Parameters
@@ -587,14 +578,22 @@ class Geometry(Box):
         return points, module_indexes
 
     def check_containment(
-        self, points, sources=None, allow_multi_module=False, summarize=True
+        self,
+        definition: ContDefinition,
+        points: np.ndarray,
+        sources: Optional[np.ndarray] = None,
+        allow_multi_module: bool = False,
+        summarize: bool = True,
     ):
-        """Check whether a point cloud comes within some distance of the
-        boundaries of a certain subset of detector volumes, depending on the
-        mode.
+        """Check whether a point cloud comes within some distance of the boundaries
+        of a certain subset of detector volumes, depending on the mode.
+
+        Must define containment volumes first using `define_containment_volumes`.
 
         Parameters
         ----------
+        definition : ContDefinition
+            Containment volume definition to check against
         points : np.ndarray
             (N, 3) Set of point coordinates
         sources : np.ndarray, optional
@@ -611,12 +610,8 @@ class Geometry(Box):
         Union[bool, np.ndarray]
             `True` if the points are contained, `False` if not
         """
-        # If the containment volumes are not defined, throw
-        if self._cont_volumes is None:
-            raise ValueError("Must call `define_containment_volumes` first.")
-
         # If sources are provided, only consider source volumes
-        if self._cont_use_source:
+        if definition.use_source:
             # Get the contributing TPCs
             assert sources is not None and len(points) == len(
                 sources
@@ -626,13 +621,13 @@ class Geometry(Box):
                 return False
 
             # Define the smallest box containing all contributing TPCs
-            # TODO: this is not ideal
+            # TODO: this is not ideal, should check each source separately?
             index = contributors[0] * self.tpc.num_chambers_per_module + contributors[1]
-            volume = self.merge_volumes(self._cont_volumes[index])
+            volume = self.merge_volumes(definition.volumes[index])
             volumes = [volume]
 
         else:
-            volumes = self._cont_volumes
+            volumes = definition.volumes
 
         # Loop over volumes, make sure the cloud is contained in at least one
         if summarize:
@@ -649,23 +644,28 @@ class Geometry(Box):
                 )
 
         # If requested, check points against the active volume limits
-        if self._cont_limits is not None:
-            if not summarize or contained:
-                for norm, limit in self._cont_limits:
-                    active = np.dot(points, norm) < limit
-                    if summarize:
-                        active = active.all()
-                    contained &= active
+        if not summarize or contained:
+            for normal, threshold in zip(
+                definition.limit_normals, definition.limit_thresholds
+            ):
+                active = np.dot(points, normal) < threshold
+                if summarize:
+                    active = active.all()
+                contained &= active
 
         return contained
 
     def define_containment_volumes(
-        self, margin, cathode_margin=None, mode="module", include_limits=True
-    ):
+        self,
+        margin: Union[float, List[float], np.ndarray],
+        cathode_margin: Optional[float] = None,
+        mode: str = "module",
+        include_limits: bool = True,
+    ) -> ContDefinition:
         """This function defines a list of volumes to check containment against.
 
-        If the containment is checked against a constant volume, it is more
-        efficient to call this function once and call `check_containment`
+        If the containment is checked against a constant volume, it is a lot
+        more efficient to call this function once and call `check_containment`
         reapitedly after.
 
         Parameters
@@ -688,57 +688,76 @@ class Geometry(Box):
               contributed to them, and define volumes accordingly
         include_limits : bool, default True
             If `True`, the TPC active region limits are checked against
+
+        Returns
+        -------
+        ContDefinition
+            Object containing the list of containment volumes, and other
+            information to check containment against
         """
         # Translate the margin parameter to a (3,2) matrix
+        margin = np.array(margin)
         if np.isscalar(margin):
             margin = np.full((3, 2), margin)
-        elif len(np.array(margin).shape) == 1:
+        elif len(margin.shape) == 1:
             assert len(margin) == 3, "Must provide one value per axis."
-            margin = np.repeat([margin], 2, axis=0).T
+            margin = np.tile(margin, (2, 1)).T
         else:
             assert np.array(margin).shape == (3, 2), "Must provide two values per axis."
-            margin = np.copy(margin)
 
         # Establish the volumes to check against
-        self._cont_volumes = []
+        cont_volumes = []
+        cont_use_source = False
         if mode in ["tpc", "source"]:
             for m, module in enumerate(self.tpc):
                 for t, tpc in enumerate(module):
                     vol = self.adapt_volume(
                         tpc.boundaries, margin, cathode_margin, m, t
                     )
-                    self._cont_volumes.append(vol)
-            self._cont_use_source = mode == "source"
+                    cont_volumes.append(vol)
+            cont_use_source = mode == "source"
 
         elif mode == "module":
             for module in self.tpc:
                 vol = self.adapt_volume(module.boundaries, margin)
-                self._cont_volumes.append(vol)
-            self._cont_use_source = False
+                cont_volumes.append(vol)
 
         elif mode == "detector":
             vol = self.adapt_volume(self.tpc.boundaries, margin)
-            self._cont_volumes.append(vol)
-            self._cont_use_source = False
+            cont_volumes.append(vol)
 
         else:
             raise ValueError(f"Containement check mode not recognized: {mode}.")
 
-        self._cont_volumes = np.array(self._cont_volumes)
+        cont_volumes = np.array(cont_volumes)
 
         # Establish active region limits to check against, if requested
+        limit_normals, limit_thresholds = [], []
         if include_limits and self.tpc.limits is not None:
             assert np.all(margin == margin[0, 0]), (
                 "No clear way to include active region limit checks when "
                 "margins are different in different axes. Abort."
             )
-            margin = margin[0, 0]
-            self._cont_limits = []
+            limit_margin = margin[0, 0]
             for limit in self.tpc.limits:
-                self._cont_limits.append((limit.norm, limit.boundary - margin))
+                limit_normals.append(limit.norm)
+                limit_thresholds.append(limit.boundary - limit_margin)
+
+        # Return containment conditions as a ContDefinition object
+        return self.ContDefinition(
+            volumes=cont_volumes,
+            use_source=cont_use_source,
+            limit_normals=limit_normals,
+            limit_thresholds=limit_thresholds,
+        )
 
     def adapt_volume(
-        self, ref_volume, margin, cathode_margin=None, module_id=None, tpc_id=None
+        self,
+        ref_volume: np.ndarray,
+        margin: np.ndarray,
+        cathode_margin: Optional[float] = None,
+        module_id: Optional[int] = None,
+        tpc_id: Optional[int] = None,
     ):
         """Apply margins from a given volume. Takes care of subtleties
         associated with the cathode, if needed.
@@ -770,8 +789,11 @@ class Geometry(Box):
 
         # If a cathode margin is provided, adapt the cathode wall differently
         if cathode_margin is not None:
-            axis = self.tpc[module_id, tpc_id].drift_axis
-            side = self.tpc[module_id, tpc_id].cathode_side
+            assert (
+                module_id is not None and tpc_id is not None
+            ), "Module and TPC ID must be provided when using a cathode margin."
+            axis = self.tpc[module_id][tpc_id].drift_axis
+            side = self.tpc[module_id][tpc_id].cathode_side
 
             flip = (-1) ** side
             volume[axis, side] += flip * (cathode_margin - margin[axis, side])
@@ -779,7 +801,7 @@ class Geometry(Box):
         return volume
 
     @staticmethod
-    def merge_volumes(volumes):
+    def merge_volumes(volumes: np.ndarray) -> np.ndarray:
         """Given a list of volumes and their boundaries, find the smallest box
         that encompass all volumes combined.
 

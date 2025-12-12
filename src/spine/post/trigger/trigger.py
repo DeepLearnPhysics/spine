@@ -1,6 +1,7 @@
+"""Trigger information parser post-processor module."""
+
 import os
 
-import numpy as np
 import pandas as pd
 
 from spine.data import Trigger
@@ -78,7 +79,7 @@ class TriggerProcessor(PostBase):
         )
         trigger_info = self.trigger_dict[trigger_mask]
 
-        if not len(trigger_info):
+        if len(trigger_info) == 0:
             raise KeyError(
                 f"Could not find run {run_id}, event {event_id} in the " "trigger file."
             )

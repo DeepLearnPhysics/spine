@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 import numba as nb
 import numpy as np
+from numba import typed
 
 import spine.utils.match
 from spine.post.base import PostBase
@@ -49,7 +50,7 @@ class MatchProcessor(PostBase):
         keys = {}
         self.matchers = {}
         for key, cfg in configs.items():
-            if cfg is not None and cfg != False:
+            if cfg is not None and cfg is not False:
                 # Initialize the matcher
                 if isinstance(cfg, bool):
                     cfg = {}
@@ -118,7 +119,7 @@ class MatchProcessor(PostBase):
             )
 
             # Check that the overlap mode and weighting are compatible
-            assert not self.weight_overlap or overlap in [
+            assert not self.weight_overlap or self.overlap_mode in [
                 "iou",
                 "dice",
             ], "Only IoU and Dice-based overlap functions can be weighted."
@@ -174,12 +175,21 @@ class MatchProcessor(PostBase):
             # For overlap matches, use pixel indexes (faster)
             if not matcher.ghost or self.truth_point_mode == "points_adapt":
                 # The indexes of reco and truth point to the same point set
-                reco_input = nb.typed.List([self.get_index(p) for p in reco_objs])
-                truth_input = nb.typed.List([self.get_index(p) for p in truth_objs])
+                reco_input = typed.List.empty_list(nb.int64[:])
+                for p in reco_objs:
+                    reco_input.append(self.get_index(p))
+                truth_input = typed.List.empty_list(nb.int64[:])
+                for p in truth_objs:
+                    truth_input.append(self.get_index(p))
 
             else:
                 # The indexes of reco and truth point to different point sets.
                 # In this case, convert the positions to indexes
+                assert meta is not None, (
+                    "When using separate point sets for reco and truth objects, "
+                    "must provide the metadata object to convert positions to "
+                    "indexes."
+                )
                 reco_input = []
                 for p in reco_objs:
                     coords = self.get_points(p)
@@ -196,8 +206,12 @@ class MatchProcessor(PostBase):
 
         else:
             # For the chamfer distance, simply use the point positions
-            reco_input = nb.typed.List([self.get_points(p) for p in reco_objs])
-            truth_input = nb.typed.List([self.get_points(p) for p in truth_objs])
+            reco_input = typed.List.empty_list(nb.float32[:, :])
+            for p in reco_objs:
+                reco_input.append(self.get_points(p))
+            truth_input = typed.List.empty_list(nb.float32[:, :])
+            for p in truth_objs:
+                truth_input.append(self.get_points(p))
 
         # Pass lists to the matching function to compute overlaps
         if len(reco_input) and len(truth_input):
@@ -209,7 +223,7 @@ class MatchProcessor(PostBase):
         if matcher.overlap_mode != "chamfer":
             ovl_valid = ovl_matrix > matcher.min_overlap
         else:
-            ovl_valid = ovl_matrix < match.min_overlap
+            ovl_valid = ovl_matrix < matcher.min_overlap
 
         # Produce matches
         result = {}

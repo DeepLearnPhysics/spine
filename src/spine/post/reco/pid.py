@@ -65,7 +65,7 @@ class PIDTemplateProcessor(PostBase):
                 # Get point coordinates and depositions
                 points = self.get_points(obj)
                 values = self.get_depositions(obj)
-                if not len(points):
+                if len(points) == 0:
                     continue
 
                 # Run the particle identifier

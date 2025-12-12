@@ -12,7 +12,6 @@ from spine.data.out import RecoParticle, TruthParticle
 from spine.math.cluster import DBSCAN
 from spine.math.decomposition import PCA
 from spine.post.base import PostBase
-from spine.utils.geo import Geometry
 from spine.utils.globals import TRACK_SHP
 
 __all__ = ["TrackClusterer"]
@@ -69,6 +68,9 @@ class TrackClusterer(PostBase):
         particle_type : str, default 'reco'
             Type of particle output by this algorithm
         """
+        # Intialize the parent class
+        super().__init__()
+
         # Initialize DBSCAN
         self.dbscan = DBSCAN(eps=eps, min_samples=min_samples, metric=metric)
 
@@ -83,7 +85,7 @@ class TrackClusterer(PostBase):
         # Initialize the splitting procedure
         assert split_volume is None or split_volume in self._split_volumes, (
             f"Track clustering split volume not recognized: {split_volume}. "
-            f"Must be one of {self._volume_modes}."
+            f"Must be one of {self._split_volumes}."
         )
         self.split_volume = split_volume
 
@@ -121,6 +123,7 @@ class TrackClusterer(PostBase):
         """
         # Dispatch
         points, depositions = data["points"], data["depositions"]
+        sources = np.empty((0, 2), dtype=int)
         if self.split_volume is None:
             # If no splitting is required, feed to points to the algorithm
             clusts = self.process_volume(points)
@@ -162,7 +165,7 @@ class TrackClusterer(PostBase):
                 shape=TRACK_SHP,
                 points=points[index],
                 depositions=depositions[index],
-                sources=sources[index],
+                sources=sources[index] if len(sources) > 0 else sources,
             )
 
             # Append

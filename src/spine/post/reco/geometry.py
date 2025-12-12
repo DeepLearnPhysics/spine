@@ -1,9 +1,7 @@
 """Detector-geometry-based reconstruction module."""
 
-import numpy as np
-
+from spine.geo import GeoManager
 from spine.post.base import PostBase
-from spine.utils.geo import Geometry
 from spine.utils.globals import PID_LABELS
 
 __all__ = ["ContainmentProcessor", "FiducialProcessor"]
@@ -27,8 +25,6 @@ class ContainmentProcessor(PostBase):
         self,
         margin,
         cathode_margin=None,
-        detector=None,
-        geometry_file=None,
         mode="module",
         allow_multi_module=False,
         logical=False,
@@ -56,10 +52,6 @@ class ContainmentProcessor(PostBase):
               specified individually of each wall.
         cathode_margin : float, optional
             If specified, sets a different margin for the cathode boundaries
-        detector : str, optional
-            Detector to get the geometry from
-        geometry_file : str, optional
-            Path to a `.yaml` geometry file to load the geometry from
         mode : str, default 'module'
             Containement criterion (one of 'global', 'module', 'tpc'):
             - If 'tpc', makes sure it is contained within a single tpc
@@ -90,14 +82,12 @@ class ContainmentProcessor(PostBase):
         # Initialize the geometry, if needed
         if mode != "meta":
             self.use_meta = False
-            self.geo = Geometry(detector, geometry_file)
-            self.geo.define_containment_volumes(margin, cathode_margin, mode)
+            self.geo = GeoManager.get_instance()
+            self.cont_def = self.geo.define_containment_volumes(
+                margin, cathode_margin, mode
+            )
 
         else:
-            assert detector is None and geometry_file is None, (
-                "When using `meta` to check containment, must not "
-                "provide geometry information."
-            )
             self.update_keys({"meta": True})
             self.use_meta = True
             self.margin = margin
@@ -106,8 +96,10 @@ class ContainmentProcessor(PostBase):
         self.truth_geo = None
         if "g4" in self.truth_point_mode and mode != "meta":
             truth_mode = "module" if mode != "detector" else mode
-            self.truth_geo = Geometry(detector, geometry_file)
-            self.truth_geo.define_containment_volumes(margin, mode=truth_mode)
+            self.geo = GeoManager.get_instance()
+            self.truth_cont_def = self.geo.define_containment_volumes(
+                margin, mode=truth_mode
+            )
 
         # Store parameters
         self.allow_multi_module = allow_multi_module
@@ -120,12 +112,11 @@ class ContainmentProcessor(PostBase):
         self.attr = "is_contained" if not logical else "is_time_contained"
 
         # Store the particle size thresholds in a dictionary
-        if np.isscalar(min_particle_sizes):
-            min_particle_sizes = {"default": min_particle_sizes}
-
         self.min_particle_sizes = {}
-        for pid in PID_LABELS.keys():
-            if pid in min_particle_sizes:
+        for pid in PID_LABELS:
+            if isinstance(min_particle_sizes, int):
+                self.min_particle_sizes[pid] = min_particle_sizes
+            elif pid in min_particle_sizes:
                 self.min_particle_sizes[pid] = min_particle_sizes[pid]
             elif "default" in min_particle_sizes:
                 self.min_particle_sizes[pid] = min_particle_sizes["default"]
@@ -140,10 +131,6 @@ class ContainmentProcessor(PostBase):
         data : dict
             Dictionary of data products
         """
-        # Get the metadata information, if need be
-        if self.use_meta:
-            meta = data["meta"]
-
         # Loop over particle objects
         for k in self.fragment_keys + self.particle_keys:
             for obj in data[k]:
@@ -152,18 +139,24 @@ class ContainmentProcessor(PostBase):
 
                 # Get point coordinates
                 points = self.get_points(obj)
-                if not len(points):
+                if len(points) == 0:
                     setattr(obj, self.attr, True)
                     continue
 
                 # Check particle containment against detector/meta
-                if not self.use_meta:
+                if self.use_meta:
+                    obj.is_contained = (
+                        points > (data["meta"].lower + self.margin)
+                    ).all() and (points < (data["meta"].upper - self.margin)).all()
+
+                else:
                     if not obj.is_truth or self.truth_geo is None:
                         sources = self.get_sources(obj)
                         setattr(
                             obj,
                             self.attr,
                             self.geo.check_containment(
+                                self.cont_def,
                                 points,
                                 sources,
                                 allow_multi_module=self.allow_multi_module,
@@ -173,14 +166,12 @@ class ContainmentProcessor(PostBase):
                         setattr(
                             obj,
                             self.attr,
-                            self.truth_geo.check_containment(
-                                points, allow_multi_module=self.allow_multi_module
+                            self.geo.check_containment(
+                                self.truth_cont_def,
+                                points,
+                                allow_multi_module=self.allow_multi_module,
                             ),
                         )
-                else:
-                    obj.is_contained = (points > (meta.lower + self.margin)).all() and (
-                        points < (meta.upper - self.margin)
-                    ).all()
 
         # Loop over interaction objects
         for k in self.interaction_keys:
@@ -230,8 +221,6 @@ class FiducialProcessor(PostBase):
         self,
         margin,
         cathode_margin=None,
-        detector=None,
-        geometry_file=None,
         mode="module",
         run_mode="both",
         truth_vertex_mode="vertex",
@@ -249,10 +238,6 @@ class FiducialProcessor(PostBase):
               specified individually of each wall.
         cathode_margin : float, optional
             If specified, sets a different margin for the cathode boundaries
-        detector : str, default 'icarus'
-            Detector to get the geometry from
-        geometry_file : str, optional
-            Path to a `.yaml` geometry file to load the geometry from
         mode : str, default 'module'
             Containement criterion (one of 'global', 'module', 'tpc'):
             - If 'tpc', makes sure it is contained within a single tpc
@@ -270,16 +255,12 @@ class FiducialProcessor(PostBase):
         # Initialize the geometry
         if mode != "meta":
             self.use_meta = False
-            self.geo = Geometry(detector, geometry_file)
-            self.geo.define_containment_volumes(
+            self.geo = GeoManager.get_instance()
+            self.fid_def = self.geo.define_containment_volumes(
                 margin, cathode_margin, mode, include_limits=False
             )
 
         else:
-            assert detector is None and geometry_file is None, (
-                "When using `meta` to check containment, must not "
-                "provide geometry information."
-            )
             self.update_keys({"meta": True})
             self.use_meta = True
             self.margin = margin
@@ -299,10 +280,6 @@ class FiducialProcessor(PostBase):
         data : dict
             Dictionary of data products
         """
-        # Get the metadata information, if need be
-        if self.use_meta:
-            meta = data["meta"]
-
         # Loop over interaction objects
         for k in self.interaction_keys:
             for inter in data[k]:
@@ -314,11 +291,11 @@ class FiducialProcessor(PostBase):
 
                 # Check containment
                 if not self.use_meta:
-                    inter.is_fiducial = self.geo.check_containment(vertex)
+                    inter.is_fiducial = self.geo.check_containment(self.fid_def, vertex)
                 else:
                     inter.is_fiducial = (
-                        vertex > (meta.lower + self.margin)
-                    ).all() and (vertex < (meta.upper - self.margin)).all()
+                        vertex > (data["meta"].lower + self.margin)
+                    ).all() and (vertex < (data["meta"].upper - self.margin)).all()
 
     def get_vertex(self, inter):
         """Get a certain pre-defined vertex attribute of an interaction.
@@ -331,7 +308,7 @@ class FiducialProcessor(PostBase):
         obj : InteractionBase
             Interaction object
 
-        Results
+        Returns
         -------
         np.ndarray
             (N) Interaction vertex

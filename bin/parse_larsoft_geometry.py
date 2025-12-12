@@ -289,6 +289,7 @@ def parse_optical_block(lines, start_idx):
 
     # Group by unique shape and dimension
     idx = 0
+    dimensions = np.round(dimensions, decimals=4)
     for shape in np.unique(shapes):
         shape_indices = np.where(np.array(shapes) == shape)[0]
         for dim in np.unique(np.array(dimensions)[shape_indices], axis=0):

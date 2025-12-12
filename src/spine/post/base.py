@@ -123,6 +123,9 @@ class PostBase(ABC):
             )
 
         # Make a list of object keys to process
+        self.fragment_keys = []
+        self.particle_keys = []
+        self.interaction_keys = []
         for name in self._obj_types:
             # Initialize one list per object type
             setattr(self, f"{name}_keys", [])
@@ -169,13 +172,18 @@ class PostBase(ABC):
         # If a PID mode is specified, store it
         if pid_mode is not None:
             assert pid_mode in self._pid_modes, (
-                f"The `pid_mode` argument must be one of {self.pid_modes}. "
+                f"The `pid_mode` argument must be one of {self._pid_modes}. "
                 f"Got {pid_mode} instead."
             )
             self.pid_mode = pid_mode
 
         # Store the parent path
         self.parent_path = parent_path
+        if self.need_parent_path and parent_path is None:
+            raise ValueError(
+                f"The `{self.name}` post-processor needs to know the parent "
+                "configuration path. Please provide the `parent_path` argument."
+            )
 
     @property
     def keys(self):

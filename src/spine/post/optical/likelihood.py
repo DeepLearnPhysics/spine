@@ -3,6 +3,7 @@
 import os
 import sys
 
+import numexpr as ne
 import numpy as np
 
 
@@ -29,7 +30,7 @@ class LikelihoodFlashMatcher:
         cfg : str
             Flash matching configuration file path
         detector : str, optional
-            Detector to get the geometry from
+            Detector to get the optical detector properties for
         parent_path : str, optional
             Path to the parent configuration file (allows for relative paths)
         scaling : Union[float, str], default 1.
@@ -47,13 +48,13 @@ class LikelihoodFlashMatcher:
         # Get the external parameters
         self.scaling = scaling
         if isinstance(self.scaling, str):
-            self.scaling = eval(self.scaling)
+            self.scaling = ne.evaluate(self.scaling)
         self.alpha = alpha
         if isinstance(self.alpha, str):
-            self.alpha = eval(self.alpha)
+            self.alpha = ne.evaluate(self.alpha)
         self.recombination_mip = recombination_mip
         if isinstance(self.recombination_mip, str):
-            self.recombination_mip = eval(self.recombination_mip)
+            self.recombination_mip = ne.evaluate(self.recombination_mip)
         self.legacy = legacy
 
         # Initialize flash matching attributes
@@ -74,7 +75,7 @@ class LikelihoodFlashMatcher:
         cfg: str
             Path to config for OpT0Finder
         detector : str, optional
-            Detector to get the geometry from
+            Detector to get the optical detector properties for
         parent_path : str, optional
             Path to the parent configuration file (allows for relative paths)
         """
@@ -247,8 +248,8 @@ class LikelihoodFlashMatcher:
             flash.x_err, flash.y_err, flash.z_err = 0, 0, 0
 
             # Assign the individual PMT optical hit PEs
-            for i in range(len(f.pe_per_ch)):
-                flash.pe_v.push_back(f.pe_per_ch[i])
+            for pe in f.pe_per_ch:
+                flash.pe_v.push_back(pe)
                 flash.pe_err_v.push_back(0.0)
 
             # Append
@@ -303,8 +304,10 @@ class LikelihoodFlashMatcher:
         Union[flashmatch::QCluster_t, np.ndarray]
             QCluster object
         """
+        from flashmatch import flashmatch
+
         if self.qcluster_v is None:
-            raise Exception("self.qcluster_v is None")
+            raise ValueError("self.qcluster_v is None")
 
         for qcluster in self.qcluster_v:
             if qcluster.idx != idx:
@@ -314,7 +317,7 @@ class LikelihoodFlashMatcher:
             else:
                 return qcluster
 
-        raise Exception(f"TPC object {idx} does not exist in self.qcluster_v")
+        raise IndexError(f"TPC object {idx} does not exist in self.qcluster_v")
 
     def get_flash(self, idx, array=False):
         """Fetch a given flashmatch::Flash object.
@@ -331,8 +334,10 @@ class LikelihoodFlashMatcher:
         Union[flashmatch::Flash, np.ndarray]
             Flash object
         """
+        from flashmatch import flashmatch
+
         if self.flash_v is None:
-            raise Exception("self.flash_v is None")
+            raise ValueError("self.flash_v is None")
 
         for flash in self.flash_v:
             if flash.idx != idx:
@@ -342,7 +347,7 @@ class LikelihoodFlashMatcher:
             else:
                 return flash
 
-        raise Exception("Flash {idx} does not exist in self.flash_v")
+        raise IndexError(f"Flash {idx} does not exist in self.flash_v")
 
     def get_match(self, idx):
         """Fetch a match for a given TPC interaction ID.
@@ -357,8 +362,8 @@ class LikelihoodFlashMatcher:
         flashmatch::FlashMatch_t
             Flash match associated with interaction idx
         """
-        if self.matches is None:
-            raise Exception("Need to run flash matching first")
+        if self.matches is None or self.qcluster_v is None:
+            raise ValueError("Need to run flash matching first")
 
         for m in self.matches:
             if self.qcluster_v[m.tpc_id].idx != idx:
@@ -380,6 +385,10 @@ class LikelihoodFlashMatcher:
         flashmatch::Flash_t
             Optical flash that matches interaction idx
         """
+        # Check if we have already run flash matching
+        if self.flash_v is None or self.matches is None:
+            raise ValueError("Need to run flash matching first")
+
         # Get a match, if any
         m = self.get_match(idx)
         if m is None:
@@ -389,8 +398,8 @@ class LikelihoodFlashMatcher:
         flash_id = m.flash_id
         if flash_id is None:
             return None
-        if flash_id > len(self.flash_v):
-            raise Exception("Flash {flash_id} does not exist in self.flash_v")
+        if flash_id >= len(self.flash_v):
+            raise IndexError(f"Flash {flash_id} does not exist in self.flash_v")
 
         return self.flash_v[flash_id]
 

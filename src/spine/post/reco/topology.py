@@ -113,7 +113,7 @@ class ParticleDEDXProcessor(PostBase):
 
                 else:
                     # Use the particle direction estimate as a guide
-                    ref_dir = getattr(part, f"{side}_dir") * (-1) ** (end == "end")
+                    ref_dir = getattr(part, f"{side}_dir") * (-1) ** (side == "end")
                     dedx = cluster_dedx_dir(
                         part.points,
                         part.depositions,
@@ -218,7 +218,7 @@ class ParticleStartStraightnessProcessor(PostBase):
         if len(points) < self.n_components:
             return -1.0
         else:
-            components, explained_variance = self.pca.fit(points)
+            _, explained_variance = self.pca.fit(points)
             total_variance = np.sum(explained_variance)
             return explained_variance[0] / total_variance if total_variance > 0 else 0.0
 
@@ -273,8 +273,8 @@ class ParticleSpreadProcessor(PostBase):
 
         # Check that the start point mode is valid, store
         assert start_mode in self._start_modes, (
-            f"Spread start computation mode not recognized: {mode}. "
-            f"Should be one of {self._modes}"
+            f"Spread start computation mode not recognized: {start_mode}. "
+            f"Should be one of {self._start_modes}"
         )
         self.start_mode = start_mode
 
@@ -347,7 +347,7 @@ class ParticleSpreadProcessor(PostBase):
 
         # Compute the exponential-weighted directional spread
         directions = (points - ref_point) / dists.reshape(-1, 1)
-        weights = np.clip(np.exp(-dists / self.length_scale), min=1e-6)
+        weights = np.maximum(np.exp(-dists / self.length_scale), 1e-6)
         mean_direction = np.average(directions, weights=weights, axis=0)
         mean_direction /= np.linalg.norm(mean_direction)
         cosine = 1 - np.dot(directions, mean_direction)

@@ -5,7 +5,7 @@ import time
 import numpy as np
 import plotly.graph_objs as go
 
-from spine.utils.geo import Geometry
+from spine.geo import GeoManager
 from spine.vis.cylinder import cylinder_traces
 
 from .box import box_traces
@@ -25,21 +25,22 @@ class GeoDrawer:
     - CRT detectors
     """
 
-    def __init__(self, detector=None, file_path=None, detector_coords=True):
+    def __init__(self, geo=None, detector_coords=True):
         """Initializes the underlying detector :class:`Geometry` object.
 
         Parameters
         ----------
-        detector : str, optional
-            Name of a recognized detector to the geometry from
-        file_path : str, optional
-            Path to a `.yaml` geometry configuration
+        geo : Geometry, optional
+            If provided, this Geometry instance is used.
+            If None, the global GeoManager instance is used.
         detector_coords : bool, default False
             If False, the coordinates are converted to pixel indices
         """
-        # Initialize the detector geometry
-        self.detector = detector
-        self.geo = Geometry(detector, file_path)
+        # Fetch the geometry instance, if need be
+        if geo is None:
+            geo = GeoManager.get_instance()
+
+        self.geo = geo
 
         # Store whether to use detector cooordinates or not
         self.detector_coords = detector_coords
@@ -71,7 +72,8 @@ class GeoDrawer:
 
         # Initialize the layout
         layout = layout3d(
-            detector=self.detector,
+            geo=self.geo,
+            use_geo=True,
             meta=meta,
             detector_coords=self.detector_coords,
             show_optical=optical and self.geo.optical is not None,

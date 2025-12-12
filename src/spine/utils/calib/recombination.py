@@ -79,7 +79,7 @@ class RecombinationCalibrator:
             self.model = "mbox"
             self.alpha = mbox_alpha
             self.beta = mbox_beta / efield / LAR_DENSITY  # cm/MeV
-            self.r = None
+            self.r = 1.0
             if model == "mbox_ell":
                 self.use_angles = True
                 self.r = mbox_ell_r

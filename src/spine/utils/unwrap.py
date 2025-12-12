@@ -6,8 +6,8 @@ from dataclasses import dataclass
 import numpy as np
 
 from spine.data import EdgeIndexBatch, IndexBatch, ObjectList, TensorBatch
+from spine.geo import GeoManager
 
-from .geo import Geometry
 from .globals import BATCH_COL
 
 __all__ = ["Unwrapper"]
@@ -22,18 +22,18 @@ class Unwrapper:
     output down event-wise to be human-readable.
     """
 
-    def __init__(self, geometry=None, remove_batch_col=False):
+    def __init__(self, remove_batch_col=False):
         """Initialize the unwrapper.
 
         Parameters
         ----------
-        geometry : Geometry
-             Detector geometry (needed if the input was split in
-             different volumes)
         remove_batch_col : bool
              Remove column which specifies batch ID from the unwrapped tensors
         """
-        self.geo = geometry
+        # Fetch the geometry instance
+        self.geo = GeoManager.get_instance()
+
+        # Store parameters
         self.num_volumes = self.geo.tpc.num_modules if self.geo else 1
         self.remove_batch_col = remove_batch_col
         self.batch_size = None

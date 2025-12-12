@@ -16,7 +16,6 @@ This module contains reusable utility functions organized into several categorie
 **Mathematical & Scientific:**
 - `cluster`: CNN clustering algorithms and utilities
 - `gnn`: Graph Neural Network utilities (network operations, clustering, voxel processing)
-- `geo`: Geometry calculations and transformations
 - `particles`: Particle physics calculations and utilities
 - `pid`: Particle identification algorithms
 - `tracking`: Track reconstruction algorithms

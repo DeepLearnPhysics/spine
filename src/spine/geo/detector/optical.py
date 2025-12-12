@@ -46,12 +46,12 @@ class OpticalVolume(Box):
 
     def __init__(
         self,
-        centroid,
-        positions,
-        sizes,
-        shape,
-        shape_ids=None,
-        det_ids=None,
+        centroid: np.ndarray,
+        positions: np.ndarray,
+        sizes: np.ndarray,
+        shape: Union[str, List[str]],
+        shape_ids: Optional[np.ndarray] = None,
+        det_ids: Optional[np.ndarray] = None,
     ):
         """Initialize the optical volume.
 
@@ -76,9 +76,9 @@ class OpticalVolume(Box):
             - N_c is the number of optical channels (this number can be larger
         """
         # Store the optical volume properties
-        self.centroid = np.asarray(centroid)
-        self.positions = np.asarray(positions)
-        self.sizes = np.asarray(sizes)
+        self.centroid = centroid
+        self.positions = positions
+        self.sizes = sizes
         self.shape = shape
         if shape_ids is not None:
             self.shape_ids = np.asarray(shape_ids, dtype=int)
@@ -114,7 +114,7 @@ class OpticalVolume(Box):
         super().__init__(lower=lower, upper=upper)
 
     @property
-    def num_detectors(self):
+    def num_detectors(self) -> int:
         """Number of optical detectors.
 
         Returns
@@ -146,23 +146,23 @@ class OptDetector(Box):
 
     def __init__(
         self,
-        volume,
-        volume_offsets,
-        shape,
-        dimensions,
-        positions,
-        shape_ids=None,
-        det_ids=None,
-        global_index=False,
-        mirror=False,
+        volume: str,
+        volume_offsets: List[np.ndarray],
+        shape: Union[str, List[str]],
+        dimensions: Union[List[float], List[List[float]]],
+        positions: List[List[float]],
+        shape_ids: Optional[List[int]] = None,
+        det_ids: Optional[List[int]] = None,
+        global_index: bool = False,
+        mirror: bool = False,
     ):
         """Parse the optical detector configuration.
 
         Parameters
         ----------
         volume : str
-            Optical decteor segmentation (per 'tpc' or per 'module')
-        volume_offsets : np.ndarray
+            Optical detector segmentation (per 'tpc' or per 'module')
+        volume_offsets : List[np.ndarray]
             Offsets of the optical volumes w.r.t. to the origin
         shape : Union[str, List[str]]
             Optical detector geomtry (combination of 'ellipsoid', 'box' and/or 'disk')
@@ -208,21 +208,24 @@ class OptDetector(Box):
 
         if isinstance(shape, str):
             shape = [shape]
+
+        shape_ids_arr = None
         if shape_ids is not None:
-            shape_ids = np.asarray(shape_ids, dtype=int)
+            shape_ids_arr = np.asarray(shape_ids, dtype=int)
 
         # Parse the detector dimensions, store as a 2D array
-        sizes = np.asarray(dimensions).reshape(-1, 3)
-        assert len(sizes) == len(
+        sizes_arr = np.asarray(dimensions).reshape(-1, 3)
+        assert len(sizes_arr) == len(
             shape
         ), "Must provide optical detector sizes for each shape."
 
         # Store remaining optical detector parameter
+        det_ids_arr = None
         if det_ids is not None:
             assert len(set(det_ids)) == len(
                 positions
             ), "If det_ids are provided, must map to the correct number of detectors."
-            det_ids = np.asarray(det_ids, dtype=int)
+            det_ids_arr = np.asarray(det_ids, dtype=int)
 
         # Parse the relative optical detector posiitons
         rel_positions = np.asarray(positions)
@@ -231,24 +234,24 @@ class OptDetector(Box):
             rel_positions_m[:, -1] = -rel_positions_m[:, -1]
 
         # Create an list of optical volumes
-        offsets = np.asarray(volume_offsets)
+        offsets = volume_offsets
         self.volumes = []
         for v, offset in enumerate(offsets):
             # Extract positions for this volume
             if mirror and v % 2 != 0:
-                positions = rel_positions_m + offset
+                positions_arr = rel_positions_m + offset
             else:
-                positions = rel_positions + offset
+                positions_arr = rel_positions + offset
 
             # Insert volume
             self.volumes.append(
                 OpticalVolume(
                     centroid=offset,
-                    positions=positions,
-                    sizes=sizes,
+                    positions=positions_arr,
+                    sizes=sizes_arr,
                     shape=shape,
-                    shape_ids=shape_ids,
-                    det_ids=det_ids,
+                    shape_ids=shape_ids_arr,
+                    det_ids=det_ids_arr,
                 )
             )
 
@@ -262,7 +265,7 @@ class OptDetector(Box):
         super().__init__(lower=lower, upper=upper)
 
     @property
-    def num_volumes(self):
+    def num_volumes(self) -> int:
         """Returns the number of optical volumes.
 
         Returns
@@ -273,7 +276,7 @@ class OptDetector(Box):
         return len(self.volumes)
 
     @property
-    def num_detectors_per_volume(self):
+    def num_detectors_per_volume(self) -> int:
         """Returns the number of optical detectors in each optical volume.
 
         Returns
@@ -284,7 +287,7 @@ class OptDetector(Box):
         return self.volumes[0].num_detectors
 
     @property
-    def num_detectors(self):
+    def num_detectors(self) -> int:
         """Number of optical detectors.
 
         Returns
@@ -294,7 +297,7 @@ class OptDetector(Box):
         """
         return self.num_volumes * self.num_detectors_per_volume
 
-    def volume_index(self, volume_id):
+    def volume_index(self, volume_id: int) -> np.ndarray:
         """Returns an index which corresponds to detectors in a certain volume.
 
         Parameters
@@ -316,7 +319,7 @@ class OptDetector(Box):
         )
 
     @property
-    def positions(self):
+    def positions(self) -> np.ndarray:
         """Returns the positions of all optical detectors.
 
         Returns
@@ -333,7 +336,7 @@ class OptDetector(Box):
         return np.vstack(positions)
 
     @property
-    def sizes(self):
+    def sizes(self) -> np.ndarray:
         """Returns the sizes of all optical detectors.
 
         Returns
@@ -345,7 +348,7 @@ class OptDetector(Box):
         return self.volumes[0].sizes
 
     @property
-    def shape(self):
+    def shape(self) -> Union[str, List[str]]:
         """Returns the shape of all optical detectors.
 
         Returns
@@ -356,7 +359,7 @@ class OptDetector(Box):
         return self.volumes[0].shape
 
     @property
-    def shape_ids(self):
+    def shape_ids(self) -> Optional[np.ndarray]:
         """Returns the shape IDs of all optical detectors.
 
         Returns
@@ -378,7 +381,7 @@ class OptDetector(Box):
         return np.concatenate(shape_ids)
 
     @property
-    def det_ids(self):
+    def det_ids(self) -> Optional[np.ndarray]:
         """Returns the detector IDs of all optical detectors.
 
         Returns
@@ -395,6 +398,10 @@ class OptDetector(Box):
         det_ids = []
         n_detectors = self.num_detectors_per_volume
         for v, volume in enumerate(self.volumes):
+            assert volume.det_ids is not None, (
+                "If multiple optical volumes are present, each volume must "
+                "have its own det_ids mapping."
+            )
             det_ids.append(volume.det_ids + v * n_detectors)
 
         return np.concatenate(det_ids)

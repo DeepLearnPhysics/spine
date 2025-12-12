@@ -8,7 +8,10 @@ Contains the following parsers:
 - :class:`TriggerParser`
 """
 
+import numpy as np
+
 from spine.data import CRTHit, Flash, Meta, RunInfo, Trigger
+from spine.geo import GeoManager
 from spine.utils.conditional import larcv
 from spine.utils.optical import FlashMerger
 
@@ -96,10 +99,13 @@ class MetaParser(ParserBase):
             Metadata information for one image
         """
         # Check on the input, pick a source for the metadata
-        assert (sparse_event is not None) ^ (
-            cluster_event is not None
-        ), "Must specify either `sparse_event` or `cluster_event`."
+        if (sparse_event is None) == (cluster_event is None):
+            raise ValueError(
+                "Must specify exactly one of `sparse_event` or `cluster_event`."
+            )
+
         ref_event = sparse_event if sparse_event is not None else cluster_event
+        assert ref_event is not None  # For the type checker's benefitV
 
         # Fetch a specific projection, if needed
         if isinstance(
@@ -210,6 +216,15 @@ class FlashParser(ParserBase):
         if merge is not None:
             self.merger = FlashMerger(**merge)
 
+        # Fetch the geometry information to resize the flash objects
+        geo = GeoManager.get_instance()
+        if geo.optical is not None:
+            self.num_detectors_per_volume = geo.optical.num_detectors_per_volume
+        else:
+            raise ValueError(
+                "Optical geometry not found, required to resize the flash objects."
+            )
+
     def __call__(self, trees):
         """Parse one entry.
 
@@ -241,15 +256,15 @@ class FlashParser(ParserBase):
         ), "Must specify either `flash_event` or `flash_event_list`."
 
         # Parse flash objects
+        flashes = []
         if flash_event is not None:
             # If there is a single flash event, parse it as is
             flash_list = flash_event.as_vector()
             flashes = [Flash.from_larcv(larcv.Flash(f)) for f in flash_list]
 
-        else:
+        elif flash_event_list is not None:
             # Otherwise, set the volume ID of the flash to the source index
             # and count the flash index from 0 to the largest number
-            flashes = []
             idx = 0
             for volume_id, flash_event in enumerate(flash_event_list):
                 for f in flash_event.as_vector():
@@ -262,9 +277,26 @@ class FlashParser(ParserBase):
                     flashes.append(flash)
                     idx += 1
 
+        # Resize the flash objects to match the geometry
+        for flash in flashes:
+            pe_per_ch = np.zeros(
+                self.num_detectors_per_volume, dtype=flash.pe_per_ch.dtype
+            )
+            if len(flash.pe_per_ch) > len(pe_per_ch):
+                # If the flash spans > 1 optical volume, reshape
+                lower = flash.volume_id * len(pe_per_ch)
+                upper = (flash.volume_id + 1) * len(pe_per_ch)
+                pe_per_ch = flash.pe_per_ch[lower:upper]
+
+            else:
+                # Otherwise, just pad if it does not fill the full length
+                pe_per_ch[: len(flash.pe_per_ch)] = flash.pe_per_ch
+
+            flash.pe_per_ch = pe_per_ch
+
         # If requested, merge flashes which match in time
         if self.merger is not None:
-            flashes, _ = merger(flashes)
+            flashes, _ = self.merger(flashes)
 
         return ParserObjectList(flashes, Flash())
 

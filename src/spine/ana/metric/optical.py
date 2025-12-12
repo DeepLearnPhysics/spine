@@ -1,7 +1,5 @@
 """Analysis script used to evaluate the semantic segmentation accuracy."""
 
-import numpy as np
-
 from spine.ana.base import AnaBase
 from spine.data.out import RecoInteraction, TruthInteraction
 

@@ -5,7 +5,7 @@ from copy import deepcopy
 
 import numpy as np
 
-from spine.utils.geo import Geometry
+from spine.geo import GeoManager
 from spine.utils.stopwatch import StopwatchManager
 
 from .factories import calibrator_factory
@@ -16,7 +16,7 @@ class CalibrationManager:
     a set of 3D space points and their associated measured charge depositions.
     """
 
-    def __init__(self, geometry, gain_applied=False, **cfg):
+    def __init__(self, gain_applied=False, **cfg):
         """Initialize the manager.
 
         Parameters
@@ -28,8 +28,8 @@ class CalibrationManager:
         **cfg : dict, optional
             Calibrator configurations
         """
-        # Initialize the geometry model shared across all modules
-        self.geo = Geometry(**geometry)
+        # Fetch the geometry instance
+        self.geo = GeoManager.get_instance()
 
         # Make sure the essential calibration modules are present
         assert (
@@ -48,7 +48,7 @@ class CalibrationManager:
             if key != "recombination":
                 value["num_tpcs"] = self.geo.tpc.num_chambers
             else:
-                value["drift_dir"] = self.geo.tpc[0, 0].drift_dir
+                value["drift_dir"] = self.geo.tpc[0][0].drift_dir
 
             # Append
             self.modules[key] = calibrator_factory(key, value)

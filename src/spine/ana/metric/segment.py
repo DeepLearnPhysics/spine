@@ -1,7 +1,5 @@
 """Analysis script used to evaluate the semantic segmentation accuracy."""
 
-from warnings import warn
-
 import numpy as np
 from scipy.special import softmax
 
@@ -113,10 +111,12 @@ class SegmentAna(AnaBase):
             Dictionary of data products
         """
         # Fetch the list of labels and predictions for each pixel in the image
+        seg_scores = None
         if not self.use_fragments and not self.use_particles:
             # Get the label/predictions from the raw reconstruction output
             seg_label = data[self.label_key][:, SHAPE_COL].astype(np.int32)
             seg_pred = np.argmax(data["segmentation"], axis=1).astype(np.int32)
+            deghost_mask = None
             if self.ghost:
                 # If there are ghost, must combine the predictions
                 full_seg_pred = np.full_like(seg_label, GHOST_SHP, dtype=np.int32)
@@ -127,7 +127,7 @@ class SegmentAna(AnaBase):
             if not self.summary:
                 # If requested, fetch the individual class softmax scores
                 seg_scores = softmax(data["segmentation"], axis=1)
-                if self.ghost:
+                if deghost_mask is not None:
                     # If there are ghosts, interpret the non-ghost score
                     # as a shared score for all other classes.
                     full_seg_scores = np.zeros(
@@ -138,6 +138,7 @@ class SegmentAna(AnaBase):
                     full_seg_scores[:, -1] = ghost_scores[:, 1]
 
                     full_seg_scores[deghost_mask, :-1] = seg_scores
+                    seg_scores = full_seg_scores
 
         else:
             # Rebuild the labels/predictions from the fragment/particle objects
@@ -157,8 +158,11 @@ class SegmentAna(AnaBase):
         # Store the information
         if not self.summary:
             # Store one row per pixel in the image, including pixel scores
-            for i in range(len(seg_label)):
-                row_dict = {"label": seg_label[i], "pred": seg_pred[i]}
+            assert (
+                seg_scores is not None
+            ), "Segment scores not available for detailed storage."
+            for i, (seg_l, seg_p) in enumerate(zip(seg_label, seg_pred)):
+                row_dict = {"label": seg_l, "pred": seg_p}
                 for s in range(self.num_classes):
                     row_dict[f"score_{s}"] = seg_scores[i, s]
 

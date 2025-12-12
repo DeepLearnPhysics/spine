@@ -76,7 +76,7 @@ class TemplateAna(AnaBase):
             # Loop over all objects of that type
             for obj in data[key]:
                 # Do something with the object
-                disp = p.end_point - p.start_point
+                disp = obj.end_point - obj.start_point
 
                 # Make a dictionary of integer out of it
                 out = {"disp_x": disp[0], "disp_y": disp[1], "disp_z": disp[2]}

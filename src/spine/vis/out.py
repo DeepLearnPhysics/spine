@@ -3,6 +3,7 @@
 import numpy as np
 from plotly import graph_objs as go
 
+from spine.geo import GeoManager
 from spine.utils.globals import PID_LABELS, SHAPE_LABELS, TRACK_SHP
 
 from .arrow import scatter_arrows
@@ -53,7 +54,7 @@ class Drawer:
         draw_mode="both",
         truth_point_mode="points",
         split_scene=True,
-        detector=None,
+        geo=None,
         detector_coords=True,
         lite=False,
         **kwargs,
@@ -73,8 +74,8 @@ class Drawer:
         split_scene : bool, default True
             If True and when drawing both reconstructed and truth information,
             split the traces between two separate scenes
-        detector : str, optional
-            Name of the detector to be drawn
+        geo : Geometry, optional
+            Geometry object used to draw detector elements
         detector_coords : bool, default True
             Whether the object coordinates are expressed in detector coordinates
         lite : bool, default False
@@ -115,10 +116,9 @@ class Drawer:
         # If detector information is provided, initialize the geometry drawer
         self.geo, self.geo_drawer = None, None
         self.meta = data.get("meta", None)
-        if detector is not None:
-            self.geo_drawer = GeoDrawer(
-                detector=detector, detector_coords=detector_coords
-            )
+        if geo is not None or GeoManager.is_initialized():
+            self.geo = geo if geo is not None else GeoManager.get_instance()
+            self.geo_drawer = GeoDrawer(geo=self.geo, detector_coords=detector_coords)
             self.geo = self.geo_drawer.geo
 
         # Store whether to draw in lite mode
@@ -126,9 +126,8 @@ class Drawer:
 
         # Store the layout information
         self.split_scene = split_scene
-        self.detector = detector
         self.detector_coords = detector_coords
-        self.meta = self.meta if detector is None else None
+        self.meta = self.meta if self.geo is None else None
         self.layout_kwargs = kwargs
 
     @property
@@ -330,7 +329,8 @@ class Drawer:
 
         # Initialize the layout based on what needs to be shown
         layout = layout3d(
-            detector=self.detector,
+            geo=self.geo,
+            use_geo=self.geo is not None,
             meta=self.meta,
             detector_coords=self.detector_coords,
             show_optical=show_optical,
@@ -999,7 +999,7 @@ class Drawer:
             crthits = [crthits[idx] for idx in crt_ids]
 
         # Identify which of the CRT planes were hit (to know what to draw)
-        det_ids = [self.geo.crt.det_ids[hit.plane] for hit in crthits]
+        det_ids = [self.geo.crt.get_plane_id(hit.center, hit.plane) for hit in crthits]
         unique_det_ids = np.unique(det_ids)
 
         # Initialize the hovertext for the planes and hits

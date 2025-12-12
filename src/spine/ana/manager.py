@@ -94,6 +94,7 @@ class AnaManager:
             # Run the analysis script on each entry
             self.watch.start(key)
             if single_entry:
+                num_entries = 1
                 result = module(data)
 
             else:

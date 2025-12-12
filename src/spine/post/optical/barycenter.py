@@ -16,7 +16,7 @@ class BarycenterFlashMatcher:
     def __init__(
         self,
         match_method="threshold",
-        dimensions=[1, 2],
+        dimensions=(1, 2),
         charge_weighted=False,
         time_window=None,
         first_flash_only=False,
@@ -32,7 +32,7 @@ class BarycenterFlashMatcher:
             Matching method (one of 'threshold' or 'best')
             - 'threshold': If the two barycenters are within some distance, match
             - 'best': For each flash, pick the best matched interaction
-        dimensions: list, default [1, 2]
+        dimensions: Tuple[int], default (1, 2)
             Dimensions involved in the distance computation
         charge_weighted : bool, default False
             Use interaction pixel charge information to weight the centroid
@@ -89,12 +89,12 @@ class BarycenterFlashMatcher:
         # Skip if there are no valid flashes
         if self.time_window is not None:
             t1, t2 = self.time_window
-            flahses = [f for f in flashes if (f.time > t1 and f.time < t2)]
+            flashes = [f for f in flashes if (f.time > t1 and f.time < t2)]
 
         if self.min_flash_pe is not None:
             flashes = [f for f in flashes if f.total_pe > self.min_flash_pe]
 
-        if not len(flashes):
+        if len(flashes) == 0:
             return []
 
         # If requested, restrict the list of flashes to match to the first one
@@ -108,7 +108,7 @@ class BarycenterFlashMatcher:
                 inter for inter in interactions if inter.size > self.min_inter_size
             ]
 
-        if not len(interactions):
+        if len(interactions) == 0:
             return []
 
         # Get the flash centroids
@@ -116,7 +116,7 @@ class BarycenterFlashMatcher:
         op_widths = np.empty((len(flashes), len(self.dims)))
         for i, f in enumerate(flashes):
             op_centroids[i] = f.center[self.dims]
-            op_widhts[i] = f.width[self.dims]
+            op_widths[i] = f.width[self.dims]
 
         # Get interactions centroids
         int_centroids = np.empty((len(interactions), len(self.dims)))
@@ -142,7 +142,7 @@ class BarycenterFlashMatcher:
                 dist = dist_mat[i, best_match]
                 if self.match_distance is not None and dist > self.match_distance:
                     continue
-                match.append((interactions[best_match], f, dist))
+                matches.append((interactions[best_match], f, dist))
 
         elif self.match_method == "threshold":
             # Find all compatible pairs

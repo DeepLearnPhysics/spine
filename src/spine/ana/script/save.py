@@ -1,7 +1,5 @@
 """Analysis script used to store the reconstruction output to CSV files."""
 
-from warnings import warn
-
 from spine.ana.base import AnaBase
 from spine.data.out import (
     RecoFragment,
@@ -99,18 +97,18 @@ class SaveAna(AnaBase):
             # If there are multiple object types, down select to attributes
             # each declination of the object knows, as long as either one does
             self.attrs = {}
-            for obj_t in attrs.keys():
+            for obj_t, attrs_t in attrs.items():
                 # Create a list speicific to each object declination
-                leftover = set(attrs[obj_t]) if attrs[obj_t] is not None else None
+                leftover = set(attrs_t) if attrs_t is not None else None
                 for run_mode in ["reco", "truth"]:
                     key = f"{run_mode}_{obj_t}"
-                    if attrs[obj_t] is not None:
+                    if attrs_t is not None:
                         all_keys = self.default_objs[key].as_dict().keys()
-                        self.attrs[key] = set(attrs[obj_t]) & set(all_keys)
+                        self.attrs[key] = set(attrs_t) & set(all_keys)
                         leftover -= leftover & self.attrs[key]
 
                     else:
-                        self.attrs[key] = attrs[obj_t]
+                        self.attrs[key] = attrs_t
 
                 # Check that there are no leftover keys
                 assert leftover is None or len(leftover) == 0, (

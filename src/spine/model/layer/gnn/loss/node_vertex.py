@@ -1,13 +1,11 @@
 """Module that defines a vertex identification loss using node predictions."""
 
-from warnings import warn
-
 import numpy as np
 import torch
 
 from spine.data import Meta, TensorBatch
+from spine.geo import GeoManager
 from spine.model.layer.factories import loss_fn_factory
-from spine.utils.geo import Geometry
 from spine.utils.globals import PRINT_COL, VTX_COLS
 from spine.utils.gnn.cluster import get_cluster_label_batch
 
@@ -57,8 +55,6 @@ class NodeVertexLoss(torch.nn.Module):
         normalize_positions=False,
         use_anchor_points=False,
         return_vertex_labels=False,
-        detector=None,
-        geometry_file=None,
     ):
         """Initialize the vertex regression loss function.
 
@@ -78,10 +74,6 @@ class NodeVertexLoss(torch.nn.Module):
             Predict positions w.r.t. to the particle end points
         return_vertex_labels : bool, default `False`
             If `True`, return the list vertex labels (one per particle)
-        detector : str, optional
-            Name of a recognized detector to the geometry from
-        geometry_file : str, optional
-            Path to a `.yaml` geometry file to load the geometry from
         """
         # Initialize the parent class
         super().__init__()
@@ -103,8 +95,10 @@ class NodeVertexLoss(torch.nn.Module):
 
         # If containment is requested, intialize geometry
         if self.only_contained:
-            self.geo = Geometry(detector, geometry_file)
-            self.geo.define_containment_volumes(margin=0.0, mode="module")
+            self.geo = GeoManager.get_instance()
+            self.cont_def = self.geo.define_containment_volumes(
+                margin=0.0, mode="module"
+            )
 
     def forward(
         self,
@@ -195,7 +189,7 @@ class NodeVertexLoss(torch.nn.Module):
                 lower, upper = vertex_labels.edges[b], vertex_labels.edges[b + 1]
                 points = meta[b].to_cm(vertex_labels[b])
                 contain_mask[lower:upper] = self.geo.check_containment(
-                    points, summarize=False
+                    self.cont_def, points, summarize=False
                 )
 
             valid_mask &= contain_mask

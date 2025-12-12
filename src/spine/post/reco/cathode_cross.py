@@ -3,10 +3,10 @@
 import numpy as np
 from scipy.spatial.distance import cdist
 
-from spine.data import RecoInteraction, TruthInteraction
+from spine.data import RecoInteraction
+from spine.geo import GeoManager
 from spine.math.distance import farthest_pair
 from spine.post.base import PostBase
-from spine.utils.geo import Geometry
 from spine.utils.globals import TRACK_SHP
 from spine.utils.gnn.cluster import cluster_direction
 
@@ -42,8 +42,6 @@ class CathodeCrosserProcessor(PostBase):
         merge_crossers=True,
         adjust_crossers=True,
         adjust_method="distance",
-        detector=None,
-        geometry_file=None,
         run_mode="reco",
         truth_point_mode="points",
     ):
@@ -73,10 +71,6 @@ class CathodeCrosserProcessor(PostBase):
               xy and xz projection (in the least-squares sense)
             - 'dot': Make the dot-product of the two track directions match with
               the vector which joins the two end-points
-        detector : str, optional
-            Detector to get the geometry from
-        geometry_file : str, optional
-            Path to a `.yaml` geometry file to load the geometry from
         """
         # Initialize the parent class
         super().__init__(("particle", "interaction"), run_mode, truth_point_mode)
@@ -87,9 +81,6 @@ class CathodeCrosserProcessor(PostBase):
             f"{adjust_method}. It should be one of {self._adjust_methods}."
         )
 
-        # Initialize the geometry
-        self.geo = Geometry(detector, geometry_file)
-
         # Store the matching parameters
         self.crossing_point_tolerance = crossing_point_tolerance
         self.offset_tolerance = offset_tolerance
@@ -98,12 +89,15 @@ class CathodeCrosserProcessor(PostBase):
         self.adjust_crossers = adjust_crossers
         self.adjust_method = adjust_method
 
+        # Fetch the detector geometry instance
+        self.geo = GeoManager.get_instance()
+
         # Add the points to the list of keys to load
         keys = {}
         if run_mode != "truth":
             keys["points"] = True
         if run_mode != "reco":
-            keys[truth_point_key] = True
+            keys[self.truth_point_key] = True
         self.update_keys(keys)
 
     def process(self, data):
@@ -180,7 +174,7 @@ class CathodeCrosserProcessor(PostBase):
                 particles, interactions = self.find_matches(particles)
 
             # Find the cathode offsets for cathode crossers
-            for i, part in enumerate(particles):
+            for part in particles:
                 # Only bother to compute offsets for cathode crossers
                 if not part.is_cathode_crosser:
                     continue
@@ -255,11 +249,6 @@ class CathodeCrosserProcessor(PostBase):
             cpos = self.geo.tpc[modules_i[0]].cathode_pos
             daxis = self.geo.tpc[modules_i[0]].drift_axis
             caxes = np.array([i for i in range(3) if i != daxis])
-
-            # Store the distance of the particle to the cathode
-            tpc_offset = self.geo.get_min_volume_offset(
-                end_points_i, modules_i[0], tpcs_i[0]
-            )[daxis]
 
             # Loop over other tracks
             j = i + 1
@@ -435,8 +424,8 @@ class CathodeCrosserProcessor(PostBase):
 
             # Check which side of the cathode each TPC lives
             flip = (-1) ** (
-                self.geo.tpc[module, tpcs[0]].boundaries[daxis].mean()
-                > self.geo.tpc[module, tpcs[1]].boundaries[daxis].mean()
+                self.geo.tpc[module][tpcs[0]].boundaries[daxis].mean()
+                > self.geo.tpc[module][tpcs[1]].boundaries[daxis].mean()
             )
             global_offset *= flip
 
@@ -561,18 +550,20 @@ class CathodeCrosserProcessor(PostBase):
         sisters = [p for p in particles if p.interaction_id == inter_id]
 
         # Get the drift axis
-        m = modules[0]
-        daxis = self.geo.tpc[m].drift_axis
+        mod = modules[0]
+        daxis = self.geo.tpc[mod].drift_axis
 
         # Loop over contributing TPCs, shift the points in each independently
-        for i, t in enumerate(tpcs):
+        for tpc in tpcs:
             # Move each of the sister particles by the same amount
-            offset_t = self.geo.tpc[m][t].drift_sign * offset
+            offset_t = self.geo.tpc[mod][tpc].drift_sign * offset
             for sister in sisters:
                 # Find the index corresponding to the sister particle
-                tpc_index = self.geo.get_volume_index(self.get_sources(sister), m, t)
+                tpc_index = self.geo.get_volume_index(
+                    self.get_sources(sister), mod, tpc
+                )
                 index = self.get_index(sister)[tpc_index]
-                if not len(index):
+                if len(index) == 0:
                     continue
 
                 # Update the sister position and the main position tensor
@@ -582,7 +573,7 @@ class CathodeCrosserProcessor(PostBase):
                 # Update the start/end points appropriately
                 if sister.id == idx:
                     for attr, closest_tpc in closest_tpcs.items():
-                        if closest_tpc == t:
+                        if closest_tpc == tpc:
                             getattr(sister, attr)[daxis] += offset_t
 
                 else:

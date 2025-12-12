@@ -2,8 +2,8 @@
 
 import numpy as np
 
+from spine.geo import GeoManager
 from spine.math.distance import cdist
-from spine.utils.geo import Geometry
 from spine.utils.globals import TRACK_SHP
 
 
@@ -20,8 +20,6 @@ class CRTMatcher:
         driftv,
         match_method="threshold",
         tolerance=5,
-        detector=None,
-        geometry_file=None,
         time_window=None,
         min_part_size=None,
         min_crt_pe=None,
@@ -41,10 +39,6 @@ class CRTMatcher:
         tolerance : float, default 5
             Distance along x in cm that a track is allowed to float around the
             expected position given a CRT hit time
-        detector : str, optional
-            Detector to get the geometry from
-        geometry_file : str, optional
-            Path to a `.yaml` geometry file to load the geometry from
         time_window : List, optional
             List of [min, max] values of optical flash times to consider
         first_flash_only : bool, default False
@@ -68,9 +62,10 @@ class CRTMatcher:
                 "When using the `threshold` method, must specify the "
                 "`match_distance` parameter."
             )
+            self.match_distance = float(match_distance)
 
-        # Initialize the geometry
-        self.geo = Geometry(detector, geometry_file)
+        # Store the geometry manager and drift velocity
+        self.geo = GeoManager.get_instance()
         self.driftv = driftv
 
         # Store the flash matching parameters
@@ -79,7 +74,6 @@ class CRTMatcher:
         self.time_window = time_window
         self.min_part_size = min_part_size
         self.min_crt_pe = min_crt_pe
-        self.match_distance = match_distance
 
     def get_matches(self, particles, crthits):
         """Makes [particle, crthit] pairs that are compatible.
@@ -96,9 +90,14 @@ class CRTMatcher:
         List[[Interaction, larcv.Flash, float]]
             List of [particle, flash, distance] triplets
         """
+        # Check on the geometry
+        assert (
+            self.geo.crt is not None
+        ), "Cannot find CRT-TPC matches without `crt` geometry."
+
         # Restrict the CRT hits and particles based on the configuration
         particles, crthits = self.restrict_objects(particles, crthits)
-        if not len(crthits) or not len(particles):
+        if len(crthits) == 0 or len(particles) == 0:
             return []
 
         # For each track, determine how much it is allowed to move along the drift axis
@@ -117,7 +116,7 @@ class CRTMatcher:
                 # If the particle is made up of a single TPC, it can be
                 # placed anywhere within the boundaries of that TPC.
                 # Fetch the TPC boundaries along the drift axis
-                chamber = self.geo.tpc[modules[0], tpcs[0]]
+                chamber = self.geo.tpc[modules[0]][tpcs[0]]
                 dsign, daxis = chamber.drift_sign, chamber.drift_axis
                 apos, cpos = chamber.anode_pos, chamber.cathode_pos
                 llim, ulim = (cpos, apos) if dsign > 0 else (apos, cpos)
@@ -138,9 +137,9 @@ class CRTMatcher:
         # Find matches, start by looping over CRT hits
         matches = []
         for hit in crthits:
-            # Fetch the normal to the CRT plane
-            crt_id = self.geo.crt.det_ids[hit.plane]
-            normal = self.geo.crt[crt_id].normal
+            # Fetch the normal to the CRT plane (self.geo.crt guaranteed non-None by __init__ assert)
+            crt_plane = self.geo.crt.get_plane(hit.position, hit.plane)
+            normal = crt_plane.normal
 
             # Downselect to particles which can match the time of the hit
             offset = hit.time * self.driftv
@@ -164,7 +163,7 @@ class CRTMatcher:
                 modules, tpcs = self.geo.get_contributors(
                     part.sources[closest_id][None, :]
                 )
-                chamber = self.geo.tpc[modules[0], tpcs[0]]
+                chamber = self.geo.tpc[modules[0]][tpcs[0]]
                 dsign, daxis = chamber.drift_sign, chamber.drift_axis
                 point[daxis] += dsign * offset
 

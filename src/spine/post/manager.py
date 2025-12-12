@@ -2,7 +2,6 @@
 
 from collections import OrderedDict, defaultdict
 from copy import deepcopy
-from warnings import warn
 
 import numpy as np
 
@@ -73,6 +72,7 @@ class PostManager:
             # Run the post-processor on each entry
             self.watch.start(key)
             if single_entry:
+                num_entries = 1
                 result = module(data)
 
             else:

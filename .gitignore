@@ -16,11 +16,6 @@ weights*
 __pycache__/
 *.py[cod]
 *$py.class
-config
-analysis/config
-mlreco/models/cluster_cnn/deprecated
-# C extensions
-*.so
 
 # Distribution / packaging
 .Python

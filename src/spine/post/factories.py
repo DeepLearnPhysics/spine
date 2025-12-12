@@ -19,6 +19,8 @@ def post_processor_factory(name, cfg, parent_path=None):
         Name of the post-processor module
     cfg : dict
         Post-processor module configuration
+    parent_path : str, optional
+        Path to the post-processor configuration file
 
     Returns
     -------
@@ -28,8 +30,8 @@ def post_processor_factory(name, cfg, parent_path=None):
     # Provide the name to the configuration
     cfg["name"] = name
 
-    # Instantiate the post-processor module
-    if name in POST_DICT and POST_DICT[name].need_parent_path:
+    # Instantiate the post-processor
+    if POST_DICT[name].need_parent_path:
         return instantiate(POST_DICT, cfg, parent_path=parent_path)
     else:
         return instantiate(POST_DICT, cfg)

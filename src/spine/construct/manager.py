@@ -5,7 +5,6 @@ from collections import OrderedDict, defaultdict
 import numpy as np
 
 from spine.utils.globals import COORD_COLS, VALUE_COL
-from spine.utils.logger import logger
 
 from .fragment import FragmentBuilder
 from .interaction import InteractionBuilder

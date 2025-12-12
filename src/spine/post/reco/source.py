@@ -6,8 +6,8 @@ they are not explicitely provided.
 
 import numpy as np
 
+from spine.geo import GeoManager
 from spine.post.base import PostBase
-from spine.utils.geo import Geometry
 
 __all__ = ["SourceAssigner"]
 
@@ -25,26 +25,15 @@ class SourceAssigner(PostBase):
 
     def __init__(
         self,
-        detector=None,
-        file_path=None,
         run_mode="reco",
         truth_point_mode="points",
-        **kwargs,
     ):
-        """Initialize the source assigner
-
-        Parameters
-        ----------
-        detector : str, optional
-            Name of a recognized detector to the geometry from
-        file_path : str, optional
-            Path to a `.yaml` geometry configuration
-        """
+        """Initialize the source assigner"""
         # Initialize the parent class, store run mode
         super().__init__(run_mode=run_mode, truth_point_mode=truth_point_mode)
 
         # Initialize the geometry
-        self.geo = Geometry(detector, file_path)
+        self.geo = GeoManager.get_instance()
 
         # Make sure the necessary attributes are loaded
         self.run_mode = run_mode
@@ -71,16 +60,16 @@ class SourceAssigner(PostBase):
 
         # Assign sources to reconstructed points, if needed
         if self.run_mode != "truth":
-            result["sources"] = self.get_sources(data["points"])
+            result["sources"] = self.get_closest(data["points"])
 
         # Assign sources to truth points, if needed
         if self.run_mode != "reco":
-            result[self.truth_source_key] = self.get_sources(data[self.truth_point_key])
+            result[self.truth_source_key] = self.get_closest(data[self.truth_point_key])
 
         return result
 
-    def get_sources(self, points):
-        """Assign sources to one set of points.
+    def get_closest(self, points):
+        """Assign sources to one set of points based on proximity.
 
         Parameters
         ----------

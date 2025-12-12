@@ -89,25 +89,19 @@ class VertexProcessor(PostBase):
             Reconstructed/truth interaction object
         """
         # Selected the set of particles to use as a basis for vertex prediction
-        if self.use_primaries:
-            particles = [
-                part
-                for part in inter.particles
-                if (
-                    part.is_primary
-                    and part.shape in self.include_shapes
-                    and part.size > 0
-                )
-            ]
-        if not self.use_primaries or not len(particles):
-            particles = [
-                part
-                for part in inter.particles
-                if (part.shape in self.include_shapes and part.size > 0)
-            ]
-        if not len(particles):
+        particles = [
+            part
+            for part in inter.particles
+            if part.size > 0 and part.shape in self.include_shapes
+        ]
+
+        if self.use_primaries and any(part.is_primary for part in particles):
+            part = [part for part in particles if part.is_primary]
+
+        if len(particles) == 0:
             particles = [part for part in inter.particles if part.size > 0]
 
+        # Update the vertex if we have at least one particle to work with
         if len(particles) > 0:
             # Collapse particle objects to start, end points and directions
             start_points = np.vstack([part.start_point for part in particles])

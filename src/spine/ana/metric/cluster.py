@@ -1,9 +1,6 @@
 """Analysis script used to evaluate the clustering accuracy."""
 
-from warnings import warn
-
 import numpy as np
-from scipy.special import softmax
 
 import spine.utils.metrics
 from spine.ana.base import AnaBase

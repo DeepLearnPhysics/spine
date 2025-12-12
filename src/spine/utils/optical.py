@@ -4,8 +4,6 @@ from copy import deepcopy
 
 import numpy as np
 
-from .geo import Geometry
-
 __all__ = ["FlashMerger"]
 
 

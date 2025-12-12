@@ -156,7 +156,7 @@ class MCSCalibAna(AnaBase):
                     base = {"ke": part.ke}
                     if part.is_truth:
                         base["time"] = part.t
-                    for i in range(len(angles)):
+                    for i, angle in enumerate(angles):
                         dir_dict = {
                             f"dir_{a}": dirs[i, j] for j, a in enumerate(self._axes)
                         }
@@ -169,7 +169,7 @@ class MCSCalibAna(AnaBase):
                             **base,
                             **dir_dict,
                             **proj_dict,
-                            angle=angles[i],
+                            angle=angle,
                             min_count=min_counts[i],
                             distance=distances[i],
                         )

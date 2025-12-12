@@ -86,6 +86,11 @@ class ShowerConversionDistanceProcessor(PostBase):
                     dist = self.get_vertex_to_points(inter, part)
                 elif self.mode == "protons_to_start":
                     dist = self.get_protons_to_points(inter, part)
+                else:
+                    raise ValueError(
+                        f"Conversion distance computation mode not recognized: "
+                        f"{self.mode}"
+                    )
 
                 part.vertex_distance = dist
 
@@ -187,7 +192,6 @@ class ShowerStartMergeProcessor(PostBase):
         distance_threshold=1.0,
         track_length_limit=50,
         track_dedx_limit=None,
-        **kwargs,
     ):
         """Store the shower start merging parameters.
 

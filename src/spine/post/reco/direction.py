@@ -70,7 +70,7 @@ class DirectionProcessor(PostBase):
             for obj in data[k]:
                 # Get index
                 index = self.get_index(obj)
-                if not len(index):
+                if len(index) == 0:
                     continue
 
                 # Store index, start point and the relevant mapping

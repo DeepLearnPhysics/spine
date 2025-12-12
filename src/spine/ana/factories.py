@@ -1,4 +1,4 @@
-"""Construct a analysis script module class from its name."""
+"""Construct an analysis script module class from its name."""
 
 from spine.utils.factory import instantiate, module_dict
 

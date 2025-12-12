@@ -9,7 +9,7 @@ from plotly import colors
 from plotly import graph_objs as go
 from plotly.subplots import make_subplots
 
-from spine.utils.geo import Geometry
+from spine.geo import GeoManager
 
 # Colorscale definitions
 PLOTLY_COLORS = colors.qualitative.Plotly
@@ -27,7 +27,8 @@ __all__ = ["layout3d", "dual_figure3d"]
 def layout3d(
     ranges=None,
     meta=None,
-    detector=None,
+    geo=None,
+    use_geo=False,
     show_optical=False,
     show_crt=False,
     detector_padding=0.1,
@@ -61,8 +62,10 @@ def layout3d(
         the region based on a set of points that is not same as what's plotted.
     meta : Meta, optional
         Metadata information used to infer the full image range
-    detector : str, optional
-        Name of a recognized detector to get the geometry from
+    geo : Geometry, optional
+        Geometry object used to define the detector boundaries
+    use_geo : bool, default False
+        If True, use the detector geometry to define the drawing range
     show_optical : bool, default False
         If True, the drawing range is extended to include the optical detectors
     show_crt : bool, default False
@@ -117,12 +120,13 @@ def layout3d(
         # Check that the range is sensible
         assert np.all(ranges[:, 1] >= ranges[:, 0])
 
-    if detector is not None:
+    if use_geo or geo is not None:
         # If detector geometry is provided, make the full detector the range
         assert (
             ranges is None or None in ranges
-        ), "Should not specify `detector` along with `ranges`."
-        geo = Geometry(detector)
+        ), "Should not pass geo or ask to `use_geo=True` along with `ranges`."
+        if geo is None:
+            geo = GeoManager.get_instance()
         ranges = geo.get_boundaries(with_optical=show_optical, with_crt=show_crt)
         lengths = ranges[:, 1] - ranges[:, 0]
 
