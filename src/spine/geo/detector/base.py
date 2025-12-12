@@ -5,7 +5,7 @@ This currently handles:
 """
 
 from dataclasses import dataclass
-from typing import Union
+from typing import List, Union
 
 import numpy as np
 
@@ -146,7 +146,7 @@ class Box:
         return float(np.prod(self.dimensions))
 
     @property
-    def faces(self) -> list[Plane]:
+    def faces(self) -> List[Plane]:
         """Returns the 6 faces of the box as Plane objects.
 
         Returns
