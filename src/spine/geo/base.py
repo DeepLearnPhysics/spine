@@ -697,7 +697,7 @@ class Geometry(Box):
         """
         # Translate the margin parameter to a (3,2) matrix
         margin = np.array(margin)
-        if np.isscalar(margin):
+        if len(margin.shape) == 0:
             margin = np.full((3, 2), margin)
         elif len(margin.shape) == 1:
             assert len(margin) == 3, "Must provide one value per axis."
