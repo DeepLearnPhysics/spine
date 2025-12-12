@@ -1,6 +1,5 @@
 """Construct a geometry module class from its name."""
 
-from importlib.resources import files
 from pathlib import Path
 from typing import Dict, Optional, Union
 
@@ -8,7 +7,8 @@ import yaml
 
 from .base import Geometry
 
-GEO_CONFIG_DIR = Path(str(files(__package__).joinpath("config")))
+# Get config directory relative to this module
+GEO_CONFIG_DIR = Path(__file__).parent / "config"
 
 __all__ = ["geo_factory"]
 
@@ -23,7 +23,7 @@ def geo_dict() -> Dict[Path, Dict[str, str]]:
     """
     # Gather all geometry yaml files from the config directory
     options = {}
-    for path in GEO_CONFIG_DIR.rglob("*geometry.yaml"):
+    for path in GEO_CONFIG_DIR.glob("*/*_geometry.yaml"):
         with open(path, "r", encoding="utf-8") as f:
             cfg = yaml.safe_load(f)
 
