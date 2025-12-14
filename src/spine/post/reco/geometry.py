@@ -93,7 +93,7 @@ class ContainmentProcessor(PostBase):
             self.margin = margin
 
         # If G4 truth points are used for truth containment, use dedicated check
-        self.truth_geo = None
+        self.truth_cont_def = None
         if "g4" in self.truth_point_mode and mode != "meta":
             truth_mode = "module" if mode != "detector" else mode
             self.geo = GeoManager.get_instance()
@@ -150,7 +150,7 @@ class ContainmentProcessor(PostBase):
                     ).all() and (points < (data["meta"].upper - self.margin)).all()
 
                 else:
-                    if not obj.is_truth or self.truth_geo is None:
+                    if not obj.is_truth or self.truth_cont_def is None:
                         sources = self.get_sources(obj)
                         setattr(
                             obj,
