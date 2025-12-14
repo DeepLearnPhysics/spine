@@ -96,7 +96,7 @@ class VertexProcessor(PostBase):
         ]
 
         if self.use_primaries and any(part.is_primary for part in particles):
-            part = [part for part in particles if part.is_primary]
+            particles = [part for part in particles if part.is_primary]
 
         if len(particles) == 0:
             particles = [part for part in inter.particles if part.size > 0]
