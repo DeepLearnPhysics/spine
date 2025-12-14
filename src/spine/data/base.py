@@ -107,17 +107,23 @@ class DataBase:
             return False
 
         # Check that all base attributes are identical
-        for k, v in self.__dict__.items():
-            if np.isscalar(v):
+        for key, value in self.__dict__.items():
+            value_other = getattr(other, key)
+            if np.isscalar(value):
                 # For scalars, regular comparison will do
-                if getattr(other, k) != v:
+                if value_other != value:
                     return False
 
             else:
                 # For vectors, compare all elements
-                v_other = getattr(other, k)
-                if v.shape != v_other.shape or (v_other != v).any():
-                    return False
+                if isinstance(value, np.ndarray):
+                    if value.shape != value_other.shape or (value_other != value).any():
+                        return False
+                else:
+                    if len(value) != len(value_other) or any(
+                        v1 != v2 for v1, v2 in zip(value, value_other)
+                    ):
+                        return False
 
         return True
 
@@ -178,7 +184,9 @@ class DataBase:
         else:
             skip_attrs = (*self._skip_attrs, *self._lite_skip_attrs)
 
-        return {k: v for k, v in asdict(self).items() if not k in skip_attrs}
+        return {
+            key: value for key, value in asdict(self).items() if not key in skip_attrs
+        }
 
     def scalar_dict(self, attrs=None, lengths=None, lite=False):
         """Returns the data class attributes as a dictionary of scalars.
@@ -286,7 +294,7 @@ class DataBase:
         Dict[int, Dict[int, str]]
             Dictionary which maps names onto enumerator descriptors
         """
-        return {k: dict(v) for k, v in self._enum_attrs}
+        return {key: dict(value) for key, value in self._enum_attrs}
 
     @property
     def index_attrs(self):
