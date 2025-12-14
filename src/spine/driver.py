@@ -92,13 +92,13 @@ class Driver:
         # Initialize the base driver configuration parameters
         train = self.initialize_base(**base, rank=rank)
 
-        # Initialize the input/output
-        self.initialize_io(**io)
-
         # Initialize the detector geometry singleton once and for all modules
         if geo is not None:
             GeoManager.reset()
             GeoManager.initialize(**geo)
+
+        # Initialize the input/output
+        self.initialize_io(**io)
 
         # Initialize the ML model
         self.model = None
