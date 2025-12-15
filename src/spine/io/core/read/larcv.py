@@ -1,5 +1,7 @@
 """Contains a reader class dedicated to loading data from LArCV files."""
 
+from typing import Any, Dict, List, Optional
+
 import numpy as np
 
 from spine.utils.conditional import ROOT
@@ -33,19 +35,19 @@ class LArCVReader(ReaderBase):
 
     def __init__(
         self,
-        file_keys,
-        tree_keys,
-        limit_num_files=None,
-        max_print_files=10,
-        n_entry=None,
-        n_skip=None,
-        entry_list=None,
-        skip_entry_list=None,
-        run_event_list=None,
-        skip_run_event_list=None,
-        create_run_map=False,
-        run_info_key=None,
-        allow_missing=False,
+        file_keys: List[str],
+        tree_keys: List[str],
+        limit_num_files: Optional[int] = None,
+        max_print_files: int = 10,
+        n_entry: Optional[int] = None,
+        n_skip: Optional[int] = None,
+        entry_list: Optional[List[int]] = None,
+        skip_entry_list: Optional[List[int]] = None,
+        run_event_list: Optional[List[List[int]]] = None,
+        skip_run_event_list: Optional[List[List[int]]] = None,
+        create_run_map: bool = False,
+        run_info_key: Optional[str] = None,
+        allow_missing: bool = False,
     ):
         """Initialize the LArCV file reader.
 
@@ -55,26 +57,26 @@ class LArCVReader(ReaderBase):
             List of paths to the HDF5 files to be read
         tree_keys : List[str]
             List of data keys to load from the LArCV files
-        limit_num_files : int, optional
+        limit_num_files : Optional[int], optional
             Integer limiting number of files to be taken per data directory
         max_print_files : int, default 10
             Maximum number of loaded file names to be printed
-        n_entry : int, optional
+        n_entry : Optional[int], optional
             Maximum number of entries to load
-        n_skip : int, optional
+        n_skip : Optional[int], optional
             Number of entries to skip at the beginning
-        entry_list : list
+        entry_list : Optional[List[int]]
             List of integer entry IDs to add to the index
-        skip_entry_list : list
+        skip_entry_list : Optional[List[int]]
             List of integer entry IDs to skip from the index
-        run_event_list: list((int, int, int)), optional
+        run_event_list: Optional[List[List[int]]], optional
             List of (run, subrun, event) triplets to add to the index
-        skip_run_event_list: list((int, int, int)), optional
+        skip_run_event_list: Optional[List[List[int]]], optional
             List of (run, subrun, event) triplets to skip from the index
         create_run_map : bool, default False
             Initialize a map between (run, subrun, event) triplets and entries.
             For large files, this can be quite expensive (must load every entry).
-        run_info_key : str, optional
+        run_info_key : Optional[str], optional
             Key of the tree in the file to get the run information from
         allow_missing : bool, default False
             If `True`, allows missing entries in the entry or event list
@@ -134,11 +136,11 @@ class LArCVReader(ReaderBase):
                 chain.AddFile(f)
 
             # Loop over entries
-            self.run_info = np.empty((self.num_entries, 3), dtype=int)
+            self.run_info = []
             for i in range(self.num_entries):
                 chain.GetEntry(i)
                 info = getattr(chain, f"{run_info_key}_branch")
-                self.run_info[i] = [info.run(), info.subrun(), info.event()]
+                self.run_info.append((info.run(), info.subrun(), info.event()))
 
         # Process the run information
         self.process_run_info()
@@ -154,7 +156,7 @@ class LArCVReader(ReaderBase):
             allow_missing,
         )
 
-    def get(self, idx):
+    def get(self, idx: int) -> Dict[str, Any]:
         """Returns a specific entry in the file.
 
         Parameters
@@ -192,7 +194,7 @@ class LArCVReader(ReaderBase):
         return data
 
     @staticmethod
-    def list_data(file_path):
+    def list_data(file_path: str) -> Dict[str, List[str]]:
         """Dumps top-level information about the contents of a LArCV root file.
 
         Parameters

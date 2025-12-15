@@ -1,10 +1,13 @@
 """Contains a reader class dedicated to loading data from HDF5 files."""
 
 from dataclasses import fields
+from typing import Any, Dict, List, Optional
+from warnings import warn
 
 import h5py
 import numpy as np
 import yaml
+from yaml.parser import ParserError
 
 import spine.data
 from spine.utils.docstring import inherit_docstring
@@ -31,42 +34,42 @@ class HDF5Reader(ReaderBase):
 
     def __init__(
         self,
-        file_keys,
-        limit_num_files=None,
-        max_print_files=10,
-        n_entry=None,
-        n_skip=None,
-        entry_list=None,
-        skip_entry_list=None,
-        run_event_list=None,
-        skip_run_event_list=None,
-        create_run_map=False,
-        build_classes=True,
-        skip_unknown_attrs=False,
-        run_info_key="run_info",
-        allow_missing=False,
-    ):
+        file_keys: List[str],
+        limit_num_files: Optional[int] = None,
+        max_print_files: int = 10,
+        n_entry: Optional[int] = None,
+        n_skip: Optional[int] = None,
+        entry_list: Optional[List[int]] = None,
+        skip_entry_list: Optional[List[int]] = None,
+        run_event_list: Optional[List[List[int]]] = None,
+        skip_run_event_list: Optional[List[List[int]]] = None,
+        create_run_map: bool = False,
+        build_classes: bool = True,
+        skip_unknown_attrs: bool = False,
+        run_info_key: str = "run_info",
+        allow_missing: bool = False,
+    ) -> None:
         """Initalize the HDF5 file reader.
 
         Parameters
         ----------
-        file_keys : list
+        file_keys : List[str]
             List of paths to the HDF5 files to be read
-        limit_num_files : int, optional
+        limit_num_files : Optional[int], optional
             Integer limiting number of files to be taken per data directory
         max_print_files : int, default 10
             Maximum number of loaded file names to be printed
-        n_entry : int, optional
+        n_entry : Optional[int], optional
             Maximum number of entries to load
-        n_skip : int, optional
+        n_skip : Optional[int], optional
             Number of entries to skip at the beginning
-        entry_list : list
+        entry_list : Optional[List[int]]
             List of integer entry IDs to add to the index
-        skip_entry_list : list
+        skip_entry_list : Optional[List[int]]
             List of integer entry IDs to skip from the index
-        run_event_list: list((int, int, int)), optional
+        run_event_list: Optional[List[List[int]]], optional
             List of (run, subrun, event) triplets to add to the index
-        skip_run_event_list: list((int, int, int)), optional
+        skip_run_event_list: Optional[List[List[int]]], optional
             List of (run, subrun, event) triplets to skip from the index
         create_run_map : bool, default False
             Initialize a map between (run, subrun, event) triplets and entries.
@@ -90,39 +93,48 @@ class HDF5Reader(ReaderBase):
             create_run_map = True
 
         # Loop over the input files, build a map from index to file ID
+        file_index, run_info = [], []
         self.num_entries = 0
-        self.file_index = []
         self.file_offsets = np.empty(len(self.file_paths), dtype=np.int64)
-        self.run_info = None if not create_run_map else []
         for i, path in enumerate(self.file_paths):
             with h5py.File(path, "r") as in_file:
                 # Check that there are events in the file
                 assert "events" in in_file, "File does not contain an event tree"
+
+                events = in_file["events"]
+                assert isinstance(
+                    events, h5py.Dataset
+                ), "'events' is not a dataset in the HDF5 file."
 
                 # If requested, register the (run, subrun, event) information
                 if create_run_map:
                     assert (
                         run_info_key in in_file
                     ), f"Must provide {run_info_key} to create run map"
+
                     info = in_file[run_info_key]
+                    assert isinstance(
+                        info, h5py.Dataset
+                    ), f"{run_info_key} is not a dataset in the HDF5 file."
+                    assert all(
+                        k in info.dtype.names for k in ["run", "subrun", "event"]
+                    ), f"{run_info_key} dataset missing required fields."
+
                     for r, s, e in zip(info["run"], info["subrun"], info["event"]):
-                        self.run_info.append((r, s, e))
+                        run_info.append((r, s, e))
 
                 # Update the total number of entries
-                num_entries = len(in_file["events"])
-                self.file_index.append(i * np.ones(num_entries, dtype=np.int64))
+                num_entries = len(events)
+                file_index.append(i * np.ones(num_entries, dtype=np.int64))
                 self.file_offsets[i] = self.num_entries
                 self.num_entries += num_entries
 
         # Dump the number of entries to load
         logger.info("Total number of entries in the file(s): %d\n", self.num_entries)
 
-        # Concatenate the file indexes into one
-        self.file_index = np.concatenate(self.file_index)
-
-        # Turn file index and run info into np.ndarray
-        if self.run_info is not None:
-            self.run_info = np.vstack(self.run_info)
+        # Concatenate the file indexes into one, set run info if needed
+        self.file_index = np.concatenate(file_index)
+        self.run_info = run_info if create_run_map else None
 
         # Process the run information
         self.process_run_info()
@@ -148,7 +160,7 @@ class HDF5Reader(ReaderBase):
         # Process the SPINE version used to produced the HDF5 file
         self.version = self.process_version()
 
-    def process_cfg(self):
+    def process_cfg(self) -> Optional[dict]:
         """Fetches the SPINE configuration used to produce the HDF5 file.
 
         Returns
@@ -158,17 +170,25 @@ class HDF5Reader(ReaderBase):
         """
         # Fetch the string-form configuration
         with h5py.File(self.file_paths[0], "r") as in_file:
+            assert "info" in in_file, "HDF5 file missing 'info' group."
+            assert (
+                "cfg" in in_file["info"].attrs
+            ), "HDF5 file 'info' group missing 'cfg' attribute."
             cfg_str = in_file["info"].attrs["cfg"]
 
         # Attempt to parse it (need try for now for SPINE versions < v0.4.0)
         try:
+            assert isinstance(cfg_str, str), "'cfg' attribute is not a string."
             cfg = yaml.safe_load(cfg_str)
-        except:
+        except ParserError:
+            warn(
+                "Parsing configuration failed, returning None for SPINE versions < v0.4.0"
+            )
             return None
 
         return cfg
 
-    def process_version(self):
+    def process_version(self) -> str:
         """Returns the SPINE release version used to produce the HDF5 file.
 
         Returns
@@ -178,11 +198,16 @@ class HDF5Reader(ReaderBase):
         """
         # Fetch the string-form configuration
         with h5py.File(self.file_paths[0], "r") as in_file:
+            assert "info" in in_file, "HDF5 file missing 'info' group."
+            assert (
+                "version" in in_file["info"].attrs
+            ), "HDF5 file 'info' group missing 'version' attribute."
             version = in_file["info"].attrs["version"]
 
+        assert isinstance(version, str), "'version' attribute is not a string."
         return version
 
-    def get(self, idx):
+    def get(self, idx: int) -> Dict[str, Any]:
         """Returns a specific entry in the file.
 
         Parameters
@@ -203,16 +228,27 @@ class HDF5Reader(ReaderBase):
         # Use the event tree to find out what needs to be loaded
         data = {"file_index": file_idx, "file_entry_index": entry_idx}
         with h5py.File(self.file_paths[file_idx], "r") as in_file:
-            event = in_file["events"][entry_idx]
-            for key in event.dtype.names:
-                self.load_key(in_file, event, data, key)
+            events = in_file["events"]
+            assert isinstance(
+                events, h5py.Dataset
+            ), "'events' is not a dataset in the HDF5 file."
+
+            event = events[entry_idx]
+            names = getattr(getattr(event, "dtype", None), "names", None)
+            if names is not None:
+                for key in names:
+                    self.load_key(in_file, event, data, key)
+            else:
+                raise ValueError("Event entry does not have named fields.")
 
         # Use the global index, not the one read from file
-        data["index"] = np.int64(idx)
+        data["index"] = idx
 
         return data
 
-    def load_key(self, in_file, event, data, key):
+    def load_key(
+        self, in_file: h5py.File, event: Dict[str, Any], data: Dict[str, Any], key: str
+    ) -> None:
         """Fetch a specific key for a specific event.
 
         Parameters
@@ -228,23 +264,29 @@ class HDF5Reader(ReaderBase):
         """
         # The event-level information is a region reference: fetch it
         region_ref = event[key]
-        if isinstance(in_file[key], h5py.Dataset):
-            if not in_file[key].dtype.names:
+        dataset = in_file[key]
+        if isinstance(dataset, h5py.Dataset):
+            names = getattr(getattr(dataset, "dtype", None), "names", None)
+            if not names:
                 # If the reference points at a simple dataset, return
-                data[key] = in_file[key][region_ref]
-                if in_file[key].attrs["scalar"]:
+                data[key] = dataset[region_ref]
+                if dataset.attrs["scalar"]:
                     data[key] = data[key][0]
-                if len(in_file[key].shape) > 1:
-                    data[key] = data[key].reshape(-1, in_file[key].shape[1])
+                if len(dataset.shape) > 1:
+                    data[key] = data[key].reshape(-1, dataset.shape[1])
 
             else:
                 # If the dataset has multiple attributes, it contains an object.
                 # Start by fetching the appropriate class to rebuild
-                array = in_file[key][region_ref]
-                class_name = in_file[key].attrs["class_name"]
+                array = dataset[region_ref]
+                class_name = dataset.attrs["class_name"]
+                assert isinstance(
+                    class_name, str
+                ), "Dataset missing 'class_name' attribute."
                 obj_class = getattr(spine.data, class_name)
 
                 # If needed, get the list of recognized attributes
+                known_attrs = []
                 if self.skip_unknown_attrs:
                     known_attrs = [f.name for f in fields(obj_class)]
 
@@ -270,22 +312,34 @@ class HDF5Reader(ReaderBase):
                 if in_file[key].attrs["scalar"]:
                     data[key] = data[key][0]
 
-        else:
+        elif isinstance(dataset, h5py.Group):
             # If the reference points at a group, unpack
-            el_refs = in_file[key]["index"][region_ref].flatten()
-            if len(in_file[key]["index"].shape) == 1:
+            index = dataset["index"]
+            assert isinstance(index, h5py.Dataset), "Dataset 'index' is missing."
+            el_refs = index[region_ref].flatten()
+            if len(index.shape) == 1:
+                elements = dataset["elements"]
+                assert isinstance(
+                    elements, h5py.Dataset
+                ), "Dataset 'elements' is missing."
                 ret = np.empty(len(el_refs), dtype=object)
-                ret[:] = [in_file[key]["elements"][r] for r in el_refs]
-                if len(in_file[key]["elements"].shape) > 1:
+                ret[:] = [elements[r] for r in el_refs]
+                if len(elements.shape) > 1:
                     for i in range(len(el_refs)):
-                        ret[i] = ret[i].reshape(-1, in_file[key]["elements"].shape[1])
+                        ret[i] = ret[i].reshape(-1, elements.shape[1])
 
             else:
-                ret = [in_file[key][f"element_{i}"][r] for i, r in enumerate(el_refs)]
-                for i in range(len(el_refs)):
-                    if len(in_file[key][f"element_{i}"].shape) > 1:
-                        ret[i] = ret[i].reshape(
-                            -1, in_file[key][f"element_{i}"].shape[1]
-                        )
+                elements = [dataset[f"element_{i}"] for i in range(len(el_refs))]
+                ret = []
+                for i, el in enumerate(elements):
+                    assert isinstance(
+                        el, h5py.Dataset
+                    ), f"Dataset 'element_{i}' is missing."
+                    ret.append(el[el_refs[i]])
+                    if len(el.shape) > 1:
+                        ret[i] = ret[i].reshape(-1, el.shape[1])
 
             data[key] = ret
+
+        else:
+            raise ValueError(f"Dataset for key '{key}' is neither a group nor dataset.")

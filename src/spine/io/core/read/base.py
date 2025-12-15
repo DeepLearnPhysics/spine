@@ -6,14 +6,15 @@ data products into dictionaries to be used downstream.
 
 import glob
 import os
-from warnings import warn
+from abc import ABC, abstractmethod
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
 from spine.utils.logger import logger
 
 
-class ReaderBase:
+class ReaderBase(ABC):
     """Parent reader class which provides common functions between all readers.
 
     This class provides these basic functions:
@@ -44,16 +45,16 @@ class ReaderBase:
         Maps each available (run, subrun, event) triplet onto an entry_index index
     """
 
-    name = ""
-    num_entries = None
-    entry_index = None
-    file_paths = None
-    file_offsets = None
-    file_index = None
-    run_info = None
-    run_map = None
+    name: str
+    file_paths: List[str]
+    file_index: np.ndarray
+    file_offsets: np.ndarray
+    entry_index: np.ndarray
+    num_entries: int
+    run_info: Optional[List[Tuple[int, int, int]]] = None
+    run_map: Optional[Dict[Tuple[int, int, int], int]] = None
 
-    def __len__(self):
+    def __len__(self) -> int:
         """Returns the number of entries in the file(s).
 
         Returns
@@ -63,7 +64,7 @@ class ReaderBase:
         """
         return len(self.entry_index)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: int) -> Dict[str, Any]:
         """Returns a specific entry in the file.
 
         Parameters
@@ -78,11 +79,37 @@ class ReaderBase:
         """
         return self.get(idx)
 
-    def get(self, idx):
+    @abstractmethod
+    def get(self, idx: int) -> Dict[str, Any]:
         """Placeholder to be defined by the daughter class."""
         raise NotImplementedError
 
-    def process_file_paths(self, file_keys, limit_num_files=None, max_print_files=10):
+    def get_run_event(self, run: int, subrun: int, event: int) -> Dict[str, Any]:
+        """Returns an entry corresponding to a specific (run, subrun, event)
+        triplet.
+
+        Parameters
+        ----------
+        run : int
+            Run number
+        subrun : int
+            Subrun number
+        event : int
+            Event number
+
+        Returns
+        -------
+        data_blob : dict
+            Ditionary of input data products corresponding to one event
+        """
+        return self.get(self.get_run_event_index(run, subrun, event))
+
+    def process_file_paths(
+        self,
+        file_keys: List[str],
+        limit_num_files: Optional[int] = None,
+        max_print_files: int = 10,
+    ) -> None:
         """Process list of files.
 
         Parameters
@@ -134,7 +161,7 @@ class ReaderBase:
         file_list += "\n ... \n" if num_files > max_print_files else "\n"
         logger.info("Will load %d file(s):\n%s", num_files, file_list)
 
-    def process_run_info(self):
+    def process_run_info(self) -> None:
         """Process the run information.
 
         Check the run information for duplicates and initialize a dictionary
@@ -152,18 +179,18 @@ class ReaderBase:
         # If run_info is set, flip it into a map from info to entry
         self.run_map = None
         if self.run_info is not None:
-            self.run_map = {tuple(v): i for i, v in enumerate(self.run_info)}
+            self.run_map = {v: i for i, v in enumerate(self.run_info)}
 
     def process_entry_list(
         self,
-        n_entry=None,
-        n_skip=None,
-        entry_list=None,
-        skip_entry_list=None,
-        run_event_list=None,
-        skip_run_event_list=None,
-        allow_missing=False,
-    ):
+        n_entry: Optional[int] = None,
+        n_skip: Optional[int] = None,
+        entry_list: Optional[Union[str, List[int]]] = None,
+        skip_entry_list: Optional[Union[str, List[int]]] = None,
+        run_event_list: Optional[Union[str, List[List[int]]]] = None,
+        skip_run_event_list: Optional[Union[str, List[List[int]]]] = None,
+        allow_missing: bool = False,
+    ) -> None:
         """Create a list of entries that can be accessed by :meth:`__getitem__`.
 
         Parameters
@@ -172,14 +199,18 @@ class ReaderBase:
             Maximum number of entries to load
         n_skip : int, optional
             Number of entries to skip at the beginning
-        entry_list : list, optional
-            List of integer entry IDs to add to the index
-        skip_entry_list : list, optional
-            List of integer entry IDs to skip from the index
-        run_event_list: list((int, int, int)), optional
-            List of (run, subrun, event) triplets to add to the index
-        skip_run_event_list: list((int, int, int)), optional
-            List of (run, subrun, event) triplets to skip from the index
+        entry_list : Union[str, List[int]], optional
+            List of integer entry IDs to add to the index. Can be passed
+            as a file path or a list of integers
+        skip_entry_list : Union[str, List[int]], optional
+            List of integer entry IDs to skip from the index. Can be passed
+            as a file path or a list of integers
+        run_event_list: Union[str, List[List[int]]], optional
+            List of (run, subrun, event) triplets to add to the index. Can be passed
+            as a file path or a list of triplets
+        skip_run_event_list: Union[str, List[List[int]]], optional
+            List of (run, subrun, event) triplets to skip from the index. Can be passed
+            as a file path or a list of triplets
         allow_missing : bool, default False
             If `True`, allows missing entries in the entry or event list
 
@@ -228,56 +259,64 @@ class ReaderBase:
         )
 
         # Create a list of entries to be loaded
+        entry_list_arr = None
         if n_entry or n_skip:
-            entry_list = np.arange(self.num_entries)
-            if n_skip > 0:
-                entry_list = entry_list[n_skip:]
-            if n_entry > 0:
-                entry_list = entry_list[:n_entry]
-
+            entry_list_arr = np.arange(self.num_entries)
+            if n_skip is not None and n_skip > 0:
+                entry_list_arr = entry_list_arr[n_skip:]
+            if n_entry is not None and n_entry > 0:
+                entry_list_arr = entry_list_arr[:n_entry]
         elif entry_list:
-            entry_list = self.parse_entry_list(entry_list)
+            entry_list_arr = self.parse_entry_list(entry_list)
             assert np.all(
-                entry_list < self.num_entries
+                entry_list_arr < self.num_entries
             ), "Values in entry_list outside of bounds."
 
         elif run_event_list:
+            assert (
+                self.run_map is not None
+            ), "Must build a run map to get entries by (run, subrun, event)."
             self.process_run_info()
-            run_event_list = self.parse_run_event_list(run_event_list)
+            run_event_list_tuple = self.parse_run_event_list(run_event_list)
             entry_list = []
-            for i, (r, s, e) in enumerate(run_event_list):
+            for i, (r, s, e) in enumerate(run_event_list_tuple):
                 if not allow_missing or (r, s, e) in self.run_map:
                     entry_list.append(self.get_run_event_index(r, s, e))
 
-            entry_list = np.unique(entry_list)
+            entry_list_arr = np.unique(entry_list)
 
         elif skip_entry_list or skip_run_event_list:
             if skip_entry_list:
-                skip_entry_list = self.parse_entry_list(skip_entry_list)
+                skip_entry_list_tuple = self.parse_entry_list(skip_entry_list)
                 assert np.all(
-                    skip_entry_list < self.num_entries
+                    skip_entry_list_tuple < self.num_entries
                 ), "Values in skip_entry_list outside of bounds."
 
-            else:
+            elif skip_run_event_list:
+                assert (
+                    self.run_map is not None
+                ), "Must build a run map to skip entries by (run, subrun, event)."
                 self.process_run_info()
-                skip_run_event_list = self.parse_run_event_list(skip_run_event_list)
+                skip_run_event_list_tuple = self.parse_run_event_list(
+                    skip_run_event_list
+                )
                 skip_entry_list = []
-                for i, (r, s, e) in enumerate(skip_run_event_list):
+                for i, (r, s, e) in enumerate(skip_run_event_list_tuple):
                     if not allow_missing or (r, s, e) in self.run_map:
                         skip_entry_list.append(self.get_run_event_index(r, s, e))
 
             entry_mask = np.ones(self.num_entries, dtype=bool)
             entry_mask[skip_entry_list] = False
-            entry_list = np.where(entry_mask)[0]
+            entry_list_arr = np.where(entry_mask)[0]
 
         # Apply entry list to the indexes
         entry_index = np.arange(self.num_entries, dtype=np.int64)
-        if entry_list is not None:
-            entry_index = entry_index[entry_list]
+        if entry_list_arr is not None:
+            entry_index = entry_index[entry_list_arr]
 
             if self.run_info is not None:
-                run_info = self.run_info[entry_list]
-                self.run_map = {tuple(v): i for i, v in enumerate(run_info)}
+                run_info = [self.run_info[i] for i in entry_list_arr]
+                self.run_map = {v: i for i, v in enumerate(run_info)}
 
         assert len(entry_index), "Must at least have one entry to load."
 
@@ -285,29 +324,7 @@ class ReaderBase:
 
         self.entry_index = entry_index
 
-    def get_run_event(self, run, subrun, event):
-        """Returns an entry corresponding to a specific (run, subrun, event)
-        triplet.
-
-        Parameters
-        ----------
-        run : int
-            Run number
-        subrun : int
-            Subrun number
-        event : int
-            Event number
-
-        Returns
-        -------
-        data_blob : dict
-            Ditionary of input data products corresponding to one event
-        result_blob : dict
-            Ditionary of result data products corresponding to one event
-        """
-        return self.get(self.get_run_event_index(run, subrun, event))
-
-    def get_run_event_index(self, run, subrun, event):
+    def get_run_event_index(self, run: int, subrun: int, event: int) -> int:
         """Returns an entry index corresponding to a specific
         (run, subrun, event) triplet.
 
@@ -315,6 +332,8 @@ class ReaderBase:
         ----------
         run : int
             Run number
+        subrun : int
+            Subrun number
         event : int
             Event number
         """
@@ -332,7 +351,7 @@ class ReaderBase:
 
         return self.run_map[(run, subrun, event)]
 
-    def get_file_path(self, idx):
+    def get_file_path(self, idx: int) -> str:
         """Returns the path to the file corresponding to a specific entry.
 
         Parameters
@@ -347,7 +366,7 @@ class ReaderBase:
         """
         return self.file_paths[self.get_file_index(idx)]
 
-    def get_file_index(self, idx):
+    def get_file_index(self, idx: int) -> int:
         """Returns the index of the file corresponding to a specific entry.
 
         Parameters
@@ -360,9 +379,9 @@ class ReaderBase:
         int
             Index of the file in the file list
         """
-        return self.file_index[self.entry_index[idx]]
+        return int(self.file_index[self.entry_index[idx]])
 
-    def get_file_entry_index(self, idx):
+    def get_file_entry_index(self, idx: int) -> int:
         """Returns the index of an entry within the file it lives in,
         provided a global index over the list of files.
 
@@ -378,10 +397,10 @@ class ReaderBase:
         """
         file_idx = self.get_file_index(idx)
         offset = self.file_offsets[file_idx]
-        return self.entry_index[idx] - offset
+        return int(self.entry_index[idx] - offset)
 
     @staticmethod
-    def parse_entry_list(list_source):
+    def parse_entry_list(list_source: Union[str, List[int]]) -> np.ndarray:
         """Parses a list into an np.ndarray.
 
         The list can be passed as a simple python list or a path to a file
@@ -390,7 +409,7 @@ class ReaderBase:
 
         Parameters
         ----------
-        list_source : Union[list, str]
+        list_source : Union[str, List[int]]
             List as a python list or a text file path
 
         Returns
@@ -402,7 +421,7 @@ class ReaderBase:
             return np.empty(0, dtype=np.int64)
 
         if not np.isscalar(list_source):
-            return np.asarray(list_source, dtype=np.int64)
+            return np.asarray(list_source, dtype=int)
 
         if isinstance(list_source, str):
             assert os.path.isfile(list_source), "The list source file does not exist."
@@ -411,12 +430,14 @@ class ReaderBase:
                 line_list = [l.replace(",", " ").split() for l in lines]
                 list_source = [int(w) for l in line_list for w in l]
 
-            return np.array(list_source, dtype=np.int64)
+            return np.array(list_source, dtype=int)
 
-        raise ValueError("List format not recognized.")
+        raise ValueError("List format not recognized. Must be a list or a file path.")
 
     @staticmethod
-    def parse_run_event_list(list_source):
+    def parse_run_event_list(
+        list_source: Union[str, List[List[int]]],
+    ) -> List[Tuple[int, int, int]]:
         """Parses a list of (run, subrun, event) triplets into an np.ndarray.
 
         The list can be passed as a simple python list or a path to a file
@@ -424,27 +445,31 @@ class ReaderBase:
 
         Parameters
         ----------
-        list_source : Union[list, str]
+        list_source : Union[str, List[List[int]]]
             List as a python list or a text file path
 
         Returns
         -------
-        Tuple[Tuple[int]]
+        List[Tuple[int, int, int]]
             List as a numpy array
         """
         if list_source is None:
-            return ()
+            return []
 
-        if not np.isscalar(list_source):
-            return tuple(tuple(val) for val in list_source)
+        if isinstance(list_source, list):
+            assert all(
+                len(val) == 3 for val in list_source
+            ), "Each entry in the run-event list must have three integers."
+            return [(int(r), int(s), int(e)) for r, s, e in list_source]
 
         if isinstance(list_source, str):
             assert os.path.isfile(list_source), "The list source file does not exist."
             with open(list_source, "r", encoding="utf-8") as f:
                 lines = f.read().splitlines()
                 line_list = [l.replace(",", " ").split() for l in lines]
-                list_source = [(int(r), int(s), int(e)) for r, s, e in line_list]
-
-            return tuple(tuple(val) for val in list_source)
+                assert all(
+                    len(l) == 3 for l in line_list
+                ), "Each line in the run-event list file must have three integers."
+                return [(int(r), int(s), int(e)) for r, s, e in line_list]
 
         raise ValueError("List format not recognized.")
