@@ -42,15 +42,28 @@ def extract_tpc_geometry(f):
     for i in range(bounds.shape[0]):
         min_coords = bounds[i, 0].astype(float).tolist()
         max_coords = bounds[i, 1].astype(float).tolist()
-        center_x = round((min_coords[0] + max_coords[0]) / 2, 4)
-        half_width = round((max_coords[0] - min_coords[0]) / 2, 4)
-        tpc_width = round(half_width - cathode_thickness / 2, 4)
-        center_y = round((min_coords[1] + max_coords[1]) / 2, 4)
-        center_z = round((min_coords[2] + max_coords[2]) / 2, 4)
+
+        # Calculate module dimensions and center
+        module_width = max_coords[0] - min_coords[0]
+        center_x = (min_coords[0] + max_coords[0]) / 2
+        center_y = (min_coords[1] + max_coords[1]) / 2
+        center_z = (min_coords[2] + max_coords[2]) / 2
+
+        # Calculate single TPC width (accounting for cathode)
+        # Module contains: TPC1 + cathode + TPC2
+        tpc_width = (module_width - cathode_thickness) / 2
+
+        # Calculate TPC center positions (offset from module center)
+        # Offset = half TPC width + half cathode thickness
+        offset = tpc_width / 2 + cathode_thickness / 2
 
         # Flip order: TPC 2 (higher x) first, then TPC 1 (lower x)
-        positions.append([round(center_x + tpc_width / 2, 4), center_y, center_z])
-        positions.append([round(center_x - tpc_width / 2, 4), center_y, center_z])
+        positions.append(
+            [round(center_x + offset, 4), round(center_y, 4), round(center_z, 4)]
+        )
+        positions.append(
+            [round(center_x - offset, 4), round(center_y, 4), round(center_z, 4)]
+        )
 
         dims = [
             round(tpc_width, 4),

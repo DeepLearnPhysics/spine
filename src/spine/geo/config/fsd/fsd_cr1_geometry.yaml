@@ -2,13 +2,13 @@ name: FSD
 tag: cr1
 version: 1
 crs_files: [data/fsd_flow/multi_tile_layout-3.0.40_NDLArModule_v3.yaml]
-lrs_file: data/fsd_flow/light_module_desc-6.0.1.yaml
+lrs_file: data/fsd_flow/light_module_desc-6.0.0.yaml
 tpc:
   dimensions: [46.788, 297.6, 95.232]
   module_ids: [0, 0]
   positions:
-  - [23.394, 0.0, 0.0]
-  - [-23.394, 0.0, 0.0]
+  - [23.7115, 0.0, 0.0]
+  - [-23.7115, 0.0, 0.0]
 optical:
   volume: tpc
   shape: [box, box]
