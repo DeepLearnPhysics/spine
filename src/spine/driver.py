@@ -94,8 +94,7 @@ class Driver:
 
         # Initialize the detector geometry singleton once and for all modules
         if geo is not None:
-            GeoManager.reset()
-            GeoManager.initialize(**geo)
+            GeoManager.initialize_or_get(**geo)
 
         # Initialize the input/output
         self.initialize_io(**io)
