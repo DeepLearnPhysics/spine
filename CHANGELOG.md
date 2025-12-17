@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.8.0] - 2025-12-17
+
+### Added
+- Automated LArSoft and FLOW (larnd-sim) geometry parsers with CRT/optical support
+- New geometries: ProtoDUNE-VD/SP/HD, DUNE-FD 10kt-1x2x6
+- Updated geometries: 2x2 (MR5/MR6), ND-LAr, FSD, ICARUS, SBND
+- Cylinder/disk visualization tools for optical detectors
+- Geometry metadata: name, tag, version, GDML field, CRS/LRS config
+- Full geometry visualization option via `GeoDrawer.show()`
+- Lite-format particle/interaction drawing with basic track/shower representations
+
+### Changed
+- **Breaking**: Complete geometry system overhaul to singleton `GeoManager` class
+  - New API: `initialize()`, `initialize_or_get()`, `get_instance()`
+  - Geometry initialized prior to IO in Driver, no re-initialization if instance exists
+- Thorough cleanup of reader modules
+- Improved optical volume organization and detector range handling
+
+### Fixed
+- Multiple Pylance type checking issues resolved
+- Optical geometry styling when mixing detector types
+
 ## [0.7.9] - 2025-11-12
 
 ### Fixed
