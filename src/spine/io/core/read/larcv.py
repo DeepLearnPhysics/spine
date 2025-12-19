@@ -91,6 +91,7 @@ class LArCVReader(ReaderBase):
         # Prepare TTrees and load files
         self.trees = {}
         self.trees_ready = False
+        self.num_entries = None
         self.file_offsets = np.empty(len(self.file_paths), dtype=np.int64)
         file_counts = []
         for key in tree_keys:
