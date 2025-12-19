@@ -89,9 +89,9 @@ class LArCVReader(ReaderBase):
             create_run_map = True
 
         # Prepare TTrees and load files
+        self.num_entries = -1
         self.trees = {}
         self.trees_ready = False
-        self.num_entries = None
         self.file_offsets = np.empty(len(self.file_paths), dtype=np.int64)
         file_counts = []
         for key in tree_keys:
@@ -107,7 +107,7 @@ class LArCVReader(ReaderBase):
                     count = chain.GetEntries() - self.file_offsets[i]
                     file_counts.append(count)
 
-            if self.num_entries is not None:
+            if self.num_entries >= 0:
                 assert self.num_entries == chain.GetEntries(), (
                     f"Mismatch between the number of entries for {key} "
                     f"({chain.GetEntries()}) and the number of entries "
