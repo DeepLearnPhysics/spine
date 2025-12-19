@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.8.1] - 2025-12-19
+
+### Fixed
+- Fixed `AttributeError` in `LArCVReader` when `num_entries` was accessed before initialization
+
 ## [0.8.0] - 2025-12-17
 
 ### Added
