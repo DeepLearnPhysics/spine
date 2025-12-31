@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.8.2] - 2025-12-31
+
+### Added
+- Advanced YAML configuration loader with file includes and parameter overrides
+  - Support for `include:` directive to include other YAML files (single or list)
+  - Support for `!include` tag for inline includes within configuration blocks
+  - Support for `overrides:` block with dot-notation parameter overrides (e.g., `io.loader.batch_size: 8`)
+  - Recursive deep merging of configuration dictionaries
+  - CLI `--set` flag for command-line configuration overrides
+- Comprehensive test suite for configuration loader (13 tests)
+- Documentation for advanced configuration features
+
+### Changed
+- CLI now uses `load_config()` instead of `yaml.safe_load()`
+- Removed `--detect-anomaly` CLI flag (use `--set model.detect_anomaly=true` instead)
+
 ## [0.8.1] - 2025-12-19
 
 ### Fixed
