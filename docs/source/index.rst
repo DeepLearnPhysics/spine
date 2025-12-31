@@ -9,6 +9,7 @@ SPINE Documentation
 
    installation
    quickstart
+   config_loader
    api/index
 
 Installation
