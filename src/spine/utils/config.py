@@ -17,7 +17,7 @@ extract_includes_and_overrides : Extract include directives from config dict
 
 import os
 from copy import deepcopy
-from typing import Any, TextIO, cast
+from typing import Any, Dict, List, TextIO, Tuple, cast
 
 import yaml
 
@@ -75,20 +75,20 @@ ConfigLoader.add_constructor("!include", ConfigLoader.include)
 
 
 def deep_merge(
-    base_dict: dict[str, Any], override_dict: dict[str, Any]
-) -> dict[str, Any]:
+    base_dict: Dict[str, Any], override_dict: Dict[str, Any]
+) -> Dict[str, Any]:
     """Recursively merge override_dict into base_dict.
 
     Parameters
     ----------
-    base_dict : dict[str, Any]
+    base_dict : Dict[str, Any]
         Base dictionary to merge into
-    override_dict : dict[str, Any]
+    override_dict : Dict[str, Any]
         Dictionary with values to override
 
     Returns
     -------
-    dict[str, Any]
+    Dict[str, Any]
         Merged dictionary
     """
     result = deepcopy(base_dict)
@@ -103,13 +103,13 @@ def deep_merge(
 
 
 def set_nested_value(
-    config: dict[str, Any], key_path: str, value: Any
-) -> dict[str, Any]:
+    config: Dict[str, Any], key_path: str, value: Any
+) -> Dict[str, Any]:
     """Set a nested value in a dictionary using dot notation.
 
     Parameters
     ----------
-    config : dict[str, Any]
+    config : Dict[str, Any]
         Configuration dictionary to modify
     key_path : str
         Dot-separated path to the key (e.g., "io.reader.file_paths")
@@ -118,7 +118,7 @@ def set_nested_value(
 
     Returns
     -------
-    dict[str, Any]
+    Dict[str, Any]
         Modified configuration dictionary
     """
     keys = key_path.split(".")
@@ -141,7 +141,7 @@ def set_nested_value(
 
 def extract_includes_and_overrides(
     config_dict: Any,
-) -> tuple[list[str], dict[str, Any], dict[str, Any]]:
+) -> Tuple[List[str], Dict[str, Any], Dict[str, Any]]:
     """Extract include directives and overrides block from a config dict.
 
     Parameters
@@ -151,7 +151,7 @@ def extract_includes_and_overrides(
 
     Returns
     -------
-    tuple[list[str], dict[str, Any], dict[str, Any]]
+    Tuple[List[str], Dict[str, Any], Dict[str, Any]]
         Tuple of (list of included files, dict of overrides, cleaned config dict)
     """
     if not isinstance(config_dict, dict):
@@ -211,7 +211,7 @@ def parse_value(value_str: Any) -> Any:
         return value_str
 
 
-def load_config(cfg_path: str) -> dict[str, Any]:
+def load_config(cfg_path: str) -> Dict[str, Any]:
     """Load a configuration file to a dictionary.
 
     This function supports:
@@ -226,7 +226,7 @@ def load_config(cfg_path: str) -> dict[str, Any]:
 
     Returns
     -------
-    dict[str, Any]
+    Dict[str, Any]
         Loaded and merged configuration dictionary
     """
     root_dir = os.path.dirname(os.path.abspath(cfg_path))

@@ -1,8 +1,5 @@
 """Tests for the config loader functionality."""
 
-import os
-import tempfile
-
 import pytest
 
 from spine.utils.config import load_config
