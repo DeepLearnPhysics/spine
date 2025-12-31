@@ -357,3 +357,97 @@ base:
 
         with pytest.raises(FileNotFoundError):
             load_config(str(main_config))
+
+    def test_relative_include_in_subdirectory(self, tmp_path):
+        """Test that includes resolve relative to the file containing them."""
+        # Create a subdirectory
+        subdir = tmp_path / "configs"
+        subdir.mkdir()
+
+        # Create base config in subdirectory
+        base_config = subdir / "base.yaml"
+        base_config.write_text(
+            """
+base:
+  world_size: 1
+  seed: 0
+"""
+        )
+
+        # Create child config in same subdirectory that includes base
+        child_config = subdir / "child.yaml"
+        child_config.write_text(
+            """
+include: base.yaml
+
+base:
+  iterations: 100
+"""
+        )
+
+        # Load the child config (should find base.yaml relative to child.yaml)
+        cfg = load_config(str(child_config))
+
+        # Check that base values are loaded
+        assert cfg["base"]["world_size"] == 1
+        assert cfg["base"]["seed"] == 0
+        # Check that child values override/extend
+        assert cfg["base"]["iterations"] == 100
+
+    def test_relative_inline_include_in_subdirectory(self, tmp_path):
+        """Test that !include tags resolve relative to the file containing them."""
+        # Create a subdirectory
+        subdir = tmp_path / "configs"
+        subdir.mkdir()
+
+        # Create network config in subdirectory
+        network_config = subdir / "network.yaml"
+        network_config.write_text(
+            """
+depth: 5
+filters: 32
+"""
+        )
+
+        # Create main config in same subdirectory with inline include
+        main_config = subdir / "main.yaml"
+        main_config.write_text(
+            """
+model:
+  name: full_chain
+  uresnet: !include network.yaml
+"""
+        )
+
+        cfg = load_config(str(main_config))
+
+        assert cfg["model"]["name"] == "full_chain"
+        assert cfg["model"]["uresnet"]["depth"] == 5
+        assert cfg["model"]["uresnet"]["filters"] == 32
+
+    def test_absolute_path_include(self, tmp_path):
+        """Test that absolute paths work for includes."""
+        # Create base config
+        base_config = tmp_path / "base.yaml"
+        base_config.write_text(
+            """
+base:
+  world_size: 1
+"""
+        )
+
+        # Create main config with absolute path include
+        main_config = tmp_path / "main.yaml"
+        main_config.write_text(
+            f"""
+include: {str(base_config)}
+
+base:
+  iterations: 100
+"""
+        )
+
+        cfg = load_config(str(main_config))
+
+        assert cfg["base"]["world_size"] == 1
+        assert cfg["base"]["iterations"] == 100
