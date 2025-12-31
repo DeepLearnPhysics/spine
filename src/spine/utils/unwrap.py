@@ -1,8 +1,5 @@
 """Module with the classes/functions needed to unwrap batched data."""
 
-from copy import deepcopy
-from dataclasses import dataclass
-
 import numpy as np
 
 from spine.data import EdgeIndexBatch, IndexBatch, ObjectList, TensorBatch
@@ -30,8 +27,8 @@ class Unwrapper:
         remove_batch_col : bool
              Remove column which specifies batch ID from the unwrapped tensors
         """
-        # Fetch the geometry instance
-        self.geo = GeoManager.get_instance()
+        # Fetch the geometry instance, if available
+        self.geo = GeoManager.get_instance(raise_error=False)
 
         # Store parameters
         self.num_volumes = self.geo.tpc.num_modules if self.geo else 1
@@ -125,6 +122,10 @@ class Unwrapper:
                 return data_nobc.split()
 
         # Otherwise, must shift coordinates back
+        assert (
+            self.geo is not None
+        ), "Geometry must be initialized to unwrap tensors from multiple volumes."
+
         tensors = []
         batch_size = data.batch_size // self.num_volumes
         for b in range(batch_size):

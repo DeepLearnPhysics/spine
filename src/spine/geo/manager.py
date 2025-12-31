@@ -79,16 +79,25 @@ class GeoManager:
         return cls._instance is not None
 
     @classmethod
-    def get_instance(cls) -> Geometry:
+    def get_instance(cls, raise_error=True) -> Optional[Geometry]:
         """Get the current geometry instance.
+
+        Parameters
+        ----------
+        raise_error : bool, optional
+            Whether to raise an error if the instance is not initialized.
 
         Returns
         -------
-        Geometry
+        Optional[Geometry]
             The current geometry instance.
         """
         if cls._instance is None:
-            # capture caller info
+            # If raise_error is False, return None
+            if not raise_error:
+                return None
+
+            # Raise an error with detailed information about the call site
             frame_info = inspect.stack()[1]
             frame = frame_info.frame
             func = frame.f_code.co_name
