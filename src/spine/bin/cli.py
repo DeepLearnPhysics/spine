@@ -6,7 +6,7 @@ import os
 import pathlib
 import sys
 
-import yaml
+from spine.utils.config import load_config, parse_value, set_nested_value
 
 
 def main(
@@ -16,10 +16,10 @@ def main(
     output,
     n,
     nskip,
-    detect_anomaly,
     log_dir,
     weight_prefix,
     weight_path,
+    config_overrides,
 ):
     """Main driver for training/validation/inference/analysis.
 
@@ -41,8 +41,6 @@ def main(
         Number of iterations to run
     nskip : int
         Number of iterations to skip
-    detect_anomaly : bool
-        Whether to turn on anomaly detection in torch
     log_dir : str
         Path to the directory for storing the training log
     weight_prefix : str
@@ -50,6 +48,8 @@ def main(
     weight_path : str
         Path string a weight file or pattern for multiple weight files to load
         the model weights
+    config_overrides : List[str]
+        List of config overrides in the form "key.path=value"
     """
     # Try to find configuration file using the absolute path or under
     # the 'config' directory relative to the current working directory
@@ -60,9 +60,8 @@ def main(
     if not os.path.isfile(cfg_file):
         raise FileNotFoundError(f"Configuration not found: {config}")
 
-    # Load the configuration file
-    with open(cfg_file, "r", encoding="utf-8") as cfg_yaml:
-        cfg = yaml.safe_load(cfg_yaml)
+    # Load the configuration file using the advanced loader
+    cfg = load_config(cfg_file)
 
     # If there is no base block, build one
     if "base" not in cfg:
@@ -117,12 +116,24 @@ def main(
     if weight_path is not None:
         cfg["model"]["weight_path"] = weight_path
 
-    # Turn on PyTorch anomaly detection, if requested
-    if detect_anomaly:
-        assert (
-            "model" in cfg
-        ), "There is no model to detect anomalies for, add `model` block."
-        cfg["model"]["detect_anomaly"] = detect_anomaly
+    # Apply any generic config overrides from --set arguments
+    if config_overrides:
+        for override in config_overrides:
+            if "=" not in override:
+                raise ValueError(
+                    f"Invalid --set format: '{override}'. "
+                    f"Expected format: 'key.path=value'"
+                )
+
+            key_path, value_str = override.split("=", 1)
+            key_path = key_path.strip()
+            value_str = value_str.strip()
+
+            # Parse the value (handles strings, numbers, booleans, lists, etc.)
+            value = parse_value(value_str)
+
+            # Set the nested value
+            cfg = set_nested_value(cfg, key_path, value)
 
     # For actual training/inference, we need the main functionality
     from spine.main import run
@@ -138,10 +149,13 @@ def cli():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  spine --version         Show version information
-  spine --info           Show system and dependency info
-  spine config.cfg       Run ML training/inference with config file
-  spine --help           Show this help message
+  spine --version                                Show version information
+  spine --info                                  Show system and dependency info
+  spine -c config.cfg                           Run ML training/inference with config file
+  spine -c config.cfg --set io.loader.batch_size=8    Override config parameters
+  spine -c config.cfg --set base.iterations=1000 --set io.loader.batch_size=16
+  spine -c config.cfg --set model.detect_anomaly=true Debug PyTorch issues
+  spine --help                                  Show this help message
 
 For ML training/inference functionality, ensure PyTorch is installed:
   pip install spine-ml[model]
@@ -188,12 +202,6 @@ For ML training/inference functionality, ensure PyTorch is installed:
     parser.add_argument("--nskip", type=int, help="Number of iterations to skip")
 
     parser.add_argument(
-        "--detect-anomaly",
-        action="store_true",
-        help="Whether to turn on anomaly detection in torch",
-    )
-
-    parser.add_argument(
         "--log-dir", help="Path to the directory for storing the training log"
     )
 
@@ -204,6 +212,16 @@ For ML training/inference functionality, ensure PyTorch is installed:
     parser.add_argument(
         "--weight-path",
         help="Path string a weight file or pattern for multiple weight files to load model weights",
+    )
+
+    parser.add_argument(
+        "--set",
+        action="append",
+        dest="config_overrides",
+        metavar="KEY=VALUE",
+        help="Override any config parameter using dot notation "
+        "(e.g., --set io.loader.batch_size=8). "
+        "Can be used multiple times for multiple overrides.",
     )
 
     args = parser.parse_args()
@@ -228,10 +246,10 @@ For ML training/inference functionality, ensure PyTorch is installed:
         output=args.output,
         n=args.iterations,
         nskip=args.nskip,
-        detect_anomaly=args.detect_anomaly,
         log_dir=args.log_dir,
         weight_prefix=args.weight_prefix,
         weight_path=args.weight_path,
+        config_overrides=args.config_overrides or [],
     )
 
 

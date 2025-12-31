@@ -1,8 +1,24 @@
-"""Module in charge of loading SPINE configuration files."""
+"""Module in charge of loading SPINE configuration files.
+
+This module provides an advanced YAML configuration loader with support for:
+- File includes using the `include:` directive
+- Inline includes using `!include` tags
+- Dot-notation parameter overrides
+- Deep merging of configuration dictionaries
+
+Public Functions
+----------------
+load_config : Load and parse a YAML configuration file
+set_nested_value : Set a value in a nested dict using dot notation
+parse_value : Parse a string value into appropriate Python type
+deep_merge : Recursively merge two dictionaries
+extract_includes_and_overrides : Extract include directives from config dict
+"""
 
 import os
 import re
 from copy import deepcopy
+from typing import Any, TextIO, cast
 
 import yaml
 
@@ -17,12 +33,12 @@ class ConfigLoader(yaml.SafeLoader):
       configuration parameters without replicating a configuration block).
     """
 
-    def __init__(self, stream):
+    def __init__(self, stream: TextIO) -> None:
         """Initialize the loader.
 
         Parameters
         ----------
-        stream : _io.TextIOWrapper
+        stream : TextIO
             Output of python's `open` function on a yaml file
         """
         # Fetch the parent directory where the configuration file lives
@@ -31,19 +47,27 @@ class ConfigLoader(yaml.SafeLoader):
         # Initialize the base loader
         super().__init__(stream)
 
-    def include(self, node):
+    def include(self, node: yaml.Node) -> Any:
         """Load and include a YAML file that is requested in the base config.
 
         Parameters
         ----------
-        node : str
-            Name of the YAML block to load
+        node : yaml.Node
+            YAML node containing the filename to load
+
+        Returns
+        -------
+        Any
+            Loaded configuration dictionary
         """
         # Look for the file in the same directory as the main config file
-        filename = os.path.join(self._root, self.construct_scalar(node))
+        # construct_scalar expects a ScalarNode, but the type is validated at runtime
+        filename = os.path.join(
+            self._root, self.construct_scalar(cast(yaml.ScalarNode, node))
+        )
 
         # Load the file within the base configuration
-        with open(filename, "r") as f:
+        with open(filename, "r", encoding="utf-8") as f:
             return yaml.load(f, Loader=ConfigLoader)
 
 
@@ -51,47 +75,51 @@ class ConfigLoader(yaml.SafeLoader):
 ConfigLoader.add_constructor("!include", ConfigLoader.include)
 
 
-def _deep_merge(base_dict, override_dict):
+def deep_merge(
+    base_dict: dict[str, Any], override_dict: dict[str, Any]
+) -> dict[str, Any]:
     """Recursively merge override_dict into base_dict.
 
     Parameters
     ----------
-    base_dict : dict
+    base_dict : dict[str, Any]
         Base dictionary to merge into
-    override_dict : dict
+    override_dict : dict[str, Any]
         Dictionary with values to override
 
     Returns
     -------
-    dict
+    dict[str, Any]
         Merged dictionary
     """
     result = deepcopy(base_dict)
 
     for key, value in override_dict.items():
         if key in result and isinstance(result[key], dict) and isinstance(value, dict):
-            result[key] = _deep_merge(result[key], value)
+            result[key] = deep_merge(result[key], value)
         else:
             result[key] = value
 
     return result
 
 
-def _set_nested_value(config, key_path, value):
+def set_nested_value(
+    config: dict[str, Any], key_path: str, value: Any
+) -> dict[str, Any]:
     """Set a nested value in a dictionary using dot notation.
 
     Parameters
     ----------
-    config : dict
+    config : dict[str, Any]
         Configuration dictionary to modify
     key_path : str
         Dot-separated path to the key (e.g., "io.reader.file_paths")
-    value : any
+    value : Any
         Value to set
 
     Returns
     -------
-    dict
+    dict[str, Any]
         Modified configuration dictionary
     """
     keys = key_path.split(".")
@@ -112,18 +140,20 @@ def _set_nested_value(config, key_path, value):
     return config
 
 
-def _extract_includes_and_overrides(config_dict):
+def extract_includes_and_overrides(
+    config_dict: Any,
+) -> tuple[list[str], dict[str, Any], dict[str, Any]]:
     """Extract include directives and dot-notation overrides from a config dict.
 
     Parameters
     ----------
-    config_dict : dict
+    config_dict : Any
         Loaded YAML configuration dictionary
 
     Returns
     -------
-    tuple
-        (list of included files, dict of overrides, cleaned config dict)
+    tuple[list[str], dict[str, Any], dict[str, Any]]
+        Tuple of (list of included files, dict of overrides, cleaned config dict)
     """
     if not isinstance(config_dict, dict):
         return [], {}, config_dict
@@ -160,17 +190,17 @@ def _extract_includes_and_overrides(config_dict):
     return includes, overrides, cleaned_config
 
 
-def _parse_value(value_str):
+def parse_value(value_str: Any) -> Any:
     """Parse a string value into the appropriate Python type.
 
     Parameters
     ----------
-    value_str : str
-        String representation of the value
+    value_str : Any
+        String representation of the value (or any other type)
 
     Returns
     -------
-    any
+    Any
         Parsed value
     """
     # If it's already not a string, return as-is
@@ -185,7 +215,7 @@ def _parse_value(value_str):
         return value_str
 
 
-def load_config(cfg_path):
+def load_config(cfg_path: str) -> dict[str, Any]:
     """Load a configuration file to a dictionary.
 
     This function supports:
@@ -200,7 +230,7 @@ def load_config(cfg_path):
 
     Returns
     -------
-    dict
+    dict[str, Any]
         Loaded and merged configuration dictionary
     """
     root_dir = os.path.dirname(os.path.abspath(cfg_path))
@@ -214,7 +244,7 @@ def load_config(cfg_path):
         return {}
 
     # Extract include directives and overrides from the loaded config
-    includes, overrides, cleaned_config = _extract_includes_and_overrides(main_config)
+    includes, overrides, cleaned_config = extract_includes_and_overrides(main_config)
 
     # Start with an empty config
     config = {}
@@ -227,15 +257,15 @@ def load_config(cfg_path):
 
         # Recursively load the included file (supports nested includes)
         included_config = load_config(include_path)
-        config = _deep_merge(config, included_config)
+        config = deep_merge(config, included_config)
 
     # Merge the main config (without include/override directives)
     if cleaned_config:
-        config = _deep_merge(config, cleaned_config)
+        config = deep_merge(config, cleaned_config)
 
     # Apply overrides using dot notation
     for key_path, value in overrides.items():
-        parsed_value = _parse_value(value)
-        config = _set_nested_value(config, key_path, parsed_value)
+        parsed_value = parse_value(value)
+        config = set_nested_value(config, key_path, parsed_value)
 
     return config

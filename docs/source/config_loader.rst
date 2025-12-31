@@ -184,6 +184,42 @@ Usage in Python
    print(cfg['io']['loader']['batch_size'])  # 8
    print(cfg['model']['modules']['uresnet']['depth'])  # 5
 
+Command-Line Overrides
+----------------------
+
+When using the SPINE CLI, you can override any configuration parameter using the ``--set`` flag with dot notation:
+
+.. code-block:: bash
+
+   # Override a single parameter
+   spine -c config.yaml --set io.loader.batch_size=8
+
+   # Override multiple parameters
+   spine -c config.yaml \
+     --set base.iterations=1000 \
+     --set io.loader.batch_size=16 \
+     --set io.loader.dataset.file_keys=[file1.root,file2.root]
+
+   # Mix with other CLI options
+   spine -c config.yaml \
+     --source /data/input.root \
+     --output /data/output.h5 \
+     --set model.weight_path=/weights/model.ckpt
+
+The ``--set`` flag accepts any valid YAML value:
+
+- **Strings**: ``--set model.name=my_model``
+- **Numbers**: ``--set base.iterations=1000`` or ``--set base.learning_rate=0.001``
+- **Booleans**: ``--set io.loader.shuffle=true``
+- **Lists**: ``--set io.loader.dataset.file_keys=[file1.root,file2.root]``
+- **Nested paths**: ``--set io.loader.dataset.schema.data.num_features=8``
+
+This is particularly useful for:
+
+- **Hyperparameter sweeps**: Quickly test different values without editing config files
+- **Production runs**: Override paths and settings for different environments
+- **Debugging**: Enable/disable features or adjust batch sizes on the fly
+
 Benefits
 --------
 
