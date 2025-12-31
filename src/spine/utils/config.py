@@ -16,7 +16,6 @@ extract_includes_and_overrides : Extract include directives from config dict
 """
 
 import os
-import re
 from copy import deepcopy
 from typing import Any, TextIO, cast
 
@@ -143,7 +142,7 @@ def set_nested_value(
 def extract_includes_and_overrides(
     config_dict: Any,
 ) -> tuple[list[str], dict[str, Any], dict[str, Any]]:
-    """Extract include directives and dot-notation overrides from a config dict.
+    """Extract include directives and overrides block from a config dict.
 
     Parameters
     ----------
@@ -162,11 +161,6 @@ def extract_includes_and_overrides(
     overrides = {}
     cleaned_config = {}
 
-    # Pattern to match: "key.path.here" for dot notation keys
-    dotted_key_pattern = re.compile(
-        r"^[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)+$"
-    )
-
     for key, value in config_dict.items():
         if key == "include":
             # Handle include directive
@@ -180,9 +174,11 @@ def extract_includes_and_overrides(
                 raise ValueError(
                     f"'include' must be a string or list of strings, got {type(value)}"
                 )
-        elif dotted_key_pattern.match(key):
-            # This is a dot-notation override
-            overrides[key] = value
+        elif key == "overrides":
+            # Handle overrides block with dot-notation keys
+            if not isinstance(value, dict):
+                raise ValueError(f"'overrides' must be a dictionary, got {type(value)}")
+            overrides = value
         else:
             # Regular config key
             cleaned_config[key] = value
@@ -221,7 +217,7 @@ def load_config(cfg_path: str) -> dict[str, Any]:
     This function supports:
     - Including other YAML files: "include: base.yaml" or "include: [base.yaml, other.yaml]"
     - Including files within blocks: "key: !include file.yaml"
-    - Overriding nested parameters with dot notation: "io.reader.file_paths: value"
+    - Overriding nested parameters: "overrides: { io.reader.file_paths: value }"
 
     Parameters
     ----------

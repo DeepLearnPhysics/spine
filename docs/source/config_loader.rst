@@ -82,17 +82,18 @@ Include files within specific configuration blocks using ``!include``:
 3. Dot-Notation Overrides
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Override specific nested parameters without duplicating entire blocks using dot-separated keys:
+Override specific nested parameters without duplicating entire blocks using the ``overrides:`` block with dot-separated keys:
 
 .. code-block:: yaml
 
    include: icarus_base.yaml
 
    # Override specific parameters using dot notation
-   io.loader.batch_size: 8
-   io.loader.dataset.file_keys: [data, seg_label, clust_label]
-   base.iterations: 1000
-   model.modules.uresnet.depth: 6
+   overrides:
+     io.loader.batch_size: 8
+     io.loader.dataset.file_keys: [data, seg_label, clust_label]
+     base.iterations: 1000
+     model.modules.uresnet.depth: 6
 
 This is equivalent to:
 
@@ -165,9 +166,10 @@ Complete Example
        uresnet: !include uresnet_config.yaml
 
    # Override specific parameters
-   io.loader.batch_size: 8
-   io.loader.dataset.file_keys: [data, seg_label, clust_label]
-   base.iterations: 1000
+   overrides:
+     io.loader.batch_size: 8
+     io.loader.dataset.file_keys: [data, seg_label, clust_label]
+     base.iterations: 1000
 
 Usage in Python
 ---------------
