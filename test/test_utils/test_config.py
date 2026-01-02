@@ -1040,3 +1040,146 @@ include:
         assert "key2" not in cfg["io"]["writer"]
         assert cfg["io"]["writer"]["key3"] == "value3"
         assert "key4" not in cfg["io"]["writer"]
+
+    def test_multiple_modifiers_with_list_operations(self, tmp_path):
+        """Test that successive modifiers with list operations are accumulated."""
+        base_config = tmp_path / "base.yaml"
+        base_config.write_text(
+            """
+parsers:
+  - parser_one
+  - parser_two
+  - parser_three
+  - parser_four
+  - parser_five
+  - parser_six
+"""
+        )
+
+        mod1_config = tmp_path / "mod1.yaml"
+        mod1_config.write_text(
+            """
+override:
+  parsers-: [parser_two, parser_four]
+"""
+        )
+
+        mod2_config = tmp_path / "mod2.yaml"
+        mod2_config.write_text(
+            """
+override:
+  parsers-: [parser_five, parser_six]
+"""
+        )
+
+        main_config = tmp_path / "main.yaml"
+        main_config.write_text(
+            """
+include:
+  - base.yaml
+  - mod1.yaml
+  - mod2.yaml
+"""
+        )
+
+        cfg = load_config(str(main_config))
+
+        # All removals should be applied
+        assert cfg["parsers"] == ["parser_one", "parser_three"]
+
+    def test_multiple_modifiers_with_dict_operations(self, tmp_path):
+        """Test that successive modifiers with dict operations are accumulated."""
+        base_config = tmp_path / "base.yaml"
+        base_config.write_text(
+            """
+io:
+  writer:
+    foo: 1
+    bar: 2
+    baz: 3
+    boo: 4
+    qux: 5
+"""
+        )
+
+        mod1_config = tmp_path / "mod1.yaml"
+        mod1_config.write_text(
+            """
+override:
+  io.writer-: [foo, bar]
+"""
+        )
+
+        mod2_config = tmp_path / "mod2.yaml"
+        mod2_config.write_text(
+            """
+override:
+  io.writer-: [baz, boo]
+"""
+        )
+
+        main_config = tmp_path / "main.yaml"
+        main_config.write_text(
+            """
+include:
+  - base.yaml
+  - mod1.yaml
+  - mod2.yaml
+"""
+        )
+
+        cfg = load_config(str(main_config))
+
+        # All keys should be removed
+        assert "foo" not in cfg["io"]["writer"]
+        assert "bar" not in cfg["io"]["writer"]
+        assert "baz" not in cfg["io"]["writer"]
+        assert "boo" not in cfg["io"]["writer"]
+        assert cfg["io"]["writer"]["qux"] == 5
+
+    def test_multiple_modifiers_with_list_appends(self, tmp_path):
+        """Test that successive modifiers with list appends are accumulated."""
+        base_config = tmp_path / "base.yaml"
+        base_config.write_text(
+            """
+parsers:
+  - parser_one
+"""
+        )
+
+        mod1_config = tmp_path / "mod1.yaml"
+        mod1_config.write_text(
+            """
+override:
+  parsers+: [parser_two, parser_three]
+"""
+        )
+
+        mod2_config = tmp_path / "mod2.yaml"
+        mod2_config.write_text(
+            """
+override:
+  parsers+: [parser_four, parser_five]
+"""
+        )
+
+        main_config = tmp_path / "main.yaml"
+        main_config.write_text(
+            """
+include:
+  - base.yaml
+  - mod1.yaml
+  - mod2.yaml
+"""
+        )
+
+        cfg = load_config(str(main_config))
+
+        # All appends should be applied
+        assert cfg["parsers"] == [
+            "parser_one",
+            "parser_two",
+            "parser_three",
+            "parser_four",
+            "parser_five",
+        ]

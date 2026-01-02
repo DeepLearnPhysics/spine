@@ -437,15 +437,52 @@ def _load_config_recursive(
         config = deep_merge(config, included_config)
 
         # Accumulate overrides and removals from included files
-        accumulated_overrides.update(included_overrides)
+        # For collection operations (+/-), merge the values instead of replacing
+        for key, value in included_overrides.items():
+            if key in accumulated_overrides:
+                # Key already exists - need to merge
+                if key.endswith("+") or key.endswith("-"):
+                    # Collection operation - merge the values
+                    existing_val = accumulated_overrides[key]
+                    # Normalize both to lists
+                    existing_list = (
+                        existing_val
+                        if isinstance(existing_val, list)
+                        else [existing_val]
+                    )
+                    new_list = value if isinstance(value, list) else [value]
+                    # Combine them
+                    accumulated_overrides[key] = existing_list + new_list
+                else:
+                    # Regular override - last one wins
+                    accumulated_overrides[key] = value
+            else:
+                accumulated_overrides[key] = value
         accumulated_removals.extend(included_removals)
 
     # Merge the main config (without include/override/remove directives)
     if cleaned_config:
         config = deep_merge(config, cleaned_config)
 
-    # Accumulate this file's overrides and removals (don't apply them yet)
-    accumulated_overrides.update(overrides)
+    # Accumulate this file's overrides and removals (with same merging logic)
+    for key, value in overrides.items():
+        if key in accumulated_overrides:
+            # Key already exists - need to merge
+            if key.endswith("+") or key.endswith("-"):
+                # Collection operation - merge the values
+                existing_val = accumulated_overrides[key]
+                # Normalize both to lists
+                existing_list = (
+                    existing_val if isinstance(existing_val, list) else [existing_val]
+                )
+                new_list = value if isinstance(value, list) else [value]
+                # Combine them
+                accumulated_overrides[key] = existing_list + new_list
+            else:
+                # Regular override - last one wins
+                accumulated_overrides[key] = value
+        else:
+            accumulated_overrides[key] = value
     accumulated_removals.extend(removals)
 
     return config, accumulated_overrides, accumulated_removals
