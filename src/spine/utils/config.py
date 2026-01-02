@@ -4,6 +4,7 @@ This module provides an advanced YAML configuration loader with support for:
 - File includes using the `include:` directive
 - Inline includes using `!include` tags
 - Dot-notation parameter overrides
+- Key removal/deletion from included files
 - Deep merging of configuration dictionaries
 
 Public Functions
@@ -103,7 +104,7 @@ def deep_merge(
 
 
 def set_nested_value(
-    config: Dict[str, Any], key_path: str, value: Any
+    config: Dict[str, Any], key_path: str, value: Any, delete: bool = False
 ) -> Dict[str, Any]:
     """Set a nested value in a dictionary using dot notation.
 
@@ -114,7 +115,9 @@ def set_nested_value(
     key_path : str
         Dot-separated path to the key (e.g., "io.reader.file_paths")
     value : Any
-        Value to set
+        Value to set (ignored if delete=True)
+    delete : bool, optional
+        If True, delete the key instead of setting it
 
     Returns
     -------
@@ -127,22 +130,30 @@ def set_nested_value(
     # Navigate to the parent of the target key
     for key in keys[:-1]:
         if key not in current:
+            if delete:
+                # Key path doesn't exist, nothing to delete
+                return config
             current[key] = {}
         elif not isinstance(current[key], dict):
             # If we encounter a non-dict value, we can't navigate further
             raise ValueError(f"Cannot set '{key_path}': '{key}' is not a dictionary")
         current = current[key]
 
-    # Set the final value
-    current[keys[-1]] = value
+    # Set or delete the final value
+    final_key = keys[-1]
+    if delete:
+        if final_key in current:
+            del current[final_key]
+    else:
+        current[final_key] = value
 
     return config
 
 
 def extract_includes_and_overrides(
     config_dict: Any,
-) -> Tuple[List[str], Dict[str, Any], Dict[str, Any]]:
-    """Extract include directives and overrides block from a config dict.
+) -> Tuple[List[str], Dict[str, Any], List[str], Dict[str, Any]]:
+    """Extract include directives, override, and remove directives from a config dict.
 
     Parameters
     ----------
@@ -151,14 +162,15 @@ def extract_includes_and_overrides(
 
     Returns
     -------
-    Tuple[List[str], Dict[str, Any], Dict[str, Any]]
-        Tuple of (list of included files, dict of overrides, cleaned config dict)
+    Tuple[List[str], Dict[str, Any], List[str], Dict[str, Any]]
+        Tuple of (list of included files, dict of override values, list of keys to remove, cleaned config dict)
     """
     if not isinstance(config_dict, dict):
-        return [], {}, config_dict
+        return [], {}, [], config_dict
 
     includes = []
     overrides = {}
+    removals = []
     cleaned_config = {}
 
     for key, value in config_dict.items():
@@ -174,16 +186,28 @@ def extract_includes_and_overrides(
                 raise ValueError(
                     f"'include' must be a string or list of strings, got {type(value)}"
                 )
-        elif key == "overrides":
-            # Handle overrides block with dot-notation keys
+        elif key == "override":
+            # Handle override block with dot-notation keys
             if not isinstance(value, dict):
-                raise ValueError(f"'overrides' must be a dictionary, got {type(value)}")
+                raise ValueError(f"'override' must be a dictionary, got {type(value)}")
             overrides = value
+        elif key == "remove":
+            # Handle remove directive with dot-notation keys
+            if isinstance(value, str):
+                # Single key: remove: io.loader.batch_size
+                removals.append(value)
+            elif isinstance(value, list):
+                # Multiple keys: remove: [io.loader.batch_size, model.depth]
+                removals.extend(value)
+            else:
+                raise ValueError(
+                    f"'remove' must be a string or list of strings, got {type(value)}"
+                )
         else:
             # Regular config key
             cleaned_config[key] = value
 
-    return includes, overrides, cleaned_config
+    return includes, overrides, removals, cleaned_config
 
 
 def parse_value(value_str: Any) -> Any:
@@ -217,7 +241,8 @@ def load_config(cfg_path: str) -> Dict[str, Any]:
     This function supports:
     - Including other YAML files: "include: base.yaml" or "include: [base.yaml, other.yaml]"
     - Including files within blocks: "key: !include file.yaml"
-    - Overriding nested parameters: "overrides: { io.reader.file_paths: value }"
+    - Overriding nested parameters: "override: { io.reader.file_paths: value }"
+    - Removing keys from included files: "remove: io.loader.batch_size" or "override: { key: null }"
 
     Parameters
     ----------
@@ -239,8 +264,10 @@ def load_config(cfg_path: str) -> Dict[str, Any]:
     if main_config is None:
         return {}
 
-    # Extract include directives and overrides from the loaded config
-    includes, overrides, cleaned_config = extract_includes_and_overrides(main_config)
+    # Extract include directives, override, and removals from the loaded config
+    includes, overrides, removals, cleaned_config = extract_includes_and_overrides(
+        main_config
+    )
 
     # Start with an empty config
     config = {}
@@ -255,13 +282,22 @@ def load_config(cfg_path: str) -> Dict[str, Any]:
         included_config = load_config(include_path)
         config = deep_merge(config, included_config)
 
-    # Merge the main config (without include/override directives)
+    # Merge the main config (without include/override/remove directives)
     if cleaned_config:
         config = deep_merge(config, cleaned_config)
 
-    # Apply overrides using dot notation
+    # Apply removals first (from the remove: directive)
+    for key_path in removals:
+        config = set_nested_value(config, key_path, None, delete=True)
+
+    # Apply override using dot notation
+    # If value is None/null, treat it as a removal
     for key_path, value in overrides.items():
         parsed_value = parse_value(value)
-        config = set_nested_value(config, key_path, parsed_value)
+        if parsed_value is None:
+            # null value means delete the key
+            config = set_nested_value(config, key_path, None, delete=True)
+        else:
+            config = set_nested_value(config, key_path, parsed_value)
 
     return config

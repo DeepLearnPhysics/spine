@@ -1,7 +1,7 @@
 Advanced YAML Config Loader
 ============================
 
-The enhanced ``spine.utils.config`` module provides three powerful features for managing YAML configuration files using standard YAML syntax.
+The enhanced ``spine.utils.config`` module provides four powerful features for managing YAML configuration files using standard YAML syntax.
 
 Features
 --------
@@ -79,17 +79,17 @@ Include files within specific configuration blocks using ``!include``:
        uresnet: !include network_config.yaml
        ppn: !include ppn_config.yaml
 
-3. Dot-Notation Overrides
-~~~~~~~~~~~~~~~~~~~~~~~~~~
+3. Dot-Notation Override
+~~~~~~~~~~~~~~~~~~~~~~~~
 
-Override specific nested parameters without duplicating entire blocks using the ``overrides:`` block with dot-separated keys:
+Override specific nested parameters without duplicating entire blocks using the ``override:`` block with dot-separated keys:
 
 .. code-block:: yaml
 
    include: icarus_base.yaml
 
    # Override specific parameters using dot notation
-   overrides:
+   override:
      io.loader.batch_size: 8
      io.loader.dataset.file_keys: [data, seg_label, clust_label]
      base.iterations: 1000
@@ -114,6 +114,39 @@ This is equivalent to:
      modules:
        uresnet:
          depth: 6
+
+4. Removing Keys
+~~~~~~~~~~~~~~~~
+
+Remove keys from included files using either the ``remove:`` directive or by setting values to ``null`` in ``override:``:
+
+**Using the remove directive:**
+
+.. code-block:: yaml
+
+   include: base_config.yaml
+
+   # Remove specific keys
+   remove: io.loader.shuffle
+
+   # Or remove multiple keys
+   remove:
+     - io.loader.shuffle
+     - model.dropout_rate
+     - base.debug_mode
+
+**Using null in override:**
+
+.. code-block:: yaml
+
+   include: base_config.yaml
+
+   # Set to null to remove the key
+   override:
+     io.loader.shuffle: null
+     model.dropout_rate: null
+
+Both methods achieve the same result: the specified keys are completely removed from the final configuration dictionary.
 
 Complete Example
 ----------------
@@ -230,14 +263,17 @@ Benefits
 3. **Modular Configuration**: Split large configs into logical, reusable components
 4. **Quick Overrides**: Test different parameters without editing base files
 5. **Nested Includes**: Included files can themselves include other files
+6. **Key Removal**: Delete unwanted keys from included files without editing the original
 
 Notes
 -----
 
 - All file paths in ``include`` statements are relative to the directory containing the config file
-- Later includes and overrides take precedence over earlier ones
-- Dot-notation overrides happen after all includes are processed
+- Later includes and override values take precedence over earlier ones
+- Dot-notation override and removals happen after all includes are processed
 - The ``!include`` directive can be used at any level of nesting
 - Both ``.yaml`` and ``.yml`` extensions are supported
 - The ``include:`` key uses standard YAML syntax (similar to GitLab CI, Docker Compose)
 - You can use either ``include: file.yaml`` or ``include: [file1.yaml, file2.yaml]`` syntax
+- Keys set to ``null`` in the ``override:`` block are removed from the final config
+- The ``remove:`` directive accepts single keys or lists of keys to delete
