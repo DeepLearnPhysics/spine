@@ -387,10 +387,66 @@ def parse_value(value_str: Any) -> Any:
         return value_str
 
 
+def _apply_overrides_and_removals(
+    config: Dict[str, Any],
+    overrides: Dict[str, Any],
+    removals: List[str],
+) -> Dict[str, Any]:
+    """Apply overrides and removals to a config dict.
+
+    Parameters
+    ----------
+    config : Dict[str, Any]
+        Configuration dictionary to modify
+    overrides : Dict[str, Any]
+        Dictionary of override directives (may include +/- suffixes)
+    removals : List[str]
+        List of dot-notation keys to remove
+
+    Returns
+    -------
+    Dict[str, Any]
+        Modified configuration dictionary
+    """
+    # Apply removals first
+    for key_path in removals:
+        config = set_nested_value(
+            config, key_path, None, delete=True, strict_delete=True
+        )
+
+    # Apply overrides (including +/- operations)
+    for key_path, value in overrides.items():
+        if key_path.endswith("+"):
+            # Append operation
+            base_key = key_path[:-1]
+            parsed_value = parse_value(value)
+            config = apply_collection_operation(config, base_key, parsed_value, "+")
+        elif key_path.endswith("-"):
+            # Remove operation
+            base_key = key_path[:-1]
+            parsed_value = parse_value(value)
+            config = apply_collection_operation(config, base_key, parsed_value, "-")
+        else:
+            # Regular override or deletion
+            parsed_value = parse_value(value)
+            if parsed_value is None:
+                # null value means delete the key
+                config = set_nested_value(
+                    config, key_path, None, delete=True, strict_delete=True
+                )
+            else:
+                config = set_nested_value(config, key_path, parsed_value)
+
+    return config
+
+
 def _load_config_recursive(
     cfg_path: str,
 ) -> Tuple[Dict[str, Any], Dict[str, Any], List[str]]:
-    """Internal function to recursively load config with accumulated overrides/removals.
+    """Internal function to recursively load config and return overrides separately.
+
+    This function processes files and returns their content along with any override
+    and removal directives, allowing the parent to apply them in order.
 
     Parameters
     ----------
@@ -400,7 +456,7 @@ def _load_config_recursive(
     Returns
     -------
     Tuple[Dict[str, Any], Dict[str, Any], List[str]]
-        Tuple of (config dict, accumulated overrides, accumulated removals)
+        Tuple of (config content, override directives, removal directives)
     """
     root_dir = os.path.dirname(os.path.abspath(cfg_path))
 
@@ -417,12 +473,10 @@ def _load_config_recursive(
         main_config
     )
 
-    # Start with an empty config and empty accumulated overrides/removals
+    # Start with an empty config
     config = {}
-    accumulated_overrides: Dict[str, Any] = {}
-    accumulated_removals: List[str] = []
 
-    # Load all included files first (in order)
+    # Load and process all included files in order
     for include_file in includes:
         include_path = os.path.join(root_dir, include_file)
         if not os.path.exists(include_path):
@@ -433,119 +487,47 @@ def _load_config_recursive(
             include_path
         )
 
-        # Merge the config
+        # Merge the included config into our working config
         config = deep_merge(config, included_config)
 
-        # Accumulate overrides and removals from included files
-        # For collection operations (+/-), merge the values instead of replacing
-        for key, value in included_overrides.items():
-            if key in accumulated_overrides:
-                # Key already exists - need to merge
-                if key.endswith("+") or key.endswith("-"):
-                    # Collection operation - merge the values
-                    existing_val = accumulated_overrides[key]
-                    # Normalize both to lists
-                    existing_list = (
-                        existing_val
-                        if isinstance(existing_val, list)
-                        else [existing_val]
-                    )
-                    new_list = value if isinstance(value, list) else [value]
-                    # Combine them
-                    accumulated_overrides[key] = existing_list + new_list
-                else:
-                    # Regular override - last one wins
-                    accumulated_overrides[key] = value
-            else:
-                accumulated_overrides[key] = value
-        accumulated_removals.extend(included_removals)
+        # Apply the included file's overrides and removals IMMEDIATELY to the working config
+        # This ensures that operations are applied in include order
+        config = _apply_overrides_and_removals(
+            config, included_overrides, included_removals
+        )
 
     # Merge the main config (without include/override/remove directives)
     if cleaned_config:
         config = deep_merge(config, cleaned_config)
 
-    # Accumulate this file's overrides and removals (with same merging logic)
-    for key, value in overrides.items():
-        if key in accumulated_overrides:
-            # Key already exists - need to merge
-            if key.endswith("+") or key.endswith("-"):
-                # Collection operation - merge the values
-                existing_val = accumulated_overrides[key]
-                # Normalize both to lists
-                existing_list = (
-                    existing_val if isinstance(existing_val, list) else [existing_val]
-                )
-                new_list = value if isinstance(value, list) else [value]
-                # Combine them
-                accumulated_overrides[key] = existing_list + new_list
-            else:
-                # Regular override - last one wins
-                accumulated_overrides[key] = value
-        else:
-            accumulated_overrides[key] = value
-    accumulated_removals.extend(removals)
-
-    return config, accumulated_overrides, accumulated_removals
+    # Return the config along with THIS file's overrides and removals
+    # (to be applied by the parent after merging)
+    return config, overrides, removals
 
 
 def load_config(cfg_path: str) -> Dict[str, Any]:
     """Load a configuration file to a dictionary.
 
-        This function supports:
-        - Including other YAML files: "include: base.yaml" or "include: [base.yaml, other.yaml]"
-        - Including files within blocks: "key: !include file.yaml"
-        - Overriding nested parameters: "override: { io.reader.file_paths: value }"
-        - Removing keys from included files: "remove: io.loader.batch_size" or "override: { key: null }"
-        - List operations: "override: { parsers+: [new_parser] }" to append, "parsers-: [old_parser]" to remove
+    This function supports:
+    - Including other YAML files: "include: base.yaml" or "include: [base.yaml, other.yaml]"
+    - Including files within blocks: "key: !include file.yaml"
+    - Overriding nested parameters: "override: { io.reader.file_paths: value }"
+    - Removing keys from included files: "remove: io.loader.batch_size" or "override: { key: null }"
+    - List operations: "override: { parsers+: [new_parser] }" to append, "parsers-: [old_parser]" to remove
 
-        When files are included, their override and remove directives are accumulated
-        and applied after all configs are merged, ensuring that deletions from included
-        files are respected.
-    collection_operation(config, base_key, parsed_value, "+")
-            elif key_path.endswith("-"):
-                # Remove operation
-                base_key = key_path[:-1]
-                parsed_value = parse_value(value)
-                config = apply_collection
-        Returns
-        -------
-        Dict[str, Any]
-            Loaded and merged configuration dictionary
+    **IMPORTANT**: Overrides and removals are applied immediately after each included file
+    is merged, in include order. This means later files can modify items added/removed by
+    earlier files, and the order of operations matters.
+
+    Returns
+    -------
+    Dict[str, Any]
+        Loaded and merged configuration dictionary
     """
-    # Load the config with accumulated overrides/removals
-    config, accumulated_overrides, accumulated_removals = _load_config_recursive(
-        cfg_path
-    )
+    # Load the config recursively
+    config, overrides, removals = _load_config_recursive(cfg_path)
 
-    # Apply all accumulated removals first (from the remove: directives)
-    for key_path in accumulated_removals:
-        config = set_nested_value(
-            config, key_path, None, delete=True, strict_delete=True
-        )
-
-    # Apply all accumulated overrides using dot notation
-    # Check for list operations (+/-), null deletions, or regular sets
-    for key_path, value in accumulated_overrides.items():
-        # Check if key ends with + or - for collection operations
-        if key_path.endswith("+"):
-            # Append operation
-            base_key = key_path[:-1]
-            parsed_value = parse_value(value)
-            config = apply_collection_operation(config, base_key, parsed_value, "+")
-        elif key_path.endswith("-"):
-            # Remove operation
-            base_key = key_path[:-1]
-            parsed_value = parse_value(value)
-            config = apply_collection_operation(config, base_key, parsed_value, "-")
-        else:
-            # Regular override or deletion
-            parsed_value = parse_value(value)
-            if parsed_value is None:
-                # null value means delete the key - use strict mode to catch typos
-                config = set_nested_value(
-                    config, key_path, None, delete=True, strict_delete=True
-                )
-            else:
-                config = set_nested_value(config, key_path, parsed_value)
+    # Apply the top-level file's overrides and removals
+    config = _apply_overrides_and_removals(config, overrides, removals)
 
     return config
