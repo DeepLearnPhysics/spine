@@ -542,3 +542,263 @@ include:
 
         # writer should be completely deleted
         assert "writer" not in cfg["io"]
+
+    def test_list_append_operation(self, tmp_path):
+        """Test appending to lists using + operator."""
+        base_config = tmp_path / "base.yaml"
+        base_config.write_text(
+            """
+parsers:
+  - parser_one
+  - parser_two
+"""
+        )
+
+        main_config = tmp_path / "main.yaml"
+        main_config.write_text(
+            """
+include: base.yaml
+
+override:
+  parsers+: [parser_three, parser_four]
+"""
+        )
+
+        cfg = load_config(str(main_config))
+
+        assert cfg["parsers"] == [
+            "parser_one",
+            "parser_two",
+            "parser_three",
+            "parser_four",
+        ]
+
+    def test_list_append_single_value(self, tmp_path):
+        """Test appending a single value to a list."""
+        base_config = tmp_path / "base.yaml"
+        base_config.write_text(
+            """
+parsers:
+  - parser_one
+"""
+        )
+
+        main_config = tmp_path / "main.yaml"
+        main_config.write_text(
+            """
+include: base.yaml
+
+override:
+  parsers+: parser_two
+"""
+        )
+
+        cfg = load_config(str(main_config))
+
+        assert cfg["parsers"] == ["parser_one", "parser_two"]
+
+    def test_list_remove_operation(self, tmp_path):
+        """Test removing from lists using - operator."""
+        base_config = tmp_path / "base.yaml"
+        base_config.write_text(
+            """
+parsers:
+  - parser_one
+  - parser_two
+  - parser_three
+  - parser_four
+"""
+        )
+
+        main_config = tmp_path / "main.yaml"
+        main_config.write_text(
+            """
+include: base.yaml
+
+override:
+  parsers-: [parser_two, parser_four]
+"""
+        )
+
+        cfg = load_config(str(main_config))
+
+        assert cfg["parsers"] == ["parser_one", "parser_three"]
+
+    def test_list_remove_single_value(self, tmp_path):
+        """Test removing a single value from a list."""
+        base_config = tmp_path / "base.yaml"
+        base_config.write_text(
+            """
+parsers:
+  - parser_one
+  - parser_two
+  - parser_three
+"""
+        )
+
+        main_config = tmp_path / "main.yaml"
+        main_config.write_text(
+            """
+include: base.yaml
+
+override:
+  parsers-: parser_two
+"""
+        )
+
+        cfg = load_config(str(main_config))
+
+        assert cfg["parsers"] == ["parser_one", "parser_three"]
+
+    def test_list_operations_combined(self, tmp_path):
+        """Test combining append and remove operations on the same list."""
+        base_config = tmp_path / "base.yaml"
+        base_config.write_text(
+            """
+parsers:
+  - parser_one
+  - parser_two
+  - parser_three
+"""
+        )
+
+        main_config = tmp_path / "main.yaml"
+        main_config.write_text(
+            """
+include: base.yaml
+
+override:
+  parsers-: parser_two
+  parsers+: [parser_four, parser_five]
+"""
+        )
+
+        cfg = load_config(str(main_config))
+
+        # Remove is processed first in dict iteration, then append
+        # But both are applied after merge, order depends on dict ordering
+        assert "parser_two" not in cfg["parsers"]
+        assert "parser_four" in cfg["parsers"]
+        assert "parser_five" in cfg["parsers"]
+        assert "parser_one" in cfg["parsers"]
+        assert "parser_three" in cfg["parsers"]
+
+    def test_list_operations_nested_path(self, tmp_path):
+        """Test list operations on nested paths."""
+        base_config = tmp_path / "base.yaml"
+        base_config.write_text(
+            """
+io:
+  writer:
+    file_keys:
+      - key1
+      - key2
+"""
+        )
+
+        main_config = tmp_path / "main.yaml"
+        main_config.write_text(
+            """
+include: base.yaml
+
+override:
+  io.writer.file_keys+: [key3, key4]
+  io.writer.file_keys-: key1
+"""
+        )
+
+        cfg = load_config(str(main_config))
+
+        assert "key1" not in cfg["io"]["writer"]["file_keys"]
+        assert "key2" in cfg["io"]["writer"]["file_keys"]
+        assert "key3" in cfg["io"]["writer"]["file_keys"]
+        assert "key4" in cfg["io"]["writer"]["file_keys"]
+
+    def test_list_append_to_nonexistent_creates_list(self, tmp_path):
+        """Test that appending to a non-existent key creates a new list."""
+        main_config = tmp_path / "main.yaml"
+        main_config.write_text(
+            """
+base:
+  value: 1
+
+override:
+  parsers+: [parser_one, parser_two]
+"""
+        )
+
+        cfg = load_config(str(main_config))
+
+        assert cfg["parsers"] == ["parser_one", "parser_two"]
+
+    def test_list_operation_on_non_list_raises_error(self, tmp_path):
+        """Test that list operations on non-list values raise errors."""
+        base_config = tmp_path / "base.yaml"
+        base_config.write_text(
+            """
+value: 42
+"""
+        )
+
+        main_config = tmp_path / "main.yaml"
+        main_config.write_text(
+            """
+include: base.yaml
+
+override:
+  value+: 10
+"""
+        )
+
+        with pytest.raises(ValueError, match="not a list"):
+            load_config(str(main_config))
+
+    def test_list_remove_from_nonexistent_raises_error(self, tmp_path):
+        """Test that removing from non-existent list raises error."""
+        main_config = tmp_path / "main.yaml"
+        main_config.write_text(
+            """
+base:
+  value: 1
+
+override:
+  parsers-: parser_one
+"""
+        )
+
+        with pytest.raises(ValueError, match="does not exist"):
+            load_config(str(main_config))
+
+    def test_list_operations_in_included_file(self, tmp_path):
+        """Test that list operations in included files work correctly."""
+        base_config = tmp_path / "base.yaml"
+        base_config.write_text(
+            """
+parsers:
+  - parser_one
+  - parser_two
+  - parser_three
+"""
+        )
+
+        modifier_config = tmp_path / "modifier.yaml"
+        modifier_config.write_text(
+            """
+override:
+  parsers-: parser_two
+  parsers+: parser_four
+"""
+        )
+
+        main_config = tmp_path / "main.yaml"
+        main_config.write_text(
+            """
+include:
+  - base.yaml
+  - modifier.yaml
+"""
+        )
+
+        cfg = load_config(str(main_config))
+
+        assert cfg["parsers"] == ["parser_one", "parser_three", "parser_four"]

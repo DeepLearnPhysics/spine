@@ -6,6 +6,7 @@ This module provides an advanced YAML configuration loader with support for:
 - Dot-notation parameter overrides
 - Key removal/deletion from included files
 - Deep merging of configuration dictionaries
+- List operations (append/remove) using `+` and `-` suffixes
 
 Public Functions
 ----------------
@@ -14,6 +15,19 @@ set_nested_value : Set a value in a nested dict using dot notation
 parse_value : Parse a string value into appropriate Python type
 deep_merge : Recursively merge two dictionaries
 extract_includes_and_overrides : Extract include directives from config dict
+apply_list_operation : Apply append or remove operations to lists
+
+Examples
+--------
+Basic list operations:
+    override:
+      parsers+: [new_parser]      # Append to list
+      parsers-: [old_parser]       # Remove from list
+
+Nested path operations:
+    override:
+      io.writer.keys+: [foo, bar]
+      io.writer.keys-: [baz]
 """
 
 import os
@@ -28,6 +42,7 @@ __all__ = [
     "parse_value",
     "deep_merge",
     "extract_includes_and_overrides",
+    "apply_list_operation",
     "ConfigLoader",
 ]
 
@@ -110,6 +125,80 @@ def deep_merge(
             result[key] = value
 
     return result
+
+
+def apply_list_operation(
+    config: Dict[str, Any], key_path: str, value: Any, operation: str
+) -> Dict[str, Any]:
+    """Apply a list operation (append or remove) to a nested list.
+
+    Parameters
+    ----------
+    config : Dict[str, Any]
+        Configuration dictionary to modify
+    key_path : str
+        Dot-separated path to the list (e.g., "io.reader.file_keys")
+    value : Any
+        Value(s) to append or remove (single value or list)
+    operation : str
+        Either '+' (append) or '-' (remove)
+
+    Returns
+    -------
+    Dict[str, Any]
+        Modified configuration dictionary
+
+    Raises
+    ------
+    ValueError
+        If target is not a list or operation is invalid
+    """
+    keys = key_path.split(".")
+    current = config
+
+    # Navigate to the parent of the target key
+    for key in keys[:-1]:
+        if key not in current:
+            raise ValueError(
+                f"Cannot apply list operation to '{key_path}': path does not exist"
+            )
+        elif not isinstance(current[key], dict):
+            raise ValueError(
+                f"Cannot apply list operation to '{key_path}': '{key}' is not a dictionary"
+            )
+        current = current[key]
+
+    final_key = keys[-1]
+
+    # Check if the target exists and is a list
+    if final_key not in current:
+        if operation == "+":
+            # If appending to non-existent key, create new list
+            current[final_key] = []
+        else:
+            # Can't remove from non-existent list
+            raise ValueError(f"Cannot remove from '{key_path}': key does not exist")
+
+    target = current[final_key]
+    if not isinstance(target, list):
+        raise ValueError(
+            f"Cannot apply list operation to '{key_path}': target is {type(target).__name__}, not a list"
+        )
+
+    # Normalize value to a list
+    values_to_process = value if isinstance(value, list) else [value]
+
+    if operation == "+":
+        # Append values
+        current[final_key] = target + values_to_process
+    elif operation == "-":
+        # Remove values (all occurrences)
+        result = [item for item in target if item not in values_to_process]
+        current[final_key] = result
+    else:
+        raise ValueError(f"Invalid list operation: '{operation}'")
+
+    return config
 
 
 def set_nested_value(
@@ -316,6 +405,7 @@ def load_config(cfg_path: str) -> Dict[str, Any]:
     - Including files within blocks: "key: !include file.yaml"
     - Overriding nested parameters: "override: { io.reader.file_paths: value }"
     - Removing keys from included files: "remove: io.loader.batch_size" or "override: { key: null }"
+    - List operations: "override: { parsers+: [new_parser] }" to append, "parsers-: [old_parser]" to remove
 
     When files are included, their override and remove directives are accumulated
     and applied after all configs are merged, ensuring that deletions from included
@@ -341,13 +431,26 @@ def load_config(cfg_path: str) -> Dict[str, Any]:
         config = set_nested_value(config, key_path, None, delete=True)
 
     # Apply all accumulated overrides using dot notation
-    # If value is None/null, treat it as a removal
+    # Check for list operations (+/-), null deletions, or regular sets
     for key_path, value in accumulated_overrides.items():
-        parsed_value = parse_value(value)
-        if parsed_value is None:
-            # null value means delete the key
-            config = set_nested_value(config, key_path, None, delete=True)
+        # Check if key ends with + or - for list operations
+        if key_path.endswith("+"):
+            # Append operation
+            base_key = key_path[:-1]
+            parsed_value = parse_value(value)
+            config = apply_list_operation(config, base_key, parsed_value, "+")
+        elif key_path.endswith("-"):
+            # Remove operation
+            base_key = key_path[:-1]
+            parsed_value = parse_value(value)
+            config = apply_list_operation(config, base_key, parsed_value, "-")
         else:
-            config = set_nested_value(config, key_path, parsed_value)
+            # Regular override or deletion
+            parsed_value = parse_value(value)
+            if parsed_value is None:
+                # null value means delete the key
+                config = set_nested_value(config, key_path, None, delete=True)
+            else:
+                config = set_nested_value(config, key_path, parsed_value)
 
     return config
