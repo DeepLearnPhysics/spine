@@ -202,7 +202,11 @@ def apply_list_operation(
 
 
 def set_nested_value(
-    config: Dict[str, Any], key_path: str, value: Any, delete: bool = False
+    config: Dict[str, Any],
+    key_path: str,
+    value: Any,
+    delete: bool = False,
+    strict_delete: bool = False,
 ) -> Dict[str, Any]:
     """Set a nested value in a dictionary using dot notation.
 
@@ -216,19 +220,34 @@ def set_nested_value(
         Value to set (ignored if delete=True)
     delete : bool, optional
         If True, delete the key instead of setting it
+    strict_delete : bool, optional
+        If True and delete=True, raise an error if the key doesn't exist
+        (helps catch typos in deletion paths)
 
     Returns
     -------
     Dict[str, Any]
         Modified configuration dictionary
+
+    Raises
+    ------
+    KeyError
+        If strict_delete=True and the key path doesn't exist
     """
     keys = key_path.split(".")
     current = config
 
     # Navigate to the parent of the target key
-    for key in keys[:-1]:
+    for i, key in enumerate(keys[:-1]):
         if key not in current:
             if delete:
+                if strict_delete:
+                    # Build the partial path for error message
+                    partial_path = ".".join(keys[: i + 1])
+                    raise KeyError(
+                        f"Cannot delete '{key_path}': path '{partial_path}' does not exist. "
+                        f"Check for typos in your override/remove directive."
+                    )
                 # Key path doesn't exist, nothing to delete
                 return config
             current[key] = {}
@@ -242,6 +261,11 @@ def set_nested_value(
     if delete:
         if final_key in current:
             del current[final_key]
+        elif strict_delete:
+            raise KeyError(
+                f"Cannot delete '{key_path}': key does not exist. "
+                f"Check for typos in your override/remove directive."
+            )
     else:
         current[final_key] = value
 
@@ -428,7 +452,9 @@ def load_config(cfg_path: str) -> Dict[str, Any]:
 
     # Apply all accumulated removals first (from the remove: directives)
     for key_path in accumulated_removals:
-        config = set_nested_value(config, key_path, None, delete=True)
+        config = set_nested_value(
+            config, key_path, None, delete=True, strict_delete=True
+        )
 
     # Apply all accumulated overrides using dot notation
     # Check for list operations (+/-), null deletions, or regular sets
@@ -448,8 +474,10 @@ def load_config(cfg_path: str) -> Dict[str, Any]:
             # Regular override or deletion
             parsed_value = parse_value(value)
             if parsed_value is None:
-                # null value means delete the key
-                config = set_nested_value(config, key_path, None, delete=True)
+                # null value means delete the key - use strict mode to catch typos
+                config = set_nested_value(
+                    config, key_path, None, delete=True, strict_delete=True
+                )
             else:
                 config = set_nested_value(config, key_path, parsed_value)
 

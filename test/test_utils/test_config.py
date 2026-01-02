@@ -802,3 +802,85 @@ include:
         cfg = load_config(str(main_config))
 
         assert cfg["parsers"] == ["parser_one", "parser_three", "parser_four"]
+
+    def test_delete_nonexistent_key_with_null(self, tmp_path):
+        """Test that deleting a non-existent key with null raises an error."""
+        base_config = tmp_path / "base.yaml"
+        base_config.write_text(
+            """
+io:
+  reader:
+    batch_size: 4
+"""
+        )
+
+        main_config = tmp_path / "main.yaml"
+        main_config.write_text(
+            """
+include: base.yaml
+
+override:
+  io.wrtier: null  # Typo: should be 'writer'
+"""
+        )
+
+        with pytest.raises(KeyError) as exc_info:
+            load_config(str(main_config))
+
+        assert "io.wrtier" in str(exc_info.value)
+        assert "does not exist" in str(exc_info.value)
+        assert "typos" in str(exc_info.value).lower()
+
+    def test_delete_nonexistent_key_with_remove(self, tmp_path):
+        """Test that deleting a non-existent key with remove directive raises an error."""
+        base_config = tmp_path / "base.yaml"
+        base_config.write_text(
+            """
+io:
+  reader:
+    batch_size: 4
+"""
+        )
+
+        main_config = tmp_path / "main.yaml"
+        main_config.write_text(
+            """
+include: base.yaml
+
+remove: io.reader.batchsize  # Typo: should be 'batch_size'
+"""
+        )
+
+        with pytest.raises(KeyError) as exc_info:
+            load_config(str(main_config))
+
+        assert "io.reader.batchsize" in str(exc_info.value)
+        assert "does not exist" in str(exc_info.value)
+
+    def test_delete_nonexistent_nested_path(self, tmp_path):
+        """Test that deleting with a non-existent parent path raises an error."""
+        base_config = tmp_path / "base.yaml"
+        base_config.write_text(
+            """
+io:
+  reader:
+    batch_size: 4
+"""
+        )
+
+        main_config = tmp_path / "main.yaml"
+        main_config.write_text(
+            """
+include: base.yaml
+
+override:
+  io.writter.output_dir: null  # Typo: 'writter' doesn't exist
+"""
+        )
+
+        with pytest.raises(KeyError) as exc_info:
+            load_config(str(main_config))
+
+        assert "io.writter.output_dir" in str(exc_info.value)
+        assert "io.writter" in str(exc_info.value)
+        assert "does not exist" in str(exc_info.value)
