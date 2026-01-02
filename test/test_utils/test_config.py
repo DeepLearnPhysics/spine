@@ -884,3 +884,159 @@ override:
         assert "io.writter.output_dir" in str(exc_info.value)
         assert "io.writter" in str(exc_info.value)
         assert "does not exist" in str(exc_info.value)
+
+    def test_dict_remove_operation(self, tmp_path):
+        """Test removing keys from dictionaries using - operator."""
+        base_config = tmp_path / "base.yaml"
+        base_config.write_text(
+            """
+model:
+  layers:
+    layer1:
+      depth: 5
+    layer2:
+      depth: 3
+    layer3:
+      depth: 7
+    layer4:
+      depth: 2
+"""
+        )
+
+        main_config = tmp_path / "main.yaml"
+        main_config.write_text(
+            """
+include: base.yaml
+
+override:
+  model.layers-: [layer2, layer4]
+"""
+        )
+
+        cfg = load_config(str(main_config))
+
+        assert "layer1" in cfg["model"]["layers"]
+        assert "layer2" not in cfg["model"]["layers"]
+        assert "layer3" in cfg["model"]["layers"]
+        assert "layer4" not in cfg["model"]["layers"]
+
+    def test_dict_remove_single_key(self, tmp_path):
+        """Test removing a single key from a dictionary."""
+        base_config = tmp_path / "base.yaml"
+        base_config.write_text(
+            """
+io:
+  writer:
+    output_dir: /tmp
+    format: hdf5
+    compression: gzip
+"""
+        )
+
+        main_config = tmp_path / "main.yaml"
+        main_config.write_text(
+            """
+include: base.yaml
+
+override:
+  io.writer-: compression
+"""
+        )
+
+        cfg = load_config(str(main_config))
+
+        assert cfg["io"]["writer"]["output_dir"] == "/tmp"
+        assert cfg["io"]["writer"]["format"] == "hdf5"
+        assert "compression" not in cfg["io"]["writer"]
+
+    def test_dict_remove_nonexistent_key_is_safe(self, tmp_path):
+        """Test that removing a non-existent key from dict doesn't raise error."""
+        base_config = tmp_path / "base.yaml"
+        base_config.write_text(
+            """
+io:
+  writer:
+    output_dir: /tmp
+    format: hdf5
+"""
+        )
+
+        main_config = tmp_path / "main.yaml"
+        main_config.write_text(
+            """
+include: base.yaml
+
+override:
+  io.writer-: [nonexistent_key, format]
+"""
+        )
+
+        cfg = load_config(str(main_config))
+
+        # Should succeed, removing only format (nonexistent_key is safely ignored)
+        assert cfg["io"]["writer"]["output_dir"] == "/tmp"
+        assert "format" not in cfg["io"]["writer"]
+        assert "nonexistent_key" not in cfg["io"]["writer"]
+
+    def test_dict_append_raises_error(self, tmp_path):
+        """Test that trying to append to a dict raises an error."""
+        base_config = tmp_path / "base.yaml"
+        base_config.write_text(
+            """
+model:
+  layers:
+    layer1:
+      depth: 5
+"""
+        )
+
+        main_config = tmp_path / "main.yaml"
+        main_config.write_text(
+            """
+include: base.yaml
+
+override:
+  model.layers+: {layer2: {depth: 3}}
+"""
+        )
+
+        with pytest.raises(ValueError, match="not supported for dicts"):
+            load_config(str(main_config))
+
+    def test_dict_operations_in_included_file(self, tmp_path):
+        """Test that dict operations in included files work correctly."""
+        base_config = tmp_path / "base.yaml"
+        base_config.write_text(
+            """
+io:
+  writer:
+    key1: value1
+    key2: value2
+    key3: value3
+    key4: value4
+"""
+        )
+
+        modifier_config = tmp_path / "modifier.yaml"
+        modifier_config.write_text(
+            """
+override:
+  io.writer-: [key2, key4]
+"""
+        )
+
+        main_config = tmp_path / "main.yaml"
+        main_config.write_text(
+            """
+include:
+  - base.yaml
+  - modifier.yaml
+"""
+        )
+
+        cfg = load_config(str(main_config))
+
+        assert cfg["io"]["writer"]["key1"] == "value1"
+        assert "key2" not in cfg["io"]["writer"]
+        assert cfg["io"]["writer"]["key3"] == "value3"
+        assert "key4" not in cfg["io"]["writer"]

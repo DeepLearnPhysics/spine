@@ -15,19 +15,23 @@ set_nested_value : Set a value in a nested dict using dot notation
 parse_value : Parse a string value into appropriate Python type
 deep_merge : Recursively merge two dictionaries
 extract_includes_and_overrides : Extract include directives from config dict
-apply_list_operation : Apply append or remove operations to lists
+apply_collection_operation : Apply append or remove operations to lists/dicts
 
 Examples
 --------
-Basic list operations:
+List operations:
     override:
       parsers+: [new_parser]      # Append to list
       parsers-: [old_parser]       # Remove from list
 
+Dictionary operations:
+    override:
+      io.writer-: [key1, key2]    # Remove keys from dict
+
 Nested path operations:
     override:
       io.writer.keys+: [foo, bar]
-      io.writer.keys-: [baz]
+      model.layers-: [layer3]
 """
 
 import os
@@ -42,7 +46,7 @@ __all__ = [
     "parse_value",
     "deep_merge",
     "extract_includes_and_overrides",
-    "apply_list_operation",
+    "apply_collection_operation",
     "ConfigLoader",
 ]
 
@@ -127,21 +131,29 @@ def deep_merge(
     return result
 
 
-def apply_list_operation(
+def apply_collection_operation(
     config: Dict[str, Any], key_path: str, value: Any, operation: str
 ) -> Dict[str, Any]:
-    """Apply a list operation (append or remove) to a nested list.
+    """Apply a collection operation (append or remove) to a nested list or dict.
+
+    For lists:
+    - '+' appends values to the list
+    - '-' removes values from the list (by value matching)
+
+    For dicts:
+    - '-' removes keys from the dict (by key name)
+    - '+' is not supported for dicts
 
     Parameters
     ----------
     config : Dict[str, Any]
         Configuration dictionary to modify
     key_path : str
-        Dot-separated path to the list (e.g., "io.reader.file_keys")
+        Dot-separated path to the collection (e.g., "io.reader.file_keys")
     value : Any
         Value(s) to append or remove (single value or list)
     operation : str
-        Either '+' (append) or '-' (remove)
+        Either '+' (append to list) or '-' (remove from list/dict)
 
     Returns
     -------
@@ -151,7 +163,7 @@ def apply_list_operation(
     Raises
     ------
     ValueError
-        If target is not a list or operation is invalid
+        If target is not a list/dict, operation is invalid, or trying to append to dict
     """
     keys = key_path.split(".")
     current = config
@@ -160,43 +172,61 @@ def apply_list_operation(
     for key in keys[:-1]:
         if key not in current:
             raise ValueError(
-                f"Cannot apply list operation to '{key_path}': path does not exist"
+                f"Cannot apply collection operation to '{key_path}': path does not exist"
             )
         elif not isinstance(current[key], dict):
             raise ValueError(
-                f"Cannot apply list operation to '{key_path}': '{key}' is not a dictionary"
+                f"Cannot apply collection operation to '{key_path}': '{key}' is not a dictionary"
             )
         current = current[key]
 
     final_key = keys[-1]
 
-    # Check if the target exists and is a list
+    # Check if the target exists
     if final_key not in current:
         if operation == "+":
             # If appending to non-existent key, create new list
             current[final_key] = []
         else:
-            # Can't remove from non-existent list
+            # Can't remove from non-existent collection
             raise ValueError(f"Cannot remove from '{key_path}': key does not exist")
 
     target = current[final_key]
-    if not isinstance(target, list):
-        raise ValueError(
-            f"Cannot apply list operation to '{key_path}': target is {type(target).__name__}, not a list"
-        )
 
     # Normalize value to a list
     values_to_process = value if isinstance(value, list) else [value]
 
-    if operation == "+":
-        # Append values
-        current[final_key] = target + values_to_process
-    elif operation == "-":
-        # Remove values (all occurrences)
-        result = [item for item in target if item not in values_to_process]
-        current[final_key] = result
+    if isinstance(target, list):
+        # List operations
+        if operation == "+":
+            # Append values
+            current[final_key] = target + values_to_process
+        elif operation == "-":
+            # Remove values (all occurrences)
+            result = [item for item in target if item not in values_to_process]
+            current[final_key] = result
+        else:
+            raise ValueError(f"Invalid collection operation: '{operation}'")
+
+    elif isinstance(target, dict):
+        # Dict operations
+        if operation == "-":
+            # Remove keys from dict
+            for key_to_remove in values_to_process:
+                if key_to_remove in target:
+                    del target[key_to_remove]
+        elif operation == "+":
+            raise ValueError(
+                f"Cannot append to dict '{key_path}': '+' operation not supported for dicts"
+            )
+        else:
+            raise ValueError(f"Invalid collection operation: '{operation}'")
+
     else:
-        raise ValueError(f"Invalid list operation: '{operation}'")
+        raise ValueError(
+            f"Cannot apply collection operation to '{key_path}': "
+            f"target is {type(target).__name__}, not a list or dict"
+        )
 
     return config
 
@@ -424,26 +454,26 @@ def _load_config_recursive(
 def load_config(cfg_path: str) -> Dict[str, Any]:
     """Load a configuration file to a dictionary.
 
-    This function supports:
-    - Including other YAML files: "include: base.yaml" or "include: [base.yaml, other.yaml]"
-    - Including files within blocks: "key: !include file.yaml"
-    - Overriding nested parameters: "override: { io.reader.file_paths: value }"
-    - Removing keys from included files: "remove: io.loader.batch_size" or "override: { key: null }"
-    - List operations: "override: { parsers+: [new_parser] }" to append, "parsers-: [old_parser]" to remove
+        This function supports:
+        - Including other YAML files: "include: base.yaml" or "include: [base.yaml, other.yaml]"
+        - Including files within blocks: "key: !include file.yaml"
+        - Overriding nested parameters: "override: { io.reader.file_paths: value }"
+        - Removing keys from included files: "remove: io.loader.batch_size" or "override: { key: null }"
+        - List operations: "override: { parsers+: [new_parser] }" to append, "parsers-: [old_parser]" to remove
 
-    When files are included, their override and remove directives are accumulated
-    and applied after all configs are merged, ensuring that deletions from included
-    files are respected.
-
-    Parameters
-    ----------
-    cfg_path : str
-        Path to the configuration file
-
-    Returns
-    -------
-    Dict[str, Any]
-        Loaded and merged configuration dictionary
+        When files are included, their override and remove directives are accumulated
+        and applied after all configs are merged, ensuring that deletions from included
+        files are respected.
+    collection_operation(config, base_key, parsed_value, "+")
+            elif key_path.endswith("-"):
+                # Remove operation
+                base_key = key_path[:-1]
+                parsed_value = parse_value(value)
+                config = apply_collection
+        Returns
+        -------
+        Dict[str, Any]
+            Loaded and merged configuration dictionary
     """
     # Load the config with accumulated overrides/removals
     config, accumulated_overrides, accumulated_removals = _load_config_recursive(
@@ -459,17 +489,17 @@ def load_config(cfg_path: str) -> Dict[str, Any]:
     # Apply all accumulated overrides using dot notation
     # Check for list operations (+/-), null deletions, or regular sets
     for key_path, value in accumulated_overrides.items():
-        # Check if key ends with + or - for list operations
+        # Check if key ends with + or - for collection operations
         if key_path.endswith("+"):
             # Append operation
             base_key = key_path[:-1]
             parsed_value = parse_value(value)
-            config = apply_list_operation(config, base_key, parsed_value, "+")
+            config = apply_collection_operation(config, base_key, parsed_value, "+")
         elif key_path.endswith("-"):
             # Remove operation
             base_key = key_path[:-1]
             parsed_value = parse_value(value)
-            config = apply_list_operation(config, base_key, parsed_value, "-")
+            config = apply_collection_operation(config, base_key, parsed_value, "-")
         else:
             # Regular override or deletion
             parsed_value = parse_value(value)
