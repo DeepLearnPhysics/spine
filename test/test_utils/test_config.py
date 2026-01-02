@@ -164,7 +164,7 @@ io:
             """
 include: base.yaml
 
-overrides:
+override:
   io.reader.file_paths: /data/new_file.root
   io.reader.batch_size: 16
   base.iterations: 500
@@ -198,7 +198,7 @@ io:
             """
 include: base.yaml
 
-overrides:
+override:
   io.reader.file_paths: [file1.root, file2.root, file3.root]
 """
         )
@@ -296,7 +296,7 @@ model:
   modules:
     uresnet: !include network.yaml
 
-overrides:
+override:
   io.loader.batch_size: 8
   io.loader.dataset.file_keys: [data, seg_label]
   base.iterations: 1000
@@ -333,7 +333,7 @@ overrides:
 base:
   world_size: 1
 
-overrides:
+override:
   new.nested.deeply.nested.value: 123
 """
         )
