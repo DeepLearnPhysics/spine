@@ -244,6 +244,70 @@ def parse_value(value_str: Any) -> Any:
         return value_str
 
 
+def _load_config_recursive(
+    cfg_path: str,
+) -> Tuple[Dict[str, Any], Dict[str, Any], List[str]]:
+    """Internal function to recursively load config with accumulated overrides/removals.
+
+    Parameters
+    ----------
+    cfg_path : str
+        Path to the configuration file
+
+    Returns
+    -------
+    Tuple[Dict[str, Any], Dict[str, Any], List[str]]
+        Tuple of (config dict, accumulated overrides, accumulated removals)
+    """
+    root_dir = os.path.dirname(os.path.abspath(cfg_path))
+
+    # Load the YAML file (with !include support for inline includes)
+    with open(cfg_path, "r", encoding="utf-8") as f:
+        main_config = yaml.load(f, Loader=ConfigLoader)
+
+    # Handle empty file
+    if main_config is None:
+        return {}, {}, []
+
+    # Extract include directives, override, and removals from the loaded config
+    includes, overrides, removals, cleaned_config = extract_includes_and_overrides(
+        main_config
+    )
+
+    # Start with an empty config and empty accumulated overrides/removals
+    config = {}
+    accumulated_overrides: Dict[str, Any] = {}
+    accumulated_removals: List[str] = []
+
+    # Load all included files first (in order)
+    for include_file in includes:
+        include_path = os.path.join(root_dir, include_file)
+        if not os.path.exists(include_path):
+            raise FileNotFoundError(f"Included file not found: {include_path}")
+
+        # Recursively load the included file
+        included_config, included_overrides, included_removals = _load_config_recursive(
+            include_path
+        )
+
+        # Merge the config
+        config = deep_merge(config, included_config)
+
+        # Accumulate overrides and removals from included files
+        accumulated_overrides.update(included_overrides)
+        accumulated_removals.extend(included_removals)
+
+    # Merge the main config (without include/override/remove directives)
+    if cleaned_config:
+        config = deep_merge(config, cleaned_config)
+
+    # Accumulate this file's overrides and removals (don't apply them yet)
+    accumulated_overrides.update(overrides)
+    accumulated_removals.extend(removals)
+
+    return config, accumulated_overrides, accumulated_removals
+
+
 def load_config(cfg_path: str) -> Dict[str, Any]:
     """Load a configuration file to a dictionary.
 
@@ -252,6 +316,10 @@ def load_config(cfg_path: str) -> Dict[str, Any]:
     - Including files within blocks: "key: !include file.yaml"
     - Overriding nested parameters: "override: { io.reader.file_paths: value }"
     - Removing keys from included files: "remove: io.loader.batch_size" or "override: { key: null }"
+
+    When files are included, their override and remove directives are accumulated
+    and applied after all configs are merged, ensuring that deletions from included
+    files are respected.
 
     Parameters
     ----------
@@ -263,45 +331,18 @@ def load_config(cfg_path: str) -> Dict[str, Any]:
     Dict[str, Any]
         Loaded and merged configuration dictionary
     """
-    root_dir = os.path.dirname(os.path.abspath(cfg_path))
-
-    # Load the YAML file (with !include support for inline includes)
-    with open(cfg_path, "r", encoding="utf-8") as f:
-        main_config = yaml.load(f, Loader=ConfigLoader)
-
-    # Handle empty file
-    if main_config is None:
-        return {}
-
-    # Extract include directives, override, and removals from the loaded config
-    includes, overrides, removals, cleaned_config = extract_includes_and_overrides(
-        main_config
+    # Load the config with accumulated overrides/removals
+    config, accumulated_overrides, accumulated_removals = _load_config_recursive(
+        cfg_path
     )
 
-    # Start with an empty config
-    config = {}
-
-    # Load all included files first (in order)
-    for include_file in includes:
-        include_path = os.path.join(root_dir, include_file)
-        if not os.path.exists(include_path):
-            raise FileNotFoundError(f"Included file not found: {include_path}")
-
-        # Recursively load the included file (supports nested includes)
-        included_config = load_config(include_path)
-        config = deep_merge(config, included_config)
-
-    # Merge the main config (without include/override/remove directives)
-    if cleaned_config:
-        config = deep_merge(config, cleaned_config)
-
-    # Apply removals first (from the remove: directive)
-    for key_path in removals:
+    # Apply all accumulated removals first (from the remove: directives)
+    for key_path in accumulated_removals:
         config = set_nested_value(config, key_path, None, delete=True)
 
-    # Apply override using dot notation
+    # Apply all accumulated overrides using dot notation
     # If value is None/null, treat it as a removal
-    for key_path, value in overrides.items():
+    for key_path, value in accumulated_overrides.items():
         parsed_value = parse_value(value)
         if parsed_value is None:
             # null value means delete the key

@@ -451,3 +451,94 @@ base:
 
         assert cfg["base"]["world_size"] == 1
         assert cfg["base"]["iterations"] == 100
+
+    def test_included_file_with_removals(self, tmp_path):
+        """Test that override/remove directives in included files are respected."""
+        # Create a base config with full configuration
+        base_config = tmp_path / "base.yaml"
+        base_config.write_text(
+            """
+parsers:
+  - parser_one
+  - parser_two
+  - parser_three
+  - parser_four
+
+model:
+  name: full_chain
+  depth: 5
+"""
+        )
+
+        # Create a modifier config that removes some parsers
+        modifier_config = tmp_path / "modifier.yaml"
+        modifier_config.write_text(
+            """
+override:
+  parsers: [parser_one, parser_three]
+  model.depth: 3
+"""
+        )
+
+        # Create main config that includes both
+        main_config = tmp_path / "main.yaml"
+        main_config.write_text(
+            """
+include:
+  - base.yaml
+  - modifier.yaml
+"""
+        )
+
+        cfg = load_config(str(main_config))
+
+        # The modifier's override should be applied after merging
+        assert cfg["parsers"] == ["parser_one", "parser_three"]
+        assert cfg["model"]["name"] == "full_chain"
+        assert cfg["model"]["depth"] == 3
+
+    def test_included_file_with_null_removals(self, tmp_path):
+        """Test that null values in override blocks from included files delete keys."""
+        # Create a base config
+        base_config = tmp_path / "base.yaml"
+        base_config.write_text(
+            """
+io:
+  reader:
+    batch_size: 4
+    shuffle: true
+    num_workers: 8
+  writer:
+    output_dir: /tmp
+"""
+        )
+
+        # Create a modifier that removes some keys
+        modifier_config = tmp_path / "modifier.yaml"
+        modifier_config.write_text(
+            """
+override:
+  io.reader.shuffle: null
+  io.writer: null
+"""
+        )
+
+        # Create main config that includes both
+        main_config = tmp_path / "main.yaml"
+        main_config.write_text(
+            """
+include:
+  - base.yaml
+  - modifier.yaml
+"""
+        )
+
+        cfg = load_config(str(main_config))
+
+        # shuffle should be deleted
+        assert "shuffle" not in cfg["io"]["reader"]
+        assert cfg["io"]["reader"]["batch_size"] == 4
+        assert cfg["io"]["reader"]["num_workers"] == 8
+
+        # writer should be completely deleted
+        assert "writer" not in cfg["io"]
