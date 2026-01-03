@@ -326,22 +326,31 @@ override:
         assert cfg["io"]["loader"]["dataset"]["name"] == "larcv"
 
     def test_dot_notation_creates_nested_dicts(self, tmp_path):
-        """Test that dot notation creates nested dictionaries if they don't exist."""
+        """Test that dot notation creates final key but not missing parents."""
         main_config = tmp_path / "main.yaml"
         main_config.write_text(
             """
 base:
   world_size: 1
 
+new:
+  nested:
+    deeply:
+      nested: {}
+
 override:
   new.nested.deeply.nested.value: 123
+  nonexistent.path.value: 456  # Should be skipped
 """
         )
 
         cfg = load_config(str(main_config))
 
         assert cfg["base"]["world_size"] == 1
+        # This works because new.nested.deeply.nested exists
         assert cfg["new"]["nested"]["deeply"]["nested"]["value"] == 123
+        # This should not create nonexistent
+        assert "nonexistent" not in cfg
 
     def test_include_file_not_found(self, tmp_path):
         """Test that missing include files raise appropriate error."""
@@ -1183,3 +1192,93 @@ include:
             "parser_four",
             "parser_five",
         ]
+
+    def test_override_only_if_parent_exists(self, tmp_path):
+        """Test that overrides are only applied if parent path exists."""
+        base_config = tmp_path / "base.yaml"
+        base_config.write_text(
+            """
+io:
+  reader:
+    batch_size: 4
+"""
+        )
+
+        main_config = tmp_path / "main.yaml"
+        main_config.write_text(
+            """
+include: base.yaml
+
+override:
+  io.reader.batch_size: 8
+  io.writer.output_dir: /tmp  # io.writer doesn't exist, should be skipped
+  model.name: full_chain      # model doesn't exist, should be skipped
+"""
+        )
+
+        cfg = load_config(str(main_config))
+
+        # io.reader.batch_size should be overridden (parent exists)
+        assert cfg["io"]["reader"]["batch_size"] == 8
+
+        # io.writer and model should NOT be created
+        assert "writer" not in cfg["io"]
+        assert "model" not in cfg
+
+    def test_override_nested_only_if_exists(self, tmp_path):
+        """Test that deeply nested overrides are skipped if intermediate path missing."""
+        base_config = tmp_path / "base.yaml"
+        base_config.write_text(
+            """
+io:
+  reader:
+    batch_size: 4
+"""
+        )
+
+        main_config = tmp_path / "main.yaml"
+        main_config.write_text(
+            """
+include: base.yaml
+
+override:
+  io.reader.shuffle: true           # io.reader exists, should work
+  io.loader.dataset.name: larcv     # io.loader doesn't exist, skip
+"""
+        )
+
+        cfg = load_config(str(main_config))
+
+        # io.reader.shuffle should be added (parent exists)
+        assert cfg["io"]["reader"]["shuffle"] is True
+        assert cfg["io"]["reader"]["batch_size"] == 4
+
+        # io.loader should NOT be created
+        assert "loader" not in cfg["io"]
+
+    def test_override_creates_final_key_if_parent_exists(self, tmp_path):
+        """Test that override creates the final key if its parent exists."""
+        base_config = tmp_path / "base.yaml"
+        base_config.write_text(
+            """
+io:
+  reader:
+    batch_size: 4
+"""
+        )
+
+        main_config = tmp_path / "main.yaml"
+        main_config.write_text(
+            """
+include: base.yaml
+
+override:
+  io.reader.new_key: new_value
+"""
+        )
+
+        cfg = load_config(str(main_config))
+
+        # new_key should be created because io.reader exists
+        assert cfg["io"]["reader"]["new_key"] == "new_value"
+        assert cfg["io"]["reader"]["batch_size"] == 4

@@ -237,6 +237,7 @@ def set_nested_value(
     value: Any,
     delete: bool = False,
     strict_delete: bool = False,
+    only_if_exists: bool = False,
 ) -> Dict[str, Any]:
     """Set a nested value in a dictionary using dot notation.
 
@@ -253,6 +254,10 @@ def set_nested_value(
     strict_delete : bool, optional
         If True and delete=True, raise an error if the key doesn't exist
         (helps catch typos in deletion paths)
+    only_if_exists : bool, optional
+        If True, only set the value if all parent keys already exist.
+        Does not create new nested dictionaries. If any parent doesn't exist,
+        the operation is silently skipped.
 
     Returns
     -------
@@ -279,6 +284,9 @@ def set_nested_value(
                         f"Check for typos in your override/remove directive."
                     )
                 # Key path doesn't exist, nothing to delete
+                return config
+            if only_if_exists:
+                # Parent doesn't exist and we're in only_if_exists mode, skip
                 return config
             current[key] = {}
         elif not isinstance(current[key], dict):
@@ -435,7 +443,10 @@ def _apply_overrides_and_removals(
                     config, key_path, None, delete=True, strict_delete=True
                 )
             else:
-                config = set_nested_value(config, key_path, parsed_value)
+                # Only apply override if parent path exists
+                config = set_nested_value(
+                    config, key_path, parsed_value, only_if_exists=True
+                )
 
     return config
 
