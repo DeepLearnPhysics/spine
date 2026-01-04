@@ -27,6 +27,7 @@ List operations:
 Dictionary operations:
     override:
       io.writer-: [key1, key2]    # Remove keys from dict
+      io.writer.baz: null          # Set baz to None (not delete)
 
 Nested path operations:
     override:
@@ -435,18 +436,12 @@ def _apply_overrides_and_removals(
             parsed_value = parse_value(value)
             config = apply_collection_operation(config, base_key, parsed_value, "-")
         else:
-            # Regular override or deletion
+            # Regular override - set the value (including None)
             parsed_value = parse_value(value)
-            if parsed_value is None:
-                # null value means delete the key
-                config = set_nested_value(
-                    config, key_path, None, delete=True, strict_delete=True
-                )
-            else:
-                # Only apply override if parent path exists
-                config = set_nested_value(
-                    config, key_path, parsed_value, only_if_exists=True
-                )
+            # Only apply override if parent path exists
+            config = set_nested_value(
+                config, key_path, parsed_value, only_if_exists=True
+            )
 
     return config
 
@@ -523,7 +518,8 @@ def load_config(cfg_path: str) -> Dict[str, Any]:
     - Including other YAML files: "include: base.yaml" or "include: [base.yaml, other.yaml]"
     - Including files within blocks: "key: !include file.yaml"
     - Overriding nested parameters: "override: { io.reader.file_paths: value }"
-    - Removing keys from included files: "remove: io.loader.batch_size" or "override: { key: null }"
+    - Setting values to None: "override: { key: null }" sets key to None (doesn't delete it)
+    - Removing keys from dicts: "remove: io.loader.batch_size" or "override: { parent-: [key] }"
     - List operations: "override: { parsers+: [new_parser] }" to append, "parsers-: [old_parser]" to remove
 
     **IMPORTANT**: Overrides and removals are applied immediately after each included file
