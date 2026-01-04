@@ -239,7 +239,7 @@ def set_nested_value(
     delete: bool = False,
     strict_delete: bool = False,
     only_if_exists: bool = False,
-) -> Dict[str, Any]:
+) -> Tuple[Dict[str, Any], bool]:
     """Set a nested value in a dictionary using dot notation.
 
     Parameters
@@ -262,8 +262,9 @@ def set_nested_value(
 
     Returns
     -------
-    Dict[str, Any]
-        Modified configuration dictionary
+    Tuple[Dict[str, Any], bool]
+        Tuple of (modified configuration dictionary, whether operation was applied)
+        The boolean is True if the value was set/deleted, False if skipped
 
     Raises
     ------
@@ -285,10 +286,10 @@ def set_nested_value(
                         f"Check for typos in your override/remove directive."
                     )
                 # Key path doesn't exist, nothing to delete
-                return config
+                return config, False
             if only_if_exists:
                 # Parent doesn't exist and we're in only_if_exists mode, skip
-                return config
+                return config, False
             current[key] = {}
         elif not isinstance(current[key], dict):
             # If we encounter a non-dict value, we can't navigate further
@@ -300,15 +301,16 @@ def set_nested_value(
     if delete:
         if final_key in current:
             del current[final_key]
+            return config, True
         elif strict_delete:
             raise KeyError(
                 f"Cannot delete '{key_path}': key does not exist. "
                 f"Check for typos in your override/remove directive."
             )
+        return config, False
     else:
         current[final_key] = value
-
-    return config
+        return config, True
 
 
 def extract_includes_and_overrides(
@@ -400,7 +402,7 @@ def _apply_overrides_and_removals(
     config: Dict[str, Any],
     overrides: Dict[str, Any],
     removals: List[str],
-) -> Dict[str, Any]:
+) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """Apply overrides and removals to a config dict.
 
     Parameters
@@ -414,36 +416,58 @@ def _apply_overrides_and_removals(
 
     Returns
     -------
-    Dict[str, Any]
-        Modified configuration dictionary
+    Tuple[Dict[str, Any], Dict[str, Any]]
+        Tuple of (modified configuration dictionary, unapplied overrides)
+        The unapplied overrides dict contains overrides that were skipped
+        because their paths didn't exist in the config
     """
-    # Apply removals first
+    unapplied_overrides = {}
+
+    # Apply removals first (these will raise errors if keys don't exist due to strict_delete)
     for key_path in removals:
-        config = set_nested_value(
+        config, _ = set_nested_value(
             config, key_path, None, delete=True, strict_delete=True
         )
 
     # Apply overrides (including +/- operations)
     for key_path, value in overrides.items():
-        if key_path.endswith("+"):
-            # Append operation
-            base_key = key_path[:-1]
-            parsed_value = parse_value(value)
-            config = apply_collection_operation(config, base_key, parsed_value, "+")
-        elif key_path.endswith("-"):
-            # Remove operation
-            base_key = key_path[:-1]
-            parsed_value = parse_value(value)
-            config = apply_collection_operation(config, base_key, parsed_value, "-")
+        parsed_value = parse_value(value)
+
+        if key_path.endswith("+") or key_path.endswith("-"):
+            # Collection operations - these will raise errors if paths don't exist or wrong type
+            base_key = key_path[:-1] if key_path.endswith(("+", "-")) else key_path
+            operation = key_path[-1]
+            try:
+                config = apply_collection_operation(
+                    config, base_key, parsed_value, operation
+                )
+            except ValueError as e:
+                # Check if this is a type error (should be raised) or path-not-found error (should be saved)
+                error_msg = str(e)
+                if (
+                    "not a list" in error_msg
+                    or "not a dict" in error_msg
+                    or "not supported" in error_msg
+                    or "Invalid collection operation" in error_msg
+                ):
+                    # Type/operation error - raise it
+                    raise
+                # Path doesn't exist, save for propagation
+                unapplied_overrides[key_path] = value
+            except KeyError:
+                # Path doesn't exist, save for propagation
+                unapplied_overrides[key_path] = value
         else:
             # Regular override - set the value (including None)
-            parsed_value = parse_value(value)
             # Only apply override if parent path exists
-            config = set_nested_value(
+            config, applied = set_nested_value(
                 config, key_path, parsed_value, only_if_exists=True
             )
+            if not applied:
+                # Value was not set because path doesn't exist, save for propagation
+                unapplied_overrides[key_path] = value
 
-    return config
+    return config, unapplied_overrides
 
 
 def _load_config_recursive(
@@ -497,16 +521,15 @@ def _load_config_recursive(
         config = deep_merge(config, included_config)
 
         # Try to apply the included file's overrides and removals to the working config
-        # If the working config has the necessary paths, operations will succeed
-        # If not, we'll propagate them upward to be applied at a higher level
-        try:
-            config = _apply_overrides_and_removals(
-                config, included_overrides, included_removals
-            )
-        except (ValueError, KeyError):
-            # Operations failed (paths don't exist yet), propagate upward
-            overrides = {**included_overrides, **overrides}
-            removals = included_removals + removals
+        # If some overrides can't be applied (paths don't exist), they'll be returned
+        # as unapplied and we'll propagate them upward
+        config, unapplied = _apply_overrides_and_removals(
+            config, included_overrides, included_removals
+        )
+
+        # Propagate unapplied overrides upward
+        if unapplied:
+            overrides = {**unapplied, **overrides}
 
     # Merge the main config (without include/override/remove directives)
     if cleaned_config:
@@ -542,6 +565,28 @@ def load_config(cfg_path: str) -> Dict[str, Any]:
     config, overrides, removals = _load_config_recursive(cfg_path)
 
     # Apply the top-level file's overrides and removals
-    config = _apply_overrides_and_removals(config, overrides, removals)
+    # At top level: regular overrides to missing paths are silently ignored
+    # But collection operations and removals on missing paths raise errors
+    for key_path, value in overrides.items():
+        parsed_value = parse_value(value)
+
+        if key_path.endswith("+") or key_path.endswith("-"):
+            # Collection operations - must raise if path doesn't exist
+            base_key = key_path[:-1]
+            operation = key_path[-1]
+            config = apply_collection_operation(
+                config, base_key, parsed_value, operation
+            )
+        else:
+            # Regular override - silently skip if parent path doesn't exist
+            config, _ = set_nested_value(
+                config, key_path, parsed_value, only_if_exists=True
+            )
+
+    # Apply removals (will raise if keys don't exist)
+    for key_path in removals:
+        config, _ = set_nested_value(
+            config, key_path, None, delete=True, strict_delete=True
+        )
 
     return config
