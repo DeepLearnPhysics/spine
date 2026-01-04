@@ -507,7 +507,7 @@ include:
         assert cfg["model"]["depth"] == 3
 
     def test_included_file_with_null_removals(self, tmp_path):
-        """Test that null values in override blocks from included files delete keys."""
+        """Test that null values in override blocks set keys to None (not delete)."""
         # Create a base config
         base_config = tmp_path / "base.yaml"
         base_config.write_text(
@@ -522,7 +522,7 @@ io:
 """
         )
 
-        # Create a modifier that removes some keys
+        # Create a modifier that sets some keys to None
         modifier_config = tmp_path / "modifier.yaml"
         modifier_config.write_text(
             """
@@ -544,13 +544,15 @@ include:
 
         cfg = load_config(str(main_config))
 
-        # shuffle should be deleted
-        assert "shuffle" not in cfg["io"]["reader"]
+        # shuffle should be set to None (not deleted)
+        assert "shuffle" in cfg["io"]["reader"]
+        assert cfg["io"]["reader"]["shuffle"] is None
         assert cfg["io"]["reader"]["batch_size"] == 4
         assert cfg["io"]["reader"]["num_workers"] == 8
 
-        # writer should be completely deleted
-        assert "writer" not in cfg["io"]
+        # writer should be set to None (not deleted)
+        assert "writer" in cfg["io"]
+        assert cfg["io"]["writer"] is None
 
     def test_list_append_operation(self, tmp_path):
         """Test appending to lists using + operator."""
@@ -813,7 +815,7 @@ include:
         assert cfg["parsers"] == ["parser_one", "parser_three", "parser_four"]
 
     def test_delete_nonexistent_key_with_null(self, tmp_path):
-        """Test that deleting a non-existent key with null raises an error."""
+        """Test that setting a non-existent key to null creates it with None value (no error)."""
         base_config = tmp_path / "base.yaml"
         base_config.write_text(
             """
@@ -829,16 +831,15 @@ io:
 include: base.yaml
 
 override:
-  io.wrtier: null  # Typo: should be 'writer'
+  io.reader.shuffle: null  # Set new key to None
 """
         )
 
-        with pytest.raises(KeyError) as exc_info:
-            load_config(str(main_config))
-
-        assert "io.wrtier" in str(exc_info.value)
-        assert "does not exist" in str(exc_info.value)
-        assert "typos" in str(exc_info.value).lower()
+        # Should not raise an error - just sets the value to None
+        cfg = load_config(str(main_config))
+        assert "shuffle" in cfg["io"]["reader"]
+        assert cfg["io"]["reader"]["shuffle"] is None
+        assert cfg["io"]["reader"]["batch_size"] == 4
 
     def test_delete_nonexistent_key_with_remove(self, tmp_path):
         """Test that deleting a non-existent key with remove directive raises an error."""
@@ -867,7 +868,7 @@ remove: io.reader.batchsize  # Typo: should be 'batch_size'
         assert "does not exist" in str(exc_info.value)
 
     def test_delete_nonexistent_nested_path(self, tmp_path):
-        """Test that deleting with a non-existent parent path raises an error."""
+        """Test that setting a value on non-existent parent path is silently skipped (only_if_exists behavior)."""
         base_config = tmp_path / "base.yaml"
         base_config.write_text(
             """
@@ -883,16 +884,14 @@ io:
 include: base.yaml
 
 override:
-  io.writter.output_dir: null  # Typo: 'writter' doesn't exist
+  io.writer.output_dir: null  # 'writer' doesn't exist, should be skipped
 """
         )
 
-        with pytest.raises(KeyError) as exc_info:
-            load_config(str(main_config))
-
-        assert "io.writter.output_dir" in str(exc_info.value)
-        assert "io.writter" in str(exc_info.value)
-        assert "does not exist" in str(exc_info.value)
+        # Should not raise an error - just skips the operation since parent doesn't exist
+        cfg = load_config(str(main_config))
+        assert "writer" not in cfg["io"]
+        assert cfg["io"]["reader"]["batch_size"] == 4
 
     def test_dict_remove_operation(self, tmp_path):
         """Test removing keys from dictionaries using - operator."""
