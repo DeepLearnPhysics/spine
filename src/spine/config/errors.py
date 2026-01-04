@@ -4,6 +4,8 @@ This module defines specific exception types for different kinds of
 configuration errors, making it easier to handle and debug issues.
 """
 
+from typing import List
+
 
 class ConfigError(Exception):
     """Base exception for all configuration errors."""
@@ -16,12 +18,12 @@ class ConfigIncludeError(ConfigError):
 class ConfigCycleError(ConfigError):
     """Raised when a circular include dependency is detected."""
 
-    def __init__(self, cycle_path: list[str]):
+    def __init__(self, cycle_path: List[str]):
         """Initialize with the cycle path.
 
         Parameters
         ----------
-        cycle_path : list[str]
+        cycle_path : List[str]
             List of file paths showing the include cycle
         """
         self.cycle_path = cycle_path

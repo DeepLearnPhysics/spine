@@ -6,7 +6,7 @@ including extraction, validation, and compatibility checking.
 
 import os
 import warnings
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from .api import (
     DEFAULT_KIND,
@@ -84,7 +84,7 @@ def _compare_versions(actual: str, operator: str, required: str) -> bool:
         return actual_cmp == required_cmp
 
 
-def _parse_version_constraint(constraint: str) -> tuple[str, str]:
+def _parse_version_constraint(constraint: str) -> Tuple[str, str]:
     """Parse a version constraint into operator and version.
 
     Parameters
@@ -94,7 +94,7 @@ def _parse_version_constraint(constraint: str) -> tuple[str, str]:
 
     Returns
     -------
-    tuple[str, str]
+    Tuple[str, str]
         (operator, version) tuple. If no operator, returns ("==", version)
     """
     constraint = constraint.strip()
