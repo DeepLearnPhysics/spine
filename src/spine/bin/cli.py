@@ -6,7 +6,8 @@ import os
 import pathlib
 import sys
 
-from spine.utils.config import load_config, parse_value, set_nested_value
+from spine.config import load_config
+from spine.config.loader import parse_value, set_nested_value
 
 
 def main(

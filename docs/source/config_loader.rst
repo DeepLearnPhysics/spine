@@ -1,7 +1,7 @@
 Advanced YAML Config Loader
 ============================
 
-The enhanced ``spine.utils.config`` module provides four powerful features for managing YAML configuration files using standard YAML syntax.
+The enhanced ``spine.config`` module provides four powerful features for managing YAML configuration files using standard YAML syntax.
 
 Features
 --------
@@ -209,7 +209,7 @@ Usage in Python
 
 .. code-block:: python
 
-   from spine.utils.config import load_config
+   from spine.config import load_config
 
    # Load your config file
    cfg = load_config('icarus_full_chain.yaml')

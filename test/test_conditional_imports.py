@@ -312,7 +312,7 @@ class TestIntegrationWithoutDependencies:
 
     def test_configuration_loading_without_torch(self):
         """Test config loading works without torch."""
-        from spine.utils.config import load_config
+        from spine.config import load_config
 
         # Should be able to load configs even without torch
         # (though some model configs may fail at runtime)
