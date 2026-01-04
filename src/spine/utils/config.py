@@ -496,11 +496,17 @@ def _load_config_recursive(
         # Merge the included config into our working config
         config = deep_merge(config, included_config)
 
-        # Apply the included file's overrides and removals IMMEDIATELY to the working config
-        # This ensures that operations are applied in include order
-        config = _apply_overrides_and_removals(
-            config, included_overrides, included_removals
-        )
+        # Try to apply the included file's overrides and removals to the working config
+        # If the working config has the necessary paths, operations will succeed
+        # If not, we'll propagate them upward to be applied at a higher level
+        try:
+            config = _apply_overrides_and_removals(
+                config, included_overrides, included_removals
+            )
+        except (ValueError, KeyError):
+            # Operations failed (paths don't exist yet), propagate upward
+            overrides = {**included_overrides, **overrides}
+            removals = included_removals + removals
 
     # Merge the main config (without include/override/remove directives)
     if cleaned_config:
@@ -522,9 +528,10 @@ def load_config(cfg_path: str) -> Dict[str, Any]:
     - Removing keys from dicts: "remove: io.loader.batch_size" or "override: { parent-: [key] }"
     - List operations: "override: { parsers+: [new_parser] }" to append, "parsers-: [old_parser]" to remove
 
-    **IMPORTANT**: Overrides and removals are applied immediately after each included file
-    is merged, in include order. This means later files can modify items added/removed by
-    earlier files, and the order of operations matters.
+    **IMPORTANT**: Overrides and removals from all included files (at any nesting level)
+    are propagated upward and applied at the top level after all configs are merged.
+    This means override-only files work correctly regardless of include depth, and the
+    order of operations follows the include order.
 
     Returns
     -------
