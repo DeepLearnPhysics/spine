@@ -133,8 +133,8 @@ def main(
             # Parse the value (handles strings, numbers, booleans, lists, etc.)
             value = parse_value(value_str)
 
-            # Set the nested value
-            cfg = set_nested_value(cfg, key_path, value)
+            # Set the nested value (returns tuple of (config, applied))
+            cfg, _ = set_nested_value(cfg, key_path, value)
 
     # For actual training/inference, we need the main functionality
     from spine.main import run
