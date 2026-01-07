@@ -1,20 +1,37 @@
 # Changelog
 
-## [0.8.2] - 2025-12-31
+## [0.9.0] - 2026-01-07
 
 ### Added
-- Advanced YAML configuration loader with file includes and parameter overrides
-  - Support for `include:` directive to include other YAML files (single or list)
-  - Support for `!include` tag for inline includes within configuration blocks
-  - Support for `overrides:` block with dot-notation parameter overrides (e.g., `io.loader.batch_size: 8`)
+- **Advanced YAML Configuration System**: Complete configuration management with composition and validation
+  - File includes via `include:` directive (single file or list) and `!include` tag
+  - Parameter overrides with dot-notation syntax (e.g., `io.loader.batch_size: 8`)
+  - Command-line configuration via `--set` flag
   - Recursive deep merging of configuration dictionaries
-  - CLI `--set` flag for command-line configuration overrides
-- Comprehensive test suite for configuration loader (13 tests)
-- Documentation for advanced configuration features
+- **Configuration Metadata System**: Version control and compatibility checking via `__meta__` blocks
+  - Version tracking with 6-digit YYMMDD format (e.g., "240719")
+  - Compatibility constraints with operators (==, >=, <=, >, <, !=)
+  - Deferred validation supporting forward references between components
+  - Automatic component version inference from directory structure
+  - Configurable behavior: `kind` (bundle/mod), `strict` mode (warn/error), `list_append` (append/unique)
+  - Modifier metadata: `priority`, `applies_to`, `requires`, `conflicts_with`
+  - Comprehensive METADATA_GUIDE.md documentation
+- **Typed Exception Hierarchy**: 7 specialized exceptions for configuration errors
+  - `ConfigError` (base), `ConfigIncludeError`, `ConfigCycleError`, `ConfigPathError`
+  - `ConfigTypeError`, `ConfigOperationError`, `ConfigValidationError`
+- **Modular Package Architecture**: New `spine/config/` package
+  - `loader.py`: Include resolution, override processing, metadata validation
+  - `meta.py`: Version parsing and compatibility checking
+  - `errors.py`: Typed exception hierarchy
+  - `api.py`: Configuration schema and constants
 
 ### Changed
-- CLI now uses `load_config()` instead of `yaml.safe_load()`
-- Removed `--detect-anomaly` CLI flag (use `--set model.detect_anomaly=true` instead)
+- CLI now uses `load_config()` with full include/override support
+- **Breaking**: Configuration loader moved from `spine.utils.config` to `spine.config` package
+  - New import: `from spine.config import load_config`
+
+### Removed
+- CLI `--detect-anomaly` flag (use `--set model.detect_anomaly=true` instead)
 
 ## [0.8.1] - 2025-12-19
 
