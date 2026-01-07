@@ -1,4 +1,4 @@
-name: Comprehensive Testing
+name: CI
 
 on:
   push:
