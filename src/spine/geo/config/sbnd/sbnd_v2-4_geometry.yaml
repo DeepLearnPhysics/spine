@@ -1,6 +1,6 @@
 name: SBND
-tag: sbndv2
-version: 2
+tag: sbndv2-4
+version: 2.4
 gdml: sbnd_v02_04.gdml
 tpc:
   dimensions: [201.4, 400.015, 501.315]
