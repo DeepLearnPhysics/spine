@@ -79,7 +79,7 @@ class GeoManager:
         return cls._instance is not None
 
     @classmethod
-    def get_instance(cls, raise_error=True) -> Optional[Geometry]:
+    def get_instance(cls) -> Geometry:
         """Get the current geometry instance.
 
         Parameters
@@ -89,14 +89,10 @@ class GeoManager:
 
         Returns
         -------
-        Optional[Geometry]
+        Geometry
             The current geometry instance.
         """
         if cls._instance is None:
-            # If raise_error is False, return None
-            if not raise_error:
-                return None
-
             # Raise an error with detailed information about the call site
             frame_info = inspect.stack()[1]
             frame = frame_info.frame
@@ -117,6 +113,17 @@ class GeoManager:
                 "before calling geometry-dependent modules."
             )
 
+        return cls._instance
+
+    @classmethod
+    def get_instance_if_initialized(cls) -> Optional[Geometry]:
+        """Get the current geometry instance if initialized.
+
+        Returns
+        -------
+        Optional[Geometry]
+            The current geometry instance, or None if not initialized.
+        """
         return cls._instance
 
     @classmethod
