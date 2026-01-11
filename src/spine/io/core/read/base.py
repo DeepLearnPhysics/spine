@@ -244,7 +244,7 @@ class ReaderBase(ABC):
             n_skip = n_skip if n_skip else 0
             n_entry = n_entry if n_entry else self.num_entries - n_skip
             assert n_skip + n_entry <= self.num_entries, (
-                f"Mismatch between `n_entry` ({n_entry}), `n_skip` ({n_skip}) "
+                f"Incompatibility between `n_entry` ({n_entry}), `n_skip` ({n_skip}) "
                 f"and the number of entries in the files ({self.num_entries})."
             )
 
@@ -266,6 +266,7 @@ class ReaderBase(ABC):
                 entry_list_arr = entry_list_arr[n_skip:]
             if n_entry is not None and n_entry > 0:
                 entry_list_arr = entry_list_arr[:n_entry]
+
         elif entry_list:
             entry_list_arr = self.parse_entry_list(entry_list)
             assert np.all(
@@ -279,17 +280,18 @@ class ReaderBase(ABC):
             self.process_run_info()
             run_event_list_tuple = self.parse_run_event_list(run_event_list)
             entry_list = []
-            for i, (r, s, e) in enumerate(run_event_list_tuple):
+            for r, s, e in run_event_list_tuple:
                 if not allow_missing or (r, s, e) in self.run_map:
                     entry_list.append(self.get_run_event_index(r, s, e))
 
             entry_list_arr = np.unique(entry_list)
 
         elif skip_entry_list or skip_run_event_list:
+            skip_entry_list_arr = None
             if skip_entry_list:
-                skip_entry_list_tuple = self.parse_entry_list(skip_entry_list)
+                skip_entry_list_arr = self.parse_entry_list(skip_entry_list)
                 assert np.all(
-                    skip_entry_list_tuple < self.num_entries
+                    skip_entry_list_arr < self.num_entries
                 ), "Values in skip_entry_list outside of bounds."
 
             elif skip_run_event_list:
@@ -301,13 +303,16 @@ class ReaderBase(ABC):
                     skip_run_event_list
                 )
                 skip_entry_list = []
-                for i, (r, s, e) in enumerate(skip_run_event_list_tuple):
+                for r, s, e in skip_run_event_list_tuple:
                     if not allow_missing or (r, s, e) in self.run_map:
                         skip_entry_list.append(self.get_run_event_index(r, s, e))
 
-            entry_mask = np.ones(self.num_entries, dtype=bool)
-            entry_mask[skip_entry_list] = False
-            entry_list_arr = np.where(entry_mask)[0]
+                skip_entry_list_arr = np.array(skip_entry_list, dtype=int)
+
+            if skip_entry_list_arr is not None:
+                entry_mask = np.ones(self.num_entries, dtype=bool)
+                entry_mask[skip_entry_list_arr] = False
+                entry_list_arr = np.where(entry_mask)[0]
 
         # Apply entry list to the indexes
         entry_index = np.arange(self.num_entries, dtype=np.int64)
