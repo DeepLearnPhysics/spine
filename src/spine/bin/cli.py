@@ -5,22 +5,23 @@ import argparse
 import os
 import pathlib
 import sys
+from typing import List, Optional
 
 from spine.config import load_config
 from spine.config.loader import parse_value, set_nested_value
 
 
 def main(
-    config,
-    source,
-    source_list,
-    output,
-    n,
-    nskip,
-    log_dir,
-    weight_prefix,
-    weight_path,
-    config_overrides,
+    config: str,
+    source: List[str],
+    source_list: str,
+    output: str,
+    n: int,
+    nskip: int,
+    log_dir: str,
+    weight_prefix: str,
+    weight_path: str,
+    config_overrides: List[str],
 ):
     """Main driver for training/validation/inference/analysis.
 
@@ -47,7 +48,7 @@ def main(
     weight_prefix : str
         Path to the directory for storing the training weights
     weight_path : str
-        Path string a weight file or pattern for multiple weight files to load
+        Path to a weight file or pattern for multiple weight files to load
         the model weights
     config_overrides : List[str]
         List of config overrides in the form "key.path=value"
@@ -76,11 +77,19 @@ def main(
     assert "io" in cfg, "Must provide an `io` block in the configuration."
 
     # Override the input/output command-line information into the configuration
-    if (source is not None and len(source) > 0) or source_list is not None:
+    if source is not None and len(source) > 0:
         if "reader" in cfg["io"]:
-            cfg["io"]["reader"]["file_keys"] = source or source_list
+            cfg["io"]["reader"]["file_keys"] = source
         elif "loader" in cfg["io"]:
-            cfg["io"]["loader"]["dataset"]["file_keys"] = source or source_list
+            cfg["io"]["loader"]["dataset"]["file_keys"] = source
+        else:
+            raise KeyError("Must specify `loader` or `reader` in the `io` block.")
+
+    if source_list is not None:
+        if "reader" in cfg["io"]:
+            cfg["io"]["reader"]["file_list"] = source_list
+        elif "loader" in cfg["io"]:
+            cfg["io"]["loader"]["dataset"]["file_list"] = source_list
         else:
             raise KeyError("Must specify `loader` or `reader` in the `io` block.")
 
@@ -242,7 +251,7 @@ For ML training/inference functionality, ensure PyTorch is installed:
     # For actual training/inference, call the main function
     main(
         config=config_file,
-        source=args.source or [],
+        source=args.source,
         source_list=args.source_list,
         output=args.output,
         n=args.iterations,
@@ -250,7 +259,7 @@ For ML training/inference functionality, ensure PyTorch is installed:
         log_dir=args.log_dir,
         weight_prefix=args.weight_prefix,
         weight_path=args.weight_path,
-        config_overrides=args.config_overrides or [],
+        config_overrides=args.config_overrides,
     )
 
 

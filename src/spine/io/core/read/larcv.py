@@ -1,6 +1,6 @@
 """Contains a reader class dedicated to loading data from LArCV files."""
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 import numpy as np
 
@@ -35,8 +35,9 @@ class LArCVReader(ReaderBase):
 
     def __init__(
         self,
-        file_keys: List[str],
-        tree_keys: List[str],
+        file_keys: Optional[Union[str, List[str]]] = None,
+        file_list: Optional[str] = None,
+        tree_keys: Optional[List[str]] = None,
         limit_num_files: Optional[int] = None,
         max_print_files: int = 10,
         n_entry: Optional[int] = None,
@@ -53,8 +54,10 @@ class LArCVReader(ReaderBase):
 
         Parameters
         ----------
-        file_keys : list
-            List of paths to the HDF5 files to be read
+        file_keys : Union[str, List[str]], optional
+            Path or list of paths to the HDF5 files to be read
+        file_list : str, optional
+            Path to a text file containing a list of file paths to be read
         tree_keys : List[str]
             List of data keys to load from the LArCV files
         limit_num_files : Optional[int], optional
@@ -82,7 +85,10 @@ class LArCVReader(ReaderBase):
             If `True`, allows missing entries in the entry or event list
         """
         # Process the file_paths
-        self.process_file_paths(file_keys, limit_num_files, max_print_files)
+        self.process_file_paths(file_keys, file_list, limit_num_files, max_print_files)
+        assert (
+            tree_keys is not None and len(tree_keys) > 0
+        ), "No input `tree_keys` provided, abort."
 
         # If an entry list is requested based on run/subrun/event ID, create map
         if run_event_list is not None or skip_run_event_list is not None:

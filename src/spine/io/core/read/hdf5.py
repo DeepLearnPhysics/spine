@@ -1,7 +1,7 @@
 """Contains a reader class dedicated to loading data from HDF5 files."""
 
 from dataclasses import fields
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 from warnings import warn
 
 import h5py
@@ -34,7 +34,8 @@ class HDF5Reader(ReaderBase):
 
     def __init__(
         self,
-        file_keys: List[str],
+        file_keys: Optional[Union[str, List[str]]] = None,
+        file_list: Optional[str] = None,
         limit_num_files: Optional[int] = None,
         max_print_files: int = 10,
         n_entry: Optional[int] = None,
@@ -53,8 +54,10 @@ class HDF5Reader(ReaderBase):
 
         Parameters
         ----------
-        file_keys : List[str]
-            List of paths to the HDF5 files to be read
+        file_keys : Union[str, List[str]], optional
+            Path or list of paths to the HDF5 files to be read
+        file_list : str, optional
+            Path to a text file containing a list of file paths to be read
         limit_num_files : Optional[int], optional
             Integer limiting number of files to be taken per data directory
         max_print_files : int, default 10
@@ -86,7 +89,7 @@ class HDF5Reader(ReaderBase):
             If `True`, allows missing entries in the entry or event list
         """
         # Process the list of files
-        self.process_file_paths(file_keys, limit_num_files, max_print_files)
+        self.process_file_paths(file_keys, file_list, limit_num_files, max_print_files)
 
         # If an entry list is requested based on run/subrun/event ID, create map
         if run_event_list is not None or skip_run_event_list is not None:

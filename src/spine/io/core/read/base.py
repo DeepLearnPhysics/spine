@@ -106,7 +106,8 @@ class ReaderBase(ABC):
 
     def process_file_paths(
         self,
-        file_keys: List[str],
+        file_keys: Optional[Union[str, List[str]]] = None,
+        file_list: Optional[str] = None,
         limit_num_files: Optional[int] = None,
         max_print_files: int = 10,
     ) -> None:
@@ -114,31 +115,35 @@ class ReaderBase(ABC):
 
         Parameters
         ----------
-        file_keys : list
-            List of paths to the HDF5 files to be read
+        file_keys : Union[str, List[str]], optional
+            Path or list of paths to the HDF5 files to be read
+        file_list : str, optional
+            Path to a text file containing a list of file paths to be read
         limit_num_files : int, optional
             Integer limiting number of files to be taken per data directory
         max_print_files : int, default 10
             Maximum number of loaded file names to be printed
         """
         # Some basic checks
-        assert file_keys is not None, "No input `file_keys` provided, abort."
+        assert (file_keys is not None) ^ (
+            file_list is not None
+        ), "Must provide either `file_keys` or `file_list` to process files."
         assert (
             limit_num_files is None or limit_num_files > 0
         ), "If `limit_num_files` is provided, it must be larger than 0."
 
-        # If the file_keys points to a single text file, it must be a text
-        # file containing a list of file paths. Parse it to a list.
-        if isinstance(file_keys, str) and os.path.splitext(file_keys)[-1] == ".txt":
+        # When using a file list in text format, read it and parse to a list
+        if file_list is not None:
             # If the file list is a text file, extract the list of paths
-            assert os.path.isfile(file_keys), (
-                "If the `file_keys` are specified as a single string, "
-                "it must be the path to a text file with a file list."
+            assert os.path.isfile(file_list), (
+                "If the `file_list` arguments is provided, it must point to a valid "
+                "path to a text file with a file list."
             )
-            with open(file_keys, "r", encoding="utf-8") as f:
+            with open(file_list, "r", encoding="utf-8") as f:
                 file_keys = f.read().splitlines()
 
         # Convert the file keys to a list of file paths with glob
+        assert file_keys is not None  # For the linter's sake
         self.file_paths = []
         if isinstance(file_keys, str):
             file_keys = [file_keys]
