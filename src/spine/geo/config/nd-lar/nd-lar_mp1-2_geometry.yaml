@@ -1,5 +1,5 @@
 name: ND-LAr
-tag: mp1.2
+tag: mp1-2
 version: 1.2
 crs_files: [data/ndlar_flow/multi_tile_layout-3.0.40.yaml]
 tpc:

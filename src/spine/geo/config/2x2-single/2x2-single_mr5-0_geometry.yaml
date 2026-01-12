@@ -1,5 +1,5 @@
 name: 2x2-Single
-tag: mr5.0
+tag: mr5-0
 version: 5.0
 crs_files: [data/proto_nd_flow/multi_tile_layout-2.4.16.yaml]
 tpc:

@@ -1,5 +1,5 @@
 name: ND-LAr
-tag: up3.2
+tag: up3-2
 version: 3.2
 crs_files: [data/ndlar_flow/multi_tile_layout-3.0.40_NDLArModule_v3.yaml]
 lrs_file: data/ndlar_flow/light_module_desc-ndlar-1.0.0.yaml

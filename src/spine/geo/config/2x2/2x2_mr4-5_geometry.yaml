@@ -1,14 +1,19 @@
-name: 2x2-Single
-tag: mr6-5
-version: 6.5
-crs_files: [data/proto_nd_flow/multi_tile_layout-2.4.16_v4.yaml]
-lrs_file: data/proto_nd_flow/light_module_desc-4.0.0.yaml
+name: 2x2
+tag: mr4-5
+version: 4.5
+crs_files: [data/proto_nd_flow/multi_tile_layout-2.4.16.yaml, data/proto_nd_flow/multi_tile_layout-2.5.16.yaml]
 tpc:
-  dimensions: [30.4311, 124.152, 62.076]
-  module_ids: [0, 0]
+  dimensions: [30.2723, 124.152, 62.076]
+  module_ids: [0, 0, 1, 1, 2, 2, 3, 3]
   positions:
-  - [15.2156, 0.0, 0.0]
-  - [-15.2156, 0.0, 0.0]
+  - [48.7949, 0.0, 33.5]
+  - [18.2051, 0.0, 33.5]
+  - [48.7949, 0.0, -33.5]
+  - [18.2051, 0.0, -33.5]
+  - [-18.2051, 0.0, 33.5]
+  - [-48.7949, 0.0, 33.5]
+  - [-18.2051, 0.0, -33.5]
+  - [-48.7949, 0.0, -33.5]
 optical:
   volume: tpc
   shape: [box, box]
