@@ -55,7 +55,7 @@ class LArCVReader(ReaderBase):
         Parameters
         ----------
         file_keys : Union[str, List[str]], optional
-            Path or list of paths to the HDF5 files to be read
+            Path or list of paths to the LArCV files to be read
         file_list : str, optional
             Path to a text file containing a list of file paths to be read
         tree_keys : List[str]
