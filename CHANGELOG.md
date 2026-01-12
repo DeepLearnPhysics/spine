@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.9.1] - 2026-01-11
+
+### Added
+- Added several 2x2 geometry tags to FLOW geometry parser
+- Consolidated configuration documentation in `spine/config/README.md`
+  - Integrated METADATA_GUIDE.md and REMOVING_KEYS_EXAMPLE.md content
+  - Comprehensive coverage of composition, overrides, metadata, and compatibility features
+
+### Changed
+- **Breaking**: Fully separated `file_keys` and `file_list` configuration paths to guarantee proper parsing
+  - `file_keys` must now be a list of file paths only
+  - `file_list` must be a path to a text file containing file paths
+  - Mixed usage is no longer supported
+- Renamed CI workflow from 'Comprehensive Testing' to 'CI' (`.github/workflows/ci.yml`)
+- Reordered README badges: CI → codecov → RTD → PyPI → Python
+
+### Fixed
+- Fixed syntax of FLOW geometry tags
+- Fixed typos in reader docstrings (`LArCVReader`, `FlowReader`)
+- Fixed issue with `skip_entry_list` parameter handling in dataset readers
+- Fixed `GeoDrawer` to explicitly require detector geometry in constructor
+- Fixed hard-coded scaling factor in batch unwrapper when merging volumes
+
 ## [0.9.0] - 2026-01-07
 
 ### Added
