@@ -1,10 +1,12 @@
 """Module to evaluate diagnostic metrics on tracks."""
 
+from typing import Any, Dict, List, Optional, Tuple, Union
+
 import numpy as np
 
 from spine.ana.base import AnaBase
 from spine.math.distance import cdist
-from spine.utils.globals import TRACK_SHP
+from spine.utils.globals import MUON_PID, TRACK_SHP
 
 __all__ = ["TrackCompletenessAna"]
 
@@ -22,7 +24,13 @@ class TrackCompletenessAna(AnaBase):
     name = "track_completeness"
 
     def __init__(
-        self, time_window=None, run_mode="both", truth_point_mode="points", **kwargs
+        self,
+        time_window: Optional[Union[List[float], Tuple[float, float]]] = None,
+        length_threshold: Optional[float] = 10,
+        include_pids: Optional[Union[Tuple[int], List[int]]] = (MUON_PID,),
+        run_mode: str = "both",
+        truth_point_mode: str = "points",
+        **kwargs,
     ):
         """Initialize the analysis script.
 
@@ -30,6 +38,10 @@ class TrackCompletenessAna(AnaBase):
         ----------
         time_window : List[float]
             Time window within which to include particle (only works for `truth`)
+        length_threshold : float, optional
+            Minimum length of tracks to consider, in cm
+        include_pids : Union[Tuple[int], List[int]], optional
+            Particle IDs to include in the analysis
         **kwargs : dict, optional
             Additional arguments to pass to :class:`AnaBase`
         """
@@ -45,6 +57,10 @@ class TrackCompletenessAna(AnaBase):
             time_window is None or run_mode == "truth"
         ), "Time of reconstructed particle is unknown."
 
+        # Store the length threshold and included PIDs
+        self.length_threshold = length_threshold
+        self.include_pids = include_pids
+
         # Make sure the metadata is provided (rasterization needed)
         self.update_keys({"meta": True})
 
@@ -52,15 +68,18 @@ class TrackCompletenessAna(AnaBase):
         for prefix in self.prefixes:
             self.initialize_writer(prefix)
 
-    def process(self, data):
+    def process(self, data: Dict[str, Any]) -> None:
         """Evaluate track completeness for tracks in one entry.
 
         Parameters
         ----------
-        data : dict
+        data : Dict[str, Any]
             Dictionary of data products
         """
         # Fetch the pixel size in this image (assume cubic cells)
+        assert np.all(
+            data["meta"].size[0] == data["meta"].size
+        ), "Non-cubic pixels not supported."
         pixel_size = data["meta"].size[0]
 
         # Loop over the types of particle data products
@@ -79,6 +98,11 @@ class TrackCompletenessAna(AnaBase):
                     if part.t < self.time_window[0] or part.t > self.time_window[1]:
                         continue
 
+                # If needed, check on the particle PID
+                if self.include_pids is not None:
+                    if part.pid not in self.include_pids:
+                        continue
+
                 # Initialize the particle dictionary
                 comp_dict = {"particle_id": part.id}
 
@@ -95,9 +119,18 @@ class TrackCompletenessAna(AnaBase):
                 if length:
                     vec /= length
 
+                # If needed, check on the particle length
+                if self.length_threshold is not None:
+                    if length < self.length_threshold:
+                        continue
+
                 comp_dict["size"] = len(points)
                 comp_dict["length"] = length
                 comp_dict.update({"dir_x": vec[0], "dir_y": vec[1], "dir_z": vec[2]})
+                comp_dict.update(
+                    {"start_x": start[0], "start_y": start[1], "start_z": start[2]}
+                )
+                comp_dict.update({"end_x": end[0], "end_y": end[1], "end_z": end[2]})
 
                 # Chunk out the track along gaps, estimate gap length
                 chunk_labels = self.cluster_track_chunks(points, start, end, pixel_size)
@@ -116,7 +149,9 @@ class TrackCompletenessAna(AnaBase):
                 self.append(prefix, **comp_dict)
 
     @staticmethod
-    def cluster_track_chunks(points, start_point, end_point, pixel_size):
+    def cluster_track_chunks(
+        points, start_point: np.ndarray, end_point: np.ndarray, pixel_size: float
+    ) -> np.ndarray:
         """Find point where the track is broken, divide out the track
         into self-contained chunks which are Linf connect (Moore neighbors).
 
@@ -139,11 +174,11 @@ class TrackCompletenessAna(AnaBase):
         """
         # Project and cluster on the projected axis
         direction = (end_point - start_point) / np.linalg.norm(end_point - start_point)
-        scale = pixel_size * np.max(direction)
+        scale = pixel_size / np.max(np.abs(direction))
         projs = np.dot(points - start_point, direction)
         perm = np.argsort(projs)
         seps = projs[perm][1:] - projs[perm][:-1]
-        breaks = np.where(seps > scale * 1.1)[0] + 1
+        breaks = np.where(seps > scale * 1.49)[0] + 1
         cluster_labels = np.empty(len(projs), dtype=int)
         for i, index in enumerate(np.split(np.arange(len(projs)), breaks)):
             cluster_labels[perm[index]] = i
@@ -151,7 +186,9 @@ class TrackCompletenessAna(AnaBase):
         return cluster_labels
 
     @staticmethod
-    def sequential_cluster_distances(points, labels, start_point):
+    def sequential_cluster_distances(
+        points: np.ndarray, labels: np.ndarray, start_point: np.ndarray
+    ) -> np.ndarray:
         """Order clusters in order of distance from a starting point, compute
         the distances between successive clusters.
 
@@ -167,7 +204,7 @@ class TrackCompletenessAna(AnaBase):
         # If there's only one cluster, nothing to do here
         unique_labels = np.unique(labels)
         if len(unique_labels) < 2:
-            return np.empty(0, dtype=float), np.empty(0, dtype=float)
+            return np.empty(0, dtype=float)
 
         # Order clusters
         start_dist = cdist(start_point[None, :], points).flatten()
