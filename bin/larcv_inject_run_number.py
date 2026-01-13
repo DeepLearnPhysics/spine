@@ -30,6 +30,12 @@ def initialize_manager(file_path, dest, overwrite, suffix):
     ----------
     file_path : str
         Path to the input file
+    dest : str
+        Destination folder to write the output file to
+    overwrite : bool
+        If `True`, overwrite the original file
+    suffix : str
+        Suffix to append to the input file name to form the output file name
 
     Returns
     -------
@@ -75,7 +81,7 @@ def initialize_manager(file_path, dest, overwrite, suffix):
     return manager, out_path
 
 
-def main(source, source_list, dest, overwrite, run_number, suffix):
+def main(source, source_list, dest, overwrite, run_number, offset, suffix):
     """Checks the output of the SPINE process.
 
     The script loops over the input files, fetch the list of keys in the file
@@ -99,6 +105,8 @@ def main(source, source_list, dest, overwrite, run_number, suffix):
     run_number : int
         Run number to inject in the input file list. If it is specied as -1,
         each file is assigned a unique run number
+    offset : int
+        Offset to add to the existing run number for each successive file
     suffix : str
         String to append to the end of the input file names to form the name
         of the output file with the updated run numbers
@@ -116,13 +124,23 @@ def main(source, source_list, dest, overwrite, run_number, suffix):
 
         # Loop over entries, set the run number for every data product
         num_entries = io.get_n_entries()
-        run = run_number if run_number > -1 else idx
         for e in range(num_entries):
             # Read existing content
             io.read_entry(e)
 
+            # Fetch the run, subrun and event numbers
+            io.get_data(e)
+            event_id = io.event_id()
+            run, subrun, event = event_id.run(), event_id.subrun(), event_id.event()
+
             # Update the run number
-            io.set_id(run, 0, e + 1)
+            if run_number is not None:
+                if run_number > -1:
+                    io.set_id(run_number, subrun, event)
+                else:
+                    io.set_id(idx, subrun, event)
+            else:
+                io.set_id(run + offset, subrun, event)
 
             # Save
             io.save_entry()
@@ -161,11 +179,16 @@ if __name__ == "__main__":
         action="store_true",
     )
 
-    parser.add_argument(
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument(
         "--run-number",
-        help="Run number to assign to every input file",
+        help="Run number to assign to every input file. If -1, each file is assigned a unique run number",
         type=int,
-        required=True,
+    )
+    group.add_argument(
+        "--offset",
+        help="Offset to add to the existing run number for each successive file",
+        type=int,
     )
 
     parser.add_argument(
@@ -181,5 +204,6 @@ if __name__ == "__main__":
         args.dest,
         args.overwrite,
         args.run_number,
+        args.offset,
         args.suffix,
     )
