@@ -72,9 +72,32 @@ model:
   head: !include model/head.yaml
 ```
 
-#### Include Path Resolution
+**Path resolution** with `!path` tag:
 
-SPINE searches for included files in this order:
+```yaml
+# Resolve file paths relative to config file without loading content
+post:
+  flash_match:
+    cfg: !path flashmatch/config.yaml  # Resolved to absolute path
+
+model:
+  weights: !path ../weights/model.ckpt  # Resolved relative to this config
+  
+io:
+  output: !path outputs/results.h5      # File must exist at load time
+```
+
+The `!path` tag is useful for:
+- Post-processor configuration files
+- Model weight paths  
+- Data file references
+- Any path that needs proper resolution but shouldn't be loaded as config
+
+Unlike `!include`, `!path` returns the resolved absolute path as a string rather than loading the file content. The file must exist or an error is raised.
+
+#### Path Resolution
+
+Both `!include` and `!path` tags use the same path resolution strategy. SPINE searches for files in this order:
 
 1. **Absolute paths**: Used as-is if they exist
 2. **Relative paths**: Resolved relative to the including config file
@@ -96,6 +119,10 @@ export SPINE_CONFIG_PATH="/usr/local/spine/configs:/home/user/shared_configs"
 include:
   - base/default.yaml      # Found in /usr/local/spine/configs/base/default.yaml
   - detectors/icarus       # Auto-adds .yaml, finds in /home/user/shared_configs/detectors/icarus.yaml
+
+post:
+  flash_match:
+    cfg: !path flashmatch/default.yaml  # Also searches SPINE_CONFIG_PATH
   
 io:
   reader:

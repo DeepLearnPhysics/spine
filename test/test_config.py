@@ -1,5 +1,7 @@
 """Tests for the config loader functionality."""
 
+import os
+
 import pytest
 
 from spine.config import load_config
@@ -1423,3 +1425,188 @@ include:
 
         with pytest.raises(ConfigIncludeError, match="not found"):
             load_config(str(local_config))
+
+    def test_path_tag_resolves_relative_paths(self, tmp_path):
+        """Test that !path tag resolves paths relative to config file."""
+        # Create a subdirectory structure
+        config_dir = tmp_path / "configs"
+        config_dir.mkdir()
+        data_dir = config_dir / "data"
+        data_dir.mkdir()
+
+        # Create the actual files
+        data_file = data_dir / "weights.ckpt"
+        data_file.write_text("model weights")
+        flashmatch_file = data_dir / "flashmatch.yaml"
+        flashmatch_file.write_text("flash_config: true")
+
+        # Create config with !path tag
+        config_file = config_dir / "config.yaml"
+        config_file.write_text(
+            """
+model:
+  name: full_chain
+  weights: !path data/weights.ckpt
+
+post:
+  flash_match:
+    cfg: !path data/flashmatch.yaml
+"""
+        )
+
+        cfg = load_config(str(config_file))
+
+        # Paths should be resolved to absolute paths
+        assert cfg["model"]["weights"] == str(data_file)
+        assert cfg["post"]["flash_match"]["cfg"] == str(flashmatch_file)
+        # Check they are absolute
+        assert os.path.isabs(cfg["model"]["weights"])
+        assert os.path.isabs(cfg["post"]["flash_match"]["cfg"])
+
+    def test_path_tag_with_spine_config_path(self, tmp_path, monkeypatch):
+        """Test !path tag with SPINE_CONFIG_PATH search."""
+        # Create shared directory with data file
+        shared_dir = tmp_path / "shared"
+        shared_dir.mkdir()
+        data_file = shared_dir / "model.ckpt"
+        data_file.write_text("weights")
+
+        # Create local config
+        local_dir = tmp_path / "local"
+        local_dir.mkdir()
+        config_file = local_dir / "config.yaml"
+        config_file.write_text("model:\n  weights: !path model.ckpt")
+
+        # Set SPINE_CONFIG_PATH
+        monkeypatch.setenv("SPINE_CONFIG_PATH", str(shared_dir))
+
+        cfg = load_config(str(config_file))
+
+        # Path should be resolved via SPINE_CONFIG_PATH
+        assert cfg["model"]["weights"] == str(data_file)
+
+    def test_path_tag_in_included_file(self, tmp_path):
+        """Test that !path tag in included files resolves relative to that file."""
+        # Create directory structure
+        # main.yaml
+        # configs/
+        #   post.yaml
+        #   data/
+        #     flashmatch.yaml
+
+        configs_dir = tmp_path / "configs"
+        configs_dir.mkdir()
+        data_dir = configs_dir / "data"
+        data_dir.mkdir()
+
+        # Create flashmatch config
+        flashmatch_file = data_dir / "flashmatch.yaml"
+        flashmatch_file.write_text("flash_config: true")
+
+        # Create post config with !path (relative to configs/)
+        post_config = configs_dir / "post.yaml"
+        post_config.write_text(
+            """
+post:
+  flash_match:
+    cfg: !path data/flashmatch.yaml
+    enabled: true
+"""
+        )
+
+        # Create main config that includes post config
+        main_config = tmp_path / "main.yaml"
+        main_config.write_text(
+            """
+include: configs/post.yaml
+
+base:
+  value: 1
+"""
+        )
+
+        cfg = load_config(str(main_config))
+
+        # Path in post.yaml should be resolved relative to configs/, not tmp_path
+        assert cfg["post"]["flash_match"]["cfg"] == str(flashmatch_file)
+        assert cfg["post"]["flash_match"]["enabled"] is True
+        assert cfg["base"]["value"] == 1
+
+    def test_path_tag_with_absolute_path(self, tmp_path):
+        """Test that !path tag preserves absolute paths."""
+        # Create a file
+        data_file = tmp_path / "data.txt"
+        data_file.write_text("data")
+
+        # Create config with absolute path
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(f"data:\n  path: !path {str(data_file)}")
+
+        cfg = load_config(str(config_file))
+
+        # Absolute path should be preserved
+        assert cfg["data"]["path"] == str(data_file)
+
+    def test_path_tag_nonexistent_file_raises_error(self, tmp_path):
+        """Test that !path tag raises error for non-existent files."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("data:\n  path: !path nonexistent.txt")
+
+        with pytest.raises(ConfigIncludeError, match="not found"):
+            load_config(str(config_file))
+
+    def test_path_tag_with_override(self, tmp_path):
+        """Test that !path tag works with override directives."""
+        # Create directory structure
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        file1 = data_dir / "file1.txt"
+        file1.write_text("file1")
+        file2 = data_dir / "file2.txt"
+        file2.write_text("file2")
+
+        # Create base config
+        base_config = tmp_path / "base.yaml"
+        base_config.write_text("model:\n  weights: !path data/file1.txt")
+
+        # Create main config that overrides
+        main_config = tmp_path / "main.yaml"
+        main_config.write_text(
+            """
+include: base.yaml
+
+override:
+  model.weights: !path data/file2.txt
+"""
+        )
+
+        cfg = load_config(str(main_config))
+
+        # Override should use file2 (resolved relative to main.yaml)
+        assert cfg["model"]["weights"] == str(file2)
+
+    def test_path_tag_in_list(self, tmp_path):
+        """Test !path tag works within lists."""
+        # Create multiple files
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        file1 = data_dir / "file1.txt"
+        file1.write_text("1")
+        file2 = data_dir / "file2.txt"
+        file2.write_text("2")
+
+        # Create config with paths in list
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(
+            """
+data:
+  files:
+    - !path data/file1.txt
+    - !path data/file2.txt
+"""
+        )
+
+        cfg = load_config(str(config_file))
+
+        # Both paths should be resolved
+        assert cfg["data"]["files"] == [str(file1), str(file2)]

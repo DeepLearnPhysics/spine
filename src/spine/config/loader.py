@@ -194,9 +194,46 @@ class ConfigLoader(yaml.SafeLoader):
         with open(resolved_path, "r", encoding="utf-8") as f:
             return yaml.load(f, Loader=ConfigLoader)
 
+    def resolve_path(self, node: yaml.Node) -> str:
+        """Resolve a file path relative to the current config file.
 
-# Register the !include constructor
+        This is useful for paths that need to be resolved at load time but
+        not included as configuration (e.g., model weights, data files, etc.).
+
+        Unlike !include which loads the content, this just resolves the path
+        and verifies the file exists.
+
+        Parameters
+        ----------
+        node : yaml.Node
+            YAML node containing the filename
+
+        Returns
+        -------
+        str
+            Resolved absolute path
+
+        Raises
+        ------
+        ConfigIncludeError
+            If file not found
+
+        Examples
+        --------
+        post:
+          flash_match:
+            cfg: !path flashmatch/config.yaml  # Resolved relative to this config
+        model:
+          weights: !path weights/model.ckpt  # Must exist at load time
+        """
+        filename = self.construct_scalar(cast(yaml.ScalarNode, node))
+        resolved_path = resolve_config_path(filename, self._root)
+        return resolved_path
+
+
+# Register the !include and !path constructors
 ConfigLoader.add_constructor("!include", ConfigLoader.include)
+ConfigLoader.add_constructor("!path", ConfigLoader.resolve_path)
 
 
 def deep_merge(
