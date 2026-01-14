@@ -281,6 +281,7 @@ class Driver:
         rank=None,
         log_step=1,
         distributed=False,
+        torch_sharing_strategy=None,
         split_output=False,
         train=None,
         verbosity="info",

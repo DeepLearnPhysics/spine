@@ -24,7 +24,7 @@ def run(cfg):
         Full driver/trainer configuration
     """
     # Process the configuration to set up the driver world
-    distributed, world_size = process_world(**cfg)
+    distributed, world_size, torch_sharing = process_world(**cfg)
 
     # Launch the training/inference process
     if not distributed:
@@ -39,7 +39,9 @@ def run(cfg):
 
         # Launch the distributed training process
         torch.multiprocessing.spawn(
-            train_single, args=(cfg, distributed, world_size), nprocs=world_size
+            train_single,
+            args=(cfg, distributed, world_size, torch_sharing),
+            nprocs=world_size,
         )
 
 
@@ -58,7 +60,7 @@ def run_single(cfg):
         inference_single(cfg)
 
 
-def train_single(rank, cfg, distributed=False, world_size=None):
+def train_single(rank, cfg, distributed=False, world_size=None, torch_sharing=None):
     """Train a model in a single process.
 
     Parameters
@@ -71,6 +73,8 @@ def train_single(rank, cfg, distributed=False, world_size=None):
         If `True`, distribute the training process
     world_size : int, optional
         Number of devices to use in the distributed training process
+    torch_sharing : str or None, optional
+        File sharing strategy for torch distributed training
     """
     # Training always requires torch
     if not TORCH_AVAILABLE:
@@ -78,6 +82,10 @@ def train_single(rank, cfg, distributed=False, world_size=None):
             "PyTorch is required for training. "
             "Install with: pip install spine-ml[model]"
         )
+
+    # Set the torch sharing strategy if needed
+    if distributed and torch_sharing is not None:
+        torch.multiprocessing.set_sharing_strategy(torch_sharing)
 
     # If distributed, setup the process group
     if distributed:
@@ -95,8 +103,7 @@ def train_single(rank, cfg, distributed=False, world_size=None):
 
 
 def inference_single(cfg):
-    """
-    Execute a model in inference mode in a single process
+    """Execute a model in inference mode in a single process.
 
     Parameters
     ----------
@@ -121,7 +128,7 @@ def inference_single(cfg):
 
     # Loop over the weights, run the inference loop
     for weight in weights:
-        if weight is not None and not preloaded:
+        if driver.model is not None and weight is not None and not preloaded:
             driver.model.load_weights(weight)
             driver.initialize_log()
 
@@ -145,6 +152,8 @@ def process_world(base, **kwargs):
         If `True`, distribute the training process
     world_size : int
         Number of devices to use in the distributed training process
+    torch_sharing : str or None
+        File sharing strategy for torch distributed training
     """
     # Set the verbosity of the logger
     verbosity = base.get("verbosity", "info")
@@ -159,7 +168,14 @@ def process_world(base, **kwargs):
         world_size < 2 or distributed
     ), "Cannot run process on multiple GPUs without distributing it."
 
-    return distributed, world_size
+    # If distributed, check what the file sharing strategy is
+    torch_sharing = base.get("torch_sharing_strategy", None)
+    assert not torch_sharing or torch_sharing in ("file_system", "file_descriptor"), (
+        "torch_sharing_strategy must be one of: "
+        "'file_system', 'file_descriptor', or None"
+    )
+
+    return distributed, world_size, torch_sharing
 
 
 def setup_ddp(rank, world_size, backend="nccl"):

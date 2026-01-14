@@ -148,7 +148,7 @@ def main(source, source_list, dest, overwrite, run_number, offset, suffix):
         # Finalize
         io.finalize()
 
-        # If needed move the output file to where the
+        # If needed move the output file to where the input file is
         if overwrite:
             os.rename(out_path, file_path)
 
@@ -182,7 +182,8 @@ if __name__ == "__main__":
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument(
         "--run-number",
-        help="Run number to assign to every input file. If -1, each file is assigned a unique run number",
+        help="Run number to assign to every input file. If -1, each file is "
+        "assigned a unique run number",
         type=int,
     )
     group.add_argument(
