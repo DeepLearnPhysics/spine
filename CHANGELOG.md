@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.9.2] - 2026-01-14
+
+### Added
+- **Path Resolution System**: `!path` YAML tag for resolving file paths relative to config files
+  - Returns absolute path string (unlike `!include` which loads content)
+  - Verifies file exists at load time (fail fast)
+  - Useful for post-processor configs, model weights, data files
+  - Solves path context issues when configs are included from different locations
+- **SPINE_CONFIG_PATH**: Environment variable for config file search paths
+  - Colon-separated list of directories (like `PATH` or `PYTHONPATH`)
+  - Used by both `!include` and `!path` tags
+  - Enables sharing configs across projects without absolute paths
+  - Auto-adds `.yaml`/`.yml` extensions if not found
+- **DataLoader flexibility**: Pass arbitrary kwargs to `torch.utils.data.DataLoader`
+  - Added `**kwargs` support in `loader_factory()`
+  - Enables `pin_memory`, `persistent_workers`, `prefetch_factor`, etc.
+  - Forward compatible with future PyTorch DataLoader parameters
+- **DDP file sharing strategy**: Added `file_sharing_strategy` option for distributed training
+  - Controls how files are shared across processes in DDP mode
+
+### Fixed
+- Fixed track completeness analysis script
+- Added run number offset option in run number injection utility
+
 ## [0.9.1] - 2026-01-11
 
 ### Added
