@@ -75,7 +75,86 @@ __all__ = [
     "extract_includes_and_overrides",
     "apply_collection_operation",
     "ConfigLoader",
+    "resolve_config_path",
 ]
+
+
+def resolve_config_path(
+    filename: str, current_dir: str, search_paths: Optional[List[str]] = None
+) -> str:
+    """Resolve a configuration file path with SPINE_CONFIG_PATH support.
+
+    Resolution order:
+    1. If absolute path, return as-is
+    2. Try relative to current_dir
+    3. Try relative to current_dir with .yaml/.yml extension
+    4. Search through SPINE_CONFIG_PATH directories
+    5. Search through SPINE_CONFIG_PATH directories with .yaml/.yml extension
+
+    Parameters
+    ----------
+    filename : str
+        Config filename or path to resolve
+    current_dir : str
+        Directory of the config file doing the including
+    search_paths : Optional[List[str]]
+        List of search paths (defaults to SPINE_CONFIG_PATH env var)
+
+    Returns
+    -------
+    str
+        Resolved absolute path
+
+    Raises
+    ------
+    ConfigIncludeError
+        If file cannot be found in any location
+    """
+    # If absolute path, check if it exists
+    if os.path.isabs(filename):
+        if os.path.exists(filename):
+            return filename
+        raise ConfigIncludeError(f"Absolute path not found: {filename}")
+
+    # Try relative to current directory
+    relative_path = os.path.join(current_dir, filename)
+    if os.path.exists(relative_path):
+        return os.path.abspath(relative_path)
+
+    # Try with .yaml/.yml extension relative to current directory
+    for ext in [".yaml", ".yml"]:
+        if not filename.endswith(ext):
+            relative_path_with_ext = relative_path + ext
+            if os.path.exists(relative_path_with_ext):
+                return os.path.abspath(relative_path_with_ext)
+
+    # Get search paths from environment variable if not provided
+    if search_paths is None:
+        env_paths = os.environ.get("SPINE_CONFIG_PATH", "")
+        search_paths = [p.strip() for p in env_paths.split(":") if p.strip()]
+
+    # Search through SPINE_CONFIG_PATH
+    for search_dir in search_paths:
+        search_path = os.path.join(search_dir, filename)
+        if os.path.exists(search_path):
+            return os.path.abspath(search_path)
+
+        # Try with extensions
+        for ext in [".yaml", ".yml"]:
+            if not filename.endswith(ext):
+                search_path_with_ext = search_path + ext
+                if os.path.exists(search_path_with_ext):
+                    return os.path.abspath(search_path_with_ext)
+
+    # File not found anywhere
+    search_locations = [f"Relative to: {current_dir}"]
+    if search_paths:
+        search_locations.append(f"SPINE_CONFIG_PATH: {':'.join(search_paths)}")
+
+    raise ConfigIncludeError(
+        f"Config file '{filename}' not found.\n"
+        f"Searched in:\n  - " + "\n  - ".join(search_locations)
+    )
 
 
 class ConfigLoader(yaml.SafeLoader):
@@ -109,11 +188,10 @@ class ConfigLoader(yaml.SafeLoader):
         Any
             Loaded configuration content
         """
-        filename = os.path.join(
-            self._root, self.construct_scalar(cast(yaml.ScalarNode, node))
-        )
+        filename = self.construct_scalar(cast(yaml.ScalarNode, node))
+        resolved_path = resolve_config_path(filename, self._root)
 
-        with open(filename, "r", encoding="utf-8") as f:
+        with open(resolved_path, "r", encoding="utf-8") as f:
             return yaml.load(f, Loader=ConfigLoader)
 
 
@@ -568,9 +646,8 @@ def _load_config_recursive(
 
     # Process includes
     for include_file in includes:
-        include_path = os.path.join(root_dir, include_file)
-        if not os.path.exists(include_path):
-            raise ConfigIncludeError(f"Included file not found: {include_path}")
+        # Resolve include path with SPINE_CONFIG_PATH support
+        include_path = resolve_config_path(include_file, root_dir)
 
         # Recursively load
         (

@@ -1287,3 +1287,139 @@ override:
         # new_key should be created because io.reader exists
         assert cfg["io"]["reader"]["new_key"] == "new_value"
         assert cfg["io"]["reader"]["batch_size"] == 4
+
+    def test_spine_config_path(self, tmp_path, monkeypatch):
+        """Test SPINE_CONFIG_PATH environment variable for include resolution."""
+        # Create a shared config directory
+        shared_dir = tmp_path / "shared_configs"
+        shared_dir.mkdir()
+
+        # Create a shared base config
+        shared_base = shared_dir / "shared_base.yaml"
+        shared_base.write_text(
+            """
+base:
+  world_size: 1
+  iterations: 1000
+"""
+        )
+
+        # Create a local config directory
+        local_dir = tmp_path / "local"
+        local_dir.mkdir()
+
+        # Create a local config that includes the shared base
+        local_config = local_dir / "config.yaml"
+        local_config.write_text(
+            """
+include: shared_base.yaml
+
+io:
+  reader:
+    batch_size: 32
+"""
+        )
+
+        # Set SPINE_CONFIG_PATH
+        monkeypatch.setenv("SPINE_CONFIG_PATH", str(shared_dir))
+
+        # Load the config - should find shared_base.yaml via SPINE_CONFIG_PATH
+        cfg = load_config(str(local_config))
+
+        assert cfg["base"]["world_size"] == 1
+        assert cfg["base"]["iterations"] == 1000
+        assert cfg["io"]["reader"]["batch_size"] == 32
+
+    def test_spine_config_path_multiple_dirs(self, tmp_path, monkeypatch):
+        """Test SPINE_CONFIG_PATH with multiple search directories."""
+        # Create multiple config directories
+        shared_dir1 = tmp_path / "shared1"
+        shared_dir1.mkdir()
+        shared_dir2 = tmp_path / "shared2"
+        shared_dir2.mkdir()
+
+        # Create configs in different directories
+        config1 = shared_dir1 / "config1.yaml"
+        config1.write_text("base:\n  value1: 100")
+
+        config2 = shared_dir2 / "config2.yaml"
+        config2.write_text("io:\n  value2: 200")
+
+        # Create local config
+        local_dir = tmp_path / "local"
+        local_dir.mkdir()
+        local_config = local_dir / "main.yaml"
+        local_config.write_text(
+            """
+include:
+  - config1.yaml
+  - config2.yaml
+"""
+        )
+
+        # Set SPINE_CONFIG_PATH with multiple paths
+        monkeypatch.setenv("SPINE_CONFIG_PATH", f"{shared_dir1}:{shared_dir2}")
+
+        cfg = load_config(str(local_config))
+
+        assert cfg["base"]["value1"] == 100
+        assert cfg["io"]["value2"] == 200
+
+    def test_spine_config_path_auto_extension(self, tmp_path, monkeypatch):
+        """Test automatic .yaml extension addition."""
+        shared_dir = tmp_path / "shared"
+        shared_dir.mkdir()
+
+        shared_base = shared_dir / "base.yaml"
+        shared_base.write_text("base:\n  value: 42")
+
+        local_dir = tmp_path / "local"
+        local_dir.mkdir()
+        local_config = local_dir / "config.yaml"
+        # Include without extension
+        local_config.write_text("include: base")
+
+        monkeypatch.setenv("SPINE_CONFIG_PATH", str(shared_dir))
+
+        cfg = load_config(str(local_config))
+        assert cfg["base"]["value"] == 42
+
+    def test_spine_config_path_relative_takes_precedence(self, tmp_path, monkeypatch):
+        """Test that relative paths take precedence over SPINE_CONFIG_PATH."""
+        # Create shared directory
+        shared_dir = tmp_path / "shared"
+        shared_dir.mkdir()
+        shared_config = shared_dir / "config.yaml"
+        shared_config.write_text("value: shared")
+
+        # Create local directory with same-named file
+        local_dir = tmp_path / "local"
+        local_dir.mkdir()
+        local_config = local_dir / "config.yaml"
+        local_config.write_text("value: local")
+
+        # Create main config that includes config.yaml
+        main_config = local_dir / "main.yaml"
+        main_config.write_text("include: config.yaml")
+
+        # Set SPINE_CONFIG_PATH to shared dir
+        monkeypatch.setenv("SPINE_CONFIG_PATH", str(shared_dir))
+
+        # Should load local version (relative path takes precedence)
+        cfg = load_config(str(main_config))
+        assert cfg["value"] == "local"
+
+    def test_spine_config_path_not_found(self, tmp_path, monkeypatch):
+        """Test error when config not found in SPINE_CONFIG_PATH."""
+        shared_dir = tmp_path / "shared"
+        shared_dir.mkdir()
+
+        local_dir = tmp_path / "local"
+        local_dir.mkdir()
+        local_config = local_dir / "main.yaml"
+        local_config.write_text("include: nonexistent.yaml")
+
+        monkeypatch.setenv("SPINE_CONFIG_PATH", str(shared_dir))
+
+        with pytest.raises(ConfigIncludeError, match="not found"):
+            load_config(str(local_config))

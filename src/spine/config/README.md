@@ -72,6 +72,44 @@ model:
   head: !include model/head.yaml
 ```
 
+#### Include Path Resolution
+
+SPINE searches for included files in this order:
+
+1. **Absolute paths**: Used as-is if they exist
+2. **Relative paths**: Resolved relative to the including config file
+3. **SPINE_CONFIG_PATH**: Searches through directories specified in the `SPINE_CONFIG_PATH` environment variable
+
+**Extension handling**: If a file isn't found, SPINE automatically tries adding `.yaml` or `.yml` extensions.
+
+**Example with SPINE_CONFIG_PATH**:
+
+```bash
+# Set shared config directories
+export SPINE_CONFIG_PATH="/usr/local/spine/configs:/home/user/shared_configs"
+
+# Now configs can include files from these directories without absolute paths
+```
+
+```yaml
+# config.yaml - can include files from SPINE_CONFIG_PATH
+include:
+  - base/default.yaml      # Found in /usr/local/spine/configs/base/default.yaml
+  - detectors/icarus       # Auto-adds .yaml, finds in /home/user/shared_configs/detectors/icarus.yaml
+  
+io:
+  reader:
+    batch_size: 32
+```
+
+**Multiple search paths**: Separate paths with `:` (like `PATH` or `PYTHONPATH`):
+
+```bash
+export SPINE_CONFIG_PATH="$HOME/.spine/configs:/opt/spine/configs:/shared/configs"
+```
+
+**Path precedence**: Relative paths (from the config's directory) always take precedence over `SPINE_CONFIG_PATH` entries. This allows local overrides of shared configs.
+
 ### Parameter Overrides with `override:`
 
 Override specific parameters using dot notation:
