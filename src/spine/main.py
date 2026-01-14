@@ -83,7 +83,7 @@ def train_single(rank, cfg, distributed=False, world_size=None, torch_sharing=No
             "Install with: pip install spine-ml[model]"
         )
 
-    # Set the torch sharing strategy if needed
+    # Set the torch sharing strategy, if needed
     if distributed and torch_sharing is not None:
         torch.multiprocessing.set_sharing_strategy(torch_sharing)
 

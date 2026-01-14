@@ -28,6 +28,7 @@ def loader_factory(
     distributed=False,
     world_size=0,
     rank=0,
+    **kwargs,
 ):
     """Instantiates a DataLoader based on configuration.
 
@@ -60,6 +61,9 @@ def loader_factory(
         Total number of GPUs using the sampler
     rank : int, default 0
         Unique identifier of the process sampling data
+    **kwargs : dict, optional
+        Additional keyword arguments to pass to torch.utils.data.DataLoader.
+        Examples: pin_memory, timeout, prefetch_factor, persistent_workers
 
     Returns
     -------
@@ -78,31 +82,32 @@ def loader_factory(
         minibatch_size = batch_size // max(world_size, 1)
 
     # Initialize the dataset
-    dataset = dataset_factory(dataset, entry_list, dtype)
+    torch_dataset = dataset_factory(dataset, entry_list, dtype)
 
     # Initialize the sampler
     if sampler is not None:
         sampler = sampler_factory(
-            sampler, dataset, batch_size, distributed, world_size, rank
+            sampler, torch_dataset, batch_size, distributed, world_size, rank
         )
 
     # Initialize the collate function
     if collate_fn is not None:
         collate_fn = collate_factory(
-            collate_fn, dataset.data_types, dataset.overlay_methods
+            collate_fn, torch_dataset.data_types, torch_dataset.overlay_methods
         )
 
     # Initialize the loader
-    loader = DataLoader(
-        dataset,
+    torch_loader = DataLoader(
+        torch_dataset,
         batch_size=minibatch_size,
         shuffle=shuffle,
         sampler=sampler,
         num_workers=num_workers,
         collate_fn=collate_fn,
+        **kwargs,
     )
 
-    return loader
+    return torch_loader
 
 
 def dataset_factory(dataset_cfg, entry_list=None, dtype=None):
