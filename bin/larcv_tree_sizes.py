@@ -31,7 +31,7 @@ def main(source, source_list, tree_names, suffix=None, replace=False):
             source = f.read().splitlines()
 
     # Initialize a header for the output files
-    header = "entry, " + ", ".join([f"{name}_count" for name in tree_names]) + "\n"
+    header = "entry," + ",".join([f"{name}_count" for name in tree_names]) + "\n"
 
     # Generate tree and branch keys
     tree_keys = [f"{name}_tree" for name in tree_names]
@@ -70,7 +70,7 @@ def main(source, source_list, tree_names, suffix=None, replace=False):
                 count = branch.size()
 
                 # Write the count to the output file
-                out_file.write(f", {count}")
+                out_file.write(f",{count}")
 
             # End the line for this entry
             out_file.write("\n")
