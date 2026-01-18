@@ -1,6 +1,9 @@
 """Apply wire transparency corrections."""
 
+from typing import Optional
 from warnings import warn
+
+import numpy as np
 
 from .database import CalibrationDatabase
 
@@ -14,7 +17,13 @@ class TransparencyCalibrator:
 
     name = "transparency"
 
-    def __init__(self, transparency_db, num_tpcs, value_key="scale", run_id=None):
+    def __init__(
+        self,
+        transparency_db: str,
+        num_tpcs: int,
+        value_key: str = "scale",
+        run_id: Optional[int] = None,
+    ):
         """Load the calibration maps.
 
         Parameters
@@ -42,7 +51,9 @@ class TransparencyCalibrator:
                 f"the calibration transparency map in favor of {run_id}."
             )
 
-    def process(self, points, values, tpc_id, run_id):
+    def process(
+        self, points: np.ndarray, values: np.ndarray, tpc_id: int, run_id: int
+    ) -> np.ndarray:
         """Apply the transparency correction.
 
         Parameters

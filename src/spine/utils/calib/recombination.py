@@ -1,5 +1,7 @@
 """Applies electron recombination corrections."""
 
+from typing import Optional, Union
+
 import numpy as np
 
 from spine.utils.globals import LAR_DENSITY, LAR_WION
@@ -24,16 +26,16 @@ class RecombinationCalibrator:
 
     def __init__(
         self,
-        efield,
-        drift_dir,
-        model="mbox",
-        birks_a=0.800,
-        birks_k=0.0486,
-        mbox_alpha=0.906,
-        mbox_beta=0.203,
-        mbox_ell_r=1.25,
-        mip_dedx=2.105168,
-        tracking_mode="bin_pca",
+        efield: float,
+        drift_dir: np.ndarray,
+        model: str = "mbox",
+        birks_a: float = 0.800,
+        birks_k: float = 0.0486,
+        mbox_alpha: float = 0.906,
+        mbox_beta: float = 0.203,
+        mbox_ell_r: float = 1.25,
+        mip_dedx: float = 2.105168,
+        tracking_mode: str = "bin_pca",
         **kwargs,
     ):
         """Initialize the recombination model and its constants.
@@ -97,7 +99,7 @@ class RecombinationCalibrator:
         self.tracking_mode = tracking_mode
         self.tracking_kwargs = kwargs
 
-    def birks(self, dedx):
+    def birks(self, dedx: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
         """Birks equation to calculate electron quenching (higher local energy
         deposition are prone to more electron-ion recombination).
 
@@ -113,7 +115,7 @@ class RecombinationCalibrator:
         """
         return self.a / (1.0 + self.k * dedx)
 
-    def inv_birks(self, dqdx):
+    def inv_birks(self, dqdx: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
         """Inverse Birks equation to undo electron quenching (higher local
         energy deposition are prone to more electron-ion recombination).
 
@@ -129,7 +131,11 @@ class RecombinationCalibrator:
         """
         return 1.0 / (self.a / LAR_WION - self.k * dqdx)
 
-    def mbox(self, dedx, cosphi=None):
+    def mbox(
+        self,
+        dedx: Union[float, np.ndarray],
+        cosphi: Optional[Union[float, np.ndarray]] = None,
+    ) -> Union[float, np.ndarray]:
         """Modified box model equation to calculate electron quenching (higher
         local energy deposition are prone to more electron-ion recombination).
 
@@ -137,7 +143,7 @@ class RecombinationCalibrator:
         ----------
         dedx : Union[float, np.ndarray]
             Value or array of values of dE/dx in MeV/cm
-        cosphi : Union[float, np.ndarray]
+        cosphi : Union[float, np.ndarray], optional
             Value or array of values of the cosine of the angle w.r.t. the
             drift direction (in [0,1]).
 
@@ -152,7 +158,11 @@ class RecombinationCalibrator:
 
         return np.log(self.alpha + beta * dedx) / beta / dedx
 
-    def inv_mbox(self, dqdx, cosphi=None):
+    def inv_mbox(
+        self,
+        dqdx: Union[float, np.ndarray],
+        cosphi: Optional[Union[float, np.ndarray]] = None,
+    ) -> Union[float, np.ndarray]:
         """Inverse modified box model equation to undo electron quenching
         (higher local energy deposition are prone to more electron-ion
         recombination).
@@ -161,7 +171,7 @@ class RecombinationCalibrator:
         ----------
         dqdx : Union[float, np.ndarray]
             Value or array of values of dQ/dx in electrons/cm
-        cosphi : Union[float, np.ndarray]
+        cosphi : Union[float, np.ndarray], optional
             Value or array of values of the cosine of the angle w.r.t. the
             drift direction (in [0,1]).
 
@@ -176,7 +186,11 @@ class RecombinationCalibrator:
 
         return (np.exp(beta * LAR_WION * dqdx) - self.alpha) / beta / dqdx
 
-    def recombination_factor(self, dedx, cosphi=None):
+    def recombination_factor(
+        self,
+        dedx: Union[float, np.ndarray],
+        cosphi: Optional[Union[float, np.ndarray]] = None,
+    ) -> Union[float, np.ndarray]:
         """Calls the predefined recombination models to evaluate the
         appropriate quenching factors.
 
@@ -184,7 +198,7 @@ class RecombinationCalibrator:
         ----------
         dedx : Union[float, np.ndarray]
             Value or array of values of dEdx in MeV/cm
-        cosphi : Union[float, np.ndarray]
+        cosphi : Union[float, np.ndarray], optional
             Value or array of values of the cosine of the angle w.r.t. the
             drift direction (in [0,1]).
 
@@ -198,7 +212,11 @@ class RecombinationCalibrator:
         else:
             return self.mbox(dedx, cosphi)
 
-    def inv_recombination_factor(self, dqdx, cosphi=None):
+    def inv_recombination_factor(
+        self,
+        dqdx: Union[float, np.ndarray],
+        cosphi: Optional[Union[float, np.ndarray]] = None,
+    ) -> Union[float, np.ndarray]:
         """Calls the predefined inverse recombination models to evaluate the
         appropriate correction factors.
 
@@ -206,7 +224,7 @@ class RecombinationCalibrator:
         ----------
         dqdx : Union[float, np.ndarray]
             Value or array of values of dQ/dx in electrons/cm
-        cosphi : Union[float, np.ndarray]
+        cosphi : Union[float, np.ndarray], optional
             Value or array of values of the cosine of the angle w.r.t. the
             drift direction (in [0,1]).
 
@@ -220,7 +238,12 @@ class RecombinationCalibrator:
         else:
             return self.inv_mbox(dqdx, cosphi)
 
-    def process(self, values, points=None, track=False):
+    def process(
+        self,
+        values: np.ndarray,
+        points: Optional[np.ndarray] = None,
+        track: bool = False,
+    ) -> np.ndarray:
         """Corrects for electron recombination.
 
         Parameters

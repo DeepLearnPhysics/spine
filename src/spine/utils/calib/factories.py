@@ -1,5 +1,7 @@
 """Construct a calibrator class from its name."""
 
+from typing import Any, Dict
+
 from spine.utils.factory import instantiate, module_dict
 
 from . import field, gain, lifetime, recombination, transparency
@@ -10,7 +12,7 @@ for module in [gain, lifetime, transparency, recombination, field]:
     CALIB_DICT.update(**module_dict(module))
 
 
-def calibrator_factory(name, cfg):
+def calibrator_factory(name: str, cfg: Dict[str, Any]) -> object:
     """Instantiates a calibrator module from a configuration dictionary.
 
     Parameters

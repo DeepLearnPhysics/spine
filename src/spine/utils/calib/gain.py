@@ -1,10 +1,10 @@
 """Applies conversion form ADC to number ionization electrons."""
 
-from typing import List, Optional, Union
+from typing import Dict, List, Optional, Union
 
 import numpy as np
 
-from spine.utils.calib.database import CalibrationDatabase
+from .constant import CalibrationConstant
 
 __all__ = ["GainCalibrator"]
 
@@ -22,7 +22,7 @@ class GainCalibrator:
         self,
         num_tpcs: int,
         gain: Optional[Union[float, List[float]]] = None,
-        gain_db: Optional[str] = None,
+        gain_db: Optional[Union[str, Dict[int, Union[float, List[float]]]]] = None,
     ):
         """Initialize the recombination model and its constants.
 
@@ -35,28 +35,8 @@ class GainCalibrator:
         gain_db : str, optional
             Path to a SQLite db file which maps [run, cryo, tpc] sets
         """
-        # Must provide either a gain or a gain DB
-        if (gain is None) == (gain_db is None):
-            raise ValueError("Must provide either a gain or a gain_db.")
-
-        # Initialize the gain values
-        self.gain, self.gain_db = None, None
-        if gain is not None:
-            # If gain values are provided, make sure they are correct
-            if isinstance(gain, (list, tuple, np.ndarray)) and len(gain) != num_tpcs:
-                raise ValueError(
-                    f"Gain must be a scalar or given per TPC ({num_tpcs})."
-                )
-
-            if isinstance(gain, (list, tuple, np.ndarray)):
-                self.gain = gain
-            else:
-                self.gain = np.full(num_tpcs, gain)
-
-        else:
-            # If a database path is provided, load it
-            assert gain_db is not None  # For the linter's sake
-            self.gain_db = CalibrationDatabase(gain_db, num_tpcs)
+        # Initialize the gain calibration constant
+        self.gain = CalibrationConstant(num_tpcs=num_tpcs, value=gain, database=gain_db)
 
     def process(
         self, values: np.ndarray, tpc_id: int, run_id: Optional[int] = None
@@ -75,19 +55,5 @@ class GainCalibrator:
         np.ndarray
             (N) array of depositions in number of electrons
         """
-        # Fetch the gain value
-        if self.gain_db is not None:
-            assert run_id is not None, (
-                "When using a gain database, the run_id must be provided "
-                "to fetch the correct gain value."
-            )
-            gain_value = self.gain_db[run_id][tpc_id]
-
-        elif self.gain is not None:
-            gain_value = self.gain[tpc_id]
-
-        else:
-            raise RuntimeError("GainCalibrator not properly initialized.")
-
         # Apply the gain factor to all values in the current TPC
-        return values * gain_value
+        return values * self.gain.get(tpc_id, run_id)

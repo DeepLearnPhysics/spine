@@ -1,8 +1,12 @@
 """Apply electron lifetime corrections."""
 
+from typing import Dict, List, Optional, Union
+
 import numpy as np
 
-from .database import CalibrationDatabase
+from spine.geo.base import Geometry
+
+from .constant import CalibrationConstant
 
 __all__ = ["LifetimeCalibrator"]
 
@@ -15,7 +19,12 @@ class LifetimeCalibrator:
     name = "lifetime"
 
     def __init__(
-        self, num_tpcs, lifetime=None, driftv=None, lifetime_db=None, driftv_db=None
+        self,
+        num_tpcs: int,
+        lifetime: Optional[Union[float, List[float]]] = None,
+        driftv: Optional[Union[float, List[float]]] = None,
+        lifetime_db: Optional[Union[str, Dict[int, Union[float, List[float]]]]] = None,
+        driftv_db: Optional[Union[str, Dict[int, Union[float, List[float]]]]] = None,
     ):
         """Load the information needed to make a lifetime correction.
 
@@ -23,82 +32,38 @@ class LifetimeCalibrator:
         ----------
         num_tpcs : int
             Number of TPCs in the detector
-        lifetime : Union[float, list, dict], optional
-            Specifies the electron lifetime in microseconds. If `list`, it
-            should map a tpc ID onto a specific value. If `dict`, it should
-            map each run ID to either a float or a list as defined above.
-        driftv : Union[float, list, dict], optional
-            Specifies the electron drift velocity in cm/us. If `dict`, it
-            should map a tpc ID onto a specific value. If `dict`, it should
-            map each run ID to either a float or a list as defined above.
-        lifetime_db : str, optional
+        lifetime : Union[float, List[float]], optional
+            Specifies the electron lifetime in microseconds. If `List`, it
+            should map a tpc ID onto a specific value.
+        driftv : Union[float, List[float]], optional
+            Specifies the electron drift velocity in cm/us. If `List`, it
+            should map a tpc ID onto a specific value.
+        lifetime_db : Union[str, Dict[int, Union[float, List[float]]]], optional
             Path to a SQLite db file which maps [run, cryo, tpc] sets onto
-            a specific lifetime value in microseconds.
-        driftv_db : str, optional
+            a specific lifetime value in microseconds, or a dictionary which
+            maps run IDs to lifetime values.
+        driftv_db : Union[str, Dict[int, Union[float, List[float]]]], optional
             Path to a SQLite db file which maps [run, cryo, tpc] sets onto
-            a specific electron drift velocity value in cm/us.
+            a specific electron drift velocity value in cm/us, or a dictionary which
+            maps run IDs to drift velocity values.
         """
-        # Loop over the two quantities needed for this module, initialize
-        sources = {"lifetime": (lifetime, lifetime_db), "driftv": (driftv, driftv_db)}
-        for quant, (source, source_db) in sources.items():
-            # Make sure that the quantity is provided either directly or DB
-            assert (source is None) ^ (source_db is None), (
-                f"Must provide either the {quant} directly or point to "
-                f"a SQLite database through {quant}_db, not both."
-            )
-
-            # Set whether the quantity is provided per run or not
-            setattr(
-                self,
-                f"{quant}_per_run",
-                source_db is not None or isinstance(source, dict),
-            )
-
-            # Dispatch
-            if source is not None:
-                # If static values are specified, store them
-                if not getattr(self, f"{quant}_per_run"):
-                    setattr(self, quant, self.get_quantity(source, num_tpcs))
-                else:
-                    full_dict = {}
-                    for key, value in source.items():
-                        full_dict[key] = self.get_quantity(value, num_tpcs)
-                    setattr(self, quant, full_dict)
-
-            else:
-                # If database path is provided, load it
-                setattr(self, quant, CalibrationDatabase(source_db, num_tpcs))
-
-    @staticmethod
-    def get_quantity(value, num_tpcs):
-        """Process quantity weather it is provided as a scalar or a list.
-
-        Parameters
-        ----------
-        value : Union[float, list]
-            Specifies the quantity value as a scalar or a list
-        num_tpcs : int
-            Number of TPCs in the detector
-
-        Returns
-        -------
-        np.ndarray
-             List of quantities, one per TPC
-        """
-        # Inititalize quantity
-        if np.isscalar(value):
-            return np.full(num_tpcs, value)
-
-        assert len(value) == num_tpcs, (
-            "`lifetime` and `driftv' must be specified as either scalars "
-            f"or as lists with one value per TPC ({num_tpcs})."
+        # Initialize lifetime and drift velocity calibration constants
+        self.lifetime = CalibrationConstant(
+            num_tpcs=num_tpcs, value=lifetime, database=lifetime_db
+        )
+        self.driftv = CalibrationConstant(
+            num_tpcs=num_tpcs, value=driftv, database=driftv_db
         )
 
-        return value
-
-    def process(self, points, values, geo, tpc_id, run_id=None):
-        """
-        Apply the lifetime correction.
+    def process(
+        self,
+        points: np.ndarray,
+        values: np.ndarray,
+        geo: Geometry,
+        tpc_id: int,
+        run_id: Optional[int] = None,
+    ):
+        """Apply the lifetime correction.
 
         Parameters
         ----------
@@ -119,17 +84,8 @@ class LifetimeCalibrator:
             (N) array of corrected values
         """
         # Get the corrections lifetimes/drift velocities
-        lifetime = self.lifetime
-        driftv = self.driftv
-        if self.lifetime_per_run or self.driftv_per_run:
-            assert run_id is not None, (
-                "When `lifetime` or `driftv` is defined per run ID, "
-                "must provide a run ID to the process function."
-            )
-            if self.lifetime_per_run:
-                lifetime = self.lifetime[run_id]
-            if self.driftv_per_run:
-                driftv = self.driftv[run_id]
+        lifetime = self.lifetime.get(tpc_id, run_id)
+        driftv = self.driftv.get(tpc_id, run_id)
 
         # Compute the distance to the anode plane
         mod = tpc_id // geo.tpc.num_chambers_per_module
@@ -143,5 +99,5 @@ class LifetimeCalibrator:
         drifts = np.clip(drifts, 0.0, max_drift)
 
         # Convert the drift distances to correction factors
-        corrections = np.exp(drifts / lifetime[tpc_id] / driftv[tpc_id])
+        corrections = np.exp(drifts / lifetime / driftv)
         return corrections * values

@@ -2,9 +2,11 @@
 in the appropriate sequence."""
 
 from copy import deepcopy
+from typing import Optional
 
 import numpy as np
 
+from spine.data.meta import Meta
 from spine.geo import GeoManager
 from spine.utils.stopwatch import StopwatchManager
 
@@ -16,15 +18,13 @@ class CalibrationManager:
     a set of 3D space points and their associated measured charge depositions.
     """
 
-    def __init__(self, gain_applied=False, **cfg):
+    def __init__(self, gain_applied: bool = False, **cfg):
         """Initialize the manager.
 
         Parameters
         ----------
-        geometry : dict
-            Geometry configuration
         gain_applied : bool, default False
-            Weather the gain conversion was applied upstream or not
+            Whether the gain conversion was applied upstream or not
         **cfg : dict, optional
             Calibrator configurations
         """
@@ -55,13 +55,13 @@ class CalibrationManager:
 
     def __call__(
         self,
-        points,
-        values,
-        sources=None,
-        run_id=None,
-        track=None,
-        meta=None,
-        module_id=None,
+        points: np.ndarray,
+        values: np.ndarray,
+        sources: Optional[np.ndarray] = None,
+        run_id: Optional[int] = None,
+        track: Optional[bool] = None,
+        meta: Optional[Meta] = None,
+        module_id: Optional[int] = None,
     ):
         """Main calibration driver.
 

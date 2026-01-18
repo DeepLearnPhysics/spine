@@ -2,6 +2,7 @@
 
 import sqlite3 as sql
 from pathlib import Path
+from typing import List
 
 import numpy as np
 import pandas as pd
@@ -17,9 +18,17 @@ class CalibrationDatabase:
     is that of ICARUS calibration databases, for now.
     """
 
-    def __init__(self, db_path, num_tpcs, db_type="value", value_key="scale"):
-        """Given a path to a calibration data base, load the information
-        into a dictionary.
+    _db_types = ("value", "map")
+
+    def __init__(
+        self,
+        db_path: str,
+        num_tpcs: int,
+        db_type: str = "value",
+        value_key: str = "scale",
+    ):
+        """Given a path to a calibration data base, load the
+        information into a dictionary.
 
         Parameters
         ----------
@@ -28,7 +37,7 @@ class CalibrationDatabase:
         num_tpcs : int
             Expected number of TPCs
         db_type : str, default 'value'
-            Type of database (One 'value' or one 'map per TPC)
+            Type of database (One 'value' or one 'map' per TPC)
         value_key : str, default 'scale'
             Name of the quantity to load for each bin when using 'map' db_type
 
@@ -43,10 +52,10 @@ class CalibrationDatabase:
         ICARUS calibration for now as of the time of implementation.
         """
         # Make sure the type of database is recognized
-        if db_type not in ["value", "map"]:
+        if db_type not in self._db_types:
             raise ValueError(
                 f"Type of database not recognized: {db_type}. "
-                "Must be either 'value' or 'map'."
+                f"Must be one of {self._db_types}."
             )
 
         # Load the database into a pandas dataframe
@@ -75,7 +84,7 @@ class CalibrationDatabase:
         # Create a list of boundary runs
         self.runs = np.sort(list(self.dict.keys()))
 
-    def load_values(self, df_run, quantity):
+    def load_values(self, df_run: pd.DataFrame, quantity: str) -> np.ndarray:
         """Loads one value per TPC.
 
         Parameters
@@ -104,7 +113,7 @@ class CalibrationDatabase:
 
         return array
 
-    def load_tables(self, df_run, quantity):
+    def load_tables(self, df_run: pd.DataFrame, quantity: str) -> List[np.ndarray]:
         """Loads one look-up table per TPC.
 
         Parameters
@@ -134,7 +143,7 @@ class CalibrationDatabase:
 
         return tpc_luts
 
-    def __getitem__(self, run_id):
+    def __getitem__(self, run_id: int) -> np.ndarray:
         """Mirrors the `query` function.
 
         Parameters
@@ -149,7 +158,7 @@ class CalibrationDatabase:
         """
         return self.query(run_id)
 
-    def query(self, run_id):
+    def query(self, run_id: int) -> np.ndarray:
         """Gets the database information for a given run. If the run does not
         exist in the list, pick the one closest but earlier than it.
 
@@ -180,7 +189,12 @@ class CalibrationLUT:
     """
 
     def __init__(
-        self, dims, bins, range, values, dummy=-999.0
+        self,
+        dims: List[int],
+        bins: List[int],
+        range: List[List[float]],
+        values: np.ndarray,
+        dummy=-999.0,
     ):  # pylint: disable=W0622
         """Initialize the calibration map.
 
@@ -217,12 +231,12 @@ class CalibrationLUT:
             self.values[self.values == dummy] = 1.0
 
     @property
-    def edges(self):
+    def edges(self) -> List[np.ndarray]:
         """Returns the bin edges in each axis.
 
         Returns
         -------
-        np.ndarray
+        List[np.ndarray]
             (D) List of (N_i + 1) edges per dimension, with N_i the number
             of bins in the the ith dimension
         """
@@ -232,7 +246,7 @@ class CalibrationLUT:
 
         return edges
 
-    def query(self, points):
+    def query(self, points: np.ndarray) -> np.ndarray:
         """Queries the LUT to get the calibration values for a set of points.
 
         Parameters
