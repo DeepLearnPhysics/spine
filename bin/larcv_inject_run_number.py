@@ -81,7 +81,7 @@ def initialize_manager(file_path, dest, overwrite, suffix):
     return manager, out_path
 
 
-def main(source, source_list, dest, overwrite, run_number, offset, suffix):
+def main(source, source_list, dest, overwrite, run_number, run_list, offset, suffix):
     """Checks the output of the SPINE process.
 
     The script loops over the input files, fetch the list of keys in the file
@@ -105,6 +105,9 @@ def main(source, source_list, dest, overwrite, run_number, offset, suffix):
     run_number : int
         Run number to inject in the input file list. If it is specied as -1,
         each file is assigned a unique run number
+    run_list : str
+        Path to a text file containing a list of run numbers to assign to each
+        input file
     offset : int
         Offset to add to the existing run number for each successive file
     suffix : str
@@ -115,6 +118,18 @@ def main(source, source_list, dest, overwrite, run_number, offset, suffix):
     if source_list is not None:
         with open(source_list, "r", encoding="utf-8") as f:
             source = f.read().splitlines()
+
+    # If using run list, read it in
+    run_numbers = None
+    if run_list is not None:
+        with open(run_list, "r", encoding="utf-8") as f:
+            run_numbers = f.read().splitlines()
+        run_numbers = [int(r) for r in run_numbers]
+        if len(run_numbers) != len(source):
+            raise ValueError(
+                "The number of run numbers provided does not match the number "
+                "of input files."
+            )
 
     # Loop over the list of files in the input
     print("\nUpdating the run numbers of input files.")
@@ -139,6 +154,8 @@ def main(source, source_list, dest, overwrite, run_number, offset, suffix):
                     io.set_id(run_number, subrun, event)
                 else:
                     io.set_id(idx, subrun, event)
+            elif run_numbers is not None:
+                io.set_id(run_numbers[idx], subrun, event)
             else:
                 io.set_id(run + offset, subrun, event)
 
@@ -187,6 +204,12 @@ if __name__ == "__main__":
         type=int,
     )
     group.add_argument(
+        "--run-list",
+        help="Path to a text file containing a list of run numbers to assign "
+        "to each input file",
+        type=str,
+    )
+    group.add_argument(
         "--offset",
         help="Offset to add to the existing run number for each successive file",
         type=int,
@@ -205,6 +228,7 @@ if __name__ == "__main__":
         args.dest,
         args.overwrite,
         args.run_number,
+        args.run_list,
         args.offset,
         args.suffix,
     )
