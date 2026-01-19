@@ -568,10 +568,8 @@ class SPP(ME.MinkowskiNetwork):
         elif mode == "sum":
             self.pool_fn = ME.MinkowskiSumPooling
         else:
-            raise ValueError(
-                "Invalid pooling mode, must be one of \
-                'sum', 'max' or 'average'"
-            )
+            raise ValueError("Invalid pooling mode, must be one of \
+                'sum', 'max' or 'average'")
 
         self.unpool_fn = ME.MinkowskiPoolingTranspose
 

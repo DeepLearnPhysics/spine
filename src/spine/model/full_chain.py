@@ -711,7 +711,7 @@ class FullChain(torch.nn.Module):
                 # Use GraPA to aggregate instances
                 prefix = f"{name}_fragment" if name != "particle" else "fragment"
                 model = getattr(self, f"grappa_{name}")
-                (groups, group_shapes, group_primaries, shape_index) = self.run_grappa(
+                groups, group_shapes, group_primaries, shape_index = self.run_grappa(
                     prefix,
                     model,
                     data,
@@ -738,16 +738,14 @@ class FullChain(torch.nn.Module):
 
             elif switch == "label":
                 # Use cluster labels to aggregate instances
-                (groups, group_shapes, group_primaries, shape_index) = (
-                    self.group_labels(
-                        shapes[name],
-                        data,
-                        fragments,
-                        fragment_shapes,
-                        aggregate_shapes=True,
-                        shape_use_primary=use_primary[name],
-                        retain_primaries=use_primary[name],
-                    )
+                groups, group_shapes, group_primaries, shape_index = self.group_labels(
+                    shapes[name],
+                    data,
+                    fragments,
+                    fragment_shapes,
+                    aggregate_shapes=True,
+                    shape_use_primary=use_primary[name],
+                    retain_primaries=use_primary[name],
                 )
 
             elif switch == "skip":

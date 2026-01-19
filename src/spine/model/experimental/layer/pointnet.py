@@ -57,10 +57,8 @@ class PointNet(torch.nn.Module):
         elif isinstance(self.sampling_ratio, list):
             assert len(self.sampling_ratio) == self.depth
         else:
-            raise ValueError(
-                "Sampling ratio must either be given as \
-                             float or list of floats."
-            )
+            raise ValueError("Sampling ratio must either be given as \
+                             float or list of floats.")
 
         self.neighbor_radius = self.model_config.get("neighbor_radius", 3.0)
         if isinstance(self.neighbor_radius, float):
@@ -68,10 +66,8 @@ class PointNet(torch.nn.Module):
         elif isinstance(self.neighbor_radius, list):
             assert len(self.neighbor_radius) == self.depth
         else:
-            raise ValueError(
-                "Neighbor aggregation radius must either \
-                             be given as float or list of floats."
-            )
+            raise ValueError("Neighbor aggregation radius must either \
+                             be given as float or list of floats.")
 
         self.mlp_specs = []
         self.sa_modules = nn.ModuleList()

@@ -4,7 +4,7 @@
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.6.0  # Updated to latest
+    rev: v6.0.0  # Updated to latest
     hooks:
       - id: trailing-whitespace
         exclude: '\.md$'  # Allow trailing spaces in Markdown
@@ -19,20 +19,20 @@ repos:
       - id: requirements-txt-fixer
 
   - repo: https://github.com/psf/black
-    rev: 24.8.0  # Updated to latest
+    rev: 26.1.0  # Updated to latest
     hooks:
       - id: black
         language_version: python3
         args: [--line-length=88]  # Explicit line length
 
   - repo: https://github.com/pycqa/isort
-    rev: 5.13.2  # Updated to latest
+    rev: 7.0.0  # Updated to latest
     hooks:
       - id: isort
         args: [--profile=black, --line-length=88]  # Match Black config
 
   - repo: https://github.com/pycqa/flake8
-    rev: 7.1.1  # Updated to latest
+    rev: 7.3.0  # Updated to latest
     hooks:
       - id: flake8
         # Use same ignore list as CI for consistency
