@@ -280,6 +280,9 @@ def parse_value(value_str: Any) -> Any:
     if not isinstance(value_str, str):
         return value_str
 
+    if value_str.strip() == "":
+        return value_str
+
     try:
         return yaml.safe_load(value_str)
     except yaml.YAMLError:
