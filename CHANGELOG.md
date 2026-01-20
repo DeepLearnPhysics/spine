@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.9.3] - 2026-01-20
+
+### Added
+- **tqdm dependency**: Progress bars now available for long-running operations
+- **LArCV tree size measurement**: Script to measure tree sizes in each entry of a LArCV file
+- **Run list support**: `larcv_inject_run_number` script can now take a run list (different run per file)
+- **Gain from database**: Option to fetch gain calibration from database
+- **Run ID in gain correction**: Pass run_id to the gain correction calibrator
+
+### Changed
+- **CI improvements**: Use pre-commit for CI linting and update to latest tool versions
+- **Calibration cleanup**: Cleaned up calibration package around `CalibrationConstant` class
+- **Config loader**: Allow for empty strings in configuration
+- **Training visualization**: Move training legend outside figure for better visibility
+
+### Fixed
+- Pinned Black version to 25.9.0 in CI for consistency
+- Removed spaces from output CSV when measuring tree sizes
+
 ## [0.9.2] - 2026-01-14
 
 ### Added
