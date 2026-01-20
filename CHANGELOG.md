@@ -15,10 +15,6 @@
 - **Config loader**: Allow for empty strings in configuration
 - **Training visualization**: Move training legend outside figure for better visibility
 
-### Fixed
-- Pinned Black version to 25.9.0 in CI for consistency
-- Removed spaces from output CSV when measuring tree sizes
-
 ## [0.9.2] - 2026-01-14
 
 ### Added
