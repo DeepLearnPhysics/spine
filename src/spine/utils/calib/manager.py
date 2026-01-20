@@ -141,7 +141,7 @@ class CalibrationManager:
             # Apply the gain correction
             if "gain" in self.modules:
                 self.watch.start("gain")
-                tpc_values = self.modules["gain"].process(tpc_values, t)  # e-
+                tpc_values = self.modules["gain"].process(tpc_values, t, run_id)  # e-
                 self.watch.stop("gain")
 
             # Apply the recombination correction
