@@ -22,17 +22,47 @@ from spine.config.loader import ConfigLoader, load_config
 class TestDownloadUtilities:
     """Test suite for download utility functions."""
 
-    def test_get_cache_dir_default(self):
-        """Test default cache directory."""
-        with patch.dict(os.environ, {}, clear=True):
+    def test_get_cache_dir_default(self, monkeypatch):
+        """Test default cache directory with warning when env vars not set."""
+        # Clear environment
+        monkeypatch.delenv("SPINE_CACHE_DIR", raising=False)
+        monkeypatch.delenv("SPINE_PROD_BASEDIR", raising=False)
+        monkeypatch.delenv("SPINE_BASEDIR", raising=False)
+
+        with patch("builtins.print") as mock_print:
             cache_dir = get_cache_dir()
+            # Should warn about missing env vars
+            mock_print.assert_called_once()
+            assert "WARNING" in str(mock_print.call_args)
             assert cache_dir == Path.cwd() / "weights"
 
-    def test_get_cache_dir_env_override(self):
-        """Test cache directory from environment variable."""
-        with patch.dict(os.environ, {"SPINE_CACHE_DIR": "/custom/cache"}):
-            cache_dir = get_cache_dir()
-            assert cache_dir == Path("/custom/cache")
+    def test_get_cache_dir_spine_prod(self, monkeypatch):
+        """Test cache directory from SPINE_PROD_BASEDIR."""
+        monkeypatch.delenv("SPINE_CACHE_DIR", raising=False)
+        monkeypatch.setenv("SPINE_PROD_BASEDIR", "/opt/spine-prod")
+        monkeypatch.setenv("SPINE_BASEDIR", "/opt/spine")
+
+        cache_dir = get_cache_dir()
+        # Should prefer SPINE_PROD_BASEDIR
+        assert cache_dir == Path("/opt/spine-prod") / ".cache" / "weights"
+
+    def test_get_cache_dir_spine_basedir(self, monkeypatch):
+        """Test cache directory from SPINE_BASEDIR."""
+        monkeypatch.delenv("SPINE_CACHE_DIR", raising=False)
+        monkeypatch.delenv("SPINE_PROD_BASEDIR", raising=False)
+        monkeypatch.setenv("SPINE_BASEDIR", "/opt/spine")
+
+        cache_dir = get_cache_dir()
+        assert cache_dir == Path("/opt/spine") / ".cache" / "weights"
+
+    def test_get_cache_dir_env_override(self, monkeypatch):
+        """Test cache directory from environment variable override."""
+        monkeypatch.setenv("SPINE_CACHE_DIR", "/custom/cache")
+        monkeypatch.setenv("SPINE_PROD_BASEDIR", "/opt/spine-prod")
+
+        cache_dir = get_cache_dir()
+        # SPINE_CACHE_DIR should take precedence
+        assert cache_dir == Path("/custom/cache")
 
     def test_url_to_filename(self):
         """Test URL to filename conversion."""

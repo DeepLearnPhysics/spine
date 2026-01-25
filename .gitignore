@@ -2,6 +2,7 @@
 log*
 !logger.py
 weights*
+.cache/
 *.txt
 *.csv
 *.root
