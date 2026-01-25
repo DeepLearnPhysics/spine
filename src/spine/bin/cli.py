@@ -8,7 +8,7 @@ import sys
 from typing import List, Optional
 
 from spine.config import load_config
-from spine.config.loader import parse_value, set_nested_value
+from spine.config.loader import parse_value, resolve_config_path, set_nested_value
 
 
 def main(
@@ -53,14 +53,8 @@ def main(
     config_overrides : List[str]
         List of config overrides in the form "key.path=value"
     """
-    # Try to find configuration file using the absolute path or under
-    # the 'config' directory relative to the current working directory
-    cfg_file = config
-    if not os.path.isfile(cfg_file):
-        # Try to find it in a config subdirectory
-        cfg_file = os.path.join("config", config)
-    if not os.path.isfile(cfg_file):
-        raise FileNotFoundError(f"Configuration not found: {config}")
+    # Load the configuration tools to find the appropriate config file
+    cfg_file = resolve_config_path(config, current_dir=os.getcwd())
 
     # Load the configuration file using the advanced loader
     cfg = load_config(cfg_file)
