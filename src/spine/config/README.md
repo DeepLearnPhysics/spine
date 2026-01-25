@@ -109,14 +109,16 @@ model:
 ```
 
 The `!download` tag automatically downloads and caches remote files:
-- **Caching**: Files downloaded to `weights/` directory (or `$SPINE_CACHE_DIR`)
+- **Caching**: Files cached in `.cache/weights/` under `$SPINE_PROD_BASEDIR` or `$SPINE_BASEDIR`
+- **Centralized**: Single cache location regardless of execution directory
 - **Smart reuse**: Existing files with matching hash aren't re-downloaded
 - **Hash validation**: Optional SHA256 verification ensures file integrity
 - **Production ready**: Ideal for model weights and large reference files
+- **Override**: Set `$SPINE_CACHE_DIR` to use a custom cache location
 
 Benefits for production:
 - Fully reproducible: exact weight URLs in version control
-- No manual downloads: users run configs directly  
+- No manual downloads: users run configs directly
 - Cache efficient: download once, reuse everywhere
 - Integrity verified: hash validation prevents corruption
 

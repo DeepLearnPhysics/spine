@@ -17,7 +17,10 @@ from urllib.error import HTTPError, URLError
 def get_cache_dir() -> Path:
     """Get the directory for caching downloaded files.
 
-    By default, creates a 'weights/' directory in the current working directory.
+    By default, creates a '.cache/weights/' directory in SPINE_BASEDIR or
+    SPINE_PROD_BASEDIR (if running from spine-prod). This ensures downloads
+    are cached centrally regardless of execution directory.
+
     Can be overridden with the SPINE_CACHE_DIR environment variable.
 
     Returns
@@ -28,6 +31,23 @@ def get_cache_dir() -> Path:
     cache_dir = os.environ.get("SPINE_CACHE_DIR")
     if cache_dir:
         return Path(cache_dir)
+
+    # Try SPINE_PROD_BASEDIR first (if running from spine-prod)
+    spine_prod_base = os.environ.get("SPINE_PROD_BASEDIR")
+    if spine_prod_base:
+        return Path(spine_prod_base) / ".cache" / "weights"
+
+    # Fall back to SPINE_BASEDIR
+    spine_base = os.environ.get("SPINE_BASEDIR")
+    if spine_base:
+        return Path(spine_base) / ".cache" / "weights"
+
+    # Last resort: use current directory (with warning)
+    print(
+        "WARNING: SPINE_BASEDIR and SPINE_PROD_BASEDIR not set. "
+        "Using current directory for cache. "
+        "Please source configure.sh for proper caching."
+    )
     return Path.cwd() / "weights"
 
 
