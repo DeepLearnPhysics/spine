@@ -115,10 +115,10 @@ The `!download` tag automatically downloads and caches remote files:
 - **Production ready**: Ideal for model weights and large reference files
 
 Benefits for production:
-- ✅ Fully reproducible: exact weight URLs in version control
-- ✅ No manual downloads: users run configs directly  
-- ✅ Cache efficient: download once, reuse everywhere
-- ✅ Integrity verified: hash validation prevents corruption
+- Fully reproducible: exact weight URLs in version control
+- No manual downloads: users run configs directly  
+- Cache efficient: download once, reuse everywhere
+- Integrity verified: hash validation prevents corruption
 
 #### Path Resolution
 
