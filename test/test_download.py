@@ -160,12 +160,10 @@ class TestConfigLoaderDownload:
     def test_download_tag_simple_url(self, mock_download, tmp_path):
         """Test !download tag with simple URL string."""
         config_file = tmp_path / "config.yaml"
-        config_file.write_text(
-            """
+        config_file.write_text("""
 model:
   weights: !download https://example.com/model.ckpt
-"""
-        )
+""")
 
         # Mock download to create a file
         cache_dir = tmp_path / "weights"
@@ -189,14 +187,12 @@ model:
     def test_download_tag_with_hash(self, mock_download, tmp_path):
         """Test !download tag with URL and hash."""
         config_file = tmp_path / "config.yaml"
-        config_file.write_text(
-            """
+        config_file.write_text("""
 model:
   weights: !download
     url: https://example.com/model.ckpt
     hash: abc123def456
-"""
-        )
+""")
 
         cache_dir = tmp_path / "weights"
         cache_dir.mkdir()
@@ -219,13 +215,11 @@ model:
     def test_download_tag_missing_url(self, tmp_path):
         """Test !download tag without URL raises error."""
         config_file = tmp_path / "config.yaml"
-        config_file.write_text(
-            """
+        config_file.write_text("""
 model:
   weights: !download
     hash: abc123
-"""
-        )
+""")
 
         with pytest.raises(Exception, match="url"):
             load_config(str(config_file))
@@ -235,24 +229,20 @@ model:
         """Test full integration with config includes."""
         # Create base config with downloaded weights
         base_config = tmp_path / "base.yaml"
-        base_config.write_text(
-            """
+        base_config.write_text("""
 model:
   name: uresnet
   weights: !download https://example.com/uresnet.ckpt
-"""
-        )
+""")
 
         # Create main config that includes base
         main_config = tmp_path / "main.yaml"
-        main_config.write_text(
-            """
+        main_config.write_text("""
 include: base.yaml
 
 base:
   iterations: 1000
-"""
-        )
+""")
 
         cache_dir = tmp_path / "weights"
         cache_dir.mkdir()

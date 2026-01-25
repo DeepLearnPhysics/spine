@@ -28,12 +28,12 @@ File Downloads:
     model:
       # Simple URL download
       weights: !download https://example.com/model.ckpt
-      
+
       # With hash validation (recommended for production)
       weights: !download
         url: https://example.com/model.ckpt
         hash: abc123...  # SHA256 hash for validation
-    
+
     Downloaded files are cached in weights/ (or $SPINE_CACHE_DIR).
     Files are only downloaded once and reused on subsequent loads.
 
