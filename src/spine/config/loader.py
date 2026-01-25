@@ -8,6 +8,7 @@ This module provides a sophisticated YAML configuration loading system with:
 - **Collection operations**: List append/remove, dict key removal
 - **Strict modes**: Configurable warn/error behavior for missing paths
 - **Type safety**: Typed exceptions for better error handling
+- **File downloads**: Automatic downloading and caching of remote files
 
 Configuration Language (API v1.0)
 ----------------------------------
@@ -16,6 +17,25 @@ Include Semantics:
     include: base.yaml               # Single file
     include: [base.yaml, other.yaml] # Multiple files (order matters)
     key: !include inline.yaml        # Inline include
+
+Path Resolution:
+    model:
+      weights: !path weights/model.ckpt  # Resolve relative path
+    post:
+      cfg: !path config.yaml             # Must exist at load time
+
+File Downloads:
+    model:
+      # Simple URL download
+      weights: !download https://example.com/model.ckpt
+      
+      # With hash validation (recommended for production)
+      weights: !download
+        url: https://example.com/model.ckpt
+        hash: abc123...  # SHA256 hash for validation
+    
+    Downloaded files are cached in weights/ (or $SPINE_CACHE_DIR).
+    Files are only downloaded once and reused on subsequent loads.
 
 Override Semantics:
     override:
@@ -58,6 +78,7 @@ from typing import Any, Dict, List, Optional, TextIO, Tuple, cast
 import yaml
 
 from .api import META_DESCRIPTION, META_KEY, META_LIST_APPEND, META_STRICT, META_VERSION
+from .download import download_from_url
 from .errors import (
     ConfigCycleError,
     ConfigIncludeError,
@@ -230,10 +251,69 @@ class ConfigLoader(yaml.SafeLoader):
         resolved_path = resolve_config_path(filename, self._root)
         return resolved_path
 
+    def download(self, node: yaml.Node) -> str:
+        """Download a file from URL and return the cached path.
 
-# Register the !include and !path constructors
+        This is useful for downloading model weights or other large files
+        that should not be stored in git but need to be accessible.
+
+        Files are cached in a weights/ directory (or SPINE_CACHE_DIR if set).
+        If a file already exists in cache, it is not re-downloaded.
+
+        Parameters
+        ----------
+        node : yaml.Node
+            YAML node containing the URL (string or dict with url/hash)
+
+        Returns
+        -------
+        str
+            Absolute path to cached file
+
+        Raises
+        ------
+        HTTPError
+            If download fails
+        ValueError
+            If hash validation fails
+
+        Examples
+        --------
+        model:
+          # Simple URL
+          weights: !download https://example.com/model.ckpt
+
+          # With hash validation
+          weights: !download
+            url: https://example.com/model.ckpt
+            hash: abc123def456...  # SHA256 hash
+        """
+        if isinstance(node, yaml.ScalarNode):
+            # Simple case: just a URL string
+            url = self.construct_scalar(node)
+            return download_from_url(url)
+        elif isinstance(node, yaml.MappingNode):
+            # Complex case: dict with url and optional hash
+            data = self.construct_mapping(node)
+            url = data.get("url")
+            expected_hash = data.get("hash")
+
+            if not url:
+                raise ConfigIncludeError(
+                    "!download requires either a URL string or a dict with 'url' key"
+                )
+
+            return download_from_url(url, expected_hash=expected_hash)
+        else:
+            raise ConfigIncludeError(
+                f"!download expects a string URL or dict, got {type(node)}"
+            )
+
+
+# Register the !include, !path, and !download constructors
 ConfigLoader.add_constructor("!include", ConfigLoader.include)
 ConfigLoader.add_constructor("!path", ConfigLoader.resolve_path)
+ConfigLoader.add_constructor("!download", ConfigLoader.download)
 
 
 def deep_merge(

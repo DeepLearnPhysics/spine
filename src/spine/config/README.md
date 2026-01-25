@@ -95,6 +95,31 @@ The `!path` tag is useful for:
 
 Unlike `!include`, `!path` returns the resolved absolute path as a string rather than loading the file content. The file must exist or an error is raised.
 
+**Automatic file downloads** with `!download` tag:
+
+```yaml
+model:
+  # Simple URL download
+  weights: !download https://portal.nersc.gov/project/dune/weights/model.ckpt
+  
+  # With SHA256 hash validation (recommended)
+  weights: !download
+    url: https://portal.nersc.gov/project/dune/weights/model.ckpt
+    hash: 8f4e7d3c2b1a9e6f5c4d3b2a1e9f8c7d6b5a4e3f2c1b0a9e8d7c6b5a4f3e2d1c
+```
+
+The `!download` tag automatically downloads and caches remote files:
+- **Caching**: Files downloaded to `weights/` directory (or `$SPINE_CACHE_DIR`)
+- **Smart reuse**: Existing files with matching hash aren't re-downloaded
+- **Hash validation**: Optional SHA256 verification ensures file integrity
+- **Production ready**: Ideal for model weights and large reference files
+
+Benefits for production:
+- ✅ Fully reproducible: exact weight URLs in version control
+- ✅ No manual downloads: users run configs directly  
+- ✅ Cache efficient: download once, reuse everywhere
+- ✅ Integrity verified: hash validation prevents corruption
+
 #### Path Resolution
 
 Both `!include` and `!path` tags use the same path resolution strategy. SPINE searches for files in this order:

@@ -15,6 +15,7 @@ See loader module docstring for full configuration language specification.
 """
 
 from .api import API_VERSION
+from .download import download_from_url, get_cache_dir
 from .errors import (
     ConfigCycleError,
     ConfigError,
@@ -30,6 +31,8 @@ __version__ = API_VERSION
 
 __all__ = [
     "load_config",
+    "download_from_url",
+    "get_cache_dir",
     "ConfigError",
     "ConfigIncludeError",
     "ConfigCycleError",
