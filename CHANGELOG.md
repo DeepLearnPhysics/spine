@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.9.4] - 2026-01-26
+
+### Added
+- **!download YAML tag**: Automatically download files referenced in configs
+- **Centralized cache directory**: All downloaded files now use a shared cache location
+
+### Changed
+- **SPINE_CONFIG_PATH**: Can now use paths relative to SPINE_CONFIG_PATH for configuration files
+- Formatting and documentation improvements
+
 ## [0.9.3] - 2026-01-20
 
 ### Added
