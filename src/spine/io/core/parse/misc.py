@@ -219,7 +219,7 @@ class FlashParser(ParserBase):
         # Fetch the geometry information to resize the flash objects
         geo = GeoManager.get_instance()
         if geo.optical is not None:
-            self.num_detectors_per_volume = geo.optical.num_detectors_per_volume
+            self.num_channels_per_volume = geo.optical.num_channels_per_volume
         else:
             raise ValueError(
                 "Optical geometry not found, required to resize the flash objects."
@@ -280,7 +280,7 @@ class FlashParser(ParserBase):
         # Resize the flash objects to match the geometry
         for flash in flashes:
             pe_per_ch = np.zeros(
-                self.num_detectors_per_volume, dtype=flash.pe_per_ch.dtype
+                self.num_channels_per_volume, dtype=flash.pe_per_ch.dtype
             )
             if len(flash.pe_per_ch) > len(pe_per_ch):
                 # If the flash spans > 1 optical volume, reshape
@@ -288,9 +288,12 @@ class FlashParser(ParserBase):
                 upper = (flash.volume_id + 1) * len(pe_per_ch)
                 pe_per_ch = flash.pe_per_ch[lower:upper]
 
-            else:
-                # Otherwise, just pad if it does not fill the full length
+            elif len(flash.pe_per_ch) < len(pe_per_ch):
+                # Pad if it does not fill the full length
                 pe_per_ch[: len(flash.pe_per_ch)] = flash.pe_per_ch
+
+            else:
+                pe_per_ch = flash.pe_per_ch
 
             flash.pe_per_ch = pe_per_ch
 

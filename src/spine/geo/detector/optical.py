@@ -297,6 +297,38 @@ class OptDetector(Box):
         """
         return self.num_volumes * self.num_detectors_per_volume
 
+    @property
+    def num_channels(self) -> int:
+        """Returns the number of optical readout channels.
+
+        Returns
+        -------
+        int
+            Number of optical readout channels, N_c
+        """
+        # If det_ids are not provided, assume one channel per detector
+        if self.det_ids is None:
+            return self.num_detectors
+
+        # Otherwise, return the total number of channels across all volumes
+        return len(self.det_ids)
+
+    @property
+    def num_channels_per_volume(self) -> int:
+        """Returns the number of optical readout channels per volume.
+
+        Returns
+        -------
+        int
+            Number of optical readout channels per volume, N_c_v
+        """
+        # If det_ids are not provided, assume one channel per detector
+        if self.volumes[0].det_ids is None:
+            return self.num_detectors_per_volume
+
+        # Otherwise, return the number of channels in the first volume
+        return len(self.volumes[0].det_ids)
+
     def volume_index(self, volume_id: int) -> np.ndarray:
         """Returns an index which corresponds to detectors in a certain volume.
 
