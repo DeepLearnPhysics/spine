@@ -112,6 +112,8 @@ def adjusted_rand_score(labels_true, labels_pred):
 
     n_samples = len(labels_true)
     sum_comb_n = _comb2(n_samples)
+    if sum_comb_n == 0:
+        return 1.0
 
     expected_index = sum_comb_k * sum_comb_c_pred / sum_comb_n
     max_index = (sum_comb_k + sum_comb_c_pred) / 2.0

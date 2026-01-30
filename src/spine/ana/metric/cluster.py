@@ -194,6 +194,10 @@ class ClusterAna(AnaBase):
                 for i, index in enumerate(data["clusts"]):
                     preds[index] = data["group_pred"][i]
 
+            # Cast the labels and predictions to int32 for metric functions
+            labels = labels.astype(np.int32)
+            preds = preds.astype(np.int32)
+
             # Evaluate clustering metrics
             row_dict = {
                 "num_points": num_points,
