@@ -25,7 +25,7 @@ from .errors import (
     ConfigTypeError,
     ConfigValidationError,
 )
-from .loader import load_config, load_config_file
+from .load import load_config, load_config_file
 
 __version__ = API_VERSION
 

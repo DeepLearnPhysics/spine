@@ -5,10 +5,11 @@ import argparse
 import os
 import pathlib
 import sys
-from typing import List, Optional
+from typing import List
 
 from spine.config import load_config_file
-from spine.config.loader import parse_value, resolve_config_path, set_nested_value
+from spine.config.loader import resolve_config_path
+from spine.config.operations import parse_value, set_nested_value
 
 
 def main(

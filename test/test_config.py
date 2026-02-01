@@ -1422,3 +1422,111 @@ data:
 
         # Both paths should be resolved
         assert cfg["data"]["files"] == [str(file1), str(file2)]
+
+    def test_load_config_from_string(self):
+        """Test loading configuration from a YAML string."""
+        config_str = """
+base:
+  world_size: 1
+  iterations: 100
+io:
+  reader:
+    batch_size: 4
+model:
+  name: resnet
+  layers: [64, 128, 256]
+"""
+        cfg = load_config(config_str)
+
+        assert cfg["base"]["world_size"] == 1
+        assert cfg["base"]["iterations"] == 100
+        assert cfg["io"]["reader"]["batch_size"] == 4
+        assert cfg["model"]["name"] == "resnet"
+        assert cfg["model"]["layers"] == [64, 128, 256]
+
+    def test_load_config_from_string_with_includes(self, tmp_path):
+        """Test loading config from string that includes other files."""
+        # Create a base config file to include
+        base_config = tmp_path / "base.yaml"
+        base_config.write_text("""
+base:
+  world_size: 1
+  iterations: 100
+""")
+
+        # Load from string with include directive
+        config_str = """
+include: base.yaml
+io:
+  reader:
+    batch_size: 32
+model:
+  name: unet
+"""
+        cfg = load_config(config_str, root_dir=str(tmp_path))
+
+        # Should have content from both base and the string
+        assert cfg["base"]["world_size"] == 1
+        assert cfg["base"]["iterations"] == 100
+        assert cfg["io"]["reader"]["batch_size"] == 32
+        assert cfg["model"]["name"] == "unet"
+
+    def test_load_config_from_string_with_spine_config_path(
+        self, tmp_path, monkeypatch
+    ):
+        """Test that load_config respects SPINE_CONFIG_PATH when loading from string."""
+        # Create a shared config directory
+        shared_dir = tmp_path / "shared"
+        shared_dir.mkdir()
+
+        shared_base = shared_dir / "shared_base.yaml"
+        shared_base.write_text("""
+base:
+  shared_value: 42
+""")
+
+        # Set SPINE_CONFIG_PATH
+        monkeypatch.setenv("SPINE_CONFIG_PATH", str(shared_dir))
+
+        # Load from string that includes file via SPINE_CONFIG_PATH
+        config_str = """
+include: shared_base.yaml
+model:
+  name: from_string
+"""
+        # Note: root_dir can be any directory, SPINE_CONFIG_PATH will be searched
+        cfg = load_config(config_str, root_dir=str(tmp_path))
+
+        assert cfg["base"]["shared_value"] == 42
+        assert cfg["model"]["name"] == "from_string"
+
+    def test_load_config_from_string_no_includes(self):
+        """Test simple string config without any includes."""
+        config_str = """
+training:
+  epochs: 100
+  learning_rate: 0.001
+  optimizer: adam
+validation:
+  frequency: 10
+  metrics: [accuracy, loss]
+"""
+        cfg = load_config(config_str)
+
+        assert cfg["training"]["epochs"] == 100
+        assert cfg["training"]["learning_rate"] == 0.001
+        assert cfg["validation"]["metrics"] == ["accuracy", "loss"]
+
+    def test_load_config_from_string_with_overrides(self):
+        """Test load_config from string with override syntax."""
+        config_str = """
+base:
+  value1: 10
+  value2: 20
+override:
+  base.value1: 100
+"""
+        cfg = load_config(config_str)
+
+        assert cfg["base"]["value1"] == 100
+        assert cfg["base"]["value2"] == 20

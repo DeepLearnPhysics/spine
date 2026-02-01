@@ -16,7 +16,8 @@ from spine.config.download import (
     get_cache_dir,
     url_to_filename,
 )
-from spine.config.loader import ConfigLoader, load_config
+from spine.config.load import load_config
+from spine.config.loader import ConfigLoader
 
 
 class TestDownloadUtilities:
