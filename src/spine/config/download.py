@@ -226,9 +226,10 @@ def download_from_url(
                     print(f"✓ Using cached file: {output_path}")
                     return str(output_path.absolute())
                 else:
-                    print(f"⚠ Cached file hash mismatch, re-downloading...")
+                    print("⚠ Cached file hash mismatch, re-downloading...")
                     output_path.unlink()
-            except Exception as e:
+
+            except (OSError, IOError, ValueError) as e:
                 print(f"⚠ Error validating cached file: {e}, re-downloading...")
                 output_path.unlink()
         else:
