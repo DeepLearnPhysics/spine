@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.9.5] - 2026-02-01
+
+### Added
+- **String-based config loading**: `load_config()` now accepts YAML strings in addition to file paths
+  - Enables dynamic config generation in notebooks and scripts
+  - `load_config_file()` added for explicit file loading
+  - Maintains full support for includes and SPINE_CONFIG_PATH resolution
+
+### Changed
+- **Config module refactoring**: Split large `loader.py` into focused modules for maintainability
+  - `operations.py`: Utility functions (deep_merge, parse_value, apply_collection_operation, etc.)
+  - `loader.py`: ConfigLoader class and YAML tag registration
+  - `load.py`: Main loading functions (load_config, load_config_file, _load_config_recursive)
+- **Exception handling**: More specific exception catching in download validation (OSError, IOError, ValueError instead of broad Exception)
+
 ## [0.9.4] - 2026-01-26
 
 ### Added
