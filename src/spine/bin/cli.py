@@ -7,7 +7,7 @@ import pathlib
 import sys
 from typing import List, Optional
 
-from spine.config import load_config
+from spine.config import load_config_file
 from spine.config.loader import parse_value, resolve_config_path, set_nested_value
 
 
@@ -57,7 +57,7 @@ def main(
     cfg_file = resolve_config_path(config, current_dir=os.getcwd())
 
     # Load the configuration file using the advanced loader
-    cfg = load_config(cfg_file)
+    cfg = load_config_file(cfg_file)
 
     # If there is no base block, build one
     if "base" not in cfg:

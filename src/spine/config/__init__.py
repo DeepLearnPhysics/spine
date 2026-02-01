@@ -25,12 +25,13 @@ from .errors import (
     ConfigTypeError,
     ConfigValidationError,
 )
-from .loader import load_config
+from .loader import load_config, load_config_file
 
 __version__ = API_VERSION
 
 __all__ = [
     "load_config",
+    "load_config_file",
     "download_from_url",
     "get_cache_dir",
     "ConfigError",

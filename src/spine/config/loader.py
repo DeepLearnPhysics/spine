@@ -73,7 +73,7 @@ load_config : Load and parse a YAML configuration file (main entry point)
 import os
 import warnings
 from copy import deepcopy
-from typing import Any, Dict, List, Optional, TextIO, Tuple, cast
+from typing import Any, Dict, List, Optional, TextIO, Tuple, Union, cast
 
 import yaml
 
@@ -185,15 +185,28 @@ class ConfigLoader(yaml.SafeLoader):
     using the !include tag.
     """
 
-    def __init__(self, stream: TextIO) -> None:
+    def __init__(
+        self, stream: Union[TextIO, str], root_dir: Optional[str] = None
+    ) -> None:
         """Initialize the loader.
 
         Parameters
         ----------
-        stream : TextIO
-            File stream (from `open()`)
+        stream : Union[TextIO, str]
+            File stream (from `open()`) or string content
+        root_dir : Optional[str]
+            Root directory for resolving relative paths.
+            If None and stream is a file, uses the file's directory.
         """
-        self._root = os.path.split(stream.name)[0]
+        if isinstance(stream, str):
+            # String input
+            self._root = root_dir if root_dir is not None else os.getcwd()
+        else:
+            # File stream
+            if root_dir is not None:
+                self._root = root_dir
+            else:
+                self._root = os.path.split(stream.name)[0]
         super().__init__(stream)
 
     def include(self, node: yaml.Node) -> Any:
@@ -213,7 +226,11 @@ class ConfigLoader(yaml.SafeLoader):
         resolved_path = resolve_config_path(filename, self._root)
 
         with open(resolved_path, "r", encoding="utf-8") as f:
-            return yaml.load(f, Loader=ConfigLoader)
+            # Pass the resolved path's directory as root_dir
+            resolved_dir = os.path.dirname(resolved_path)
+            return yaml.load(
+                f, Loader=lambda stream: ConfigLoader(stream, resolved_dir)
+            )
 
     def resolve_path(self, node: yaml.Node) -> str:
         """Resolve a file path relative to the current config file.
@@ -693,7 +710,9 @@ def _apply_overrides_and_removals(
 
 
 def _load_config_recursive(
-    cfg_path: str,
+    cfg_path: Optional[str] = None,
+    config_string: Optional[str] = None,
+    root_dir: Optional[str] = None,
     include_stack: Optional[List[str]] = None,
     compatibility_checks: Optional[List[Tuple[Dict, Dict, str]]] = None,
 ) -> Tuple[Dict[str, Any], Dict[str, Any], List[str], Dict[str, Any]]:
@@ -701,8 +720,14 @@ def _load_config_recursive(
 
     Parameters
     ----------
-    cfg_path : str
-        Path to configuration file
+    cfg_path : Optional[str]
+        Path to configuration file (mutually exclusive with config_string)
+    config_string : Optional[str]
+        YAML configuration string (mutually exclusive with cfg_path)
+    root_dir : Optional[str]
+        Root directory for resolving relative include paths.
+        Required when using config_string with includes.
+        Defaults to directory of cfg_path when loading from file.
     include_stack : Optional[List[str]]
         Stack of currently-loading files (for cycle detection)
     compatibility_checks : Optional[List[Tuple[Dict, Dict, str]]]
@@ -719,8 +744,24 @@ def _load_config_recursive(
         If circular include detected
     ConfigIncludeError
         If included file not found
+    ValueError
+        If both or neither cfg_path and config_string are provided
     """
-    cfg_path = os.path.abspath(cfg_path)
+    # Validate inputs
+    if (cfg_path is None) == (config_string is None):
+        raise ValueError("Must provide exactly one of cfg_path or config_string")
+
+    # Determine the identifier for cycle detection and root directory
+    if cfg_path is not None:
+        cfg_path = os.path.abspath(cfg_path)
+        identifier = cfg_path
+        if root_dir is None:
+            root_dir = os.path.dirname(cfg_path)
+    else:
+        # For string configs, use a pseudo-identifier
+        identifier = "<string>"
+        if root_dir is None:
+            root_dir = os.getcwd()
 
     # Cycle detection
     if include_stack is None:
@@ -728,28 +769,34 @@ def _load_config_recursive(
     if compatibility_checks is None:
         compatibility_checks = []
 
-    if cfg_path in include_stack:
-        cycle = include_stack + [cfg_path]
+    if identifier in include_stack and cfg_path is not None:
+        cycle = include_stack + [identifier]
         raise ConfigCycleError(cycle)
 
-    include_stack = include_stack + [cfg_path]
-
-    root_dir = os.path.dirname(cfg_path)
+    include_stack = include_stack + [identifier]
 
     # Load YAML
     try:
-        with open(cfg_path, "r", encoding="utf-8") as f:
-            main_config = yaml.load(f, Loader=ConfigLoader)
+        if cfg_path is not None:
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                main_config = yaml.load(
+                    f, Loader=lambda stream: ConfigLoader(stream, root_dir)
+                )
+        else:
+            main_config = yaml.load(
+                config_string, Loader=lambda stream: ConfigLoader(stream, root_dir)
+            )
     except FileNotFoundError as exc:
         raise ConfigIncludeError(f"Configuration file not found: {cfg_path}") from exc
     except Exception as exc:
-        raise ConfigIncludeError(f"Error loading {cfg_path}: {exc}") from exc
+        source = cfg_path if cfg_path else "<string>"
+        raise ConfigIncludeError(f"Error loading {source}: {exc}") from exc
 
     if main_config is None:
         return {}, {}, [], {}
 
     # Extract metadata
-    metadata = extract_metadata(main_config, cfg_path)
+    metadata = extract_metadata(main_config, cfg_path if cfg_path else "<string>")
     strict = metadata[META_STRICT]
     list_append_mode = metadata[META_LIST_APPEND]
 
@@ -775,7 +822,12 @@ def _load_config_recursive(
             included_overrides,
             included_removals,
             included_meta,
-        ) = _load_config_recursive(include_path, include_stack, compatibility_checks)
+        ) = _load_config_recursive(
+            cfg_path=include_path,
+            root_dir=None,
+            include_stack=include_stack,
+            compatibility_checks=compatibility_checks,
+        )
 
         # Warn if included file has no metadata (but keep the metadata that was extracted)
         if not included_meta.get(META_VERSION) and not included_meta.get(
@@ -834,10 +886,10 @@ def _load_config_recursive(
     return config, overrides, removals, metadata
 
 
-def load_config(cfg_path: str) -> Dict[str, Any]:
-    """Load a SPINE configuration file.
+def load_config(config_str: str, root_dir: Optional[str] = None) -> Dict[str, Any]:
+    """Load a SPINE configuration from a YAML string.
 
-    This is the main entry point for loading configuration files.
+    This is the main entry point for loading configurations from strings.
     Supports:
     - Hierarchical includes with cycle detection
     - Metadata via __meta__ blocks
@@ -846,6 +898,109 @@ def load_config(cfg_path: str) -> Dict[str, Any]:
     - Configurable strict modes (warn/error)
 
     See module docstring for full configuration language spec.
+
+    Parameters
+    ----------
+    config_str : str
+        YAML configuration string
+    root_dir : Optional[str]
+        Root directory for resolving relative include paths.
+        Also used as the base for SPINE_CONFIG_PATH searches.
+        If not provided, defaults to current working directory.
+        Required if config contains __include__ directives with relative paths.
+
+    Returns
+    -------
+    Dict[str, Any]
+        Loaded and merged configuration
+
+    Raises
+    ------
+    ConfigCycleError
+        If circular include detected
+    ConfigIncludeError
+        If included file not found or can't be loaded
+    ConfigPathError
+        If removal/operation targets non-existent path (when strict="error")
+    ConfigTypeError
+        If operation applied to wrong type
+    ConfigOperationError
+        If invalid operation specified
+
+    Examples
+    --------
+    Simple string config:
+
+    >>> config_str = \"\"\"
+    ... io:
+    ...   reader:
+    ...     batch_size: 32
+    ... \"\"\"
+    >>> config = load_config(config_str)
+    >>> print(config['io']['reader']['batch_size'])
+    32
+
+    String config with includes (requires root_dir):
+
+    >>> config_str = \"\"\"
+    ... include: base.yaml
+    ... model:
+    ...   name: resnet
+    ... \"\"\"
+    >>> config = load_config(config_str, root_dir="/path/to/configs")
+    """
+    # Load recursively, accumulating compatibility checks
+    compatibility_checks = []
+    config, overrides, removals, metadata = _load_config_recursive(
+        config_string=config_str,
+        root_dir=root_dir,
+        compatibility_checks=compatibility_checks,
+    )
+
+    # Now that all includes are loaded, check all compatibility requirements
+    for parent_meta, included_meta, include_path in compatibility_checks:
+        check_compatibility(parent_meta, included_meta, include_path)
+
+    # Get strict and list_append settings from top-level metadata
+    # (these are always present, set by extract_metadata with defaults)
+    strict = metadata[META_STRICT]
+    list_append_mode = metadata[META_LIST_APPEND]
+
+    # Apply top-level overrides
+    # Note: these include both explicit top-level overrides and propagated ones from nested files
+    # Use strict mode from top-level metadata
+    for key_path, value in overrides.items():
+        parsed_value = parse_value(value)
+
+        if key_path.endswith("+") or key_path.endswith("-"):
+            # Collection operations - use strict mode from metadata
+            base_key = key_path[:-1]
+            operation = key_path[-1]
+            config = apply_collection_operation(
+                config, base_key, parsed_value, operation, strict, list_append_mode
+            )
+        else:
+            # Regular override - silently skip if parent doesn't exist
+            config, _ = set_nested_value(
+                config, key_path, parsed_value, only_if_exists=True
+            )
+
+    # Apply top-level removals
+    for key_path in removals:
+        config, _ = set_nested_value(config, key_path, None, delete=True, strict=strict)
+
+    # Remove __meta__ from final config
+    if META_KEY in config:
+        del config[META_KEY]
+
+    return config
+
+
+def load_config_file(cfg_path: str) -> Dict[str, Any]:
+    """Load a SPINE configuration from a file.
+
+    Convenience function that reads a configuration file and passes it to load_config.
+    The file's directory is automatically used as root_dir for include resolution.
 
     Parameters
     ----------
@@ -872,14 +1027,21 @@ def load_config(cfg_path: str) -> Dict[str, Any]:
 
     Examples
     --------
-    >>> config = load_config("config.yaml")
+    >>> config = load_config_file("config.yaml")
     >>> print(config['io']['reader']['batch_size'])
     32
+
+    See Also
+    --------
+    load_config : Load config from a YAML string
     """
     # Load recursively, accumulating compatibility checks
     compatibility_checks = []
+    cfg_path = os.path.abspath(cfg_path)
+    root_dir = os.path.dirname(cfg_path)
+
     config, overrides, removals, metadata = _load_config_recursive(
-        cfg_path, compatibility_checks=compatibility_checks
+        cfg_path=cfg_path, root_dir=root_dir, compatibility_checks=compatibility_checks
     )
 
     # Now that all includes are loaded, check all compatibility requirements

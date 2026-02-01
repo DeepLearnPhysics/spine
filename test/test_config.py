@@ -4,7 +4,7 @@ import os
 
 import pytest
 
-from spine.config import load_config
+from spine.config import load_config, load_config_file
 from spine.config.errors import (
     ConfigIncludeError,
     ConfigOperationError,
@@ -28,7 +28,7 @@ io:
     batch_size: 4
 """)
 
-        cfg = load_config(str(config_file))
+        cfg = load_config_file(str(config_file))
 
         assert cfg["base"]["world_size"] == 1
         assert cfg["base"]["iterations"] == 100
@@ -58,7 +58,7 @@ base:
   iterations: 200
 """)
 
-        cfg = load_config(str(main_config))
+        cfg = load_config_file(str(main_config))
 
         # Base values should be loaded
         assert cfg["base"]["world_size"] == 1
@@ -99,7 +99,7 @@ io:
     batch_size: 8
 """)
 
-        cfg = load_config(str(main_config))
+        cfg = load_config_file(str(main_config))
 
         assert cfg["base"]["world_size"] == 1
         assert cfg["geo"]["detector"] == "icarus"
@@ -125,7 +125,7 @@ io:
   reader: !include reader_config.yaml
 """)
 
-        cfg = load_config(str(main_config))
+        cfg = load_config_file(str(main_config))
 
         assert cfg["base"]["world_size"] == 1
         assert cfg["io"]["reader"]["batch_size"] == 4
@@ -159,7 +159,7 @@ override:
   base.iterations: 500
 """)
 
-        cfg = load_config(str(main_config))
+        cfg = load_config_file(str(main_config))
 
         # Overridden values
         assert cfg["io"]["reader"]["file_paths"] == "/data/new_file.root"
@@ -187,7 +187,7 @@ override:
   io.reader.file_paths: [file1.root, file2.root, file3.root]
 """)
 
-        cfg = load_config(str(main_config))
+        cfg = load_config_file(str(main_config))
 
         assert cfg["io"]["reader"]["file_paths"] == [
             "file1.root",
@@ -222,7 +222,7 @@ level0:
   value: 1
 """)
 
-        cfg = load_config(str(main_config))
+        cfg = load_config_file(str(main_config))
 
         assert cfg["level0"]["value"] == 1
         assert cfg["level1"]["value"] == 10
@@ -275,7 +275,7 @@ override:
   base.iterations: 1000
 """)
 
-        cfg = load_config(str(main_config))
+        cfg = load_config_file(str(main_config))
 
         # Check base values are loaded
         assert cfg["base"]["world_size"] == 1
@@ -314,7 +314,7 @@ override:
   nonexistent.path.value: 456  # Should be skipped
 """)
 
-        cfg = load_config(str(main_config))
+        cfg = load_config_file(str(main_config))
 
         assert cfg["base"]["world_size"] == 1
         # This works because new.nested.deeply.nested exists
@@ -333,7 +333,7 @@ base:
 """)
 
         with pytest.raises(ConfigIncludeError):
-            load_config(str(main_config))
+            load_config_file(str(main_config))
 
     def test_relative_include_in_subdirectory(self, tmp_path):
         """Test that includes resolve relative to the file containing them."""
@@ -359,7 +359,7 @@ base:
 """)
 
         # Load the child config (should find base.yaml relative to child.yaml)
-        cfg = load_config(str(child_config))
+        cfg = load_config_file(str(child_config))
 
         # Check that base values are loaded
         assert cfg["base"]["world_size"] == 1
@@ -388,7 +388,7 @@ model:
   uresnet: !include network.yaml
 """)
 
-        cfg = load_config(str(main_config))
+        cfg = load_config_file(str(main_config))
 
         assert cfg["model"]["name"] == "full_chain"
         assert cfg["model"]["uresnet"]["depth"] == 5
@@ -412,7 +412,7 @@ base:
   iterations: 100
 """)
 
-        cfg = load_config(str(main_config))
+        cfg = load_config_file(str(main_config))
 
         assert cfg["base"]["world_size"] == 1
         assert cfg["base"]["iterations"] == 100
@@ -449,7 +449,7 @@ include:
   - modifier.yaml
 """)
 
-        cfg = load_config(str(main_config))
+        cfg = load_config_file(str(main_config))
 
         # The modifier's override should be applied after merging
         assert cfg["parsers"] == ["parser_one", "parser_three"]
@@ -486,7 +486,7 @@ include:
   - modifier.yaml
 """)
 
-        cfg = load_config(str(main_config))
+        cfg = load_config_file(str(main_config))
 
         # shuffle should be set to None (not deleted)
         assert "shuffle" in cfg["io"]["reader"]
@@ -515,7 +515,7 @@ override:
   parsers+: [parser_three, parser_four]
 """)
 
-        cfg = load_config(str(main_config))
+        cfg = load_config_file(str(main_config))
 
         assert cfg["parsers"] == [
             "parser_one",
@@ -540,7 +540,7 @@ override:
   parsers+: parser_two
 """)
 
-        cfg = load_config(str(main_config))
+        cfg = load_config_file(str(main_config))
 
         assert cfg["parsers"] == ["parser_one", "parser_two"]
 
@@ -563,7 +563,7 @@ override:
   parsers-: [parser_two, parser_four]
 """)
 
-        cfg = load_config(str(main_config))
+        cfg = load_config_file(str(main_config))
 
         assert cfg["parsers"] == ["parser_one", "parser_three"]
 
@@ -585,7 +585,7 @@ override:
   parsers-: parser_two
 """)
 
-        cfg = load_config(str(main_config))
+        cfg = load_config_file(str(main_config))
 
         assert cfg["parsers"] == ["parser_one", "parser_three"]
 
@@ -608,7 +608,7 @@ override:
   parsers+: [parser_four, parser_five]
 """)
 
-        cfg = load_config(str(main_config))
+        cfg = load_config_file(str(main_config))
 
         # Remove is processed first in dict iteration, then append
         # But both are applied after merge, order depends on dict ordering
@@ -638,7 +638,7 @@ override:
   io.writer.file_keys-: key1
 """)
 
-        cfg = load_config(str(main_config))
+        cfg = load_config_file(str(main_config))
 
         assert "key1" not in cfg["io"]["writer"]["file_keys"]
         assert "key2" in cfg["io"]["writer"]["file_keys"]
@@ -656,7 +656,7 @@ override:
   parsers+: [parser_one, parser_two]
 """)
 
-        cfg = load_config(str(main_config))
+        cfg = load_config_file(str(main_config))
 
         assert cfg["parsers"] == ["parser_one", "parser_two"]
 
@@ -676,7 +676,7 @@ override:
 """)
 
         with pytest.raises(ConfigTypeError, match="not a list"):
-            load_config(str(main_config))
+            load_config_file(str(main_config))
 
     def test_list_remove_from_nonexistent_raises_error(self, tmp_path):
         """Test that removing from non-existent list raises error."""
@@ -690,7 +690,7 @@ override:
 """)
 
         with pytest.raises(ConfigPathError, match="does not exist"):
-            load_config(str(main_config))
+            load_config_file(str(main_config))
 
     def test_list_operations_in_included_file(self, tmp_path):
         """Test that list operations in included files work correctly."""
@@ -716,7 +716,7 @@ include:
   - modifier.yaml
 """)
 
-        cfg = load_config(str(main_config))
+        cfg = load_config_file(str(main_config))
 
         assert cfg["parsers"] == ["parser_one", "parser_three", "parser_four"]
 
@@ -738,7 +738,7 @@ override:
 """)
 
         # Should not raise an error - just sets the value to None
-        cfg = load_config(str(main_config))
+        cfg = load_config_file(str(main_config))
         assert "shuffle" in cfg["io"]["reader"]
         assert cfg["io"]["reader"]["shuffle"] is None
         assert cfg["io"]["reader"]["batch_size"] == 4
@@ -760,7 +760,7 @@ remove: io.reader.batchsize  # Typo: should be 'batch_size'
 """)
 
         with pytest.raises(ConfigPathError) as exc_info:
-            load_config(str(main_config))
+            load_config_file(str(main_config))
 
         assert "io.reader.batchsize" in str(exc_info.value)
         assert "does not exist" in str(exc_info.value)
@@ -783,7 +783,7 @@ override:
 """)
 
         # Should not raise an error - just skips the operation since parent doesn't exist
-        cfg = load_config(str(main_config))
+        cfg = load_config_file(str(main_config))
         assert "writer" not in cfg["io"]
         assert cfg["io"]["reader"]["batch_size"] == 4
 
@@ -811,7 +811,7 @@ override:
   model.layers-: [layer2, layer4]
 """)
 
-        cfg = load_config(str(main_config))
+        cfg = load_config_file(str(main_config))
 
         assert "layer1" in cfg["model"]["layers"]
         assert "layer2" not in cfg["model"]["layers"]
@@ -837,7 +837,7 @@ override:
   io.writer-: compression
 """)
 
-        cfg = load_config(str(main_config))
+        cfg = load_config_file(str(main_config))
 
         assert cfg["io"]["writer"]["output_dir"] == "/tmp"
         assert cfg["io"]["writer"]["format"] == "hdf5"
@@ -861,7 +861,7 @@ override:
   io.writer-: [nonexistent_key, format]
 """)
 
-        cfg = load_config(str(main_config))
+        cfg = load_config_file(str(main_config))
 
         # Should succeed, removing only format (nonexistent_key is safely ignored)
         assert cfg["io"]["writer"]["output_dir"] == "/tmp"
@@ -887,7 +887,7 @@ override:
 """)
 
         with pytest.raises(ConfigOperationError, match="not supported for dicts"):
-            load_config(str(main_config))
+            load_config_file(str(main_config))
 
     def test_dict_operations_in_included_file(self, tmp_path):
         """Test that dict operations in included files work correctly."""
@@ -914,7 +914,7 @@ include:
   - modifier.yaml
 """)
 
-        cfg = load_config(str(main_config))
+        cfg = load_config_file(str(main_config))
 
         assert cfg["io"]["writer"]["key1"] == "value1"
         assert "key2" not in cfg["io"]["writer"]
@@ -954,7 +954,7 @@ include:
   - mod2.yaml
 """)
 
-        cfg = load_config(str(main_config))
+        cfg = load_config_file(str(main_config))
 
         # All removals should be applied
         assert cfg["parsers"] == ["parser_one", "parser_three"]
@@ -992,7 +992,7 @@ include:
   - mod2.yaml
 """)
 
-        cfg = load_config(str(main_config))
+        cfg = load_config_file(str(main_config))
 
         # All keys should be removed
         assert "foo" not in cfg["io"]["writer"]
@@ -1029,7 +1029,7 @@ include:
   - mod2.yaml
 """)
 
-        cfg = load_config(str(main_config))
+        cfg = load_config_file(str(main_config))
 
         # All appends should be applied
         assert cfg["parsers"] == [
@@ -1059,7 +1059,7 @@ override:
   model.name: full_chain      # model doesn't exist, should be skipped
 """)
 
-        cfg = load_config(str(main_config))
+        cfg = load_config_file(str(main_config))
 
         # io.reader.batch_size should be overridden (parent exists)
         assert cfg["io"]["reader"]["batch_size"] == 8
@@ -1086,7 +1086,7 @@ override:
   io.loader.dataset.name: larcv     # io.loader doesn't exist, skip
 """)
 
-        cfg = load_config(str(main_config))
+        cfg = load_config_file(str(main_config))
 
         # io.reader.shuffle should be added (parent exists)
         assert cfg["io"]["reader"]["shuffle"] is True
@@ -1112,7 +1112,7 @@ override:
   io.reader.new_key: new_value
 """)
 
-        cfg = load_config(str(main_config))
+        cfg = load_config_file(str(main_config))
 
         # new_key should be created because io.reader exists
         assert cfg["io"]["reader"]["new_key"] == "new_value"
@@ -1150,7 +1150,7 @@ io:
         monkeypatch.setenv("SPINE_CONFIG_PATH", str(shared_dir))
 
         # Load the config - should find shared_base.yaml via SPINE_CONFIG_PATH
-        cfg = load_config(str(local_config))
+        cfg = load_config_file(str(local_config))
 
         assert cfg["base"]["world_size"] == 1
         assert cfg["base"]["iterations"] == 1000
@@ -1184,7 +1184,7 @@ include:
         # Set SPINE_CONFIG_PATH with multiple paths
         monkeypatch.setenv("SPINE_CONFIG_PATH", f"{shared_dir1}:{shared_dir2}")
 
-        cfg = load_config(str(local_config))
+        cfg = load_config_file(str(local_config))
 
         assert cfg["base"]["value1"] == 100
         assert cfg["io"]["value2"] == 200
@@ -1205,7 +1205,7 @@ include:
 
         monkeypatch.setenv("SPINE_CONFIG_PATH", str(shared_dir))
 
-        cfg = load_config(str(local_config))
+        cfg = load_config_file(str(local_config))
         assert cfg["base"]["value"] == 42
 
     def test_spine_config_path_relative_takes_precedence(self, tmp_path, monkeypatch):
@@ -1230,7 +1230,7 @@ include:
         monkeypatch.setenv("SPINE_CONFIG_PATH", str(shared_dir))
 
         # Should load local version (relative path takes precedence)
-        cfg = load_config(str(main_config))
+        cfg = load_config_file(str(main_config))
         assert cfg["value"] == "local"
 
     def test_spine_config_path_not_found(self, tmp_path, monkeypatch):
@@ -1246,7 +1246,7 @@ include:
         monkeypatch.setenv("SPINE_CONFIG_PATH", str(shared_dir))
 
         with pytest.raises(ConfigIncludeError, match="not found"):
-            load_config(str(local_config))
+            load_config_file(str(local_config))
 
     def test_path_tag_resolves_relative_paths(self, tmp_path):
         """Test that !path tag resolves paths relative to config file."""
@@ -1274,7 +1274,7 @@ post:
     cfg: !path data/flashmatch.yaml
 """)
 
-        cfg = load_config(str(config_file))
+        cfg = load_config_file(str(config_file))
 
         # Paths should be resolved to absolute paths
         assert cfg["model"]["weights"] == str(data_file)
@@ -1300,7 +1300,7 @@ post:
         # Set SPINE_CONFIG_PATH
         monkeypatch.setenv("SPINE_CONFIG_PATH", str(shared_dir))
 
-        cfg = load_config(str(config_file))
+        cfg = load_config_file(str(config_file))
 
         # Path should be resolved via SPINE_CONFIG_PATH
         assert cfg["model"]["weights"] == str(data_file)
@@ -1341,7 +1341,7 @@ base:
   value: 1
 """)
 
-        cfg = load_config(str(main_config))
+        cfg = load_config_file(str(main_config))
 
         # Path in post.yaml should be resolved relative to configs/, not tmp_path
         assert cfg["post"]["flash_match"]["cfg"] == str(flashmatch_file)
@@ -1358,7 +1358,7 @@ base:
         config_file = tmp_path / "config.yaml"
         config_file.write_text(f"data:\n  path: !path {str(data_file)}")
 
-        cfg = load_config(str(config_file))
+        cfg = load_config_file(str(config_file))
 
         # Absolute path should be preserved
         assert cfg["data"]["path"] == str(data_file)
@@ -1369,7 +1369,7 @@ base:
         config_file.write_text("data:\n  path: !path nonexistent.txt")
 
         with pytest.raises(ConfigIncludeError, match="not found"):
-            load_config(str(config_file))
+            load_config_file(str(config_file))
 
     def test_path_tag_with_override(self, tmp_path):
         """Test that !path tag works with override directives."""
@@ -1394,7 +1394,7 @@ override:
   model.weights: !path data/file2.txt
 """)
 
-        cfg = load_config(str(main_config))
+        cfg = load_config_file(str(main_config))
 
         # Override should use file2 (resolved relative to main.yaml)
         assert cfg["model"]["weights"] == str(file2)
@@ -1418,7 +1418,7 @@ data:
     - !path data/file2.txt
 """)
 
-        cfg = load_config(str(config_file))
+        cfg = load_config_file(str(config_file))
 
         # Both paths should be resolved
         assert cfg["data"]["files"] == [str(file1), str(file2)]
