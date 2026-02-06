@@ -80,7 +80,7 @@ def train_single(rank, cfg, distributed=False, world_size=None, torch_sharing=No
     if not TORCH_AVAILABLE:
         raise ImportError(
             "PyTorch is required for training. "
-            "Install with: pip install spine-ml[model]"
+            "Install with: pip install spine[model]"
         )
 
     # Set the torch sharing strategy, if needed

@@ -20,19 +20,19 @@ Install SPINE from PyPI:
 .. code-block:: bash
 
    # Core functionality
-   pip install spine-ml
+   pip install spine
 
    # With neural network modeling
-   pip install spine-ml[model]
+   pip install spine[model]
 
    # With visualization tools
-   pip install spine-ml[viz]
+   pip install spine[viz]
 
    # For development
-   pip install spine-ml[dev]
+   pip install spine[dev]
 
    # Everything
-   pip install spine-ml[all]
+   pip install spine[all]
 
 Quick Start
 ===========

@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.10.0] - 2026-02-06
+
+### Changed
+- **Package renamed from `spine-ml` to `spine` on PyPI**: The package has been renamed to use the simpler `spine` name on PyPI
+  - All installation commands should now use `spine` instead of `spine-ml`
+  - Examples: `pip install spine`, `pip install spine[all]`, etc.
+  - The old `spine-ml` package name is deprecated and will no longer receive updates
+  - **Migration for existing users**: Simply replace `spine-ml` with `spine` in your installation commands and requirements files
+  - No code changes required - the Python import name remains `import spine`
+  - This is the first release under the new `spine` package name
+
 ## [0.9.5] - 2026-02-01
 
 ### Added

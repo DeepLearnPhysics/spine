@@ -3,7 +3,7 @@ requires = ["setuptools>=65.0,<70.0", "wheel", "build>=0.8.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "spine-ml"
+name = "spine"
 dynamic = ["version"]
 description = "SPINE: Scalable Particle Imaging with Neural Embeddings for 3D high energy physics data analysis"
 readme = "README.md"

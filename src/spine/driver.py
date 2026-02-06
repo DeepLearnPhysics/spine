@@ -111,7 +111,7 @@ class Driver:
             if not TORCH_AVAILABLE:
                 raise ImportError(
                     "PyTorch is required for model functionality. "
-                    "Install with: pip install spine-ml[model]"
+                    "Install with: pip install spine[model]"
                 )
 
             self.model = ModelManager(
@@ -401,7 +401,7 @@ class Driver:
             if not TORCH_AVAILABLE:
                 raise ImportError(
                     "PyTorch is required for loader functionality. "
-                    "Install with: pip install spine-ml[model]"
+                    "Install with: pip install spine[model]"
                 )
 
             # Import loader_factory only when PyTorch is available

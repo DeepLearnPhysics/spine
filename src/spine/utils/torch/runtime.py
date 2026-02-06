@@ -58,5 +58,5 @@ def require_torch(operation="this operation"):
     if not TORCH_AVAILABLE:
         raise ImportError(
             f"PyTorch is required for {operation}. "
-            "Install with: pip install spine-ml[model]"
+            "Install with: pip install spine[model]"
         )

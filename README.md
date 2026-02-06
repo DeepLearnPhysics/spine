@@ -5,8 +5,8 @@
 [![CI](https://github.com/DeepLearnPhysics/spine/actions/workflows/ci.yml/badge.svg)](https://github.com/DeepLearnPhysics/spine/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/DeepLearnPhysics/spine/branch/main/graph/badge.svg)](https://codecov.io/gh/DeepLearnPhysics/spine)
 [![Documentation Status](https://readthedocs.org/projects/spine/badge/?version=latest)](https://spine.readthedocs.io/latest/)
-[![PyPI version](https://badge.fury.io/py/spine-ml.svg)](https://badge.fury.io/py/spine-ml)
-[![Python version](https://img.shields.io/pypi/pyversions/spine-ml.svg)](https://pypi.org/project/spine-ml/)
+[![PyPI version](https://badge.fury.io/py/spine.svg)](https://badge.fury.io/py/spine)
+[![Python version](https://img.shields.io/pypi/pyversions/spine.svg)](https://pypi.org/project/spine/)
 
 The Scalable Particle Imaging with Neural Embeddings (SPINE) package leverages state-of-the-art Machine Learning (ML) algorithms -- in particular Deep Neural Networks (DNNs) -- to reconstruct particle imaging detector data. This package was primarily developed for Liquid Argon Time-Projection Chamber (LArTPC) data and relies on Convolutional Neural Networks (CNNs) for pixel-level feature extraction and Graph Neural Networks (GNNs) for superstructure formation. The schematic below breaks down the full end-to-end reconstruction flow.
 
@@ -21,7 +21,7 @@ SPINE is now available on PyPI with flexible installation options to suit differ
 For data analysis and visualization without machine learning:
 
 ```bash
-pip install spine-ml[all]
+pip install spine[all]
 ```
 
 ### Installation Options
@@ -29,25 +29,25 @@ pip install spine-ml[all]
 **1. Core Package (minimal dependencies)**
 ```bash
 # Essential dependencies: numpy, scipy, pandas, PyYAML, h5py, numba
-pip install spine-ml
+pip install spine
 ```
 
 **2. With Visualization Tools**
 ```bash
 # Adds plotly, matplotlib, seaborn for data visualization
-pip install spine-ml[viz]
+pip install spine[viz]
 ```
 
 **3. Development Environment**
 ```bash
 # Adds testing, formatting, and documentation tools
-pip install spine-ml[dev]
+pip install spine[dev]
 ```
 
 **4. Everything (except PyTorch)**
 ```bash
 # All optional dependencies (visualization + development tools)
-pip install spine-ml[all]
+pip install spine[all]
 ```
 
 ### PyTorch ecosystem
@@ -58,13 +58,13 @@ The easiest way to get a working PyTorch environment with LArCV support:
 
 ```bash
 # Pull the SPINE-compatible container with complete PyTorch ecosystem + LArCV
-singularity pull spine-ml.sif docker://deeplearnphysics/larcv2:ub2204-cu121-torch251-larndsim
+singularity pull spine.sif docker://deeplearnphysics/larcv2:ub2204-cu121-torch251-larndsim
 
 # Install SPINE in the container
-singularity exec spine-ml.sif pip install spine-ml[all]
+singularity exec spine.sif pip install spine[all]
 
 # Run your analysis
-singularity exec spine-ml.sif spine --config your_config.cfg --source data.h5
+singularity exec spine.sif spine --config your_config.cfg --source data.h5
 ```
 
 > This container includes: PyTorch 2.5.1, CUDA 12.1, torch-geometric, torch-scatter, torch-cluster, MinkowskiEngine, and **LArCV2**.
@@ -78,7 +78,7 @@ pip install torch --index-url https://download.pytorch.org/whl/cu118
 pip install --no-build-isolation torch-scatter torch-cluster torch-geometric MinkowskiEngine
 
 # Step 3: Install SPINE
-pip install spine-ml[all]
+pip install spine[all]
 ```
 
 > **� Why separate?** The PyTorch ecosystem (torch, torch-geometric, torch-scatter, torch-cluster, MinkowskiEngine) forms an interdependent group requiring exact version compatibility and complex compilation. Installing them together ensures compatibility.
@@ -88,7 +88,7 @@ pip install spine-ml[all]
 #### Option 1: Use the container (recommended)*
 ```bash
 # LArCV2 is pre-installed in the DeepLearnPhysics container
-singularity pull spine-ml.sif docker://deeplearnphysics/larcv2:ub2204-cu121-torch251-larndsim
+singularity pull spine.sif docker://deeplearnphysics/larcv2:ub2204-cu121-torch251-larndsim
 ```
 
 #### Option 2: Build from source*
@@ -139,7 +139,7 @@ To build and test packages locally:
 ./build_packages.sh
 
 # Install locally built package
-pip install dist/spine_ml-*.whl[all]
+pip install dist/spine-*.whl[all]
 ```
 
 ## Usage

@@ -10,7 +10,7 @@ For basic functionality with sparse data handling and custom mathematical operat
 
 .. code-block:: bash
 
-   pip install spine-ml
+   pip install spine
 
 Optional Dependencies
 ---------------------
@@ -22,7 +22,7 @@ For neural network models and training capabilities:
 
 .. code-block:: bash
 
-   pip install spine-ml[model]
+   pip install spine[model]
 
 This includes PyTorch, PyTorch Geometric, and other ML dependencies.
 
@@ -33,7 +33,7 @@ For plotting and visualization capabilities:
 
 .. code-block:: bash
 
-   pip install spine-ml[viz]
+   pip install spine[viz]
 
 This includes Plotly, Matplotlib, and related packages.
 
@@ -44,7 +44,7 @@ For package development:
 
 .. code-block:: bash
 
-   pip install spine-ml[dev]
+   pip install spine[dev]
 
 This includes Sphinx, pytest, and development utilities.
 
@@ -55,7 +55,7 @@ To install everything:
 
 .. code-block:: bash
 
-   pip install spine-ml[all]
+   pip install spine[all]
 
 System Requirements
 -------------------

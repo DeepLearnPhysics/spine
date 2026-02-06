@@ -96,7 +96,7 @@ jobs:
 
   # NOTE: Model testing is currently disabled in CI due to complex dependency requirements
   # (MinkowskiEngine, torch-scatter compilation issues in automated environments)
-  # Model functionality should be tested locally with: pip install spine-ml[model-full]
+  # Model functionality should be tested locally with: pip install spine[model-full]
 
   test-performance-benchmarks:
     name: Performance Tests

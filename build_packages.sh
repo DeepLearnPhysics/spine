@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Build script for SPINE package
-# Builds the spine-ml package with proper environment detection
+# Builds the spine package with proper environment detection
 
 set -e  # Exit on any error
 
@@ -32,7 +32,7 @@ echo "Cleaning previous builds..."
 rm -rf build/ dist/ *.egg-info/ src/*.egg-info/
 
 # Build the package
-echo "Building spine-ml package..."
+echo "Building spine package..."
 $PYTHON_CMD -m build
 
 echo "=== Build Summary ==="
@@ -58,7 +58,7 @@ echo ""
 echo "Build completed successfully!"
 echo ""
 echo "Package structure: src/spine/ (src layout)"
-echo "Project: spine-ml (published to PyPI)"
+echo "Project: spine (published to PyPI)"
 echo ""
 echo "To upload to PyPI:"
 echo "  # Test PyPI first:"
@@ -68,13 +68,13 @@ echo "  # Production PyPI:"
 echo "  $TWINE_CMD upload dist/*"
 echo ""
 echo "Installation commands for users:"
-echo "  pip install spine-ml                    # Core package (numpy, scipy, pandas, pyyaml, h5py, numba)"
-echo "  pip install spine-ml[viz]               # + Visualization (matplotlib, plotly, seaborn)"
-echo "  pip install spine-ml[dev]               # + Development tools (testing, linting, docs)"
-echo "  pip install spine-ml[all]               # + viz, dev (excludes PyTorch ecosystem)"
+echo "  pip install spine                    # Core package (numpy, scipy, pandas, pyyaml, h5py, numba)"
+echo "  pip install spine[viz]               # + Visualization (matplotlib, plotly, seaborn)"
+echo "  pip install spine[dev]               # + Development tools (testing, linting, docs)"
+echo "  pip install spine[all]               # + viz, dev (excludes PyTorch ecosystem)"
 echo ""
 echo "PyTorch ecosystem (torch, torch-geometric, torch-scatter, torch-cluster, MinkowskiEngine):"
-echo "  Recommended: singularity pull spine-ml.sif docker://deeplearnphysics/larcv2:ub2204-cu121-torch251-larndsim"
+echo "  Recommended: singularity pull spine.sif docker://deeplearnphysics/larcv2:ub2204-cu121-torch251-larndsim"
 echo "  Manual install: See README.md for detailed instructions"
 echo ""
 echo "Command line usage:"

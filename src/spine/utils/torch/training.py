@@ -27,7 +27,7 @@ def optim_dict():
     if not TORCH_AVAILABLE:
         raise ImportError(
             "PyTorch is required for optimizer functionality. "
-            "Install with: pip install spine-ml[model]"
+            "Install with: pip install spine[model]"
         )
 
     # Start with empty optimizer dict
@@ -80,7 +80,7 @@ def lr_sched_factory(cfg, optimizer):
     if not TORCH_AVAILABLE:
         raise ImportError(
             "PyTorch is required for learning rate scheduler functionality. "
-            "Install with: pip install spine-ml[model]"
+            "Install with: pip install spine[model]"
         )
     lr_sched_dict = module_dict(torch.optim.lr_scheduler)
 

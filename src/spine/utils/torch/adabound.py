@@ -7,7 +7,7 @@ from ..conditional import TORCH_AVAILABLE, torch
 if not TORCH_AVAILABLE:
     raise ImportError(
         "PyTorch is required for AdaBound optimizers. "
-        "Install with: pip install spine-ml[model]"
+        "Install with: pip install spine[model]"
     )
 
 from torch.optim import Optimizer

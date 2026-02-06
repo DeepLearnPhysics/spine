@@ -163,7 +163,7 @@ Examples:
   spine --help                                  Show this help message
 
 For ML training/inference functionality, ensure PyTorch is installed:
-  pip install spine-ml[model]
+  pip install spine[model]
 """,
     )
 
@@ -293,20 +293,18 @@ def show_info():
     if deps["torch"]:
         print(f"  Model: Neural networks available (PyTorch {deps['torch']})")
     else:
-        print("  Model: Not available (install with: pip install spine-ml[model])")
+        print("  Model: Not available (install with: pip install spine[model])")
 
     if deps["plotly"]:
         print(f"  Visualization: Available (Plotly {deps['plotly']})")
     else:
-        print(
-            "  Visualization: Not available (install with: pip install spine-ml[viz])"
-        )
+        print("  Visualization: Not available (install with: pip install spine[viz])")
 
     if deps["torch"] is None:
         print("\n" + "=" * 50)
         print("NOTICE: PyTorch not found!")
         print("For full ML functionality, install with:")
-        print("  pip install spine-ml[model]")
+        print("  pip install spine[model]")
         print("=" * 50)
 
 

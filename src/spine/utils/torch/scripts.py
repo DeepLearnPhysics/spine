@@ -34,7 +34,7 @@ def cdist_fast(v1, v2, metric="euclidean"):
     if not TORCH_AVAILABLE:
         raise ImportError(
             "PyTorch is required for cdist_fast functionality. "
-            "Install with: pip install spine-ml[model]"
+            "Install with: pip install spine[model]"
         )
 
     v1_2 = v1.unsqueeze(1).expand(v1.size(0), v2.size(0), v1.size(1))
