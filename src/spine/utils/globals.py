@@ -168,7 +168,8 @@ NU_CURR_TYPE = {-1: "UnknownCurrent", 0: "CC", 1: "NC"}
 # Source: https://internal.dunescience.org/doxygen/MCNeutrino_8h_source.html
 NU_INT_TYPE = {
     -1: "UnknownInteraction",
-    1: "QE",
+    0: "QE",
+    1: "Res",
     2: "DIS",
     3: "Coh",
     4: "CohElastic",
