@@ -7,5 +7,6 @@ This submodule is used to run basic diagnostics analyses, such as:
 - ...
 """
 
+from .graph import *
 from .shower import *
 from .track import *

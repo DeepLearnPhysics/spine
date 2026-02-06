@@ -161,6 +161,7 @@ class AnaBase(ABC):
                 f"{self.point_modes.keys()}. Got `{truth_point_mode}` instead."
             )
             self.truth_point_mode = truth_point_mode
+            self.truth_point_key = self.point_modes[truth_point_mode]
             self.truth_index_mode = truth_point_mode.replace("points", "index")
 
         # If a truth deposition mode is specified, store it
