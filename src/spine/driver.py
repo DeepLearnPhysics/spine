@@ -655,7 +655,7 @@ class Driver:
             data = None
 
     def process(
-        self, entry=None, run=None, subrun=None, event=None, iteration=None, epoch=epoch
+        self, entry=None, run=None, subrun=None, event=None, iteration=None, epoch=None
     ):
         """Process one entry or a batch of entries.
 
