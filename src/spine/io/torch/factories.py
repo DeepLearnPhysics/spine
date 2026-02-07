@@ -80,6 +80,8 @@ def loader_factory(
             world_size == 0 or (batch_size % world_size) == 0
         ), "The batch_size must be a multiple of the number of GPUs."
         minibatch_size = batch_size // max(world_size, 1)
+    elif minibatch_size is not None:
+        batch_size = minibatch_size * max(world_size, 1)
 
     # Initialize the dataset
     torch_dataset = dataset_factory(dataset, entry_list, dtype)
