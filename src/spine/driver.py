@@ -646,7 +646,7 @@ class Driver:
 
             # Process one batch/entry of data
             entry = iteration if self.loader is None else None
-            data = self.process(entry=entry, iteration=iteration)
+            data = self.process(entry=entry, iteration=iteration, epoch=epoch)
 
             # Log the output
             self.log(data, tstamp, iteration, epoch)
@@ -654,7 +654,9 @@ class Driver:
             # Release the memory for the next iteration
             data = None
 
-    def process(self, entry=None, run=None, subrun=None, event=None, iteration=None):
+    def process(
+        self, entry=None, run=None, subrun=None, event=None, iteration=None, epoch=epoch
+    ):
         """Process one entry or a batch of entries.
 
         Run single step of main SPINE driver. This includes data loading,
@@ -674,6 +676,8 @@ class Driver:
         iteration : int, optional
             Iteration number. Only needed to train models and/or to apply
             time-dependant model losses, no-op otherwise
+        epoch : float, optional
+            Epoch fraction. Only needed to train models, no-op otherwise
 
         Returns
         -------
@@ -694,7 +698,7 @@ class Driver:
         # 2. Pass data through the model
         if self.model is not None:
             self.watch.start("model")
-            result = self.model(data, iteration=iteration)
+            result = self.model(data, iteration=iteration, epoch=epoch)
             data.update(**result)
             self.watch.stop("model")
             self.watch.update(self.model.watch, "model")

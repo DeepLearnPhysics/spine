@@ -26,10 +26,6 @@ class ModelManager:
         loss_input=None,
         weight_path=None,
         train=None,
-        save_step=None,
-        optimizer=None,
-        restore_optimizer=False,
-        lr_scheduler=None,
         to_numpy=False,
         time_dependent_loss=False,
         dtype="float32",
@@ -152,7 +148,8 @@ class ModelManager:
         optimizer,
         weight_prefix="snapshot",
         restore_optimizer=False,
-        save_step=-1,
+        save_step=None,
+        save_epoch=None,
         lr_scheduler=None,
     ):
         """Initialize the training regimen.
@@ -163,8 +160,10 @@ class ModelManager:
             Configuration of the optimizer
         weight_prefix : str, default 'snapshot'
             Path + name of the weight file prefix
-        save_step : int, default -1
-            Number of iterations before recording the model weights (-1: never)
+        save_step : int, optional
+            Number of iterations before recording the model weights
+        save_epoch : float, optional
+            Fraction of epoch to train on before recording the model weights
         restore_optimizer : bool, default False
             Whether to load the  opimizer state from the torch checkpoint
         lr_scheduler : dict, optional
@@ -177,6 +176,7 @@ class ModelManager:
         # Store parameters
         self.weight_prefix = weight_prefix
         self.save_step = save_step
+        self.save_epoch = save_epoch
         self.restore_optimizer = restore_optimizer
 
         # Make a directory for the weight files, if need be
@@ -192,7 +192,7 @@ class ModelManager:
         if lr_scheduler is not None:
             self.lr_scheduler = lr_sched_factory(lr_scheduler, self.optimizer)
 
-    def __call__(self, data, iteration=None):
+    def __call__(self, data, iteration=None, epoch=None):
         """Calls the forward (and backward) function on a batch of data.
 
         Parameters
@@ -201,7 +201,9 @@ class ModelManager:
             Dictionary of input data product keys which each map to its
             associated batched data product
         iteration : int, optional
-            Iteration number (relevant for time-dependant losses)
+            Iteration number (relevant for training)
+        epoch : float, optional
+            Epoch fractional count (relevant for training)
 
         Returns
         -------
@@ -229,10 +231,14 @@ class ModelManager:
         # If training and at an appropriate iteration, save model state
         if self.train:
             self.watch.start("save")
-            if iteration is not None:
+            if iteration is not None and self.save_step is not None:
                 save = ((iteration + 1) % self.save_step) == 0
                 if save and self.main_process:
-                    self.save_state(iteration)
+                    self.save_state(iteration, epoch)
+            if epoch is not None and self.save_epoch is not None:
+                save = ((epoch + 1) % self.save_epoch) == 0
+                if save and self.main_process:
+                    self.save_state(iteration, epoch)
             self.watch.stop("save")
 
         # If requested, cast the result dictionary to numpy
@@ -554,11 +560,12 @@ class ModelManager:
                 dtype = type(value)
                 raise ValueError(f"Cannot cast output {key} of type {dtype} to numpy.")
 
-    def save_state(self, iteration):
+    def save_state(self, iteration, epoch):
         """Save the model state.
 
         Save three things from the model:
         - global_step (iteration)
+        - global_epoch (epoch progress)
         - state_dict (model parameter values)
         - optimizer (optimizer parameter values)
 
@@ -575,6 +582,7 @@ class ModelManager:
         torch.save(
             {
                 "global_step": iteration,
+                "global_epoch": epoch,
                 "state_dict": model.state_dict(),
                 "optimizer": self.optimizer.state_dict(),
             },
