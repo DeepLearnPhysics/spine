@@ -31,7 +31,7 @@ def post_processor_factory(name, cfg, parent_path=None):
     cfg["name"] = name
 
     # Instantiate the post-processor
-    if POST_DICT[name].need_parent_path:
+    if POST_DICT[name].provide_parent_path:
         return instantiate(POST_DICT, cfg, parent_path=parent_path)
     else:
         return instantiate(POST_DICT, cfg)

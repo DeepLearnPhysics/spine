@@ -22,8 +22,8 @@ class FlashMatchProcessor(PostBase):
     # Alternative allowed names of the post-processor
     aliases = ("run_flash_matching",)
 
-    # Whether this post-processor needs to know where the configuration lives
-    need_parent_path = True
+    # Whether this post-processor may use paths relative to the parent configuration path
+    provide_parent_path = True
 
     # Whether the post-processor needs geometry information
     need_geometry = True

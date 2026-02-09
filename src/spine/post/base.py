@@ -30,8 +30,8 @@ class PostBase(ABC):
     # Units in which the post-processor expects objects to be expressed in
     units = "cm"
 
-    # Whether this post-processor needs to know where the configuration lives
-    need_parent_path = False
+    # Whether this post-processor might use paths relative to the parent configuration path
+    provide_parent_path = False
 
     # Set of data keys needed for this post-processor to operate
     _keys = ()
@@ -179,11 +179,6 @@ class PostBase(ABC):
 
         # Store the parent path
         self.parent_path = parent_path
-        if self.need_parent_path and parent_path is None:
-            raise ValueError(
-                f"The `{self.name}` post-processor needs to know the parent "
-                "configuration path. Please provide the `parent_path` argument."
-            )
 
     @property
     def keys(self):
