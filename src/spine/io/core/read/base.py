@@ -289,7 +289,7 @@ class ReaderBase(ABC):
                 if not allow_missing or (r, s, e) in self.run_map:
                     entry_list.append(self.get_run_event_index(r, s, e))
 
-            entry_list_arr = np.unique(entry_list)
+            entry_list_arr = np.unique(entry_list).astype(int)
 
         elif skip_entry_list or skip_run_event_list:
             skip_entry_list_arr = None
@@ -328,7 +328,10 @@ class ReaderBase(ABC):
                 run_info = [self.run_info[i] for i in entry_list_arr]
                 self.run_map = {v: i for i, v in enumerate(run_info)}
 
-        assert len(entry_index), "Must at least have one entry to load."
+        if len(entry_index) == 0:
+            raise IndexError(
+                "No entries selected to load. Check the entry selection parameters."
+            )
 
         logger.info("Total number of entries selected: %d\n", len(entry_index))
 
