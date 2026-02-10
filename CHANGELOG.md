@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.10.1] - 2026-02-09
+
+### Added
+- **GrapPA edge utility**: Utility to compute edge length requirements for the GrapPA models
+
+### Fixed
+- **Primary labeling**: Fixed error in primary particle labeling logic
+- **Neutrino interaction type**: Fixed problem with neutrino interaction type enumerator
+- **Error messaging**: Improved error message clarity when run/subrun/event triplet is not found
+
+### Changed
+- **Config path resolution**: Removed requirement to provide `parent_path` to the FileManager
+  - Absolute paths are now created automatically by spine.config on the fly
+  - Simplifies configuration management
+- **Batch size handling**: `batch_size` is now automatically fetched from `minibatch_size` if not explicitly provided
+
 ## [0.10.0] - 2026-02-06
 
 ### Changed
