@@ -164,7 +164,7 @@ def process_particle_event(
     interaction_ids = get_interaction_ids(particles, valid_mask)
 
     # Get the neutrino ID of each particle
-    nu_ids = get_nu_ids(particles, interaction_ids, particles_mpv, neutrinos)
+    nu_ids = get_nu_ids(particles, group_ids, interaction_ids, particles_mpv, neutrinos)
 
     # Get the group primary status of each particle
     group_primary_ids = get_group_primary_ids(particles, valid_mask)
@@ -268,7 +268,9 @@ def get_interaction_ids(particles, valid_mask=None):
     return interaction_ids
 
 
-def get_nu_ids(particles, interaction_ids, particles_mpv=None, neutrinos=None):
+def get_nu_ids(
+    particles, group_ids, interaction_ids, particles_mpv=None, neutrinos=None
+):
     """Gets the neutrino-like ID of each partcile
 
     Convention: -1 for non-neutrinos, neutrino index for others
@@ -285,6 +287,8 @@ def get_nu_ids(particles, interaction_ids, particles_mpv=None, neutrinos=None):
     ----------
     particles : List[larcv.Particle]
         (P) List of true particle instances
+    group_ids : np.ndarray
+        (P) List of group IDs, one per true particle instance
     interaction_ids : np.ndarray
         (P) Array of interaction ID values, one per true particle instance
     particles_mpv : List[larcv.Particle], optional
@@ -325,9 +329,12 @@ def get_nu_ids(particles, interaction_ids, particles_mpv=None, neutrinos=None):
             if i < 0:
                 continue
 
-            # If there are at least two primaries, the interaction is nu-like
+            # If there are at least two primary *groups*, the interaction is nu-like
             inter_index = np.where(interaction_ids == i)[0]
-            if np.sum(primary_ids[inter_index] == 1) > 1:
+            if (
+                len(np.unique(group_ids[inter_index][primary_ids[inter_index] == 1]))
+                > 1
+            ):
                 nu_ids[inter_index] = nu_id
                 nu_id += 1
 
@@ -490,9 +497,9 @@ def get_inter_primary_ids(particles, valid_mask=None):
             primary_ids[i] = 1
             continue
 
-        # If the origin of a particle agrees with the origin of its ancestor,
-        # label as primary
-        primary_ids[i] = p.track_id() == p.ancestor_track_id()
+        # If the track ID of a particle *group* agrees with the track ID of
+        # its ancestor, label as primary
+        primary_ids[i] = group_p.track_id() == p.ancestor_track_id()
 
     return primary_ids
 
