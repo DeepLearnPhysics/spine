@@ -120,6 +120,7 @@ class Driver:
                 dtype=self.dtype,
                 rank=self.rank,
                 distributed=self.distributed,
+                iter_per_epoch=self.iter_per_epoch,
             )
 
         else:

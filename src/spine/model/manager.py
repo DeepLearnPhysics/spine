@@ -33,6 +33,7 @@ class ModelManager:
         rank=None,
         detect_anomaly=False,
         find_unused_parameters=False,
+        iter_per_epoch=None,
     ):
         """Process the model configuration.
 
@@ -64,6 +65,8 @@ class ModelManager:
             Whether to attempt to detect a torch anomaly
         find_unused_parameters : bool, default False
             Attempts to detect unused model parameters in the forward pass
+        iter_per_epoch : int, optional
+            Number of iterations per epoch (relevant for training)
         """
         # Save parameters
         self.train = train
@@ -108,7 +111,7 @@ class ModelManager:
 
         # If requested, initialize the training process
         if train is not None:
-            self.initialize_train(**train)
+            self.initialize_train(**train, iter_per_epoch=iter_per_epoch)
         else:
             self.train = False
             self.net.eval()
@@ -151,6 +154,7 @@ class ModelManager:
         save_step=None,
         save_epoch=None,
         lr_scheduler=None,
+        iter_per_epoch=None,
     ):
         """Initialize the training regimen.
 
@@ -168,6 +172,8 @@ class ModelManager:
             Whether to load the  opimizer state from the torch checkpoint
         lr_scheduler : dict, optional
             Configuration of the learning rate scheduler
+        iter_per_epoch : int, optional
+            Number of iterations per epoch (relevant for training)
         """
         # Turn train on
         self.train = True
@@ -175,9 +181,16 @@ class ModelManager:
 
         # Store parameters
         self.weight_prefix = weight_prefix
-        self.save_step = save_step
-        self.save_epoch = save_epoch
         self.restore_optimizer = restore_optimizer
+
+        # Store the saving parameters
+        if save_step is not None and save_epoch is not None:
+            raise ValueError("Cannot specify both `save_step` and `save_epoch`.")
+
+        self.save_step = save_step
+        if save_epoch is not None:
+            # Convert the save epoch to a save step
+            self.save_step = save_epoch * iter_per_epoch
 
         # Make a directory for the weight files, if need be
         save_dir = os.path.dirname(weight_prefix)
@@ -231,13 +244,11 @@ class ModelManager:
         # If training and at an appropriate iteration, save model state
         if self.train:
             self.watch.start("save")
-            if iteration is not None and self.save_step is not None:
-                save = ((iteration + 1) % self.save_step) == 0
-                if save and self.main_process:
-                    self.save_state(iteration, epoch)
-            if epoch is not None and self.save_epoch is not None:
-                save = ((epoch + 1) % self.save_epoch) == 0
-                if save and self.main_process:
+            assert (
+                iteration is not None
+            ), "Must provide iteration information to save the model state."
+            if self.save_step is not None and self.main_process:
+                if ((iteration + 1) % self.save_step) == 0:
                     self.save_state(iteration, epoch)
             self.watch.stop("save")
 
