@@ -12,9 +12,10 @@ from typing import Any, List, Optional, TextIO, Union, cast
 
 import yaml
 
-from .api import META_KEY
+from .api import META_KEY, META_LIST_APPEND, META_STRICT
 from .download import download_from_url
 from .errors import ConfigIncludeError
+from .operations import apply_collection_operation, parse_value, set_nested_value
 
 __all__ = ["ConfigLoader", "resolve_config_path"]
 
@@ -131,6 +132,9 @@ class ConfigLoader(yaml.SafeLoader):
     def include(self, node: yaml.Node) -> Any:
         """Load and include a YAML file inline.
 
+        This uses the same logic as the include: directive, so nested includes
+        and override: directives in the included file are properly processed.
+
         Parameters
         ----------
         node : yaml.Node
@@ -139,26 +143,52 @@ class ConfigLoader(yaml.SafeLoader):
         Returns
         -------
         Any
-            Loaded configuration content (with __meta__ stripped)
+            Loaded configuration content (with nested includes processed,
+            overrides applied, and __meta__ stripped)
         """
+        # Import here to avoid circular dependency
+        from .load import _load_config_recursive
+
         filename = self.construct_scalar(cast(yaml.ScalarNode, node))
         resolved_path = resolve_config_path(filename, self._root)
 
-        with open(resolved_path, "r", encoding="utf-8") as f:
-            # Create a loader class with the resolved directory as root_dir
-            resolved_dir = os.path.dirname(resolved_path)
+        # Use _load_config_recursive to properly handle nested includes and overrides
+        config, overrides, removals, metadata = _load_config_recursive(
+            cfg_path=resolved_path, root_dir=None, compatibility_checks=[]
+        )
 
-            class NestedConfigLoader(ConfigLoader):
-                def __init__(self, stream):
-                    super().__init__(stream, resolved_dir)
+        # Get strict and list_append settings from metadata
+        strict = metadata.get(META_STRICT, "warn")
+        list_append_mode = metadata.get(META_LIST_APPEND, "append")
 
-            content = yaml.load(f, Loader=NestedConfigLoader)
+        # Apply any remaining overrides
+        for key_path, value in overrides.items():
+            parsed_value = parse_value(value)
 
-            # Strip __meta__ block to be consistent with include: directive
-            if isinstance(content, dict) and META_KEY in content:
-                del content[META_KEY]
+            if key_path.endswith("+") or key_path.endswith("-"):
+                # Collection operations
+                base_key = key_path[:-1]
+                operation = key_path[-1]
+                config = apply_collection_operation(
+                    config, base_key, parsed_value, operation, strict, list_append_mode
+                )
+            else:
+                # Regular override
+                config, _ = set_nested_value(
+                    config, key_path, parsed_value, only_if_exists=True
+                )
 
-            return content
+        # Apply any remaining removals
+        for key_path in removals:
+            config, _ = set_nested_value(
+                config, key_path, None, delete=True, strict=strict
+            )
+
+        # Strip __meta__ block (should already be removed but be defensive)
+        if isinstance(config, dict) and META_KEY in config:
+            del config[META_KEY]
+
+        return config
 
     def resolve_path(self, node: yaml.Node) -> str:
         """Resolve a file path relative to the current config file.

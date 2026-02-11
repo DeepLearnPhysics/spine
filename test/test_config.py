@@ -1565,3 +1565,78 @@ io:
 
         # But __meta__ should be stripped from the included config
         assert "__meta__" not in cfg["io"]["reader"]
+
+    def test_inline_include_with_nested_includes(self, tmp_path):
+        """Test that !include processes nested include: directives."""
+        # Create a base config
+        base_config = tmp_path / "base.yaml"
+        base_config.write_text("""
+defaults:
+  batch_size: 4
+  shuffle: false
+""")
+
+        # Create a reader config that includes base
+        reader_config = tmp_path / "reader_config.yaml"
+        reader_config.write_text("""
+include: base.yaml
+
+batch_size: 8
+num_workers: 4
+""")
+
+        # Create main config with !include pointing to reader_config
+        main_config = tmp_path / "main.yaml"
+        main_config.write_text("""
+base:
+  world_size: 1
+
+io:
+  reader: !include reader_config.yaml
+""")
+
+        cfg = load_config_file(str(main_config))
+
+        # Should have values from base.yaml (nested include)
+        assert cfg["io"]["reader"]["defaults"]["batch_size"] == 4
+        assert cfg["io"]["reader"]["defaults"]["shuffle"] is False
+
+        # Should have values from reader_config.yaml
+        assert cfg["io"]["reader"]["batch_size"] == 8
+        assert cfg["io"]["reader"]["num_workers"] == 4
+        assert cfg["base"]["world_size"] == 1
+
+    def test_inline_include_with_overrides(self, tmp_path):
+        """Test that !include processes override: directives in included files."""
+        # Create a base config
+        base_config = tmp_path / "base.yaml"
+        base_config.write_text("""
+settings:
+  batch_size: 4
+  shuffle: false
+  num_workers: 2
+""")
+
+        # Create a reader config with include and overrides
+        reader_config = tmp_path / "reader_config.yaml"
+        reader_config.write_text("""
+include: base.yaml
+
+override:
+  settings.batch_size: 16
+  settings.shuffle: true
+""")
+
+        # Create main config with !include
+        main_config = tmp_path / "main.yaml"
+        main_config.write_text("""
+io:
+  reader: !include reader_config.yaml
+""")
+
+        cfg = load_config_file(str(main_config))
+
+        # Overrides should be applied
+        assert cfg["io"]["reader"]["settings"]["batch_size"] == 16
+        assert cfg["io"]["reader"]["settings"]["shuffle"] is True
+        assert cfg["io"]["reader"]["settings"]["num_workers"] == 2
