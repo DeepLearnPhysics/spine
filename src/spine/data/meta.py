@@ -124,6 +124,21 @@ class Meta(DataBase):
 
         return (coords - self.lower) / self.size
 
+    def inner_mask(self, coords):
+        """Computes a boolean mask of which coordinates are within the image bounds.
+
+        Parameters
+        ----------
+        coords : np.ndarray
+            (N, 2/3) Input coordinates in cm
+
+        Returns
+        -------
+        np.ndarray
+            (N) Boolean mask of which coordinates are within the image bounds
+        """
+        return np.all((coords >= self.lower) & (coords < self.upper), axis=1)
+
     @classmethod
     def from_larcv(cls, meta):
         """Builds and returns a Meta object from a LArCV 2D metadata object.
