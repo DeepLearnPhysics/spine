@@ -12,6 +12,7 @@ from typing import Any, List, Optional, TextIO, Union, cast
 
 import yaml
 
+from .api import META_KEY
 from .download import download_from_url
 from .errors import ConfigIncludeError
 
@@ -138,7 +139,7 @@ class ConfigLoader(yaml.SafeLoader):
         Returns
         -------
         Any
-            Loaded configuration content
+            Loaded configuration content (with __meta__ stripped)
         """
         filename = self.construct_scalar(cast(yaml.ScalarNode, node))
         resolved_path = resolve_config_path(filename, self._root)
@@ -151,7 +152,13 @@ class ConfigLoader(yaml.SafeLoader):
                 def __init__(self, stream):
                     super().__init__(stream, resolved_dir)
 
-            return yaml.load(f, Loader=NestedConfigLoader)
+            content = yaml.load(f, Loader=NestedConfigLoader)
+
+            # Strip __meta__ block to be consistent with include: directive
+            if isinstance(content, dict) and META_KEY in content:
+                del content[META_KEY]
+
+            return content
 
     def resolve_path(self, node: yaml.Node) -> str:
         """Resolve a file path relative to the current config file.

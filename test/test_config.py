@@ -1530,3 +1530,38 @@ override:
 
         assert cfg["base"]["value1"] == 100
         assert cfg["base"]["value2"] == 20
+
+    def test_inline_include_strips_meta(self, tmp_path):
+        """Test that !include strips __meta__ blocks from included files."""
+        # Create a config with __meta__ block
+        reader_config = tmp_path / "reader_config.yaml"
+        reader_config.write_text("""
+__meta__:
+  version: "1.0"
+  description: "Reader configuration"
+
+batch_size: 4
+shuffle: true
+num_workers: 8
+""")
+
+        # Create main config with inline include
+        main_config = tmp_path / "main.yaml"
+        main_config.write_text("""
+base:
+  world_size: 1
+
+io:
+  reader: !include reader_config.yaml
+""")
+
+        cfg = load_config_file(str(main_config))
+
+        # Config should have the reader settings
+        assert cfg["base"]["world_size"] == 1
+        assert cfg["io"]["reader"]["batch_size"] == 4
+        assert cfg["io"]["reader"]["shuffle"] is True
+        assert cfg["io"]["reader"]["num_workers"] == 8
+
+        # But __meta__ should be stripped from the included config
+        assert "__meta__" not in cfg["io"]["reader"]
