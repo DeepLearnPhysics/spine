@@ -289,14 +289,14 @@ class ClustGeoNodeEncoder(torch.nn.Module):
                 vals[0] = values[c].mean()
                 vals[1] = values[c].std()
                 feats_v = torch.cat((feats_v, vals))
-            if add_shape:
+            if add_shape and sem_types is not None:
                 shape = full([1], sem_types[c].mode())
                 feats_v = torch.cat((feats_v, shape))
 
             feats.append(feats_v)
 
         # Return
-        if len(feats) == 0:
+        if len(feats) > 0:
             return TensorBatch(torch.stack(feats, dim=0), clusts.counts)
         else:
             return TensorBatch(zeros((0, 16)), clusts.counts)
@@ -436,7 +436,7 @@ class ClustGeoEdgeEncoder(torch.nn.Module):
 
             feats.append(torch.cat((v1, v2, disp, lend.reshape(1), outer)))
 
-        if len(feats) == 0:
+        if len(feats) > 0:
             return torch.stack(feats, dim=0)
         else:
             return torch.zeros((0, 19))
