@@ -5,6 +5,8 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 
 from spine.data import Meta
+from spine.geo import GeoManager
+from spine.io.core.parse.data import ParserTensor
 
 __all__ = ["Augmenter"]
 
@@ -27,9 +29,10 @@ class Augmenter:
             Translation configuration (move input image around)
         """
         # Make sure at least one augmentation scheme is requested
-        assert (
-            crop is not None or translate is not None
-        ), "Must provide `crop` or `translate` block minimally to do any augmentation."
+        if crop is None and translate is None:
+            raise ValueError(
+                "Must provide `crop` or `translate` block minimally to do any augmentation."
+            )
 
         # Parse the cropping configuration
         self.cropper = None
@@ -53,18 +56,13 @@ class Augmenter:
         augment_keys = []
         meta = None
         for key, value in data.items():
-            if (
-                isinstance(value, tuple)
-                and len(value) == 3
-                and isinstance(value[2], Meta)
-            ):
+            if isinstance(value, ParserTensor) and value.coords is not None:
                 augment_keys.append(key)
                 if meta is None:
-                    meta = value[2]
-                else:
-                    assert (
-                        meta == value[2]
-                    ), "Metadata should be shared by all data products."
+                    meta = value.meta
+                elif meta != value.meta:
+                    raise ValueError("Metadata should be shared by all data products.")
+
             elif isinstance(value, Meta):
                 augment_keys.append(key)
                 meta = value
@@ -93,6 +91,7 @@ class Cropper:
         max_dimensions: np.ndarray,
         lower: Optional[np.ndarray] = None,
         upper: Optional[np.ndarray] = None,
+        use_geo: bool = False,
     ):
         """Initialize the cropper.
 
@@ -110,6 +109,9 @@ class Cropper:
             Lower bounds of the box in which to crop the image in
         upper : np.ndarray, optional
             Upper bounds of the box in which to crop the image in
+        use_geo : bool, default False
+            If `True`, the cropping box is defined within the outer bounds
+            of the overall TPC detector geometry.
         """
         # Sanity check
         if not len(min_dimensions) == len(max_dimensions) == 3:
@@ -122,9 +124,9 @@ class Cropper:
         # Store the cropping dimension range
         self.min_dimensions = np.asarray(min_dimensions)
         self.max_dimensions = np.asarray(max_dimensions)
-        if np.any(min_dimensions <= 0) or np.any(max_dimensions <= 0):
+        if np.any(self.min_dimensions <= 0) or np.any(self.max_dimensions <= 0):
             raise ValueError("Cropping dimensions must be positive.")
-        if np.any(min_dimensions > max_dimensions):
+        if np.any(self.min_dimensions > self.max_dimensions):
             raise ValueError("Minimum cropping dimensions must be less than maximum.")
 
         # Store the cropping dimension range
@@ -133,8 +135,22 @@ class Cropper:
         # Store the cropping location bounds, if provided
         self.lower = np.asarray(lower) if lower is not None else None
         self.upper = np.asarray(upper) if upper is not None else None
-        if lower is not None and upper is not None and np.any(lower > upper):
+        if (
+            self.lower is not None
+            and self.upper is not None
+            and np.any(self.lower > self.upper)
+        ):
             raise ValueError("Lower bounds must be less than upper bounds.")
+
+        # If using the geometry, set the cropping location bounds to the TPC boundaries
+        if use_geo:
+            if self.lower is not None or self.upper is not None:
+                raise ValueError(
+                    "Cannot use geometry if custom cropping bounds are provided."
+                )
+            geo = GeoManager.get_instance()
+            self.lower = geo.tpc.lower
+            self.upper = geo.tpc.upper
 
     def __call__(
         self, data: Dict[str, Any], meta: Meta, keys: List[str]
@@ -166,18 +182,21 @@ class Cropper:
                 continue
 
             # Fetch attributes to modify
-            voxels, features, _ = data[key]
+            voxels, features = data[key].coords, data[key].features
 
             # Compute a mask of which voxels are within the cropping box
             voxels_cm = meta.to_cm(voxels, center=True)
             mask = crop_meta.inner_mask(voxels_cm)
+            index = np.where(mask)[0]
 
             # Crop voxels and redifine the pixel index with respect to the cropping box
-            voxels_cm, features = voxels_cm[mask], features[mask]
+            voxels_cm, features = voxels_cm[index], features[index]
             voxels = crop_meta.to_px(voxels_cm, floor=True).astype(voxels.dtype)
 
             # Update
-            data[key] = (voxels, features, crop_meta)
+            data[key].coords = voxels
+            data[key].features = features
+            data[key].meta = crop_meta
 
         return data
 
@@ -222,7 +241,12 @@ class Cropper:
 class Translater:
     """Generic class to handle moving images around."""
 
-    def __init__(self, lower: np.ndarray, upper: np.ndarray):
+    def __init__(
+        self,
+        lower: Optional[np.ndarray] = None,
+        upper: Optional[np.ndarray] = None,
+        use_geo: bool = False,
+    ):
         """Initialize the translater.
 
         This defines a way to move the image around within a volume greater
@@ -231,16 +255,36 @@ class Translater:
 
         Parameters
         ----------
-        lower : np.ndarray
+        lower : np.ndarray, optional
             Lower bounds of the box in which to move the image around
-        upper : np.ndarray
+        upper : np.ndarray, optional
             Upper bounds of the box in which to move the image around
+        use_geo : bool, default False
+            If `True`, the box in which to move the image around is defined
+            within the outer bounds of the overall TPC detector geometry.
         """
         # Sanity check
-        assert len(lower) == len(upper) == 3, "Must provide boundaries for each axis."
+        lower = np.asarray(lower) if lower is not None else None
+        upper = np.asarray(upper) if upper is not None else None
+        if (lower is None) != (upper is None):
+            raise ValueError("Must provide both lower and upper bounds, or neither.")
+        if lower is not None and upper is not None:
+            if not len(lower) == len(upper) == 3:
+                raise ValueError("Must provide bounds for each axis.")
+            if np.any(lower > upper):
+                raise ValueError("Lower bounds must be less than upper bounds.")
 
-        # Define a new image metadata corresponding to the full range
-        self.meta = Meta(lower=np.asarray(lower), upper=np.asarray(upper))
+            self.meta = Meta(lower, upper)
+
+        # If using the geometry, set the cropping location bounds to the TPC boundaries
+        if use_geo:
+            if lower is not None or upper is not None:
+                raise ValueError(
+                    "Cannot use geometry if custom cropping bounds are provided."
+                )
+
+            geo = GeoManager.get_instance()
+            self.meta = Meta(lower=geo.tpc.lower, upper=geo.tpc.upper)
 
     def __call__(
         self, data: Dict[str, Any], meta: Meta, keys: List[str]
@@ -278,14 +322,15 @@ class Translater:
                 continue
 
             # Fetch attributes to modify
-            voxels, features, _ = data[key]
+            voxels = data[key].coords
 
             # Translate
             width = voxels.shape[1]
             voxels = (voxels.reshape(-1, 3) + offset).reshape(-1, width)
 
             # Update
-            data[key] = (voxels, features, self.meta)
+            data[key].coords = voxels
+            data[key].meta = self.meta
 
         return data
 
