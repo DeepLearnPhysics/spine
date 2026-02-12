@@ -3,6 +3,7 @@
 import numpy as np
 from plotly import graph_objs as go
 
+import spine.data.out
 from spine.geo import GeoManager
 from spine.utils.globals import PID_LABELS, SHAPE_LABELS, TRACK_SHP
 
@@ -250,15 +251,38 @@ class Drawer:
             f"{self._obj_types}."
         )
 
+        # Produce an attribute list per object declination (truth and reco might
+        # have different sets of valid attributes to draw)
+        req_attrs = [attr] if isinstance(attr, str) else attr
+        req_attrs = set(req_attrs) if req_attrs is not None else set()
+        found_attrs = set()
+        attrs = {prefix: set() for prefix in self.prefixes}
+        for prefix in self.prefixes:
+            # Fetch object class to be drawn
+            class_name = f"{prefix.capitalize()}{obj_type[:-1].capitalize()}"
+            class_obj = getattr(spine.data.out, class_name)
+
+            # Find list of valid attributes for this object type and declination
+            valid_attrs = set(class_obj.as_dict().keys())
+            attrs[prefix] = req_attrs.intersection(valid_attrs)
+            found_attrs.update(attrs[prefix])
+
+        if req_attrs != found_attrs:
+            missing_attrs = req_attrs.difference(found_attrs)
+            raise ValueError(
+                f"The following requested attributes are not available for "
+                f"any of the drawn objects: {missing_attrs}."
+            )
+
         # Fetch the objects
         traces = {}
         for prefix in self.prefixes:
             obj_name = f"{prefix}_{obj_type}"
-            assert obj_name in self.data, (
-                f"Must provide `{obj_name}` in the data products to draw " "them."
-            )
+            assert (
+                obj_name in self.data
+            ), f"Must provide `{obj_name}` in the data products to draw them."
             traces[prefix] = self._object_traces(
-                obj_name, attr, color_attr, split_traces
+                obj_name, attrs[prefix], color_attr, split_traces
             )
 
         # Fetch the raw depositions, if requested
@@ -381,8 +405,6 @@ class Drawer:
             List of traces, one per object being drawn up
         """
         # Get the colors
-        if attr is not None and isinstance(attr, str):
-            attr = [attr]
         color_dict = self._object_colors(obj_name, attr, color_attr, split_traces)
 
         # Fetch object representations
@@ -1000,7 +1022,7 @@ class Drawer:
 
         # Identify which of the CRT planes were hit (to know what to draw)
         det_ids = [self.geo.crt.get_plane_id(hit.center, hit.plane) for hit in crthits]
-        unique_det_ids = np.unique(det_ids)
+        unique_det_ids = list(np.unique(det_ids))
 
         # Initialize the hovertext for the planes and hits
         hovertext_pl, hovertext_hits = [], []
