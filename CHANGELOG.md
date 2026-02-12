@@ -8,9 +8,9 @@
 
 ### Fixed
 - **GrapPA**: Fixed bug in GrapPA geometric feature extraction when `use_numpy: false`
+- **Visualization**: Drawer can now draw attributes for truth but not reco (or vice-versa)
 
 ### Changed
-- **Visualization**: Drawer can now draw attributes for truth but not reco (or vice-versa)
 - **Config loading**: Use recursive loading in `!include` directive
 - **Config loading**: Strip `__meta__` block from configs included through `!include`
 - **Checkpointing**: More elegant approach to epoch-based checkpointing
