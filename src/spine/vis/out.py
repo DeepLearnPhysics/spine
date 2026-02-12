@@ -260,7 +260,7 @@ class Drawer:
         for prefix in self.prefixes:
             # Fetch object class to be drawn
             class_name = f"{prefix.capitalize()}{obj_type[:-1].capitalize()}"
-            class_obj = getattr(spine.data.out, class_name)
+            class_obj = getattr(spine.data.out, class_name)()
 
             # Find list of valid attributes for this object type and declination
             valid_attrs = set(class_obj.as_dict().keys())
