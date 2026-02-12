@@ -1,6 +1,6 @@
 """Module with methods to augment the input data."""
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -73,7 +73,7 @@ class Augmenter:
 
         # Crop
         if self.cropper is not None:
-            data = self.cropper(data, meta, augment_keys)
+            data, meta = self.cropper(data, meta, augment_keys)
 
         # Translate
         if self.translater is not None:
@@ -154,7 +154,7 @@ class Cropper:
 
     def __call__(
         self, data: Dict[str, Any], meta: Meta, keys: List[str]
-    ) -> Dict[str, Any]:
+    ) -> Tuple[Dict[str, Any], Meta]:
         """Randomly crop the image to a smaller size within the pre-defined range.
 
         Parameters
@@ -170,6 +170,8 @@ class Cropper:
         -------
         np.ndarray
             (N, 3) Masked points
+        Meta
+            Metadata of the cropped image
         """
         # Generate a crop box metadata
         crop_meta = self.generate_crop(meta)
@@ -198,7 +200,7 @@ class Cropper:
             data[key].features = features
             data[key].meta = crop_meta
 
-        return data
+        return data, crop_meta
 
     def generate_crop(self, meta: Meta) -> Meta:
         """Generate a crop box metadata to apply to the voxel index sets.
@@ -229,13 +231,14 @@ class Cropper:
 
         # Adjust dimensions to be a multiple of the pixel pitch,
         # so that the cropping box is aligned with the pixel grid
-        dimensions = np.ceil(dimensions / meta.size) * meta.size
+        count = np.ceil(dimensions / meta.size).astype(int)
+        dimensions = count * meta.size
 
         # Pick a random cropping box within the allowed bounds
         crop_lower = lower + np.random.rand(3) * (upper - lower - dimensions)
         crop_upper = crop_lower + dimensions
 
-        return Meta(lower=crop_lower, upper=crop_upper, size=meta.size)
+        return Meta(lower=crop_lower, upper=crop_upper, size=meta.size, count=count)
 
 
 class Translater:
@@ -308,8 +311,9 @@ class Translater:
         # Set the target volume pixel pitch to match that of the original image
         if np.all(self.meta.size < 0.0):
             self.meta.size = meta.size
-            self.meta.count = (self.meta.upper - self.meta.lower) // meta.size
-            self.meta.count = self.meta.count.astype(int)
+            self.meta.count = np.ceil(
+                (self.meta.upper - self.meta.lower) / meta.size
+            ).astype(int)
 
         # Generate an offset
         offset = self.generate_offset(meta)
