@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.10.2] - 2026-02-12
+
+### Added
+- **Data augmentation**: Added masking (cut-out) and cropping augmentation
+- **Data augmentation**: Enable using geometry to determine ranges
+
+### Fixed
+- **GrapPA**: Fixed bug in GrapPA geometric feature extraction when `use_numpy: false`
+
+### Changed
+- **Visualization**: Drawer can now draw attributes for truth but not reco (or vice-versa)
+- **Config loading**: Use recursive loading in `!include` directive
+- **Config loading**: Strip `__meta__` block from configs included through `!include`
+- **Checkpointing**: More elegant approach to epoch-based checkpointing
+
 ## [0.10.1] - 2026-02-09
 
 ### Added
