@@ -16,6 +16,7 @@ class Augmenter:
 
     def __init__(
         self,
+        mask: Optional[Dict[str, Any]] = None,
         crop: Optional[Dict[str, Any]] = None,
         translate: Optional[Dict[str, Any]] = None,
     ):
@@ -23,16 +24,24 @@ class Augmenter:
 
         Parameters
         ----------
+        mask : dict, optional
+            Masking configuration (cut out regions of the input image)
         crop : dict, optional
             Cropping configuration (crop input image to a smaller size)
         translate : dict, optional
             Translation configuration (move input image around)
         """
         # Make sure at least one augmentation scheme is requested
-        if crop is None and translate is None:
+        if crop is None and translate is None and mask is None:
             raise ValueError(
-                "Must provide `crop` or `translate` block minimally to do any augmentation."
+                "Must provide `crop`, `translate`, or `mask` block minimally "
+                "to do any augmentation."
             )
+
+        # Parse the masking configuration
+        self.masker = None
+        if mask is not None:
+            self.masker = Masker(**mask)
 
         # Parse the cropping configuration
         self.cropper = None
@@ -70,6 +79,10 @@ class Augmenter:
         # If there are no sparse tensors in the input data, nothing to do
         if meta is None:
             return data
+
+        # Mask
+        if self.masker is not None:
+            data = self.masker(data, meta, augment_keys)
 
         # Crop
         if self.cropper is not None:
@@ -168,8 +181,8 @@ class Cropper:
 
         Returns
         -------
-        np.ndarray
-            (N, 3) Masked points
+        dict
+            Updated data dictionary with cropped coordinates
         Meta
             Metadata of the cropped image
         """
@@ -241,6 +254,160 @@ class Cropper:
         return Meta(lower=crop_lower, upper=crop_upper, size=meta.size, count=count)
 
 
+class Masker:
+    """Generic class to handle cutting out regions of an image."""
+
+    def __init__(
+        self,
+        min_dimensions: np.ndarray,
+        max_dimensions: np.ndarray,
+        lower: Optional[np.ndarray] = None,
+        upper: Optional[np.ndarray] = None,
+        use_geo: bool = False,
+    ):
+        """Initialize the masker.
+
+        This defines a way to cut out regions of the input image in
+        a user-defined range. The masking is done by randomly selecting a box of
+        the appropriate size within the original image and masking it.
+
+        Parameters
+        ----------
+        min_dimensions : np.ndarray
+            Minimum dimensions of the masking box
+        max_dimensions : np.ndarray
+            Maximum dimensions of the masking box
+        lower : np.ndarray, optional
+            Lower bounds of the box in which to mask the image in
+        upper : np.ndarray, optional
+            Upper bounds of the box in which to mask the image in
+        use_geo : bool, default False
+            If `True`, the masking box is defined within the outer bounds
+            of the overall TPC detector geometry.
+        """
+        # Sanity check
+        if not len(min_dimensions) == len(max_dimensions) == 3:
+            raise ValueError("Must provide dimensions for each axis.")
+        if lower is not None and not len(lower) == 3:
+            raise ValueError("Must provide lower bounds for each axis.")
+        if upper is not None and not len(upper) == 3:
+            raise ValueError("Must provide upper bounds for each axis.")
+
+        # Store the masking dimension range
+        self.min_dimensions = np.asarray(min_dimensions)
+        self.max_dimensions = np.asarray(max_dimensions)
+        if np.any(self.min_dimensions <= 0) or np.any(self.max_dimensions <= 0):
+            raise ValueError("Masking dimensions must be positive.")
+        if np.any(self.min_dimensions > self.max_dimensions):
+            raise ValueError("Minimum masking dimensions must be less than maximum.")
+
+        # Store the masking dimension range
+        self.range = self.max_dimensions - self.min_dimensions
+
+        # Store the masking location bounds, if provided
+        self.lower = np.asarray(lower) if lower is not None else None
+        self.upper = np.asarray(upper) if upper is not None else None
+        if (
+            self.lower is not None
+            and self.upper is not None
+            and np.any(self.lower > self.upper)
+        ):
+            raise ValueError("Lower bounds must be less than upper bounds.")
+
+        # If using the geometry, set the masking location bounds to the TPC boundaries
+        if use_geo:
+            if self.lower is not None or self.upper is not None:
+                raise ValueError(
+                    "Cannot use geometry if custom masking bounds are provided."
+                )
+            geo = GeoManager.get_instance()
+            self.lower = geo.tpc.lower
+            self.upper = geo.tpc.upper
+
+    def __call__(
+        self, data: Dict[str, Any], meta: Meta, keys: List[str]
+    ) -> Dict[str, Any]:
+        """Randomly mask a portion of the image within the the pre-defined range.
+
+        Parameters
+        ----------
+        data : dict
+            Dictionary of data products to offset
+        meta : Meta
+            Shared image metadata
+        keys : List[str]
+            List of keys with coordinates to offset
+
+        Returns
+        -------
+        dict
+            Updated data dictionary with masked coordinates
+        """
+        # Generate a masking box metadata
+        mask_meta = self.generate_mask(meta)
+
+        # Mask the coordinates by masking out those within the masking box
+        for key in keys:
+            # If the key is the metadata, nothing to do
+            if isinstance(data[key], Meta):
+                continue
+
+            # Fetch attributes to modify
+            voxels, features = data[key].coords, data[key].features
+
+            # Compute a mask of which voxels are within the masking box
+            voxels_cm = meta.to_cm(voxels, center=True)
+            mask = mask_meta.inner_mask(voxels_cm)
+            index = np.where(~mask)[0]
+
+            # Remove voxels inside the masking box
+            voxels, features = voxels_cm[index], features[index]
+
+            # Update
+            data[key].coords = voxels
+            data[key].features = features
+
+        return data
+
+    def generate_mask(self, meta: Meta) -> Meta:
+        """Generate a masking box metadata to apply to the voxel index sets.
+
+        This masking box is such that the voxels will be randomly masked
+        out inside the target bounding box.
+
+        Parameters
+        ----------
+        meta : Meta
+            Metadata of the original image, used to determine the masking bounds
+
+        Returns
+        -------
+        Meta
+            Metadata of the masking box
+        """
+        # Determine upper/lower limits of the masking box range
+        lower = self.lower if self.lower is not None else meta.lower
+        upper = self.upper if self.upper is not None else meta.upper
+        if np.any(self.range > (upper - lower)):
+            raise ValueError(
+                "The masking range is larger than the allowed masking bounds."
+            )
+
+        # Pick a random masking dimension within the range
+        dimensions = self.min_dimensions + np.random.rand(3) * self.range
+
+        # Adjust dimensions to be a multiple of the pixel pitch,
+        # so that the masking box is aligned with the pixel grid
+        count = np.ceil(dimensions / meta.size).astype(int)
+        dimensions = count * meta.size
+
+        # Pick a random masking box within the allowed bounds
+        mask_lower = lower + np.random.rand(3) * (upper - lower - dimensions)
+        mask_upper = mask_lower + dimensions
+
+        return Meta(lower=mask_lower, upper=mask_upper, size=meta.size, count=count)
+
+
 class Translater:
     """Generic class to handle moving images around."""
 
@@ -305,8 +472,8 @@ class Translater:
 
         Returns
         -------
-        np.ndarray
-            (N, 3) Translated points
+        dict
+            Updated data dictionary with translated coordinates
         """
         # Set the target volume pixel pitch to match that of the original image
         if np.all(self.meta.size < 0.0):
