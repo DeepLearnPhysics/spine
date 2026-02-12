@@ -361,7 +361,7 @@ class Masker:
             index = np.where(~mask)[0]
 
             # Remove voxels inside the masking box
-            voxels, features = voxels_cm[index], features[index]
+            voxels, features = voxels[index], features[index]
 
             # Update
             data[key].coords = voxels
