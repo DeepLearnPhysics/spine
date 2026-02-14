@@ -92,10 +92,21 @@ def resolve_config_path(
     if search_paths:
         search_locations.append(f"SPINE_CONFIG_PATH: {':'.join(search_paths)}")
 
-    raise ConfigIncludeError(
+    error_msg = (
         f"Config file '{filename}' not found.\n"
         f"Searched in:\n  - " + "\n  - ".join(search_locations)
     )
+
+    # Suggest setting SPINE_CONFIG_PATH if the environment variable is not set
+    if not os.environ.get("SPINE_CONFIG_PATH", "").strip():
+        error_msg += (
+            "\n\nTip: Set SPINE_CONFIG_PATH environment variable to specify "
+            "additional search directories.\n"
+            "For spine-prod users: source configure.sh to set SPINE_CONFIG_PATH.\n"
+            'Otherwise: export SPINE_CONFIG_PATH="/path/to/configs:/another/path"'
+        )
+
+    raise ConfigIncludeError(error_msg)
 
 
 class ConfigLoader(yaml.SafeLoader):
