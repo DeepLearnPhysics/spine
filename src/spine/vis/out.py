@@ -588,13 +588,6 @@ class Drawer:
             cmin = 0
             cmax = count - 1
 
-        elif color_attr.startswith("is_"):
-            # Boolean
-            color = np.array(color, dtype=np.int32)
-            colorscale = PLOTLY_COLORS_WGRAY[1:3]
-            cmin = 0
-            cmax = 1
-
         elif color_attr == "shape" or color_attr == "pid":
             # Fixed length values, with potentially invalid values
             ref = SHAPE_LABELS if color_attr == "shape" else PID_LABELS
@@ -602,6 +595,19 @@ class Drawer:
             colorscale = PLOTLY_COLORS_WGRAY[: num_classes + 1]
             cmin = -1
             cmax = num_classes - 1
+
+        elif color_attr.startswith("is_"):
+            # Boolean
+            color = np.array(color, dtype=np.int32)
+            colorscale = PLOTLY_COLORS_WGRAY[1:3]
+            cmin = 0
+            cmax = 1
+
+        elif color_attr.endswith("_sum"):
+            # Continuous values
+            colorscale = "Inferno"
+            cmin = 0.0
+            cmax = np.max(color) if len(color) > 0 else 1.0
 
         elif color_attr.endswith("id"):
             # Variable-lengh discrete values
