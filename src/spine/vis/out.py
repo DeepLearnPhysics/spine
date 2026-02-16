@@ -526,7 +526,7 @@ class Drawer:
                     values = [self.geo.get_sources(v) for v in values]
 
                 # Get the colors, if needed
-                if len(attrs) == 1 or attr == color_attr:
+                if attr == color_attr:
                     if not self._is_sources(attr):
                         color = values
                     else:
@@ -553,10 +553,6 @@ class Drawer:
                         hovertext[i] = [
                             ht[j] + val_str for j in range(len(hovertext[i]))
                         ]
-
-            # If there is only one attribute and no color attribute specified, use it
-            if color_attr is None and len(attrs) == 1:
-                color_attr = attrs[0]
 
         # Flatten hovertext if no long-form attributes are used
         if not has_long_form:
