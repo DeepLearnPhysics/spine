@@ -308,7 +308,7 @@ class InteractionBase:
         if self.is_crt_matched:
             return np.concatenate([part.crt_times for part in self.particles])
         else:
-            return np.empty(0, dtype=np.int32)
+            return np.empty(0, dtype=np.float32)
 
     @crt_times.setter
     def crt_times(self, crt_times):
@@ -326,7 +326,7 @@ class InteractionBase:
         if self.is_crt_matched:
             return np.concatenate([part.crt_scores for part in self.particles])
         else:
-            return np.empty(0, dtype=np.int32)
+            return np.empty(0, dtype=np.float32)
 
     @crt_scores.setter
     def crt_scores(self, crt_scores):
