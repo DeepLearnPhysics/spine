@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.10.3] - 2026-02-16
+
+### Added
+- **Visualization**: Added support to draw `_sum` attributes in Drawer
+
+### Fixed
+- **Data objects**: Fixed default typing issue in `crt_times`/`crt_scores` attributes of Interaction objects
+- **Visualization**: Do not make a single attribute in the drawer be the default color scale
+
+### Changed
+- **Visualization**: Use asdict to get object properties in Drawer (more complete)
+- **Config loading**: Added explicit message when `SPINE_CONFIG_PATH` is not set and config include is not found
+
 ## [0.10.2] - 2026-02-12
 
 ### Added
