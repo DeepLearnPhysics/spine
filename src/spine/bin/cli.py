@@ -19,6 +19,8 @@ def main(
     output: str,
     n: int,
     nskip: int,
+    entry_list: str,
+    skip_entry_list: str,
     log_dir: str,
     weight_prefix: str,
     weight_path: str,
@@ -44,6 +46,10 @@ def main(
         Number of iterations to run
     nskip : int
         Number of iterations to skip
+    entry_list : str
+        Path to a text file containing a list of entries to process
+    skip_entry_list : str
+        Path to a text file containing a list of entries to skip
     log_dir : str
         Path to the directory for storing the training log
     weight_prefix : str
@@ -69,44 +75,32 @@ def main(
     cfg["base"]["parent_path"] = parent_path
 
     # The configuration must minimally contain an IO block
-    assert "io" in cfg, "Must provide an `io` block in the configuration."
+    if "io" not in cfg:
+        raise KeyError("Configuration file must contain an `io` block.")
 
-    # Override the input/output command-line information into the configuration
-    if source is not None and len(source) > 0:
-        if "reader" in cfg["io"]:
-            cfg["io"]["reader"]["file_keys"] = source
-        elif "loader" in cfg["io"]:
-            cfg["io"]["loader"]["dataset"]["file_keys"] = source
-        else:
-            raise KeyError("Must specify `loader` or `reader` in the `io` block.")
+    # Override the input command-line information into the configuration
+    io_mapping = {
+        "file_keys": source,
+        "file_list": source_list,
+        "n_entry": n,
+        "n_skip": nskip,
+        "entry_list": entry_list,
+        "skip_entry_list": skip_entry_list,
+    }
+    for io_key, io_value in io_mapping.items():
+        if io_value is not None:
+            if "reader" in cfg["io"]:
+                cfg["io"]["reader"][io_key] = io_value
+            elif "loader" in cfg["io"]:
+                cfg["io"]["loader"]["dataset"][io_key] = io_value
+            else:
+                raise KeyError("Must specify `loader` or `reader` in the `io` block.")
 
-    if source_list is not None:
-        if "reader" in cfg["io"]:
-            cfg["io"]["reader"]["file_list"] = source_list
-        elif "loader" in cfg["io"]:
-            cfg["io"]["loader"]["dataset"]["file_list"] = source_list
-        else:
-            raise KeyError("Must specify `loader` or `reader` in the `io` block.")
-
-    if n is not None:
-        if "reader" in cfg["io"]:
-            cfg["io"]["reader"]["n_entry"] = n
-        elif "loader" in cfg["io"]:
-            cfg["io"]["loader"]["dataset"]["n_entry"] = n
-        else:
-            raise KeyError("Must specify `loader` or `reader` in the `io` block.")
-
-    if nskip is not None:
-        if "reader" in cfg["io"]:
-            cfg["io"]["reader"]["n_skip"] = nskip
-        elif "loader" in cfg["io"]:
-            cfg["io"]["loader"]["dataset"]["n_skip"] = nskip
-        else:
-            raise KeyError("Must specify `loader` or `reader` in the `io` block.")
-
+    # Override the output path if provided
     if output is not None and "writer" in cfg["io"]:
         cfg["io"]["writer"]["file_name"] = output
 
+    # Override logging and weight storage paths if provided
     if log_dir is not None:
         cfg["base"]["log_dir"] = log_dir
 
@@ -118,6 +112,7 @@ def main(
             )
         cfg["base"]["train"]["weight_prefix"] = weight_prefix
 
+    # Override the weight loading path if provided
     if weight_path is not None:
         cfg["model"]["weight_path"] = weight_path
 
@@ -188,6 +183,7 @@ For ML training/inference functionality, ensure PyTorch is installed:
         help="Path to the configuration file (requires torch dependencies)",
     )
 
+    # Add mutually exclusive group for source input
     group = parser.add_mutually_exclusive_group()
     group.add_argument(
         "-s", "--source", nargs="+", type=str, help="List of paths to the input files"
@@ -198,14 +194,27 @@ For ML training/inference functionality, ensure PyTorch is installed:
         help="Path to a text file containing a list of data file paths",
     )
 
+    # Add output argument
     parser.add_argument("-o", "--output", help="Path to the output file")
 
+    # Add entry and skip arguments
     parser.add_argument(
         "-n", "--iterations", type=int, help="Number of iterations to run"
     )
 
     parser.add_argument("--nskip", type=int, help="Number of iterations to skip")
 
+    parser.add_argument(
+        "--entry-list",
+        help="Path to a text file containing a list of entries to process",
+    )
+
+    parser.add_argument(
+        "--skip-entry-list",
+        help="Path to a text file containing a list of entries to skip",
+    )
+
+    # Add logging and weight storage arguments
     parser.add_argument(
         "--log-dir", help="Path to the directory for storing the training log"
     )
@@ -214,11 +223,15 @@ For ML training/inference functionality, ensure PyTorch is installed:
         "--weight-prefix", help="Path to the directory for storing the training weights"
     )
 
+    # Add path to weight file or pattern for loading model weights
     parser.add_argument(
         "--weight-path",
-        help="Path string a weight file or pattern for multiple weight files to load model weights",
+        help="Path string a weight file or pattern for multiple weight "
+        "files to load model weights",
     )
 
+    # Add option to dynamically override any config parameter using dot notation
+    # (e.g., --set io.loader.batch_size=8)
     parser.add_argument(
         "--set",
         action="append",
@@ -229,6 +242,7 @@ For ML training/inference functionality, ensure PyTorch is installed:
         "Can be used multiple times for multiple overrides.",
     )
 
+    # Parse the arguments
     args = parser.parse_args()
 
     # If no arguments provided and no config, show help
@@ -251,6 +265,8 @@ For ML training/inference functionality, ensure PyTorch is installed:
         output=args.output,
         n=args.iterations,
         nskip=args.nskip,
+        entry_list=args.entry_list,
+        skip_entry_list=args.skip_entry_list,
         log_dir=args.log_dir,
         weight_prefix=args.weight_prefix,
         weight_path=args.weight_path,
