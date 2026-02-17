@@ -190,7 +190,7 @@ class ModelManager:
         self.save_step = save_step
         if save_epoch is not None:
             # Convert the save epoch to a save step
-            self.save_step = save_epoch * iter_per_epoch
+            self.save_step = max(1, int(save_epoch * iter_per_epoch))
 
         # Make a directory for the weight files, if need be
         save_dir = os.path.dirname(weight_prefix)
