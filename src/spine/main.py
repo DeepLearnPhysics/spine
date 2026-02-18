@@ -37,12 +37,19 @@ def run(cfg):
             "train" in cfg["base"]
         ), "Must only used distributed execution for training processes."
 
-        # Launch the distributed training process
-        torch.multiprocessing.spawn(
-            train_single,
-            args=(cfg, distributed, world_size, torch_sharing),
-            nprocs=world_size,
-        )
+        # Check if this is a multi-node setup (rank provided externally)
+        if "RANK" in os.environ:
+            # Multi-node: rank and world_size are provided via environment variables
+            rank = int(os.environ["RANK"])
+            world_size = int(os.environ.get("WORLD_SIZE", world_size))
+            train_single(rank, cfg, distributed, world_size, torch_sharing)
+        else:
+            # Single-node: launch processes using multiprocessing.spawn
+            torch.multiprocessing.spawn(
+                train_single,
+                args=(cfg, distributed, world_size, torch_sharing),
+                nprocs=world_size,
+            )
 
 
 def run_single(cfg):
@@ -179,13 +186,39 @@ def process_world(base, **kwargs):
 
 
 def setup_ddp(rank, world_size, backend="nccl"):
-    """Sets up the DistributedDataParallel environment."""
-    # Define the environment variables
-    os.environ["MASTER_ADDR"] = "localhost"
-    os.environ["MASTER_PORT"] = "12355"
+    """Sets up the DistributedDataParallel environment.
+
+    Parameters
+    ----------
+    rank : int
+        Global rank of this process (0 to world_size-1)
+    world_size : int
+        Total number of processes across all nodes
+    backend : str, default "nccl"
+        Distributed backend to use
+
+    Notes
+    -----
+    For multi-node training, set these environment variables:
+    - MASTER_ADDR: IP address of the master node
+    - MASTER_PORT: Free port on the master node
+    - RANK: Global rank (0 to world_size-1)
+    - WORLD_SIZE: Total number of processes
+    - LOCAL_RANK (optional): Local rank on this node
+    """
+    # Set master address and port from environment, or use defaults for single-node
+    if "MASTER_ADDR" not in os.environ:
+        os.environ["MASTER_ADDR"] = "localhost"
+    if "MASTER_PORT" not in os.environ:
+        os.environ["MASTER_PORT"] = "12355"
+
+    # Get local rank for setting the correct GPU device
+    # In multi-node: LOCAL_RANK is the GPU index on this machine
+    # In single-node: rank is the GPU index
+    local_rank = int(os.environ.get("LOCAL_RANK", rank))
 
     # Initialize the process group for this GPU
     torch.distributed.init_process_group(
         backend=backend, rank=rank, world_size=world_size
     )
-    torch.cuda.set_device(rank)
+    torch.cuda.set_device(local_rank)
