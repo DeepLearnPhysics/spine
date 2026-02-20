@@ -89,9 +89,12 @@ def main(
     }
     for io_key, io_value in io_mapping.items():
         if io_value is not None:
-            if "reader" in cfg["io"]:
+            if "reader" in cfg["io"] and cfg["io"]["reader"] is not None:
                 cfg["io"]["reader"][io_key] = io_value
-            elif "loader" in cfg["io"]:
+            elif "loader" in cfg["io"] and cfg["io"]["loader"] is not None:
+                assert (
+                    "dataset" in cfg["io"]["loader"]
+                ), "Missing `dataset` block in `io.loader` for input configuration."
                 cfg["io"]["loader"]["dataset"][io_key] = io_value
             else:
                 raise KeyError("Must specify `loader` or `reader` in the `io` block.")
