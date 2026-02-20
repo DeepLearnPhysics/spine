@@ -30,11 +30,10 @@ class TestDownloadUtilities:
         monkeypatch.delenv("SPINE_PROD_BASEDIR", raising=False)
         monkeypatch.delenv("SPINE_BASEDIR", raising=False)
 
-        with patch("builtins.print") as mock_print:
+        with pytest.warns(
+            UserWarning, match="SPINE_BASEDIR and SPINE_PROD_BASEDIR not set"
+        ):
             cache_dir = get_cache_dir()
-            # Should warn about missing env vars
-            mock_print.assert_called_once()
-            assert "WARNING" in str(mock_print.call_args)
             assert cache_dir == Path.cwd() / "weights"
 
     def test_get_cache_dir_spine_prod(self, monkeypatch):

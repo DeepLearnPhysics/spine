@@ -4,11 +4,15 @@ This module provides utilities for downloading model weights and other files
 referenced in YAML configurations.
 """
 
+import fcntl
 import hashlib
 import os
 import sys
+import tempfile
+import time
 import urllib.parse
 import urllib.request
+import warnings
 from pathlib import Path
 from typing import Optional
 from urllib.error import HTTPError, URLError
@@ -43,10 +47,12 @@ def get_cache_dir() -> Path:
         return Path(spine_base) / ".cache" / "weights"
 
     # Last resort: use current directory (with warning)
-    print(
-        "WARNING: SPINE_BASEDIR and SPINE_PROD_BASEDIR not set. "
+    warnings.warn(
+        "SPINE_BASEDIR and SPINE_PROD_BASEDIR not set. "
         "Using current directory for cache. "
-        "Please source configure.sh for proper caching."
+        "Please source configure.sh for proper caching.",
+        UserWarning,
+        stacklevel=2,
     )
     return Path.cwd() / "weights"
 
@@ -148,6 +154,7 @@ def download_file(
         raise HTTPError(
             url, e.code, f"HTTP Error {e.code}: {e.reason}", e.hdrs, e.fp
         ) from e
+
     except URLError as e:
         raise URLError(f"Failed to download {url}: {e.reason}") from e
 
@@ -169,11 +176,15 @@ def download_from_url(
     url: str,
     expected_hash: Optional[str] = None,
     cache_dir: Optional[Path] = None,
+    max_wait_seconds: int = 3600,
 ) -> str:
     """Download a file from URL and return the cached path.
 
     If the file already exists in cache and passes hash validation (if provided),
     returns the cached path without re-downloading.
+
+    This function is safe for concurrent access from multiple processes. It uses
+    file locking to ensure only one process downloads at a time, while others wait.
 
     Parameters
     ----------
@@ -183,6 +194,8 @@ def download_from_url(
         Expected SHA256 hash of file for validation
     cache_dir : Path, optional
         Directory to cache downloaded files (default: from get_cache_dir())
+    max_wait_seconds : int, optional
+        Maximum time to wait for lock acquisition in seconds (default: 3600)
 
     Returns
     -------
@@ -197,6 +210,8 @@ def download_from_url(
         If download fails with URL error
     ValueError
         If hash validation fails
+    TimeoutError
+        If unable to acquire lock within max_wait_seconds
 
     Examples
     --------
@@ -215,28 +230,128 @@ def download_from_url(
     # Generate filename from URL
     filename = url_to_filename(url)
     output_path = cache_dir / filename
+    lock_path = cache_dir / f".{filename}.lock"
 
-    # Check if file already exists
-    if output_path.exists():
-        # Validate existing file if hash provided
-        if expected_hash:
+    # Quick check without lock (optimization)
+    if output_path.exists() and _validate_cached_file(output_path, expected_hash):
+        return str(output_path.absolute())
+
+    # Acquire lock to prevent concurrent downloads
+    lock_file = None
+    try:
+        lock_file = open(lock_path, "w", encoding="utf-8")
+
+        # Try to acquire lock with timeout
+        start_time = time.time()
+        while True:
             try:
-                actual_hash = compute_file_hash(output_path)
-                if actual_hash == expected_hash:
-                    print(f"✓ Using cached file: {output_path}")
-                    return str(output_path.absolute())
-                else:
-                    print("⚠ Cached file hash mismatch, re-downloading...")
-                    output_path.unlink()
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break  # Lock acquired
+            except BlockingIOError as exc:
+                # Lock is held by another process
+                elapsed = time.time() - start_time
+                if elapsed > max_wait_seconds:
+                    raise TimeoutError(
+                        f"Timeout waiting for download lock after {max_wait_seconds}s. "
+                        f"Another process may be downloading {url}"
+                    ) from exc
 
-            except (OSError, IOError, ValueError) as e:
-                print(f"⚠ Error validating cached file: {e}, re-downloading...")
-                output_path.unlink()
-        else:
-            print(f"✓ Using cached file: {output_path}")
+                # Wait and retry
+                if elapsed < 10:
+                    # During first 10 seconds, print immediately
+                    print(
+                        f"Waiting for another process to finish downloading {filename}..."
+                    )
+                elif int(elapsed) % 60 == 0:
+                    # After that, print every minute
+                    print(f"Still waiting ({int(elapsed)}s elapsed)...")
+
+                time.sleep(1)
+
+        # Double-check if file exists (another process may have downloaded it)
+        if output_path.exists() and _validate_cached_file(output_path, expected_hash):
             return str(output_path.absolute())
 
-    # Download the file
-    download_file(url, output_path, expected_hash)
+        # Download to a temporary file first (atomic operation)
+        temp_fd, temp_path = tempfile.mkstemp(
+            dir=cache_dir, prefix=f".{filename}.", suffix=".tmp"
+        )
+        temp_path = Path(temp_path)
 
-    return str(output_path.absolute())
+        try:
+            os.close(temp_fd)  # Close fd, we'll use the path
+
+            # Download the file
+            download_file(url, temp_path, expected_hash)
+
+            # Atomically move to final location (overwrites if exists)
+            temp_path.replace(output_path)
+
+            print(f"✓ Download complete: {output_path}")
+            return str(output_path.absolute())
+
+        except Exception:
+            # Clean up temp file on error
+            if temp_path.exists():
+                temp_path.unlink()
+            raise
+
+    finally:
+        # Release lock and cleanup
+        if lock_file:
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                lock_file.close()
+            except OSError:
+                pass  # Best effort cleanup
+
+            # Remove lock file (best effort - may fail if other processes waiting)
+            try:
+                lock_path.unlink()
+            except OSError:
+                pass
+
+
+def _validate_cached_file(
+    file_path: Path,
+    expected_hash: Optional[str] = None,
+) -> bool:
+    """Validate a cached file exists and has correct hash.
+
+    Parameters
+    ----------
+    file_path : Path
+        Path to file to validate
+    expected_hash : str, optional
+        Expected hash to validate against
+
+    Returns
+    -------
+    bool
+        True if file is valid, False otherwise
+    """
+    try:
+        if not file_path.exists():
+            return False
+
+        # If no hash expected, just check existence
+        if not expected_hash:
+            print(f"✓ Using cached file: {file_path}")
+            return True
+
+        # Validate hash
+        actual_hash = compute_file_hash(file_path)
+        if actual_hash == expected_hash:
+            print(f"✓ Using cached file: {file_path}")
+            return True
+        else:
+            print("⚠ Cached file hash mismatch, will re-download...")
+            try:
+                file_path.unlink()
+            except OSError:
+                pass  # Best effort cleanup
+            return False
+
+    except OSError as e:
+        print(f"⚠ Error validating cached file: {e}, will re-download...")
+        return False
