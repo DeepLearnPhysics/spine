@@ -262,9 +262,6 @@ def get_pseudovertex(
     if len(start_points) == 1:
         return start_points[0]
 
-    if np.all((directions[1:] == directions[0]) | (directions[1:] == -directions[0])):
-        return sm.mean(start_points, axis=0)
-
     S = np.zeros((dim, dim), dtype=start_points.dtype)
     C = np.zeros((dim,), dtype=start_points.dtype)
     for p, d in zip(start_points, directions):
@@ -272,7 +269,11 @@ def get_pseudovertex(
         S += x
         C += x @ np.ascontiguousarray(p)
 
+    if np.linalg.det(S) == 0.0:
+        return np.mean(start_points, axis=0)
+
     # TODO remove casting to float64 when the crash goes away
+    # TODO go back to pinv when fixed and get rid of singularity check
     return np.linalg.inv(S.astype(np.float64)).astype(start_points.dtype) @ C
 
 
@@ -300,9 +301,6 @@ def get_weighted_pseudovertex(
     if len(start_points) == 1:
         return start_points[0]
 
-    if np.all(directions[1:] == directions[0] | directions[1:] == -directions[0]):
-        return sm.sum(weights * start_points, axis=0) / np.sum(weights)
-
     S = np.zeros((dim, dim), dtype=start_points.dtype)
     C = np.zeros((dim,), dtype=start_points.dtype)
     for i, (p, d) in enumerate(zip(start_points, directions)):
@@ -310,6 +308,9 @@ def get_weighted_pseudovertex(
         S += x
         C += x @ np.ascontiguousarray(p)
 
+    if np.linalg.det(S) == 0.0:
+        return sm.sum(weights * start_points, axis=0) / np.sum(weights)
+
     # TODO remove casting to float64 when the crash goes away
-    # TODO check for singular matrix or go back to pinv when fixed
+    # TODO go back to pinv when fixed and get rid of singularity check
     return np.linalg.inv(S.astype(np.float64)).astype(start_points.dtype) @ C
