@@ -270,7 +270,7 @@ def get_pseudovertex(
         C += x @ np.ascontiguousarray(p)
 
     if np.linalg.det(S) == 0.0:
-        return np.mean(start_points, axis=0)
+        return sm.mean(start_points, axis=0)
 
     # TODO remove casting to float64 when the crash goes away
     # TODO go back to pinv when fixed and get rid of singularity check
