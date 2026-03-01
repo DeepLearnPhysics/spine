@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.10.4] - 2026-03-01
+
+### Added
+- **CLI**: Added `--entry-list` and `--skip-entry-list` arguments for easy entry filtering
+- **Multi-node training**: Enhanced main.py to support multi-node distributed training
+
+### Fixed
+- **File downloads**: Added file locking to prevent race conditions when multiple jobs download files concurrently
+- **CLI**: Guard against null loader/reader to prevent crashes
+- **Checkpointing**: Fixed epoch-based weight checkpointing bug
+- **Vertexer**: Proper singularity check in vertex computation
+- **Vertex utility**: Minor bug fix in vertex calculation
+
 ## [0.10.3] - 2026-02-16
 
 ### Added
