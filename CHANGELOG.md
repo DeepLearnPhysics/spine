@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.10.5] - 2026-03-04
+
+### Fixed
+- **Visualization**: Fixed raw drawing to behave correctly for truth data
+- **Track analysis**: Fixed bug in track completeness algorithm
+
 ## [0.10.4] - 2026-03-01
 
 ### Added
