@@ -137,7 +137,7 @@ class TrackCompletenessAna(AnaBase):
                 gaps = self.sequential_cluster_distances(points, chunk_labels, start)
 
                 # Substract minimum gap distance due to rasterization
-                min_gap = pixel_size / np.max(np.abs(vec))
+                min_gap = pixel_size * np.sum(np.abs(vec))
                 gaps -= min_gap
 
                 # Store gap information
@@ -174,11 +174,11 @@ class TrackCompletenessAna(AnaBase):
         """
         # Project and cluster on the projected axis
         direction = (end_point - start_point) / np.linalg.norm(end_point - start_point)
-        scale = pixel_size / np.max(np.abs(direction))
+        min_gap = pixel_size * np.sum(np.abs(direction))
         projs = np.dot(points - start_point, direction)
         perm = np.argsort(projs)
         seps = projs[perm][1:] - projs[perm][:-1]
-        breaks = np.where(seps > scale * 1.49)[0] + 1
+        breaks = np.where(seps > min_gap * 1.1)[0] + 1
         cluster_labels = np.empty(len(projs), dtype=int)
         for i, index in enumerate(np.split(np.arange(len(projs)), breaks)):
             cluster_labels[perm[index]] = i
