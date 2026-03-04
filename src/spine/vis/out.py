@@ -56,6 +56,7 @@ class Drawer:
         data,
         draw_mode="both",
         truth_point_mode="points",
+        truth_dep_mode="depositions",
         split_scene=True,
         geo=None,
         detector_coords=True,
@@ -74,6 +75,10 @@ class Drawer:
             If specified, tells which attribute of the :class:`TruthFragment`,
             :class:`TruthParticle` or :class:`TruthInteraction` object to use
             to fetch its point coordinates
+        truth_dep_mode : str, optional
+            If specified, tells which attribute of the :class:`TruthFragment`,
+            :class:`TruthParticle` or :class:`TruthInteraction` object to use
+            to fetch its deposition coordinates
         split_scene : bool, default True
             If True and when drawing both reconstructed and truth information,
             split the traces between two separate scenes
@@ -113,7 +118,8 @@ class Drawer:
             f"{self.point_modes.keys()}. Got `{truth_point_mode}` instead."
         )
         self.truth_point_mode = truth_point_mode
-        self.truth_point_key = self.point_modes[self.truth_point_mode]
+        self.truth_point_key = self.point_modes[truth_point_mode]
+        self.truth_dep_key = self.dep_modes[truth_dep_mode]
         self.truth_index_mode = truth_point_mode.replace("points", "index")
 
         # If detector information is provided, initialize the geometry drawer
@@ -290,7 +296,7 @@ class Drawer:
         # Fetch the raw depositions, if requested
         if draw_raw:
             for prefix in self.prefixes:
-                traces[prefix] = self._raw_trace() + traces[prefix]
+                traces[prefix] = self._raw_trace(prefix) + traces[prefix]
 
         # Fetch the end points, if requested
         if draw_end_points:
@@ -639,8 +645,13 @@ class Drawer:
             "cmax": cmax,
         }
 
-    def _raw_trace(self):
+    def _raw_trace(self, prefix):
         """Draws the raw input image (pre-reconstruction).
+
+        Parameters
+        ----------
+        prefix : str
+            Prefix of the objects to be drawn, either 'reco' or 'truth'
 
         Returns
         -------
@@ -652,8 +663,30 @@ class Drawer:
             raise RuntimeError("Cannot draw raw input in lite mode.")
 
         # Fetch the input attributes
-        points = self.data["points"]
-        deps = self.data["depositions"]
+        if prefix == "reco":
+            if "points" not in self.data or "depositions" not in self.data:
+                raise ValueError(
+                    "Must provide `points` and `depositions` to draw the raw " "input."
+                )
+            points = self.data["points"]
+            deps = self.data["depositions"]
+
+        elif prefix == "truth":
+            if (
+                self.truth_point_key not in self.data
+                or self.truth_dep_key not in self.data
+            ):
+                raise ValueError(
+                    f"Must provide `{self.truth_point_key}` and `{self.truth_dep_key}` to "
+                    "draw the raw input."
+                )
+            points = self.data[self.truth_point_key]
+            deps = self.data[self.truth_dep_key]
+
+        else:
+            raise ValueError(
+                f"Prefix not recognized: {prefix}. Must be one of " f"{self.prefixes}."
+            )
 
         # Fetch the colorscale limits
         cmin = 0.0
