@@ -4,6 +4,7 @@ It can extract run attributes from any event-level LArCV object.
 """
 
 from dataclasses import dataclass
+from typing import Self
 
 from .base import DataBase
 
@@ -24,12 +25,13 @@ class RunInfo(DataBase):
         Event ID
     """
 
+    # Scalar attributes
     run: int = -1
     subrun: int = -1
     event: int = -1
 
     @classmethod
-    def from_larcv(cls, larcv_event):
+    def from_larcv(cls, larcv_event) -> Self:
         """
         Builds and returns a Meta object from a LArCV 2D metadata object
 

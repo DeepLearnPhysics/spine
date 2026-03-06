@@ -1,5 +1,7 @@
 """Module with a class object which represent object lists."""
 
+from typing import List
+
 __all__ = ["ObjectList"]
 
 
@@ -12,7 +14,7 @@ class ObjectList(list):
         Default object class to use to type the list, if it is empty
     """
 
-    def __init__(self, object_list, default):
+    def __init__(self, object_list: List[object], default: object):
         """Initialize the list and the default value.
 
         Parameters

@@ -262,7 +262,7 @@ class Overlayer:
         # If the objects in the lists contain indexes, must offset them
         ref_list = batch[index[0]][key]
         shifts = None
-        if len(ref_list.default.index_attrs) > 0:
+        if len(ref_list.default._index_attrs) > 0:
             shifts = ref_list.index_shifts
             for idx in index[1:]:
                 # Shift indexes in the objects

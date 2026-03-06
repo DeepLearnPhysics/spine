@@ -1,8 +1,68 @@
-"""Module with a parent class of all data structures."""
+"""Module with a parent class of all data structures.
 
-from dataclasses import asdict, dataclass
+Units Metadata Convention
+--------------------------
+Fields can specify units in their metadata dictionary using the 'units' key:
+
+1. **Fixed Units** (e.g., 'MeV', 'GeV', 'ns', 'us', 'MeV/c'):
+   Use fixed unit strings for physical quantities that are independent of the
+   coordinate system representation. These units never change regardless of
+   whether spatial coordinates are in pixels or centimeters.
+
+   Examples:
+   - Energy: 'MeV', 'GeV'
+   - Time: 'ns', 'us', 's'
+   - Momentum: 'MeV/c', 'GeV/c'
+   - dE/dx: 'MeV/cm'
+
+   >>> energy: float = field(default=np.nan, metadata={'units': 'MeV'})
+
+2. **Instance Units** (use the literal string 'instance'):
+   Use 'instance' for spatial quantities that transform with unit conversion
+   methods (to_cm(), to_px()). These fields follow the instance's `units`
+   attribute, which can be either 'cm' or 'px'.
+
+   Examples:
+   - Position coordinates (x, y, z positions)
+   - Spatial distances and lengths
+   - Spatial extents and sizes
+
+   >>> position: np.ndarray = field(
+   ...     default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
+   ...     metadata={'length': 3, 'dtype': np.float32, 'type': 'position',
+   ...               'units': 'instance'}
+   ... )
+   >>> length: float = field(default=np.nan, metadata={'units': 'instance'})
+
+The field_units property dynamically resolves 'instance' to the current value
+of the instance's units attribute, providing accurate units for all fields at
+runtime.
+
+Note: Direction vectors (unit vectors) typically have no units metadata since
+they are unitless normalized directions.
+"""
+
+from dataclasses import dataclass, fields
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    ClassVar,
+    Dict,
+    List,
+    Optional,
+    Self,
+    Tuple,
+    Union,
+)
 
 import numpy as np
+
+from spine.utils.docstring import merge_ancestor_docstrings
+
+from .derived import DerivedProperty
+
+if TYPE_CHECKING:
+    from .meta import Meta
 
 
 @dataclass(eq=False)
@@ -12,81 +72,86 @@ class DataBase:
     Defines basic methods shared by all data structures.
     """
 
-    # Enumerated attributes
-    _enum_attrs = ()
-
-    # Fixed-length attributes as (key, size) or (key, (size, dtype)) pairs
-    _fixed_length_attrs = ()
-
-    # Variable-length attributes as (key, dtype) or (key, (width, dtype)) pairs
-    _var_length_attrs = ()
-
-    # Attributes specifying coordinates
-    _pos_attrs = ()
-
-    # Attributes specifying vector components
-    _vec_attrs = ()
-
-    # String attributes
-    _str_attrs = ()
-
-    # Boolean attributes
-    _bool_attrs = ()
-
-    # Index attributes
-    _index_attrs = ()
-
-    # Attributes to concatenate when merging objects
-    _cat_attrs = ()
-
-    # Attributes that must never be stored to file
-    _skip_attrs = ()
-
-    # Attributes that must not be stored to file when storing lite files
-    _lite_skip_attrs = ()
-
     # Euclidean axis labels
-    _axes = ("x", "y", "z")
+    _axes: ClassVar[Tuple[str, str, str]] = ("x", "y", "z")
 
-    def __post_init__(self):
+    # Cached attribute lists (computed once per class on first instance)
+    # Includes both field-based and derived property attributes
+    _attrs_cached: ClassVar[bool] = False  # Sentinel to track if caching is done
+    _fixed_length_attrs: ClassVar[Tuple[str, ...]] = ()
+    _var_length_attrs: ClassVar[Tuple[str, ...]] = ()
+    _pos_attrs: ClassVar[Tuple[str, ...]] = ()
+    _vec_attrs: ClassVar[Tuple[str, ...]] = ()
+    _index_attrs: ClassVar[Tuple[str, ...]] = ()
+    _skip_attrs: ClassVar[Tuple[str, ...]] = ()
+    _lite_skip_attrs: ClassVar[Tuple[str, ...]] = ()
+    _cat_attrs: ClassVar[Tuple[str, ...]] = ()
+    _str_attrs: ClassVar[Tuple[str, ...]] = ()
+    _bool_attrs: ClassVar[Tuple[str, ...]] = ()
+    _derived_attrs: ClassVar[Tuple[str, ...]] = ()
+    _global_units_attrs: ClassVar[Tuple[str, ...]] = ()
+
+    _enum_dicts: ClassVar[Dict[str, Dict[str, int]]] = {}
+    _field_units: ClassVar[Dict[str, str]] = {}
+
+    def __init_subclass__(cls, **kwargs):
+        """Automatically merge docstrings from parent classes.
+
+        This hook is called whenever a class inherits from DataBase. It
+        automatically merges the Attributes sections from all parent class
+        docstrings into the child class docstring.
+
+        Parameters
+        ----------
+        **kwargs
+            Additional keyword arguments passed to super().__init_subclass__
+        """
+        super().__init_subclass__(**kwargs)
+        merge_ancestor_docstrings(cls)
+
+    def __post_init__(self) -> None:
         """Immediately called after building the class attributes.
 
-        Provides two functions:
-        - Gives default values to array-like attributes. If a default value was
-          provided in the attribute definition, all instances of this class
-          would point to the same memory location.
+        Provides basic functionalities:
+        - Caches attribute lists on first instance (once per class)
         - Casts strings when they are provided as binary objects, which is the
           format one gets when loading string from HDF5 files.
+        - Casts 8-bit unsigned integers to booleans when they are provided as
+          numpy arrays, which is the format one gets when loading booleans from
+          HDF5 files.
         """
-        # Provide default values to the variable-length array attributes
-        for attr, dtype in self._var_length_attrs:
-            if getattr(self, attr) is None:
-                if not isinstance(dtype, tuple):
-                    setattr(self, attr, np.empty(0, dtype=dtype))
-                else:
-                    width, dtype = dtype
-                    setattr(self, attr, np.empty((0, width), dtype=dtype))
+        # Ensure attribute lists are cached (happens once per class)
+        type(self)._ensure_cached_attrs()
 
-        # Provide default values to the fixed-length array attributes
-        for attr, size in self._fixed_length_attrs:
-            if getattr(self, attr) is None:
-                if not isinstance(size, tuple):
-                    dtype = np.float32
-                else:
-                    size, dtype = size
-                setattr(self, attr, np.full(size, -np.inf, dtype=dtype))
+        # Cast arrays to the correct type, check length
+        for field in fields(self):
+            value = getattr(self, field.name)
+            if field.type == np.ndarray:
+                # Check that the length of the array matches the expected length
+                length = field.metadata.get("length", None)
+                if length is not None and len(value) != length:
+                    raise ValueError(
+                        f"The `{field.name}` attribute of `{self.__class__.__name__}` "
+                        f"objects must have length {length}."
+                    )
 
-        # Cast stored binary strings back to regular strings
+                # Cast the array to the correct type
+                dtype = field.metadata.get("dtype", None)
+                setattr(self, field.name, np.asarray(value, dtype=dtype))
+
+        # Cast stored binary strings back to regular strings (from HDF5)
         for attr in self._str_attrs:
-            if isinstance(getattr(self, attr), bytes):
-                setattr(self, attr, getattr(self, attr).decode())
+            val = getattr(self, attr)
+            if isinstance(val, bytes):
+                setattr(self, attr, val.decode())
 
-        # Cast stored 8-bit unsigned integers back to booleans
+        # Cast stored 8-bit unsigned integers back to booleans (from HDF5)
         for attr in self._bool_attrs:
-            if isinstance(getattr(self, attr), np.uint8):
-                setattr(self, attr, bool(getattr(self, attr)))
+            val = getattr(self, attr)
+            if isinstance(val, np.ndarray) and val.dtype == np.uint8:
+                setattr(self, attr, bool(val.item()))
 
-    def __eq__(self, other):
+    def __eq__(self, other: object) -> bool:
         """Checks that all attributes of two class instances are the same.
 
         This overloads the default dataclass `__eq__` method to include an
@@ -94,7 +159,7 @@ class DataBase:
 
         Parameters
         ----------
-        other : obj
+        other : object
             Other instance of the same object class
 
         Returns
@@ -107,45 +172,66 @@ class DataBase:
             return False
 
         # Check that all base attributes are identical
-        for key, value in self.__dict__.items():
+        for field in fields(self):
+            key = field.name
+            value = getattr(self, key)
             value_other = getattr(other, key)
-            if np.isscalar(value):
-                # For scalars, regular comparison will do
-                if value_other != value:
+            if field.type in (int, float, str, bool):
+                # For scalars, handle NaN specially for floats
+                if field.type == float:
+                    # Both NaN -> equal; otherwise use regular comparison
+                    both_nan = np.isnan(value) and np.isnan(value_other)
+                    if not both_nan and value_other != value:
+                        return False
+                else:
+                    # For int, str, bool, regular comparison
+                    if value_other != value:
+                        return False
+
+            elif field.type == np.ndarray:
+                # For numpy vectors, use array_equal with equal_nan=True
+                if not np.array_equal(value, value_other, equal_nan=True):
+                    return False
+
+            elif field.type == list:
+                # For object lists, compare the length and all elements individually
+                if len(value) != len(value_other) or any(
+                    v1 != v2 for v1, v2 in zip(value, value_other)
+                ):
                     return False
 
             else:
-                # For vectors, compare all elements
-                if isinstance(value, np.ndarray):
-                    if value.shape != value_other.shape or (value_other != value).any():
-                        return False
-                else:
-                    if len(value) != len(value_other) or any(
-                        v1 != v2 for v1, v2 in zip(value, value_other)
-                    ):
-                        return False
+                raise TypeError(
+                    f"Cannot compare the `{key}` attribute of "
+                    f"`{self.__class__.__name__}` objects. Unsupported type: "
+                    f"{field.type}"
+                )
 
         return True
 
-    def set_precision(self, precision):
+    def set_precision(self, precision: int = 4) -> None:
         """Casts all the vector attributes to a different precision.
 
         Parameters
         ----------
-        int : default 4
+        precision : int, default 4
             Precision in number of bytes (half=2, single=4, double=8)
         """
-        assert precision in [
-            2,
-            4,
-            8,
-        ], "Set the vector attribute precision for this object."
-        for attr in self.fixed_length_attrs + self.variable_length_attrs:
-            val = getattr(self, attr)
-            dtype = f"{val.dtype.str[:-1]}{precision}"
-            setattr(self, attr, val.astype(dtype))
+        if precision not in (2, 4, 8):
+            raise ValueError(
+                "Set the vector attribute precision for this object. "
+                "Supported precisions are: 2 (half), 4 (single), and 8 (double)."
+            )
 
-    def shift_indexes(self, shifts):
+        for field in fields(self):
+            if field.type == np.ndarray and "float" in str(
+                field.metadata.get("dtype", "")
+            ):
+                val = getattr(self, field.name)
+                dtype = f"{val.dtype.str[:-1]}{precision}"
+                setattr(self, field.name, val.astype(dtype))
+
+    def shift_indexes(self, shifts: Union[int, Dict[str, int]]) -> None:
         """Apply offsets to index attributes in place.
 
         Invalid indexes (-1) are not offset to prevent making them valid.
@@ -159,13 +245,13 @@ class DataBase:
         # Dispatch
         for attr in self._index_attrs:
             value = getattr(self, attr)
-            if not np.isscalar(value) or value > -1:
-                if not isinstance(shifts, dict):
-                    setattr(self, attr, value + shifts)
-                else:
-                    setattr(self, attr, value + shifts[attr])
+            shift = shifts if not isinstance(shifts, dict) else shifts[attr]
+            if isinstance(value, int) and value > -1:
+                setattr(self, attr, value + shift)
+            elif isinstance(value, np.ndarray):
+                setattr(self, attr, value + shift)
 
-    def as_dict(self, lite=False):
+    def as_dict(self, lite: bool = False) -> Dict[str, Any]:
         """Returns the data class as dictionary of (key, value) pairs.
 
         Parameters
@@ -184,11 +270,21 @@ class DataBase:
         else:
             skip_attrs = (*self._skip_attrs, *self._lite_skip_attrs)
 
-        return {
-            key: value for key, value in asdict(self).items() if not key in skip_attrs
-        }
+        # Store all fields
+        return_dict = {}
+        for field in fields(self):
+            if field.name not in skip_attrs:
+                value = getattr(self, field.name)
+                return_dict[field.name] = value
 
-    def scalar_dict(self, attrs=None, lengths=None, lite=False):
+        return return_dict
+
+    def scalar_dict(
+        self,
+        attrs: Optional[List[str]] = None,
+        lengths: Optional[Dict[str, int]] = None,
+        lite: bool = False,
+    ) -> Dict[str, Union[float, int, str, bool]]:
         """Returns the data class attributes as a dictionary of scalars.
 
         This is useful when storing data classes in CSV files, which expect
@@ -222,30 +318,32 @@ class DataBase:
             elif attr in (self._pos_attrs + self._vec_attrs):
                 # If the attribute is a position or vector, expand with axis
                 for i, v in enumerate(value):
-                    scalar_dict[f"{attr}_{self._axes[i]}"] = v
+                    scalar_dict[f"{attr}_{self._axes[i]}"] = v.item()
 
-            elif attr in self.fixed_length_attrs:
+            elif attr in self._fixed_length_attrs:
                 # If the attribute is a fixed-length array, expand with index
                 for i, v in enumerate(value):
-                    scalar_dict[f"{attr}_{i}"] = v
+                    scalar_dict[f"{attr}_{i}"] = v.item()
 
-            elif attr in self.var_length_attrs:
+            elif attr in self._var_length_attrs:
                 if attr in lengths:
                     # If the attribute is a variable-length array with a length
                     # provided, resize it to match that length and store it
                     for i in range(lengths[attr]):
                         if i < len(value):
-                            scalar_dict[f"{attr}_{i}"] = value[i]
+                            scalar_dict[f"{attr}_{i}"] = value[i].item()
                         else:
                             scalar_dict[f"{attr}_{i}"] = None
 
                 else:
                     # If the attribute is a variable-length array of
-                    # indeterminate length, do not store it
-                    assert attrs is None or attr not in attrs, (
-                        f"Cannot cast {attr} to scalars. To cast a variable-"
-                        "length array, must provide a fixed length."
-                    )
+                    # indeterminate length, cannot store it as scalars
+                    if attrs is not None and attr in attrs:
+                        raise ValueError(
+                            f"Cannot cast the `{attr}` attribute of "
+                            f"`{self.__class__.__name__}` to scalars. To cast a "
+                            "variable-length array, must provide a fixed length."
+                        )
                     continue
 
             else:
@@ -264,77 +362,193 @@ class DataBase:
         return scalar_dict
 
     @property
-    def fixed_length_attrs(self):
-        """Fetches the dictionary of fixed-length array attributes as a dictionary.
+    def enum_dicts(self) -> Dict[str, Dict[str, int]]:
+        """Fetches the dictionary of enumerated attributes and their enumerator descriptors.
 
         Returns
         -------
-        Dict[str, int]
-            Dictionary which maps fixed-length attributes onto their length
-        """
-        return dict(self._fixed_length_attrs)
-
-    @property
-    def var_length_attrs(self):
-        """Fetches the list of variable-length array attributes as a dictionary.
-
-        Returns
-        -------
-        Dict[str, type]
-            Dictionary which maps variable-length attributes onto their type
-        """
-        return dict(self._var_length_attrs)
-
-    @property
-    def enum_attrs(self):
-        """Fetches the list of enumerated attributes as a dictionary.
-
-        Returns
-        -------
-        Dict[int, Dict[int, str]]
+        Dict[str, Dict[str, int]]
             Dictionary which maps names onto enumerator descriptors
         """
-        return {key: dict(value) for key, value in self._enum_attrs}
+        return self._enum_dicts
 
     @property
-    def index_attrs(self):
-        """Fetches the list of attributes that correspond to indexes.
+    def field_units(self) -> Dict[str, str]:
+        """Fetches the documented units for each field.
 
         Returns
         -------
-        List[str]
-            List of attributes that specificy indexes
+        Dict[str, str]
+            Dictionary mapping field names to their units
         """
-        return self._index_attrs
+        # Resolve 'default' to current instance units
+        return self._field_units
 
-    @property
-    def skip_attrs(self):
-        """Fetches the list of attributes to not store to file.
+    @classmethod
+    def from_hdf5(cls, cls_dict: Dict[str, Any]) -> Self:
+        """Builds and returns an object of the class from a dictionary of attributes.
+
+        This is used to build objects from HDF5 files, which are stored as
+        dictionaries of attributes. This ensures that the attributes that are
+        derived but stored to file are not loaded back to the object.
+
+        Parameters
+        ----------
+        cls_dict : dict
+            Dictionary of attributes to initialize the object with
 
         Returns
         -------
-        List[str]
-            List of attributes to exclude from the storage process
+        Self
+            Object of the class initialized with the provided attributes
         """
-        return self._skip_attrs
+        # Ensure caching is done (needed for derived_names lookup)
+        cls._ensure_cached_attrs()
 
-    @property
-    def lite_skip_attrs(self):
-        """Fetches the list of attributes to not store to lite file.
+        # Remove keys that are derived attributes and should not be loaded from file
+        return cls(
+            **{
+                key: value
+                for key, value in cls_dict.items()
+                if key not in cls._derived_attrs
+            }
+        )
+
+    @classmethod
+    def _ensure_cached_attrs(cls) -> None:
+        """Compute and cache attribute lists for this class if not already done.
+
+        This runs once per class, on first instance creation.
+        """
+        # Check if already cached
+        if cls._attrs_cached:
+            return
+
+        # Get fields for this class
+        cls_fields = fields(cls)
+
+        # Introspect derived properties once
+        derived_props = cls._get_derived_properties()
+
+        # Compute the fixed length arrays
+        field_fixed = tuple(
+            f.name
+            for f in cls_fields
+            if f.type == np.ndarray and f.metadata.get("length", None) is not None
+        )
+        derived_fixed = tuple(
+            k for k, v in derived_props.items() if v.get("length", None) is not None
+        )
+
+        cls._fixed_length_attrs = field_fixed + derived_fixed
+
+        # Compute variable length arrays
+        field_var = tuple(
+            f.name
+            for f in cls_fields
+            if f.type == np.ndarray and f.metadata.get("length", None) is None
+        )
+        derived_var = tuple(
+            k for k, v in derived_props.items() if v.get("length", None) is None
+        )
+
+        cls._var_length_attrs = field_var + derived_var
+
+        # Compute position attributes
+        field_pos = tuple(
+            f.name for f in cls_fields if f.metadata.get("type") == "position"
+        )
+        derived_pos = tuple(
+            k for k, v in derived_props.items() if v.get("type") == "position"
+        )
+        cls._pos_attrs = field_pos + derived_pos
+
+        # Compute vector attributes
+        field_vec = tuple(
+            f.name for f in cls_fields if f.metadata.get("type") == "vector"
+        )
+        derived_vec = tuple(
+            k for k, v in derived_props.items() if v.get("type") == "vector"
+        )
+
+        cls._vec_attrs = field_vec + derived_vec
+
+        # Compute index attributes (no derived version since indexes should not be derived)
+        cls._index_attrs = tuple(
+            f.name for f in cls_fields if f.metadata.get("index", False)
+        )
+
+        # Compute skip attributes (no derived version)
+        cls._skip_attrs = tuple(
+            f.name for f in cls_fields if f.metadata.get("skip", False)
+        )
+        cls._lite_skip_attrs = tuple(
+            f.name for f in cls_fields if f.metadata.get("lite_skip", False)
+        )
+
+        # Compute concatenation attributes (no derived version)
+        cls._cat_attrs = tuple(
+            f.name for f in cls_fields if f.metadata.get("cat", False)
+        )
+
+        # Compute type-based attributes (no derived version)
+        cls._str_attrs = tuple(f.name for f in cls_fields if f.type == str)
+        cls._bool_attrs = tuple(f.name for f in cls_fields if f.type == bool)
+
+        # Cache derived property names
+        cls._derived_attrs = tuple(derived_props.keys())
+
+        # Cache global units attributes (no field-based version)
+        cls._global_units_attrs = tuple(
+            k for k, v in derived_props.items() if v.get("units") == "instance"
+        )
+
+        # Compute enumerated attributes dictionary
+        cls._enum_dicts = dict(
+            (f.name, {v: k for k, v in f.metadata["enum"].items()})
+            for f in cls_fields
+            if f.metadata.get("enum", None) is not None
+        )
+
+        # Compute field units dictionary from field metadata and derived properties
+        field_units = {
+            f.name: f.metadata["units"] for f in cls_fields if "units" in f.metadata
+        }
+        derived_units = {
+            k: v["units"] for k, v in derived_props.items() if "units" in v
+        }
+        cls._field_units = {**field_units, **derived_units}
+
+        # Mark as cached
+        cls._attrs_cached = True
+
+    @classmethod
+    def _get_derived_properties(cls) -> Dict[str, Dict[str, Any]]:
+        """Introspect the class to find all derived_property descriptors.
 
         Returns
         -------
-        List[str]
-            List of attributes to exclude from the storage process
+        Dict[str, Dict[str, Any]]
+            Dictionary mapping property names to their metadata
         """
-        return self._lite_skip_attrs
+        result = {}
+        for name in dir(cls):
+            try:
+                attr = getattr(cls, name)
+                if isinstance(attr, DerivedProperty):
+                    result[name] = attr.metadata
+            except AttributeError:
+                # Some descriptors may raise AttributeError when accessed on class
+                continue
+
+        return result
 
 
 @dataclass(eq=False)
 class PosDataBase(DataBase):
     """Base class of for data structures with positional attributes.
 
-    Includes method to convert positional attributes
+    Includes method to convert positional attributes.
 
     Attributes
     ----------
@@ -342,7 +556,7 @@ class PosDataBase(DataBase):
         Units in which the position attributes are expressed
     """
 
-    units = "cm"
+    units: str = "cm"
 
     def __post_init__(self):
         """Immediately called after building the class attributes.
@@ -352,34 +566,88 @@ class PosDataBase(DataBase):
         # Call the main post initialization function
         super().__post_init__()
 
-        # Parse the units
-        if isinstance(self.units, bytes):
-            self.units = self.units.decode()
+        if self.units not in ("cm", "px"):
+            raise ValueError(
+                "Units of the positional attributes must be either `cm` or `px`."
+            )
 
-        assert self.units in ["cm", "px"], "Units can only be `cm` or `px`."
+    @property
+    def field_units(self) -> Dict[str, str]:
+        """Fetches the documented units for each field.
 
-    def to_cm(self, meta):
-        """Converts the coordinates of the positional attributes to cm.
+        This property provides a dictionary mapping field names to their units,
+        dynamically resolving 'instance' units to the current coordinate system.
+
+        Unit Types:
+        -----------
+        - **Fixed units** (e.g., 'MeV', 'ns'): Physical quantities independent
+          of coordinate representation. These remain constant.
+        - **Instance units** ('instance' in metadata): Spatial quantities that
+          follow self.units ('cm' or 'px'). These change with to_cm()/to_px().
+
+        For the complete units metadata convention, see the module docstring.
+
+        Returns
+        -------
+        Dict[str, str]
+            Dictionary mapping field names to their units. Fields with
+            units='instance' in metadata are resolved to the current value
+            of self.units.
+
+        Examples
+        --------
+        >>> obj.units
+        'cm'
+        >>> obj.field_units['position']  # has units='instance' in metadata
+        'cm'
+        >>> obj.to_px(meta)
+        >>> obj.field_units['position']
+        'px'
+        >>> obj.field_units['energy']  # has units='MeV' in metadata
+        'MeV'
+        """
+        # Resolve 'instance' to current instance units
+        return {
+            name: self.units if unit == "instance" else unit
+            for name, unit in self._field_units.items()
+        }
+
+    def to_cm(self, meta: "Meta") -> None:
+        """Converts the coordinates of the positional attributes to cm in place.
 
         Parameters
         ----------
         meta : Meta
             Metadata information about the rasterized image
         """
-        assert self.units != "cm", "Units already expressed in cm"
+        if self.units == "cm":
+            raise ValueError("Units already expressed in centimeters")
+
         self.units = "cm"
-        for attr in self._pos_attrs:
-            setattr(self, attr, meta.to_cm(getattr(self, attr)))
+        for attr in self._global_units_attrs:
+            if attr in self._pos_attrs:
+                setattr(self, attr, meta.to_cm(getattr(self, attr)))
+            elif attr in self._vec_attrs:
+                setattr(self, attr, getattr(self, attr) * meta.size)
+            else:
+                setattr(self, attr, getattr(self, attr) * meta.size[0])
 
-    def to_px(self, meta):
-        """Converts the coordinates of the positional attributes to pixel.
+    def to_px(self, meta: "Meta") -> None:
+        """Converts the coordinates of the positional attributes to pixel in place.
 
         Parameters
         ----------
         meta : Meta
             Metadata information about the rasterized image
         """
-        assert self.units != "px", "Units already expressed in pixels"
+        if self.units == "px":
+            raise ValueError("Units already expressed in pixels")
+
         self.units = "px"
-        for attr in self._pos_attrs:
-            setattr(self, attr, meta.to_px(getattr(self, attr)))
+        for attr in self._global_units_attrs:
+            if attr in self._pos_attrs:
+                setattr(self, attr, meta.to_px(getattr(self, attr)))
+            elif attr in self._vec_attrs:
+                setattr(self, attr, getattr(self, attr) / meta.size)
+            else:
+                setattr(self, attr, getattr(self, attr) / meta.size[0])

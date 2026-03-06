@@ -23,27 +23,44 @@ def run(cfg):
     cfg : dict
         Full driver/trainer configuration
     """
-    # Process the configuration to set up the driver world
-    distributed, world_size, torch_sharing = process_world(**cfg)
+    # Check if this is a multi-node/multi-process setup (rank provided externally)
+    # This must be checked BEFORE process_world() since each process only sees 1 GPU
+    external_rank = "RANK" in os.environ
 
-    # Launch the training/inference process
-    if not distributed:
-        # Run a single process
-        run_single(cfg)
-
-    else:
-        # Make sure that this is a training process
+    if external_rank:
+        # Multi-node/SLURM: rank and world_size are provided via environment
         assert (
             "train" in cfg["base"]
         ), "Must only used distributed execution for training processes."
 
-        # Check if this is a multi-node setup (rank provided externally)
-        if "RANK" in os.environ:
-            # Multi-node: rank and world_size are provided via environment variables
-            rank = int(os.environ["RANK"])
-            world_size = int(os.environ.get("WORLD_SIZE", world_size))
-            train_single(rank, cfg, distributed, world_size, torch_sharing)
+        rank = int(os.environ["RANK"])
+        world_size = int(os.environ["WORLD_SIZE"])
+
+        # Process configuration for this rank
+        _, _, torch_sharing = process_world(**cfg)
+
+        # Run in distributed mode
+        train_single(
+            rank,
+            cfg,
+            distributed=True,
+            world_size=world_size,
+            torch_sharing=torch_sharing,
+        )
+    else:
+        # Single-node: use process_world to determine setup
+        distributed, world_size, torch_sharing = process_world(**cfg)
+
+        # Launch the training/inference process
+        if not distributed:
+            # Run a single process
+            run_single(cfg)
         else:
+            # Make sure that this is a training process
+            assert (
+                "train" in cfg["base"]
+            ), "Must only used distributed execution for training processes."
+
             # Single-node: launch processes using multiprocessing.spawn
             torch.multiprocessing.spawn(
                 train_single,

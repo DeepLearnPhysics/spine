@@ -4,7 +4,8 @@ This copies the internal structure of either :class:`larcv.ImageMeta` for 2D
 images or :class:`larcv.Voxel3DMeta` for 3D images.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Self
 
 import numpy as np
 
@@ -29,24 +30,26 @@ class Meta(DataBase):
         (2/3) Array of pixel count in each dimension
     """
 
-    lower: np.ndarray = None
-    upper: np.ndarray = None
-    size: np.ndarray = None
-    count: np.ndarray = None
-
-    # Fixed-length attributes
-    _fixed_length_attrs = (
-        ("lower", 3),
-        ("upper", 3),
-        ("size", 3),
-        ("count", (3, np.int64)),
+    # Vector attributes
+    lower: np.ndarray = field(
+        default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
+        metadata={"length": 3, "dtype": np.float32, "type": "vector", "units": "cm"},
+    )
+    upper: np.ndarray = field(
+        default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
+        metadata={"length": 3, "dtype": np.float32, "type": "vector", "units": "cm"},
+    )
+    size: np.ndarray = field(
+        default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
+        metadata={"shape": (3,), "dtype": np.float32, "type": "vector", "units": "cm"},
+    )
+    count: np.ndarray = field(
+        default_factory=lambda: np.full(3, -1, dtype=np.int64),
+        metadata={"shape": (3,), "dtype": np.int64, "type": "vector"},
     )
 
-    # Attributes specifying vector components
-    _vec_attrs = ("lower", "upper", "size", "count")
-
     @property
-    def dimension(self):
+    def dimension(self) -> int:
         """Number of dimensions in the image.
 
         Returns
@@ -57,7 +60,7 @@ class Meta(DataBase):
         return len(self.lower)
 
     @property
-    def num_elements(self):
+    def num_elements(self) -> int:
         """Total number of pixel in the image.
 
         Returns
@@ -67,7 +70,7 @@ class Meta(DataBase):
         """
         return int(np.prod(self.count))
 
-    def index(self, coords):
+    def index(self, coords) -> np.ndarray:
         """Unique pix associated with individual axis indexes.
 
         Parameters
@@ -86,7 +89,7 @@ class Meta(DataBase):
 
         return np.dot(coords, mult).astype(np.int64)
 
-    def to_cm(self, coords, center=False):
+    def to_cm(self, coords: np.ndarray, center: bool = False) -> np.ndarray:
         """Converts pixel coordinates to detector coordinates in cm.
 
         Parameters
@@ -104,7 +107,7 @@ class Meta(DataBase):
         """
         return self.lower + (coords + 0.5 * center) * self.size
 
-    def to_px(self, coords, floor=False):
+    def to_px(self, coords: np.ndarray, floor: bool = False) -> np.ndarray:
         """Converts detector coordinates in cm to pixel coordinates.
 
         Parameters
@@ -124,7 +127,7 @@ class Meta(DataBase):
 
         return (coords - self.lower) / self.size
 
-    def inner_mask(self, coords):
+    def inner_mask(self, coords: np.ndarray) -> np.ndarray:
         """Computes a boolean mask of which coordinates are within the image bounds.
 
         Parameters
@@ -140,7 +143,7 @@ class Meta(DataBase):
         return np.all((coords >= self.lower) & (coords < self.upper), axis=1)
 
     @classmethod
-    def from_larcv(cls, meta):
+    def from_larcv(cls, meta) -> Self:
         """Builds and returns a Meta object from a LArCV 2D metadata object.
 
         Parameters

@@ -23,12 +23,12 @@ def enum_factory(enum, value):
         Value or values of the enumerated objects
     """
     # Get the enumerated type
-    ENUM_DICT = {"cluster": ClusterLabelEnum, "shape": ShapeEnum, "pid": PIDEnum}
-    assert enum in ENUM_DICT, (
+    enum_dict = {"cluster": ClusterLabelEnum, "shape": ShapeEnum, "pid": PIDEnum}
+    assert enum in enum_dict, (
         "Enumerated type not recognized: {enum}. Must be one of "
-        "{list(ENUM_DICT.keys())}."
+        "{list(enum_dict.keys())}."
     )
-    enum = ENUM_DICT[enum]
+    enum = enum_dict[enum]
 
     # Translate enumerated strings into values
     if isinstance(value, str):
@@ -88,3 +88,10 @@ class PIDEnum(IntEnum):
     PION = PION_PID
     PROTON = PROT_PID
     KAON = KAON_PID
+
+
+class NuCurrentTypeEnum(IntEnum):
+    """Enumerates all possible neutrino current types."""
+
+    CC = 0
+    NC = 1

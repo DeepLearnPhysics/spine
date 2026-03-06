@@ -371,7 +371,7 @@ class HDF5Writer:
                 dtype = type(val) if not isinstance(val, bool) else np.uint8
                 object_dtype.append((key, dtype))
 
-            elif hasattr(obj, "fixed_length_attrs") and key in obj.fixed_length_attrs:
+            elif hasattr(obj, "_fixed_length_attrs") and key in obj._fixed_length_attrs:
                 # Fixed-length array of scalars
                 object_dtype.append((key, val.dtype, len(val)))
 

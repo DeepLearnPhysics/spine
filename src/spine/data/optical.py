@@ -3,7 +3,8 @@
 This copies the internal structure of :class:`larcv.Flash`.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Self
 
 import numpy as np
 
@@ -48,38 +49,50 @@ class Flash(PosDataBase):
         Units in which the position coordinates are expressed
     """
 
-    id: int = -1
+    # Index attributes
+    id: int = field(default=-1, metadata={"index": True})
+
+    # Scalar attributes
     volume_id: int = -1
     frame: int = -1
+
     in_beam_frame: bool = False
     on_beam_time: bool = False
-    time: float = -1.0
-    time_width: float = -1.0
-    time_abs: float = -1.0
-    total_pe: float = -1.0
-    fast_to_total: float = -1.0
-    pe_per_ch: np.ndarray = None
-    center: np.ndarray = None
-    width: np.ndarray = None
+
+    time: float = field(default=np.nan, metadata={"units": "us"})
+    time_width: float = field(default=np.nan, metadata={"units": "us"})
+    time_abs: float = np.nan
+    total_pe: float = np.nan
+    fast_to_total: float = np.nan
+
     units: str = "cm"
 
-    # Fixed-length attributes
-    _fixed_length_attrs = (("center", 3), ("width", 3))
-
-    # Variable-length attributes
-    _var_length_attrs = (("pe_per_ch", np.float32),)
-
-    # Attributes specifying coordinates
-    _pos_attrs = ("center",)
-
-    # Attributes specifying vector components
-    _vec_attrs = ("width",)
-
-    # Index attributes
-    _index_attrs = ("id",)
+    # Vector attributes
+    pe_per_ch: np.ndarray = field(
+        default_factory=lambda: np.array([], dtype=np.float32),
+        metadata={"dtype": np.float32},
+    )
+    center: np.ndarray = field(
+        default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
+        metadata={
+            "length": 3,
+            "dtype": np.float32,
+            "type": "position",
+            "units": "instance",
+        },
+    )
+    width: np.ndarray = field(
+        default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
+        metadata={
+            "length": 3,
+            "dtype": np.float32,
+            "type": "vector",
+            "units": "instance",
+        },
+    )
 
     @classmethod
-    def from_larcv(cls, flash):
+    def from_larcv(cls, flash) -> Self:
         """Builds and returns a Flash object from a LArCV Flash object.
 
         Parameters
@@ -94,13 +107,18 @@ class Flash(PosDataBase):
         """
         # Get the physical center and width of the flash
         axes = ("x", "y", "z")
-        center = np.array([getattr(flash, f"{a}Center")() for a in axes])
-        width = np.array([getattr(flash, f"{a}Width")() for a in axes])
+        center = np.array(
+            [getattr(flash, f"{a}Center")() for a in axes], dtype=np.float32
+        )
+        width = np.array(
+            [getattr(flash, f"{a}Width")() for a in axes], dtype=np.float32
+        )
 
         # Get the number of PEs per optical channel
         pe_per_ch = np.array(list(flash.PEPerOpDet()), dtype=np.float32)
 
-        # Get the volume ID, if it is filled (TODO: simplify with update)
+        # Backward compatibility: older LArCV versions do not include volume_id or tpc
+        # information, so we check for both and set
         volume_id = -1
         for attr in ("tpc", "volume_id"):
             if hasattr(flash, attr):
@@ -121,7 +139,7 @@ class Flash(PosDataBase):
             width=width,
         )
 
-    def merge(self, other):
+    def merge(self, other: "Flash") -> None:
         """Merge another flash into this one.
 
         The merging strategy proceeds as follows:

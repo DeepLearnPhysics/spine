@@ -1,10 +1,9 @@
-"""Data structures and containers for neutrino physics analysis.
+"""Data structures and containers.
 
 This module defines all core data structures used throughout the SPINE package,
 from low-level detector data to high-level physics objects.
 
 **Core Data Structures (Always Available):**
-- `out`: Generic output containers and base classes
 - `particle`: Particle objects with kinematics and properties
 - `neutrino`: Neutrino interaction data structures
 - `optical`: Photon detector and light information
@@ -13,8 +12,12 @@ from low-level detector data to high-level physics objects.
 - `meta`: Metadata and run information containers
 - `run_info`: Run-level data and configuration
 - `list`: List-based data containers and utilities
+- `out`: High-level representation output containers
+  - `Reco/TruthFragment`: Particle fragment with kinematics and properties
+  - `Reco/TruthParticle`: Particle with kinematics and properties
+  - `Reco/TruthInteraction`: Interaction with associated particles
 - `batch`: Efficient batched data structures for ML training
-  - `TensorBatch`: Sparse tensor batching with automatic collation
+  - `TensorBatch`: Sparse tensor batching with automatic collation/splitting
   - `EdgeIndexBatch`: Graph edge index batching
   - `IndexBatch`: General index-based batching utilities
 
@@ -22,9 +25,9 @@ from low-level detector data to high-level physics objects.
 ```
 Raw Detector Data → Reconstructed Objects → Physics Analysis
      ↓                      ↓                     ↓
-  Voxels/Hits        Particles/Tracks      Interactions
+  Voxels/Hits       Particles/Tracks       Interactions
   CRT Hits          Showers/Clusters       Event Info
-  PMT/SiPM          Vertices              Neutrinos
+  PMT/SiPM          Vertices               Neutrinos
 ```
 
 **Key Features:**
@@ -34,6 +37,26 @@ Raw Detector Data → Reconstructed Objects → Physics Analysis
 - **Type safety** with proper annotations
 - **Serialization support** for I/O operations
 - **GPU compatibility** through PyTorch integration
+
+**Units Metadata Convention:**
+Fields specify units in metadata using one of two approaches:
+
+1. **Fixed Units** (e.g., 'MeV', 'ns', 'GeV/c'):
+   For physical quantities independent of coordinate representation:
+   - Energy: 'MeV', 'GeV'
+   - Time: 'ns', 'us', 's'
+   - Momentum: 'MeV/c', 'GeV/c'
+   - dE/dx: 'MeV/cm'
+
+2. **Instance Units** ('instance'):
+   For spatial quantities that transform with to_cm()/to_px():
+   - Position coordinates
+   - Distances and lengths
+   - Spatial extents
+
+The `field_units` property dynamically resolves 'instance' to the current
+coordinate system ('cm' or 'px'). See `spine.data.base` module docstring
+for detailed convention and examples.
 
 **Base Class Pattern:**
 All data structures inherit from base classes that provide:

@@ -39,6 +39,7 @@ except ImportError:
 # ones.
 extensions = [
     "sphinx.ext.autodoc",
+    "sphinx.ext.autosummary",
     "sphinx.ext.napoleon",
     "sphinx.ext.viewcode",
     "sphinx.ext.autosectionlabel",
@@ -64,10 +65,20 @@ napoleon_include_private_with_doc = False
 autodoc_default_options = {
     "members": True,
     "member-order": "bysource",
-    "special-members": True,
-    "undoc-members": True,
-    "exclude-members": "__weakref__",
+    "undoc-members": False,
+    "private-members": False,
+    "exclude-members": "__weakref__, __dataclass_fields__, __dataclass_params__, __dataclass_transform__, __post_init__, __match_args__, __init__",
 }
+
+# Autosummary settings for automatic API generation
+autosummary_generate = True
+autosummary_imported_members = False
+
+# Show all inherited members in docs
+autodoc_inherit_docstrings = True
+
+# Show only class docstring, not __init__ (since dataclass attributes are already documented)
+autoclass_content = "class"
 
 # Mock imports for optional dependencies that may not be available during doc build
 # These packages need to be installed separately by users for full functionality

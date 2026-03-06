@@ -7,10 +7,10 @@ This section contains the complete API documentation for SPINE.
    :maxdepth: 2
 
    spine
-   ana
-   build
    data
+   build
    io
+   ana
    math
    model
    post

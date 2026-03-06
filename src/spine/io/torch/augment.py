@@ -1,5 +1,6 @@
 """Module with methods to augment the input data."""
 
+from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -18,6 +19,7 @@ class Augmenter:
         self,
         mask: Optional[Dict[str, Any]] = None,
         crop: Optional[Dict[str, Any]] = None,
+        drop: Optional[Dict[str, Any]] = None,
         translate: Optional[Dict[str, Any]] = None,
     ):
         """Initialize the augmenter.
@@ -28,15 +30,22 @@ class Augmenter:
             Masking configuration (cut out regions of the input image)
         crop : dict, optional
             Cropping configuration (crop input image to a smaller size)
+        drop : dict, optional
+            Dropping configuration (drop a fraction of the input image)
         translate : dict, optional
             Translation configuration (move input image around)
         """
         # Make sure at least one augmentation scheme is requested
-        if crop is None and translate is None and mask is None:
+        if crop is None and drop is None and translate is None and mask is None:
             raise ValueError(
-                "Must provide `crop`, `translate`, or `mask` block minimally "
+                "Must provide `crop`, `drop`, `translate`, or `mask` block minimally "
                 "to do any augmentation."
             )
+
+        # Parse the dropping configuration
+        self.dropper = None
+        if drop is not None:
+            self.dropper = Dropper(**drop)
 
         # Parse the masking configuration
         self.masker = None
@@ -79,6 +88,10 @@ class Augmenter:
         # If there are no sparse tensors in the input data, nothing to do
         if meta is None:
             return data
+
+        # Drop a fraction of the image by randomly masking out points
+        if self.dropper is not None:
+            data = self.dropper(data, augment_keys)
 
         # Mask
         if self.masker is not None:
@@ -252,6 +265,89 @@ class Cropper:
         crop_upper = crop_lower + dimensions
 
         return Meta(lower=crop_lower, upper=crop_upper, size=meta.size, count=count)
+
+
+class Dropper:
+    """Generic class to handle dropping points from images."""
+
+    def __init__(
+        self,
+        fraction: Optional[float] = None,
+        fraction_range: Optional[Tuple[float, float]] = None,
+    ):
+        """Initialize the dropper.
+
+        Parameters
+        ----------
+        fraction : float, optional
+            Fraction of the image to drop (between 0 and 1)
+        fraction_range : tuple of (float, float), optional
+            Range of fraction of the image to drop (between 0 and 1)
+        """
+        # Sanity check
+        if (fraction is None) == (fraction_range is None):
+            raise ValueError(
+                "Must provide either `fraction` or `fraction_range`, but not both."
+            )
+        if fraction is not None and (fraction < 0 or fraction > 1):
+            raise ValueError("Fraction must be between 0 and 1.")
+        if fraction_range is not None and (
+            fraction_range[0] < 0 or fraction_range[1] > 1
+        ):
+            raise ValueError("Fraction range must be between 0 and 1.")
+
+        # Store the fraction to drop
+        self.fraction = fraction
+        self.fraction_range = fraction_range
+
+    def __call__(self, data: Dict[str, Any], keys: List[str]) -> Dict[str, Any]:
+        """Drop a fraction of the image by randomly masking out points.
+
+        Parameters
+        ----------
+        data : dict
+            Dictionary of data products to offset
+        keys : List[str]
+            List of keys with coordinates to offset
+
+        Returns
+        -------
+        dict
+            Updated data dictionary with dropped coordinates (empty)
+        """
+        # Find keys which share a common set of coordinates
+        key_groups = defaultdict(list)
+        for key in keys:
+            if isinstance(data[key], Meta):
+                continue
+
+            unique_hash = hash(data[key].coords.tobytes())
+            key_groups[unique_hash].append(key)
+
+        # Loop over the groups of keys with shared coordinates, drop them together
+        for group in key_groups.values():
+            # Produce a random mask for this coordinate group
+            fraction = self.fraction
+            if fraction is None:
+                assert self.fraction_range is not None
+                fraction = np.random.uniform(*self.fraction_range)
+
+            mask = np.random.rand(len(data[group[0]].coords)) > fraction
+            index = np.where(mask)[0]
+
+            # Apply mask to all keys in the group
+            for key in group:
+                # Fetch attributes to modify
+                voxels, features = data[key].coords, data[key].features
+
+                # Drop voxels and features according to the mask
+                voxels, features = voxels[index], features[index]
+
+                # Update
+                data[key].coords = voxels
+                data[key].features = features
+
+        return data
 
 
 class Masker:

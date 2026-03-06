@@ -3,7 +3,8 @@
 This copies the internal structure of :class:`larcv.Neutrino`.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Self
 from warnings import warn
 
 import numpy as np
@@ -79,60 +80,60 @@ class Neutrino(PosDataBase):
         Units in which the position coordinates are expressed
     """
 
-    # Attributes
-    id: int = -1
-    interaction_id: int = -1
+    # Index attributes
+    id: int = field(default=-1, metadata={"index": True})
+    interaction_id: int = field(default=-1, metadata={"index": True})
+
+    # Enumerated attributes
+    current_type: int = field(default=-1, metadata={"enum": NU_CURR_TYPE})
+    interaction_mode: int = field(default=-1, metadata={"enum": NU_INT_TYPE})
+    interaction_type: int = field(default=-1, metadata={"enum": NU_INT_TYPE})
+
+    # Scalar attributes
     mct_index: int = -1
     track_id: int = -1
     lepton_track_id: int = -1
     pdg_code: int = -1
     lepton_pdg_code: int = -1
-    current_type: int = -1
-    interaction_mode: int = -1
-    interaction_type: int = -1
     target: int = -1
     nucleon: int = -1
     quark: int = -1
-    energy_init: float = -1.0
-    hadronic_invariant_mass: float = -1.0
-    bjorken_x: float = -1.0
-    inelasticity: float = -1.0
-    momentum_transfer: float = -1.0
-    momentum_transfer_mag: float = -1.0
-    energy_transfer: float = -1.0
-    lepton_p: float = -1.0
-    distance_travel: float = -1.0
-    theta: float = -1.0
-    t: float = -np.inf
+
+    energy_init: float = field(default=np.nan, metadata={"units": "GeV"})
+    hadronic_invariant_mass: float = field(
+        default=np.nan, metadata={"units": "GeV/c^2"}
+    )
+    momentum_transfer: float = field(default=np.nan, metadata={"units": "(GeV/c)^2"})
+    momentum_transfer_mag: float = field(default=np.nan, metadata={"units": "GeV/c"})
+    energy_transfer: float = field(default=np.nan, metadata={"units": "GeV"})
+    lepton_p: float = field(default=np.nan, metadata={"units": "GeV/c"})
+    distance_travel: float = field(default=np.nan, metadata={"units": "instance"})
+    t: float = field(default=np.nan, metadata={"units": "ns"})
+    theta: float = field(default=np.nan, metadata={"units": "rad"})
+    bjorken_x: float = np.nan
+    inelasticity: float = np.nan
+
     creation_process: str = ""
-    position: np.ndarray = None
-    momentum: np.ndarray = None
     units: str = "cm"
 
-    # Fixed-length attributes
-    _fixed_length_attrs = (("position", 3), ("momentum", 3))
-
-    # Attributes specifying coordinates
-    _pos_attrs = ("position",)
-
-    # Attributes specifying vector components
-    _vec_attrs = ("momentum",)
-
-    # Enumerated attributes
-    _enum_attrs = (
-        ("current_type", tuple((v, k) for k, v in NU_CURR_TYPE.items())),
-        ("interaction_mode", tuple((v, k) for k, v in NU_INT_TYPE.items())),
-        ("interaction_type", tuple((v, k) for k, v in NU_INT_TYPE.items())),
+    # Vector attributes
+    position: np.ndarray = field(
+        default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
+        metadata={
+            "length": 3,
+            "dtype": np.float32,
+            "type": "position",
+            "units": "instance",
+        },
     )
 
-    # String attributes
-    _str_attrs = ("creation_process",)
-
-    # Index attributes
-    _index_attrs = ("id", "interaction_id")
+    momentum: np.ndarray = field(
+        default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
+        metadata={"length": 3, "dtype": np.float32, "type": "vector", "units": "MeV/c"},
+    )
 
     @classmethod
-    def from_larcv(cls, neutrino):
+    def from_larcv(cls, neutrino) -> Self:
         """Builds and returns a Neutrino object from a LArCV Neutrino object.
 
         Parameters
@@ -175,12 +176,16 @@ class Neutrino(PosDataBase):
             "theta",
             "creation_process",
         ):
+            # Backwards compatibility: some older LArCV versions may be missing
+            # some of these attributes, warn if that's the case and skip them
             if not hasattr(neutrino, key):
                 warn(
                     f"The LArCV Neutrino object is missing the {key} "
                     "attribute. It will miss from the Neutrino object."
                 )
                 continue
+
+            # Backwards compatibility: renamed "nu_track_id" to "track_id"
             if key != "nu_track_id":
                 obj_dict[key] = getattr(neutrino, key)()
             else:
@@ -189,15 +194,12 @@ class Neutrino(PosDataBase):
         obj_dict["t"] = neutrino.position().t()
 
         # Load the positional attribute
-        pos_attrs = ["x", "y", "z"]
-        for key in cls._pos_attrs:
-            vector = getattr(neutrino, key)()
-            obj_dict[key] = np.asarray(
-                [getattr(vector, a)() for a in pos_attrs], dtype=np.float32
-            )
+        obj_dict["position"] = np.asarray(
+            [neutrino.position().x(), neutrino.position().y(), neutrino.position().z()],
+            dtype=np.float32,
+        )
 
         # Load the momentum attribute (special care needed)
-        mom_attrs = ("px", "py", "pz")
         if not hasattr(neutrino, "momentum"):
             warn(
                 "The LArCV Neutrino object is missing the momentum "
@@ -205,7 +207,7 @@ class Neutrino(PosDataBase):
             )
         else:
             obj_dict["momentum"] = np.asarray(
-                [getattr(neutrino, a)() for a in mom_attrs], dtype=np.float32
+                [neutrino.px(), neutrino.py(), neutrino.pz()], dtype=np.float32
             )
 
         return cls(**obj_dict)

@@ -7,7 +7,6 @@ from warnings import warn
 import numpy as np
 
 from spine.utils.conditional import torch
-from spine.utils.docstring import inherit_docstring
 
 from .base import BatchBase
 
@@ -15,7 +14,6 @@ __all__ = ["IndexBatch"]
 
 
 @dataclass(eq=False)
-@inherit_docstring(BatchBase)
 class IndexBatch(BatchBase):
     """Batched index with the necessary methods to slice it.
 
@@ -40,8 +38,7 @@ class IndexBatch(BatchBase):
         batch_ids=None,
         batch_size=None,
         default=None,
-        is_numpy=True,
-    ):  # TODO is_numpy does nothing
+    ):
         """Initialize the attributes of the class.
 
         Parameters
@@ -61,8 +58,6 @@ class IndexBatch(BatchBase):
             assumption is that each count corresponds to a specific entry
         batch_size : int, optional
             Number of entries in the batch. Must be specified along batch_ids
-        is_numpy : bool, default True
-            Default type of index. Provide if `data` may be empty
         """
         # Check weather the input is a single index or a list
         is_list = isinstance(data, (list, tuple)) or data.dtype == object
@@ -370,7 +365,7 @@ class IndexBatch(BatchBase):
         if not self.is_list:
             data = self._to_tensor(self.data, dtype, device)
         else:
-            data = np.empty(len(data), dtype=object)
+            data = np.empty(len(self.data), dtype=object)
             for i, d in enumerate(self.data):
                 data[i] = self._to_tensor(d, dtype, device)
 

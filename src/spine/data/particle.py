@@ -4,6 +4,7 @@ This copies the internal structure of :class:`larcv.Particle`.
 """
 
 from dataclasses import dataclass, field
+from typing import Self
 from warnings import warn
 
 import numpy as np
@@ -11,6 +12,7 @@ import numpy as np
 from spine.utils.globals import PID_LABELS, SHAPE_LABELS, UNKWN_SHP
 
 from .base import PosDataBase
+from .derived import derived_property
 
 __all__ = ["Particle"]
 
@@ -105,103 +107,83 @@ class Particle(PosDataBase):
         Units in which the position attributes are expressed
     """
 
-    # Attributes
-    id: int = -1
+    # Index attributes
+    id: int = field(default=-1, metadata={"index": True})
+    parent_id: int = field(default=-1, metadata={"index": True})
+    group_id: int = field(default=-1, metadata={"index": True})
+    interaction_id: int = field(default=-1, metadata={"index": True})
+    nu_id: int = field(default=-1, metadata={"index": True})
+    children_id: np.ndarray = field(
+        default_factory=lambda: np.array([], dtype=np.int64),
+        metadata={"dtype": np.int64, "index": True},
+    )
+
+    # Scalar attributes
     mct_index: int = -1
     mcst_index: int = -1
-    group_id: int = -1
-    interaction_id: int = -1
-    nu_id: int = -1
-    interaction_primary: int = -1
     group_primary: int = -1
-    parent_id: int = -1
-    children_id: np.ndarray = None
+    interaction_primary: int = -1
     track_id: int = -1
     parent_track_id: int = -1
     ancestor_track_id: int = -1
-    pid: int = -1
     pdg_code: int = -1
     parent_pdg_code: int = -1
     ancestor_pdg_code: int = -1
     num_voxels: int = -1
-    shape: int = UNKWN_SHP
-    energy_init: float = -1.0
-    energy_deposit: float = -1.0
-    distance_travel: float = -1.0
+
+    t: float = field(default=np.nan, metadata={"units": "ns"})
+    end_t: float = field(default=np.nan, metadata={"units": "ns"})
+    parent_t: float = field(default=np.nan, metadata={"units": "ns"})
+    ancestor_t: float = field(default=np.nan, metadata={"units": "ns"})
+    energy_init: float = field(default=np.nan, metadata={"units": "MeV"})
+    energy_deposit: float = field(default=np.nan, metadata={"units": "MeV"})
+    distance_travel: float = field(default=np.nan, metadata={"units": "cm"})
+
     creation_process: str = ""
     parent_creation_process: str = ""
     ancestor_creation_process: str = ""
-    t: float = -np.inf
-    end_t: float = -np.inf
-    parent_t: float = -np.inf
-    ancestor_t: float = -np.inf
-    position: np.ndarray = None
-    end_position: np.ndarray = None
-    parent_position: np.ndarray = None
-    ancestor_position: np.ndarray = None
-    first_step: np.ndarray = None
-    last_step: np.ndarray = None
-    momentum: np.ndarray = None
-    end_momentum: np.ndarray = None
-    mass: float = None
-    p: float = None
-    end_p: float = None
     units: str = "cm"
 
-    # Fixed-length attributes
-    _fixed_length_attrs = (
-        ("position", 3),
-        ("end_position", 3),
-        ("parent_position", 3),
-        ("ancestor_position", 3),
-        ("first_step", 3),
-        ("last_step", 3),
-        ("momentum", 3),
-        ("end_momentum", 3),
-    )
-
-    # Variable-length attributes
-    _var_length_attrs = (("children_id", np.int64),)
-
-    # Attributes specifying coordinates
-    _pos_attrs = (
-        "position",
-        "end_position",
-        "parent_position",
-        "ancestor_position",
-        "first_step",
-        "last_step",
-    )
-
-    # Attributes specifying vector components
-    _vec_attrs = ("momentum", "end_momentum")
-
     # Enumerated attributes
-    _enum_attrs = (
-        ("shape", tuple((v, k) for k, v in SHAPE_LABELS.items())),
-        ("pid", tuple((v, k) for k, v in PID_LABELS.items())),
+    shape: int = field(default=UNKWN_SHP, metadata={"enum": SHAPE_LABELS})
+    pid: int = field(default=-1, metadata={"enum": PID_LABELS})
+
+    # Vector attributes
+    position: np.ndarray = field(
+        default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
+        metadata={"length": 3, "dtype": np.float32, "type": "position", "units": "cm"},
+    )
+    end_position: np.ndarray = field(
+        default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
+        metadata={"length": 3, "dtype": np.float32, "type": "position", "units": "cm"},
+    )
+    parent_position: np.ndarray = field(
+        default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
+        metadata={"length": 3, "dtype": np.float32, "type": "position", "units": "cm"},
+    )
+    ancestor_position: np.ndarray = field(
+        default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
+        metadata={"length": 3, "dtype": np.float32, "type": "position", "units": "cm"},
+    )
+    first_step: np.ndarray = field(
+        default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
+        metadata={"length": 3, "dtype": np.float32, "type": "position", "units": "cm"},
+    )
+    last_step: np.ndarray = field(
+        default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
+        metadata={"length": 3, "dtype": np.float32, "type": "position", "units": "cm"},
+    )
+    momentum: np.ndarray = field(
+        default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
+        metadata={"length": 3, "dtype": np.float32, "type": "vector", "units": "MeV/c"},
+    )
+    end_momentum: np.ndarray = field(
+        default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
+        metadata={"length": 3, "dtype": np.float32, "type": "vector", "units": "MeV/c"},
     )
 
-    # String attributes
-    _str_attrs = (
-        "creation_process",
-        "parent_creation_process",
-        "ancestor_creation_process",
-    )
-
-    # Index attributes
-    _index_attrs = (
-        "id",
-        "parent_id",
-        "group_id",
-        "parent_id",
-        "interaction_id",
-        "nu_id",
-        "children_id",
-    )
-
-    @property
-    def p(self):
+    @derived_property(units="MeV/c")
+    def p(self) -> float:
         """Computes the magnitude of the initial momentum.
 
         Returns
@@ -209,14 +191,10 @@ class Particle(PosDataBase):
         float
             Norm of the initial momentum vector
         """
-        return np.linalg.norm(self.momentum)
+        return float(np.linalg.norm(self.momentum))
 
-    @p.setter
-    def p(self, p):
-        pass
-
-    @property
-    def end_p(self):
+    @derived_property(units="MeV/c")
+    def end_p(self) -> float:
         """Computes the magnitude of the final momentum.
 
         Returns
@@ -224,14 +202,10 @@ class Particle(PosDataBase):
         float
             Norm of the final momentum vector
         """
-        return np.linalg.norm(self.end_momentum)
+        return float(np.linalg.norm(self.end_momentum))
 
-    @end_p.setter
-    def end_p(self, end_p):
-        pass
-
-    @property
-    def mass(self):
+    @derived_property(units="MeV/c^2")
+    def mass(self) -> float:
         """Computes the rest mass of the particle from its energy/momentum.
 
         Returns
@@ -239,17 +213,13 @@ class Particle(PosDataBase):
         float
             Rest mass of the particle in MeV/c^2
         """
-        if self.energy_init < 0.0:
-            return -1.0
+        if np.isnan(self.energy_init):
+            return np.nan
 
-        return np.sqrt(max(0.0, self.energy_init**2 - np.sum(self.momentum**2)))
-
-    @mass.setter
-    def mass(self, mass):
-        pass
+        return np.sqrt(max(0.0, self.energy_init**2 - self.p**2))
 
     @classmethod
-    def from_larcv(cls, particle):
+    def from_larcv(cls, particle) -> Self:
         """Builds and returns a Particle object from a LArCV Particle object.
 
         Parameters
@@ -293,11 +263,18 @@ class Particle(PosDataBase):
         obj_dict["end_t"] = particle.end_position().t()
 
         # Load the positional attribute
-        pos_attrs = ["x", "y", "z"]
-        for key in cls._pos_attrs:
+        axes = ("x", "y", "z")
+        for key in (
+            "position",
+            "end_position",
+            "parent_position",
+            "ancestor_position",
+            "first_step",
+            "last_step",
+        ):
             vector = getattr(particle, key)()
             obj_dict[key] = np.asarray(
-                [getattr(vector, a)() for a in pos_attrs], dtype=np.float32
+                [getattr(vector, a)() for a in axes], dtype=np.float32
             )
 
         # Load the other array attributes (special care needed). Note for future

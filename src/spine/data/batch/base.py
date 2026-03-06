@@ -6,6 +6,7 @@ from typing import Union
 import numpy as np
 
 from spine.utils.conditional import torch
+from spine.utils.docstring import merge_ancestor_docstrings
 
 
 @dataclass(eq=False)
@@ -28,6 +29,21 @@ class BatchBase:
     counts: Union[np.ndarray, torch.Tensor]
     edges: Union[np.ndarray, torch.Tensor]
     batch_size: int
+
+    def __init_subclass__(cls, **kwargs):
+        """Automatically merge docstrings from parent classes.
+
+        This hook is called whenever a class inherits from BatchBase. It
+        automatically merges the Attributes sections from all parent class
+        docstrings into the child class docstring.
+
+        Parameters
+        ----------
+        **kwargs
+            Additional keyword arguments passed to super().__init_subclass__
+        """
+        super().__init_subclass__(**kwargs)
+        merge_ancestor_docstrings(cls)
 
     def __init__(self, data, is_sparse=False, is_list=False):
         """Shared initializations across all types of batched data.
@@ -88,14 +104,22 @@ class BatchBase:
                     return False
 
             elif np.isscalar(v) or isinstance(v, np.dtype):
-                # For scalars, regular comparison will do
-                if v_other != v:
-                    return False
+                # For scalars, handle NaN specially for floats
+                if isinstance(v, float) or (
+                    np.isscalar(v) and np.issubdtype(type(v), np.floating)
+                ):
+                    # Both NaN -> equal; otherwise use regular comparison
+                    both_nan = np.isnan(v) and np.isnan(v_other)
+                    if not both_nan and v_other != v:
+                        return False
+                else:
+                    # For other scalars, regular comparison
+                    if v_other != v:
+                        return False
 
             else:
-                # For vectors, compare all elements
-                v_other = getattr(other, k)
-                if v.shape != v_other.shape or (v_other != v).any():
+                # For vectors, use array_equal with equal_nan=True
+                if not np.array_equal(v, v_other, equal_nan=True):
                     return False
 
         return True

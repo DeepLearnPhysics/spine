@@ -10,7 +10,6 @@ import yaml
 from yaml.parser import ParserError
 
 import spine.data
-from spine.utils.docstring import inherit_docstring
 from spine.utils.logger import logger
 
 from .base import ReaderBase
@@ -18,7 +17,6 @@ from .base import ReaderBase
 __all__ = ["HDF5Reader"]
 
 
-@inherit_docstring(ReaderBase)
 class HDF5Reader(ReaderBase):
     """Class which reads information stored in HDF5 files.
 
@@ -30,7 +28,7 @@ class HDF5Reader(ReaderBase):
         the `events` dataset
     """
 
-    name = "hdf5"
+    name: str = "hdf5"
 
     def __init__(
         self,

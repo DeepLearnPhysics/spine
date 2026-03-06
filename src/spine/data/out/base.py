@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from spine.data.base import PosDataBase
-from spine.utils.docstring import inherit_docstring
+from spine.data.derived import derived_property
 
 
 @dataclass(eq=False)
@@ -47,71 +47,72 @@ class OutBase(PosDataBase):
         If the particle is a cathode crosser, this is how far in cm one needs to
         move its points along the drift direction to reconcile at the cathode.
         This is directly proportional to time through time=offset/vdrift
-    is_truth: bool
-        Whether this object contains truth information or not
     units : str
         Units in which coordinates are expressed
     """
 
-    id: int = -1
-    index: np.ndarray = None
-    size: int = None
-    points: np.ndarray = None
-    depositions: np.ndarray = None
-    depositions_sum: float = None
-    sources: np.ndarray = None
-    module_ids: np.ndarray = None
+    # Index attributes
+    id: int = field(default=-1, metadata={"index": True})
+
+    # Scalar attributes
     is_contained: bool = False
     is_time_contained: bool = False
-    is_matched: bool = False
-    match_ids: np.ndarray = None
-    match_overlaps: np.ndarray = None
     is_cathode_crosser: bool = False
-    cathode_offset: float = -np.inf
-    is_truth: bool = None
+    is_matched: bool = False
+
+    cathode_offset: float = field(default=np.nan, metadata={"units": "cm"})
+
     units: str = "cm"
 
-    # Variable-length attribtues
-    _var_length_attrs = (
-        ("index", np.int64),
-        ("depositions", np.float32),
-        ("match_ids", np.int64),
-        ("match_overlaps", np.float32),
-        ("points", (3, np.float32)),
-        ("sources", (2, np.int64)),
-        ("module_ids", np.int64),
+    # Vector attributes
+    index: np.ndarray = field(
+        default_factory=lambda: np.empty(0, dtype=np.int64),
+        metadata={"dtype": np.int64, "cat": True, "skip_lite": True},
     )
 
-    # Boolean attributes
-    _bool_attrs = (
-        "is_contained",
-        "is_time_contained",
-        "is_matched",
-        "is_cathode_crosser",
-        "is_truth",
+    points: np.ndarray = field(
+        default_factory=lambda: np.empty((0, 3), dtype=np.float32),
+        metadata={
+            "dtype": np.float32,
+            "type": "position",
+            "cat": True,
+            "skip": True,
+            "units": "instance",
+        },
     )
 
-    # Attributes to concatenate when merging objects
-    _cat_attrs = ("index", "points", "depositions", "sources")
+    depositions: np.ndarray = field(
+        default_factory=lambda: np.empty(0, dtype=np.float32),
+        metadata={"dtype": np.float32, "cat": True, "skip": True},
+    )
 
-    # Attributes that must never be stored to file
-    _skip_attrs = ("points", "depositions", "sources")
+    sources: np.ndarray = field(
+        default_factory=lambda: np.empty((0, 2), dtype=np.int64),
+        metadata={"dtype": np.int64, "cat": True, "skip": True},
+    )
 
-    # Attributes that must not be stored to file when storing lite files
-    _lite_skip_attrs = ("index",)
+    match_ids: np.ndarray = field(
+        default_factory=lambda: np.empty(0, dtype=np.int64),
+        metadata={"dtype": np.int64},
+    )
 
-    def reset_match(self):
+    match_overlaps: np.ndarray = field(
+        default_factory=lambda: np.empty(0, dtype=np.float32),
+        metadata={"dtype": np.float32},
+    )
+
+    def reset_match(self) -> None:
         """Resets the reco/truth matching information for the object."""
         self.is_matched = False
         self.match_ids = np.empty(0, dtype=np.int64)
 
-    def reset_cathode_crosser(self):
+    def reset_cathode_crosser(self) -> None:
         """Resets the cathode crossing information for the object."""
         self.is_cathode_crosser = False
-        self.cathode_offset = -np.inf
+        self.cathode_offset = np.nan
 
-    @property
-    def size(self):
+    @derived_property
+    def size(self) -> int:
         """Total number of voxels that make up the object.
 
         Returns
@@ -121,12 +122,8 @@ class OutBase(PosDataBase):
         """
         return len(self.index)
 
-    @size.setter
-    def size(self, size):
-        pass
-
-    @property
-    def depositions_sum(self):
+    @derived_property
+    def depositions_sum(self) -> float:
         """Total deposition value for the entire object.
 
         Returns
@@ -134,14 +131,10 @@ class OutBase(PosDataBase):
         float
             Sum of all depositions that make up the object
         """
-        return np.sum(self.depositions)
+        return np.sum(self.depositions).item()
 
-    @depositions_sum.setter
-    def depositions_sum(self, depositions_sum):
-        pass
-
-    @property
-    def module_ids(self):
+    @derived_property
+    def module_ids(self) -> np.ndarray:
         """List of modules that contribute to this object.
 
         Returns
@@ -151,23 +144,40 @@ class OutBase(PosDataBase):
         """
         return np.unique(self.sources[:, 0])
 
-    @module_ids.setter
-    def module_ids(self, module_ids):
-        pass
-
 
 @dataclass(eq=False)
-@inherit_docstring(OutBase)
-class RecoBase(OutBase):
-    """Base data structure shared among all reconstructed output classes."""
+class RecoBase:
+    """Mixin class for reconstructed output objects.
 
+    This is a mixin that adds reconstructed-specific attributes. It should be
+    used with a primary base class (e.g., FragmentBase, ParticleBase,
+    InteractionBase) that inherits from OutBase.
+
+    This eliminates diamond inheritance since OutBase is only inherited once
+    through the primary base class.
+
+    Attributes
+    ----------
+    is_truth : bool
+        Whether this is a truth object (always False for reconstructed)
+    """
+
+    # Scalar attributes
     is_truth: bool = False
 
 
 @dataclass(eq=False)
-@inherit_docstring(OutBase)
-class TruthBase(OutBase):
-    """Base data structure shared among all truth output classes.
+class TruthBase:
+    """Mixin class for truth output objects.
+
+    This is a mixin that adds truth-specific attributes. It should be used
+    with a primary base class (e.g., FragmentBase, ParticleBase,
+    InteractionBase) that inherits from OutBase.
+
+    This eliminates diamond inheritance since OutBase is only inherited once
+    through the primary base class.
+
+    Base data structure shared among all truth output classes.
 
     Attributes
     ----------
@@ -209,70 +219,66 @@ class TruthBase(OutBase):
         Total amount of true Geant4 depositions
     """
 
+    # Scalar attributes
     orig_id: int = -1
-    depositions_q: np.ndarray = None
-    depositions_q_sum: float = None
-    index_adapt: np.ndarray = None
-    size_adapt: int = None
-    size_g4: int = None
-    points_adapt: np.ndarray = None
-    depositions_adapt: np.ndarray = None
-    depositions_adapt_sum: float = None
-    depositions_adapt_q: np.ndarray = None
-    depositions_adapt_q_sum: float = None
-    sources_adapt: np.ndarray = None
-    index_g4: np.ndarray = None
-    points_g4: np.ndarray = None
-    depositions_g4: np.ndarray = None
-    depositions_g4_sum: float = None
+
     is_truth: bool = True
 
-    # Variable-length attribtues
-    _var_length_attrs = (
-        ("depositions_q", np.float32),
-        ("index_adapt", np.int64),
-        ("depositions_adapt", np.float32),
-        ("depositions_adapt_q", np.float32),
-        ("index_g4", np.int64),
-        ("depositions_g4", np.float32),
-        ("points_adapt", (3, np.float32)),
-        ("sources_adapt", (2, np.int64)),
-        ("points_g4", (3, np.float32)),
-        *OutBase._var_length_attrs,
+    # Vector attributes
+    index_adapt: np.ndarray = field(
+        default_factory=lambda: np.empty(0, dtype=np.int64),
+        metadata={"dtype": np.int64, "cat": True, "skip_lite": True},
+    )
+    index_g4: np.ndarray = field(
+        default_factory=lambda: np.empty(0, dtype=np.int64),
+        metadata={"dtype": np.int64, "cat": True, "skip_lite": True},
     )
 
-    # Attributes to concatenate when merging objects
-    _cat_attrs = (
-        "depositions_q",
-        "index_adapt",
-        "points_adapt",
-        "depositions_adapt",
-        "depositions_adapt_q",
-        "sources_adapt",
-        "index_g4",
-        "points_g4",
-        "depositions_g4",
-        *OutBase._cat_attrs,
+    points_adapt: np.ndarray = field(
+        default_factory=lambda: np.empty((0, 3), dtype=np.float32),
+        metadata={
+            "dtype": np.float32,
+            "type": "position",
+            "cat": True,
+            "skip": True,
+            "units": "instance",
+        },
+    )
+    points_g4: np.ndarray = field(
+        default_factory=lambda: np.empty((0, 3), dtype=np.float32),
+        metadata={
+            "dtype": np.float32,
+            "type": "position",
+            "cat": True,
+            "skip": True,
+            "units": "instance",
+        },
     )
 
-    # Attributes that must never be stored to file
-    _skip_attrs = (
-        "depositions_q",
-        "points_adapt",
-        "depositions_adapt",
-        "depositions_adapt_q",
-        "sources_adapt",
-        "depositions_g4",
-        "points_g4",
-        "depositions_g4",
-        *OutBase._skip_attrs,
+    depositions_q: np.ndarray = field(
+        default_factory=lambda: np.empty(0, dtype=np.float32),
+        metadata={"dtype": np.float32, "cat": True, "skip": True},
+    )
+    depositions_adapt: np.ndarray = field(
+        default_factory=lambda: np.empty(0, dtype=np.float32),
+        metadata={"dtype": np.float32, "cat": True, "skip": True},
+    )
+    depositions_adapt_q: np.ndarray = field(
+        default_factory=lambda: np.empty(0, dtype=np.float32),
+        metadata={"dtype": np.float32, "cat": True, "skip": True},
+    )
+    depositions_g4: np.ndarray = field(
+        default_factory=lambda: np.empty(0, dtype=np.float32),
+        metadata={"dtype": np.float32, "cat": True, "skip": True},
     )
 
-    # Attributes that must not be stored to file when storing lite files
-    _lite_skip_attrs = ("index_adapt", "index_g4", *OutBase._lite_skip_attrs)
+    sources_adapt: np.ndarray = field(
+        default_factory=lambda: np.empty((0, 2), dtype=np.int64),
+        metadata={"dtype": np.int64, "cat": True, "skip": True},
+    )
 
-    @property
-    def size_adapt(self):
+    @derived_property
+    def size_adapt(self) -> int:
         """Total number of voxels that make up the object in the adapted tensor.
 
         Returns
@@ -282,12 +288,8 @@ class TruthBase(OutBase):
         """
         return len(self.index_adapt)
 
-    @size_adapt.setter
-    def size_adapt(self, size_adapt):
-        pass
-
-    @property
-    def size_g4(self):
+    @derived_property
+    def size_g4(self) -> int:
         """Total number of voxels that make up the object in the Geant4 tensor.
 
         Returns
@@ -297,12 +299,8 @@ class TruthBase(OutBase):
         """
         return len(self.index_g4)
 
-    @size_g4.setter
-    def size_g4(self, size_g4):
-        pass
-
-    @property
-    def depositions_q_sum(self):
+    @derived_property
+    def depositions_q_sum(self) -> float:
         """Total deposition value for the entire object in the original units.
 
         Returns
@@ -310,14 +308,10 @@ class TruthBase(OutBase):
         float
             Sum of all depositions that make up the object
         """
-        return np.sum(self.depositions_q)
+        return np.sum(self.depositions_q).item()
 
-    @depositions_q_sum.setter
-    def depositions_q_sum(self, depositions_q_sum):
-        pass
-
-    @property
-    def depositions_adapt_sum(self):
+    @derived_property
+    def depositions_adapt_sum(self) -> float:
         """Total deposition value for the entire object in the adapted tensor.
 
         Returns
@@ -325,14 +319,10 @@ class TruthBase(OutBase):
         float
             Sum of all depositions that make up the object
         """
-        return np.sum(self.depositions_adapt)
+        return np.sum(self.depositions_adapt).item()
 
-    @depositions_adapt_sum.setter
-    def depositions_adapt_sum(self, depositions_adapt_sum):
-        pass
-
-    @property
-    def depositions_adapt_q_sum(self):
+    @derived_property
+    def depositions_adapt_q_sum(self) -> float:
         """Total deposition value for the entire object in the adapted tensor
         and in the original units.
 
@@ -341,14 +331,10 @@ class TruthBase(OutBase):
         float
             Sum of all depositions that make up the object
         """
-        return np.sum(self.depositions_adapt_q)
+        return np.sum(self.depositions_adapt_q).item()
 
-    @depositions_adapt_q_sum.setter
-    def depositions_adapt_q_sum(self, depositions_adapt_q_sum):
-        pass
-
-    @property
-    def depositions_g4_sum(self):
+    @derived_property
+    def depositions_g4_sum(self) -> float:
         """Total deposition value for the entire object in the Geant4 tensor.
 
         Returns
@@ -356,8 +342,4 @@ class TruthBase(OutBase):
         float
             Sum of all depositions that make up the object
         """
-        return np.sum(self.depositions_g4)
-
-    @depositions_g4_sum.setter
-    def depositions_g4_sum(self, depositions_g4_sum):
-        pass
+        return np.sum(self.depositions_g4).item()

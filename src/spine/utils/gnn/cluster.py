@@ -62,7 +62,7 @@ def form_clusters_batch(data, min_size=-1, column=CLUST_COL, shapes=None):
             offsets.append(offsets[-1] + len(data_b))
 
     # Make an IndexBatch out of the list
-    return IndexBatch(clusts, offsets, counts, single_counts, is_numpy=data.is_numpy)
+    return IndexBatch(clusts, offsets, counts, single_counts)
 
 
 def get_cluster_label_batch(data, clusts, column=CLUST_COL):

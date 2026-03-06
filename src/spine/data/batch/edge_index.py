@@ -9,7 +9,6 @@ from typing import Union
 import numpy as np
 
 from spine.utils.conditional import torch
-from spine.utils.docstring import inherit_docstring
 
 from .base import BatchBase
 
@@ -17,7 +16,6 @@ __all__ = ["EdgeIndexBatch"]
 
 
 @dataclass(eq=False)
-@inherit_docstring(BatchBase)
 class EdgeIndexBatch(BatchBase):
     """Batched edge index with the necessary methods to slice it.
 

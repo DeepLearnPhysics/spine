@@ -3,11 +3,12 @@
 This copies the internal structure of :class:`larcv.CRTHit`.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
 from .base import PosDataBase
+from .derived import derived_property
 
 __all__ = ["CRTHit"]
 
@@ -40,8 +41,6 @@ class CRTHit(PosDataBase):
         Alias for ts1_ns, but scaled to microseconds
     total_pe : float
         Total number of PE in the CRT hit
-    pe_per_ch : np.ndarray
-        Number of PEs per FEB channel
     center : np.ndarray
         Barycenter of the CRT hit in detector coordinates
     width : np.ndarray
@@ -50,43 +49,49 @@ class CRTHit(PosDataBase):
         Units in which the position attributes are expressed
     """
 
-    id: int = -1
+    # Index attributes
+    id: int = field(default=-1, metadata={"index": True})
+
+    # Scalar attributes
     plane: int = -1
+
+    ts0_s: int = field(default=-1, metadata={"units": "s"})  # Integer to match LArCV
+    ts0_ns: float = field(default=np.nan, metadata={"units": "ns"})
+    ts0_s_corr: float = field(default=np.nan, metadata={"units": "s"})
+    ts0_ns_corr: float = field(default=np.nan, metadata={"units": "ns"})
+    ts1_ns: float = field(default=np.nan, metadata={"units": "ns"})
+    total_pe: float = np.nan
+
     tagger: str = ""
-    feb_id: np.ndarray = None
-    ts0_s: int = -1
-    ts0_ns: float = -1.0
-    ts0_s_corr: float = -1.0
-    ts0_ns_corr: float = -1.0
-    ts1_ns: float = -1.0
-    time: float = -1.0
-    total_pe: float = -1.0
-    # pe_per_ch: np.ndarray = None
-    center: np.ndarray = None
-    width: np.ndarray = None
     units: str = "cm"
 
-    # Fixed-length attributes
-    _fixed_length_attrs = (("center", 3), ("width", 3))
+    # Vector attributes
+    feb_id: np.ndarray = field(
+        default_factory=lambda: np.empty(0, dtype=np.ubyte),
+        metadata={"dtype": np.ubyte},
+    )
+    center: np.ndarray = field(
+        default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
+        metadata={
+            "length": 3,
+            "dtype": np.float32,
+            "type": "position",
+            "units": "instance",
+        },
+    )
+    width: np.ndarray = field(
+        default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
+        metadata={
+            "length": 3,
+            "dtype": np.float32,
+            "type": "vector",
+            "units": "instance",
+        },
+    )
 
-    # Variable-length attributes
-    _var_length_attrs = (("feb_id", np.ubyte),)
-
-    # Attributes specifying coordinates
-    _pos_attrs = ("position",)
-
-    # Attributes specifying vector components
-    _vec_attrs = ("width",)
-
-    # String attributes
-    _str_attrs = ("tagger", "units")
-
-    # Index attributes
-    _index_attrs = ("id",)
-
-    @property
-    def time(self):
-        """Time w.r.t. to the trigger.
+    @derived_property(units="us")
+    def time(self) -> float:
+        """Time w.r.t. to the trigger in microseconds.
 
         Returns
         -------
@@ -94,10 +99,6 @@ class CRTHit(PosDataBase):
             Time of the CRT hit w.r.t. to the trigger in microseconds.
         """
         return self.ts1_ns / 1000.0
-
-    @time.setter
-    def time(self, time):
-        pass
 
     @classmethod
     def from_larcv(cls, crthit):
@@ -114,16 +115,15 @@ class CRTHit(PosDataBase):
             CRT hit object
         """
         # Get the physical center and width of the CRT hit
-        axes = ("x", "y", "z")
-        center = np.array([getattr(crthit, f"{a}_pos")() for a in axes])
-        width = np.array([getattr(crthit, f"{a}_err")() for a in axes])
+        center = np.array(
+            [getattr(crthit, f"{a}_pos")() for a in cls._axes], dtype=np.float32
+        )
+        width = np.array(
+            [getattr(crthit, f"{a}_err")() for a in cls._axes], dtype=np.float32
+        )
 
         # Convert the FEB address to a list of bytes
         feb_id = np.array([ord(c) for c in crthit.feb_id()], dtype=np.ubyte)
-
-        # Get the number of PEs per FEB channel
-        # TODO: This is a dictionary of dictionaries, need to figure out
-        # how to unpack in a sensible manner
 
         return cls(
             id=crthit.id(),

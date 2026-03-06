@@ -1,14 +1,9 @@
 """Classes in charge of constructing Fragment objects."""
 
-import inspect
-from dataclasses import dataclass
-from typing import List
-
 import numpy as np
 from scipy.special import softmax
 
 from spine.data.out import RecoFragment, TruthFragment
-from spine.utils.docstring import inherit_docstring
 from spine.utils.globals import CLUST_COL, PART_COL, TRACK_SHP
 
 from .base import BuilderBase
@@ -16,7 +11,6 @@ from .base import BuilderBase
 __all__ = ["FragmentBuilder"]
 
 
-@inherit_docstring(BuilderBase)
 class FragmentBuilder(BuilderBase):
     """Builds reconstructed and truth fragments.
 

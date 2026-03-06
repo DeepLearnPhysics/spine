@@ -5,7 +5,6 @@ from dataclasses import dataclass
 import numpy as np
 
 from spine.utils.conditional import ME, torch
-from spine.utils.docstring import inherit_docstring
 from spine.utils.globals import BATCH_COL, COORD_COLS
 
 from .base import BatchBase
@@ -14,7 +13,6 @@ __all__ = ["TensorBatch"]
 
 
 @dataclass(eq=False)
-@inherit_docstring(BatchBase)
 class TensorBatch(BatchBase):
     """Batched tensor with the necessary methods to slice it."""
 

@@ -3,7 +3,8 @@
 This copies the internal structure of :class:`larcv.Trigger`.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Self
 
 from .base import DataBase
 
@@ -18,6 +19,8 @@ class Trigger(DataBase):
     ----------
     id : int
         Trigger ID
+    type : int
+        DAQ-specific trigger type
     time_s : int
         Integer seconds component of the UNIX trigger time
     time_ns : int
@@ -26,19 +29,18 @@ class Trigger(DataBase):
         Integer seconds component of the UNIX beam pulse time
     beam_time_ns : int
         Integer seconds component of the UNIX beam pulse time
-    type : int
-        DAQ-specific trigger type
     """
 
+    # Scalar attributes
     id: int = -1
-    time_s: int = -1
-    time_ns: int = -1
-    beam_time_s: int = -1
-    beam_time_ns: int = -1
     type: int = -1
+    time_s: int = field(default=-1, metadata={"units": "s"})
+    time_ns: int = field(default=-1, metadata={"units": "ns"})
+    beam_time_s: int = field(default=-1, metadata={"units": "s"})
+    beam_time_ns: int = field(default=-1, metadata={"units": "ns"})
 
     @classmethod
-    def from_larcv(cls, trigger):
+    def from_larcv(cls, trigger) -> Self:
         """Builds and returns a Trigger object from a LArCV Trigger object.
 
         Parameters
