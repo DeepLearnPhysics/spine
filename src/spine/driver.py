@@ -209,7 +209,9 @@ class Driver:
         logger.setLevel(verbosity.upper())
 
         # Set GPUs visible to CUDA (function handles torch availability)
-        base["world_size"] = set_visible_devices(**base)
+        base["world_size"] = set_visible_devices(
+            world_size=base.get("world_size", None), gpus=base.get("gpus", None)
+        )
 
         # If the seed is not set for the sampler, randomize it. This is done
         # here to keep a record of the seeds provided to the samplers

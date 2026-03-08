@@ -173,7 +173,9 @@ def process_world(base: dict) -> Tuple[bool, int, Optional[str]]:
     logger.setLevel(verbosity.upper())
 
     # Parse information about the world size, set visible CUDA devices
-    world_size = set_visible_devices(**base)
+    world_size = set_visible_devices(
+        world_size=base.get("world_size", None), gpus=base.get("gpus", None)
+    )
 
     # If there is more than one GPU in use, must distribute
     distributed = base.get("distributed", world_size > 1)
