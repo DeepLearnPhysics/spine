@@ -68,15 +68,31 @@ class ModelManager:
         iter_per_epoch : int, optional
             Number of iterations per epoch (relevant for training)
         """
+        # Check that torch is available for model operations
+        if not TORCH_AVAILABLE:
+            raise ImportError(
+                "PyTorch is required to use the model manager. "
+                "Install with: pip install spine[model]"
+            )
+
         # Save parameters
         self.train = train
         self.to_numpy = to_numpy
         self.time_dependant = time_dependent_loss
         self.dtype = getattr(torch, dtype)
         self.distributed = distributed
-        self.rank = rank
-        self.device = "cpu" if self.rank is None else f"cuda:{self.rank}"
+        self.rank = rank  # Global rank (process ID in distributed group)
         self.main_process = rank is None or rank == 0
+
+        # Determine device: use current_device() which setup_ddp() already configured
+        if self.rank is None:
+            self.device = "cpu"
+            self.device_id = None
+        else:
+            # In distributed mode, setup_ddp() already called torch.cuda.set_device(local_rank)
+            # This ensures we use the correct local GPU index, not global rank
+            self.device_id = torch.cuda.current_device()
+            self.device = f"cuda:{self.device_id}"
 
         # Initialize the timers and the configuration dictionary
         self.watch = StopwatchManager()
@@ -97,14 +113,14 @@ class ModelManager:
         net_cls, loss_cls = model_factory(name)
         try:
             self.net = net_cls(**modules)
-            self.net.to(device=rank, dtype=self.dtype)
+            self.net.to(device=self.device, dtype=self.dtype)
         except Exception as err:
             msg = f"Failed to instantiate {net_cls}"
             raise type(err)(f"{err}\n{msg}")
 
         try:
             self.loss_fn = loss_cls(**modules)
-            self.loss_fn.to(device=rank, dtype=self.dtype)
+            self.loss_fn.to(device=self.device, dtype=self.dtype)
         except Exception as err:
             msg = f"Failed to instantiate {loss_cls}"
             raise type(err)(f"{err}\n{msg}")
@@ -127,8 +143,8 @@ class ModelManager:
         if self.distributed:
             self.net = torch.nn.parallel.DistributedDataParallel(
                 self.net,
-                device_ids=[rank],
-                output_device=rank,
+                device_ids=[self.device_id],
+                output_device=self.device_id,
                 find_unused_parameters=find_unused_parameters,
             )
 
@@ -368,7 +384,7 @@ class ModelManager:
 
             # Load weight file into existing model
             logger.info(
-                "Restoring weights for module %s " "from %s...", module, weight_path
+                "Restoring weights for module %s from %s...", module, weight_path
             )
             with open(weight_path, "rb") as f:
                 # Read checkpoint
@@ -387,7 +403,7 @@ class ModelManager:
                     state_dict = {}
                     for name in self.net.state_dict():
                         if f"{module}." in name:
-                            suffix = "." if len(model_name) else ""
+                            suffix = "." if len(model_name) > 0 else ""
                             key = name.replace(f"{module}.", f"{model_name}{suffix}")
                             if key in checkpoint["state_dict"].keys():
                                 state_dict[name] = checkpoint["state_dict"][key]
@@ -454,7 +470,7 @@ class ModelManager:
 
                 value = data[name]
                 if isinstance(value, TensorBatch):
-                    value = data[name].to_tensor(device=self.rank, dtype=self.dtype)
+                    value = data[name].to_tensor(device=self.device, dtype=self.dtype)
                 input_dict[param] = value
 
             # Load the data products for the loss function
@@ -468,7 +484,9 @@ class ModelManager:
 
                     value = data[name]
                     if isinstance(value, TensorBatch):
-                        value = data[name].to_tensor(device=self.rank, dtype=self.dtype)
+                        value = data[name].to_tensor(
+                            device=self.device, dtype=self.dtype
+                        )
                     loss_dict[param] = value
 
         return input_dict, loss_dict

@@ -138,6 +138,13 @@ def main(
             # Set the nested value (returns tuple of (config, applied))
             cfg, _ = set_nested_value(cfg, key_path, value)
 
+    # Override distributed settings from environment variables (SLURM/torchrun)
+    # This handles multi-node training where each process sees 1 GPU but is part
+    # of a larger distributed group
+    if "RANK" in os.environ and "WORLD_SIZE" in os.environ:
+        cfg["base"]["world_size"] = int(os.environ["WORLD_SIZE"])
+        cfg["base"]["distributed"] = True
+
     # For actual training/inference, we need the main functionality
     from spine.main import run
 
