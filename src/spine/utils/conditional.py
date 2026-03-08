@@ -8,6 +8,7 @@ Currently wraps the following packages:
 """
 
 import os
+from typing import Any, Optional
 from warnings import warn
 
 __all__ = [
@@ -24,6 +25,7 @@ __all__ = [
 
 
 # If ROOT is available, load it
+ROOT: Optional[Any]
 try:
     import ROOT
 
@@ -35,6 +37,7 @@ except ModuleNotFoundError:
 
 
 # If LArCV is available, load it
+larcv: Optional[Any]
 try:
     from larcv import larcv
 
@@ -46,6 +49,7 @@ except ModuleNotFoundError:
 
 
 # If torch is available, load it
+torch: Optional[Any]
 try:
     import torch
 
@@ -71,6 +75,8 @@ except ModuleNotFoundError:
 
 
 # If MinkowskiEngine is available, load it with the right number of threads
+ME: Optional[Any]
+MF: Optional[Any]
 try:
     if os.environ.get("OMP_NUM_THREADS") is None:
         os.environ["OMP_NUM_THREADS"] = "16"
