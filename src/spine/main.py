@@ -30,35 +30,28 @@ def run(cfg: dict) -> None:
     distributed, world_size, torch_sharing = process_world(cfg["base"])
 
     # Check if rank is provided externally (multi-node/SLURM setup)
-    # Override distributed settings with environment variables if present
-    external_rank = "RANK" in os.environ
-    rank: int = 0  # Default value for type checking; overridden when external_rank=True
-    if external_rank:
-        rank = int(os.environ["RANK"])
-        world_size = int(os.environ["WORLD_SIZE"])
-        distributed = True
+    rank = int(os.environ["RANK"]) if "RANK" in os.environ else None
 
     # Launch the training/inference process
     if not distributed:
         # Run a single process on a single GPU (or CPU if no GPUs available)
         run_single(cfg)
 
-    else:
-        # Distribution is not advantageous for inference, so only support it for training
+    elif rank is not None:
+        # Multi-node: rank provided externally by SLURM/torchrun, run directly
         if "train" not in cfg["base"]:
             raise ValueError("Distributed execution is only supported for training.")
+        train_single(rank, cfg, distributed, world_size, torch_sharing)
 
-        if not external_rank:
-            # Multi-GPU single-node: launch processes using multiprocessing.spawn
-            torch.multiprocessing.spawn(
-                train_single,
-                args=(cfg, distributed, world_size, torch_sharing),
-                nprocs=world_size,
-            )
-
-        else:
-            # Multi-node: rank provided externally, run directly
-            train_single(rank, cfg, distributed, world_size, torch_sharing)
+    else:
+        # Single-node multi-GPU: launch processes using multiprocessing.spawn
+        if "train" not in cfg["base"]:
+            raise ValueError("Distributed execution is only supported for training.")
+        torch.multiprocessing.spawn(
+            train_single,
+            args=(cfg, distributed, world_size, torch_sharing),
+            nprocs=world_size,
+        )
 
 
 def run_single(cfg: dict) -> None:
