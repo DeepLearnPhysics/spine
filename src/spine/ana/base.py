@@ -189,6 +189,32 @@ class AnaBase(ABC):
         self.output_prefix = prefix
         self.writers = {}
 
+    def __del__(self):
+        """Destructor to ensure CSV files are closed.
+
+        This acts as a safety net in case close_writers() is not called
+        explicitly. However, explicit cleanup is preferred.
+        """
+        self.close_writers()
+
+    def close_writers(self):
+        """Close all CSV writers and flush any remaining data.
+
+        This should be called when the analysis is complete to ensure
+        all data is written and files are properly closed.
+        """
+        for writer in self.writers.values():
+            writer.close()
+
+    def flush_writers(self):
+        """Flush all CSV writer buffers without closing the files.
+
+        This forces any buffered data to be written to disk. Useful
+        for ensuring data persistence at checkpoints.
+        """
+        for writer in self.writers.values():
+            writer.flush()
+
     def initialize_writer(self, name):
         """Adds a CSV writer to the list of writers for this script.
 

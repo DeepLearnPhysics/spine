@@ -117,3 +117,28 @@ class AnaManager:
                             f"the number of entries ({num_entries})."
                         )
                     data[key] = val
+
+    def close(self):
+        """Close all analysis script writers and flush remaining data.
+
+        This should be called when analysis is complete to ensure all
+        CSV files are properly closed and data is written.
+        """
+        for module in self.modules.values():
+            module.close_writers()
+
+    def flush(self):
+        """Flush all analysis script writer buffers.
+
+        This forces any buffered data to be written to disk without
+        closing the files.
+        """
+        for module in self.modules.values():
+            module.flush_writers()
+
+    def __del__(self):
+        """Destructor to ensure analysis writers are closed.
+
+        Acts as a safety net in case close() is not called explicitly.
+        """
+        self.close()

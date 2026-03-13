@@ -655,6 +655,10 @@ class Driver:
             # Release the memory for the next iteration
             data = None
 
+        # Clean up: close all analysis script CSV writers
+        if self.ana is not None:
+            self.ana.close()
+
     def process(
         self, entry=None, run=None, subrun=None, event=None, iteration=None, epoch=None
     ):
