@@ -70,6 +70,7 @@ class AnaBase(ABC):
         overwrite=False,
         log_dir=None,
         prefix=None,
+        buffer_size=1,
     ):
         """Initialize default anlysis script object properties.
 
@@ -97,6 +98,9 @@ class AnaBase(ABC):
             Output CSV file directory (shared with driver log)
         prefix : str, default None
             Name to prefix every output CSV file with
+        buffer_size : int, default 1
+            CSV file buffer size. 1 is line buffered (safe default),
+            -1 uses system default, 0 is unbuffered, >1 is buffer size in bytes
         """
         # Initialize default keys
         self.update_keys(
@@ -187,6 +191,7 @@ class AnaBase(ABC):
         self.base_dict = {}
         self.log_dir = log_dir
         self.output_prefix = prefix
+        self.buffer_size = buffer_size
         self.writers = {}
 
     def __del__(self):
@@ -233,7 +238,10 @@ class AnaBase(ABC):
 
         # Initialize the writer
         self.writers[name] = CSVWriter(
-            file_name, append=self.append_file, overwrite=self.overwrite_file
+            file_name,
+            append=self.append_file,
+            overwrite=self.overwrite_file,
+            buffer_size=self.buffer_size,
         )
 
     @property

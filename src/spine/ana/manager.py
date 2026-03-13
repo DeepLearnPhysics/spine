@@ -37,7 +37,13 @@ class AnaManager:
         self.parse_config(log_dir, prefix, **cfg)
 
     def parse_config(
-        self, log_dir, prefix, overwrite=None, prefix_output=False, **modules
+        self,
+        log_dir,
+        prefix,
+        overwrite=None,
+        prefix_output=False,
+        buffer_size=1,
+        **modules,
     ):
         """Parse the analysis tool configuration.
 
@@ -52,6 +58,9 @@ class AnaManager:
             If `True`, overwrite the CSV logs if they already exist
         prefix_output : bool, optional
             If `True`, will prefix the output CSV names with the input file name
+        buffer_size : int, default 1
+            CSV file buffer size. 1 is line buffered (default),
+            -1 uses system default, 0 is unbuffered, >1 is buffer size in bytes
         **modules : dict
             List of analysis script modules
         """
@@ -77,7 +86,7 @@ class AnaManager:
 
             # Append
             self.modules[k] = ana_script_factory(
-                k, modules[k], overwrite, log_dir, prefix
+                k, modules[k], overwrite, log_dir, prefix, buffer_size
             )
 
     def __call__(self, data):

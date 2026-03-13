@@ -275,6 +275,7 @@ class Driver:
         log_dir="logs",
         prefix_log=False,
         overwrite_log=False,
+        csv_buffer_size=1,
         parent_path=None,
         iterations=None,
         epochs=None,
@@ -305,6 +306,9 @@ class Driver:
             If True, use the input file name to prefix the log name
         overwrite_log : bool, default False
             If True, overwrite log even if it already exists
+        csv_buffer_size : int, default 1
+            CSV file buffer size. 1 is line buffered (default, safe),
+            -1 uses system default, 0 is unbuffered, >1 is buffer size in bytes
         parent_path : str, optional
             Path to the parent directory of the analysis configuration file
         iterations : int, optional
@@ -365,6 +369,7 @@ class Driver:
         self.log_dir = log_dir
         self.prefix_log = prefix_log
         self.overwrite_log = overwrite_log
+        self.csv_buffer_size = csv_buffer_size
         self.parent_path = parent_path
         self.iterations = iterations
         self.epochs = epochs
@@ -566,7 +571,9 @@ class Driver:
 
         # Initialize the log
         log_path = os.path.join(self.log_dir, log_name)
-        self.logger = CSVWriter(log_path, overwrite=self.overwrite_log)
+        self.logger = CSVWriter(
+            log_path, overwrite=self.overwrite_log, buffer_size=self.csv_buffer_size
+        )
 
     def __len__(self):
         """Returns the number of events in the underlying reader object.

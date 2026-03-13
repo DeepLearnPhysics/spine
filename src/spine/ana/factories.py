@@ -10,7 +10,9 @@ for module in [calib, diag, metric, script]:
     ANA_DICT.update(**module_dict(module))
 
 
-def ana_script_factory(name, cfg, overwrite=None, log_dir=None, prefix=None):
+def ana_script_factory(
+    name, cfg, overwrite=None, log_dir=None, prefix=None, buffer_size=1
+):
     """Instantiates an analyzer module from a configuration dictionary.
 
     Parameters
@@ -29,6 +31,8 @@ def ana_script_factory(name, cfg, overwrite=None, log_dir=None, prefix=None):
     prefix : str, optional
         Input file prefix. If requested, it will be used to prefix
         all the output CSV files.
+    buffer_size : int, default 1
+        CSV file buffer size for analysis outputs
 
     Returns
     -------
@@ -41,7 +45,14 @@ def ana_script_factory(name, cfg, overwrite=None, log_dir=None, prefix=None):
     # Instantiate the analysis script module
     if overwrite is not None:
         return instantiate(
-            ANA_DICT, cfg, overwrite=overwrite, log_dir=log_dir, prefix=prefix
+            ANA_DICT,
+            cfg,
+            overwrite=overwrite,
+            log_dir=log_dir,
+            prefix=prefix,
+            buffer_size=buffer_size,
         )
     else:
-        return instantiate(ANA_DICT, cfg, log_dir=log_dir, prefix=prefix)
+        return instantiate(
+            ANA_DICT, cfg, log_dir=log_dir, prefix=prefix, buffer_size=buffer_size
+        )

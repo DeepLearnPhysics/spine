@@ -14,6 +14,8 @@ class CSVWriter:
     **Performance Optimization**: This writer keeps the file handle open during
     its lifetime, eliminating the overhead of opening/closing the file on every
     write operation. This provides significant speedup when writing many rows.
+    By default, uses line buffering (buffer_size=1) to ensure each row is safely
+    written while maintaining excellent performance.
 
     **Usage**: The writer should be properly closed when done:
 
@@ -33,6 +35,24 @@ class CSVWriter:
            writer = CSVWriter('output.csv')
            writer.append({'col1': 1, 'col2': 2})
            writer.close()  # Must call explicitly!
+
+    **Configuration**: Buffer size can be configured:
+
+    - In analysis scripts (YAML config):
+
+      .. code-block:: yaml
+
+          ana:
+            buffer_size: 1  # Line buffered (default, safe and fast)
+            my_analysis:
+              ...
+
+    - In driver logging (YAML config):
+
+      .. code-block:: yaml
+
+          base:
+            csv_buffer_size: 1  # For driver log file
     """
 
     name = "csv"
@@ -43,7 +63,7 @@ class CSVWriter:
         overwrite=False,
         append=False,
         accept_missing=False,
-        buffer_size=-1,
+        buffer_size=1,
     ):
         """Initialize the basics of the output file.
 
@@ -57,9 +77,10 @@ class CSVWriter:
             If True, add more rows to an existing CSV file
         accept_missing : bool, default True
             Tolerate missing keys
-        buffer_size : int, default -1
-            Buffer size for file writing. -1 uses system default,
-            0 is unbuffered, 1 is line buffered, >1 is buffer size in bytes
+        buffer_size : int, default 1
+            Buffer size for file writing. 1 is line buffered (default, safe),
+            -1 uses system default buffering, 0 is unbuffered,
+            >1 is buffer size in bytes
         """
         # Check that output file does not already exist, if requested
         if not overwrite and not append and os.path.isfile(file_name):
