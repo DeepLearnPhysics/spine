@@ -6,20 +6,53 @@ __all__ = ["CSVWriter"]
 
 
 class CSVWriter:
-    """Writes data to a CSV file.
+    """Writes data to a CSV file with optimized performance.
 
     Builds a CSV file to store the output of the analysis tools. It can only be
     used to store relatively basic quantities (scalars, strings, etc.).
 
-    Typical configuration should look like:
+    **Performance Optimization**: This writer keeps the file handle open during
+    its lifetime, eliminating the overhead of opening/closing the file on every
+    write operation. This provides significant speedup when writing many rows.
+    By default, uses line buffering (buffer_size=1) to ensure each row is safely
+    written while maintaining excellent performance.
 
-    .. code-block:: yaml
+    **Usage**: The writer should be properly closed when done:
 
-        io:
-          ...
-          writer:
-            name: csv
-            file_name: output.csv
+    1. Using context manager (recommended):
+
+       .. code-block:: python
+
+           with CSVWriter('output.csv') as writer:
+               writer.append({'col1': 1, 'col2': 2})
+               writer.append({'col1': 3, 'col2': 4})
+           # File automatically closed and flushed
+
+    2. Manual management (used by AnaBase):
+
+       .. code-block:: python
+
+           writer = CSVWriter('output.csv')
+           writer.append({'col1': 1, 'col2': 2})
+           writer.close()  # Must call explicitly!
+
+    **Configuration**: Buffer size can be configured:
+
+    - In analysis scripts (YAML config):
+
+      .. code-block:: yaml
+
+          ana:
+            buffer_size: 1  # Line buffered (default, safe and fast)
+            my_analysis:
+              ...
+
+    - In driver logging (YAML config):
+
+      .. code-block:: yaml
+
+          base:
+            csv_buffer_size: 1  # For driver log file
     """
 
     name = "csv"
@@ -30,6 +63,7 @@ class CSVWriter:
         overwrite=False,
         append=False,
         accept_missing=False,
+        buffer_size=1,
     ):
         """Initialize the basics of the output file.
 
@@ -43,16 +77,24 @@ class CSVWriter:
             If True, add more rows to an existing CSV file
         accept_missing : bool, default True
             Tolerate missing keys
+        buffer_size : int, default 1
+            Buffer size for file writing. 1 is line buffered (default, safe),
+            -1 uses system default buffering, 0 is unbuffered,
+            >1 is buffer size in bytes
         """
-        # Check that output file does not already exist, if requestes
-        if not overwrite and os.path.isfile(file_name):
+        # Check that output file does not already exist, if requested
+        if not overwrite and not append and os.path.isfile(file_name):
             raise FileExistsError(f"File with name {file_name} already exists.")
 
         # Store persistent attributes
         self.file_name = file_name
         self.append_file = append
         self.accept_missing = accept_missing
+        self.buffer_size = buffer_size
         self.result_keys = None
+        self.file_handle = None
+
+        # If appending, check that the file exists and read the header
         if self.append_file:
             if not os.path.isfile(file_name):
                 raise FileNotFoundError(
@@ -62,7 +104,72 @@ class CSVWriter:
                 )
 
             with open(self.file_name, "r", encoding="utf-8") as out_file:
-                self.result_keys = out_file.readline().split(",")
+                self.result_keys = out_file.readline().strip().split(",")
+
+    def __enter__(self):
+        """Context manager entry. Opens the file handle.
+
+        Returns
+        -------
+        CSVWriter
+            Self reference for context manager
+        """
+        self.open()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit. Closes the file handle.
+
+        Parameters
+        ----------
+        exc_type : type
+            Exception type if an exception occurred
+        exc_val : Exception
+            Exception value if an exception occurred
+        exc_tb : traceback
+            Exception traceback if an exception occurred
+
+        Returns
+        -------
+        bool
+            False to propagate exceptions
+        """
+        self.close()
+        return False
+
+    def open(self):
+        """Open the file handle for writing.
+
+        If the file handle is already open, this does nothing.
+        The file is opened in append mode if append_file is True
+        and the file exists, otherwise in write mode.
+        """
+        if self.file_handle is None:
+            mode = "a" if self.append_file and os.path.isfile(self.file_name) else "w"
+            self.file_handle = open(
+                self.file_name, mode, encoding="utf-8", buffering=self.buffer_size
+            )
+
+    def close(self):
+        """Close the file handle and ensure all data is written.
+
+        This flushes any buffered data before closing. After calling
+        this, the writer cannot be used unless open() is called again.
+        """
+        if self.file_handle is not None:
+            self.file_handle.flush()
+            self.file_handle.close()
+            self.file_handle = None
+
+    def flush(self):
+        """Explicitly flush the file buffer to disk.
+
+        This forces any buffered data to be written to disk without
+        closing the file. Useful for ensuring data persistence at
+        specific checkpoints.
+        """
+        if self.file_handle is not None:
+            self.file_handle.flush()
 
     def create(self, result_blob):
         """Initialize the header of the CSV file, record the keys to be stored.
@@ -75,10 +182,15 @@ class CSVWriter:
         # Save the list of keys to store
         self.result_keys = list(result_blob.keys())
 
+        # Open the file handle if not already open
+        self.open()
+
+        # File handle is guaranteed to be open here
+        assert self.file_handle is not None
+
         # Create a header and write it to file
-        with open(self.file_name, "w", encoding="utf-8") as out_file:
-            header_str = ",".join(self.result_keys)
-            out_file.write(header_str + "\n")
+        header_str = ",".join(self.result_keys)
+        self.file_handle.write(header_str + "\n")
 
     def append(self, result_blob):
         """Append the CSV file with the output.
@@ -118,10 +230,17 @@ class CSVWriter:
                     new_result_blob[k] = v
                 result_blob = new_result_blob
 
-        # Append file
-        with open(self.file_name, "a", encoding="utf-8") as out_file:
-            result_str = ",".join([str(result_blob[k]) for k in self.result_keys])
-            out_file.write(result_str + "\n")
+        # Ensure file is open
+        if self.file_handle is None:
+            self.open()
+
+        # File handle is guaranteed to be open here
+        assert self.file_handle is not None
+        assert self.result_keys is not None
+
+        # Append to file (no open/close overhead!)
+        result_str = ",".join([str(result_blob[k]) for k in self.result_keys])
+        self.file_handle.write(result_str + "\n")
 
     @staticmethod
     def array_diff(array_x, array_y):
