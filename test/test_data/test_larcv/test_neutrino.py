@@ -3,6 +3,8 @@
 import numpy as np
 import pytest
 
+from spine.utils.conditional import LARCV_AVAILABLE, larcv
+
 
 class TestNeutrinoCreation:
     """Test Neutrino class creation and initialization."""
@@ -579,6 +581,234 @@ class TestNeutrinoIntegration:
         assert (
             abs(recoil_proton.energy_deposit - recoil_proton.energy_init) <= 50.0
         )  # Proton stops
+
+
+class TestNeutrinoFromLArCV:
+    """Tests for Neutrino.from_larcv() - only runs if larcv is available."""
+
+    def test_from_larcv_mock(self):
+        """Test from_larcv with mock object (runs even without larcv)."""
+        from spine.data import Neutrino
+
+        # Create a mock larcv Neutrino object
+        class MockLArCVNeutrino:
+            """Mock LArCV Neutrino for testing."""
+
+            def id(self):
+                return 0
+
+            def interaction_id(self):
+                return 10
+
+            def mct_index(self):
+                return 5
+
+            def nu_track_id(self):
+                return 1000
+
+            def lepton_track_id(self):
+                return 1001
+
+            def pdg_code(self):
+                return 14  # numu
+
+            def lepton_pdg_code(self):
+                return 13  # mu-
+
+            def current_type(self):
+                return 0  # CC
+
+            def interaction_mode(self):
+                return 0  # QE
+
+            def interaction_type(self):
+                return 1001  # CCQE
+
+            def target(self):
+                return 1000180400  # Argon-40
+
+            def nucleon(self):
+                return 2212  # Proton
+
+            def quark(self):
+                return 0
+
+            def energy_init(self):
+                return 2.5  # GeV
+
+            def hadronic_invariant_mass(self):
+                return 1.2  # GeV/c^2
+
+            def bjorken_x(self):
+                return 0.5
+
+            def inelasticity(self):
+                return 0.3
+
+            def momentum_transfer(self):
+                return 0.8  # (GeV/c)^2
+
+            def momentum_transfer_mag(self):
+                return 0.9  # GeV/c
+
+            def energy_transfer(self):
+                return 0.75  # GeV
+
+            def lepton_p(self):
+                return 1.8  # GeV/c
+
+            def distance_travel(self):
+                return 250.0  # cm
+
+            def theta(self):
+                return 0.5  # radians
+
+            def creation_process(self):
+                return "primary"
+
+            def x(self):
+                return 100.0
+
+            def y(self):
+                return -50.0
+
+            def z(self):
+                return 500.0
+
+            def t(self):
+                return 1234.5  # ns
+
+            def px(self):
+                return 0.5
+
+            def py(self):
+                return 0.3
+
+            def pz(self):
+                return 2.4
+
+            def position(self):
+                class MockPosition:
+                    def x(self):
+                        return 100.0
+
+                    def y(self):
+                        return -50.0
+
+                    def z(self):
+                        return 500.0
+
+                    def t(self):
+                        return 1234.5
+
+                return MockPosition()
+
+            def momentum(self):
+                class MockMomentum:
+                    def px(self):
+                        return 0.5
+
+                    def py(self):
+                        return 0.3
+
+                    def pz(self):
+                        return 2.4
+
+                return MockMomentum()
+
+        mock_neutrino = MockLArCVNeutrino()
+        neutrino = Neutrino.from_larcv(mock_neutrino)
+
+        # Verify all scalar attributes
+        assert neutrino.id == 0
+        assert neutrino.interaction_id == 10
+        assert neutrino.mct_index == 5
+        assert neutrino.track_id == 1000
+        assert neutrino.lepton_track_id == 1001
+        assert neutrino.pdg_code == 14
+        assert neutrino.lepton_pdg_code == 13
+        assert neutrino.current_type == 0
+        assert neutrino.interaction_mode == 0
+        assert neutrino.interaction_type == 1001
+        assert neutrino.target == 1000180400
+        assert neutrino.nucleon == 2212
+        assert neutrino.quark == 0
+        assert neutrino.energy_init == 2.5
+        assert neutrino.hadronic_invariant_mass == 1.2
+        assert neutrino.bjorken_x == 0.5
+        assert neutrino.inelasticity == 0.3
+        assert neutrino.momentum_transfer == 0.8
+        assert neutrino.momentum_transfer_mag == 0.9
+        assert neutrino.energy_transfer == 0.75
+        assert neutrino.lepton_p == 1.8
+        assert neutrino.distance_travel == 250.0
+        assert neutrino.theta == 0.5
+        assert neutrino.t == 1234.5
+        assert neutrino.creation_process == "primary"
+
+        # Check position and momentum arrays
+        np.testing.assert_array_almost_equal(neutrino.position, [100.0, -50.0, 500.0])
+        np.testing.assert_array_almost_equal(neutrino.momentum, [0.5, 0.3, 2.4])
+
+    @pytest.mark.skipif(not LARCV_AVAILABLE, reason="larcv not available")
+    def test_from_larcv_real(self):
+        """Test from_larcv with real larcv object (only if larcv installed)."""
+        from spine.data import Neutrino
+
+        assert larcv is not None
+
+        # Create a real LArCV Neutrino
+        larcv_neutrino = larcv.Neutrino()
+        larcv_neutrino.id(0)
+        larcv_neutrino.interaction_id(15)
+        larcv_neutrino.mct_index(3)
+        larcv_neutrino.nu_track_id(2000)
+        larcv_neutrino.lepton_track_id(2001)
+        larcv_neutrino.pdg_code(12)  # nue
+        larcv_neutrino.lepton_pdg_code(11)  # e-
+        larcv_neutrino.current_type(0)  # CC
+        larcv_neutrino.interaction_mode(10)  # RES
+        larcv_neutrino.interaction_type(1091)  # CCRES
+        larcv_neutrino.energy_init(3.2)
+        larcv_neutrino.hadronic_invariant_mass(1.5)
+        larcv_neutrino.bjorken_x(0.4)
+        larcv_neutrino.inelasticity(0.35)
+        larcv_neutrino.momentum_transfer(0.9)
+        larcv_neutrino.momentum_transfer_mag(0.95)
+        larcv_neutrino.energy_transfer(0.85)
+        larcv_neutrino.lepton_p(2.2)
+        larcv_neutrino.distance_travel(300.0)
+        larcv_neutrino.theta(0.4)
+        larcv_neutrino.target(1000180400)
+        larcv_neutrino.nucleon(2112)
+        larcv_neutrino.quark(0)
+        larcv_neutrino.creation_process("primary")
+
+        # Set position
+        larcv_neutrino.position(50.0, -25.0, 600.0, 2000.0)  # x, y, z, t
+
+        # Set momentum
+        larcv_neutrino.momentum(0.8, 0.6, 3.0)
+
+        # Convert to SPINE Neutrino
+        neutrino = Neutrino.from_larcv(larcv_neutrino)
+
+        # Verify conversion
+        assert neutrino.id == 0
+        assert neutrino.interaction_id == 15
+        assert neutrino.track_id == 2000
+        assert neutrino.lepton_track_id == 2001
+        assert neutrino.pdg_code == 12
+        assert neutrino.lepton_pdg_code == 11
+        assert neutrino.current_type == 0
+        assert neutrino.interaction_mode == 10
+        assert neutrino.interaction_type == 1091
+        assert neutrino.energy_init == 3.2
+        assert neutrino.lepton_p == 2.2
+        assert neutrino.creation_process == "primary"
+
+        np.testing.assert_array_almost_equal(neutrino.position, [50.0, -25.0, 600.0])
+        np.testing.assert_array_almost_equal(neutrino.momentum, [0.8, 0.6, 3.0])
 
 
 if __name__ == "__main__":

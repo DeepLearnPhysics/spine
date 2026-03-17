@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from spine.data import Flash
+from spine.utils.conditional import LARCV_AVAILABLE, larcv
 
 
 class TestFlashCreation:
@@ -13,13 +14,13 @@ class TestFlashCreation:
         """Test Flash creation with default values."""
         flash = Flash()
         assert flash.volume_id == -1
-        assert flash.time == -1.0
-        assert flash.time_width == -1.0
-        assert flash.total_pe == -1.0
+        assert np.isnan(flash.time)
+        assert np.isnan(flash.time_width)
+        assert np.isnan(flash.total_pe)
         assert len(flash.pe_per_ch) == 0  # Empty array, not None
-        # Test default values (these are arrays filled with -inf)
-        assert np.allclose(flash.center, [-np.inf, -np.inf, -np.inf])
-        assert np.allclose(flash.width, [-np.inf, -np.inf, -np.inf])
+        # Test default values (these are arrays filled with nan)
+        assert np.all(np.isnan(flash.center))
+        assert np.all(np.isnan(flash.width))
 
     def test_flash_with_values(self):
         """Test Flash creation with explicit values."""
@@ -292,3 +293,139 @@ class TestFlashIntegration:
         bright_flash = Flash(total_pe=180000.0, pe_per_ch=bright_pe)
         assert bright_flash.total_pe == 180000.0
         assert np.all(bright_flash.pe_per_ch == 1000.0)
+
+
+class TestFlashFromLArCV:
+    """Tests for Flash.from_larcv() - only runs if larcv is available."""
+
+    def test_from_larcv_mock(self):
+        """Test from_larcv with mock object (runs even without larcv)."""
+
+        # Create a mock larcv Flash object
+        class MockLArCVFlash:
+            """Mock LArCV Flash for testing."""
+
+            def id(self):
+                return 5
+
+            def volume_id(self):
+                return 0
+
+            def frame(self):
+                return 100
+
+            def inBeamFrame(self):
+                return True
+
+            def onBeamTime(self):
+                return True
+
+            def time(self):
+                return 4.5  # us
+
+            def absTime(self):
+                return 1234567.0
+
+            def timeWidth(self):
+                return 0.5  # us
+
+            def TotalPE(self):
+                return 350.5
+
+            def xCenter(self):
+                return 125.0
+
+            def yCenter(self):
+                return 25.0
+
+            def zCenter(self):
+                return 500.0
+
+            def xWidth(self):
+                return 10.0
+
+            def yWidth(self):
+                return 15.0
+
+            def zWidth(self):
+                return 20.0
+
+            def PEPerOpDet(self):
+                # Return a mock list of PE per optical detector (e.g., 10 PMTs)
+                return [10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 30.0, 20.0, 20.5]
+
+        mock_flash = MockLArCVFlash()
+        flash = Flash.from_larcv(mock_flash)
+
+        # Verify all attributes transferred correctly
+        assert flash.id == 5
+        assert flash.volume_id == 0
+        assert flash.frame == 100
+        assert flash.in_beam_frame is True
+        assert flash.on_beam_time is True
+        assert flash.time == 4.5
+        assert flash.time_abs == 1234567.0
+        assert flash.time_width == 0.5
+        assert flash.total_pe == 350.5
+
+        # Check position and width arrays
+        np.testing.assert_array_almost_equal(flash.center, [125.0, 25.0, 500.0])
+        np.testing.assert_array_almost_equal(flash.width, [10.0, 15.0, 20.0])
+
+        # Check PE per channel
+        expected_pe = np.array(
+            [10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 30.0, 20.0, 20.5]
+        )
+        np.testing.assert_array_almost_equal(flash.pe_per_ch, expected_pe)
+
+    @pytest.mark.skipif(not LARCV_AVAILABLE, reason="larcv not available")
+    def test_from_larcv_real(self):
+        """Test from_larcv with real larcv object (only if larcv installed)."""
+        assert larcv is not None
+
+        # Create a real LArCV Flash
+        larcv_flash = larcv.Flash()
+        larcv_flash.id(8)
+        larcv_flash.volume_id(1)
+        larcv_flash.frame(200)
+        larcv_flash.inBeamFrame(True)
+        larcv_flash.onBeamTime(False)
+        larcv_flash.time(3.8)
+        larcv_flash.absTime(9876543.0)
+        larcv_flash.timeWidth(0.75)
+        larcv_flash.TotalPE(500.0)
+
+        # Set position (xCenter, yCenter, zCenter)
+        larcv_flash.xCenter(150.0)
+        larcv_flash.yCenter(50.0)
+        larcv_flash.zCenter(600.0)
+
+        # Set width (xWidth, yWidth, zWidth)
+        larcv_flash.xWidth(12.0)
+        larcv_flash.yWidth(18.0)
+        larcv_flash.zWidth(25.0)
+
+        # Set PE per optical detector
+        pe_list = [15.0, 25.0, 35.0, 45.0, 55.0, 65.0, 75.0, 85.0, 50.0, 50.0]
+        for pe in pe_list:
+            larcv_flash.push_back_PEPerOpDet(pe)
+
+        # Convert to SPINE Flash
+        flash = Flash.from_larcv(larcv_flash)
+
+        # Verify conversion
+        assert flash.id == 8
+        assert flash.volume_id == 1
+        assert flash.frame == 200
+        assert flash.in_beam_frame is True
+        assert flash.on_beam_time is False
+        assert flash.time == 3.8
+        assert flash.time_abs == 9876543.0
+        assert flash.time_width == 0.75
+        assert flash.total_pe == 500.0
+
+        np.testing.assert_array_almost_equal(flash.center, [150.0, 50.0, 600.0])
+        np.testing.assert_array_almost_equal(flash.width, [12.0, 18.0, 25.0])
+
+        expected_pe = np.array(pe_list, dtype=np.float32)
+        np.testing.assert_array_almost_equal(flash.pe_per_ch, expected_pe)

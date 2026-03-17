@@ -3,6 +3,8 @@
 import numpy as np
 import pytest
 
+from spine.utils.conditional import LARCV_AVAILABLE, larcv
+
 
 class TestParticleCreation:
     """Test Particle class creation and initialization."""
@@ -501,6 +503,331 @@ class TestParticleIntegration:
         # Just verify the muon was created with high energy
         assert cosmic_muon.energy_init == 5000.0
         assert cosmic_muon.pid == 13
+
+
+class TestParticleFromLArCV:
+    """Tests for Particle.from_larcv() - only runs if larcv is available."""
+
+    def test_from_larcv_mock(self):
+        """Test from_larcv with mock object (runs even without larcv)."""
+        from spine.data import Particle
+
+        # Create a mock larcv Particle object
+        class MockLArCVParticle:
+            """Mock LArCV Particle for testing."""
+
+            def id(self):
+                return 10
+
+            def group_id(self):
+                return 2
+
+            def interaction_id(self):
+                return 1
+
+            def parent_id(self):
+                return 5
+
+            def mct_index(self):
+                return 8
+
+            def mcst_index(self):
+                return 12
+
+            def num_voxels(self):
+                return 5000
+
+            def shape(self):
+                return 1  # Track
+
+            def energy_init(self):
+                return 500.0  # MeV
+
+            def energy_deposit(self):
+                return 450.0  # MeV
+
+            def distance_travel(self):
+                return 200.0  # cm
+
+            def track_id(self):
+                return 1000
+
+            def pdg_code(self):
+                return 13  # muon
+
+            def creation_process(self):
+                return "primary"
+
+            def t(self):
+                return 100.0  # ns
+
+            def parent_track_id(self):
+                return 999
+
+            def parent_pdg_code(self):
+                return 14  # numu
+
+            def parent_creation_process(self):
+                return "generator"
+
+            def parent_t(self):
+                return 95.0  # ns
+
+            def ancestor_track_id(self):
+                return 998
+
+            def ancestor_pdg_code(self):
+                return 14
+
+            def ancestor_creation_process(self):
+                return "generator"
+
+            def ancestor_t(self):
+                return 90.0
+
+            def children_id(self):
+                return [11, 12, 13]
+
+            def position(self):
+                class MockPosition:
+                    def x(self):
+                        return 100.0
+
+                    def y(self):
+                        return 50.0
+
+                    def z(self):
+                        return 500.0
+
+                return MockPosition()
+
+            def end_position(self):
+                class MockEndPosition:
+                    def x(self):
+                        return 150.0
+
+                    def y(self):
+                        return 75.0
+
+                    def z(self):
+                        return 700.0
+
+                    def t(self):
+                        return 120.0
+
+                return MockEndPosition()
+
+            def parent_position(self):
+                class MockParentPosition:
+                    def x(self):
+                        return 95.0
+
+                    def y(self):
+                        return 45.0
+
+                    def z(self):
+                        return 495.0
+
+                return MockParentPosition()
+
+            def ancestor_position(self):
+                class MockAncestorPosition:
+                    def x(self):
+                        return 90.0
+
+                    def y(self):
+                        return 40.0
+
+                    def z(self):
+                        return 490.0
+
+                return MockAncestorPosition()
+
+            def first_step(self):
+                class MockFirstStep:
+                    def x(self):
+                        return 102.0
+
+                    def y(self):
+                        return 52.0
+
+                    def z(self):
+                        return 502.0
+
+                return MockFirstStep()
+
+            def last_step(self):
+                class MockLastStep:
+                    def x(self):
+                        return 148.0
+
+                    def y(self):
+                        return 73.0
+
+                    def z(self):
+                        return 698.0
+
+                return MockLastStep()
+
+            def px(self):
+                return 100.0
+
+            def py(self):
+                return 50.0
+
+            def pz(self):
+                return 400.0
+
+            def momentum(self):
+                """Marker method to indicate momentum attributes exist."""
+                return True
+
+            def end_px(self):
+                return 80.0
+
+            def end_py(self):
+                return 40.0
+
+            def end_pz(self):
+                return 300.0
+
+            def end_momentum(self):
+                """Marker method to indicate end_momentum attributes exist."""
+                return True
+
+        mock_particle = MockLArCVParticle()
+        particle = Particle.from_larcv(mock_particle)
+
+        # Verify all scalar attributes
+        assert particle.id == 10
+        assert particle.group_id == 2
+        assert particle.interaction_id == 1
+        assert particle.parent_id == 5
+        assert particle.mct_index == 8
+        assert particle.mcst_index == 12
+        assert particle.num_voxels == 5000
+        assert particle.shape == 1
+        assert particle.energy_init == 500.0
+        assert particle.energy_deposit == 450.0
+        assert particle.distance_travel == 200.0
+        assert particle.track_id == 1000
+        assert particle.pdg_code == 13
+        assert particle.parent_track_id == 999
+        assert particle.parent_pdg_code == 14
+        assert particle.ancestor_track_id == 998
+        assert particle.ancestor_pdg_code == 14
+        assert particle.creation_process == "primary"
+        assert particle.parent_creation_process == "generator"
+        assert particle.ancestor_creation_process == "generator"
+        assert particle.t == 100.0
+        assert particle.end_t == 120.0
+        assert particle.parent_t == 95.0
+        assert particle.ancestor_t == 90.0
+
+        # Check position arrays
+        np.testing.assert_array_almost_equal(particle.position, [100.0, 50.0, 500.0])
+        np.testing.assert_array_almost_equal(
+            particle.end_position, [150.0, 75.0, 700.0]
+        )
+        np.testing.assert_array_almost_equal(
+            particle.parent_position, [95.0, 45.0, 495.0]
+        )
+        np.testing.assert_array_almost_equal(
+            particle.ancestor_position, [90.0, 40.0, 490.0]
+        )
+        np.testing.assert_array_almost_equal(particle.first_step, [102.0, 52.0, 502.0])
+        np.testing.assert_array_almost_equal(particle.last_step, [148.0, 73.0, 698.0])
+
+        # Check momentum arrays
+        np.testing.assert_array_almost_equal(particle.momentum, [100.0, 50.0, 400.0])
+        np.testing.assert_array_almost_equal(particle.end_momentum, [80.0, 40.0, 300.0])
+
+        # Check children_id array
+        np.testing.assert_array_equal(particle.children_id, [11, 12, 13])
+
+    @pytest.mark.skipif(not LARCV_AVAILABLE, reason="larcv not available")
+    def test_from_larcv_real(self):
+        """Test from_larcv with real larcv object (only if larcv installed)."""
+        from spine.data import Particle
+
+        assert larcv is not None
+
+        # Create a real LArCV Particle
+        larcv_particle = larcv.Particle()
+        larcv_particle.id(15)
+        larcv_particle.group_id(3)
+        larcv_particle.interaction_id(2)
+        larcv_particle.parent_id(10)
+        larcv_particle.mct_index(5)
+        larcv_particle.mcst_index(8)
+        larcv_particle.num_voxels(8000)
+        larcv_particle.shape(2)  # Shower
+        larcv_particle.energy_init(800.0)
+        larcv_particle.energy_deposit(750.0)
+        larcv_particle.distance_travel(150.0)
+
+        # Set track IDs and PDG codes
+        larcv_particle.track_id(2000)
+        larcv_particle.pdg_code(11)  # electron
+        larcv_particle.parent_track_id(1999)
+        larcv_particle.parent_pdg_code(22)  # photon
+        larcv_particle.ancestor_track_id(1998)
+        larcv_particle.ancestor_pdg_code(111)  # pi0
+
+        # Set creation processes
+        larcv_particle.creation_process("conv")
+        larcv_particle.parent_creation_process("Decay")
+        larcv_particle.ancestor_creation_process("hadElastic")
+
+        # Set times
+        larcv_particle.t(200.0)
+        larcv_particle.parent_t(195.0)
+        larcv_particle.ancestor_t(190.0)
+
+        # Set positions
+        larcv_particle.position(120.0, 60.0, 550.0, 200.0)
+        larcv_particle.end_position(170.0, 85.0, 700.0, 220.0)
+        larcv_particle.parent_position(118.0, 58.0, 548.0, 195.0)
+        larcv_particle.ancestor_position(115.0, 55.0, 545.0, 190.0)
+        larcv_particle.first_step(122.0, 62.0, 552.0, 201.0)
+        larcv_particle.last_step(168.0, 83.0, 698.0, 219.0)
+
+        # Set momentum
+        larcv_particle.momentum(200.0, 100.0, 700.0)
+        larcv_particle.end_momentum(150.0, 75.0, 600.0)
+
+        # Set children
+        larcv_particle.children_id().push_back(16)
+        larcv_particle.children_id().push_back(17)
+
+        # Convert to SPINE Particle
+        particle = Particle.from_larcv(larcv_particle)
+
+        # Verify conversion
+        assert particle.id == 15
+        assert particle.group_id == 3
+        assert particle.interaction_id == 2
+        assert particle.parent_id == 10
+        assert particle.shape == 2
+        assert particle.energy_init == 800.0
+        assert particle.energy_deposit == 750.0
+        assert particle.track_id == 2000
+        assert particle.pdg_code == 11
+        assert particle.parent_pdg_code == 22
+        assert particle.ancestor_pdg_code == 111
+        assert particle.creation_process == "conv"
+        assert particle.t == 200.0
+        assert particle.end_t == 220.0
+
+        np.testing.assert_array_almost_equal(particle.position, [120.0, 60.0, 550.0])
+        np.testing.assert_array_almost_equal(
+            particle.end_position, [170.0, 85.0, 700.0]
+        )
+        np.testing.assert_array_almost_equal(particle.momentum, [200.0, 100.0, 700.0])
+        np.testing.assert_array_almost_equal(
+            particle.end_momentum, [150.0, 75.0, 600.0]
+        )
+        np.testing.assert_array_equal(particle.children_id, [16, 17])
 
 
 if __name__ == "__main__":

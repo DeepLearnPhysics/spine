@@ -1,8 +1,10 @@
 """Comprehensive tests for the trigger data module."""
 
 import numpy as np
+import pytest
 
 from spine.data import Trigger
+from spine.utils.conditional import LARCV_AVAILABLE, larcv
 
 
 class TestTriggerCreation:
@@ -433,3 +435,70 @@ class TestTriggerIntegration:
         beam_times = [t.beam_time_s * 1e9 + t.beam_time_ns for t in spill_triggers]
         spill_duration = max(beam_times) - min(beam_times)
         assert 1000 < spill_duration < 3000  # ~2 μs spill duration in nanoseconds
+
+
+class TestTriggerFromLArCV:
+    """Tests for Trigger.from_larcv() - only runs if larcv is available."""
+
+    def test_from_larcv_mock(self):
+        """Test from_larcv with mock object (runs even without larcv)."""
+
+        # Create a mock larcv Trigger object
+        class MockLArCVTrigger:
+            """Mock LArCV Trigger for testing."""
+
+            def id(self):
+                return 5
+
+            def type(self):
+                return 2  # Trigger type (e.g., BNB = 1, NuMI = 2, etc.)
+
+            def time_s(self):
+                return 1234567890  # Unix seconds
+
+            def time_ns(self):
+                return 123456789  # Nanoseconds
+
+            def beam_time_s(self):
+                return 1234567890  # Same or slightly offset
+
+            def beam_time_ns(self):
+                return 125000000  # Beam pulse time
+
+        mock_trigger = MockLArCVTrigger()
+        trigger = Trigger.from_larcv(mock_trigger)
+
+        # Verify all attributes transferred correctly
+        assert trigger.id == 5
+        assert trigger.type == 2
+        assert trigger.time_s == 1234567890
+        assert trigger.time_ns == 123456789
+        # Note: from_larcv doesn't set beam times in current implementation
+        # It only sets id, type, time_s, time_ns based on the source code
+
+    @pytest.mark.skipif(not LARCV_AVAILABLE, reason="larcv not available")
+    def test_from_larcv_real(self):
+        """Test from_larcv with real larcv object (only if larcv installed)."""
+        assert larcv is not None
+
+        # Create a real LArCV Trigger
+        larcv_trigger = larcv.Trigger()
+        larcv_trigger.id(10)
+        larcv_trigger.type(1)  # BNB trigger
+        larcv_trigger.time_s(1640000000)  # Unix time seconds
+        larcv_trigger.time_ns(500000000)  # 0.5 seconds in nanoseconds
+
+        # Note: beam_time is not set in the from_larcv method
+        # based on the source code inspection
+
+        # Convert to SPINE Trigger
+        trigger = Trigger.from_larcv(larcv_trigger)
+
+        # Verify conversion
+        assert trigger.id == 10
+        assert trigger.type == 1
+        assert trigger.time_s == 1640000000
+        assert trigger.time_ns == 500000000
+        # beam_time_s and beam_time_ns should have default values
+        assert trigger.beam_time_s == -1
+        assert trigger.beam_time_ns == -1

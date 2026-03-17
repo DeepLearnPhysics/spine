@@ -1,8 +1,10 @@
 """Comprehensive tests for the meta data module."""
 
 import numpy as np
+import pytest
 
 from spine.data import Meta
+from spine.utils.conditional import LARCV_AVAILABLE, larcv
 
 
 class TestMetaCreation:
@@ -385,3 +387,166 @@ class TestMetaIntegration:
         # Check voxel volume
         voxel_volume_cm3 = np.prod(meta_cm.size)
         assert abs(voxel_volume_cm3 - 0.027) < 1e-10  # 0.3^3 = 0.027 cm^3
+
+
+class TestMetaFromLArCV:
+    """Tests for Meta.from_larcv() - only runs if larcv is available."""
+
+    def test_from_larcv_mock_3d(self):
+        """Test from_larcv with mock 3D Voxel3DMeta object (runs even without larcv)."""
+
+        # Create a mock larcv Voxel3DMeta object
+        class MockLArCVVoxel3DMeta:
+            """Mock LArCV Voxel3DMeta for testing."""
+
+            def pos_z(self):
+                """Marker method to indicate 3D metadata."""
+                return True
+
+            def min_x(self):
+                return 0.0
+
+            def min_y(self):
+                return -100.0
+
+            def min_z(self):
+                return 50.0
+
+            def max_x(self):
+                return 300.0
+
+            def max_y(self):
+                return 100.0
+
+            def max_z(self):
+                return 350.0
+
+            def size_voxel_x(self):
+                return 3.0
+
+            def size_voxel_y(self):
+                return 2.0
+
+            def size_voxel_z(self):
+                return 1.0
+
+            def num_voxel_x(self):
+                return 100
+
+            def num_voxel_y(self):
+                return 100
+
+            def num_voxel_z(self):
+                return 300
+
+        mock_meta = MockLArCVVoxel3DMeta()
+        meta = Meta.from_larcv(mock_meta)
+
+        # Verify all attributes transferred correctly
+        np.testing.assert_array_almost_equal(meta.lower, [0.0, -100.0, 50.0])
+        np.testing.assert_array_almost_equal(meta.upper, [300.0, 100.0, 350.0])
+        np.testing.assert_array_almost_equal(meta.size, [3.0, 2.0, 1.0])
+        np.testing.assert_array_equal(meta.count, [100, 100, 300])
+        assert meta.dimension == 3
+
+    def test_from_larcv_mock_2d(self):
+        """Test from_larcv with mock 2D ImageMeta object (runs even without larcv)."""
+
+        # Create a mock larcv ImageMeta object
+        class MockLArCVImageMeta:
+            """Mock LArCV ImageMeta for testing."""
+
+            def min_x(self):
+                return 0.0
+
+            def min_y(self):
+                return 0.0
+
+            def max_x(self):
+                return 3456.0
+
+            def max_y(self):
+                return 6048.0
+
+            def pixel_height(self):
+                return 1.0
+
+            def pixel_width(self):
+                return 1.0
+
+            def rows(self):
+                return 3456
+
+            def cols(self):
+                return 6048
+
+        mock_meta = MockLArCVImageMeta()
+        meta = Meta.from_larcv(mock_meta)
+
+        # Verify all attributes transferred correctly
+        np.testing.assert_array_almost_equal(meta.lower, [0.0, 0.0])
+        np.testing.assert_array_almost_equal(meta.upper, [3456.0, 6048.0])
+        np.testing.assert_array_almost_equal(meta.size, [1.0, 1.0])
+        np.testing.assert_array_equal(meta.count, [3456, 6048])
+        assert meta.dimension == 2
+
+    @pytest.mark.skipif(not LARCV_AVAILABLE, reason="larcv not available")
+    def test_from_larcv_real_3d(self):
+        """Test from_larcv with real larcv Voxel3DMeta (only if larcv installed)."""
+        assert larcv is not None
+
+        # Create a real LArCV Voxel3DMeta
+        larcv_meta = larcv.Voxel3DMeta()
+        larcv_meta.set_size(
+            min_x=0.0,
+            min_y=-116.0,
+            min_z=0.0,
+            max_x=256.0,
+            max_y=116.0,
+            max_z=1037.0,
+            num_voxel_x=100,
+            num_voxel_y=100,
+            num_voxel_z=1000,
+        )
+
+        # Convert to SPINE Meta
+        meta = Meta.from_larcv(larcv_meta)
+
+        # Verify conversion
+        np.testing.assert_array_almost_equal(meta.lower, [0.0, -116.0, 0.0])
+        np.testing.assert_array_almost_equal(meta.upper, [256.0, 116.0, 1037.0])
+        np.testing.assert_array_equal(meta.count, [100, 100, 1000])
+        assert meta.dimension == 3
+
+        # Verify size calculation is reasonable
+        expected_size = (meta.upper - meta.lower) / meta.count
+        np.testing.assert_array_almost_equal(meta.size, expected_size, decimal=5)
+
+    @pytest.mark.skipif(not LARCV_AVAILABLE, reason="larcv not available")
+    def test_from_larcv_real_2d(self):
+        """Test from_larcv with real larcv ImageMeta (only if larcv installed)."""
+        assert larcv is not None
+
+        # Create a real LArCV ImageMeta
+        larcv_meta = larcv.ImageMeta()
+        larcv_meta.set_size(
+            width=512.0,
+            height=256.0,
+            n_rows=256,
+            n_cols=512,
+            min_x=0.0,
+            min_y=0.0,
+        )
+
+        # Convert to SPINE Meta
+        meta = Meta.from_larcv(larcv_meta)
+
+        # Verify conversion
+        np.testing.assert_array_almost_equal(meta.lower, [0.0, 0.0])
+        np.testing.assert_array_almost_equal(meta.upper, [256.0, 512.0])
+        np.testing.assert_array_equal(meta.count, [256, 512])
+        assert meta.dimension == 2
+
+        # Verify size calculation
+        expected_size = (meta.upper - meta.lower) / meta.count
+        np.testing.assert_array_almost_equal(meta.size, expected_size, decimal=5)

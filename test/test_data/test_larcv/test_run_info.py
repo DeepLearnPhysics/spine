@@ -1,6 +1,9 @@
 """Comprehensive tests for the run_info data module."""
 
+import pytest
+
 from spine.data import RunInfo
+from spine.utils.conditional import LARCV_AVAILABLE, larcv
 
 
 class TestRunInfoCreation:
@@ -353,3 +356,53 @@ class TestRunInfoIntegration:
         # Test compact representation
         compact_str = f"{run_info.run:06d}_{run_info.subrun:03d}_{run_info.event:06d}"
         assert compact_str == "005426_089_001234"
+
+
+class TestRunInfoFromLArCV:
+    """Tests for RunInfo.from_larcv() - only runs if larcv is available."""
+
+    def test_from_larcv_mock(self):
+        """Test from_larcv with mock event object (runs even without larcv)."""
+
+        # Create a mock larcv EventBase object
+        class MockLArCVEvent:
+            """Mock LArCV EventBase for testing."""
+
+            def run(self):
+                return 1234
+
+            def subrun(self):
+                return 56
+
+            def event(self):
+                return 789
+
+        mock_event = MockLArCVEvent()
+        run_info = RunInfo.from_larcv(mock_event)
+
+        # Verify all attributes transferred correctly
+        assert run_info.run == 1234
+        assert run_info.subrun == 56
+        assert run_info.event == 789
+
+    @pytest.mark.skipif(not LARCV_AVAILABLE, reason="larcv not available")
+    def test_from_larcv_real(self):
+        """Test from_larcv with real larcv event object (only if larcv installed)."""
+        assert larcv is not None
+
+        # Create a real LArCV EventSparseTensor3D (any event class will work)
+        # We just need an object with run(), subrun(), event() methods
+        larcv_event = larcv.EventSparseTensor3D()
+
+        # Set run information
+        larcv_event.set_run(5000)
+        larcv_event.set_subrun(100)
+        larcv_event.set_event(2500)
+
+        # Convert to SPINE RunInfo
+        run_info = RunInfo.from_larcv(larcv_event)
+
+        # Verify conversion
+        assert run_info.run == 5000
+        assert run_info.subrun == 100
+        assert run_info.event == 2500
