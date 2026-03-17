@@ -10,6 +10,7 @@ from typing import Self
 import numpy as np
 
 from .base import DataBase
+from .field import FieldMetadata
 
 __all__ = ["Meta"]
 
@@ -33,19 +34,25 @@ class Meta(DataBase):
     # Vector attributes
     lower: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata={"length": 3, "dtype": np.float32, "type": "vector", "units": "cm"},
+        metadata=FieldMetadata(
+            length=3, dtype=np.float32, category="vector", units="cm"
+        ),
     )
     upper: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata={"length": 3, "dtype": np.float32, "type": "vector", "units": "cm"},
+        metadata=FieldMetadata(
+            length=3, dtype=np.float32, category="vector", units="cm"
+        ),
     )
     size: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata={"shape": (3,), "dtype": np.float32, "type": "vector", "units": "cm"},
+        metadata=FieldMetadata(
+            length=3, dtype=np.float32, category="vector", units="cm"
+        ),
     )
     count: np.ndarray = field(
         default_factory=lambda: np.full(3, -1, dtype=np.int64),
-        metadata={"shape": (3,), "dtype": np.int64, "type": "vector"},
+        metadata=FieldMetadata(length=3, dtype=np.int64, category="vector"),
     )
 
     @property

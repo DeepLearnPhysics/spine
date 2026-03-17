@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Self
 
 from .base import DataBase
+from .field import FieldMetadata
 
 __all__ = ["Trigger"]
 
@@ -34,10 +35,10 @@ class Trigger(DataBase):
     # Scalar attributes
     id: int = -1
     type: int = -1
-    time_s: int = field(default=-1, metadata={"units": "s"})
-    time_ns: int = field(default=-1, metadata={"units": "ns"})
-    beam_time_s: int = field(default=-1, metadata={"units": "s"})
-    beam_time_ns: int = field(default=-1, metadata={"units": "ns"})
+    time_s: int = field(default=-1, metadata=FieldMetadata(units="s"))
+    time_ns: int = field(default=-1, metadata=FieldMetadata(units="ns"))
+    beam_time_s: int = field(default=-1, metadata=FieldMetadata(units="s"))
+    beam_time_ns: int = field(default=-1, metadata=FieldMetadata(units="ns"))
 
     @classmethod
     def from_larcv(cls, trigger) -> Self:

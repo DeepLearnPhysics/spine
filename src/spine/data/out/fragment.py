@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from spine.data.derived import derived_property
+from spine.data.field import FieldMetadata
 from spine.data.particle import Particle
 from spine.utils.globals import SHAPE_LABELS, TRACK_SHP
 
@@ -42,29 +43,29 @@ class FragmentBase(OutBase):
 
     is_primary: bool = False
 
-    length: float = field(default=np.nan, metadata={"units": "instance"})
+    length: float = field(default=np.nan, metadata=FieldMetadata(units="instance"))
 
     # Enumerated attributes
-    shape: int = field(default=-1, metadata={"enum": SHAPE_LABELS})
+    shape: int = field(default=-1, metadata=FieldMetadata(enum=SHAPE_LABELS))
 
     # Vector attributes
     start_point: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata={
-            "length": 3,
-            "dtype": np.float32,
-            "type": "position",
-            "units": "instance",
-        },
+        metadata=FieldMetadata(
+            length=3,
+            dtype=np.float32,
+            category="position",
+            units="instance",
+        ),
     )
     end_point: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata={
-            "length": 3,
-            "dtype": np.float32,
-            "type": "position",
-            "units": "instance",
-        },
+        metadata=FieldMetadata(
+            length=3,
+            dtype=np.float32,
+            category="position",
+            units="instance",
+        ),
     )
 
     def __str__(self):
@@ -102,16 +103,16 @@ class RecoFragment(FragmentBase, RecoBase):
     # Vector attributes
     start_dir: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata={"length": 3, "dtype": np.float32, "type": "vector"},
+        metadata=FieldMetadata(length=3, dtype=np.float32, category="vector"),
     )
     end_dir: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata={"length": 3, "dtype": np.float32, "type": "vector"},
+        metadata=FieldMetadata(length=3, dtype=np.float32, category="vector"),
     )
 
     primary_scores: np.ndarray = field(
         default_factory=lambda: np.full(2, np.nan, dtype=np.float32),
-        metadata={"length": 2, "dtype": np.float32},
+        metadata=FieldMetadata(length=2, dtype=np.float32),
     )
 
     def __str__(self):
@@ -161,19 +162,19 @@ class TruthFragment(Particle, FragmentBase, TruthBase):
     # Vector attributes
     orig_children_id: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.int64),
-        metadata={"dtype": np.int64},
+        metadata=FieldMetadata(dtype=np.int64),
     )
     children_counts: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.int64),
-        metadata={"dtype": np.int64},
+        metadata=FieldMetadata(dtype=np.int64),
     )
     reco_start_dir: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata={"length": 3, "dtype": np.float32, "type": "vector"},
+        metadata=FieldMetadata(length=3, dtype=np.float32, category="vector"),
     )
     reco_end_dir: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata={"length": 3, "dtype": np.float32, "type": "vector"},
+        metadata=FieldMetadata(length=3, dtype=np.float32, category="vector"),
     )
 
     def __str__(self):

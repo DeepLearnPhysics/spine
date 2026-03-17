@@ -7,6 +7,7 @@ from warnings import warn
 import numpy as np
 
 from spine.data.derived import derived_property
+from spine.data.field import FieldMetadata
 from spine.data.neutrino import Neutrino
 from spine.utils.globals import PID_LABELS, PID_TAGS, SHOWR_SHP
 
@@ -79,40 +80,40 @@ class InteractionBase(OutBase):
     # Note: Subclasses override this with specific List[RecoParticle/TruthParticle]
     particles: List[ParticleBase] = field(
         default_factory=list,
-        metadata={"skip": True},
+        metadata=FieldMetadata(skip=True),
     )
 
     # Vector attributes
     particle_ids: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.int64),
-        metadata={"dtype": np.int64},
+        metadata=FieldMetadata(dtype=np.int64),
     )
 
     vertex: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata={
-            "length": 3,
-            "dtype": np.float32,
-            "type": "position",
-            "units": "instance",
-        },
+        metadata=FieldMetadata(
+            length=3,
+            dtype=np.float32,
+            category="position",
+            units="instance",
+        ),
     )
 
     flash_ids: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.int64),
-        metadata={"dtype": np.int64},
+        metadata=FieldMetadata(dtype=np.int64),
     )
     flash_volume_ids: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.int64),
-        metadata={"dtype": np.int64},
+        metadata=FieldMetadata(dtype=np.int64),
     )
     flash_times: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.float32),
-        metadata={"dtype": np.float32, "units": "us"},
+        metadata=FieldMetadata(dtype=np.float32, units="us"),
     )
     flash_scores: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.float32),
-        metadata={"dtype": np.float32},
+        metadata=FieldMetadata(dtype=np.float32),
     )
 
     def __str__(self) -> str:
@@ -340,7 +341,7 @@ class RecoInteraction(InteractionBase, RecoBase):
     # Object list attributes
     particles: List[RecoParticle] = field(  # type: ignore[assignment]
         default_factory=lambda: [],
-        metadata={"skip": True},
+        metadata=FieldMetadata(skip=True),
     )
 
     def __str__(self):
@@ -396,18 +397,18 @@ class TruthInteraction(Neutrino, InteractionBase, TruthBase):
     # Object list attributes
     particles: List[TruthParticle] = field(  # type: ignore[assignment]
         default_factory=lambda: [],
-        metadata={"skip": True},
+        metadata=FieldMetadata(skip=True),
     )
 
     # Vector attributes
     reco_vertex: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata={
-            "length": 3,
-            "dtype": np.float32,
-            "type": "position",
-            "units": "instance",
-        },
+        metadata=FieldMetadata(
+            length=3,
+            dtype=np.float32,
+            category="position",
+            units="instance",
+        ),
     )
 
     def __str__(self) -> str:

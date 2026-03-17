@@ -7,6 +7,7 @@ import numpy as np
 from scipy.spatial.distance import cdist
 
 from spine.data.derived import derived_property
+from spine.data.field import FieldMetadata
 from spine.data.particle import Particle
 from spine.utils.globals import (
     PID_LABELS,
@@ -87,64 +88,68 @@ class ParticleBase(OutBase):
     is_crt_matched: bool = False
     is_valid: bool = True
 
-    length: float = field(default=np.nan, metadata={"units": "instance"})
-    calo_ke: float = field(default=np.nan, metadata={"units": "MeV"})
-    csda_ke: float = field(default=np.nan, metadata={"units": "MeV"})
-    mcs_ke: float = field(default=np.nan, metadata={"units": "MeV"})
+    length: float = field(default=np.nan, metadata=FieldMetadata(units="instance"))
+    calo_ke: float = field(default=np.nan, metadata=FieldMetadata(units="MeV"))
+    csda_ke: float = field(default=np.nan, metadata=FieldMetadata(units="MeV"))
+    mcs_ke: float = field(default=np.nan, metadata=FieldMetadata(units="MeV"))
 
     # Enumerated attributes
-    shape: int = field(default=-1, metadata={"enum": SHAPE_LABELS})
-    pid: int = field(default=-1, metadata={"enum": PID_LABELS})
+    shape: int = field(default=-1, metadata=FieldMetadata(enum=SHAPE_LABELS))
+    pid: int = field(default=-1, metadata=FieldMetadata(enum=PID_LABELS))
 
     # Vector attributes
     fragment_ids: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.int64),
-        metadata={"dtype": np.int64, "units": "instance"},
+        metadata=FieldMetadata(dtype=np.int64, units="instance"),
     )
 
     start_point: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata={
-            "length": 3,
-            "dtype": np.float32,
-            "type": "position",
-            "units": "instance",
-        },
+        metadata=FieldMetadata(
+            length=3,
+            dtype=np.float32,
+            category="position",
+            units="instance",
+        ),
     )
     end_point: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata={
-            "length": 3,
-            "dtype": np.float32,
-            "type": "position",
-            "units": "instance",
-        },
+        metadata=FieldMetadata(
+            length=3,
+            dtype=np.float32,
+            category="position",
+            units="instance",
+        ),
     )
 
     chi2_per_pid: np.ndarray = field(
         default_factory=lambda: np.full(len(PID_LABELS) - 1, np.nan, dtype=np.float32),
-        metadata={"length": len(PID_LABELS) - 1, "dtype": np.float32},
+        metadata=FieldMetadata(length=len(PID_LABELS) - 1, dtype=np.float32),
     )
     csda_ke_per_pid: np.ndarray = field(
         default_factory=lambda: np.full(len(PID_LABELS) - 1, np.nan, dtype=np.float32),
-        metadata={"length": len(PID_LABELS) - 1, "dtype": np.float32, "units": "MeV"},
+        metadata=FieldMetadata(
+            length=len(PID_LABELS) - 1, dtype=np.float32, units="MeV"
+        ),
     )
     mcs_ke_per_pid: np.ndarray = field(
         default_factory=lambda: np.full(len(PID_LABELS) - 1, np.nan, dtype=np.float32),
-        metadata={"length": len(PID_LABELS) - 1, "dtype": np.float32, "units": "MeV"},
+        metadata=FieldMetadata(
+            length=len(PID_LABELS) - 1, dtype=np.float32, units="MeV"
+        ),
     )
 
     crt_ids: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.int64),
-        metadata={"dtype": np.int64},
+        metadata=FieldMetadata(dtype=np.int64),
     )
     crt_times: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.float32),
-        metadata={"dtype": np.float32, "units": "us"},
+        metadata=FieldMetadata(dtype=np.float32, units="us"),
     )
     crt_scores: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.float32),
-        metadata={"dtype": np.float32},
+        metadata=FieldMetadata(dtype=np.float32),
     )
 
     def __str__(self):
@@ -228,9 +233,11 @@ class RecoParticle(ParticleBase, RecoBase):
     """
 
     # Scalar attributes
-    start_dedx: float = field(default=np.nan, metadata={"units": "MeV/cm"})
-    end_dedx: float = field(default=np.nan, metadata={"units": "MeV/cm"})
-    vertex_distance: float = field(default=np.nan, metadata={"units": "instance"})
+    start_dedx: float = field(default=np.nan, metadata=FieldMetadata(units="MeV/cm"))
+    end_dedx: float = field(default=np.nan, metadata=FieldMetadata(units="MeV/cm"))
+    vertex_distance: float = field(
+        default=np.nan, metadata=FieldMetadata(units="instance")
+    )
     start_straightness: float = np.nan
     directional_spread: float = np.nan
     axial_spread: float = np.nan
@@ -238,41 +245,40 @@ class RecoParticle(ParticleBase, RecoBase):
     # Object list attributes
     fragments: List[RecoFragment] = field(
         default_factory=lambda: [],
-        metadata={"skip": True},
+        metadata=FieldMetadata(skip=True),
     )
 
     # Vector attributes
     start_dir: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata={"length": 3, "dtype": np.float32, "type": "vector"},
+        metadata=FieldMetadata(length=3, dtype=np.float32, category="vector"),
     )
     end_dir: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata={"length": 3, "dtype": np.float32, "type": "vector"},
+        metadata=FieldMetadata(length=3, dtype=np.float32, category="vector"),
     )
 
     pid_scores: np.ndarray = field(
         default_factory=lambda: np.full(len(PID_LABELS) - 1, np.nan, dtype=np.float32),
-        metadata={"length": len(PID_LABELS) - 1, "dtype": np.float32},
+        metadata=FieldMetadata(length=len(PID_LABELS) - 1, dtype=np.float32),
     )
     primary_scores: np.ndarray = field(
         default_factory=lambda: np.full(2, np.nan, dtype=np.float32),
-        metadata={"length": 2, "dtype": np.float32},
+        metadata=FieldMetadata(length=2, dtype=np.float32),
     )
 
     ppn_ids: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.int64),
-        metadata={"dtype": np.int64},
+        metadata=FieldMetadata(dtype=np.int64),
     )
     ppn_points: np.ndarray = field(
         default_factory=lambda: np.empty((0, 3), dtype=np.float32),
-        metadata={
-            "shape": (0, 3),
-            "dtype": np.float32,
-            "type": "position",
-            "skip": True,
-            "units": "instance",
-        },
+        metadata=FieldMetadata(
+            dtype=np.float32,
+            category="position",
+            skip=True,
+            units="instance",
+        ),
     )
 
     def __str__(self):
@@ -537,26 +543,26 @@ class TruthParticle(Particle, ParticleBase, TruthBase):
     # Object list attributes
     fragments: List[TruthFragment] = field(
         default_factory=lambda: [],
-        metadata={"skip": True},
+        metadata=FieldMetadata(skip=True),
     )
 
     # Vector attributes
     orig_children_id: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.int64),
-        metadata={"dtype": np.int64},
+        metadata=FieldMetadata(dtype=np.int64),
     )
     children_counts: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.int64),
-        metadata={"dtype": np.int64},
+        metadata=FieldMetadata(dtype=np.int64),
     )
 
     reco_start_dir: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata={"length": 3, "dtype": np.float32, "type": "vector"},
+        metadata=FieldMetadata(length=3, dtype=np.float32, category="vector"),
     )
     reco_end_dir: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata={"length": 3, "dtype": np.float32, "type": "vector"},
+        metadata=FieldMetadata(length=3, dtype=np.float32, category="vector"),
     )
 
     def __str__(self):

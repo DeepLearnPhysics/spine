@@ -9,6 +9,7 @@ from typing import Self
 import numpy as np
 
 from .base import PosDataBase
+from .field import FieldMetadata
 
 __all__ = ["Flash"]
 
@@ -50,7 +51,7 @@ class Flash(PosDataBase):
     """
 
     # Index attributes
-    id: int = field(default=-1, metadata={"index": True})
+    id: int = field(default=-1, metadata=FieldMetadata(index=True))
 
     # Scalar attributes
     volume_id: int = -1
@@ -59,8 +60,8 @@ class Flash(PosDataBase):
     in_beam_frame: bool = False
     on_beam_time: bool = False
 
-    time: float = field(default=np.nan, metadata={"units": "us"})
-    time_width: float = field(default=np.nan, metadata={"units": "us"})
+    time: float = field(default=np.nan, metadata=FieldMetadata(units="us"))
+    time_width: float = field(default=np.nan, metadata=FieldMetadata(units="us"))
     time_abs: float = np.nan
     total_pe: float = np.nan
     fast_to_total: float = np.nan
@@ -70,25 +71,25 @@ class Flash(PosDataBase):
     # Vector attributes
     pe_per_ch: np.ndarray = field(
         default_factory=lambda: np.array([], dtype=np.float32),
-        metadata={"dtype": np.float32},
+        metadata=FieldMetadata(dtype=np.float32),
     )
     center: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata={
-            "length": 3,
-            "dtype": np.float32,
-            "type": "position",
-            "units": "instance",
-        },
+        metadata=FieldMetadata(
+            length=3,
+            dtype=np.float32,
+            category="position",
+            units="instance",
+        ),
     )
     width: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata={
-            "length": 3,
-            "dtype": np.float32,
-            "type": "vector",
-            "units": "instance",
-        },
+        metadata=FieldMetadata(
+            length=3,
+            dtype=np.float32,
+            category="vector",
+            units="instance",
+        ),
     )
 
     @classmethod

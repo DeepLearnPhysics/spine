@@ -13,6 +13,7 @@ from spine.utils.globals import PID_LABELS, SHAPE_LABELS, UNKWN_SHP
 
 from .base import PosDataBase
 from .derived import derived_property
+from .field import FieldMetadata
 
 __all__ = ["Particle"]
 
@@ -108,14 +109,14 @@ class Particle(PosDataBase):
     """
 
     # Index attributes
-    id: int = field(default=-1, metadata={"index": True})
-    parent_id: int = field(default=-1, metadata={"index": True})
-    group_id: int = field(default=-1, metadata={"index": True})
-    interaction_id: int = field(default=-1, metadata={"index": True})
-    nu_id: int = field(default=-1, metadata={"index": True})
+    id: int = field(default=-1, metadata=FieldMetadata(index=True))
+    parent_id: int = field(default=-1, metadata=FieldMetadata(index=True))
+    group_id: int = field(default=-1, metadata=FieldMetadata(index=True))
+    interaction_id: int = field(default=-1, metadata=FieldMetadata(index=True))
+    nu_id: int = field(default=-1, metadata=FieldMetadata(index=True))
     children_id: np.ndarray = field(
         default_factory=lambda: np.array([], dtype=np.int64),
-        metadata={"dtype": np.int64, "index": True},
+        metadata=FieldMetadata(dtype=np.int64, index=True),
     )
 
     # Scalar attributes
@@ -131,13 +132,13 @@ class Particle(PosDataBase):
     ancestor_pdg_code: int = -1
     num_voxels: int = -1
 
-    t: float = field(default=np.nan, metadata={"units": "ns"})
-    end_t: float = field(default=np.nan, metadata={"units": "ns"})
-    parent_t: float = field(default=np.nan, metadata={"units": "ns"})
-    ancestor_t: float = field(default=np.nan, metadata={"units": "ns"})
-    energy_init: float = field(default=np.nan, metadata={"units": "MeV"})
-    energy_deposit: float = field(default=np.nan, metadata={"units": "MeV"})
-    distance_travel: float = field(default=np.nan, metadata={"units": "cm"})
+    t: float = field(default=np.nan, metadata=FieldMetadata(units="ns"))
+    end_t: float = field(default=np.nan, metadata=FieldMetadata(units="ns"))
+    parent_t: float = field(default=np.nan, metadata=FieldMetadata(units="ns"))
+    ancestor_t: float = field(default=np.nan, metadata=FieldMetadata(units="ns"))
+    energy_init: float = field(default=np.nan, metadata=FieldMetadata(units="MeV"))
+    energy_deposit: float = field(default=np.nan, metadata=FieldMetadata(units="MeV"))
+    distance_travel: float = field(default=np.nan, metadata=FieldMetadata(units="cm"))
 
     creation_process: str = ""
     parent_creation_process: str = ""
@@ -145,41 +146,57 @@ class Particle(PosDataBase):
     units: str = "cm"
 
     # Enumerated attributes
-    shape: int = field(default=UNKWN_SHP, metadata={"enum": SHAPE_LABELS})
-    pid: int = field(default=-1, metadata={"enum": PID_LABELS})
+    shape: int = field(default=UNKWN_SHP, metadata=FieldMetadata(enum=SHAPE_LABELS))
+    pid: int = field(default=-1, metadata=FieldMetadata(enum=PID_LABELS))
 
     # Vector attributes
     position: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata={"length": 3, "dtype": np.float32, "type": "position", "units": "cm"},
+        metadata=FieldMetadata(
+            length=3, dtype=np.float32, category="position", units="cm"
+        ),
     )
     end_position: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata={"length": 3, "dtype": np.float32, "type": "position", "units": "cm"},
+        metadata=FieldMetadata(
+            length=3, dtype=np.float32, category="position", units="cm"
+        ),
     )
     parent_position: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata={"length": 3, "dtype": np.float32, "type": "position", "units": "cm"},
+        metadata=FieldMetadata(
+            length=3, dtype=np.float32, category="position", units="cm"
+        ),
     )
     ancestor_position: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata={"length": 3, "dtype": np.float32, "type": "position", "units": "cm"},
+        metadata=FieldMetadata(
+            length=3, dtype=np.float32, category="position", units="cm"
+        ),
     )
     first_step: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata={"length": 3, "dtype": np.float32, "type": "position", "units": "cm"},
+        metadata=FieldMetadata(
+            length=3, dtype=np.float32, category="position", units="cm"
+        ),
     )
     last_step: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata={"length": 3, "dtype": np.float32, "type": "position", "units": "cm"},
+        metadata=FieldMetadata(
+            length=3, dtype=np.float32, category="position", units="cm"
+        ),
     )
     momentum: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata={"length": 3, "dtype": np.float32, "type": "vector", "units": "MeV/c"},
+        metadata=FieldMetadata(
+            length=3, dtype=np.float32, category="vector", units="MeV/c"
+        ),
     )
     end_momentum: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata={"length": 3, "dtype": np.float32, "type": "vector", "units": "MeV/c"},
+        metadata=FieldMetadata(
+            length=3, dtype=np.float32, category="vector", units="MeV/c"
+        ),
     )
 
     @derived_property(units="MeV/c")

@@ -2,7 +2,7 @@
 
 Units Metadata Convention
 --------------------------
-Fields can specify units in their metadata dictionary using the 'units' key:
+Fields can specify units in their metadata using the FieldMetadata class:
 
 1. **Fixed Units** (e.g., 'MeV', 'GeV', 'ns', 'us', 'MeV/c'):
    Use fixed unit strings for physical quantities that are independent of the
@@ -15,7 +15,8 @@ Fields can specify units in their metadata dictionary using the 'units' key:
    - Momentum: 'MeV/c', 'GeV/c'
    - dE/dx: 'MeV/cm'
 
-   >>> energy: float = field(default=np.nan, metadata={'units': 'MeV'})
+   >>> from spine.data.field import FieldMetadata
+   >>> energy: float = field(default=np.nan, metadata=FieldMetadata(units='MeV'))
 
 2. **Instance Units** (use the literal string 'instance'):
    Use 'instance' for spatial quantities that transform with unit conversion
@@ -29,10 +30,11 @@ Fields can specify units in their metadata dictionary using the 'units' key:
 
    >>> position: np.ndarray = field(
    ...     default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-   ...     metadata={'length': 3, 'dtype': np.float32, 'type': 'position',
-   ...               'units': 'instance'}
+   ...     metadata=FieldMetadata(
+   ...         length=3, dtype=np.float32, category='position', units='instance'
+   ...     )
    ... )
-   >>> length: float = field(default=np.nan, metadata={'units': 'instance'})
+   >>> length: float = field(default=np.nan, metadata=FieldMetadata(units='instance'))
 
 The field_units property dynamically resolves 'instance' to the current value
 of the instance's units attribute, providing accurate units for all fields at
@@ -53,6 +55,7 @@ from typing import (
     Self,
     Tuple,
     Union,
+    cast,
 )
 
 import numpy as np
@@ -60,6 +63,7 @@ import numpy as np
 from spine.utils.docstring import merge_ancestor_docstrings
 
 from .derived import DerivedProperty
+from .field import FieldMetadata
 
 if TYPE_CHECKING:
     from .meta import Meta
@@ -127,16 +131,17 @@ class DataBase:
         for field in fields(self):
             value = getattr(self, field.name)
             if field.type == np.ndarray:
+                meta = field.metadata
                 # Check that the length of the array matches the expected length
-                length = field.metadata.get("length", None)
-                if length is not None and len(value) != length:
-                    raise ValueError(
-                        f"The `{field.name}` attribute of `{self.__class__.__name__}` "
-                        f"objects must have length {length}."
-                    )
+                if isinstance(meta, FieldMetadata) and meta.length is not None:
+                    if len(value) != meta.length:
+                        raise ValueError(
+                            f"The `{field.name}` attribute of `{self.__class__.__name__}` "
+                            f"objects must have length {meta.length}."
+                        )
 
                 # Cast the array to the correct type
-                dtype = field.metadata.get("dtype", None)
+                dtype = meta.dtype if isinstance(meta, FieldMetadata) else None
                 setattr(self, field.name, np.asarray(value, dtype=dtype))
 
         # Cast stored binary strings back to regular strings (from HDF5)
@@ -224,12 +229,12 @@ class DataBase:
             )
 
         for field in fields(self):
-            if field.type == np.ndarray and "float" in str(
-                field.metadata.get("dtype", "")
-            ):
-                val = getattr(self, field.name)
-                dtype = f"{val.dtype.str[:-1]}{precision}"
-                setattr(self, field.name, val.astype(dtype))
+            meta = field.metadata
+            if field.type == np.ndarray and isinstance(meta, FieldMetadata):
+                if meta.dtype is not None and "float" in str(meta.dtype):
+                    val = getattr(self, field.name)
+                    dtype = f"{val.dtype.str[:-1]}{precision}"
+                    setattr(self, field.name, val.astype(dtype))
 
     def shift_indexes(self, shifts: Union[int, Dict[str, int]]) -> None:
         """Apply offsets to index attributes in place.
@@ -434,10 +439,12 @@ class DataBase:
         field_fixed = tuple(
             f.name
             for f in cls_fields
-            if f.type == np.ndarray and f.metadata.get("length", None) is not None
+            if f.type == np.ndarray
+            and isinstance(f.metadata, FieldMetadata)
+            and f.metadata.length is not None
         )
         derived_fixed = tuple(
-            k for k, v in derived_props.items() if v.get("length", None) is not None
+            k for k, v in derived_props.items() if v.length is not None
         )
 
         cls._fixed_length_attrs = field_fixed + derived_fixed
@@ -446,49 +453,62 @@ class DataBase:
         field_var = tuple(
             f.name
             for f in cls_fields
-            if f.type == np.ndarray and f.metadata.get("length", None) is None
+            if f.type == np.ndarray
+            and isinstance(f.metadata, FieldMetadata)
+            and f.metadata.length is None
         )
-        derived_var = tuple(
-            k for k, v in derived_props.items() if v.get("length", None) is None
-        )
+        derived_var = tuple(k for k, v in derived_props.items() if v.length is None)
 
         cls._var_length_attrs = field_var + derived_var
 
         # Compute position attributes
         field_pos = tuple(
-            f.name for f in cls_fields if f.metadata.get("type") == "position"
+            f.name
+            for f in cls_fields
+            if isinstance(f.metadata, FieldMetadata)
+            and f.metadata.category == "position"
         )
         derived_pos = tuple(
-            k for k, v in derived_props.items() if v.get("type") == "position"
+            k for k, v in derived_props.items() if v.category == "position"
         )
         cls._pos_attrs = field_pos + derived_pos
 
         # Compute vector attributes
         field_vec = tuple(
-            f.name for f in cls_fields if f.metadata.get("type") == "vector"
+            f.name
+            for f in cls_fields
+            if isinstance(f.metadata, FieldMetadata) and f.metadata.category == "vector"
         )
         derived_vec = tuple(
-            k for k, v in derived_props.items() if v.get("type") == "vector"
+            k for k, v in derived_props.items() if v.category == "vector"
         )
 
         cls._vec_attrs = field_vec + derived_vec
 
         # Compute index attributes (no derived version since indexes should not be derived)
         cls._index_attrs = tuple(
-            f.name for f in cls_fields if f.metadata.get("index", False)
+            f.name
+            for f in cls_fields
+            if isinstance(f.metadata, FieldMetadata) and f.metadata.index
         )
 
         # Compute skip attributes (no derived version)
         cls._skip_attrs = tuple(
-            f.name for f in cls_fields if f.metadata.get("skip", False)
+            f.name
+            for f in cls_fields
+            if isinstance(f.metadata, FieldMetadata) and f.metadata.skip
         )
         cls._lite_skip_attrs = tuple(
-            f.name for f in cls_fields if f.metadata.get("lite_skip", False)
+            f.name
+            for f in cls_fields
+            if isinstance(f.metadata, FieldMetadata) and f.metadata.lite_skip
         )
 
         # Compute concatenation attributes (no derived version)
         cls._cat_attrs = tuple(
-            f.name for f in cls_fields if f.metadata.get("cat", False)
+            f.name
+            for f in cls_fields
+            if isinstance(f.metadata, FieldMetadata) and f.metadata.cat
         )
 
         # Compute type-based attributes (no derived version)
@@ -498,24 +518,27 @@ class DataBase:
         # Cache derived property names
         cls._derived_attrs = tuple(derived_props.keys())
 
+        # Compute enumerated attributes dictionary
+        cls._enum_dicts = {}
+        for f in cls_fields:
+            if isinstance(f.metadata, FieldMetadata):
+                meta = cast(FieldMetadata, f.metadata)
+                if meta.enum is not None:
+                    cls._enum_dicts[f.name] = {v: k for k, v in meta.enum.items()}
+
         # Cache global units attributes (no field-based version)
         cls._global_units_attrs = tuple(
-            k for k, v in derived_props.items() if v.get("units") == "instance"
-        )
-
-        # Compute enumerated attributes dictionary
-        cls._enum_dicts = dict(
-            (f.name, {v: k for k, v in f.metadata["enum"].items()})
-            for f in cls_fields
-            if f.metadata.get("enum", None) is not None
+            k for k, v in derived_props.items() if v.units == "instance"
         )
 
         # Compute field units dictionary from field metadata and derived properties
         field_units = {
-            f.name: f.metadata["units"] for f in cls_fields if "units" in f.metadata
+            f.name: f.metadata.units
+            for f in cls_fields
+            if isinstance(f.metadata, FieldMetadata) and f.metadata.units is not None
         }
         derived_units = {
-            k: v["units"] for k, v in derived_props.items() if "units" in v
+            k: v.units for k, v in derived_props.items() if v.units is not None
         }
         cls._field_units = {**field_units, **derived_units}
 
@@ -523,13 +546,13 @@ class DataBase:
         cls._attrs_cached = True
 
     @classmethod
-    def _get_derived_properties(cls) -> Dict[str, Dict[str, Any]]:
+    def _get_derived_properties(cls) -> Dict[str, FieldMetadata]:
         """Introspect the class to find all derived_property descriptors.
 
         Returns
         -------
-        Dict[str, Dict[str, Any]]
-            Dictionary mapping property names to their metadata
+        Dict[str, FieldMetadata]
+            Dictionary mapping property names to their FieldMetadata
         """
         result = {}
         for name in dir(cls):

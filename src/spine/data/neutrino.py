@@ -12,6 +12,7 @@ import numpy as np
 from spine.utils.globals import NU_CURR_TYPE, NU_INT_TYPE
 
 from .base import PosDataBase
+from .field import FieldMetadata
 
 __all__ = ["Neutrino"]
 
@@ -81,13 +82,13 @@ class Neutrino(PosDataBase):
     """
 
     # Index attributes
-    id: int = field(default=-1, metadata={"index": True})
-    interaction_id: int = field(default=-1, metadata={"index": True})
+    id: int = field(default=-1, metadata=FieldMetadata(index=True))
+    interaction_id: int = field(default=-1, metadata=FieldMetadata(index=True))
 
     # Enumerated attributes
-    current_type: int = field(default=-1, metadata={"enum": NU_CURR_TYPE})
-    interaction_mode: int = field(default=-1, metadata={"enum": NU_INT_TYPE})
-    interaction_type: int = field(default=-1, metadata={"enum": NU_INT_TYPE})
+    current_type: int = field(default=-1, metadata=FieldMetadata(enum=NU_CURR_TYPE))
+    interaction_mode: int = field(default=-1, metadata=FieldMetadata(enum=NU_INT_TYPE))
+    interaction_type: int = field(default=-1, metadata=FieldMetadata(enum=NU_INT_TYPE))
 
     # Scalar attributes
     mct_index: int = -1
@@ -99,17 +100,23 @@ class Neutrino(PosDataBase):
     nucleon: int = -1
     quark: int = -1
 
-    energy_init: float = field(default=np.nan, metadata={"units": "GeV"})
+    energy_init: float = field(default=np.nan, metadata=FieldMetadata(units="GeV"))
     hadronic_invariant_mass: float = field(
-        default=np.nan, metadata={"units": "GeV/c^2"}
+        default=np.nan, metadata=FieldMetadata(units="GeV/c^2")
     )
-    momentum_transfer: float = field(default=np.nan, metadata={"units": "(GeV/c)^2"})
-    momentum_transfer_mag: float = field(default=np.nan, metadata={"units": "GeV/c"})
-    energy_transfer: float = field(default=np.nan, metadata={"units": "GeV"})
-    lepton_p: float = field(default=np.nan, metadata={"units": "GeV/c"})
-    distance_travel: float = field(default=np.nan, metadata={"units": "instance"})
-    t: float = field(default=np.nan, metadata={"units": "ns"})
-    theta: float = field(default=np.nan, metadata={"units": "rad"})
+    momentum_transfer: float = field(
+        default=np.nan, metadata=FieldMetadata(units="(GeV/c)^2")
+    )
+    momentum_transfer_mag: float = field(
+        default=np.nan, metadata=FieldMetadata(units="GeV/c")
+    )
+    energy_transfer: float = field(default=np.nan, metadata=FieldMetadata(units="GeV"))
+    lepton_p: float = field(default=np.nan, metadata=FieldMetadata(units="GeV/c"))
+    distance_travel: float = field(
+        default=np.nan, metadata=FieldMetadata(units="instance")
+    )
+    t: float = field(default=np.nan, metadata=FieldMetadata(units="ns"))
+    theta: float = field(default=np.nan, metadata=FieldMetadata(units="rad"))
     bjorken_x: float = np.nan
     inelasticity: float = np.nan
 
@@ -119,17 +126,19 @@ class Neutrino(PosDataBase):
     # Vector attributes
     position: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata={
-            "length": 3,
-            "dtype": np.float32,
-            "type": "position",
-            "units": "instance",
-        },
+        metadata=FieldMetadata(
+            length=3,
+            dtype=np.float32,
+            category="position",
+            units="instance",
+        ),
     )
 
     momentum: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata={"length": 3, "dtype": np.float32, "type": "vector", "units": "MeV/c"},
+        metadata=FieldMetadata(
+            length=3, dtype=np.float32, category="vector", units="MeV/c"
+        ),
     )
 
     @classmethod

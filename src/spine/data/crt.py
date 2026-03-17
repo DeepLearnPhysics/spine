@@ -9,6 +9,7 @@ import numpy as np
 
 from .base import PosDataBase
 from .derived import derived_property
+from .field import FieldMetadata
 
 __all__ = ["CRTHit"]
 
@@ -50,16 +51,18 @@ class CRTHit(PosDataBase):
     """
 
     # Index attributes
-    id: int = field(default=-1, metadata={"index": True})
+    id: int = field(default=-1, metadata=FieldMetadata(index=True))
 
     # Scalar attributes
     plane: int = -1
 
-    ts0_s: int = field(default=-1, metadata={"units": "s"})  # Integer to match LArCV
-    ts0_ns: float = field(default=np.nan, metadata={"units": "ns"})
-    ts0_s_corr: float = field(default=np.nan, metadata={"units": "s"})
-    ts0_ns_corr: float = field(default=np.nan, metadata={"units": "ns"})
-    ts1_ns: float = field(default=np.nan, metadata={"units": "ns"})
+    ts0_s: int = field(
+        default=-1, metadata=FieldMetadata(units="s")
+    )  # Integer to match LArCV
+    ts0_ns: float = field(default=np.nan, metadata=FieldMetadata(units="ns"))
+    ts0_s_corr: float = field(default=np.nan, metadata=FieldMetadata(units="s"))
+    ts0_ns_corr: float = field(default=np.nan, metadata=FieldMetadata(units="ns"))
+    ts1_ns: float = field(default=np.nan, metadata=FieldMetadata(units="ns"))
     total_pe: float = np.nan
 
     tagger: str = ""
@@ -68,25 +71,25 @@ class CRTHit(PosDataBase):
     # Vector attributes
     feb_id: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.ubyte),
-        metadata={"dtype": np.ubyte},
+        metadata=FieldMetadata(dtype=np.ubyte),
     )
     center: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata={
-            "length": 3,
-            "dtype": np.float32,
-            "type": "position",
-            "units": "instance",
-        },
+        metadata=FieldMetadata(
+            length=3,
+            dtype=np.float32,
+            category="position",
+            units="instance",
+        ),
     )
     width: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata={
-            "length": 3,
-            "dtype": np.float32,
-            "type": "vector",
-            "units": "instance",
-        },
+        metadata=FieldMetadata(
+            length=3,
+            dtype=np.float32,
+            category="vector",
+            units="instance",
+        ),
     )
 
     @derived_property(units="us")

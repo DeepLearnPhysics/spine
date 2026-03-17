@@ -6,6 +6,7 @@ import numpy as np
 
 from spine.data.base import PosDataBase
 from spine.data.derived import derived_property
+from spine.data.field import FieldMetadata
 
 
 @dataclass(eq=False)
@@ -52,7 +53,7 @@ class OutBase(PosDataBase):
     """
 
     # Index attributes
-    id: int = field(default=-1, metadata={"index": True})
+    id: int = field(default=-1, metadata=FieldMetadata(index=True))
 
     # Scalar attributes
     is_contained: bool = False
@@ -60,45 +61,45 @@ class OutBase(PosDataBase):
     is_cathode_crosser: bool = False
     is_matched: bool = False
 
-    cathode_offset: float = field(default=np.nan, metadata={"units": "cm"})
+    cathode_offset: float = field(default=np.nan, metadata=FieldMetadata(units="cm"))
 
     units: str = "cm"
 
     # Vector attributes
     index: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.int64),
-        metadata={"dtype": np.int64, "cat": True, "skip_lite": True},
+        metadata=FieldMetadata(dtype=np.int64, cat=True, lite_skip=True),
     )
 
     points: np.ndarray = field(
         default_factory=lambda: np.empty((0, 3), dtype=np.float32),
-        metadata={
-            "dtype": np.float32,
-            "type": "position",
-            "cat": True,
-            "skip": True,
-            "units": "instance",
-        },
+        metadata=FieldMetadata(
+            dtype=np.float32,
+            category="position",
+            cat=True,
+            skip=True,
+            units="instance",
+        ),
     )
 
     depositions: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.float32),
-        metadata={"dtype": np.float32, "cat": True, "skip": True},
+        metadata=FieldMetadata(dtype=np.float32, cat=True, skip=True),
     )
 
     sources: np.ndarray = field(
         default_factory=lambda: np.empty((0, 2), dtype=np.int64),
-        metadata={"dtype": np.int64, "cat": True, "skip": True},
+        metadata=FieldMetadata(dtype=np.int64, cat=True, skip=True),
     )
 
     match_ids: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.int64),
-        metadata={"dtype": np.int64},
+        metadata=FieldMetadata(dtype=np.int64),
     )
 
     match_overlaps: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.float32),
-        metadata={"dtype": np.float32},
+        metadata=FieldMetadata(dtype=np.float32),
     )
 
     def reset_match(self) -> None:
@@ -227,54 +228,54 @@ class TruthBase:
     # Vector attributes
     index_adapt: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.int64),
-        metadata={"dtype": np.int64, "cat": True, "skip_lite": True},
+        metadata=FieldMetadata(dtype=np.int64, cat=True, lite_skip=True),
     )
     index_g4: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.int64),
-        metadata={"dtype": np.int64, "cat": True, "skip_lite": True},
+        metadata=FieldMetadata(dtype=np.int64, cat=True, lite_skip=True),
     )
 
     points_adapt: np.ndarray = field(
         default_factory=lambda: np.empty((0, 3), dtype=np.float32),
-        metadata={
-            "dtype": np.float32,
-            "type": "position",
-            "cat": True,
-            "skip": True,
-            "units": "instance",
-        },
+        metadata=FieldMetadata(
+            dtype=np.float32,
+            category="position",
+            cat=True,
+            skip=True,
+            units="instance",
+        ),
     )
     points_g4: np.ndarray = field(
         default_factory=lambda: np.empty((0, 3), dtype=np.float32),
-        metadata={
-            "dtype": np.float32,
-            "type": "position",
-            "cat": True,
-            "skip": True,
-            "units": "instance",
-        },
+        metadata=FieldMetadata(
+            dtype=np.float32,
+            category="position",
+            cat=True,
+            skip=True,
+            units="instance",
+        ),
     )
 
     depositions_q: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.float32),
-        metadata={"dtype": np.float32, "cat": True, "skip": True},
+        metadata=FieldMetadata(dtype=np.float32, cat=True, skip=True),
     )
     depositions_adapt: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.float32),
-        metadata={"dtype": np.float32, "cat": True, "skip": True},
+        metadata=FieldMetadata(dtype=np.float32, cat=True, skip=True),
     )
     depositions_adapt_q: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.float32),
-        metadata={"dtype": np.float32, "cat": True, "skip": True},
+        metadata=FieldMetadata(dtype=np.float32, cat=True, skip=True),
     )
     depositions_g4: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.float32),
-        metadata={"dtype": np.float32, "cat": True, "skip": True},
+        metadata=FieldMetadata(dtype=np.float32, cat=True, skip=True),
     )
 
     sources_adapt: np.ndarray = field(
         default_factory=lambda: np.empty((0, 2), dtype=np.int64),
-        metadata={"dtype": np.int64, "cat": True, "skip": True},
+        metadata=FieldMetadata(dtype=np.int64, cat=True, skip=True),
     )
 
     @derived_property
