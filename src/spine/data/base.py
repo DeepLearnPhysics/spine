@@ -62,7 +62,6 @@ import numpy as np
 
 from spine.utils.docstring import merge_ancestor_docstrings
 
-from .derived import DerivedProperty
 from .field import FieldMetadata
 
 if TYPE_CHECKING:
@@ -558,8 +557,11 @@ class DataBase:
         for name in dir(cls):
             try:
                 attr = getattr(cls, name)
-                if isinstance(attr, DerivedProperty):
-                    result[name] = attr.metadata
+                # Check if it's a property with derived metadata on the getter
+                if isinstance(attr, property) and attr.fget is not None:
+                    metadata = getattr(attr.fget, "__derived_property_metadata__", None)
+                    if metadata is not None:
+                        result[name] = metadata
             except AttributeError:
                 # Some descriptors may raise AttributeError when accessed on class
                 continue
