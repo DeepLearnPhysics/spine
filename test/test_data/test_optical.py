@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from spine.data.optical import Flash
+from spine.data import Flash
 
 
 class TestFlashCreation:

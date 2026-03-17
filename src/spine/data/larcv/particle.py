@@ -9,11 +9,10 @@ from warnings import warn
 
 import numpy as np
 
+from spine.data.base import PosDataBase
+from spine.data.decorator import derived_property
+from spine.data.field import FieldMetadata
 from spine.utils.globals import PID_LABELS, SHAPE_LABELS, UNKWN_SHP
-
-from .base import PosDataBase
-from .decorator import derived_property
-from .field import FieldMetadata
 
 __all__ = ["Particle"]
 

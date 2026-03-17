@@ -9,8 +9,8 @@ from typing import Self
 
 import numpy as np
 
-from .base import DataBase
-from .field import FieldMetadata
+from spine.data.base import DataBase
+from spine.data.field import FieldMetadata
 
 __all__ = ["Meta"]
 

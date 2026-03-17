@@ -8,8 +8,8 @@ from typing import Self
 
 import numpy as np
 
-from .base import PosDataBase
-from .field import FieldMetadata
+from spine.data.base import PosDataBase
+from spine.data.field import FieldMetadata
 
 __all__ = ["Flash"]
 

@@ -6,7 +6,7 @@ It can extract run attributes from any event-level LArCV object.
 from dataclasses import dataclass
 from typing import Self
 
-from .base import DataBase
+from spine.data.base import DataBase
 
 __all__ = ["RunInfo"]
 

@@ -7,7 +7,7 @@ in core CI environments. Excluded from basic CI tests.
 import numpy as np
 import pytest
 
-from spine.data.meta import Meta
+from spine.data import Meta
 from spine.io.torch.collate import CollateAll
 
 

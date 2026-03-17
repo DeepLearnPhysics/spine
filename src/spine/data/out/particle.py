@@ -8,7 +8,7 @@ from scipy.spatial.distance import cdist
 
 from spine.data.decorator import alias_property, derived_property
 from spine.data.field import FieldMetadata
-from spine.data.particle import Particle
+from spine.data.larcv.particle import Particle
 from spine.utils.globals import (
     PID_LABELS,
     PID_MASSES,

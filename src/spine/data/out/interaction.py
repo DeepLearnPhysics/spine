@@ -8,7 +8,7 @@ import numpy as np
 
 from spine.data.decorator import derived_property
 from spine.data.field import FieldMetadata
-from spine.data.neutrino import Neutrino
+from spine.data.larcv.neutrino import Neutrino
 from spine.utils.globals import PID_LABELS, PID_TAGS, SHOWR_SHP
 
 from .base import OutBase, RecoBase, TruthBase

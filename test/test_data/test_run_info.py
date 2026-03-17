@@ -1,6 +1,6 @@
 """Comprehensive tests for the run_info data module."""
 
-from spine.data.run_info import RunInfo
+from spine.data import RunInfo
 
 
 class TestRunInfoCreation:

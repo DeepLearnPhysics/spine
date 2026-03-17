@@ -82,12 +82,6 @@ batch = TensorBatch(data_list, batch_size=32)
 """
 
 from .batch import *
-from .crt import *
+from .larcv import *
 from .list import *
-from .meta import *
-from .neutrino import *
-from .optical import *
 from .out import *
-from .particle import *
-from .run_info import *
-from .trigger import *

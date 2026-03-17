@@ -26,7 +26,7 @@ def test_torch_io_conditional_import():
 
 def test_meta_import():
     """Test that Meta can be imported from spine.data.meta."""
-    from spine.data.meta import Meta
+    from spine.data import Meta
 
     assert Meta is not None
     print("✅ Meta class successfully imported from spine.data.meta")

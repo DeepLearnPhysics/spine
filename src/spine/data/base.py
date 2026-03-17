@@ -65,7 +65,7 @@ from spine.utils.docstring import merge_ancestor_docstrings
 from .field import FieldMetadata
 
 if TYPE_CHECKING:
-    from .meta import Meta
+    from spine.data.larcv.meta import Meta
 
 
 @dataclass(eq=False)

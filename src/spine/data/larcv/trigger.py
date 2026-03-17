@@ -6,8 +6,8 @@ This copies the internal structure of :class:`larcv.Trigger`.
 from dataclasses import dataclass, field
 from typing import Self
 
-from .base import DataBase
-from .field import FieldMetadata
+from spine.data.base import DataBase
+from spine.data.field import FieldMetadata
 
 __all__ = ["Trigger"]
 

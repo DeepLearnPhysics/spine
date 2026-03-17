@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from spine.data.meta import Meta
+from spine.data import Meta
 
 
 class TestMetaCreation:

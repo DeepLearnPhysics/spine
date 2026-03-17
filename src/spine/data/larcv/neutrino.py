@@ -9,10 +9,9 @@ from warnings import warn
 
 import numpy as np
 
+from spine.data.base import PosDataBase
+from spine.data.field import FieldMetadata
 from spine.utils.globals import NU_CURR_TYPE, NU_INT_TYPE
-
-from .base import PosDataBase
-from .field import FieldMetadata
 
 __all__ = ["Neutrino"]
 

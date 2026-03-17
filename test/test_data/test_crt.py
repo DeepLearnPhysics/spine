@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from spine.data.crt import CRTHit
+from spine.data import CRTHit
 from spine.utils.conditional import LARCV_AVAILABLE, larcv
 
 

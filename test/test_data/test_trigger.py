@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from spine.data.trigger import Trigger
+from spine.data import Trigger
 
 
 class TestTriggerCreation:
