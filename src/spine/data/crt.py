@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from .base import PosDataBase
-from .derived import derived_property
+from .decorator import derived_property
 from .field import FieldMetadata
 
 __all__ = ["CRTHit"]

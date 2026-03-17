@@ -12,7 +12,7 @@ import numpy as np
 from spine.utils.globals import PID_LABELS, SHAPE_LABELS, UNKWN_SHP
 
 from .base import PosDataBase
-from .derived import derived_property
+from .decorator import derived_property
 from .field import FieldMetadata
 
 __all__ = ["Particle"]

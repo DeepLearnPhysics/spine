@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from spine.data.derived import derived_property
+from spine.data.decorator import derived_property
 from spine.data.field import FieldMetadata
 from spine.data.particle import Particle
 from spine.utils.globals import SHAPE_LABELS, TRACK_SHP

@@ -1,8 +1,9 @@
-"""Decorator for marking derived properties in data structures.
+"""Decorators for properties in data structures.
 
-This module provides the @derived_property decorator for methods that compute
-values dynamically but should be treated like fields for serialization and
-introspection purposes.
+This module provides decorators for properties that need metadata for
+serialization and introspection:
+- @derived_property: Computed properties with metadata
+- @alias_property: Aliases that inherit metadata from their targets
 """
 
 from typing import (
@@ -19,7 +20,7 @@ from typing import (
 
 from .field import FieldMetadata
 
-__all__ = ["derived_property"]
+__all__ = ["derived_property", "alias_property"]
 
 T = TypeVar("T")
 R = TypeVar("R")
@@ -162,3 +163,50 @@ def derived_property(
         return property(fget)
 
     return wrapper
+
+
+def alias_property(target_name: str) -> Callable[[Callable[..., Any]], property]:
+    """Decorator for property aliases that inherit metadata from their targets.
+
+    This decorator creates a property alias that automatically inherits the
+    metadata from the target property during introspection. The alias appears
+    as a normal Python property to type checkers and linters.
+
+    Metadata inheritance happens at introspection time by looking up the target
+    property's metadata, ensuring aliases always stay in sync with their targets.
+
+    Parameters
+    ----------
+    target_name : str
+        Name of the target property to alias
+
+    Returns
+    -------
+    Callable
+        Decorator that returns a standard Python property with alias information
+
+    Examples
+    --------
+    >>> @derived_property(units='MeV')
+    ... def ke(self) -> float:
+    ...     '''Kinetic energy in MeV.'''
+    ...     return self._ke
+    >>>
+    >>> @alias_property('ke')
+    ... def reco_ke(self) -> float:
+    ...     '''Alias for ke to match nomenclature in truth.'''
+    ...     return self.ke
+
+    Notes
+    -----
+    The alias function should typically just return the target property's value.
+    The decorator will mark the function so that introspection can find and
+    copy metadata from the target.
+    """
+
+    def decorator(func: Callable[..., Any]) -> property:
+        # Mark the function with the alias target name
+        func.__alias_property_target__ = target_name  # type: ignore[attr-defined]
+        return property(func)
+
+    return decorator

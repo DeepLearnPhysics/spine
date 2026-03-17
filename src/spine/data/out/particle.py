@@ -6,7 +6,7 @@ from typing import List
 import numpy as np
 from scipy.spatial.distance import cdist
 
-from spine.data.derived import derived_property
+from spine.data.decorator import alias_property, derived_property
 from spine.data.field import FieldMetadata
 from spine.data.particle import Particle
 from spine.utils.globals import (
@@ -460,27 +460,27 @@ class RecoParticle(ParticleBase, RecoBase):
         """
         return float(np.linalg.norm(self.momentum))
 
-    @property
+    @alias_property("ke")
     def reco_ke(self) -> float:
         """Alias for `ke`, to match nomenclature in truth."""
         return self.ke
 
-    @property
+    @alias_property("momentum")
     def reco_momentum(self) -> np.ndarray:
         """Alias for `momentum`, to match nomenclature in truth."""
         return self.momentum
 
-    @property
+    @alias_property("length")
     def reco_length(self) -> float:
         """Alias for `length`, to match nomenclature in truth."""
         return self.length
 
-    @property
+    @alias_property("start_dir")
     def reco_start_dir(self) -> np.ndarray:
         """Alias for `start_dir`, to match nomenclature in truth."""
         return self.start_dir
 
-    @property
+    @alias_property("end_dir")
     def reco_end_dir(self) -> np.ndarray:
         """Alias for `end_dir`, to match nomenclature in truth."""
         return self.end_dir

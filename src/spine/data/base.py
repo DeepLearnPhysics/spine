@@ -562,6 +562,51 @@ class DataBase:
                     metadata = getattr(attr.fget, "__derived_property_metadata__", None)
                     if metadata is not None:
                         result[name] = metadata
+                    else:
+                        # Check if it's an alias property
+                        target_name = getattr(
+                            attr.fget, "__alias_property_target__", None
+                        )
+                        if target_name is not None:
+                            # Look up the target and copy its metadata
+                            # Aliases should NEVER be stored (skip=True)
+                            # First check if target is a derived property
+                            target_attr = getattr(cls, target_name, None)
+                            if (
+                                isinstance(target_attr, property)
+                                and target_attr.fget is not None
+                            ):
+                                target_metadata = getattr(
+                                    target_attr.fget,
+                                    "__derived_property_metadata__",
+                                    None,
+                                )
+                                if target_metadata is not None:
+                                    # Copy metadata but force skip=True
+                                    meta_dict = target_metadata.as_dict()
+                                    meta_dict["skip"] = True
+                                    result[name] = FieldMetadata(**meta_dict)
+                            else:
+                                # Target might be a regular dataclass field
+                                try:
+                                    cls_fields = fields(cls)
+                                    for f in cls_fields:
+                                        if f.name == target_name:
+                                            # Check if metadata looks like FieldMetadata
+                                            # (dataclasses wraps it in mappingproxy)
+                                            meta = f.metadata
+                                            if "units" in meta or "dtype" in meta:
+                                                # It's a FieldMetadata (wrapped in mappingproxy)
+                                                # Copy metadata but force skip=True
+                                                meta_dict = dict(meta)
+                                                meta_dict["skip"] = True
+                                                result[name] = FieldMetadata(
+                                                    **meta_dict
+                                                )
+                                                break
+                                except TypeError:
+                                    # Not a dataclass
+                                    pass
             except AttributeError:
                 # Some descriptors may raise AttributeError when accessed on class
                 continue

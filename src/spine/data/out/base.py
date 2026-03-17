@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from spine.data.base import PosDataBase
-from spine.data.derived import derived_property
+from spine.data.decorator import derived_property
 from spine.data.field import FieldMetadata
 
 
