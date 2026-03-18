@@ -85,12 +85,13 @@ class Unwrapper:
             Unwrapped data product
         """
         # Data should never be an empty list
-        dim = len(getattr(data, "shape", [0]))
-        assert (
-            np.isscalar(data) or dim == 0 or len(data)
-        ), "Batch has length 0, should not happen."
+        if isinstance(data, (list, tuple)) and len(data) == 0:
+            raise ValueError(f"Batched data for {key} is an empty list, cannot unwrap.")
+        if self.batch_size is None:
+            raise ValueError("Batch size should be set before unwrapping.")
 
         # Dispatch to the correct unwrapping scheme
+        dim = len(getattr(data, "shape", (0,)))
         if (
             np.isscalar(data)
             or dim == 0
@@ -108,8 +109,7 @@ class Unwrapper:
             # If the data is a tensor list, split each between its constituents
             data_split = [self._unwrap_tensor(t, meta) for t in data]
             tensor_lists = []
-            batch_size = data[0].batch_size // self.num_volumes
-            for b in range(batch_size):
+            for b in range(self.batch_size):
                 tensor_lists.append([l[b] for l in data_split])
 
             return tensor_lists
@@ -147,12 +147,14 @@ class Unwrapper:
                 return data_nobc.split()
 
         # Otherwise, must shift coordinates back
-        assert (
-            self.geo is not None
-        ), "Geometry must be initialized to unwrap tensors from multiple volumes."
-        assert (
-            meta is not None and len(meta) == self.batch_size
-        ), "Metadata must be provided to unwrap tensors from multiple volumes."
+        if self.geo is None:
+            raise ValueError(
+                "Geometry must be initialized to unwrap tensors from multiple volumes."
+            )
+        if meta is None or len(meta) != self.batch_size:
+            raise ValueError(
+                "Metadata must be provided to unwrap tensors from multiple volumes."
+            )
 
         tensors = []
         batch_size = data.batch_size // self.num_volumes
