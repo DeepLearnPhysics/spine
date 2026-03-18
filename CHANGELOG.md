@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.10.6] - 2026-03-18
+
+### Changed
+- **CSV Writer**: Significantly improved CSV writer performance for analysis scripts ([#119](https://github.com/DeepLearnPhysics/spine/pull/119))
+- **Multi-node training**: Fixed multi-node distributed training support ([#118](https://github.com/DeepLearnPhysics/spine/pull/118))
+
 ## [0.10.5] - 2026-03-04
 
 ### Fixed
