@@ -295,6 +295,89 @@ class TestFlashIntegration:
         assert np.all(bright_flash.pe_per_ch == 1000.0)
 
 
+class TestFlashMerging:
+    """Test merging of Flash objects."""
+
+    def test_flash_merging(self):
+        """Test merging two Flash objects."""
+        flash1 = Flash(
+            time=4500.0,
+            time_width=0.1,
+            total_pe=100.0,
+            pe_per_ch=np.array([10.0, 20.0, 30.0, 40.0]),
+            center=np.array([0.0, 0.0, 500.0]),
+            width=np.array([50.0, 50.0, 100.0]),
+            volume_id=0,
+        )
+
+        flash2 = Flash(
+            time=4500.5,
+            time_width=0.2,
+            total_pe=200.0,
+            pe_per_ch=np.array([20.0, 30.0, 40.0, 50.0]),
+            center=np.array([50.0, 0.0, 500.0]),
+            width=np.array([60.0, 60.0, 120.0]),
+            volume_id=1,
+        )
+
+        # Create a merged flash starting with flash1 and merging flash2 into it
+        merged_flash = Flash(
+            time=flash1.time,  # Will be updated in merge
+            time_width=flash1.time_width,  # Will be updated in merge
+            total_pe=flash1.total_pe,  # Will be updated in merge
+            pe_per_ch=flash1.pe_per_ch.copy(),  # Will be updated in merge
+            center=flash1.center.copy(),  # Will be updated in merge
+            width=flash1.width.copy(),  # Will be updated in merge
+            volume_id=flash1.volume_id,
+        )
+
+        merged_flash.merge(flash2)
+
+        # Check on timing information (earlier flash should dominate)
+        assert merged_flash.time == flash1.time
+        assert (
+            merged_flash.time_width
+            == max(flash1.time + flash1.time_width, flash2.time + flash2.time_width)
+            - merged_flash.time
+        )
+
+        # Check on photoelectron consistency
+        merged_pe = flash1.pe_per_ch + flash2.pe_per_ch
+        merged_center = (
+            flash1.center / flash1.width**2 + flash2.center / flash2.width**2
+        ) / (1.0 / flash1.width**2 + 1.0 / flash2.width**2)
+        merged_width = 1.0 / np.sqrt(1.0 / flash1.width**2 + 1.0 / flash2.width**2)
+
+        assert merged_flash.total_pe == flash1.total_pe + flash2.total_pe
+        np.testing.assert_array_equal(merged_flash.pe_per_ch, merged_pe)
+        np.testing.assert_array_equal(merged_flash.center, merged_center)
+        np.testing.assert_array_equal(merged_flash.width, merged_width)
+
+        # Now merge in the opposite direction and check that timing information updates correctly
+        merged_flash2 = Flash(
+            time=flash2.time,  # Will be updated in merge
+            time_width=flash2.time_width,  # Will be updated in merge
+            total_pe=flash2.total_pe,  # Will be updated in merge
+            pe_per_ch=flash2.pe_per_ch.copy(),  # Will be updated in merge
+            center=flash2.center.copy(),  # Will be updated in merge
+            width=flash2.width.copy(),  # Will be updated in merge
+            volume_id=flash2.volume_id,
+        )
+        merged_flash2.merge(flash1)
+
+        assert merged_flash2.time == flash1.time
+        assert (
+            merged_flash2.time_width
+            == max(flash1.time + flash1.time_width, flash2.time + flash2.time_width)
+            - merged_flash2.time
+        )
+
+        assert merged_flash2.total_pe == flash1.total_pe + flash2.total_pe
+        np.testing.assert_array_equal(merged_flash2.pe_per_ch, merged_pe)
+        np.testing.assert_array_equal(merged_flash2.center, merged_center)
+        np.testing.assert_array_equal(merged_flash2.width, merged_width)
+
+
 class TestFlashFromLArCV:
     """Tests for Flash.from_larcv() - only runs if larcv is available."""
 

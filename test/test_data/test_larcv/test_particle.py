@@ -256,6 +256,45 @@ class TestParticlePhysics:
         assert abs(travel_distance - particle.distance_travel) < 1.0  # Rough agreement
 
 
+class TestParticleProperties:
+    """Test Particle properties and methods."""
+
+    def test_particle_p(self):
+        """Test the p property for momentum magnitude."""
+        from spine.data import Particle
+
+        momentum = np.array([3.0, 4.0, 0.0])  # |p| = 5 GeV
+        particle = Particle(id=0, momentum=momentum, pdg_code=13)  # muon
+
+        expected_p = np.linalg.norm(momentum)
+        assert abs(particle.p - expected_p) < 1e-6
+
+    def test_particle_end_p(self):
+        """Test the end_p property for end momentum magnitude."""
+        from spine.data import Particle
+
+        end_momentum = np.array([6.0, 8.0, 0.0])  # |p| = 10 GeV
+        particle = Particle(id=0, end_momentum=end_momentum, pdg_code=13)  # muon
+
+        expected_end_p = np.linalg.norm(end_momentum)
+        assert abs(particle.end_p - expected_end_p) < 1e-6
+
+    def test_particle_mass(self):
+        """Test the mass property calculated from energy and momentum."""
+        from spine.data import Particle
+
+        # Create a particle with known energy and momentum
+        momentum = np.array([3.0, 4.0, 0.0])  # |p| = 5 GeV
+        energy = 10.0  # GeV
+        particle = Particle(id=0, momentum=momentum, energy_init=energy)
+
+        expected_mass = np.sqrt(energy**2 - np.linalg.norm(momentum) ** 2)
+        assert abs(particle.mass - expected_mass) < 1e-6
+
+        # If the particle has uninitialized energy_init, mass will be nan
+        assert Particle(id=1, momentum=momentum).mass is np.nan
+
+
 class TestParticleCollections:
     """Test collections and lists of particles."""
 
@@ -828,6 +867,189 @@ class TestParticleFromLArCV:
             particle.end_momentum, [150.0, 75.0, 600.0]
         )
         np.testing.assert_array_equal(particle.children_id, [16, 17])
+
+    def test_from_larcv_missing_attributes(self):
+        """Test from_larcv with a LArCV Particle missing some attributes."""
+        from spine.data import Particle
+
+        # Create a mock LArCV Particle which is missing some index and end momentum attributes
+        class PartialMockLArCVParticle:
+            """Mock LArCV Particle for testing."""
+
+            def id(self):
+                return 10
+
+            def group_id(self):
+                return 2
+
+            def interaction_id(self):
+                return 1
+
+            def parent_id(self):
+                return 5
+
+            def mct_index(self):
+                return 8
+
+            def mcst_index(self):
+                return 12
+
+            def num_voxels(self):
+                return 5000
+
+            def shape(self):
+                return 1  # Track
+
+            def energy_init(self):
+                return 500.0  # MeV
+
+            def energy_deposit(self):
+                return 450.0  # MeV
+
+            def track_id(self):
+                return 1000
+
+            def pdg_code(self):
+                return 13  # muon
+
+            def creation_process(self):
+                return "primary"
+
+            def t(self):
+                return 100.0  # ns
+
+            def parent_track_id(self):
+                return 999
+
+            def parent_pdg_code(self):
+                return 14  # numu
+
+            def parent_creation_process(self):
+                return "generator"
+
+            def parent_t(self):
+                return 95.0  # ns
+
+            def ancestor_track_id(self):
+                return 998
+
+            def ancestor_pdg_code(self):
+                return 14
+
+            def ancestor_creation_process(self):
+                return "generator"
+
+            def ancestor_t(self):
+                return 90.0
+
+            def children_id(self):
+                return [11, 12, 13]
+
+            def position(self):
+                class MockPosition:
+                    def x(self):
+                        return 100.0
+
+                    def y(self):
+                        return 50.0
+
+                    def z(self):
+                        return 500.0
+
+                return MockPosition()
+
+            def end_position(self):
+                class MockEndPosition:
+                    def x(self):
+                        return 150.0
+
+                    def y(self):
+                        return 75.0
+
+                    def z(self):
+                        return 700.0
+
+                    def t(self):
+                        return 120.0
+
+                return MockEndPosition()
+
+            def parent_position(self):
+                class MockParentPosition:
+                    def x(self):
+                        return 95.0
+
+                    def y(self):
+                        return 45.0
+
+                    def z(self):
+                        return 495.0
+
+                return MockParentPosition()
+
+            def ancestor_position(self):
+                class MockAncestorPosition:
+                    def x(self):
+                        return 90.0
+
+                    def y(self):
+                        return 40.0
+
+                    def z(self):
+                        return 490.0
+
+                return MockAncestorPosition()
+
+            def first_step(self):
+                class MockFirstStep:
+                    def x(self):
+                        return 102.0
+
+                    def y(self):
+                        return 52.0
+
+                    def z(self):
+                        return 502.0
+
+                return MockFirstStep()
+
+            def last_step(self):
+                class MockLastStep:
+                    def x(self):
+                        return 148.0
+
+                    def y(self):
+                        return 73.0
+
+                    def z(self):
+                        return 698.0
+
+                return MockLastStep()
+
+            def px(self):
+                return 100.0
+
+            def py(self):
+                return 50.0
+
+            def pz(self):
+                return 400.0
+
+            def momentum(self):
+                """Marker method to indicate momentum attributes exist."""
+                return True
+
+            # Missing many other attributes...
+
+        partial_particle = PartialMockLArCVParticle()
+        particle = Particle.from_larcv(partial_particle)
+
+        # Verify available attributes are set, and missing ones are default
+        assert particle.id == 10
+        assert particle.energy_init == 500.0
+        assert particle.pdg_code == 13
+        assert particle.distance_travel is np.nan  # Default for missing attribute
+        assert np.all(np.isnan(particle.end_momentum))  # Default for missing momentum
 
 
 if __name__ == "__main__":

@@ -810,6 +810,69 @@ class TestNeutrinoFromLArCV:
         np.testing.assert_array_almost_equal(neutrino.position, [50.0, -25.0, 600.0])
         np.testing.assert_array_almost_equal(neutrino.momentum, [0.8, 0.6, 3.0])
 
+    def test_from_larcv_missing_attributes(self):
+        """Test from_larcv with missing attributes in LArCV object."""
+        from spine.data import Neutrino
+
+        # Create a mock LArCV Neutrino with some missing attributes
+        class IncompleteLArCVNeutrino:
+            def id(self):
+                return 0
+
+            def interaction_id(self):
+                return 10
+
+            def mct_index(self):
+                return 5
+
+            def nu_track_id(self):
+                return 1000
+
+            def lepton_track_id(self):
+                return 1001
+
+            def pdg_code(self):
+                return 14  # numu
+
+            def lepton_pdg_code(self):
+                return 13  # mu-
+
+            # Missing current_type, interaction_mode, etc.
+
+            def position(self):
+                class MockPosition:
+                    def x(self):
+                        return 100.0
+
+                    def y(self):
+                        return -50.0
+
+                    def z(self):
+                        return 500.0
+
+                    def t(self):
+                        return 1234.5
+
+                return MockPosition()
+
+        incomplete_neutrino = IncompleteLArCVNeutrino()
+        neutrino = Neutrino.from_larcv(incomplete_neutrino)
+
+        # Verify that available attributes are set
+        assert neutrino.id == 0
+        assert neutrino.interaction_id == 10
+        assert neutrino.mct_index == 5
+        assert neutrino.track_id == 1000
+        assert neutrino.lepton_track_id == 1001
+        assert neutrino.pdg_code == 14
+        assert neutrino.lepton_pdg_code == 13
+        assert np.allclose(neutrino.position, [100.0, -50.0, 500.0])
+        assert neutrino.t == 1234.5
+
+        # Missing attributes should be default
+        assert neutrino.current_type == -1
+        assert neutrino.interaction_mode == -1
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

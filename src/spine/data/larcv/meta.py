@@ -5,7 +5,7 @@ images or :class:`larcv.Voxel3DMeta` for 3D images.
 """
 
 from dataclasses import dataclass, field
-from typing import Self
+from typing import Optional, Self
 
 import numpy as np
 
@@ -55,6 +55,72 @@ class Meta(DataBase):
         metadata=FieldMetadata(length=3, dtype=np.int64, category="vector"),
     )
 
+    # Internal attribute for index multipliers (not part of the dataclass fields)
+    _index_multipliers: Optional[np.ndarray] = field(
+        init=False, repr=False, compare=False, default=None
+    )
+
+    def __post_init__(self):
+        """Validate the consistency of the meta parameters."""
+        # Call the parent post_init to perform any additional validation
+        super().__post_init__()
+
+        # If nothing is initialized, skip validation (allows for default construction)
+        if (
+            np.isnan(self.lower).all()
+            and np.isnan(self.upper).all()
+            and np.isnan(self.size).all()
+            and (self.count == -1).all()
+        ):
+            return
+
+        # If anything is initialized, all must be initialized
+        if (
+            np.isnan(self.lower).any()
+            or np.isnan(self.upper).any()
+            or np.isnan(self.size).any()
+            or (self.count == -1).any()
+        ):
+            raise ValueError(
+                "If any of lower, upper, size, or count are initialized, "
+                "all must be initialized with valid values"
+            )
+
+        # Validate that lower, upper, size, and count have consistent shapes
+        if self.lower.shape != self.upper.shape or self.lower.shape != self.size.shape:
+            raise ValueError("lower, upper, and size must have the same shape")
+        if self.lower.shape != self.count.shape:
+            raise ValueError("lower/upper/size and count must have the same shape")
+
+        # Validate that the count and size yield the correct upper bound
+        expected_upper = self.lower + self.size * self.count
+        if not np.allclose(self.upper, expected_upper, equal_nan=True):
+            raise ValueError(
+                "Upper must be equal to lower + size * count (within numerical precision)"
+            )
+
+    @property
+    def index_multipliers(self) -> np.ndarray:
+        """Get the index multipliers for converting between pixel coordinates
+        and unique pixel indices.
+
+        Returns
+        -------
+        np.ndarray
+            Array of index multipliers for each dimension
+        """
+        if self._index_multipliers is None:
+            if self.count is None or (self.count == -1).any():
+                raise ValueError(
+                    "Cannot compute index multipliers without valid count information"
+                )
+
+            self._index_multipliers = np.empty(self.dimension, dtype=np.int64)
+            for i in range(self.dimension):
+                self._index_multipliers[i] = np.prod(self.count[i + 1 :])
+
+        return self._index_multipliers
+
     @property
     def dimension(self) -> int:
         """Number of dimensions in the image.
@@ -90,11 +156,7 @@ class Meta(DataBase):
         np.ndarray
             (N) Unique pixel index per input pixel
         """
-        mult = np.empty(self.dimension, dtype=self.count.dtype)
-        for i in range(self.dimension):
-            mult[i] = np.prod(self.count[i + 1 :])
-
-        return np.dot(coords, mult).astype(np.int64)
+        return np.dot(coords, self.index_multipliers).astype(np.int64)
 
     def to_cm(self, coords: np.ndarray, center: bool = False) -> np.ndarray:
         """Converts pixel coordinates to detector coordinates in cm.

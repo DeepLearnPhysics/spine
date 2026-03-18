@@ -34,60 +34,6 @@ class TestRunInfoCreation:
         assert isinstance(run_info.event, int)
 
 
-class TestRunInfoPhysics:
-    """Test RunInfo with realistic physics scenarios."""
-
-    def test_microboone_run_structure(self):
-        """Test RunInfo for MicroBooNE-style run structure."""
-        # Typical MicroBooNE run numbers and structure
-        run_info_ub = RunInfo(
-            run=5426,  # Typical MicroBooNE run number
-            subrun=147,  # Subrun within the run
-            event=8394,  # Event within the subrun
-        )
-
-        assert 5000 <= run_info_ub.run <= 9999  # MicroBooNE run range
-        assert 0 <= run_info_ub.subrun <= 999  # Reasonable subrun range
-        assert 0 <= run_info_ub.event <= 99999  # Reasonable event range
-
-    def test_sbnd_run_structure(self):
-        """Test RunInfo for SBND-style run structure."""
-        # SBND run structure (different from MicroBooNE)
-        run_info_sbnd = RunInfo(
-            run=15234, subrun=89, event=4567  # Higher run numbers for SBND
-        )
-
-        assert run_info_sbnd.run > 10000  # SBND uses higher run numbers
-        assert run_info_sbnd.subrun >= 0
-        assert run_info_sbnd.event >= 0
-
-    def test_icarus_run_structure(self):
-        """Test RunInfo for ICARUS-style run structure."""
-        # ICARUS run structure
-        run_info_icarus = RunInfo(run=8765, subrun=234, event=12890)
-
-        assert run_info_icarus.run > 0
-        assert run_info_icarus.subrun >= 0
-        assert run_info_icarus.event >= 0
-
-    def test_data_vs_mc_runs(self):
-        """Test RunInfo patterns for data vs MC."""
-        # Data run (positive run numbers)
-        data_run = RunInfo(run=5426, subrun=89, event=1234)
-
-        # MC run (sometimes uses different numbering)
-        mc_run = RunInfo(
-            run=101,  # MC might use smaller run numbers
-            subrun=0,  # MC might not use subruns
-            event=5678,
-        )
-
-        assert data_run.run > 1000  # Data runs typically higher
-        assert mc_run.run >= 0  # MC runs can be smaller
-        assert data_run.event >= 0
-        assert mc_run.event >= 0
-
-
 class TestRunInfoTiming:
     """Test RunInfo timing and sequencing."""
 

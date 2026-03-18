@@ -7,7 +7,7 @@ from spine.data import CRTHit
 from spine.utils.conditional import LARCV_AVAILABLE, larcv
 
 
-class TestCRTHitBasic:
+class TestCRTHitCreation:
     """Basic CRT hit tests."""
 
     def test_crthit_default(self):
