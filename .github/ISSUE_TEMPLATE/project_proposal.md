@@ -36,7 +36,9 @@ Examples:
 - DUNE FD
 - ProtoDUNE-SP
 - ProtoDUNE-HD
+- ProtoDUNE-VD
 - 2x2
+- FSD
 - Generic / detector-agnostic
 
 **Software baseline**
