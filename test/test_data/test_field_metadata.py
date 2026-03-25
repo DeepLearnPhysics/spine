@@ -23,12 +23,12 @@ class TestFieldMetadata:
         meta = FieldMetadata(
             length=3,
             dtype=np.float32,
-            category="position",
+            position=True,
             units="MeV",
         )
         assert meta.length == 3
         assert meta.dtype == np.float32
-        assert meta.category == "position"
+        assert meta.position is True
         assert meta.units == "MeV"
 
     def test_flags(self):

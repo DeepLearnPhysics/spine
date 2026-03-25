@@ -128,16 +128,14 @@ class Neutrino(PosDataBase):
         metadata=FieldMetadata(
             length=3,
             dtype=np.float32,
-            category="position",
+            position=True,
             units="instance",
         ),
     )
 
     momentum: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata=FieldMetadata(
-            length=3, dtype=np.float32, category="vector", units="MeV/c"
-        ),
+        metadata=FieldMetadata(length=3, dtype=np.float32, vector=True, units="MeV/c"),
     )
 
     @classmethod

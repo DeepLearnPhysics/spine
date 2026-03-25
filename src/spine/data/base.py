@@ -31,7 +31,7 @@ Fields can specify units in their metadata using the FieldMetadata class:
    >>> position: np.ndarray = field(
    ...     default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
    ...     metadata=FieldMetadata(
-   ...         length=3, dtype=np.float32, category='position', units='instance'
+   ...         length=3, dtype=np.float32, position=True, units='instance'
    ...     )
    ... )
    >>> length: float = field(default=np.nan, metadata=FieldMetadata(units='instance'))
@@ -55,7 +55,6 @@ from typing import (
     Self,
     Tuple,
     Union,
-    cast,
 )
 
 import numpy as np
@@ -78,31 +77,18 @@ class DataBase:
     # Euclidean axis labels
     _axes: ClassVar[Tuple[str, str, str]] = ("x", "y", "z")
 
-    # Cached attribute lists (computed once per class on first instance)
-    # Includes both field-based and derived property attributes
-    _attrs_cached: ClassVar[bool] = False  # Sentinel to track if caching is done
-    _fixed_length_attrs: ClassVar[Tuple[str, ...]] = ()
-    _var_length_attrs: ClassVar[Tuple[str, ...]] = ()
-    _pos_attrs: ClassVar[Tuple[str, ...]] = ()
-    _vec_attrs: ClassVar[Tuple[str, ...]] = ()
-    _index_attrs: ClassVar[Tuple[str, ...]] = ()
-    _skip_attrs: ClassVar[Tuple[str, ...]] = ()
-    _lite_skip_attrs: ClassVar[Tuple[str, ...]] = ()
-    _cat_attrs: ClassVar[Tuple[str, ...]] = ()
-    _str_attrs: ClassVar[Tuple[str, ...]] = ()
-    _bool_attrs: ClassVar[Tuple[str, ...]] = ()
-    _derived_attrs: ClassVar[Tuple[str, ...]] = ()
-    _global_units_attrs: ClassVar[Tuple[str, ...]] = ()
-
-    _enum_dicts: ClassVar[Dict[str, Dict[str, int]]] = {}
-    _field_units: ClassVar[Dict[str, str]] = {}
+    # NOTE: Cached attribute lists are NOT declared here as ClassVar
+    # to avoid sharing across inheritance hierarchy. Each subclass gets
+    # its own independent copies via __init_subclass__.
 
     def __init_subclass__(cls, **kwargs):
-        """Automatically merge docstrings from parent classes.
+        """Automatically merge docstrings from parent classes and initialize
+        class-level cached attribute lists.
 
         This hook is called whenever a class inherits from DataBase. It
         automatically merges the Attributes sections from all parent class
-        docstrings into the child class docstring.
+        docstrings into the child class docstring and initializes the
+        class-level cached attribute lists to be filled on first instance creation.
 
         Parameters
         ----------
@@ -112,16 +98,29 @@ class DataBase:
         super().__init_subclass__(**kwargs)
         merge_ancestor_docstrings(cls)
 
+        # Give each subclass its own independent cached attribute lists
+        # This prevents inheritance from parent classes
+        cls._attrs_cached = False
+        cls._fixed_length_attrs = ()
+        cls._var_length_attrs = ()
+        cls._pos_attrs = ()
+        cls._vec_attrs = ()
+        cls._index_attrs = ()
+        cls._skip_attrs = ()
+        cls._lite_skip_attrs = ()
+        cls._cat_attrs = ()
+        cls._str_attrs = ()
+        cls._bool_attrs = ()
+        cls._derived_attrs = ()
+        cls._global_units_attrs = ()
+        cls._enum_dicts = {}
+        cls._field_units = {}
+
     def __post_init__(self) -> None:
         """Immediately called after building the class attributes.
 
         Provides basic functionalities:
         - Caches attribute lists on first instance (once per class)
-        - Casts strings when they are provided as binary objects, which is the
-          format one gets when loading string from HDF5 files.
-        - Casts 8-bit unsigned integers to booleans when they are provided as
-          numpy arrays, which is the format one gets when loading booleans from
-          HDF5 files.
         """
         # Ensure attribute lists are cached (happens once per class)
         type(self)._ensure_cached_attrs()
@@ -130,9 +129,9 @@ class DataBase:
         for field in fields(self):
             value = getattr(self, field.name)
             if field.type == np.ndarray:
-                meta = field.metadata
                 # Check that the length of the array matches the expected length
-                if isinstance(meta, FieldMetadata) and meta.length is not None:
+                meta = FieldMetadata(**field.metadata)
+                if meta.length is not None:
                     if len(value) != meta.length:
                         raise ValueError(
                             f"The `{field.name}` attribute of `{self.__class__.__name__}` "
@@ -140,20 +139,7 @@ class DataBase:
                         )
 
                 # Cast the array to the correct type
-                dtype = meta.dtype if isinstance(meta, FieldMetadata) else None
-                setattr(self, field.name, np.asarray(value, dtype=dtype))
-
-        # Cast stored binary strings back to regular strings (from HDF5)
-        for attr in self._str_attrs:
-            val = getattr(self, attr)
-            if isinstance(val, bytes):
-                setattr(self, attr, val.decode())
-
-        # Cast stored 8-bit unsigned integers back to booleans (from HDF5)
-        for attr in self._bool_attrs:
-            val = getattr(self, attr)
-            if isinstance(val, np.ndarray) and val.dtype == np.uint8:
-                setattr(self, attr, bool(val.item()))
+                setattr(self, field.name, np.asarray(value, dtype=meta.dtype))
 
     def __eq__(self, other: object) -> bool:
         """Checks that all attributes of two class instances are the same.
@@ -190,8 +176,8 @@ class DataBase:
                 else:
                     # For int, str, bool, regular comparison
                     if value_other != value:
-                        return False
 
+                        return False
             elif field.type == np.ndarray:
                 # For numpy vectors, use array_equal with equal_nan=True
                 if not np.array_equal(value, value_other, equal_nan=True):
@@ -269,10 +255,7 @@ class DataBase:
             Dictionary of attribute names and their values
         """
         # Build a list of attributes to skip
-        if not lite:
-            skip_attrs = self._skip_attrs
-        else:
-            skip_attrs = (*self._skip_attrs, *self._lite_skip_attrs)
+        skip_attrs = self._skip_attrs if not lite else self._lite_skip_attrs
 
         # Store all fields
         return_dict = {}
@@ -396,6 +379,13 @@ class DataBase:
         dictionaries of attributes. This ensures that the attributes that are
         derived but stored to file are not loaded back to the object.
 
+        Provides basic functionalities:
+        - Casts strings when they are provided as binary objects, which is the
+          format one gets when loading string from HDF5 files.
+        - Casts 8-bit unsigned integers to booleans when they are provided as
+          numpy arrays, which is the format one gets when loading booleans from
+          HDF5 files.
+
         Parameters
         ----------
         cls_dict : dict
@@ -408,6 +398,17 @@ class DataBase:
         """
         # Ensure caching is done (needed for derived_names lookup)
         cls._ensure_cached_attrs()
+
+        # Cast stored binary strings back to regular strings (from HDF5)
+        for attr in cls._str_attrs:
+            if isinstance(cls_dict.get(attr), bytes):
+                cls_dict[attr] = cls_dict[attr].decode()
+
+        # Cast stored 8-bit unsigned integers back to booleans (from HDF5)
+        for attr in cls._bool_attrs:
+            val = cls_dict.get(attr)
+            if isinstance(val, np.ndarray) and val.dtype == np.uint8:
+                cls_dict[attr] = bool(val.item())
 
         # Remove keys that are derived attributes and should not be loaded from file
         return cls(
@@ -424,129 +425,74 @@ class DataBase:
 
         This runs once per class, on first instance creation.
         """
-        # Check if already cached
+        # Check if already cached, if so, do nothing
         if cls._attrs_cached:
             return
 
-        # Get fields for this class
+        # Get the list of fields defined on the class
         cls_fields = fields(cls)
 
-        # Introspect derived properties once
-        derived_props = cls._get_derived_properties()
-
-        # Compute the fixed length arrays
-        field_fixed = tuple(
-            f.name
-            for f in cls_fields
-            if f.type == np.ndarray
-            and isinstance(f.metadata, FieldMetadata)
-            and f.metadata.length is not None
-        )
-        derived_fixed = tuple(
-            k for k, v in derived_props.items() if v.length is not None
-        )
-
-        cls._fixed_length_attrs = field_fixed + derived_fixed
-
-        # Compute variable length arrays
-        field_var = tuple(
-            f.name
-            for f in cls_fields
-            if f.type == np.ndarray
-            and isinstance(f.metadata, FieldMetadata)
-            and f.metadata.length is None
-        )
-        derived_var = tuple(k for k, v in derived_props.items() if v.length is None)
-
-        cls._var_length_attrs = field_var + derived_var
-
-        # Compute position attributes
-        field_pos = tuple(
-            f.name
-            for f in cls_fields
-            if isinstance(f.metadata, FieldMetadata)
-            and f.metadata.category == "position"
-        )
-        derived_pos = tuple(
-            k for k, v in derived_props.items() if v.category == "position"
-        )
-        cls._pos_attrs = field_pos + derived_pos
-
-        # Compute vector attributes
-        field_vec = tuple(
-            f.name
-            for f in cls_fields
-            if isinstance(f.metadata, FieldMetadata) and f.metadata.category == "vector"
-        )
-        derived_vec = tuple(
-            k for k, v in derived_props.items() if v.category == "vector"
-        )
-
-        cls._vec_attrs = field_vec + derived_vec
-
-        # Compute index attributes (no derived version since indexes should not be derived)
-        cls._index_attrs = tuple(
-            f.name
-            for f in cls_fields
-            if isinstance(f.metadata, FieldMetadata) and f.metadata.index
-        )
-
-        # Compute skip attributes (no derived version)
-        cls._skip_attrs = tuple(
-            f.name
-            for f in cls_fields
-            if isinstance(f.metadata, FieldMetadata) and f.metadata.skip
-        )
-        cls._lite_skip_attrs = tuple(
-            f.name
-            for f in cls_fields
-            if isinstance(f.metadata, FieldMetadata) and f.metadata.lite_skip
-        )
-
-        # Compute concatenation attributes (no derived version)
-        cls._cat_attrs = tuple(
-            f.name
-            for f in cls_fields
-            if isinstance(f.metadata, FieldMetadata) and f.metadata.cat
-        )
-
-        # Compute type-based attributes (no derived version)
+        # Cache type-based attributes (only used to load from HDF5, not for general use)
         cls._str_attrs = tuple(f.name for f in cls_fields if f.type == str)
         cls._bool_attrs = tuple(f.name for f in cls_fields if f.type == bool)
 
-        # Cache derived property names
-        cls._derived_attrs = tuple(derived_props.keys())
+        # Get field and derived property metadata, combine them
+        field_meta = {f.name: FieldMetadata(**f.metadata) for f in cls_fields}
+        prop_meta = cls._get_stored_properties()
+        meta = {**field_meta, **prop_meta}
 
-        # Compute enumerated attributes dictionary
-        cls._enum_dicts = {}
-        for f in cls_fields:
-            if isinstance(f.metadata, FieldMetadata):
-                meta = cast(FieldMetadata, f.metadata)
-                if meta.enum is not None:
-                    cls._enum_dicts[f.name] = {v: k for k, v in meta.enum.items()}
+        # Cache the list of derived properties to not load from file
+        cls._derived_attrs = tuple(prop_meta.keys())
 
-        # Cache global units attributes (no field-based version)
-        cls._global_units_attrs = tuple(
-            k for k, v in derived_props.items() if v.units == "instance"
+        # Cache the fixed and variable length arrays
+        cls._fixed_length_attrs = tuple(
+            k for k, v in meta.items() if v.dtype is not None and v.length is not None
+        )
+        cls._var_length_attrs = tuple(
+            k for k, v in meta.items() if v.dtype is not None and v.length is None
         )
 
-        # Compute field units dictionary from field metadata and derived properties
-        field_units = {
-            f.name: f.metadata.units
-            for f in cls_fields
-            if isinstance(f.metadata, FieldMetadata) and f.metadata.units is not None
-        }
-        derived_units = {
-            k: v.units for k, v in derived_props.items() if v.units is not None
-        }
-        cls._field_units = {**field_units, **derived_units}
+        # Cache specific types of arrays
+        cls._pos_attrs = tuple(k for k, v in meta.items() if v.position)
+        cls._vec_attrs = tuple(k for k, v in meta.items() if v.vector)
+
+        # Cache index attributes (categorical attributes with an enum are not considered index)
+        cls._index_attrs = tuple(k for k, v in meta.items() if v.index)
+
+        # Cache attributes to concatenate when merging objects
+        cls._cat_attrs = tuple(k for k, v in field_meta.items() if v.cat)
+
+        # Cache attributes not to store to file and not to include in lite dicts
+        cls._skip_attrs = tuple(k for k, v in meta.items() if v.skip)
+        cls._lite_skip_attrs = (
+            *cls._skip_attrs,  # All the skip attributes are also lite_skip
+            *(k for k, v in meta.items() if v.lite_skip),
+        )
+
+        # Cache enumerated attributes dictionary (enumerated attributes are not deri
+        cls._enum_dicts = {}
+        for k, v in meta.items():
+            if v.enum is not None:
+                cls._enum_dicts[k] = {v: k for k, v in v.enum.items()}
+
+        # Cache field units dictionary from field metadata and derived properties
+        cls._field_units = {k: v.units for k, v in meta.items() if v.units is not None}
+
+        # Cache global units attributes (specified as 'instance' in metadata)
+        cls._global_units_attrs = tuple(
+            k for k, v in cls._field_units.items() if v == "instance"
+        )
 
         # Mark as cached
         cls._attrs_cached = True
 
     @classmethod
-    def _get_derived_properties(cls) -> Dict[str, FieldMetadata]:
-        """Introspect the class to find all derived_property descriptors.
+    def _get_stored_properties(cls) -> Dict[str, FieldMetadata]:
+        """Introspect the class to find all stored_property descriptors and
+        any alias properties, and return a dictionary mapping their names to their
+        FieldMetadata.
+
+        This walks the entire MRO to find properties defined on parent classes.
 
         Returns
         -------
@@ -554,62 +500,68 @@ class DataBase:
             Dictionary mapping property names to their FieldMetadata
         """
         result = {}
-        for name in dir(cls):
-            try:
-                attr = getattr(cls, name)
-                # Check if it's a property with derived metadata on the getter
+
+        # Walk through MRO to get ALL properties from parent classes too
+        for klass in cls.__mro__:
+            # Skip object base class
+            if klass is object:
+                continue
+
+            # Use __dict__ to only get attributes defined directly on this class
+            for name, attr in klass.__dict__.items():
+                # Skip if already processed from a child class (child overrides win)
+                if name in result:
+                    continue
+
+                # Check if it's a property with stored metadata
                 if isinstance(attr, property) and attr.fget is not None:
-                    metadata = getattr(attr.fget, "__derived_property_metadata__", None)
+                    metadata = getattr(attr.fget, "__stored_property_metadata__", None)
                     if metadata is not None:
                         result[name] = metadata
                     else:
                         # Check if it's an alias property
                         target_name = getattr(
-                            attr.fget, "__alias_property_target__", None
+                            attr.fget, "__stored_alias_target__", None
                         )
                         if target_name is not None:
-                            # Look up the target and copy its metadata
-                            # Aliases should NEVER be stored (skip=True)
-                            # First check if target is a derived property
-                            target_attr = getattr(cls, target_name, None)
-                            if (
-                                isinstance(target_attr, property)
-                                and target_attr.fget is not None
-                            ):
-                                target_metadata = getattr(
-                                    target_attr.fget,
-                                    "__derived_property_metadata__",
-                                    None,
-                                )
-                                if target_metadata is not None:
-                                    # Copy metadata but force skip=True
-                                    meta_dict = target_metadata.as_dict()
+                            # Look up the target in already-discovered properties
+                            if target_name in result:
+                                # Copy metadata but force skip=True (aliases not stored)
+                                meta_dict = result[target_name].as_dict()
+                                meta_dict["skip"] = True
+                                result[name] = FieldMetadata(**meta_dict)
+                            else:
+                                # Target might be discovered later or be a field
+                                # We'll handle it in a second pass
+                                pass
+
+        # Second pass: handle aliases whose targets are fields (not properties)
+        for klass in cls.__mro__:
+            if klass is object:
+                continue
+
+            for name, attr in klass.__dict__.items():
+                if name in result:
+                    continue
+
+                if isinstance(attr, property) and attr.fget is not None:
+                    target_name = getattr(attr.fget, "__stored_alias_target__", None)
+                    if target_name is not None and target_name not in result:
+                        # Target is a field, not a derived property
+                        try:
+                            cls_fields = fields(cls)
+                            for f in cls_fields:
+                                if f.name == target_name and isinstance(
+                                    f.metadata, FieldMetadata
+                                ):
+                                    # Copy field metadata but force skip=True
+                                    meta_dict = f.metadata.as_dict()
                                     meta_dict["skip"] = True
                                     result[name] = FieldMetadata(**meta_dict)
-                            else:
-                                # Target might be a regular dataclass field
-                                try:
-                                    cls_fields = fields(cls)
-                                    for f in cls_fields:
-                                        if f.name == target_name:
-                                            # Check if metadata looks like FieldMetadata
-                                            # (dataclasses wraps it in mappingproxy)
-                                            meta = f.metadata
-                                            if "units" in meta or "dtype" in meta:
-                                                # It's a FieldMetadata (wrapped in mappingproxy)
-                                                # Copy metadata but force skip=True
-                                                meta_dict = dict(meta)
-                                                meta_dict["skip"] = True
-                                                result[name] = FieldMetadata(
-                                                    **meta_dict
-                                                )
-                                                break
-                                except TypeError:
-                                    # Not a dataclass
-                                    pass
-            except AttributeError:
-                # Some descriptors may raise AttributeError when accessed on class
-                continue
+                                    break
+                        except TypeError:
+                            # Not a dataclass
+                            pass
 
         return result
 
@@ -700,6 +652,7 @@ class PosDataBase(DataBase):
             elif attr in self._vec_attrs:
                 setattr(self, attr, getattr(self, attr) * meta.size)
             else:
+                # Imperfect: assumes cubic pixels
                 setattr(self, attr, getattr(self, attr) * meta.size[0])
 
     def to_px(self, meta: "Meta") -> None:
@@ -720,4 +673,5 @@ class PosDataBase(DataBase):
             elif attr in self._vec_attrs:
                 setattr(self, attr, getattr(self, attr) / meta.size)
             else:
+                # Imperfect: assumes cubic pixels
                 setattr(self, attr, getattr(self, attr) / meta.size[0])

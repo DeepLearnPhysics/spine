@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from spine.data.base import PosDataBase
-from spine.data.decorator import derived_property
+from spine.data.decorator import stored_property
 from spine.data.field import FieldMetadata
 
 __all__ = ["CRTHit"]
@@ -78,7 +78,7 @@ class CRTHit(PosDataBase):
         metadata=FieldMetadata(
             length=3,
             dtype=np.float32,
-            category="position",
+            position=True,
             units="instance",
         ),
     )
@@ -87,12 +87,13 @@ class CRTHit(PosDataBase):
         metadata=FieldMetadata(
             length=3,
             dtype=np.float32,
-            category="vector",
+            vector=True,
             units="instance",
         ),
     )
 
-    @derived_property(units="us")
+    @property
+    @stored_property(units="us")
     def time(self) -> float:
         """Time w.r.t. to the trigger in microseconds.
 

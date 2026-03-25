@@ -42,20 +42,25 @@ class TestFlashCreation:
         assert flash.time == 1500.0
         assert flash.time_width == 0.1
         assert flash.total_pe == 54.7
-        np.testing.assert_array_equal(flash.pe_per_ch, pe_per_ch)
-        np.testing.assert_array_equal(flash.center, center)
-        np.testing.assert_array_equal(flash.width, width)
+        np.testing.assert_allclose(flash.pe_per_ch, pe_per_ch)
+        np.testing.assert_allclose(flash.center, center)
+        np.testing.assert_allclose(flash.width, width)
 
     def test_flash_numpy_arrays(self):
-        """Test Flash with various numpy array types."""
+        """Test Flash with various numpy array types.
+
+        Note: Arrays are automatically cast to the dtype specified in the
+        field metadata (float32 for Flash arrays), regardless of input dtype.
+        """
         pe_per_ch = np.array([1.0, 2.0, 3.0], dtype=np.float32)
         center = np.array([0.0, 0.0, 0.0], dtype=np.float64)
         width = np.array([5.0, 5.0, 5.0], dtype=np.float64)
 
         flash = Flash(pe_per_ch=pe_per_ch, center=center, width=width)
+        # All arrays cast to float32 as specified in field metadata
         assert flash.pe_per_ch.dtype == np.float32
-        assert flash.center.dtype == np.float64
-        assert flash.width.dtype == np.float64
+        assert flash.center.dtype == np.float32
+        assert flash.width.dtype == np.float32
 
 
 class TestFlashPhysics:
@@ -349,9 +354,9 @@ class TestFlashMerging:
         merged_width = 1.0 / np.sqrt(1.0 / flash1.width**2 + 1.0 / flash2.width**2)
 
         assert merged_flash.total_pe == flash1.total_pe + flash2.total_pe
-        np.testing.assert_array_equal(merged_flash.pe_per_ch, merged_pe)
-        np.testing.assert_array_equal(merged_flash.center, merged_center)
-        np.testing.assert_array_equal(merged_flash.width, merged_width)
+        np.testing.assert_allclose(merged_flash.pe_per_ch, merged_pe)
+        np.testing.assert_allclose(merged_flash.center, merged_center)
+        np.testing.assert_allclose(merged_flash.width, merged_width)
 
         # Now merge in the opposite direction and check that timing information updates correctly
         merged_flash2 = Flash(
@@ -373,9 +378,9 @@ class TestFlashMerging:
         )
 
         assert merged_flash2.total_pe == flash1.total_pe + flash2.total_pe
-        np.testing.assert_array_equal(merged_flash2.pe_per_ch, merged_pe)
-        np.testing.assert_array_equal(merged_flash2.center, merged_center)
-        np.testing.assert_array_equal(merged_flash2.width, merged_width)
+        np.testing.assert_allclose(merged_flash2.pe_per_ch, merged_pe)
+        np.testing.assert_allclose(merged_flash2.center, merged_center)
+        np.testing.assert_allclose(merged_flash2.width, merged_width)
 
 
 class TestFlashFromLArCV:

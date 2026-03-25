@@ -21,15 +21,17 @@ class FieldMetadata(Mapping[str, Any]):
 
     Parameters
     ----------
+    return_type : type, optional
+        The expected type of the field value (e.g., int, float, np.ndarray).
     length : int, optional
         Expected length for fixed-size numpy arrays. If specified, arrays
         must have exactly this length.
     dtype : type, optional
         NumPy dtype for array fields. Used to cast arrays to the correct type.
-    category : str, optional
-        Semantic category of the field. Common values:
-        - ``'position'`` : Spatial position coordinate
-        - ``'vector'`` : Direction or momentum vector
+    position : bool, default=False
+        Whether this field represents a spatial position coordinate.
+    vector : bool, default=False
+        Whether this field represents a non-unitary vector quantity.
     index : bool, default=False
         Whether this field is an index (e.g., ID, parent_id).
     skip : bool, default=False
@@ -54,16 +56,17 @@ class FieldMetadata(Mapping[str, Any]):
     ... )
     """
 
+    return_type: Optional[type] = None
     length: Optional[int] = None
     dtype: Optional[type] = None
-    category: Optional[str] = None
+    position: bool = False
+    vector: bool = False
     units: Optional[str] = None
     enum: Optional[Dict[int, str]] = None
     index: bool = False
     skip: bool = False
     lite_skip: bool = False
     cat: bool = False
-    return_type: Optional[type] = None
 
     def __post_init__(self):
         """Validate field constraints."""
@@ -81,16 +84,17 @@ class FieldMetadata(Mapping[str, Any]):
     def __iter__(self) -> Iterator[str]:
         """Iterate over metadata keys with non-None/non-False values."""
         for key in (
+            "return_type",
             "length",
             "dtype",
-            "category",
+            "position",
+            "vector",
             "units",
             "enum",
             "index",
             "skip",
             "lite_skip",
             "cat",
-            "return_type",
         ):
             value = getattr(self, key)
             # Only include non-None and non-False values

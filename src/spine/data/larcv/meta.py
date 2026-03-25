@@ -5,19 +5,25 @@ images or :class:`larcv.Voxel3DMeta` for 3D images.
 """
 
 from dataclasses import dataclass, field
-from typing import Optional, Self
+from typing import TYPE_CHECKING, Optional, Self
 
 import numpy as np
 
 from spine.data.base import DataBase
 from spine.data.field import FieldMetadata
 
-__all__ = ["Meta"]
+__all__ = ["ImageMeta2D", "ImageMeta3D", "Meta"]
 
 
 @dataclass(eq=False)
-class Meta(DataBase):
-    """Meta information about a rasterized image.
+class ImageMetaBase(DataBase):
+    """Base class for rasterized image metadata.
+
+    Provides common functionality for both 2D and 3D image metadata,
+    including coordinate transformations and pixel indexing.
+
+    This class should not be instantiated directly. Use ImageMeta2D
+    or ImageMeta3D instead.
 
     Attributes
     ----------
@@ -31,29 +37,12 @@ class Meta(DataBase):
         (2/3) Array of pixel count in each dimension
     """
 
-    # Vector attributes
-    lower: np.ndarray = field(
-        default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata=FieldMetadata(
-            length=3, dtype=np.float32, category="vector", units="cm"
-        ),
-    )
-    upper: np.ndarray = field(
-        default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata=FieldMetadata(
-            length=3, dtype=np.float32, category="vector", units="cm"
-        ),
-    )
-    size: np.ndarray = field(
-        default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata=FieldMetadata(
-            length=3, dtype=np.float32, category="vector", units="cm"
-        ),
-    )
-    count: np.ndarray = field(
-        default_factory=lambda: np.full(3, -1, dtype=np.int64),
-        metadata=FieldMetadata(length=3, dtype=np.int64, category="vector"),
-    )
+    if TYPE_CHECKING:  # pragma: no cover
+        # Type hints for fields defined in subclasses (only for type checking)
+        lower: np.ndarray
+        upper: np.ndarray
+        size: np.ndarray
+        count: np.ndarray
 
     # Internal attribute for index multipliers (not part of the dataclass fields)
     _index_multipliers: Optional[np.ndarray] = field(
@@ -85,12 +74,6 @@ class Meta(DataBase):
                 "If any of lower, upper, size, or count are initialized, "
                 "all must be initialized with valid values"
             )
-
-        # Validate that lower, upper, size, and count have consistent shapes
-        if self.lower.shape != self.upper.shape or self.lower.shape != self.size.shape:
-            raise ValueError("lower, upper, and size must have the same shape")
-        if self.lower.shape != self.count.shape:
-            raise ValueError("lower/upper/size and count must have the same shape")
 
         # Validate that the count and size yield the correct upper bound
         expected_upper = self.lower + self.size * self.count
@@ -211,40 +194,166 @@ class Meta(DataBase):
         """
         return np.all((coords >= self.lower) & (coords < self.upper), axis=1)
 
+
+@dataclass(eq=False)
+class ImageMeta2D(ImageMetaBase):
+    """2D rasterized image metadata.
+
+    Represents metadata for 2D images (e.g., wire-plane detector readouts).
+    Corresponds to LArCV's ImageMeta class.
+
+    Attributes
+    ----------
+    lower : np.ndarray
+        (2) Array of image lower bounds in detector coordinates (cm)
+    upper : np.ndarray
+        (2) Array of image upper bounds in detector coordinates (cm)
+    size : np.ndarray
+        (2) Array of pixel size in each dimension (cm)
+    count : np.ndarray
+        (2) Array of pixel count in each dimension
+    """
+
+    # Vector attributes
+    lower: np.ndarray = field(
+        default_factory=lambda: np.full(2, np.nan, dtype=np.float32),
+        metadata=FieldMetadata(length=2, dtype=np.float32, vector=True, units="cm"),
+    )
+    upper: np.ndarray = field(
+        default_factory=lambda: np.full(2, np.nan, dtype=np.float32),
+        metadata=FieldMetadata(length=2, dtype=np.float32, vector=True, units="cm"),
+    )
+    size: np.ndarray = field(
+        default_factory=lambda: np.full(2, np.nan, dtype=np.float32),
+        metadata=FieldMetadata(length=2, dtype=np.float32, vector=True, units="cm"),
+    )
+    count: np.ndarray = field(
+        default_factory=lambda: np.full(2, -1, dtype=np.int64),
+        metadata=FieldMetadata(length=2, dtype=np.int64, vector=True),
+    )
+
     @classmethod
     def from_larcv(cls, meta) -> Self:
-        """Builds and returns a Meta object from a LArCV 2D metadata object.
+        """Builds and returns an ImageMeta2D object from a LArCV 2D metadata object.
 
         Parameters
         ----------
-        meta : Union[larcv.ImageMeta, larcv.Voxel3DMeta]
+        meta : larcv.ImageMeta
             LArCV-format 2D metadata
 
         Returns
         -------
-        Meta
-            Metadata object
+        ImageMeta2D
+            2D metadata object
         """
-        if hasattr(meta, "pos_z"):
-            lower = np.array(
-                [meta.min_x(), meta.min_y(), meta.min_z()], dtype=np.float32
-            )
-            upper = np.array(
-                [meta.max_x(), meta.max_y(), meta.max_z()], dtype=np.float32
-            )
-            size = np.array(
-                [meta.size_voxel_x(), meta.size_voxel_y(), meta.size_voxel_z()],
-                dtype=np.float32,
-            )
-            count = np.array(
-                [meta.num_voxel_x(), meta.num_voxel_y(), meta.num_voxel_z()],
-                dtype=np.int64,
-            )
-
-        else:
-            lower = np.array([meta.min_x(), meta.min_y()], dtype=np.float32)
-            upper = np.array([meta.max_x(), meta.max_y()], dtype=np.float32)
-            size = np.array([meta.pixel_height(), meta.pixel_width()], dtype=np.float32)
-            count = np.array([meta.rows(), meta.cols()], dtype=np.int64)
+        lower = np.array([meta.min_x(), meta.min_y()], dtype=np.float32)
+        upper = np.array([meta.max_x(), meta.max_y()], dtype=np.float32)
+        size = np.array([meta.pixel_height(), meta.pixel_width()], dtype=np.float32)
+        count = np.array([meta.rows(), meta.cols()], dtype=np.int64)
 
         return cls(lower=lower, upper=upper, size=size, count=count)
+
+
+@dataclass(eq=False)
+class ImageMeta3D(ImageMetaBase):
+    """3D rasterized image metadata.
+
+    Represents metadata for 3D voxelized images (e.g., LArTPC pixel readouts).
+    Corresponds to LArCV's Voxel3DMeta class.
+
+    Attributes
+    ----------
+    lower : np.ndarray
+        (3) Array of image lower bounds in detector coordinates (cm)
+    upper : np.ndarray
+        (3) Array of image upper bounds in detector coordinates (cm)
+    size : np.ndarray
+        (3) Array of pixel size in each dimension (cm)
+    count : np.ndarray
+        (3) Array of pixel count in each dimension
+    """
+
+    # Vector attributes
+    lower: np.ndarray = field(
+        default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
+        metadata=FieldMetadata(length=3, dtype=np.float32, vector=True, units="cm"),
+    )
+    upper: np.ndarray = field(
+        default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
+        metadata=FieldMetadata(length=3, dtype=np.float32, vector=True, units="cm"),
+    )
+    size: np.ndarray = field(
+        default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
+        metadata=FieldMetadata(length=3, dtype=np.float32, vector=True, units="cm"),
+    )
+    count: np.ndarray = field(
+        default_factory=lambda: np.full(3, -1, dtype=np.int64),
+        metadata=FieldMetadata(length=3, dtype=np.int64, vector=True),
+    )
+
+    @classmethod
+    def from_larcv(cls, meta) -> Self:
+        """Builds and returns an ImageMeta3D object from a LArCV 3D metadata object.
+
+        Parameters
+        ----------
+        meta : larcv.Voxel3DMeta
+            LArCV-format 3D metadata
+
+        Returns
+        -------
+        ImageMeta3D
+            3D metadata object
+        """
+        lower = np.array([meta.min_x(), meta.min_y(), meta.min_z()], dtype=np.float32)
+        upper = np.array([meta.max_x(), meta.max_y(), meta.max_z()], dtype=np.float32)
+        size = np.array(
+            [meta.size_voxel_x(), meta.size_voxel_y(), meta.size_voxel_z()],
+            dtype=np.float32,
+        )
+        count = np.array(
+            [meta.num_voxel_x(), meta.num_voxel_y(), meta.num_voxel_z()],
+            dtype=np.int64,
+        )
+
+        return cls(lower=lower, upper=upper, size=size, count=count)
+
+
+# Store the original from_larcv methods before we create aliases
+_ImageMeta2D_from_larcv = ImageMeta2D.from_larcv
+_ImageMeta3D_from_larcv = ImageMeta3D.from_larcv
+
+
+def _from_larcv_factory(_cls, meta):
+    """Factory function for creating ImageMeta from LArCV metadata.
+
+    Automatically selects ImageMeta2D or ImageMeta3D based on the metadata type.
+
+    Parameters
+    ----------
+    _cls : type
+        The class calling this method (not used; for classmethod compatibility)
+    meta : larcv.ImageMeta or larcv.Voxel3DMeta
+        LArCV-format metadata object
+
+    Returns
+    -------
+    Union[ImageMeta2D, ImageMeta3D]
+        Appropriate metadata object type based on input dimensionality
+    """
+    # Check if meta is 3D by checking for 3D-specific methods
+    if hasattr(meta, "pos_z"):
+        # 3D metadata (Voxel3DMeta) - call original method
+        return _ImageMeta3D_from_larcv.__func__(ImageMeta3D, meta)
+    else:
+        # 2D metadata (ImageMeta) - call original method
+        return _ImageMeta2D_from_larcv.__func__(ImageMeta2D, meta)
+
+
+# Backward compatibility alias - Meta is ImageMeta3D
+# For new code, use ImageMeta2D or ImageMeta3D explicitly
+Meta = ImageMeta3D
+
+# Add factory from_larcv to Meta for backward compatibility with auto-dispatch
+# This allows Meta.from_larcv() to work for both 2D and 3D inputs
+Meta.from_larcv = classmethod(_from_larcv_factory)  # type: ignore

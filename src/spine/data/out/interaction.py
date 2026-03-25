@@ -1,12 +1,12 @@
 """Module with a data class objects which represent output interactions."""
 
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List, Optional, cast
 from warnings import warn
 
 import numpy as np
 
-from spine.data.decorator import derived_property
+from spine.data.decorator import stored_property
 from spine.data.field import FieldMetadata
 from spine.data.larcv.neutrino import Neutrino
 from spine.utils.globals import PID_LABELS, PID_TAGS, SHOWR_SHP
@@ -94,7 +94,7 @@ class InteractionBase(OutBase):
         metadata=FieldMetadata(
             length=3,
             dtype=np.float32,
-            category="position",
+            position=True,
             units="instance",
         ),
     )
@@ -158,7 +158,8 @@ class InteractionBase(OutBase):
         """
         return [part for part in self.particles if part.is_primary]
 
-    @derived_property(dtype=np.int64)
+    @property
+    @stored_property(dtype=np.int64)
     def primary_particle_ids(self) -> np.ndarray:
         """List of primary Particle IDs associated with this interaction.
 
@@ -169,7 +170,8 @@ class InteractionBase(OutBase):
         """
         return np.array([part.id for part in self.primary_particles], dtype=np.int64)
 
-    @derived_property
+    @property
+    @stored_property
     def num_particles(self) -> int:
         """Number of particles that make up this interaction.
 
@@ -180,7 +182,8 @@ class InteractionBase(OutBase):
         """
         return len(self.particle_ids)
 
-    @derived_property
+    @property
+    @stored_property
     def num_primary_particles(self) -> int:
         """Number of primary particles associated with this interaction.
 
@@ -191,7 +194,8 @@ class InteractionBase(OutBase):
         """
         return len(self.primary_particle_ids)
 
-    @derived_property(dtype=np.int64, length=len(PID_LABELS) - 1)
+    @property
+    @stored_property(dtype=np.int64, length=len(PID_LABELS) - 1)
     def particle_counts(self) -> np.ndarray:
         """Number of particles of each PID species in this interaction.
 
@@ -207,7 +211,8 @@ class InteractionBase(OutBase):
 
         return counts
 
-    @derived_property(dtype=np.int64, length=len(PID_LABELS) - 1)
+    @property
+    @stored_property(dtype=np.int64, length=len(PID_LABELS) - 1)
     def primary_particle_counts(self) -> np.ndarray:
         """Number of primary particles of each PID species in this interaction.
 
@@ -223,7 +228,8 @@ class InteractionBase(OutBase):
 
         return counts
 
-    @derived_property
+    @property
+    @stored_property
     def is_crt_matched(self) -> bool:
         """Checks if any particle in the interaction was matched to a CRT hit.
 
@@ -234,7 +240,8 @@ class InteractionBase(OutBase):
         """
         return bool(np.any([part.is_crt_matched for part in self.particles]))
 
-    @derived_property(dtype=np.int64)
+    @property
+    @stored_property(dtype=np.int64)
     def crt_ids(self) -> np.ndarray:
         """Returns the list of CRT hit IDs matched to this interaction.
 
@@ -248,7 +255,8 @@ class InteractionBase(OutBase):
 
         return np.empty(0, dtype=np.int64)
 
-    @derived_property(dtype=np.float32, units="us")
+    @property
+    @stored_property(dtype=np.float32, units="us")
     def crt_times(self) -> np.ndarray:
         """Returns the list of CRT hit times matched to this interaction.
 
@@ -262,7 +270,8 @@ class InteractionBase(OutBase):
 
         return np.empty(0, dtype=np.float32)
 
-    @derived_property(dtype=np.float32)
+    @property
+    @stored_property(dtype=np.float32)
     def crt_scores(self) -> np.ndarray:
         """Returns the list of quality metrics of CRT hits matched to this interaction.
 
@@ -276,7 +285,8 @@ class InteractionBase(OutBase):
 
         return np.empty(0, dtype=np.float32)
 
-    @derived_property
+    @property
+    @stored_property
     def topology(self) -> str:
         """String representing the interaction topology.
 
@@ -312,9 +322,10 @@ class InteractionBase(OutBase):
         # Fill unique attributes which must be shared between particles
         unique_attrs = ("is_truth", "units")
         for attr in unique_attrs:
-            assert (
-                len(np.unique([getattr(p, attr) for p in particles])) < 2
-            ), f"{attr} must be unique in the list of particles."
+            if hasattr(particles[0], attr):
+                assert (
+                    len(np.unique([getattr(p, attr) for p in particles])) < 2
+                ), f"{attr} must be unique in the list of particles."
 
         # Attach particle list
         interaction.particles = particles
@@ -371,7 +382,7 @@ class RecoInteraction(InteractionBase, RecoBase):
         if len(showers) == 0:
             return None
 
-        return max(showers, key=lambda x: x.ke)
+        return max(showers, key=lambda x: cast(float, x.ke))
 
 
 @dataclass(eq=False)
@@ -406,7 +417,7 @@ class TruthInteraction(Neutrino, InteractionBase, TruthBase):
         metadata=FieldMetadata(
             length=3,
             dtype=np.float32,
-            category="position",
+            position=True,
             units="instance",
         ),
     )

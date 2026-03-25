@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from spine.data.base import PosDataBase
-from spine.data.decorator import derived_property
+from spine.data.decorator import stored_property
 from spine.data.field import FieldMetadata
 
 
@@ -75,7 +75,7 @@ class OutBase(PosDataBase):
         default_factory=lambda: np.empty((0, 3), dtype=np.float32),
         metadata=FieldMetadata(
             dtype=np.float32,
-            category="position",
+            position=True,
             cat=True,
             skip=True,
             units="instance",
@@ -112,7 +112,8 @@ class OutBase(PosDataBase):
         self.is_cathode_crosser = False
         self.cathode_offset = np.nan
 
-    @derived_property
+    @property
+    @stored_property
     def size(self) -> int:
         """Total number of voxels that make up the object.
 
@@ -123,7 +124,8 @@ class OutBase(PosDataBase):
         """
         return len(self.index)
 
-    @derived_property
+    @property
+    @stored_property
     def depositions_sum(self) -> float:
         """Total deposition value for the entire object.
 
@@ -134,7 +136,8 @@ class OutBase(PosDataBase):
         """
         return np.sum(self.depositions).item()
 
-    @derived_property
+    @property
+    @stored_property
     def module_ids(self) -> np.ndarray:
         """List of modules that contribute to this object.
 
@@ -239,7 +242,7 @@ class TruthBase:
         default_factory=lambda: np.empty((0, 3), dtype=np.float32),
         metadata=FieldMetadata(
             dtype=np.float32,
-            category="position",
+            position=True,
             cat=True,
             skip=True,
             units="instance",
@@ -249,7 +252,7 @@ class TruthBase:
         default_factory=lambda: np.empty((0, 3), dtype=np.float32),
         metadata=FieldMetadata(
             dtype=np.float32,
-            category="position",
+            position=True,
             cat=True,
             skip=True,
             units="instance",
@@ -278,7 +281,8 @@ class TruthBase:
         metadata=FieldMetadata(dtype=np.int64, cat=True, skip=True),
     )
 
-    @derived_property
+    @property
+    @stored_property
     def size_adapt(self) -> int:
         """Total number of voxels that make up the object in the adapted tensor.
 
@@ -289,7 +293,8 @@ class TruthBase:
         """
         return len(self.index_adapt)
 
-    @derived_property
+    @property
+    @stored_property
     def size_g4(self) -> int:
         """Total number of voxels that make up the object in the Geant4 tensor.
 
@@ -300,7 +305,8 @@ class TruthBase:
         """
         return len(self.index_g4)
 
-    @derived_property
+    @property
+    @stored_property
     def depositions_q_sum(self) -> float:
         """Total deposition value for the entire object in the original units.
 
@@ -311,7 +317,8 @@ class TruthBase:
         """
         return np.sum(self.depositions_q).item()
 
-    @derived_property
+    @property
+    @stored_property
     def depositions_adapt_sum(self) -> float:
         """Total deposition value for the entire object in the adapted tensor.
 
@@ -322,7 +329,8 @@ class TruthBase:
         """
         return np.sum(self.depositions_adapt).item()
 
-    @derived_property
+    @property
+    @stored_property
     def depositions_adapt_q_sum(self) -> float:
         """Total deposition value for the entire object in the adapted tensor
         and in the original units.
@@ -334,7 +342,8 @@ class TruthBase:
         """
         return np.sum(self.depositions_adapt_q).item()
 
-    @derived_property
+    @property
+    @stored_property
     def depositions_g4_sum(self) -> float:
         """Total deposition value for the entire object in the Geant4 tensor.
 

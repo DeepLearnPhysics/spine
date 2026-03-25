@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from spine.data.decorator import derived_property
+from spine.data.decorator import stored_property
 from spine.data.field import FieldMetadata
 from spine.data.larcv.particle import Particle
 from spine.utils.globals import SHAPE_LABELS, TRACK_SHP
@@ -54,7 +54,7 @@ class FragmentBase(OutBase):
         metadata=FieldMetadata(
             length=3,
             dtype=np.float32,
-            category="position",
+            position=True,
             units="instance",
         ),
     )
@@ -63,7 +63,7 @@ class FragmentBase(OutBase):
         metadata=FieldMetadata(
             length=3,
             dtype=np.float32,
-            category="position",
+            position=True,
             units="instance",
         ),
     )
@@ -103,11 +103,11 @@ class RecoFragment(FragmentBase, RecoBase):
     # Vector attributes
     start_dir: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata=FieldMetadata(length=3, dtype=np.float32, category="vector"),
+        metadata=FieldMetadata(length=3, dtype=np.float32, vector=True),
     )
     end_dir: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata=FieldMetadata(length=3, dtype=np.float32, category="vector"),
+        metadata=FieldMetadata(length=3, dtype=np.float32, vector=True),
     )
 
     primary_scores: np.ndarray = field(
@@ -170,11 +170,11 @@ class TruthFragment(Particle, FragmentBase, TruthBase):
     )
     reco_start_dir: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata=FieldMetadata(length=3, dtype=np.float32, category="vector"),
+        metadata=FieldMetadata(length=3, dtype=np.float32, vector=True),
     )
     reco_end_dir: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata=FieldMetadata(length=3, dtype=np.float32, category="vector"),
+        metadata=FieldMetadata(length=3, dtype=np.float32, vector=True),
     )
 
     def __str__(self):
@@ -187,7 +187,8 @@ class TruthFragment(Particle, FragmentBase, TruthBase):
         """
         return "Truth" + super().__str__()
 
-    @derived_property
+    @property
+    @stored_property
     def start_dir(self) -> np.ndarray:
         """Converts the initial momentum to a direction vector.
 
@@ -202,7 +203,8 @@ class TruthFragment(Particle, FragmentBase, TruthBase):
 
         return np.full(3, np.nan, dtype=np.float32)
 
-    @derived_property
+    @property
+    @stored_property
     def end_dir(self) -> np.ndarray:
         """Converts the final momentum to a direction vector.
 

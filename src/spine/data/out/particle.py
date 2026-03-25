@@ -6,7 +6,7 @@ from typing import List
 import numpy as np
 from scipy.spatial.distance import cdist
 
-from spine.data.decorator import alias_property, derived_property
+from spine.data.decorator import stored_alias, stored_property
 from spine.data.field import FieldMetadata
 from spine.data.larcv.particle import Particle
 from spine.utils.globals import (
@@ -100,7 +100,7 @@ class ParticleBase(OutBase):
     # Vector attributes
     fragment_ids: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.int64),
-        metadata=FieldMetadata(dtype=np.int64, units="instance"),
+        metadata=FieldMetadata(dtype=np.int64, cat=True, units="instance"),
     )
 
     start_point: np.ndarray = field(
@@ -108,7 +108,7 @@ class ParticleBase(OutBase):
         metadata=FieldMetadata(
             length=3,
             dtype=np.float32,
-            category="position",
+            position=True,
             units="instance",
         ),
     )
@@ -117,7 +117,7 @@ class ParticleBase(OutBase):
         metadata=FieldMetadata(
             length=3,
             dtype=np.float32,
-            category="position",
+            position=True,
             units="instance",
         ),
     )
@@ -175,7 +175,8 @@ class ParticleBase(OutBase):
         self.crt_times = np.empty(0, dtype=np.float32)
         self.crt_scores = np.empty(0, dtype=np.float32)
 
-    @derived_property
+    @property
+    @stored_property
     def num_fragments(self) -> int:
         """Number of fragments that make up this particle.
 
@@ -245,17 +246,17 @@ class RecoParticle(ParticleBase, RecoBase):
     # Object list attributes
     fragments: List[RecoFragment] = field(
         default_factory=lambda: [],
-        metadata=FieldMetadata(skip=True),
+        metadata=FieldMetadata(skip=True, cat=True),
     )
 
     # Vector attributes
     start_dir: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata=FieldMetadata(length=3, dtype=np.float32, category="vector"),
+        metadata=FieldMetadata(length=3, dtype=np.float32, vector=True),
     )
     end_dir: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata=FieldMetadata(length=3, dtype=np.float32, category="vector"),
+        metadata=FieldMetadata(length=3, dtype=np.float32, vector=True),
     )
 
     pid_scores: np.ndarray = field(
@@ -275,7 +276,7 @@ class RecoParticle(ParticleBase, RecoBase):
         default_factory=lambda: np.empty((0, 3), dtype=np.float32),
         metadata=FieldMetadata(
             dtype=np.float32,
-            category="position",
+            position=True,
             skip=True,
             units="instance",
         ),
@@ -328,7 +329,13 @@ class RecoParticle(ParticleBase, RecoBase):
 
         # Concatenate the two particle long-form attributes together
         for attr in self._cat_attrs:
-            val = np.concatenate([getattr(self, attr), getattr(other, attr)])
+            self_val = getattr(self, attr)
+            other_val = getattr(other, attr)
+            # Handle lists separately from numpy arrays
+            if isinstance(self_val, list):
+                val = self_val + other_val
+            else:
+                val = np.concatenate([self_val, other_val])
             setattr(self, attr, val)
 
         # Select end points and end directions appropriately
@@ -372,7 +379,8 @@ class RecoParticle(ParticleBase, RecoBase):
         if not np.isnan(self.calo_ke) and not np.isnan(other.calo_ke):
             self.calo_ke += other.calo_ke
 
-    @derived_property
+    @property
+    @stored_property
     def pdg_code(self) -> int:
         """Translates the enumerated particle type to a sign-less PDG code.
 
@@ -383,7 +391,8 @@ class RecoParticle(ParticleBase, RecoBase):
         """
         return PID_TO_PDG[self.pid]
 
-    @derived_property(units="MeV/c^2")
+    @property
+    @stored_property(units="MeV/c^2")
     def mass(self) -> float:
         """Rest mass of the particle in MeV/c^2.
 
@@ -399,7 +408,8 @@ class RecoParticle(ParticleBase, RecoBase):
 
         return np.nan
 
-    @derived_property(units="MeV")
+    @property
+    @stored_property(units="MeV")
     def ke(self) -> float:
         """Best-guess kinetic energy in MeV.
 
@@ -427,7 +437,8 @@ class RecoParticle(ParticleBase, RecoBase):
             else:
                 return self.calo_ke
 
-    @derived_property(length=3, dtype=np.float32, units="MeV/c")
+    @property
+    @stored_property(length=3, dtype=np.float32, units="MeV/c")
     def momentum(self) -> np.ndarray:
         """Best-guess momentum in MeV/c.
 
@@ -449,7 +460,8 @@ class RecoParticle(ParticleBase, RecoBase):
         else:
             return np.full(3, np.nan, dtype=np.float32)
 
-    @derived_property(units="MeV/c")
+    @property
+    @stored_property(units="MeV/c")
     def p(self) -> float:
         """Computes the magnitude of the initial momentum.
 
@@ -460,27 +472,32 @@ class RecoParticle(ParticleBase, RecoBase):
         """
         return float(np.linalg.norm(self.momentum))
 
-    @alias_property("ke")
+    @property
+    @stored_alias("ke")
     def reco_ke(self) -> float:
         """Alias for `ke`, to match nomenclature in truth."""
         return self.ke
 
-    @alias_property("momentum")
+    @property
+    @stored_alias("momentum")
     def reco_momentum(self) -> np.ndarray:
         """Alias for `momentum`, to match nomenclature in truth."""
         return self.momentum
 
-    @alias_property("length")
+    @property
+    @stored_alias("length")
     def reco_length(self) -> float:
         """Alias for `length`, to match nomenclature in truth."""
         return self.length
 
-    @alias_property("start_dir")
+    @property
+    @stored_alias("start_dir")
     def reco_start_dir(self) -> np.ndarray:
         """Alias for `start_dir`, to match nomenclature in truth."""
         return self.start_dir
 
-    @alias_property("end_dir")
+    @property
+    @stored_alias("end_dir")
     def reco_end_dir(self) -> np.ndarray:
         """Alias for `end_dir`, to match nomenclature in truth."""
         return self.end_dir
@@ -558,11 +575,11 @@ class TruthParticle(Particle, ParticleBase, TruthBase):
 
     reco_start_dir: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata=FieldMetadata(length=3, dtype=np.float32, category="vector"),
+        metadata=FieldMetadata(length=3, dtype=np.float32, vector=True),
     )
     reco_end_dir: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata=FieldMetadata(length=3, dtype=np.float32, category="vector"),
+        metadata=FieldMetadata(length=3, dtype=np.float32, vector=True),
     )
 
     def __str__(self):
@@ -575,7 +592,8 @@ class TruthParticle(Particle, ParticleBase, TruthBase):
         """
         return "Truth" + super().__str__()
 
-    @derived_property(length=3, dtype=np.float32)
+    @property
+    @stored_property(length=3, dtype=np.float32)
     def start_dir(self) -> np.ndarray:
         """Converts the initial momentum to a direction vector.
 
@@ -590,7 +608,8 @@ class TruthParticle(Particle, ParticleBase, TruthBase):
 
         return np.full(3, np.nan, dtype=np.float32)
 
-    @derived_property(length=3, dtype=np.float32)
+    @property
+    @stored_property(length=3, dtype=np.float32)
     def end_dir(self) -> np.ndarray:
         """Converts the final momentum to a direction vector.
 
@@ -609,7 +628,8 @@ class TruthParticle(Particle, ParticleBase, TruthBase):
 
         return np.full(3, np.nan, dtype=np.float32)
 
-    @derived_property(units="MeV/c^2")
+    @property
+    @stored_property(units="MeV/c^2")
     def ke(self) -> float:
         """Converts the particle initial energy to a kinetic energy.
 
@@ -626,7 +646,8 @@ class TruthParticle(Particle, ParticleBase, TruthBase):
 
         return np.nan
 
-    @derived_property(units="MeV")
+    @property
+    @stored_property(units="MeV")
     def reco_ke(self) -> float:
         """Best-guess reconstructed kinetic energy in MeV.
 
@@ -654,7 +675,8 @@ class TruthParticle(Particle, ParticleBase, TruthBase):
             else:
                 return self.calo_ke
 
-    @derived_property(length=3, dtype=np.float32, units="MeV/c")
+    @property
+    @stored_property(length=3, dtype=np.float32, units="MeV/c")
     def reco_momentum(self) -> np.ndarray:
         """Best-guess reconstructed momentum in MeV/c.
 

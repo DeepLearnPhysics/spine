@@ -10,9 +10,9 @@ from warnings import warn
 import numpy as np
 
 from spine.data.base import PosDataBase
-from spine.data.decorator import derived_property
+from spine.data.decorator import stored_property
 from spine.data.field import FieldMetadata
-from spine.utils.globals import PID_LABELS, SHAPE_LABELS, UNKWN_SHP
+from spine.utils.globals import PID_LABELS, SHAPE_LABELS
 
 __all__ = ["Particle"]
 
@@ -145,60 +145,45 @@ class Particle(PosDataBase):
     units: str = "cm"
 
     # Enumerated attributes
-    shape: int = field(default=UNKWN_SHP, metadata=FieldMetadata(enum=SHAPE_LABELS))
+    shape: int = field(default=-1, metadata=FieldMetadata(enum=SHAPE_LABELS))
     pid: int = field(default=-1, metadata=FieldMetadata(enum=PID_LABELS))
 
     # Vector attributes
     position: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata=FieldMetadata(
-            length=3, dtype=np.float32, category="position", units="cm"
-        ),
+        metadata=FieldMetadata(length=3, dtype=np.float32, position=True, units="cm"),
     )
     end_position: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata=FieldMetadata(
-            length=3, dtype=np.float32, category="position", units="cm"
-        ),
+        metadata=FieldMetadata(length=3, dtype=np.float32, position=True, units="cm"),
     )
     parent_position: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata=FieldMetadata(
-            length=3, dtype=np.float32, category="position", units="cm"
-        ),
+        metadata=FieldMetadata(length=3, dtype=np.float32, position=True, units="cm"),
     )
     ancestor_position: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata=FieldMetadata(
-            length=3, dtype=np.float32, category="position", units="cm"
-        ),
+        metadata=FieldMetadata(length=3, dtype=np.float32, position=True, units="cm"),
     )
     first_step: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata=FieldMetadata(
-            length=3, dtype=np.float32, category="position", units="cm"
-        ),
+        metadata=FieldMetadata(length=3, dtype=np.float32, position=True, units="cm"),
     )
     last_step: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata=FieldMetadata(
-            length=3, dtype=np.float32, category="position", units="cm"
-        ),
+        metadata=FieldMetadata(length=3, dtype=np.float32, position=True, units="cm"),
     )
     momentum: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata=FieldMetadata(
-            length=3, dtype=np.float32, category="vector", units="MeV/c"
-        ),
+        metadata=FieldMetadata(length=3, dtype=np.float32, vector=True, units="MeV/c"),
     )
     end_momentum: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata=FieldMetadata(
-            length=3, dtype=np.float32, category="vector", units="MeV/c"
-        ),
+        metadata=FieldMetadata(length=3, dtype=np.float32, vector=True, units="MeV/c"),
     )
 
-    @derived_property(units="MeV/c")
+    @property
+    @stored_property(units="MeV/c")
     def p(self) -> float:
         """Computes the magnitude of the initial momentum.
 
@@ -209,7 +194,8 @@ class Particle(PosDataBase):
         """
         return float(np.linalg.norm(self.momentum))
 
-    @derived_property(units="MeV/c")
+    @property
+    @stored_property(units="MeV/c")
     def end_p(self) -> float:
         """Computes the magnitude of the final momentum.
 
@@ -220,7 +206,8 @@ class Particle(PosDataBase):
         """
         return float(np.linalg.norm(self.end_momentum))
 
-    @derived_property(units="MeV/c^2")
+    @property
+    @stored_property(units="MeV/c^2")
     def mass(self) -> float:
         """Computes the rest mass of the particle from its energy/momentum.
 
@@ -229,7 +216,7 @@ class Particle(PosDataBase):
         float
             Rest mass of the particle in MeV/c^2
         """
-        if np.isnan(self.energy_init):
+        if np.isnan(self.energy_init) or np.isnan(self.p):
             return np.nan
 
         return np.sqrt(max(0.0, self.energy_init**2 - self.p**2))

@@ -78,7 +78,7 @@ class Flash(PosDataBase):
         metadata=FieldMetadata(
             length=3,
             dtype=np.float32,
-            category="position",
+            position=True,
             units="instance",
         ),
     )
@@ -87,7 +87,7 @@ class Flash(PosDataBase):
         metadata=FieldMetadata(
             length=3,
             dtype=np.float32,
-            category="vector",
+            vector=True,
             units="instance",
         ),
     )

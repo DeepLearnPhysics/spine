@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from spine.data import Meta
+from spine.data.larcv.meta import ImageMeta2D, ImageMeta3D
 from spine.utils.conditional import LARCV_AVAILABLE, larcv
 
 
@@ -35,9 +36,9 @@ class TestMetaCreation:
         np.testing.assert_array_equal(meta.count, count)
 
     def test_meta_2d_scenario(self):
-        """Test Meta for 2D image scenario."""
+        """Test ImageMeta2D for 2D image scenario."""
         # 2D image metadata (like collection plane view)
-        meta_2d = Meta(
+        meta_2d = ImageMeta2D(
             lower=np.array([0.0, 0.0]),
             upper=np.array([256.0, 512.0]),
             size=np.array([1.0, 1.0]),  # 1cm per pixel
@@ -51,9 +52,9 @@ class TestMetaCreation:
         assert meta_2d.count.shape == (2,)
 
     def test_meta_3d_scenario(self):
-        """Test Meta for 3D voxel scenario."""
+        """Test ImageMeta3D for 3D voxel scenario."""
         # 3D voxelized detector volume
-        meta_3d = Meta(
+        meta_3d = ImageMeta3D(
             lower=np.array([-200.0, -200.0, 0.0]),
             upper=np.array([202.0, 202.0, 1002.0]),
             size=np.array([3.0, 3.0, 3.0]),  # 3cm voxels
@@ -78,14 +79,14 @@ class TestMetaCreation:
 
         # Wrong shape meta (size and count must match lower/upper)
         with pytest.raises(ValueError):
-            Meta(
+            ImageMeta2D(
                 lower=np.array([0.0, 0.0]),
                 upper=np.array([100.0, 100.0]),
                 size=np.array([1.0, 1.0, 1.0]),  # Wrong shape
                 count=np.array([100, 100], dtype=np.int64),
             )
         with pytest.raises(ValueError):
-            Meta(
+            ImageMeta3D(
                 lower=np.array([0.0, 0.0, 0.0]),
                 upper=np.array([100.0, 100.0, 100.0]),
                 size=np.array([1.0, 1.0, 1.0]),
@@ -173,7 +174,7 @@ class TestMetaProperties:
     def test_dimension_property(self):
         """Test dimension property calculation."""
         # 2D meta
-        meta_2d = Meta(
+        meta_2d = ImageMeta2D(
             lower=np.array([0.0, 0.0]),
             upper=np.array([100.0, 100.0]),
             size=np.array([1.0, 1.0]),
@@ -182,7 +183,7 @@ class TestMetaProperties:
         assert meta_2d.dimension == 2
 
         # 3D meta
-        meta_3d = Meta(
+        meta_3d = ImageMeta3D(
             lower=np.array([0.0, 0.0, 0.0]),
             upper=np.array([100.0, 100.0, 100.0]),
             size=np.array([1.0, 1.0, 1.0]),
@@ -218,7 +219,7 @@ class TestMetaProperties:
     def test_volume_calculations(self):
         """Test volume and area calculations."""
         # 2D area calculation
-        meta_2d = Meta(
+        meta_2d = ImageMeta2D(
             lower=np.array([0.0, 0.0]),
             upper=np.array([100.0, 200.0]),
             size=np.array([1.0, 2.0]),
@@ -229,7 +230,7 @@ class TestMetaProperties:
         assert area == 20000.0  # 100 * 200
 
         # 3D volume calculation
-        meta_3d = Meta(
+        meta_3d = ImageMeta3D(
             lower=np.array([0.0, 0.0, 0.0]),
             upper=np.array([100.0, 100.0, 100.0]),
             size=np.array([1.0, 1.0, 1.0]),
