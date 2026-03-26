@@ -19,7 +19,7 @@ def shower_long_profile(
     Parameters
     ----------
     depth : Union[float, np.ndarray]
-        Depths at which to compute the profile in radiation lengths.
+        Depths at which to compute the profile in radiation lengths, in units of cm.
     energy : float
         Energy of the shower in MeV.
     use_gp : bool, default False
@@ -40,7 +40,7 @@ def shower_long_profile(
         a, b = shower_long_params_lar(energy)
 
     # Compute the Gamma distribution profile in the depth(s) requested
-    coeff = energy * b / math.gamma(a)
+    coeff = energy * b / math.gamma(a) / LAR_X0
     return coeff * (b * t) ** (a - 1) * np.exp(-b * t)
 
 
