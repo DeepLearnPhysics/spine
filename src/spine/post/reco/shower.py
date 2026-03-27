@@ -37,6 +37,8 @@ class ShowerParametricEnergyProcessor(PostBase):
         n_points=10000,
         seed=12345,
         sigma_floor=1.0,
+        energy_bounds=(1, 10000),
+        use_gp=False,
         mode="module",
         run_mode="reco",
     ):
@@ -51,6 +53,11 @@ class ShowerParametricEnergyProcessor(PostBase):
             Random seed to use for sampling points in the shower model.
         sigma_floor : float, default 1.0
             Minimum value for the energy deposition uncertainty.
+        energy_bounds : Tuple[float, float], default=(1, 10000)
+            Lower and upper bounds on the fitted energy, in MeV.
+        use_gp : bool, default False
+            Whether to use the Grindhammer and Peters (2000) parametrization for the
+            longitudinal profile.
         mode : str, default "module"
             Geometry mode for the shower energy fitter.
         """
@@ -79,7 +86,12 @@ class ShowerParametricEnergyProcessor(PostBase):
             n_points=n_points,
             seed=seed,
             sigma_floor=sigma_floor,
+            energy_bounds=energy_bounds,
+            use_gp=use_gp,
         )
+
+        # Store the energy bounds
+        self.energy_bounds = energy_bounds
 
     def process(self, data):
         """Fit the energy of showers in one entry.
@@ -94,6 +106,11 @@ class ShowerParametricEnergyProcessor(PostBase):
             for part in data[k]:
                 # Only run this algorithm on showers
                 if part.shape == SHOWR_SHP:
+                    # If the shower energy is below the lower bound, do not attempt
+                    # to fit the energy and leave it alone
+                    if part.calo_ke < self.energy_bounds[0]:
+                        continue
+
                     # Start by computing the amount of energy seen in each boundary box
                     points = self.get_points(part)
                     if self.mode == "detector":
