@@ -63,6 +63,7 @@ class ShowerEnergyFitter:
         sigma_floor: float = 1.0,
         seed: int = 12345,
         energy_bounds: Tuple[float, float] = (1.0, 10000.0),
+        xatol: Optional[float] = 1.0,
         use_gp: bool = False,
     ) -> None:
         """Initialize the shower energy fitter.
@@ -85,6 +86,10 @@ class ShowerEnergyFitter:
         energy_bounds : Tuple[float, float], default=(1.0, 10000.0)
             Lower and upper bounds on the fitted energy, in MeV. These are used
             as the bounds for the scalar minimization in the `fit` method.
+        xatol : Optional[float], default=1.0
+            Absolute tolerance on the fitted energy, in MeV, passed to
+            `scipy.optimize.minimize_scalar`. If not provided, SciPy uses
+            its default tolerance.
         use_gp : bool, default False
             Whether to use the Grindhammer and Peters (2000) parametrization for the
             longitudinal profile. If False, a custom log-based parametrization is
@@ -95,6 +100,7 @@ class ShowerEnergyFitter:
         self.sigma_floor = float(sigma_floor)
         self.seed = int(seed)
         self.energy_bounds = energy_bounds
+        self.xatol = xatol
         self.use_gp = bool(use_gp)
 
         self._validate_inputs()
@@ -330,8 +336,7 @@ class ShowerEnergyFitter:
         reco_box_energy: np.ndarray,
         shower_start: np.ndarray,
         direction: np.ndarray,
-        xatol: Optional[float] = None,
-    ) -> object:
+    ) -> float:
         """Fit the shower energy by minimizing the box-based chi-square.
 
         Parameters
@@ -349,8 +354,8 @@ class ShowerEnergyFitter:
 
         Returns
         -------
-        OptimizeResult
-            Result returned by `scipy.optimize.minimize_scalar`.
+        float
+            Fitted shower energy in MeV.
 
         Notes
         -----
@@ -364,8 +369,8 @@ class ShowerEnergyFitter:
         shower_start, direction = self._validate_shower_inputs(shower_start, direction)
 
         options = {}
-        if xatol is not None:
-            options["xatol"] = float(xatol)
+        if self.xatol is not None:
+            options["xatol"] = float(self.xatol)
 
         return minimize_scalar(
             self.chi2,
@@ -373,7 +378,7 @@ class ShowerEnergyFitter:
             method="bounded",
             args=(reco_box_energy, shower_start, direction),
             options=options,
-        )
+        ).x
 
 
 def sample_shower_points(
