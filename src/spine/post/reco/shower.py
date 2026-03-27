@@ -41,6 +41,8 @@ class ShowerParametricEnergyProcessor(PostBase):
         use_gp=False,
         mode="module",
         run_mode="reco",
+        truth_point_mode="points",
+        truth_dep_mode="depositions",
     ):
         """Store the shower energy fitter parameters.
 
@@ -62,7 +64,12 @@ class ShowerParametricEnergyProcessor(PostBase):
             Geometry mode for the shower energy fitter.
         """
         # Initialize the parent class
-        super().__init__("particle", run_mode=run_mode)
+        super().__init__(
+            "particle",
+            run_mode=run_mode,
+            truth_point_mode=truth_point_mode,
+            truth_dep_mode=truth_dep_mode
+        )
 
         # Fetch the detector boundaries
         if mode not in self._geo_modes:
@@ -137,7 +144,7 @@ class ShowerParametricEnergyProcessor(PostBase):
                             )
 
                     # Compute the amount of energy seen in each boundary
-                    part.energy = self.fitter.fit(
+                    part.calo_ke = self.fitter.fit(
                         reco_box_energy=box_energies,
                         shower_start=part.start_point,
                         direction=part.start_dir,
