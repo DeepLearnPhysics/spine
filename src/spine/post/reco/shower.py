@@ -68,7 +68,7 @@ class ShowerParametricEnergyProcessor(PostBase):
             "particle",
             run_mode=run_mode,
             truth_point_mode=truth_point_mode,
-            truth_dep_mode=truth_dep_mode
+            truth_dep_mode=truth_dep_mode,
         )
 
         # Fetch the detector boundaries
