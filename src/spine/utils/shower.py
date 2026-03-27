@@ -62,7 +62,8 @@ class ShowerEnergyFitter:
         n_points: int = 100000,
         sigma_floor: float = 1.0,
         seed: int = 12345,
-        energy_bounds: Tuple[float, float] = (0.0, 10000.0),
+        energy_bounds: Tuple[float, float] = (1.0, 10000.0),
+        use_gp: bool = False,
     ) -> None:
         """Initialize the shower energy fitter.
 
@@ -81,32 +82,53 @@ class ShowerEnergyFitter:
         seed : int, default=12345
             Seed used to initialize the random number generator. Keeping this
             fixed across evaluations makes the fit objective smoother.
-        energy_bounds : Tuple[float, float], default=(0.0, 10000.0)
+        energy_bounds : Tuple[float, float], default=(1.0, 10000.0)
             Lower and upper bounds on the fitted energy, in MeV. These are used
             as the bounds for the scalar minimization in the `fit` method.
+        use_gp : bool, default False
+            Whether to use the Grindhammer and Peters (2000) parametrization for the
+            longitudinal profile. If False, a custom log-based parametrization is
+            used instead. 
         """
         self.boundaries = np.asarray(boundaries, dtype=np.float64)
         self.n_points = int(n_points)
         self.sigma_floor = float(sigma_floor)
         self.seed = int(seed)
         self.energy_bounds = energy_bounds
+        self.use_gp = bool(use_gp)
 
         self._validate_inputs()
 
     def _validate_inputs(self) -> None:
         """Validate fitter inputs."""
+        # Boundaries should have shape (n_boxes, 3, 2)
         if self.boundaries.ndim != 3 or self.boundaries.shape[1:] != (3, 2):
             raise ValueError("`boundaries` must have shape (n_boxes, 3, 2).")
 
+        # The number of sampled points must be positive
         if self.n_points <= 0:
             raise ValueError("`n_points` must be strictly positive.")
 
+        # The uncertainty floor must be non-negative
         if self.sigma_floor < 0.0:
             raise ValueError("`sigma_floor` must be non-negative.")
 
+        # Box boundaries must satisfy min < max in each dimension
         widths = self.boundaries[:, :, 1] - self.boundaries[:, :, 0]
         if np.any(widths <= 0.0):
             raise ValueError("All box widths must be strictly positive.")
+
+        # Energy bounds must satisfy 0 < min < max
+        e_min, e_max = self.energy_bounds
+        if e_min <= 0.0 or e_max <= 0.0 or e_max <= e_min:
+            raise ValueError("`energy_bounds` must satisfy 0 < bounds[0] < bounds[1].")
+        
+        # When using the GP parametrization, the 
+        if self.use_gp and e_min < 120.0:
+            raise ValueError(
+                f"When `use_gp` is True, the parametrization breaks down below ~120 "
+                "MeV. Please set `energy_bounds[0]` to a value >= 120 MeV."
+            )
 
     @property
     def n_boxes(self) -> int:
@@ -184,6 +206,7 @@ class ShowerEnergyFitter:
             shower_start=shower_start,
             direction=direction,
             rng=rng,
+            use_gp=self.use_gp
         )
 
     def count_points_in_boxes(self, points: np.ndarray) -> np.ndarray:
@@ -340,17 +363,13 @@ class ShowerEnergyFitter:
 
         shower_start, direction = self._validate_shower_inputs(shower_start, direction)
 
-        e_min, e_max = self.energy_bounds
-        if e_min <= 0.0 or e_max <= 0.0 or e_max <= e_min:
-            raise ValueError("`bounds` must satisfy 0 < bounds[0] < bounds[1].")
-
         options = {}
         if xatol is not None:
             options["xatol"] = float(xatol)
 
         return minimize_scalar(
             self.chi2,
-            bounds=(float(e_min), float(e_max)),
+            bounds=self.energy_bounds,
             method="bounded",
             args=(reco_box_energy, shower_start, direction),
             options=options,
@@ -363,6 +382,7 @@ def sample_shower_points(
     shower_start: np.ndarray,
     direction: np.ndarray,
     rng: np.random.Generator,
+    use_gp: bool = False,
 ) -> np.ndarray:
     """Sample 3D points from a factorized shower model.
 
@@ -391,6 +411,10 @@ def sample_shower_points(
         Shower direction vector. Does not need to be normalized.
     rng : np.random.Generator
         NumPy random number generator.
+    use_gp : bool, default False
+        Whether to use the Grindhammer and Peters (2000) parametrization for the
+        longitudinal profile. If False, a custom log-based parametrization is
+        used instead.
 
     Returns
     -------
@@ -422,7 +446,10 @@ def sample_shower_points(
     w = np.cross(u, v)
 
     # Longitudinal parameters
-    a, b = shower_long_params_lar(energy)
+    if use_gp:
+        a, b = shower_long_params_gp(energy)
+    else:
+        a, b = shower_long_params_lar(energy)
 
     # Sample depth (Gamma in radiation lengths → convert to cm)
     t = rng.gamma(shape=a, scale=1.0 / b, size=n)
@@ -457,7 +484,7 @@ def sample_shower_points(
 
 
 @nb.njit(cache=True)
-def shower_energy_density_3d(points, shower_start, direction, energy, eps=1e-6):
+def shower_energy_density_3d(points, shower_start, direction, energy, eps=1e-6, use_gp=False):
     """Compute the shower volumetric energy density at 3D points.
 
     Parameters
@@ -472,6 +499,8 @@ def shower_energy_density_3d(points, shower_start, direction, energy, eps=1e-6):
         Shower energy, in MeV.
     eps : float, default=1e-6
         Small regularization scale used to avoid division by zero at r = 0.
+    use_gp : bool, default=False
+        Whether to use the Grindhammer and Peters (2000) parametrization.
 
     Returns
     -------
@@ -518,7 +547,7 @@ def shower_energy_density_3d(points, shower_start, direction, energy, eps=1e-6):
             r2 = 0.0
         r = np.sqrt(r2)
 
-        g = shower_long_profile(l, energy)
+        g = shower_long_profile(l, energy, use_gp=use_gp)
         f = shower_trans_profile(r, l, energy)
 
         out[i] = g * f / (2.0 * np.pi * max(r, eps))
@@ -528,7 +557,7 @@ def shower_energy_density_3d(points, shower_start, direction, energy, eps=1e-6):
 
 @nb.njit(cache=True)
 def shower_energy_density(
-    depth: Union[float, np.ndarray], radius: Union[float, np.ndarray], energy: float
+    depth: Union[float, np.ndarray], radius: Union[float, np.ndarray], energy: float, use_gp: bool = False
 ) -> Union[float, np.ndarray]:
     """Compute the shower energy density in (depth, radius) space.
 
@@ -540,6 +569,8 @@ def shower_energy_density(
         Radial coordinate(s), in cm.
     energy : float
         Shower energy, in MeV.
+    use_gp : bool, default False
+        Whether to use the Grindhammer and Peters (2000) parametrization.
 
     Returns
     -------
@@ -562,7 +593,7 @@ def shower_energy_density(
     so that:
         integral_0^inf rho(depth, r, energy) dr = dE/dl(depth, energy).
     """
-    longitudinal = shower_long_profile(depth, energy)
+    longitudinal = shower_long_profile(depth, energy, use_gp=use_gp)
     transverse = shower_trans_profile(radius, depth, energy)
 
     return longitudinal * transverse
