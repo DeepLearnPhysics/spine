@@ -88,7 +88,7 @@ class ShowerEnergyFitter:
         use_gp : bool, default False
             Whether to use the Grindhammer and Peters (2000) parametrization for the
             longitudinal profile. If False, a custom log-based parametrization is
-            used instead. 
+            used instead.
         """
         self.boundaries = np.asarray(boundaries, dtype=np.float64)
         self.n_points = int(n_points)
@@ -122,8 +122,8 @@ class ShowerEnergyFitter:
         e_min, e_max = self.energy_bounds
         if e_min <= 0.0 or e_max <= 0.0 or e_max <= e_min:
             raise ValueError("`energy_bounds` must satisfy 0 < bounds[0] < bounds[1].")
-        
-        # When using the GP parametrization, the 
+
+        # When using the GP parametrization, the
         if self.use_gp and e_min < 120.0:
             raise ValueError(
                 f"When `use_gp` is True, the parametrization breaks down below ~120 "
@@ -206,7 +206,7 @@ class ShowerEnergyFitter:
             shower_start=shower_start,
             direction=direction,
             rng=rng,
-            use_gp=self.use_gp
+            use_gp=self.use_gp,
         )
 
     def count_points_in_boxes(self, points: np.ndarray) -> np.ndarray:
@@ -484,7 +484,9 @@ def sample_shower_points(
 
 
 @nb.njit(cache=True)
-def shower_energy_density_3d(points, shower_start, direction, energy, eps=1e-6, use_gp=False):
+def shower_energy_density_3d(
+    points, shower_start, direction, energy, eps=1e-6, use_gp=False
+):
     """Compute the shower volumetric energy density at 3D points.
 
     Parameters
@@ -557,7 +559,10 @@ def shower_energy_density_3d(points, shower_start, direction, energy, eps=1e-6, 
 
 @nb.njit(cache=True)
 def shower_energy_density(
-    depth: Union[float, np.ndarray], radius: Union[float, np.ndarray], energy: float, use_gp: bool = False
+    depth: Union[float, np.ndarray],
+    radius: Union[float, np.ndarray],
+    energy: float,
+    use_gp: bool = False,
 ) -> Union[float, np.ndarray]:
     """Compute the shower energy density in (depth, radius) space.
 
