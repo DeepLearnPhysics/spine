@@ -55,6 +55,7 @@ from typing import (
     Self,
     Tuple,
     Union,
+    get_origin,
 )
 
 import numpy as np
@@ -63,7 +64,7 @@ from spine.utils.docstring import merge_ancestor_docstrings
 
 from .field import FieldMetadata
 
-if TYPE_CHECKING:
+if TYPE_CHECKING:  # pragma: no cover
     from spine.data.larcv.meta import Meta
 
 
@@ -105,6 +106,7 @@ class DataBase:
         cls._var_length_attrs = ()
         cls._pos_attrs = ()
         cls._vec_attrs = ()
+        cls._normed_vec_attrs = ()
         cls._index_attrs = ()
         cls._skip_attrs = ()
         cls._lite_skip_attrs = ()
@@ -176,14 +178,14 @@ class DataBase:
                 else:
                     # For int, str, bool, regular comparison
                     if value_other != value:
-
                         return False
+
             elif field.type == np.ndarray:
                 # For numpy vectors, use array_equal with equal_nan=True
                 if not np.array_equal(value, value_other, equal_nan=True):
                     return False
 
-            elif field.type == list:
+            elif get_origin(field.type) == list or field.type == list:
                 # For object lists, compare the length and all elements individually
                 if len(value) != len(value_other) or any(
                     v1 != v2 for v1, v2 in zip(value, value_other)
@@ -191,6 +193,8 @@ class DataBase:
                     return False
 
             else:
+                # For unsupported types, raise an error (could be extended to
+                # support more types as needed)
                 raise TypeError(
                     f"Cannot compare the `{key}` attribute of "
                     f"`{self.__class__.__name__}` objects. Unsupported type: "
@@ -214,8 +218,8 @@ class DataBase:
             )
 
         for field in fields(self):
-            meta = field.metadata
-            if field.type == np.ndarray and isinstance(meta, FieldMetadata):
+            if field.type == np.ndarray:
+                meta = FieldMetadata(**field.metadata)
                 if meta.dtype is not None and "float" in str(meta.dtype):
                     val = getattr(self, field.name)
                     dtype = f"{val.dtype.str[:-1]}{precision}"
@@ -455,6 +459,9 @@ class DataBase:
         # Cache specific types of arrays
         cls._pos_attrs = tuple(k for k, v in meta.items() if v.position)
         cls._vec_attrs = tuple(k for k, v in meta.items() if v.vector)
+        cls._normed_vec_attrs = tuple(
+            k for k in cls._vec_attrs if meta[k].units == "instance"
+        )
 
         # Cache index attributes (categorical attributes with an enum are not considered index)
         cls._index_attrs = tuple(k for k, v in meta.items() if v.index)
@@ -548,20 +555,15 @@ class DataBase:
                     target_name = getattr(attr.fget, "__stored_alias_target__", None)
                     if target_name is not None and target_name not in result:
                         # Target is a field, not a derived property
-                        try:
-                            cls_fields = fields(cls)
-                            for f in cls_fields:
-                                if f.name == target_name and isinstance(
-                                    f.metadata, FieldMetadata
-                                ):
-                                    # Copy field metadata but force skip=True
-                                    meta_dict = f.metadata.as_dict()
-                                    meta_dict["skip"] = True
-                                    result[name] = FieldMetadata(**meta_dict)
-                                    break
-                        except TypeError:
-                            # Not a dataclass
-                            pass
+                        cls_fields = fields(cls)
+                        for f in cls_fields:
+                            if f.name == target_name:
+                                # Copy field metadata but force skip=True
+                                metadata = FieldMetadata(**f.metadata)
+                                meta_dict = metadata.as_dict()
+                                meta_dict["skip"] = True
+                                result[name] = FieldMetadata(**meta_dict)
+                                break
 
         return result
 
@@ -649,7 +651,7 @@ class PosDataBase(DataBase):
         for attr in self._global_units_attrs:
             if attr in self._pos_attrs:
                 setattr(self, attr, meta.to_cm(getattr(self, attr)))
-            elif attr in self._vec_attrs:
+            elif attr in self._normed_vec_attrs:
                 setattr(self, attr, getattr(self, attr) * meta.size)
             else:
                 # Imperfect: assumes cubic pixels
@@ -670,7 +672,7 @@ class PosDataBase(DataBase):
         for attr in self._global_units_attrs:
             if attr in self._pos_attrs:
                 setattr(self, attr, meta.to_px(getattr(self, attr)))
-            elif attr in self._vec_attrs:
+            elif attr in self._normed_vec_attrs:
                 setattr(self, attr, getattr(self, attr) / meta.size)
             else:
                 # Imperfect: assumes cubic pixels
