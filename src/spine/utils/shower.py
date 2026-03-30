@@ -129,11 +129,12 @@ class ShowerEnergyFitter:
         if e_min <= 0.0 or e_max <= 0.0 or e_max <= e_min:
             raise ValueError("`energy_bounds` must satisfy 0 < bounds[0] < bounds[1].")
 
-        # When using the GP parametrization, the
-        if self.use_gp and e_min < 120.0:
+        # When using the GP parametrization, the longitudinal profile breaks down at
+        # low energies, so we require the lower energy bound to be above that scale
+        if self.use_gp and e_min < 1000.0:
             raise ValueError(
-                f"When `use_gp` is True, the parametrization breaks down below ~120 "
-                "MeV. Please set `energy_bounds[0]` to a value >= 120 MeV."
+                "When `use_gp` is True, the parametrization breaks down below ~1000 "
+                "MeV. Please set `energy_bounds[0]` to a value >= 1000 MeV."
             )
 
     @property
@@ -151,7 +152,7 @@ class ShowerEnergyFitter:
     def _validate_shower_inputs(
         shower_start: np.ndarray,
         direction: np.ndarray,
-    ) -> tuple[np.ndarray, np.ndarray]:
+    ) -> Tuple[np.ndarray, np.ndarray]:
         """Validate per-shower inputs.
 
         Parameters
@@ -163,7 +164,7 @@ class ShowerEnergyFitter:
 
         Returns
         -------
-        tuple[NDArray[np.float64], NDArray[np.float64]]
+        Tuple[NDArray[np.float64], NDArray[np.float64]]
             Tuple containing validated and converted shower start and direction.
         """
         shower_start = np.asarray(shower_start, dtype=np.float64)
@@ -251,7 +252,7 @@ class ShowerEnergyFitter:
         energy: float,
         shower_start: np.ndarray,
         direction: np.ndarray,
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Predict energy and uncertainty in each box at a trial energy.
 
         Parameters
@@ -265,7 +266,7 @@ class ShowerEnergyFitter:
 
         Returns
         -------
-        tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.int64]]
+        Tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.int64]]
             Tuple containing:
             - predicted box energies in MeV
             - predicted per-box uncertainties in MeV
