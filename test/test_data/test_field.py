@@ -48,7 +48,7 @@ class TestFieldMetadata:
     def test_enum_type_validation(self):
         """Test that enum must be a dict."""
         with pytest.raises(TypeError, match="must be a dictionary"):
-            FieldMetadata(enum=["electron", "muon"])
+            FieldMetadata(enum=["electron", "muon"])  # type: ignore
 
     def test_immutable(self):
         """Test that FieldMetadata is immutable (frozen dataclass)."""
@@ -57,8 +57,48 @@ class TestFieldMetadata:
 
         # FieldMetadata is a frozen dataclass, so it's immutable
         with pytest.raises(TypeError):
-            meta["units"] = "GeV"
+            meta["units"] = "GeV"  # type: ignore
 
         # Also can't modify attributes directly
         with pytest.raises((AttributeError, dataclasses.FrozenInstanceError)):
-            meta.units = "GeV"
+            meta.units = "GeV"  # type: ignore
+
+    def test_getitem(self):
+        """Test __getitem__ method."""
+        meta = FieldMetadata(units="MeV", index=True)
+        assert meta["units"] == "MeV"
+        assert meta["index"] is True
+        with pytest.raises(KeyError):
+            _ = meta["nonexistent"]
+
+    def test_len(self):
+        """Test __len__ method."""
+        meta = FieldMetadata(units="MeV", index=True, skip=True)
+        assert len(meta) == 3  # three fields set: units, index, skip
+
+        meta2 = FieldMetadata()
+        assert len(meta2) == 0  # No fields set
+
+    def test_iter(self):
+        """Test __iter__ method."""
+        meta = FieldMetadata(units="MeV", index=True, skip=True)
+        keys = list(meta)
+        assert "units" in keys
+        assert "index" in keys
+        assert "skip" in keys  # skip is not None, so it should be included
+
+        meta2 = FieldMetadata()
+        keys2 = list(meta2)
+        assert len(keys2) == 0  # No fields set, so no keys should be returned
+
+    def test_as_dict(self):
+        """Test as_dict method."""
+        meta = FieldMetadata(units="MeV", index=True, length=3)
+        meta_dict = meta.as_dict()
+        assert meta_dict["units"] == "MeV"
+        assert meta_dict["index"] is True
+        assert meta_dict["length"] == 3
+
+        # Fields that are None or False should not be included
+        assert "dtype" not in meta_dict
+        assert "position" not in meta_dict

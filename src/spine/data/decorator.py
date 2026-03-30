@@ -6,6 +6,7 @@ serialization and introspection:
 - @stored_alias: Properties that are aliases of other stored properties
 """
 
+import types
 from typing import (
     Any,
     Callable,
@@ -108,16 +109,20 @@ def stored_property(
         return_type = hints["return"]
 
         origin = get_origin(return_type)
-        if origin is Union:
+        if origin is Union or isinstance(return_type, types.UnionType):
             args = get_args(return_type)
+            non_none_type = None
             for arg in args:
                 if arg is not type(None):
-                    return_type = arg
+                    non_none_type = arg
                     break
-            else:
-                raise TypeError(
-                    f"Stored property '{f.__name__}' cannot have None as the only return type"
-                )
+
+            return_type = non_none_type
+
+        if return_type is type(None):
+            raise TypeError(
+                f"Stored property '{f.__name__}' cannot have None as return type"
+            )
 
         metadata_obj = FieldMetadata(return_type=return_type, **metadata)
         setattr(f, "__stored_property_metadata__", metadata_obj)
