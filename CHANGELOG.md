@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.10.7] - 2026-04-05
+
+### Added
+- **Docker Containerization**: Complete Docker infrastructure for production deployments
+  - Full ML stack with PyTorch 2.5.1, MinkowskiEngine v0.5.4, torch-geometric, ROOT, and LArCV2
+  - Ubuntu 22.04 base with CUDA 12.1 toolkit (perfect version match with PyTorch)
+  - XRootD client with SciTokens support for dCache streaming with token authentication
+  - Multi-GPU architecture support: V100, A100, H100/H200, RTX 20xx/30xx/40xx (compute 7.0-9.0)
+  - Automated GitHub Actions workflow for container builds and publishing to GHCR
+  - Comprehensive documentation with Apptainer/Singularity usage examples
+  - Build script for local development and testing
+
+### Changed
+- **Dependencies**: Removed torch-sparse dependency (no longer required)
+- **Documentation**: Updated all Singularity references to Apptainer (current standard)
+- **Sphinx**: Removed torch-sparse from autodoc mock imports
+
 ## [0.10.6] - 2026-03-18
 
 ### Changed
