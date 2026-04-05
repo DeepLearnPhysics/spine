@@ -82,7 +82,7 @@ class DataBase:
     # to avoid sharing across inheritance hierarchy. Each subclass gets
     # its own independent copies via __init_subclass__.
 
-    def __init_subclass__(cls, **kwargs):
+    def __init_subclass__(cls, **kwargs: Any) -> None:
         """Automatically merge docstrings from parent classes and initialize
         class-level cached attribute lists.
 

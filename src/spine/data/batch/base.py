@@ -1,7 +1,7 @@
 """Module with a base class for all batched data structures."""
 
 from dataclasses import dataclass
-from typing import Union
+from typing import Any, Tuple, Union
 
 import numpy as np
 
@@ -30,7 +30,7 @@ class BatchBase:
     edges: Union[np.ndarray, torch.Tensor]
     batch_size: int
 
-    def __init_subclass__(cls, **kwargs):
+    def __init_subclass__(cls, **kwargs: Any) -> None:
         """Automatically merge docstrings from parent classes.
 
         This hook is called whenever a class inherits from BatchBase. It
@@ -45,7 +45,12 @@ class BatchBase:
         super().__init_subclass__(**kwargs)
         merge_ancestor_docstrings(cls)
 
-    def __init__(self, data, is_sparse=False, is_list=False):
+    def __init__(
+        self,
+        data: Union[np.ndarray, torch.Tensor],
+        is_sparse: bool = False,
+        is_list: bool = False,
+    ) -> None:
         """Shared initializations across all types of batched data.
 
         Parameters
@@ -71,11 +76,11 @@ class BatchBase:
             ref = data if not is_sparse else data.F
             self.device = ref.device
 
-    def __len__(self):
+    def __len__(self) -> int:
         """Returns the number of entries that make up the batch."""
         return self.batch_size
 
-    def __eq__(self, other):
+    def __eq__(self, other: object) -> bool:
         """Checks that all attributes of two class instances are the same.
 
         This overloads the default dataclass `__eq__` method to include an
@@ -83,7 +88,7 @@ class BatchBase:
 
         Parameters
         ----------
-        other : obj
+        other : BatchBase
             Other instance of the same object class
 
         Returns
@@ -125,7 +130,7 @@ class BatchBase:
         return True
 
     @property
-    def shape(self):
+    def shape(self) -> Tuple[int, ...]:
         """Shape of the underlying data.
 
         Returns

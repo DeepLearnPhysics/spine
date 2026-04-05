@@ -472,8 +472,8 @@ class TestDataBase:
                 return 0.1
 
         parent_props = (
-            Parent._get_stored_properties()
-        )  # pylint: disable=protected-access
+            Parent._get_stored_properties()  # pylint: disable=protected-access
+        )
         child_props = Child._get_stored_properties()  # pylint: disable=protected-access
 
         assert parent_props["energy"].units == "MeV"
@@ -508,8 +508,8 @@ class TestDataBase:
                 return self.value
 
         props_no_meta = (
-            MyDataNoMeta._get_stored_properties()
-        )  # pylint: disable=protected-access
+            MyDataNoMeta._get_stored_properties()  # pylint: disable=protected-access
+        )
 
         assert "energy" in props_no_meta
         assert props_no_meta["energy"].units is None  # No metadata to inherit
@@ -545,11 +545,13 @@ class TestDataBase:
         assert "data" in Parent._fixed_length_attrs  # pylint: disable=protected-access
         assert "data" in Child._fixed_length_attrs  # pylint: disable=protected-access
         assert (
-            "other_data" in Child._fixed_length_attrs
-        )  # pylint: disable=protected-access
+            "other_data"
+            in Child._fixed_length_attrs  # pylint: disable=protected-access
+        )
         assert (
-            "other_data" not in Parent._fixed_length_attrs
-        )  # pylint: disable=protected-access
+            "other_data"
+            not in Parent._fixed_length_attrs  # pylint: disable=protected-access
+        )
 
 
 class TestPosDataBase:
