@@ -70,6 +70,7 @@ class AnaBase(ABC):
         overwrite=False,
         log_dir=None,
         prefix=None,
+        buffer_size=1,
     ):
         """Initialize default anlysis script object properties.
 
@@ -97,6 +98,9 @@ class AnaBase(ABC):
             Output CSV file directory (shared with driver log)
         prefix : str, default None
             Name to prefix every output CSV file with
+        buffer_size : int, default 1
+            CSV file buffer size. 1 is line buffered (safe default),
+            -1 uses system default, 0 is unbuffered, >1 is buffer size in bytes
         """
         # Initialize default keys
         self.update_keys(
@@ -187,7 +191,34 @@ class AnaBase(ABC):
         self.base_dict = {}
         self.log_dir = log_dir
         self.output_prefix = prefix
+        self.buffer_size = buffer_size
         self.writers = {}
+
+    def __del__(self):
+        """Destructor to ensure CSV files are closed.
+
+        This acts as a safety net in case close_writers() is not called
+        explicitly. However, explicit cleanup is preferred.
+        """
+        self.close_writers()
+
+    def close_writers(self):
+        """Close all CSV writers and flush any remaining data.
+
+        This should be called when the analysis is complete to ensure
+        all data is written and files are properly closed.
+        """
+        for writer in self.writers.values():
+            writer.close()
+
+    def flush_writers(self):
+        """Flush all CSV writer buffers without closing the files.
+
+        This forces any buffered data to be written to disk. Useful
+        for ensuring data persistence at checkpoints.
+        """
+        for writer in self.writers.values():
+            writer.flush()
 
     def initialize_writer(self, name):
         """Adds a CSV writer to the list of writers for this script.
@@ -207,7 +238,10 @@ class AnaBase(ABC):
 
         # Initialize the writer
         self.writers[name] = CSVWriter(
-            file_name, append=self.append_file, overwrite=self.overwrite_file
+            file_name,
+            append=self.append_file,
+            overwrite=self.overwrite_file,
+            buffer_size=self.buffer_size,
         )
 
     @property

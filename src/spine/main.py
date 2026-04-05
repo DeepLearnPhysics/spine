@@ -8,6 +8,7 @@ scripts, writers and profilers.
 
 import glob
 import os
+from typing import Optional, Tuple
 
 from .driver import Driver
 from .utils.conditional import TORCH_AVAILABLE, torch
@@ -15,7 +16,7 @@ from .utils.logger import logger
 from .utils.torch.devices import set_visible_devices
 
 
-def run(cfg):
+def run(cfg: dict) -> None:
     """Execute a model in one or more processes.
 
     Parameters
@@ -69,7 +70,7 @@ def run(cfg):
             )
 
 
-def run_single(cfg):
+def run_single(cfg: dict) -> None:
     """Execute a model on a single process.
 
     Parameters
@@ -84,12 +85,18 @@ def run_single(cfg):
         inference_single(cfg)
 
 
-def train_single(rank, cfg, distributed=False, world_size=None, torch_sharing=None):
+def train_single(
+    rank: Optional[int],
+    cfg: dict,
+    distributed: bool = False,
+    world_size: Optional[int] = None,
+    torch_sharing: Optional[str] = None,
+) -> None:
     """Train a model in a single process.
 
     Parameters
     ----------
-    rank : int
+    rank : int, optional
         Process rank
     cfg : dict
         Full driver/trainer configuration
@@ -113,6 +120,7 @@ def train_single(rank, cfg, distributed=False, world_size=None, torch_sharing=No
 
     # If distributed, setup the process group
     if distributed:
+        assert rank is not None and world_size is not None
         setup_ddp(rank, world_size)
 
     # Prepare the trainer
@@ -126,7 +134,7 @@ def train_single(rank, cfg, distributed=False, world_size=None, torch_sharing=No
         torch.distributed.destroy_process_group()
 
 
-def inference_single(cfg):
+def inference_single(cfg: dict) -> None:
     """Execute a model in inference mode in a single process.
 
     Parameters
@@ -159,16 +167,13 @@ def inference_single(cfg):
         driver.run()
 
 
-def process_world(base, **kwargs):
+def process_world(base: dict) -> Tuple[bool, int, Optional[str]]:
     """Check on the number of available GPUs and what has been requested.
 
     Parameters
     ----------
     base : dict
         Base driver configuration dictionary
-    **kwargs : dict
-        Other elements of the driver configuration
-        Analysis script configurationdictionary
 
     Returns
     -------
@@ -184,25 +189,33 @@ def process_world(base, **kwargs):
     logger.setLevel(verbosity.upper())
 
     # Parse information about the world size, set visible CUDA devices
-    world_size = set_visible_devices(**base)
+    world_size = set_visible_devices(
+        world_size=base.get("world_size", None), gpus=base.get("gpus", None)
+    )
 
     # If there is more than one GPU in use, must distribute
     distributed = base.get("distributed", world_size > 1)
-    assert (
-        world_size < 2 or distributed
-    ), "Cannot run process on multiple GPUs without distributing it."
+    if world_size > 1 and not distributed:
+        raise ValueError(
+            "Multiple GPUs detected but distributed execution is disabled. "
+            "Set 'distributed: true' in the configuration to enable it."
+        )
 
     # If distributed, check what the file sharing strategy is
     torch_sharing = base.get("torch_sharing_strategy", None)
-    assert not torch_sharing or torch_sharing in ("file_system", "file_descriptor"), (
-        "torch_sharing_strategy must be one of: "
-        "'file_system', 'file_descriptor', or None"
-    )
+    if torch_sharing is not None and torch_sharing not in (
+        "file_system",
+        "file_descriptor",
+    ):
+        raise ValueError(
+            "torch_sharing_strategy must be one of: "
+            "'file_system', 'file_descriptor', or None"
+        )
 
     return distributed, world_size, torch_sharing
 
 
-def setup_ddp(rank, world_size, backend="nccl"):
+def setup_ddp(rank: int, world_size: int, backend: str = "nccl") -> None:
     """Sets up the DistributedDataParallel environment.
 
     Parameters
