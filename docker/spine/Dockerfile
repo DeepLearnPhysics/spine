@@ -24,42 +24,19 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
 # Install system dependencies
-# - libopenblas-dev: BLAS headers for MinkowskiEngine compilation
-# - ninja-build: Fast C++ build system for MinkowskiEngine
 # - xrootd-*: XRootD client with token authentication for dCache streaming
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        libopenblas-dev \
-        ninja-build \
         xrootd-client \
         xrootd-client-plugins \
-        xrootd-scitokens-plugins \
-        wget \
-        ca-certificates && \
+        xrootd-scitokens-plugins && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Install CUDA 12.1 toolkit (compiler + headers for MinkowskiEngine build)
-# Perfect version match with PyTorch 2.5.1+cu121 runtime
-RUN wget -qO /tmp/cuda-keyring.deb https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.1-1_all.deb && \
-    dpkg -i /tmp/cuda-keyring.deb && \
-    rm /tmp/cuda-keyring.deb && \
-    apt-get update && \
-    apt-get install -y --no-install-recommends \
-        cuda-nvcc-12-1 \
-        cuda-cudart-dev-12-1 \
-        cuda-libraries-dev-12-1 \
-        cuda-nvtx-12-1 && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
-
-# Install PyTorch 2.5.1 for CUDA 12.1 (perfect version match with toolkit)
+# Install PyTorch 2.5.1 for CUDA 12.1
 RUN pip install --no-cache-dir \
     --index-url https://download.pytorch.org/whl/cu121 \
     torch==2.5.1
-
-# Configure CUDA environment
-ENV CUDA_HOME=/usr/local/cuda-12.1
 
 # Install torch-geometric ecosystem from pre-built wheels
 RUN pip install --no-cache-dir \
@@ -90,8 +67,11 @@ RUN git clone https://github.com/NVIDIA/MinkowskiEngine.git /tmp/MinkowskiEngine
 COPY pyproject.toml MANIFEST.in README.md ./
 COPY src/ ./src/
 
+# Install build dependencies required for --no-build-isolation
+RUN pip install --no-cache-dir "setuptools>=65.0,<70.0" wheel "build>=0.8.0"
+
 # Install SPINE with all dependencies
-RUN pip install --no-cache-dir .[all]
+RUN pip install --no-cache-dir --no-build-isolation .[all]
 
 # Set working directory for user data
 WORKDIR /workspace
