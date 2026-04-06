@@ -191,7 +191,7 @@ class LArCVReader(ReaderBase):
 
         # Move the entry pointer
         for tree in self.trees.values():
-            tree.GetEntry(entry_idx)
+            tree.GetEntry(int(entry_idx))
 
         # Load the relevant data products
         data = {}
