@@ -35,6 +35,7 @@ REGISTRY_VERSIONED_TAG="${REGISTRY}/${IMAGE_NAME}:${VERSION}"
 
 # Build the container (force linux/amd64 - larcv2 dependency)
 docker build \
+    --pull \
     --platform linux/amd64 \
     -t "$LOCAL_TAG" \
     -t "$VERSIONED_TAG" \
