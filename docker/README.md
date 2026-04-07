@@ -7,7 +7,7 @@ This directory contains the Docker container definition for SPINE (Scalable Part
 **Complete ML stack with GPU support**
 
 - **Base Image**: `ghcr.io/deeplearnphysics/larcv2:2.3.4-ubuntu22.04` (ROOT + LArCV2)
-- **Size**: ~8-10GB
+- **Size**: ~5.7 GB as a pulled Apptainer/Singularity `.sif` image
 - **Includes**: 
   - PyTorch 2.5.1 (CUDA 12.1)
   - MinkowskiEngine (4D sparse convolutions)
@@ -16,8 +16,8 @@ This directory contains the Docker container definition for SPINE (Scalable Part
   - XRootD client with token authentication (for dCache streaming)
   - SPINE with all dependencies
 - **GPU Support**: Built for NVIDIA datacenter and workstation GPUs:
-  - **V100** (compute 7.0), **A10/A100** (8.0), **H100/H200** (9.0)
-  - **RTX 30xx/40xx** series (8.6), plus T4 (7.5) and A30 (8.9)
+  - **Cluster / datacenter**: **V100** (7.0), **A100** (8.0), **H100/H200** (9.0)
+  - **Consumer / workstation**: **RTX 20xx** (7.5), **RTX 30xx** (8.6), **RTX 40xx** (8.9)
 - **Use Cases**:
   - Full ML training and inference
   - Processing ROOT/LArCV2 detector data  
@@ -34,6 +34,8 @@ docker pull ghcr.io/deeplearnphysics/spine:latest
 docker run --gpus all -v $(pwd):/workspace ghcr.io/deeplearnphysics/spine:latest --help
 ```
 
+`/workspace` is just the default working directory inside the container. To work on host files, bind-mount a host path there as shown above.
+
 ### Run Training Example
 
 ```bash
@@ -43,7 +45,7 @@ docker run --gpus all \
   -v $(pwd)/output:/workspace/output \
   ghcr.io/deeplearnphysics/spine:latest \
   --config /workspace/config/train_uresnet.cfg \
-  --source /workspace/data/training_data.h5
+  --source /workspace/data/training_data.root
 ```
 
 ### Interactive Shell
@@ -172,6 +174,8 @@ apptainer run --nv \
   --config /workspace/config/train_uresnet.cfg
 ```
 
+When pulled with Apptainer/Singularity, the fully built image is about **5.7 GB**.
+
 ### HPC SLURM Example
 
 ```bash
@@ -274,7 +278,7 @@ docker build --build-arg TORCH_CUDA_ARCH_LIST="8.0 9.0" \
   -f spine/Dockerfile ..
 ```
 | Platform | Multi | linux/amd64 |
-| Size | ~1GB | ~10GB |
+| Size | ~1GB | ~5.7GB pulled `.sif` |
 
 ## Development Workflow
 
@@ -358,9 +362,9 @@ if torch.cuda.is_available():
 ```
 
 Supported GPUs include:
-- **Datacenter**: V100, A100, A10, A30, H100, H200
-- **Workstation**: RTX 3070/3080/3090, RTX 4070/4080/4090, RTX A5000/A6000
-- **Cloud**: T4, A10G (AWS), A100 (all cloud providers)
+- **Datacenter**: V100, T4, A10, A30, A100, L4, L40, H100, H200
+- **Workstation**: RTX 20xx, RTX 30xx, RTX 40xx, RTX A2000/A3000/A4000/A5000/A6000
+- **Cloud**: T4, A10G, A100, L4, H100
 
 ### Import errors
 

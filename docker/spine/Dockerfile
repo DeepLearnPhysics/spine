@@ -82,6 +82,7 @@ RUN git clone https://github.com/NVIDIA/MinkowskiEngine.git /tmp/MinkowskiEngine
     git checkout ${ME_COMMIT} && \
     git fetch origin pull/${ME_CUDA12_PR}/head:cuda12-fix && \
     git cherry-pick --no-commit cuda12-fix && \
+    #sed -i 's/auto __raw = __to_address(__r.get());/auto __raw = std::__to_address(__r.get());/' /usr/include/c++/$(g++ -dumpversion | cut -d. -f1)/bits/shared_ptr_base.h && \
     MAX_JOBS=${ME_MAX_JOBS} PIP_BREAK_SYSTEM_PACKAGES=1 python setup.py install --blas=openblas --force_cuda && \
     cd / && \
     rm -rf /tmp/MinkowskiEngine
@@ -99,8 +100,11 @@ RUN pip install --no-cache-dir --no-build-isolation .[all]
 # Set working directory for user data
 WORKDIR /workspace
 
-# Default command shows help, but users can easily override
-# docker run spine bash              -> interactive shell
-# docker run spine python script.py  -> run Python script
-# docker run spine --config cfg      -> run SPINE training
+# Default command shows help. Without an ENTRYPOINT, arguments passed to
+# `docker run` replace this CMD rather than being appended to `spine`.
+# Examples:
+# docker run --rm spine:latest                           -> spine --help
+# docker run --rm -it spine:latest bash                  -> interactive shell
+# docker run --rm spine:latest python script.py          -> run Python directly
+# docker run --rm spine:latest spine --config cfg.yaml   -> run SPINE CLI
 CMD ["spine", "--help"]
