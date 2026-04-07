@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.10.7] - 2026-04-05
+## [0.10.8] - 2026-04-06
 
 ### Added
 - **Docker Containerization**: Complete Docker infrastructure for production deployments
@@ -16,6 +16,10 @@
 - **Dependencies**: Removed torch-sparse dependency (no longer required)
 - **Documentation**: Updated all Singularity references to Apptainer (current standard)
 - **Sphinx**: Removed torch-sparse from autodoc mock imports
+- **Docker**: Local Docker builds now force-refresh the base image with `--pull`
+
+### Fixed
+- **NumPy 2**: Avoid coercing `EventSparseTensor3D` lists into NumPy arrays in `Sparse3DParser`
 
 ## [0.10.6] - 2026-03-18
 
