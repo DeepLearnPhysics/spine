@@ -18,6 +18,9 @@ class OutBase(PosDataBase):
         Unique index of the object within the object list
     index : np.ndarray
         (N) Voxel indexes corresponding to this object in the input tensor
+    orig_index: np.ndarray
+        (N) Original voxel indexes corresponding to this object in the original
+        point cloud (before any filtering or adaptation)
     size : int
         Number of points, N, that make up this object
     points : np.ndarray
@@ -55,6 +58,7 @@ class OutBase(PosDataBase):
 
     id: int = -1
     index: np.ndarray = None
+    orig_index: np.ndarray = None
     size: int = None
     points: np.ndarray = None
     depositions: np.ndarray = None
@@ -74,6 +78,7 @@ class OutBase(PosDataBase):
     # Variable-length attribtues
     _var_length_attrs = (
         ("index", np.int64),
+        ("orig_index", np.int64),
         ("depositions", np.float32),
         ("match_ids", np.int64),
         ("match_overlaps", np.float32),
@@ -92,13 +97,13 @@ class OutBase(PosDataBase):
     )
 
     # Attributes to concatenate when merging objects
-    _cat_attrs = ("index", "points", "depositions", "sources")
+    _cat_attrs = ("index", "orig_index", "points", "depositions", "sources")
 
     # Attributes that must never be stored to file
     _skip_attrs = ("points", "depositions", "sources")
 
     # Attributes that must not be stored to file when storing lite files
-    _lite_skip_attrs = ("index",)
+    _lite_skip_attrs = ("index", "orig_index")
 
     def reset_match(self):
         """Resets the reco/truth matching information for the object."""

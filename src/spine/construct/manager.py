@@ -34,6 +34,8 @@ class BuildManager:
         ("label_g4_tensor", ("clust_label_g4",)),
         ("depositions_q_label", ("charge_label",)),
         ("graph_label", ("graph_label",)),
+        ("orig_index", ("orig_index",)),
+        ("orig_index_label", ("orig_index_label", "orig_index")),
         ("sources", ("sources_adapt", "sources")),
         ("sources_label", ("sources_label",)),
         ("particles", ("particles",)),
@@ -193,6 +195,9 @@ class BuildManager:
             if "sources" in sources:
                 update["sources"] = sources["sources"].astype(int)
 
+            if "orig_index" in sources:
+                update["orig_index"] = sources["orig_index"].astype(int)
+
         if self.mode != "reco":
             update["label_tensor"] = sources["label_tensor"]
             update["points_label"] = sources["label_tensor"][:, COORD_COLS]
@@ -216,6 +221,9 @@ class BuildManager:
 
             if "sources_label" in sources:
                 update["sources_label"] = sources["sources_label"].astype(int)
+
+            if "orig_index_label" in sources:
+                update["orig_index_label"] = sources["orig_index_label"].astype(int)
 
         # If provided, etch the point attributes to check their units
         for obj in ["fragment", "particle"]:

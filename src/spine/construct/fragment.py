@@ -78,6 +78,7 @@ class FragmentBuilder(BuilderBase):
         fragment_group_pred=None,
         fragment_node_pred=None,
         sources=None,
+        orig_index=None,
     ):
         """Builds :class:`RecoFragment` objects from the full chain output.
 
@@ -99,6 +100,9 @@ class FragmentBuilder(BuilderBase):
             (P) Interaction group each fragment belongs to
         sources : np.ndarray, optional
             (N, 2) Tensor which contains the module/tpc information
+        orig_index : np.ndarray, optional
+            (N) Tensor which contains the indexes in the original
+            point cloud (before any filtering or deghosting)
 
         Returns
         -------
@@ -125,6 +129,8 @@ class FragmentBuilder(BuilderBase):
             # Add optional arguments
             if sources is not None:
                 fragment.sources = sources[index]
+            if orig_index is not None:
+                fragment.orig_index = orig_index[index]
             if fragment_start_points is not None:
                 fragment.start_point = fragment_start_points[i]
             if fragment_end_points is not None and fragment.shape == TRACK_SHP:
@@ -169,6 +175,7 @@ class FragmentBuilder(BuilderBase):
         depositions_g4=None,
         sources_label=None,
         sources=None,
+        orig_index_label=None,
         particles=None,
     ):
         """Builds :class:`TruthFragment` objects from the full chain output.
@@ -202,6 +209,9 @@ class FragmentBuilder(BuilderBase):
             (N', 2) Tensor which contains the label module/tpc information
         sources : np.ndarray, optional
             (N, 2) Tensor which contains the module/tpc information
+        orig_index_label : np.ndarray, optional
+            (N') Tensor which contains the indexes in the original
+            point cloud (before any filtering or deghosting)
         particles : List[Particle], optional
             List of true particles
 
@@ -267,6 +277,8 @@ class FragmentBuilder(BuilderBase):
                     fragment.depositions_q = depositions_q_label[index_ref]
                 if sources_label is not None:
                     fragment.sources = sources_label[index_ref]
+                if orig_index_label is not None:
+                    fragment.orig_index = orig_index_label[index_ref]
 
                 # If the fragments are not broken, can match to G4 info
                 if not broken:

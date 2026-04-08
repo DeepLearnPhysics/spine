@@ -421,11 +421,17 @@ class FullChain(torch.nn.Module):
             # Store the ghost scores and the ghost mask
             ghost_tensor = res_deghost["segmentation"].tensor
             ghost_pred = torch.argmax(ghost_tensor, dim=1)
+            adapt_index = torch.nonzero(ghost_pred == 0, as_tuple=False).flatten()
             data_adapt = TensorBatch(
-                data.tensor[ghost_pred == 0],
+                data.tensor[adapt_index],
                 batch_size=data.batch_size,
                 has_batch_col=True,
                 coord_cols=data.coord_cols,
+            )
+            orig_index_adapt = IndexBatch(
+                adapt_index,
+                offsets=data.edges[:-1],
+                counts=data_adapt.counts,
             )
             ghost_pred = TensorBatch(ghost_pred, data.counts)
 
@@ -439,6 +445,25 @@ class FullChain(torch.nn.Module):
             self.result["ghost"] = res_deghost["segmentation"]
             self.result["ghost_pred"] = ghost_pred
             self.result["data_adapt"] = data_adapt
+            self.result["orig_index"] = orig_index_adapt
+
+            # If segementation labels are provided, store the original label index
+            if seg_label is not None:
+                ghost_label = (seg_label.tensor[:, SHAPE_COL] == GHOST_SHP).long()
+                adapt_index = torch.nonzero(ghost_label == 0, as_tuple=False).flatten()
+                seg_label_adapt = TensorBatch(
+                    seg_label.tensor[adapt_index],
+                    batch_size=seg_label.batch_size,
+                    has_batch_col=True,
+                    coord_cols=seg_label.coord_cols,
+                )
+                orig_index_label = IndexBatch(
+                    adapt_index,
+                    offsets=seg_label.edges[:-1],
+                    counts=seg_label_adapt.counts,
+                )
+
+                self.result["orig_index_label"] = orig_index_label
 
             # If sources are provided, narrow them down to non-ghosts
             sources_adapt = None
@@ -469,7 +494,8 @@ class FullChain(torch.nn.Module):
         elif self.deghosting == "label":
             # Use ghost labels to remove ghost voxels from the input
             assert seg_label is not None, "Must provide `seg_label` to deghost with it."
-            ghost_pred = (seg_label.tensor[:, SHAPE_COL] == GHOST_SHP).long
+            ghost_pred = (seg_label.tensor[:, SHAPE_COL] == GHOST_SHP).long()
+            adapt_index = torch.nonzero(ghost_pred == 0, as_tuple=False).flatten()
             tensor_deghost = data.tensor[ghost_pred == 0]
 
             # Use the label rescaled charge, if requested
@@ -484,8 +510,12 @@ class FullChain(torch.nn.Module):
             data_adapt = TensorBatch(
                 tensor_deghost, batch_size=data.batch_size, coord_cols=data.coord_cols
             )
+            orig_index_adapt = IndexBatch(
+                adapt_index, offsets=data.edges[:-1], counts=data_adapt.counts
+            )
             self.result["ghost_pred"] = ghost_pred
             self.result["data_adapt"] = data_adapt
+            self.result["orig_index"] = orig_index_adapt
 
             # If sources are provided, narrow them down to non-ghosts
             sources_adapt = None
