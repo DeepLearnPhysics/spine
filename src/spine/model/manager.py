@@ -393,12 +393,8 @@ class ModelManager:
 
         # Loop over provided model paths
         for module, weight_path, model_name in weight_paths:
-            # Check that the requested weight file can be found. If the path
-            # points at > 1 file, skip for now (loaded in a loop later)
+            # Module-level weight paths must resolve to a single checkpoint.
             if not os.path.isfile(weight_path):
-                if not self.train and glob.glob(weight_path):
-                    continue
-
                 raise ValueError(
                     "Weight file not found for module " f"{module}: {weight_path}"
                 )
