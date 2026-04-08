@@ -86,6 +86,7 @@ class ParticleBuilder(BuilderBase):
         particle_node_primary_pred,
         particle_node_orient_pred=None,
         sources=None,
+        orig_index=None,
         reco_fragments=None,
     ):
         """Builds :class:`RecoParticle` objects from the full chain output.
@@ -114,6 +115,9 @@ class ParticleBuilder(BuilderBase):
             (P, 2) Particle orientation classification logits
         sources : np.ndarray, optional
             (N, 2) Tensor which contains the module/tpc information
+        orig_index : np.ndarray, optional
+            (N) Tensor which contains the indexes in the original
+            point cloud (before any filtering or deghosting)
         reco_fragments : List[RecoFragment], optional
             (F) List of reconstructed fragments
 
@@ -172,6 +176,10 @@ class ParticleBuilder(BuilderBase):
             if sources is not None:
                 particle.sources = sources[index]
 
+            # If the original indexes are provided, use them
+            if orig_index is not None:
+                particle.orig_index = orig_index[index]
+
             # Build fragment associations, if available
             if reco_fragments is not None:
                 fragment_ids = np.where(particle_ids == i)[0]
@@ -211,6 +219,7 @@ class ParticleBuilder(BuilderBase):
         depositions_g4=None,
         sources_label=None,
         sources=None,
+        orig_index_label=None,
         graph_label=None,
         truth_fragments=None,
     ):
@@ -247,6 +256,9 @@ class ParticleBuilder(BuilderBase):
             (N', 2) Tensor which contains the label module/tpc information
         sources : np.ndarray, optional
             (N, 2) Tensor which contains the module/tpc information
+        orig_index_label : np.ndarray, optional
+            (N') Tensor which contains the indexes in the original
+            point cloud (before any filtering or deghosting)
         graph_label : np.ndarray, optional
             (E, 2) Parentage relations in the set of particles
         truth_fragments : List[TruthFragment], optional
@@ -314,6 +326,8 @@ class ParticleBuilder(BuilderBase):
                 particle.depositions_q = depositions_q_label[index]
             if sources_label is not None:
                 particle.sources = sources_label[index]
+            if orig_index_label is not None:
+                particle.orig_index = orig_index_label[index]
 
             if label_adapt_tensor is not None:
                 index_adapt = np.where(label_adapt_tensor[:, GROUP_COL] == group_id)[0]
