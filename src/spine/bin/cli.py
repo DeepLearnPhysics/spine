@@ -24,6 +24,7 @@ def main(
     log_dir: str,
     weight_prefix: str,
     weight_path: str,
+    weight_list: str,
     config_overrides: List[str],
 ):
     """Main driver for training/validation/inference/analysis.
@@ -56,6 +57,9 @@ def main(
         Path to the directory for storing the training weights
     weight_path : str
         Path to a weight file or pattern for multiple weight files to load
+        the model weights
+    weight_list : str
+        Path to a text file containing a list of weight file paths to load
         the model weights
     config_overrides : List[str]
         List of config overrides in the form "key.path=value"
@@ -118,6 +122,8 @@ def main(
     # Override the weight loading path if provided
     if weight_path is not None:
         cfg["model"]["weight_path"] = weight_path
+    if weight_list is not None:
+        cfg["model"]["weight_list"] = weight_list
 
     # Apply any generic config overrides from --set arguments
     if config_overrides:
@@ -194,11 +200,11 @@ For ML training/inference functionality, ensure PyTorch is installed:
     )
 
     # Add mutually exclusive group for source input
-    group = parser.add_mutually_exclusive_group()
-    group.add_argument(
+    source_group = parser.add_mutually_exclusive_group()
+    source_group.add_argument(
         "-s", "--source", nargs="+", type=str, help="List of paths to the input files"
     )
-    group.add_argument(
+    source_group.add_argument(
         "-S",
         "--source-list",
         help="Path to a text file containing a list of data file paths",
@@ -234,10 +240,15 @@ For ML training/inference functionality, ensure PyTorch is installed:
     )
 
     # Add path to weight file or pattern for loading model weights
-    parser.add_argument(
+    weight_group = parser.add_mutually_exclusive_group()
+    weight_group.add_argument(
         "--weight-path",
         help="Path string a weight file or pattern for multiple weight "
         "files to load model weights",
+    )
+    weight_group.add_argument(
+        "--weight-list",
+        help="Path to a text file containing a list of weight file paths",
     )
 
     # Add option to dynamically override any config parameter using dot notation
@@ -280,6 +291,7 @@ For ML training/inference functionality, ensure PyTorch is installed:
         log_dir=args.log_dir,
         weight_prefix=args.weight_prefix,
         weight_path=args.weight_path,
+        weight_list=args.weight_list,
         config_overrides=args.config_overrides,
     )
 
