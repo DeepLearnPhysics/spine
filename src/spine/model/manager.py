@@ -25,6 +25,7 @@ class ModelManager:
         network_input,
         loss_input=None,
         weight_path=None,
+        weight_list=None,
         train=None,
         to_numpy=False,
         time_dependent_loss=False,
@@ -49,6 +50,8 @@ class ModelManager:
             List of keys of parsed objects to input into the loss forward
         weight_path : str, optional
             Path to global model weights to load
+        weight_list : str, optional
+            Path to a text file containing a list of weight file paths to load
         to_numpy : int, default False
             Cast model output to numpy ndarray
         time_dependant_loss : bool, default False
@@ -135,9 +138,27 @@ class ModelManager:
         # If requested, freeze some/all the model weights
         self.freeze_weights()
 
-        # If requested, load the some/all the model weights
+        # Parse the list of weight files to consider for loading
         self.weight_path = weight_path
-        self.load_weights(weight_path)
+        if weight_path is not None:
+            # If a path is provided, check if it is an simple path or a wildcard pattern
+            if weight_list is not None:
+                raise ValueError("Cannot specify both `weight_path` and `weight_list`.")
+            if not os.path.isfile(weight_path):
+                if self.train or not glob.glob(weight_path):
+                    raise ValueError(f"Weight file not found: {weight_path}")
+                self.weight_path = glob.glob(weight_path)
+
+        elif weight_list is not None:
+            with open(weight_list, "r", encoding="utf-8") as f:
+                self.weight_path = [line.strip() for line in f if line.strip()]
+                if not self.weight_path:
+                    raise ValueError(f"No weight paths found in {weight_list}.")
+
+        # Load the weights only if a single weight file is provided. If multiple weight
+        # files are provided, the loading will be handled in a loop in the main driver.
+        if self.weight_path is None or isinstance(self.weight_path, str):
+            self.load_weights(self.weight_path)
 
         # If the execution is distributed, wrap with DDP
         if self.distributed:
