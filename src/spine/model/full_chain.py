@@ -388,7 +388,6 @@ class FullChain(torch.nn.Module):
         # TODO
 
         # Return
-        print(self.result.keys())
         return self.result
 
     def run_deghosting(self, data, sources=None, seg_label=None, clust_label=None):
