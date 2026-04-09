@@ -116,6 +116,7 @@ class GrapPA(torch.nn.Module):
         edge_encoder=None,
         global_encoder=None,
         dbscan=None,
+        return_features=False,
     ):
         """Process the top-level configuration block.
 
@@ -137,9 +138,11 @@ class GrapPA(torch.nn.Module):
             Global encoder configuration
         dbscan : dict, optional
             DBSCAN fragmentation configuration
+        return_features : bool, default False
+            If `True`, the model will return the node/edge/global features
         """
         # Store the output types of GNNs
-        self.out_types = ["node", "edge", "global"]
+        self.out_types = ("node", "edge", "global")
 
         # Process the node configuration
         self.process_node_config(**nodes)
@@ -167,6 +170,9 @@ class GrapPA(torch.nn.Module):
         self.dbscan = None
         if dbscan is not None:
             self.process_dbscan_config(dbscan)
+
+        # Store whether to return the features
+        self.return_features = return_features
 
     def process_node_config(
         self,
@@ -227,7 +233,7 @@ class GrapPA(torch.nn.Module):
             Number of edge predictions. If there are multiple edge predictions,
             provide a (key, value) pair for each type of prediction
         global_pred : Union[int, dict], optional
-            Number of edge predictions. If there are multiple edge predictions,
+            Number of global predictions. If there are multiple global predictions,
             provide a (key, value) pair for each type of prediction
         **gnn_model, dict
             Paramters to initialize the GNN backbone
@@ -252,7 +258,7 @@ class GrapPA(torch.nn.Module):
         ----------
         final : Union[int, dict]
             Final layer configuration
-        prefix : dict
+        prefix : str
             Name of the final layer
         """
         # If the final layer is not specified, nothing to do here
@@ -414,17 +420,24 @@ class GrapPA(torch.nn.Module):
                 end_points, points.counts, coord_cols=np.array([0, 1, 2])
             )
 
+        if self.return_features:
+            result["node_features"] = node_features
+
         # Fetch the edge features
         edge_features = None
         if self.edge_encoder is not None:
             edge_features = self.edge_encoder(
                 data, clusts, edge_index, closest_index=closest_index
             )
+            if self.return_features:
+                result["edge_features"] = edge_features
 
-        # Feath the global_features
+        # Fetch the global_features
         global_features = None
         if self.global_encoder is not None:
             global_features = self.global_encoder(data, clusts)
+            if self.return_features:
+                result["global_features"] = global_features
 
         # Bring edge_index and batch_ids to device
         # TODO: try to keep everything (apart from clusts?) on GPU?
@@ -539,7 +552,7 @@ class GrapPALoss(torch.nn.modules.loss._Loss):
         # Check that there is at least one loss to apply
         self.out_types = ["node", "edge", "global"]
         assert (
-            node_loss is not None or edge_loss is not None or global_lsos is not None
+            node_loss is not None or edge_loss is not None or global_loss is not None
         ), (
             "Must provide either a `node_loss`, `edge_loss` or "
             "`global_loss` to the GrapPA loss function."
