@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.10.9] - 2026-04-11
+
+### Added
+- **Configuration**: Support for environment variable expansion in configuration files
+- **I/O**: Remote XRootD input path support for distributed file access
+- **GrapPA**: Configurable feature outputs for GrapPA module ([#123](https://github.com/DeepLearnPhysics/spine/pull/123))
+- **Inference**: Support for lists of inference weight paths for multi-model workflows ([#122](https://github.com/DeepLearnPhysics/spine/pull/122))
+
+### Changed
+- **Docker**: Enhanced CI/CD with Buildx and Docker layer caching
+- **Truth Matching**: Track original point indexes for improved truth matching ([#121](https://github.com/DeepLearnPhysics/spine/pull/121))
+- **Documentation**: Clarified Docker usage documentation
+- **Validation**: Tightened module weight path validation ([#122](https://github.com/DeepLearnPhysics/spine/pull/122))
+
 ## [0.10.8] - 2026-04-06
 
 ### Added
