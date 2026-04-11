@@ -20,6 +20,7 @@ from .operations import (
     _apply_overrides_and_removals,
     apply_collection_operation,
     deep_merge,
+    expand_env_vars,
     extract_includes_and_overrides,
     parse_value,
     set_nested_value,
@@ -326,7 +327,7 @@ def load_config(config_str: str, root_dir: Optional[str] = None) -> Dict[str, An
     if META_KEY in config:
         del config[META_KEY]
 
-    return config
+    return expand_env_vars(config)
 
 
 def load_config_file(cfg_path: str) -> Dict[str, Any]:
@@ -413,4 +414,4 @@ def load_config_file(cfg_path: str) -> Dict[str, Any]:
     if META_KEY in config:
         del config[META_KEY]
 
-    return config
+    return expand_env_vars(config)

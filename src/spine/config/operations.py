@@ -10,6 +10,7 @@ This module contains helper functions for:
 
 import warnings
 from copy import deepcopy
+from os.path import expandvars
 from typing import Any, Dict, List, Tuple
 
 import yaml
@@ -18,6 +19,7 @@ from .errors import ConfigOperationError, ConfigPathError, ConfigTypeError
 
 __all__ = [
     "deep_merge",
+    "expand_env_vars",
     "parse_value",
     "apply_collection_operation",
     "set_nested_value",
@@ -76,6 +78,31 @@ def parse_value(value_str: Any) -> Any:
         return yaml.safe_load(value_str)
     except yaml.YAMLError:
         return value_str
+
+
+def expand_env_vars(value: Any) -> Any:
+    """Recursively expand shell environment variables in string config values.
+
+    Parameters
+    ----------
+    value : Any
+        Value to expand (string, list, dict, or other)
+
+    Returns
+    -------
+    Any
+        Value with environment variables expanded (if string) or recursively processed
+    """
+    if isinstance(value, str):
+        return expandvars(value)
+
+    if isinstance(value, list):
+        return [expand_env_vars(item) for item in value]
+
+    if isinstance(value, dict):
+        return {key: expand_env_vars(item) for key, item in value.items()}
+
+    return value
 
 
 def apply_collection_operation(
