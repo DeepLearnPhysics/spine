@@ -7,6 +7,12 @@ from unittest.mock import patch
 import pytest
 
 
+@pytest.fixture(scope="session", autouse=True)
+def import_core_extensions():
+    """Load required C extensions before optional-dependency import probes."""
+    import numpy  # noqa: F401
+
+
 class TestConditionalImports:
     """Test conditional import behavior with and without optional dependencies."""
 
