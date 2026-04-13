@@ -11,6 +11,9 @@ import pytest
 def import_core_extensions():
     """Load required C extensions before optional-dependency import probes."""
     import numpy  # noqa: F401
+    import numpy.fft  # noqa: F401
+    from scipy.spatial.distance import cdist  # noqa: F401
+    from scipy.special import softmax  # noqa: F401
 
 
 class TestConditionalImports:
