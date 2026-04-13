@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.10.10] - 2026-04-13
+
+### Changed
+- **Package import**: Lazy-load `Driver` from the top-level `spine` package so lightweight imports such as `spine.config` do not load the full driver stack.
+
+### Fixed
+- **Tests**: Avoid mocking unavailable PyTorch with a `sys.modules` sentinel in conditional import tests.
+
 ## [0.10.9] - 2026-04-11
 
 ### Added
