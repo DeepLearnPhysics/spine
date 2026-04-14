@@ -761,7 +761,7 @@ class FullChain(torch.nn.Module):
                                     f"{prefix}_{key}"
                                 ].tensor
                         else:
-                            max_id = np.max(merge[key]) + 1
+                            max_id = np.max(merge[key], initial=-1) + 1
                             merge[key][shape_index] = (
                                 self.result[f"{prefix}_{key}"].tensor + max_id
                             )
