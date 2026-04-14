@@ -1,6 +1,8 @@
 """Module to write log files to CSV."""
 
 import os
+from types import TracebackType
+from typing import Any, Dict, Optional, Type
 
 __all__ = ["CSVWriter"]
 
@@ -59,12 +61,12 @@ class CSVWriter:
 
     def __init__(
         self,
-        file_name="output.csv",
-        overwrite=False,
-        append=False,
-        accept_missing=False,
-        buffer_size=1,
-    ):
+        file_name: str = "output.csv",
+        overwrite: bool = False,
+        append: bool = False,
+        accept_missing: bool = False,
+        buffer_size: int = 1,
+    ) -> None:
         """Initialize the basics of the output file.
 
         Parameters
@@ -91,7 +93,7 @@ class CSVWriter:
         self.append_file = append
         self.accept_missing = accept_missing
         self.buffer_size = buffer_size
-        self.result_keys = None
+        self.keys = None
         self.file_handle = None
 
         # If appending, check that the file exists and read the header
@@ -104,9 +106,9 @@ class CSVWriter:
                 )
 
             with open(self.file_name, "r", encoding="utf-8") as out_file:
-                self.result_keys = out_file.readline().strip().split(",")
+                self.keys = out_file.readline().strip().split(",")
 
-    def __enter__(self):
+    def __enter__(self) -> "CSVWriter":
         """Context manager entry. Opens the file handle.
 
         Returns
@@ -117,7 +119,12 @@ class CSVWriter:
         self.open()
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(
+        self,
+        exc_type: Optional[Type[BaseException]],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[TracebackType],
+    ) -> bool:
         """Context manager exit. Closes the file handle.
 
         Parameters
@@ -126,7 +133,7 @@ class CSVWriter:
             Exception type if an exception occurred
         exc_val : Exception
             Exception value if an exception occurred
-        exc_tb : traceback
+        exc_tb : TracebackType
             Exception traceback if an exception occurred
 
         Returns
@@ -137,7 +144,7 @@ class CSVWriter:
         self.close()
         return False
 
-    def open(self):
+    def open(self) -> None:
         """Open the file handle for writing.
 
         If the file handle is already open, this does nothing.
@@ -150,7 +157,7 @@ class CSVWriter:
                 self.file_name, mode, encoding="utf-8", buffering=self.buffer_size
             )
 
-    def close(self):
+    def close(self) -> None:
         """Close the file handle and ensure all data is written.
 
         This flushes any buffered data before closing. After calling
@@ -161,7 +168,7 @@ class CSVWriter:
             self.file_handle.close()
             self.file_handle = None
 
-    def flush(self):
+    def flush(self) -> None:
         """Explicitly flush the file buffer to disk.
 
         This forces any buffered data to be written to disk without
@@ -171,16 +178,16 @@ class CSVWriter:
         if self.file_handle is not None:
             self.file_handle.flush()
 
-    def create(self, result_blob):
+    def create(self, data: Dict[str, Any]) -> None:
         """Initialize the header of the CSV file, record the keys to be stored.
 
         Parameters
         ----------
-        result_blob : dict
+        data : dict
             Dictionary containing the output of the reconstruction chain
         """
         # Save the list of keys to store
-        self.result_keys = list(result_blob.keys())
+        self.keys = list(data.keys())
 
         # Open the file handle if not already open
         self.open()
@@ -189,10 +196,10 @@ class CSVWriter:
         assert self.file_handle is not None
 
         # Create a header and write it to file
-        header_str = ",".join(self.result_keys)
+        header_str = ",".join(self.keys)
         self.file_handle.write(header_str + "\n")
 
-    def append(self, result_blob):
+    def append(self, data: Dict[str, Any]) -> None:
         """Append the CSV file with the output.
 
         Parameters
@@ -201,16 +208,16 @@ class CSVWriter:
             Dictionary containing the output of the reconstruction chain
         """
         # Fetch the values to store
-        if self.result_keys is None:
+        if self.keys is None:
             # If this function has never been called, initialiaze the CSV file
-            self.create(result_blob)
+            self.create(data)
 
         else:
             # If it has, check that the list of keys is identical
-            if list(result_blob.keys()) != self.result_keys:
+            if list(data.keys()) != self.keys:
                 # If it is not identical, check the discrepancies
-                missing = self.array_diff(self.result_keys, result_blob.keys())
-                excess = self.array_diff(result_blob.keys(), self.result_keys)
+                missing = self.array_diff(self.keys, data.keys())
+                excess = self.array_diff(data.keys(), self.keys)
                 if len(excess):
                     raise AssertionError(
                         "There are keys in this entry which were not "
@@ -225,10 +232,10 @@ class CSVWriter:
                         f"Missing keys: {list(missing)}"
                     )
 
-                new_result_blob = {k: -1 for k in self.result_keys}
-                for k, v in result_blob.items():
-                    new_result_blob[k] = v
-                result_blob = new_result_blob
+                new_data = {k: -1 for k in self.keys}
+                for k, v in data.items():
+                    new_data[k] = v
+                data = new_data
 
         # Ensure file is open
         if self.file_handle is None:
@@ -236,10 +243,10 @@ class CSVWriter:
 
         # File handle is guaranteed to be open here
         assert self.file_handle is not None
-        assert self.result_keys is not None
+        assert self.keys is not None
 
         # Append to file (no open/close overhead!)
-        result_str = ",".join([str(result_blob[k]) for k in self.result_keys])
+        result_str = ",".join([str(data[k]) for k in self.keys])
         self.file_handle.write(result_str + "\n")
 
     @staticmethod

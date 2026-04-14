@@ -125,6 +125,60 @@ def test_hdf5_writer(hdf5_output, tensor_list, index_list, edge_index_list):
     writer(data)
 
 
+def test_hdf5_writer_file_name_inferred_from_prefix():
+    """Test HDF5 output file name inference from input prefixes."""
+    assert HDF5Writer.get_file_names(None, "input", split=False) == ["input_spine.h5"]
+    assert HDF5Writer.get_file_names(None, ["a", "b"], split=True) == [
+        "a_spine.h5",
+        "b_spine.h5",
+    ]
+
+
+def test_hdf5_writer_split_explicit_single_file(hdf5_output):
+    """Test split output keeps an explicit name when there is one input file."""
+    assert HDF5Writer.get_file_names(hdf5_output, ["input"], split=True) == [
+        hdf5_output
+    ]
+
+
+def test_hdf5_writer_split_explicit_multiple_files(tmp_path):
+    """Test split output enumerates an explicit name for multiple input files."""
+    file_name = os.path.join(tmp_path, "output.h5")
+
+    assert HDF5Writer.get_file_names(file_name, ["a", "b", "c"], split=True) == [
+        os.path.join(tmp_path, "output_0.h5"),
+        os.path.join(tmp_path, "output_1.h5"),
+        os.path.join(tmp_path, "output_2.h5"),
+    ]
+
+
+def test_hdf5_writer_append_existing_file(hdf5_output):
+    """Test appending a batch to an existing HDF5 output file."""
+    data = {
+        "index": np.arange(2),
+        "dummy_data": [np.random.rand(2, 3), np.random.rand(3, 3)],
+    }
+
+    HDF5Writer(hdf5_output)(data)
+    HDF5Writer(hdf5_output, append=True)(data)
+
+    with h5py.File(hdf5_output, "r") as out_file:
+        assert len(out_file["events"]) == 4
+
+
+def test_hdf5_writer_append_missing_file(hdf5_output):
+    """Test append mode creates a missing HDF5 output file."""
+    data = {
+        "index": np.arange(2),
+        "dummy_data": [np.random.rand(2, 3), np.random.rand(3, 3)],
+    }
+
+    HDF5Writer(hdf5_output, append=True)(data)
+
+    with h5py.File(hdf5_output, "r") as out_file:
+        assert len(out_file["events"]) == 2
+
+
 def generate_object_list(cls, sizes):
     """Generates a dummy list of lists of objects of the request class.
 
