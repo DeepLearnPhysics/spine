@@ -23,7 +23,12 @@ class BuilderBase(ABC):
     _truth_type = None
 
     # Necessary/optional data products to build a reconstructed object
-    _build_reco_keys = (("points", True), ("depositions", True), ("sources", False))
+    _build_reco_keys = (
+        ("points", True),
+        ("depositions", True),
+        ("sources", False),
+        ("orig_index", False),
+    )
 
     # Necessary/optional data products to build a truth object
     _build_truth_keys = (
@@ -39,6 +44,7 @@ class BuilderBase(ABC):
         ("depositions_g4", False),
         ("sources_label", False),
         ("sources", False),
+        ("orig_index_label", False),
     )
 
     # Necessary/optional data products to load a reconstructed object

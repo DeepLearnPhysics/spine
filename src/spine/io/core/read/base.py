@@ -120,6 +120,24 @@ class ReaderBase(ABC):
         """
         return self.get(self.get_run_event_index(run, subrun, event))
 
+    @staticmethod
+    def is_remote_path(path: str) -> bool:
+        """Checks whether a path points to a remote resource.
+
+        Parameters
+        ----------
+        path : str
+            Path string to inspect
+
+        Returns
+        -------
+        bool
+            `True` if the path is a supported remote URI
+        """
+        return isinstance(path, str) and (
+            path.startswith("root://") or path.startswith("xroot://")
+        )
+
     def process_file_paths(
         self,
         file_keys: Optional[Union[str, List[str]]] = None,
@@ -164,8 +182,11 @@ class ReaderBase(ABC):
         if isinstance(file_keys, str):
             file_keys = [file_keys]
         for file_key in file_keys:
-            file_paths = glob.glob(file_key)
-            assert file_paths, f"File key {file_key} yielded no compatible path."
+            if self.is_remote_path(file_key):
+                file_paths = [file_key]
+            else:
+                file_paths = glob.glob(file_key)
+                assert file_paths, f"File key {file_key} yielded no compatible path."
             for path in file_paths:
                 if (
                     limit_num_files is not None

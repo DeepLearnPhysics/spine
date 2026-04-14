@@ -195,6 +195,30 @@ override:
             "file3.root",
         ]
 
+    def test_environment_variable_expansion(self, monkeypatch):
+        """Test shell environment variable expansion in final config values."""
+        monkeypatch.setenv("TEST_DATA_DIR", "/site/data")
+
+        cfg = load_config("""
+io:
+  reader:
+    calibration: $TEST_DATA_DIR/calibration.db
+    file_paths:
+      - ${TEST_DATA_DIR}/first.db
+      - second.db
+    other: default.db
+
+override:
+  io.reader.other: $TEST_DATA_DIR/other.db
+""")
+
+        assert cfg["io"]["reader"]["calibration"] == "/site/data/calibration.db"
+        assert cfg["io"]["reader"]["file_paths"] == [
+            "/site/data/first.db",
+            "second.db",
+        ]
+        assert cfg["io"]["reader"]["other"] == "/site/data/other.db"
+
     def test_nested_includes(self, tmp_path):
         """Test that included files can themselves include other files."""
         # Create level 2 config

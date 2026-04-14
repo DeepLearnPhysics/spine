@@ -19,6 +19,9 @@ class OutBase(PosDataBase):
         Unique index of the object within the object list
     index : np.ndarray
         (N) Voxel indexes corresponding to this object in the input tensor
+    orig_index: np.ndarray
+        (N) Original voxel indexes corresponding to this object in the original
+        point cloud (before any filtering or adaptation)
     size : int
         Number of points, N, that make up this object
     points : np.ndarray
@@ -71,6 +74,11 @@ class OutBase(PosDataBase):
         metadata=FieldMetadata(dtype=np.int64, cat=True, lite_skip=True),
     )
 
+    orig_index: np.ndarray = field(
+        default_factory=lambda: np.empty(0, dtype=np.int64),
+        metadata=FieldMetadata(dtype=np.int64, cat=True, lite_skip=True),
+    )
+
     points: np.ndarray = field(
         default_factory=lambda: np.empty((0, 3), dtype=np.float32),
         metadata=FieldMetadata(
@@ -106,6 +114,7 @@ class OutBase(PosDataBase):
         """Resets the reco/truth matching information for the object."""
         self.is_matched = False
         self.match_ids = np.empty(0, dtype=np.int64)
+        self.match_overlaps = np.empty(0, dtype=np.float32)
 
     def reset_cathode_crosser(self) -> None:
         """Resets the cathode crossing information for the object."""

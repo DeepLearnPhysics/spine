@@ -88,7 +88,6 @@ autodoc_mock_imports = [
     "torch_geometric",
     "torch_scatter",
     "torch_cluster",
-    "torch_sparse",
     "MinkowskiEngine",
     "MinkowskiFunctional",
     "MinkowskiNonlinearity",

@@ -1,5 +1,48 @@
 # Changelog
 
+## [0.10.10] - 2026-04-13
+
+### Changed
+- **Package import**: Lazy-load `Driver` from the top-level `spine` package so lightweight imports such as `spine.config` do not load the full driver stack.
+
+### Fixed
+- **Tests**: Avoid mocking unavailable PyTorch with a `sys.modules` sentinel in conditional import tests.
+
+## [0.10.9] - 2026-04-11
+
+### Added
+- **Configuration**: Support for environment variable expansion in configuration files
+- **I/O**: Remote XRootD input path support for distributed file access
+- **GrapPA**: Configurable feature outputs for GrapPA module ([#123](https://github.com/DeepLearnPhysics/spine/pull/123))
+- **Inference**: Support for lists of inference weight paths for multi-model workflows ([#122](https://github.com/DeepLearnPhysics/spine/pull/122))
+
+### Changed
+- **Docker**: Enhanced CI/CD with Buildx and Docker layer caching
+- **Truth Matching**: Track original point indexes for improved truth matching ([#121](https://github.com/DeepLearnPhysics/spine/pull/121))
+- **Documentation**: Clarified Docker usage documentation
+- **Validation**: Tightened module weight path validation ([#122](https://github.com/DeepLearnPhysics/spine/pull/122))
+
+## [0.10.8] - 2026-04-06
+
+### Added
+- **Docker Containerization**: Complete Docker infrastructure for production deployments
+  - Full ML stack with PyTorch 2.5.1, MinkowskiEngine v0.5.4, torch-geometric, ROOT, and LArCV2
+  - Ubuntu 22.04 base with CUDA 12.1 toolkit (perfect version match with PyTorch)
+  - XRootD client with SciTokens support for dCache streaming with token authentication
+  - Multi-GPU architecture support: V100, A100, H100/H200, RTX 20xx/30xx/40xx (compute 7.0-9.0)
+  - Automated GitHub Actions workflow for container builds and publishing to GHCR
+  - Comprehensive documentation with Apptainer/Singularity usage examples
+  - Build script for local development and testing
+
+### Changed
+- **Dependencies**: Removed torch-sparse dependency (no longer required)
+- **Documentation**: Updated all Singularity references to Apptainer (current standard)
+- **Sphinx**: Removed torch-sparse from autodoc mock imports
+- **Docker**: Local Docker builds now force-refresh the base image with `--pull`
+
+### Fixed
+- **NumPy 2**: Avoid coercing `EventSparseTensor3D` lists into NumPy arrays in `Sparse3DParser`
+
 ## [0.10.6] - 2026-03-18
 
 ### Changed

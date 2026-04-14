@@ -15,6 +15,7 @@ def __getattr__(name):
     if name == "Driver":
         from .driver import Driver  # pylint: disable=import-outside-toplevel
 
+        globals()["Driver"] = Driver
         return Driver
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 

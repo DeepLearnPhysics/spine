@@ -310,7 +310,10 @@ class Sparse3DParser(ParserBase):
         split_sparse_event_list = [sparse_event_list]
         if self.num_features != len(sparse_event_list):
             num_groups = len(sparse_event_list) // self.num_features
-            split_sparse_event_list = np.split(np.array(sparse_event_list), num_groups)
+            split_sparse_event_list = [
+                sparse_event_list[i * self.num_features : (i + 1) * self.num_features]
+                for i in range(num_groups)
+            ]
 
         # Loop over the individual lists, load the voxels/features
         all_voxels, all_features = [], []

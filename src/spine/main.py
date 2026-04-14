@@ -6,7 +6,6 @@ object(s) used to execute/train ML models, post-processors, analysis
 scripts, writers and profilers.
 """
 
-import glob
 import os
 from typing import Optional, Tuple
 
@@ -147,16 +146,16 @@ def inference_single(cfg: dict) -> None:
 
     # Find the set of weights to run the inference on
     preloaded, weights = False, []
-    if driver.model is not None and driver.model.weight_path is not None:
-        preloaded = os.path.isfile(driver.model.weight_path)
-        weights = sorted(glob.glob(driver.model.weight_path))
-        if not preloaded and len(weights):
+    if driver.model is not None:
+        weights = driver.model.weight_path
+        if weights is None or isinstance(weights, str):
+            preloaded = True
+            weights = [weights]
+        else:
             weight_list = " - " + "\n - ".join(weights)
             logger.info(
                 "Looping over %d set of weights:\n%s", len(weights), weight_list
             )
-    if not weights:
-        weights = [None]
 
     # Loop over the weights, run the inference loop
     for weight in weights:

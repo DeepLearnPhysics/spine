@@ -3,16 +3,152 @@
 import numpy as np
 
 from spine.data import ObjectList, RecoParticle
+from spine.geo import GeoManager
 from spine.math.distance import cdist
 from spine.post.base import PostBase
 from spine.utils.globals import PION_PID, PROT_PID, SHOWR_SHP, TRACK_SHP
 from spine.utils.gnn.cluster import cluster_dedx, cluster_direction
+from spine.utils.shower import ShowerEnergyFitter
 
 __all__ = [
+    "ShowerParametricEnergyProcessor",
     "ShowerConversionDistanceProcessor",
     "ShowerStartMergeProcessor",
     "ShowerStartCorrectionProcessor",
 ]
+
+
+class ShowerParametricEnergyProcessor(PostBase):
+    """Fit shower energy from visible deposited energy observations using a
+    parametric model of the shower development.
+    """
+
+    # Name of the post-processor (as specified in the configuration)
+    name = "shower_parametric_energy"
+
+    # List of geometry modes for which the shower energy fitter can be applied
+    _geo_modes = ("detector", "module", "tpc")
+
+    # Set of post-processors which must be run before this one
+    _upstream = ("direction", "calo_ke")
+
+    def __init__(
+        self,
+        n_points=10000,
+        seed=12345,
+        sigma_floor=1.0,
+        energy_bounds=(1, 10000),
+        use_gp=False,
+        mode="module",
+        run_mode="reco",
+        truth_point_mode="points",
+        truth_dep_mode="depositions",
+    ):
+        """Store the shower energy fitter parameters.
+
+        Parameters
+        ----------
+        n_points : int, default 10000
+            Number of points to sample in the shower model to predict box-wise
+            energy deposition.
+        seed : int, default 12345
+            Random seed to use for sampling points in the shower model.
+        sigma_floor : float, default 1.0
+            Minimum value for the energy deposition uncertainty.
+        energy_bounds : Tuple[float, float], default=(1, 10000)
+            Lower and upper bounds on the fitted energy, in MeV.
+        use_gp : bool, default False
+            Whether to use the Grindhammer and Peters (2000) parametrization for the
+            longitudinal profile.
+        mode : str, default "module"
+            Geometry mode for the shower energy fitter.
+        """
+        # Initialize the parent class
+        super().__init__(
+            "particle",
+            run_mode=run_mode,
+            truth_point_mode=truth_point_mode,
+            truth_dep_mode=truth_dep_mode,
+        )
+
+        # Fetch the detector boundaries
+        if mode not in self._geo_modes:
+            raise ValueError(
+                f"Shower energy fitter geometry mode not recognized: {mode}. "
+                f"Should be one of {self._geo_modes}"
+            )
+
+        self.mode = mode
+        self.geo = GeoManager.get_instance()
+        if mode == "detector":
+            self.boundaries = [self.geo.boundaries]
+        elif mode == "module":
+            self.boundaries = [mod.boundaries for mod in self.geo.tpc.modules]
+        else:
+            self.boundaries = [tpc.boundaries for tpc in self.geo.tpc.chambers]
+
+        # Initialize the underlyign shower energy fitter
+        self.fitter = ShowerEnergyFitter(
+            boundaries=self.boundaries,
+            n_points=n_points,
+            seed=seed,
+            sigma_floor=sigma_floor,
+            energy_bounds=energy_bounds,
+            use_gp=use_gp,
+        )
+
+        # Store the energy bounds
+        self.energy_bounds = energy_bounds
+
+    def process(self, data):
+        """Fit the energy of showers in one entry.
+
+        Parameters
+        ----------
+        data : dict
+            Dictionary of data products
+        """
+        # Loop over the reco particles, fit the energy of showers
+        for k in self.particle_keys:
+            for part in data[k]:
+                # Only run this algorithm on showers
+                if part.shape == SHOWR_SHP:
+                    # If the shower energy is below the lower bound, do not attempt
+                    # to fit the energy and leave it alone
+                    if part.calo_ke < self.energy_bounds[0]:
+                        continue
+
+                    # Start by computing the amount of energy seen in each boundary box
+                    points = self.get_points(part)
+                    if self.mode == "detector":
+                        # If the whole detector is one box, just use the total energy
+                        # in the shower
+                        box_energies = np.array([part.calo_ke])
+                    else:
+                        # If the geometry mode involves multiple boxes, compute the
+                        # energy in each box by finding the closest box to each point
+                        # and summing the energy in each box.
+                        if self.mode == "module":
+                            box_indexes = self.geo.get_closest_module(points)
+                            box_energies = np.zeros(self.geo.tpc.num_modules)
+                        else:
+                            box_indexes = self.geo.get_closest_tpc(points)
+                            box_energies = np.zeros(self.geo.tpc.num_chambers)
+
+                        box_energies = np.zeros(len(self.geo.tpc.modules))
+                        depositions = self.get_depositions(part)
+                        scaling = part.calo_ke / np.sum(depositions)
+                        for idx in np.unique(box_indexes):
+                            box_energies[idx] = scaling * np.sum(
+                                depositions[box_indexes == idx]
+                            )
+
+                    # Compute the amount of energy seen in each boundary
+                    part.calo_ke = self.fitter.fit(
+                        reco_box_energy=box_energies,
+                        shower_start=part.start_point,
+                        direction=part.start_dir,
+                    )
 
 
 class ShowerConversionDistanceProcessor(PostBase):
