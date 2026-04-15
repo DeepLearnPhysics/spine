@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.10.11] - 2026-04-14
+
+### Fixed
+- **Docker**: Build `h5py` against the system HDF5 library used by LArCV to avoid HDF5 ABI mismatches when importing LArCV and `h5py` in the same process.
+
 ## [0.10.10] - 2026-04-13
 
 ### Changed

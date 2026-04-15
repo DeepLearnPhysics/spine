@@ -25,12 +25,16 @@ ENV PYTHONUNBUFFERED=1 \
 
 # Install system dependencies
 # - libopenblas-dev: BLAS headers for MinkowskiEngine compilation
+# - libhdf5-dev/pkg-config: HDF5 headers/config for building h5py against the
+#   same system HDF5 ABI used by LArCV
 # - ninja-build: Fast C++ build system for MinkowskiEngine
 # - xrootd-*: XRootD client with token authentication for dCache streaming
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         libopenblas-dev \
+        libhdf5-dev \
         ninja-build \
+        pkg-config \
         xrootd-client \
         xrootd-client-plugins \
         xrootd-scitokens-plugins \
@@ -93,6 +97,12 @@ COPY src/ ./src/
 
 # Install build dependencies required for --no-build-isolation
 RUN pip install --no-cache-dir "setuptools>=65.0,<70.0" wheel "build>=0.8.0"
+
+# Build h5py against the system HDF5 library used by LArCV. The pre-built h5py
+# wheels bundle a newer HDF5 ABI; importing LArCV before h5py can otherwise make
+# h5py bind to the already-loaded system HDF5 and fail at runtime.
+RUN HDF5_DIR=/usr/lib/x86_64-linux-gnu/hdf5/serial \
+    pip install --no-cache-dir --no-binary=h5py --force-reinstall "h5py>=3.1.0"
 
 # Install SPINE with all dependencies
 RUN pip install --no-cache-dir --no-build-isolation .[all]
