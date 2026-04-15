@@ -2,8 +2,16 @@
 
 ## [0.10.11] - 2026-04-14
 
+### Added
+- **Configuration**: Add a `spine-config` command and `bin/config.py` proxy to load complex SPINE configs, dump the resolved YAML, and compare resolved configs.
+
+### Changed
+- **HDF5 Writer**: Refactor output file handling, split-output naming, dataset creation, and append/opening logic for clearer and more consistent writer behavior.
+- **CSV Writer**: Align writer naming and type handling with the cleaned-up HDF5 writer behavior.
+
 ### Fixed
 - **Docker**: Build `h5py` against the system HDF5 library used by LArCV to avoid HDF5 ABI mismatches when importing LArCV and `h5py` in the same process.
+- **Full Chain**: Handle empty fragment-list group indexes without failing on an empty maximum reduction.
 
 ## [0.10.10] - 2026-04-13
 
