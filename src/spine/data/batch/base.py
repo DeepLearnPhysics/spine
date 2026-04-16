@@ -49,7 +49,7 @@ class BatchBase:
 
     def __init__(
         self,
-        data: Union[np.ndarray, torch.Tensor],
+        data: Union[np.ndarray, torch.Tensor, ME.SparseTensor],
         is_sparse: bool = False,
         is_list: bool = False,
     ) -> None:
