@@ -1,11 +1,11 @@
 """Module with a base class for all batched data structures."""
 
 from dataclasses import dataclass
-from typing import Any, Tuple, Union
+from typing import Any, List, Tuple, Union
 
 import numpy as np
 
-from spine.utils.conditional import torch
+from spine.utils.conditional import ME, torch
 from spine.utils.docstring import merge_ancestor_docstrings
 
 
@@ -25,7 +25,9 @@ class BatchBase:
         Number of entries that make up the batched data
     """
 
-    data: Union[np.ndarray, torch.Tensor]
+    data: Union[
+        np.ndarray, torch.Tensor, ME.SparseTensor, List[np.ndarray], List[torch.Tensor]
+    ]
     counts: Union[np.ndarray, torch.Tensor]
     edges: Union[np.ndarray, torch.Tensor]
     batch_size: int
@@ -55,7 +57,7 @@ class BatchBase:
 
         Parameters
         ----------
-        data : Union[np.ndarray, torch.Tensor]
+        data : Union[np.ndarray, torch.Tensor, ME.SparseTensor]
             Batched data
         is_sparse : bool, default False
             If initializing from an ME sparse data, flip to True
@@ -73,8 +75,10 @@ class BatchBase:
         # Store the device
         self.device = None
         if not self.is_numpy:
-            ref = data if not is_sparse else data.F
-            self.device = ref.device
+            if isinstance(data, torch.Tensor):
+                self.device = data.device
+            else:
+                self.device = data.F.device
 
     def __len__(self) -> int:
         """Returns the number of entries that make up the batch."""
@@ -109,18 +113,8 @@ class BatchBase:
                     return False
 
             elif np.isscalar(v) or isinstance(v, np.dtype):
-                # For scalars, handle NaN specially for floats
-                if isinstance(v, float) or (
-                    np.isscalar(v) and np.issubdtype(type(v), np.floating)
-                ):
-                    # Both NaN -> equal; otherwise use regular comparison
-                    both_nan = np.isnan(v) and np.isnan(v_other)
-                    if not both_nan and v_other != v:
-                        return False
-                else:
-                    # For other scalars, regular comparison
-                    if v_other != v:
-                        return False
+                if v_other != v:
+                    return False
 
             else:
                 # For vectors, use array_equal with equal_nan=True
@@ -172,7 +166,7 @@ class BatchBase:
         # Get the count list
         device = None if self.is_numpy else batch_ids.device
         counts = self._zeros(batch_size, device)
-        if len(batch_ids):
+        if len(batch_ids) > 0:
             # Find the length of each batch ID in the input index
             uni, cnts = self._unique(batch_ids)
             counts[self._as_long(uni)] = cnts
@@ -263,16 +257,22 @@ class BatchBase:
             return torch.cat(x, dim=0)
 
     def _split(self, *x):
-        if self.is_list:
+        if self.is_numpy:
             return np.split(*x)
         else:
-            return np.split(*x) if self.is_numpy else torch.tensor_split(*x)
+            return torch.tensor_split(*x)
 
     def _stack(self, x):
-        return np.vstack(x) if self.is_numpy else torch.stack(x)
+        if self.is_numpy:
+            return np.stack(x, axis=0)
+        else:
+            return torch.stack(x)
 
     def _repeat(self, *x):
-        return np.repeat(*x) if self.is_numpy else torch.repeat_interleave(*x)
+        if self.is_numpy:
+            return np.repeat(*x)
+        else:
+            return torch.repeat_interleave(*x)
 
     def _to_numpy(self, x):
         return x.cpu().detach().numpy()

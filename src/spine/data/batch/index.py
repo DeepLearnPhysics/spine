@@ -147,11 +147,7 @@ class IndexBatch(BatchBase):
             return self.data[lower:upper] - self.offsets[batch_id]
 
         else:
-            entry = np.empty(upper - lower, dtype=object)
-            for i, index in enumerate(self.data[lower:upper]):
-                entry[i] = index - self.offsets[batch_id]
-
-            return entry
+            return [index - self.offsets[batch_id] for index in self.data[lower:upper]]
 
     @property
     def index(self):
@@ -257,15 +253,17 @@ class IndexBatch(BatchBase):
         List[List[Union[np.ndarray, torch.Tensor]]]
             List of list of indexes per entry in the batch
         """
-        # Cast to numpy object array to be able to use split
-        if self.is_list and not isinstance(self.data, np.ndarray):
-            data_np = np.empty(len(self.data), dtype=object)
-            data_np[:] = self.data
-        else:
-            data_np = self.data
+        if self.is_list:
+            indexes = []
+            for batch_id in range(self.batch_size):
+                lower, upper = self.edges[batch_id], self.edges[batch_id + 1]
+                indexes.append(
+                    [index - self.offsets[batch_id] for index in self.data[lower:upper]]
+                )
 
-        # Split, offset
-        indexes = np.split(data_np, self.splits)
+            return indexes
+
+        indexes = list(self._split(self.data, self.splits))
         for batch_id in range(self.batch_size):
             indexes[batch_id] = indexes[batch_id] - self.offsets[batch_id]
 
@@ -313,7 +311,7 @@ class IndexBatch(BatchBase):
         if self.is_list:
             return IndexBatch(indexes, self.offsets, counts, single_counts)
         else:
-            return IndexBatch(indexes, self.offsets, counts)
+            return IndexBatch(self._cat(indexes), self.offsets, counts)
 
     def to_numpy(self):
         """Cast underlying index to a `np.ndarray` and return a new instance.
@@ -330,9 +328,7 @@ class IndexBatch(BatchBase):
         if not self.is_list:
             data = self._to_numpy(self.data)
         else:
-            data = np.empty(len(self.data), dtype=object)
-            for i, d in enumerate(self.data):
-                data[i] = self._to_numpy(d)
+            data = [self._to_numpy(d) for d in self.data]
 
         offsets = self._to_numpy(self.offsets)
         counts = self._to_numpy(self.counts)
@@ -365,9 +361,7 @@ class IndexBatch(BatchBase):
         if not self.is_list:
             data = self._to_tensor(self.data, dtype, device)
         else:
-            data = np.empty(len(self.data), dtype=object)
-            for i, d in enumerate(self.data):
-                data[i] = self._to_tensor(d, dtype, device)
+            data = [self._to_tensor(d, dtype, device) for d in self.data]
 
         offsets = self._to_tensor(self.offsets, dtype, device)
         counts = self._to_tensor(self.counts, dtype, device)

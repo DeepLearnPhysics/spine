@@ -818,12 +818,8 @@ class TestParticleFromLArCV:
         larcv_particle.parent_creation_process("Decay")
         larcv_particle.ancestor_creation_process("hadElastic")
 
-        # Set times
-        larcv_particle.t(200.0)
-        larcv_particle.parent_t(195.0)
-        larcv_particle.ancestor_t(190.0)
-
-        # Set positions
+        # Set positions. The LArCV time getters are populated from the vertex
+        # time arguments; they do not expose standalone Python setters.
         larcv_particle.position(120.0, 60.0, 550.0, 200.0)
         larcv_particle.end_position(170.0, 85.0, 700.0, 220.0)
         larcv_particle.parent_position(118.0, 58.0, 548.0, 195.0)
@@ -1039,10 +1035,17 @@ class TestParticleFromLArCV:
                 """Marker method to indicate momentum attributes exist."""
                 return True
 
-            # Missing many other attributes...
+            # Missing end_momentum and distance_travel attributes
 
         partial_particle = PartialMockLArCVParticle()
-        particle = Particle.from_larcv(partial_particle)
+        with pytest.warns(UserWarning, match="missing the .* attribute") as warnings:
+            particle = Particle.from_larcv(partial_particle)
+
+        missing_attributes = {
+            str(warning.message).split(" missing the ", 1)[1].split(" attribute", 1)[0]
+            for warning in warnings
+        }
+        assert missing_attributes == {"distance_travel", "end_momentum"}
 
         # Verify available attributes are set, and missing ones are default
         assert particle.id == 10

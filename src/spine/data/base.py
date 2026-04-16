@@ -52,13 +52,13 @@ from typing import (
     Dict,
     List,
     Optional,
-    Self,
     Tuple,
     Union,
     get_origin,
 )
 
 import numpy as np
+from typing_extensions import Self
 
 from spine.utils.docstring import merge_ancestor_docstrings
 

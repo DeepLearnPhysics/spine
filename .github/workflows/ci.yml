@@ -163,43 +163,33 @@ jobs:
   test-coverage:
     name: Coverage Analysis
     runs-on: ubuntu-latest
+    env:
+      COVERAGE_IMAGE: ghcr.io/deeplearnphysics/spine:latest
 
     steps:
     - uses: actions/checkout@v6
 
-    - name: Set up Python 3.10
-      uses: actions/setup-python@v6
-      with:
-        python-version: '3.10'
+    - name: Pull full SPINE runtime image
+      run: docker pull "${COVERAGE_IMAGE}"
 
-    - name: Install dependencies
+    - name: Run comprehensive test suite with coverage in full runtime image
       run: |
-        python -m pip install --upgrade pip
-        pip install -e .
-        pip install pytest pytest-cov coverage[toml]
-
-    - name: Run comprehensive test suite with coverage
-      run: |
-        echo "ℹ️ Running comprehensive tests excluding model tests, parse tests, and IO tests (require optional deps)"
-        # Run specific test directories/files to avoid loading problematic conftest.py files
-        # Excluding test_loader.py and test_io/ because they require PyTorch, ROOT, and other optional deps
-        pytest \
-          test/test_conditional_imports.py \
-          test/test_driver_import.py \
-          test/test_optional_io.py \
-          test/test_ana/ \
-          test/test_construct/ \
-          test/test_data/ \
-          test/test_math/ \
-          test/test_post/ \
-          test/test_utils/ \
-          test/test_vis/ \
-          -v \
-          --cov=spine \
-          --cov-report=html \
-          --cov-report=xml \
-          --cov-report=term \
-          --maxfail=10
+        echo "ℹ️ Running coverage inside ${COVERAGE_IMAGE} to include full optional dependencies"
+        docker run --rm \
+          -v "${GITHUB_WORKSPACE}:/workspace" \
+          -w /workspace \
+          "${COVERAGE_IMAGE}" \
+          bash -lc '
+            python -m pip install --root-user-action=ignore -e . pytest pytest-cov coverage[toml]
+            mkdir -p /tmp/spine-sitecustomize
+            printf "import h5py\n" > /tmp/spine-sitecustomize/sitecustomize.py
+            PYTHONPATH="/tmp/spine-sitecustomize:${PYTHONPATH:-}" pytest test \
+              -v \
+              --cov=spine \
+              --cov-report=xml:coverage.xml \
+              --cov-report=term \
+              --maxfail=10
+          '
 
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v6

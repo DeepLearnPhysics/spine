@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from spine.data.batch.base import BatchBase
-from spine.utils.conditional import TORCH_AVAILABLE, torch
+from spine.utils.conditional import ME, ME_AVAILABLE, TORCH_AVAILABLE, torch
 
 
 # Create a concrete implementation for testing the abstract BatchBase class
@@ -31,6 +31,14 @@ class ConcreteBatch(BatchBase):
         self.counts = counts
         self.edges = edges
         self.batch_size = batch_size
+
+
+class OtherBatch(ConcreteBatch):
+    """Alternate concrete batch class for equality tests."""
+
+    def __init__(self, data, counts, edges, batch_size, is_sparse=False, is_list=False):
+        """Initialize with the same signature as ConcreteBatch."""
+        super().__init__(data, counts, edges, batch_size, is_sparse, is_list)
 
 
 class TestBatchBaseInitialization:
@@ -163,16 +171,24 @@ class TestBatchBaseEquality:
     def test_equality_different_classes(self):
         """Test inequality with different class types."""
 
-        @dataclass(eq=False)
-        class OtherBatch(BatchBase):
-            pass
-
         data = np.array([[1, 2], [3, 4]])
         batch1 = ConcreteBatch(
             data=data, counts=np.array([2]), edges=np.array([0, 2]), batch_size=1
         )
         batch2 = OtherBatch(
             data=data, counts=np.array([2]), edges=np.array([0, 2]), batch_size=1
+        )
+
+        assert batch1 != batch2
+
+    def test_equality_with_different_batch_size(self):
+        """Test inequality with different batch sizes."""
+        data = np.array([[1, 2], [3, 4]])
+        batch1 = ConcreteBatch(
+            data=data, counts=np.array([2]), edges=np.array([0, 2]), batch_size=1
+        )
+        batch2 = ConcreteBatch(
+            data=data, counts=np.array([2]), edges=np.array([0, 2]), batch_size=2
         )
 
         assert batch1 != batch2
@@ -665,3 +681,53 @@ class TestBatchBaseWithTorch:
         transposed = batch._transpose(data)
         expected = torch.tensor([[1, 3, 5], [2, 4, 6]])
         assert torch.equal(transposed, expected)
+
+    def test_empty_torch(self):
+        """Test _empty creates empty torch tensor."""
+        data = torch.tensor([1, 2, 3])
+        batch = ConcreteBatch(
+            data=data,
+            counts=torch.tensor([3]),
+            edges=torch.tensor([0, 3]),
+            batch_size=1,
+        )
+
+        empty = batch._empty(4)
+        assert isinstance(empty, torch.Tensor)
+        assert empty.shape == (4,)
+        assert empty.dtype == torch.long
+
+    def test_arange_torch(self):
+        """Test _arange creates torch arange."""
+        data = torch.tensor([1, 2, 3])
+        batch = ConcreteBatch(
+            data=data,
+            counts=torch.tensor([3]),
+            edges=torch.tensor([0, 3]),
+            batch_size=1,
+        )
+
+        arange = batch._arange(5)
+        assert torch.equal(arange, torch.arange(5))
+
+
+@pytest.mark.skipif(not ME_AVAILABLE, reason="ME not available")
+class TestBatchBaseWithME:
+    """Test BatchBase with MinkowskiEngine sparse tensors."""
+
+    def test_me_initialization(self):
+        """Test BatchBase detects ME sparse tensors correctly."""
+        coords = torch.tensor([[0, 0, 0], [1, 1, 1], [2, 2, 2]])
+        features = torch.tensor([[1], [2], [3]])
+        data = ME.SparseTensor(features=features, coordinates=coords)
+        batch = ConcreteBatch(
+            data=data,
+            counts=torch.tensor([3]),
+            edges=torch.tensor([0, 3]),
+            batch_size=1,
+            is_sparse=True,
+        )
+
+        assert batch.is_numpy is False
+        assert batch.is_sparse is True
+        assert batch.device == data.device

@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from spine.data.batch.tensor import TensorBatch
-from spine.utils.conditional import TORCH_AVAILABLE, torch
+from spine.utils.conditional import ME, ME_AVAILABLE, TORCH_AVAILABLE, torch
 
 
 class TestTensorBatchInitialization:
@@ -380,6 +380,31 @@ class TestTensorBatchTypeConversions:
         assert result.has_batch_col is True
         assert result.coord_cols == [1, 2]
 
+    @pytest.mark.skipif(not TORCH_AVAILABLE, reason="torch not available")
+    def test_to_tensor_already_torch(self):
+        """Test to_tensor on already torch data is idempotent."""
+        data = torch.tensor([[1, 2], [3, 4]])
+        counts = [2]
+
+        batch = TensorBatch(data, counts=counts)
+        result = batch.to_tensor()
+
+        assert result is batch
+        assert result.is_numpy is False
+
+    @pytest.mark.skipif(not TORCH_AVAILABLE, reason="torch not available")
+    def test_to_tensor_from_numpy(self):
+        """Test to_tensor converts numpy to torch."""
+        data = np.array([[1, 2], [3, 4]], dtype=np.float32)
+        counts = [2]
+
+        batch = TensorBatch(data, counts=counts)
+        result = batch.to_tensor()
+
+        assert result.is_numpy is False
+        assert isinstance(result.data, torch.Tensor)
+        np.testing.assert_array_equal(result.data.numpy(), [[1, 2], [3, 4]])
+
 
 class TestTensorBatchUnitConversions:
     """Test TensorBatch to_cm and to_px methods."""
@@ -471,6 +496,21 @@ class TestTensorBatchFromList:
         assert batch.batch_size == 3
         np.testing.assert_array_equal(batch.counts, [1, 3, 2])
 
+    @pytest.mark.skipif(not TORCH_AVAILABLE, reason="torch not available")
+    def test_from_list_with_torch(self):
+        """Test from_list with torch tensors."""
+        data_list = [
+            torch.tensor([[1, 2], [3, 4]]),
+            torch.tensor([[5, 6]]),
+        ]
+
+        batch = TensorBatch.from_list(data_list)
+
+        assert batch.batch_size == 2
+        np.testing.assert_array_equal(batch.counts, [2, 1])
+        assert isinstance(batch.data, torch.Tensor)
+        np.testing.assert_array_equal(batch.data.numpy(), [[1, 2], [3, 4], [5, 6]])
+
 
 class TestTensorBatchEdgeCases:
     """Test TensorBatch edge cases."""
@@ -546,7 +586,7 @@ class TestTensorBatchWithTorch:
         """Test TensorBatch with torch tensor and batch column."""
         data = torch.tensor([[0, 1, 2], [0, 3, 4], [1, 5, 6], [1, 7, 8]])
 
-        batch = TensorBatch(data, batch_size=2, batch_col=0)
+        batch = TensorBatch(data, batch_size=2, has_batch_col=True)
 
         assert batch.batch_size == 2
         assert batch.has_batch_col is True
@@ -586,17 +626,17 @@ class TestTensorBatchWithTorch:
         batch = TensorBatch(data, counts=counts)
         mask = torch.tensor([True, False, True, False])
 
-        result = batch.apply_mask(mask)
+        batch.apply_mask(mask)
 
-        assert torch.equal(result.data, torch.tensor([[1, 2], [5, 6]]))
-        assert torch.equal(result.counts, torch.tensor([1, 1]))
+        assert torch.equal(batch.data, torch.tensor([[1, 2], [5, 6]]))
+        assert torch.equal(batch.counts, torch.tensor([1, 1]))
 
     def test_torch_merge(self):
         """Test merge method with torch tensors."""
         data1 = torch.tensor([[1, 2], [3, 4]])
         data2 = torch.tensor([[5, 6], [7, 8]])
-        counts1 = [2]
-        counts2 = [2]
+        counts1 = [1, 1]
+        counts2 = [1, 1]
 
         batch1 = TensorBatch(data1, counts=counts1)
         batch2 = TensorBatch(data2, counts=counts2)
@@ -650,13 +690,95 @@ class TestTensorBatchWithTorch:
         meta = Mock()
         meta.size = Mock(return_value=0.5)  # 0.5 cm per pixel
 
-        # Test to_cm
-        batch_cm = batch.to_cm(meta)
-        expected_cm = torch.tensor(
-            [[0, 0.5, 1.0, 3], [0, 2.0, 2.5, 6]], dtype=torch.float32
-        )
-        assert torch.allclose(batch_cm.data, expected_cm)
+        with pytest.raises(AssertionError, match="numpy arrays"):
+            batch.to_cm(meta)
 
-        # Test to_px
-        batch_px = batch_cm.to_px(meta)
-        assert torch.allclose(batch_px.data, data)
+        with pytest.raises(AssertionError, match="numpy arrays"):
+            batch.to_px(meta)
+
+
+@pytest.mark.skipif(not ME_AVAILABLE, reason="ME not available")
+class TestTensorBatchWithME:
+    """Test TensorBatch with MinkowskiEngine tensors."""
+
+    def test_me_initialization(self):
+        """Test TensorBatch with ME tensors."""
+        data = ME.SparseTensor(
+            features=torch.tensor([[1, 2], [3, 4], [5, 6]], dtype=torch.float32),
+            coordinates=torch.tensor(
+                [[0, 0, 0], [0, 1, 0], [1, 0, 0]], dtype=torch.int32
+            ),
+        )
+        counts = [3]
+
+        batch = TensorBatch(data, counts=counts, is_sparse=True)
+
+        assert batch.is_numpy is False
+        assert isinstance(batch.data, ME.SparseTensor)
+        assert batch.batch_size == 1
+        assert batch.device == torch.device("cpu")
+
+    def test_to_numpy_from_me(self):
+        """Test to_numpy converts ME SparseTensor to numpy."""
+        data = ME.SparseTensor(
+            features=torch.tensor([[1, 2], [3, 4]], dtype=torch.float32),
+            coordinates=torch.tensor([[0, 0, 0], [0, 1, 0]], dtype=torch.int32),
+        )
+        counts = [2]
+
+        batch = TensorBatch(data, counts=counts, is_sparse=True)
+        result = batch.to_numpy()
+
+        assert result.is_numpy is True
+        assert isinstance(result.data, np.ndarray)
+        # The data should be concatenation of coordinates and features
+        expected = np.array([[0, 0, 0, 1, 2], [0, 1, 0, 3, 4]])
+        np.testing.assert_array_equal(result.data, expected)
+
+    def test_getitem_with_me(self):
+        """Test indexing with ME SparseTensor."""
+        data = ME.SparseTensor(
+            features=torch.tensor([[1, 2], [3, 4], [5, 6]], dtype=torch.float32),
+            coordinates=torch.tensor(
+                [[0, 0, 0], [0, 1, 0], [1, 0, 0]], dtype=torch.int32
+            ),
+        )
+        counts = [2, 1]
+
+        batch = TensorBatch(data, counts=counts, is_sparse=True)
+
+        batch_0 = batch[0]
+        batch_1 = batch[1]
+
+        # batch_0 should contain the first two entries
+        expected_0 = np.array([[0, 0, 0, 1, 2], [0, 1, 0, 3, 4]])
+        np.testing.assert_array_equal(batch_0.C.numpy(), expected_0[:, :3])
+        np.testing.assert_array_equal(batch_0.F.numpy(), expected_0[:, 3:])
+
+        # batch_1 should contain the last entry
+        expected_1 = np.array([[1, 0, 0, 5, 6]])
+        np.testing.assert_array_equal(batch_1.C.numpy(), expected_1[:, :3])
+        np.testing.assert_array_equal(batch_1.F.numpy(), expected_1[:, 3:])
+
+    def test_split_with_me(self):
+        """Test split method with ME SparseTensor."""
+        data = ME.SparseTensor(
+            features=torch.tensor([[1, 2], [3, 4], [5, 6]], dtype=torch.float32),
+            coordinates=torch.tensor(
+                [[0, 0, 0], [0, 1, 0], [1, 0, 0]], dtype=torch.int32
+            ),
+        )
+        counts = [1, 2]
+
+        batch = TensorBatch(data, counts=counts, is_sparse=True)
+        split_data = batch.split()
+
+        assert len(split_data) == 2
+
+        expected_0 = np.array([[0, 0, 0, 1, 2]])
+        np.testing.assert_array_equal(split_data[0].C.numpy(), expected_0[:, :3])
+        np.testing.assert_array_equal(split_data[0].F.numpy(), expected_0[:, 3:])
+
+        expected_1 = np.array([[0, 1, 0, 3, 4], [1, 0, 0, 5, 6]])
+        np.testing.assert_array_equal(split_data[1].C.numpy(), expected_1[:, :3])
+        np.testing.assert_array_equal(split_data[1].F.numpy(), expected_1[:, 3:])

@@ -4,10 +4,10 @@ This copies the internal structure of :class:`larcv.Particle`.
 """
 
 from dataclasses import dataclass, field
-from typing import Self
 from warnings import warn
 
 import numpy as np
+from typing_extensions import Self
 
 from spine.data.base import PosDataBase
 from spine.data.decorator import stored_property

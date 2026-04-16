@@ -4,7 +4,8 @@ It can extract run attributes from any event-level LArCV object.
 """
 
 from dataclasses import dataclass
-from typing import Self
+
+from typing_extensions import Self
 
 from spine.data.base import DataBase
 

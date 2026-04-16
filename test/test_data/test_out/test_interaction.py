@@ -379,7 +379,8 @@ class TestTruthInteraction:
         obj = TruthInteraction(id=0, nu_id=999)
         neutrino = Neutrino(interaction_id=0, pdg_code=12, energy_init=1.0)
 
-        obj.attach_neutrino(neutrino)
+        with np.testing.assert_warns(UserWarning):
+            obj.attach_neutrino(neutrino)
 
         assert obj.pdg_code == 12
         assert obj.energy_init == 1.0

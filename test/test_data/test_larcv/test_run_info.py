@@ -341,9 +341,7 @@ class TestRunInfoFromLArCV:
         larcv_event = larcv.EventSparseTensor3D()
 
         # Set run information
-        larcv_event.set_run(5000)
-        larcv_event.set_subrun(100)
-        larcv_event.set_event(2500)
+        larcv_event.set_id(5000, 100, 2500)  # run, subrun, event
 
         # Convert to SPINE RunInfo
         run_info = RunInfo.from_larcv(larcv_event)

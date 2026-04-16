@@ -78,10 +78,23 @@ else:
     try:
         import torch
 
+        if not hasattr(torch, "Tensor"):
+            raise ImportError("Imported torch module has no Tensor attribute.")
+
         TORCH_AVAILABLE = True
-    except ModuleNotFoundError:
+    except (ModuleNotFoundError, ImportError):
         warn("PyTorch could not be found, ML functionality disabled.")
-        torch = None
+
+        class DummyTorch:
+            """Minimal torch stand-in for annotations and isinstance checks."""
+
+            class Tensor:
+                """Dummy tensor type."""
+
+            def __getattr__(self, name: str) -> Any:
+                raise ImportError("PyTorch is required for this functionality.")
+
+        torch = DummyTorch()
 
 # If MinkowskiEngine is available, load it with the right number of threads
 if TYPE_CHECKING:
@@ -103,5 +116,15 @@ else:
         ME_AVAILABLE = True
     except ModuleNotFoundError:
         warn("MinkowskiEngine could not be found, cannot run sparse CNNs.")
-        ME = None
+
+        class DummyME:
+            """Minimal MinkowskiEngine stand-in for annotations and checks."""
+
+            class SparseTensor:
+                """Dummy sparse tensor type."""
+
+            def __getattr__(self, name: str) -> Any:
+                raise ImportError("MinkowskiEngine is required for this functionality.")
+
+        ME = DummyME()
         MF = None

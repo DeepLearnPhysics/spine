@@ -477,6 +477,24 @@ class TestEdgeIndexBatchTypeConversions:
 
         assert result.directed is False
 
+    @pytest.mark.skipif(not TORCH_AVAILABLE, reason="torch not available")
+    def test_to_tensor_converts_and_preserves_attributes(self):
+        """Test to_tensor converts to torch and preserves directed attribute."""
+        edges = np.array(
+            [
+                [0, 1, 1, 0],
+                [1, 0, 0, 1],
+            ]
+        )
+        counts = [4]
+        offsets = np.array([0])
+
+        batch = EdgeIndexBatch(edges, counts=counts, offsets=offsets, directed=False)
+        result = batch.to_tensor()
+
+        assert isinstance(result.data, torch.Tensor)
+        assert result.directed is False
+
 
 class TestEdgeIndexBatchEdgeCases:
     """Test EdgeIndexBatch edge cases."""

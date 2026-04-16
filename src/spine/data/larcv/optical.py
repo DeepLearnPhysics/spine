@@ -4,9 +4,9 @@ This copies the internal structure of :class:`larcv.Flash`.
 """
 
 from dataclasses import dataclass, field
-from typing import Self
 
 import numpy as np
+from typing_extensions import Self
 
 from spine.data.base import PosDataBase
 from spine.data.field import FieldMetadata
@@ -32,10 +32,11 @@ class Flash(PosDataBase):
         Time in units of PMT readout clock
     frame : int
         Frame number
+    on_beam_time : int
+        Whether the flash time is consistent with the beam window
+        (inheriting typing from LArCV, so int instead of bool)
     in_beam_frame : bool
         Whether the flash is in the beam frame
-    on_beam_time : bool
-        Whether the flash time is consistent with the beam window
     total_pe : float
         Total number of PE in the flash
     fast_to_total : float
@@ -56,9 +57,9 @@ class Flash(PosDataBase):
     # Scalar attributes
     volume_id: int = -1
     frame: int = -1
+    on_beam_time: int = -1
 
     in_beam_frame: bool = False
-    on_beam_time: bool = False
 
     time: float = field(default=np.nan, metadata=FieldMetadata(units="us"))
     time_width: float = field(default=np.nan, metadata=FieldMetadata(units="us"))

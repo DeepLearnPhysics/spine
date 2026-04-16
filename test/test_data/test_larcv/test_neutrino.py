@@ -856,7 +856,33 @@ class TestNeutrinoFromLArCV:
                 return MockPosition()
 
         incomplete_neutrino = IncompleteLArCVNeutrino()
-        neutrino = Neutrino.from_larcv(incomplete_neutrino)
+        with pytest.warns(UserWarning, match="missing the .* attribute") as warnings:
+            neutrino = Neutrino.from_larcv(incomplete_neutrino)
+
+        missing_attributes = {
+            str(warning.message).split(" missing the ", 1)[1].split(" attribute", 1)[0]
+            for warning in warnings
+        }
+        assert missing_attributes == {
+            "current_type",
+            "interaction_mode",
+            "interaction_type",
+            "target",
+            "nucleon",
+            "quark",
+            "energy_init",
+            "hadronic_invariant_mass",
+            "bjorken_x",
+            "inelasticity",
+            "momentum_transfer",
+            "momentum_transfer_mag",
+            "energy_transfer",
+            "lepton_p",
+            "distance_travel",
+            "theta",
+            "creation_process",
+            "momentum",
+        }
 
         # Verify that available attributes are set
         assert neutrino.id == 0

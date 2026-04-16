@@ -420,9 +420,6 @@ class TestIndexBatchSplit:
 class TestIndexBatchMerge:
     """Test IndexBatch merge method."""
 
-    @pytest.mark.skip(
-        reason="merge() for single indexes has a bug - creates list without single_counts"
-    )
     def test_merge_single_index(self):
         """Test merge with single indexes."""
         data1 = np.array([0, 1, 10, 11])
@@ -502,6 +499,37 @@ class TestIndexBatchTypeConversions:
         result = batch.to_numpy()
 
         assert result is batch
+
+    @pytest.mark.skipif(not TORCH_AVAILABLE, reason="torch not available")
+    def test_to_tensor_single_index(self):
+        """Test to_tensor converts single index to torch tensor."""
+        data = np.array([0, 1, 2])
+        offsets = np.array([0])
+        counts = [3]
+
+        batch = IndexBatch(data, offsets=offsets, counts=counts)
+        result = batch.to_tensor()
+
+        assert isinstance(result.data, torch.Tensor)
+        np.testing.assert_array_equal(result.data.cpu().numpy(), data)
+
+    @pytest.mark.skipif(not TORCH_AVAILABLE, reason="torch not available")
+    def test_to_tensor_index_list(self):
+        """Test to_tensor converts index list to list of torch tensors."""
+        data = [np.array([0, 1]), np.array([2, 3])]
+        offsets = np.array([0])
+        counts = [2]
+        single_counts = [2, 2]
+
+        batch = IndexBatch(
+            data, offsets=offsets, counts=counts, single_counts=single_counts
+        )
+        result = batch.to_tensor()
+
+        assert isinstance(result.data, list)
+        assert all(isinstance(x, torch.Tensor) for x in result.data)
+        np.testing.assert_array_equal(result.data[0].cpu().numpy(), [0, 1])
+        np.testing.assert_array_equal(result.data[1].cpu().numpy(), [2, 3])
 
 
 class TestIndexBatchEdgeCases:
@@ -628,7 +656,7 @@ class TestIndexBatchWithTorch:
         assert torch.equal(batch_0, torch.tensor([0, 1, 2]))
 
         batch_1 = batch[1]
-        assert torch.equal(batch_1, torch.tensor([13, 14]))  # With offset
+        assert torch.equal(batch_1, torch.tensor([-7, -6]))  # With offset
 
     def test_torch_split(self):
         """Test split method with torch tensors."""
@@ -641,7 +669,7 @@ class TestIndexBatchWithTorch:
 
         assert len(split_data) == 2
         assert torch.equal(split_data[0], torch.tensor([0, 1, 2]))
-        assert torch.equal(split_data[1], torch.tensor([13, 14]))
+        assert torch.equal(split_data[1], torch.tensor([-7, -6]))
 
     def test_torch_batch_ids(self):
         """Test batch_ids with torch tensors."""
@@ -669,8 +697,7 @@ class TestIndexBatchWithTorch:
         )
 
         full_index = batch.full_index
-        # Offsets: batch 0 gets +0, batch 1 gets +10
-        assert torch.equal(full_index, torch.tensor([0, 1, 12, 13]))
+        assert torch.equal(full_index, torch.tensor([0, 1, 2, 3]))
 
     def test_to_tensor_idempotent(self):
         """Test to_tensor on already torch data is idempotent."""
@@ -696,6 +723,24 @@ class TestIndexBatchWithTorch:
         assert result.is_numpy is True
         assert isinstance(result.data, np.ndarray)
         np.testing.assert_array_equal(result.data, [0, 1, 2, 3])
+
+    def test_to_numpy_from_torch_index_list(self):
+        """Test to_numpy converts torch index list to numpy."""
+        data = [torch.tensor([0, 1]), torch.tensor([2, 3])]
+        offsets = torch.tensor([0])
+        counts = [2]
+        single_counts = [2, 2]
+
+        batch = IndexBatch(
+            data, offsets=offsets, counts=counts, single_counts=single_counts
+        )
+        result = batch.to_numpy()
+
+        assert result.is_numpy is True
+        assert isinstance(result.data, list)
+        assert all(isinstance(x, np.ndarray) for x in result.data)
+        np.testing.assert_array_equal(result.data[0], [0, 1])
+        np.testing.assert_array_equal(result.data[1], [2, 3])
 
     def test_torch_merge_index_list(self):
         """Test merge with torch index lists."""

@@ -5,9 +5,10 @@ images or :class:`larcv.Voxel3DMeta` for 3D images.
 """
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Optional, Self
+from typing import TYPE_CHECKING, Optional
 
 import numpy as np
+from typing_extensions import Self
 
 from spine.data.base import DataBase
 from spine.data.field import FieldMetadata
@@ -249,7 +250,7 @@ class ImageMeta2D(ImageMetaBase):
         lower = np.array([meta.min_x(), meta.min_y()], dtype=np.float32)
         upper = np.array([meta.max_x(), meta.max_y()], dtype=np.float32)
         size = np.array([meta.pixel_height(), meta.pixel_width()], dtype=np.float32)
-        count = np.array([meta.rows(), meta.cols()], dtype=np.int64)
+        count = np.array([meta.cols(), meta.rows()], dtype=np.int64)
 
         return cls(lower=lower, upper=upper, size=size, count=count)
 

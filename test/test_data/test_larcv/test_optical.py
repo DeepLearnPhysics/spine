@@ -406,7 +406,7 @@ class TestFlashFromLArCV:
                 return True
 
             def onBeamTime(self):
-                return True
+                return 1
 
             def time(self):
                 return 4.5  # us
@@ -450,7 +450,7 @@ class TestFlashFromLArCV:
         assert flash.volume_id == 0
         assert flash.frame == 100
         assert flash.in_beam_frame is True
-        assert flash.on_beam_time is True
+        assert flash.on_beam_time == 1
         assert flash.time == 4.5
         assert flash.time_abs == 1234567.0
         assert flash.time_width == 0.5
@@ -477,11 +477,10 @@ class TestFlashFromLArCV:
         larcv_flash.volume_id(1)
         larcv_flash.frame(200)
         larcv_flash.inBeamFrame(True)
-        larcv_flash.onBeamTime(False)
+        larcv_flash.onBeamTime(0)
         larcv_flash.time(3.8)
         larcv_flash.absTime(9876543.0)
         larcv_flash.timeWidth(0.75)
-        larcv_flash.TotalPE(500.0)
 
         # Set position (xCenter, yCenter, zCenter)
         larcv_flash.xCenter(150.0)
@@ -495,8 +494,7 @@ class TestFlashFromLArCV:
 
         # Set PE per optical detector
         pe_list = [15.0, 25.0, 35.0, 45.0, 55.0, 65.0, 75.0, 85.0, 50.0, 50.0]
-        for pe in pe_list:
-            larcv_flash.push_back_PEPerOpDet(pe)
+        larcv_flash.PEPerOpDet(pe_list)
 
         # Convert to SPINE Flash
         flash = Flash.from_larcv(larcv_flash)
@@ -506,11 +504,11 @@ class TestFlashFromLArCV:
         assert flash.volume_id == 1
         assert flash.frame == 200
         assert flash.in_beam_frame is True
-        assert flash.on_beam_time is False
+        assert flash.on_beam_time == 0
         assert flash.time == 3.8
         assert flash.time_abs == 9876543.0
         assert flash.time_width == 0.75
-        assert flash.total_pe == 500.0
+        assert flash.total_pe == np.sum(pe_list)
 
         np.testing.assert_array_almost_equal(flash.center, [150.0, 50.0, 600.0])
         np.testing.assert_array_almost_equal(flash.width, [12.0, 18.0, 25.0])

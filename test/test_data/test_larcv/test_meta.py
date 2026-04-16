@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from spine.data import Meta
+from spine.data.larcv import meta
 from spine.data.larcv.meta import ImageMeta2D, ImageMeta3D
 from spine.utils.conditional import LARCV_AVAILABLE, larcv
 
@@ -460,10 +461,10 @@ class TestMetaFromLArCV:
             def pixel_width(self):
                 return 1.0
 
-            def rows(self):
+            def cols(self):
                 return 3456
 
-            def cols(self):
+            def rows(self):
                 return 6048
 
         mock_meta = MockLArCVImageMeta()
@@ -477,22 +478,50 @@ class TestMetaFromLArCV:
         assert meta.dimension == 2
 
     @pytest.mark.skipif(not LARCV_AVAILABLE, reason="larcv not available")
+    def test_from_larcv_real_2d(self):
+        """Test from_larcv with real larcv ImageMeta (only if larcv installed)."""
+        assert larcv is not None
+
+        # Create a real LArCV ImageMeta
+        larcv_meta = larcv.ImageMeta(
+            x_min=0.0,
+            y_min=0.0,
+            x_max=512.0,
+            y_max=256.0,
+            y_row_count=256,
+            x_column_count=512,
+        )
+
+        # Convert to SPINE Meta
+        meta = Meta.from_larcv(larcv_meta)
+
+        # Verify conversion
+        np.testing.assert_array_almost_equal(meta.lower, [0.0, 0.0])
+        np.testing.assert_array_almost_equal(meta.upper, [512.0, 256.0])
+        np.testing.assert_array_equal(meta.count, [512, 256])
+        assert meta.dimension == 2
+
+        # Verify size calculation
+        expected_size = (meta.upper - meta.lower) / meta.count
+        np.testing.assert_array_almost_equal(meta.size, expected_size, decimal=5)
+
+    @pytest.mark.skipif(not LARCV_AVAILABLE, reason="larcv not available")
     def test_from_larcv_real_3d(self):
         """Test from_larcv with real larcv Voxel3DMeta (only if larcv installed)."""
         assert larcv is not None
 
         # Create a real LArCV Voxel3DMeta
         larcv_meta = larcv.Voxel3DMeta()
-        larcv_meta.set_size(
-            min_x=0.0,
-            min_y=-116.0,
-            min_z=0.0,
-            max_x=256.0,
-            max_y=116.0,
-            max_z=1037.0,
-            num_voxel_x=100,
-            num_voxel_y=100,
-            num_voxel_z=1000,
+        larcv_meta.set(
+            xmin=0.0,
+            ymin=-116.0,
+            zmin=0.0,
+            xmax=256.0,
+            ymax=116.0,
+            zmax=1037.0,
+            xnum=100,
+            ynum=100,
+            znum=1000,
         )
 
         # Convert to SPINE Meta
@@ -505,34 +534,5 @@ class TestMetaFromLArCV:
         assert meta.dimension == 3
 
         # Verify size calculation is reasonable
-        expected_size = (meta.upper - meta.lower) / meta.count
-        np.testing.assert_array_almost_equal(meta.size, expected_size, decimal=5)
-
-    @pytest.mark.skipif(not LARCV_AVAILABLE, reason="larcv not available")
-    def test_from_larcv_real_2d(self):
-        """Test from_larcv with real larcv ImageMeta (only if larcv installed)."""
-        assert larcv is not None
-
-        # Create a real LArCV ImageMeta
-        larcv_meta = larcv.ImageMeta()
-        larcv_meta.set_size(
-            width=512.0,
-            height=256.0,
-            n_rows=256,
-            n_cols=512,
-            min_x=0.0,
-            min_y=0.0,
-        )
-
-        # Convert to SPINE Meta
-        meta = Meta.from_larcv(larcv_meta)
-
-        # Verify conversion
-        np.testing.assert_array_almost_equal(meta.lower, [0.0, 0.0])
-        np.testing.assert_array_almost_equal(meta.upper, [256.0, 512.0])
-        np.testing.assert_array_equal(meta.count, [256, 512])
-        assert meta.dimension == 2
-
-        # Verify size calculation
         expected_size = (meta.upper - meta.lower) / meta.count
         np.testing.assert_array_almost_equal(meta.size, expected_size, decimal=5)
