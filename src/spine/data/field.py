@@ -4,9 +4,8 @@ This module provides a type-safe alternative to dictionary-based field metadata,
 offering better IDE support, type checking, and documentation.
 """
 
-from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Dict, Iterator, Optional
+from typing import Any, Dict, Iterator, Mapping, Optional
 
 __all__ = ["FieldMetadata"]
 
