@@ -6,7 +6,18 @@ to receive as an input.
 
 import numpy as np
 import pytest
-from larcv import larcv
+
+from spine.utils.conditional import LARCV_AVAILABLE, larcv
+
+
+def pytest_collection_modifyitems(items):
+    """Skip all sparse parser tests when LArCV is unavailable."""
+    if LARCV_AVAILABLE:
+        return
+
+    skip_larcv = pytest.mark.skip(reason="Requires LArCV to generate the test data.")
+    for item in items:
+        item.add_marker(skip_larcv)
 
 
 @pytest.fixture(name="sparse2d_event")

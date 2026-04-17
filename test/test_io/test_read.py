@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 import ROOT
 
-from spine.io.read import *
+from spine.io.core.read import *
 
 
 def test_larcv_reader(larcv_data):

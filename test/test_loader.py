@@ -12,7 +12,7 @@ import pytest
 import yaml
 
 from spine.io.core.write.csv import CSVWriter
-from spine.io.factories import loader_factory
+from spine.io.torch.factories import loader_factory
 
 MAX_ITER = 10
 

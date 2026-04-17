@@ -5,8 +5,8 @@ from dataclasses import dataclass
 import numpy as np
 import pytest
 
-from spine.io.sample import *
-from spine.io.sample import DistributedProxySampler
+from spine.io.torch.sample import *
+from spine.io.torch.sample import DistributedProxySampler
 
 
 @dataclass

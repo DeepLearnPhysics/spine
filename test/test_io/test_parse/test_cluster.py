@@ -2,10 +2,10 @@
 
 import numpy as np
 import pytest
-from larcv import larcv
 
-from spine import Meta
-from spine.io.parse.cluster import *
+from spine.data import Meta
+from spine.io.core.parse.cluster import *
+from spine.utils.conditional import larcv
 
 
 @pytest.mark.parametrize("projection_id", [0, 1, 2])

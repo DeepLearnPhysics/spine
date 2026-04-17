@@ -8,6 +8,8 @@ import numpy as np
 import pytest
 
 from spine.data import Meta
+from spine.geo import GeoManager
+from spine.io.core.parse.data import ParserTensor
 from spine.io.torch.collate import CollateAll
 
 
@@ -24,6 +26,7 @@ def fixture_batch_sparse(request):
     np.random.seed(seed=0)
 
     # Loop over each entry in the dummy batch
+    key = f"sparse_{name}"
     batch_size = request.param[0]
     num_products = request.param[1]
     batch = []
@@ -38,10 +41,12 @@ def fixture_batch_sparse(request):
             coords = 100 * np.random.rand(num_points, 3)
             features = 10 * np.random.rand(num_points, 2)
             meta = Meta(
-                lower=[0.0, 0.0, 0.0], upper=[100.0, 100.0, 100.0], size=[1.0, 1.0, 1.0]
+                lower=np.asarray([0.0, 0.0, 0.0]),
+                upper=np.asarray([100.0, 100.0, 100.0]),
+                size=np.asarray([1.0, 1.0, 1.0]),
             )
 
-            data[f"sparse_{name}"] = (coords, features, meta)
+            data[key] = ParserTensor(coords=coords, features=features, meta=meta)
 
         # Append the batch list
         batch.append(data)
@@ -62,6 +67,7 @@ def fixture_batch_edge_index(request):
     np.random.seed(seed=0)
 
     # Loop over each entry in the dummy batch
+    key = f"edge_index_{name}"
     batch_size = request.param[0]
     num_products = request.param[1]
     batch = []
@@ -75,7 +81,9 @@ def fixture_batch_edge_index(request):
 
             edge_index = np.random.randint(0, 10, size=(2, num_edges))
 
-            data[f"edge_index_{name}"] = (edge_index, 10)
+            data[f"edge_index_{name}"] = ParserTensor(
+                features=edge_index, global_shift=10
+            )
 
         # Append the batch list
         batch.append(data)
@@ -92,8 +100,12 @@ def fixture_batch_edge_index(request):
 )
 def test_collate_sparse(split, detector, batch_sparse):
     """Tests the collation of sparse tensors."""
+    # Initialize the geoemtry for the test, if needed
+    if detector:
+        GeoManager.initialize_or_get(detector=detector)
+
     # Initialize the collation class
-    collate_fn = CollateAll(split=split, detector=detector)
+    collate_fn = CollateAll(data_types={name: "tensor"}, split=split)
 
     # Pass the batch through the collate function
     result = collate_fn(batch_sparse)
@@ -107,7 +119,7 @@ def test_collate_sparse(split, detector, batch_sparse):
 def test_collate_edge_index(batch_edge_index):
     """Tests the collation of edge indexes."""
     # Initialize the collation class
-    collate_fn = CollateAll()
+    collate_fn = CollateAll(data_types={name: "tensor"})
 
     # Pass the batch through the collate function
     result = collate_fn(batch_edge_index)
@@ -120,7 +132,7 @@ def test_collate_edge_index(batch_edge_index):
 def test_collate_scalar():
     """Tests the collation of scalar values."""
     # Initialize the collation class
-    collate_fn = CollateAll()
+    collate_fn = CollateAll(data_types={"scalar": "scalar"})
 
     # Initialize a simple batch of scalars
     batch_scalar = [{"scalar": i} for i in range(4)]
@@ -139,7 +151,7 @@ def test_collate_scalar():
 def test_collate_list():
     """Tests the collation of simple lists."""
     # Initialize the collation class
-    collate_fn = CollateAll()
+    collate_fn = CollateAll(data_types={"list": "list"})
 
     # Initialize a simple batch of lists
     batch_list = [{"list": [i] * i} for i in range(4)]

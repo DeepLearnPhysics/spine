@@ -2,8 +2,8 @@
 
 import pytest
 
-from spine import Meta
-from spine.io.parse.sparse import *
+from spine.data.larcv import Meta
+from spine.io.core.parse.sparse import *
 
 
 @pytest.mark.parametrize("projection_id", [0, 1, 2])

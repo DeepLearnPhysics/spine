@@ -3,7 +3,7 @@
 import pytest
 import ROOT
 
-from spine.io.dataset import *
+from spine.io.torch.dataset import *
 
 
 def test_larcv_dataset(larcv_data):

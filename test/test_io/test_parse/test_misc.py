@@ -6,8 +6,8 @@ from warnings import warn
 import numpy as np
 import pytest
 
-from spine import CRTHit, Flash, Meta, RunInfo, Trigger
-from spine.io.parse.misc import *
+from spine.data.larcv import CRTHit, Flash, Meta, RunInfo, Trigger
+from spine.io.core.parse.misc import *
 
 
 @pytest.mark.parametrize("projection_id", [0, 1, 2])
