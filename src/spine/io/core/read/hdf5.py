@@ -222,7 +222,10 @@ class HDF5Reader(ReaderBase):
             Ditionary of data products corresponding to one event
         """
         # Get the appropriate entry index
-        assert idx < len(self.entry_index)
+        if idx < 0 or idx >= len(self):
+            raise IndexError(
+                f"Index {idx} out of bounds for dataset of size {len(self)}."
+            )
         file_idx = self.get_file_index(idx)
         entry_idx = self.get_file_entry_index(idx)
 

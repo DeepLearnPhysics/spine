@@ -175,7 +175,10 @@ class LArCVReader(ReaderBase):
             Dictionary which maps each data product key to an entry in the tree
         """
         # Get the appropriate entry index
-        assert idx < len(self.entry_index)
+        if idx < 0 or idx >= len(self):
+            raise IndexError(
+                f"Index {idx} out of bounds for dataset of size {len(self)}."
+            )
         entry_idx = self.entry_index[idx]
 
         # If this is the first data loading, instantiate chains
