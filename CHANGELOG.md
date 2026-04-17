@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.10.12] - 2026-04-17
+
+### Fixed
+- **Inference**: Run model-less inference jobs once so reader/build/post/writer workflows execute without requiring a `model` block.
+
 ## [0.10.11] - 2026-04-14
 
 ### Added
