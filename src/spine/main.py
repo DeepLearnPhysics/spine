@@ -136,6 +136,7 @@ def inference_single(cfg: dict) -> None:
             preloaded = True
             weights = [weights]
         else:
+            weights = sorted(weights)
             weight_list = " - " + "\n - ".join(weights)
             logger.info(
                 "Looping over %d set of weights:\n%s", len(weights), weight_list
