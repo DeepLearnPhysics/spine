@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.10.13] - 2026-04-17
+
+### Fixed
+- **Docker**: Bundle OpT0Finder v1.0.0 and the ICARUS PhotonLibrary so likelihood flash matching works in the published image.
+
 ## [0.10.12] - 2026-04-17
 
 ### Fixed
