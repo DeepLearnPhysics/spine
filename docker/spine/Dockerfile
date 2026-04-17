@@ -95,14 +95,14 @@ RUN git clone https://github.com/NVIDIA/MinkowskiEngine.git /tmp/MinkowskiEngine
 COPY pyproject.toml MANIFEST.in README.md ./
 COPY src/ ./src/
 
-# Install build dependencies required for --no-build-isolation
-RUN pip install --no-cache-dir "setuptools>=65.0,<70.0" wheel "build>=0.8.0" "Cython>=0.29.31,<4.0"
+# Install SPINE build dependencies.
+RUN pip install --no-cache-dir "setuptools>=65.0,<70.0" wheel "build>=0.8.0"
 
 # Build h5py against the system HDF5 library used by LArCV while preserving the
 # existing NumPy/OpenBLAS stack used by MinkowskiEngine.
 RUN HDF5_DIR=/usr/lib/x86_64-linux-gnu/hdf5/serial \
-    pip install --no-cache-dir --no-build-isolation --no-binary=h5py --no-deps \
-    --force-reinstall "h5py>=3.1.0"
+    pip install --no-cache-dir --no-binary=h5py --no-deps --force-reinstall \
+    "h5py>=3.1.0"
 
 # Install SPINE with all dependencies
 RUN pip install --no-cache-dir --no-build-isolation .[all]
