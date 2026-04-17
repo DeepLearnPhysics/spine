@@ -13,6 +13,7 @@ This directory contains the Docker container definition for SPINE (Scalable Part
   - MinkowskiEngine (4D sparse convolutions)
   - torch-geometric ecosystem (torch-scatter, torch-cluster, torch-geometric)
   - ROOT 6.30+ and LArCV2 2.3.4
+  - OpT0Finder v1.0.0 for likelihood-based SBND/ICARUS flash matching
   - XRootD client with token authentication (for dCache streaming)
   - SPINE with all dependencies
 - **GPU Support**: Built for NVIDIA datacenter and workstation GPUs:
@@ -253,7 +254,20 @@ docker build --build-arg LARCV2_VERSION=2.3.3 \
   --platform linux/amd64 \
   -t spine:latest \
   -f spine/Dockerfile ..
+
+# Override the bundled ICARUS PhotonLibrary used by OpT0Finder likelihood flash matching
+docker build \
+  --build-arg ICARUS_PHOTONLIB_URL="https://example.org/PhotonLibrary.root" \
+  --build-arg ICARUS_PHOTONLIB_SHA256="<sha256>" \
+  --platform linux/amd64 \
+  -t spine:latest \
+  -f spine/Dockerfile ..
 ```
+
+By default, the image bundles the ICARUS PhotonLibrary from
+`https://s3df.slac.stanford.edu/data/neutrino/OpT0Finder/dat/PhotonLibrary-20201209.root`
+and verifies it with SHA256
+`9047b736467a04866751810a2648c5b8b73d7647b86b401010f65c4d3325c610`.
 
 ## GPU Architecture Support
 
