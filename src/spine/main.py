@@ -140,6 +140,8 @@ def inference_single(cfg: dict) -> None:
             logger.info(
                 "Looping over %d set of weights:\n%s", len(weights), weight_list
             )
+    if not weights:
+        weights = [None]
 
     # Loop over the weights, run the inference loop
     for weight in weights:

@@ -181,6 +181,28 @@ class TestMainEntryPoints:
         assert callable(inference_single)
         assert callable(process_world)
 
+    def test_model_less_inference_runs_once(self, monkeypatch):
+        """Test inference still runs once when no model is configured."""
+        from spine import main
+
+        calls = []
+
+        class MockDriver:
+            model = None
+
+            def __init__(self, cfg):
+                self.cfg = cfg
+
+            def run(self):
+                calls.append(self.cfg)
+
+        monkeypatch.setattr(main, "Driver", MockDriver)
+
+        cfg = {"base": {}, "io": {"reader": {"name": "hdf5"}}}
+        main.inference_single(cfg)
+
+        assert calls == [cfg]
+
     def test_cli_import_and_version(self):
         """Test CLI imports and version detection works."""
         from spine.bin.cli import check_dependencies, get_version, main
