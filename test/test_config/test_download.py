@@ -1,13 +1,12 @@
 """Tests for config download functionality."""
 
 import hashlib
-import os
-import tempfile
+import multiprocessing
+import time
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
-import yaml
 
 from spine.config.download import (
     compute_file_hash,
@@ -16,8 +15,7 @@ from spine.config.download import (
     get_cache_dir,
     url_to_filename,
 )
-from spine.config.load import load_config
-from spine.config.loader import ConfigLoader
+from spine.config.load import load_config_file
 
 
 class TestDownloadUtilities:
@@ -182,6 +180,44 @@ class TestDownloadUtilities:
         mock_download.assert_called_once()
         assert Path(result).exists()
 
+    def test_concurrent_downloads_safe(self, tmp_path):
+        """Test that concurrent downloads do not corrupt the cached file."""
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        url = "https://example.com/test_model.ckpt"
+
+        num_workers = 5
+        manager = multiprocessing.Manager()
+        result_queue = manager.Queue()
+        processes = []
+
+        for i in range(num_workers):
+            process = multiprocessing.Process(
+                target=_download_worker, args=(url, cache_dir, i, result_queue)
+            )
+            processes.append(process)
+            process.start()
+
+        for process in processes:
+            process.join(timeout=30)
+
+        assert all(process.exitcode == 0 for process in processes)
+
+        results = []
+        while not result_queue.empty():
+            results.append(result_queue.get())
+
+        assert len(results) == num_workers
+        assert all(status == "success" for _, status, _ in results)
+
+        paths = [result for _, _, result in results]
+        assert len(set(paths)) == 1
+
+        final_path = cache_dir / url_to_filename(url)
+        assert final_path.exists()
+        assert not list(cache_dir.glob(".*.lock"))
+        assert not list(cache_dir.glob(".*tmp*"))
+
 
 class TestConfigLoaderDownload:
     """Test suite for !download YAML tag in config loader."""
@@ -206,7 +242,7 @@ model:
         mock_download.side_effect = fake_download
 
         with patch("spine.config.download.get_cache_dir", return_value=cache_dir):
-            cfg = load_config(str(config_file))
+            cfg = load_config_file(str(config_file))
 
         assert "model" in cfg
         assert "weights" in cfg["model"]
@@ -233,7 +269,7 @@ model:
         mock_download.side_effect = fake_download
 
         with patch("spine.config.download.get_cache_dir", return_value=cache_dir):
-            cfg = load_config(str(config_file))
+            cfg = load_config_file(str(config_file))
 
         assert Path(cfg["model"]["weights"]).is_absolute()
         # Verify hash was passed to download (as third positional argument)
@@ -252,7 +288,7 @@ model:
 """)
 
         with pytest.raises(Exception, match="url"):
-            load_config(str(config_file))
+            load_config_file(str(config_file))
 
     @patch("spine.config.download.download_file")
     def test_download_integration(self, mock_download, tmp_path):
@@ -283,8 +319,24 @@ base:
         mock_download.side_effect = fake_download
 
         with patch("spine.config.download.get_cache_dir", return_value=cache_dir):
-            cfg = load_config(str(main_config))
+            cfg = load_config_file(str(main_config))
 
         assert cfg["model"]["name"] == "uresnet"
         assert Path(cfg["model"]["weights"]).exists()
         assert cfg["base"]["iterations"] == 1000
+
+
+def _download_worker(url, cache_dir, worker_id, result_queue):
+    """Attempt a cached download from a child process."""
+    try:
+        time.sleep(0.1 * worker_id)
+
+        def fake_download(url, path, expected_hash=None):
+            time.sleep(0.5)
+            path.write_text(f"downloaded by worker {worker_id}")
+
+        with patch("spine.config.download.download_file", side_effect=fake_download):
+            result = download_from_url(url, cache_dir=cache_dir)
+            result_queue.put((worker_id, "success", result))
+    except Exception as exc:  # pragma: no cover - reported through the queue
+        result_queue.put((worker_id, "error", str(exc)))

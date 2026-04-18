@@ -44,11 +44,10 @@ def test_larcv_dataset(larcv_data):
         schema[key] = el
 
     # Initialize the dataset
-    dataset = LArCVDataset(file_keys=larcv_data, schema=schema)
+    dataset = LArCVDataset(file_keys=larcv_data, schema=schema, dtype="float32")
 
     # Load the items in the dataset, check the keys
-    for i in range(len(dataset)):
-        entry = dataset[i]
+    for i, entry in enumerate(dataset):
         for key in tree_keys:
             assert key in entry
         assert "index" in entry
@@ -56,7 +55,7 @@ def test_larcv_dataset(larcv_data):
 
     # Check that the data keys are as expected
     for key in tree_keys:
-        assert key in dataset.data_keys()
+        assert key in dataset.data_keys
 
     # Check that one can list the content of the dataset
     data_dict = dataset.list_data(larcv_data)

@@ -105,7 +105,7 @@ jobs:
     - name: Test torch-dependent functionality
       run: |
         pytest test/test_conditional_imports.py::TestConditionalUtilities -v
-        pytest test/test_optional_io.py -v
+        pytest test/test_io/test_init.py -v
         pytest test/test_utils/ -v -k "torch" || echo "Some torch tests may be skipped"
 
   # NOTE: Model testing is currently disabled in CI due to complex dependency requirements

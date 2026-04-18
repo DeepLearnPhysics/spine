@@ -6,15 +6,24 @@ from warnings import warn
 import numpy as np
 import pytest
 
-from spine.data.larcv import CRTHit, Flash, Meta, RunInfo, Trigger
+from spine.data.larcv import CRTHit, Flash, RunInfo, Trigger
+from spine.data.larcv.meta import ImageMeta2D, ImageMeta3D
+from spine.geo import GeoManager
 from spine.io.core.parse.misc import *
+from spine.utils.conditional import LARCV_AVAILABLE
+
+pytestmark = pytest.mark.skipif(
+    not LARCV_AVAILABLE, reason="LArCV is required to generate parser fixtures."
+)
 
 
 @pytest.mark.parametrize("projection_id", [0, 1, 2])
 def test_parse_meta2d(sparse2d_event, projection_id):
     """Tests the parsing of metadata for 2D sparse events."""
     # Initialize the parser
-    parser = MetaParser(sparse_event=sparse2d_event, projection_id=projection_id)
+    parser = MetaParser(
+        dtype="float32", sparse_event=sparse2d_event, projection_id=projection_id
+    )
 
     # Parse the data
     result = parser.process(sparse_event=sparse2d_event)
@@ -22,7 +31,7 @@ def test_parse_meta2d(sparse2d_event, projection_id):
     # Do a few basic checks
     # - The object returned should be a Meta object
     # - Each of its attributes should be of length 2
-    assert isinstance(result, Meta)
+    assert isinstance(result, ImageMeta2D)
     for v in asdict(result).values():
         assert len(v) == 2
 
@@ -30,7 +39,7 @@ def test_parse_meta2d(sparse2d_event, projection_id):
 def test_parse_meta3d(sparse3d_event):
     """Tests the parsing of metadata for 3D sparse events."""
     # Initialize the parser
-    parser = MetaParser(sparse_event=sparse3d_event)
+    parser = MetaParser(dtype="float32", sparse_event=sparse3d_event)
 
     # Parse the data
     result = parser.process(sparse_event=sparse3d_event)
@@ -38,7 +47,7 @@ def test_parse_meta3d(sparse3d_event):
     # Do a few basic checks
     # - The object returned should be a Meta object
     # - Each of its attributes should be of length 3
-    assert isinstance(result, Meta)
+    assert isinstance(result, ImageMeta3D)
     for v in asdict(result).values():
         assert len(v) == 3
 
@@ -46,7 +55,7 @@ def test_parse_meta3d(sparse3d_event):
 def test_parse_run_info(sparse3d_event):
     """Tests the parsing of the run info of 3D sparse events."""
     # Initialize the parser
-    parser = RunInfoParser(sparse_event=sparse3d_event)
+    parser = RunInfoParser(dtype="float32", sparse_event=sparse3d_event)
 
     # Parse the data
     result = parser.process(sparse_event=sparse3d_event)
@@ -59,8 +68,11 @@ def test_parse_run_info(sparse3d_event):
 @pytest.mark.parametrize("flash_event", [0, 1, 10], indirect=True)
 def test_parse_flashes(flash_event):
     """Tests the parsing of a list of optical flashes."""
+    # Must initialize the geomtry singleton before parsing flashes
+    GeoManager.initialize_or_get(detector="icarus")
+
     # Initialize the parser
-    parser = FlashParser(flash_event=flash_event)
+    parser = FlashParser(dtype="float32", flash_event=flash_event)
 
     # Parse the data
     result = parser.process(flash_event=flash_event)
@@ -70,16 +82,16 @@ def test_parse_flashes(flash_event):
     # - The objects in the list are of the expected type
     # - The list provides a default object, even when it is empty
     assert len(result) == flash_event.as_vector().size()
-    if len(result):
-        assert type(result[0]) == Flash
+    if len(result) > 0:
+        assert isinstance(result[0], Flash)
     assert isinstance(result.default, Flash)
 
 
 @pytest.mark.parametrize("flash_event_list", [1, 2], indirect=True)
-def test_parse_flashes(flash_event_list):
+def test_parse_flash_lists(flash_event_list):
     """Tests the parsing of a list of list of optical flashes."""
     # Initialize the parser
-    parser = FlashParser(flash_event_list=flash_event_list)
+    parser = FlashParser(dtype="float32", flash_event_list=flash_event_list)
 
     # Parse the data
     result = parser.process(flash_event_list=flash_event_list)
@@ -90,8 +102,8 @@ def test_parse_flashes(flash_event_list):
     assert len(result) == np.sum(
         [event.as_vector().size() for event in flash_event_list]
     )
-    if len(result):
-        assert type(result[0]) == Flash
+    if len(result) > 0:
+        assert isinstance(result[0], Flash)
     assert isinstance(result.default, Flash)
 
 
@@ -99,7 +111,7 @@ def test_parse_flashes(flash_event_list):
 def test_parse_crthits(crthit_event):
     """Tests the parsing of a list of CRT hits."""
     # Initialize the parser
-    parser = CRTHitParser(crthit_event=crthit_event)
+    parser = CRTHitParser(dtype="float32", crthit_event=crthit_event)
 
     # Parse the data
     result = parser.process(crthit_event=crthit_event)
@@ -109,27 +121,8 @@ def test_parse_crthits(crthit_event):
     # - The objects in the list are of the expected type
     # - The list provides a default object, even when it is empty
     assert len(result) == crthit_event.as_vector().size()
-    if len(result):
-        assert type(result[0]) == CRTHit
-    assert isinstance(result.default, CRTHit)
-
-
-@pytest.mark.parametrize("crthit_event", [0, 1, 10], indirect=True)
-def test_parse_crthits(crthit_event):
-    """Tests the parsing of a list of CRT hits."""
-    # Initialize the parser
-    parser = CRTHitParser(crthit_event=crthit_event)
-
-    # Parse the data
-    result = parser.process(crthit_event=crthit_event)
-
-    # Do a few basic checks
-    # - The list produced is of the expected size
-    # - The objects in the list are of the expected type
-    # - The list provides a default object, even when it is empty
-    assert len(result) == crthit_event.as_vector().size()
-    if len(result):
-        assert type(result[0]) == CRTHit
+    if len(result) > 0:
+        assert isinstance(result[0], CRTHit)
     assert isinstance(result.default, CRTHit)
 
 
@@ -141,7 +134,7 @@ def test_parse_trigger(trigger_event):
         return
 
     # Initialize the parser
-    parser = TriggerParser(trigger_event=trigger_event)
+    parser = TriggerParser(dtype="float32", trigger_event=trigger_event)
 
     # Parse the data
     result = parser.process(trigger_event=trigger_event)

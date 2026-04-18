@@ -3,9 +3,14 @@
 import numpy as np
 import pytest
 
-from spine.data import Meta
+from spine.data.larcv.meta import ImageMeta2D, ImageMeta3D
 from spine.io.core.parse.cluster import *
-from spine.utils.conditional import larcv
+from spine.io.core.parse.data import ParserTensor
+from spine.utils.conditional import LARCV_AVAILABLE, larcv
+
+pytestmark = pytest.mark.skipif(
+    not LARCV_AVAILABLE, reason="LArCV is required to generate parser fixtures."
+)
 
 
 @pytest.mark.parametrize("projection_id", [0, 1, 2])
@@ -13,7 +18,9 @@ from spine.utils.conditional import larcv
 def test_parse_cluster2d(cluster2d_event, projection_id):
     """Tests the parsing of LArCV 2D sparse data organized in a group."""
     # Initialize the parser
-    parser = Cluster2DParser(cluster_event=cluster2d_event, projection_id=projection_id)
+    parser = Cluster2DParser(
+        dtype="float32", cluster_event=cluster2d_event, projection_id=projection_id
+    )
 
     # Parse the data
     result = parser.process(cluster_event=cluster2d_event)
@@ -22,10 +29,10 @@ def test_parse_cluster2d(cluster2d_event, projection_id):
     # - The first has both coordinates for each point
     # - The second has the feature tensor (value + cluster ID)
     # - The third has the metadata
-    assert len(result) == 3
-    assert result[0].shape[1] == 2
-    assert result[1].shape[1] == 2
-    assert isinstance(result[2], Meta)
+    assert isinstance(result, ParserTensor)
+    assert result.coords.shape[1] == 2
+    assert result.features.shape[1] == 2
+    assert isinstance(result.meta, ImageMeta2D)
 
 
 @pytest.mark.parametrize(
@@ -54,6 +61,7 @@ def test_parse_cluster3d(
 
     # Initialize the parser
     parser = Cluster3DParser(
+        dtype="float32",
         cluster_event=cluster3d_event,
         particle_event=particle_event,
         neutrino_event=neutrino_event,
@@ -77,10 +85,10 @@ def test_parse_cluster3d(
     # - The first has all 3 coordinates for each point
     # - The second has the feature tensor (value + cluster ID)
     # - The third has the metadata
-    assert len(result) == 3
-    assert result[0].shape[1] == 3
-    assert result[1].shape[1] == (14 if add_particle_info else 2)
-    assert isinstance(result[2], Meta)
+    assert isinstance(result, ParserTensor)
+    assert result.coords.shape[1] == 3
+    assert result.features.shape[1] == (15 if add_particle_info else 2)
+    assert isinstance(result.meta, ImageMeta3D)
 
 
 @pytest.mark.parametrize("cluster3d_event, particle_event", [(20, 20)], indirect=True)
@@ -105,6 +113,7 @@ def test_parse_cluster3d_rescale(
 
     # Initialize the parser
     parser = Cluster3DChargeRescaledParser(
+        dtype="float32",
         cluster_event=cluster3d_event,
         particle_event=particle_event,
         neutrino_event=neutrino_event,
@@ -128,17 +137,17 @@ def test_parse_cluster3d_rescale(
     # - The first has all 3 coordinates for each point
     # - The second has the feature tensor (value + cluster ID)
     # - The third has the metadata
-    assert len(result) == 3
-    assert result[0].shape[1] == 3
-    assert result[1].shape[1] == (14 if add_particle_info else 2)
-    assert isinstance(result[2], Meta)
+    assert isinstance(result, ParserTensor)
+    assert result.coords.shape[1] == 3
+    assert result.features.shape[1] == (15 if add_particle_info else 2)
+    assert isinstance(result.meta, ImageMeta3D)
 
 
 @pytest.mark.parametrize("cluster3d_event, particle_event", [(20, 20)], indirect=True)
 @pytest.mark.parametrize("neutrino_event", [1], indirect=True)
 @pytest.mark.parametrize("add_particle_info, clean_data", [(True, True)])
 @pytest.mark.parametrize("break_clusters", [True])
-def test_parse_cluster3d_multi(
+def test_parse_cluster3d_aggregate(
     cluster3d_event,
     particle_event,
     neutrino_event,
@@ -148,13 +157,15 @@ def test_parse_cluster3d_multi(
 ):
     """Tests the parsing of LArCV 3D sparse data organized in a group."""
     # Generate the sparse value/sparse semantic labels based on the cluster3d
-    sparse3d_event, sparse3d_seg_event = None, None
+    sparse3d_event_list, sparse3d_seg_event = None, None
     if clean_data:
         sparse3d_event_list = [cluster3d_to_sparse3d(cluster3d_event)] * 2
         sparse3d_seg_event = cluster3d_to_sparse3d(cluster3d_event, True, False)
 
     # Initialize the parser
-    parser = Cluster3DMultiModuleParser(
+    parser = Cluster3DAggregateParser(
+        dtype="float32",
+        value_aggr="max",
         cluster_event=cluster3d_event,
         particle_event=particle_event,
         neutrino_event=neutrino_event,
@@ -166,7 +177,7 @@ def test_parse_cluster3d_multi(
     )
 
     # Parse the data
-    result = parser.process_multi(
+    result = parser.process_aggr(
         cluster_event=cluster3d_event,
         particle_event=particle_event,
         neutrino_event=neutrino_event,
@@ -178,10 +189,10 @@ def test_parse_cluster3d_multi(
     # - The first has all 3 coordinates for each point
     # - The second has the feature tensor (value + cluster ID)
     # - The third has the metadata
-    assert len(result) == 3
-    assert result[0].shape[1] == 3
-    assert result[1].shape[1] == (14 if add_particle_info else 2)
-    assert isinstance(result[2], Meta)
+    assert isinstance(result, ParserTensor)
+    assert result.coords.shape[1] == 3
+    assert result.features.shape[1] == (15 if add_particle_info else 2)
+    assert isinstance(result.meta, ImageMeta3D)
 
 
 def cluster3d_to_sparse3d(cluster3d_event, segmentation=False, ghost=True):

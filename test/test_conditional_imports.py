@@ -55,21 +55,20 @@ class TestConditionalImports:
 class TestManagerIndependence:
     """Test that all managers can work independently without torch."""
 
-    def test_model_manager_conditional_import(self):
+    def test_model_manager_conditional_import(self, monkeypatch):
         """Test ModelManager imports without torch."""
+        import spine.model.manager as model_manager_module
         from spine.model import ModelManager
 
         assert ModelManager is not None
+        assert hasattr(ModelManager, "prepare_data")
+        assert hasattr(ModelManager, "forward")
 
-        # Should have conditional methods - test minimal config
-        try:
-            manager = ModelManager(
-                name="test", modules={}, network_input=["input_data"]
-            )
-            assert hasattr(manager, "prepare")
-        except ImportError:
-            # Expected when torch is not available
-            pytest.skip("ModelManager requires torch dependencies")
+        # ModelManager should fail explicitly before trying to build a model if
+        # torch is unavailable.
+        monkeypatch.setattr(model_manager_module, "TORCH_AVAILABLE", False)
+        with pytest.raises(ImportError, match="PyTorch is required"):
+            ModelManager(name="uresnet", modules={}, network_input={})
 
     def test_build_manager_torch_independence(self):
         """Test BuildManager doesn't require torch."""

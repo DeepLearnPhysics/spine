@@ -26,7 +26,6 @@ def fixture_batch_sparse(request):
     np.random.seed(seed=0)
 
     # Loop over each entry in the dummy batch
-    key = f"sparse_{name}"
     batch_size = request.param[0]
     num_products = request.param[1]
     batch = []
@@ -44,9 +43,12 @@ def fixture_batch_sparse(request):
                 lower=np.asarray([0.0, 0.0, 0.0]),
                 upper=np.asarray([100.0, 100.0, 100.0]),
                 size=np.asarray([1.0, 1.0, 1.0]),
+                count=np.asarray([100, 100, 100]),
             )
 
-            data[key] = ParserTensor(coords=coords, features=features, meta=meta)
+            data[f"sparse_{name}"] = ParserTensor(
+                coords=coords, features=features, meta=meta
+            )
 
         # Append the batch list
         batch.append(data)
@@ -67,7 +69,6 @@ def fixture_batch_edge_index(request):
     np.random.seed(seed=0)
 
     # Loop over each entry in the dummy batch
-    key = f"edge_index_{name}"
     batch_size = request.param[0]
     num_products = request.param[1]
     batch = []
@@ -105,7 +106,9 @@ def test_collate_sparse(split, detector, batch_sparse):
         GeoManager.initialize_or_get(detector=detector)
 
     # Initialize the collation class
-    collate_fn = CollateAll(data_types={name: "tensor"}, split=split)
+    collate_fn = CollateAll(
+        data_types={key: "tensor" for key in batch_sparse[0].keys()}, split=split
+    )
 
     # Pass the batch through the collate function
     result = collate_fn(batch_sparse)
@@ -119,7 +122,9 @@ def test_collate_sparse(split, detector, batch_sparse):
 def test_collate_edge_index(batch_edge_index):
     """Tests the collation of edge indexes."""
     # Initialize the collation class
-    collate_fn = CollateAll(data_types={name: "tensor"})
+    collate_fn = CollateAll(
+        data_types={key: "tensor" for key in batch_edge_index[0].keys()}
+    )
 
     # Pass the batch through the collate function
     result = collate_fn(batch_edge_index)

@@ -236,8 +236,8 @@ class HDF5Writer:
                 continue
 
             with h5py.File(file_name, "w") as out_file:
-                # Initialize the info dataset that stores environment parameters
-                out_file.create_dataset("info", (0,), maxshape=(None,), dtype=None)
+                # Initialize the info group that stores environment parameters
+                out_file.create_group("info")
                 out_file["info"].attrs["version"] = __version__
                 if cfg is not None:
                     out_file["info"].attrs["cfg"] = yaml.dump(cfg)

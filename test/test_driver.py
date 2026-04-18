@@ -1,5 +1,7 @@
 """Test to verify Driver is always importable from main spine module."""
 
+import pytest
+
 
 def test_driver_always_importable():
     """Test that Driver can always be imported from spine, regardless of PyTorch availability."""
@@ -38,19 +40,10 @@ def test_driver_import_with_other_classes():
     try:
         from spine.data import Meta, Neutrino, Particle
         from spine.data.batch.tensor import TensorBatch
-
-        assert callable(Meta)
-        assert callable(Particle)
-        assert callable(Neutrino)
-        assert callable(TensorBatch)
-        print("✅ Data classes successfully imported")
     except ImportError as e:
-        # This is acceptable if dependencies aren't available
-        print(f"⚠️ Some data classes not available: {e}")
+        pytest.skip(f"Some data classes are not available: {e}")
+
+    assert callable(Meta)
+    assert callable(Particle)
+    assert callable(Neutrino)
     assert callable(TensorBatch)
-
-
-if __name__ == "__main__":
-    test_driver_always_importable()
-    test_driver_import_with_other_classes()
-    print("✅ All Driver import tests passed!")

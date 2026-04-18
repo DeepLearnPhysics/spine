@@ -4,8 +4,8 @@ Note: This test requires PyTorch and spine.io.factories which are optional depen
 It's excluded from CI core tests and runs only in torch-enabled environments.
 """
 
-import os
 import time
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -15,19 +15,21 @@ from spine.io.core.write.csv import CSVWriter
 from spine.io.torch.factories import loader_factory
 
 MAX_ITER = 10
+MAX_BATCH_ID = MAX_ITER - 1
 
 
 @pytest.mark.parametrize("cfg_file", ["test_loader.cfg"])
 def test_loader(cfg_file, larcv_data, quiet=True, csv=False):
     """Tests the loading of data using a full IO configuration."""
-    # Find the top-level directory of the package
-    main_dir = os.path.dirname(os.path.abspath(__file__))
-    main_dir = os.path.dirname(main_dir)
-
     # Fetch the configuration
-    if not os.path.isfile(cfg_file):
-        cfg_file = os.path.join(main_dir, "config", cfg_file)
-    if not os.path.isfile(cfg_file):
+    cfg_path = Path(cfg_file)
+    if not cfg_path.is_file():
+        for parent in Path(__file__).resolve().parents:
+            candidate = parent / "config" / cfg_file
+            if candidate.is_file():
+                cfg_path = candidate
+                break
+    if not cfg_path.is_file():
         raise ValueError(f"Configuration file not found: {cfg_file}")
 
     # If requested, intialize a CSV output
@@ -35,15 +37,14 @@ def test_loader(cfg_file, larcv_data, quiet=True, csv=False):
         csv = CSVWriter("test.csv")
 
     # Initialize the loader
-    with open(cfg_file, "r", encoding="utf-8") as cfg_str:
+    with open(cfg_path, "r", encoding="utf-8") as cfg_str:
         # Load configuration dictionary
         cfg = yaml.safe_load(cfg_str)
 
         # Update the path to the file
-        print(cfg.keys())
         cfg["io"]["loader"]["dataset"]["file_keys"] = larcv_data
 
-    loader = loader_factory(**cfg["io"]["loader"])
+    loader = loader_factory(dtype="float32", **cfg["io"]["loader"])
 
     # Loop
     tstart = time.time()
@@ -60,8 +61,7 @@ def test_loader(cfg_file, larcv_data, quiet=True, csv=False):
             t0 = titer
         tsum += titer
         if csv:
-            csv.record(["iter", "t"], [batch_id, titer])
-            csv.write()
+            csv.append({"iter": batch_id, "t": titer})
         if (batch_id + 1) == MAX_ITER:
             break
         tstart = time.time()
