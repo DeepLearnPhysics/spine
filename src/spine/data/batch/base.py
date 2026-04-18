@@ -1,7 +1,6 @@
 """Module with a base class for all batched data structures."""
 
 from dataclasses import dataclass
-from typing import Any, List, Tuple, Union
 
 import numpy as np
 
@@ -25,14 +24,18 @@ class BatchBase:
         Number of entries that make up the batched data
     """
 
-    data: Union[
-        np.ndarray, torch.Tensor, ME.SparseTensor, List[np.ndarray], List[torch.Tensor]
-    ]
-    counts: Union[np.ndarray, torch.Tensor]
-    edges: Union[np.ndarray, torch.Tensor]
+    data: (
+        np.ndarray
+        | torch.Tensor
+        | ME.SparseTensor
+        | list[np.ndarray]
+        | list[torch.Tensor]
+    )
+    counts: np.ndarray | torch.Tensor
+    edges: np.ndarray | torch.Tensor
     batch_size: int
 
-    def __init_subclass__(cls, **kwargs: Any) -> None:
+    def __init_subclass__(cls, **kwargs: object) -> None:
         """Automatically merge docstrings from parent classes.
 
         This hook is called whenever a class inherits from BatchBase. It
@@ -49,7 +52,7 @@ class BatchBase:
 
     def __init__(
         self,
-        data: Union[np.ndarray, torch.Tensor, ME.SparseTensor],
+        data: np.ndarray | torch.Tensor | ME.SparseTensor,
         is_sparse: bool = False,
         is_list: bool = False,
     ) -> None:
@@ -124,7 +127,7 @@ class BatchBase:
         return True
 
     @property
-    def shape(self) -> Tuple[int, ...]:
+    def shape(self) -> tuple[int, ...]:
         """Shape of the underlying data.
 
         Returns

@@ -5,8 +5,6 @@ This copies the internal structure of :class:`larcv.Trigger`.
 
 from dataclasses import dataclass, field
 
-from typing_extensions import Self
-
 from spine.data.base import DataBase
 from spine.data.field import FieldMetadata
 
@@ -42,7 +40,7 @@ class Trigger(DataBase):
     beam_time_ns: int = field(default=-1, metadata=FieldMetadata(units="ns"))
 
     @classmethod
-    def from_larcv(cls, trigger) -> Self:
+    def from_larcv(cls, trigger) -> "Trigger":
         """Builds and returns a Trigger object from a LArCV Trigger object.
 
         Parameters

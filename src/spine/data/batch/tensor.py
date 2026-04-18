@@ -54,10 +54,6 @@ class TensorBatch(BatchBase):
             has_batch_col = True
             coord_cols = COORD_COLS
 
-        # If the number of batches is not provided, get it from the counts
-        if batch_size is None:
-            batch_size = len(counts)
-
         # If the counts are not provided, must build them once
         if counts is None:
             # Define the array functions depending on the input type
@@ -65,6 +61,9 @@ class TensorBatch(BatchBase):
                 raise ValueError("Cannot get the counts without a batch column.")
             ref = data if not is_sparse else data.C
             counts = self.get_counts(ref[:, BATCH_COL], batch_size)
+        else:
+            # If the number of batches is not provided, get it from the counts
+            batch_size = len(counts)
 
         # Cast
         counts = self._as_long(counts)

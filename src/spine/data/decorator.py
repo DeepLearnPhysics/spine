@@ -7,10 +7,9 @@ serialization and introspection:
 """
 
 import types
+from collections.abc import Callable
 from typing import (
     Any,
-    Callable,
-    Optional,
     Union,
     get_args,
     get_origin,
@@ -36,8 +35,8 @@ def stored_property(
 
 
 def stored_property(
-    func: Optional[Callable[..., Any]] = None, /, **metadata: Any
-) -> Union[Callable[..., Any], Callable[[Callable[..., Any]], Callable[..., Any]]]:
+    func: Callable[..., Any] | None = None, /, **metadata: Any
+) -> Callable[..., Any] | Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Mark a property getter for serialization/introspection.
 
     This decorator does not create the property itself. It attaches metadata to

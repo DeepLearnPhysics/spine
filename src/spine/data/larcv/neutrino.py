@@ -7,7 +7,6 @@ from dataclasses import dataclass, field
 from warnings import warn
 
 import numpy as np
-from typing_extensions import Self
 
 from spine.data.base import PosDataBase
 from spine.data.field import FieldMetadata
@@ -139,7 +138,7 @@ class Neutrino(PosDataBase):
     )
 
     @classmethod
-    def from_larcv(cls, neutrino) -> Self:
+    def from_larcv(cls, neutrino) -> "Neutrino":
         """Builds and returns a Neutrino object from a LArCV Neutrino object.
 
         Parameters

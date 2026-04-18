@@ -514,6 +514,21 @@ class TestDataBase:
         assert "energy" in props_no_meta
         assert props_no_meta["energy"].units is None  # No metadata to inherit
 
+    def test_get_stored_properties_bad_alias_target(self):
+        """Test that aliases to missing targets fail loudly."""
+
+        @dataclass(eq=False)
+        class MyData(DataBase):
+            value: int = 42
+
+            @property
+            @stored_alias("missing")
+            def energy(self) -> int:
+                return self.value
+
+        with pytest.raises(AttributeError, match="targets unknown attribute"):
+            MyData._get_stored_properties()  # pylint: disable=protected-access
+
     def test_inheritance_independent_caches(self):
         """Test that subclasses have independent cached attributes."""
 

@@ -44,21 +44,18 @@ Note: Direction vectors (unit vectors) typically have no units metadata since
 they are unitless normalized directions.
 """
 
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, replace
+from types import UnionType
 from typing import (
     TYPE_CHECKING,
     Any,
     ClassVar,
-    Dict,
-    List,
-    Optional,
-    Tuple,
-    Union,
+    get_args,
     get_origin,
+    get_type_hints,
 )
 
 import numpy as np
-from typing_extensions import Self
 
 from spine.utils.docstring import merge_ancestor_docstrings
 
@@ -76,13 +73,29 @@ class DataBase:
     """
 
     # Euclidean axis labels
-    _axes: ClassVar[Tuple[str, str, str]] = ("x", "y", "z")
+    _axes: ClassVar[tuple[str, str, str]] = ("x", "y", "z")
 
     # NOTE: Cached attribute lists are NOT declared here as ClassVar
     # to avoid sharing across inheritance hierarchy. Each subclass gets
     # its own independent copies via __init_subclass__.
 
-    def __init_subclass__(cls, **kwargs: Any) -> None:
+    @staticmethod
+    def _annotation_matches(annotation: Any, target: type) -> bool:
+        """Check if an annotation is, or contains, a target runtime type."""
+        if annotation is target:
+            return True
+
+        origin = get_origin(annotation)
+        if origin is target:
+            return True
+
+        args = get_args(annotation)
+        if origin is UnionType or type(None) in args:
+            return any(DataBase._annotation_matches(arg, target) for arg in args)
+
+        return False
+
+    def __init_subclass__(cls, **kwargs: object) -> None:
         """Automatically merge docstrings from parent classes and initialize
         class-level cached attribute lists.
 
@@ -128,9 +141,11 @@ class DataBase:
         type(self)._ensure_cached_attrs()
 
         # Cast arrays to the correct type, check length
+        field_types = get_type_hints(type(self))
         for field in fields(self):
             value = getattr(self, field.name)
-            if field.type == np.ndarray:
+            field_type = field_types.get(field.name, field.type)
+            if self._annotation_matches(field_type, np.ndarray):
                 # Check that the length of the array matches the expected length
                 meta = FieldMetadata(**field.metadata)
                 if meta.length is not None:
@@ -164,13 +179,15 @@ class DataBase:
             return False
 
         # Check that all base attributes are identical
+        field_types = get_type_hints(type(self))
         for field in fields(self):
             key = field.name
             value = getattr(self, key)
             value_other = getattr(other, key)
-            if field.type in (int, float, str, bool):
+            field_type = field_types.get(field.name, field.type)
+            if field_type in (int, float, str, bool):
                 # For scalars, handle NaN specially for floats
-                if field.type == float:
+                if field_type == float:
                     # Both NaN -> equal; otherwise use regular comparison
                     both_nan = np.isnan(value) and np.isnan(value_other)
                     if not both_nan and value_other != value:
@@ -180,12 +197,12 @@ class DataBase:
                     if value_other != value:
                         return False
 
-            elif field.type == np.ndarray:
+            elif self._annotation_matches(field_type, np.ndarray):
                 # For numpy vectors, use array_equal with equal_nan=True
                 if not np.array_equal(value, value_other, equal_nan=True):
                     return False
 
-            elif get_origin(field.type) == list or field.type == list:
+            elif self._annotation_matches(field_type, list):
                 # For object lists, compare the length and all elements individually
                 if len(value) != len(value_other) or any(
                     v1 != v2 for v1, v2 in zip(value, value_other)
@@ -198,7 +215,7 @@ class DataBase:
                 raise TypeError(
                     f"Cannot compare the `{key}` attribute of "
                     f"`{self.__class__.__name__}` objects. Unsupported type: "
-                    f"{field.type}"
+                    f"{field_type}"
                 )
 
         return True
@@ -217,15 +234,17 @@ class DataBase:
                 "Supported precisions are: 2 (half), 4 (single), and 8 (double)."
             )
 
+        field_types = get_type_hints(type(self))
         for field in fields(self):
-            if field.type == np.ndarray:
+            field_type = field_types.get(field.name, field.type)
+            if self._annotation_matches(field_type, np.ndarray):
                 meta = FieldMetadata(**field.metadata)
                 if meta.dtype is not None and "float" in str(meta.dtype):
                     val = getattr(self, field.name)
                     dtype = f"{val.dtype.str[:-1]}{precision}"
                     setattr(self, field.name, val.astype(dtype))
 
-    def shift_indexes(self, shifts: Union[int, Dict[str, int]]) -> None:
+    def shift_indexes(self, shifts: int | dict[str, int]) -> None:
         """Apply offsets to index attributes in place.
 
         Invalid indexes (-1) are not offset to prevent making them valid.
@@ -245,7 +264,7 @@ class DataBase:
             elif isinstance(value, np.ndarray):
                 setattr(self, attr, value + shift)
 
-    def as_dict(self, lite: bool = False) -> Dict[str, Any]:
+    def as_dict(self, lite: bool = False) -> dict[str, Any]:
         """Returns the data class as dictionary of (key, value) pairs.
 
         Parameters
@@ -272,10 +291,10 @@ class DataBase:
 
     def scalar_dict(
         self,
-        attrs: Optional[List[str]] = None,
-        lengths: Optional[Dict[str, int]] = None,
+        attrs: list[str] | None = None,
+        lengths: dict[str, int] | None = None,
         lite: bool = False,
-    ) -> Dict[str, Union[float, int, str, bool]]:
+    ) -> dict[str, float | int | str | bool]:
         """Returns the data class attributes as a dictionary of scalars.
 
         This is useful when storing data classes in CSV files, which expect
@@ -353,7 +372,7 @@ class DataBase:
         return scalar_dict
 
     @property
-    def enum_dicts(self) -> Dict[str, Dict[str, int]]:
+    def enum_dicts(self) -> dict[str, dict[str, int]]:
         """Fetches the dictionary of enumerated attributes and their enumerator descriptors.
 
         Returns
@@ -364,7 +383,7 @@ class DataBase:
         return self._enum_dicts
 
     @property
-    def field_units(self) -> Dict[str, str]:
+    def field_units(self) -> dict[str, str]:
         """Fetches the documented units for each field.
 
         Returns
@@ -376,7 +395,7 @@ class DataBase:
         return self._field_units
 
     @classmethod
-    def from_hdf5(cls, cls_dict: Dict[str, Any]) -> Self:
+    def from_hdf5(cls, cls_dict: dict[str, Any]) -> "DataBase":
         """Builds and returns an object of the class from a dictionary of attributes.
 
         This is used to build objects from HDF5 files, which are stored as
@@ -397,7 +416,7 @@ class DataBase:
 
         Returns
         -------
-        Self
+        DataBase
             Object of the class initialized with the provided attributes
         """
         # Ensure caching is done (needed for derived_names lookup)
@@ -435,10 +454,15 @@ class DataBase:
 
         # Get the list of fields defined on the class
         cls_fields = fields(cls)
+        field_types = get_type_hints(cls)
 
         # Cache type-based attributes (only used to load from HDF5, not for general use)
-        cls._str_attrs = tuple(f.name for f in cls_fields if f.type == str)
-        cls._bool_attrs = tuple(f.name for f in cls_fields if f.type == bool)
+        cls._str_attrs = tuple(
+            f.name for f in cls_fields if field_types.get(f.name, f.type) == str
+        )
+        cls._bool_attrs = tuple(
+            f.name for f in cls_fields if field_types.get(f.name, f.type) == bool
+        )
 
         # Get field and derived property metadata, combine them
         field_meta = {f.name: FieldMetadata(**f.metadata) for f in cls_fields}
@@ -494,7 +518,7 @@ class DataBase:
         cls._attrs_cached = True
 
     @classmethod
-    def _get_stored_properties(cls) -> Dict[str, FieldMetadata]:
+    def _get_stored_properties(cls) -> dict[str, FieldMetadata]:
         """Introspect the class to find all stored_property descriptors and
         any alias properties, and return a dictionary mapping their names to their
         FieldMetadata.
@@ -506,9 +530,10 @@ class DataBase:
         Dict[str, FieldMetadata]
             Dictionary mapping property names to their FieldMetadata
         """
-        result = {}
+        result, aliases = {}, {}
 
-        # Walk through MRO to get ALL properties from parent classes too
+        # Walk through MRO to get all stored properties and aliases from parent
+        # classes too. Child definitions win over parent definitions.
         for klass in cls.__mro__:
             # Skip object base class
             if klass is object:
@@ -517,7 +542,7 @@ class DataBase:
             # Use __dict__ to only get attributes defined directly on this class
             for name, attr in klass.__dict__.items():
                 # Skip if already processed from a child class (child overrides win)
-                if name in result:
+                if name in result or name in aliases:
                     continue
 
                 # Check if it's a property with stored metadata
@@ -531,39 +556,23 @@ class DataBase:
                             attr.fget, "__stored_alias_target__", None
                         )
                         if target_name is not None:
-                            # Look up the target in already-discovered properties
-                            if target_name in result:
-                                # Copy metadata but force skip=True (aliases not stored)
-                                meta_dict = result[target_name].as_dict()
-                                meta_dict["skip"] = True
-                                result[name] = FieldMetadata(**meta_dict)
-                            else:
-                                # Target might be discovered later or be a field
-                                # We'll handle it in a second pass
-                                pass
+                            aliases[name] = target_name
 
-        # Second pass: handle aliases whose targets are fields (not properties)
-        for klass in cls.__mro__:
-            if klass is object:
-                continue
+        # Resolve aliases once all stored properties have been discovered.
+        field_meta = {f.name: FieldMetadata(**f.metadata) for f in fields(cls)}
+        for name, target_name in aliases.items():
+            if target_name in result:
+                metadata = result[target_name]
+            elif target_name in field_meta:
+                metadata = field_meta[target_name]
+            else:
+                raise AttributeError(
+                    f"Stored alias `{name}` on `{cls.__name__}` targets "
+                    f"unknown attribute `{target_name}`."
+                )
 
-            for name, attr in klass.__dict__.items():
-                if name in result:
-                    continue
-
-                if isinstance(attr, property) and attr.fget is not None:
-                    target_name = getattr(attr.fget, "__stored_alias_target__", None)
-                    if target_name is not None and target_name not in result:
-                        # Target is a field, not a derived property
-                        cls_fields = fields(cls)
-                        for f in cls_fields:
-                            if f.name == target_name:
-                                # Copy field metadata but force skip=True
-                                metadata = FieldMetadata(**f.metadata)
-                                meta_dict = metadata.as_dict()
-                                meta_dict["skip"] = True
-                                result[name] = FieldMetadata(**meta_dict)
-                                break
+            # Aliases are not stored as independent fields.
+            result[name] = replace(metadata, skip=True)
 
         return result
 
@@ -596,7 +605,7 @@ class PosDataBase(DataBase):
             )
 
     @property
-    def field_units(self) -> Dict[str, str]:
+    def field_units(self) -> dict[str, str]:
         """Fetches the documented units for each field.
 
         This property provides a dictionary mapping field names to their units,

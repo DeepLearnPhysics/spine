@@ -1,7 +1,6 @@
 """Module with a dataclass targeted at a batch index or list of indexes."""
 
 from dataclasses import dataclass
-from typing import Union
 from warnings import warn
 
 import numpy as np
@@ -26,8 +25,8 @@ class IndexBatch(BatchBase):
         is the same as counts if the underlying data is a single index
     """
 
-    offsets: Union[np.ndarray, torch.Tensor]
-    single_counts: Union[np.ndarray, torch.Tensor]
+    offsets: np.ndarray | torch.Tensor
+    single_counts: np.ndarray | torch.Tensor
 
     def __init__(
         self,

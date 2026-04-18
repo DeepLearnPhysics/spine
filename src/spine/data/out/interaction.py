@@ -1,7 +1,7 @@
 """Module with a data class objects which represent output interactions."""
 
 from dataclasses import dataclass, field
-from typing import List, Optional, cast
+from typing import cast
 from warnings import warn
 
 import numpy as np
@@ -78,7 +78,7 @@ class InteractionBase(OutBase):
 
     # Object list attributes
     # Note: Subclasses override this with specific List[RecoParticle/TruthParticle]
-    particles: List[ParticleBase] = field(
+    particles: list[ParticleBase] = field(
         default_factory=list,
         metadata=FieldMetadata(skip=True),
     )
@@ -148,7 +148,7 @@ class InteractionBase(OutBase):
         self.flash_scores = np.empty(0, dtype=np.float32)
 
     @property
-    def primary_particles(self) -> List[ParticleBase]:
+    def primary_particles(self) -> list[ParticleBase]:
         """List of primary particles associated with this interaction.
 
         Returns
@@ -303,7 +303,7 @@ class InteractionBase(OutBase):
         return topology
 
     @classmethod
-    def from_particles(cls, particles: List[ParticleBase]):
+    def from_particles(cls, particles: list[ParticleBase]):
         """Builds an Interaction instance from its constituent Particle objects.
 
         Parameters
@@ -349,7 +349,7 @@ class RecoInteraction(InteractionBase, RecoBase):
     """
 
     # Object list attributes
-    particles: List[RecoParticle] = field(  # type: ignore[assignment]
+    particles: list[RecoParticle] = field(  # type: ignore[assignment]
         default_factory=lambda: [],
         metadata=FieldMetadata(skip=True),
     )
@@ -365,7 +365,7 @@ class RecoInteraction(InteractionBase, RecoBase):
         return "Reco" + super().__str__()
 
     @property
-    def leading_shower(self) -> Optional[RecoParticle]:
+    def leading_shower(self) -> RecoParticle | None:
         """Leading primary shower of this interaction.
 
         Returns
@@ -405,7 +405,7 @@ class TruthInteraction(Neutrino, InteractionBase, TruthBase):
     nu_id: int = -1
 
     # Object list attributes
-    particles: List[TruthParticle] = field(  # type: ignore[assignment]
+    particles: list[TruthParticle] = field(  # type: ignore[assignment]
         default_factory=lambda: [],
         metadata=FieldMetadata(skip=True),
     )

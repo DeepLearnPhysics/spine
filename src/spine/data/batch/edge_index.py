@@ -4,7 +4,6 @@ An edge index is a sparse representation of a graph incidence matrix.
 """
 
 from dataclasses import dataclass
-from typing import Union
 
 import numpy as np
 
@@ -27,7 +26,7 @@ class EdgeIndexBatch(BatchBase):
         Whether the edge index is directed or undirected
     """
 
-    offsets: Union[np.ndarray, torch.Tensor]
+    offsets: np.ndarray | torch.Tensor
     directed: bool
 
     def __init__(self, data, counts, offsets, directed):

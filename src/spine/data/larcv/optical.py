@@ -6,7 +6,6 @@ This copies the internal structure of :class:`larcv.Flash`.
 from dataclasses import dataclass, field
 
 import numpy as np
-from typing_extensions import Self
 
 from spine.data.base import PosDataBase
 from spine.data.field import FieldMetadata
@@ -94,7 +93,7 @@ class Flash(PosDataBase):
     )
 
     @classmethod
-    def from_larcv(cls, flash) -> Self:
+    def from_larcv(cls, flash) -> "Flash":
         """Builds and returns a Flash object from a LArCV Flash object.
 
         Parameters

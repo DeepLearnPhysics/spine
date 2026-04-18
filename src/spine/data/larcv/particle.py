@@ -7,7 +7,6 @@ from dataclasses import dataclass, field
 from warnings import warn
 
 import numpy as np
-from typing_extensions import Self
 
 from spine.data.base import PosDataBase
 from spine.data.decorator import stored_property
@@ -222,7 +221,7 @@ class Particle(PosDataBase):
         return np.sqrt(max(0.0, self.energy_init**2 - self.p**2))
 
     @classmethod
-    def from_larcv(cls, particle) -> Self:
+    def from_larcv(cls, particle) -> "Particle":
         """Builds and returns a Particle object from a LArCV Particle object.
 
         Parameters

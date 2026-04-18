@@ -4,14 +4,14 @@ This module provides a type-safe alternative to dictionary-based field metadata,
 offering better IDE support, type checking, and documentation.
 """
 
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
-from typing import Any, Dict, Iterator, Mapping, Optional
 
 __all__ = ["FieldMetadata"]
 
 
 @dataclass(frozen=True)
-class FieldMetadata(Mapping[str, Any]):
+class FieldMetadata(Mapping[str, object]):
     """Metadata for data structure fields.
 
     Provides a type-safe way to specify field metadata with validation and
@@ -55,13 +55,13 @@ class FieldMetadata(Mapping[str, Any]):
     ... )
     """
 
-    return_type: Optional[type] = None
-    length: Optional[int] = None
-    dtype: Optional[type] = None
+    return_type: type | None = None
+    length: int | None = None
+    dtype: type | None = None
     position: bool = False
     vector: bool = False
-    units: Optional[str] = None
-    enum: Optional[Dict[int, str]] = None
+    units: str | None = None
+    enum: dict[int, str] | None = None
     index: bool = False
     skip: bool = False
     lite_skip: bool = False
@@ -74,7 +74,7 @@ class FieldMetadata(Mapping[str, Any]):
             raise TypeError("'enum' must be a dictionary")
 
     # Implement Mapping protocol for dataclass field() compatibility
-    def __getitem__(self, key: str) -> Any:
+    def __getitem__(self, key: str) -> object:
         """Get metadata value by key."""
         if not hasattr(self, key):
             raise KeyError(key)
@@ -104,7 +104,7 @@ class FieldMetadata(Mapping[str, Any]):
         """Return number of non-None/non-False metadata entries."""
         return sum(1 for _ in self)
 
-    def as_dict(self) -> Dict[str, Any]:
+    def as_dict(self) -> dict[str, object]:
         """Convert to plain dictionary.
 
         Returns

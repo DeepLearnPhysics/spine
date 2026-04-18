@@ -1,7 +1,6 @@
 """Module with a data class objects which represent output particles."""
 
 from dataclasses import dataclass, field
-from typing import List
 
 import numpy as np
 from scipy.spatial.distance import cdist
@@ -244,7 +243,7 @@ class RecoParticle(ParticleBase, RecoBase):
     axial_spread: float = np.nan
 
     # Object list attributes
-    fragments: List[RecoFragment] = field(
+    fragments: list[RecoFragment] = field(
         default_factory=lambda: [],
         metadata=FieldMetadata(skip=True, cat=True),
     )
@@ -558,7 +557,7 @@ class TruthParticle(Particle, ParticleBase, TruthBase):
     reco_length: float = np.nan
 
     # Object list attributes
-    fragments: List[TruthFragment] = field(
+    fragments: list[TruthFragment] = field(
         default_factory=lambda: [],
         metadata=FieldMetadata(skip=True),
     )

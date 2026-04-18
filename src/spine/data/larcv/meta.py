@@ -5,7 +5,7 @@ images or :class:`larcv.Voxel3DMeta` for 3D images.
 """
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -47,7 +47,7 @@ class ImageMetaBase(DataBase):
     def __post_init__(self):
         """Validate the consistency of the meta parameters."""
         # Per-instance cache, intentionally not a dataclass field
-        self._index_multipliers = None  # type: Optional[np.ndarray]
+        self._index_multipliers: np.ndarray | None = None
 
         # Call the parent post_init to perform any additional validation
         super().__post_init__()

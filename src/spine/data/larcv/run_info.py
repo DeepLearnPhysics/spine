@@ -5,8 +5,6 @@ It can extract run attributes from any event-level LArCV object.
 
 from dataclasses import dataclass
 
-from typing_extensions import Self
-
 from spine.data.base import DataBase
 
 __all__ = ["RunInfo"]
@@ -32,7 +30,7 @@ class RunInfo(DataBase):
     event: int = -1
 
     @classmethod
-    def from_larcv(cls, larcv_event) -> Self:
+    def from_larcv(cls, larcv_event) -> "RunInfo":
         """
         Builds and returns a Meta object from a LArCV 2D metadata object
 
