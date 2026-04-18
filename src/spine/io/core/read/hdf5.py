@@ -309,7 +309,7 @@ class HDF5Reader(ReaderBase):
 
                     # Rebuild an instance of the object class, if requested
                     if self.build_classes:
-                        data[key].append(obj_class(**obj_dict))
+                        data[key].append(obj_class.from_hdf5(obj_dict))
                     else:
                         data[key].append(obj_dict)
 

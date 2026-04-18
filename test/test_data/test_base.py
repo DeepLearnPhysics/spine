@@ -126,7 +126,7 @@ class SimpleNormalizedVectorData(PosDataBase):
     )
 
 
-@dataclass(eq=False)
+@dataclass(eq=False, repr=False)
 class ListData(DataBase):
     """Test data structure with object list attributes."""
 
@@ -229,15 +229,24 @@ class TestDataBase:
         assert "vector=array(shape=(2,), dtype=float64)" in repr_str
         assert "array([1." not in repr_str
 
-    def test_repr_uses_lite_skip_attrs(self):
-        """Test that repr skips lite serialization fields."""
+    def test_repr_includes_lite_skip_attrs(self):
+        """Test that repr includes fields skipped by serialization."""
         obj = SkipData()
 
         repr_str = repr(obj)
 
         assert "visible=0" in repr_str
-        assert "skip_field" not in repr_str
-        assert "lite_skip_field" not in repr_str
+        assert "skip_field=1" in repr_str
+        assert "lite_skip_field=2" in repr_str
+
+    def test_repr_compacts_lists(self):
+        """Test that repr summarizes list fields without expanding them."""
+        obj = ListData(values=[SimpleData(), SimpleData()])
+
+        repr_str = repr(obj)
+
+        assert "values=list(len=2)" in repr_str
+        assert "SimpleData(" not in repr_str
 
     def test_array_dtype_casting(self):
         """Test that arrays are cast to correct dtype in __post_init__."""
