@@ -1,6 +1,7 @@
 """Test Interaction classes."""
 
 import numpy as np
+import pytest
 
 
 class TestInteractionBase:
@@ -80,6 +81,26 @@ class TestInteractionBase:
         assert obj.is_flash_matched is False
         assert np.isnan(obj.flash_total_pe)
         assert np.isnan(obj.flash_hypo_pe)
+        assert len(obj.flash_ids) == 0
+        assert len(obj.flash_volume_ids) == 0
+        assert len(obj.flash_times) == 0
+        assert len(obj.flash_scores) == 0
+
+    def test_interactionbase_reset_flash_match_idempotent(self):
+        """Test reset_flash_match on an object without an existing match."""
+        from spine.data.out.interaction import InteractionBase
+
+        obj = InteractionBase()
+
+        obj.reset_flash_match()
+
+        assert obj.is_flash_matched is False
+        assert np.isnan(obj.flash_total_pe)
+        assert np.isnan(obj.flash_hypo_pe)
+        assert obj.flash_ids.dtype == np.int64
+        assert obj.flash_volume_ids.dtype == np.int64
+        assert obj.flash_times.dtype == np.float32
+        assert obj.flash_scores.dtype == np.float32
         assert len(obj.flash_ids) == 0
         assert len(obj.flash_volume_ids) == 0
         assert len(obj.flash_times) == 0
@@ -280,6 +301,19 @@ class TestInteractionBase:
         assert np.array_equal(
             obj.depositions, np.array([10.0, 20.0, 30.0], dtype=np.float32)
         )
+
+    def test_interactionbase_from_particles_requires_common_units(self):
+        """Test that from_particles rejects inconsistent particle units."""
+        from spine.data.out.interaction import InteractionBase
+        from spine.data.out.particle import ParticleBase
+
+        particles = [
+            ParticleBase(id=1, units="cm"),
+            ParticleBase(id=2, units="px"),
+        ]
+
+        with pytest.raises(ValueError, match="units must be unique"):
+            InteractionBase.from_particles(particles=particles)
 
 
 class TestRecoInteraction:

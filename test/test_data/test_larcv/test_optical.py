@@ -303,6 +303,14 @@ class TestFlashIntegration:
 class TestFlashMerging:
     """Test merging of Flash objects."""
 
+    def test_flash_merging_rejects_mismatched_units(self):
+        """Test that flashes with inconsistent units cannot be merged."""
+        flash_cm = Flash(units="cm")
+        flash_px = Flash(units="px")
+
+        with pytest.raises(ValueError, match="units of the flash"):
+            flash_cm.merge(flash_px)
+
     def test_flash_merging(self):
         """Test merging two Flash objects."""
         flash1 = Flash(

@@ -230,8 +230,7 @@ class DataBase:
         """
         if precision not in (2, 4, 8):
             raise ValueError(
-                "Set the vector attribute precision for this object. "
-                "Supported precisions are: 2 (half), 4 (single), and 8 (double)."
+                "Precision must be one of: 2 (half), 4 (single), or 8 (double)."
             )
 
         field_types = get_type_hints(type(self))
@@ -370,6 +369,27 @@ class DataBase:
             )
 
         return scalar_dict
+
+    def value_with_units(self, attr: str) -> tuple[Any, str | None]:
+        """Fetch an attribute value with its documented units.
+
+        Parameters
+        ----------
+        attr : str
+            Name of the attribute or stored property to fetch
+
+        Returns
+        -------
+        tuple
+            Attribute value and unit string. If no units are documented for
+            the attribute, the unit is `None`.
+        """
+        if not hasattr(self, attr):
+            raise AttributeError(
+                f"Attribute `{attr}` does not appear in {self.__class__.__name__}."
+            )
+
+        return getattr(self, attr), self.field_units.get(attr)
 
     @property
     def enum_dicts(self) -> dict[str, dict[str, int]]:

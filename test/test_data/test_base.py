@@ -246,7 +246,7 @@ class TestDataBase:
         """Test that set_precision raises error for invalid precision."""
         obj = ArrayData()
 
-        with pytest.raises(ValueError, match="Supported precisions"):
+        with pytest.raises(ValueError, match="Precision must be one of"):
             obj.set_precision(16)
 
     def test_shift_indexes_scalar(self):
@@ -394,6 +394,31 @@ class TestDataBase:
 
         assert units["energy"] == "MeV"
 
+    def test_value_with_units(self):
+        """Test fetching an attribute value alongside its units."""
+        obj = DerivedData(_value=5)
+
+        value, units = obj.value_with_units("energy")
+
+        assert value == 10.0
+        assert units == "MeV"
+
+    def test_value_with_units_without_units(self):
+        """Test fetching an attribute without unit metadata."""
+        obj = SimpleData(value=7)
+
+        value, units = obj.value_with_units("value")
+
+        assert value == 7
+        assert units is None
+
+    def test_value_with_units_missing_attribute(self):
+        """Test that missing attributes fail clearly."""
+        obj = SimpleData()
+
+        with pytest.raises(AttributeError, match="does not appear"):
+            obj.value_with_units("missing")
+
     def test_from_hdf5_basic(self):
         """Test from_hdf5 class method."""
         data_dict = {"value": 42, "name": "test"}
@@ -444,6 +469,11 @@ class TestDataBase:
         # Create second instance (should use cached values)
         obj2 = SimpleData()
         assert obj2._attrs_cached is True  # pylint: disable=protected-access
+
+    def test_annotation_matches_union(self):
+        """Test annotation matching through union type annotations."""
+        assert DataBase._annotation_matches(int | None, int) is True
+        assert DataBase._annotation_matches(int | None, np.ndarray) is False
 
     def test_get_stored_properties(self):
         """Test _get_stored_properties class method."""
@@ -615,6 +645,21 @@ class TestPosDataBase:
         obj.to_px(meta)  # type: ignore
 
         assert obj.field_units["position"] == "px"
+
+    def test_value_with_units_resolves_instance_units(self):
+        """Test value_with_units resolves instance units dynamically."""
+        obj = SimplePosData(units="cm")
+
+        value, units = obj.value_with_units("length")
+
+        assert value == 10.0
+        assert units == "cm"
+
+        obj.units = "px"
+        value, units = obj.value_with_units("length")
+
+        assert value == 10.0
+        assert units == "px"
 
     def test_to_px_conversion(self):
         """Test to_px method converts coordinates correctly."""
