@@ -323,9 +323,8 @@ class InteractionBase(OutBase):
         unique_attrs = ("is_truth", "units")
         for attr in unique_attrs:
             if hasattr(particles[0], attr):
-                assert (
-                    len(np.unique([getattr(p, attr) for p in particles])) < 2
-                ), f"{attr} must be unique in the list of particles."
+                if len(np.unique([getattr(p, attr) for p in particles])) >= 2:
+                    raise ValueError(f"{attr} must be unique in the list of particles.")
 
         # Attach particle list
         interaction.particles = particles

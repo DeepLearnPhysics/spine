@@ -46,9 +46,8 @@ class TensorBatch(BatchBase):
         super().__init__(data, is_sparse=is_sparse)
 
         # Should provide either the counts, or the batch size
-        assert (counts is not None) ^ (
-            batch_size is not None
-        ), "Provide either `counts` or `batch_size`, not both."
+        if (counts is not None) == (batch_size is not None):
+            raise ValueError("Provide either `counts` or `batch_size`, not both.")
 
         # If the data is sparse, it must have a batch column and coordinates
         if is_sparse:
@@ -62,15 +61,17 @@ class TensorBatch(BatchBase):
         # If the counts are not provided, must build them once
         if counts is None:
             # Define the array functions depending on the input type
-            assert has_batch_col, "Cannot get the counts without a batch column."
+            if not has_batch_col:
+                raise ValueError("Cannot get the counts without a batch column.")
             ref = data if not is_sparse else data.C
             counts = self.get_counts(ref[:, BATCH_COL], batch_size)
 
         # Cast
         counts = self._as_long(counts)
-        assert self._sum(counts) == len(
-            data
-        ), "The `counts` provided do not add up to the tensor length."
+        if self._sum(counts) != len(data):
+            raise ValueError(
+                "The `counts` provided do not add up to the tensor length."
+            )
 
         # Get the boundaries between entries in the batch
         edges = self.get_edges(counts)
@@ -246,7 +247,8 @@ class TensorBatch(BatchBase):
         meta : Meta
             Metadata information about the rasterized image
         """
-        assert self.is_numpy, "Can only convert units of numpy arrays."
+        if not self.is_numpy:
+            raise ValueError("Can only convert units of numpy arrays.")
         self.data[:, COORD_COLS] = meta.to_cm(self.data[:, COORD_COLS], center=True)
 
     def to_px(self, meta):
@@ -257,7 +259,8 @@ class TensorBatch(BatchBase):
         meta : Meta
             Metadata information about the rasterized image
         """
-        assert self.is_numpy, "Can only convert units of numpy arrays."
+        if not self.is_numpy:
+            raise ValueError("Can only convert units of numpy arrays.")
         self.data[:, COORD_COLS] = meta.to_px(self.data[:, COORD_COLS], floor=True)
 
     @classmethod
@@ -270,9 +273,8 @@ class TensorBatch(BatchBase):
             List of tensors, exactly one per batch
         """
         # Check that we are not fed an empty list of tensors
-        assert len(
-            data_list
-        ), "Must provide at least one tensor to build a tensor batch"
+        if not len(data_list):
+            raise ValueError("Must provide at least one tensor to build a tensor batch")
         is_numpy = not isinstance(data_list[0], torch.Tensor)
 
         # Compute the counts from the input list

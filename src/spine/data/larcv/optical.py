@@ -158,9 +158,8 @@ class Flash(PosDataBase):
             Flash to merge into this one
         """
         # Check that the position units are the same
-        assert (
-            self.units == other.units
-        ), "The units of the flash to be merged do not match."
+        if self.units != other.units:
+            raise ValueError("The units of the flash to be merged do not match.")
 
         # Determine the flash window end points (to merge time widths later)
         end_i, end_j = self.time + self.time_width, other.time + other.time_width

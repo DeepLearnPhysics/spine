@@ -60,14 +60,14 @@ class EdgeIndexBatch(BatchBase):
         offsets = self._as_long(offsets)
 
         # Do a couple of basic sanity checks
-        assert (
-            self._sum(counts) == data.shape[1]
-        ), "The `counts` provided do not add up to the index length"
-        assert len(counts) == len(
-            offsets
-        ), "The number of `offsets` es not match the number of `counts`"
-        if not directed:
-            assert data.shape[1] % 2 == 0, (
+        if self._sum(counts) != data.shape[1]:
+            raise ValueError("The `counts` provided do not add up to the index length")
+        if len(counts) != len(offsets):
+            raise ValueError(
+                "The number of `offsets` does not match the number of `counts`"
+            )
+        if not directed and data.shape[1] % 2 != 0:
+            raise ValueError(
                 "If the edge index is undirected, it should have an "
                 "even number of edge"
             )

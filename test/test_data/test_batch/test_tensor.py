@@ -47,11 +47,11 @@ class TestTensorBatchInitialization:
         data = np.array([[1, 2], [3, 4]])
 
         # Providing both should fail
-        with pytest.raises(AssertionError, match="either `counts` or `batch_size`"):
+        with pytest.raises(ValueError, match="either `counts` or `batch_size`"):
             TensorBatch(data, counts=[2], batch_size=1)
 
         # Providing neither should fail
-        with pytest.raises(AssertionError, match="either `counts` or `batch_size`"):
+        with pytest.raises(ValueError, match="either `counts` or `batch_size`"):
             TensorBatch(data)
 
     def test_initialization_counts_sum_validation(self):
@@ -59,14 +59,14 @@ class TestTensorBatchInitialization:
         data = np.array([[1, 2], [3, 4], [5, 6]])
 
         # Invalid counts (sum = 5, but data has 3 rows)
-        with pytest.raises(AssertionError, match="do not add up"):
+        with pytest.raises(ValueError, match="do not add up"):
             TensorBatch(data, counts=[2, 3])
 
     def test_initialization_batch_size_without_batch_col_fails(self):
         """Test that batch_size without has_batch_col fails."""
         data = np.array([[1, 2], [3, 4]])
 
-        with pytest.raises(AssertionError, match="without a batch column"):
+        with pytest.raises(ValueError, match="without a batch column"):
             TensorBatch(data, batch_size=2, has_batch_col=False)
 
     def test_initialization_with_coord_cols(self):
@@ -480,7 +480,7 @@ class TestTensorBatchFromList:
         """Test from_list with empty list raises error."""
         data_list = []  # type: ignore
 
-        with pytest.raises(AssertionError, match="at least one tensor"):
+        with pytest.raises(ValueError, match="at least one tensor"):
             TensorBatch.from_list(data_list)
 
     def test_from_list_various_sizes(self):
@@ -690,10 +690,10 @@ class TestTensorBatchWithTorch:
         meta = Mock()
         meta.size = Mock(return_value=0.5)  # 0.5 cm per pixel
 
-        with pytest.raises(AssertionError, match="numpy arrays"):
+        with pytest.raises(ValueError, match="numpy arrays"):
             batch.to_cm(meta)
 
-        with pytest.raises(AssertionError, match="numpy arrays"):
+        with pytest.raises(ValueError, match="numpy arrays"):
             batch.to_px(meta)
 
 

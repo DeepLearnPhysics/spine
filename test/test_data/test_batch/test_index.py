@@ -61,7 +61,7 @@ class TestIndexBatchInitialization:
         batch_ids = np.array([0, 0, 1])
 
         # Missing batch_size
-        with pytest.raises(AssertionError, match="batch_size"):
+        with pytest.raises(ValueError, match="batch_size"):
             IndexBatch(data, offsets=offsets, batch_ids=batch_ids)
 
     def test_initialization_index_list_requires_single_counts(self):
@@ -70,7 +70,7 @@ class TestIndexBatchInitialization:
         offsets = np.array([0, 10])
         counts = [1, 1]
 
-        with pytest.raises(AssertionError, match="provide `single_counts`"):
+        with pytest.raises(ValueError, match="provide `single_counts`"):
             IndexBatch(data, offsets=offsets, counts=counts)
 
     def test_initialization_counts_sum_validation(self):
@@ -79,7 +79,7 @@ class TestIndexBatchInitialization:
         offsets = np.array([0, 10])
         counts = [2, 2]  # Sum is 4, but data has 5 elements
 
-        with pytest.raises(AssertionError, match="add up"):
+        with pytest.raises(ValueError, match="add up"):
             IndexBatch(data, offsets=offsets, counts=counts)
 
     def test_initialization_counts_offsets_length_match(self):
@@ -88,7 +88,7 @@ class TestIndexBatchInitialization:
         offsets = np.array([0, 10])
         counts = [3]  # Only 1 count, but 2 offsets
 
-        with pytest.raises(AssertionError, match="match the number"):
+        with pytest.raises(ValueError, match="match the number"):
             IndexBatch(data, offsets=offsets, counts=counts)
 
     def test_initialization_single_counts_length_validation(self):
@@ -98,7 +98,7 @@ class TestIndexBatchInitialization:
         counts = [2]
         single_counts = [2]  # Only 1, but data has 2 indexes
 
-        with pytest.raises(AssertionError, match="one single count per index"):
+        with pytest.raises(ValueError, match="one single count per index"):
             IndexBatch(
                 data, offsets=offsets, counts=counts, single_counts=single_counts
             )
@@ -230,7 +230,7 @@ class TestIndexBatchProperties:
             data, offsets=offsets, counts=counts, single_counts=single_counts
         )
 
-        with pytest.raises(AssertionError, match="not a single index"):
+        with pytest.raises(ValueError, match="not a single index"):
             _ = batch.index
 
     def test_index_list_property(self):
@@ -254,7 +254,7 @@ class TestIndexBatchProperties:
 
         batch = IndexBatch(data, offsets=offsets, counts=counts)
 
-        with pytest.raises(AssertionError, match="single index"):
+        with pytest.raises(ValueError, match="single index"):
             _ = batch.index_list
 
     def test_full_index_single(self):
@@ -323,7 +323,7 @@ class TestIndexBatchProperties:
 
         batch = IndexBatch(data, offsets=offsets, counts=counts)
 
-        with pytest.raises(AssertionError, match="list of index"):
+        with pytest.raises(ValueError, match="list of index"):
             _ = batch.index_ids
 
     def test_full_counts_single_index(self):
@@ -468,7 +468,7 @@ class TestIndexBatchMerge:
         batch1 = IndexBatch(data1, offsets=offsets1, counts=counts)
         batch2 = IndexBatch(data2, offsets=offsets2, counts=counts)
 
-        with pytest.raises(AssertionError, match="same tensor"):
+        with pytest.raises(ValueError, match="same tensor"):
             batch1.merge(batch2)
 
 

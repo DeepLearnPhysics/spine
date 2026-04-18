@@ -72,7 +72,7 @@ class TestEdgeIndexBatchInitialization:
         )
         counts = [2]  # Only 2, but data has 3 edges
 
-        with pytest.raises(AssertionError, match="do not add up"):
+        with pytest.raises(ValueError, match="do not add up"):
             EdgeIndexBatch(edges, counts=counts, offsets=np.array([0]), directed=True)
 
     def test_initialization_counts_offsets_length_match(self):
@@ -87,7 +87,7 @@ class TestEdgeIndexBatchInitialization:
         offsets = np.array([0, 10])  # Two offsets but only one count
 
         with pytest.raises(
-            AssertionError, match="es not match"
+            ValueError, match="does not match"
         ):  # Typo in source: "es not match"
             EdgeIndexBatch(edges, counts=counts, offsets=offsets, directed=True)
 
@@ -102,7 +102,7 @@ class TestEdgeIndexBatchInitialization:
         counts = [3]
         offsets = np.array([0])
 
-        with pytest.raises(AssertionError, match="even number"):
+        with pytest.raises(ValueError, match="even number"):
             EdgeIndexBatch(edges, counts=counts, offsets=offsets, directed=False)
 
     def test_initialization_empty_graphs(self):

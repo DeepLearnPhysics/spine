@@ -83,9 +83,8 @@ class IndexBatch(BatchBase):
 
         # Get the counts if they are not provided for free
         if counts is None:
-            assert (
-                batch_ids is not None and batch_size is not None
-            ), "Must provide `batch_size` alongside `batch_ids`."
+            if batch_ids is None or batch_size is None:
+                raise ValueError("Must provide `batch_size` alongside `batch_ids`.")
             counts = self.get_counts(batch_ids, batch_size)
 
         else:
@@ -93,14 +92,16 @@ class IndexBatch(BatchBase):
 
         # Get the number of index elements per entry in the batch
         if single_counts is None:
-            assert (
-                not self.is_list
-            ), "When initializing an index list, provide `single_counts`."
+            if self.is_list:
+                raise ValueError(
+                    "When initializing an index list, provide `single_counts`."
+                )
             single_counts = counts
         else:
-            assert len(single_counts) == len(
-                data
-            ), "There must be one single count per index in the list."
+            if len(single_counts) != len(data):
+                raise ValueError(
+                    "There must be one single count per index in the list."
+                )
 
         # Cast
         counts = self._as_long(counts)
@@ -108,12 +109,12 @@ class IndexBatch(BatchBase):
         offsets = self._as_long(offsets)
 
         # Do a couple of basic sanity checks
-        assert self._sum(counts) == len(
-            data
-        ), "The `counts` provided must add up to the index length."
-        assert len(counts) == len(
-            offsets
-        ), "The number of `offsets` must match the number of `counts`."
+        if self._sum(counts) != len(data):
+            raise ValueError("The `counts` provided must add up to the index length.")
+        if len(counts) != len(offsets):
+            raise ValueError(
+                "The number of `offsets` must match the number of `counts`."
+            )
 
         # Get the boundaries between successive index using the counts
         edges = self.get_edges(counts)
@@ -158,9 +159,8 @@ class IndexBatch(BatchBase):
         Union[np.ndarray, torch.Tensor]
             Underlying index
         """
-        assert (
-            not self.is_list
-        ), "Underlying data is not a single index, use `index_list`"
+        if self.is_list:
+            raise ValueError("Underlying data is not a single index, use `index_list`")
 
         return self.data
 
@@ -173,7 +173,8 @@ class IndexBatch(BatchBase):
         List[Union[np.ndarray, torch.Tensor]]
             Underlying index list
         """
-        assert self.is_list, "Underlying data is a single index, use `index`"
+        if not self.is_list:
+            raise ValueError("Underlying data is a single index, use `index`")
 
         return self.data
 
@@ -200,7 +201,8 @@ class IndexBatch(BatchBase):
         Union[np.ndarray, torch.Tensor]
             (M) List of index IDs for each element
         """
-        assert self.is_list, "Underlying data must be a list of index"
+        if not self.is_list:
+            raise ValueError("Underlying data must be a list of index")
 
         return self._repeat(self._arange(len(self.data)), self.single_counts)
 
@@ -283,9 +285,8 @@ class IndexBatch(BatchBase):
             Merged index batch
         """
         # Basic cross-checks
-        assert (
-            self.offsets == index_batch.offsets
-        ).all(), "Both index batches should point to the same tensor."
+        if not (self.offsets == index_batch.offsets).all():
+            raise ValueError("Both index batches should point to the same tensor.")
 
         # Stack the indexes entry-wise in the batch
         indexes, single_counts = [], []
