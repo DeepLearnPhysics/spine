@@ -202,6 +202,43 @@ class TestMainEntryPoints:
 
         assert calls == [cfg]
 
+    def test_inference_weight_list_runs_in_sorted_order(self, monkeypatch):
+        """Test multi-weight inference uses deterministic lexical ordering."""
+        from spine import main
+
+        calls = []
+
+        class MockModel:
+            weight_path = ["weights/b.ckpt", "weights/a.ckpt"]
+
+            def load_weights(self, weight_path):
+                calls.append(("load", weight_path))
+
+        class MockDriver:
+            model = MockModel()
+
+            def __init__(self, cfg):
+                self.cfg = cfg
+
+            def initialize_log(self):
+                calls.append(("log", None))
+
+            def run(self):
+                calls.append(("run", None))
+
+        monkeypatch.setattr(main, "Driver", MockDriver)
+
+        main.inference_single({"base": {}, "io": {"reader": {"name": "hdf5"}}})
+
+        assert calls == [
+            ("load", "weights/a.ckpt"),
+            ("log", None),
+            ("run", None),
+            ("load", "weights/b.ckpt"),
+            ("log", None),
+            ("run", None),
+        ]
+
     def test_cli_import_and_version(self):
         """Test CLI imports and version detection works."""
         from spine.bin.cli import check_dependencies, get_version, main
