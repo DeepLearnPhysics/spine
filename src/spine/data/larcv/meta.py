@@ -15,7 +15,7 @@ from spine.data.field import FieldMetadata
 __all__ = ["ImageMeta2D", "ImageMeta3D", "Meta"]
 
 
-@dataclass(eq=False)
+@dataclass(eq=False, repr=False)
 class ImageMetaBase(DataBase):
     """Base class for rasterized image metadata.
 
@@ -193,7 +193,7 @@ class ImageMetaBase(DataBase):
         return np.all((coords >= self.lower) & (coords < self.upper), axis=1)
 
 
-@dataclass(eq=False)
+@dataclass(eq=False, repr=False)
 class ImageMeta2D(ImageMetaBase):
     """2D rasterized image metadata.
 
@@ -252,7 +252,7 @@ class ImageMeta2D(ImageMetaBase):
         return cls(lower=lower, upper=upper, size=size, count=count)
 
 
-@dataclass(eq=False)
+@dataclass(eq=False, repr=False)
 class ImageMeta3D(ImageMetaBase):
     """3D rasterized image metadata.
 

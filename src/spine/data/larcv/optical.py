@@ -13,7 +13,7 @@ from spine.data.field import FieldMetadata
 __all__ = ["Flash"]
 
 
-@dataclass(eq=False)
+@dataclass(eq=False, repr=False)
 class Flash(PosDataBase):
     """Optical flash information.
 

@@ -9,7 +9,7 @@ from spine.data.decorator import stored_property
 from spine.data.field import FieldMetadata
 
 
-@dataclass(eq=False)
+@dataclass(eq=False, repr=False)
 class OutBase(PosDataBase):
     """Base data structure shared among all output classes.
 
@@ -158,7 +158,7 @@ class OutBase(PosDataBase):
         return np.unique(self.sources[:, 0])
 
 
-@dataclass(eq=False)
+@dataclass(eq=False, repr=False)
 class RecoBase:
     """Mixin class for reconstructed output objects.
 
@@ -179,7 +179,7 @@ class RecoBase:
     is_truth: bool = False
 
 
-@dataclass(eq=False)
+@dataclass(eq=False, repr=False)
 class TruthBase:
     """Mixin class for truth output objects.
 

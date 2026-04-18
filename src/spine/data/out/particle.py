@@ -23,7 +23,7 @@ from .fragment import RecoFragment, TruthFragment
 __all__ = ["RecoParticle", "TruthParticle"]
 
 
-@dataclass(eq=False)
+@dataclass(eq=False, repr=False)
 class ParticleBase(OutBase):
     """Base particle-specific information.
 
@@ -187,7 +187,7 @@ class ParticleBase(OutBase):
         return len(self.fragment_ids)
 
 
-@dataclass(eq=False)
+@dataclass(eq=False, repr=False)
 class RecoParticle(ParticleBase, RecoBase):
     """Reconstructed particle information.
 
@@ -502,7 +502,7 @@ class RecoParticle(ParticleBase, RecoBase):
         return self.end_dir
 
 
-@dataclass(eq=False)
+@dataclass(eq=False, repr=False)
 class TruthParticle(Particle, ParticleBase, TruthBase):
     """Truth particle information.
 

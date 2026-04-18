@@ -15,7 +15,7 @@ from spine.utils.globals import NU_CURR_TYPE, NU_INT_TYPE
 __all__ = ["Neutrino"]
 
 
-@dataclass(eq=False)
+@dataclass(eq=False, repr=False)
 class Neutrino(PosDataBase):
     """Neutrino truth information.
 

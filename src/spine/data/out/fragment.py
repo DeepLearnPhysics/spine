@@ -14,7 +14,7 @@ from .base import OutBase, RecoBase, TruthBase
 __all__ = ["RecoFragment", "TruthFragment"]
 
 
-@dataclass(eq=False)
+@dataclass(eq=False, repr=False)
 class FragmentBase(OutBase):
     """Base fragment-specific information.
 
@@ -85,7 +85,7 @@ class FragmentBase(OutBase):
         )
 
 
-@dataclass(eq=False)
+@dataclass(eq=False, repr=False)
 class RecoFragment(FragmentBase, RecoBase):
     """Reconstructed fragment information.
 
@@ -126,7 +126,7 @@ class RecoFragment(FragmentBase, RecoBase):
         return "Reco" + super().__str__()
 
 
-@dataclass(eq=False)
+@dataclass(eq=False, repr=False)
 class TruthFragment(Particle, FragmentBase, TruthBase):
     """Truth fragment information.
 

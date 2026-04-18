@@ -10,7 +10,7 @@ from spine.data.base import DataBase
 __all__ = ["RunInfo"]
 
 
-@dataclass(eq=False)
+@dataclass(eq=False, repr=False)
 class RunInfo(DataBase):
     """Run information related to a specific event.
 

@@ -65,7 +65,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from spine.data.larcv.meta import Meta
 
 
-@dataclass(eq=False)
+@dataclass(eq=False, repr=False)
 class DataBase:
     """Base class of all data structures.
 
@@ -219,6 +219,30 @@ class DataBase:
                 )
 
         return True
+
+    def __repr__(self) -> str:
+        """Compact representation of the data object.
+
+        Numpy arrays and lists are summarized rather than expanded, which keeps
+        interactive inspection readable for large event objects.
+        """
+        parts = []
+        for field in fields(self):
+            value = getattr(self, field.name)
+            parts.append(f"{field.name}={self._repr_value(value)}")
+
+        return f"{self.__class__.__name__}({', '.join(parts)})"
+
+    @staticmethod
+    def _repr_value(value: object) -> str:
+        """Compactly represent a field value."""
+        if isinstance(value, np.ndarray):
+            return f"array(shape={value.shape}, dtype={value.dtype})"
+
+        if isinstance(value, list):
+            return f"list(len={len(value)})"
+
+        return repr(value)
 
     def set_precision(self, precision: int = 4) -> None:
         """Casts all the vector attributes to a different precision.
@@ -597,7 +621,7 @@ class DataBase:
         return result
 
 
-@dataclass(eq=False)
+@dataclass(eq=False, repr=False)
 class PosDataBase(DataBase):
     """Base class of for data structures with positional attributes.
 

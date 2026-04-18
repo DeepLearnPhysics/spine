@@ -18,7 +18,7 @@ class SimpleData(DataBase):
     name: str = "test"
 
 
-@dataclass(eq=False)
+@dataclass(eq=False, repr=False)
 class ArrayData(DataBase):
     """Test data structure with arrays."""
 
@@ -52,7 +52,7 @@ class IndexData(DataBase):
     )
 
 
-@dataclass(eq=False)
+@dataclass(eq=False, repr=False)
 class SkipData(DataBase):
     """Test data structure with skip attributes."""
 
@@ -217,6 +217,27 @@ class TestDataBase:
 
         with pytest.raises(TypeError, match="Cannot compare the `data` attribute"):
             _ = obj1 == obj2
+
+    def test_repr_compacts_arrays(self):
+        """Test that repr summarizes array fields without expanding them."""
+        obj = ArrayData()
+
+        repr_str = repr(obj)
+
+        assert repr_str.startswith("ArrayData(")
+        assert "position=array(shape=(3,), dtype=float32)" in repr_str
+        assert "vector=array(shape=(2,), dtype=float64)" in repr_str
+        assert "array([1." not in repr_str
+
+    def test_repr_uses_lite_skip_attrs(self):
+        """Test that repr skips lite serialization fields."""
+        obj = SkipData()
+
+        repr_str = repr(obj)
+
+        assert "visible=0" in repr_str
+        assert "skip_field" not in repr_str
+        assert "lite_skip_field" not in repr_str
 
     def test_array_dtype_casting(self):
         """Test that arrays are cast to correct dtype in __post_init__."""

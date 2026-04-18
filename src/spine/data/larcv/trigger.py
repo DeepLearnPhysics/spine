@@ -11,7 +11,7 @@ from spine.data.field import FieldMetadata
 __all__ = ["Trigger"]
 
 
-@dataclass(eq=False)
+@dataclass(eq=False, repr=False)
 class Trigger(DataBase):
     """Trigger information.
 

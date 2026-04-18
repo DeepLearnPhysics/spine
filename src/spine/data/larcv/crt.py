@@ -14,7 +14,7 @@ from spine.data.field import FieldMetadata
 __all__ = ["CRTHit"]
 
 
-@dataclass(eq=False)
+@dataclass(eq=False, repr=False)
 class CRTHit(PosDataBase):
     """CRT hit information.
 

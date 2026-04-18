@@ -17,7 +17,7 @@ from .particle import ParticleBase, RecoParticle, TruthParticle
 __all__ = ["RecoInteraction", "TruthInteraction"]
 
 
-@dataclass(eq=False)
+@dataclass(eq=False, repr=False)
 class InteractionBase(OutBase):
     """Base interaction-specific information.
 
@@ -338,7 +338,7 @@ class InteractionBase(OutBase):
         return interaction
 
 
-@dataclass(eq=False)
+@dataclass(eq=False, repr=False)
 class RecoInteraction(InteractionBase, RecoBase):
     """Reconstructed interaction information.
 
@@ -384,7 +384,7 @@ class RecoInteraction(InteractionBase, RecoBase):
         return max(showers, key=lambda x: cast(float, x.ke))
 
 
-@dataclass(eq=False)
+@dataclass(eq=False, repr=False)
 class TruthInteraction(Neutrino, InteractionBase, TruthBase):
     """Truth interaction information.
 

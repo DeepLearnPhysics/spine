@@ -16,7 +16,7 @@ from spine.utils.globals import PID_LABELS, SHAPE_LABELS
 __all__ = ["Particle"]
 
 
-@dataclass(eq=False)
+@dataclass(eq=False, repr=False)
 class Particle(PosDataBase):
     """Particle truth information.
 
