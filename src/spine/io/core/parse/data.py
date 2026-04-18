@@ -1,6 +1,7 @@
 """Module that contains data structures which hold standard parser outputs."""
 
 from dataclasses import dataclass
+from typing import Optional
 
 import numpy as np
 
@@ -41,15 +42,15 @@ class ParserTensor:
     """
 
     features: np.ndarray
-    coords: np.ndarray = None
-    meta: Meta = None
-    global_shift: int = None
-    index_shifts: np.ndarray = None
-    index_cols: np.ndarray = None
+    coords: Optional[np.ndarray] = None
+    meta: Optional[Meta] = None
+    global_shift: Optional[int] = None
+    index_shifts: Optional[np.ndarray] = None
+    index_cols: Optional[np.ndarray] = None
     remove_duplicates: bool = False
-    sum_cols: np.ndarray = None
-    prec_col: int = None
-    precedence: np.ndarray = None
+    sum_cols: Optional[np.ndarray] = None
+    prec_col: Optional[int] = None
+    precedence: Optional[np.ndarray] = None
     feats_only: bool = False
 
     @property
@@ -135,4 +136,4 @@ class ParserObjectList(ObjectList):
         ObjectList
             Underlying object list
         """
-        return ObjectList(self)
+        return ObjectList(self, default=self.default)

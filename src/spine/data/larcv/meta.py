@@ -8,7 +8,6 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Optional
 
 import numpy as np
-from typing_extensions import Self
 
 from spine.data.base import DataBase
 from spine.data.field import FieldMetadata
@@ -45,13 +44,11 @@ class ImageMetaBase(DataBase):
         size: np.ndarray
         count: np.ndarray
 
-    # Internal attribute for index multipliers (not part of the dataclass fields)
-    _index_multipliers: Optional[np.ndarray] = field(
-        init=False, repr=False, compare=False, default=None
-    )
-
     def __post_init__(self):
         """Validate the consistency of the meta parameters."""
+        # Per-instance cache, intentionally not a dataclass field
+        self._index_multipliers = None  # type: Optional[np.ndarray]
+
         # Call the parent post_init to perform any additional validation
         super().__post_init__()
 
@@ -234,7 +231,7 @@ class ImageMeta2D(ImageMetaBase):
     )
 
     @classmethod
-    def from_larcv(cls, meta) -> Self:
+    def from_larcv(cls, meta) -> "ImageMeta2D":
         """Builds and returns an ImageMeta2D object from a LArCV 2D metadata object.
 
         Parameters
@@ -293,7 +290,7 @@ class ImageMeta3D(ImageMetaBase):
     )
 
     @classmethod
-    def from_larcv(cls, meta) -> Self:
+    def from_larcv(cls, meta) -> "ImageMeta3D":
         """Builds and returns an ImageMeta3D object from a LArCV 3D metadata object.
 
         Parameters
