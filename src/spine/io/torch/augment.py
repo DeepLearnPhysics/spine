@@ -80,6 +80,15 @@ class Augmenter:
         if meta is None:
             return data
 
+        # Preserve the original image metadata in case later augmentations
+        # need the pre-crop image bounds.
+        original_meta = Meta(
+            lower=meta.lower.copy(),
+            upper=meta.upper.copy(),
+            size=meta.size.copy(),
+            count=meta.count.copy(),
+        )
+
         # Mask
         if self.masker is not None:
             data = self.masker(data, meta, augment_keys)
@@ -90,7 +99,7 @@ class Augmenter:
 
         # Translate
         if self.translater is not None:
-            data = self.translater(data, meta, augment_keys)
+            data = self.translater(data, meta, augment_keys, original_meta)
 
         return data
 
@@ -445,6 +454,8 @@ class Translater:
                 raise ValueError("Lower bounds must be less than upper bounds.")
 
             self.meta = Meta(lower, upper)
+        else:
+            self.meta = None
 
         # If using the geometry, set the cropping location bounds to the TPC boundaries
         if use_geo:
@@ -457,7 +468,11 @@ class Translater:
             self.meta = Meta(lower=geo.tpc.lower, upper=geo.tpc.upper)
 
     def __call__(
-        self, data: Dict[str, Any], meta: Meta, keys: List[str]
+        self,
+        data: Dict[str, Any],
+        meta: Meta,
+        keys: List[str],
+        original_meta: Optional[Meta] = None,
     ) -> Dict[str, Any]:
         """Move an image around within the the pre-defined volume.
 
@@ -475,21 +490,23 @@ class Translater:
         dict
             Updated data dictionary with translated coordinates
         """
+        target_meta = self.get_target_meta(meta, original_meta)
+
         # Set the target volume pixel pitch to match that of the original image
-        if np.all(self.meta.size < 0.0):
-            self.meta.size = meta.size
-            self.meta.count = np.ceil(
-                (self.meta.upper - self.meta.lower) / meta.size
+        if np.isnan(target_meta.size).all():
+            target_meta.size = meta.size.copy()
+            target_meta.count = np.ceil(
+                (target_meta.upper - target_meta.lower) / meta.size
             ).astype(int)
 
         # Generate an offset
-        offset = self.generate_offset(meta)
+        offset = self.generate_offset(meta, target_meta)
 
         # Offset all coordinates
         for key in keys:
             # If the key is the metadata, modify and continue
             if isinstance(data[key], Meta):
-                data[key] = self.meta
+                data[key] = target_meta
                 continue
 
             # Fetch attributes to modify
@@ -501,11 +518,29 @@ class Translater:
 
             # Update
             data[key].coords = voxels
-            data[key].meta = self.meta
+            data[key].meta = target_meta
 
         return data
 
-    def generate_offset(self, meta: Meta) -> np.ndarray:
+    def get_target_meta(self, meta: Meta, original_meta: Optional[Meta] = None) -> Meta:
+        """Resolve the target translation volume metadata."""
+        if self.meta is not None:
+            return Meta(
+                lower=self.meta.lower.copy(),
+                upper=self.meta.upper.copy(),
+                size=self.meta.size.copy(),
+                count=self.meta.count.copy(),
+            )
+
+        source_meta = original_meta if original_meta is not None else meta
+        return Meta(
+            lower=source_meta.lower.copy(),
+            upper=source_meta.upper.copy(),
+            size=source_meta.size.copy(),
+            count=source_meta.count.copy(),
+        )
+
+    def generate_offset(self, meta: Meta, target_meta: Meta) -> np.ndarray:
         """Generate an offset to apply to all the voxel index sets.
 
         This offset is such that the the voxels will be randomly shifted
@@ -522,12 +557,12 @@ class Translater:
             Value by which to shift the pixels by in integer voxel units
         """
         # Check that the original metadata is compatible with the target volume
-        if np.any(meta.size != self.meta.size):
+        if np.any(meta.size != target_meta.size):
             raise ValueError(
                 "The pixel pitch of the original image must match that of the target volume."
             )
 
         # Generate an offset with respect to the voxel indices
-        offset = np.random.randint((self.meta.count - meta.count) + 1)
+        offset = np.random.randint((target_meta.count - meta.count) + 1)
 
         return offset
