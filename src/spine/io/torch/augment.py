@@ -1,6 +1,5 @@
 """Module with methods to augment the input data."""
 
-from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -19,7 +18,6 @@ class Augmenter:
         self,
         mask: Optional[Dict[str, Any]] = None,
         crop: Optional[Dict[str, Any]] = None,
-        drop: Optional[Dict[str, Any]] = None,
         translate: Optional[Dict[str, Any]] = None,
     ):
         """Initialize the augmenter.
@@ -30,22 +28,15 @@ class Augmenter:
             Masking configuration (cut out regions of the input image)
         crop : dict, optional
             Cropping configuration (crop input image to a smaller size)
-        drop : dict, optional
-            Dropping configuration (drop a fraction of the input image)
         translate : dict, optional
             Translation configuration (move input image around)
         """
         # Make sure at least one augmentation scheme is requested
-        if crop is None and drop is None and translate is None and mask is None:
+        if crop is None and translate is None and mask is None:
             raise ValueError(
-                "Must provide `crop`, `drop`, `translate`, or `mask` block minimally "
+                "Must provide `crop`, `translate`, or `mask` block minimally "
                 "to do any augmentation."
             )
-
-        # Parse the dropping configuration
-        self.dropper = None
-        if drop is not None:
-            self.dropper = Dropper(**drop)
 
         # Parse the masking configuration
         self.masker = None
@@ -89,9 +80,14 @@ class Augmenter:
         if meta is None:
             return data
 
-        # Drop a fraction of the image by randomly masking out points
-        if self.dropper is not None:
-            data = self.dropper(data, augment_keys)
+        # Preserve the original image metadata in case later augmentations
+        # need the pre-crop image bounds.
+        original_meta = Meta(
+            lower=meta.lower.copy(),
+            upper=meta.upper.copy(),
+            size=meta.size.copy(),
+            count=meta.count.copy(),
+        )
 
         # Mask
         if self.masker is not None:
@@ -103,7 +99,7 @@ class Augmenter:
 
         # Translate
         if self.translater is not None:
-            data = self.translater(data, meta, augment_keys)
+            data = self.translater(data, meta, augment_keys, original_meta)
 
         return data
 
@@ -265,89 +261,6 @@ class Cropper:
         crop_upper = crop_lower + dimensions
 
         return Meta(lower=crop_lower, upper=crop_upper, size=meta.size, count=count)
-
-
-class Dropper:
-    """Generic class to handle dropping points from images."""
-
-    def __init__(
-        self,
-        fraction: Optional[float] = None,
-        fraction_range: Optional[Tuple[float, float]] = None,
-    ):
-        """Initialize the dropper.
-
-        Parameters
-        ----------
-        fraction : float, optional
-            Fraction of the image to drop (between 0 and 1)
-        fraction_range : tuple of (float, float), optional
-            Range of fraction of the image to drop (between 0 and 1)
-        """
-        # Sanity check
-        if (fraction is None) == (fraction_range is None):
-            raise ValueError(
-                "Must provide either `fraction` or `fraction_range`, but not both."
-            )
-        if fraction is not None and (fraction < 0 or fraction > 1):
-            raise ValueError("Fraction must be between 0 and 1.")
-        if fraction_range is not None and (
-            fraction_range[0] < 0 or fraction_range[1] > 1
-        ):
-            raise ValueError("Fraction range must be between 0 and 1.")
-
-        # Store the fraction to drop
-        self.fraction = fraction
-        self.fraction_range = fraction_range
-
-    def __call__(self, data: Dict[str, Any], keys: List[str]) -> Dict[str, Any]:
-        """Drop a fraction of the image by randomly masking out points.
-
-        Parameters
-        ----------
-        data : dict
-            Dictionary of data products to offset
-        keys : List[str]
-            List of keys with coordinates to offset
-
-        Returns
-        -------
-        dict
-            Updated data dictionary with dropped coordinates (empty)
-        """
-        # Find keys which share a common set of coordinates
-        key_groups = defaultdict(list)
-        for key in keys:
-            if isinstance(data[key], Meta):
-                continue
-
-            unique_hash = hash(data[key].coords.tobytes())
-            key_groups[unique_hash].append(key)
-
-        # Loop over the groups of keys with shared coordinates, drop them together
-        for group in key_groups.values():
-            # Produce a random mask for this coordinate group
-            fraction = self.fraction
-            if fraction is None:
-                assert self.fraction_range is not None
-                fraction = np.random.uniform(*self.fraction_range)
-
-            mask = np.random.rand(len(data[group[0]].coords)) > fraction
-            index = np.where(mask)[0]
-
-            # Apply mask to all keys in the group
-            for key in group:
-                # Fetch attributes to modify
-                voxels, features = data[key].coords, data[key].features
-
-                # Drop voxels and features according to the mask
-                voxels, features = voxels[index], features[index]
-
-                # Update
-                data[key].coords = voxels
-                data[key].features = features
-
-        return data
 
 
 class Masker:
@@ -541,6 +454,8 @@ class Translater:
                 raise ValueError("Lower bounds must be less than upper bounds.")
 
             self.meta = Meta(lower, upper)
+        else:
+            self.meta = None
 
         # If using the geometry, set the cropping location bounds to the TPC boundaries
         if use_geo:
@@ -553,7 +468,11 @@ class Translater:
             self.meta = Meta(lower=geo.tpc.lower, upper=geo.tpc.upper)
 
     def __call__(
-        self, data: Dict[str, Any], meta: Meta, keys: List[str]
+        self,
+        data: Dict[str, Any],
+        meta: Meta,
+        keys: List[str],
+        original_meta: Optional[Meta] = None,
     ) -> Dict[str, Any]:
         """Move an image around within the the pre-defined volume.
 
@@ -571,21 +490,23 @@ class Translater:
         dict
             Updated data dictionary with translated coordinates
         """
+        target_meta = self.get_target_meta(meta, original_meta)
+
         # Set the target volume pixel pitch to match that of the original image
-        if np.all(self.meta.size < 0.0):
-            self.meta.size = meta.size
-            self.meta.count = np.ceil(
-                (self.meta.upper - self.meta.lower) / meta.size
+        if np.isnan(target_meta.size).all():
+            target_meta.size = meta.size.copy()
+            target_meta.count = np.ceil(
+                (target_meta.upper - target_meta.lower) / meta.size
             ).astype(int)
 
         # Generate an offset
-        offset = self.generate_offset(meta)
+        offset = self.generate_offset(meta, target_meta)
 
         # Offset all coordinates
         for key in keys:
             # If the key is the metadata, modify and continue
             if isinstance(data[key], Meta):
-                data[key] = self.meta
+                data[key] = target_meta
                 continue
 
             # Fetch attributes to modify
@@ -597,11 +518,29 @@ class Translater:
 
             # Update
             data[key].coords = voxels
-            data[key].meta = self.meta
+            data[key].meta = target_meta
 
         return data
 
-    def generate_offset(self, meta: Meta) -> np.ndarray:
+    def get_target_meta(self, meta: Meta, original_meta: Optional[Meta] = None) -> Meta:
+        """Resolve the target translation volume metadata."""
+        if self.meta is not None:
+            return Meta(
+                lower=self.meta.lower.copy(),
+                upper=self.meta.upper.copy(),
+                size=self.meta.size.copy(),
+                count=self.meta.count.copy(),
+            )
+
+        source_meta = original_meta if original_meta is not None else meta
+        return Meta(
+            lower=source_meta.lower.copy(),
+            upper=source_meta.upper.copy(),
+            size=source_meta.size.copy(),
+            count=source_meta.count.copy(),
+        )
+
+    def generate_offset(self, meta: Meta, target_meta: Meta) -> np.ndarray:
         """Generate an offset to apply to all the voxel index sets.
 
         This offset is such that the the voxels will be randomly shifted
@@ -618,12 +557,12 @@ class Translater:
             Value by which to shift the pixels by in integer voxel units
         """
         # Check that the original metadata is compatible with the target volume
-        if np.any(meta.size != self.meta.size):
+        if np.any(meta.size != target_meta.size):
             raise ValueError(
                 "The pixel pitch of the original image must match that of the target volume."
             )
 
         # Generate an offset with respect to the voxel indices
-        offset = np.random.randint((self.meta.count - meta.count) + 1)
+        offset = np.random.randint((target_meta.count - meta.count) + 1)
 
         return offset

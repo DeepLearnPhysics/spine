@@ -491,7 +491,7 @@ class Cluster3DParser(ParserBase):
             index_shifts = np.array([clust_shift])
         else:
             cs, ps, ns = clust_shift, num_particles, num_neutrinos
-            index_shifts = np.array([cs, ps, ps, ps, ns])
+            index_shifts = np.array([cs, ps, ps, ps, ps, ns])
 
         return ParserTensor(
             coords=np_voxels,
