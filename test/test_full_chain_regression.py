@@ -1,8 +1,11 @@
 """Regression tests for the full reconstruction chain."""
 
+import os
 from pathlib import Path
 
 import pytest
+
+os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 
 from spine.config import load_config_file
 from spine.driver import Driver
@@ -30,6 +33,32 @@ def fixture_cuda_available() -> bool:
     import torch
 
     return torch.cuda.is_available()
+
+
+@pytest.fixture(name="deterministic_cuda")
+def fixture_deterministic_cuda(cuda_available: bool) -> bool:
+    """Configure PyTorch CUDA execution for deterministic test behavior.
+
+    Parameters
+    ----------
+    cuda_available : bool
+        Whether PyTorch has access to a CUDA device
+
+    Returns
+    -------
+    bool
+        True if CUDA is available and deterministic flags were set
+    """
+    if not cuda_available:
+        return False
+
+    import torch
+
+    torch.use_deterministic_algorithms(True)
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
+
+    return True
 
 
 def make_full_chain_config(larcv_data: str, tmp_path: Path) -> dict:
@@ -109,7 +138,7 @@ def test_full_chain_larcv_regression(larcv_data: str, tmp_path: Path) -> None:
 @pytest.mark.slow
 @pytest.mark.gpu
 def test_full_chain_larcv_regression_gpu(
-    larcv_data: str, tmp_path: Path, cuda_available: bool
+    larcv_data: str, tmp_path: Path, deterministic_cuda: bool
 ) -> None:
     """Test full-chain loss and accuracy on one GPU process.
 
@@ -119,15 +148,15 @@ def test_full_chain_larcv_regression_gpu(
         Path to the small LArCV input file
     tmp_path : Path
         Temporary directory used for logs
-    cuda_available : bool
-        Whether PyTorch has access to a CUDA device
+    deterministic_cuda : bool
+        Whether CUDA is available and deterministic flags were set
 
     Returns
     -------
     None
         This test does not return anything
     """
-    if not cuda_available:
+    if not deterministic_cuda:
         pytest.skip("A CUDA-capable PyTorch installation is required.")
 
     cfg = make_full_chain_config(larcv_data, tmp_path)
