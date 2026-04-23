@@ -860,7 +860,9 @@ def _get_cluster_features_base(
         w, v = np.linalg.eigh(A.astype(np.float64))
         w, v = w.astype(x.dtype), v.astype(x.dtype)
         if w[2] == 0.0:
-            feats[k] = np.concatenate((center, np.zeros(12), np.array([len(clust)])))
+            feats[k, :3] = center
+            feats[k, 3:15] = 0.0
+            feats[k, 15] = len(clust)
             continue
         dirwt = 1.0 - w[1] / w[2]
         B = A / w[2]
@@ -888,7 +890,10 @@ def _get_cluster_features_base(
         v0 = dirwt * v0
 
         # Append
-        feats[k] = np.concatenate((center, B.flatten(), v0, np.array([len(clust)])))
+        feats[k, :3] = center
+        feats[k, 3:12] = B.flatten()
+        feats[k, 12:15] = v0
+        feats[k, 15] = len(clust)
 
     return feats
 
