@@ -7,7 +7,7 @@ from spine.utils.logger import logger
 
 from ..core import parse
 from ..core.read import LArCVReader
-from .augment import Augmenter
+from .augment import AugmentManager
 
 PARSER_DICT = module_dict(parse)
 
@@ -70,7 +70,7 @@ class LArCVDataset(Dataset):
         # Parse the augmentation configuration
         self.augmenter = None
         if augment is not None:
-            self.augmenter = Augmenter(**augment)
+            self.augmenter = AugmentManager(**augment)
 
         # Instantiate the reader
         self.reader = LArCVReader(tree_keys=tree_keys, **kwargs)
