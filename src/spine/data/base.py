@@ -287,13 +287,17 @@ class DataBase:
             elif isinstance(value, np.ndarray):
                 setattr(self, attr, value + shift)
 
-    def as_dict(self, lite: bool = False) -> dict[str, Any]:
+    def as_dict(
+        self, lite: bool = False, include_derived: bool = True
+    ) -> dict[str, Any]:
         """Returns the data class as dictionary of (key, value) pairs.
 
         Parameters
         ----------
         lite : bool, default False
             If `True`, the `_lite_skip_attrs` are dropped
+        include_derived : bool, default True
+            If `True`, include computed properties marked with `@stored_property`.
 
         Returns
         -------
@@ -312,9 +316,10 @@ class DataBase:
 
         # Store computed properties explicitly marked for serialization. These
         # are not dataclass fields, so they are not included above.
-        for attr in self._derived_attrs:
-            if attr not in skip_attrs:
-                return_dict[attr] = getattr(self, attr)
+        if include_derived:
+            for attr in self._derived_attrs:
+                if attr not in skip_attrs:
+                    return_dict[attr] = getattr(self, attr)
 
         return return_dict
 

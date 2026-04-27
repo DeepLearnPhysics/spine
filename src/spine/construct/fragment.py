@@ -245,7 +245,7 @@ class FragmentBuilder(BuilderBase):
                         particles
                     ), "Invalid particle ID found in fragment labels."
                     particle = particles[part_id]
-                    fragment = TruthFragment(**particle.as_dict())
+                    fragment = TruthFragment(**particle.as_dict(include_derived=False))
 
                     # Override the indexes of the fragment but preserve them
                     fragment.orig_id = part_id

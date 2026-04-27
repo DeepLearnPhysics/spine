@@ -1,6 +1,8 @@
 """Regression tests for the full reconstruction chain."""
 
+import copy
 import os
+import warnings
 from pathlib import Path
 
 import pytest
@@ -16,6 +18,7 @@ FULL_CHAIN_REFERENCE = (
     (2.7023134231567383, 0.952360987663269),
     (3.301724910736084, 0.9800845384597778),
 )
+FULL_CHAIN_REFERENCE_ATOL = 1.0e-5
 
 
 @pytest.fixture(name="cuda_available")
@@ -92,24 +95,75 @@ def make_full_chain_config(larcv_data: str, tmp_path: Path) -> dict:
     return cfg
 
 
-def assert_full_chain_reference(driver: Driver) -> None:
-    """Check full-chain loss and accuracy against reference values.
+def run_full_chain(cfg: dict) -> tuple[tuple[float, float], ...]:
+    """Run the full reconstruction chain and collect loss/accuracy values.
 
     Parameters
     ----------
-    driver : Driver
-        Driver instance configured to run the full reconstruction chain
+    cfg : dict
+        Driver configuration
+
+    Returns
+    -------
+    tuple
+        Loss and accuracy for each configured iteration
+    """
+    driver = Driver(copy.deepcopy(cfg))
+    outputs = []
+    for iteration in range(len(FULL_CHAIN_REFERENCE)):
+        output = driver.process(iteration=iteration)
+        outputs.append((float(output["loss"]), float(output["accuracy"])))
+
+    return tuple(outputs)
+
+
+def assert_full_chain_repeatable(
+    outputs: tuple[tuple[float, float], ...],
+    repeat_outputs: tuple[tuple[float, float], ...],
+) -> None:
+    """Check that the full chain is exactly repeatable on this machine."""
+    assert outputs == repeat_outputs
+
+
+def assert_full_chain_reference(outputs: tuple[tuple[float, float], ...]) -> None:
+    """Check full-chain loss and accuracy against reference values.
+
+    Small differences can occur across CPU architectures or math libraries.
+    Warn on tiny drift so it stays visible, but fail on larger movement.
+
+    Parameters
+    ----------
+    outputs : tuple
+        Loss and accuracy values produced by the full chain
 
     Returns
     -------
     None
         This function does not return anything
     """
-    for iteration, (ref_loss, ref_accuracy) in enumerate(FULL_CHAIN_REFERENCE):
-        output = driver.process(iteration=iteration)
+    for iteration, ((loss, accuracy), (ref_loss, ref_accuracy)) in enumerate(
+        zip(outputs, FULL_CHAIN_REFERENCE)
+    ):
+        for name, value, reference in (
+            ("loss", loss, ref_loss),
+            ("accuracy", accuracy, ref_accuracy),
+        ):
+            if value == reference:
+                continue
 
-        assert output["loss"] == ref_loss
-        assert output["accuracy"] == ref_accuracy
+            difference = abs(value - reference)
+            if difference <= FULL_CHAIN_REFERENCE_ATOL:
+                warnings.warn(
+                    f"Full-chain {name} at iteration {iteration} differs from "
+                    f"reference by {difference:.3g}: {value} != {reference}",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+
+            assert difference <= FULL_CHAIN_REFERENCE_ATOL, (
+                f"Full-chain {name} at iteration {iteration} differs from "
+                f"reference by {difference:.3g}: {value} != {reference}"
+            )
 
 
 @pytest.mark.slow
@@ -132,8 +186,10 @@ def test_full_chain_larcv_regression(larcv_data: str, tmp_path: Path) -> None:
         pytest.skip("PyTorch is required to run the full-chain regression test.")
 
     cfg = make_full_chain_config(larcv_data, tmp_path)
-    driver = Driver(cfg)
-    assert_full_chain_reference(driver)
+    outputs = run_full_chain(cfg)
+    repeat_outputs = run_full_chain(cfg)
+    assert_full_chain_repeatable(outputs, repeat_outputs)
+    assert_full_chain_reference(outputs)
 
 
 @pytest.mark.slow
@@ -162,5 +218,5 @@ def test_full_chain_larcv_regression_gpu(
 
     cfg = make_full_chain_config(larcv_data, tmp_path)
     cfg["base"]["world_size"] = 1
-    driver = Driver(cfg)
-    assert_full_chain_reference(driver)
+    outputs = run_full_chain(cfg)
+    assert_full_chain_reference(outputs)

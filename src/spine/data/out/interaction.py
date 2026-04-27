@@ -440,7 +440,7 @@ class TruthInteraction(Neutrino, InteractionBase, TruthBase):
             Neutrino to fetch the attributes from
         """
         # Transfer all the neutrino attributes
-        for attr, val in neutrino.as_dict().items():
+        for attr, val in neutrino.as_dict(include_derived=False).items():
             if attr != "id":
                 setattr(self, attr, val)
             else:
