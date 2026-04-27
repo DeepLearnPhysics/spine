@@ -310,6 +310,12 @@ class DataBase:
                 value = getattr(self, field.name)
                 return_dict[field.name] = value
 
+        # Store computed properties explicitly marked for serialization. These
+        # are not dataclass fields, so they are not included above.
+        for attr in self._derived_attrs:
+            if attr not in skip_attrs:
+                return_dict[attr] = getattr(self, attr)
+
         return return_dict
 
     def scalar_dict(

@@ -325,6 +325,16 @@ class TestDataBase:
         assert "skip_field" not in result  # Should be skipped
         assert "lite_skip_field" in result  # Should not be skipped in normal mode
 
+    def test_as_dict_stored_property(self):
+        """Test as_dict includes stored properties."""
+        obj = DerivedData(_value=21)
+
+        result = obj.as_dict()
+
+        assert result["_value"] == 21
+        assert result["energy"] == 42.0
+        assert "ke" not in result  # Aliases are metadata-only, not independent fields
+
     def test_as_dict_lite(self):
         """Test as_dict method with lite=True."""
         obj = SkipData(visible=42, skip_field=1, lite_skip_field=2)

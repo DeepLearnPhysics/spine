@@ -55,6 +55,7 @@ def fixture_deterministic_cuda(cuda_available: bool) -> bool:
     import torch
 
     torch.use_deterministic_algorithms(True)
+
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.deterministic = True
 
