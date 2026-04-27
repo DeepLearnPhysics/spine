@@ -85,8 +85,8 @@ class InteractionBase(OutBase):
 
     # Vector attributes
     particle_ids: np.ndarray = field(
-        default_factory=lambda: np.empty(0, dtype=np.int64),
-        metadata=FieldMetadata(dtype=np.int64),
+        default_factory=lambda: np.empty(0, dtype=np.int32),
+        metadata=FieldMetadata(dtype=np.int32),
     )
 
     vertex: np.ndarray = field(
@@ -100,12 +100,12 @@ class InteractionBase(OutBase):
     )
 
     flash_ids: np.ndarray = field(
-        default_factory=lambda: np.empty(0, dtype=np.int64),
-        metadata=FieldMetadata(dtype=np.int64),
+        default_factory=lambda: np.empty(0, dtype=np.int32),
+        metadata=FieldMetadata(dtype=np.int32),
     )
     flash_volume_ids: np.ndarray = field(
-        default_factory=lambda: np.empty(0, dtype=np.int64),
-        metadata=FieldMetadata(dtype=np.int64),
+        default_factory=lambda: np.empty(0, dtype=np.int32),
+        metadata=FieldMetadata(dtype=np.int32),
     )
     flash_times: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.float32),
@@ -142,8 +142,8 @@ class InteractionBase(OutBase):
         self.is_flash_matched = False
         self.flash_total_pe = np.nan
         self.flash_hypo_pe = np.nan
-        self.flash_ids = np.empty(0, dtype=np.int64)
-        self.flash_volume_ids = np.empty(0, dtype=np.int64)
+        self.flash_ids = np.empty(0, dtype=np.int32)
+        self.flash_volume_ids = np.empty(0, dtype=np.int32)
         self.flash_times = np.empty(0, dtype=np.float32)
         self.flash_scores = np.empty(0, dtype=np.float32)
 
@@ -159,7 +159,7 @@ class InteractionBase(OutBase):
         return [part for part in self.particles if part.is_primary]
 
     @property
-    @stored_property(dtype=np.int64)
+    @stored_property(dtype=np.int32)
     def primary_particle_ids(self) -> np.ndarray:
         """List of primary Particle IDs associated with this interaction.
 
@@ -168,7 +168,7 @@ class InteractionBase(OutBase):
         np.darray
             List of primary Particle IDs associated with this interaction
         """
-        return np.array([part.id for part in self.primary_particles], dtype=np.int64)
+        return np.array([part.id for part in self.primary_particles], dtype=np.int32)
 
     @property
     @stored_property
@@ -195,7 +195,7 @@ class InteractionBase(OutBase):
         return len(self.primary_particle_ids)
 
     @property
-    @stored_property(dtype=np.int64, length=len(PID_LABELS) - 1)
+    @stored_property(dtype=np.int32, length=len(PID_LABELS) - 1)
     def particle_counts(self) -> np.ndarray:
         """Number of particles of each PID species in this interaction.
 
@@ -204,7 +204,7 @@ class InteractionBase(OutBase):
         np.ndarray
             (P) Number of particles of each PID
         """
-        counts = np.zeros(len(PID_LABELS) - 1, dtype=np.int64)
+        counts = np.zeros(len(PID_LABELS) - 1, dtype=np.int32)
         for part in self.particles:
             if part.pid > -1 and part.is_valid:
                 counts[part.pid] += 1
@@ -212,7 +212,7 @@ class InteractionBase(OutBase):
         return counts
 
     @property
-    @stored_property(dtype=np.int64, length=len(PID_LABELS) - 1)
+    @stored_property(dtype=np.int32, length=len(PID_LABELS) - 1)
     def primary_particle_counts(self) -> np.ndarray:
         """Number of primary particles of each PID species in this interaction.
 
@@ -221,7 +221,7 @@ class InteractionBase(OutBase):
         np.ndarray
             (P) Number of primary particles of each PID
         """
-        counts = np.zeros(len(PID_LABELS) - 1, dtype=np.int64)
+        counts = np.zeros(len(PID_LABELS) - 1, dtype=np.int32)
         for part in self.primary_particles:
             if part.pid > -1 and part.is_valid:
                 counts[part.pid] += 1
@@ -241,7 +241,7 @@ class InteractionBase(OutBase):
         return bool(np.any([part.is_crt_matched for part in self.particles]))
 
     @property
-    @stored_property(dtype=np.int64)
+    @stored_property(dtype=np.int32)
     def crt_ids(self) -> np.ndarray:
         """Returns the list of CRT hit IDs matched to this interaction.
 
@@ -253,7 +253,7 @@ class InteractionBase(OutBase):
         if len(self.particles) > 0:
             return np.concatenate([part.crt_ids for part in self.particles])
 
-        return np.empty(0, dtype=np.int64)
+        return np.empty(0, dtype=np.int32)
 
     @property
     @stored_property(dtype=np.float32, units="us")

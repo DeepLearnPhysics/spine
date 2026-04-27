@@ -487,6 +487,8 @@ class DataBase:
             val = cls_dict.get(attr)
             if isinstance(val, np.ndarray) and val.dtype == np.uint8:
                 cls_dict[attr] = bool(val.item())
+            elif isinstance(val, np.uint8):
+                cls_dict[attr] = bool(val.item())
 
         # Remove keys that are derived attributes and should not be loaded from file
         return cls(

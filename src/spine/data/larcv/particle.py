@@ -113,8 +113,8 @@ class Particle(PosDataBase):
     interaction_id: int = field(default=-1, metadata=FieldMetadata(index=True))
     nu_id: int = field(default=-1, metadata=FieldMetadata(index=True))
     children_id: np.ndarray = field(
-        default_factory=lambda: np.array([], dtype=np.int64),
-        metadata=FieldMetadata(dtype=np.int64, index=True),
+        default_factory=lambda: np.array([], dtype=np.int32),
+        metadata=FieldMetadata(dtype=np.int32, index=True),
     )
 
     # Scalar attributes
@@ -150,27 +150,39 @@ class Particle(PosDataBase):
     # Vector attributes
     position: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata=FieldMetadata(length=3, dtype=np.float32, position=True, units="cm"),
+        metadata=FieldMetadata(
+            length=3, dtype=np.float32, position=True, units="instance"
+        ),
     )
     end_position: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata=FieldMetadata(length=3, dtype=np.float32, position=True, units="cm"),
+        metadata=FieldMetadata(
+            length=3, dtype=np.float32, position=True, units="instance"
+        ),
     )
     parent_position: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata=FieldMetadata(length=3, dtype=np.float32, position=True, units="cm"),
+        metadata=FieldMetadata(
+            length=3, dtype=np.float32, position=True, units="instance"
+        ),
     )
     ancestor_position: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata=FieldMetadata(length=3, dtype=np.float32, position=True, units="cm"),
+        metadata=FieldMetadata(
+            length=3, dtype=np.float32, position=True, units="instance"
+        ),
     )
     first_step: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata=FieldMetadata(length=3, dtype=np.float32, position=True, units="cm"),
+        metadata=FieldMetadata(
+            length=3, dtype=np.float32, position=True, units="instance"
+        ),
     )
     last_step: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata=FieldMetadata(length=3, dtype=np.float32, position=True, units="cm"),
+        metadata=FieldMetadata(
+            length=3, dtype=np.float32, position=True, units="instance"
+        ),
     )
     momentum: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
@@ -215,10 +227,10 @@ class Particle(PosDataBase):
         float
             Rest mass of the particle in MeV/c^2
         """
-        if np.isnan(self.energy_init) or np.isnan(self.p):
+        if np.isnan(self.energy_init) or np.isnan(self.momentum).any():
             return np.nan
 
-        return np.sqrt(max(0.0, self.energy_init**2 - self.p**2))
+        return np.sqrt(max(0.0, self.energy_init**2 - np.sum(self.momentum**2)))
 
     @classmethod
     def from_larcv(cls, particle) -> "Particle":

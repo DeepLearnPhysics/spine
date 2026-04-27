@@ -153,6 +153,23 @@ class MatchProcessor(PostBase):
 
         return result
 
+    @staticmethod
+    def prepare_overlap_index(index: np.ndarray) -> np.ndarray:
+        """Cast overlap indexes to int64 and ensure sorted unique order.
+
+        Most object index arrays are already sorted because they are built from
+        `np.where(...)`. This check avoids paying the sort cost unless an
+        upstream provenance array arrives unsorted.
+        """
+        index = np.asarray(index, dtype=np.int64)
+        if len(index) < 2:
+            return index
+
+        if np.all(index[1:] > index[:-1]):
+            return index
+
+        return np.unique(index)
+
     def process_single(self, reco_objs, truth_objs, matcher, name, meta=None):
         """Match all the requested objects in a single category.
 
@@ -186,24 +203,24 @@ class MatchProcessor(PostBase):
                     coords = self.get_points(p)
                     if p.units != "px":
                         coords = meta.to_px(coords, floor=True)
-                    reco_input.append(meta.index(coords))
+                    reco_input.append(self.prepare_overlap_index(meta.index(coords)))
 
                 truth_input = typed.List.empty_list(nb.int64[:])
                 for p in truth_objs:
                     coords = self.get_points(p)
                     if p.units != "px":
                         coords = meta.to_px(coords, floor=True)
-                    truth_input.append(meta.index(coords))
+                    truth_input.append(self.prepare_overlap_index(meta.index(coords)))
 
             elif not matcher.ghost or self.truth_point_mode == "points_adapt":
                 # Without ghosting, or if using the adapted points as truth, the
                 # indexes of reco and truth always point to the same point set
                 reco_input = typed.List.empty_list(nb.int64[:])
                 for p in reco_objs:
-                    reco_input.append(self.get_index(p))
+                    reco_input.append(self.prepare_overlap_index(self.get_index(p)))
                 truth_input = typed.List.empty_list(nb.int64[:])
                 for p in truth_objs:
-                    truth_input.append(self.get_index(p))
+                    truth_input.append(self.prepare_overlap_index(self.get_index(p)))
 
             else:
                 if matcher.use_orig_index:
@@ -219,10 +236,10 @@ class MatchProcessor(PostBase):
 
                     reco_input = typed.List.empty_list(nb.int64[:])
                     for p in reco_objs:
-                        reco_input.append(p.orig_index)
+                        reco_input.append(self.prepare_overlap_index(p.orig_index))
                     truth_input = typed.List.empty_list(nb.int64[:])
                     for p in truth_objs:
-                        truth_input.append(p.orig_index)
+                        truth_input.append(self.prepare_overlap_index(p.orig_index))
 
                 else:
                     # Fall back to recovering indexes from the object
@@ -237,14 +254,18 @@ class MatchProcessor(PostBase):
                         coords = self.get_points(p)
                         if p.units != "px":
                             coords = meta.to_px(coords, floor=True)
-                        reco_input.append(meta.index(coords))
+                        reco_input.append(
+                            self.prepare_overlap_index(meta.index(coords))
+                        )
 
                     truth_input = typed.List.empty_list(nb.int64[:])
                     for p in truth_objs:
                         coords = self.get_points(p)
                         if p.units != "px":
                             coords = meta.to_px(coords, floor=True)
-                        truth_input.append(meta.index(coords))
+                        truth_input.append(
+                            self.prepare_overlap_index(meta.index(coords))
+                        )
 
         else:
             # For the chamfer distance, simply use the point positions
@@ -315,7 +336,7 @@ class MatchProcessor(PostBase):
             if not len(match_idxs):
                 # If there are no matches, fill dummy values
                 s.is_matched = False
-                s.match_ids = np.empty(0, dtype=np.int64)
+                s.match_ids = np.empty(0, dtype=np.int32)
                 s.match_overlaps = np.empty(0, dtype=np.float32)
 
                 pairs.append((s, None))
@@ -326,7 +347,7 @@ class MatchProcessor(PostBase):
                 overlaps = ovl_matrix[i, match_idxs]
                 perm = np.argsort(overlaps)[::-1]
                 s.is_matched = True
-                s.match_ids = match_idxs[perm]
+                s.match_ids = match_idxs[perm].astype(np.int32, copy=False)
                 s.match_overlaps = overlaps[perm]
 
                 best_idx = s.match_ids[0]

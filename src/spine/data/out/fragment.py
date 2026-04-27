@@ -161,12 +161,12 @@ class TruthFragment(Particle, FragmentBase, TruthBase):
 
     # Vector attributes
     orig_children_id: np.ndarray = field(
-        default_factory=lambda: np.empty(0, dtype=np.int64),
-        metadata=FieldMetadata(dtype=np.int64),
+        default_factory=lambda: np.empty(0, dtype=np.int32),
+        metadata=FieldMetadata(dtype=np.int32),
     )
     children_counts: np.ndarray = field(
-        default_factory=lambda: np.empty(0, dtype=np.int64),
-        metadata=FieldMetadata(dtype=np.int64),
+        default_factory=lambda: np.empty(0, dtype=np.int32),
+        metadata=FieldMetadata(dtype=np.int32),
     )
     reco_start_dir: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),

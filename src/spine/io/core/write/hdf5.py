@@ -464,8 +464,8 @@ class HDF5Writer:
                 object_dtype.append((key, enum_dtype))
 
             elif np.isscalar(val):
-                # Non-string, non-enumerated scalar. Force bool onto shorts
-                dtype = type(val) if not isinstance(val, bool) else np.uint8
+                # Non-string, non-enumerated scalar
+                dtype = type(val)
                 object_dtype.append((key, dtype))
 
             elif hasattr(obj, "_fixed_length_attrs") and key in obj._fixed_length_attrs:

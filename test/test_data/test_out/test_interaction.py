@@ -24,7 +24,7 @@ class TestInteractionBase:
 
         # Test vector attributes
         assert len(obj.particle_ids) == 0
-        assert obj.particle_ids.dtype == np.int64
+        assert obj.particle_ids.dtype == np.int32
 
         assert obj.vertex.shape == (3,)
         assert obj.vertex.dtype == np.float32
@@ -44,7 +44,7 @@ class TestInteractionBase:
         obj = InteractionBase(
             id=3,
             is_fiducial=True,
-            particle_ids=np.array([5, 10, 15], dtype=np.int64),
+            particle_ids=np.array([5, 10, 15], dtype=np.int32),
             vertex=vertex,
         )
 
@@ -64,8 +64,8 @@ class TestInteractionBase:
             is_flash_matched=True,
             flash_total_pe=1500.0,
             flash_hypo_pe=1400.0,
-            flash_ids=np.array([5], dtype=np.int64),
-            flash_volume_ids=np.array([0], dtype=np.int64),
+            flash_ids=np.array([5], dtype=np.int32),
+            flash_volume_ids=np.array([0], dtype=np.int32),
             flash_times=np.array([100.5], dtype=np.float32),
             flash_scores=np.array([0.95], dtype=np.float32),
         )
@@ -97,8 +97,8 @@ class TestInteractionBase:
         assert obj.is_flash_matched is False
         assert np.isnan(obj.flash_total_pe)
         assert np.isnan(obj.flash_hypo_pe)
-        assert obj.flash_ids.dtype == np.int64
-        assert obj.flash_volume_ids.dtype == np.int64
+        assert obj.flash_ids.dtype == np.int32
+        assert obj.flash_volume_ids.dtype == np.int32
         assert obj.flash_times.dtype == np.float32
         assert obj.flash_scores.dtype == np.float32
         assert len(obj.flash_ids) == 0
@@ -113,8 +113,8 @@ class TestInteractionBase:
 
         obj = InteractionBase(
             id=2,
-            match_ids=np.array([10], dtype=np.int64),
-            particle_ids=np.array([5, 10], dtype=np.int64),
+            match_ids=np.array([10], dtype=np.int32),
+            particle_ids=np.array([5, 10], dtype=np.int32),
             particles=[ParticleBase(id=5), ParticleBase(id=10)],
         )
 
@@ -133,7 +133,7 @@ class TestInteractionBase:
         # Create interaction with particles
         obj = InteractionBase(
             id=0,
-            particle_ids=np.array([1, 2, 3], dtype=np.int64),
+            particle_ids=np.array([1, 2, 3], dtype=np.int32),
             particles=[
                 ParticleBase(id=1, is_primary=True),
                 ParticleBase(id=2, is_primary=False),

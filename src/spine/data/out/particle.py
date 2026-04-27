@@ -98,8 +98,8 @@ class ParticleBase(OutBase):
 
     # Vector attributes
     fragment_ids: np.ndarray = field(
-        default_factory=lambda: np.empty(0, dtype=np.int64),
-        metadata=FieldMetadata(dtype=np.int64, cat=True, units="instance"),
+        default_factory=lambda: np.empty(0, dtype=np.int32),
+        metadata=FieldMetadata(dtype=np.int32, cat=True, units="instance"),
     )
 
     start_point: np.ndarray = field(
@@ -139,8 +139,8 @@ class ParticleBase(OutBase):
     )
 
     crt_ids: np.ndarray = field(
-        default_factory=lambda: np.empty(0, dtype=np.int64),
-        metadata=FieldMetadata(dtype=np.int64),
+        default_factory=lambda: np.empty(0, dtype=np.int32),
+        metadata=FieldMetadata(dtype=np.int32),
     )
     crt_times: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.float32),
@@ -170,7 +170,7 @@ class ParticleBase(OutBase):
     def reset_crt_match(self) -> None:
         """Reset all the CRT hit matching attributes."""
         self.is_crt_matched = False
-        self.crt_ids = np.empty(0, dtype=np.int64)
+        self.crt_ids = np.empty(0, dtype=np.int32)
         self.crt_times = np.empty(0, dtype=np.float32)
         self.crt_scores = np.empty(0, dtype=np.float32)
 
@@ -268,8 +268,8 @@ class RecoParticle(ParticleBase, RecoBase):
     )
 
     ppn_ids: np.ndarray = field(
-        default_factory=lambda: np.empty(0, dtype=np.int64),
-        metadata=FieldMetadata(dtype=np.int64),
+        default_factory=lambda: np.empty(0, dtype=np.int32),
+        metadata=FieldMetadata(dtype=np.int32),
     )
     ppn_points: np.ndarray = field(
         default_factory=lambda: np.empty((0, 3), dtype=np.float32),
@@ -564,12 +564,12 @@ class TruthParticle(Particle, ParticleBase, TruthBase):
 
     # Vector attributes
     orig_children_id: np.ndarray = field(
-        default_factory=lambda: np.empty(0, dtype=np.int64),
-        metadata=FieldMetadata(dtype=np.int64),
+        default_factory=lambda: np.empty(0, dtype=np.int32),
+        metadata=FieldMetadata(dtype=np.int32),
     )
     children_counts: np.ndarray = field(
-        default_factory=lambda: np.empty(0, dtype=np.int64),
-        metadata=FieldMetadata(dtype=np.int64),
+        default_factory=lambda: np.empty(0, dtype=np.int32),
+        metadata=FieldMetadata(dtype=np.int32),
     )
 
     reco_start_dir: np.ndarray = field(

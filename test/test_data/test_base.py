@@ -490,6 +490,20 @@ class TestDataBase:
         assert obj.flag is True
         assert isinstance(obj.flag, bool)
 
+    def test_from_dict_bool_scalar_uint8(self):
+        """Test from_dict converts uint8 scalars to booleans."""
+
+        @dataclass(eq=False)
+        class BoolData(DataBase):
+            flag: bool = False
+
+        data_dict = {"flag": np.uint8(1)}
+
+        obj = BoolData.from_dict(data_dict)
+
+        assert obj.flag is True
+        assert isinstance(obj.flag, bool)
+
     def test_from_dict_excludes_derived(self):
         """Test from_dict excludes derived properties."""
         data_dict = {"_value": 10, "energy": 999}  # energy should be ignored

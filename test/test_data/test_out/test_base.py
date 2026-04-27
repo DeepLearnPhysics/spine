@@ -28,15 +28,15 @@ class TestOutBase:
 
         # Test vector attributes defaults
         assert len(obj.index) == 0
-        assert obj.index.dtype == np.int64
+        assert obj.index.dtype == np.int32
         assert obj.points.shape == (0, 3)
         assert obj.points.dtype == np.float32
         assert len(obj.depositions) == 0
         assert obj.depositions.dtype == np.float32
         assert obj.sources.shape == (0, 2)
-        assert obj.sources.dtype == np.int64
+        assert obj.sources.dtype == np.int32
         assert len(obj.match_ids) == 0
-        assert obj.match_ids.dtype == np.int64
+        assert obj.match_ids.dtype == np.int32
         assert len(obj.match_overlaps) == 0
         assert obj.match_overlaps.dtype == np.float32
 
@@ -45,13 +45,13 @@ class TestOutBase:
         from spine.data.out.base import OutBase
 
         # Create OutBase instance with voxel data
-        index = np.array([10, 20, 30, 40], dtype=np.int64)
+        index = np.array([10, 20, 30, 40], dtype=np.int32)
         points = np.array(
             [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0], [10.0, 11.0, 12.0]],
             dtype=np.float32,
         )
         depositions = np.array([1.5, 2.5, 3.5, 4.5], dtype=np.float32)
-        sources = np.array([[0, 0], [0, 1], [1, 0], [1, 1]], dtype=np.int64)
+        sources = np.array([[0, 0], [0, 1], [1, 0], [1, 1]], dtype=np.int32)
 
         obj = OutBase(
             id=0,
@@ -78,7 +78,7 @@ class TestOutBase:
         # Object with voxels
         obj2 = OutBase(
             id=1,
-            index=np.array([10, 20, 30], dtype=np.int64),
+            index=np.array([10, 20, 30], dtype=np.int32),
         )
         assert obj2.size == 3
 
@@ -108,7 +108,7 @@ class TestOutBase:
         assert len(obj1.module_ids) == 0
 
         # Object with sources from multiple modules
-        sources = np.array([[0, 0], [0, 1], [1, 0], [1, 1], [0, 2]], dtype=np.int64)
+        sources = np.array([[0, 0], [0, 1], [1, 0], [1, 1], [0, 2]], dtype=np.int32)
         obj2 = OutBase(
             id=1,
             sources=sources,
@@ -226,9 +226,9 @@ class TestTruthBase:
 
         # Test vector attributes defaults
         assert len(obj.index_adapt) == 0
-        assert obj.index_adapt.dtype == np.int64
+        assert obj.index_adapt.dtype == np.int32
         assert len(obj.index_g4) == 0
-        assert obj.index_g4.dtype == np.int64
+        assert obj.index_g4.dtype == np.int32
 
         assert obj.points_adapt.shape == (0, 3)
         assert obj.points_adapt.dtype == np.float32
@@ -245,7 +245,7 @@ class TestTruthBase:
         assert obj.depositions_g4.dtype == np.float32
 
         assert obj.sources_adapt.shape == (0, 2)
-        assert obj.sources_adapt.dtype == np.int64
+        assert obj.sources_adapt.dtype == np.int32
 
     def test_truthbase_size_adapt_property(self):
         """Test TruthBase size_adapt derived property."""
