@@ -250,6 +250,51 @@ class HDF5Reader(ReaderBase):
 
         return data
 
+    @staticmethod
+    def resolve_object_class(class_name: str, array: np.ndarray) -> type:
+        """Resolve an HDF5 object class name to the concrete SPINE class.
+
+        This keeps backward-compatibility quirks localized in the reader.
+        In particular, older HDF5 files stored image metadata with
+        ``class_name="Meta"``. Newer files store the explicit
+        ``ImageMeta2D`` / ``ImageMeta3D`` class names instead.
+
+        Parameters
+        ----------
+        class_name : str
+            Class name stored in the HDF5 dataset metadata
+        array : np.ndarray
+            Structured array slice containing the serialized objects
+
+        Returns
+        -------
+        type
+            Concrete SPINE data class to reconstruct
+        """
+        if class_name != "Meta":
+            return getattr(spine.data, class_name)
+
+        from spine.data.larcv.meta import ImageMeta2D, ImageMeta3D
+
+        names = getattr(array.dtype, "names", None)
+        assert names is not None and "count" in names, (
+            "Legacy HDF5 class_name='Meta' requires a structured dtype "
+            "with a 'count' field."
+        )
+        sample = array[0] if len(array) else None
+        if sample is None:
+            return ImageMeta3D
+
+        dim = len(sample["count"])
+        if dim == 2:
+            return ImageMeta2D
+        if dim == 3:
+            return ImageMeta3D
+
+        raise ValueError(
+            f"Unsupported legacy Meta dimensionality: {dim}. Expected 2 or 3."
+        )
+
     def load_key(
         self, in_file: h5py.File, event: Dict[str, Any], data: Dict[str, Any], key: str
     ) -> None:
@@ -287,7 +332,7 @@ class HDF5Reader(ReaderBase):
                 assert isinstance(
                     class_name, str
                 ), "Dataset missing 'class_name' attribute."
-                obj_class = getattr(spine.data, class_name)
+                obj_class = self.resolve_object_class(class_name, array)
 
                 # If needed, get the list of recognized attributes
                 known_attrs = []
