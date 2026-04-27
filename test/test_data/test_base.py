@@ -459,25 +459,25 @@ class TestDataBase:
         with pytest.raises(AttributeError, match="does not appear"):
             obj.value_with_units("missing")
 
-    def test_from_hdf5_basic(self):
-        """Test from_hdf5 class method."""
+    def test_from_dict_basic(self):
+        """Test from_dict class method."""
         data_dict = {"value": 42, "name": "test"}
 
-        obj = SimpleData.from_hdf5(data_dict)
+        obj = SimpleData.from_dict(data_dict)
 
         assert obj.value == 42
         assert obj.name == "test"
 
-    def test_from_hdf5_binary_string(self):
-        """Test from_hdf5 converts binary strings."""
+    def test_from_dict_binary_string(self):
+        """Test from_dict converts binary strings."""
         data_dict = {"value": 42, "name": b"test"}
 
-        obj = SimpleData.from_hdf5(data_dict)
+        obj = SimpleData.from_dict(data_dict)
 
         assert obj.name == "test"  # Should be decoded
 
-    def test_from_hdf5_bool_array(self):
-        """Test from_hdf5 converts uint8 arrays to booleans."""
+    def test_from_dict_bool_array(self):
+        """Test from_dict converts uint8 arrays to booleans."""
 
         @dataclass(eq=False)
         class BoolData(DataBase):
@@ -485,16 +485,16 @@ class TestDataBase:
 
         data_dict = {"flag": np.array([1], dtype=np.uint8)}
 
-        obj = BoolData.from_hdf5(data_dict)
+        obj = BoolData.from_dict(data_dict)
 
         assert obj.flag is True
         assert isinstance(obj.flag, bool)
 
-    def test_from_hdf5_excludes_derived(self):
-        """Test from_hdf5 excludes derived properties."""
+    def test_from_dict_excludes_derived(self):
+        """Test from_dict excludes derived properties."""
         data_dict = {"_value": 10, "energy": 999}  # energy should be ignored
 
-        obj = DerivedData.from_hdf5(data_dict)
+        obj = DerivedData.from_dict(data_dict)
 
         assert obj._value == 10  # pylint: disable=protected-access
         assert obj.energy == 20  # Computed, not loaded from dict

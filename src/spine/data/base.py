@@ -450,12 +450,12 @@ class DataBase:
         return self._field_units
 
     @classmethod
-    def from_hdf5(cls, cls_dict: dict[str, Any]) -> "DataBase":
+    def from_dict(cls, cls_dict: dict[str, Any]) -> "DataBase":
         """Builds and returns an object of the class from a dictionary of attributes.
 
-        This is used to build objects from HDF5 files, which are stored as
-        dictionaries of attributes. This ensures that the attributes that are
-        derived but stored to file are not loaded back to the object.
+        This is used to build objects from serialized dictionaries of
+        attributes. This ensures that the attributes that are derived but stored
+        to file are not loaded back to the object.
 
         Provides basic functionalities:
         - Casts strings when they are provided as binary objects, which is the
