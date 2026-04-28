@@ -17,6 +17,29 @@ def enum_factory(enum: str, value):
     This is a small compatibility/helper layer used by config-driven code that
     still refers to groups like ``"shape"`` or ``"pid"`` rather than importing
     enum classes directly.
+
+    Parameters
+    ----------
+    enum : str
+        Name of the supported enum group to parse. Supported groups are
+        ``"cluster"``, ``"shape"``, ``"pid"``, and
+        ``"interaction_scheme"``.
+    value : Union[str, Sequence[str]]
+        One enum-member name or a sequence of enum-member names. Member names
+        are matched case-insensitively through their uppercase representation.
+
+    Returns
+    -------
+    Union[int, List[int]]
+        Integer value of the parsed enum member, or a list of integer values
+        if a sequence of names is provided.
+
+    Raises
+    ------
+    AssertionError
+        If the requested enum group is not supported.
+    ValueError
+        If one of the provided member names does not exist on the target enum.
     """
     enum_dict = {
         "cluster": ClusterLabelCol,
