@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.11.0] - 2026-04-27
+
+### Added
+- **Data structures**: Introduce typed `FieldMetadata` and decorator-based `@stored_property` / `@stored_alias` metadata for `spine.data` objects.
+- **Testing**: Add comprehensive `spine.data`, HDF5 I/O, parser, and full-chain regression coverage, including deterministic full-chain reference checks.
+- **Configuration**: Allow config parsing without resolving `!download` directives when desired.
+
+### Changed
+- **Data model**: Refactor `spine.data` around dataclass field metadata, clearer repr/equality behavior, and explicit stored-property serialization.
+- **LArCV data layout**: Reorganize LArCV-backed classes under `spine.data.larcv`.
+- **Metadata classes**: Prefer explicit `ImageMeta2D` / `ImageMeta3D` classes while keeping `Meta` as a compatibility surface.
+- **HDF5 schema**: Normalize serialized object typing:
+  - scalar booleans are now stored as `bool` instead of `uint8`
+  - many object-member index/ID arrays now store as `int32` instead of `int64`
+  - scalar numeric attributes now follow Python scalar typing
+- **Units handling**: Standardize spatial attributes around `units="instance"` where values should follow `to_cm()` / `to_px()` conversions.
+- **Truth matching**: Replace set-based overlap computation with a sorted-index intersection path for cleaner and more efficient overlap evaluation.
+
+### Fixed
+- **HDF5 writer**: Restore serialization of stored-property values for output data objects.
+- **HDF5 reader**: Read legacy HDF5 files produced by older releases, including:
+  - boolean fields stored as `uint8`
+  - legacy `class_name="Meta"` payloads, now reconstructed as explicit metadata classes
+- **Full-chain stability**: Tighten deterministic regression checks to tolerate architecture-level floating point noise while still flagging meaningful drift.
+- **LArCV particle positions**: Fix position-like attributes so they can be expressed consistently in both pixel and detector coordinates.
+- **Conditional imports**: Reduce overhead and test fragility in optional-import code paths.
+
 ## [0.10.13] - 2026-04-17
 
 ### Fixed
