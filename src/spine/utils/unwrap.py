@@ -4,10 +4,9 @@ from typing import Any, Dict, List, Optional, Union
 
 import numpy as np
 
+from spine.constants import BATCH_COL
 from spine.data import EdgeIndexBatch, IndexBatch, Meta, ObjectList, TensorBatch
 from spine.geo import GeoManager
-
-from .globals import BATCH_COL
 
 __all__ = ["Unwrapper"]
 

@@ -5,8 +5,8 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 
 from spine.ana.base import AnaBase
+from spine.constants import MUON_PID, TRACK_SHP
 from spine.math.distance import cdist
-from spine.utils.globals import MUON_PID, TRACK_SHP
 
 __all__ = ["TrackCompletenessAna"]
 

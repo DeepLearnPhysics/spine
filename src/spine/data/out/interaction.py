@@ -6,10 +6,10 @@ from warnings import warn
 
 import numpy as np
 
+from spine.constants import PID_LABELS, PID_TAGS, SHOWR_SHP
 from spine.data.decorator import stored_property
 from spine.data.field import FieldMetadata
 from spine.data.larcv.neutrino import Neutrino
-from spine.utils.globals import PID_LABELS, PID_TAGS, SHOWR_SHP
 
 from .base import OutBase, RecoBase, TruthBase
 from .particle import ParticleBase, RecoParticle, TruthParticle

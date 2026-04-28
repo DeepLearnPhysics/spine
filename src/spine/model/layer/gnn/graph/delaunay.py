@@ -4,7 +4,7 @@ import numba as nb
 import numpy as np
 from scipy.spatial import Delaunay
 
-from spine.utils.globals import COORD_COLS
+from spine.constants import COORD_COLS
 
 from .base import GraphBase
 

@@ -5,17 +5,19 @@ from dataclasses import dataclass, field
 import numpy as np
 from scipy.spatial.distance import cdist
 
-from spine.data.decorator import stored_alias, stored_property
-from spine.data.field import FieldMetadata
-from spine.data.larcv.particle import Particle
-from spine.utils.globals import (
+from spine.constants import (
     PID_LABELS,
     PID_MASSES,
     PID_TO_PDG,
     SHAPE_LABELS,
     SHOWR_SHP,
     TRACK_SHP,
+    ParticlePID,
+    ParticleShape,
 )
+from spine.data.decorator import stored_alias, stored_property
+from spine.data.field import FieldMetadata
+from spine.data.larcv.particle import Particle
 
 from .base import OutBase, RecoBase, TruthBase
 from .fragment import RecoFragment, TruthFragment
@@ -93,8 +95,8 @@ class ParticleBase(OutBase):
     mcs_ke: float = field(default=np.nan, metadata=FieldMetadata(units="MeV"))
 
     # Enumerated attributes
-    shape: int = field(default=-1, metadata=FieldMetadata(enum=SHAPE_LABELS))
-    pid: int = field(default=-1, metadata=FieldMetadata(enum=PID_LABELS))
+    shape: int = field(default=-1, metadata=FieldMetadata(enum=ParticleShape))
+    pid: int = field(default=-1, metadata=FieldMetadata(enum=ParticlePID))
 
     # Vector attributes
     fragment_ids: np.ndarray = field(
@@ -633,7 +635,7 @@ class TruthParticle(Particle, ParticleBase, TruthBase):
         """Converts the particle initial energy to a kinetic energy.
 
         This only works for particles with a known mass (as defined in
-        `spine.utils.globals`).
+        `spine.constants`).
 
         Returns
         -------

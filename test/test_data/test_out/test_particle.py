@@ -434,10 +434,8 @@ class TestRecoParticle:
             calo_ke=50.0,
             shape=1,
             pid=99,
-        )  # track with KE and known PID (muon)
-        assert np.all(
-            np.isnan(obj.momentum)
-        )  # PID 99 is not recognized, so mass is NaN and momentum should be NaN
+        )
+        assert np.all(np.isnan(obj.momentum))
 
         # Test with valid momentum information
         obj = RecoParticle(
@@ -675,10 +673,8 @@ class TestTruthParticle:
             calo_ke=50.0,
             shape=1,
             pid=99,
-        )  # track with KE and known PID (muon)
-        assert np.all(
-            np.isnan(obj.reco_momentum)
-        )  # PID 99 is not recognized, so mass is NaN and momentum should be NaN
+        )
+        assert np.all(np.isnan(obj.reco_momentum))
 
         # Test with valid momentum information
         obj = TruthParticle(

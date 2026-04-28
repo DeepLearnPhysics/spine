@@ -10,7 +10,7 @@ from functools import partial
 import numpy as np
 
 from spine.ana.base import AnaBase
-from spine.utils.globals import MUON_PID
+from spine.constants import MUON_PID
 from spine.utils.mcs import ANGLE_METHODS, mcs_angles, mcs_angles_proj
 from spine.utils.tracking import get_track_segments
 

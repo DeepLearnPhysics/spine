@@ -7,7 +7,14 @@ from warnings import warn
 
 import numpy as np
 
-from .globals import DELTA_SHP, INVAL_ID, INVAL_IDX, INVAL_TID, MICHL_SHP, PDG_TO_PID
+from spine.constants import (
+    DELTA_SHP,
+    INVAL_ID,
+    INVAL_IDX,
+    INVAL_TID,
+    MICHL_SHP,
+    PDG_TO_PID,
+)
 
 
 def process_particles(

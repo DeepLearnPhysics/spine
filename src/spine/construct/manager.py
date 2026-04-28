@@ -4,7 +4,7 @@ from collections import OrderedDict, defaultdict
 
 import numpy as np
 
-from spine.utils.globals import COORD_COLS, VALUE_COL
+from spine.constants import COORD_COLS, VALUE_COL
 
 from .fragment import FragmentBuilder
 from .interaction import InteractionBuilder
@@ -193,10 +193,12 @@ class BuildManager:
             update["depositions"] = sources["data_tensor"][:, VALUE_COL]
 
             if "sources" in sources:
-                update["sources"] = sources["sources"].astype(int)
+                update["sources"] = sources["sources"].astype(np.int32, copy=False)
 
             if "orig_index" in sources:
-                update["orig_index"] = sources["orig_index"].astype(int)
+                update["orig_index"] = sources["orig_index"].astype(
+                    np.int32, copy=False
+                )
 
         if self.mode != "reco":
             update["label_tensor"] = sources["label_tensor"]
@@ -220,10 +222,14 @@ class BuildManager:
                 update["depositions_g4"] = sources["label_g4_tensor"][:, VALUE_COL]
 
             if "sources_label" in sources:
-                update["sources_label"] = sources["sources_label"].astype(int)
+                update["sources_label"] = sources["sources_label"].astype(
+                    np.int32, copy=False
+                )
 
             if "orig_index_label" in sources:
-                update["orig_index_label"] = sources["orig_index_label"].astype(int)
+                update["orig_index_label"] = sources["orig_index_label"].astype(
+                    np.int32, copy=False
+                )
 
         # If provided, etch the point attributes to check their units
         for obj in ["fragment", "particle"]:

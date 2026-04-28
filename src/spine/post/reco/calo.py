@@ -3,9 +3,9 @@
 import numexpr as ne
 import numpy as np
 
+from spine.constants import TRACK_SHP
 from spine.post.base import PostBase
 from spine.utils.calib import CalibrationManager
-from spine.utils.globals import TRACK_SHP
 
 __all__ = ["CalorimetricEnergyProcessor", "CalibrationProcessor"]
 

@@ -4,13 +4,19 @@ This copies the internal structure of :class:`larcv.Neutrino`.
 """
 
 from dataclasses import dataclass, field
+from typing import Any
 from warnings import warn
 
 import numpy as np
 
+from spine.constants import (
+    GenieNuInteractionType,
+    LArSoftNuInteractionType,
+    NuCurrentType,
+    NuInteractionScheme,
+)
 from spine.data.base import PosDataBase
 from spine.data.field import FieldMetadata
-from spine.utils.globals import NU_CURR_TYPE, NU_INT_TYPE
 
 __all__ = ["Neutrino"]
 
@@ -37,10 +43,12 @@ class Neutrino(PosDataBase):
         PDG code of the outgoing lepton
     current_type : int
         Enumerated current type of the neutrino interaction
+    interaction_scheme : int
+        Enumerated scheme used to interpret the interaction mode/type codes
     interaction_mode : int
-        Enumerated neutrino interaction mode
+        Source-native neutrino interaction mode code
     interaction_type : int
-        Enumerated neutrino interaction type
+        Source-native neutrino interaction type code
     target : int
         PDG code of the target object
     nucleon : int
@@ -84,9 +92,12 @@ class Neutrino(PosDataBase):
     interaction_id: int = field(default=-1, metadata=FieldMetadata(index=True))
 
     # Enumerated attributes
-    current_type: int = field(default=-1, metadata=FieldMetadata(enum=NU_CURR_TYPE))
-    interaction_mode: int = field(default=-1, metadata=FieldMetadata(enum=NU_INT_TYPE))
-    interaction_type: int = field(default=-1, metadata=FieldMetadata(enum=NU_INT_TYPE))
+    current_type: int = field(default=-1, metadata=FieldMetadata(enum=NuCurrentType))
+    interaction_scheme: int = field(
+        default=-1, metadata=FieldMetadata(enum=NuInteractionScheme)
+    )
+    interaction_mode: int = -1
+    interaction_type: int = -1
 
     # Scalar attributes
     mct_index: int = -1
@@ -137,14 +148,51 @@ class Neutrino(PosDataBase):
         metadata=FieldMetadata(length=3, dtype=np.float32, vector=True, units="MeV/c"),
     )
 
+    @property
+    def interaction_mode_enum(
+        self,
+    ) -> LArSoftNuInteractionType | GenieNuInteractionType | None:
+        """Interpret the interaction mode under the stored interaction scheme."""
+        return self._resolve_interaction_enum(self.interaction_mode)
+
+    @property
+    def interaction_type_enum(
+        self,
+    ) -> LArSoftNuInteractionType | GenieNuInteractionType | None:
+        """Interpret the interaction type under the stored interaction scheme."""
+        return self._resolve_interaction_enum(self.interaction_type)
+
+    def _resolve_interaction_enum(
+        self, value: int
+    ) -> LArSoftNuInteractionType | GenieNuInteractionType | None:
+        """Resolve a raw interaction code to the appropriate source enum."""
+        scheme_to_enum = {
+            int(NuInteractionScheme.LARSOFT): LArSoftNuInteractionType,
+            int(NuInteractionScheme.GENIE): GenieNuInteractionType,
+        }
+        enum_type = scheme_to_enum.get(self.interaction_scheme)
+        if enum_type is None:
+            return None
+
+        try:
+            return enum_type(value)
+        except ValueError:
+            return None
+
     @classmethod
-    def from_larcv(cls, neutrino) -> "Neutrino":
+    def from_larcv(
+        cls,
+        neutrino,
+        interaction_scheme: int | NuInteractionScheme = NuInteractionScheme.LARSOFT,
+    ) -> "Neutrino":
         """Builds and returns a Neutrino object from a LArCV Neutrino object.
 
         Parameters
         ----------
         neutrino : larcv.Neutrino
             LArCV-format neutrino object
+        interaction_scheme : int or NuInteractionScheme, default LARSOFT
+            Convention used to interpret the interaction mode/type codes.
 
         Returns
         -------
@@ -152,7 +200,7 @@ class Neutrino(PosDataBase):
             Neutrino object
         """
         # Initialize the dictionary to initialize the object with
-        obj_dict = {}
+        obj_dict: dict[str, Any] = {"interaction_scheme": int(interaction_scheme)}
 
         # Load the scalar attributes
         for key in (

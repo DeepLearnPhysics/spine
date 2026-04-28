@@ -1,6 +1,7 @@
 """Tests for DataBase and PosDataBase classes."""
 
 from dataclasses import dataclass, field
+from enum import IntEnum
 
 import numpy as np
 import pytest
@@ -8,6 +9,14 @@ import pytest
 from spine.data.base import DataBase, PosDataBase
 from spine.data.decorator import stored_alias, stored_property
 from spine.data.field import FieldMetadata
+
+
+class SampleParticleType(IntEnum):
+    """Simple enum used to test categorical field metadata."""
+
+    ELECTRON = 0
+    MUON = 1
+    PION = 2
 
 
 @dataclass(eq=False)
@@ -67,7 +76,7 @@ class EnumData(DataBase):
 
     particle_type: int = field(
         default=0,
-        metadata=FieldMetadata(enum={0: "electron", 1: "muon", 2: "pion"}),
+        metadata=FieldMetadata(enum=SampleParticleType),
     )
 
 

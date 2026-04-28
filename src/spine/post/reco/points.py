@@ -1,7 +1,7 @@
 """Track end point assignment module."""
 
+from spine.constants import TRACK_SHP
 from spine.post.base import PostBase
-from spine.utils.globals import TRACK_SHP
 from spine.utils.ppn import check_track_orientation_ppn
 from spine.utils.tracking import check_track_orientation
 

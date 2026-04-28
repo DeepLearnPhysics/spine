@@ -3,9 +3,7 @@
 import numpy as np
 import torch
 
-from spine.data import TensorBatch
-from spine.math.distance import METRICS, cdist, get_metric_id
-from spine.utils.globals import (
+from spine.constants import (
     CLUST_COL,
     COORD_COLS,
     DELTA_SHP,
@@ -16,6 +14,8 @@ from spine.utils.globals import (
     TRACK_SHP,
     VALUE_COL,
 )
+from spine.data import TensorBatch
+from spine.math.distance import METRICS, cdist, get_metric_id
 from spine.utils.gnn.cluster import break_clusters
 from spine.utils.torch.scripts import cdist_fast
 

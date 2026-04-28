@@ -8,7 +8,7 @@ duplicates and ensure the ordering of the output.
 import numba as nb
 import numpy as np
 
-from spine.utils.globals import SHAPE_COL, SHAPE_PREC
+from spine.constants import SHAPE_COL, SHAPE_PREC
 
 
 def clean_sparse_data(

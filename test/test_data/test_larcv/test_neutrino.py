@@ -11,6 +11,7 @@ class TestNeutrinoCreation:
 
     def test_neutrino_basic_creation(self):
         """Test basic Neutrino instantiation."""
+        from spine.constants import NuInteractionScheme
         from spine.data import Neutrino
 
         # Test creation with minimal parameters
@@ -23,19 +24,21 @@ class TestNeutrinoCreation:
             pdg_code=14,  # muon neutrino
             energy_init=2000.0,  # 2 GeV
             position=np.array([0.0, 0.0, 0.0]),
-            current_type=1,  # Charged current
-            interaction_mode=1,  # QE
+            current_type=0,  # Charged current
+            interaction_mode=0,  # QE
         )
 
         assert neutrino.id == 1
         assert neutrino.pdg_code == 14
         assert neutrino.energy_init == 2000.0
         assert np.allclose(neutrino.position, [0.0, 0.0, 0.0])
-        assert neutrino.current_type == 1
-        assert neutrino.interaction_mode == 1
+        assert neutrino.current_type == 0
+        assert neutrino.interaction_scheme == int(NuInteractionScheme.UNKNOWN)
+        assert neutrino.interaction_mode == 0
 
     def test_neutrino_physics_properties(self):
         """Test Neutrino with complete physics properties."""
+        from spine.constants import NuInteractionScheme
         from spine.data import Neutrino
 
         # Charged current muon neutrino interaction
@@ -43,8 +46,8 @@ class TestNeutrinoCreation:
             id=0,
             pdg_code=14,  # νμ
             lepton_pdg_code=13,  # μ⁻
-            current_type=1,  # CC
-            interaction_mode=1,  # QE
+            current_type=0,  # CC
+            interaction_mode=0,  # QE
             interaction_type=1,  # neutrino (not antineutrino)
             # Kinematic properties
             energy_init=1500.0,  # 1.5 GeV
@@ -61,8 +64,9 @@ class TestNeutrinoCreation:
         # Verify physics properties
         assert neutrino.pdg_code == 14  # muon neutrino
         assert neutrino.lepton_pdg_code == 13  # produces muon
-        assert neutrino.current_type == 1  # charged current
-        assert neutrino.interaction_mode == 1  # quasi-elastic
+        assert neutrino.current_type == 0  # charged current
+        assert neutrino.interaction_scheme == int(NuInteractionScheme.UNKNOWN)
+        assert neutrino.interaction_mode == 0  # quasi-elastic
         assert neutrino.energy_init == 1500.0
         assert neutrino.energy_transfer == 1200.0
         assert neutrino.target == 1000060120  # Carbon-12
@@ -70,14 +74,15 @@ class TestNeutrinoCreation:
 
     def test_neutrino_interaction_types(self):
         """Test different neutrino interaction types."""
+        from spine.constants import NuInteractionScheme
         from spine.data import Neutrino
 
         # Quasi-elastic interaction
         nu_qe = Neutrino(
             id=0,
             pdg_code=14,
-            current_type=1,  # CC
-            interaction_mode=1,  # QE
+            current_type=0,  # CC
+            interaction_mode=0,  # QE
             nucleon=2212,  # proton target
             energy_init=800.0,
         )
@@ -86,8 +91,8 @@ class TestNeutrinoCreation:
         nu_dis = Neutrino(
             id=1,
             pdg_code=14,
-            current_type=1,  # CC
-            interaction_mode=3,  # DIS
+            current_type=0,  # CC
+            interaction_mode=2,  # DIS
             quark=2,  # up quark
             energy_init=5000.0,
         )
@@ -96,19 +101,51 @@ class TestNeutrinoCreation:
         nu_nc = Neutrino(
             id=2,
             pdg_code=14,
-            current_type=2,  # NC
-            interaction_mode=1,  # QE
+            current_type=1,  # NC
+            interaction_mode=0,  # QE
             energy_init=1000.0,
         )
 
         # Verify interaction classifications
-        assert nu_qe.interaction_mode == 1
+        assert nu_qe.interaction_scheme == int(NuInteractionScheme.UNKNOWN)
+        assert nu_qe.interaction_mode == 0
         assert nu_qe.nucleon == 2212
 
-        assert nu_dis.interaction_mode == 3
+        assert nu_dis.interaction_mode == 2
         assert nu_dis.quark == 2
 
-        assert nu_nc.current_type == 2  # Neutral current
+        assert nu_nc.current_type == 1  # Neutral current
+
+    def test_neutrino_interaction_enum_helpers(self):
+        """Test scheme-aware interaction enum helper properties."""
+        from spine.constants import (
+            GenieNuInteractionType,
+            LArSoftNuInteractionType,
+            NuInteractionScheme,
+        )
+        from spine.data import Neutrino
+
+        larsoft_nu = Neutrino(
+            id=0,
+            interaction_scheme=int(NuInteractionScheme.LARSOFT),
+            interaction_mode=0,
+            interaction_type=1001,
+        )
+        assert larsoft_nu.interaction_mode_enum == LArSoftNuInteractionType.QE
+        assert larsoft_nu.interaction_type_enum == LArSoftNuInteractionType.CCQE
+
+        genie_nu = Neutrino(
+            id=1,
+            interaction_scheme=int(NuInteractionScheme.GENIE),
+            interaction_mode=1,
+            interaction_type=3,
+        )
+        assert genie_nu.interaction_mode_enum == GenieNuInteractionType.QE
+        assert genie_nu.interaction_type_enum == GenieNuInteractionType.DIS
+
+        unknown_nu = Neutrino(id=2, interaction_mode=0, interaction_type=1001)
+        assert unknown_nu.interaction_mode_enum is None
+        assert unknown_nu.interaction_type_enum is None
 
     def test_neutrino_track_and_index_properties(self):
         """Test Neutrino track IDs and index properties."""
@@ -141,7 +178,7 @@ class TestNeutrinoPhysics:
             id=0,
             pdg_code=14,  # νμ
             lepton_pdg_code=13,  # μ⁻
-            current_type=1,  # CC
+            current_type=0,  # CC
             energy_init=2000.0,
             energy_transfer=1500.0,  # Energy to hadronic system
         )
@@ -151,17 +188,17 @@ class TestNeutrinoPhysics:
             id=1,
             pdg_code=-14,  # ν̄μ
             lepton_pdg_code=-13,  # μ⁺
-            current_type=1,  # CC
+            current_type=0,  # CC
             energy_init=3000.0,
             energy_transfer=2200.0,
         )
 
         # Verify CC interaction properties
-        assert nu_mu_cc.current_type == 1
+        assert nu_mu_cc.current_type == 0
         assert nu_mu_cc.pdg_code == 14
         assert nu_mu_cc.lepton_pdg_code == 13
 
-        assert nubar_mu_cc.current_type == 1
+        assert nubar_mu_cc.current_type == 0
         assert nubar_mu_cc.pdg_code == -14
         assert nubar_mu_cc.lepton_pdg_code == -13
 
@@ -177,14 +214,14 @@ class TestNeutrinoPhysics:
         nu_nc = Neutrino(
             id=0,
             pdg_code=14,  # νμ in
-            current_type=2,  # NC (no lepton production)
+            current_type=1,  # NC (no lepton production)
             energy_init=1000.0,
             energy_transfer=200.0,  # Small energy transfer
-            interaction_mode=1,  # Elastic scattering
+            interaction_mode=0,  # Elastic scattering
         )
 
         # Verify NC properties
-        assert nu_nc.current_type == 2
+        assert nu_nc.current_type == 1
         assert nu_nc.energy_transfer < nu_nc.energy_init
         assert nu_nc.energy_transfer / nu_nc.energy_init < 0.5  # Typical for NC
 
@@ -197,7 +234,7 @@ class TestNeutrinoPhysics:
             id=0,
             pdg_code=12,  # νe
             energy_init=50.0,  # 50 MeV
-            interaction_mode=1,  # QE likely
+            interaction_mode=0,  # QE likely
         )
 
         # Medium energy neutrino (GeV range)
@@ -205,7 +242,7 @@ class TestNeutrinoPhysics:
             id=1,
             pdg_code=14,  # νμ
             energy_init=2000.0,  # 2 GeV
-            interaction_mode=2,  # Resonant production possible
+            interaction_mode=1,  # Resonant production possible
         )
 
         # High energy neutrino (multi-GeV)
@@ -213,7 +250,7 @@ class TestNeutrinoPhysics:
             id=2,
             pdg_code=14,  # νμ
             energy_init=10000.0,  # 10 GeV
-            interaction_mode=3,  # DIS likely
+            interaction_mode=2,  # DIS likely
         )
 
         # Verify energy-dependent properties
@@ -234,7 +271,7 @@ class TestNeutrinoPhysics:
             id=0,
             pdg_code=12,  # νe
             lepton_pdg_code=11,  # e⁻
-            current_type=1,
+            current_type=0,
             energy_init=500.0,
         )
 
@@ -243,7 +280,7 @@ class TestNeutrinoPhysics:
             id=1,
             pdg_code=14,  # νμ
             lepton_pdg_code=13,  # μ⁻
-            current_type=1,
+            current_type=0,
             energy_init=1500.0,
         )
 
@@ -252,7 +289,7 @@ class TestNeutrinoPhysics:
             id=2,
             pdg_code=16,  # ντ
             lepton_pdg_code=15,  # τ⁻
-            current_type=1,
+            current_type=0,
             energy_init=8000.0,  # Need high energy for tau production
         )
 
@@ -278,8 +315,8 @@ class TestNeutrinoInteractionScenarios:
         atm_nu = Neutrino(
             id=0,
             pdg_code=14,  # νμ
-            current_type=1,  # CC
-            interaction_mode=1,  # QE
+            current_type=0,  # CC
+            interaction_mode=0,  # QE
             energy_init=800.0,  # Typical atmospheric energy
             energy_transfer=600.0,
             # Interaction in detector
@@ -294,7 +331,7 @@ class TestNeutrinoInteractionScenarios:
 
         # Verify atmospheric neutrino properties
         assert atm_nu.pdg_code == 14
-        assert atm_nu.current_type == 1
+        assert atm_nu.current_type == 0
         assert 100.0 < atm_nu.energy_init < 5000.0  # Typical atmospheric range
         assert atm_nu.target == 1000180400  # Argon target
 
@@ -310,8 +347,8 @@ class TestNeutrinoInteractionScenarios:
         beam_nu = Neutrino(
             id=0,
             pdg_code=14,  # νμ
-            current_type=1,  # CC
-            interaction_mode=2,  # Resonant production
+            current_type=0,  # CC
+            interaction_mode=1,  # Resonant production
             energy_init=3200.0,  # Peak of beam spectrum
             energy_transfer=2400.0,
             # Forward direction (beam along +z)
@@ -326,7 +363,7 @@ class TestNeutrinoInteractionScenarios:
         )
 
         # Verify beam neutrino properties
-        assert beam_nu.current_type == 1
+        assert beam_nu.current_type == 0
         assert 1000.0 < beam_nu.energy_init < 10000.0  # Beam energy range
         assert beam_nu.interaction_id == 12345
 
@@ -342,8 +379,8 @@ class TestNeutrinoInteractionScenarios:
         solar_nu = Neutrino(
             id=0,
             pdg_code=12,  # νe
-            current_type=1,  # CC
-            interaction_mode=1,  # QE (only possibility at low E)
+            current_type=0,  # CC
+            interaction_mode=0,  # QE (only possibility at low E)
             energy_init=12.0,  # MeV range
             energy_transfer=8.0,  # Small energy transfer
             # Random direction
@@ -357,7 +394,7 @@ class TestNeutrinoInteractionScenarios:
         # Verify solar neutrino properties
         assert solar_nu.pdg_code == 12  # νe
         assert solar_nu.energy_init < 20.0  # Low energy
-        assert solar_nu.interaction_mode == 1  # QE only at low E
+        assert solar_nu.interaction_mode == 0  # QE only at low E
         assert solar_nu.target == 1000010010  # Light target
 
     def test_supernova_neutrino_burst(self):
@@ -377,9 +414,9 @@ class TestNeutrinoInteractionScenarios:
                 pdg_code=pdg_codes[i],
                 energy_init=energies[i],
                 current_type=(
-                    1 if abs(pdg_codes[i]) == 12 else 2
+                    0 if abs(pdg_codes[i]) == 12 else 1
                 ),  # CC for νe, NC for others
-                interaction_mode=1,  # QE at these energies
+                interaction_mode=0,  # QE at these energies
                 # All from same direction (SN)
                 position=np.array([0.0, 0.0, 0.0]) + np.random.normal(0, 0.1, 3),
                 momentum=energies[i] * np.array([0.1, 0.05, 0.99]),  # From SN direction
@@ -473,7 +510,7 @@ class TestNeutrinoIntegration:
             id=0,
             pdg_code=14,  # νμ
             lepton_pdg_code=13,  # produces μ⁻
-            current_type=1,  # CC
+            current_type=0,  # CC
             energy_init=2500.0,
             energy_transfer=1800.0,
             lepton_track_id=3001,  # Links to muon
@@ -483,7 +520,7 @@ class TestNeutrinoIntegration:
         muon = Particle(
             id=0,
             nu_id=0,  # Links to neutrino
-            pid=13,
+            pid=2,
             pdg_code=13,
             track_id=3001,  # Matches neutrino.lepton_track_id
             interaction_primary=True,
@@ -494,7 +531,7 @@ class TestNeutrinoIntegration:
         proton = Particle(
             id=1,
             nu_id=0,  # Same neutrino interaction
-            pid=2212,
+            pid=4,
             pdg_code=2212,
             interaction_primary=True,
             energy_init=1100.0,  # Rest of hadronic energy
@@ -521,8 +558,8 @@ class TestNeutrinoIntegration:
         beam_nu = Neutrino(
             id=0,
             pdg_code=14,
-            current_type=1,
-            interaction_mode=1,  # QE
+            current_type=0,
+            interaction_mode=0,  # QE
             energy_init=1800.0,
             energy_transfer=1400.0,
             position=np.array([10.2, 5.7, 150.0]),
@@ -535,7 +572,7 @@ class TestNeutrinoIntegration:
         primary_muon = Particle(
             id=0,
             nu_id=0,
-            pid=13,
+            pid=2,
             pdg_code=13,
             track_id=4001,
             interaction_primary=True,
@@ -551,7 +588,7 @@ class TestNeutrinoIntegration:
         recoil_proton = Particle(
             id=1,
             nu_id=0,
-            pid=2212,
+            pid=4,
             pdg_code=2212,
             interaction_primary=True,
             energy_init=500.0,
@@ -565,7 +602,7 @@ class TestNeutrinoIntegration:
         event_particles = [primary_muon, recoil_proton]
 
         # Verify complete event
-        assert beam_nu.interaction_mode == 1  # QE
+        assert beam_nu.interaction_mode == 0  # QE
         assert len(event_particles) == 2
 
         # Check vertex consistency
@@ -588,6 +625,7 @@ class TestNeutrinoFromLArCV:
 
     def test_from_larcv_mock(self):
         """Test from_larcv with mock object (runs even without larcv)."""
+        from spine.constants import LArSoftNuInteractionType, NuInteractionScheme
         from spine.data import Neutrino
 
         # Create a mock larcv Neutrino object
@@ -728,8 +766,11 @@ class TestNeutrinoFromLArCV:
         assert neutrino.pdg_code == 14
         assert neutrino.lepton_pdg_code == 13
         assert neutrino.current_type == 0
+        assert neutrino.interaction_scheme == int(NuInteractionScheme.LARSOFT)
         assert neutrino.interaction_mode == 0
         assert neutrino.interaction_type == 1001
+        assert neutrino.interaction_mode_enum == LArSoftNuInteractionType.QE
+        assert neutrino.interaction_type_enum == LArSoftNuInteractionType.CCQE
         assert neutrino.target == 1000180400
         assert neutrino.nucleon == 2212
         assert neutrino.quark == 0
@@ -753,6 +794,7 @@ class TestNeutrinoFromLArCV:
     @pytest.mark.skipif(not LARCV_AVAILABLE, reason="larcv not available")
     def test_from_larcv_real(self):
         """Test from_larcv with real larcv object (only if larcv installed)."""
+        from spine.constants import LArSoftNuInteractionType, NuInteractionScheme
         from spine.data import Neutrino
 
         assert larcv is not None
@@ -801,8 +843,11 @@ class TestNeutrinoFromLArCV:
         assert neutrino.pdg_code == 12
         assert neutrino.lepton_pdg_code == 11
         assert neutrino.current_type == 0
+        assert neutrino.interaction_scheme == int(NuInteractionScheme.LARSOFT)
         assert neutrino.interaction_mode == 10
         assert neutrino.interaction_type == 1091
+        assert neutrino.interaction_mode_enum == LArSoftNuInteractionType.MEC
+        assert neutrino.interaction_type_enum == LArSoftNuInteractionType.CCDIS
         assert neutrino.energy_init == 3.2
         assert neutrino.lepton_p == 2.2
         assert neutrino.creation_process == "primary"
@@ -812,6 +857,7 @@ class TestNeutrinoFromLArCV:
 
     def test_from_larcv_missing_attributes(self):
         """Test from_larcv with missing attributes in LArCV object."""
+        from spine.constants import NuInteractionScheme
         from spine.data import Neutrino
 
         # Create a mock LArCV Neutrino with some missing attributes
@@ -896,6 +942,7 @@ class TestNeutrinoFromLArCV:
         assert neutrino.t == 1234.5
 
         # Missing attributes should be default
+        assert neutrino.interaction_scheme == int(NuInteractionScheme.LARSOFT)
         assert neutrino.current_type == -1
         assert neutrino.interaction_mode == -1
 

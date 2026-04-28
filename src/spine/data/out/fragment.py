@@ -4,10 +4,10 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from spine.constants import SHAPE_LABELS, TRACK_SHP, ParticleShape
 from spine.data.decorator import stored_property
 from spine.data.field import FieldMetadata
 from spine.data.larcv.particle import Particle
-from spine.utils.globals import SHAPE_LABELS, TRACK_SHP
 
 from .base import OutBase, RecoBase, TruthBase
 
@@ -46,7 +46,7 @@ class FragmentBase(OutBase):
     length: float = field(default=np.nan, metadata=FieldMetadata(units="instance"))
 
     # Enumerated attributes
-    shape: int = field(default=-1, metadata=FieldMetadata(enum=SHAPE_LABELS))
+    shape: int = field(default=-1, metadata=FieldMetadata(enum=ParticleShape))
 
     # Vector attributes
     start_point: np.ndarray = field(
@@ -79,7 +79,7 @@ class FragmentBase(OutBase):
         shape_label = SHAPE_LABELS[self.shape]
         match = self.match_ids[0] if len(self.match_ids) > 0 else -1
         return (
-            f"Fragment(ID: {self.id:<3} | Shape: {shape_label:<11} "
+            f"Fragment(ID: {self.id:<3} | ParticleShape: {shape_label:<11} "
             f"| Primary: {self.is_primary:<2} "
             f"| Size: {self.size:<5} | Match: {match:<3})"
         )

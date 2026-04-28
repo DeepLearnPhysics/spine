@@ -45,6 +45,7 @@ they are unitless normalized directions.
 """
 
 from dataclasses import dataclass, fields, replace
+from enum import IntEnum
 from types import UnionType
 from typing import (
     TYPE_CHECKING,
@@ -129,6 +130,8 @@ class DataBase:
         cls._derived_attrs = ()
         cls._global_units_attrs = ()
         cls._enum_dicts = {}
+        cls._enum_attrs = {}
+        cls._enum_values = {}
         cls._field_units = {}
 
     def __post_init__(self) -> None:
@@ -145,9 +148,9 @@ class DataBase:
         for field in fields(self):
             value = getattr(self, field.name)
             field_type = field_types.get(field.name, field.type)
+            meta = FieldMetadata(**field.metadata)
             if self._annotation_matches(field_type, np.ndarray):
                 # Check that the length of the array matches the expected length
-                meta = FieldMetadata(**field.metadata)
                 if meta.length is not None:
                     if len(value) != meta.length:
                         raise ValueError(
@@ -438,6 +441,16 @@ class DataBase:
         return self._enum_dicts
 
     @property
+    def enum_attrs(self) -> dict[str, dict[str, int]]:
+        """Fetches HDF5-friendly enumerator descriptors for enum-backed fields."""
+        return self._enum_attrs
+
+    @property
+    def enum_values(self) -> dict[str, dict[int, str]]:
+        """Fetches reverse enum lookups from stored values to symbolic names."""
+        return self._enum_values
+
+    @property
     def field_units(self) -> dict[str, str]:
         """Fetches the documented units for each field.
 
@@ -487,7 +500,7 @@ class DataBase:
             val = cls_dict.get(attr)
             if isinstance(val, np.ndarray) and val.dtype == np.uint8:
                 cls_dict[attr] = bool(val.item())
-            elif isinstance(val, np.uint8):
+            elif isinstance(val, np.generic) and val.dtype == np.uint8:
                 cls_dict[attr] = bool(val.item())
 
         # Remove keys that are derived attributes and should not be loaded from file
@@ -559,9 +572,16 @@ class DataBase:
 
         # Cache enumerated attributes dictionary (enumerated attributes are not deri
         cls._enum_dicts = {}
+        cls._enum_attrs = {}
+        cls._enum_values = {}
         for k, v in meta.items():
             if v.enum is not None:
-                cls._enum_dicts[k] = {v: k for k, v in v.enum.items()}
+                assert isinstance(v.enum, type) and issubclass(v.enum, IntEnum)
+                cls._enum_dicts[k] = {
+                    member.name.lower(): member.value for member in v.enum
+                }
+                cls._enum_attrs[k] = {member.name: member.value for member in v.enum}
+                cls._enum_values[k] = {member.value: member.name for member in v.enum}
 
         # Cache field units dictionary from field metadata and derived properties
         cls._field_units = {k: v.units for k, v in meta.items() if v.units is not None}

@@ -3,9 +3,9 @@
 import numpy as np
 import torch
 
+from spine.constants import CLUST_COL, GROUP_COL, PART_COL, PRGRP_COL
+from spine.constants.factory import enum_factory
 from spine.model.layer.factories import loss_fn_factory
-from spine.utils.enums import enum_factory
-from spine.utils.globals import CLUST_COL, GROUP_COL, PART_COL, PRGRP_COL
 from spine.utils.gnn.cluster import get_cluster_label_batch
 from spine.utils.gnn.evaluation import (
     edge_assignment_batch,

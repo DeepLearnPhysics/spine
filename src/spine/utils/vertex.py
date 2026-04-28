@@ -2,8 +2,7 @@ import numba as nb
 import numpy as np
 
 import spine.math as sm
-
-from .globals import INTER_COL, PRINT_COL, TRACK_SHP, VTX_COLS
+from spine.constants import INTER_COL, PRINT_COL, TRACK_SHP, VTX_COLS
 
 
 def get_vertex(

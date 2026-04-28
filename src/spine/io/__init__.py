@@ -4,48 +4,27 @@ This module provides comprehensive data input/output capabilities for various fi
 commonly used in neutrino physics experiments, with support for both PyTorch-dependent
 and independent operations.
 
-**Core I/O Functionality:**
-- `core`: Framework-independent I/O operations (LArCV, HDF5, ROOT)
-- `torch`: PyTorch-specific data loading and batch processing
+Core I/O functionality:
 
-**File Format Support:**
-- **LArCV**: ROOT-based sparse tensor format for liquid argon detectors
-- **HDF5**: Hierarchical data format with compression and metadata
-- **ROOT**: High-energy physics standard format
-- **NumPy**: Native Python array format
+- ``core`` for framework-independent readers and writers.
+- ``torch`` for PyTorch datasets, collation, sampling, and augmentation.
 
-**Key Components:**
-- **Parsers**: Extract and transform data from various file formats
-- **Collaters**: Batch multiple samples together for ML training
-- **Samplers**: Control data sampling strategies and ordering
-- **Writers**: Output processed data and results
+Supported formats include LArCV, HDF5, ROOT, and NumPy-friendly tensor data.
 
-**Writing Custom I/O Functions:**
-1. Add a parser in the appropriate parser module
-2. Implement or modify collate functions for batching
-3. Optionally create custom sampling functions
+Example HDF5 configuration
+--------------------------
 
-**Example HDF5 Configuration:**
-```yaml
-io:
-  writer:
-    name: HDF5Writer
-    file_name: output.h5
-    input_keys: ['input_data', 'truth_labels']
-    result_keys: ['predictions', 'metrics']
-```
+.. code-block:: yaml
 
-**Features:**
-- Lazy loading for memory efficiency
-- Multi-file dataset handling
-- Automatic data type conversions
-- Metadata preservation
-- Progress tracking and logging
-- Error recovery and validation
+   io:
+     writer:
+       name: HDF5Writer
+       file_name: output.h5
+       input_keys: [input_data, truth_labels]
+       result_keys: [predictions, metrics]
 
-**Conditional Imports:**
 PyTorch-dependent functionality is conditionally imported and available
-only when PyTorch is installed. Check `TORCH_IO_AVAILABLE` flag.
+only when PyTorch is installed. Check ``TORCH_IO_AVAILABLE``.
 """
 
 # Always import PyTorch-independent core functionality

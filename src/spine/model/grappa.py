@@ -12,9 +12,9 @@ import numpy as np
 import torch
 from torch import nn
 
+from spine.constants import GROUP_COL, LOWES_SHP, SHAPE_COL, TRACK_SHP
+from spine.constants.factory import enum_factory
 from spine.data import TensorBatch
-from spine.utils.enums import enum_factory
-from spine.utils.globals import GROUP_COL, LOWES_SHP, SHAPE_COL, TRACK_SHP
 from spine.utils.gnn.cluster import (
     form_clusters_batch,
     get_cluster_label_batch,
