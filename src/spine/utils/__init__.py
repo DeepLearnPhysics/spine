@@ -6,7 +6,7 @@ Core utilities:
 
 - ``conditional`` for optional imports such as ROOT, LArCV, MinkowskiEngine, and PyTorch.
 - ``factory`` and ``logger`` for application infrastructure.
-- ``globals`` and ``enums`` for shared constants.
+- ``globals`` for deprecated shared-constant compatibility.
 
 Scientific utilities:
 
