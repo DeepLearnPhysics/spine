@@ -1,78 +1,31 @@
 Model Module
 ============
 
-The spine.model module contains neural network models and architectures for particle physics reconstruction.
+The ``spine.model`` module contains the deep learning architectures used by SPINE for semantic segmentation, clustering, endpoint finding, graph construction, and end-to-end reconstruction tasks.
 
-Core Models
------------
+.. currentmodule:: spine.model
 
 .. automodule:: spine.model
-   :members:
-   :undoc-members:
-   :show-inheritance:
+   :no-members:
 
-Manager
--------
-
-.. automodule:: spine.model.manager
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Factories
----------
-
-.. automodule:: spine.model.factories
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-UResNet Architecture
--------------------
-
-.. automodule:: spine.model.uresnet
-   :members:
-   :show-inheritance:
-
-UResNet + PPN
--------------
-
-.. automodule:: spine.model.uresnet_ppn
-   :members:
-   :show-inheritance:
-
-SPICE Clustering
-----------------
-
-.. automodule:: spine.model.spice
-   :members:
-   :show-inheritance:
-
-Full Chain Models
------------------
-
-.. automodule:: spine.model.full_chain
-   :members:
-   :show-inheritance:
-
-Other Models
+Module Index
 ------------
 
-.. automodule:: spine.model.image
-   :members:
-   :show-inheritance:
+The model package is built around configuration-driven instantiation through :class:`spine.model.ModelManager`. It includes convolutional, graph-based, and hybrid architectures tailored to sparse detector reconstruction rather than generic ML utilities.
 
-.. automodule:: spine.model.singlep
-   :members:
-   :show-inheritance:
+.. autosummary::
+   :toctree: generated
 
-.. automodule:: spine.model.vertex
-   :members:
-   :show-inheritance:
-
-Model Layers
-------------
-
-.. automodule:: spine.model.layer
-   :members:
-   :show-inheritance:
+   manager
+   factories
+   uresnet
+   uresnet_ppn
+   spice
+   full_chain
+   image
+   singlep
+   vertex
+   grappa
+   graph_spice
+   bayes_uresnet
+   layer

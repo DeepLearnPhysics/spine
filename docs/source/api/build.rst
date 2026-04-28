@@ -1,7 +1,12 @@
 Construct Module
 ================
 
-The ``spine.construct`` module provides tools for building higher-level analysis objects from reconstruction primitives.
+The ``spine.construct`` module converts model outputs and intermediate reconstruction products into the high-level object hierarchy used throughout SPINE analysis. Although configuration files still use the ``build:`` key for backward compatibility, the Python package name is ``spine.construct``.
+
+.. currentmodule:: spine.construct
+
+.. automodule:: spine.construct
+   :no-members:
 
 .. note::
    This module was formerly named ``build`` and configuration files still use ``build:`` for backward compatibility.
@@ -9,51 +14,22 @@ The ``spine.construct`` module provides tools for building higher-level analysis
 Overview
 --------
 
-The construct module converts raw ML model outputs into structured physics objects:
+Construction is where sparse predictions become physics objects with relationships and provenance:
 
-- **BuildManager**: Central factory coordinating all builders
-- **FragmentBuilder**: Creates Fragment objects from clustering results
-- **ParticleBuilder**: Creates Particle objects with full kinematics
-- **InteractionBuilder**: Creates complete Interaction hierarchies
+- **BuildManager** coordinates object construction, truth matching, and validation
+- **FragmentBuilder** groups low-level outputs into fragment objects
+- **ParticleBuilder** assembles fragment-level information into particle candidates
+- **InteractionBuilder** builds event-level interaction hierarchies
 
-Build Manager
--------------
+This stage sits between model execution and post-processing, and defines the reconstructed and truth object model consumed by downstream analysis tools.
 
-Central coordination for object construction.
+Reference
+---------
 
-.. autoclass:: spine.construct.BuildManager
-   :members:
-   :show-inheritance:
+.. autosummary::
+   :toctree: generated
 
-Builders
---------
-
-Individual builders for each object type. All builders inherit from ``BuilderBase``
-and share common configuration options.
-
-Fragment Builder
-~~~~~~~~~~~~~~~~
-
-.. autoclass:: spine.construct.fragment.FragmentBuilder
-   :members:
-   :inherited-members:
-   :show-inheritance:
-   :exclude-members: build_reco, build_truth, load_reco, load_truth
-
-Particle Builder
-~~~~~~~~~~~~~~~~
-
-.. autoclass:: spine.construct.particle.ParticleBuilder
-   :members:
-   :inherited-members:
-   :show-inheritance:
-   :exclude-members: build_reco, build_truth, load_reco, load_truth
-
-Interaction Builder
-~~~~~~~~~~~~~~~~~~~
-
-.. autoclass:: spine.construct.interaction.InteractionBuilder
-   :members:
-   :inherited-members:
-   :show-inheritance:
-   :exclude-members: build_reco, build_truth, load_reco, load_truth
+   BuildManager
+   fragment.FragmentBuilder
+   particle.ParticleBuilder
+   interaction.InteractionBuilder

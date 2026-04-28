@@ -1,24 +1,45 @@
 Data Module
 ===========
 
-The ``spine.data`` module provides data structures and containers for handling sparse detector data, from low-level voxels to high-level physics objects.
+The ``spine.data`` module defines the shared data structures used across the SPINE pipeline, from detector-level input records to reconstructed and truth object hierarchies.
+
+.. currentmodule:: spine.data
+
+.. automodule:: spine.data
+   :no-members:
 
 Overview
 --------
 
-The data module is organized into several categories:
+The canonical namespaces inside ``spine.data`` are:
 
-- **Output Data Structures**: High-level reconstructed and truth objects (fragments, particles, interactions)
-- **Batch Data Structures**: Efficient batching utilities for ML training
-- **Detector Data**: CRT, optical, trigger information
-- **Metadata**: Run information, image metadata, and generic object lists
+- **LArCV data structures** under ``spine.data.larcv`` for detector records, generator truth, and metadata imported from LArCV-style sources
+- **Output data structures** under ``spine.data.out`` for reconstructed and truth fragments, particles, and interactions
+- **Batch data structures** under ``spine.data.batch`` for tensor, edge-index, and index batching in ML workflows
+- **Generic list containers** under ``spine.data.list`` for lightweight container utilities
+
+CRT, optical, trigger, run-information, and image-metadata classes are part of the LArCV-facing namespace in SPINE. They are detector or acquisition records, but they are not a separate top-level category outside ``spine.data.larcv``.
+
+LArCV Data Structures
+---------------------
+
+These classes provide the low-level inputs and metadata that enter the reconstruction chain. They live canonically under ``spine.data.larcv`` and are re-exported from ``spine.data`` for convenience.
+
+.. autosummary::
+   :toctree: generated
+
+   larcv.Particle
+   larcv.Neutrino
+   larcv.CRTHit
+   larcv.Flash
+   larcv.Trigger
+   larcv.Meta
+   larcv.RunInfo
 
 Output Data Structures
 ----------------------
 
-These classes represent high-level physics objects produced by the reconstruction chain.
-Each has both a reconstructed (Reco) and truth (Truth) variant with automatically merged
-attributes from base classes.
+These classes represent the high-level object hierarchy produced by construction and refined by post-processing. Each object family has reconstructed and truth variants with shared metadata, units, and enum-aware fields inherited from common bases.
 
 Fragment Objects
 ~~~~~~~~~~~~~~~~
@@ -26,99 +47,52 @@ Fragment Objects
 Fragments represent clusters of energy depositions that may correspond to intermediate objects
 in the reconstruction hierarchy.
 
-.. autoclass:: spine.data.out.RecoFragment
-   :members:
-   :inherited-members:
-   :show-inheritance:
+.. autosummary::
+   :toctree: generated
 
-.. autoclass:: spine.data.out.TruthFragment
-   :members:
-   :inherited-members:
-   :show-inheritance:
+   out.RecoFragment
+   out.TruthFragment
 
 Particle Objects
 ~~~~~~~~~~~~~~~~
 
 Particles represent individual particles with full kinematic and identification information.
 
-.. autoclass:: spine.data.out.RecoParticle
-   :members:
-   :inherited-members:
-   :show-inheritance:
+.. autosummary::
+   :toctree: generated
 
-.. autoclass:: spine.data.out.TruthParticle
-   :members:
-   :inherited-members:
-   :show-inheritance:
+   out.RecoParticle
+   out.TruthParticle
 
 Interaction Objects
 ~~~~~~~~~~~~~~~~~~~
 
 Interactions represent complete neutrino interactions with all associated particles.
 
-.. autoclass:: spine.data.out.RecoInteraction
-   :members:
-   :inherited-members:
-   :show-inheritance:
+.. autosummary::
+   :toctree: generated
 
-.. autoclass:: spine.data.out.TruthInteraction
-   :members:
-   :inherited-members:
-   :show-inheritance:
+   out.RecoInteraction
+   out.TruthInteraction
 
 Batch Data Structures
 ---------------------
 
-Efficient batching utilities for machine learning training and inference.
+These containers support model-facing batching and unbatching for tensors, graph edges, and index collections.
 
-.. autoclass:: spine.data.batch.TensorBatch
-   :members:
-   :inherited-members:
-   :show-inheritance:
+.. autosummary::
+   :toctree: generated
 
-.. autoclass:: spine.data.batch.EdgeIndexBatch
-   :members:
-   :inherited-members:
-   :show-inheritance:
-
-.. autoclass:: spine.data.batch.IndexBatch
-   :members:
-   :inherited-members:
-   :show-inheritance:
+   batch.TensorBatch
+   batch.EdgeIndexBatch
+   batch.IndexBatch
 
 Other Data Structures
 ---------------------
 
-Additional data containers for detector information.
+Additional generic containers defined directly under ``spine.data``.
 
-.. autoclass:: spine.data.Particle
-   :members:
-   :show-inheritance:
+.. autosummary::
+   :toctree: generated
 
-.. autoclass:: spine.data.Neutrino
-   :members:
-   :show-inheritance:
-
-.. autoclass:: spine.data.CRTHit
-   :members:
-   :show-inheritance:
-
-.. autoclass:: spine.data.Optical
-   :members:
-   :show-inheritance:
-
-.. autoclass:: spine.data.Trigger
-   :members:
-   :show-inheritance:
-
-.. autoclass:: spine.data.Meta
-   :members:
-   :show-inheritance:
-
-.. autoclass:: spine.data.RunInfo
-   :members:
-   :show-inheritance:
-
-.. autoclass:: spine.data.ObjectList
-   :members:
-   :show-inheritance:
+   ObjectList
