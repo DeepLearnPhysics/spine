@@ -11,9 +11,9 @@ import numpy as np
 import torch
 from torch_cluster import knn_graph, radius_graph
 
+from spine.constants import CLUST_COL, SHAPE_COL
+from spine.constants.factory import enum_factory
 from spine.data import IndexBatch, ObjectList, TensorBatch
-from spine.utils.enums import enum_factory
-from spine.utils.globals import CLUST_COL, SHAPE_COL
 from spine.utils.gnn.cluster import form_clusters
 from spine.utils.metrics import ari, eff, pur
 

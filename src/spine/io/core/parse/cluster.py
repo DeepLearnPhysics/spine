@@ -12,11 +12,7 @@ from warnings import warn
 
 import numpy as np
 
-from spine.data import Meta
-from spine.math.cluster import dbscan
-from spine.math.distance import METRICS
-from spine.utils.conditional import larcv
-from spine.utils.globals import (
+from spine.constants import (
     ANCST_COL,
     CLUST_COL,
     DELTA_SHP,
@@ -28,6 +24,10 @@ from spine.utils.globals import (
     SHAPE_PREC,
     VALUE_COL,
 )
+from spine.data import Meta
+from spine.math.cluster import dbscan
+from spine.math.distance import METRICS
+from spine.utils.conditional import larcv
 from spine.utils.particles import process_particle_event
 from spine.utils.ppn import image_coordinates
 

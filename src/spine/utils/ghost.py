@@ -3,9 +3,8 @@
 import numpy as np
 import torch
 
+from spine.constants import DELTA_SHP, MICHL_SHP, SHOWR_SHP, TRACK_SHP
 from spine.data import TensorBatch
-
-from .globals import DELTA_SHP, MICHL_SHP, SHOWR_SHP, TRACK_SHP
 
 
 class ChargeRescaler:

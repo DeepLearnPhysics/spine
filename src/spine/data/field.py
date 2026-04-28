@@ -6,6 +6,7 @@ offering better IDE support, type checking, and documentation.
 
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
+from enum import IntEnum
 
 __all__ = ["FieldMetadata"]
 
@@ -43,15 +44,15 @@ class FieldMetadata(Mapping[str, object]):
         Physical units for the field. Common values:
         - Fixed units: ``'MeV'``, ``'GeV'``, ``'ns'``, ``'us'``, ``'MeV/c'``
         - Instance units: ``'instance'`` (follows the instance's units attribute)
-    enum : dict, optional
-        Enumeration mapping for categorical fields (e.g., ``{0: 'electron', 1: 'muon'}``).
+    enum : IntEnum subclass, optional
+        Enumerated type for categorical fields (e.g., ``ParticlePID``).
 
     >>> id: int = field(default=-1, metadata=FieldMetadata(index=True))
     >>>
     >>> # Enumerated field
     >>> particle_type: int = field(
     ...     default=-1,
-    ...     metadata=FieldMetadata(enum={0: 'electron', 1: 'muon', 2: 'pion'})
+    ...     metadata=FieldMetadata(enum=ParticlePID)
     ... )
     """
 
@@ -61,7 +62,7 @@ class FieldMetadata(Mapping[str, object]):
     position: bool = False
     vector: bool = False
     units: str | None = None
-    enum: dict[int, str] | None = None
+    enum: type[IntEnum] | None = None
     index: bool = False
     skip: bool = False
     lite_skip: bool = False
@@ -69,9 +70,10 @@ class FieldMetadata(Mapping[str, object]):
 
     def __post_init__(self):
         """Validate field constraints."""
-        # Validate enum type
-        if self.enum is not None and not isinstance(self.enum, dict):
-            raise TypeError("'enum' must be a dictionary")
+        if self.enum is not None and not (
+            isinstance(self.enum, type) and issubclass(self.enum, IntEnum)
+        ):
+            raise TypeError("'enum' must be an IntEnum subclass")
 
     # Implement Mapping protocol for dataclass field() compatibility
     def __getitem__(self, key: str) -> object:

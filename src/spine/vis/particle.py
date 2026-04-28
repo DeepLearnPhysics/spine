@@ -2,8 +2,8 @@
 
 import numpy as np
 
+from spine.constants import PART_COL
 from spine.data import Particle
-from spine.utils.globals import PART_COL
 
 from .layout import HIGH_CONTRAST_COLORS
 from .point import scatter_points

@@ -12,13 +12,13 @@ from plotly.subplots import make_subplots
 from spine.geo import GeoManager
 
 # Colorscale definitions
-PLOTLY_COLORS = colors.qualitative.Plotly
+PLOTLY_COLORS = list(colors.qualitative.Plotly)
 PLOTLY_COLORS_TUPLE = colors.convert_colors_to_same_type(
     deepcopy(PLOTLY_COLORS), "tuple"
 )[0]
 PLOTLY_COLORS_WGRAY = ["#808080"] + PLOTLY_COLORS
-HIGH_CONTRAST_COLORS = np.concatenate(
-    [colors.qualitative.Dark24, colors.qualitative.Light24]
+HIGH_CONTRAST_COLORS = list(colors.qualitative.Dark24) + list(
+    colors.qualitative.Light24
 )
 
 __all__ = ["layout3d", "dual_figure3d"]

@@ -4,8 +4,8 @@ import numba as nb
 import numpy as np
 
 import spine.math as sm
+from spine.constants import COORD_COLS, COORD_COLS_HI, COORD_COLS_LO
 from spine.data import TensorBatch
-from spine.utils.globals import COORD_COLS
 from spine.utils.jit import numbafy
 
 
@@ -120,15 +120,15 @@ def _get_cluster_edge_features(
     for k in nb.prange(len(edge_index)):
         # Get the voxels in the clusters connected by the edge
         c1, c2 = edge_index[k]
-        x1 = data[clusts[c1]][:, COORD_COLS]
-        x2 = data[clusts[c2]][:, COORD_COLS]
+        x1 = data[clusts[c1]][:, COORD_COLS_LO:COORD_COLS_HI]
+        x2 = data[clusts[c2]][:, COORD_COLS_LO:COORD_COLS_HI]
 
         # Find the closest set point in each cluster
         if closest_index is not None:
             imin = closest_index[c1, c2]
             i1, i2 = imin // len(x2), imin % len(x2)
         else:
-            i1, j2, _ = sm.distance.closest_pair(x1, x2, iterative)
+            i1, i2, _ = sm.distance.closest_pair(x1, x2, iterative)
         v1 = x1[i1, :]
         v2 = x2[i2, :]
 
@@ -160,16 +160,16 @@ def _get_cluster_edge_features_vec(
     # Get the closest points of approach IDs for each edge
     if closest_index is None:
         lend, idxs1, idxs2 = _get_edge_distances(
-            data[:, COORD_COLS], clusts, edge_index, iterative
+            data[:, COORD_COLS_LO:COORD_COLS_HI], clusts, edge_index, iterative
         )
     else:
         idxs1, idxs2 = closest_index[(edge_index[0], edge_index[1])]
 
     # Get the points that correspond to the first voxels
-    v1 = data[idxs1][:, COORD_COLS]
+    v1 = data[idxs1][:, COORD_COLS_LO:COORD_COLS_HI]
 
     # Get the points that correspond to the second voxels
-    v2 = data[idxs2][:, COORD_COLS]
+    v2 = data[idxs2][:, COORD_COLS_LO:COORD_COLS_HI]
 
     # Get the displacement
     disp = v1 - v2
@@ -229,8 +229,8 @@ def _get_voxel_edge_features(
     feats = np.empty((len(edge_index), 19), dtype=data.dtype)
     for k in nb.prange(len(edge_index)):
         # Get the voxel coordinates
-        xi = data[edge_index[k, 0]][:, COORD_COLS]
-        xj = data[edge_index[k, 1]][:, COORD_COLS]
+        xi = data[edge_index[k, 0], COORD_COLS_LO:COORD_COLS_HI]
+        xj = data[edge_index[k, 1], COORD_COLS_LO:COORD_COLS_HI]
 
         # Displacement
         disp = xj - xi
@@ -410,7 +410,7 @@ def _inter_cluster_distance_index(
 
     # Loop over the upper diagonal elements of each block on the diagonal
     dist_mat = np.zeros((len(clusts), len(clusts)), dtype=voxels.dtype)
-    closest_index = np.zeros((len(clusts), len(clusts)), dtype=nb.int64)
+    closest_index = np.zeros((len(clusts), len(clusts)), dtype=np.int64)
     indxi, indxj = complete_graph(counts)
     for k in nb.prange(len(indxi)):
         # Identify the two voxels closest to each other in each cluster

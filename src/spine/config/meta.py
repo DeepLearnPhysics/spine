@@ -51,13 +51,15 @@ def _compare_versions(actual: str, operator: str, required: str) -> bool:
     # Validate actual version
     if not (actual and actual.isdigit() and len(actual) == 6):
         raise ValueError(
-            f"Invalid version format: '{actual}'. Must be exactly 6 digits (YYMMDD format, e.g., '240719')"
+            f"Invalid version format: '{actual}'. Must be exactly 6 digits "
+            "(YYMMDD format, e.g., '240719')"
         )
 
     # Validate required version
     if not (required and required.isdigit() and len(required) == 6):
         raise ValueError(
-            f"Invalid version format: '{required}'. Must be exactly 6 digits (YYMMDD format, e.g., '240719')"
+            f"Invalid version format: '{required}'. Must be exactly 6 digits "
+            "(YYMMDD format, e.g., '240719')"
         )
 
     # Convert to integers for comparison
@@ -131,7 +133,8 @@ def extract_metadata(
     kind = meta.get(META_KIND, DEFAULT_KIND)
     if kind not in VALID_KINDS:
         warnings.warn(
-            f"Invalid __meta__.kind: '{kind}', must be one of {VALID_KINDS}. Using '{DEFAULT_KIND}'"
+            f"Invalid __meta__.kind: '{kind}', must be one of {VALID_KINDS}. "
+            f"Using '{DEFAULT_KIND}'"
         )
         kind = DEFAULT_KIND
 
@@ -142,7 +145,8 @@ def extract_metadata(
         strict = "warn" if kind == "mod" else "error"
     elif strict not in VALID_STRICT_MODES:
         warnings.warn(
-            f"Invalid __meta__.strict: '{strict}', must be one of {VALID_STRICT_MODES}. Using default"
+            f"Invalid __meta__.strict: '{strict}', must be one of "
+            f"{VALID_STRICT_MODES}. Using default"
         )
         strict = "warn" if kind == "mod" else "error"
 
@@ -150,7 +154,8 @@ def extract_metadata(
     list_append = meta.get(META_LIST_APPEND, DEFAULT_LIST_APPEND)
     if list_append not in VALID_LIST_APPEND_MODES:
         warnings.warn(
-            f"Invalid __meta__.list_append: '{list_append}', must be one of {VALID_LIST_APPEND_MODES}. Using '{DEFAULT_LIST_APPEND}'"
+            f"Invalid __meta__.list_append: '{list_append}', must be one of "
+            f"{VALID_LIST_APPEND_MODES}. Using '{DEFAULT_LIST_APPEND}'"
         )
         list_append = DEFAULT_LIST_APPEND
 
@@ -283,9 +288,11 @@ def check_compatibility(
         parent_file = os.path.basename(parent_meta.get("_file_path", "<unknown>"))
 
         raise ConfigValidationError(
-            f"Compatibility error: '{file_name}' declares compatible_with={compatible_with}, "
-            f"but parent '{parent_file}' has kind='{parent_kind}', extends={parent_extends}, version={parent_version}. "
-            f"The included config cannot be used in this context."
+            f"Compatibility error: '{file_name}' declares "
+            f"compatible_with={compatible_with}, but parent '{parent_file}' has "
+            f"kind='{parent_kind}', extends={parent_extends}, "
+            f"version={parent_version}. The included config cannot be used in this "
+            "context."
         )
 
     # Check for conflicting modifiers (same 'extends' value)

@@ -8,10 +8,10 @@ import torch
 import torch.nn as nn
 from torch_geometric.data import Batch, Data
 
+from spine.constants import BATCH_COL, INTER_COL, NU_COL, VTX_COLS
 from spine.model.experimental.layer.pointnet import PointNetEncoder
 from spine.model.layer.cnn.vertex_ppn import VertexPPN, VertexPPNLoss
 from spine.model.uresnet import SegmentationLoss, UResNetSegmentation
-from spine.utils.globals import BATCH_COL, INTER_COL, NU_COL, VTX_COLS
 from spine.utils.gnn.cluster import form_clusters, get_cluster_label
 
 

@@ -8,7 +8,7 @@ import numpy as np
 from scipy.optimize import minimize_scalar
 from scipy.special import gammaincinv  # pylint: disable=E0611
 
-from .globals import LAR_E_CRIT, LAR_RM, LAR_X0, LAR_Z
+from spine.constants import LAR_E_CRIT, LAR_RM, LAR_X0, LAR_Z
 
 
 class ShowerEnergyFitter:

@@ -3,6 +3,8 @@
 An edge index is a sparse representation of a graph incidence matrix.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 
 import numpy as np

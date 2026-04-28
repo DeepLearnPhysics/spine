@@ -1,11 +1,20 @@
 """Tests for FieldMetadata class."""
 
 import dataclasses
+from enum import IntEnum
 
 import numpy as np
 import pytest
 
 from spine.data.field import FieldMetadata
+
+
+class SampleParticleType(IntEnum):
+    """Simple enum used to test categorical field metadata."""
+
+    ELECTRON = 0
+    MUON = 1
+    PION = 2
 
 
 class TestFieldMetadata:
@@ -41,13 +50,12 @@ class TestFieldMetadata:
 
     def test_enum(self):
         """Test enumeration metadata."""
-        enum_map = {0: "electron", 1: "muon", 2: "pion"}
-        meta = FieldMetadata(enum=enum_map)
-        assert meta.enum == enum_map
+        meta = FieldMetadata(enum=SampleParticleType)
+        assert meta.enum is SampleParticleType
 
     def test_enum_type_validation(self):
-        """Test that enum must be a dict."""
-        with pytest.raises(TypeError, match="must be a dictionary"):
+        """Test that enum must be an IntEnum subclass."""
+        with pytest.raises(TypeError, match="must be an IntEnum subclass"):
             FieldMetadata(enum=["electron", "muon"])  # type: ignore
 
     def test_immutable(self):

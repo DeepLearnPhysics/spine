@@ -7,9 +7,9 @@ import torch
 import torch.nn as nn
 from scipy.optimize import linear_sum_assignment
 
+from spine.constants import *
 from spine.model.experimental.cluster.criterion import *
 from spine.model.experimental.cluster.transformer_spice import TransformerSPICE
-from spine.utils.globals import *
 
 
 class Mask3DModel(nn.Module):

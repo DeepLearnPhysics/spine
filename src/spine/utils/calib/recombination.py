@@ -4,7 +4,7 @@ from typing import Optional, Union
 
 import numpy as np
 
-from spine.utils.globals import LAR_DENSITY, LAR_WION
+from spine.constants import LAR_DENSITY, LAR_WION
 from spine.utils.tracking import get_track_segment_dedxs
 
 __all__ = ["RecombinationCalibrator"]

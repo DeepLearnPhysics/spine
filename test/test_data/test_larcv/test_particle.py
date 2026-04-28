@@ -20,7 +20,7 @@ class TestParticleCreation:
         # Test creation with common physics parameters
         particle = Particle(
             id=1,
-            pid=13,  # muon
+            pid=2,  # muon
             pdg_code=13,
             energy_init=1000.0,  # 1 GeV
             position=np.array([0.0, 0.0, 0.0]),
@@ -28,7 +28,7 @@ class TestParticleCreation:
         )
 
         assert particle.id == 1
-        assert particle.pid == 13
+        assert particle.pid == 2
         assert particle.pdg_code == 13
         assert particle.energy_init == 1000.0
         assert np.allclose(particle.position, [0.0, 0.0, 0.0])
@@ -40,7 +40,7 @@ class TestParticleCreation:
 
         particle = Particle(
             id=0,
-            pid=11,  # electron
+            pid=1,  # electron
             pdg_code=11,
             # Kinematic properties
             energy_init=100.0,
@@ -57,7 +57,7 @@ class TestParticleCreation:
         )
 
         # Verify all properties are set correctly
-        assert particle.pid == 11
+        assert particle.pid == 1
         assert particle.energy_init == 100.0
         assert particle.energy_deposit == 95.0
         assert particle.distance_travel == 12.5
@@ -159,14 +159,14 @@ class TestParticlePhysics:
 
         electron = Particle(
             id=0,
-            pid=11,
+            pid=1,
             pdg_code=11,
             momentum=momentum,
             energy_init=energy * 1000,  # Convert to MeV
         )
 
         # Verify particle properties
-        assert electron.pid == 11
+        assert electron.pid == 1
         assert abs(electron.energy_init - energy * 1000) < 1.0  # Within 1 MeV
         # Check momentum (particle class may normalize differently)
         assert np.linalg.norm(electron.momentum) > 0.0  # Has momentum
@@ -178,7 +178,7 @@ class TestParticlePhysics:
         # Muon decay scenario: μ → e + νμ + νe
         muon = Particle(
             id=0,
-            pid=13,
+            pid=2,
             pdg_code=13,
             energy_init=105.7,  # Muon rest mass
             position=np.array([0.0, 0.0, 0.0]),
@@ -187,7 +187,7 @@ class TestParticlePhysics:
 
         electron = Particle(
             id=1,
-            pid=11,
+            pid=1,
             pdg_code=11,
             parent_id=0,
             parent_pdg_code=13,
@@ -197,7 +197,7 @@ class TestParticlePhysics:
 
         nu_mu = Particle(
             id=2,
-            pid=14,
+            pid=-1,
             pdg_code=14,  # muon neutrino
             parent_id=0,
             parent_pdg_code=13,
@@ -206,7 +206,7 @@ class TestParticlePhysics:
 
         nu_e = Particle(
             id=3,
-            pid=12,
+            pid=-1,
             pdg_code=12,  # electron neutrino
             parent_id=0,
             parent_pdg_code=13,
@@ -230,7 +230,7 @@ class TestParticlePhysics:
         # Particle that travels through detector
         particle = Particle(
             id=0,
-            pid=13,  # muon (good for penetrating)
+            pid=2,  # muon (good for penetrating)
             energy_init=2000.0,  # 2 GeV
             energy_deposit=150.0,  # Only deposits small amount
             distance_travel=45.0,  # Travels 45 cm through detector
@@ -306,18 +306,16 @@ class TestParticleCollections:
         particles = []
 
         # Primary particles from neutrino interaction
-        proton = Particle(
-            id=0, pid=2212, pdg_code=2212, interaction_primary=True, nu_id=0
-        )
-        muon = Particle(id=1, pid=13, pdg_code=13, interaction_primary=True, nu_id=0)
+        proton = Particle(id=0, pid=4, pdg_code=2212, interaction_primary=True, nu_id=0)
+        muon = Particle(id=1, pid=2, pdg_code=13, interaction_primary=True, nu_id=0)
 
         # Secondary particles
         pi_plus = Particle(
-            id=2, pid=211, pdg_code=211, parent_id=0, interaction_primary=False, nu_id=0
+            id=2, pid=3, pdg_code=211, parent_id=0, interaction_primary=False, nu_id=0
         )
         pi_minus = Particle(
             id=3,
-            pid=-211,
+            pid=3,
             pdg_code=-211,
             parent_id=0,
             interaction_primary=False,
@@ -345,7 +343,7 @@ class TestParticleCollections:
         # Create particle hierarchy: parent -> child1, child2
         parent = Particle(
             id=0,
-            pid=2212,  # proton
+            pid=4,  # proton
             pdg_code=2212,
             children_id=np.array([1, 2]),
             interaction_primary=True,
@@ -353,7 +351,7 @@ class TestParticleCollections:
 
         child1 = Particle(
             id=1,
-            pid=211,  # pi+
+            pid=3,  # pi+
             pdg_code=211,
             parent_id=0,
             parent_pdg_code=2212,
@@ -362,7 +360,7 @@ class TestParticleCollections:
 
         child2 = Particle(
             id=2,
-            pid=111,  # pi0
+            pid=-1,  # pi0
             pdg_code=111,
             parent_id=0,
             parent_pdg_code=2212,
@@ -395,19 +393,17 @@ class TestParticleCollections:
 
         # Create particles with various properties
         particles = [
-            Particle(id=0, pid=11, energy_init=500.0, t=0.0),  # electron, 500 MeV, t=0
-            Particle(id=1, pid=13, energy_init=1000.0, t=5.0),  # muon, 1 GeV, t=5
-            Particle(id=2, pid=211, energy_init=200.0, t=2.0),  # pi+, 200 MeV, t=2
-            Particle(id=3, pid=-211, energy_init=300.0, t=1.0),  # pi-, 300 MeV, t=1
-            Particle(
-                id=4, pid=2212, energy_init=938.0, t=0.5
-            ),  # proton, 938 MeV, t=0.5
+            Particle(id=0, pid=1, energy_init=500.0, t=0.0),  # electron, 500 MeV, t=0
+            Particle(id=1, pid=2, energy_init=1000.0, t=5.0),  # muon, 1 GeV, t=5
+            Particle(id=2, pid=3, energy_init=200.0, t=2.0),  # pi+, 200 MeV, t=2
+            Particle(id=3, pid=3, energy_init=300.0, t=1.0),  # pi-, 300 MeV, t=1
+            Particle(id=4, pid=4, energy_init=938.0, t=0.5),  # proton, 938 MeV, t=0.5
         ]
 
         # Test filtering by particle type
-        leptons = [p for p in particles if abs(p.pid) in [11, 13, 15]]  # e, μ, τ
-        mesons = [p for p in particles if abs(p.pid) in [211, 111, 321]]  # π, K
-        baryons = [p for p in particles if abs(p.pid) in [2212, 2112]]  # p, n
+        leptons = [p for p in particles if p.pid in [1, 2]]  # e, μ
+        mesons = [p for p in particles if p.pid in [3, 5]]  # π, K
+        baryons = [p for p in particles if p.pid in [4]]  # p
 
         assert len(leptons) == 2  # electron, muon
         assert len(mesons) == 2  # pi+, pi-
@@ -449,7 +445,7 @@ class TestParticleIntegration:
         primary_muon = Particle(
             id=0,
             nu_id=0,  # Links to neutrino
-            pid=13,
+            pid=2,
             pdg_code=13,
             interaction_primary=True,
             energy_init=1500.0,
@@ -459,7 +455,7 @@ class TestParticleIntegration:
         primary_proton = Particle(
             id=1,
             nu_id=0,  # Links to same neutrino
-            pid=2212,
+            pid=4,
             pdg_code=2212,
             interaction_primary=True,
             energy_init=400.0,
@@ -486,7 +482,7 @@ class TestParticleIntegration:
         # Create realistic muon
         muon = Particle(
             id=0,
-            pid=13,
+            pid=2,
             pdg_code=13,
             energy_init=1177.0,  # Total energy in MeV
             momentum=np.array([600.0, 0.0, 800.0]),  # p_total = 1000 MeV/c
@@ -513,7 +509,7 @@ class TestParticleIntegration:
         # Scenario: Cosmic muon entering detector
         cosmic_muon = Particle(
             id=0,
-            pid=13,
+            pid=2,
             pdg_code=13,
             # High energy cosmic ray
             energy_init=5000.0,  # 5 GeV
@@ -541,7 +537,7 @@ class TestParticleIntegration:
         # from detector simulation - defaults may be -inf
         # Just verify the muon was created with high energy
         assert cosmic_muon.energy_init == 5000.0
-        assert cosmic_muon.pid == 13
+        assert cosmic_muon.pid == 2
 
 
 class TestParticleFromLArCV:

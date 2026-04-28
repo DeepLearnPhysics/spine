@@ -1,92 +1,52 @@
 Input/Output Module
 ===================
 
-The ``spine.io`` module provides comprehensive tools for data input/output operations with support for multiple file formats.
+The ``spine.io`` module handles data ingress and egress for SPINE jobs. It includes framework-independent readers and writers as well as PyTorch-aware dataset, collation, augmentation, and sampling utilities used during model training and inference.
+
+.. currentmodule:: spine.io
+
+.. automodule:: spine.io
+   :no-members:
 
 Overview
 --------
 
-The I/O module is organized into:
+The I/O layer is split into two main parts:
 
-- **Core I/O**: Framework-independent file reading/writing (HDF5, LArCV, ROOT)
-- **PyTorch I/O**: Dataset loaders and batch processing for ML training
-- **Parsers**: Extract and transform data from various formats
-- **Collaters**: Batch multiple samples for efficient training
+- **Core I/O** for framework-independent reading and writing of HDF5, LArCV, ROOT, and related event data
+- **Torch I/O** for datasets, collation, augmentation, overlays, and sampling in ML workflows
+
+This is the first stage of the driver pipeline and the point where external detector data is mapped into SPINE's internal data structures.
 
 File Readers
 ------------
 
-Reader classes for various file formats. All readers inherit from ``ReaderBase``
-and share common attributes for file management, indexing, and metadata.
+.. autosummary::
+   :toctree: generated
 
-HDF5 Reader
-~~~~~~~~~~~
-
-.. autoclass:: spine.io.core.read.HDF5Reader
-   :members:
-   :inherited-members:
-   :show-inheritance:
-   :exclude-members: __init__
-
-LArCV Reader
-~~~~~~~~~~~~
-
-.. autoclass:: spine.io.core.read.LArCVReader
-   :members:
-   :inherited-members:
-   :show-inheritance:
-   :exclude-members: __init__
+   core.read.HDF5Reader
+   core.read.LArCVReader
 
 File Writers
 ------------
 
-Writer classes for output operations.
+.. autosummary::
+   :toctree: generated
 
-HDF5 Writer
-~~~~~~~~~~~
-
-.. autoclass:: spine.io.core.write.HDF5Writer
-   :members:
-   :show-inheritance:
-
-CSV Writer
-~~~~~~~~~~
-
-.. autoclass:: spine.io.core.write.CSVWriter
-   :members:
-   :show-inheritance:
+   core.write.HDF5Writer
+   core.write.CSVWriter
 
 Data Processing
 ---------------
 
-Tools for data augmentation, collation, and sampling.
+Tools for dataset preparation, augmentation, collation, and sampling.
 
-Collaters
-~~~~~~~~~
+.. autosummary::
+   :toctree: generated
 
-.. automodule:: spine.io.collate
-   :members:
-   :show-inheritance:
-
-Samplers
-~~~~~~~~
-
-.. automodule:: spine.io.sample
-   :members:
-   :show-inheritance:
-
-Augmentation
-~~~~~~~~~~~~
-
-.. automodule:: spine.io.augment
-   :members:
-   :show-inheritance:
-
-Parsers
--------
-
-Data extraction and transformation utilities.
-
-.. automodule:: spine.io.parse
-   :members:
-   :show-inheritance:
+   torch.collate
+   torch.dataset
+   torch.sample
+   torch.augment
+   torch.overlay
+   torch.factories

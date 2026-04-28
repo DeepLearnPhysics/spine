@@ -8,10 +8,10 @@ from warnings import warn
 
 import numpy as np
 
+from spine.constants import PID_LABELS, SHAPE_LABELS, ParticlePID, ParticleShape
 from spine.data.base import PosDataBase
 from spine.data.decorator import stored_property
 from spine.data.field import FieldMetadata
-from spine.utils.globals import PID_LABELS, SHAPE_LABELS
 
 __all__ = ["Particle"]
 
@@ -144,8 +144,8 @@ class Particle(PosDataBase):
     units: str = "cm"
 
     # Enumerated attributes
-    shape: int = field(default=-1, metadata=FieldMetadata(enum=SHAPE_LABELS))
-    pid: int = field(default=-1, metadata=FieldMetadata(enum=PID_LABELS))
+    shape: int = field(default=-1, metadata=FieldMetadata(enum=ParticleShape))
+    pid: int = field(default=-1, metadata=FieldMetadata(enum=ParticlePID))
 
     # Vector attributes
     position: np.ndarray = field(
@@ -294,7 +294,7 @@ class Particle(PosDataBase):
         # Load the other array attributes (special care needed). Note for future
         # self: need the list comprehension. Direct casting is INSANELY slow...
         obj_dict["children_id"] = np.asarray(
-            [i for i in particle.children_id()], dtype=int
+            [i for i in particle.children_id()], dtype=np.int32
         )
 
         mom_attrs = ("px", "py", "pz")

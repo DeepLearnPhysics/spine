@@ -3,8 +3,8 @@
 import numpy as np
 from scipy.special import softmax
 
+from spine.constants import CLUST_COL, PART_COL, TRACK_SHP
 from spine.data.out import RecoFragment, TruthFragment
-from spine.utils.globals import CLUST_COL, PART_COL, TRACK_SHP
 
 from .base import BuilderBase
 

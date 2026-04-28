@@ -4,8 +4,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from spine.constants import BATCH_COL, COORD_COLS
 from spine.utils.conditional import ME, torch
-from spine.utils.globals import BATCH_COL, COORD_COLS
 
 from .base import BatchBase
 

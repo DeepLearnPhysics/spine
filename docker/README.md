@@ -2,7 +2,9 @@
 
 This directory contains the Docker container definition for SPINE (Scalable Particle Imaging with Neural Embeddings).
 
-## Container: `ghcr.io/deeplearnphysics/spine:latest`
+## Container: `ghcr.io/deeplearnphysics/spine:<release>`
+
+The recommended way to run SPINE is to use the image published for each SPINE release. Prefer explicit release tags for reproducibility. When in doubt, use `latest`, or omit the tag entirely in Docker-style image references, which is equivalent.
 
 **Complete ML stack with GPU support**
 
@@ -32,7 +34,10 @@ This directory contains the Docker container definition for SPINE (Scalable Part
 
 ```bash
 docker pull ghcr.io/deeplearnphysics/spine:latest
-docker run --gpus all -v $(pwd):/workspace ghcr.io/deeplearnphysics/spine:latest --help
+
+# Or pin to a specific release
+docker pull ghcr.io/deeplearnphysics/spine:<release>
+docker run --gpus all -v $(pwd):/workspace ghcr.io/deeplearnphysics/spine:<release> --help
 ```
 
 `/workspace` is just the default working directory inside the container. To work on host files, bind-mount a host path there as shown above.
@@ -44,8 +49,8 @@ docker run --gpus all \
   -v $(pwd)/data:/workspace/data \
   -v $(pwd)/config:/workspace/config \
   -v $(pwd)/output:/workspace/output \
-  ghcr.io/deeplearnphysics/spine:latest \
-  --config /workspace/config/train_uresnet.cfg \
+  ghcr.io/deeplearnphysics/spine:<release> \
+  --config /workspace/config/train_uresnet.yaml \
   --source /workspace/data/training_data.root
 ```
 
@@ -54,7 +59,7 @@ docker run --gpus all \
 ```bash
 docker run --gpus all -it --rm \
   -v $(pwd):/workspace \
-  ghcr.io/deeplearnphysics/spine:latest \
+  ghcr.io/deeplearnphysics/spine:<release> \
   bash
 ```
 
@@ -62,7 +67,7 @@ docker run --gpus all -it --rm \
 
 ```bash
 docker run --gpus all -v $(pwd):/workspace \
-  ghcr.io/deeplearnphysics/spine:latest \
+  ghcr.io/deeplearnphysics/spine:<release> \
   python /workspace/my_script.py
 ```
 
@@ -75,8 +80,8 @@ The container includes XRootD client with token authentication support, enabling
 ```bash
 # Process file directly from XRootD endpoint
 docker run --gpus all \
-  ghcr.io/deeplearnphysics/spine:latest \
-  --config config.cfg \
+  ghcr.io/deeplearnphysics/spine:<release> \
+  --config config.yaml \
   --source root://dcache.example.com//path/to/file.root
 ```
 
@@ -91,7 +96,7 @@ export BEARER_TOKEN="your_token_here"
 docker run --gpus all \
   -v $(pwd)/bearer_token:/tmp/bearer_token:ro \
   -e BEARER_TOKEN_FILE=/tmp/bearer_token \
-  ghcr.io/deeplearnphysics/spine:latest \
+  ghcr.io/deeplearnphysics/spine:<release> \
   --source root://dcache.example.com//path/to/file.root
 ```
 
@@ -99,7 +104,7 @@ docker run --gpus all \
 ```bash
 docker run --gpus all \
   -e BEARER_TOKEN="your_token_here" \
-  ghcr.io/deeplearnphysics/spine:latest \
+  ghcr.io/deeplearnphysics/spine:<release> \
   --source root://dcache.example.com//path/to/file.root
 ```
 
@@ -109,13 +114,13 @@ docker run --gpus all \
 # Check XRootD client is installed
 docker run --rm \
   --entrypoint xrdcp \
-  ghcr.io/deeplearnphysics/spine:latest \
+  ghcr.io/deeplearnphysics/spine:<release> \
   --help
 
 # Test access to XRootD endpoint (replace with your endpoint)
 docker run --rm \
   --entrypoint xrdfs \
-  ghcr.io/deeplearnphysics/spine:latest \
+  ghcr.io/deeplearnphysics/spine:<release> \
   root://dcache.example.com/ ls /path/to/directory
 ```
 
@@ -141,15 +146,18 @@ apptainer run --nv \
 
 ## Apptainer Usage (HPC Clusters)
 
-Many HPC clusters don't allow Docker but support Apptainer (formerly Singularity). You can use the Docker image directly:
+Many HPC clusters don't allow Docker but support Apptainer (formerly Singularity). In that case, pull the exact same released SPINE image from GHCR and run it through Apptainer.
 
 ### Pull and Convert
 
 ```bash
 # Apptainer will automatically convert from Docker
-apptainer pull docker://ghcr.io/deeplearnphysics/spine:latest
+apptainer pull spine_latest.sif docker://ghcr.io/deeplearnphysics/spine:latest
 
-# This creates spine_latest.sif
+# Or pin to a specific release
+apptainer pull spine_<release>.sif docker://ghcr.io/deeplearnphysics/spine:<release>
+
+# This creates spine_<release>.sif
 # Note: 'singularity' command works too (legacy compatibility)
 ```
 
@@ -159,20 +167,20 @@ apptainer pull docker://ghcr.io/deeplearnphysics/spine:latest
 
 ```bash
 # Run SPINE CLI
-apptainer run --nv spine_latest.sif --help
+apptainer run --nv spine_<release>.sif --help
 
 # Interactive shell
-apptainer shell --nv spine_latest.sif
+apptainer shell --nv spine_<release>.sif
 
 # Execute Python script
-apptainer exec --nv spine_latest.sif python my_script.py
+apptainer exec --nv spine_<release>.sif python my_script.py
 
 # Run with bound directories (like Docker -v)
 apptainer run --nv \
   --bind /path/to/data:/workspace/data \
   --bind /path/to/config:/workspace/config \
-  spine_latest.sif \
-  --config /workspace/config/train_uresnet.cfg
+  spine_<release>.sif \
+  --config /workspace/config/train_uresnet.yaml
 ```
 
 When pulled with Apptainer/Singularity, the fully built image is about **5.7 GB**.
@@ -192,15 +200,15 @@ module load apptainer
 # Run training
 apptainer exec --nv \
   --bind $PWD:/workspace \
-  /path/to/spine_latest.sif \
-  spine --config /workspace/config/train.cfg
+  /path/to/spine_<release>.sif \
+  spine --config /workspace/config/train.yaml
 ```
 
 ### Docker vs Apptainer Quick Reference
 
 | Feature | Docker | Apptainer |
 |---------|--------|----------------------|
-| Pull image | `docker pull ghcr.io/deeplearnphysics/spine:latest` | `apptainer pull docker://ghcr.io/deeplearnphysics/spine:latest` |
+| Pull image | `docker pull ghcr.io/deeplearnphysics/spine:<release>` | `apptainer pull docker://ghcr.io/deeplearnphysics/spine:<release>` |
 | GPU flag | `--gpus all` | `--nv` |
 | Mount volumes | `-v /host:/container` | `--bind /host:/container` |
 | Interactive shell | `docker run -it --rm IMAGE bash` | `apptainer shell` |

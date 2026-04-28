@@ -3,8 +3,8 @@
 import numpy as np
 import torch
 
+from spine.constants import COORD_START_COLS, GROUP_COL, PRGRP_COL
 from spine.model.layer.factories import loss_fn_factory
-from spine.utils.globals import COORD_START_COLS, GROUP_COL, PRGRP_COL
 from spine.utils.gnn.cluster import (
     get_cluster_closest_primary_label_batch,
     get_cluster_label_batch,

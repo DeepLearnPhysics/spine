@@ -3,7 +3,7 @@
 import numpy as np
 import plotly.graph_objs as go
 
-from spine.utils.globals import COORD_COLS
+from spine.constants import COORD_COLS
 
 __all__ = ["scatter_points"]
 

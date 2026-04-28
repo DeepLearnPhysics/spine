@@ -1,55 +1,27 @@
 Post-processing Module
-=====================
+======================
 
-The spine.post module provides tools for post-processing reconstruction results.
+The ``spine.post`` module refines the objects and predictions coming out of model execution and construction. It collects configurable processors for physics cleanup, detector matching, calibration-aware corrections, and truth-aware bookkeeping.
 
-Base Classes
+.. currentmodule:: spine.post
+
+.. automodule:: spine.post
+   :no-members:
+
+Module Index
 ------------
 
-.. automodule:: spine.post.base
-   :members:
-   :show-inheritance:
+This package sits after construction in the standard pipeline and before analysis or writing, making it the main place for converting raw reconstruction output into analysis-ready quantities.
 
-Manager
--------
+.. autosummary::
+   :toctree: generated
 
-.. automodule:: spine.post.manager
-   :members:
-   :show-inheritance:
-
-Factories
----------
-
-.. automodule:: spine.post.factories
-   :members:
-   :show-inheritance:
-
-Template System
----------------
-
-.. automodule:: spine.post.template
-   :members:
-   :show-inheritance:
-
-Processing Tools
-----------------
-
-.. automodule:: spine.post.crt
-   :members:
-   :show-inheritance:
-
-.. automodule:: spine.post.optical
-   :members:
-   :show-inheritance:
-
-.. automodule:: spine.post.reco
-   :members:
-   :show-inheritance:
-
-.. automodule:: spine.post.trigger
-   :members:
-   :show-inheritance:
-
-.. automodule:: spine.post.truth
-   :members:
-   :show-inheritance:
+   base
+   manager
+   factories
+   template
+   crt
+   optical
+   reco
+   trigger
+   truth

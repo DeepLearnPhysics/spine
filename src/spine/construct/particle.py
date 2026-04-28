@@ -3,8 +3,8 @@
 import numpy as np
 from scipy.special import softmax
 
+from spine.constants import COORD_COLS, GROUP_COL, TRACK_SHP, VALUE_COL
 from spine.data.out import RecoParticle, TruthParticle
-from spine.utils.globals import COORD_COLS, GROUP_COL, TRACK_SHP, VALUE_COL
 from spine.utils.gnn.network import filter_invalid_nodes
 
 from .base import BuilderBase
@@ -320,7 +320,9 @@ class ParticleBuilder(BuilderBase):
                 particle.end_point = particle.last_step
 
             # Update the particle with its long-form attributes
-            index = np.where(label_tensor[:, GROUP_COL] == group_id)[0]
+            index = np.where(label_tensor[:, GROUP_COL] == group_id)[0].astype(
+                np.int32, copy=False
+            )
             particle.index = index
             particle.points = points_label[index]
             particle.depositions = depositions_label[index]
@@ -332,7 +334,9 @@ class ParticleBuilder(BuilderBase):
                 particle.orig_index = orig_index_label[index]
 
             if label_adapt_tensor is not None:
-                index_adapt = np.where(label_adapt_tensor[:, GROUP_COL] == group_id)[0]
+                index_adapt = np.where(label_adapt_tensor[:, GROUP_COL] == group_id)[
+                    0
+                ].astype(np.int32, copy=False)
                 particle.index_adapt = index_adapt
                 particle.points_adapt = points[index_adapt]
                 particle.depositions_adapt = depositions[index_adapt]
@@ -340,14 +344,18 @@ class ParticleBuilder(BuilderBase):
                     particle.sources_adapt = sources[index_adapt]
 
             if label_g4_tensor is not None:
-                index_g4 = np.where(label_g4_tensor[:, GROUP_COL] == group_id)[0]
+                index_g4 = np.where(label_g4_tensor[:, GROUP_COL] == group_id)[
+                    0
+                ].astype(np.int32, copy=False)
                 particle.index_g4 = index_g4
                 particle.points_g4 = points_g4[index_g4]
                 particle.depositions_g4 = depositions_g4[index_g4]
 
             # Build fragment associations, if available
             if truth_fragments is not None:
-                fragment_ids = np.where(fragment_group_ids == group_id)[0]
+                fragment_ids = np.where(fragment_group_ids == group_id)[0].astype(
+                    np.int32, copy=False
+                )
                 particle.fragments = [truth_fragments[j] for j in fragment_ids]
                 particle.fragment_ids = fragment_ids
                 for frag in particle.fragments:
@@ -371,7 +379,9 @@ class ParticleBuilder(BuilderBase):
                 child = truth_particles[mapping[target]]
 
                 child.parent_id = parent.id
-                parent.children_id = np.append(parent.children_id, child.id)
+                parent.children_id = np.concatenate(
+                    [parent.children_id, np.asarray([child.id], dtype=np.int32)]
+                )
 
         return truth_particles
 

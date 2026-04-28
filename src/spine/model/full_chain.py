@@ -7,11 +7,7 @@ import torch
 import yaml
 from torch_scatter import scatter_mean, scatter_std
 
-from spine.data import IndexBatch, RunInfo, TensorBatch
-from spine.utils.calib import CalibrationManager
-from spine.utils.cluster.label import ClusterLabelAdapter
-from spine.utils.ghost import ChargeRescaler
-from spine.utils.globals import (
+from spine.constants import (
     CLUST_COL,
     COORD_COLS,
     DELTA_SHP,
@@ -22,6 +18,10 @@ from spine.utils.globals import (
     TRACK_SHP,
     VALUE_COL,
 )
+from spine.data import IndexBatch, RunInfo, TensorBatch
+from spine.utils.calib import CalibrationManager
+from spine.utils.cluster.label import ClusterLabelAdapter
+from spine.utils.ghost import ChargeRescaler
 from spine.utils.gnn.cluster import form_clusters_batch, get_cluster_label_batch
 from spine.utils.gnn.evaluation import primary_assignment_batch
 from spine.utils.logger import logger

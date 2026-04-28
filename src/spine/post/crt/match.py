@@ -2,9 +2,9 @@
 
 import numpy as np
 
+from spine.constants import TRACK_SHP
 from spine.geo import GeoManager
 from spine.math.distance import cdist
-from spine.utils.globals import TRACK_SHP
 
 
 class CRTMatcher:

@@ -4,10 +4,7 @@ import MinkowskiEngine as ME
 import numpy as np
 import torch
 
-from spine.data import IndexBatch, TensorBatch
-from spine.utils.cluster.graph import ClusterGraphConstructor
-from spine.utils.enums import enum_factory
-from spine.utils.globals import (
+from spine.constants import (
     COORD_COLS,
     DELTA_SHP,
     MICHL_SHP,
@@ -15,6 +12,9 @@ from spine.utils.globals import (
     SHOWR_SHP,
     TRACK_SHP,
 )
+from spine.constants.factory import enum_factory
+from spine.data import IndexBatch, TensorBatch
+from spine.utils.cluster.graph import ClusterGraphConstructor
 
 from .layer.cluster import kernel_factory, loss_factory
 from .layer.cluster.graph_spice_embedder import GraphSPICEEmbedder

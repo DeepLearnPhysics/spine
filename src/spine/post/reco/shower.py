@@ -2,11 +2,11 @@
 
 import numpy as np
 
+from spine.constants import PION_PID, PROT_PID, SHOWR_SHP, TRACK_SHP
 from spine.data import ObjectList, RecoParticle
 from spine.geo import GeoManager
 from spine.math.distance import cdist
 from spine.post.base import PostBase
-from spine.utils.globals import PION_PID, PROT_PID, SHOWR_SHP, TRACK_SHP
 from spine.utils.gnn.cluster import cluster_dedx, cluster_direction
 from spine.utils.shower import ShowerEnergyFitter
 
