@@ -5,8 +5,8 @@ The enum module should define canonical enumerated types; this module contains
 parsing helpers that translate user/config strings into those enum values.
 """
 
-from spine.constants.columns import ClusterLabelCol
-from spine.constants.enums import NuInteractionScheme, ParticlePID, ParticleShape
+from .columns import ClusterLabelCol
+from .enums import NuInteractionScheme, ParticlePID, ParticleShape
 
 __all__ = ["enum_factory"]
 

@@ -8,7 +8,7 @@ The intent is to keep these mappings separate from the enum definitions:
 - this module defines how those codes are displayed or related to other codes
 """
 
-from spine.constants.enums import (
+from .enums import (
     LArSoftNuInteractionType,
     NuCurrentType,
     ParticlePID,

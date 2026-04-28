@@ -6,7 +6,7 @@ detector conditions, calibration campaign, or systematic choice should live in
 configuration rather than here.
 """
 
-from spine.constants.enums import ParticlePID
+from .enums import ParticlePID
 
 __all__ = [
     "PHOT_MASS_MEV_C2",
