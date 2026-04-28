@@ -1,59 +1,92 @@
 Input/Output Module
 ===================
 
-The spine.io module provides comprehensive tools for data input/output operations.
+The ``spine.io`` module provides comprehensive tools for data input/output operations with support for multiple file formats.
 
-Core I/O
+Overview
 --------
 
-.. automodule:: spine.io
+The I/O module is organized into:
+
+- **Core I/O**: Framework-independent file reading/writing (HDF5, LArCV, ROOT)
+- **PyTorch I/O**: Dataset loaders and batch processing for ML training
+- **Parsers**: Extract and transform data from various formats
+- **Collaters**: Batch multiple samples for efficient training
+
+File Readers
+------------
+
+Reader classes for various file formats. All readers inherit from ``ReaderBase``
+and share common attributes for file management, indexing, and metadata.
+
+HDF5 Reader
+~~~~~~~~~~~
+
+.. autoclass:: spine.io.core.read.HDF5Reader
+   :members:
+   :inherited-members:
+   :show-inheritance:
+   :exclude-members: __init__
+
+LArCV Reader
+~~~~~~~~~~~~
+
+.. autoclass:: spine.io.core.read.LArCVReader
+   :members:
+   :inherited-members:
+   :show-inheritance:
+   :exclude-members: __init__
+
+File Writers
+------------
+
+Writer classes for output operations.
+
+HDF5 Writer
+~~~~~~~~~~~
+
+.. autoclass:: spine.io.core.write.HDF5Writer
    :members:
    :show-inheritance:
 
-Factories
----------
+CSV Writer
+~~~~~~~~~~
 
-.. automodule:: spine.io.factories
-   :members:
-   :show-inheritance:
-
-Dataset Management
-------------------
-
-.. automodule:: spine.io.dataset
+.. autoclass:: spine.io.core.write.CSVWriter
    :members:
    :show-inheritance:
 
 Data Processing
 ---------------
 
-.. automodule:: spine.io.augment
-   :members:
-   :show-inheritance:
+Tools for data augmentation, collation, and sampling.
+
+Collaters
+~~~~~~~~~
 
 .. automodule:: spine.io.collate
    :members:
    :show-inheritance:
 
+Samplers
+~~~~~~~~
+
 .. automodule:: spine.io.sample
    :members:
    :show-inheritance:
 
-.. automodule:: spine.io.overlay
+Augmentation
+~~~~~~~~~~~~
+
+.. automodule:: spine.io.augment
    :members:
    :show-inheritance:
 
-Parsers, Readers & Writers
---------------------------
+Parsers
+-------
+
+Data extraction and transformation utilities.
 
 .. automodule:: spine.io.parse
-   :members:
-   :show-inheritance:
-
-.. automodule:: spine.io.read
-   :members:
-   :show-inheritance:
-
-.. automodule:: spine.io.write
    :members:
    :show-inheritance:

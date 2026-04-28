@@ -1,11 +1,11 @@
 """Module with a base class for all batched data structures."""
 
 from dataclasses import dataclass
-from typing import Union
 
 import numpy as np
 
-from spine.utils.conditional import torch
+from spine.utils.conditional import ME, torch
+from spine.utils.docstring import merge_ancestor_docstrings
 
 
 @dataclass(eq=False)
@@ -24,17 +24,43 @@ class BatchBase:
         Number of entries that make up the batched data
     """
 
-    data: Union[np.ndarray, torch.Tensor]
-    counts: Union[np.ndarray, torch.Tensor]
-    edges: Union[np.ndarray, torch.Tensor]
+    data: (
+        np.ndarray
+        | torch.Tensor
+        | ME.SparseTensor
+        | list[np.ndarray]
+        | list[torch.Tensor]
+    )
+    counts: np.ndarray | torch.Tensor
+    edges: np.ndarray | torch.Tensor
     batch_size: int
 
-    def __init__(self, data, is_sparse=False, is_list=False):
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        """Automatically merge docstrings from parent classes.
+
+        This hook is called whenever a class inherits from BatchBase. It
+        automatically merges the Attributes sections from all parent class
+        docstrings into the child class docstring.
+
+        Parameters
+        ----------
+        **kwargs
+            Additional keyword arguments passed to super().__init_subclass__
+        """
+        super().__init_subclass__(**kwargs)
+        merge_ancestor_docstrings(cls)
+
+    def __init__(
+        self,
+        data: np.ndarray | torch.Tensor | ME.SparseTensor,
+        is_sparse: bool = False,
+        is_list: bool = False,
+    ) -> None:
         """Shared initializations across all types of batched data.
 
         Parameters
         ----------
-        data : Union[np.ndarray, torch.Tensor]
+        data : Union[np.ndarray, torch.Tensor, ME.SparseTensor]
             Batched data
         is_sparse : bool, default False
             If initializing from an ME sparse data, flip to True
@@ -52,14 +78,16 @@ class BatchBase:
         # Store the device
         self.device = None
         if not self.is_numpy:
-            ref = data if not is_sparse else data.F
-            self.device = ref.device
+            if isinstance(data, torch.Tensor):
+                self.device = data.device
+            else:
+                self.device = data.F.device
 
-    def __len__(self):
+    def __len__(self) -> int:
         """Returns the number of entries that make up the batch."""
         return self.batch_size
 
-    def __eq__(self, other):
+    def __eq__(self, other: object) -> bool:
         """Checks that all attributes of two class instances are the same.
 
         This overloads the default dataclass `__eq__` method to include an
@@ -67,7 +95,7 @@ class BatchBase:
 
         Parameters
         ----------
-        other : obj
+        other : BatchBase
             Other instance of the same object class
 
         Returns
@@ -88,20 +116,18 @@ class BatchBase:
                     return False
 
             elif np.isscalar(v) or isinstance(v, np.dtype):
-                # For scalars, regular comparison will do
                 if v_other != v:
                     return False
 
             else:
-                # For vectors, compare all elements
-                v_other = getattr(other, k)
-                if v.shape != v_other.shape or (v_other != v).any():
+                # For vectors, use array_equal with equal_nan=True
+                if not np.array_equal(v, v_other, equal_nan=True):
                     return False
 
         return True
 
     @property
-    def shape(self):
+    def shape(self) -> tuple[int, ...]:
         """Shape of the underlying data.
 
         Returns
@@ -143,7 +169,7 @@ class BatchBase:
         # Get the count list
         device = None if self.is_numpy else batch_ids.device
         counts = self._zeros(batch_size, device)
-        if len(batch_ids):
+        if len(batch_ids) > 0:
             # Find the length of each batch ID in the input index
             uni, cnts = self._unique(batch_ids)
             counts[self._as_long(uni)] = cnts
@@ -234,16 +260,22 @@ class BatchBase:
             return torch.cat(x, dim=0)
 
     def _split(self, *x):
-        if self.is_list:
+        if self.is_numpy:
             return np.split(*x)
         else:
-            return np.split(*x) if self.is_numpy else torch.tensor_split(*x)
+            return torch.tensor_split(*x)
 
     def _stack(self, x):
-        return np.vstack(x) if self.is_numpy else torch.stack(x)
+        if self.is_numpy:
+            return np.stack(x, axis=0)
+        else:
+            return torch.stack(x)
 
     def _repeat(self, *x):
-        return np.repeat(*x) if self.is_numpy else torch.repeat_interleave(*x)
+        if self.is_numpy:
+            return np.repeat(*x)
+        else:
+            return torch.repeat_interleave(*x)
 
     def _to_numpy(self, x):
         return x.cpu().detach().numpy()

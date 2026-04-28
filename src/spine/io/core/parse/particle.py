@@ -191,7 +191,7 @@ class ParticleParser(ParserBase):
             num_neutrinos = np.max(nu_ids, initial=-1) + 1
 
         index_shifts = {}
-        for attr in Particle().index_attrs:
+        for attr in Particle()._index_attrs:
             index_shifts[attr] = num_particles if attr != "nu_id" else num_neutrinos
 
         # Return

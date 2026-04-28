@@ -1,6 +1,5 @@
 """Module with methods to overlay multiple events."""
 
-from dataclasses import dataclass
 from warnings import warn
 
 import numpy as np
@@ -17,10 +16,10 @@ class Overlayer:
     This class supports 3 image overlay modes:
     - 'constant' will produce overlays with a constant multiplicity;
     - 'uniform' will produce overlays with multiplicities, M_i, sampled from a
-      uniform distribution such that, for a batch size B, \Sum_i M_i = B;
+      uniform distribution such that, for a batch size B, \\Sum_i M_i = B;
     - 'poisson' will produce overlays with multiplicities, M_i, sampled from a
       Poisson distribution of mean set by 'multiplicity'. For a batch size B,
-      the multiplicities are set such that \Sum_i M_i = B.
+      the multiplicities are set such that \\Sum_i M_i = B.
     """
 
     # List of recognized overlay modes
@@ -79,7 +78,7 @@ class Overlayer:
         overlay_batch = []
         _, splits = np.unique(overlay_ids, return_index=True)
         indexes = np.split(np.arange(batch_size), splits[1:])
-        for overlay_id, index in enumerate(indexes):
+        for index in indexes:
             # If there is only a single index in the overlay, nothing to do
             if len(index) < 2:
                 overlay_batch.append(batch[index[0]])
@@ -135,7 +134,7 @@ class Overlayer:
 
             overlay_ids = np.arange(batch_size, dtype=int) // self.multiplicity
 
-        elif self.mode in ["poisson", "uniform"]:
+        elif self.mode in ("poisson", "uniform"):
             # Sample from a Poisson distribution until it adds up to the batch size
             overlay_ids = np.empty(batch_size, dtype=int)
             idx, total = 0, 0
@@ -151,6 +150,9 @@ class Overlayer:
                     overlay_ids[total : total + sample] = idx
                     idx += 1
                     total += sample
+
+        else:
+            raise ValueError(f"Overlay mode not recognized: {self.mode}.")
 
         # Return
         return overlay_ids

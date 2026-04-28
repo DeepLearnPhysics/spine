@@ -236,8 +236,8 @@ class HDF5Writer:
                 continue
 
             with h5py.File(file_name, "w") as out_file:
-                # Initialize the info dataset that stores environment parameters
-                out_file.create_dataset("info", (0,), maxshape=(None,), dtype=None)
+                # Initialize the info group that stores environment parameters
+                out_file.create_group("info")
                 out_file["info"].attrs["version"] = __version__
                 if cfg is not None:
                     out_file["info"].attrs["cfg"] = yaml.dump(cfg)
@@ -464,11 +464,11 @@ class HDF5Writer:
                 object_dtype.append((key, enum_dtype))
 
             elif np.isscalar(val):
-                # Non-string, non-enumerated scalar. Force bool onto shorts
-                dtype = type(val) if not isinstance(val, bool) else np.uint8
+                # Non-string, non-enumerated scalar
+                dtype = type(val)
                 object_dtype.append((key, dtype))
 
-            elif hasattr(obj, "fixed_length_attrs") and key in obj.fixed_length_attrs:
+            elif hasattr(obj, "_fixed_length_attrs") and key in obj._fixed_length_attrs:
                 # Fixed-length array of scalars
                 object_dtype.append((key, val.dtype, len(val)))
 

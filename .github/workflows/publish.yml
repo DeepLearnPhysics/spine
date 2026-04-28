@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.8", "3.9", "3.10", "3.11"]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
 
     steps:
     - uses: actions/checkout@v6
@@ -41,19 +41,19 @@ jobs:
         python -m pytest test/test_conditional_imports.py test/test_utils/ -v -x
         # Skip other tests that require external data files or heavy dependencies
 
-    - name: Build packages (Python 3.9 only)
-      if: matrix.python-version == '3.9'
+    - name: Build packages (Python 3.10 only)
+      if: matrix.python-version == '3.10'
       run: |
         pip install build>=1.0.0
         python -m build --wheel --sdist
 
     - name: Check packages
-      if: matrix.python-version == '3.9'
+      if: matrix.python-version == '3.10'
       run: |
         twine check dist/*
 
     - name: Upload build artifacts
-      if: matrix.python-version == '3.9'
+      if: matrix.python-version == '3.10'
       uses: actions/upload-artifact@v4
       with:
         name: dist-packages

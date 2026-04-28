@@ -1,29 +1,31 @@
 """Module with a data class objects which represent output interactions."""
 
 from dataclasses import dataclass, field
-from typing import List
+from typing import cast
 from warnings import warn
 
 import numpy as np
 
-from spine.data.neutrino import Neutrino
-from spine.utils.docstring import inherit_docstring
+from spine.data.decorator import stored_property
+from spine.data.field import FieldMetadata
+from spine.data.larcv.neutrino import Neutrino
 from spine.utils.globals import PID_LABELS, PID_TAGS, SHOWR_SHP
 
-from .base import RecoBase, TruthBase
+from .base import OutBase, RecoBase, TruthBase
+from .particle import ParticleBase, RecoParticle, TruthParticle
 
 __all__ = ["RecoInteraction", "TruthInteraction"]
 
 
-@dataclass(eq=False)
-class InteractionBase:
+@dataclass(eq=False, repr=False)
+class InteractionBase(OutBase):
     """Base interaction-specific information.
 
     Attributes
     ----------
-    particles : List[object]
-        List of particles that make up the interaction
-    primary_particles: List[object]
+    particles: List[ParticleBase]
+        List of particles in the interaction (defined in subclasses with specific types)
+    primary_particles: List[ParticleBase]
         List of primary particles associated with the interaction
     particle_ids : np.ndarray
         List of Particle IDs that make up this interaction
@@ -67,60 +69,54 @@ class InteractionBase:
         String representing the interaction topology
     """
 
-    particles: List[object] = None
-    primary_particles: List[object] = None
-    particle_ids: np.ndarray = None
-    primary_particle_ids: np.ndarray = None
-    num_particles: int = None
-    num_primary_particles: int = None
-    particle_counts: np.ndarray = None
-    primary_particle_counts: np.ndarray = None
-    vertex: np.ndarray = None
+    # Scalar attributes
     is_fiducial: bool = False
     is_flash_matched: bool = False
-    flash_ids: np.ndarray = None
-    flash_volume_ids: np.ndarray = None
-    flash_times: np.ndarray = None
-    flash_scores: np.ndarray = None
-    flash_total_pe: float = -1.0
-    flash_hypo_pe: float = -1.0
-    is_crt_matched: bool = False
-    crt_ids: np.ndarray = None
-    crt_times: np.ndarray = None
-    topology: str = None
 
-    # Fixed-length attributes
-    _fixed_length_attrs = (
-        ("vertex", 3),
-        ("particle_counts", len(PID_LABELS) - 1),
-        ("primary_particle_counts", len(PID_LABELS) - 1),
+    flash_total_pe: float = np.nan
+    flash_hypo_pe: float = np.nan
+
+    # Object list attributes
+    # Note: Subclasses override this with specific List[RecoParticle/TruthParticle]
+    particles: list[ParticleBase] = field(
+        default_factory=list,
+        metadata=FieldMetadata(skip=True),
     )
 
-    # Variable-length attributes as (key, dtype) pairs
-    _var_length_attrs = (
-        ("particles", object),
-        ("primary_particles", object),
-        ("particle_ids", np.int32),
-        ("primary_particle_ids", np.int32),
-        ("flash_ids", np.int32),
-        ("flash_volume_ids", np.int32),
-        ("flash_times", np.float32),
-        ("flash_scores", np.float32),
-        ("crt_ids", np.int32),
-        ("crt_times", np.float32),
-        ("crt_scores", np.float32),
+    # Vector attributes
+    particle_ids: np.ndarray = field(
+        default_factory=lambda: np.empty(0, dtype=np.int32),
+        metadata=FieldMetadata(dtype=np.int32),
     )
 
-    # Attributes specifying coordinates
-    _pos_attrs = ("vertex",)
+    vertex: np.ndarray = field(
+        default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
+        metadata=FieldMetadata(
+            length=3,
+            dtype=np.float32,
+            position=True,
+            units="instance",
+        ),
+    )
 
-    # Boolean attributes
-    _bool_attrs = ("is_fiducial", "is_flash_matched", "is_crt_matched")
+    flash_ids: np.ndarray = field(
+        default_factory=lambda: np.empty(0, dtype=np.int32),
+        metadata=FieldMetadata(dtype=np.int32),
+    )
+    flash_volume_ids: np.ndarray = field(
+        default_factory=lambda: np.empty(0, dtype=np.int32),
+        metadata=FieldMetadata(dtype=np.int32),
+    )
+    flash_times: np.ndarray = field(
+        default_factory=lambda: np.empty(0, dtype=np.float32),
+        metadata=FieldMetadata(dtype=np.float32, units="us"),
+    )
+    flash_scores: np.ndarray = field(
+        default_factory=lambda: np.empty(0, dtype=np.float32),
+        metadata=FieldMetadata(dtype=np.float32),
+    )
 
-    # Attributes that must never be stored to file
-    _skip_attrs = ("particles", "primary_particles")
-
-    def __str__(self):
+    def __str__(self) -> str:
         """Human-readable string representation of the interaction object.
 
         Results
@@ -134,52 +130,37 @@ class InteractionBase:
             f"| Size: {self.size:<5} | Topology: {self.topology:<10} "
             f"| Match: {match:<3})"
         )
-        if len(self.particles):
+        if len(self.particles) > 0:
             info += "\n" + len(info) * "-"
             for particle in self.particles:
                 info += "\n" + str(particle)
 
         return info
 
-    def reset_flash_match(self, typed=True):
-        """Reset all the flash matching attributes.
-
-        Parameters
-        ----------
-        typed : bool, default True
-            If `True`, the underlying arrays are reset to typed empty arrays
-        """
+    def reset_flash_match(self) -> None:
+        """Reset all the flash matching attributes."""
         self.is_flash_matched = False
-        self.flash_total_pe = -1.0
-        self.flash_type_pe = -1.0
-        if typed:
-            self.flash_ids = np.empty(0, dtype=np.int32)
-            self.flash_volume_ids = np.empty(0, dtype=np.int32)
-            self.flash_times = np.empty(0, dtype=np.float32)
-            self.flash_scores = np.empty(0, dtype=np.float32)
-        else:
-            self.flash_ids = []
-            self.flash_volume_ids = []
-            self.flash_times = []
-            self.flash_scores = []
+        self.flash_total_pe = np.nan
+        self.flash_hypo_pe = np.nan
+        self.flash_ids = np.empty(0, dtype=np.int32)
+        self.flash_volume_ids = np.empty(0, dtype=np.int32)
+        self.flash_times = np.empty(0, dtype=np.float32)
+        self.flash_scores = np.empty(0, dtype=np.float32)
 
     @property
-    def primary_particles(self):
+    def primary_particles(self) -> list[ParticleBase]:
         """List of primary particles associated with this interaction.
 
         Returns
         -------
-        List[obect]
+        List[ParticleBase]
             List of primary Particle objects associated with this interaction
         """
         return [part for part in self.particles if part.is_primary]
 
-    @primary_particles.setter
-    def primary_particles(self, primary_particles):
-        pass
-
     @property
-    def primary_particle_ids(self):
+    @stored_property(dtype=np.int32)
+    def primary_particle_ids(self) -> np.ndarray:
         """List of primary Particle IDs associated with this interaction.
 
         Returns
@@ -187,14 +168,11 @@ class InteractionBase:
         np.darray
             List of primary Particle IDs associated with this interaction
         """
-        return np.array([part.id for part in self.primary_particles])
-
-    @primary_particle_ids.setter
-    def primary_particle_ids(self, primary_particle_ids):
-        pass
+        return np.array([part.id for part in self.primary_particles], dtype=np.int32)
 
     @property
-    def num_particles(self):
+    @stored_property
+    def num_particles(self) -> int:
         """Number of particles that make up this interaction.
 
         Returns
@@ -204,27 +182,21 @@ class InteractionBase:
         """
         return len(self.particle_ids)
 
-    @num_particles.setter
-    def num_particles(self, num_particles):
-        pass
-
     @property
-    def num_primary_particles(self):
+    @stored_property
+    def num_primary_particles(self) -> int:
         """Number of primary particles associated with this interaction.
 
         Returns
         -------
         int
-            Number of particles associated with the interaction instance
+            Number of primary particles associated with the interaction instance
         """
         return len(self.primary_particle_ids)
 
-    @num_primary_particles.setter
-    def num_primary_particles(self, num_primary_particles):
-        pass
-
     @property
-    def particle_counts(self):
+    @stored_property(dtype=np.int32, length=len(PID_LABELS) - 1)
+    def particle_counts(self) -> np.ndarray:
         """Number of particles of each PID species in this interaction.
 
         Returns
@@ -232,19 +204,16 @@ class InteractionBase:
         np.ndarray
             (P) Number of particles of each PID
         """
-        counts = np.zeros(len(PID_LABELS) - 1, dtype=int)
+        counts = np.zeros(len(PID_LABELS) - 1, dtype=np.int32)
         for part in self.particles:
             if part.pid > -1 and part.is_valid:
                 counts[part.pid] += 1
 
         return counts
 
-    @particle_counts.setter
-    def particle_counts(self, particle_counts):
-        pass
-
     @property
-    def primary_particle_counts(self):
+    @stored_property(dtype=np.int32, length=len(PID_LABELS) - 1)
+    def primary_particle_counts(self) -> np.ndarray:
         """Number of primary particles of each PID species in this interaction.
 
         Returns
@@ -252,34 +221,28 @@ class InteractionBase:
         np.ndarray
             (P) Number of primary particles of each PID
         """
-        counts = np.zeros(len(PID_LABELS) - 1, dtype=int)
+        counts = np.zeros(len(PID_LABELS) - 1, dtype=np.int32)
         for part in self.primary_particles:
             if part.pid > -1 and part.is_valid:
                 counts[part.pid] += 1
 
         return counts
 
-    @primary_particle_counts.setter
-    def primary_particle_counts(self, primary_particle_counts):
-        pass
-
     @property
-    def is_crt_matched(self):
-        """Checks if any particle in the interactionw as matched to a CRT hit.
+    @stored_property
+    def is_crt_matched(self) -> bool:
+        """Checks if any particle in the interaction was matched to a CRT hit.
 
         Returns
         -------
         bool
             `True` if any of the particle was matched to a CRT hit
         """
-        return np.any([part.is_crt_matched for part in self.particles])
-
-    @is_crt_matched.setter
-    def is_crt_matched(self, is_crt_matched):
-        pass
+        return bool(np.any([part.is_crt_matched for part in self.particles]))
 
     @property
-    def crt_ids(self):
+    @stored_property(dtype=np.int32)
+    def crt_ids(self) -> np.ndarray:
         """Returns the list of CRT hit IDs matched to this interaction.
 
         Returns
@@ -287,17 +250,14 @@ class InteractionBase:
         np.ndarray
             (C) List of CRT hit IDs matched to this interaction
         """
-        if self.is_crt_matched:
+        if len(self.particles) > 0:
             return np.concatenate([part.crt_ids for part in self.particles])
-        else:
-            return np.empty(0, dtype=np.int32)
 
-    @crt_ids.setter
-    def crt_ids(self, crt_ids):
-        pass
+        return np.empty(0, dtype=np.int32)
 
     @property
-    def crt_times(self):
+    @stored_property(dtype=np.float32, units="us")
+    def crt_times(self) -> np.ndarray:
         """Returns the list of CRT hit times matched to this interaction.
 
         Returns
@@ -305,17 +265,14 @@ class InteractionBase:
         np.ndarray
             (C) List of CRT hit times matched to this interaction
         """
-        if self.is_crt_matched:
+        if len(self.particles) > 0:
             return np.concatenate([part.crt_times for part in self.particles])
-        else:
-            return np.empty(0, dtype=np.float32)
 
-    @crt_times.setter
-    def crt_times(self, crt_times):
-        pass
+        return np.empty(0, dtype=np.float32)
 
     @property
-    def crt_scores(self):
+    @stored_property(dtype=np.float32)
+    def crt_scores(self) -> np.ndarray:
         """Returns the list of quality metrics of CRT hits matched to this interaction.
 
         Returns
@@ -323,17 +280,14 @@ class InteractionBase:
         np.ndarray
             (C) List of quality metrics of CRT hits matched to this interaction
         """
-        if self.is_crt_matched:
+        if len(self.particles) > 0:
             return np.concatenate([part.crt_scores for part in self.particles])
-        else:
-            return np.empty(0, dtype=np.float32)
 
-    @crt_scores.setter
-    def crt_scores(self, crt_scores):
-        pass
+        return np.empty(0, dtype=np.float32)
 
     @property
-    def topology(self):
+    @stored_property
+    def topology(self) -> str:
         """String representing the interaction topology.
 
         Returns
@@ -348,12 +302,8 @@ class InteractionBase:
 
         return topology
 
-    @topology.setter
-    def topology(self, topology):
-        pass
-
     @classmethod
-    def from_particles(cls, particles):
+    def from_particles(cls, particles: list[ParticleBase]):
         """Builds an Interaction instance from its constituent Particle objects.
 
         Parameters
@@ -370,40 +320,39 @@ class InteractionBase:
         interaction = cls()
 
         # Fill unique attributes which must be shared between particles
-        unique_attrs = ["is_truth", "units"]
+        unique_attrs = ("is_truth", "units")
         for attr in unique_attrs:
-            assert (
-                len(np.unique([getattr(p, attr) for p in particles])) < 2
-            ), f"{attr} must be unique in the list of particles."
+            if hasattr(particles[0], attr):
+                if len(np.unique([getattr(p, attr) for p in particles])) >= 2:
+                    raise ValueError(f"{attr} must be unique in the list of particles.")
 
         # Attach particle list
         interaction.particles = particles
         interaction.particle_ids = np.array([p.id for p in particles])
 
         # Build long-form attributes
-        for attr in cls._cat_attrs:
+        for attr in interaction._cat_attrs:
             val_list = [getattr(p, attr) for p in particles]
             setattr(interaction, attr, np.concatenate(val_list))
 
         return interaction
 
 
-@dataclass(eq=False)
-@inherit_docstring(RecoBase, InteractionBase)
+@dataclass(eq=False, repr=False)
 class RecoInteraction(InteractionBase, RecoBase):
-    """Reconstructed interaction information."""
+    """Reconstructed interaction information.
 
-    # Attributes that must never be stored to file
-    _skip_attrs = (*RecoBase._skip_attrs, *InteractionBase._skip_attrs)
+    Attributes
+    ----------
+    particles : List[RecoParticle]
+        List of particles that make up the interaction
+    """
 
-    # Variable-length attributes
-    _var_length_attrs = (
-        *RecoBase._var_length_attrs,
-        *InteractionBase._var_length_attrs,
+    # Object list attributes
+    particles: list[RecoParticle] = field(  # type: ignore[assignment]
+        default_factory=lambda: [],
+        metadata=FieldMetadata(skip=True),
     )
-
-    # Boolean attributes
-    _bool_attrs = (*RecoBase._bool_attrs, *InteractionBase._bool_attrs)
 
     def __str__(self):
         """Human-readable string representation of the interaction object.
@@ -416,7 +365,7 @@ class RecoInteraction(InteractionBase, RecoBase):
         return "Reco" + super().__str__()
 
     @property
-    def leading_shower(self):
+    def leading_shower(self) -> RecoParticle | None:
         """Leading primary shower of this interaction.
 
         Returns
@@ -424,15 +373,18 @@ class RecoInteraction(InteractionBase, RecoBase):
         RecoParticle
             Primary shower with the highest kinetic energy
         """
-        showers = [part for part in self.primary_particles if part.shape == SHOWR_SHP]
+        showers = [
+            part
+            for part in self.particles
+            if part.is_primary and part.shape == SHOWR_SHP
+        ]
         if len(showers) == 0:
             return None
 
-        return max(showers, key=lambda x: x.ke)
+        return max(showers, key=lambda x: cast(float, x.ke))
 
 
-@dataclass(eq=False)
-@inherit_docstring(TruthBase, InteractionBase)
+@dataclass(eq=False, repr=False)
 class TruthInteraction(Neutrino, InteractionBase, TruthBase):
     """Truth interaction information.
 
@@ -441,38 +393,35 @@ class TruthInteraction(Neutrino, InteractionBase, TruthBase):
 
     Attributes
     ----------
+    particles : List[TruthParticle]
+        List of particles that make up the interaction
     nu_id : int
         Index of the neutrino matched to this interaction
     reco_vertex : np.ndarray
         (3) Coordinates of the reconstructed interaction vertex
     """
 
+    # Scalar attributes
     nu_id: int = -1
-    reco_vertex: np.ndarray = None
 
-    # Fixed-length attributes
-    _fixed_length_attrs = (
-        ("reco_vertex", 3),
-        *Neutrino._fixed_length_attrs,
-        *InteractionBase._fixed_length_attrs,
+    # Object list attributes
+    particles: list[TruthParticle] = field(  # type: ignore[assignment]
+        default_factory=lambda: [],
+        metadata=FieldMetadata(skip=True),
     )
 
-    # Variable-length attributes
-    _var_length_attrs = (
-        *TruthBase._var_length_attrs,
-        *InteractionBase._var_length_attrs,
+    # Vector attributes
+    reco_vertex: np.ndarray = field(
+        default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
+        metadata=FieldMetadata(
+            length=3,
+            dtype=np.float32,
+            position=True,
+            units="instance",
+        ),
     )
 
-    # Attributes specifying coordinates
-    _pos_attrs = ("reco_vertex", *InteractionBase._pos_attrs, *Neutrino._pos_attrs)
-
-    # Boolean attributes
-    _bool_attrs = (*TruthBase._bool_attrs, *InteractionBase._bool_attrs)
-
-    # Attributes that must never be stored to file
-    _skip_attrs = (*TruthBase._skip_attrs, *InteractionBase._skip_attrs)
-
-    def __str__(self):
+    def __str__(self) -> str:
         """Human-readable string representation of the interaction object.
 
         Results
@@ -482,7 +431,7 @@ class TruthInteraction(Neutrino, InteractionBase, TruthBase):
         """
         return "Truth" + super().__str__()
 
-    def attach_neutrino(self, neutrino):
+    def attach_neutrino(self, neutrino) -> None:
         """Attach neutrino generator information to this interaction.
 
         Parameters
@@ -491,7 +440,7 @@ class TruthInteraction(Neutrino, InteractionBase, TruthBase):
             Neutrino to fetch the attributes from
         """
         # Transfer all the neutrino attributes
-        for attr, val in neutrino.as_dict().items():
+        for attr, val in neutrino.as_dict(include_derived=False).items():
             if attr != "id":
                 setattr(self, attr, val)
             else:

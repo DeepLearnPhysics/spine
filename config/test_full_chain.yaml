@@ -1,0 +1,459 @@
+base:
+  world_size: 0
+  iterations: -1
+  seed: 0
+  dtype: float32
+  unwrap: true
+  log_dir: logs
+  prefix_log: true
+  overwrite_log: true
+  log_step: 1
+  split_output: true
+build:
+  mode: both
+  units: cm
+  fragments: false
+  particles: true
+  interactions: true
+io:
+  loader:
+    batch_size: 2
+    shuffle: false
+    num_workers: 8
+    collate_fn: all
+    dataset:
+      name: larcv
+      file_keys: null
+      schema:
+        data:
+          parser: sparse3d
+          sparse_event: sparse3d_pcluster
+        seg_label:
+          parser: sparse3d
+          sparse_event: sparse3d_pcluster_semantics
+        ppn_label:
+          parser: particle_points
+          sparse_event: sparse3d_pcluster
+          particle_event: particle_corrected
+          include_point_tagging: false
+        clust_label:
+          parser: cluster3d
+          cluster_event: cluster3d_pcluster
+          particle_event: particle_corrected
+          sparse_semantics_event: sparse3d_pcluster_semantics
+          add_particle_info: true
+          clean_data: true
+          shape_precedence:
+          - 2
+          - 1
+          - 0
+          - 3
+          - 4
+          - 6
+        coord_label:
+          parser: particle_coords
+          particle_event: particle_corrected
+          cluster_event: cluster3d_pcluster
+        graph_label:
+          parser: particle_graph
+          particle_event: particle_pcluster
+        particles:
+          parser: particle
+          particle_event: particle_pcluster
+          cluster_event: cluster3d_pcluster
+        meta:
+          parser: meta3d
+          sparse_event: sparse3d_pcluster
+        run_info:
+          parser: run_info
+          sparse_event: sparse3d_pcluster
+  writer:
+    name: hdf5
+    file_name: null
+    overwrite: true
+    keys:
+    - run_info
+    - meta
+    - points
+    - points_label
+    - depositions
+    - depositions_label
+    - reco_particles
+    - truth_particles
+    - reco_interactions
+    - truth_interactions
+model:
+  name: full_chain
+  to_numpy: true
+  network_input:
+    data: data
+    seg_label: seg_label
+    clust_label: clust_label
+  loss_input:
+    seg_label: seg_label
+    ppn_label: ppn_label
+    clust_label: clust_label
+    coord_label: coord_label
+  modules:
+    chain:
+      deghosting: null
+      charge_rescaling: null
+      segmentation: uresnet
+      point_proposal: ppn
+      fragmentation: graph_spice
+      shower_aggregation: grappa
+      shower_primary: grappa
+      track_aggregation: grappa
+      particle_aggregation: null
+      inter_aggregation: grappa
+      particle_identification: grappa
+      primary_identification: grappa
+      orientation_identification: grappa
+      calibration: null
+    uresnet_ppn:
+      uresnet:
+        num_input: 1
+        num_classes: 5
+        filters: 32
+        depth: 5
+        reps: 2
+        allow_bias: false
+        activation:
+          name: lrelu
+          negative_slope: 0.33
+        norm_layer:
+          name: batch_norm
+          eps: 0.0001
+          momentum: 0.01
+      ppn:
+        classify_endpoints: false
+    uresnet_ppn_loss:
+      uresnet_loss:
+        balance_loss: false
+      ppn_loss:
+        mask_loss: CE
+        resolution: 5.0
+    graph_spice:
+      shapes:
+      - shower
+      - track
+      - michel
+      - delta
+      use_raw_features: true
+      invert: true
+      make_clusters: true
+      embedder:
+        spatial_embedding_dim: 3
+        feature_embedding_dim: 16
+        occupancy_mode: softplus
+        covariance_mode: softplus
+        uresnet:
+          num_input: 4
+          filters: 32
+          input_kernel: 5
+          depth: 5
+          reps: 2
+          allow_bias: false
+          activation:
+            name: lrelu
+            negative_slope: 0.33
+          norm_layer:
+            name: batch_norm
+            eps: 0.0001
+            momentum: 0.01
+          spatial_size: 768
+      kernel:
+        name: bilinear
+        num_features: 32
+      constructor:
+        edge_threshold: 0.1
+        min_size: 3
+        label_edges: true
+        orphan:
+          mode: radius
+          radius: 1.9
+          iterate: true
+          assign_all: true
+        graph:
+          name: radius
+          r: 1.9
+    graph_spice_loss:
+      name: edge
+      loss: binary_log_dice_ce
+    grappa_shower:
+      nodes:
+        source: cluster
+        shapes:
+        - shower
+        - michel
+        - delta
+        make_groups: true
+        grouping_method: score
+      graph:
+        name: complete
+        max_length:
+        - 500
+        - 0
+        - 500
+        - 500
+        - 0
+        - 0
+        - 0
+        - 25
+        - 0
+        - 25
+        dist_algorithm: recursive
+      node_encoder:
+        name: geo
+        use_numpy: true
+        add_value: true
+        add_shape: true
+        add_points: true
+        add_local_dirs: true
+        add_local_dedxs: true
+        dir_max_dist: -1
+        dedx_max_dist: -1
+      edge_encoder:
+        name: geo
+        use_numpy: true
+      gnn_model:
+        name: meta
+        node_feats: 33
+        edge_feats: 19
+        node_pred: 2
+        edge_pred: 2
+        edge_layer:
+          name: mlp
+          mlp:
+            depth: 3
+            width: 64
+            activation:
+              name: lrelu
+              negative_slope: 0.1
+            normalization: batch_norm
+        node_layer:
+          name: mlp
+          reduction: max
+          attention: false
+          message_mlp:
+            depth: 3
+            width: 64
+            activation:
+              name: lrelu
+              negative_slope: 0.1
+            normalization: batch_norm
+          aggr_mlp:
+            depth: 3
+            width: 64
+            activation:
+              name: lrelu
+              negative_slope: 0.1
+            normalization: batch_norm
+    grappa_shower_loss:
+      node_loss:
+        name: shower_primary
+        high_purity: true
+        use_group_pred: true
+      edge_loss:
+        name: channel
+        target: group
+        high_purity: true
+    grappa_track:
+      nodes:
+        source: cluster
+        shapes:
+        - track
+        make_groups: true
+        grouping_method: score
+      graph:
+        name: complete
+        max_length: 100
+        dist_algorithm: recursive
+      node_encoder:
+        name: geo
+        use_numpy: true
+        add_value: true
+        add_shape: false
+        add_points: true
+        add_local_dirs: true
+        add_local_dedxs: true
+        dir_max_dist: -1
+        dedx_max_dist: -1
+      edge_encoder:
+        name: geo
+        use_numpy: true
+      gnn_model:
+        name: meta
+        node_feats: 32
+        edge_feats: 19
+        edge_pred: 2
+        edge_layer:
+          name: mlp
+          mlp:
+            depth: 3
+            width: 64
+            activation:
+              name: lrelu
+              negative_slope: 0.1
+            normalization: batch_norm
+        node_layer:
+          name: mlp
+          reduction: max
+          attention: false
+          message_mlp:
+            depth: 3
+            width: 64
+            activation:
+              name: lrelu
+              negative_slope: 0.1
+            normalization: batch_norm
+          aggr_mlp:
+            depth: 3
+            width: 64
+            activation:
+              name: lrelu
+              negative_slope: 0.1
+            normalization: batch_norm
+    grappa_track_loss:
+      edge_loss:
+        name: channel
+        target: group
+    grappa_inter:
+      nodes:
+        source: group
+        shapes:
+        - shower
+        - track
+        - michel
+        - delta
+        min_size: -1
+        make_groups: true
+      graph:
+        name: complete
+        max_length:
+        - 500
+        - 500
+        - 0
+        - 0
+        - 25
+        - 25
+        - 25
+        - 0
+        - 0
+        - 0
+        dist_algorithm: recursive
+      node_encoder:
+        name: geo
+        use_numpy: true
+        add_value: true
+        add_shape: true
+        add_points: true
+        add_local_dirs: true
+        add_local_dedxs: true
+        dir_max_dist: -1
+        dedx_max_dist: -1
+      edge_encoder:
+        name: geo
+        use_numpy: true
+      gnn_model:
+        name: meta
+        node_feats: 33
+        edge_feats: 19
+        node_pred:
+          type: 5
+          primary: 2
+          orient: 2
+        edge_pred: 2
+        edge_layer:
+          name: mlp
+          mlp:
+            depth: 3
+            width: 128
+            activation:
+              name: lrelu
+              negative_slope: 0.1
+            normalization: batch_norm
+        node_layer:
+          name: mlp
+          reduction: max
+          attention: false
+          message_mlp:
+            depth: 3
+            width: 128
+            activation:
+              name: lrelu
+              negative_slope: 0.1
+            normalization: batch_norm
+          aggr_mlp:
+            depth: 3
+            width: 128
+            activation:
+              name: lrelu
+              negative_slope: 0.1
+            normalization: batch_norm
+    grappa_inter_loss:
+      node_loss:
+        type:
+          name: class
+          target: pid
+          loss: ce
+          balance_loss: true
+        primary:
+          name: class
+          target: inter_primary
+          loss: ce
+          balance_loss: true
+        orient:
+          name: orient
+          loss: ce
+      edge_loss:
+        name: channel
+        target: interaction
+  weight_path: !download
+    url: https://s3df.slac.stanford.edu/data/neutrino/spine/weights/generic/generic_snapshot_240805.ckpt
+    hash: 212be7374716ad23962be9b1cd5556f0556a4ec06760946b263521ad4bfdd044
+post:
+  shape_logic:
+    enforce_pid: true
+    enforce_primary: true
+    priority: 3
+  direction:
+    obj_type: particle
+    optimize: true
+    run_mode: both
+    priority: 1
+  calo_ke:
+    scaling: 1.0
+    shower_fudge: 1/0.83
+    priority: 1
+  csda_ke:
+    tracking_mode: step_next
+    segment_length: 5.0
+    priority: 1
+  mcs_ke:
+    tracking_mode: bin_pca
+    segment_length: 5.0
+    priority: 1
+  containment:
+    margin: 5.0
+    mode: meta
+    priority: 1
+  vertex:
+    use_primaries: true
+    update_primaries: false
+    priority: 1
+  topology_threshold:
+    ke_thresholds:
+      4: 50
+      default: 25
+  fiducial:
+    margin: 25.0
+    mode: meta
+  children_count:
+    mode: shape
+  match:
+    match_mode: both
+    ghost: false
+    fragment: false
+    particle: true
+    interaction: true

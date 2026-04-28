@@ -1,46 +1,120 @@
 """Docstring inheritance utilities."""
 
 
-def inherit_docstring(*parents):
-    """Inherits docstring attributes of a parent class.
+def merge_ancestor_docstrings(cls):
+    """Automatically merge Attributes sections from parent class docstrings.
 
-    Only handles numpy-style docstrings.
+    This function extracts the Attributes section from all direct parent
+    classes and prepends them to the child class's Attributes section.
+    This is designed to work with numpy-style docstrings.
+
+    The function only looks at direct parent classes (cls.__bases__) rather
+    than the full MRO to avoid duplicate attributes when multiple levels
+    of inheritance are involved.
 
     Parameters
     ----------
-    *parents : List[object]
-        Parent class(es) to inherit attributes from
+    cls : type
+        The class whose docstring should be updated with parent attributes
 
-    Returns
-    -------
-    callable
-        Class with updated docstring
+    Notes
+    -----
+    This function modifies the class's __doc__ attribute in-place. It is
+    typically called from __init_subclass__ hooks in base classes to
+    automatically merge docstrings for all subclasses.
+
+    The function looks for the "Attributes" section in numpy-style docstrings,
+    which is formatted as:
+
+        Attributes
+        ----------
+        attribute_name : type
+            Description
+
+    Examples
+    --------
+    >>> class Parent:
+    ...     '''Parent class.
+    ...
+    ...     Attributes
+    ...     ----------
+    ...     x : int
+    ...         Parent attribute
+    ...     '''
+    ...     def __init_subclass__(cls, **kwargs):
+    ...         super().__init_subclass__(**kwargs)
+    ...         merge_ancestor_docstrings(cls)
+    ...
+    >>> class Child(Parent):
+    ...     '''Child class.
+    ...
+    ...     Attributes
+    ...     ----------
+    ...     y : int
+    ...         Child attribute
+    ...     '''
+    >>> # Child.__doc__ now contains both x and y in Attributes section
     """
+    # Skip if the class has no docstring
+    if cls.__doc__ is None:
+        return
 
-    def inherit(obj):
-        tab = "    "
-        underline = "----"
-        header = f"Attributes\n{tab}----------\n"
+    # Numpy-style docstring format (no indentation on section headers)
+    header = "Attributes\n----------\n"
 
-        # If there is no attribute or method yet, add the header
-        if not header in obj.__doc__:
-            obj.__doc__ += f"\n\n{tab}{header}"
+    # Collect Attributes sections from DIRECT parent classes only
+    # (indirect parents are already merged into direct parents)
+    parent_attrs = []
+    for base in cls.__bases__:  # Only direct parents, not full MRO
+        if base is object:
+            continue
+        if not hasattr(base, "__doc__") or base.__doc__ is None:
+            continue
 
-        # Get the parent attribute docstring block
-        prestr = ""
-        for parent in parents:
-            docstr = parent.__doc__
-            substr = docstr.split(header)[-1].rstrip() + "\n"
-            if len(substr.split(underline)) > 1:
-                substr = substr.split(underline)[0].split("\n")[:-1]
-                substr = "".join(substr).rstrip()
+        # Extract Attributes section from parent docstring
+        if header not in base.__doc__:
+            continue
 
-            prestr += substr
+        # Find the first occurrence of the header
+        header_pos = base.__doc__.find(header)
+        attr_start = header_pos + len(header)
 
-        # Append it to the relevant block
-        split_doc = obj.__doc__.split(header)
-        obj.__doc__ = split_doc[0] + header + prestr + split_doc[1]
+        # Find where this section ends (next section or end of docstring)
+        rest = base.__doc__[attr_start:]
+        lines = rest.split("\n")
+        attr_lines = []
 
-        return obj
+        for line in lines:
+            # Stop at next section (line with only dashes, no indentation)
+            stripped = line.strip()
+            if (
+                stripped
+                and stripped == "-" * len(stripped)
+                and not line.startswith(" ")
+            ):
+                # This is a section divider, stop here
+                break
+            attr_lines.append(line)
 
-    return inherit
+        # Clean up and only keep non-empty content
+        section_text = "\n".join(attr_lines).rstrip()
+
+        if section_text.strip():  # Only add if there's actual content
+            parent_attrs.append(section_text)
+
+    # Now handle the child's docstring
+    if header in cls.__doc__:
+        # Split on FIRST occurrence only
+        header_pos = cls.__doc__.find(header)
+        before_header = cls.__doc__[:header_pos]
+        after_header = cls.__doc__[header_pos + len(header) :]
+
+        # Merge parent attributes before child attributes
+        if parent_attrs:
+            merged_parents = "\n".join(parent_attrs) + "\n"
+            cls.__doc__ = before_header + header + merged_parents + after_header
+    else:
+        # No Attributes section in child, add one with just parent attrs
+        if parent_attrs:
+            merged_parents = "\n".join(parent_attrs)
+            cls.__doc__ += f"\n\n{header}{merged_parents}\n"

@@ -1,13 +1,11 @@
 """Module with a dataclass targeted at a batch index or list of indexes."""
 
 from dataclasses import dataclass
-from typing import Union
 from warnings import warn
 
 import numpy as np
 
 from spine.utils.conditional import torch
-from spine.utils.docstring import inherit_docstring
 
 from .base import BatchBase
 
@@ -15,7 +13,6 @@ __all__ = ["IndexBatch"]
 
 
 @dataclass(eq=False)
-@inherit_docstring(BatchBase)
 class IndexBatch(BatchBase):
     """Batched index with the necessary methods to slice it.
 
@@ -28,8 +25,8 @@ class IndexBatch(BatchBase):
         is the same as counts if the underlying data is a single index
     """
 
-    offsets: Union[np.ndarray, torch.Tensor]
-    single_counts: Union[np.ndarray, torch.Tensor]
+    offsets: np.ndarray | torch.Tensor
+    single_counts: np.ndarray | torch.Tensor
 
     def __init__(
         self,
@@ -40,8 +37,7 @@ class IndexBatch(BatchBase):
         batch_ids=None,
         batch_size=None,
         default=None,
-        is_numpy=True,
-    ):  # TODO is_numpy does nothing
+    ):
         """Initialize the attributes of the class.
 
         Parameters
@@ -61,8 +57,6 @@ class IndexBatch(BatchBase):
             assumption is that each count corresponds to a specific entry
         batch_size : int, optional
             Number of entries in the batch. Must be specified along batch_ids
-        is_numpy : bool, default True
-            Default type of index. Provide if `data` may be empty
         """
         # Check weather the input is a single index or a list
         is_list = isinstance(data, (list, tuple)) or data.dtype == object
@@ -88,9 +82,8 @@ class IndexBatch(BatchBase):
 
         # Get the counts if they are not provided for free
         if counts is None:
-            assert (
-                batch_ids is not None and batch_size is not None
-            ), "Must provide `batch_size` alongside `batch_ids`."
+            if batch_ids is None or batch_size is None:
+                raise ValueError("Must provide `batch_size` alongside `batch_ids`.")
             counts = self.get_counts(batch_ids, batch_size)
 
         else:
@@ -98,14 +91,16 @@ class IndexBatch(BatchBase):
 
         # Get the number of index elements per entry in the batch
         if single_counts is None:
-            assert (
-                not self.is_list
-            ), "When initializing an index list, provide `single_counts`."
+            if self.is_list:
+                raise ValueError(
+                    "When initializing an index list, provide `single_counts`."
+                )
             single_counts = counts
         else:
-            assert len(single_counts) == len(
-                data
-            ), "There must be one single count per index in the list."
+            if len(single_counts) != len(data):
+                raise ValueError(
+                    "There must be one single count per index in the list."
+                )
 
         # Cast
         counts = self._as_long(counts)
@@ -113,12 +108,12 @@ class IndexBatch(BatchBase):
         offsets = self._as_long(offsets)
 
         # Do a couple of basic sanity checks
-        assert self._sum(counts) == len(
-            data
-        ), "The `counts` provided must add up to the index length."
-        assert len(counts) == len(
-            offsets
-        ), "The number of `offsets` must match the number of `counts`."
+        if self._sum(counts) != len(data):
+            raise ValueError("The `counts` provided must add up to the index length.")
+        if len(counts) != len(offsets):
+            raise ValueError(
+                "The number of `offsets` must match the number of `counts`."
+            )
 
         # Get the boundaries between successive index using the counts
         edges = self.get_edges(counts)
@@ -152,11 +147,7 @@ class IndexBatch(BatchBase):
             return self.data[lower:upper] - self.offsets[batch_id]
 
         else:
-            entry = np.empty(upper - lower, dtype=object)
-            for i, index in enumerate(self.data[lower:upper]):
-                entry[i] = index - self.offsets[batch_id]
-
-            return entry
+            return [index - self.offsets[batch_id] for index in self.data[lower:upper]]
 
     @property
     def index(self):
@@ -167,9 +158,8 @@ class IndexBatch(BatchBase):
         Union[np.ndarray, torch.Tensor]
             Underlying index
         """
-        assert (
-            not self.is_list
-        ), "Underlying data is not a single index, use `index_list`"
+        if self.is_list:
+            raise ValueError("Underlying data is not a single index, use `index_list`")
 
         return self.data
 
@@ -182,7 +172,8 @@ class IndexBatch(BatchBase):
         List[Union[np.ndarray, torch.Tensor]]
             Underlying index list
         """
-        assert self.is_list, "Underlying data is a single index, use `index`"
+        if not self.is_list:
+            raise ValueError("Underlying data is a single index, use `index`")
 
         return self.data
 
@@ -209,7 +200,8 @@ class IndexBatch(BatchBase):
         Union[np.ndarray, torch.Tensor]
             (M) List of index IDs for each element
         """
-        assert self.is_list, "Underlying data must be a list of index"
+        if not self.is_list:
+            raise ValueError("Underlying data must be a list of index")
 
         return self._repeat(self._arange(len(self.data)), self.single_counts)
 
@@ -262,15 +254,17 @@ class IndexBatch(BatchBase):
         List[List[Union[np.ndarray, torch.Tensor]]]
             List of list of indexes per entry in the batch
         """
-        # Cast to numpy object array to be able to use split
-        if self.is_list and not isinstance(self.data, np.ndarray):
-            data_np = np.empty(len(self.data), dtype=object)
-            data_np[:] = self.data
-        else:
-            data_np = self.data
+        if self.is_list:
+            indexes = []
+            for batch_id in range(self.batch_size):
+                lower, upper = self.edges[batch_id], self.edges[batch_id + 1]
+                indexes.append(
+                    [index - self.offsets[batch_id] for index in self.data[lower:upper]]
+                )
 
-        # Split, offset
-        indexes = np.split(data_np, self.splits)
+            return indexes
+
+        indexes = list(self._split(self.data, self.splits))
         for batch_id in range(self.batch_size):
             indexes[batch_id] = indexes[batch_id] - self.offsets[batch_id]
 
@@ -290,9 +284,8 @@ class IndexBatch(BatchBase):
             Merged index batch
         """
         # Basic cross-checks
-        assert (
-            self.offsets == index_batch.offsets
-        ).all(), "Both index batches should point to the same tensor."
+        if not (self.offsets == index_batch.offsets).all():
+            raise ValueError("Both index batches should point to the same tensor.")
 
         # Stack the indexes entry-wise in the batch
         indexes, single_counts = [], []
@@ -318,7 +311,7 @@ class IndexBatch(BatchBase):
         if self.is_list:
             return IndexBatch(indexes, self.offsets, counts, single_counts)
         else:
-            return IndexBatch(indexes, self.offsets, counts)
+            return IndexBatch(self._cat(indexes), self.offsets, counts)
 
     def to_numpy(self):
         """Cast underlying index to a `np.ndarray` and return a new instance.
@@ -335,9 +328,7 @@ class IndexBatch(BatchBase):
         if not self.is_list:
             data = self._to_numpy(self.data)
         else:
-            data = np.empty(len(self.data), dtype=object)
-            for i, d in enumerate(self.data):
-                data[i] = self._to_numpy(d)
+            data = [self._to_numpy(d) for d in self.data]
 
         offsets = self._to_numpy(self.offsets)
         counts = self._to_numpy(self.counts)
@@ -370,9 +361,7 @@ class IndexBatch(BatchBase):
         if not self.is_list:
             data = self._to_tensor(self.data, dtype, device)
         else:
-            data = np.empty(len(data), dtype=object)
-            for i, d in enumerate(self.data):
-                data[i] = self._to_tensor(d, dtype, device)
+            data = [self._to_tensor(d, dtype, device) for d in self.data]
 
         offsets = self._to_tensor(self.offsets, dtype, device)
         counts = self._to_tensor(self.counts, dtype, device)

@@ -60,7 +60,7 @@ To install everything:
 System Requirements
 -------------------
 
-- Python 3.8+
+- Python 3.10+
 - NumPy
 - SciPy
 - Numba (for performance-critical computations)

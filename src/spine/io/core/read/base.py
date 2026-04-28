@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
+from spine.utils.docstring import merge_ancestor_docstrings
 from spine.utils.logger import logger
 
 
@@ -53,6 +54,21 @@ class ReaderBase(ABC):
     num_entries: int
     run_info: Optional[List[Tuple[int, int, int]]] = None
     run_map: Optional[Dict[Tuple[int, int, int], int]] = None
+
+    def __init_subclass__(cls, **kwargs):
+        """Automatically merge docstrings from parent classes.
+
+        This hook is called whenever a class inherits from ReaderBase. It
+        automatically merges the Attributes sections from all parent class
+        docstrings into the child class docstring.
+
+        Parameters
+        ----------
+        **kwargs
+            Additional keyword arguments passed to super().__init_subclass__
+        """
+        super().__init_subclass__(**kwargs)
+        merge_ancestor_docstrings(cls)
 
     def __len__(self) -> int:
         """Returns the number of entries in the file(s).

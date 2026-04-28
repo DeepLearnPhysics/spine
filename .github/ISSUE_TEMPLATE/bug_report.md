@@ -36,7 +36,7 @@ If applicable, add figures to help explain your problem.
 **System Information**
 Provide the following:
  - OS: [e.g., Ubuntu 22.04, macOS 14.0, CentOS 7]
- - Python version: [e.g., 3.9.7]
+ - Python version: [e.g., 3.10.13]
  - SPINE release version (or github commit tag if not using a tagged release)
  - Key dependencies: [e.g., PyTorch 2.0.1, NumPy 1.24.3]
  - Singularity/apptainer/docker image (if applicable)

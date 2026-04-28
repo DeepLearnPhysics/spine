@@ -1303,7 +1303,8 @@ class FullChain(torch.nn.Module):
             for g in group_ids:
                 # Build the set of groups made up of input clusters
                 group_index = np.where(group_pred_b == g)[0]
-                groups.append(offset_b + np.concatenate(clusts_b[group_index]))
+                group_clusts = [clusts_b[i] for i in group_index]
+                groups.append(offset_b + np.concatenate(group_clusts))
                 single_counts.append(len(groups[-1]))
 
                 # Extract the shape and primary ID for this group

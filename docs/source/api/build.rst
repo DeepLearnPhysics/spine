@@ -1,33 +1,59 @@
-Build Module
-============
+Construct Module
+================
 
-The spine.build module provides tools for building higher-level objects from reconstruction primitives.
+The ``spine.construct`` module provides tools for building higher-level analysis objects from reconstruction primitives.
 
-Base Classes
-------------
+.. note::
+   This module was formerly named ``build`` and configuration files still use ``build:`` for backward compatibility.
 
-.. automodule:: spine.build.base
-   :members:
-   :show-inheritance:
+Overview
+--------
 
-Manager
--------
+The construct module converts raw ML model outputs into structured physics objects:
 
-.. automodule:: spine.build.manager
+- **BuildManager**: Central factory coordinating all builders
+- **FragmentBuilder**: Creates Fragment objects from clustering results
+- **ParticleBuilder**: Creates Particle objects with full kinematics
+- **InteractionBuilder**: Creates complete Interaction hierarchies
+
+Build Manager
+-------------
+
+Central coordination for object construction.
+
+.. autoclass:: spine.construct.BuildManager
    :members:
    :show-inheritance:
 
 Builders
 --------
 
-.. automodule:: spine.build.fragment
-   :members:
-   :show-inheritance:
+Individual builders for each object type. All builders inherit from ``BuilderBase``
+and share common configuration options.
 
-.. automodule:: spine.build.particle
-   :members:
-   :show-inheritance:
+Fragment Builder
+~~~~~~~~~~~~~~~~
 
-.. automodule:: spine.build.interaction
+.. autoclass:: spine.construct.fragment.FragmentBuilder
    :members:
+   :inherited-members:
    :show-inheritance:
+   :exclude-members: build_reco, build_truth, load_reco, load_truth
+
+Particle Builder
+~~~~~~~~~~~~~~~~
+
+.. autoclass:: spine.construct.particle.ParticleBuilder
+   :members:
+   :inherited-members:
+   :show-inheritance:
+   :exclude-members: build_reco, build_truth, load_reco, load_truth
+
+Interaction Builder
+~~~~~~~~~~~~~~~~~~~
+
+.. autoclass:: spine.construct.interaction.InteractionBuilder
+   :members:
+   :inherited-members:
+   :show-inheritance:
+   :exclude-members: build_reco, build_truth, load_reco, load_truth

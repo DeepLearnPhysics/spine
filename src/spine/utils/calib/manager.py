@@ -1,16 +1,20 @@
 """Loads all requested calibration modules and executes them
 in the appropriate sequence."""
 
+from __future__ import annotations
+
 from copy import deepcopy
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 
-from spine.data.meta import Meta
 from spine.geo import GeoManager
 from spine.utils.stopwatch import StopwatchManager
 
 from .factories import calibrator_factory
+
+if TYPE_CHECKING:
+    from spine.data import Meta
 
 
 class CalibrationManager:

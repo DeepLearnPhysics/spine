@@ -5,7 +5,6 @@ from typing import Any, Dict, List, Optional, Union
 import numpy as np
 
 from spine.utils.conditional import ROOT
-from spine.utils.docstring import inherit_docstring
 from spine.utils.logger import logger
 
 from .base import ReaderBase
@@ -13,7 +12,6 @@ from .base import ReaderBase
 __all__ = ["LArCVReader"]
 
 
-@inherit_docstring(ReaderBase)
 class LArCVReader(ReaderBase):
     """Class which reads information stored in LArCV files.
 
@@ -31,7 +29,7 @@ class LArCVReader(ReaderBase):
     trees corresponding to each of the requested data products.
     """
 
-    name = "larcv"
+    name: str = "larcv"
 
     def __init__(
         self,
@@ -177,7 +175,10 @@ class LArCVReader(ReaderBase):
             Dictionary which maps each data product key to an entry in the tree
         """
         # Get the appropriate entry index
-        assert idx < len(self.entry_index)
+        if idx < 0 or idx >= len(self):
+            raise IndexError(
+                f"Index {idx} out of bounds for dataset of size {len(self)}."
+            )
         entry_idx = self.entry_index[idx]
 
         # If this is the first data loading, instantiate chains

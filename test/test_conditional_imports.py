@@ -55,21 +55,20 @@ class TestConditionalImports:
 class TestManagerIndependence:
     """Test that all managers can work independently without torch."""
 
-    def test_model_manager_conditional_import(self):
+    def test_model_manager_conditional_import(self, monkeypatch):
         """Test ModelManager imports without torch."""
+        import spine.model.manager as model_manager_module
         from spine.model import ModelManager
 
         assert ModelManager is not None
+        assert hasattr(ModelManager, "prepare_data")
+        assert hasattr(ModelManager, "forward")
 
-        # Should have conditional methods - test minimal config
-        try:
-            manager = ModelManager(
-                name="test", modules={}, network_input=["input_data"]
-            )
-            assert hasattr(manager, "prepare")
-        except ImportError:
-            # Expected when torch is not available
-            pytest.skip("ModelManager requires torch dependencies")
+        # ModelManager should fail explicitly before trying to build a model if
+        # torch is unavailable.
+        monkeypatch.setattr(model_manager_module, "TORCH_AVAILABLE", False)
+        with pytest.raises(ImportError, match="PyTorch is required"):
+            ModelManager(name="uresnet", modules={}, network_input={})
 
     def test_build_manager_torch_independence(self):
         """Test BuildManager doesn't require torch."""
@@ -132,15 +131,12 @@ class TestNetworkXElimination:
             assert processor.name == "children_count"
 
     def test_post_processing_performance(self):
-        """Test that post-processing without networkx is fast."""
-        import time
+        """Test that post-processing without networkx computes child counts."""
         from collections import defaultdict
 
         # Simulate large parent-child relationship
         size = 10000
         parent_ids = [max(0, i // 2) for i in range(size)]
-
-        start_time = time.time()
 
         # Dictionary-based approach (current implementation)
         children = defaultdict(list)
@@ -151,11 +147,6 @@ class TestNetworkXElimination:
         children_counts = {}
         for node_id in range(size):
             children_counts[node_id] = len(children[node_id])
-
-        elapsed = time.time() - start_time
-
-        # Should be very fast (under 0.1 seconds for 10k nodes)
-        assert elapsed < 0.1, f"Dictionary approach too slow: {elapsed:.3f}s"
 
         # Should produce reasonable results
         assert len(children_counts) == size

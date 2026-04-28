@@ -6,13 +6,30 @@ import numpy as np
 from spine.math.distance import cdist
 
 __all__ = [
-    "overlap_counts",
+    "overlap_count",
     "overlap_iou",
     "overlap_weighted_iou",
     "overlap_dice",
     "overlap_weighted_dice",
     "overlap_chamfer",
 ]
+
+
+@nb.njit(cache=True)
+def intersection_size_sorted(x: nb.int64[:], y: nb.int64[:]) -> nb.int64:
+    """Compute the size of the intersection of two sorted unique arrays."""
+    i = j = count = 0
+    while i < len(x) and j < len(y):
+        if x[i] == y[j]:
+            count += 1
+            i += 1
+            j += 1
+        elif x[i] < y[j]:
+            i += 1
+        else:
+            j += 1
+
+    return count
 
 
 @nb.njit(cache=True, parallel=True)
@@ -39,9 +56,9 @@ def overlap_count(
         if len(px):
             for j, py in enumerate(index_y):
                 if len(py):
-                    if np.max(px) < np.min(py) or np.max(py) < np.min(px):
+                    if px[-1] < py[0] or py[-1] < px[0]:
                         continue
-                    overlap_matrix[i, j] = len(set(px).intersection(set(py)))
+                    overlap_matrix[i, j] = intersection_size_sorted(px, py)
 
     return overlap_matrix
 
@@ -72,11 +89,11 @@ def overlap_iou(
         if len(px):
             for j, py in enumerate(index_y):
                 if len(py):
-                    if np.max(px) < np.min(py) or np.max(py) < np.min(px):
+                    if px[-1] < py[0] or py[-1] < px[0]:
                         continue
-                    cap = len(set(px).intersection(set(py)))
+                    cap = intersection_size_sorted(px, py)
                     if cap > 0:
-                        cup = len(set(px).union(set(py)))
+                        cup = len(px) + len(py) - cap
                         overlap_matrix[i, j] = cap / cup
 
     return overlap_matrix
@@ -109,11 +126,11 @@ def overlap_weighted_iou(
         if len(px):
             for j, py in enumerate(index_y):
                 if len(py):
-                    if np.max(px) < np.min(py) or np.max(py) < np.min(px):
+                    if px[-1] < py[0] or py[-1] < px[0]:
                         continue
-                    cap = len(set(px).intersection(set(py)))
+                    cap = intersection_size_sorted(px, py)
                     if cap > 0:
-                        cup = len(set(px).union(set(py)))
+                        cup = len(px) + len(py) - cap
                         n, m = px.shape[0], py.shape[0]
                         overlap_matrix[i, j] = (cap / cup) * (n + m) / (1 + abs(n - m))
 
@@ -147,13 +164,12 @@ def overlap_dice(
         if len(px):
             for j, py in enumerate(index_y):
                 if len(py):
-                    if np.max(px) < np.min(py) or np.max(py) < np.min(px):
+                    if px[-1] < py[0] or py[-1] < px[0]:
                         continue
-                    cap = len(set(px).intersection(set(py)))
+                    cap = intersection_size_sorted(px, py)
                     if cap > 0:
-                        cup = len(px) + len(py)
-                        n, m = px.shape[0], py.shape[0]
-                        overlap_matrix[i, j] = 2.0 * cap / cup
+                        denom = len(px) + len(py)
+                        overlap_matrix[i, j] = 2.0 * cap / denom
 
     return overlap_matrix
 
@@ -187,14 +203,14 @@ def overlap_weighted_dice(
         if len(px):
             for j, py in enumerate(index_y):
                 if len(py):
-                    if np.max(px) < np.min(py) or np.max(py) < np.min(px):
+                    if px[-1] < py[0] or py[-1] < px[0]:
                         continue
-                    cap = len(set(px).intersection(set(py)))
+                    cap = intersection_size_sorted(px, py)
                     if cap > 0:
-                        cup = len(px) + len(py)
+                        denom = len(px) + len(py)
                         n, m = px.shape[0], py.shape[0]
                         w = (n + m) / (1 + abs(n - m))
-                        overlap_matrix[i, j] = (2.0 * cap / cup) * w
+                        overlap_matrix[i, j] = (2.0 * cap / denom) * w
 
     return overlap_matrix
 

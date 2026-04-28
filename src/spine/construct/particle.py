@@ -287,7 +287,9 @@ class ParticleBuilder(BuilderBase):
             assert group_id < len(
                 particles
             ), "Invalid group ID, cannot build true particle."
-            particle = TruthParticle(**particles[group_id].as_dict())
+            particle = TruthParticle(
+                **particles[group_id].as_dict(include_derived=False)
+            )
             assert (
                 particle.id == group_id
             ), "The ordering of the true particles is wrong."

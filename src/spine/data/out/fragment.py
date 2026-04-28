@@ -1,20 +1,21 @@
 """Module with a data class objects which represent output fragments."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
-from spine.data.particle import Particle
-from spine.utils.docstring import inherit_docstring
+from spine.data.decorator import stored_property
+from spine.data.field import FieldMetadata
+from spine.data.larcv.particle import Particle
 from spine.utils.globals import SHAPE_LABELS, TRACK_SHP
 
-from .base import RecoBase, TruthBase
+from .base import OutBase, RecoBase, TruthBase
 
 __all__ = ["RecoFragment", "TruthFragment"]
 
 
-@dataclass(eq=False)
-class FragmentBase:
+@dataclass(eq=False, repr=False)
+class FragmentBase(OutBase):
     """Base fragment-specific information.
 
     Attributes
@@ -34,42 +35,38 @@ class FragmentBase:
         (3) Fragment start point
     end_point : np.ndarray
         (3) Fragment end point (only assigned to track objects)
-    start_dir : np.ndarray
-        (3) Fragment direction w.r.t. the start point
-    end_dir : np.ndarray
-        (3) Fragment direction w.r.t. the end point (only assigned
-        to track objects)
     """
 
+    # Scalar attributes
     particle_id: int = -1
     interaction_id: int = -1
-    shape: int = -1
+
     is_primary: bool = False
-    length: float = -1.0
-    start_point: np.ndarray = None
-    end_point: np.ndarray = None
-    start_dir: np.ndarray = None
-    end_dir: np.ndarray = None
 
-    # Fixed-length attributes
-    _fixed_length_attrs = (
-        ("start_point", 3),
-        ("end_point", 3),
-        ("start_dir", 3),
-        ("end_dir", 3),
-    )
-
-    # Attributes specifying coordinates
-    _pos_attrs = ("start_point", "end_point")
-
-    # Attributes specifying vector components
-    _vec_attrs = ("start_dir", "end_dir")
-
-    # Boolean attributes
-    _bool_attrs = ("is_primary",)
+    length: float = field(default=np.nan, metadata=FieldMetadata(units="instance"))
 
     # Enumerated attributes
-    _enum_attrs = (("shape", tuple((v, k) for k, v in SHAPE_LABELS.items())),)
+    shape: int = field(default=-1, metadata=FieldMetadata(enum=SHAPE_LABELS))
+
+    # Vector attributes
+    start_point: np.ndarray = field(
+        default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
+        metadata=FieldMetadata(
+            length=3,
+            dtype=np.float32,
+            position=True,
+            units="instance",
+        ),
+    )
+    end_point: np.ndarray = field(
+        default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
+        metadata=FieldMetadata(
+            length=3,
+            dtype=np.float32,
+            position=True,
+            units="instance",
+        ),
+    )
 
     def __str__(self):
         """Human-readable string representation of the fragment object.
@@ -88,8 +85,7 @@ class FragmentBase:
         )
 
 
-@dataclass(eq=False)
-@inherit_docstring(RecoBase, FragmentBase)
+@dataclass(eq=False, repr=False)
 class RecoFragment(FragmentBase, RecoBase):
     """Reconstructed fragment information.
 
@@ -97,15 +93,27 @@ class RecoFragment(FragmentBase, RecoBase):
     ----------
     primary_scores : np.ndarray
         (2) Array of softmax scores associated with secondary and primary
+    start_dir : np.ndarray
+        (3) Fragment direction w.r.t. the start point
+    end_dir : np.ndarray
+        (3) Fragment direction w.r.t. the end point (only assigned
+        to track objects)
     """
 
-    primary_scores: np.ndarray = None
+    # Vector attributes
+    start_dir: np.ndarray = field(
+        default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
+        metadata=FieldMetadata(length=3, dtype=np.float32, vector=True),
+    )
+    end_dir: np.ndarray = field(
+        default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
+        metadata=FieldMetadata(length=3, dtype=np.float32, vector=True),
+    )
 
-    # Fixed-length attributes
-    _fixed_length_attrs = (("primary_scores", 2), *FragmentBase._fixed_length_attrs)
-
-    # Boolean attributes
-    _bool_attrs = (*RecoBase._bool_attrs, *FragmentBase._bool_attrs)
+    primary_scores: np.ndarray = field(
+        default_factory=lambda: np.full(2, np.nan, dtype=np.float32),
+        metadata=FieldMetadata(length=2, dtype=np.float32),
+    )
 
     def __str__(self):
         """Human-readable string representation of the fragment object.
@@ -118,8 +126,7 @@ class RecoFragment(FragmentBase, RecoBase):
         return "Reco" + super().__str__()
 
 
-@dataclass(eq=False)
-@inherit_docstring(TruthBase, FragmentBase)
+@dataclass(eq=False, repr=False)
 class TruthFragment(Particle, FragmentBase, TruthBase):
     """Truth fragment information.
 
@@ -147,44 +154,28 @@ class TruthFragment(Particle, FragmentBase, TruthBase):
         to track objects)
     """
 
+    # Scalar attributes
     orig_interaction_id: int = -1
     orig_parent_id: int = -1
     orig_group_id: int = -1
-    orig_children_id: np.ndarray = None
-    children_counts: np.ndarray = None
-    reco_length: float = -1.0
-    reco_start_dir: np.ndarray = None
-    reco_end_dir: np.ndarray = None
 
-    # Fixed-length attributes
-    _fixed_length_attrs = (
-        ("reco_start_dir", 3),
-        ("reco_end_dir", 3),
-        *FragmentBase._fixed_length_attrs,
-        *Particle._fixed_length_attrs,
+    # Vector attributes
+    orig_children_id: np.ndarray = field(
+        default_factory=lambda: np.empty(0, dtype=np.int32),
+        metadata=FieldMetadata(dtype=np.int32),
     )
-
-    # Variable-length attributes
-    _var_length_attrs = (
-        ("orig_children_id", np.int64),
-        ("children_counts", np.int32),
-        *TruthBase._var_length_attrs,
-        *Particle._var_length_attrs,
+    children_counts: np.ndarray = field(
+        default_factory=lambda: np.empty(0, dtype=np.int32),
+        metadata=FieldMetadata(dtype=np.int32),
     )
-
-    # Attributes specifying coordinates
-    _pos_attrs = (*FragmentBase._pos_attrs, *Particle._pos_attrs)
-
-    # Attributes specifying vector components
-    _vec_attrs = (
-        "reco_start_dir",
-        "reco_end_dir",
-        *FragmentBase._vec_attrs,
-        *Particle._vec_attrs,
+    reco_start_dir: np.ndarray = field(
+        default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
+        metadata=FieldMetadata(length=3, dtype=np.float32, vector=True),
     )
-
-    # Boolean attributes
-    _bool_attrs = (*TruthBase._bool_attrs, *FragmentBase._bool_attrs)
+    reco_end_dir: np.ndarray = field(
+        default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
+        metadata=FieldMetadata(length=3, dtype=np.float32, vector=True),
+    )
 
     def __str__(self):
         """Human-readable string representation of the fragment object.
@@ -197,7 +188,8 @@ class TruthFragment(Particle, FragmentBase, TruthBase):
         return "Truth" + super().__str__()
 
     @property
-    def start_dir(self):
+    @stored_property
+    def start_dir(self) -> np.ndarray:
         """Converts the initial momentum to a direction vector.
 
         Returns
@@ -205,19 +197,15 @@ class TruthFragment(Particle, FragmentBase, TruthBase):
         np.ndarray
             (3) Start direction vector
         """
-        if self.momentum is not None:
-            norm = np.linalg.norm(self.momentum)
-            if norm > 0.0 and norm != np.inf:
-                return self.momentum / norm
+        norm = np.linalg.norm(self.momentum)
+        if norm > 0.0:
+            return self.momentum / norm
 
-        return np.full(3, -np.inf, dtype=np.float32)
-
-    @start_dir.setter
-    def start_dir(self, start_dir):
-        pass
+        return np.full(3, np.nan, dtype=np.float32)
 
     @property
-    def end_dir(self):
+    @stored_property
+    def end_dir(self) -> np.ndarray:
         """Converts the final momentum to a direction vector.
 
         Note that if a particle stops, this is unreliable as an estimate of the
@@ -228,13 +216,9 @@ class TruthFragment(Particle, FragmentBase, TruthBase):
         np.ndarray
             (3) End direction vector
         """
-        if self.end_momentum is not None:
+        if self.shape == TRACK_SHP:
             norm = np.linalg.norm(self.end_momentum)
-            if self.shape == TRACK_SHP and norm > 0.0 and norm != np.inf:
+            if norm > 0.0:
                 return self.end_momentum / norm
 
-        return np.full(3, -np.inf, dtype=np.float32)
-
-    @end_dir.setter
-    def end_dir(self, end_dir):
-        pass
+        return np.full(3, np.nan, dtype=np.float32)

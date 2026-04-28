@@ -5,6 +5,7 @@ from abc import ABC, abstractmethod
 import numpy as np
 
 from spine.data import ObjectList
+from spine.utils.docstring import merge_ancestor_docstrings
 
 
 class BuilderBase(ABC):
@@ -61,6 +62,11 @@ class BuilderBase(ABC):
         ("sources_label", False),
         ("sources", False),
     )
+
+    def __init_subclass__(cls, **kwargs):
+        """Automatically merge parent docstrings when BuilderBase is subclassed."""
+        super().__init_subclass__(**kwargs)
+        merge_ancestor_docstrings(cls)
 
     def __init__(self, mode, units):
         """Initializes the builder.

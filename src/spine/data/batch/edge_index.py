@@ -4,12 +4,10 @@ An edge index is a sparse representation of a graph incidence matrix.
 """
 
 from dataclasses import dataclass
-from typing import Union
 
 import numpy as np
 
 from spine.utils.conditional import torch
-from spine.utils.docstring import inherit_docstring
 
 from .base import BatchBase
 
@@ -17,7 +15,6 @@ __all__ = ["EdgeIndexBatch"]
 
 
 @dataclass(eq=False)
-@inherit_docstring(BatchBase)
 class EdgeIndexBatch(BatchBase):
     """Batched edge index with the necessary methods to slice it.
 
@@ -29,7 +26,7 @@ class EdgeIndexBatch(BatchBase):
         Whether the edge index is directed or undirected
     """
 
-    offsets: Union[np.ndarray, torch.Tensor]
+    offsets: np.ndarray | torch.Tensor
     directed: bool
 
     def __init__(self, data, counts, offsets, directed):
@@ -62,14 +59,14 @@ class EdgeIndexBatch(BatchBase):
         offsets = self._as_long(offsets)
 
         # Do a couple of basic sanity checks
-        assert (
-            self._sum(counts) == data.shape[1]
-        ), "The `counts` provided do not add up to the index length"
-        assert len(counts) == len(
-            offsets
-        ), "The number of `offsets` es not match the number of `counts`"
-        if not directed:
-            assert data.shape[1] % 2 == 0, (
+        if self._sum(counts) != data.shape[1]:
+            raise ValueError("The `counts` provided do not add up to the index length")
+        if len(counts) != len(offsets):
+            raise ValueError(
+                "The number of `offsets` does not match the number of `counts`"
+            )
+        if not directed and data.shape[1] % 2 != 0:
+            raise ValueError(
                 "If the edge index is undirected, it should have an "
                 "even number of edge"
             )
@@ -203,7 +200,7 @@ class EdgeIndexBatch(BatchBase):
         List[Union[np.ndarray, torch.Tensor]]
             List of one index per entry in the batch
         """
-        indexes = self._split(self._transpose(self.index), self.splits)
+        indexes = list(self._split(self._transpose(self.index), self.splits))
         for batch_id in range(self.batch_size):
             indexes[batch_id] = indexes[batch_id] - self.offsets[batch_id]
 

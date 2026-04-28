@@ -10,7 +10,6 @@ import yaml
 from yaml.parser import ParserError
 
 import spine.data
-from spine.utils.docstring import inherit_docstring
 from spine.utils.logger import logger
 
 from .base import ReaderBase
@@ -18,7 +17,6 @@ from .base import ReaderBase
 __all__ = ["HDF5Reader"]
 
 
-@inherit_docstring(ReaderBase)
 class HDF5Reader(ReaderBase):
     """Class which reads information stored in HDF5 files.
 
@@ -30,7 +28,7 @@ class HDF5Reader(ReaderBase):
         the `events` dataset
     """
 
-    name = "hdf5"
+    name: str = "hdf5"
 
     def __init__(
         self,
@@ -224,7 +222,10 @@ class HDF5Reader(ReaderBase):
             Ditionary of data products corresponding to one event
         """
         # Get the appropriate entry index
-        assert idx < len(self.entry_index)
+        if idx < 0 or idx >= len(self):
+            raise IndexError(
+                f"Index {idx} out of bounds for dataset of size {len(self)}."
+            )
         file_idx = self.get_file_index(idx)
         entry_idx = self.get_file_entry_index(idx)
 
@@ -248,6 +249,51 @@ class HDF5Reader(ReaderBase):
         data["index"] = idx
 
         return data
+
+    @staticmethod
+    def resolve_object_class(class_name: str, array: np.ndarray) -> type:
+        """Resolve an HDF5 object class name to the concrete SPINE class.
+
+        This keeps backward-compatibility quirks localized in the reader.
+        In particular, older HDF5 files stored image metadata with
+        ``class_name="Meta"``. Newer files store the explicit
+        ``ImageMeta2D`` / ``ImageMeta3D`` class names instead.
+
+        Parameters
+        ----------
+        class_name : str
+            Class name stored in the HDF5 dataset metadata
+        array : np.ndarray
+            Structured array slice containing the serialized objects
+
+        Returns
+        -------
+        type
+            Concrete SPINE data class to reconstruct
+        """
+        if class_name != "Meta":
+            return getattr(spine.data, class_name)
+
+        from spine.data.larcv.meta import ImageMeta2D, ImageMeta3D
+
+        names = getattr(array.dtype, "names", None)
+        assert names is not None and "count" in names, (
+            "Legacy HDF5 class_name='Meta' requires a structured dtype "
+            "with a 'count' field."
+        )
+        sample = array[0] if len(array) else None
+        if sample is None:
+            return ImageMeta3D
+
+        dim = len(sample["count"])
+        if dim == 2:
+            return ImageMeta2D
+        if dim == 3:
+            return ImageMeta3D
+
+        raise ValueError(
+            f"Unsupported legacy Meta dimensionality: {dim}. Expected 2 or 3."
+        )
 
     def load_key(
         self, in_file: h5py.File, event: Dict[str, Any], data: Dict[str, Any], key: str
@@ -286,7 +332,7 @@ class HDF5Reader(ReaderBase):
                 assert isinstance(
                     class_name, str
                 ), "Dataset missing 'class_name' attribute."
-                obj_class = getattr(spine.data, class_name)
+                obj_class = self.resolve_object_class(class_name, array)
 
                 # If needed, get the list of recognized attributes
                 known_attrs = []
@@ -308,7 +354,7 @@ class HDF5Reader(ReaderBase):
 
                     # Rebuild an instance of the object class, if requested
                     if self.build_classes:
-                        data[key].append(obj_class(**obj_dict))
+                        data[key].append(obj_class.from_dict(obj_dict))
                     else:
                         data[key].append(obj_dict)
 

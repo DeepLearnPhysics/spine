@@ -206,9 +206,16 @@ class Unwrapper:
                 for v in range(self.num_volumes):
                     idx = b * self.num_volumes + v
                     offset = data.offsets[idx] - data.offsets[b * self.num_volumes]
-                    index_list.append(offset + data[idx])
+                    index = data[idx]
+                    if isinstance(data, IndexBatch) and data.is_list:
+                        index_list.extend(offset + element for element in index)
+                    else:
+                        index_list.append(offset + index)
 
-                indexes.append(np.concatenate(index_list))
+                if isinstance(data, IndexBatch) and data.is_list:
+                    indexes.append(index_list)
+                else:
+                    indexes.append(np.concatenate(index_list))
 
         # Cast the index lists to ObjectList, in case they are empty
         if isinstance(data, IndexBatch) and data.is_list:
