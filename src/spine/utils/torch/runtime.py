@@ -18,9 +18,22 @@ __all__ = [
 
 
 def manual_seed(seed):
-    """Set torch manual seed if torch is available."""
+    """Set torch manual seeds if torch is available.
+
+    Parameters
+    ----------
+    seed : int
+        Random number generator seed
+
+    Returns
+    -------
+    None
+        This function does not return anything
+    """
     if TORCH_AVAILABLE:
         torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
 
 
 def cuda_is_available():

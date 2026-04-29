@@ -70,13 +70,13 @@ class OutBase(PosDataBase):
 
     # Vector attributes
     index: np.ndarray = field(
-        default_factory=lambda: np.empty(0, dtype=np.int64),
-        metadata=FieldMetadata(dtype=np.int64, cat=True, lite_skip=True),
+        default_factory=lambda: np.empty(0, dtype=np.int32),
+        metadata=FieldMetadata(dtype=np.int32, cat=True, lite_skip=True),
     )
 
     orig_index: np.ndarray = field(
-        default_factory=lambda: np.empty(0, dtype=np.int64),
-        metadata=FieldMetadata(dtype=np.int64, cat=True, lite_skip=True),
+        default_factory=lambda: np.empty(0, dtype=np.int32),
+        metadata=FieldMetadata(dtype=np.int32, cat=True, lite_skip=True),
     )
 
     points: np.ndarray = field(
@@ -96,13 +96,13 @@ class OutBase(PosDataBase):
     )
 
     sources: np.ndarray = field(
-        default_factory=lambda: np.empty((0, 2), dtype=np.int64),
-        metadata=FieldMetadata(dtype=np.int64, cat=True, skip=True),
+        default_factory=lambda: np.empty((0, 2), dtype=np.int32),
+        metadata=FieldMetadata(dtype=np.int32, cat=True, skip=True),
     )
 
     match_ids: np.ndarray = field(
-        default_factory=lambda: np.empty(0, dtype=np.int64),
-        metadata=FieldMetadata(dtype=np.int64),
+        default_factory=lambda: np.empty(0, dtype=np.int32),
+        metadata=FieldMetadata(dtype=np.int32),
     )
 
     match_overlaps: np.ndarray = field(
@@ -113,7 +113,7 @@ class OutBase(PosDataBase):
     def reset_match(self) -> None:
         """Resets the reco/truth matching information for the object."""
         self.is_matched = False
-        self.match_ids = np.empty(0, dtype=np.int64)
+        self.match_ids = np.empty(0, dtype=np.int32)
         self.match_overlaps = np.empty(0, dtype=np.float32)
 
     def reset_cathode_crosser(self) -> None:
@@ -239,12 +239,12 @@ class TruthBase:
 
     # Vector attributes
     index_adapt: np.ndarray = field(
-        default_factory=lambda: np.empty(0, dtype=np.int64),
-        metadata=FieldMetadata(dtype=np.int64, cat=True, lite_skip=True),
+        default_factory=lambda: np.empty(0, dtype=np.int32),
+        metadata=FieldMetadata(dtype=np.int32, cat=True, lite_skip=True),
     )
     index_g4: np.ndarray = field(
-        default_factory=lambda: np.empty(0, dtype=np.int64),
-        metadata=FieldMetadata(dtype=np.int64, cat=True, lite_skip=True),
+        default_factory=lambda: np.empty(0, dtype=np.int32),
+        metadata=FieldMetadata(dtype=np.int32, cat=True, lite_skip=True),
     )
 
     points_adapt: np.ndarray = field(
@@ -286,8 +286,8 @@ class TruthBase:
     )
 
     sources_adapt: np.ndarray = field(
-        default_factory=lambda: np.empty((0, 2), dtype=np.int64),
-        metadata=FieldMetadata(dtype=np.int64, cat=True, skip=True),
+        default_factory=lambda: np.empty((0, 2), dtype=np.int32),
+        metadata=FieldMetadata(dtype=np.int32, cat=True, skip=True),
     )
 
     @property

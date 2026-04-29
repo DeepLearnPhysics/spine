@@ -7,11 +7,7 @@ import torch
 import yaml
 from torch_scatter import scatter_mean, scatter_std
 
-from spine.data import IndexBatch, RunInfo, TensorBatch
-from spine.utils.calib import CalibrationManager
-from spine.utils.cluster.label import ClusterLabelAdapter
-from spine.utils.ghost import ChargeRescaler
-from spine.utils.globals import (
+from spine.constants import (
     CLUST_COL,
     COORD_COLS,
     DELTA_SHP,
@@ -22,6 +18,10 @@ from spine.utils.globals import (
     TRACK_SHP,
     VALUE_COL,
 )
+from spine.data import IndexBatch, RunInfo, TensorBatch
+from spine.utils.calib import CalibrationManager
+from spine.utils.cluster.label import ClusterLabelAdapter
+from spine.utils.ghost import ChargeRescaler
 from spine.utils.gnn.cluster import form_clusters_batch, get_cluster_label_batch
 from spine.utils.gnn.evaluation import primary_assignment_batch
 from spine.utils.logger import logger
@@ -1303,7 +1303,8 @@ class FullChain(torch.nn.Module):
             for g in group_ids:
                 # Build the set of groups made up of input clusters
                 group_index = np.where(group_pred_b == g)[0]
-                groups.append(offset_b + np.concatenate(clusts_b[group_index]))
+                group_clusts = [clusts_b[i] for i in group_index]
+                groups.append(offset_b + np.concatenate(group_clusts))
                 single_counts.append(len(groups[-1]))
 
                 # Extract the shape and primary ID for this group

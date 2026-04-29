@@ -11,7 +11,7 @@ import time
 import numpy as np
 from plotly import graph_objs as go
 
-from spine.utils.globals import TRACK_SHP
+from spine.constants import TRACK_SHP
 from spine.utils.shower import shower_angle_quantile, shower_long_quantile
 
 __all__ = ["scatter_lite"]

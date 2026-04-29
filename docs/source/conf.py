@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.abspath("./"))
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 project = "SPINE"
-copyright = "2025, DeepLearningPhysics Collaboration"
+copyright = "2024, DeepLearningPhysics Collaboration"
 author = "DeepLearningPhysics Collaboration"
 
 # Get version from spine package
@@ -101,14 +101,12 @@ autodoc_mock_imports = [
 
 html_theme = "sphinx_rtd_theme"
 html_theme_options = {
-    "show_toc_level": 2,
     "collapse_navigation": False,
     "sticky_navigation": True,
     "navigation_depth": 4,
     "includehidden": True,
     "titles_only": False,
     "logo_only": True,
-    "display_version": True,
     "version_selector": True,
 }
 
@@ -140,6 +138,9 @@ napoleon_custom_sections = [
     ("Configuration", "params_style"),
     ("Output", "params_style"),
 ]
+
+# Numpydoc settings
+numpydoc_xref_param_type = False
 
 autosectionlabel_prefix_document = True
 

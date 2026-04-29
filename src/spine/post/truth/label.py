@@ -4,8 +4,8 @@ from collections import Counter, defaultdict
 
 import numpy as np
 
+from spine.constants import GHOST_SHP, PID_LABELS
 from spine.post.base import PostBase
-from spine.utils.globals import GHOST_SHP, PID_LABELS
 
 __all__ = ["ChildrenProcessor"]
 
@@ -76,7 +76,7 @@ class ChildrenProcessor(PostBase):
                 child_ids = children[obj.orig_id]
                 counter = Counter()
                 counter.update([nodes[child_id] for child_id in child_ids])
-                children_counts = np.zeros(self.num_classes, dtype=np.int64)
+                children_counts = np.zeros(self.num_classes, dtype=np.int32)
                 for key, val in counter.items():
                     children_counts[key] = val
 

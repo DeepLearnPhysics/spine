@@ -10,10 +10,7 @@ import numba as nb
 import numpy as np
 
 import spine.math as sm
-from spine.data import TensorBatch
-
-from .conditional import torch
-from .globals import (
+from spine.constants import (
     BATCH_COL,
     COORD_COLS,
     DELTA_SHP,
@@ -23,7 +20,11 @@ from .globals import (
     PPN_END_COLS,
     PPN_OCC_COL,
     PPN_ROFF_COLS,
+    PPN_ROFF_COLS_HI,
+    PPN_ROFF_COLS_LO,
     PPN_RPOS_COLS,
+    PPN_RPOS_COLS_HI,
+    PPN_RPOS_COLS_LO,
     PPN_RTYPE_COLS,
     PPN_SCORE_COLS,
     PPN_SHAPE_COL,
@@ -31,6 +32,9 @@ from .globals import (
     TRACK_SHP,
     UNKWN_SHP,
 )
+from spine.data import TensorBatch
+
+from .conditional import torch
 from .jit import numbafy
 from .torch.scripts import cdist_fast
 
@@ -204,7 +208,7 @@ class PPNPredictor:
 
         Notes
         -----
-        This function works both `torch.Tensor` and `np.ndarray` objects.
+        This function works with both `torch.Tensor` and `np.ndarray` inputs.
 
         Parameters
         ----------
@@ -226,10 +230,9 @@ class PPNPredictor:
 
         Returns
         -------
-        Union[TensorBatch, List[np.ndarray]]
-            (N, P) Tensor of predicted points with P divided between
-            [batch_id, x, y, z, validity scores (2), occupancy, type scores (5),
-             predicted type, endpoint type]
+        Union[torch.Tensor, np.ndarray]
+            Predicted points encoded as rows containing coordinates, validity
+            scores, occupancy, type scores, predicted type and endpoint type.
         """
         # Define operations on the basis of the input type
         if torch.is_tensor(ppn_raw):
@@ -622,7 +625,7 @@ class ParticlePointPredictor:
                         >= ppn_points_c[idxs, PPN_RPOS_COLS[0]]
                     )
                     track_points += pos_mask * (
-                        ppn_points_c[idxs][:, PPN_ROFF_COLS]
+                        ppn_points_c[idxs][:, PPN_ROFF_COLS_LO:PPN_ROFF_COLS_HI]
                         + np.array(0.5, dtype=points.dtype)
                     )
 
@@ -638,9 +641,11 @@ class ParticlePointPredictor:
             else:
                 # Only use positive voxels and give precedence to predictions
                 # that are contained within the voxel making the prediction.
-                ppn_scores = sm.softmax(ppn_points_c[:, PPN_RPOS_COLS], 1)[:, -1]
+                ppn_scores = sm.softmax(
+                    ppn_points_c[:, PPN_RPOS_COLS_LO:PPN_RPOS_COLS_HI], 1
+                )[:, -1]
                 if contained_first:
-                    dists = np.abs(ppn_points_c[:, PPN_ROFF_COLS])
+                    dists = np.abs(ppn_points_c[:, PPN_ROFF_COLS_LO:PPN_ROFF_COLS_HI])
 
                     val_index = np.where((ppn_scores > 0.5) & sm.all(dists < 1.0, 1))[0]
                     if len(val_index):
@@ -652,7 +657,7 @@ class ParticlePointPredictor:
 
                 start_point = (
                     points_c[best_id]
-                    + ppn_points_c[best_id, PPN_ROFF_COLS]
+                    + ppn_points_c[best_id, PPN_ROFF_COLS_LO:PPN_ROFF_COLS_HI]
                     + np.array(0.5, dtype=points.dtype)
                 )
 
@@ -816,10 +821,10 @@ def get_vertex_labels(particle_v, neutrino_v, meta, dtype):
     """Gets particle vertex coordinates.
 
     It provides the coordinates of points where multiple particles originate:
-    - If the `neutrino_event` is provided, it simply uses the coordinates of
-      the neutrino interaction points.
-    - If the `particle_event` is provided instead, it looks for ancestor point
-      positions shared by at least two **primary** particles.
+
+    - If `neutrino_v` is provided, it uses the neutrino interaction points.
+    - If `particle_v` is provided instead, it looks for ancestor positions
+      shared by at least two primary particles.
 
     Parameters
     ----------

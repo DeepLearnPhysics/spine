@@ -8,11 +8,11 @@ import numba as nb
 import numpy as np
 
 import spine.math as sm
-from spine.data import IndexBatch, TensorBatch
-from spine.utils.conditional import torch
-from spine.utils.globals import (
+from spine.constants import (
     CLUST_COL,
     COORD_COLS,
+    COORD_COLS_HI,
+    COORD_COLS_LO,
     COORD_END_COLS,
     COORD_START_COLS,
     COORD_TIME_COL,
@@ -21,6 +21,8 @@ from spine.utils.globals import (
     SHAPE_COL,
     VALUE_COL,
 )
+from spine.data import IndexBatch, TensorBatch
+from spine.utils.conditional import torch
 from spine.utils.jit import numbafy
 
 
@@ -424,7 +426,7 @@ def _break_clusters(
 ) -> nb.int64[:]:
     # Loop over clusters to break, run DBSCAN
     break_labels = np.full(len(data), -1, dtype=data.dtype)
-    points = data[:, COORD_COLS]
+    points = data[:, COORD_COLS_LO:COORD_COLS_HI]
     for k in nb.prange(len(clusts)):
         # Restrict the points to those in the cluster
         clust = clusts[k]
@@ -520,8 +522,8 @@ def _get_cluster_closest_label(
     # Loop over the unique cluster groups
     group_ids = _get_cluster_label(data, clusts, GROUP_COL)
     labels_adapt = labels.copy()
-    voxels = data[:, COORD_COLS]
-    points = coord_label[:, COORD_COLS]
+    voxels = data[:, COORD_COLS_LO:COORD_COLS_HI]
+    points = coord_label[:, COORD_COLS_LO:COORD_COLS_HI]
     for g in np.unique(group_ids.astype(np.int64)):
         # If the group index does not exist in the points, do not touch labels
         group_index = np.where(group_ids == g)[0]
@@ -637,8 +639,8 @@ def _get_cluster_closest_primary_label(
     primary_index = np.where(primary_ids == 1)[0]
     group_ids = _get_cluster_label(data, clusts, GROUP_COL)[primary_index]
     labels = primary_ids.copy()
-    voxels = data[:, COORD_COLS]
-    points = coord_label[:, COORD_COLS]
+    voxels = data[:, COORD_COLS_LO:COORD_COLS_HI]
+    points = coord_label[:, COORD_COLS_LO:COORD_COLS_HI]
     for g in np.unique(group_ids.astype(np.int64)):
         # If the group index does not exist in the points, do not touch labels
         group_index = primary_index[group_ids == g]
@@ -689,7 +691,7 @@ def _get_cluster_centers(
 
     centers = np.empty((len(clusts), 3), dtype=data.dtype)
     for i, c in enumerate(clusts):
-        centers[i] = np.sum(data[c][:, COORD_COLS], axis=0) / len(c)
+        centers[i] = np.sum(data[c][:, COORD_COLS_LO:COORD_COLS_HI], axis=0) / len(c)
 
     return centers
 
@@ -842,7 +844,7 @@ def _get_cluster_features_base(
     for k in nb.prange(len(clusts)):
         # Get list of voxels in the cluster
         clust = clusts[ids[k]]
-        x = data[clust][:, COORD_COLS]
+        x = data[clust][:, COORD_COLS_LO:COORD_COLS_HI]
 
         # Get cluster center
         center = sm.mean(x, 0)
@@ -860,7 +862,9 @@ def _get_cluster_features_base(
         w, v = np.linalg.eigh(A.astype(np.float64))
         w, v = w.astype(x.dtype), v.astype(x.dtype)
         if w[2] == 0.0:
-            feats[k] = np.concatenate((center, np.zeros(12), np.array([len(clust)])))
+            feats[k, :3] = center
+            feats[k, 3:15] = 0.0
+            feats[k, 15] = len(clust)
             continue
         dirwt = 1.0 - w[1] / w[2]
         B = A / w[2]
@@ -888,7 +892,10 @@ def _get_cluster_features_base(
         v0 = dirwt * v0
 
         # Append
-        feats[k] = np.concatenate((center, B.flatten(), v0, np.array([len(clust)])))
+        feats[k, :3] = center
+        feats[k, 3:12] = B.flatten()
+        feats[k, 12:15] = v0
+        feats[k, 15] = len(clust)
 
     return feats
 
@@ -1017,9 +1024,11 @@ def _get_cluster_points_label(
 
     # Bring the start points to the closest point in the corresponding cluster
     for i, c in enumerate(clusts):
-        dist_mat = sm.distance.cdist(points[i].reshape(-1, 3), data[c][:, COORD_COLS])
+        dist_mat = sm.distance.cdist(
+            points[i].reshape(-1, 3), data[c][:, COORD_COLS_LO:COORD_COLS_HI]
+        )
         argmins = sm.argmin(dist_mat, axis=1)
-        points[i] = data[c][argmins][:, COORD_COLS].reshape(-1)
+        points[i] = data[c][argmins][:, COORD_COLS_LO:COORD_COLS_HI].reshape(-1)
 
     return points
 
@@ -1052,7 +1061,7 @@ def get_cluster_directions(data, starts, clusts, max_dist=-1.0, optimize=False):
     if len(clusts) == 0:
         return np.empty(starts.shape, dtype=data.dtype)
     if data.shape[1] > 3:
-        data = data[:, COORD_COLS]
+        data = data[:, COORD_COLS_LO:COORD_COLS_HI]
 
     return _get_cluster_directions(data, starts, clusts, max_dist, optimize)
 
@@ -1202,7 +1211,12 @@ def get_cluster_dedxs(data, starts, clusts, max_dist=-1.0, anchor=False):
         return np.empty(0, dtype=data.dtype)
 
     return _get_cluster_dedxs(
-        data[:, COORD_COLS], data[:, VALUE_COL], starts, clusts, max_dist, anchor
+        data[:, COORD_COLS_LO:COORD_COLS_HI],
+        data[:, VALUE_COL],
+        starts,
+        clusts,
+        max_dist,
+        anchor,
     )
 
 
@@ -1396,7 +1410,7 @@ def _get_cluster_start_points(
 
     points = np.empty((len(clusts), 3))
     for k in nb.prange(len(clusts)):
-        vid = cluster_end_points(data[clusts[k]][:, COORD_COLS])[-1]
+        vid = cluster_end_points(data[clusts[k]][:, COORD_COLS_LO:COORD_COLS_HI])[-1]
 
     return points
 

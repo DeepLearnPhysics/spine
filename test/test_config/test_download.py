@@ -5,10 +5,12 @@ import multiprocessing
 import time
 from pathlib import Path
 from unittest.mock import patch
+from urllib.error import HTTPError, URLError
 
 import pytest
 
 from spine.config.download import (
+    _validate_cached_file,
     compute_file_hash,
     download_file,
     download_from_url,
@@ -105,6 +107,48 @@ class TestDownloadUtilities:
         assert output_path.exists()
         assert output_path.read_text() == "downloaded content"
         mock_retrieve.assert_called_once()
+
+    @patch("urllib.request.urlretrieve")
+    def test_download_file_progress_hook_prints_progress(
+        self, mock_retrieve, tmp_path, capsys
+    ):
+        """Test progress reporting callback is exercised during download."""
+        url = "https://example.com/file.txt"
+        output_path = tmp_path / "downloaded.txt"
+
+        def fake_retrieve(url, path, reporthook=None):
+            if reporthook is not None:
+                reporthook(1, 50, 100)
+            Path(path).write_text("downloaded content")
+
+        mock_retrieve.side_effect = fake_retrieve
+
+        download_file(url, output_path)
+
+        captured = capsys.readouterr()
+        assert "Progress: 50%" in captured.out
+
+    @patch("urllib.request.urlretrieve")
+    def test_download_file_wraps_http_error(self, mock_retrieve, tmp_path):
+        """Test HTTP errors are re-raised with a normalized message."""
+        url = "https://example.com/file.txt"
+        output_path = tmp_path / "downloaded.txt"
+        mock_retrieve.side_effect = HTTPError(url, 404, "Not Found", None, None)
+
+        with pytest.raises(HTTPError, match="HTTP Error 404: Not Found"):
+            download_file(url, output_path)
+
+    @patch("urllib.request.urlretrieve")
+    def test_download_file_wraps_url_error(self, mock_retrieve, tmp_path):
+        """Test URL errors are wrapped with the download URL."""
+        url = "https://example.com/file.txt"
+        output_path = tmp_path / "downloaded.txt"
+        mock_retrieve.side_effect = URLError("connection refused")
+
+        with pytest.raises(
+            URLError, match="Failed to download https://example.com/file.txt"
+        ):
+            download_file(url, output_path)
 
     @patch("urllib.request.urlretrieve")
     def test_download_file_with_hash_validation(self, mock_retrieve, tmp_path):
@@ -217,6 +261,194 @@ class TestDownloadUtilities:
         assert final_path.exists()
         assert not list(cache_dir.glob(".*.lock"))
         assert not list(cache_dir.glob(".*tmp*"))
+
+    def test_download_from_url_timeout_waiting_for_lock(self, tmp_path, monkeypatch):
+        """Test lock acquisition timeout raises a clear TimeoutError."""
+        url = "https://example.com/model.ckpt"
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+
+        time_values = iter([0.0, 0.1, 1.5])
+
+        monkeypatch.setattr(
+            "spine.config.download.time.time", lambda: next(time_values)
+        )
+        monkeypatch.setattr("spine.config.download.time.sleep", lambda _: None)
+
+        def fake_flock(*args, **kwargs):
+            raise BlockingIOError()
+
+        monkeypatch.setattr("spine.config.download.fcntl.flock", fake_flock)
+
+        with pytest.raises(
+            TimeoutError, match="Timeout waiting for download lock after 1s"
+        ):
+            download_from_url(url, cache_dir=cache_dir, max_wait_seconds=1)
+
+    def test_download_from_url_reports_long_waits(self, tmp_path, monkeypatch, capsys):
+        """Test waiting messages switch to the minute-based status format."""
+        url = "https://example.com/model.ckpt"
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+
+        time_values = iter([0.0, 60.0, 60.0])
+        flock_calls = {"count": 0}
+
+        def fake_time():
+            return next(time_values)
+
+        def fake_flock(*args, **kwargs):
+            flock_calls["count"] += 1
+            if flock_calls["count"] == 1:
+                raise BlockingIOError()
+            return None
+
+        monkeypatch.setattr("spine.config.download.time.time", fake_time)
+        monkeypatch.setattr("spine.config.download.time.sleep", lambda _: None)
+        monkeypatch.setattr("spine.config.download.fcntl.flock", fake_flock)
+
+        with patch("spine.config.download.download_file") as mock_download:
+            mock_download.side_effect = (
+                lambda _url, path, expected_hash=None: path.write_text("downloaded")
+            )
+            download_from_url(url, cache_dir=cache_dir, max_wait_seconds=120)
+
+        assert "Still waiting (60s elapsed)..." in capsys.readouterr().out
+
+    @patch("spine.config.download.download_file")
+    def test_download_from_url_cleans_temp_file_on_download_error(
+        self, mock_download, tmp_path
+    ):
+        """Test failed downloads remove temporary files before re-raising."""
+        url = "https://example.com/model.ckpt"
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        mock_download.side_effect = RuntimeError("boom")
+
+        with pytest.raises(RuntimeError, match="boom"):
+            download_from_url(url, cache_dir=cache_dir)
+
+        filename = url_to_filename(url)
+        assert not list(cache_dir.glob(f".{filename}*.tmp"))
+        assert not (cache_dir / filename).exists()
+
+    @patch("spine.config.download._validate_cached_file", return_value=True)
+    def test_download_from_url_rechecks_cache_after_lock(self, mock_validate, tmp_path):
+        """Test a file appearing before download starts is reused after locking."""
+        url = "https://example.com/model.ckpt"
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        output_path = cache_dir / url_to_filename(url)
+
+        call_count = {"count": 0}
+
+        def fake_exists():
+            call_count["count"] += 1
+            if call_count["count"] >= 2:
+                output_path.write_text("cached")
+                return True
+            return False
+
+        with patch.object(Path, "exists", autospec=True) as mock_exists:
+
+            def dispatch(path_self):
+                if path_self == output_path:
+                    return fake_exists()
+                return Path.__dict__["exists"](path_self)
+
+            mock_exists.side_effect = dispatch
+            result = download_from_url(url, cache_dir=cache_dir)
+
+        assert result == str(output_path.absolute())
+        assert mock_validate.called
+
+    def test_download_from_url_cleanup_tolerates_unlock_and_unlink_errors(
+        self, tmp_path, monkeypatch
+    ):
+        """Test best-effort lock cleanup ignores unlock and lock-file unlink errors."""
+        url = "https://example.com/model.ckpt"
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        filename = url_to_filename(url)
+        lock_path = cache_dir / f".{filename}.lock"
+        original_unlink = Path.unlink
+        flock_calls = {"count": 0}
+
+        def fake_flock(*args, **kwargs):
+            flock_calls["count"] += 1
+            if flock_calls["count"] > 1:
+                raise OSError("unlock failed")
+            return None
+
+        def fake_unlink(self):
+            if self == lock_path:
+                raise OSError("busy")
+            return original_unlink(self)
+
+        monkeypatch.setattr("spine.config.download.fcntl.flock", fake_flock)
+        monkeypatch.setattr(Path, "unlink", fake_unlink)
+
+        with patch("spine.config.download.download_file") as mock_download:
+            mock_download.side_effect = (
+                lambda _url, path, expected_hash=None: path.write_text("downloaded")
+            )
+            result = download_from_url(url, cache_dir=cache_dir)
+
+        assert Path(result).exists()
+
+    def test_validate_cached_file_missing_returns_false(self, tmp_path):
+        """Test missing cached files are treated as invalid."""
+        assert _validate_cached_file(tmp_path / "missing.bin") is False
+
+    def test_validate_cached_file_hash_mismatch_removes_file(self, tmp_path, capsys):
+        """Test invalid cached files are removed and rejected."""
+        file_path = tmp_path / "cached.bin"
+        file_path.write_text("cached")
+
+        result = _validate_cached_file(file_path, expected_hash="0" * 64)
+
+        assert result is False
+        assert not file_path.exists()
+        assert "hash mismatch" in capsys.readouterr().out
+
+    def test_validate_cached_file_hash_mismatch_tolerates_unlink_error(
+        self, tmp_path, monkeypatch
+    ):
+        """Test unlink failures during mismatch cleanup are ignored."""
+        file_path = tmp_path / "cached.bin"
+        file_path.write_text("cached")
+        monkeypatch.setattr(
+            Path, "unlink", lambda self: (_ for _ in ()).throw(OSError("busy"))
+        )
+
+        result = _validate_cached_file(file_path, expected_hash="0" * 64)
+
+        assert result is False
+
+    def test_validate_cached_file_matching_hash_returns_true(self, tmp_path, capsys):
+        """Test cached files with matching hashes are accepted."""
+        file_path = tmp_path / "cached.bin"
+        file_path.write_text("cached")
+        expected_hash = hashlib.sha256(b"cached").hexdigest()
+
+        result = _validate_cached_file(file_path, expected_hash=expected_hash)
+
+        assert result is True
+        assert "Using cached file" in capsys.readouterr().out
+
+    def test_validate_cached_file_handles_oserror(self, tmp_path, monkeypatch, capsys):
+        """Test validation errors fall back to re-download behavior."""
+        file_path = tmp_path / "cached.bin"
+        file_path.write_text("cached")
+        monkeypatch.setattr(
+            "spine.config.download.compute_file_hash",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("bad read")),
+        )
+
+        result = _validate_cached_file(file_path, expected_hash="abc")
+
+        assert result is False
+        assert "Error validating cached file" in capsys.readouterr().out
 
 
 class TestConfigLoaderDownload:

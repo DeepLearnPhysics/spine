@@ -1,7 +1,9 @@
 """Tests for the HDF5 reader."""
 
 import h5py
+import numpy as np
 
+from spine.data.larcv.meta import ImageMeta2D, ImageMeta3D
 from spine.io.core.read import HDF5Reader
 
 
@@ -76,3 +78,47 @@ def test_hdf5_reader(hdf5_data):
     # Try to restrict the number of files to be loaded
     reader = HDF5Reader([hdf5_data, hdf5_data], limit_num_files=1)
     assert reader.num_entries == num_entries
+
+
+def test_resolve_legacy_meta_class_2d():
+    """Test legacy Meta class names map to explicit 2D metadata classes."""
+    array = np.array(
+        [
+            (
+                np.array([0.0, 0.0], dtype=np.float32),
+                np.array([1.0, 1.0], dtype=np.float32),
+                np.array([0.5, 0.5], dtype=np.float32),
+                np.array([2, 2], dtype=np.int64),
+            )
+        ],
+        dtype=[
+            ("lower", np.float32, (2,)),
+            ("upper", np.float32, (2,)),
+            ("size", np.float32, (2,)),
+            ("count", np.int64, (2,)),
+        ],
+    )
+
+    assert HDF5Reader.resolve_object_class("Meta", array) is ImageMeta2D
+
+
+def test_resolve_legacy_meta_class_3d():
+    """Test legacy Meta class names map to explicit 3D metadata classes."""
+    array = np.array(
+        [
+            (
+                np.array([0.0, 0.0, 0.0], dtype=np.float32),
+                np.array([1.0, 1.0, 1.0], dtype=np.float32),
+                np.array([0.5, 0.5, 0.5], dtype=np.float32),
+                np.array([2, 2, 2], dtype=np.int64),
+            )
+        ],
+        dtype=[
+            ("lower", np.float32, (3,)),
+            ("upper", np.float32, (3,)),
+            ("size", np.float32, (3,)),
+            ("count", np.int64, (3,)),
+        ],
+    )
+
+    assert HDF5Reader.resolve_object_class("Meta", array) is ImageMeta3D

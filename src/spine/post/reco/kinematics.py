@@ -2,8 +2,7 @@
 
 import numpy as np
 
-from spine.post.base import PostBase
-from spine.utils.globals import (
+from spine.constants import (
     MICHL_SHP,
     MUON_PID,
     PID_MASSES,
@@ -13,6 +12,7 @@ from spine.utils.globals import (
     SHP_TO_PRIMARY,
     TRACK_SHP,
 )
+from spine.post.base import PostBase
 
 __all__ = [
     "ParticleShapeLogicProcessor",
@@ -87,7 +87,7 @@ class ParticleShapeLogicProcessor(PostBase):
 
             # Reset the PID scores based on shape
             if self.enforce_pid:
-                pid_range = SHP_TO_PID[part.shape]
+                pid_range = np.asarray(SHP_TO_PID[part.shape], dtype=np.int64)
                 pid_range = pid_range[pid_range < len(part.pid_scores)]
 
                 pid_scores = np.zeros(len(part.pid_scores), dtype=part.pid_scores.dtype)
@@ -98,7 +98,7 @@ class ParticleShapeLogicProcessor(PostBase):
 
             # Reset the primary scores based on shape
             if self.enforce_primary:
-                primary_range = SHP_TO_PRIMARY[part.shape]
+                primary_range = np.asarray(SHP_TO_PRIMARY[part.shape], dtype=np.int64)
 
                 primary_scores = np.zeros(
                     len(part.primary_scores), dtype=part.primary_scores.dtype

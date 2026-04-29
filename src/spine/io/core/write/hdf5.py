@@ -118,6 +118,7 @@ class HDF5Writer:
         """Build output file name(s) from an explicit name or input prefix(es).
 
         Logic is as follows:
+
         - If `split` is `False` and `file_name` is provided, use `file_name`
         - If `split` is `False` and `file_name` is not provided, build the file name
           from the input `prefix` by adding a suffix
@@ -459,13 +460,13 @@ class HDF5Writer:
             elif hasattr(obj, "enum_attrs") and key in obj.enum_attrs:
                 # Recognized enumerated list
                 enum_dtype = h5py.enum_dtype(
-                    dict(obj.enum_attrs[key]), basetype=type(val)
+                    dict(obj.enum_attrs[key]), basetype=np.int64
                 )
                 object_dtype.append((key, enum_dtype))
 
             elif np.isscalar(val):
-                # Non-string, non-enumerated scalar. Force bool onto shorts
-                dtype = type(val) if not isinstance(val, bool) else np.uint8
+                # Non-string, non-enumerated scalar
+                dtype = type(val)
                 object_dtype.append((key, dtype))
 
             elif hasattr(obj, "_fixed_length_attrs") and key in obj._fixed_length_attrs:

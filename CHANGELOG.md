@@ -1,5 +1,48 @@
 # Changelog
 
+## [0.11.1] - 2026-04-29
+
+### Added
+- **Container tooling**: Ship `jupyterlab`, the classic `notebook` interface, and lightweight in-container editors (`vim`, `nano`) in the published SPINE image for tutorials and interactive debugging.
+- **Testing**: Expand focused regression coverage for `spine.config`, `spine.data`, and the new constants package so those surfaces are now exercised end-to-end in CI and release validation.
+
+### Changed
+- **Constants package**: Consolidate shared labels, enums, physics values, sentinels, and column definitions under `spine.constants`, and remove the old `spine.utils.enums` compatibility shim.
+- **Documentation**: Refresh the Sphinx API/reference structure, installation guide, quickstart, and container documentation; also add the missing Read the Docs dependency needed by the current docs build.
+- **Docker build caching**: Move the SPINE source copy/install later in the Dockerfile so routine SPINE releases reuse the more stable notebook and flash-matching layers above.
+
+### Fixed
+- **Configuration metadata**: Ensure normalized metadata values survive validation even when raw `__meta__` entries are malformed.
+- **Full-chain HDF5 output**: Correct full-chain output handling while keeping the related data/model/docs surfaces aligned with the current refactor.
+- **Documentation builds**: Fix Read the Docs and Sphinx docstring formatting regressions introduced by the API/documentation refresh.
+
+## [0.11.0] - 2026-04-27
+
+### Added
+- **Data structures**: Introduce typed `FieldMetadata` and decorator-based `@stored_property` / `@stored_alias` metadata for `spine.data` objects.
+- **Testing**: Add comprehensive `spine.data`, HDF5 I/O, parser, and full-chain regression coverage, including deterministic full-chain reference checks.
+- **Configuration**: Allow config parsing without resolving `!download` directives when desired.
+
+### Changed
+- **Data model**: Refactor `spine.data` around dataclass field metadata, clearer repr/equality behavior, and explicit stored-property serialization.
+- **LArCV data layout**: Reorganize LArCV-backed classes under `spine.data.larcv`.
+- **Metadata classes**: Prefer explicit `ImageMeta2D` / `ImageMeta3D` classes while keeping `Meta` as a compatibility surface.
+- **HDF5 schema**: Normalize serialized object typing:
+  - scalar booleans are now stored as `bool` instead of `uint8`
+  - many object-member index/ID arrays now store as `int32` instead of `int64`
+  - scalar numeric attributes now follow Python scalar typing
+- **Units handling**: Standardize spatial attributes around `units="instance"` where values should follow `to_cm()` / `to_px()` conversions.
+- **Truth matching**: Replace set-based overlap computation with a sorted-index intersection path for cleaner and more efficient overlap evaluation.
+
+### Fixed
+- **HDF5 writer**: Restore serialization of stored-property values for output data objects.
+- **HDF5 reader**: Read legacy HDF5 files produced by older releases, including:
+  - boolean fields stored as `uint8`
+  - legacy `class_name="Meta"` payloads, now reconstructed as explicit metadata classes
+- **Full-chain stability**: Tighten deterministic regression checks to tolerate architecture-level floating point noise while still flagging meaningful drift.
+- **LArCV particle positions**: Fix position-like attributes so they can be expressed consistently in both pixel and detector coordinates.
+- **Conditional imports**: Reduce overhead and test fragility in optional-import code paths.
+
 ## [0.10.13] - 2026-04-17
 
 ### Fixed

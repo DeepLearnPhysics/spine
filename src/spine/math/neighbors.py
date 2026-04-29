@@ -114,7 +114,7 @@ class RadiusNeighborsClassifier:
             mask = dists < self.radius
 
             # Loop over query points
-            assigned = np.zeros(num_query, dtype=nb.boolean)
+            assigned = np.zeros(num_query, dtype=np.bool_)
             for i in range(num_query):
                 # Find the set of points within the predefined radius
                 index = np.where(mask[i])[0]

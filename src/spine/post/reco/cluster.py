@@ -7,12 +7,12 @@ assessment metrics without relying on high-level reconstruction tools.
 
 import numpy as np
 
+from spine.constants import TRACK_SHP
 from spine.data import ObjectList
 from spine.data.out import RecoParticle, TruthParticle
 from spine.math.cluster import DBSCAN
 from spine.math.decomposition import PCA
 from spine.post.base import PostBase
-from spine.utils.globals import TRACK_SHP
 
 __all__ = ["TrackClusterer"]
 

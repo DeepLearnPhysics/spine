@@ -2,8 +2,8 @@
 
 import numpy as np
 
+from spine.constants import TRACK_SHP
 from spine.post.base import PostBase
-from spine.utils.globals import TRACK_SHP
 from spine.utils.gnn.cluster import get_cluster_directions
 
 __all__ = ["DirectionProcessor"]

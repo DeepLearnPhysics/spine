@@ -2,6 +2,7 @@
 
 import pytest
 
+from spine.constants import NuInteractionScheme
 from spine.data.larcv import Meta, Neutrino, Particle
 from spine.data.larcv.meta import ImageMeta3D
 from spine.io.core.parse.data import ParserTensor
@@ -93,6 +94,25 @@ def test_parse_neutrinos(neutrino_event, sparse3d_event, asis, pixel_coordinates
         assert isinstance(result[0], ref_type)
     if not asis:
         assert isinstance(result.default, Neutrino)
+        for neutrino in result:
+            assert neutrino.interaction_scheme == int(NuInteractionScheme.LARSOFT)
+
+
+@pytest.mark.parametrize("neutrino_event", [1], indirect=True)
+@pytest.mark.filterwarnings("ignore::UserWarning")
+def test_parse_neutrinos_interaction_scheme_override(neutrino_event, sparse3d_event):
+    """Tests overriding the interaction scheme used by the neutrino parser."""
+    parser = NeutrinoParser(
+        dtype="float32",
+        neutrino_event=neutrino_event,
+        sparse_event=sparse3d_event,
+        interaction_scheme="genie",
+    )
+
+    result = parser.process(neutrino_event=neutrino_event, sparse_event=sparse3d_event)
+
+    for neutrino in result:
+        assert neutrino.interaction_scheme == int(NuInteractionScheme.GENIE)
 
 
 @pytest.mark.parametrize("include_point_tagging", [True, False])

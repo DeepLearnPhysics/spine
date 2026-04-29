@@ -3,8 +3,8 @@
 import numpy as np
 from scipy.special import softmax
 
+from spine.constants import CLUST_COL, PART_COL, TRACK_SHP
 from spine.data.out import RecoFragment, TruthFragment
-from spine.utils.globals import CLUST_COL, PART_COL, TRACK_SHP
 
 from .base import BuilderBase
 
@@ -245,7 +245,7 @@ class FragmentBuilder(BuilderBase):
                         particles
                     ), "Invalid particle ID found in fragment labels."
                     particle = particles[part_id]
-                    fragment = TruthFragment(**particle.as_dict())
+                    fragment = TruthFragment(**particle.as_dict(include_derived=False))
 
                     # Override the indexes of the fragment but preserve them
                     fragment.orig_id = part_id

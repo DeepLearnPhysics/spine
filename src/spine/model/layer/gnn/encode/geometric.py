@@ -1,8 +1,8 @@
 import numpy as np
 import torch
 
+from spine.constants import COORD_COLS, SHAPE_COL, VALUE_COL
 from spine.data import TensorBatch
-from spine.utils.globals import COORD_COLS, SHAPE_COL, VALUE_COL
 from spine.utils.gnn.cluster import (
     get_cluster_dedxs_batch,
     get_cluster_directions_batch,

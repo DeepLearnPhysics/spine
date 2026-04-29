@@ -3,8 +3,8 @@
 import numpy as np
 from scipy.spatial.distance import cdist
 
+from spine.constants import COORD_COLS, PPN_SHAPE_COL
 from spine.post.base import PostBase
-from spine.utils.globals import COORD_COLS, PPN_SHAPE_COL
 from spine.utils.ppn import PPNPredictor
 
 __all__ = ["PPNProcessor"]

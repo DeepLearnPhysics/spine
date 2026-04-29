@@ -3,7 +3,7 @@
 import MinkowskiEngine as ME
 import torch
 
-from spine.utils.globals import COORD_COLS, VALUE_COL
+from spine.constants import COORD_COLS, VALUE_COL
 
 from .uresnet_layers import UResNetEncoder
 

@@ -5,8 +5,8 @@ from warnings import warn
 
 import numpy as np
 
+from spine.constants import COORD_COLS
 from spine.data import EdgeIndexBatch
-from spine.utils.globals import COORD_COLS
 from spine.utils.gnn.network import inter_cluster_distance
 
 

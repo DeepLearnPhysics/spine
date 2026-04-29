@@ -1,6 +1,7 @@
 """Tests for DataBase and PosDataBase classes."""
 
 from dataclasses import dataclass, field
+from enum import IntEnum
 
 import numpy as np
 import pytest
@@ -8,6 +9,14 @@ import pytest
 from spine.data.base import DataBase, PosDataBase
 from spine.data.decorator import stored_alias, stored_property
 from spine.data.field import FieldMetadata
+
+
+class SampleParticleType(IntEnum):
+    """Simple enum used to test categorical field metadata."""
+
+    ELECTRON = 0
+    MUON = 1
+    PION = 2
 
 
 @dataclass(eq=False)
@@ -67,7 +76,7 @@ class EnumData(DataBase):
 
     particle_type: int = field(
         default=0,
-        metadata=FieldMetadata(enum={0: "electron", 1: "muon", 2: "pion"}),
+        metadata=FieldMetadata(enum=SampleParticleType),
     )
 
 
@@ -325,6 +334,16 @@ class TestDataBase:
         assert "skip_field" not in result  # Should be skipped
         assert "lite_skip_field" in result  # Should not be skipped in normal mode
 
+    def test_as_dict_stored_property(self):
+        """Test as_dict includes stored properties."""
+        obj = DerivedData(_value=21)
+
+        result = obj.as_dict()
+
+        assert result["_value"] == 21
+        assert result["energy"] == 42.0
+        assert "ke" not in result  # Aliases are metadata-only, not independent fields
+
     def test_as_dict_lite(self):
         """Test as_dict method with lite=True."""
         obj = SkipData(visible=42, skip_field=1, lite_skip_field=2)
@@ -416,6 +435,26 @@ class TestDataBase:
         assert enum_dicts["particle_type"]["electron"] == 0
         assert enum_dicts["particle_type"]["muon"] == 1
 
+    def test_enum_attrs(self):
+        """Test enum_attrs property."""
+        obj = EnumData()
+
+        enum_attrs = obj.enum_attrs
+
+        assert "particle_type" in enum_attrs
+        assert enum_attrs["particle_type"]["ELECTRON"] == 0
+        assert enum_attrs["particle_type"]["PION"] == 2
+
+    def test_enum_values(self):
+        """Test enum_values property."""
+        obj = EnumData()
+
+        enum_values = obj.enum_values
+
+        assert "particle_type" in enum_values
+        assert enum_values["particle_type"][0] == "ELECTRON"
+        assert enum_values["particle_type"][1] == "MUON"
+
     def test_field_units(self):
         """Test field_units property."""
         obj = DerivedData()
@@ -449,25 +488,25 @@ class TestDataBase:
         with pytest.raises(AttributeError, match="does not appear"):
             obj.value_with_units("missing")
 
-    def test_from_hdf5_basic(self):
-        """Test from_hdf5 class method."""
+    def test_from_dict_basic(self):
+        """Test from_dict class method."""
         data_dict = {"value": 42, "name": "test"}
 
-        obj = SimpleData.from_hdf5(data_dict)
+        obj = SimpleData.from_dict(data_dict)
 
         assert obj.value == 42
         assert obj.name == "test"
 
-    def test_from_hdf5_binary_string(self):
-        """Test from_hdf5 converts binary strings."""
+    def test_from_dict_binary_string(self):
+        """Test from_dict converts binary strings."""
         data_dict = {"value": 42, "name": b"test"}
 
-        obj = SimpleData.from_hdf5(data_dict)
+        obj = SimpleData.from_dict(data_dict)
 
         assert obj.name == "test"  # Should be decoded
 
-    def test_from_hdf5_bool_array(self):
-        """Test from_hdf5 converts uint8 arrays to booleans."""
+    def test_from_dict_bool_array(self):
+        """Test from_dict converts uint8 arrays to booleans."""
 
         @dataclass(eq=False)
         class BoolData(DataBase):
@@ -475,16 +514,30 @@ class TestDataBase:
 
         data_dict = {"flag": np.array([1], dtype=np.uint8)}
 
-        obj = BoolData.from_hdf5(data_dict)
+        obj = BoolData.from_dict(data_dict)
 
         assert obj.flag is True
         assert isinstance(obj.flag, bool)
 
-    def test_from_hdf5_excludes_derived(self):
-        """Test from_hdf5 excludes derived properties."""
+    def test_from_dict_bool_scalar_uint8(self):
+        """Test from_dict converts uint8 scalars to booleans."""
+
+        @dataclass(eq=False)
+        class BoolData(DataBase):
+            flag: bool = False
+
+        data_dict = {"flag": np.uint8(1)}
+
+        obj = BoolData.from_dict(data_dict)
+
+        assert obj.flag is True
+        assert isinstance(obj.flag, bool)
+
+    def test_from_dict_excludes_derived(self):
+        """Test from_dict excludes derived properties."""
         data_dict = {"_value": 10, "energy": 999}  # energy should be ignored
 
-        obj = DerivedData.from_hdf5(data_dict)
+        obj = DerivedData.from_dict(data_dict)
 
         assert obj._value == 10  # pylint: disable=protected-access
         assert obj.energy == 20  # Computed, not loaded from dict

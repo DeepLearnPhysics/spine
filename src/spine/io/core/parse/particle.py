@@ -12,16 +12,18 @@ Contains the following parsers:
 
 import numpy as np
 
-from spine.data import Meta, Neutrino, Particle
-from spine.utils.conditional import larcv
-from spine.utils.globals import (
+from spine.constants import (
     INVAL_ID,
     PDG_TO_PID,
     PID_MASSES,
     PPN_LPART_COL,
     TRACK_SHP,
     VALUE_COL,
+    NuInteractionScheme,
 )
+from spine.constants.factory import enum_factory
+from spine.data import Meta, Neutrino, Particle
+from spine.utils.conditional import larcv
 from spine.utils.gnn.network import filter_invalid_nodes
 from spine.utils.particles import process_particles
 from spine.utils.ppn import get_ppn_labels, get_vertex_labels, image_coordinates
@@ -218,7 +220,13 @@ class NeutrinoParser(ParserBase):
     # Type of object(s) returned by the parser
     returns = "object_list"
 
-    def __init__(self, pixel_coordinates=True, asis=False, **kwargs):
+    def __init__(
+        self,
+        pixel_coordinates=True,
+        asis=False,
+        interaction_scheme=NuInteractionScheme.LARSOFT,
+        **kwargs,
+    ):
         """Initialize the parser.
 
         Parameters
@@ -228,6 +236,8 @@ class NeutrinoParser(ParserBase):
             (start, end, etc.) to voxel coordinates
         asis : bool, default False
             Load the objects as larcv objects, do not build local data class
+        interaction_scheme : str, int or NuInteractionScheme, default LARSOFT
+            Convention used to interpret the neutrino interaction mode/type codes.
         **kwargs : dict, optional
             Data product arguments to be passed to the `process` function
         """
@@ -237,6 +247,9 @@ class NeutrinoParser(ParserBase):
         # Store the revelant attributes
         self.pixel_coordinates = pixel_coordinates
         self.asis = asis
+        if isinstance(interaction_scheme, str):
+            interaction_scheme = enum_factory("interaction_scheme", interaction_scheme)
+        self.interaction_scheme = int(interaction_scheme)
 
     def __call__(self, trees):
         """Parse one entry.
@@ -277,7 +290,10 @@ class NeutrinoParser(ParserBase):
             return ParserObjectList(neutrino_list, larcv.Neutrino())
 
         # Convert to a list of neutrino objects
-        neutrinos = [Neutrino.from_larcv(n) for n in neutrino_list]
+        neutrinos = [
+            Neutrino.from_larcv(n, interaction_scheme=self.interaction_scheme)
+            for n in neutrino_list
+        ]
 
         # If requested, convert the point positions to pixel coordinates
         if self.pixel_coordinates:

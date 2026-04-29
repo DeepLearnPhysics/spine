@@ -6,8 +6,8 @@ import numpy as np
 from plotly import graph_objs as go
 
 import spine.data.out
+from spine.constants import PID_LABELS, SHAPE_LABELS, TRACK_SHP
 from spine.geo import GeoManager
-from spine.utils.globals import PID_LABELS, SHAPE_LABELS, TRACK_SHP
 
 from .arrow import scatter_arrows
 from .cluster import scatter_clusters
@@ -557,7 +557,12 @@ class Drawer:
                         ]
                 else:
                     for i, ht in enumerate(hovertext):
-                        val_str = self._tostr(attr_name, values[i])
+                        val_str = self._tostr(
+                            attr_name,
+                            self._format_hover_value(
+                                self.data[obj_name][i], attr, values[i]
+                            ),
+                        )
                         hovertext[i] = [
                             ht[j] + val_str for j in range(len(hovertext[i]))
                         ]
@@ -1155,6 +1160,34 @@ class Drawer:
             Human-readable string
         """
         return f"<br>{attr_name}: {value}"
+
+    def _enum_name(self, obj, attr, value):
+        """Resolve an enumerated attribute value to its symbolic name."""
+        if isinstance(obj, spine.data.out.TruthInteraction) and attr in (
+            "interaction_type",
+            "interaction_mode",
+        ):
+            enum_value = getattr(obj, f"{attr}_enum")
+            if enum_value is not None:
+                return enum_value.name
+            return None
+
+        if not hasattr(obj, "enum_values") or attr not in obj.enum_values:
+            return None
+
+        return obj.enum_values[attr].get(value)
+
+    def _format_hover_value(self, obj, attr, value):
+        """Format one hovertext value with enum labels and documented units."""
+        enum_name = self._enum_name(obj, attr, value)
+        if enum_name is not None:
+            value = f"{enum_name} ({value})"
+
+        units = obj.field_units.get(attr) if hasattr(obj, "field_units") else None
+        if units is not None:
+            value = f"{value} {units}"
+
+        return value
 
     def _dep_tostr(self, value):
         """Convert a deposition value to a human-readable string.

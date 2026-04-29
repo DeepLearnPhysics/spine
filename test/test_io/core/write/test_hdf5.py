@@ -13,6 +13,7 @@ from spine.data import (
     Neutrino,
     ObjectList,
     Particle,
+    RecoParticle,
     RunInfo,
     Trigger,
 )
@@ -177,6 +178,29 @@ def test_hdf5_writer_append_missing_file(hdf5_output):
 
     with h5py.File(hdf5_output, "r") as out_file:
         assert len(out_file["events"]) == 2
+
+
+def test_hdf5_writer_stores_stored_properties(hdf5_output):
+    """Test HDF5 writer serializes stored properties on data objects."""
+    particle = RecoParticle(id=3, index=np.arange(4, dtype=np.int64), pid=2)
+    data = {
+        "index": np.array([0]),
+        "particles": [ObjectList([particle], RecoParticle())],
+    }
+
+    HDF5Writer(hdf5_output)(data)
+
+    with h5py.File(hdf5_output, "r") as out_file:
+        fields = out_file["particles"].dtype.names
+        assert "size" in fields
+        assert "pdg_code" in fields
+        assert "mass" in fields
+        assert "ke" in fields
+        assert "momentum" in fields
+        assert "p" in fields
+        assert "reco_ke" not in fields
+        assert out_file["particles"]["size"][0] == 4
+        assert out_file["particles"]["pdg_code"][0] == 13
 
 
 def generate_object_list(cls, sizes):

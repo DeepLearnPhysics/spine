@@ -155,9 +155,9 @@ def connected_components(
 
     # Initialize output
     labels = np.arange(graph.num_nodes)
-    visited = np.zeros(graph.num_nodes, dtype=nb.boolean)
-    component = np.empty(graph.num_nodes, dtype=nb.int64)
-    comp_idx = np.empty(1, dtype=nb.int64)  # Acts as pointer
+    visited = np.zeros(graph.num_nodes, dtype=np.bool_)
+    component = np.empty(graph.num_nodes, dtype=np.int64)
+    comp_idx = np.empty(1, dtype=np.int64)  # Acts as pointer
 
     # Loop through all nodes and start DFS from unvisited nodes
     label = 0
@@ -253,7 +253,7 @@ def dfs_iterative(
     to the overall execution speed.
     """
     # Initialize a node stack (fixed size)
-    stack = np.empty(graph.num_nodes, dtype=nb.int64)
+    stack = np.empty(graph.num_nodes, dtype=np.int64)
     stack[0] = start_node
     stack_idx = 1
 

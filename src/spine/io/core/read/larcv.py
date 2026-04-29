@@ -17,6 +17,7 @@ class LArCVReader(ReaderBase):
 
     This class inherits from the :class:`ReaderBase` class. It provides
     methods to load LArCV2 files and extract their data products:
+
       - EventSparseTensor: voxel IDs and their values
       - EventClusterSparseTensor: list of sparse tensors
       - EventParticle: list of Geant4 particle information

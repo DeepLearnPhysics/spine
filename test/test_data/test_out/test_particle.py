@@ -30,7 +30,7 @@ class TestParticleBase:
 
         # Test vector attributes
         assert len(obj.fragment_ids) == 0
-        assert obj.fragment_ids.dtype == np.int64
+        assert obj.fragment_ids.dtype == np.int32
 
         assert obj.start_point.shape == (3,)
         assert all(np.isnan(obj.start_point))
@@ -60,7 +60,7 @@ class TestParticleBase:
             interaction_id=2,
             pid=2,  # muon
             is_primary=True,
-            fragment_ids=np.array([10, 11, 12], dtype=np.int64),
+            fragment_ids=np.array([10, 11, 12], dtype=np.int32),
         )
 
         assert obj.id == 5
@@ -81,7 +81,7 @@ class TestParticleBase:
         # Multiple fragments
         obj2 = ParticleBase(
             id=1,
-            fragment_ids=np.array([5, 10, 15, 20], dtype=np.int64),
+            fragment_ids=np.array([5, 10, 15, 20], dtype=np.int32),
         )
         assert obj2.num_fragments == 4
 
@@ -93,7 +93,7 @@ class TestParticleBase:
         obj = ParticleBase(
             id=0,
             is_crt_matched=True,
-            crt_ids=np.array([5, 7], dtype=np.int64),
+            crt_ids=np.array([5, 7], dtype=np.int32),
             crt_times=np.array([100.5, 105.2], dtype=np.float32),
             crt_scores=np.array([0.9, 0.85], dtype=np.float32),
         )
@@ -434,10 +434,8 @@ class TestRecoParticle:
             calo_ke=50.0,
             shape=1,
             pid=99,
-        )  # track with KE and known PID (muon)
-        assert np.all(
-            np.isnan(obj.momentum)
-        )  # PID 99 is not recognized, so mass is NaN and momentum should be NaN
+        )
+        assert np.all(np.isnan(obj.momentum))
 
         # Test with valid momentum information
         obj = RecoParticle(
@@ -675,10 +673,8 @@ class TestTruthParticle:
             calo_ke=50.0,
             shape=1,
             pid=99,
-        )  # track with KE and known PID (muon)
-        assert np.all(
-            np.isnan(obj.reco_momentum)
-        )  # PID 99 is not recognized, so mass is NaN and momentum should be NaN
+        )
+        assert np.all(np.isnan(obj.reco_momentum))
 
         # Test with valid momentum information
         obj = TruthParticle(

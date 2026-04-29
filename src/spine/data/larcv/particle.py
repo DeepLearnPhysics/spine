@@ -8,10 +8,10 @@ from warnings import warn
 
 import numpy as np
 
+from spine.constants import PID_LABELS, SHAPE_LABELS, ParticlePID, ParticleShape
 from spine.data.base import PosDataBase
 from spine.data.decorator import stored_property
 from spine.data.field import FieldMetadata
-from spine.utils.globals import PID_LABELS, SHAPE_LABELS
 
 __all__ = ["Particle"]
 
@@ -113,8 +113,8 @@ class Particle(PosDataBase):
     interaction_id: int = field(default=-1, metadata=FieldMetadata(index=True))
     nu_id: int = field(default=-1, metadata=FieldMetadata(index=True))
     children_id: np.ndarray = field(
-        default_factory=lambda: np.array([], dtype=np.int64),
-        metadata=FieldMetadata(dtype=np.int64, index=True),
+        default_factory=lambda: np.array([], dtype=np.int32),
+        metadata=FieldMetadata(dtype=np.int32, index=True),
     )
 
     # Scalar attributes
@@ -144,33 +144,45 @@ class Particle(PosDataBase):
     units: str = "cm"
 
     # Enumerated attributes
-    shape: int = field(default=-1, metadata=FieldMetadata(enum=SHAPE_LABELS))
-    pid: int = field(default=-1, metadata=FieldMetadata(enum=PID_LABELS))
+    shape: int = field(default=-1, metadata=FieldMetadata(enum=ParticleShape))
+    pid: int = field(default=-1, metadata=FieldMetadata(enum=ParticlePID))
 
     # Vector attributes
     position: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata=FieldMetadata(length=3, dtype=np.float32, position=True, units="cm"),
+        metadata=FieldMetadata(
+            length=3, dtype=np.float32, position=True, units="instance"
+        ),
     )
     end_position: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata=FieldMetadata(length=3, dtype=np.float32, position=True, units="cm"),
+        metadata=FieldMetadata(
+            length=3, dtype=np.float32, position=True, units="instance"
+        ),
     )
     parent_position: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata=FieldMetadata(length=3, dtype=np.float32, position=True, units="cm"),
+        metadata=FieldMetadata(
+            length=3, dtype=np.float32, position=True, units="instance"
+        ),
     )
     ancestor_position: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata=FieldMetadata(length=3, dtype=np.float32, position=True, units="cm"),
+        metadata=FieldMetadata(
+            length=3, dtype=np.float32, position=True, units="instance"
+        ),
     )
     first_step: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata=FieldMetadata(length=3, dtype=np.float32, position=True, units="cm"),
+        metadata=FieldMetadata(
+            length=3, dtype=np.float32, position=True, units="instance"
+        ),
     )
     last_step: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
-        metadata=FieldMetadata(length=3, dtype=np.float32, position=True, units="cm"),
+        metadata=FieldMetadata(
+            length=3, dtype=np.float32, position=True, units="instance"
+        ),
     )
     momentum: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
@@ -215,10 +227,10 @@ class Particle(PosDataBase):
         float
             Rest mass of the particle in MeV/c^2
         """
-        if np.isnan(self.energy_init) or np.isnan(self.p):
+        if np.isnan(self.energy_init) or np.isnan(self.momentum).any():
             return np.nan
 
-        return np.sqrt(max(0.0, self.energy_init**2 - self.p**2))
+        return np.sqrt(max(0.0, self.energy_init**2 - np.sum(self.momentum**2)))
 
     @classmethod
     def from_larcv(cls, particle) -> "Particle":
@@ -282,7 +294,7 @@ class Particle(PosDataBase):
         # Load the other array attributes (special care needed). Note for future
         # self: need the list comprehension. Direct casting is INSANELY slow...
         obj_dict["children_id"] = np.asarray(
-            [i for i in particle.children_id()], dtype=int
+            [i for i in particle.children_id()], dtype=np.int32
         )
 
         mom_attrs = ("px", "py", "pz")

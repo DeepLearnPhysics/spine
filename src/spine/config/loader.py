@@ -17,7 +17,7 @@ from .download import download_from_url
 from .errors import ConfigIncludeError
 from .operations import apply_collection_operation, parse_value, set_nested_value
 
-__all__ = ["ConfigLoader", "resolve_config_path"]
+__all__ = ["ConfigLoader", "DownloadTag", "resolve_config_path"]
 
 
 def resolve_config_path(
@@ -109,6 +109,25 @@ def resolve_config_path(
     raise ConfigIncludeError(error_msg)
 
 
+class DownloadTag:
+    """Container used to preserve unresolved !download values."""
+
+    def __init__(self, value: Any) -> None:
+        """Initialize the download tag container.
+
+        Parameters
+        ----------
+        value : Any
+            Unresolved value carried by the `!download` tag
+
+        Returns
+        -------
+        None
+            This method does not return anything
+        """
+        self.value = value
+
+
 class ConfigLoader(yaml.SafeLoader):
     """YAML loader with !include tag support.
 
@@ -117,7 +136,10 @@ class ConfigLoader(yaml.SafeLoader):
     """
 
     def __init__(
-        self, stream: Union[TextIO, str], root_dir: Optional[str] = None
+        self,
+        stream: Union[TextIO, str],
+        root_dir: Optional[str] = None,
+        download: bool = True,
     ) -> None:
         """Initialize the loader.
 
@@ -128,7 +150,11 @@ class ConfigLoader(yaml.SafeLoader):
         root_dir : Optional[str]
             Root directory for resolving relative paths.
             If None and stream is a file, uses the file's directory.
+        download : bool, default True
+            If `True`, resolve `!download` tags by downloading files. If
+            `False`, preserve `!download` tags as unresolved values.
         """
+        self._download = download
         if isinstance(stream, str):
             # String input
             self._root = root_dir if root_dir is not None else os.getcwd()
@@ -165,7 +191,10 @@ class ConfigLoader(yaml.SafeLoader):
 
         # Use _load_config_recursive to properly handle nested includes and overrides
         config, overrides, removals, metadata = _load_config_recursive(
-            cfg_path=resolved_path, root_dir=None, compatibility_checks=[]
+            cfg_path=resolved_path,
+            root_dir=None,
+            compatibility_checks=[],
+            download=self._download,
         )
 
         # Get strict and list_append settings from metadata
@@ -237,7 +266,7 @@ class ConfigLoader(yaml.SafeLoader):
         resolved_path = resolve_config_path(filename, self._root)
         return resolved_path
 
-    def download(self, node: yaml.Node) -> str:
+    def download(self, node: yaml.Node) -> Union[str, DownloadTag]:
         """Download a file from URL and return the cached path.
 
         This is useful for downloading model weights or other large files
@@ -253,8 +282,9 @@ class ConfigLoader(yaml.SafeLoader):
 
         Returns
         -------
-        str
-            Absolute path to cached file
+        Union[str, DownloadTag]
+            Absolute path to cached file, or unresolved tagged value if
+            downloads are disabled
 
         Raises
         ------
@@ -274,6 +304,16 @@ class ConfigLoader(yaml.SafeLoader):
             url: https://example.com/model.ckpt
             hash: abc123def456...  # SHA256 hash
         """
+        if not self._download:
+            if isinstance(node, yaml.ScalarNode):
+                return DownloadTag(self.construct_scalar(node))
+            if isinstance(node, yaml.MappingNode):
+                return DownloadTag(self.construct_mapping(node))
+
+            raise ConfigIncludeError(
+                f"!download expects a string URL or dict, got {type(node)}"
+            )
+
         if isinstance(node, yaml.ScalarNode):
             # Simple case: just a URL string
             url = self.construct_scalar(node)

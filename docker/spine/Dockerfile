@@ -31,6 +31,7 @@ ENV PYTHONUNBUFFERED=1 \
 # - ninja-build: Fast C++ build system for MinkowskiEngine
 # - make/g++: Build tools for OpT0Finder
 # - xrootd-*: XRootD client with token authentication for dCache streaming
+# - vim/nano: Basic in-container editing/debugging tools for tutorials and quick fixes
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         libopenblas-dev \
@@ -43,7 +44,9 @@ RUN apt-get update && \
         xrootd-client-plugins \
         xrootd-scitokens-plugins \
         wget \
-        ca-certificates && \
+        ca-certificates \
+        vim \
+        nano && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
@@ -95,10 +98,6 @@ RUN git clone https://github.com/NVIDIA/MinkowskiEngine.git /tmp/MinkowskiEngine
     cd / && \
     rm -rf /tmp/MinkowskiEngine
 
-# Copy SPINE project files
-COPY pyproject.toml MANIFEST.in README.md ./
-COPY src/ ./src/
-
 # Install SPINE build dependencies.
 RUN pip install --no-cache-dir "setuptools>=65.0,<70.0" wheel "build>=0.8.0"
 
@@ -108,8 +107,12 @@ RUN HDF5_DIR=/usr/lib/x86_64-linux-gnu/hdf5/serial \
     pip install --no-cache-dir --no-binary=h5py --no-deps --force-reinstall \
     "h5py>=3.1.0"
 
-# Install SPINE with all dependencies
-RUN pip install --no-cache-dir --no-build-isolation .[all]
+# Install notebook tooling for tutorials and lightweight in-container analysis.
+# - jupyterlab: Modern notebook/lab interface
+# - notebook: Classic notebook UI and `jupyter notebook` command
+RUN pip install --no-cache-dir \
+    jupyterlab \
+    notebook
 
 # Build OpT0Finder for likelihood-based flash matching. Pin both the release
 # tag and resolved commit so rebuilds do not silently move if a tag is updated.
@@ -147,6 +150,14 @@ RUN wget -O "${ICARUS_PHOTONLIB_PATH}" "${ICARUS_PHOTONLIB_URL}" && \
     else \
         echo "WARNING: ICARUS_PHOTONLIB_SHA256 was not set; photon library is unverified."; \
     fi
+
+# Copy SPINE project files late so routine SPINE source changes do not force
+# rebuilds of the more stable notebook and flash-matching layers above.
+COPY pyproject.toml MANIFEST.in README.md ./
+COPY src/ ./src/
+
+# Install SPINE with all dependencies
+RUN pip install --no-cache-dir --no-build-isolation .[all]
 
 # Set working directory for user data
 WORKDIR /workspace

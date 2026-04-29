@@ -10,10 +10,10 @@ Contains the following parsers:
 
 import numpy as np
 
+from spine.constants import GHOST_SHP, SHAPE_PREC
 from spine.data import Meta
 from spine.utils.conditional import larcv
 from spine.utils.ghost import ChargeRescaler
-from spine.utils.globals import GHOST_SHP, SHAPE_PREC
 
 from .base import ParserBase
 from .data import ParserTensor

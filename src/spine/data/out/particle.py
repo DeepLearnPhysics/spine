@@ -5,17 +5,19 @@ from dataclasses import dataclass, field
 import numpy as np
 from scipy.spatial.distance import cdist
 
-from spine.data.decorator import stored_alias, stored_property
-from spine.data.field import FieldMetadata
-from spine.data.larcv.particle import Particle
-from spine.utils.globals import (
+from spine.constants import (
     PID_LABELS,
     PID_MASSES,
     PID_TO_PDG,
     SHAPE_LABELS,
     SHOWR_SHP,
     TRACK_SHP,
+    ParticlePID,
+    ParticleShape,
 )
+from spine.data.decorator import stored_alias, stored_property
+from spine.data.field import FieldMetadata
+from spine.data.larcv.particle import Particle
 
 from .base import OutBase, RecoBase, TruthBase
 from .fragment import RecoFragment, TruthFragment
@@ -93,13 +95,13 @@ class ParticleBase(OutBase):
     mcs_ke: float = field(default=np.nan, metadata=FieldMetadata(units="MeV"))
 
     # Enumerated attributes
-    shape: int = field(default=-1, metadata=FieldMetadata(enum=SHAPE_LABELS))
-    pid: int = field(default=-1, metadata=FieldMetadata(enum=PID_LABELS))
+    shape: int = field(default=-1, metadata=FieldMetadata(enum=ParticleShape))
+    pid: int = field(default=-1, metadata=FieldMetadata(enum=ParticlePID))
 
     # Vector attributes
     fragment_ids: np.ndarray = field(
-        default_factory=lambda: np.empty(0, dtype=np.int64),
-        metadata=FieldMetadata(dtype=np.int64, cat=True, units="instance"),
+        default_factory=lambda: np.empty(0, dtype=np.int32),
+        metadata=FieldMetadata(dtype=np.int32, cat=True, units="instance"),
     )
 
     start_point: np.ndarray = field(
@@ -139,8 +141,8 @@ class ParticleBase(OutBase):
     )
 
     crt_ids: np.ndarray = field(
-        default_factory=lambda: np.empty(0, dtype=np.int64),
-        metadata=FieldMetadata(dtype=np.int64),
+        default_factory=lambda: np.empty(0, dtype=np.int32),
+        metadata=FieldMetadata(dtype=np.int32),
     )
     crt_times: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.float32),
@@ -170,7 +172,7 @@ class ParticleBase(OutBase):
     def reset_crt_match(self) -> None:
         """Reset all the CRT hit matching attributes."""
         self.is_crt_matched = False
-        self.crt_ids = np.empty(0, dtype=np.int64)
+        self.crt_ids = np.empty(0, dtype=np.int32)
         self.crt_times = np.empty(0, dtype=np.float32)
         self.crt_scores = np.empty(0, dtype=np.float32)
 
@@ -268,8 +270,8 @@ class RecoParticle(ParticleBase, RecoBase):
     )
 
     ppn_ids: np.ndarray = field(
-        default_factory=lambda: np.empty(0, dtype=np.int64),
-        metadata=FieldMetadata(dtype=np.int64),
+        default_factory=lambda: np.empty(0, dtype=np.int32),
+        metadata=FieldMetadata(dtype=np.int32),
     )
     ppn_points: np.ndarray = field(
         default_factory=lambda: np.empty((0, 3), dtype=np.float32),
@@ -295,21 +297,15 @@ class RecoParticle(ParticleBase, RecoBase):
         """Merge another particle instance into this one.
 
         The merging strategy differs depending on the the particle shapes
-        merged together. There are two categories:
-        - Track + track
-          - The start/end points are produced by finding the combination of points
-            which are farthest away from each other (one from each constituent)
-          - The primary scores/primary status match that of the constituent
-            particle with the highest primary score
-          - The PID scores/PID value match that of the constituent particle with
-            the highest primary score
-        - Shower + Track
-          - The track is always merged into the shower, not the other way around
-          - The start point of the shower is updated to be the track end point
-          further away from the current shower start point
-          - The primary scores/primary status match that of the constituent
-            particle with the highest primary score
-          - The PID scores/PID value is kept unchanged (that of the shower)
+        merged together:
+
+        - Track plus track: the merged particle uses the pair of end points
+          that are farthest apart, and the primary and PID scores are copied
+          from the constituent with the highest primary score.
+        - Shower plus track: the track is merged into the shower, the shower
+          start point is updated to the track end point farthest from the
+          current shower start point, the primary score follows the most
+          primary-like constituent and the PID stays that of the shower.
 
         Parameters
         ----------
@@ -564,12 +560,12 @@ class TruthParticle(Particle, ParticleBase, TruthBase):
 
     # Vector attributes
     orig_children_id: np.ndarray = field(
-        default_factory=lambda: np.empty(0, dtype=np.int64),
-        metadata=FieldMetadata(dtype=np.int64),
+        default_factory=lambda: np.empty(0, dtype=np.int32),
+        metadata=FieldMetadata(dtype=np.int32),
     )
     children_counts: np.ndarray = field(
-        default_factory=lambda: np.empty(0, dtype=np.int64),
-        metadata=FieldMetadata(dtype=np.int64),
+        default_factory=lambda: np.empty(0, dtype=np.int32),
+        metadata=FieldMetadata(dtype=np.int32),
     )
 
     reco_start_dir: np.ndarray = field(
@@ -633,7 +629,7 @@ class TruthParticle(Particle, ParticleBase, TruthBase):
         """Converts the particle initial energy to a kinetic energy.
 
         This only works for particles with a known mass (as defined in
-        `spine.utils.globals`).
+        `spine.constants`).
 
         Returns
         -------

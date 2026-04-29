@@ -2,8 +2,8 @@
 
 import numpy as np
 
+from spine.constants import COORD_COLS
 from spine.math.distance import closest_pair
-from spine.utils.globals import COORD_COLS
 
 from .cluster import scatter_clusters
 from .point import scatter_points

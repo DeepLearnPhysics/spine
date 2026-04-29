@@ -11,6 +11,7 @@ Takes care of everything in one centralized place:
 """
 
 import os
+import random
 import subprocess as sc
 import time
 from datetime import datetime
@@ -341,6 +342,7 @@ class Driver:
             Updated rank
         """
         # Set up the seed
+        random.seed(seed)
         np.random.seed(seed)
         numba_seed(seed)
         runtime.manual_seed(seed)

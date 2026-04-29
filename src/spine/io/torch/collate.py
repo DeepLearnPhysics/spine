@@ -17,14 +17,14 @@ __all__ = ["CollateAll"]
 class CollateAll:
     """General collate function for all data types coming from the parsers.
 
-    Provide it with a list of dictionaries, each of which maps keys to one of:
-    1. ParserTensor with (coord tensor, feature tensor, meta data) which get
-       merged into a single tensor with rows [batch_id, *coords, *features]
-    2. ParserTensor with simple feature tensor which gets merged into a single
-       tensor with rows [batch_id, *features]
-    3. ParserTensor with a list of indexes and offsets which gets merged into
-       a single index with the appropriate offsets applied
-    4. Scalars/list/objects which simply get put in a single list
+    Provide it with a list of dictionaries. Each value can be one of:
+
+    - A `ParserTensor` with coordinates, features and metadata, merged into
+      rows of the form `[batch_id, *coords, *features]`
+    - A feature-only `ParserTensor`, merged into `[batch_id, *features]`
+    - A `ParserTensor` carrying indexes and offsets, merged into a single
+      offset-adjusted index
+    - Scalar values, lists and objects, gathered into a list
     """
 
     name = "all"

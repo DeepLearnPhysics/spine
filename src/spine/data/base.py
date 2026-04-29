@@ -45,6 +45,7 @@ they are unitless normalized directions.
 """
 
 from dataclasses import dataclass, fields, replace
+from enum import IntEnum
 from types import UnionType
 from typing import (
     TYPE_CHECKING,
@@ -129,6 +130,8 @@ class DataBase:
         cls._derived_attrs = ()
         cls._global_units_attrs = ()
         cls._enum_dicts = {}
+        cls._enum_attrs = {}
+        cls._enum_values = {}
         cls._field_units = {}
 
     def __post_init__(self) -> None:
@@ -145,9 +148,9 @@ class DataBase:
         for field in fields(self):
             value = getattr(self, field.name)
             field_type = field_types.get(field.name, field.type)
+            meta = FieldMetadata(**field.metadata)
             if self._annotation_matches(field_type, np.ndarray):
                 # Check that the length of the array matches the expected length
-                meta = FieldMetadata(**field.metadata)
                 if meta.length is not None:
                     if len(value) != meta.length:
                         raise ValueError(
@@ -287,13 +290,17 @@ class DataBase:
             elif isinstance(value, np.ndarray):
                 setattr(self, attr, value + shift)
 
-    def as_dict(self, lite: bool = False) -> dict[str, Any]:
+    def as_dict(
+        self, lite: bool = False, include_derived: bool = True
+    ) -> dict[str, Any]:
         """Returns the data class as dictionary of (key, value) pairs.
 
         Parameters
         ----------
         lite : bool, default False
             If `True`, the `_lite_skip_attrs` are dropped
+        include_derived : bool, default True
+            If `True`, include computed properties marked with `@stored_property`.
 
         Returns
         -------
@@ -309,6 +316,13 @@ class DataBase:
             if field.name not in skip_attrs:
                 value = getattr(self, field.name)
                 return_dict[field.name] = value
+
+        # Store computed properties explicitly marked for serialization. These
+        # are not dataclass fields, so they are not included above.
+        if include_derived:
+            for attr in self._derived_attrs:
+                if attr not in skip_attrs:
+                    return_dict[attr] = getattr(self, attr)
 
         return return_dict
 
@@ -427,6 +441,16 @@ class DataBase:
         return self._enum_dicts
 
     @property
+    def enum_attrs(self) -> dict[str, dict[str, int]]:
+        """Fetches HDF5-friendly enumerator descriptors for enum-backed fields."""
+        return self._enum_attrs
+
+    @property
+    def enum_values(self) -> dict[str, dict[int, str]]:
+        """Fetches reverse enum lookups from stored values to symbolic names."""
+        return self._enum_values
+
+    @property
     def field_units(self) -> dict[str, str]:
         """Fetches the documented units for each field.
 
@@ -439,12 +463,12 @@ class DataBase:
         return self._field_units
 
     @classmethod
-    def from_hdf5(cls, cls_dict: dict[str, Any]) -> "DataBase":
+    def from_dict(cls, cls_dict: dict[str, Any]) -> "DataBase":
         """Builds and returns an object of the class from a dictionary of attributes.
 
-        This is used to build objects from HDF5 files, which are stored as
-        dictionaries of attributes. This ensures that the attributes that are
-        derived but stored to file are not loaded back to the object.
+        This is used to build objects from serialized dictionaries of
+        attributes. This ensures that the attributes that are derived but stored
+        to file are not loaded back to the object.
 
         Provides basic functionalities:
         - Casts strings when they are provided as binary objects, which is the
@@ -475,6 +499,8 @@ class DataBase:
         for attr in cls._bool_attrs:
             val = cls_dict.get(attr)
             if isinstance(val, np.ndarray) and val.dtype == np.uint8:
+                cls_dict[attr] = bool(val.item())
+            elif isinstance(val, np.generic) and val.dtype == np.uint8:
                 cls_dict[attr] = bool(val.item())
 
         # Remove keys that are derived attributes and should not be loaded from file
@@ -546,9 +572,16 @@ class DataBase:
 
         # Cache enumerated attributes dictionary (enumerated attributes are not deri
         cls._enum_dicts = {}
+        cls._enum_attrs = {}
+        cls._enum_values = {}
         for k, v in meta.items():
             if v.enum is not None:
-                cls._enum_dicts[k] = {v: k for k, v in v.enum.items()}
+                assert isinstance(v.enum, type) and issubclass(v.enum, IntEnum)
+                cls._enum_dicts[k] = {
+                    member.name.lower(): member.value for member in v.enum
+                }
+                cls._enum_attrs[k] = {member.name: member.value for member in v.enum}
+                cls._enum_values[k] = {member.value: member.name for member in v.enum}
 
         # Cache field units dictionary from field metadata and derived properties
         cls._field_units = {k: v.units for k, v in meta.items() if v.units is not None}

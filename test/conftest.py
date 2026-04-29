@@ -9,7 +9,7 @@ import urllib
 
 import pytest
 
-os.environ["CUDA_VISIBLE_DEVICES"] = ""
+os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
 
 
 def pytest_addoption(parser):

@@ -363,11 +363,11 @@ def farthest_pair(
     """Algorithm which finds the two points which are farthest from each other
     in a set, in the Euclidean sense.
 
-    Two algorithms on offer:
-    - `brute`: compute pdist, use argmax (exact)
-    - `iterative`: Start with the first point in one set, find the farthest
-                   point in the other, move to that point, repeat. This
-                   algorithm is *not* exact, but a good and very quick proxy.
+    Two algorithms are available:
+
+    - `brute`: computes all pairwise distances and uses `argmax`.
+    - `iterative`: repeatedly jumps to the current farthest point until
+      convergence. It is not exact, but it is fast.
 
     Parameters
     ----------
@@ -443,17 +443,17 @@ def closest_pair(
     """Algorithm which finds the two points which are closest to each other
     from two separate sets.
 
-    Two algorithms on offer:
-    - `brute`: compute cdist, use argmin
-    - `iterative`: Start with one point in one set, find the closest
-                   point in the other set, move to theat point, repeat. This
-                   algorithm is *not* exact, but a good and very quick proxy.
+    Two algorithms are available:
+
+    - `brute`: computes all cross-distances and uses `argmin`.
+    - `iterative`: repeatedly jumps to the current closest point until
+      convergence. It is not exact, but it is fast.
 
     Parameters
     ----------
     x1 : np.ndarray
         (Nx3) array of point coordinates in the first set
-    x1 : np.ndarray
+    x2 : np.ndarray
         (Nx3) array of point coordinates in the second set
     iterative : bool
         If `True`, uses an iterative, fast approximation

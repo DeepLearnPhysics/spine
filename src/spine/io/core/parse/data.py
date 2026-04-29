@@ -5,8 +5,8 @@ from typing import Optional
 
 import numpy as np
 
+from spine.constants import VALUE_COL
 from spine.data import Meta, ObjectList
-from spine.utils.globals import VALUE_COL
 
 __all__ = ["ParserTensor", "ParserObjectList"]
 

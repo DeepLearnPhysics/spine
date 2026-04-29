@@ -13,13 +13,13 @@ __all__ = ["Overlayer"]
 class Overlayer:
     """Generic class to produce data overlays.
 
-    This class supports 3 image overlay modes:
-    - 'constant' will produce overlays with a constant multiplicity;
-    - 'uniform' will produce overlays with multiplicities, M_i, sampled from a
-      uniform distribution such that, for a batch size B, \\Sum_i M_i = B;
-    - 'poisson' will produce overlays with multiplicities, M_i, sampled from a
-      Poisson distribution of mean set by 'multiplicity'. For a batch size B,
-      the multiplicities are set such that \\Sum_i M_i = B.
+    This class supports three overlay modes:
+
+    - `constant` uses a fixed multiplicity.
+    - `uniform` samples multiplicities `M_i` from a uniform distribution and
+      adjusts them so that, for a batch size `B`, `sum_i M_i = B`.
+    - `poisson` samples multiplicities from a Poisson distribution with mean
+      set by `multiplicity` and adjusts them the same way.
     """
 
     # List of recognized overlay modes

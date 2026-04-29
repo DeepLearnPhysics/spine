@@ -1,95 +1,155 @@
 Quick Start
 ===========
 
-This guide covers the basic usage of SPINE's core functionality.
+.. rst-class:: lead
 
-Basic Math Operations
+This guide covers the standard way to run SPINE. For full reconstruction workflows, use the published SPINE container image. Run that image with Docker on local machines or with Apptainer / Singularity on HPC systems. Use an explicit release tag when you want a pinned runtime; when in doubt, use ``latest`` or omit the tag entirely. Local Python-only installs are more appropriate for post-processing, analysis, and visualization tasks.
+
+Run SPINE In The Container
+--------------------------
+
+Pull the recommended runtime container with Docker:
+
+.. code-block:: bash
+
+   # Equivalent to: docker pull ghcr.io/deeplearnphysics/spine
+   docker pull ghcr.io/deeplearnphysics/spine:latest
+
+   # Pin to a specific release if needed
+   docker pull ghcr.io/deeplearnphysics/spine:<release>
+
+Or pull the same released image with Apptainer:
+
+.. code-block:: bash
+
+   # Equivalent to omitting the tag entirely in the Docker image reference
+   apptainer pull spine_latest.sif docker://ghcr.io/deeplearnphysics/spine:latest
+
+   # Or pin to a specific release
+   apptainer pull spine_<release>.sif docker://ghcr.io/deeplearnphysics/spine:<release>
+
+Run a configuration with Docker:
+
+.. code-block:: bash
+
+   docker run --gpus all -v $(pwd):/workspace \
+     ghcr.io/deeplearnphysics/spine:latest \
+       spine --config /workspace/config/train_uresnet.yaml --source /workspace/data.h5
+
+   # Or use a pinned release
+   docker run --gpus all -v $(pwd):/workspace \
+     ghcr.io/deeplearnphysics/spine:<release> \
+       spine --config /workspace/config/train_uresnet.yaml --source /workspace/data.h5
+
+On Apple Silicon macOS systems, add ``--platform=linux/amd64`` to ``docker
+run`` when using the published SPINE image:
+
+.. code-block:: bash
+
+    docker run --platform=linux/amd64 --gpus all -v $(pwd):/workspace \
+       ghcr.io/deeplearnphysics/spine:<release> \
+          spine --config /workspace/config/train_uresnet.yaml --source /workspace/data.h5
+
+For Jupyter notebook/lab use specifically, avoid the Docker Desktop
+combination of Apple Virtualization Framework **with** Rosetta enabled. Apple
+Virtualization Framework without Rosetta and Docker VMM have both been
+verified to work for Jupyter with the published image, while normal SPINE CLI
+commands continue to work with either setting.
+
+Run the same configuration with Apptainer:
+
+.. code-block:: bash
+
+    # Latest published image
+   apptainer exec --nv spine_latest.sif \
+       spine --config /workspace/config/train_uresnet.yaml --source /workspace/data.h5
+
+   # Or use a pinned release
+   apptainer exec --nv spine_<release>.sif \
+       spine --config /workspace/config/train_uresnet.yaml --source /workspace/data.h5
+
+Run SPINE From Python
 ---------------------
 
-SPINE provides high-performance mathematical operations optimized with Numba:
+If you want to inspect one entry interactively, start a shell in the container first:
 
-Clustering with DBSCAN
-~~~~~~~~~~~~~~~~~~~~~~
+.. code-block:: bash
 
-.. code-block:: python
+   docker run --gpus all -it --rm -v $(pwd):/workspace \
+     ghcr.io/deeplearnphysics/spine:latest \
+     bash
 
-   import numpy as np
-   from spine.math.cluster import DBSCAN
+   # On Apple Silicon macOS, add --platform=linux/amd64 before the image name.
 
-   # Generate sample 3D point cloud
-   points = np.random.rand(1000, 3).astype(np.float32)
-
-   # Apply DBSCAN clustering
-   dbscan = DBSCAN(eps=0.1, min_samples=5)
-   labels = dbscan.fit_predict(points)
-
-   print(f"Found {len(set(labels)) - (1 if -1 in labels else 0)} clusters")
-
-Principal Component Analysis
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+From that shell, you can open Python or Jupyter and use the same driver directly. A typical workflow is to process one entry and hand the result to :class:`spine.vis.out.Drawer` for visualization:
 
 .. code-block:: python
 
-   from spine.math.decomposition import PCA
+   from spine.config import load_config_file
+   from spine.driver import Driver
+   from spine.vis.out import Drawer
 
-   # Perform PCA on data
-   pca = PCA(n_components=2)
-   components, explained_variance = pca.fit(points)
+   cfg = load_config_file("/workspace/config/train_uresnet.yaml")
 
-   # Transform data
-   transformed = pca.transform(points)
+   driver = Driver(cfg)
+   data = driver.process(entry=0)
 
-Distance Metrics
-~~~~~~~~~~~~~~~~
+   drawer = Drawer(data, draw_mode="both")
+   fig = drawer.get("particles")
+   fig.show()
 
-.. code-block:: python
+The same pattern works for other object families such as ``fragments`` or ``interactions``.
 
-   from spine.math import metrics
+Run JupyterLab Or Classic Notebook
+----------------------------------
 
-   # Compute pairwise distances
-   distances = metrics.pairwise_distances(points[:100], points[:50])
+To launch JupyterLab directly from the published container:
 
-   # Various distance metrics available
-   euclidean_dist = metrics.euclidean_distance(points[0], points[1])
+.. code-block:: bash
 
-Graph Construction
-~~~~~~~~~~~~~~~~~~
+    docker run --gpus all -it --rm -p 8888:8888 -v $(pwd):/workspace \
+       ghcr.io/deeplearnphysics/spine:<release> \
+       jupyter lab --ip 0.0.0.0 --port 8888 --no-browser --allow-root
 
-.. code-block:: python
+On Apple Silicon macOS systems, add ``--platform=linux/amd64`` before the
+image name:
 
-   from spine.math.neighbors import kneighbors_graph
+.. code-block:: bash
 
-   # Build k-nearest neighbors graph
-   graph = kneighbors_graph(points, n_neighbors=5, mode='distance')
+    docker run --platform=linux/amd64 --gpus all -it --rm -p 8888:8888 -v $(pwd):/workspace \
+       ghcr.io/deeplearnphysics/spine:<release> \
+       jupyter lab --ip 0.0.0.0 --port 8888 --no-browser --allow-root
 
-Working with Sparse Data
-------------------------
+If you specifically want the classic notebook UI instead of Lab:
 
-SPINE is designed for sparse 3D data common in particle physics:
+.. code-block:: bash
 
-.. code-block:: python
+    docker run --gpus all -it --rm -p 8888:8888 -v $(pwd):/workspace \
+       ghcr.io/deeplearnphysics/spine:<release> \
+       jupyter notebook --ip 0.0.0.0 --port 8888 --no-browser --allow-root
 
-   # Typical sparse data format: [x, y, z, features...]
-   sparse_data = np.array([
-       [0, 0, 0, 1.5],  # voxel at (0,0,0) with value 1.5
-       [1, 0, 0, 2.3],  # voxel at (1,0,0) with value 2.3
-       [0, 1, 0, 1.8],  # etc...
-   ])
+Open the URL printed by Jupyter in your browser on the host machine.
 
-   # Extract coordinates and values
-   coords = sparse_data[:, :3]
-   values = sparse_data[:, 3]
+When To Use Local Python Installs
+---------------------------------
 
-Performance Tips
-----------------
+If you only need to inspect outputs, make plots, or run downstream studies, a local install is often enough:
 
-- Use float32 for coordinates when possible (faster with Numba)
-- SPINE's algorithms are optimized for sparse data patterns
-- GPU acceleration available for neural network components (with [model] installation)
+.. code-block:: bash
+
+   pip install spine[viz]
+
+For broader analysis or documentation work:
+
+.. code-block:: bash
+
+   pip install spine[all]
+
+This mode is useful for ``spine.post``, ``spine.ana``, and ``spine.vis`` workflows, but it is not the recommended default for full reconstruction jobs when a released container image is available.
 
 Next Steps
 ----------
 
-- Explore the full API documentation for advanced features
-- See examples for machine learning workflows
-- Check out visualization tools with the [viz] installation
+- Review :doc:`installation` for the runtime options and tradeoffs
+- Explore :doc:`config_loader` to understand SPINE configuration files
+- Browse the API reference for the pipeline stage you are modifying or using

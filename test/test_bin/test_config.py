@@ -55,6 +55,50 @@ def test_dump_config_writes_output_file(tmp_path):
     }
 
 
+def test_resolved_config_yaml_preserves_download_by_default(tmp_path, monkeypatch):
+    """Test that dump output does not trigger !download by default."""
+    config = tmp_path / "config.yaml"
+    path_file = tmp_path / "weights.yaml"
+    path_file.write_text("weights: true\n", encoding="utf-8")
+    config.write_text(
+        """
+model:
+  config: !path weights.yaml
+  weights: !download https://example.com/model.ckpt
+""",
+        encoding="utf-8",
+    )
+
+    def fail_download(*args, **kwargs):
+        raise AssertionError("download_from_url should not be called")
+
+    monkeypatch.setattr("spine.config.loader.download_from_url", fail_download)
+
+    rendered = resolved_config_yaml(str(config))
+
+    assert f"config: {path_file}" in rendered
+    assert "weights: !download 'https://example.com/model.ckpt'" in rendered
+
+
+def test_resolved_config_yaml_can_resolve_downloads(tmp_path, monkeypatch):
+    """Test that dump output can opt into resolving !download tags."""
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        "model:\n  weights: !download https://example.com/model.ckpt\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        "spine.config.loader.download_from_url",
+        lambda url: "/tmp/model.ckpt",
+    )
+
+    rendered = resolved_config_yaml(str(config), download=True)
+    cfg = yaml.safe_load(rendered)
+
+    assert cfg["model"]["weights"] == "/tmp/model.ckpt"
+
+
 def test_diff_configs_compares_resolved_yaml(tmp_path):
     """Test diffing resolved configs rather than raw source files."""
     base_config = tmp_path / "base.yaml"
