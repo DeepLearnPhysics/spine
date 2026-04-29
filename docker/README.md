@@ -17,6 +17,8 @@ The recommended way to run SPINE is to use the image published for each SPINE re
   - ROOT 6.30+ and LArCV2 2.3.4
   - OpT0Finder v1.0.0 for likelihood-based SBND/ICARUS flash matching
   - XRootD client with token authentication (for dCache streaming)
+  - JupyterLab and the classic Jupyter Notebook interface for tutorials and interactive analysis
+  - Basic terminal editors (`vim`, `nano`) for quick in-container inspection/debugging
   - SPINE with all dependencies
 - **GPU Support**: Built for NVIDIA datacenter and workstation GPUs:
   - **Cluster / datacenter**: **V100** (7.0), **A100** (8.0), **H100/H200** (9.0)
@@ -62,6 +64,35 @@ docker run --gpus all -it --rm \
   ghcr.io/deeplearnphysics/spine:<release> \
   bash
 ```
+
+The image includes `vim` and `nano` for lightweight in-container editing during
+tutorials, debugging sessions, or quick configuration changes.
+
+### Run JupyterLab
+
+```bash
+docker run --gpus all -it --rm \
+  -p 8888:8888 \
+  -v $(pwd):/workspace \
+  ghcr.io/deeplearnphysics/spine:<release> \
+  jupyter lab --ip 0.0.0.0 --port 8888 --no-browser --allow-root
+```
+
+This launches the JupyterLab web UI with notebook support enabled. Open the
+URL printed by Jupyter in your browser on the host machine.
+
+### Run Classic Jupyter Notebook
+
+```bash
+docker run --gpus all -it --rm \
+  -p 8888:8888 \
+  -v $(pwd):/workspace \
+  ghcr.io/deeplearnphysics/spine:<release> \
+  jupyter notebook --ip 0.0.0.0 --port 8888 --no-browser --allow-root
+```
+
+Use this if you specifically want the classic notebook UI rather than the Lab
+interface.
 
 ### Run Python Script
 
