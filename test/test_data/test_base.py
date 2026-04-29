@@ -435,6 +435,26 @@ class TestDataBase:
         assert enum_dicts["particle_type"]["electron"] == 0
         assert enum_dicts["particle_type"]["muon"] == 1
 
+    def test_enum_attrs(self):
+        """Test enum_attrs property."""
+        obj = EnumData()
+
+        enum_attrs = obj.enum_attrs
+
+        assert "particle_type" in enum_attrs
+        assert enum_attrs["particle_type"]["ELECTRON"] == 0
+        assert enum_attrs["particle_type"]["PION"] == 2
+
+    def test_enum_values(self):
+        """Test enum_values property."""
+        obj = EnumData()
+
+        enum_values = obj.enum_values
+
+        assert "particle_type" in enum_values
+        assert enum_values["particle_type"][0] == "ELECTRON"
+        assert enum_values["particle_type"][1] == "MUON"
+
     def test_field_units(self):
         """Test field_units property."""
         obj = DerivedData()

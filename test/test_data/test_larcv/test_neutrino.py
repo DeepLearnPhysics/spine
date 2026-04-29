@@ -147,6 +147,21 @@ class TestNeutrinoCreation:
         assert unknown_nu.interaction_mode_enum is None
         assert unknown_nu.interaction_type_enum is None
 
+    def test_neutrino_interaction_enum_helpers_invalid_codes(self):
+        """Test invalid interaction codes resolve to None for known schemes."""
+        from spine.constants import NuInteractionScheme
+        from spine.data import Neutrino
+
+        neutrino = Neutrino(
+            id=3,
+            interaction_scheme=int(NuInteractionScheme.LARSOFT),
+            interaction_mode=-999,
+            interaction_type=-999,
+        )
+
+        assert neutrino.interaction_mode_enum is None
+        assert neutrino.interaction_type_enum is None
+
     def test_neutrino_track_and_index_properties(self):
         """Test Neutrino track IDs and index properties."""
         from spine.data import Neutrino
