@@ -160,10 +160,10 @@ def extract_metadata(
         list_append = DEFAULT_LIST_APPEND
 
     result = {
+        **meta,  # Preserve custom metadata fields as-is
         META_KIND: kind,
         META_STRICT: strict,
         META_LIST_APPEND: list_append,
-        **meta,  # Include other metadata fields as-is
     }
 
     # Add file path for compatibility checking
