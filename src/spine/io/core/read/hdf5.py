@@ -23,6 +23,7 @@ class HDF5Reader(ReaderBase):
     This class inherits from the :class:`ReaderBase` class. It provides
     methods to load HDF5 files and extract their data products. The files
     must be structured as follows:
+
       - An `events` dataset with all the region references
       - One dataset per data product corresponding to each region reference in
         the `events` dataset

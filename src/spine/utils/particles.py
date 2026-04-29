@@ -33,15 +33,11 @@ def process_particles(
 
     Notes
     -----
-    The following issues have been observed in the wild:
-    - In the case of generic (v04) files
-        - The parent ID and the interaction ID might not be filled properly (INVAL_IDX)
-        - The ancestor track ID might not filled properly (INVAL_TID)
-    - In the case of ICARUS/SBND files
-        - The parent ID and the interaction ID might not be filled properly (INVAL_ID)
-        - The ancestor track ID might not filled properly (INVAL_TID)
-    - In the case of DUNE-ND/2x2 files
-        - The group ID might not be filled properly (INVAL_ID)
+    Generic (v04) files may have invalid parent IDs, interaction IDs
+    (`INVAL_IDX`) or ancestor track IDs (`INVAL_TID`). ICARUS and SBND files
+    may have invalid parent IDs, interaction IDs (`INVAL_ID`) or ancestor
+    track IDs (`INVAL_TID`). DUNE-ND and 2x2 files may have invalid group IDs
+    (`INVAL_ID`).
 
     Parameters
     ----------
@@ -99,15 +95,11 @@ def process_particle_event(
 
     Notes
     -----
-    The following issues have been observed in the wild:
-    - In the case of generic (v04) files
-        - The parent ID and the interaction ID might not be filled properly (INVAL_IDX)
-        - The ancestor track ID might not filled properly (INVAL_TID)
-    - In the case of ICARUS/SBND files
-        - The parent ID and the interaction ID might not be filled properly (INVAL_ID)
-        - The ancestor track ID might not filled properly (INVAL_TID)
-    - In the case of DUNE-ND/2x2 files
-        - The group ID might not be filled properly (INVAL_ID)
+    Generic (v04) files may have invalid parent IDs, interaction IDs
+    (`INVAL_IDX`) or ancestor track IDs (`INVAL_TID`). ICARUS and SBND files
+    may have invalid parent IDs, interaction IDs (`INVAL_ID`) or ancestor
+    track IDs (`INVAL_TID`). DUNE-ND and 2x2 files may have invalid group IDs
+    (`INVAL_ID`).
 
     Parameters
     ----------
@@ -514,14 +506,11 @@ def get_inter_primary_ids(particles, valid_mask=None):
 def get_particle_ids(particles, valid_mask=None):
     """Gets a particle species ID (PID) for each particle.
 
-    This function ensures:
-    - All shower daughters are labeled the same as their primary. This
-      makes sense as otherwise an electron primary gets overruled by
-      its many photon daughters (voxel-wise majority vote). This can
-      lead to problems as, if an electron daughter is not clustered with
-      the primary, it is labeled electron, which is counter-intuitive.
-      This is handled downstream with the high_purity flag.
-    - Particles that are not in the list target are labeled -1
+    All shower daughters are labeled the same as their primary so that an
+    electron primary is not overruled by its photon daughters in a voxel-wise
+    majority vote. That special case is handled downstream with the
+    high-purity flag. Particles that are not in the target list are labeled
+    `-1`.
 
     Parameters
     ----------

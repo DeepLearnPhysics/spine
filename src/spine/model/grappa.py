@@ -327,12 +327,11 @@ class GrapPA(torch.nn.Module):
         Parameters
         ----------
         data : TensorBatch
-            (N, 1 + D + N_f) Tensor of voxel/value pairs
-            - N is the the total number of voxels in the image
-            - 1 is the batch ID
-            - D is the number of dimensions in the input image
-            - N_f is 1 (charge/energy) if the clusters (`clusts`) are provided,
-              or it needs to contain cluster labels to build them on the fly
+            Tensor of voxel/value pairs with shape `(N, 1 + D + N_f)`, where
+            `N` is the total number of voxels, the leading column stores the
+            batch ID, `D` is the image dimensionality and `N_f` is the number
+            of features. When `clusts` is not provided, the features must also
+            contain the labels needed to build clusters on the fly.
         coord_label : TensorBatch, optional
             (P, 1 + 2*D + 2) Tensor of label points (start/end/time/shape)
         clusts : IndexBatch, optional
@@ -340,8 +339,8 @@ class GrapPA(torch.nn.Module):
         shapes : TensorBatch, optional
             (C) List of cluster semantic class used to define the max length
         groups : TensorBatch, optional
-            (C) List of node groups, one per cluster. If specified, will
-                remove connections between nodes of a separate group.
+            (C) List of node groups, one per cluster. If specified, removes
+            connections between nodes that belong to different groups.
         points : TensorBatch, optional
             (C, 3/6) Tensor of start (and end) points
         extra : TensorBatch, optional

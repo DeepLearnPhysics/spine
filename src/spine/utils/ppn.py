@@ -208,7 +208,7 @@ class PPNPredictor:
 
         Notes
         -----
-        This function works both `torch.Tensor` and `np.ndarray` objects.
+        This function works with both `torch.Tensor` and `np.ndarray` inputs.
 
         Parameters
         ----------
@@ -230,10 +230,9 @@ class PPNPredictor:
 
         Returns
         -------
-        Union[TensorBatch, List[np.ndarray]]
-            (N, P) Tensor of predicted points with P divided between
-            [batch_id, x, y, z, validity scores (2), occupancy, type scores (5),
-             predicted type, endpoint type]
+        Union[torch.Tensor, np.ndarray]
+            Predicted points encoded as rows containing coordinates, validity
+            scores, occupancy, type scores, predicted type and endpoint type.
         """
         # Define operations on the basis of the input type
         if torch.is_tensor(ppn_raw):
@@ -822,10 +821,10 @@ def get_vertex_labels(particle_v, neutrino_v, meta, dtype):
     """Gets particle vertex coordinates.
 
     It provides the coordinates of points where multiple particles originate:
-    - If the `neutrino_event` is provided, it simply uses the coordinates of
-      the neutrino interaction points.
-    - If the `particle_event` is provided instead, it looks for ancestor point
-      positions shared by at least two **primary** particles.
+
+    - If `neutrino_v` is provided, it uses the neutrino interaction points.
+    - If `particle_v` is provided instead, it looks for ancestor positions
+      shared by at least two primary particles.
 
     Parameters
     ----------

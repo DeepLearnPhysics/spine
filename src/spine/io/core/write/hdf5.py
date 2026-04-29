@@ -118,6 +118,7 @@ class HDF5Writer:
         """Build output file name(s) from an explicit name or input prefix(es).
 
         Logic is as follows:
+
         - If `split` is `False` and `file_name` is provided, use `file_name`
         - If `split` is `False` and `file_name` is not provided, build the file name
           from the input `prefix` by adding a suffix

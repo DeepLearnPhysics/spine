@@ -297,21 +297,15 @@ class RecoParticle(ParticleBase, RecoBase):
         """Merge another particle instance into this one.
 
         The merging strategy differs depending on the the particle shapes
-        merged together. There are two categories:
-        - Track + track
-          - The start/end points are produced by finding the combination of points
-            which are farthest away from each other (one from each constituent)
-          - The primary scores/primary status match that of the constituent
-            particle with the highest primary score
-          - The PID scores/PID value match that of the constituent particle with
-            the highest primary score
-        - Shower + Track
-          - The track is always merged into the shower, not the other way around
-          - The start point of the shower is updated to be the track end point
-          further away from the current shower start point
-          - The primary scores/primary status match that of the constituent
-            particle with the highest primary score
-          - The PID scores/PID value is kept unchanged (that of the shower)
+        merged together:
+
+        - Track plus track: the merged particle uses the pair of end points
+          that are farthest apart, and the primary and PID scores are copied
+          from the constituent with the highest primary score.
+        - Shower plus track: the track is merged into the shower, the shower
+          start point is updated to the track end point farthest from the
+          current shower start point, the primary score follows the most
+          primary-like constituent and the PID stays that of the shower.
 
         Parameters
         ----------

@@ -671,21 +671,17 @@ class Geometry(Box):
         Parameters
         ----------
         margin : Union[float, List[float], np.array]
-            Minimum distance from a detector wall to be considered contained:
-            - If float: distance buffer is shared between all 6 walls
-            - If [x,y,z]: distance is shared between pairs of walls facing
-              each other and perpendicular to a shared axis
-            - If [[x_low,x_up], [y_low,y_up], [z_low,z_up]]: distance is
-              specified individually of each wall.
+            Minimum distance from a detector wall to be considered contained.
+            A scalar applies the same buffer to all six walls. A three-element
+            array applies one shared distance per axis. A `(3, 2)` array
+            specifies the lower and upper margin independently for each axis.
         cathode_margin : float, optional
             If specified, sets a different margin for the cathode boundaries
         mode : str, default 'module'
-            Containement criterion (one of 'global', 'module', 'tpc'):
-            - If 'tpc', makes sure it is contained within a single TPC
-            - If 'module', makes sure it is contained within a single module
-            - If 'detector', makes sure it is contained within in the detector
-            - If 'source', use the origin of voxels to determine which TPC(s)
-              contributed to them, and define volumes accordingly
+            Containment criterion. `tpc` requires containment within a single
+            TPC, `module` within a single module, `detector` within the full
+            detector volume and `source` uses voxel provenance to determine the
+            contributing TPCs and define the containment volumes accordingly.
         include_limits : bool, default True
             If `True`, the TPC active region limits are checked against
 

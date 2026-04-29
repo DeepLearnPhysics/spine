@@ -106,7 +106,7 @@ def overlap_weighted_iou(
     """Computes a set overlap matrix by IoU, weighted by the set sizes.
 
     IoU stands for Intersection-over-Union. The weighting scheme is as follows:
-    w = (|size_x + size_y| / (|size_x - size_y| + 1).
+    `w = abs(size_x + size_y) / (abs(size_x - size_y) + 1)`.
 
     Parameters
     ----------
@@ -183,7 +183,7 @@ def overlap_weighted_dice(
 
     The Dice coefficient corresponds to the 2 times the intersection of two
     sets over the sum of set sizes. The weighting scheme is as follows:
-    w = (|size_x + size_y| / (|size_x - size_y| + 1).
+    `w = abs(size_x + size_y) / (abs(size_x - size_y) + 1)`.
 
     Parameters
     ----------

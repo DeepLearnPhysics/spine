@@ -25,17 +25,18 @@ __all__ = ["GraphSPICE", "GraphSPICELoss"]
 class GraphSPICE(torch.nn.Module):
     """Graph Scalable Proposal-free Instance Clustering Engine (Graph-SPICE).
 
-    Graph-SPICE has two components:
-    1. Voxel embedder: UNet-type CNN architecture used for feature
-       extraction and feature embeddings.
-    2. Edge probability kernel function: A kernel function (any callable
-       that takes two node attribute vectors to give a edge proability score).
+    Graph-SPICE has two main components:
 
-    Prediction is done in two steps:
-    1. A neighbor graph (ex. KNN, Radius) is constructed to compute
-       edge probabilities between neighboring edges;
-    2. Edges with low probability scores are dropped;
-    3. The voxels are clustered through connected component clustering.
+    - A voxel embedder, implemented as a UNet-like CNN for feature extraction
+      and embeddings
+    - An edge probability kernel that maps pairs of node attribute vectors to
+      edge scores
+
+    Prediction proceeds in three stages:
+
+    - A neighbor graph such as KNN or a radius graph is constructed
+    - Edge probabilities are evaluated and low-probability edges are dropped
+    - Voxels are clustered through connected-component clustering
 
     A typical configuration is broken down into multiple components:
 
@@ -151,18 +152,16 @@ class GraphSPICE(torch.nn.Module):
             (N, 1 + D + N_c) Tensor of cluster labels
             - N_c is is the number of cluster labels
 
-        Parameters
-        ----------
+        Returns
+        -------
         data : TensorBatch
             (M, 1+ + D + Nf) restricted tensor of voxel/value pairs
         seg_label : TensorBatch
             (M, 1 + D + 1) restricted tensor of segmentation labels
         clust_label : TensorBatch
-            (M, 1 + D + N_c) Restricted tnesor of cluster labels
+            (M, 1 + D + N_c) Restricted tensor of cluster labels
         index : torch.Tensor
             (M) Index to narrow down the original tensor
-        counts : torch.Tensor
-            (B) Number of restricted points in each batch entry
         """
         # Convert shapes to a torch tensor for easy comparison
         shapes = torch.tensor(self.shapes, device=data.device)

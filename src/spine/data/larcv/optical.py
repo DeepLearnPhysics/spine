@@ -143,13 +143,12 @@ class Flash(PosDataBase):
     def merge(self, other: "Flash") -> None:
         """Merge another flash into this one.
 
-        The merging strategy proceeds as follows:
-        - The earlier flash takes precedence over the later flash as far as
-          all timing-related information is concerned (flash time, etc.)
-        - The combined flash centroid is produced by taking the weighted average
-          of the two existing flash centroids
-        - The PE values in each light collection system are added together, so
-          is the total PE value of the combined flash
+        The merge works as follows:
+
+        - The earlier flash takes precedence for timing-related information.
+        - The combined centroid is computed as the weighted average of the two
+          existing centroids.
+        - The PE values from each light collection system are added together.
 
         Parameters
         ----------
