@@ -77,6 +77,12 @@ For the most direct end-to-end path, run SPINE from the released container with 
      ghcr.io/deeplearnphysics/spine:<release> \
        spine --config /workspace/config/train_uresnet.yaml --source /workspace/data.h5
 
+On Apple Silicon macOS systems, pass ``--platform=linux/amd64`` to ``docker
+run`` when using the published SPINE image. For Jupyter notebook/lab use,
+avoid the Docker Desktop combination of Apple Virtualization Framework **with**
+Rosetta enabled; Apple Virtualization Framework without Rosetta and Docker VMM
+have both been verified to work.
+
 If you want to inspect one entry interactively, the Python entry point looks like this:
 
 .. code-block:: python

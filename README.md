@@ -47,6 +47,22 @@ docker run --gpus all -v $(pwd):/workspace \
     spine --config /workspace/config/train_uresnet.yaml --source /workspace/data.h5
 ```
 
+On Apple Silicon macOS systems, the published SPINE image should still be run
+as `linux/amd64`. Specify that explicitly by adding
+`--platform=linux/amd64` to `docker run`, for example:
+
+```bash
+docker run --platform=linux/amd64 --gpus all -v $(pwd):/workspace \
+    ghcr.io/deeplearnphysics/spine:<release> \
+    spine --config /workspace/config/train_uresnet.yaml --source /workspace/data.h5
+```
+
+For Jupyter notebook/lab use specifically, avoid the Docker Desktop
+combination of Apple Virtualization Framework **with** Rosetta enabled: the
+kernel handshake may stall in that setup even though normal SPINE CLI commands
+still run. Apple Virtualization Framework without Rosetta and Docker VMM have
+both been verified to work for Jupyter with the published image.
+
 ### Apptainer / Singularity Path
 
 Use Apptainer or Singularity on HPC systems that do not allow Docker directly. The recommended path is to pull the same released SPINE image from GHCR:
