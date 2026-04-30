@@ -37,8 +37,8 @@ class TranslateAugment(AugmentBase):
         None
             This method does not return anything
         """
-        lower = np.asarray(lower) if lower is not None else None
-        upper = np.asarray(upper) if upper is not None else None
+        lower = np.asarray(lower, dtype=np.float32) if lower is not None else None
+        upper = np.asarray(upper, dtype=np.float32) if upper is not None else None
         if (lower is None) != (upper is None):
             raise ValueError("Must provide both lower and upper bounds, or neither.")
         if lower is not None and upper is not None:
@@ -47,9 +47,8 @@ class TranslateAugment(AugmentBase):
             if np.any(lower > upper):
                 raise ValueError("Lower bounds must be less than upper bounds.")
 
-            self.meta = Meta(lower, upper)
-        else:
-            self.meta = None
+        self.lower = lower
+        self.upper = upper
 
         if use_geo:
             if lower is not None or upper is not None:
@@ -58,7 +57,8 @@ class TranslateAugment(AugmentBase):
                 )
 
             geo = GeoManager.get_instance()
-            self.meta = Meta(lower=geo.tpc.lower, upper=geo.tpc.upper)
+            self.lower = geo.tpc.lower.astype(np.float32)
+            self.upper = geo.tpc.upper.astype(np.float32)
 
     def apply(
         self,
@@ -86,12 +86,6 @@ class TranslateAugment(AugmentBase):
             Updated data dictionary and translated metadata
         """
         target_meta = self.get_target_meta(meta, context.get("original_meta"))
-
-        if np.isnan(target_meta.size).all():
-            target_meta.size = meta.size.copy()
-            target_meta.count = np.ceil(
-                (target_meta.upper - target_meta.lower) / meta.size
-            ).astype(int)
 
         offset = self.generate_offset(meta, target_meta)
 
@@ -124,12 +118,17 @@ class TranslateAugment(AugmentBase):
         Meta
             Metadata describing the translation target volume
         """
-        if self.meta is not None:
+        if self.lower is not None and self.upper is not None:
+            size = (
+                meta.size.copy() if original_meta is None else original_meta.size.copy()
+            )
+            count = np.ceil((self.upper - self.lower) / size).astype(int)
+            upper = self.lower + size * count
             return Meta(
-                lower=self.meta.lower.copy(),
-                upper=self.meta.upper.copy(),
-                size=self.meta.size.copy(),
-                count=self.meta.count.copy(),
+                lower=self.lower.copy(),
+                upper=upper,
+                size=size,
+                count=count,
             )
 
         source_meta = original_meta if original_meta is not None else meta

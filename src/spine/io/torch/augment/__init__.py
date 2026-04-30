@@ -2,6 +2,7 @@
 
 from .base import AugmentBase
 from .crop import CropAugment
+from .flip import FlipAugment
 from .jitter import JitterAugment
 from .manager import AugmentManager
 from .mask import MaskAugment
@@ -15,6 +16,7 @@ __all__ = [
     "Augmenter",
     "AugmentBase",
     "CropAugment",
+    "FlipAugment",
     "JitterAugment",
     "MaskAugment",
     "RotateAugment",

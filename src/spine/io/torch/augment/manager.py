@@ -6,6 +6,7 @@ from spine.data import Meta
 from spine.io.core.parse.data import ParserTensor
 
 from .crop import CropAugment
+from .flip import FlipAugment
 from .jitter import JitterAugment
 from .mask import MaskAugment
 from .rotate import RotateAugment
@@ -19,6 +20,7 @@ class AugmentManager:
         "mask": MaskAugment,
         "crop": CropAugment,
         "jitter": JitterAugment,
+        "flip": FlipAugment,
         "rotate": RotateAugment,
         "translate": TranslateAugment,
     }

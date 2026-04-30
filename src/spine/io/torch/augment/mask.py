@@ -17,34 +17,59 @@ class MaskAugment(AugmentBase):
 
     def __init__(
         self,
-        min_dimensions: np.ndarray,
-        max_dimensions: np.ndarray,
+        min_dimensions: Optional[np.ndarray] = None,
+        max_dimensions: Optional[np.ndarray] = None,
         lower: Optional[np.ndarray] = None,
         upper: Optional[np.ndarray] = None,
-        use_geo: bool = False,
+        use_geo_boundaries: bool = False,
+        center_mode: str = "uniform",
+        center_spread: Optional[np.ndarray] = None,
+        center_feature_index: int = 0,
     ) -> None:
         """Initialize the masker.
 
         Parameters
         ----------
-        min_dimensions : np.ndarray
-            Minimum masking dimensions in cm for each axis
-        max_dimensions : np.ndarray
-            Maximum masking dimensions in cm for each axis
+        min_dimensions : np.ndarray, optional
+            Minimum masking dimensions in cm for each axis. If omitted together
+            with ``max_dimensions``, disable box masking.
+        max_dimensions : np.ndarray, optional
+            Maximum masking dimensions in cm for each axis. If omitted together
+            with ``min_dimensions``, disable box masking.
         lower : np.ndarray, optional
             Lower bounds for masking in cm for each axis
         upper : np.ndarray, optional
             Upper bounds for masking in cm for each axis
+        use_geo_boundaries : bool, default False
+            Whether to use detector TPC boundaries as the allowed masking
+            region
         use_geo : bool, optional
-            Whether to use geometry-based masking bounds
+            Deprecated alias for ``use_geo_boundaries`` kept for backward
+            compatibility
+        center_mode : str, default "uniform"
+            Box-center sampling strategy. Supported values are ``"uniform"``,
+            ``"activity"`` and ``"weighted_activity"``.
+        center_spread : np.ndarray, optional
+            Standard deviation of the Gaussian box-center proposal in cm when
+            using an activity-based center mode. Scalar values are broadcast.
+        center_feature_index : int, default 0
+            Feature column to use when ``center_mode="weighted_activity"``
 
         Returns
         -------
         None
             This method does not return anything
         """
-        if not len(min_dimensions) == len(max_dimensions) == 3:
-            raise ValueError("Must provide dimensions for each axis.")
+        if (min_dimensions is None) != (max_dimensions is None):
+            raise ValueError(
+                "Must provide both `min_dimensions` and `max_dimensions`, or neither."
+            )
+        if min_dimensions is None:
+            raise ValueError("Masking requires box dimensions.")
+        if min_dimensions is not None:
+            assert max_dimensions is not None
+            if not len(min_dimensions) == len(max_dimensions) == 3:
+                raise ValueError("Must provide dimensions for each axis.")
         if lower is not None and not len(lower) == 3:
             raise ValueError("Must provide lower bounds for each axis.")
         if upper is not None and not len(upper) == 3:
@@ -68,7 +93,7 @@ class MaskAugment(AugmentBase):
         ):
             raise ValueError("Lower bounds must be less than upper bounds.")
 
-        if use_geo:
+        if use_geo_boundaries:
             if self.lower is not None or self.upper is not None:
                 raise ValueError(
                     "Cannot use geometry if custom masking bounds are provided."
@@ -76,6 +101,17 @@ class MaskAugment(AugmentBase):
             geo = GeoManager.get_instance()
             self.lower = geo.tpc.lower
             self.upper = geo.tpc.upper
+
+        if center_mode not in ("uniform", "activity", "weighted_activity"):
+            raise ValueError(
+                "Masking center mode must be one of ('uniform', 'activity', 'weighted_activity')."
+            )
+        if center_feature_index < 0:
+            raise ValueError("Masking center_feature_index must be non-negative.")
+
+        self.center_mode = center_mode
+        self.center_spread = self.parse_optional_vector(center_spread, "center_spread")
+        self.center_feature_index = int(center_feature_index)
 
     def apply(
         self,
@@ -102,7 +138,7 @@ class MaskAugment(AugmentBase):
         Tuple[Dict[str, Any], Meta]
             Updated data dictionary and unchanged metadata
         """
-        mask_meta = self.generate_mask(meta)
+        mask_meta = self.generate_mask(data, meta, keys)
 
         for key in keys:
             if isinstance(data[key], Meta):
@@ -120,13 +156,18 @@ class MaskAugment(AugmentBase):
 
         return data, meta
 
-    def generate_mask(self, meta: Meta) -> Meta:
+    def generate_mask(self, data: Dict[str, Any], meta: Meta, keys: List[str]) -> Meta:
         """Generate a masking box metadata to apply to voxel index sets.
 
         Parameters
         ----------
+        data : dict
+            Dictionary of event data products used to estimate an activity
+            center when activity-biased sampling is enabled
         meta : Meta
             Metadata of the original image
+        keys : List[str]
+            Keys corresponding to data products that carry coordinates
 
         Returns
         -------
@@ -144,7 +185,19 @@ class MaskAugment(AugmentBase):
         count = np.ceil(dimensions / meta.size).astype(int)
         dimensions = count * meta.size
 
-        mask_lower = lower + np.random.rand(3) * (upper - lower - dimensions)
+        center = None
+        if self.center_mode != "uniform":
+            center = self.resolve_activity_center(
+                data,
+                keys,
+                meta,
+                weighted=self.center_mode == "weighted_activity",
+                feature_index=self.center_feature_index,
+            )
+
+        mask_lower = self.sample_box_lower(
+            lower, upper, dimensions, anchor=center, spread=self.center_spread
+        )
         mask_upper = mask_lower + dimensions
 
         return Meta(lower=mask_lower, upper=mask_upper, size=meta.size, count=count)
