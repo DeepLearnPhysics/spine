@@ -335,3 +335,97 @@ class AugmentBase(ABC):
         sampled_center = np.random.normal(loc=anchor, scale=spread)
         sampled_center = np.clip(sampled_center, center_lower, center_upper)
         return sampled_center - dimensions / 2.0
+
+    @staticmethod
+    def make_grid_aligned_meta(
+        meta: Meta,
+        lower_bound: np.ndarray,
+        upper_bound: np.ndarray,
+        count: np.ndarray,
+        sampled_lower: np.ndarray,
+    ) -> Meta:
+        """Build a box metadata object snapped to the source voxel grid.
+
+        Parameters
+        ----------
+        meta : Meta
+            Reference metadata that defines the source voxel grid
+        lower_bound : np.ndarray
+            Minimum allowed lower edge in detector coordinates (cm)
+        upper_bound : np.ndarray
+            Maximum allowed upper edge in detector coordinates (cm)
+        count : np.ndarray
+            Requested number of voxels along each axis
+        sampled_lower : np.ndarray
+            Proposed lower edge in detector coordinates (cm)
+
+        Returns
+        -------
+        Meta
+            Grid-aligned metadata for the sampled box
+        """
+        count = np.asarray(count, dtype=meta.count.dtype)
+        epsilon = 1.0e-6
+
+        start_min = np.ceil((lower_bound - meta.lower) / meta.size - epsilon).astype(
+            meta.count.dtype
+        )
+        stop_max = np.floor((upper_bound - meta.lower) / meta.size + epsilon).astype(
+            meta.count.dtype
+        )
+        start_max = stop_max - count
+        if np.any(start_max < start_min):
+            raise ValueError(
+                "The sampled box cannot fit within the allowed bounds on the source grid."
+            )
+
+        sampled_start = np.rint((sampled_lower - meta.lower) / meta.size).astype(
+            meta.count.dtype
+        )
+        start = np.clip(sampled_start, start_min, start_max)
+
+        lower = meta.lower + start * meta.size
+        upper = lower + count * meta.size
+        return Meta(
+            lower=lower.astype(meta.lower.dtype),
+            upper=upper.astype(meta.upper.dtype),
+            size=meta.size.copy(),
+            count=count,
+        )
+
+    @staticmethod
+    def make_snapped_meta(
+        meta: Meta,
+        size: np.ndarray,
+        count: np.ndarray,
+        lower: np.ndarray,
+    ) -> Meta:
+        """Build metadata snapped to the source grid from a proposed lower edge.
+
+        Parameters
+        ----------
+        meta : Meta
+            Reference metadata that defines the source voxel grid
+        size : np.ndarray
+            Pixel size for the transformed metadata
+        count : np.ndarray
+            Pixel counts for the transformed metadata
+        lower : np.ndarray
+            Proposed lower edge in detector coordinates (cm)
+
+        Returns
+        -------
+        Meta
+            Grid-aligned metadata for the transformed image volume
+        """
+        size = np.asarray(size, dtype=meta.size.dtype)
+        count = np.asarray(count, dtype=meta.count.dtype)
+        start = np.rint((lower - meta.lower) / size).astype(meta.count.dtype)
+        snapped_lower = meta.lower + start * size
+        upper = snapped_lower + size * count
+        return Meta(
+            lower=snapped_lower.astype(meta.lower.dtype),
+            upper=upper.astype(meta.upper.dtype),
+            size=size,
+            count=count,
+        )

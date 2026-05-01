@@ -47,7 +47,7 @@ def test_crop_augment_defaults_to_activity_spread(monkeypatch):
     data = {"voxels": tensor, "meta": meta}
     seen = {}
 
-    def sample_box_lower(lower, upper, dimensions, anchor=None, spread=None):
+    def sample_box_lower(_lower, _upper, _dimensions, anchor=None, spread=None):
         seen["anchor"] = anchor
         seen["spread"] = spread
         return np.asarray([1.0, 1.0, 1.0], dtype=np.float32)
@@ -65,6 +65,33 @@ def test_crop_augment_defaults_to_activity_spread(monkeypatch):
     coords_cm = meta.to_cm(coords, center=True)
     assert np.allclose(seen["anchor"], np.mean(coords_cm, axis=0))
     assert np.allclose(seen["spread"], np.std(coords_cm, axis=0))
+
+
+def test_crop_generate_crop_snaps_sampled_bounds_to_grid(monkeypatch):
+    """Crop metadata should be aligned to the source voxel grid."""
+    meta = make_meta(
+        lower=(0.1, 0.2, 0.3),
+        upper=(4.1, 6.2, 4.3),
+        size=(0.5, 0.75, 0.5),
+    )
+    data = {"voxels": make_tensor([[1, 1, 1]], meta), "meta": meta}
+
+    monkeypatch.setattr(
+        CropAugment,
+        "sample_box_lower",
+        staticmethod(lambda *args, **kwargs: np.asarray([1.13, 2.61, 1.44])),
+    )
+
+    augment = CropAugment(
+        min_dimensions=np.asarray([1.1, 1.6, 1.1], dtype=np.float32),
+        max_dimensions=np.asarray([1.1, 1.6, 1.1], dtype=np.float32),
+        keep_meta=False,
+    )
+    crop_meta = augment.generate_crop(data, meta, ["voxels", "meta"])
+
+    start = (crop_meta.lower - meta.lower) / meta.size
+    assert np.allclose(start, np.rint(start))
+    assert np.allclose(crop_meta.upper, crop_meta.lower + crop_meta.count * meta.size)
 
 
 def test_crop_augment_can_keep_meta_fixed():

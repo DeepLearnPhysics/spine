@@ -301,6 +301,4 @@ class CropAugment(AugmentBase):
         crop_lower = self.sample_box_lower(
             lower, upper, dimensions, anchor=center, spread=spread
         )
-        crop_upper = crop_lower + dimensions
-
-        return Meta(lower=crop_lower, upper=crop_upper, size=meta.size, count=count)
+        return self.make_grid_aligned_meta(meta, lower, upper, count, crop_lower)

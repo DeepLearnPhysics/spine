@@ -107,3 +107,20 @@ def test_flip_rejects_invalid_axis():
 def test_flip_rejects_invalid_probability(p):
     with pytest.raises(ValueError):
         FlipAugment(axis=0, p=p)
+
+
+def test_flip_generate_meta_snaps_to_source_grid():
+    meta = make_meta(
+        lower=(0.1, 0.2, 0.3),
+        upper=(2.1, 4.2, 2.3),
+        size=(0.5, 1.0, 0.5),
+    )
+    pivot = np.asarray([1.37, 1.91, 1.05], dtype=np.float32)
+
+    flip_meta = FlipAugment(axis=0, keep_meta=False).generate_meta(meta, pivot)
+
+    start = (flip_meta.lower - meta.lower) / flip_meta.size
+    assert np.allclose(start, np.rint(start))
+    assert np.allclose(
+        flip_meta.upper, flip_meta.lower + flip_meta.count * flip_meta.size
+    )

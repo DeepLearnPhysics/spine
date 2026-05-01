@@ -143,12 +143,11 @@ class RotateAugment(AugmentBase):
         meta_center = ((meta.lower + meta.upper) / 2.0).reshape(1, -1)
         new_center = self.rotate_points(meta_center, pivot, k)[0]
         lower = new_center - dimensions / 2.0
-        upper = lower + dimensions
-        return Meta(
-            lower=lower.astype(meta.lower.dtype),
-            upper=upper.astype(meta.upper.dtype),
-            size=size.astype(meta.size.dtype),
-            count=count.astype(meta.count.dtype),
+        return self.make_snapped_meta(
+            meta,
+            size.astype(meta.size.dtype),
+            count.astype(meta.count.dtype),
+            lower,
         )
 
     def apply_image_frame_rotation(

@@ -74,7 +74,7 @@ def test_mask_augment_defaults_to_weighted_activity_spread(monkeypatch):
     data = {"voxels": tensor, "meta": meta}
     seen = {}
 
-    def sample_box_lower(lower, upper, dimensions, anchor=None, spread=None):
+    def sample_box_lower(_lower, _upper, _dimensions, anchor=None, spread=None):
         seen["anchor"] = anchor
         seen["spread"] = spread
         return np.asarray([1.0, 1.0, 1.0], dtype=np.float32)
@@ -96,6 +96,38 @@ def test_mask_augment_defaults_to_weighted_activity_spread(monkeypatch):
     )
     assert np.allclose(seen["anchor"], expected_center)
     assert np.allclose(seen["spread"], expected_spread)
+
+
+def test_mask_generate_mask_snaps_sampled_bounds_to_grid(monkeypatch):
+    """Mask metadata should be aligned to the source voxel grid."""
+    meta = make_meta(
+        lower=(0.1, 0.2, 0.3),
+        upper=(4.1, 6.2, 4.3),
+        size=(0.5, 0.75, 0.5),
+    )
+    data = {
+        "voxels": ParserTensor(
+            coords=np.asarray([[1, 1, 1]], dtype=np.int64),
+            features=np.asarray([[1.0]], dtype=np.float32),
+            meta=meta,
+        )
+    }
+
+    monkeypatch.setattr(
+        MaskAugment,
+        "sample_box_lower",
+        staticmethod(lambda *args, **kwargs: np.asarray([1.13, 2.61, 1.44])),
+    )
+
+    augment = MaskAugment(
+        min_dimensions=np.asarray([1.1, 1.6, 1.1], dtype=np.float32),
+        max_dimensions=np.asarray([1.1, 1.6, 1.1], dtype=np.float32),
+    )
+    mask_meta = augment.generate_mask(data, meta, ["voxels"])
+
+    start = (mask_meta.lower - meta.lower) / meta.size
+    assert np.allclose(start, np.rint(start))
+    assert np.allclose(mask_meta.upper, mask_meta.lower + mask_meta.count * meta.size)
 
 
 def test_mask_constructor_validates_arguments():

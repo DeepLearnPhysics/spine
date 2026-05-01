@@ -141,10 +141,9 @@ class FlipAugment(AugmentBase):
         refl_center[self.axis] = 2.0 * pivot[self.axis] - meta_center[self.axis]
 
         lower = refl_center - dimensions / 2.0
-        upper = lower + dimensions
-        return Meta(
-            lower=lower.astype(meta.lower.dtype),
-            upper=upper.astype(meta.upper.dtype),
-            size=meta.size.copy(),
-            count=meta.count.copy(),
+        return self.make_snapped_meta(
+            meta,
+            meta.size.copy(),
+            meta.count.copy(),
+            lower,
         )
