@@ -405,7 +405,15 @@ class ModelManager:
             )
             with open(weight_path, "rb") as f:
                 # Read checkpoint
-                checkpoint = torch.load(f, map_location=self.device)
+                try:
+                    checkpoint = torch.load(
+                        f, map_location=self.device, weights_only=True
+                    )
+                except TypeError as err:
+                    if "weights_only" not in str(err):
+                        raise
+                    f.seek(0)
+                    checkpoint = torch.load(f, map_location=self.device)
                 state_dict = checkpoint["state_dict"]
 
                 # Check that all the needed weights are provided

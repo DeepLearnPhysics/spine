@@ -201,6 +201,4 @@ class MaskAugment(AugmentBase):
         mask_lower = self.sample_box_lower(
             lower, upper, dimensions, anchor=center, spread=spread
         )
-        mask_upper = mask_lower + dimensions
-
-        return Meta(lower=mask_lower, upper=mask_upper, size=meta.size, count=count)
+        return self.make_grid_aligned_meta(meta, lower, upper, count, mask_lower)

@@ -73,6 +73,7 @@ def writer_factory(writer_cfg, prefix=None, split=False):
 def loader_factory(
     dataset,
     dtype,
+    geo=None,
     batch_size=None,
     minibatch_size=None,
     shuffle=True,
@@ -105,7 +106,7 @@ def loader_factory(
         batch_size = minibatch_size * max(world_size, 1)
 
     # Initialize the dataset
-    torch_dataset = dataset_factory(dataset, entry_list, dtype)
+    torch_dataset = dataset_factory(dataset, entry_list, dtype, geo=geo)
 
     # Initialize the sampler
     if sampler is not None:
@@ -131,7 +132,7 @@ def loader_factory(
     )
 
 
-def dataset_factory(dataset_cfg, entry_list=None, dtype=None):
+def dataset_factory(dataset_cfg, entry_list=None, dtype=None, geo=None):
     """Instantiates a Dataset based on a configuration."""
     from . import dataset
 
@@ -146,7 +147,7 @@ def dataset_factory(dataset_cfg, entry_list=None, dtype=None):
         dataset_cfg["entry_list"] = entry_list
 
     # Initialize dataset
-    return instantiate(dataset_dict, dataset_cfg, dtype=dtype)
+    return instantiate(dataset_dict, dataset_cfg, dtype=dtype, geo=geo)
 
 
 def sampler_factory(

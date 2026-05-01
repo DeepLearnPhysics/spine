@@ -149,3 +149,20 @@ def test_rotate_generate_meta_handles_half_turn_without_axis_swap():
     assert np.array_equal(rot_meta.count, meta.count)
     assert np.array_equal(rot_meta.size, meta.size)
     assert np.array_equal(rot_meta.lower, meta.lower)
+
+
+def test_rotate_centered_meta_snaps_to_source_grid():
+    meta = make_meta(
+        lower=(0.1, 0.2, 0.3),
+        upper=(2.1, 4.2, 2.3),
+        size=(0.5, 1.0, 0.5),
+    )
+    augment = RotateAugment(
+        axes=(0, 1), k=1, center=np.asarray([1.37, 1.91, 1.05]), keep_meta=False
+    )
+
+    rot_meta = augment.generate_centered_meta(meta, augment.center, 1)
+
+    start = (rot_meta.lower - meta.lower) / rot_meta.size
+    assert np.allclose(start, np.rint(start))
+    assert np.allclose(rot_meta.upper, rot_meta.lower + rot_meta.count * rot_meta.size)

@@ -14,7 +14,7 @@ from .helpers import (
 
 
 def test_crop_augment_can_bias_toward_activity_center():
-    """Crop boxes should be able to lock onto the activity center."""
+    """Crop boxes should bias toward activity while staying on the source grid."""
     meta = make_meta(lower=(0.0, 0.0, 0.0), upper=(10.0, 10.0, 10.0))
     tensor = make_tensor([[7, 7, 7], [8, 7, 7], [7, 8, 7]], meta)
     data = {"voxels": tensor, "meta": meta}
@@ -28,8 +28,8 @@ def test_crop_augment_can_bias_toward_activity_center():
     )
     result, crop_meta = augment(data, meta, ["voxels", "meta"], {})
 
-    assert np.allclose(crop_meta.lower, np.asarray([6.8333335, 6.8333335, 6.5]))
-    assert np.allclose(crop_meta.upper, np.asarray([8.8333335, 8.8333335, 8.5]))
+    assert np.allclose(crop_meta.lower, np.asarray([7.0, 7.0, 6.0]))
+    assert np.allclose(crop_meta.upper, np.asarray([9.0, 9.0, 8.0]))
     assert np.array_equal(
         result["voxels"].coords, np.asarray([[0, 0, 1], [1, 0, 1], [0, 1, 1]])
     )
@@ -47,7 +47,7 @@ def test_crop_augment_defaults_to_activity_spread(monkeypatch):
     data = {"voxels": tensor, "meta": meta}
     seen = {}
 
-    def sample_box_lower(lower, upper, dimensions, anchor=None, spread=None):
+    def sample_box_lower(_lower, _upper, _dimensions, anchor=None, spread=None):
         seen["anchor"] = anchor
         seen["spread"] = spread
         return np.asarray([1.0, 1.0, 1.0], dtype=np.float32)
@@ -65,6 +65,60 @@ def test_crop_augment_defaults_to_activity_spread(monkeypatch):
     coords_cm = meta.to_cm(coords, center=True)
     assert np.allclose(seen["anchor"], np.mean(coords_cm, axis=0))
     assert np.allclose(seen["spread"], np.std(coords_cm, axis=0))
+
+
+def test_crop_generate_crop_snaps_sampled_bounds_to_grid(monkeypatch):
+    """Crop metadata should be aligned to the source voxel grid."""
+    meta = make_meta(
+        lower=(0.1, 0.2, 0.3),
+        upper=(4.1, 6.2, 4.3),
+        size=(0.5, 0.75, 0.5),
+    )
+    data = {"voxels": make_tensor([[1, 1, 1]], meta), "meta": meta}
+
+    monkeypatch.setattr(
+        CropAugment,
+        "sample_box_lower",
+        staticmethod(lambda *args, **kwargs: np.asarray([1.13, 2.61, 1.44])),
+    )
+
+    augment = CropAugment(
+        min_dimensions=np.asarray([1.1, 1.6, 1.1], dtype=np.float32),
+        max_dimensions=np.asarray([1.1, 1.6, 1.1], dtype=np.float32),
+        keep_meta=False,
+    )
+    crop_meta = augment.generate_crop(data, meta, ["voxels", "meta"])
+
+    start = (crop_meta.lower - meta.lower) / meta.size
+    assert np.allclose(start, np.rint(start))
+    assert np.allclose(crop_meta.upper, crop_meta.lower + crop_meta.count * meta.size)
+
+
+def test_crop_generate_crop_preserves_meta_invariant_after_float32_rounding(
+    monkeypatch,
+):
+    """Crop metadata should remain valid after float32 storage rounding."""
+    meta = make_meta(
+        lower=(-389.20172, -791.87866, 12.31634),
+        upper=(1110.7983, 208.12134, 84.31634),
+        size=(0.75, 0.5, 0.08),
+    )
+    data = {"voxels": make_tensor([[0, 0, 0]], meta), "meta": meta}
+
+    monkeypatch.setattr(
+        CropAugment,
+        "sample_box_lower",
+        staticmethod(lambda *args, **kwargs: np.asarray([627.65, 172.0, -2.7])),
+    )
+
+    augment = CropAugment(
+        min_dimensions=np.asarray([5.25, 21.0, 2.64], dtype=np.float32),
+        max_dimensions=np.asarray([5.25, 21.0, 2.64], dtype=np.float32),
+        keep_meta=False,
+    )
+    crop_meta = augment.generate_crop(data, meta, ["voxels", "meta"])
+
+    assert np.allclose(crop_meta.upper, crop_meta.lower + crop_meta.count * meta.size)
 
 
 def test_crop_augment_can_keep_meta_fixed():
