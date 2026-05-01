@@ -25,7 +25,7 @@ from .banner import ascii_logo
 from .construct import BuildManager
 from .geo import GeoManager
 from .io import reader_factory, writer_factory
-from .io.core.write.csv import CSVWriter
+from .io.write.csv import CSVWriter
 from .math import seed as numba_seed
 from .model import ModelManager
 from .post import PostManager

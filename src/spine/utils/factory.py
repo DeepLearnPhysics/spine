@@ -48,8 +48,9 @@ def module_dict(module, class_name=None, pattern=None):
             module_dict[cls_name] = cls
 
             # If a name is provided, add it to the allowed options
-            if hasattr(cls, "name") and len(cls.name):
-                module_dict[cls.name] = cls
+            name = getattr(cls, "name", None)
+            if name:
+                module_dict[name] = cls
 
             # If aliases are specified, it is allowed but should be avoided
             if hasattr(cls, "aliases"):

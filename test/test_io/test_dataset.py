@@ -1,0 +1,98 @@
+"""Test that the dataset classes work as intended."""
+
+import pytest
+import ROOT
+
+from spine.io.dataset import *
+
+
+def test_larcv_dataset(larcv_data):
+    """Tests a torch dataset based on LArCV data.
+
+    Most of the functions of this dataset are shared with the underlying
+    :class:`LArCVReader` class which is tested elsewhere.
+    """
+    # Get the list of tree keys in the larcv file
+    root_file = ROOT.TFile(larcv_data, "r")
+    num_entries = None
+    tree_keys = []
+    for tree in root_file.GetListOfKeys():
+        tree_keys.append(tree.GetName().split("_tree")[0])
+        if num_entries is None:
+            num_entries = getattr(root_file, tree.GetName()).GetEntries()
+
+    root_file.Close()
+
+    # Create a dummy schema based on the data keys
+    schema = {}
+    for key in tree_keys:
+        datatype = key.split("_")[0]
+        el = {}
+        if datatype == "sparse3d":
+            el["parser"] = datatype
+            el["sparse_event"] = key
+        elif datatype == "cluster3d":
+            el["parser"] = datatype
+            el["cluster_event"] = key
+        elif datatype == "particle":
+            el["parser"] = datatype
+            el["particle_event"] = key
+            el["pixel_coordinates"] = False
+        else:
+            raise ValueError("Unrecognized data product, cannot set up schema.")
+
+        schema[key] = el
+
+    # Initialize the dataset
+    dataset = LArCVDataset(file_keys=larcv_data, schema=schema, dtype="float32")
+
+    # Load the items in the dataset, check the keys
+    for i, entry in enumerate(dataset):
+        for key in tree_keys:
+            assert key in entry
+        assert "index" in entry
+        assert entry["index"] == i
+
+    # Check that the data keys are as expected
+    for key in tree_keys:
+        assert key in dataset.data_keys
+
+    # Check that one can list the content of the dataset
+    data_dict = dataset.list_data(larcv_data)
+    data_keys = []
+    for val in data_dict.values():
+        data_keys += list(val)
+    for key in tree_keys:
+        assert key in data_keys
+
+
+def test_hdf5_dataset(hdf5_data):
+    """Tests the torch dataset wrapper around HDF5Reader."""
+    dataset = HDF5Dataset(
+        file_keys=hdf5_data,
+        build_classes=False,
+        keys=["run_info"],
+    )
+
+    assert len(dataset) > 0
+    assert "index" in dataset.data_keys
+    assert "run_info" in dataset.data_keys
+
+    entry = dataset[0]
+    assert entry["index"] == 0
+    assert entry["file_index"] == 0
+    assert entry["file_entry_index"] == 0
+    assert "run_info" in entry
+
+
+def test_hdf5_dataset_skip_keys(hdf5_data):
+    """The HDF5 dataset should support dropping selected products."""
+    dataset = HDF5Dataset(
+        file_keys=hdf5_data,
+        build_classes=False,
+        skip_keys=["run_info"],
+    )
+
+    entry = dataset[0]
+    assert "run_info" not in entry
+    assert "index" in entry
