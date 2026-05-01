@@ -133,6 +133,16 @@ RUN git clone https://github.com/DeepLearnPhysics/OpT0Finder.git ${FMATCH_BASEDI
     git checkout ${OPT0FINDER_REF} && \
     test "$(git rev-parse HEAD)" = "${OPT0FINDER_COMMIT}" && \
     bash -lc "source ./configure.sh && make -j${OPT0FINDER_MAX_JOBS}"
+
+# Make ROOT/LArCV/OpT0Finder imports survive user-provided PYTHONPATH overrides,
+# such as `-e PYTHONPATH=/workspace/src` for editable notebook sessions.
+RUN python -c "import site; print('\n'.join(site.getsitepackages()))" | \
+    head -n 1 | \
+    xargs -I{} sh -c "printf '%s\n' \
+        /app/larcv2/python \
+        /opt/OpT0Finder/python \
+        /opt/root/lib \
+        > {}/spine-container-paths.pth"
 RUN python -c "from flashmatch import flashmatch; print('OpT0Finder import ok')"
 
 # ICARUS PhotonLibrary artifact used by the OpT0Finder likelihood flash-matching
