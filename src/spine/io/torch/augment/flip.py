@@ -20,6 +20,7 @@ class FlipAugment(AugmentBase):
         center: Optional[np.ndarray] = None,
         use_geo_center: bool = False,
         keep_meta: bool = True,
+        p: float = 1.0,
     ) -> None:
         """Initialize the flipper.
 
@@ -35,14 +36,21 @@ class FlipAugment(AugmentBase):
             If ``True``, keep the detector frame fixed and drop points that
             reflect outside the current metadata bounds. If ``False``, reflect
             the image volume together with the points.
+        p : float, default 1.0
+            Probability of applying the flip to an event. Values less than 1
+            randomly leave some events unchanged.
         """
         if not isinstance(axis, (int, np.integer)) or axis < 0 or axis > 2:
             raise ValueError("Flip axis must be an integer in the range [0, 2].")
+        p = float(p)
+        if not np.isfinite(p) or p < 0.0 or p > 1.0:
+            raise ValueError("Flip probability must be in the range [0, 1].")
 
         self.axis = int(axis)
         self.center = None if center is None else np.asarray(center, dtype=np.float32)
         self.use_geo_center = use_geo_center
         self.keep_meta = keep_meta
+        self.p = p
 
     def apply(
         self,
@@ -69,6 +77,9 @@ class FlipAugment(AugmentBase):
         Tuple[Dict[str, Any], Meta]
             Updated data dictionary and reflected metadata
         """
+        if np.random.rand() >= self.p:
+            return data, meta
+
         pivot = self.resolve_center(meta, self.center, self.use_geo_center)
         flip_meta = meta if self.keep_meta else self.generate_meta(meta, pivot)
 

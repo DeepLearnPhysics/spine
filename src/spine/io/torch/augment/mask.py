@@ -186,17 +186,20 @@ class MaskAugment(AugmentBase):
         dimensions = count * meta.size
 
         center = None
+        spread = self.center_spread
         if self.center_mode != "uniform":
-            center = self.resolve_activity_center(
+            center, activity_spread = self.resolve_activity_stats(
                 data,
                 keys,
                 meta,
                 weighted=self.center_mode == "weighted_activity",
                 feature_index=self.center_feature_index,
             )
+            if spread is None:
+                spread = activity_spread
 
         mask_lower = self.sample_box_lower(
-            lower, upper, dimensions, anchor=center, spread=self.center_spread
+            lower, upper, dimensions, anchor=center, spread=spread
         )
         mask_upper = mask_lower + dimensions
 

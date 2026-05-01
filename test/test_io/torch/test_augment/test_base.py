@@ -102,6 +102,47 @@ def test_resolve_activity_center_skips_empty_tensors_and_supports_1d_weights():
     assert np.allclose(center, expected)
 
 
+def test_resolve_activity_stats_returns_activity_spread():
+    meta = make_meta(lower=(0.0, 0.0, 0.0), upper=(10.0, 10.0, 10.0))
+    coords = np.asarray([[1, 1, 1], [7, 7, 7], [7, 1, 1]], dtype=np.int64)
+    tensor = ParserTensor(
+        coords=coords,
+        features=np.asarray([[1.0], [2.0], [3.0]], dtype=np.float32),
+        meta=meta,
+    )
+
+    center, spread = DummyAugment.resolve_activity_stats(
+        {"voxels": tensor}, ["voxels"], meta
+    )
+
+    coords_cm = meta.to_cm(coords, center=True)
+    assert np.allclose(center, np.mean(coords_cm, axis=0))
+    assert np.allclose(spread, np.std(coords_cm, axis=0))
+
+
+def test_resolve_activity_stats_returns_weighted_activity_spread():
+    meta = make_meta(lower=(0.0, 0.0, 0.0), upper=(10.0, 10.0, 10.0))
+    coords = np.asarray([[1, 1, 1], [7, 7, 7], [7, 1, 1]], dtype=np.int64)
+    weights = np.asarray([1.0, 2.0, 3.0], dtype=np.float32)
+    tensor = ParserTensor(
+        coords=coords,
+        features=weights,
+        meta=meta,
+    )
+
+    center, spread = DummyAugment.resolve_activity_stats(
+        {"voxels": tensor}, ["voxels"], meta, weighted=True
+    )
+
+    coords_cm = meta.to_cm(coords, center=True)
+    expected_center = np.average(coords_cm, axis=0, weights=weights)
+    expected_spread = np.sqrt(
+        np.average((coords_cm - expected_center) ** 2, axis=0, weights=weights)
+    )
+    assert np.allclose(center, expected_center)
+    assert np.allclose(spread, expected_spread)
+
+
 def test_sample_box_lower_supports_uniform_and_anchored_modes():
     lower = np.zeros(3, dtype=np.float32)
     upper = np.full(3, 10.0, dtype=np.float32)

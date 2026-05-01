@@ -66,6 +66,44 @@ def test_flip_augment_explicit_center_preserves_moving_meta_by_default():
     assert np.allclose(flip_meta.upper, np.asarray([2.0, 4.0, 4.0]))
 
 
+def test_flip_augment_probability_zero_leaves_event_unchanged():
+    """Flip probability can disable the transform for an event."""
+    meta = make_meta(lower=(0.0, 0.0, 0.0), upper=(4.0, 4.0, 4.0))
+    tensor = make_tensor([[0, 1, 2], [3, 1, 2]], meta)
+    data = {"voxels": tensor, "meta": meta}
+
+    augment = FlipAugment(axis=0, p=0.0)
+    result, flip_meta = augment(data, meta, ["voxels", "meta"], {})
+
+    assert np.array_equal(result["voxels"].coords, np.asarray([[0, 1, 2], [3, 1, 2]]))
+    assert flip_meta is meta
+
+
+def test_flip_augment_probability_uses_random_draw(monkeypatch):
+    """Flip probability should compare against one random event-level draw."""
+    meta = make_meta(lower=(0.0, 0.0, 0.0), upper=(4.0, 4.0, 4.0))
+
+    monkeypatch.setattr(np.random, "rand", lambda: 0.75)
+    tensor = make_tensor([[0, 1, 2], [3, 1, 2]], meta)
+    data = {"voxels": tensor, "meta": meta}
+    result, flip_meta = FlipAugment(axis=0, p=0.5)(data, meta, ["voxels", "meta"], {})
+    assert np.array_equal(result["voxels"].coords, np.asarray([[0, 1, 2], [3, 1, 2]]))
+    assert flip_meta is meta
+
+    monkeypatch.setattr(np.random, "rand", lambda: 0.25)
+    tensor = make_tensor([[0, 1, 2], [3, 1, 2]], meta)
+    data = {"voxels": tensor, "meta": meta}
+    result, flip_meta = FlipAugment(axis=0, p=0.5)(data, meta, ["voxels", "meta"], {})
+    assert np.array_equal(result["voxels"].coords, np.asarray([[3, 1, 2], [0, 1, 2]]))
+    assert flip_meta is meta
+
+
 def test_flip_rejects_invalid_axis():
     with pytest.raises(ValueError):
         FlipAugment(axis=3)
+
+
+@pytest.mark.parametrize("p", [-0.1, 1.1, np.nan])
+def test_flip_rejects_invalid_probability(p):
+    with pytest.raises(ValueError):
+        FlipAugment(axis=0, p=p)

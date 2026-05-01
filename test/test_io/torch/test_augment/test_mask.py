@@ -65,6 +65,39 @@ def test_mask_augment_can_bias_toward_weighted_activity_center():
     assert np.array_equal(result["voxels"].coords, np.asarray([[1, 1, 1]]))
 
 
+def test_mask_augment_defaults_to_weighted_activity_spread(monkeypatch):
+    """Weighted activity masks should use weighted spread when none is given."""
+    meta = make_meta(lower=(0.0, 0.0, 0.0), upper=(10.0, 10.0, 10.0))
+    coords = np.asarray([[1, 1, 1], [7, 7, 7], [7, 1, 1]], dtype=np.int64)
+    weights = np.asarray([1.0, 2.0, 3.0], dtype=np.float32)
+    tensor = ParserTensor(coords=coords.copy(), features=weights, meta=meta)
+    data = {"voxels": tensor, "meta": meta}
+    seen = {}
+
+    def sample_box_lower(lower, upper, dimensions, anchor=None, spread=None):
+        seen["anchor"] = anchor
+        seen["spread"] = spread
+        return np.asarray([1.0, 1.0, 1.0], dtype=np.float32)
+
+    monkeypatch.setattr(MaskAugment, "sample_box_lower", staticmethod(sample_box_lower))
+
+    augment = MaskAugment(
+        min_dimensions=BOX2,
+        max_dimensions=BOX2,
+        center_mode="weighted_activity",
+        center_feature_index=0,
+    )
+    augment.generate_mask(data, meta, ["voxels", "meta"])
+
+    coords_cm = meta.to_cm(coords, center=True)
+    expected_center = np.average(coords_cm, axis=0, weights=weights)
+    expected_spread = np.sqrt(
+        np.average((coords_cm - expected_center) ** 2, axis=0, weights=weights)
+    )
+    assert np.allclose(seen["anchor"], expected_center)
+    assert np.allclose(seen["spread"], expected_spread)
+
+
 def test_mask_constructor_validates_arguments():
     with pytest.raises(ValueError):
         MaskAugment(min_dimensions=BOX2)

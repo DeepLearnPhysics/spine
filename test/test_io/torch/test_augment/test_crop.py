@@ -35,6 +35,38 @@ def test_crop_augment_can_bias_toward_activity_center():
     )
 
 
+def test_crop_augment_defaults_to_activity_spread(monkeypatch):
+    """Activity-biased crops should use activity spread when none is given."""
+    meta = make_meta(lower=(0.0, 0.0, 0.0), upper=(10.0, 10.0, 10.0))
+    coords = np.asarray([[1, 1, 1], [7, 7, 7], [7, 1, 1]], dtype=np.int64)
+    tensor = ParserTensor(
+        coords=coords,
+        features=np.ones((3, 1), dtype=np.float32),
+        meta=meta,
+    )
+    data = {"voxels": tensor, "meta": meta}
+    seen = {}
+
+    def sample_box_lower(lower, upper, dimensions, anchor=None, spread=None):
+        seen["anchor"] = anchor
+        seen["spread"] = spread
+        return np.asarray([1.0, 1.0, 1.0], dtype=np.float32)
+
+    monkeypatch.setattr(CropAugment, "sample_box_lower", staticmethod(sample_box_lower))
+
+    augment = CropAugment(
+        min_dimensions=BOX2,
+        max_dimensions=BOX2,
+        center_mode="activity",
+        keep_meta=False,
+    )
+    augment.generate_crop(data, meta, ["voxels", "meta"])
+
+    coords_cm = meta.to_cm(coords, center=True)
+    assert np.allclose(seen["anchor"], np.mean(coords_cm, axis=0))
+    assert np.allclose(seen["spread"], np.std(coords_cm, axis=0))
+
+
 def test_crop_augment_can_keep_meta_fixed():
     """Cropping should optionally preserve the original metadata and indices."""
     meta = make_meta(lower=(0.0, 0.0, 0.0), upper=(10.0, 10.0, 10.0))

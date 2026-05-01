@@ -205,6 +205,46 @@ class AugmentBase(ABC):
         np.ndarray
             (3,) Activity center in detector coordinates (cm)
         """
+        center, _ = AugmentBase.resolve_activity_stats(
+            data,
+            keys,
+            meta,
+            weighted=weighted,
+            feature_index=feature_index,
+        )
+        return center
+
+    @staticmethod
+    def resolve_activity_stats(
+        data: Dict[str, Any],
+        keys: List[str],
+        meta: Meta,
+        weighted: bool = False,
+        feature_index: int = 0,
+    ) -> Tuple[np.ndarray, np.ndarray | None]:
+        """Estimate activity center and spread from coordinate-carrying tensors.
+
+        Parameters
+        ----------
+        data : dict
+            Dictionary of event data products
+        keys : List[str]
+            Keys corresponding to data products that carry coordinates
+        meta : Meta
+            Shared image metadata
+        weighted : bool, default False
+            If ``True``, weight the center and spread by the absolute feature
+            value in the requested feature column
+        feature_index : int, default 0
+            Feature column to use when ``weighted=True``
+
+        Returns
+        -------
+        Tuple[np.ndarray, np.ndarray or None]
+            ``(3,)`` Activity center and standard deviation in detector
+            coordinates (cm). If no activity is available, the center falls
+            back to the metadata center and the spread is ``None``.
+        """
         coords_list = []
         weights_list = []
         for key in keys:
@@ -227,17 +267,25 @@ class AugmentBase(ABC):
                 weights_list.append(weights)
 
         if not coords_list:
-            return ((meta.lower + meta.upper) / 2.0).astype(np.float32)
+            center = ((meta.lower + meta.upper) / 2.0).astype(np.float32)
+            return center, None
 
         coords = np.vstack(coords_list)
         if not weighted:
-            return np.mean(coords, axis=0).astype(np.float32)
+            center = np.mean(coords, axis=0)
+            spread = np.std(coords, axis=0)
+            return center.astype(np.float32), spread.astype(np.float32)
 
         weights = np.concatenate(weights_list).astype(np.float64)
         if np.allclose(weights.sum(), 0.0):
-            return np.mean(coords, axis=0).astype(np.float32)
+            center = np.mean(coords, axis=0)
+            spread = np.std(coords, axis=0)
+            return center.astype(np.float32), spread.astype(np.float32)
 
-        return np.average(coords, axis=0, weights=weights).astype(np.float32)
+        center = np.average(coords, axis=0, weights=weights)
+        variance = np.average((coords - center) ** 2, axis=0, weights=weights)
+        spread = np.sqrt(variance)
+        return center.astype(np.float32), spread.astype(np.float32)
 
     @staticmethod
     def sample_box_lower(
