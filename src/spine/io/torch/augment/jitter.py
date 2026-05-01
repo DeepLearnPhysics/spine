@@ -46,6 +46,7 @@ class JitterAugment(AugmentBase):
             This method does not return anything
         """
         if np.isscalar(max_offset):
+            assert not isinstance(max_offset, complex)  # Type narrowing for mypy
             max_offset = np.full(3, int(max_offset), dtype=np.int64)
         else:
             max_offset = np.asarray(max_offset, dtype=np.int64)
@@ -61,6 +62,7 @@ class JitterAugment(AugmentBase):
             )
 
         if np.isscalar(poisson_lambda):
+            assert not isinstance(poisson_lambda, complex)  # Type narrowing for mypy
             poisson_lambda = np.full(3, float(poisson_lambda), dtype=np.float32)
         else:
             poisson_lambda = np.asarray(poisson_lambda, dtype=np.float32)
