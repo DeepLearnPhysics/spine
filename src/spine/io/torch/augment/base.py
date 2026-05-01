@@ -384,11 +384,11 @@ class AugmentBase(ABC):
         )
         start = np.clip(sampled_start, start_min, start_max)
 
-        lower = meta.lower + start * meta.size
-        upper = lower + count * meta.size
+        lower = np.asarray(meta.lower + start * meta.size, dtype=meta.lower.dtype)
+        upper = np.asarray(lower + count * meta.size, dtype=meta.upper.dtype)
         return Meta(
-            lower=lower.astype(meta.lower.dtype),
-            upper=upper.astype(meta.upper.dtype),
+            lower=lower,
+            upper=upper,
             size=meta.size.copy(),
             count=count,
         )
@@ -421,11 +421,11 @@ class AugmentBase(ABC):
         size = np.asarray(size, dtype=meta.size.dtype)
         count = np.asarray(count, dtype=meta.count.dtype)
         start = np.rint((lower - meta.lower) / size).astype(meta.count.dtype)
-        snapped_lower = meta.lower + start * size
-        upper = snapped_lower + size * count
+        snapped_lower = np.asarray(meta.lower + start * size, dtype=meta.lower.dtype)
+        upper = np.asarray(snapped_lower + size * count, dtype=meta.upper.dtype)
         return Meta(
-            lower=snapped_lower.astype(meta.lower.dtype),
-            upper=upper.astype(meta.upper.dtype),
+            lower=snapped_lower,
+            upper=upper,
             size=size,
             count=count,
         )

@@ -124,3 +124,18 @@ def test_flip_generate_meta_snaps_to_source_grid():
     assert np.allclose(
         flip_meta.upper, flip_meta.lower + flip_meta.count * flip_meta.size
     )
+
+
+def test_flip_generate_meta_preserves_meta_invariant_after_float32_rounding():
+    meta = make_meta(
+        lower=(-389.20172, -791.87866, 12.31634),
+        upper=(1110.7983, 208.12134, 84.31634),
+        size=(0.75, 0.5, 0.08),
+    )
+    pivot = np.asarray([630.4233, -291.87866, 40.79634], dtype=np.float32)
+
+    flip_meta = FlipAugment(axis=2, keep_meta=False).generate_meta(meta, pivot)
+
+    assert np.allclose(
+        flip_meta.upper, flip_meta.lower + flip_meta.count * flip_meta.size
+    )
