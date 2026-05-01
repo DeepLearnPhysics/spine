@@ -420,6 +420,7 @@ class Driver:
             self.watch.initialize("load")
             self.loader = loader_factory(
                 **loader,
+                geo=self.cfg.get("geo"),
                 rank=self.rank,
                 dtype=self.dtype,
                 world_size=self.world_size,

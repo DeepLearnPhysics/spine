@@ -18,6 +18,7 @@ __all__ = ["loader_factory", "dataset_factory", "sampler_factory", "collate_fact
 def loader_factory(
     dataset,
     dtype,
+    geo=None,
     batch_size=None,
     minibatch_size=None,
     shuffle=True,
@@ -40,6 +41,9 @@ def loader_factory(
         Dataset configuration dictionary
     dtype : str
         Data type to cast the input data to
+    geo : dict, optional
+        Geometry configuration dictionary to propagate to worker-side
+        geometry-dependent tools
     batch_size : int, optional
         Number of data samples to load per iteration
     minibatch_size : int, optional
@@ -84,7 +88,7 @@ def loader_factory(
         batch_size = minibatch_size * max(world_size, 1)
 
     # Initialize the dataset
-    torch_dataset = dataset_factory(dataset, entry_list, dtype)
+    torch_dataset = dataset_factory(dataset, entry_list, dtype, geo=geo)
 
     # Initialize the sampler
     if sampler is not None:
@@ -112,7 +116,7 @@ def loader_factory(
     return torch_loader
 
 
-def dataset_factory(dataset_cfg, entry_list=None, dtype=None):
+def dataset_factory(dataset_cfg, entry_list=None, dtype=None, geo=None):
     """Instantiates a Dataset based on a configuration.
 
     The Dataset type is specified in configuration under `io.dataset.name`.
@@ -126,6 +130,8 @@ def dataset_factory(dataset_cfg, entry_list=None, dtype=None):
         List of entry numbers to include in the dataset
     dtype : str, optional
         Data type to cast the input data to (to match the downstream model)
+    geo : dict, optional
+        Geometry configuration dictionary to propagate to the dataset
 
     Returns
     -------
@@ -145,7 +151,7 @@ def dataset_factory(dataset_cfg, entry_list=None, dtype=None):
         dataset_cfg["entry_list"] = entry_list
 
     # Initialize dataset
-    return instantiate(DATASET_DICT, dataset_cfg, dtype=dtype)
+    return instantiate(DATASET_DICT, dataset_cfg, dtype=dtype, geo=geo)
 
 
 def sampler_factory(

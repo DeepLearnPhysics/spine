@@ -2,7 +2,7 @@
 
 from spine.io.torch.augment.manager import AugmentManager
 
-from .helpers import BOX2, CropAugment, MaskAugment, make_meta, make_tensor, np, pytest
+from .helpers import BOX2, CropAugment, GeoManager, make_meta, make_tensor, np, pytest
 
 
 def test_manager_requires_at_least_one_module():
@@ -88,3 +88,24 @@ def test_manager_applies_modules_in_order_and_updates_context_meta():
     result = manager(data)
     assert result["meta"].count.shape == (3,)
     assert len(result["voxels"].coords) <= 2
+
+
+def test_manager_initializes_geometry_from_config(monkeypatch):
+    calls = []
+
+    def initialize_or_get(**kwargs):
+        calls.append(kwargs)
+        return GeoManager.get_instance_if_initialized()
+
+    monkeypatch.setattr(GeoManager, "initialize_or_get", initialize_or_get)
+
+    manager = AugmentManager(
+        geo={"detector": "icarus"},
+        mask={"min_dimensions": BOX2, "max_dimensions": BOX2},
+    )
+    meta = make_meta()
+    data = {"voxels": make_tensor([[0, 0, 0]], meta), "meta": meta}
+
+    manager(data)
+
+    assert calls == [{"detector": "icarus"}]

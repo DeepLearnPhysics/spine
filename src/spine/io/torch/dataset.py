@@ -34,7 +34,7 @@ class LArCVDataset(Dataset):
     # List of index keys produced with each entry
     _index_keys = ("index", "file_index", "file_entry_index")
 
-    def __init__(self, schema, dtype, augment=None, **kwargs):
+    def __init__(self, schema, dtype, augment=None, geo=None, **kwargs):
         """Instantiates the LArCVDataset.
 
         Parameters
@@ -50,6 +50,8 @@ class LArCVDataset(Dataset):
             Data type to cast the input data to (to match the downstream model)
         augment : dict, optional
             Augmentation strategy configuration
+        geo : dict, optional
+            Geometry configuration dictionary propagated from the driver
         **kwargs : dict, optional
             Additional arguments to pass to the LArCVReader class
         """
@@ -70,7 +72,7 @@ class LArCVDataset(Dataset):
         # Parse the augmentation configuration
         self.augmenter = None
         if augment is not None:
-            self.augmenter = AugmentManager(**augment)
+            self.augmenter = AugmentManager(geo=geo, **augment)
 
         # Instantiate the reader
         self.reader = LArCVReader(tree_keys=tree_keys, **kwargs)
