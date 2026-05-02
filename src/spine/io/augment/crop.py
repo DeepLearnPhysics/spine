@@ -1,6 +1,6 @@
 """Cropping augmentation module."""
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 
@@ -17,13 +17,13 @@ class CropAugment(AugmentBase):
 
     def __init__(
         self,
-        min_dimensions: Optional[np.ndarray] = None,
-        max_dimensions: Optional[np.ndarray] = None,
-        lower: Optional[np.ndarray] = None,
-        upper: Optional[np.ndarray] = None,
+        min_dimensions: np.ndarray | None = None,
+        max_dimensions: np.ndarray | None = None,
+        lower: np.ndarray | None = None,
+        upper: np.ndarray | None = None,
         use_geo_boundaries: bool = False,
         center_mode: str = "uniform",
-        center_spread: Optional[np.ndarray] = None,
+        center_spread: np.ndarray | None = None,
         center_feature_index: int = 0,
         active_volume: bool = False,
         keep_meta: bool = True,
@@ -136,11 +136,11 @@ class CropAugment(AugmentBase):
 
     def apply(
         self,
-        data: Dict[str, Any],
+        data: dict[str, Any],
         meta: Meta,
-        keys: List[str],
-        context: Dict[str, Any],
-    ) -> Tuple[Dict[str, Any], Meta]:
+        keys: list[str],
+        context: dict[str, Any],
+    ) -> tuple[dict[str, Any], Meta]:
         """Randomly crop the image within the pre-defined range.
 
         Parameters
@@ -253,7 +253,7 @@ class CropAugment(AugmentBase):
         upper = lower + count * meta.size
         return Meta(lower=lower, upper=upper, size=meta.size.copy(), count=count)
 
-    def generate_crop(self, data: Dict[str, Any], meta: Meta, keys: List[str]) -> Meta:
+    def generate_crop(self, data: dict[str, Any], meta: Meta, keys: list[str]) -> Meta:
         """Generate crop box metadata to apply to voxel index sets.
 
         Parameters

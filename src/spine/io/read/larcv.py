@@ -1,6 +1,6 @@
 """Contains a reader class dedicated to loading data from LArCV files."""
 
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 import numpy as np
 
@@ -34,21 +34,21 @@ class LArCVReader(ReaderBase):
 
     def __init__(
         self,
-        file_keys: Optional[Union[str, List[str]]] = None,
-        file_list: Optional[str] = None,
-        tree_keys: Optional[List[str]] = None,
-        limit_num_files: Optional[int] = None,
+        file_keys: str | list[str] | None = None,
+        file_list: str | None = None,
+        tree_keys: list[str] | None = None,
+        limit_num_files: int | None = None,
         max_print_files: int = 10,
-        n_entry: Optional[int] = None,
-        n_skip: Optional[int] = None,
-        entry_list: Optional[List[int]] = None,
-        skip_entry_list: Optional[List[int]] = None,
-        run_event_list: Optional[List[List[int]]] = None,
-        skip_run_event_list: Optional[List[List[int]]] = None,
+        n_entry: int | None = None,
+        n_skip: int | None = None,
+        entry_list: list[int] | None = None,
+        skip_entry_list: list[int] | None = None,
+        run_event_list: list[list[int]] | None = None,
+        skip_run_event_list: list[list[int]] | None = None,
         create_run_map: bool = False,
-        run_info_key: Optional[str] = None,
+        run_info_key: str | None = None,
         allow_missing: bool = False,
-    ):
+    ) -> None:
         """Initialize the LArCV file reader.
 
         Parameters
@@ -170,7 +170,7 @@ class LArCVReader(ReaderBase):
             allow_missing,
         )
 
-    def get(self, idx: int) -> Dict[str, Any]:
+    def get(self, idx: int) -> dict[str, Any]:
         """Returns a specific entry in the file.
 
         Parameters
@@ -211,7 +211,7 @@ class LArCVReader(ReaderBase):
         return data
 
     @staticmethod
-    def list_data(file_path: str) -> Dict[str, List[str]]:
+    def list_data(file_path: str) -> dict[str, list[str]]:
         """Dumps top-level information about the contents of a LArCV root file.
 
         Parameters

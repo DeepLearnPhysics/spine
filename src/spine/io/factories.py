@@ -1,5 +1,9 @@
 """Functions that instantiate IO tools from configuration blocks."""
 
+from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import Any
 from warnings import warn
 
 from spine.utils.conditional import TORCH_AVAILABLE
@@ -20,7 +24,7 @@ __all__ = [
 ]
 
 
-def reader_factory(reader_cfg):
+def reader_factory(reader_cfg: Mapping[str, Any] | str) -> Any:
     """Instantiates reader based on type specified in configuration under
     `io.reader.name`. The name must match the name of a class under
     `spine.io.readers`.
@@ -43,7 +47,11 @@ def reader_factory(reader_cfg):
     return instantiate(READER_DICT, reader_cfg)
 
 
-def writer_factory(writer_cfg, prefix=None, split=False):
+def writer_factory(
+    writer_cfg: Mapping[str, Any] | str,
+    prefix: str | list[str] | None = None,
+    split: bool = False,
+) -> Any:
     """Instantiates writer based on type specified in configuration under
     `io.writer.name`. The name must match the name of a class under
     `spine.io.writers`.
@@ -77,21 +85,21 @@ def writer_factory(writer_cfg, prefix=None, split=False):
 
 
 def loader_factory(
-    dataset,
-    dtype,
-    geo=None,
-    batch_size=None,
-    minibatch_size=None,
-    shuffle=True,
-    sampler=None,
-    num_workers=0,
-    collate_fn=None,
-    entry_list=None,
-    distributed=False,
-    world_size=0,
-    rank=0,
-    **kwargs,
-):
+    dataset: Mapping[str, Any] | str,
+    dtype: str,
+    geo: Mapping[str, Any] | None = None,
+    batch_size: int | None = None,
+    minibatch_size: int | None = None,
+    shuffle: bool = True,
+    sampler: Mapping[str, Any] | str | None = None,
+    num_workers: int = 0,
+    collate_fn: Mapping[str, Any] | str | None = None,
+    entry_list: list[int] | None = None,
+    distributed: bool = False,
+    world_size: int = 0,
+    rank: int = 0,
+    **kwargs: Any,
+) -> Any:
     """Instantiates a PyTorch DataLoader based on configuration."""
     if not TORCH_AVAILABLE:
         raise ImportError("PyTorch is required to use loader_factory.")
@@ -138,7 +146,12 @@ def loader_factory(
     )
 
 
-def dataset_factory(dataset_cfg, entry_list=None, dtype=None, geo=None):
+def dataset_factory(
+    dataset_cfg: Mapping[str, Any] | str,
+    entry_list: list[int] | None = None,
+    dtype: str | None = None,
+    geo: Mapping[str, Any] | None = None,
+) -> Any:
     """Instantiates a Dataset based on a configuration."""
     from . import dataset
 
@@ -150,6 +163,7 @@ def dataset_factory(dataset_cfg, entry_list=None, dtype=None, geo=None):
             "You are manually overwriting the existing `entry_list` "
             "argument provided in the configuration file."
         )
+        dataset_cfg = dict(dataset_cfg)
         dataset_cfg["entry_list"] = entry_list
 
     # Initialize dataset
@@ -161,8 +175,13 @@ def dataset_factory(dataset_cfg, entry_list=None, dtype=None, geo=None):
 
 
 def sampler_factory(
-    sampler_cfg, dataset, minibatch_size, distributed=False, num_replicas=1, rank=0
-):
+    sampler_cfg: Mapping[str, Any] | str,
+    dataset: Any,
+    minibatch_size: int,
+    distributed: bool = False,
+    num_replicas: int = 1,
+    rank: int = 0,
+) -> Any:
     """Instantiates sampler based on configuration."""
     if not TORCH_AVAILABLE:
         raise ImportError("PyTorch is required to use sampler_factory.")
@@ -183,7 +202,11 @@ def sampler_factory(
     return sampler_obj
 
 
-def collate_factory(collate_cfg, data_types, overlay_methods):
+def collate_factory(
+    collate_cfg: Mapping[str, Any] | str,
+    data_types: Mapping[str, str],
+    overlay_methods: Mapping[str, str],
+) -> Any:
     """Instantiates collate function based on configuration."""
     from . import collate
 

@@ -1,7 +1,7 @@
 """Base interfaces for data augmentation modules."""
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import numpy as np
 
@@ -17,11 +17,11 @@ class AugmentBase(ABC):
 
     def __call__(
         self,
-        data: Dict[str, Any],
+        data: dict[str, Any],
         meta: Meta,
-        keys: List[str],
-        context: Dict[str, Any],
-    ) -> Tuple[Dict[str, Any], Meta]:
+        keys: list[str],
+        context: dict[str, Any],
+    ) -> tuple[dict[str, Any], Meta]:
         """Apply an augmentation module.
 
         Parameters
@@ -45,11 +45,11 @@ class AugmentBase(ABC):
     @abstractmethod
     def apply(
         self,
-        data: Dict[str, Any],
+        data: dict[str, Any],
         meta: Meta,
-        keys: List[str],
-        context: Dict[str, Any],
-    ) -> Tuple[Dict[str, Any], Meta]:
+        keys: list[str],
+        context: dict[str, Any],
+    ) -> tuple[dict[str, Any], Meta]:
         """Apply an augmentation to one event.
 
         Parameters
@@ -145,7 +145,7 @@ class AugmentBase(ABC):
 
     @staticmethod
     def parse_optional_vector(
-        value: float | List[float] | Tuple[float, ...] | np.ndarray | None,
+        value: float | list[float] | tuple[float, ...] | np.ndarray | None,
         name: str,
     ) -> np.ndarray | None:
         """Parse an optional scalar-or-vector parameter into a length-3 array.
@@ -178,8 +178,8 @@ class AugmentBase(ABC):
 
     @staticmethod
     def resolve_activity_center(
-        data: Dict[str, Any],
-        keys: List[str],
+        data: dict[str, Any],
+        keys: list[str],
         meta: Meta,
         weighted: bool = False,
         feature_index: int = 0,
@@ -216,12 +216,12 @@ class AugmentBase(ABC):
 
     @staticmethod
     def resolve_activity_stats(
-        data: Dict[str, Any],
-        keys: List[str],
+        data: dict[str, Any],
+        keys: list[str],
         meta: Meta,
         weighted: bool = False,
         feature_index: int = 0,
-    ) -> Tuple[np.ndarray, np.ndarray | None]:
+    ) -> tuple[np.ndarray, np.ndarray | None]:
         """Estimate activity center and spread from coordinate-carrying tensors.
 
         Parameters

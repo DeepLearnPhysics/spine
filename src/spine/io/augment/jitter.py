@@ -1,6 +1,6 @@
 """Voxel coordinate jitter augmentation module."""
 
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any
 
 import numpy as np
 
@@ -16,11 +16,11 @@ class JitterAugment(AugmentBase):
 
     def __init__(
         self,
-        max_offset: Union[int, Tuple[int, int, int], List[int], np.ndarray],
+        max_offset: int | tuple[int, int, int] | list[int] | np.ndarray,
         distribution: str = "uniform",
-        poisson_lambda: Union[
-            float, Tuple[float, float, float], List[float], np.ndarray
-        ] = 1.0,
+        poisson_lambda: (
+            float | tuple[float, float, float] | list[float] | np.ndarray
+        ) = 1.0,
         clip: bool = True,
     ) -> None:
         """Initialize the jitter augmenter.
@@ -79,11 +79,11 @@ class JitterAugment(AugmentBase):
 
     def apply(
         self,
-        data: Dict[str, Any],
+        data: dict[str, Any],
         meta: Meta,
-        keys: List[str],
-        context: Dict[str, Any],
-    ) -> Tuple[Dict[str, Any], Meta]:
+        keys: list[str],
+        context: dict[str, Any],
+    ) -> tuple[dict[str, Any], Meta]:
         """Apply per-voxel coordinate jitter.
 
         Parameters

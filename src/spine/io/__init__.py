@@ -12,4 +12,4 @@ from .factories import *
 from .read import *
 from .write import *
 
-TORCH_IO_AVAILABLE = TORCH_AVAILABLE
+TORCH_IO_AVAILABLE: bool = TORCH_AVAILABLE

@@ -1,6 +1,6 @@
 """Translation augmentation module."""
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 
@@ -17,8 +17,8 @@ class TranslateAugment(AugmentBase):
 
     def __init__(
         self,
-        lower: Optional[np.ndarray] = None,
-        upper: Optional[np.ndarray] = None,
+        lower: np.ndarray | None = None,
+        upper: np.ndarray | None = None,
         use_geo: bool = False,
     ) -> None:
         """Initialize the translater.
@@ -62,11 +62,11 @@ class TranslateAugment(AugmentBase):
 
     def apply(
         self,
-        data: Dict[str, Any],
+        data: dict[str, Any],
         meta: Meta,
-        keys: List[str],
-        context: Dict[str, Any],
-    ) -> Tuple[Dict[str, Any], Meta]:
+        keys: list[str],
+        context: dict[str, Any],
+    ) -> tuple[dict[str, Any], Meta]:
         """Move an image around within the pre-defined volume.
 
         Parameters
@@ -103,7 +103,7 @@ class TranslateAugment(AugmentBase):
 
         return data, target_meta
 
-    def get_target_meta(self, meta: Meta, original_meta: Optional[Meta] = None) -> Meta:
+    def get_target_meta(self, meta: Meta, original_meta: Meta | None = None) -> Meta:
         """Resolve the target translation volume metadata.
 
         Parameters

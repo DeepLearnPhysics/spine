@@ -4,12 +4,20 @@ Collate classes are a middleware between parsers and datasets. They are given
 to :class:`torch.utils.data.DataLoader` as the `collate_fn` argumement.
 """
 
+from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
+from typing import Any
+
 import numpy as np
 
 from spine.data import EdgeIndexBatch, IndexBatch, TensorBatch
 from spine.geo import GeoManager
 
 from .overlay import Overlayer
+
+SampleDict = dict[str, Any]
+BatchType = Sequence[SampleDict]
 
 __all__ = ["CollateAll"]
 
@@ -31,13 +39,13 @@ class CollateAll:
 
     def __init__(
         self,
-        data_types,
-        split=False,
-        target_id=0,
-        source=None,
-        overlay=None,
-        overlay_methods=None,
-    ):
+        data_types: Mapping[str, str],
+        split: bool = False,
+        target_id: int = 0,
+        source: Mapping[str, str] | None = None,
+        overlay: Mapping[str, Any] | None = None,
+        overlay_methods: Mapping[str, str] | None = None,
+    ) -> None:
         """Initialize the collation parameters.
 
         Parameters
@@ -76,7 +84,7 @@ class CollateAll:
                 **overlay, data_types=data_types, methods=overlay_methods
             )
 
-    def __call__(self, batch):
+    def __call__(self, batch: BatchType) -> dict[str, Any]:
         """Takes a list of parsed information, one per event in a batch, and
         collates them into a single object per entry in the batch.
 
@@ -120,7 +128,7 @@ class CollateAll:
 
         return data
 
-    def stack_coord_tensors(self, batch, key):
+    def stack_coord_tensors(self, batch: BatchType, key: str) -> TensorBatch:
         """Stack coordinate tensors together across an overlay.
 
         Parameters
@@ -197,7 +205,9 @@ class CollateAll:
             coord_cols=coord_cols,
         )
 
-    def stack_index_tensors(self, batch, key):
+    def stack_index_tensors(
+        self, batch: BatchType, key: str
+    ) -> IndexBatch | EdgeIndexBatch:
         """Stack index tensors together across an overlay.
 
         Parameters
@@ -231,7 +241,7 @@ class CollateAll:
         else:
             return EdgeIndexBatch(index, counts, offsets, directed=True)
 
-    def stack_feat_tensors(self, batch, key):
+    def stack_feat_tensors(self, batch: BatchType, key: str) -> TensorBatch:
         """Stack feature tensors together across an overlay.
 
         Parameters

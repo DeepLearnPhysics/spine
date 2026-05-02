@@ -1,6 +1,6 @@
 """Masking augmentation module."""
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 
@@ -17,13 +17,13 @@ class MaskAugment(AugmentBase):
 
     def __init__(
         self,
-        min_dimensions: Optional[np.ndarray] = None,
-        max_dimensions: Optional[np.ndarray] = None,
-        lower: Optional[np.ndarray] = None,
-        upper: Optional[np.ndarray] = None,
+        min_dimensions: np.ndarray | None = None,
+        max_dimensions: np.ndarray | None = None,
+        lower: np.ndarray | None = None,
+        upper: np.ndarray | None = None,
         use_geo_boundaries: bool = False,
         center_mode: str = "uniform",
-        center_spread: Optional[np.ndarray] = None,
+        center_spread: np.ndarray | None = None,
         center_feature_index: int = 0,
     ) -> None:
         """Initialize the masker.
@@ -115,11 +115,11 @@ class MaskAugment(AugmentBase):
 
     def apply(
         self,
-        data: Dict[str, Any],
+        data: dict[str, Any],
         meta: Meta,
-        keys: List[str],
-        context: Dict[str, Any],
-    ) -> Tuple[Dict[str, Any], Meta]:
+        keys: list[str],
+        context: dict[str, Any],
+    ) -> tuple[dict[str, Any], Meta]:
         """Randomly mask a portion of the image.
 
         Parameters
@@ -156,7 +156,7 @@ class MaskAugment(AugmentBase):
 
         return data, meta
 
-    def generate_mask(self, data: Dict[str, Any], meta: Meta, keys: List[str]) -> Meta:
+    def generate_mask(self, data: dict[str, Any], meta: Meta, keys: list[str]) -> Meta:
         """Generate a masking box metadata to apply to voxel index sets.
 
         Parameters

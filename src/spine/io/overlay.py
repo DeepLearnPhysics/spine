@@ -1,11 +1,18 @@
 """Module with methods to overlay multiple events."""
 
+from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
+from typing import Any
 from warnings import warn
 
 import numpy as np
 
 from .parse.clean_data import clean_sparse_data
 from .parse.data import ParserObjectList, ParserTensor
+
+SampleDict = dict[str, Any]
+BatchType = Sequence[SampleDict]
 
 __all__ = ["Overlayer"]
 
@@ -25,7 +32,13 @@ class Overlayer:
     # List of recognized overlay modes
     _modes = ("constant", "uniform", "poisson")
 
-    def __init__(self, data_types, methods, multiplicity, mode="constant"):
+    def __init__(
+        self,
+        data_types: Mapping[str, str],
+        methods: Mapping[str, str | None],
+        multiplicity: int,
+        mode: str = "constant",
+    ) -> None:
         """Store the overlay parameters.
 
         Parameters
@@ -55,7 +68,7 @@ class Overlayer:
         self.data_types = data_types
         self.methods = methods
 
-    def __call__(self, batch):
+    def __call__(self, batch: BatchType) -> list[SampleDict]:
         """Given a batch of data, provides an overlay batching and modifies
         the data in place to avoid indexing conflicts.
 
@@ -109,7 +122,7 @@ class Overlayer:
 
         return overlay_batch
 
-    def get_assignments(self, batch_size):
+    def get_assignments(self, batch_size: int) -> np.ndarray:
         """Given a data product count, produce batch assignments.
 
         Parameters
@@ -157,7 +170,9 @@ class Overlayer:
         # Return
         return overlay_ids
 
-    def merge_scalars(self, batch, key, index):
+    def merge_scalars(
+        self, batch: BatchType, key: str, index: np.ndarray | Sequence[int]
+    ) -> Any:
         """Merge scalars into one per overlay.
 
         Parameters
@@ -203,7 +218,9 @@ class Overlayer:
                 "Must be one of 'first', 'match' or 'sum'."
             )
 
-    def merge_objects(self, batch, key, index):
+    def merge_objects(
+        self, batch: BatchType, key: str, index: np.ndarray | Sequence[int]
+    ) -> Any:
         """Merge objects into one per overlay.
 
         Parameters
@@ -243,7 +260,9 @@ class Overlayer:
                 "Must be one of 'first' or 'match'."
             )
 
-    def cat_objects(self, batch, key, index):
+    def cat_objects(
+        self, batch: BatchType, key: str, index: np.ndarray | Sequence[int]
+    ) -> ParserObjectList:
         """Concatenate object lists into one, offset index attributes if needed.
 
         Parameters
@@ -286,7 +305,9 @@ class Overlayer:
 
         return ParserObjectList(obj_list, ref_list.default, shifts)
 
-    def stack_tensors(self, batch, key, index):
+    def stack_tensors(
+        self, batch: BatchType, key: str, index: np.ndarray | Sequence[int]
+    ) -> ParserTensor:
         """Stack tensors together across an overlay.
 
         Parameters

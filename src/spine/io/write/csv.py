@@ -2,7 +2,7 @@
 
 import os
 from types import TracebackType
-from typing import Any, Dict, Optional, Type
+from typing import Any
 
 __all__ = ["CSVWriter"]
 
@@ -121,9 +121,9 @@ class CSVWriter:
 
     def __exit__(
         self,
-        exc_type: Optional[Type[BaseException]],
-        exc_val: Optional[BaseException],
-        exc_tb: Optional[TracebackType],
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
     ) -> bool:
         """Context manager exit. Closes the file handle.
 
@@ -178,7 +178,7 @@ class CSVWriter:
         if self.file_handle is not None:
             self.file_handle.flush()
 
-    def create(self, data: Dict[str, Any]) -> None:
+    def create(self, data: dict[str, Any]) -> None:
         """Initialize the header of the CSV file, record the keys to be stored.
 
         Parameters
@@ -199,7 +199,7 @@ class CSVWriter:
         header_str = ",".join(self.keys)
         self.file_handle.write(header_str + "\n")
 
-    def append(self, data: Dict[str, Any]) -> None:
+    def append(self, data: dict[str, Any]) -> None:
         """Append the CSV file with the output.
 
         Parameters
@@ -250,7 +250,7 @@ class CSVWriter:
         self.file_handle.write(result_str + "\n")
 
     @staticmethod
-    def array_diff(array_x, array_y):
+    def array_diff(array_x: list[str], array_y: list[str]) -> set[str]:
         """Compare the content of two arrays.
 
         This functions returns the elemnts of the first array that

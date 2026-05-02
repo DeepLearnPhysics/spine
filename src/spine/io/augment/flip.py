@@ -1,6 +1,6 @@
 """Reflection augmentation module."""
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 
@@ -17,7 +17,7 @@ class FlipAugment(AugmentBase):
     def __init__(
         self,
         axis: int,
-        center: Optional[np.ndarray] = None,
+        center: np.ndarray | None = None,
         use_geo_center: bool = False,
         keep_meta: bool = True,
         p: float = 1.0,
@@ -54,11 +54,11 @@ class FlipAugment(AugmentBase):
 
     def apply(
         self,
-        data: Dict[str, Any],
+        data: dict[str, Any],
         meta: Meta,
-        keys: List[str],
-        context: Dict[str, Any],
-    ) -> Tuple[Dict[str, Any], Meta]:
+        keys: list[str],
+        context: dict[str, Any],
+    ) -> tuple[dict[str, Any], Meta]:
         """Reflect coordinates across the requested plane.
 
         Parameters

@@ -1,6 +1,6 @@
 """Augmentation manager."""
 
-from typing import Any, Dict
+from typing import Any, Mapping
 
 from spine.data import Meta
 from spine.geo import GeoManager
@@ -27,7 +27,7 @@ class AugmentManager:
     }
 
     def __init__(
-        self, geo: Dict[str, Any] | None = None, **augmenters: Dict[str, Any]
+        self, geo: Mapping[str, Any] | None = None, **augmenters: dict[str, Any]
     ) -> None:
         """Initialize the augmentation manager.
 
@@ -73,7 +73,7 @@ class AugmentManager:
         if not self.modules:
             raise ValueError("Must enable at least one augmentation module.")
 
-    def __call__(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    def __call__(self, data: dict[str, Any]) -> dict[str, Any]:
         """Augment the data products in one event.
 
         Parameters

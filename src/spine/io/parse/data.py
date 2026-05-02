@@ -1,7 +1,7 @@
 """Module that contains data structures which hold standard parser outputs."""
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any
 
 import numpy as np
 
@@ -42,19 +42,19 @@ class ParserTensor:
     """
 
     features: np.ndarray
-    coords: Optional[np.ndarray] = None
-    meta: Optional[Meta] = None
-    global_shift: Optional[int] = None
-    index_shifts: Optional[np.ndarray] = None
-    index_cols: Optional[np.ndarray] = None
+    coords: np.ndarray | None = None
+    meta: Meta | None = None
+    global_shift: int | None = None
+    index_shifts: np.ndarray | None = None
+    index_cols: np.ndarray | None = None
     remove_duplicates: bool = False
-    sum_cols: Optional[np.ndarray] = None
-    prec_col: Optional[int] = None
-    precedence: Optional[np.ndarray] = None
+    sum_cols: np.ndarray | None = None
+    prec_col: int | None = None
+    precedence: np.ndarray | None = None
     feats_only: bool = False
 
     @property
-    def feat_index_cols(self):
+    def feat_index_cols(self) -> np.ndarray | None:
         """Returns the index columns for the feature tensor.
 
         Returns
@@ -68,7 +68,7 @@ class ParserTensor:
         return self.index_cols - VALUE_COL
 
     @property
-    def feat_sum_cols(self):
+    def feat_sum_cols(self) -> np.ndarray | None:
         """Returns the columns to be summed in the feature tensor.
 
         Returns
@@ -82,7 +82,7 @@ class ParserTensor:
         return self.sum_cols - VALUE_COL
 
     @property
-    def feat_prec_col(self):
+    def feat_prec_col(self) -> int | None:
         """Returns the column providing a precedence source in the feature
         tensor.
 
@@ -106,7 +106,12 @@ class ParserObjectList(ObjectList):
         Shift(s) to apply to the index attribute of the objects in the list
     """
 
-    def __init__(self, object_list, default, index_shifts=None):
+    def __init__(
+        self,
+        object_list: list[object],
+        default: Any,
+        index_shifts: int | dict[str, int] | None = None,
+    ) -> None:
         """Initialize the list and the default value.
 
         Parameters

@@ -1,6 +1,6 @@
 """Rotation augmentation module."""
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 
@@ -16,9 +16,9 @@ class RotateAugment(AugmentBase):
 
     def __init__(
         self,
-        axes: Tuple[int, int] = (0, 1),
-        k: Optional[int] = None,
-        center: Optional[np.ndarray] = None,
+        axes: tuple[int, int] = (0, 1),
+        k: int | None = None,
+        center: np.ndarray | None = None,
         use_geo_center: bool = False,
         keep_meta: bool = True,
     ) -> None:
@@ -63,11 +63,11 @@ class RotateAugment(AugmentBase):
 
     def apply(
         self,
-        data: Dict[str, Any],
+        data: dict[str, Any],
         meta: Meta,
-        keys: List[str],
-        context: Dict[str, Any],
-    ) -> Tuple[Dict[str, Any], Meta]:
+        keys: list[str],
+        context: dict[str, Any],
+    ) -> tuple[dict[str, Any], Meta]:
         """Rotate the image by quarter turns in the requested plane.
 
         Parameters
@@ -152,11 +152,11 @@ class RotateAugment(AugmentBase):
 
     def apply_image_frame_rotation(
         self,
-        data: Dict[str, Any],
+        data: dict[str, Any],
         meta: Meta,
-        keys: List[str],
+        keys: list[str],
         k: int,
-    ) -> Tuple[Dict[str, Any], Meta]:
+    ) -> tuple[dict[str, Any], Meta]:
         """Apply the historical image-frame rotation behavior.
 
         Parameters

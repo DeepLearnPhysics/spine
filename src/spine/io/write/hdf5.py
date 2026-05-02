@@ -2,7 +2,7 @@
 
 import os
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any
 
 import h5py
 import numpy as np
@@ -40,12 +40,12 @@ class HDF5Writer:
 
     def __init__(
         self,
-        file_name: Optional[str] = None,
-        prefix: Optional[Union[str, List[str]]] = None,
+        file_name: str | None = None,
+        prefix: str | list[str] | None = None,
         suffix: str = "spine",
-        keys: Optional[List[str]] = None,
-        skip_keys: Optional[List[str]] = None,
-        dummy_ds: Optional[Dict[str, str]] = None,
+        keys: list[str] | None = None,
+        skip_keys: list[str] | None = None,
+        dummy_ds: dict[str, str] | None = None,
         overwrite: bool = False,
         append: bool = False,
         split: bool = False,
@@ -110,11 +110,11 @@ class HDF5Writer:
 
     @staticmethod
     def get_file_names(
-        file_name: Optional[str] = None,
-        prefix: Optional[Union[str, List[str]]] = None,
+        file_name: str | None = None,
+        prefix: str | list[str] | None = None,
         suffix: str = "spine",
         split: bool = False,
-    ) -> List[str]:
+    ) -> list[str]:
         """Build output file name(s) from an explicit name or input prefix(es).
 
         Logic is as follows:
@@ -183,11 +183,11 @@ class HDF5Writer:
 
         Attributes
         ----------
-        dtype : Union[type, List[Tuple[str, type]]], optional
+        dtype : type or list[tuple[str, type]], optional
             Data type
         class_name : str, optional
             Name of the class the information comes from
-        width : Union[int, List[int]], default 0
+        width : int or list[int], default 0
             Width of the tensor to store, if it is a tensor
         merge : bool, default False
             Whether to merge lists of arrays into a single dataset
@@ -195,16 +195,16 @@ class HDF5Writer:
             Whether the data is a scalar object or not
         """
 
-        dtype: Optional[Union[type, List[Tuple[str, type]]]] = None
-        class_name: Optional[str] = None
-        width: Union[int, List[int]] = 0
+        dtype: type | list[tuple[str, type]] | None = None
+        class_name: str | None = None
+        width: int | list[int] = 0
         merge: bool = False
         scalar: bool = False
 
     def create(
         self,
-        data: Dict[str, Any],
-        cfg: Optional[Dict[str, Any]] = None,
+        data: dict[str, Any],
+        cfg: dict[str, Any] | None = None,
         append: bool = False,
     ) -> None:
         """Initialize the output file structure based on the data dictionary.
@@ -249,7 +249,7 @@ class HDF5Writer:
         # Mark file(s) as ready for use
         self.ready = True
 
-    def get_stored_keys(self, data: Dict[str, Any]) -> Set[str]:
+    def get_stored_keys(self, data: dict[str, Any]) -> set[str]:
         """Get the list of data product keys to store.
 
         Parameters
@@ -304,8 +304,8 @@ class HDF5Writer:
         return keys
 
     def get_data_types(
-        self, data: Dict[str, Any], keys: Set[str]
-    ) -> Tuple[Dict[str, DataFormat], List[List[Tuple[str, type]]]]:
+        self, data: dict[str, Any], keys: set[str]
+    ) -> tuple[dict[str, DataFormat], list[list[tuple[str, type]]]]:
         """Get the data type information for each key.
 
         Parameters
@@ -333,7 +333,7 @@ class HDF5Writer:
 
         return type_dict, object_dtypes
 
-    def get_data_type(self, data: Dict[str, Any], key: str) -> DataFormat:
+    def get_data_type(self, data: dict[str, Any], key: str) -> DataFormat:
         """Identify the dtype and shape objects to be dealt with.
 
         Parameters
@@ -434,7 +434,7 @@ class HDF5Writer:
 
         return data_format
 
-    def get_object_dtype(self, obj: Any) -> List[Tuple[str, type]]:
+    def get_object_dtype(self, obj: Any) -> list[tuple[str, type]]:
         """Loop over the attributes of a class to figure out what to store.
 
         This function assumes that the class only posseses getters that return
@@ -486,7 +486,7 @@ class HDF5Writer:
         return object_dtype
 
     def initialize_datasets(
-        self, out_file: h5py.File, type_dict: Dict[str, DataFormat]
+        self, out_file: h5py.File, type_dict: dict[str, DataFormat]
     ) -> None:
         """Create place hodlers for all the datasets to be filled.
 
@@ -549,9 +549,7 @@ class HDF5Writer:
             "events", (0,), maxshape=(None,), dtype=self.event_dtype
         )
 
-    def __call__(
-        self, data: Dict[str, Any], cfg: Optional[Dict[str, Any]] = None
-    ) -> None:
+    def __call__(self, data: dict[str, Any], cfg: dict[str, Any] | None = None) -> None:
         """Append the HDF5 file with the content of a batch.
 
         Parameters
@@ -593,7 +591,7 @@ class HDF5Writer:
                         self.append_entry(out_file, data, batch_id)
 
     def append_entry(
-        self, out_file: h5py.File, data: Dict[str, Any], batch_id: int
+        self, out_file: h5py.File, data: dict[str, Any], batch_id: int
     ) -> None:
         """Stores one entry.
 
@@ -629,7 +627,7 @@ class HDF5Writer:
         self,
         out_file: h5py.File,
         event: np.ndarray,
-        data: Dict[str, Any],
+        data: dict[str, Any],
         key: str,
         batch_id: int,
     ) -> None:
@@ -725,7 +723,7 @@ class HDF5Writer:
         out_file: h5py.File,
         event: np.ndarray,
         key: str,
-        array_list: List[np.ndarray],
+        array_list: list[np.ndarray],
     ) -> None:
         """Stores a jagged list of arrays in the file and stores an index
         mapping for each array element in the event dataset.
@@ -784,7 +782,7 @@ class HDF5Writer:
 
     @staticmethod
     def store_flat(
-        out_file: h5py.File, event: np.ndarray, key: str, array_list: List[np.ndarray]
+        out_file: h5py.File, event: np.ndarray, key: str, array_list: list[np.ndarray]
     ) -> None:
         """Stores a concatenated list of arrays in the file and stores its
         index mapping in the event dataset to break them.
@@ -848,7 +846,7 @@ class HDF5Writer:
         event: np.ndarray,
         key: str,
         array: np.ndarray,
-        obj_dtype: List[Tuple[str, type]],
+        obj_dtype: list[tuple[str, type]],
         lite: bool,
     ) -> None:
         """Stores a list of objects with understandable attributes in the file

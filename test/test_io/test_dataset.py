@@ -6,6 +6,9 @@ import pytest
 
 from spine.io import dataset as dataset_module
 from spine.io.dataset import *
+from spine.io.dataset import base as dataset_base_module
+from spine.io.dataset import hdf5 as hdf5_dataset_module
+from spine.io.dataset import larcv as larcv_dataset_module
 from spine.utils.conditional import ROOT, ROOT_AVAILABLE, TORCH_AVAILABLE
 
 pytestmark = pytest.mark.skipif(
@@ -135,7 +138,7 @@ def test_hdf5_dataset_uses_explicit_metadata(hdf5_data):
 
 def test_hdf5_dataset_rejects_missing_torch(monkeypatch, hdf5_data):
     """The HDF5 dataset should fail clearly when torch support is disabled."""
-    monkeypatch.setattr(dataset_module, "TORCH_AVAILABLE", False)
+    monkeypatch.setattr(hdf5_dataset_module, "TORCH_AVAILABLE", False)
 
     with pytest.raises(ImportError, match="PyTorch is required"):
         HDF5Dataset(file_keys=hdf5_data, build_classes=False)
@@ -150,7 +153,9 @@ def test_hdf5_dataset_with_augment(monkeypatch, hdf5_data):
             result["augmented"] = True
             return result
 
-    monkeypatch.setattr(dataset_module, "AugmentManager", lambda **_: DummyAugmenter())
+    monkeypatch.setattr(
+        dataset_base_module, "AugmentManager", lambda **_: DummyAugmenter()
+    )
 
     dataset = HDF5Dataset(
         file_keys=hdf5_data,
@@ -210,9 +215,9 @@ def test_larcv_dataset_uses_augmenter_and_length(monkeypatch):
         seen["augment"] = augment
         return DummyAugmenter()
 
-    monkeypatch.setattr(dataset_module, "PARSER_DICT", {"dummy": DummyParser})
-    monkeypatch.setattr(dataset_module, "LArCVReader", DummyReader)
-    monkeypatch.setattr(dataset_module, "AugmentManager", build_augmenter)
+    monkeypatch.setattr(larcv_dataset_module, "PARSER_DICT", {"dummy": DummyParser})
+    monkeypatch.setattr(larcv_dataset_module, "LArCVReader", DummyReader)
+    monkeypatch.setattr(dataset_base_module, "AugmentManager", build_augmenter)
 
     dataset = LArCVDataset(
         schema={"x": {"parser": "dummy"}},
@@ -257,8 +262,8 @@ def test_larcv_dataset_parser_failure_logs_and_raises(monkeypatch):
         def get_file_entry_index(self, idx):
             return idx
 
-    monkeypatch.setattr(dataset_module, "PARSER_DICT", {"dummy": DummyParser})
-    monkeypatch.setattr(dataset_module, "LArCVReader", lambda **_: DummyReader())
+    monkeypatch.setattr(larcv_dataset_module, "PARSER_DICT", {"dummy": DummyParser})
+    monkeypatch.setattr(larcv_dataset_module, "LArCVReader", lambda **_: DummyReader())
 
     dataset = LArCVDataset(schema={"x": {"parser": "dummy"}}, dtype="float32")
 
@@ -267,13 +272,19 @@ def test_larcv_dataset_parser_failure_logs_and_raises(monkeypatch):
 
 
 def test_dataset_module_import_safe_without_torch(monkeypatch):
-    """The dataset module should define a stand-in Dataset when torch is unavailable."""
+    """The dataset base module should define a stand-in Dataset without torch."""
     import spine.utils.conditional as conditional
 
     monkeypatch.setattr(conditional, "TORCH_AVAILABLE", False)
-    reloaded = importlib.reload(dataset_module)
+    reloaded = importlib.reload(dataset_base_module)
     try:
         assert reloaded.Dataset.__name__ == "Dataset"
     finally:
         monkeypatch.setattr(conditional, "TORCH_AVAILABLE", TORCH_AVAILABLE)
-        importlib.reload(dataset_module)
+        importlib.reload(dataset_base_module)
+
+
+def test_dataset_package_exports_classes():
+    """The dataset package should export the public dataset classes."""
+    assert dataset_module.LArCVDataset is LArCVDataset
+    assert dataset_module.HDF5Dataset is HDF5Dataset

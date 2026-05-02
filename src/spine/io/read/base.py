@@ -7,7 +7,7 @@ data products into dictionaries to be used downstream.
 import glob
 import os
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any
 
 import numpy as np
 
@@ -47,13 +47,13 @@ class ReaderBase(ABC):
     """
 
     name: str
-    file_paths: List[str]
+    file_paths: list[str]
     file_index: np.ndarray
     file_offsets: np.ndarray
     entry_index: np.ndarray
     num_entries: int
-    run_info: Optional[List[Tuple[int, int, int]]] = None
-    run_map: Optional[Dict[Tuple[int, int, int], int]] = None
+    run_info: list[tuple[int, int, int]] | None = None
+    run_map: dict[tuple[int, int, int], int] | None = None
 
     def __init_subclass__(cls, **kwargs):
         """Automatically merge docstrings from parent classes.
@@ -80,7 +80,7 @@ class ReaderBase(ABC):
         """
         return len(self.entry_index)
 
-    def __getitem__(self, idx: int) -> Dict[str, Any]:
+    def __getitem__(self, idx: int) -> dict[str, Any]:
         """Returns a specific entry in the file.
 
         Parameters
@@ -96,11 +96,11 @@ class ReaderBase(ABC):
         return self.get(idx)
 
     @abstractmethod
-    def get(self, idx: int) -> Dict[str, Any]:
+    def get(self, idx: int) -> dict[str, Any]:
         """Placeholder to be defined by the daughter class."""
         raise NotImplementedError
 
-    def get_run_event(self, run: int, subrun: int, event: int) -> Dict[str, Any]:
+    def get_run_event(self, run: int, subrun: int, event: int) -> dict[str, Any]:
         """Returns an entry corresponding to a specific (run, subrun, event)
         triplet.
 
@@ -140,9 +140,9 @@ class ReaderBase(ABC):
 
     def process_file_paths(
         self,
-        file_keys: Optional[Union[str, List[str]]] = None,
-        file_list: Optional[str] = None,
-        limit_num_files: Optional[int] = None,
+        file_keys: str | list[str] | None = None,
+        file_list: str | None = None,
+        limit_num_files: int | None = None,
         max_print_files: int = 10,
     ) -> None:
         """Process list of files.
@@ -225,12 +225,12 @@ class ReaderBase(ABC):
 
     def process_entry_list(
         self,
-        n_entry: Optional[int] = None,
-        n_skip: Optional[int] = None,
-        entry_list: Optional[Union[str, List[int]]] = None,
-        skip_entry_list: Optional[Union[str, List[int]]] = None,
-        run_event_list: Optional[Union[str, List[List[int]]]] = None,
-        skip_run_event_list: Optional[Union[str, List[List[int]]]] = None,
+        n_entry: int | None = None,
+        n_skip: int | None = None,
+        entry_list: str | list[int] | None = None,
+        skip_entry_list: str | list[int] | None = None,
+        run_event_list: str | list[list[int]] | None = None,
+        skip_run_event_list: str | list[list[int]] | None = None,
         allow_missing: bool = False,
     ) -> None:
         """Create a list of entries that can be accessed by :meth:`__getitem__`.
@@ -450,7 +450,7 @@ class ReaderBase(ABC):
         return int(self.entry_index[idx] - offset)
 
     @staticmethod
-    def parse_entry_list(list_source: Union[str, List[int]]) -> np.ndarray:
+    def parse_entry_list(list_source: str | list[int]) -> np.ndarray:
         """Parses a list into an np.ndarray.
 
         The list can be passed as a simple python list or a path to a file
@@ -486,8 +486,8 @@ class ReaderBase(ABC):
 
     @staticmethod
     def parse_run_event_list(
-        list_source: Union[str, List[List[int]]],
-    ) -> List[Tuple[int, int, int]]:
+        list_source: str | list[list[int]],
+    ) -> list[tuple[int, int, int]]:
         """Parses a list of (run, subrun, event) triplets into an np.ndarray.
 
         The list can be passed as a simple python list or a path to a file

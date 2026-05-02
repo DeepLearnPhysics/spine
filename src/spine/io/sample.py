@@ -1,7 +1,11 @@
 """Used to define which dataset entries to load at each iteration"""
 
+from __future__ import annotations
+
 import math
 import time
+from collections.abc import Iterator, Sized
+from typing import Any
 
 import numpy as np
 
@@ -41,7 +45,13 @@ class AbstractBatchSampler(Sampler):
     RNG, if needed.
     """
 
-    def __init__(self, dataset, batch_size, seed=None, drop_last=True):
+    def __init__(
+        self,
+        dataset: Sized,
+        batch_size: int,
+        seed: int | None = None,
+        drop_last: bool = True,
+    ) -> None:
         """Check and store the values passed to the initializer,
         set the seeds appropriately.
 
@@ -91,7 +101,7 @@ class AbstractBatchSampler(Sampler):
                 )
             self.num_samples -= self.num_samples % self.batch_size
 
-    def __len__(self):
+    def __len__(self) -> int:
         """Provides the full length of the sampler.
 
         The length of the sampler can differ from the number of elements in
@@ -105,7 +115,7 @@ class AbstractBatchSampler(Sampler):
         """
         return self.num_samples
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[int]:
         """Placeholder to be overridden by children classes."""
         raise NotImplementedError
 
@@ -115,7 +125,7 @@ class SequentialBatchSampler(AbstractBatchSampler):
 
     name = "sequential"
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[int]:
         """Iterates over sequential batches of data."""
         order = np.arange(self.num_samples, dtype=int)
         return iter(order)
@@ -126,7 +136,7 @@ class RandomSequenceBatchSampler(AbstractBatchSampler):
 
     name = "random_sequence"
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[int]:
         """Iterates over sequential batches of data randomly located
         in the dataset.
         """
@@ -162,7 +172,7 @@ class BootstrapBatchSampler(AbstractBatchSampler):
 
     name = "bootstrap"
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[int]:
         """Iterates over bootstrapped batches of data randomly picked
         from the dataset.
         """
@@ -188,7 +198,9 @@ class DistributedProxySampler(DistributedSampler):
     and load a subset of the original dataset that is exclusive to it.
     """
 
-    def __init__(self, sampler, num_replicas, rank):
+    def __init__(
+        self, sampler: AbstractBatchSampler, num_replicas: int, rank: int
+    ) -> None:
         """Convert a basic sampler to an instance of a distributed sampler.
 
         Parameters
@@ -224,7 +236,7 @@ class DistributedProxySampler(DistributedSampler):
         self.sampler = sampler
         self.batch_size = sampler.batch_size
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[int]:
         """Overrides the basic iterator with one that takes into account
         the number of replicas and the rank of the sampler.
         """

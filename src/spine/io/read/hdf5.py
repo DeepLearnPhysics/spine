@@ -1,7 +1,7 @@
 """Contains a reader class dedicated to loading data from HDF5 files."""
 
 from dataclasses import fields
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 from warnings import warn
 
 import h5py
@@ -33,16 +33,16 @@ class HDF5Reader(ReaderBase):
 
     def __init__(
         self,
-        file_keys: Optional[Union[str, List[str]]] = None,
-        file_list: Optional[str] = None,
-        limit_num_files: Optional[int] = None,
+        file_keys: str | list[str] | None = None,
+        file_list: str | None = None,
+        limit_num_files: int | None = None,
         max_print_files: int = 10,
-        n_entry: Optional[int] = None,
-        n_skip: Optional[int] = None,
-        entry_list: Optional[List[int]] = None,
-        skip_entry_list: Optional[List[int]] = None,
-        run_event_list: Optional[List[List[int]]] = None,
-        skip_run_event_list: Optional[List[List[int]]] = None,
+        n_entry: int | None = None,
+        n_skip: int | None = None,
+        entry_list: list[int] | None = None,
+        skip_entry_list: list[int] | None = None,
+        run_event_list: list[list[int]] | None = None,
+        skip_run_event_list: list[list[int]] | None = None,
         create_run_map: bool = False,
         build_classes: bool = True,
         skip_unknown_attrs: bool = False,
@@ -162,7 +162,7 @@ class HDF5Reader(ReaderBase):
         # Process the SPINE version used to produced the HDF5 file
         self.version = self.process_version()
 
-    def process_cfg(self) -> Optional[dict]:
+    def process_cfg(self) -> dict[str, Any] | None:
         """Fetches the SPINE configuration used to produce the HDF5 file.
 
         Returns
@@ -209,7 +209,7 @@ class HDF5Reader(ReaderBase):
         assert isinstance(version, str), "'version' attribute is not a string."
         return version
 
-    def get(self, idx: int) -> Dict[str, Any]:
+    def get(self, idx: int) -> dict[str, Any]:
         """Returns a specific entry in the file.
 
         Parameters
@@ -297,7 +297,11 @@ class HDF5Reader(ReaderBase):
         )
 
     def load_key(
-        self, in_file: h5py.File, event: Dict[str, Any], data: Dict[str, Any], key: str
+        self,
+        in_file: h5py.File,
+        event: dict[str, Any],
+        data: dict[str, Any],
+        key: str,
     ) -> None:
         """Fetch a specific key for a specific event.
 
