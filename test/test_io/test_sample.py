@@ -1,12 +1,19 @@
 """Test that the collate function(s) work as intended."""
 
+import importlib
 from dataclasses import dataclass
 
 import numpy as np
 import pytest
 
+import spine.io.sample as sample_module
 from spine.io.sample import *
 from spine.io.sample import DistributedProxySampler
+from spine.utils.conditional import TORCH_AVAILABLE
+
+pytestmark = pytest.mark.skipif(
+    not TORCH_AVAILABLE, reason="PyTorch is required for sampler tests."
+)
 
 
 @dataclass
@@ -141,3 +148,74 @@ def test_bootstrap_sampler(dataset, batch_size, seed):
 
             # Make the distributed sampler has half the entries
             assert len(dist_sampler) == len(sampler) / 2
+
+
+def test_sampler_input_validation():
+    """Sampler base classes should reject invalid construction parameters."""
+    dataset = DummyDataset(4)
+
+    with pytest.raises(AssertionError, match="must be an integer"):
+        SequentialBatchSampler(dataset, batch_size=2, seed="bad")
+    with pytest.raises(ValueError, match="positive non-zero integer"):
+        SequentialBatchSampler(dataset, batch_size=0)
+    with pytest.raises(ValueError, match="at least on entry"):
+        SequentialBatchSampler(DummyDataset(0), batch_size=1)
+    with pytest.raises(ValueError, match="does not have enough samples"):
+        SequentialBatchSampler(DummyDataset(1), batch_size=2)
+
+
+def test_sampler_without_drop_last():
+    """Samplers should preserve trailing entries when drop_last is disabled."""
+    dataset = DummyDataset(5)
+    sampler = SequentialBatchSampler(dataset, batch_size=2, drop_last=False, seed=1)
+    assert len(sampler) == 5
+    assert np.array_equal(np.array(list(sampler)), np.arange(5))
+
+
+def test_abstract_sampler_iter_not_implemented():
+    """The abstract sampler iterator should remain abstract in practice."""
+    sampler = sample_module.AbstractBatchSampler(DummyDataset(1), batch_size=1, seed=1)
+    with pytest.raises(NotImplementedError):
+        iter(sampler).__next__()
+
+
+def test_distributed_proxy_sampler_requires_divisible_batch():
+    """Distributed sampling should reject incompatible batch sizes."""
+    sampler = SequentialBatchSampler(DummyDataset(4), batch_size=3, seed=1)
+    with pytest.raises(AssertionError, match="must be a multiple"):
+        DistributedProxySampler(sampler, num_replicas=2, rank=0)
+
+
+def test_sample_module_import_safe_without_torch(monkeypatch):
+    """The sampler module should expose stand-ins when torch is unavailable."""
+    import spine.utils.conditional as conditional
+
+    monkeypatch.setattr(conditional, "TORCH_AVAILABLE", False)
+    reloaded = importlib.reload(sample_module)
+    try:
+        reloaded.Sampler()
+        assert reloaded.Sampler is not None
+        with pytest.raises(ImportError, match="PyTorch is required"):
+            reloaded.DistributedSampler()
+    finally:
+        monkeypatch.setattr(conditional, "TORCH_AVAILABLE", TORCH_AVAILABLE)
+        importlib.reload(sample_module)
+
+
+def test_distributed_proxy_sampler_pads_when_padding_exceeds_length():
+    """Distributed sampling should pad with repeated indices when needed."""
+    sampler = SequentialBatchSampler(
+        DummyDataset(1), batch_size=5, drop_last=False, seed=1
+    )
+    dist_sampler = DistributedProxySampler(sampler, num_replicas=5, rank=0)
+    assert list(dist_sampler) == [0]
+
+
+def test_distributed_proxy_sampler_pads_with_prefix_copy():
+    """Distributed sampling should reuse the prefix when only a small pad is needed."""
+    sampler = SequentialBatchSampler(
+        DummyDataset(5), batch_size=4, drop_last=False, seed=1
+    )
+    dist_sampler = DistributedProxySampler(sampler, num_replicas=4, rank=0)
+
+    assert list(dist_sampler) == [0, 4]

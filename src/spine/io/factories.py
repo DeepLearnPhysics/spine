@@ -67,7 +67,13 @@ def writer_factory(writer_cfg, prefix=None, split=False):
     Currently the choice is limited to `HDF5Writer` only.
     """
     # Initialize writer
-    return instantiate(WRITER_DICT, writer_cfg, prefix=prefix, split=split)
+    extra_kwargs = {}
+    if prefix is not None:
+        extra_kwargs["prefix"] = prefix
+    if split:
+        extra_kwargs["split"] = split
+
+    return instantiate(WRITER_DICT, writer_cfg, **extra_kwargs)
 
 
 def loader_factory(
@@ -147,7 +153,11 @@ def dataset_factory(dataset_cfg, entry_list=None, dtype=None, geo=None):
         dataset_cfg["entry_list"] = entry_list
 
     # Initialize dataset
-    return instantiate(dataset_dict, dataset_cfg, dtype=dtype, geo=geo)
+    extra_kwargs = {"dtype": dtype}
+    if geo is not None:
+        extra_kwargs["geo"] = geo
+
+    return instantiate(dataset_dict, dataset_cfg, **extra_kwargs)
 
 
 def sampler_factory(

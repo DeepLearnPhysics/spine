@@ -222,11 +222,12 @@ class CollateAll:
         index_list = []
         for i, sample in enumerate(batch):
             index_list.append(sample[key].features + offsets[i])
-        index = np.concatenate(index_list, axis=1)
+        axis = 0 if index_list[0].ndim == 1 else 1
+        index = np.concatenate(index_list, axis=axis)
         counts = [sample[key].features.shape[-1] for sample in batch]
 
         if len(index.shape) == 1:
-            return IndexBatch(index, counts, offsets)
+            return IndexBatch(index, offsets, counts)
         else:
             return EdgeIndexBatch(index, counts, offsets, directed=True)
 

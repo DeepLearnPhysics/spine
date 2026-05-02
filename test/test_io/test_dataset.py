@@ -1,11 +1,21 @@
 """Test that the dataset classes work as intended."""
 
+import importlib
+
 import pytest
-import ROOT
 
+from spine.io import dataset as dataset_module
 from spine.io.dataset import *
+from spine.utils.conditional import ROOT, ROOT_AVAILABLE, TORCH_AVAILABLE
+
+pytestmark = pytest.mark.skipif(
+    not TORCH_AVAILABLE, reason="PyTorch is required for torch-backed IO datasets."
+)
 
 
+@pytest.mark.skipif(
+    not ROOT_AVAILABLE, reason="ROOT is required for LArCV dataset tests."
+)
 def test_larcv_dataset(larcv_data):
     """Tests a torch dataset based on LArCV data.
 
@@ -96,3 +106,174 @@ def test_hdf5_dataset_skip_keys(hdf5_data):
     entry = dataset[0]
     assert "run_info" not in entry
     assert "index" in entry
+
+
+def test_hdf5_dataset_rejects_keys_and_skip_keys(hdf5_data):
+    """The HDF5 dataset should reject conflicting key selection options."""
+    with pytest.raises(ValueError, match="Provide either `keys` or `skip_keys`"):
+        HDF5Dataset(
+            file_keys=hdf5_data,
+            build_classes=False,
+            keys=["run_info"],
+            skip_keys=["run_info"],
+        )
+
+
+def test_hdf5_dataset_uses_explicit_metadata(hdf5_data):
+    """The HDF5 dataset should expose explicit collate metadata when provided."""
+    dataset = HDF5Dataset(
+        file_keys=hdf5_data,
+        build_classes=False,
+        keys=["run_info"],
+        data_types={"run_info": "object"},
+        overlay_methods={"run_info": "first"},
+    )
+
+    assert dataset.data_types["run_info"] == "object"
+    assert dataset.overlay_methods["run_info"] == "first"
+
+
+def test_hdf5_dataset_rejects_missing_torch(monkeypatch, hdf5_data):
+    """The HDF5 dataset should fail clearly when torch support is disabled."""
+    monkeypatch.setattr(dataset_module, "TORCH_AVAILABLE", False)
+
+    with pytest.raises(ImportError, match="PyTorch is required"):
+        HDF5Dataset(file_keys=hdf5_data, build_classes=False)
+
+
+def test_hdf5_dataset_with_augment(monkeypatch, hdf5_data):
+    """The HDF5 dataset should apply augmentation when configured."""
+
+    class DummyAugmenter:
+        def __call__(self, result):
+            result = dict(result)
+            result["augmented"] = True
+            return result
+
+    monkeypatch.setattr(dataset_module, "AugmentManager", lambda **_: DummyAugmenter())
+
+    dataset = HDF5Dataset(
+        file_keys=hdf5_data,
+        build_classes=False,
+        keys=["run_info"],
+        augment={"name": "dummy"},
+    )
+
+    assert dataset[0]["augmented"] is True
+
+
+def test_larcv_dataset_uses_augmenter_and_length(monkeypatch):
+    """The LArCV dataset should initialize and apply the configured augmenter."""
+    seen = {}
+
+    class DummyParser:
+        tree_keys = ["tree_a"]
+        returns = "tensor"
+        overlay = "cat"
+
+        def __init__(self, dtype):
+            self.dtype = dtype
+
+        def __call__(self, data):
+            return data["tree_a"]
+
+    class DummyReader:
+        entry_index = [0]
+
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        def __len__(self):
+            return 1
+
+        def __getitem__(self, idx):
+            return {"tree_a": {"value": idx}}
+
+        def get_file_index(self, idx):
+            return 0
+
+        def get_file_entry_index(self, idx):
+            return idx
+
+        @staticmethod
+        def list_data(path):
+            return {"dummy": [path]}
+
+    class DummyAugmenter:
+        def __call__(self, result):
+            result = dict(result)
+            result["augmented"] = True
+            return result
+
+    def build_augmenter(*, geo=None, **augment):
+        seen["geo"] = geo
+        seen["augment"] = augment
+        return DummyAugmenter()
+
+    monkeypatch.setattr(dataset_module, "PARSER_DICT", {"dummy": DummyParser})
+    monkeypatch.setattr(dataset_module, "LArCVReader", DummyReader)
+    monkeypatch.setattr(dataset_module, "AugmentManager", build_augmenter)
+
+    dataset = LArCVDataset(
+        schema={"x": {"parser": "dummy"}},
+        dtype="float32",
+        augment={"mask": {"min_dimensions": [1, 1, 1], "max_dimensions": [1, 1, 1]}},
+        geo={"detector": "icarus"},
+    )
+
+    assert len(dataset) == 1
+    assert dataset[0]["augmented"] is True
+    assert seen["geo"] == {"detector": "icarus"}
+    assert "mask" in seen["augment"]
+    assert dataset.list_data("file.root") == {"dummy": ["file.root"]}
+
+
+def test_larcv_dataset_parser_failure_logs_and_raises(monkeypatch):
+    """The LArCV dataset should log parser failures and re-raise them."""
+
+    class DummyParser:
+        tree_keys = ["tree_a"]
+        returns = "tensor"
+        overlay = "cat"
+
+        def __init__(self, dtype):
+            self.dtype = dtype
+
+        def __call__(self, data):
+            raise RuntimeError("boom")
+
+    class DummyReader:
+        entry_index = [0]
+
+        def __len__(self):
+            return 1
+
+        def __getitem__(self, idx):
+            return {"tree_a": idx}
+
+        def get_file_index(self, idx):
+            return 0
+
+        def get_file_entry_index(self, idx):
+            return idx
+
+    monkeypatch.setattr(dataset_module, "PARSER_DICT", {"dummy": DummyParser})
+    monkeypatch.setattr(dataset_module, "LArCVReader", lambda **_: DummyReader())
+
+    dataset = LArCVDataset(schema={"x": {"parser": "dummy"}}, dtype="float32")
+
+    with pytest.raises(RuntimeError, match="boom"):
+        dataset[0]
+
+
+def test_dataset_module_import_safe_without_torch(monkeypatch):
+    """The dataset module should define a stand-in Dataset when torch is unavailable."""
+    import spine.utils.conditional as conditional
+
+    monkeypatch.setattr(conditional, "TORCH_AVAILABLE", False)
+    reloaded = importlib.reload(dataset_module)
+    try:
+        assert reloaded.Dataset.__name__ == "Dataset"
+    finally:
+        monkeypatch.setattr(conditional, "TORCH_AVAILABLE", TORCH_AVAILABLE)
+        importlib.reload(dataset_module)

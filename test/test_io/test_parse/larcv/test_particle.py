@@ -1,8 +1,10 @@
 """Test that the particle/neutrino data parsers work as intended."""
 
+import numpy as np
 import pytest
 
 from spine.constants import NuInteractionScheme
+from spine.constants.sentinels import INVAL_ID
 from spine.data.larcv import Meta, Neutrino, Particle
 from spine.data.larcv.meta import ImageMeta3D
 from spine.io.parse.data import ParserTensor
@@ -218,3 +220,130 @@ def test_parse_particle_energy(particle_event):
 
     # The output should be a simple float
     assert isinstance(result, float)
+
+
+def test_particle_parser_skip_empty_uses_placeholder():
+    """Particle parsing should emit placeholders when empty particles are skipped."""
+
+    class DummyParticle:
+        def num_voxels(self):
+            return 0
+
+        def id(self):
+            return 1
+
+        def group_id(self):
+            return 0
+
+    class DummyEvent:
+        def as_vector(self):
+            return [DummyParticle()]
+
+    parser = ParticleParser(
+        dtype="float32",
+        particle_event="particle",
+        skip_empty=True,
+        post_process=False,
+        pixel_coordinates=False,
+    )
+    result = parser.process(particle_event=DummyEvent())
+
+    assert len(result) == 1
+    assert isinstance(result[0], Particle)
+
+
+@pytest.mark.parametrize(
+    "particle_event, neutrino_event, cluster3d_event", [(20, 1, 20)], indirect=True
+)
+def test_particle_parser_call_paths(
+    particle_event, neutrino_event, sparse3d_event, cluster3d_event
+):
+    """Wrapper calls should route named inputs through the particle parsers."""
+    neutrino_parser = NeutrinoParser(
+        dtype="float32", neutrino_event="neutrino", sparse_event="sparse"
+    )
+    neutrino_result = neutrino_parser(
+        {"neutrino": neutrino_event, "sparse": sparse3d_event}
+    )
+    assert isinstance(neutrino_result.default, Neutrino)
+
+    point_parser = ParticlePointParser(
+        dtype="float32", particle_event="particle", sparse_event="sparse"
+    )
+    assert isinstance(
+        point_parser({"particle": particle_event, "sparse": sparse3d_event}),
+        ParserTensor,
+    )
+
+    coord_parser = ParticleCoordinateParser(
+        dtype="float32", particle_event="particle", sparse_event="sparse"
+    )
+    assert isinstance(
+        coord_parser({"particle": particle_event, "sparse": sparse3d_event}),
+        ParserTensor,
+    )
+
+    pid_parser = SingleParticlePIDParser(dtype="float32", particle_event="particle")
+    assert isinstance(pid_parser({"particle": particle_event}), int)
+
+    energy_parser = SingleParticleEnergyParser(
+        dtype="float32", particle_event="particle"
+    )
+    assert isinstance(energy_parser({"particle": particle_event}), float)
+
+    graph_parser = ParticleGraphParser(
+        dtype="float32", particle_event="particle", cluster_event="cluster"
+    )
+    assert isinstance(
+        graph_parser({"particle": particle_event, "cluster": cluster3d_event}),
+        ParserTensor,
+    )
+
+
+@pytest.mark.parametrize("particle_event", [20], indirect=True)
+def test_vertex_point_parser_process_and_call(
+    monkeypatch, particle_event, sparse3d_event
+):
+    """Vertex point parsing should expose tensor labels through process and wrapper paths."""
+    labels = np.asarray([[1.0, 2.0, 3.0, 4.0]], dtype=np.float32)
+    monkeypatch.setattr(
+        "spine.io.parse.larcv.particle.get_vertex_labels",
+        lambda particle_v, neutrino_v, meta, ftype: labels,
+    )
+
+    parser = VertexPointParser(
+        dtype="float32", particle_event="particle", sparse_event="sparse"
+    )
+    result = parser({"particle": particle_event, "sparse": sparse3d_event})
+
+    assert isinstance(result, ParserTensor)
+    assert np.array_equal(result.coords, labels[:, :3])
+
+
+def test_particle_graph_skips_invalid_and_fragment_edges():
+    """Particle graph parsing should skip invalid parents and fragment-only edges when requested."""
+
+    class DummyVector(list):
+        def size(self):
+            return len(self)
+
+    class DummyParticle:
+        def __init__(self, parent_id, group_id):
+            self._parent_id = parent_id
+            self._group_id = group_id
+
+        def parent_id(self):
+            return self._parent_id
+
+        def group_id(self):
+            return self._group_id
+
+    class DummyEvent:
+        def as_vector(self):
+            return DummyVector([DummyParticle(INVAL_ID, 0), DummyParticle(0, 0)])
+
+    parser = ParticleGraphParser(dtype="float32", particle_event="particle")
+    result = parser.process(particle_event=DummyEvent())
+
+    assert isinstance(result, ParserTensor)
+    assert result.features.size == 0

@@ -179,3 +179,16 @@ def test_sample_box_lower_defaults_spread_and_clips_anchor():
 
     assert np.all(sampled >= lower)
     assert np.all(sampled <= upper - dimensions)
+
+
+def test_make_grid_aligned_meta_rejects_impossible_bounds():
+    meta = make_meta(lower=(0.0, 0.0, 0.0), upper=(10.0, 10.0, 10.0))
+
+    with pytest.raises(ValueError, match="cannot fit"):
+        DummyAugment.make_grid_aligned_meta(
+            meta,
+            lower_bound=np.asarray([0.0, 0.0, 0.0], dtype=np.float32),
+            upper_bound=np.asarray([2.0, 2.0, 2.0], dtype=np.float32),
+            count=np.asarray([5, 5, 5], dtype=np.int64),
+            sampled_lower=np.asarray([0.0, 0.0, 0.0], dtype=np.float32),
+        )

@@ -2,6 +2,7 @@
 
 import pytest
 
+import spine.io.read.larcv as larcv_read_module
 from spine.io.read import LArCVReader
 from spine.utils.conditional import ROOT, ROOT_AVAILABLE
 
@@ -89,3 +90,77 @@ def test_larcv_reader(larcv_data):
         file_keys=[larcv_data, larcv_data], tree_keys=tree_keys[:1], limit_num_files=1
     )
     assert reader.num_entries == num_entries
+
+
+@pytest.mark.skipif(not ROOT_AVAILABLE, reason="ROOT is required to read LArCV files.")
+def test_larcv_reader_enables_run_map_for_run_event_filters(larcv_data):
+    """Run-event restrictions should force run-map creation during initialization."""
+    root_file = ROOT.TFile(larcv_data, "r")
+    tree_keys = [tree.GetName().split("_tree")[0] for tree in root_file.GetListOfKeys()]
+    root_file.Close()
+
+    reader = LArCVReader(
+        file_keys=larcv_data,
+        tree_keys=tree_keys,
+        run_info_key=tree_keys[0],
+        run_event_list=[],
+    )
+    assert reader.run_map is not None
+
+
+def test_larcv_reader_requires_dependencies_and_tree_keys(monkeypatch):
+    """Reader initialization should guard missing dependencies and tree keys."""
+    monkeypatch.setattr(larcv_read_module, "ROOT_AVAILABLE", False)
+    with pytest.raises(ImportError, match="ROOT"):
+        LArCVReader(file_keys="dummy.root", tree_keys=["sparse3d"])
+
+    monkeypatch.setattr(larcv_read_module, "ROOT_AVAILABLE", True)
+    monkeypatch.setattr(larcv_read_module, "LARCV_AVAILABLE", False)
+    with pytest.raises(ImportError, match="larcv"):
+        LArCVReader(file_keys="dummy.root", tree_keys=["sparse3d"])
+
+    monkeypatch.setattr(larcv_read_module, "LARCV_AVAILABLE", True)
+    monkeypatch.setattr(
+        LArCVReader,
+        "process_file_paths",
+        lambda self, *args, **kwargs: setattr(self, "file_paths", ["dummy.root"]),
+    )
+    with pytest.raises(AssertionError, match="tree_keys"):
+        LArCVReader(file_keys="dummy.root", tree_keys=[])
+
+
+def test_larcv_reader_list_data_filters_non_tree_keys(monkeypatch):
+    """The tree scanner should ignore malformed and unsupported ROOT keys."""
+
+    class DummyKey:
+        def __init__(self, name):
+            self.name = name
+
+        def GetName(self):
+            return self.name
+
+    class DummyFile:
+        def GetListOfKeys(self):
+            return [
+                DummyKey("not_a_branch"),
+                DummyKey("particle_tree"),
+                DummyKey("unknown_label_tree"),
+                DummyKey("sparse3d_data_tree"),
+                DummyKey("particle_label_tree"),
+            ]
+
+    class DummyTFile:
+        @staticmethod
+        def Open(*args, **kwargs):
+            return DummyFile()
+
+    monkeypatch.setattr(
+        larcv_read_module, "ROOT", type("DummyROOT", (), {"TFile": DummyTFile})
+    )
+    result = LArCVReader.list_data("dummy.root")
+
+    assert result == {
+        "sparse3d": ["sparse3d_data"],
+        "cluster3d": [],
+        "particle": ["particle_label"],
+    }

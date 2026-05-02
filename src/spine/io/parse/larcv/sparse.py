@@ -356,7 +356,7 @@ class Sparse3DParser(ParserBase):
             # If requested, add a feature related to the number of planes
             if self.compute_nhits:
                 hit_key_array = np.hstack(hit_key_array)
-                nhits = np.sum(hit_key_array >= 0.0, axis=1)[:, -1]
+                nhits = np.sum(hit_key_array >= 0.0, axis=1, keepdims=True)
                 if self.nhits_idx < 0 or self.nhits_idx > self.num_features:
                     raise ValueError(f"`nhits_idx` ({self.nhits_idx}) is out of range.")
                 np_features.insert(self.nhits_idx, nhits)

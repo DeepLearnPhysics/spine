@@ -1,5 +1,6 @@
 """Test that the sparse data parsers work as intended."""
 
+import numpy as np
 import pytest
 
 from spine.data.larcv import Meta
@@ -32,6 +33,12 @@ def test_parse_sparse2d(sparse2d_event, projection_id):
     assert result.coords.shape[1] == 2
     assert result.features.shape[1] == 1
     assert isinstance(result.meta, ImageMeta2D)
+
+    call_parser = Sparse2DParser(
+        dtype="float32", sparse_event="sparse", projection_id=projection_id
+    )
+    call_result = call_parser({"sparse": sparse2d_event})
+    assert isinstance(call_result, ParserTensor)
 
 
 @pytest.mark.parametrize("projection_id", [0, 1, 2])
@@ -150,3 +157,101 @@ def test_parse_spars3d_rescale(
     assert result.coords.shape[1] == 3
     assert result.features.shape[1] == 1
     assert isinstance(result.meta, ImageMeta3D)
+
+
+@pytest.mark.parametrize("sparse3d_event_list", [6], indirect=True)
+def test_sparse_parser_call_paths(
+    sparse3d_event, sparse3d_event_list, sparse3d_seg_event
+):
+    """Wrapper calls should route named inputs through the sparse parsers."""
+    sparse_parser = Sparse3DParser(dtype="float32", sparse_event="sparse")
+    assert isinstance(sparse_parser({"sparse": sparse3d_event}), ParserTensor)
+
+    aggr_parser = Sparse3DAggregateParser(
+        dtype="float32", sparse_event_list=["s0", "s1"], aggr="sum"
+    )
+    assert isinstance(
+        aggr_parser({"s0": sparse3d_event_list[0], "s1": sparse3d_event_list[1]}),
+        ParserTensor,
+    )
+
+    rescale_parser = Sparse3DChargeRescaledParser(
+        dtype="float32",
+        sparse_event_list=[f"s{i}" for i in range(7)],
+    )
+    assert isinstance(
+        rescale_parser(
+            {
+                f"s{i}": value
+                for i, value in enumerate(
+                    sparse3d_event_list[:6] + [sparse3d_seg_event]
+                )
+            }
+        ),
+        ParserTensor,
+    )
+
+    ghost_parser = Sparse3DGhostParser(dtype="float32", sparse_event="seg")
+    assert isinstance(ghost_parser({"seg": sparse3d_seg_event}), ParserTensor)
+
+
+@pytest.mark.parametrize("sparse3d_event_list", [2], indirect=True)
+def test_sparse3d_parser_constructor_validation_and_options(
+    sparse3d_event, sparse3d_event_list
+):
+    """Sparse parser construction should validate feature configuration eagerly."""
+    with pytest.raises(ValueError, match="No need to lexsort"):
+        Sparse3DParser(dtype="float32", sparse_event=sparse3d_event, lexsort=True)
+
+    with pytest.raises(ValueError, match="nhits_idx"):
+        Sparse3DParser(
+            dtype="float32",
+            sparse_event_list=sparse3d_event_list[:1],
+            hit_keys=[0],
+        )
+
+    with pytest.raises(ValueError, match="divider"):
+        Sparse3DParser(
+            dtype="float32",
+            sparse_event_list=sparse3d_event_list[:2],
+            num_features=3,
+        )
+
+    parser = Sparse3DParser(
+        dtype="float32",
+        sparse_event_list=sparse3d_event_list[:2],
+        num_features=1,
+        index_cols=[0],
+        sum_cols=[0],
+        lexsort=True,
+    )
+    result = parser.process(sparse_event_list=sparse3d_event_list[:2])
+
+    assert isinstance(result, ParserTensor)
+    assert np.array_equal(parser.index_cols, np.asarray([0]))
+    assert np.array_equal(parser.sum_cols, np.asarray([0]))
+
+
+@pytest.mark.parametrize("sparse3d_event_list", [2], indirect=True)
+def test_sparse3d_parser_computes_nhits_and_validates_index(sparse3d_event_list):
+    """Sparse3DParser should add nhits features and reject invalid insertion indices."""
+    parser = Sparse3DParser(
+        dtype="float32",
+        sparse_event_list=sparse3d_event_list,
+        num_features=2,
+        hit_keys=[0, 1],
+        nhits_idx=1,
+    )
+    result = parser.process(sparse_event_list=sparse3d_event_list)
+    assert isinstance(result, ParserTensor)
+    assert result.features.shape[1] == 3
+
+    parser = Sparse3DParser(
+        dtype="float32",
+        sparse_event_list=sparse3d_event_list,
+        num_features=2,
+        hit_keys=[0, 1],
+        nhits_idx=3,
+    )
+    with pytest.raises(ValueError, match="out of range"):
+        parser.process(sparse_event_list=sparse3d_event_list)

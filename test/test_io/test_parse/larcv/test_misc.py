@@ -1,6 +1,7 @@
 """Test that the miscellaneous data parsers work as intended."""
 
 from dataclasses import asdict
+from types import SimpleNamespace
 from warnings import warn
 
 import numpy as np
@@ -50,6 +51,14 @@ def test_parse_meta3d(sparse3d_event):
     assert isinstance(result, ImageMeta3D)
     for v in asdict(result).values():
         assert len(v) == 3
+
+
+def test_parse_meta_requires_exactly_one_source():
+    """Metadata parsing should reject ambiguous or missing sources."""
+    parser = MetaParser(dtype="float32")
+
+    with pytest.raises(ValueError, match="exactly one"):
+        parser.process()
 
 
 def test_parse_run_info(sparse3d_event):
@@ -142,3 +151,75 @@ def test_parse_trigger(trigger_event):
     # Do a few basic checks
     # - The object returned should be a Trigger object
     assert isinstance(result, Trigger)
+
+
+@pytest.mark.parametrize("crthit_event", [1], indirect=True)
+def test_misc_parser_call_paths(sparse3d_event, crthit_event, trigger_event):
+    """Wrapper calls should route named inputs through the misc parsers."""
+    meta_parser = MetaParser(dtype="float32", sparse_event="sparse")
+    assert isinstance(meta_parser({"sparse": sparse3d_event}), ImageMeta3D)
+
+    run_info_parser = RunInfoParser(dtype="float32", sparse_event="sparse")
+    assert isinstance(run_info_parser({"sparse": sparse3d_event}), RunInfo)
+
+    crthit_parser = CRTHitParser(dtype="float32", crthit_event="crthit")
+    assert isinstance(crthit_parser({"crthit": crthit_event}).default, CRTHit)
+
+    if trigger_event is not None:
+        trigger_parser = TriggerParser(dtype="float32", trigger_event="trigger")
+        assert isinstance(trigger_parser({"trigger": trigger_event}), Trigger)
+
+
+def test_flash_parser_special_cases(monkeypatch):
+    """Flash parsing should cover merger setup and resize branches."""
+
+    class DummyFlash:
+        def __init__(self, pe_per_ch, volume_id=0):
+            self.pe_per_ch = np.asarray(pe_per_ch, dtype=np.float32)
+            self.volume_id = volume_id
+            self.id = 0
+
+    class DummyEvent:
+        def __init__(self, flashes):
+            self.flashes = flashes
+
+        def as_vector(self):
+            return self.flashes
+
+    monkeypatch.setattr(
+        "spine.io.parse.larcv.misc.GeoManager.get_instance",
+        lambda: SimpleNamespace(optical=SimpleNamespace(num_channels_per_volume=4)),
+    )
+    monkeypatch.setattr(
+        "spine.io.parse.larcv.misc.Flash.from_larcv", lambda flash: flash
+    )
+    monkeypatch.setattr("spine.io.parse.larcv.misc.larcv.Flash", lambda flash: flash)
+    monkeypatch.setattr(
+        "spine.io.parse.larcv.misc.FlashMerger",
+        lambda **kwargs: (lambda flashes: (list(reversed(flashes)), None)),
+    )
+
+    parser = FlashParser(dtype="float32", flash_event="flash", merge={"dt": 1.0})
+    result = parser({"flash": DummyEvent([DummyFlash([1, 2, 3, 4])])})
+    assert result[0].pe_per_ch.shape == (4,)
+
+    parser = FlashParser(dtype="float32", flash_event_list=["f0", "f1"])
+    result = parser(
+        {
+            "f0": DummyEvent([DummyFlash([1, 2])]),
+            "f1": DummyEvent([DummyFlash(np.arange(8, dtype=np.float32))]),
+        }
+    )
+    assert result[0].pe_per_ch.shape == (4,)
+    assert result[1].pe_per_ch.shape == (4,)
+
+
+def test_flash_parser_requires_optical_geometry(monkeypatch):
+    """Flash parsing should fail fast when the optical geometry is unavailable."""
+    monkeypatch.setattr(
+        "spine.io.parse.larcv.misc.GeoManager.get_instance",
+        lambda: SimpleNamespace(optical=None),
+    )
+
+    with pytest.raises(ValueError, match="Optical geometry"):
+        FlashParser(dtype="float32", flash_event="flash")

@@ -11,6 +11,11 @@ from spine.data import Meta
 from spine.geo import GeoManager
 from spine.io.collate import CollateAll
 from spine.io.parse.data import ParserTensor
+from spine.utils.conditional import TORCH_AVAILABLE
+
+pytestmark = pytest.mark.skipif(
+    not TORCH_AVAILABLE, reason="PyTorch is required for collate tests."
+)
 
 
 @pytest.fixture(name="batch_sparse", params=[(1, 1), (1, 4), (4, 1), (4, 4)])

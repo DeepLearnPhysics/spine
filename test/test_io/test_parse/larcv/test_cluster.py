@@ -252,3 +252,102 @@ def cluster3d_to_sparse3d(cluster3d_event, segmentation=False, ghost=True):
     event.set(voxel_set, meta)
 
     return event
+
+
+@pytest.mark.parametrize(
+    "cluster2d_event, cluster3d_event, particle_event, neutrino_event",
+    [(1, 20, 20, 1)],
+    indirect=True,
+)
+def test_cluster_parser_call_paths(
+    cluster2d_event, cluster3d_event, particle_event, neutrino_event
+):
+    """Wrapper calls should route named inputs through the cluster parsers."""
+    sparse3d_seg_event = cluster3d_to_sparse3d(cluster3d_event, True, False)
+    sparse3d_event_list = [cluster3d_to_sparse3d(cluster3d_event)] * 2
+    sparse3d_rescale_list = [cluster3d_to_sparse3d(cluster3d_event)] * 6 + [
+        sparse3d_seg_event
+    ]
+
+    cluster2d_parser = Cluster2DParser(
+        dtype="float32", cluster_event="cluster2d", projection_id=0
+    )
+    assert isinstance(cluster2d_parser({"cluster2d": cluster2d_event}), ParserTensor)
+
+    aggregate_parser = Cluster3DAggregateParser(
+        dtype="float32",
+        value_aggr="max",
+        cluster_event="cluster3d",
+        particle_event="particle",
+        neutrino_event="neutrino",
+        sparse_value_event_list=["value_0", "value_1"],
+        sparse_semantics_event="semantics",
+        clean_data=True,
+        add_particle_info=True,
+    )
+    assert isinstance(
+        aggregate_parser(
+            {
+                "cluster3d": cluster3d_event,
+                "particle": particle_event,
+                "neutrino": neutrino_event,
+                "value_0": sparse3d_event_list[0],
+                "value_1": sparse3d_event_list[1],
+                "semantics": sparse3d_seg_event,
+            }
+        ),
+        ParserTensor,
+    )
+
+    rescale_parser = Cluster3DChargeRescaledParser(
+        dtype="float32",
+        cluster_event="cluster3d",
+        particle_event="particle",
+        neutrino_event="neutrino",
+        sparse_value_event_list=[f"value_{i}" for i in range(7)],
+        sparse_semantics_event="semantics",
+        clean_data=True,
+        add_particle_info=True,
+    )
+    assert isinstance(
+        rescale_parser(
+            {
+                "cluster3d": cluster3d_event,
+                "particle": particle_event,
+                "neutrino": neutrino_event,
+                "semantics": sparse3d_seg_event,
+                **{f"value_{i}": sparse3d_rescale_list[i] for i in range(7)},
+            }
+        ),
+        ParserTensor,
+    )
+
+
+@pytest.mark.filterwarnings("ignore::UserWarning")
+@pytest.mark.parametrize("cluster3d_event, particle_event", [(20, 20)], indirect=True)
+def test_cluster3d_add_particle_info_special_cases(cluster3d_event, particle_event):
+    """Cluster parsing should cover secondary/MPR masking, auto-clean, and inferred neutrino count."""
+    sparse3d_seg_event = cluster3d_to_sparse3d(cluster3d_event, True, False)
+    sparse3d_event = cluster3d_to_sparse3d(cluster3d_event)
+
+    parser = Cluster3DParser(
+        dtype="float32",
+        cluster_event=cluster3d_event,
+        particle_event=particle_event,
+        sparse_value_event=sparse3d_event,
+        sparse_semantics_event=sparse3d_seg_event,
+        clean_data=False,
+        add_particle_info=True,
+        type_include_secondary=False,
+        type_include_mpr=False,
+        primary_include_mpr=False,
+    )
+    result = parser.process(
+        cluster_event=cluster3d_event,
+        particle_event=particle_event,
+        sparse_value_event=sparse3d_event,
+        sparse_semantics_event=sparse3d_seg_event,
+    )
+
+    assert isinstance(result, ParserTensor)
+    assert parser.clean_data is True
