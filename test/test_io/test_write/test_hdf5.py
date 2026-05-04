@@ -180,6 +180,54 @@ def test_hdf5_writer_append_missing_file(hdf5_output):
         assert len(out_file["events"]) == 2
 
 
+def test_hdf5_writer_auto_stores_source_entry_provenance(hdf5_output):
+    """Writer should persist original source entry provenance automatically."""
+    writer = HDF5Writer(
+        hdf5_output,
+        overwrite=True,
+        keys=["dummy_data"],
+    )
+    writer(
+        {
+            "index": np.asarray([0, 1]),
+            "file_index": np.asarray([3, 3]),
+            "file_entry_index": np.asarray([11, 12]),
+            "dummy_data": [np.random.rand(2, 3), np.random.rand(3, 3)],
+        }
+    )
+    writer.finalize()
+    writer.close()
+
+    with h5py.File(hdf5_output, "r") as out_file:
+        assert "source_file_index" in out_file
+        assert "source_file_entry_index" in out_file
+        np.testing.assert_array_equal(out_file["source_file_index"][:], [3, 3])
+        np.testing.assert_array_equal(out_file["source_file_entry_index"][:], [11, 12])
+
+
+def test_hdf5_writer_skip_keys_can_disable_source_provenance(hdf5_output):
+    """Explicit skip keys should still be able to drop source provenance."""
+    writer = HDF5Writer(
+        hdf5_output,
+        overwrite=True,
+        skip_keys=["source_file_index", "source_file_entry_index"],
+    )
+    writer(
+        {
+            "index": np.asarray([0]),
+            "file_index": np.asarray([2]),
+            "file_entry_index": np.asarray([9]),
+            "dummy_data": [np.random.rand(2, 3)],
+        }
+    )
+    writer.finalize()
+    writer.close()
+
+    with h5py.File(hdf5_output, "r") as out_file:
+        assert "source_file_index" not in out_file
+        assert "source_file_entry_index" not in out_file
+
+
 def test_hdf5_writer_finalize_marks_output_complete(hdf5_output):
     """Finalize should mark written files as complete."""
     writer = HDF5Writer(hdf5_output, overwrite=True)

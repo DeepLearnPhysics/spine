@@ -12,6 +12,7 @@ from spine.io.dataset import *
 from spine.io.dataset import base as dataset_base_module
 from spine.io.dataset import hdf5 as hdf5_dataset_module
 from spine.io.dataset import larcv as larcv_dataset_module
+from spine.io.dataset import mixed as mixed_dataset_module
 from spine.io.write import HDF5Writer
 from spine.utils.conditional import ROOT, ROOT_AVAILABLE, TORCH_AVAILABLE
 
@@ -317,6 +318,242 @@ def test_hdf5_dataset_schema_parser_failure(tmp_path):
 
     with pytest.raises(RuntimeError, match="boom"):
         dataset[0]
+
+
+def test_mixed_dataset_merges_aligned_sources(monkeypatch):
+    """The mixed dataset should merge aligned LArCV and HDF5 samples."""
+
+    class DummyDataset:
+        def __init__(self, samples, data_types, overlay_methods):
+            self.samples = samples
+            self._data_types = data_types
+            self._overlay_methods = overlay_methods
+            self.reader = object()
+
+        def __len__(self):
+            return len(self.samples)
+
+        def __getitem__(self, idx):
+            return dict(self.samples[idx])
+
+        @property
+        def data_types(self):
+            return self._data_types
+
+        @property
+        def overlay_methods(self):
+            return self._overlay_methods
+
+    larcv_samples = [
+        {
+            "index": 0,
+            "file_index": 0,
+            "file_entry_index": 0,
+            "data": "larcv-data",
+            "coord_label": "coords",
+        }
+    ]
+    hdf5_samples = [
+        {
+            "index": 0,
+            "file_index": 0,
+            "file_entry_index": 0,
+            "source_file_index": 0,
+            "source_file_entry_index": 0,
+            "clusts": "cached-clusts",
+            "node_features": "cached-node-features",
+        }
+    ]
+
+    monkeypatch.setattr(
+        mixed_dataset_module,
+        "LArCVDataset",
+        lambda **kwargs: DummyDataset(
+            larcv_samples,
+            {
+                "index": "scalar",
+                "file_index": "scalar",
+                "file_entry_index": "scalar",
+                "data": "tensor",
+                "coord_label": "tensor",
+            },
+            {
+                "index": "cat",
+                "file_index": "cat",
+                "file_entry_index": "cat",
+                "data": None,
+                "coord_label": None,
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        mixed_dataset_module,
+        "HDF5Dataset",
+        lambda **kwargs: DummyDataset(
+            hdf5_samples,
+            {
+                "index": "scalar",
+                "file_index": "scalar",
+                "file_entry_index": "scalar",
+                "source_file_index": "scalar",
+                "source_file_entry_index": "scalar",
+                "clusts": "tensor",
+                "node_features": "tensor",
+            },
+            {
+                "index": "cat",
+                "file_index": "cat",
+                "file_entry_index": "cat",
+                "source_file_index": "cat",
+                "source_file_entry_index": "cat",
+                "clusts": None,
+                "node_features": None,
+            },
+        ),
+    )
+
+    dataset = MixedDataset(
+        larcv={"file_keys": "dummy.root", "schema": {}},
+        hdf5={"file_keys": "dummy.h5"},
+        dtype="float32",
+    )
+
+    entry = dataset[0]
+    assert entry["data"] == "larcv-data"
+    assert entry["coord_label"] == "coords"
+    assert entry["clusts"] == "cached-clusts"
+    assert entry["node_features"] == "cached-node-features"
+    assert dataset.data_types["clusts"] == "tensor"
+    assert set(dataset.data_keys) == {
+        "index",
+        "file_index",
+        "file_entry_index",
+        "source_file_index",
+        "source_file_entry_index",
+        "data",
+        "coord_label",
+        "clusts",
+        "node_features",
+    }
+
+
+def test_mixed_dataset_rejects_alignment_mismatch(monkeypatch):
+    """The mixed dataset should fail clearly when sources do not align."""
+
+    class DummyDataset:
+        def __init__(self, samples):
+            self.samples = samples
+            self.reader = object()
+
+        def __len__(self):
+            return len(self.samples)
+
+        def __getitem__(self, idx):
+            return dict(self.samples[idx])
+
+        @property
+        def data_types(self):
+            return {
+                "index": "scalar",
+                "file_index": "scalar",
+                "file_entry_index": "scalar",
+            }
+
+        @property
+        def overlay_methods(self):
+            return {
+                "index": "cat",
+                "file_index": "cat",
+                "file_entry_index": "cat",
+            }
+
+    monkeypatch.setattr(
+        mixed_dataset_module,
+        "LArCVDataset",
+        lambda **kwargs: DummyDataset(
+            [{"index": 0, "file_index": 0, "file_entry_index": 0}]
+        ),
+    )
+    monkeypatch.setattr(
+        mixed_dataset_module,
+        "HDF5Dataset",
+        lambda **kwargs: DummyDataset(
+            [{"index": 0, "file_index": 0, "file_entry_index": 1}]
+        ),
+    )
+
+    dataset = MixedDataset(
+        larcv={"file_keys": "dummy.root", "schema": {}},
+        hdf5={"file_keys": "dummy.h5"},
+        dtype="float32",
+    )
+
+    with pytest.raises(ValueError, match="alignment failed"):
+        dataset[0]
+
+
+def test_mixed_dataset_prefers_source_provenance(monkeypatch):
+    """The mixed dataset should align on persisted source provenance by default."""
+
+    class DummyDataset:
+        def __init__(self, samples):
+            self.samples = samples
+            self.reader = object()
+
+        def __len__(self):
+            return len(self.samples)
+
+        def __getitem__(self, idx):
+            return dict(self.samples[idx])
+
+        @property
+        def data_types(self):
+            return {
+                "index": "scalar",
+                "file_index": "scalar",
+                "file_entry_index": "scalar",
+            }
+
+        @property
+        def overlay_methods(self):
+            return {
+                "index": "cat",
+                "file_index": "cat",
+                "file_entry_index": "cat",
+            }
+
+    monkeypatch.setattr(
+        mixed_dataset_module,
+        "LArCVDataset",
+        lambda **kwargs: DummyDataset(
+            [{"index": 0, "file_index": 0, "file_entry_index": 5}]
+        ),
+    )
+    monkeypatch.setattr(
+        mixed_dataset_module,
+        "HDF5Dataset",
+        lambda **kwargs: DummyDataset(
+            [
+                {
+                    "index": 0,
+                    "file_index": 99,
+                    "file_entry_index": 42,
+                    "source_file_index": 0,
+                    "source_file_entry_index": 5,
+                }
+            ]
+        ),
+    )
+
+    dataset = MixedDataset(
+        larcv={"file_keys": "dummy.root", "schema": {}},
+        hdf5={"file_keys": "dummy.h5"},
+        dtype="float32",
+    )
+
+    entry = dataset[0]
+    assert entry["file_index"] == 0
+    assert entry["file_entry_index"] == 5
 
 
 def test_larcv_dataset_uses_augmenter_and_length(monkeypatch):

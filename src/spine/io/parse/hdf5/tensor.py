@@ -7,7 +7,11 @@ import numpy as np
 from ..base import ParserBase
 from ..data import ParserTensor
 
-__all__ = ["HDF5FeatureTensorParser", "HDF5IndexListParser"]
+__all__ = [
+    "HDF5FeatureTensorParser",
+    "HDF5IndexListParser",
+    "HDF5EdgeIndexParser",
+]
 
 
 class HDF5FeatureTensorParser(ParserBase):
@@ -73,3 +77,29 @@ class HDF5IndexListParser(ParserBase):
             np.concatenate(index_list) if len(index_list) > 1 else index_list[0]
         )
         return int(np.max(full_index, initial=-1) + 1)
+
+
+class HDF5EdgeIndexParser(HDF5IndexListParser):
+    """Build an edge-index :class:`ParserTensor` from cached HDF5 data."""
+
+    name = "edge_index"
+
+    def process(self, index_event, count_event=None):
+        """Normalize cached edge indexes for collation into an EdgeIndexBatch."""
+        index = np.asarray(index_event, dtype=self.itype)
+        if index.ndim != 2:
+            raise ValueError(
+                "Cached edge indexes must be 2D. "
+                f"Received an array with shape {index.shape}."
+            )
+
+        if index.shape[0] != 2 and index.shape[1] == 2:
+            index = index.T
+        elif index.shape[0] != 2:
+            raise ValueError(
+                "Cached edge indexes must have shape (2, E) or (E, 2). "
+                f"Received {index.shape}."
+            )
+
+        global_shift = self.resolve_global_shift([], count_event)
+        return ParserTensor(features=index, global_shift=global_shift)

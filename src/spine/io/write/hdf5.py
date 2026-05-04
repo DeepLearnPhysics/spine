@@ -37,6 +37,10 @@ class HDF5Writer:
     """
 
     name = "hdf5"
+    source_index_keys = {
+        "file_index": "source_file_index",
+        "file_entry_index": "source_file_entry_index",
+    }
 
     def __init__(
         self,
@@ -460,6 +464,32 @@ class HDF5Writer:
         # Mark file(s) as ready for use
         self.ready = True
 
+    def with_source_provenance(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Return a data dictionary augmented with persisted source provenance.
+
+        When upstream products carry `file_index` and/or `file_entry_index`,
+        preserve those values under explicit `source_*` names so they survive
+        round-tripping through HDF5 without colliding with the reader-owned
+        runtime index fields of the produced HDF5 file.
+
+        Parameters
+        ----------
+        data : dict
+            Dictionary of data products to be written
+
+        Returns
+        -------
+        dict
+            Shallow copy of the data dictionary with `source_*` aliases added
+            when the corresponding upstream index fields are present.
+        """
+        aliased = dict(data)
+        for key, source_key in self.source_index_keys.items():
+            if key in aliased and source_key not in aliased:
+                aliased[source_key] = aliased[key]
+
+        return aliased
+
     def get_stored_keys(self, data: dict[str, Any]) -> set[str]:
         """Get the list of data product keys to store.
 
@@ -486,15 +516,6 @@ class HDF5Writer:
         keys = {"index"}
         if self.keys is None:
             keys.update(data.keys())
-            if self.skip_keys is not None:
-                for key in self.skip_keys:
-                    if key not in keys:
-                        raise KeyError(
-                            f"Key {key} appears in `skip_keys` but does not "
-                            "appear in the dictionary of data products."
-                        )
-                    keys.remove(key)
-
         else:
             keys.update(self.keys)
             for key in self.keys:
@@ -502,6 +523,20 @@ class HDF5Writer:
                     f"Cannot store {key} as it does not appear "
                     "in the dictionary of data products."
                 )
+
+        # Persist the original source entry provenance under explicit names.
+        for key, source_key in self.source_index_keys.items():
+            if key in data:
+                keys.add(source_key)
+
+        if self.skip_keys is not None:
+            for key in self.skip_keys:
+                if key not in keys:
+                    raise KeyError(
+                        f"Key {key} appears in `skip_keys` but does not "
+                        "appear in the dictionary of data products."
+                    )
+                keys.remove(key)
 
         # Add dummy keys to the list, if requested
         if self.dummy_ds is not None:
@@ -770,6 +805,9 @@ class HDF5Writer:
         cfg : dict
             Dictionary containing the complete SPINE configuration
         """
+        # Preserve the original source provenance under explicit names.
+        data = self.with_source_provenance(data)
+
         # Nest data if is not already, fetch batch size
         if np.isscalar(data["index"]):
             for k in data:

@@ -46,6 +46,73 @@ def test_dataset_factory_hdf5(hdf5_data):
     not TORCH_AVAILABLE,
     reason="PyTorch is required for torch-backed dataset factory tests.",
 )
+def test_dataset_factory_mixed(monkeypatch):
+    """The generic dataset factory should instantiate the mixed dataset."""
+    import spine.io.dataset.mixed as mixed_dataset_module
+
+    class DummyDataset:
+        def __init__(self, samples):
+            self.samples = samples
+            self.reader = object()
+
+        def __len__(self):
+            return len(self.samples)
+
+        def __getitem__(self, idx):
+            return dict(self.samples[idx])
+
+        @property
+        def data_types(self):
+            return {
+                "index": "scalar",
+                "file_index": "scalar",
+                "file_entry_index": "scalar",
+                "data": "tensor",
+                "clusts": "tensor",
+            }
+
+        @property
+        def overlay_methods(self):
+            return {
+                "index": "cat",
+                "file_index": "cat",
+                "file_entry_index": "cat",
+                "data": None,
+                "clusts": None,
+            }
+
+    monkeypatch.setattr(
+        mixed_dataset_module,
+        "LArCVDataset",
+        lambda **kwargs: DummyDataset(
+            [{"index": 0, "file_index": 0, "file_entry_index": 0, "data": "x"}]
+        ),
+    )
+    monkeypatch.setattr(
+        mixed_dataset_module,
+        "HDF5Dataset",
+        lambda **kwargs: DummyDataset(
+            [{"index": 0, "file_index": 0, "file_entry_index": 0, "clusts": "y"}]
+        ),
+    )
+
+    dataset = dataset_factory(
+        {
+            "name": "mixed",
+            "larcv": {"file_keys": "dummy.root", "schema": {}},
+            "hdf5": {"file_keys": "dummy.h5"},
+        },
+        dtype="float32",
+    )
+
+    assert dataset.name == "mixed"
+    assert dataset[0]["clusts"] == "y"
+
+
+@pytest.mark.skipif(
+    not TORCH_AVAILABLE,
+    reason="PyTorch is required for torch-backed dataset factory tests.",
+)
 def test_dataset_factory_entry_list_warning(hdf5_data):
     """Providing an external entry list should override the config with a warning."""
     cfg = {
