@@ -19,6 +19,11 @@ from ..base import ParserBase
 from ..data import ParserTensor
 
 __all__ = [
+    "LArCVSparse2DParser",
+    "LArCVSparse3DParser",
+    "LArCVSparse3DAggregateParser",
+    "LArCVSparse3DChargeRescaledParser",
+    "LArCVSparse3DGhostParser",
     "Sparse2DParser",
     "Sparse3DParser",
     "Sparse3DAggregateParser",
@@ -27,7 +32,7 @@ __all__ = [
 ]
 
 
-class Sparse2DParser(ParserBase):
+class LArCVSparse2DParser(ParserBase):
     """Class that retrieves and parses a 2D sparse tensor.
 
     .. code-block. yaml
@@ -147,7 +152,7 @@ class Sparse2DParser(ParserBase):
         )
 
 
-class Sparse3DParser(ParserBase):
+class LArCVSparse3DParser(ParserBase):
     """Class that retrieves and parses a 3D sparse tensor.
 
     .. code-block. yaml
@@ -389,7 +394,7 @@ class Sparse3DParser(ParserBase):
         )
 
 
-class Sparse3DAggregateParser(Sparse3DParser):
+class LArCVSparse3DAggregateParser(LArCVSparse3DParser):
     """Class that aggregates features from multiple sparse tensors
 
     .. code-block. yaml
@@ -457,7 +462,7 @@ class Sparse3DAggregateParser(Sparse3DParser):
         return tensor
 
 
-class Sparse3DChargeRescaledParser(Sparse3DParser):
+class LArCVSparse3DChargeRescaledParser(LArCVSparse3DParser):
     """Class that convert a tensor containing semantics to binary ghost labels.
 
     .. code-block. yaml
@@ -535,7 +540,7 @@ class Sparse3DChargeRescaledParser(Sparse3DParser):
         return tensor
 
 
-class Sparse3DGhostParser(Sparse3DParser):
+class LArCVSparse3DGhostParser(LArCVSparse3DParser):
     """Class that convert a tensor containing semantics to binary ghost labels.
 
     .. code-block. yaml
@@ -584,3 +589,11 @@ class Sparse3DGhostParser(Sparse3DParser):
         tensor.features = (tensor.features == GHOST_SHP).astype(tensor.features.dtype)
 
         return tensor
+
+
+# Backward-compatible aliases
+Sparse2DParser = LArCVSparse2DParser
+Sparse3DParser = LArCVSparse3DParser
+Sparse3DAggregateParser = LArCVSparse3DAggregateParser
+Sparse3DChargeRescaledParser = LArCVSparse3DChargeRescaledParser
+Sparse3DGhostParser = LArCVSparse3DGhostParser

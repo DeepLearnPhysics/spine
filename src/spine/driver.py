@@ -670,6 +670,9 @@ class Driver:
         # Clean up: close all analysis script CSV writers
         if self.ana is not None:
             self.ana.close()
+        if self.writer is not None:
+            self.writer.finalize()
+            self.writer.close()
 
     def process(
         self, entry=None, run=None, subrun=None, event=None, iteration=None, epoch=None

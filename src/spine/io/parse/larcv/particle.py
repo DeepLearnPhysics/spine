@@ -32,6 +32,14 @@ from ..base import ParserBase
 from ..data import ParserObjectList, ParserTensor
 
 __all__ = [
+    "LArCVParticleParser",
+    "LArCVNeutrinoParser",
+    "LArCVParticlePointParser",
+    "LArCVParticleCoordinateParser",
+    "LArCVVertexPointParser",
+    "LArCVParticleGraphParser",
+    "LArCVSingleParticlePIDParser",
+    "LArCVSingleParticleEnergyParser",
     "ParticleParser",
     "NeutrinoParser",
     "ParticlePointParser",
@@ -43,7 +51,7 @@ __all__ = [
 ]
 
 
-class ParticleParser(ParserBase):
+class LArCVParticleParser(ParserBase):
     """Class which loads larcv.Particle objects to local Particle ones.
 
     .. code-block. yaml
@@ -200,7 +208,7 @@ class ParticleParser(ParserBase):
         return ParserObjectList(particles, Particle(), index_shifts)
 
 
-class NeutrinoParser(ParserBase):
+class LArCVNeutrinoParser(ParserBase):
     """Class which loads larcv.Neutrino objects to local Neutrino ones.
 
     .. code-block. yaml
@@ -318,7 +326,7 @@ class NeutrinoParser(ParserBase):
         return ParserObjectList(neutrinos, Neutrino(), index_shifts)
 
 
-class ParticlePointParser(ParserBase):
+class LArCVParticlePointParser(ParserBase):
     """Class that retrieves the points of interests.
 
     It provides the coordinates of the end points, types and particle index.
@@ -417,7 +425,7 @@ class ParticlePointParser(ParserBase):
         )
 
 
-class ParticleCoordinateParser(ParserBase):
+class LArCVParticleCoordinateParser(ParserBase):
     """Class that retrieves that end points of particles.
 
     It provides the coordinates of the end points, time and shape.
@@ -498,7 +506,7 @@ class ParticleCoordinateParser(ParserBase):
         )
 
 
-class VertexPointParser(ParserBase):
+class LArCVVertexPointParser(ParserBase):
     """Class that retrieves the vertices.
 
     It provides the coordinates of points where multiple particles originate:
@@ -610,7 +618,7 @@ class VertexPointParser(ParserBase):
         )
 
 
-class ParticleGraphParser(ParserBase):
+class LArCVParticleGraphParser(ParserBase):
     """Class that uses larcv.EventParticle to construct edges
     between particles (i.e. clusters).
 
@@ -720,7 +728,7 @@ class ParticleGraphParser(ParserBase):
         return ParserTensor(features=edges.T, global_shift=num_particles)
 
 
-class SingleParticlePIDParser(ParserBase):
+class LArCVSingleParticlePIDParser(ParserBase):
     """Get the first true particle's species.
 
     .. code-block. yaml
@@ -774,7 +782,7 @@ class SingleParticlePIDParser(ParserBase):
         return pid
 
 
-class SingleParticleEnergyParser(ParserBase):
+class LArCVSingleParticleEnergyParser(ParserBase):
     """Get the first true particle's kinetic energy.
 
     .. code-block. yaml
@@ -829,3 +837,14 @@ class SingleParticleEnergyParser(ParserBase):
                 break
 
         return ke
+
+
+# Backward-compatible aliases
+ParticleParser = LArCVParticleParser
+NeutrinoParser = LArCVNeutrinoParser
+ParticlePointParser = LArCVParticlePointParser
+ParticleCoordinateParser = LArCVParticleCoordinateParser
+VertexPointParser = LArCVVertexPointParser
+ParticleGraphParser = LArCVParticleGraphParser
+SingleParticlePIDParser = LArCVSingleParticlePIDParser
+SingleParticleEnergyParser = LArCVSingleParticleEnergyParser

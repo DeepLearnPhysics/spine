@@ -8,11 +8,11 @@ from typing import Any, ClassVar
 from spine.utils.factory import instantiate, module_dict
 from spine.utils.logger import logger
 
-from .. import parse
+from ..parse import larcv as parse_larcv
 from ..read import LArCVReader
 from .base import BaseDataset, DataDict
 
-PARSER_DICT = module_dict(parse)
+PARSER_DICT = module_dict(parse_larcv)
 
 __all__ = ["LArCVDataset"]
 

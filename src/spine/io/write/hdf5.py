@@ -50,6 +50,8 @@ class HDF5Writer:
         append: bool = False,
         split: bool = False,
         lite: bool = False,
+        keep_open: bool = True,
+        flush_frequency: int | None = None,
     ) -> None:
         """Initializes the basics of the output file.
 
@@ -78,6 +80,14 @@ class HDF5Writer:
             If `True`, split the output to produce one file per input file
         lite : bool, default False
             If `True`, the lite version of objects is stored (drop point indexes)
+        keep_open : bool, default True
+            If `True`, keep one append handle open per output file and per
+            process. This reduces HDF5 open/close churn when writing many
+            batches. If `False`, open and close the file on each write call.
+        flush_frequency : int, optional
+            If specified, flush each output file after this many appended
+            entries. If `None`, only flush when explicitly requested or when
+            the file handle is closed.
         """
         # Build the output file name(s) from the input prefix(es) if not provided
         self.file_names = self.get_file_names(file_name, prefix, suffix, split)
@@ -92,6 +102,8 @@ class HDF5Writer:
         self.append = append
         self.split = split
         self.lite = lite
+        self.keep_open = keep_open
+        self.flush_frequency = flush_frequency
 
         self.keys = set(keys) if keys is not None else None
         self.skip_keys = skip_keys
@@ -107,6 +119,226 @@ class HDF5Writer:
         self.object_dtypes = []
         self.type_dict = None
         self.event_dtype = None
+        self._handle_pid: int | None = None
+        self._file_handles: dict[int, h5py.File] = {}
+        self._cfg: dict[str, Any] | None = None
+        self._initialized_files: set[int] = set()
+        self._completed_files: set[int] = set()
+        self._entries_since_flush: dict[int, int] = {}
+        self._max_written_file_id: int | None = None
+        self._split_sequential = True
+
+    def __enter__(self) -> "HDF5Writer":
+        """Return the writer for use in a `with` block."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
+        """Close persistent output handles on context-manager exit.
+
+        Parameters
+        ----------
+        exc_type : type, optional
+            Exception type raised inside the context, if any
+        exc_val : Exception, optional
+            Exception instance raised inside the context, if any
+        exc_tb : traceback, optional
+            Traceback associated with the raised exception, if any
+
+        Returns
+        -------
+        bool
+            Always `False` so exceptions are propagated to the caller.
+        """
+        if exc_type is None:
+            self.finalize()
+        self.close()
+        return False
+
+    def close(self) -> None:
+        """Close any persistent HDF5 output handles owned by this writer.
+
+        This only affects handles cached in the current process. It is safe to
+        call repeatedly.
+        """
+        for handle in getattr(self, "_file_handles", {}).values():
+            try:
+                handle.close()
+            except Exception:
+                pass
+
+        self._file_handles = {}
+        self._handle_pid = None
+
+    def flush(self) -> None:
+        """Flush all persistent HDF5 output handles to disk.
+
+        This is useful when the writer keeps files open for a long time and the
+        caller wants to force buffered metadata and dataset updates to disk.
+        """
+        for handle in self._file_handles.values():
+            handle.flush()
+
+    def finalize(self) -> None:
+        """Mark initialized output files as complete and flush metadata.
+
+        This method should only be called once the caller knows writing
+        completed successfully for the relevant files.
+        """
+        for file_id in sorted(self._initialized_files - self._completed_files):
+            if self.keep_open:
+                handle, _ = self._get_output_handle(file_id)
+                handle["info"].attrs["complete"] = True
+                handle.flush()
+            else:
+                with h5py.File(self.file_names[file_id], "a") as out_file:
+                    out_file["info"].attrs["complete"] = True
+
+            self._completed_files.add(file_id)
+
+    def __del__(self) -> None:
+        """Best-effort cleanup of persistent output handles on teardown."""
+        self.close()
+
+    def _check_handle_pid(self) -> None:
+        """Ensure persistent output handles are only used in one process.
+
+        Writer instances are not safe to share across processes. Unlike the
+        reader, the writer refuses PID changes outright to avoid ambiguous
+        multi-process append behavior.
+        """
+        current_pid = os.getpid()
+        if self._handle_pid is None:
+            self._handle_pid = current_pid
+            return
+
+        if self._handle_pid != current_pid:
+            raise RuntimeError(
+                "HDF5Writer file handles are process-local and cannot be reused "
+                "across process boundaries."
+            )
+
+    def _get_output_handle(self, file_id: int) -> tuple[h5py.File, bool]:
+        """Return an appendable HDF5 handle for one output file.
+
+        Parameters
+        ----------
+        file_id : int
+            Position of the target file in `self.file_names`
+
+        Returns
+        -------
+        tuple[h5py.File, bool]
+            The opened HDF5 file handle and a flag indicating whether the
+            caller is responsible for closing it. The flag is `True` only when
+            `keep_open=False`.
+        """
+        self._ensure_file(file_id)
+        if not self.keep_open:
+            return h5py.File(self.file_names[file_id], "a"), True
+
+        self._check_handle_pid()
+        handle = self._file_handles.get(file_id)
+        if handle is None or not handle.id.valid:
+            handle = h5py.File(self.file_names[file_id], "a")
+            self._file_handles[file_id] = handle
+
+        return handle, False
+
+    def _ensure_file(self, file_id: int) -> None:
+        """Create or prepare one output file for writing on first use."""
+        if file_id in self._completed_files:
+            raise RuntimeError(
+                f"Output file '{self.file_names[file_id]}' was already finalized."
+            )
+
+        if file_id in self._initialized_files:
+            return
+
+        file_name = self.file_names[file_id]
+        file_exists = os.path.isfile(file_name)
+        if self.append and file_exists:
+            if self.keep_open:
+                self._check_handle_pid()
+                out_file = h5py.File(file_name, "a")
+                self._file_handles[file_id] = out_file
+                event_obj = out_file["events"]
+                assert isinstance(event_obj, h5py.Dataset), (
+                    "Expected dataset for events to be a Dataset, but got "
+                    f"{type(event_obj)} instead."
+                )
+                self.event_dtype = getattr(event_obj, "dtype")
+                out_file["info"].attrs["complete"] = False
+            else:
+                with h5py.File(file_name, "a") as out_file:
+                    event_obj = out_file["events"]
+                    assert isinstance(event_obj, h5py.Dataset), (
+                        "Expected dataset for events to be a Dataset, but got "
+                        f"{type(event_obj)} instead."
+                    )
+                    self.event_dtype = getattr(event_obj, "dtype")
+                    out_file["info"].attrs["complete"] = False
+        else:
+            if self.keep_open:
+                self._check_handle_pid()
+                out_file = h5py.File(file_name, "w")
+                self._file_handles[file_id] = out_file
+            else:
+                out_file = h5py.File(file_name, "w")
+
+            try:
+                out_file.create_group("info")
+                out_file["info"].attrs["version"] = __version__
+                out_file["info"].attrs["complete"] = False
+                if self._cfg is not None:
+                    out_file["info"].attrs["cfg"] = yaml.dump(self._cfg)
+                assert (
+                    self.type_dict is not None
+                ), "Cannot initialize an output file before data types are known."
+                self.initialize_datasets(out_file, self.type_dict)
+            finally:
+                if not self.keep_open:
+                    out_file.close()
+
+        self._initialized_files.add(file_id)
+        self._entries_since_flush[file_id] = 0
+
+    def _record_write(self, file_id: int, count: int, out_file: h5py.File) -> None:
+        """Update flush bookkeeping for one file after appending entries."""
+        if self.flush_frequency is None:
+            return
+
+        self._entries_since_flush[file_id] += count
+        if self._entries_since_flush[file_id] >= self.flush_frequency:
+            out_file.flush()
+            self._entries_since_flush[file_id] = 0
+
+    def _finalize_split_predecessors(self, current_file_ids: np.ndarray) -> None:
+        """Finalize older split outputs once the writer advances monotonically."""
+        if (
+            not self.split
+            or self._max_written_file_id is None
+            or not len(current_file_ids)
+        ):
+            return
+
+        min_file_id = int(np.min(current_file_ids))
+        if min_file_id < self._max_written_file_id:
+            self._split_sequential = False
+            return
+
+        if not self._split_sequential or min_file_id <= self._max_written_file_id:
+            return
+
+        for file_id in sorted(self._initialized_files - self._completed_files):
+            if file_id < min_file_id:
+                if self.keep_open:
+                    handle, _ = self._get_output_handle(file_id)
+                    handle["info"].attrs["complete"] = True
+                    handle.flush()
+                else:
+                    with h5py.File(self.file_names[file_id], "a") as out_file:
+                        out_file["info"].attrs["complete"] = True
+                self._completed_files.add(file_id)
 
     @staticmethod
     def get_file_names(
@@ -220,31 +452,10 @@ class HDF5Writer:
         """
         # Fetch the required keys to be stored and register them
         self.keys = self.get_stored_keys(data)
+        self._cfg = cfg
 
         # Fetch the data type information for each key and store it in a dictionary
         self.type_dict, self.object_dtypes = self.get_data_types(data, self.keys)
-
-        # Initialize the output HDF5 file(s)
-        for file_name in self.file_names:
-            if append and os.path.isfile(file_name):
-                with h5py.File(file_name, "r") as out_file:
-                    event_obj = out_file["events"]
-                    assert isinstance(event_obj, h5py.Dataset), (
-                        "Expected dataset for events to be a Dataset, but got "
-                        f"{type(event_obj)} instead."
-                    )
-                    self.event_dtype = getattr(event_obj, "dtype")
-                continue
-
-            with h5py.File(file_name, "w") as out_file:
-                # Initialize the info group that stores environment parameters
-                out_file.create_group("info")
-                out_file["info"].attrs["version"] = __version__
-                if cfg is not None:
-                    out_file["info"].attrs["cfg"] = yaml.dump(cfg)
-
-                # Initialize the event dataset and their reference array datasets
-                self.initialize_datasets(out_file, self.type_dict)
 
         # Mark file(s) as ready for use
         self.ready = True
@@ -578,17 +789,37 @@ class HDF5Writer:
 
         # Append file(s)
         if not self.split or len(self.file_names) == 1:
-            with h5py.File(self.file_names[0], "a") as out_file:
+            out_file, should_close = self._get_output_handle(0)
+            try:
                 # Loop over batch IDs
                 for batch_id in range(batch_size):
                     self.append_entry(out_file, data, batch_id)
+                self._record_write(0, batch_size, out_file)
+            finally:
+                if should_close:
+                    out_file.close()
 
         else:
-            file_ids = data["file_index"]
+            file_ids = np.asarray(data["file_index"], dtype=np.int64)
+            unique_file_ids = np.unique(file_ids)
+            self._finalize_split_predecessors(unique_file_ids)
             for file_id in np.unique(file_ids):
-                with h5py.File(self.file_names[file_id], "a") as out_file:
-                    for batch_id in np.where(file_ids == file_id)[0]:
+                out_file, should_close = self._get_output_handle(int(file_id))
+                try:
+                    batch_ids = np.where(file_ids == file_id)[0]
+                    for batch_id in batch_ids:
                         self.append_entry(out_file, data, batch_id)
+                    self._record_write(int(file_id), len(batch_ids), out_file)
+                finally:
+                    if should_close:
+                        out_file.close()
+
+            max_file_id = int(np.max(unique_file_ids))
+            if (
+                self._max_written_file_id is None
+                or max_file_id > self._max_written_file_id
+            ):
+                self._max_written_file_id = max_file_id
 
     def append_entry(
         self, out_file: h5py.File, data: dict[str, Any], batch_id: int

@@ -1,5 +1,6 @@
 """Contains a reader class dedicated to loading data from HDF5 files."""
 
+import os
 from dataclasses import fields
 from typing import Any
 from warnings import warn
@@ -48,30 +49,33 @@ class HDF5Reader(ReaderBase):
         skip_unknown_attrs: bool = False,
         run_info_key: str = "run_info",
         allow_missing: bool = False,
+        keep_open: bool = True,
+        swmr: bool = False,
+        ignore_incomplete: bool = False,
     ) -> None:
         """Initalize the HDF5 file reader.
 
         Parameters
         ----------
-        file_keys : Union[str, List[str]], optional
+        file_keys : str or list[str], optional
             Path or list of paths to the HDF5 files to be read
         file_list : str, optional
             Path to a text file containing a list of file paths to be read
-        limit_num_files : Optional[int], optional
+        limit_num_files : int, optional
             Integer limiting number of files to be taken per data directory
         max_print_files : int, default 10
             Maximum number of loaded file names to be printed
-        n_entry : Optional[int], optional
+        n_entry : int, optional
             Maximum number of entries to load
-        n_skip : Optional[int], optional
+        n_skip : int, optional
             Number of entries to skip at the beginning
-        entry_list : Optional[List[int]]
+        entry_list : list[int], optional
             List of integer entry IDs to add to the index
-        skip_entry_list : Optional[List[int]]
+        skip_entry_list : list[int], optional
             List of integer entry IDs to skip from the index
-        run_event_list: Optional[List[List[int]]], optional
+        run_event_list : list[list[int]], optional
             List of (run, subrun, event) triplets to add to the index
-        skip_run_event_list: Optional[List[List[int]]], optional
+        skip_run_event_list : list[list[int]], optional
             List of (run, subrun, event) triplets to skip from the index
         create_run_map : bool, default False
             Initialize a map between (run, subrun, event) triplets and entries.
@@ -86,9 +90,26 @@ class HDF5Reader(ReaderBase):
             Name of the data product which contains the run info of the event
         allow_missing : bool, default False
             If `True`, allows missing entries in the entry or event list
+        keep_open : bool, default True
+            If `True`, keep one read-only HDF5 handle open per file and per
+            process. This avoids reopening files for every event access. If
+            `False`, open and close the file on each `get` call.
+        swmr : bool, default False
+            If `True`, open files in HDF5 single-writer/multiple-reader mode.
+            This is only relevant when reading files produced by a writer that
+            was configured for SWMR-safe operation.
+        ignore_incomplete : bool, default False
+            If `True`, allow opening files marked as incomplete. By default,
+            files with an explicit `info.attrs["complete"] = False` marker are
+            rejected.
         """
         # Process the list of files
         self.process_file_paths(file_keys, file_list, limit_num_files, max_print_files)
+        self.keep_open = keep_open
+        self.swmr = swmr
+        self.ignore_incomplete = ignore_incomplete
+        self._handle_pid: int | None = None
+        self._file_handles: dict[int, h5py.File] = {}
 
         # If an entry list is requested based on run/subrun/event ID, create map
         if run_event_list is not None or skip_run_event_list is not None:
@@ -102,6 +123,16 @@ class HDF5Reader(ReaderBase):
             with h5py.File(path, "r") as in_file:
                 # Check that there are events in the file
                 assert "events" in in_file, "File does not contain an event tree"
+                if (
+                    "info" in in_file
+                    and "complete" in in_file["info"].attrs
+                    and not in_file["info"].attrs["complete"]
+                    and not self.ignore_incomplete
+                ):
+                    raise RuntimeError(
+                        f"HDF5 file '{path}' is marked incomplete. "
+                        "Pass ignore_incomplete=True to override."
+                    )
 
                 events = in_file["events"]
                 assert isinstance(
@@ -161,6 +192,68 @@ class HDF5Reader(ReaderBase):
 
         # Process the SPINE version used to produced the HDF5 file
         self.version = self.process_version()
+
+    def close(self) -> None:
+        """Close any persistent HDF5 handles owned by this reader.
+
+        This only affects handles cached in the current process. It is safe to
+        call repeatedly.
+        """
+        for handle in getattr(self, "_file_handles", {}).values():
+            try:
+                handle.close()
+            except Exception:
+                pass
+
+        self._file_handles = {}
+        self._handle_pid = None
+
+    def __del__(self) -> None:
+        """Best-effort cleanup of persistent read handles on object teardown."""
+        self.close()
+
+    def _check_handle_pid(self) -> None:
+        """Ensure cached handles belong to the current process.
+
+        Reader instances may be copied into worker processes by data-loading
+        frameworks. When that happens, inherited file handles must not be
+        reused. This method drops any cached handles on PID changes and lets
+        the caller reopen them lazily in the new process.
+        """
+        current_pid = os.getpid()
+        if self._handle_pid is None:
+            self._handle_pid = current_pid
+            return
+
+        if self._handle_pid != current_pid:
+            self.close()
+            self._handle_pid = current_pid
+
+    def _open_file(self, file_idx: int) -> tuple[h5py.File, bool]:
+        """Return a readable HDF5 handle for one input file.
+
+        Parameters
+        ----------
+        file_idx : int
+            Position of the target file in `self.file_paths`
+
+        Returns
+        -------
+        tuple[h5py.File, bool]
+            The opened HDF5 file handle and a flag indicating whether the
+            caller is responsible for closing it. The flag is `True` only when
+            `keep_open=False`.
+        """
+        if not self.keep_open:
+            return h5py.File(self.file_paths[file_idx], "r", swmr=self.swmr), True
+
+        self._check_handle_pid()
+        handle = self._file_handles.get(file_idx)
+        if handle is None or not handle.id.valid:
+            handle = h5py.File(self.file_paths[file_idx], "r", swmr=self.swmr)
+            self._file_handles[file_idx] = handle
+
+        return handle, False
 
     def process_cfg(self) -> dict[str, Any] | None:
         """Fetches the SPINE configuration used to produce the HDF5 file.
@@ -232,7 +325,8 @@ class HDF5Reader(ReaderBase):
 
         # Use the event tree to find out what needs to be loaded
         data = {"file_index": file_idx, "file_entry_index": entry_idx}
-        with h5py.File(self.file_paths[file_idx], "r") as in_file:
+        in_file, should_close = self._open_file(file_idx)
+        try:
             events = in_file["events"]
             assert isinstance(
                 events, h5py.Dataset
@@ -245,6 +339,9 @@ class HDF5Reader(ReaderBase):
                     self.load_key(in_file, event, data, key)
             else:
                 raise ValueError("Event entry does not have named fields.")
+        finally:
+            if should_close:
+                in_file.close()
 
         # Use the global index, not the one read from file
         data["index"] = idx

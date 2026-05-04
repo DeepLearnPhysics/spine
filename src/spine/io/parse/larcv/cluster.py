@@ -35,12 +35,16 @@ from ..base import ParserBase
 from ..clean_data import clean_sparse_data
 from ..data import ParserTensor
 from .sparse import (
-    Sparse3DAggregateParser,
-    Sparse3DChargeRescaledParser,
-    Sparse3DParser,
+    LArCVSparse3DAggregateParser,
+    LArCVSparse3DChargeRescaledParser,
+    LArCVSparse3DParser,
 )
 
 __all__ = [
+    "LArCVCluster2DParser",
+    "LArCVCluster3DParser",
+    "LArCVCluster3DAggregateParser",
+    "LArCVCluster3DChargeRescaledParser",
     "Cluster2DParser",
     "Cluster3DParser",
     "Cluster3DAggregateParser",
@@ -48,7 +52,7 @@ __all__ = [
 ]
 
 
-class Cluster2DParser(ParserBase):
+class LArCVCluster2DParser(ParserBase):
     """Class that retrieves and parses a 2D cluster list.
 
     .. code-block. yaml
@@ -156,7 +160,7 @@ class Cluster2DParser(ParserBase):
         )
 
 
-class Cluster3DParser(ParserBase):
+class LArCVCluster3DParser(ParserBase):
     """Class that retrieves and parses a 3D cluster list.
 
     .. code-block. yaml
@@ -245,7 +249,7 @@ class Cluster3DParser(ParserBase):
         self.break_metric_id = METRICS[break_metric]
 
         # Intialize the sparse and particle parsers
-        self.sparse_parser = Sparse3DParser(dtype, sparse_event="dummy")
+        self.sparse_parser = LArCVSparse3DParser(dtype, sparse_event="dummy")
 
         # If particle information is to be incldued, check that it is provided
         if self.add_particle_info:
@@ -506,7 +510,7 @@ class Cluster3DParser(ParserBase):
         )
 
 
-class Cluster3DAggregateParser(Cluster3DParser):
+class LArCVCluster3DAggregateParser(LArCVCluster3DParser):
     """Identical to :class:`Cluster3DParser`, but aggregates charge information
     from multiple value sources.
     """
@@ -532,7 +536,7 @@ class Cluster3DAggregateParser(Cluster3DParser):
         )
 
         # Initialize the sparse parser which computes the rescaled charge
-        self.sparse_aggr_parser = Sparse3DAggregateParser(
+        self.sparse_aggr_parser = LArCVSparse3DAggregateParser(
             dtype, sparse_event_list=sparse_value_event_list, aggr=value_aggr
         )
 
@@ -581,7 +585,7 @@ class Cluster3DAggregateParser(Cluster3DParser):
         return tensor
 
 
-class Cluster3DChargeRescaledParser(Cluster3DParser):
+class LArCVCluster3DChargeRescaledParser(LArCVCluster3DParser):
     """Identical to :class:`Cluster3DParser`, but computes rescaled charges
     on the fly.
     """
@@ -619,7 +623,7 @@ class Cluster3DChargeRescaledParser(Cluster3DParser):
         )
 
         # Initialize the sparse parser which computes the rescaled charge
-        self.sparse_rescale_parser = Sparse3DChargeRescaledParser(
+        self.sparse_rescale_parser = LArCVSparse3DChargeRescaledParser(
             dtype,
             sparse_event_list=sparse_value_event_list,
             collection_only=collection_only,
@@ -672,3 +676,10 @@ class Cluster3DChargeRescaledParser(Cluster3DParser):
         tensor.features[:, 0] = tensor_val.features[:, 0]
 
         return tensor
+
+
+# Backward-compatible aliases
+Cluster2DParser = LArCVCluster2DParser
+Cluster3DParser = LArCVCluster3DParser
+Cluster3DAggregateParser = LArCVCluster3DAggregateParser
+Cluster3DChargeRescaledParser = LArCVCluster3DChargeRescaledParser

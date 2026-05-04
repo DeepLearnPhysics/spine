@@ -2,13 +2,17 @@
 
 import importlib
 
+import numpy as np
 import pytest
 
+from spine.data import IndexBatch, TensorBatch
 from spine.io import dataset as dataset_module
+from spine.io.collate import CollateAll
 from spine.io.dataset import *
 from spine.io.dataset import base as dataset_base_module
 from spine.io.dataset import hdf5 as hdf5_dataset_module
 from spine.io.dataset import larcv as larcv_dataset_module
+from spine.io.write import HDF5Writer
 from spine.utils.conditional import ROOT, ROOT_AVAILABLE, TORCH_AVAILABLE
 
 pytestmark = pytest.mark.skipif(
@@ -122,6 +126,20 @@ def test_hdf5_dataset_rejects_keys_and_skip_keys(hdf5_data):
         )
 
 
+def test_hdf5_dataset_requires_dtype_with_schema(hdf5_data):
+    """Schema-driven parsing requires an explicit dtype."""
+    with pytest.raises(ValueError, match="explicit `dtype` is required"):
+        HDF5Dataset(
+            file_keys=hdf5_data,
+            schema={
+                "run_info": {
+                    "parser": "feature_tensor",
+                    "tensor_event": "run_info",
+                }
+            },
+        )
+
+
 def test_hdf5_dataset_uses_explicit_metadata(hdf5_data):
     """The HDF5 dataset should expose explicit collate metadata when provided."""
     dataset = HDF5Dataset(
@@ -165,6 +183,140 @@ def test_hdf5_dataset_with_augment(monkeypatch, hdf5_data):
     )
 
     assert dataset[0]["augmented"] is True
+
+
+def test_hdf5_dataset_with_schema_and_collate(tmp_path):
+    """The HDF5 dataset should parse cached GrapPA inputs into parser products."""
+    output = tmp_path / "grappa_cache.h5"
+    writer = HDF5Writer(str(output))
+    writer(
+        {
+            "index": np.asarray([0, 1]),
+            "clusts": [
+                [
+                    np.asarray([0, 1], dtype=np.int64),
+                    np.asarray([2], dtype=np.int64),
+                ],
+                [np.asarray([0], dtype=np.int64)],
+            ],
+            "node_features": [
+                np.asarray([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]], dtype=np.float32),
+                np.asarray([[7.0, 8.0]], dtype=np.float32),
+            ],
+            "edge_features": [
+                np.asarray([[0.1, 0.2], [0.3, 0.4]], dtype=np.float32),
+                np.asarray([[0.5, 0.6]], dtype=np.float32),
+            ],
+        },
+        cfg={"io": {"writer": {"name": "hdf5"}}},
+    )
+    writer.finalize()
+    writer.close()
+
+    schema = {
+        "clusts": {
+            "parser": "index_list",
+            "index_event": "clusts",
+            "count_event": "node_features",
+        },
+        "node_features": {
+            "parser": "feature_tensor",
+            "tensor_event": "node_features",
+        },
+        "edge_features": {
+            "parser": "feature_tensor",
+            "tensor_event": "edge_features",
+        },
+    }
+
+    dataset = HDF5Dataset(file_keys=str(output), schema=schema, dtype="float32")
+    entry = dataset[0]
+    assert "clusts" in entry
+    assert "node_features" in entry
+    assert "edge_features" in entry
+    assert dataset.data_keys == (
+        "index",
+        "file_index",
+        "file_entry_index",
+        "clusts",
+        "node_features",
+        "edge_features",
+    )
+    assert dataset.data_types["clusts"] == "tensor"
+    assert dataset.overlay_methods["clusts"] is None
+
+    collate = CollateAll(dataset.data_types)
+    batch = collate([dataset[0], dataset[1]])
+
+    assert isinstance(batch["clusts"], IndexBatch)
+    assert isinstance(batch["node_features"], TensorBatch)
+    assert isinstance(batch["edge_features"], TensorBatch)
+    assert batch["clusts"].batch_size == 2
+    assert batch["clusts"].counts.tolist() == [2, 1]
+    assert batch["clusts"].single_counts.tolist() == [2, 1, 1]
+    assert batch["node_features"].counts.tolist() == [3, 1]
+    assert batch["edge_features"].counts.tolist() == [2, 1]
+
+
+def test_hdf5_dataset_schema_updates_explicit_raw_keys(tmp_path):
+    """Schema inference should merge required raw HDF5 keys into explicit selection."""
+    output = tmp_path / "schema_keys.h5"
+    writer = HDF5Writer(str(output))
+    writer(
+        {
+            "index": np.asarray([0]),
+            "clusts": [[np.asarray([0], dtype=np.int64)]],
+            "node_features": [np.asarray([[1.0]], dtype=np.float32)],
+        },
+        cfg={"io": {"writer": {"name": "hdf5"}}},
+    )
+    writer.finalize()
+    writer.close()
+
+    dataset = HDF5Dataset(
+        file_keys=str(output),
+        dtype="float32",
+        keys=["index"],
+        schema={
+            "clusts": {
+                "parser": "index_list",
+                "index_event": "clusts",
+                "count_event": "node_features",
+            }
+        },
+    )
+
+    assert dataset[0]["clusts"].global_shift == 1
+
+
+def test_hdf5_dataset_schema_parser_failure(tmp_path):
+    """Schema parsing failures should be logged and re-raised."""
+    output = tmp_path / "schema_failure.h5"
+    writer = HDF5Writer(str(output))
+    writer(
+        {
+            "index": np.asarray([0]),
+            "node_features": [np.asarray([[1.0]], dtype=np.float32)],
+        },
+        cfg={"io": {"writer": {"name": "hdf5"}}},
+    )
+    writer.finalize()
+    writer.close()
+
+    class BrokenParser:
+        tree_keys = ["node_features"]
+        returns = "tensor"
+        overlay = None
+
+        def __call__(self, _data):
+            raise RuntimeError("boom")
+
+    dataset = HDF5Dataset(file_keys=str(output), build_classes=False)
+    dataset.parsers = {"broken": BrokenParser()}
+    dataset.keys = {"node_features"}
+
+    with pytest.raises(RuntimeError, match="boom"):
+        dataset[0]
 
 
 def test_larcv_dataset_uses_augmenter_and_length(monkeypatch):

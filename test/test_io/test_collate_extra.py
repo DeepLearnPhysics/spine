@@ -67,6 +67,31 @@ def test_collate_edge_index_tensor_returns_edge_index_batch():
     assert isinstance(result["edge_tensor"], EdgeIndexBatch)
 
 
+def test_collate_index_list_tensor_returns_index_batch():
+    """List-backed index tensors should produce an IndexBatch with per-index sizes."""
+    batch = [
+        {
+            "index_tensor": ParserTensor(
+                features=[np.asarray([0, 2]), np.asarray([1])],
+                global_shift=3,
+                single_counts=np.asarray([2, 1]),
+            )
+        },
+        {
+            "index_tensor": ParserTensor(
+                features=[np.asarray([0, 1, 2])],
+                global_shift=3,
+            )
+        },
+    ]
+    collate_fn = CollateAll(data_types={"index_tensor": "tensor"})
+
+    result = collate_fn(batch)
+    assert isinstance(result["index_tensor"], IndexBatch)
+    assert result["index_tensor"].counts.tolist() == [2, 1]
+    assert result["index_tensor"].single_counts.tolist() == [2, 1, 3]
+
+
 def test_collate_feature_tensors_without_coords():
     """Feature-only tensors should be collated with stack_feat_tensors."""
     batch = [

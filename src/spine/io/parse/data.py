@@ -41,10 +41,11 @@ class ParserTensor:
         If `True`, only the features of the sparse tensor are exposed
     """
 
-    features: np.ndarray
+    features: np.ndarray | list[np.ndarray]
     coords: np.ndarray | None = None
     meta: Meta | None = None
     global_shift: int | None = None
+    single_counts: np.ndarray | None = None
     index_shifts: np.ndarray | None = None
     index_cols: np.ndarray | None = None
     remove_duplicates: bool = False

@@ -228,6 +228,25 @@ class CollateAll:
         offsets = np.zeros(len(total_counts), dtype=int)
         offsets[1:] = np.cumsum(total_counts)[:-1]
 
+        ref_index = batch[0][key].features
+        if isinstance(ref_index, list):
+            index_list = []
+            counts = []
+            single_counts = []
+            for i, sample in enumerate(batch):
+                sample_index_list = [
+                    np.asarray(index, dtype=np.int64) + offsets[i]
+                    for index in sample[key].features
+                ]
+                index_list.extend(sample_index_list)
+                counts.append(len(sample_index_list))
+                if sample[key].single_counts is not None:
+                    single_counts.extend(sample[key].single_counts.tolist())
+                else:
+                    single_counts.extend(len(index) for index in sample_index_list)
+
+            return IndexBatch(index_list, offsets, counts, single_counts)
+
         # Stack the indexes, do not add a batch column
         index_list = []
         for i, sample in enumerate(batch):

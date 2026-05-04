@@ -19,6 +19,11 @@ from ..base import ParserBase
 from ..data import ParserObjectList
 
 __all__ = [
+    "LArCVMetaParser",
+    "LArCVRunInfoParser",
+    "LArCVFlashParser",
+    "LArCVCRTHitParser",
+    "LArCVTriggerParser",
     "MetaParser",
     "RunInfoParser",
     "FlashParser",
@@ -27,7 +32,7 @@ __all__ = [
 ]
 
 
-class MetaParser(ParserBase):
+class LArCVMetaParser(ParserBase):
     """Get the metadata information to translate into real world coordinates.
 
     Each entry in a dataset is a cube, where pixel/voxel coordinates typically
@@ -116,7 +121,7 @@ class MetaParser(ParserBase):
         return Meta.from_larcv(ref_event.meta())
 
 
-class RunInfoParser(ParserBase):
+class LArCVRunInfoParser(ParserBase):
     """Parse run information (run, subrun, event number).
 
     .. code-block. yaml
@@ -172,7 +177,7 @@ class RunInfoParser(ParserBase):
         return RunInfo.from_larcv(ref_event)
 
 
-class FlashParser(ParserBase):
+class LArCVFlashParser(ParserBase):
     """Copy construct Flash and return an array of `Flash`.
 
     This parser also takes care of flashes that have been split between their
@@ -304,7 +309,7 @@ class FlashParser(ParserBase):
         return ParserObjectList(flashes, Flash())
 
 
-class CRTHitParser(ParserBase):
+class LArCVCRTHitParser(ParserBase):
     """Copy construct CRTHit and return an array of `CRTHit`.
 
     .. code-block. yaml
@@ -349,7 +354,7 @@ class CRTHitParser(ParserBase):
         return ParserObjectList(crthits, CRTHit())
 
 
-class TriggerParser(ParserBase):
+class LArCVTriggerParser(ParserBase):
     """Copy construct Trigger and return a `Trigger`.
 
     .. code-block. yaml
@@ -394,3 +399,11 @@ class TriggerParser(ParserBase):
         trigger = Trigger.from_larcv(larcv.Trigger(trigger_event))
 
         return trigger
+
+
+# Backward-compatible aliases
+MetaParser = LArCVMetaParser
+RunInfoParser = LArCVRunInfoParser
+FlashParser = LArCVFlashParser
+CRTHitParser = LArCVCRTHitParser
+TriggerParser = LArCVTriggerParser

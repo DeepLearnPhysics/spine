@@ -180,6 +180,37 @@ def test_hdf5_writer_append_missing_file(hdf5_output):
         assert len(out_file["events"]) == 2
 
 
+def test_hdf5_writer_finalize_marks_output_complete(hdf5_output):
+    """Finalize should mark written files as complete."""
+    writer = HDF5Writer(hdf5_output, overwrite=True)
+    writer(
+        {
+            "index": np.asarray([0]),
+            "dummy_data": [np.random.rand(2, 3)],
+        }
+    )
+    writer.finalize()
+    writer.close()
+
+    with h5py.File(hdf5_output, "r") as out_file:
+        assert out_file["info"].attrs["complete"]
+
+
+def test_hdf5_writer_close_leaves_unfinalized_output_incomplete(hdf5_output):
+    """Closing alone should not mark files as complete."""
+    writer = HDF5Writer(hdf5_output, overwrite=True)
+    writer(
+        {
+            "index": np.asarray([0]),
+            "dummy_data": [np.random.rand(2, 3)],
+        }
+    )
+    writer.close()
+
+    with h5py.File(hdf5_output, "r") as out_file:
+        assert not out_file["info"].attrs["complete"]
+
+
 def test_hdf5_writer_stores_stored_properties(hdf5_output):
     """Test HDF5 writer serializes stored properties on data objects."""
     particle = RecoParticle(id=3, index=np.arange(4, dtype=np.int64), pid=2)
@@ -321,9 +352,227 @@ def test_hdf5_writer_create_stores_cfg(hdf5_output):
     writer = HDF5Writer(hdf5_output, overwrite=True)
     data = {"index": np.array([0]), "value": [np.asarray([1.0], dtype=np.float32)]}
     writer.create(data, cfg={"io": {"loader": {}}})
+    writer._ensure_file(0)
+    writer.close()
 
     with h5py.File(hdf5_output, "r") as out_file:
         assert "cfg" in out_file["info"].attrs
+
+
+def test_hdf5_writer_creates_split_outputs_lazily(tmp_path):
+    """Split outputs should only be created when a file receives data."""
+    file_name = os.path.join(tmp_path, "split.h5")
+    writer = HDF5Writer(file_name, prefix=["a", "b"], split=True, overwrite=True)
+    writer(
+        {
+            "index": np.asarray([0], dtype=np.int64),
+            "file_index": np.asarray([1], dtype=np.int64),
+            "value": [np.asarray([2.0], dtype=np.float32)],
+        }
+    )
+    writer.finalize()
+    writer.close()
+
+    assert not os.path.exists(os.path.join(tmp_path, "split_0.h5"))
+    assert os.path.exists(os.path.join(tmp_path, "split_1.h5"))
+
+
+def test_hdf5_writer_reuses_open_handles(monkeypatch, hdf5_output):
+    """Repeated writes with one writer instance should reuse the same append handle."""
+    open_calls = 0
+    real_file = h5py.File
+
+    def counted_file(*args, **kwargs):
+        nonlocal open_calls
+        open_calls += 1
+        return real_file(*args, **kwargs)
+
+    monkeypatch.setattr("spine.io.write.hdf5.h5py.File", counted_file)
+    writer = HDF5Writer(hdf5_output, overwrite=True)
+    writer(
+        {
+            "index": np.asarray([0]),
+            "value": [np.asarray([1.0], dtype=np.float32)],
+        }
+    )
+    first_open_calls = open_calls
+    writer(
+        {
+            "index": np.asarray([1]),
+            "value": [np.asarray([2.0], dtype=np.float32)],
+        }
+    )
+
+    assert open_calls == first_open_calls
+    writer.close()
+
+
+def test_hdf5_writer_keep_open_false_opens_per_write(monkeypatch, hdf5_output):
+    """Disabling persistent handles should reopen the output file each write."""
+    open_calls = 0
+    real_file = h5py.File
+
+    def counted_file(*args, **kwargs):
+        nonlocal open_calls
+        open_calls += 1
+        return real_file(*args, **kwargs)
+
+    monkeypatch.setattr("spine.io.write.hdf5.h5py.File", counted_file)
+    writer = HDF5Writer(hdf5_output, overwrite=True, keep_open=False)
+    writer(
+        {
+            "index": np.asarray([0]),
+            "value": [np.asarray([1.0], dtype=np.float32)],
+        }
+    )
+    first_write_calls = open_calls
+    writer(
+        {
+            "index": np.asarray([1]),
+            "value": [np.asarray([2.0], dtype=np.float32)],
+        }
+    )
+
+    assert open_calls > first_write_calls
+    assert writer._file_handles == {}
+
+
+def test_hdf5_writer_reopens_invalid_persistent_handle(monkeypatch, hdf5_output):
+    """Invalid persistent handles should be reopened lazily on the next write."""
+    open_calls = 0
+    real_file = h5py.File
+
+    def counted_file(*args, **kwargs):
+        nonlocal open_calls
+        open_calls += 1
+        return real_file(*args, **kwargs)
+
+    monkeypatch.setattr("spine.io.write.hdf5.h5py.File", counted_file)
+    writer = HDF5Writer(hdf5_output, overwrite=True)
+    writer(
+        {
+            "index": np.asarray([0]),
+            "value": [np.asarray([1.0], dtype=np.float32)],
+        }
+    )
+    writer._file_handles[0].close()
+    first_open_calls = open_calls
+    writer(
+        {
+            "index": np.asarray([1]),
+            "value": [np.asarray([2.0], dtype=np.float32)],
+        }
+    )
+
+    assert open_calls > first_open_calls
+    writer.close()
+
+
+def test_hdf5_writer_rejects_pid_reuse(monkeypatch, hdf5_output):
+    """Persistent writer handles should not be reused across process boundaries."""
+    pids = iter([100, 100, 200])
+    monkeypatch.setattr("spine.io.write.hdf5.os.getpid", lambda: next(pids))
+
+    writer = HDF5Writer(hdf5_output, overwrite=True)
+    writer(
+        {
+            "index": np.asarray([0]),
+            "value": [np.asarray([1.0], dtype=np.float32)],
+        }
+    )
+
+    with pytest.raises(RuntimeError, match="process-local"):
+        writer(
+            {
+                "index": np.asarray([1]),
+                "value": [np.asarray([2.0], dtype=np.float32)],
+            }
+        )
+
+
+def test_hdf5_writer_context_manager_and_flush(hdf5_output):
+    """Context-managed writers should flush and close persistent handles."""
+    with HDF5Writer(hdf5_output, overwrite=True) as writer:
+        writer(
+            {
+                "index": np.asarray([0]),
+                "value": [np.asarray([1.0], dtype=np.float32)],
+            }
+        )
+        assert writer._file_handles
+        writer.flush()
+
+    assert writer._file_handles == {}
+    assert writer._handle_pid is None
+    with h5py.File(hdf5_output, "r") as out_file:
+        assert out_file["info"].attrs["complete"]
+
+
+def test_hdf5_writer_append_existing_file_keep_open_false_marks_incomplete(hdf5_output):
+    """Appending to an existing file should reopen it and mark it incomplete."""
+    writer = HDF5Writer(hdf5_output, overwrite=True)
+    writer(
+        {
+            "index": np.asarray([0]),
+            "value": [np.asarray([1.0], dtype=np.float32)],
+        }
+    )
+    writer.finalize()
+    writer.close()
+
+    writer = HDF5Writer(hdf5_output, append=True, keep_open=False)
+    writer(
+        {
+            "index": np.asarray([1]),
+            "value": [np.asarray([2.0], dtype=np.float32)],
+        }
+    )
+    writer.close()
+
+    with h5py.File(hdf5_output, "r") as out_file:
+        assert not out_file["info"].attrs["complete"]
+
+
+def test_hdf5_writer_flush_frequency_flushes_persistent_handle(
+    monkeypatch, hdf5_output
+):
+    """Flush frequency should flush persistent handles after the requested interval."""
+    writer = HDF5Writer(hdf5_output, overwrite=True, flush_frequency=1)
+    flush_calls = 0
+
+    original_flush = h5py.File.flush
+
+    def counted_flush(handle):
+        nonlocal flush_calls
+        flush_calls += 1
+        return original_flush(handle)
+
+    monkeypatch.setattr(h5py.File, "flush", counted_flush)
+    writer(
+        {
+            "index": np.asarray([0]),
+            "value": [np.asarray([1.0], dtype=np.float32)],
+        }
+    )
+    writer.close()
+
+    assert flush_calls >= 1
+
+
+def test_hdf5_writer_close_swallows_handle_close_errors(hdf5_output):
+    """Writer cleanup should clear state even if a handle raises on close."""
+    writer = HDF5Writer(hdf5_output, overwrite=True)
+    writer._handle_pid = 123
+
+    class BadHandle:
+        def close(self):
+            raise OSError("boom")
+
+    writer._file_handles[0] = BadHandle()
+    writer.close()
+
+    assert writer._file_handles == {}
+    assert writer._handle_pid is None
 
 
 def test_hdf5_writer_call_scalar_split_and_dummy(tmp_path):
@@ -356,11 +605,164 @@ def test_hdf5_writer_call_splits_entries_by_file_index(tmp_path):
             ],
         }
     )
+    writer.finalize()
+    writer.close()
 
     with h5py.File(os.path.join(tmp_path, "split_0.h5"), "r") as out_file:
         assert len(out_file["events"]) == 1
     with h5py.File(os.path.join(tmp_path, "split_1.h5"), "r") as out_file:
         assert len(out_file["events"]) == 1
+
+
+def test_hdf5_writer_call_splits_entries_by_file_index_without_persistent_handles(
+    tmp_path,
+):
+    """Split writes should also close transient per-file handles when keep_open is disabled."""
+    file_name = os.path.join(tmp_path, "split.h5")
+    writer = HDF5Writer(
+        file_name,
+        prefix=["a", "b"],
+        split=True,
+        overwrite=True,
+        keep_open=False,
+    )
+    writer(
+        {
+            "index": np.asarray([0, 1], dtype=np.int64),
+            "file_index": np.asarray([0, 1], dtype=np.int64),
+            "value": [
+                np.asarray([1.0], dtype=np.float32),
+                np.asarray([2.0], dtype=np.float32),
+            ],
+        }
+    )
+    writer.finalize()
+
+    assert writer._file_handles == {}
+    with h5py.File(os.path.join(tmp_path, "split_0.h5"), "r") as out_file:
+        assert len(out_file["events"]) == 1
+    with h5py.File(os.path.join(tmp_path, "split_1.h5"), "r") as out_file:
+        assert len(out_file["events"]) == 1
+
+
+def test_hdf5_writer_auto_finalizes_split_predecessors(tmp_path):
+    """Sequential split writing should finalize earlier files once the writer advances."""
+    file_name = os.path.join(tmp_path, "split.h5")
+    writer = HDF5Writer(file_name, prefix=["a", "b"], split=True, overwrite=True)
+    writer(
+        {
+            "index": np.asarray([0], dtype=np.int64),
+            "file_index": np.asarray([0], dtype=np.int64),
+            "value": [np.asarray([1.0], dtype=np.float32)],
+        }
+    )
+    writer(
+        {
+            "index": np.asarray([1], dtype=np.int64),
+            "file_index": np.asarray([1], dtype=np.int64),
+            "value": [np.asarray([2.0], dtype=np.float32)],
+        }
+    )
+    writer.close()
+
+    with h5py.File(os.path.join(tmp_path, "split_0.h5"), "r") as out_file:
+        assert out_file["info"].attrs["complete"]
+    with h5py.File(os.path.join(tmp_path, "split_1.h5"), "r") as out_file:
+        assert not out_file["info"].attrs["complete"]
+
+
+def test_hdf5_writer_auto_finalizes_split_predecessors_without_persistent_handles(
+    tmp_path,
+):
+    """Sequential split writing should finalize predecessors without persistent handles."""
+    file_name = os.path.join(tmp_path, "split.h5")
+    writer = HDF5Writer(
+        file_name, prefix=["a", "b"], split=True, overwrite=True, keep_open=False
+    )
+    writer(
+        {
+            "index": np.asarray([0], dtype=np.int64),
+            "file_index": np.asarray([0], dtype=np.int64),
+            "value": [np.asarray([1.0], dtype=np.float32)],
+        }
+    )
+    writer(
+        {
+            "index": np.asarray([1], dtype=np.int64),
+            "file_index": np.asarray([1], dtype=np.int64),
+            "value": [np.asarray([2.0], dtype=np.float32)],
+        }
+    )
+
+    with h5py.File(os.path.join(tmp_path, "split_0.h5"), "r") as out_file:
+        assert out_file["info"].attrs["complete"]
+
+
+def test_hdf5_writer_disables_sequential_split_finalization_on_out_of_order_writes(
+    tmp_path,
+):
+    """Out-of-order split writes should disable automatic predecessor finalization."""
+    file_name = os.path.join(tmp_path, "split.h5")
+    writer = HDF5Writer(file_name, prefix=["a", "b"], split=True, overwrite=True)
+    writer(
+        {
+            "index": np.asarray([0], dtype=np.int64),
+            "file_index": np.asarray([1], dtype=np.int64),
+            "value": [np.asarray([2.0], dtype=np.float32)],
+        }
+    )
+    writer(
+        {
+            "index": np.asarray([1], dtype=np.int64),
+            "file_index": np.asarray([0], dtype=np.int64),
+            "value": [np.asarray([1.0], dtype=np.float32)],
+        }
+    )
+    writer.close()
+
+    assert not writer._split_sequential
+
+
+def test_hdf5_writer_keeps_split_predecessor_guard_on_same_file_id(tmp_path):
+    """Repeated writes to the same split file should not finalize predecessors."""
+    file_name = os.path.join(tmp_path, "split.h5")
+    writer = HDF5Writer(file_name, prefix=["a", "b"], split=True, overwrite=True)
+    writer(
+        {
+            "index": np.asarray([0], dtype=np.int64),
+            "file_index": np.asarray([0], dtype=np.int64),
+            "value": [np.asarray([1.0], dtype=np.float32)],
+        }
+    )
+    writer(
+        {
+            "index": np.asarray([1], dtype=np.int64),
+            "file_index": np.asarray([0], dtype=np.int64),
+            "value": [np.asarray([2.0], dtype=np.float32)],
+        }
+    )
+    writer.close()
+
+    assert writer._split_sequential
+    with h5py.File(os.path.join(tmp_path, "split_0.h5"), "r") as out_file:
+        assert not out_file["info"].attrs["complete"]
+
+
+def test_hdf5_writer_rejects_writes_to_finalized_file(tmp_path):
+    """Finalized files should not accept more writes."""
+    file_name = os.path.join(tmp_path, "split.h5")
+    writer = HDF5Writer(file_name, prefix=["a", "b"], split=True, overwrite=True)
+    writer(
+        {
+            "index": np.asarray([0], dtype=np.int64),
+            "file_index": np.asarray([0], dtype=np.int64),
+            "value": [np.asarray([1.0], dtype=np.float32)],
+        }
+    )
+    writer.finalize()
+
+    with pytest.raises(RuntimeError, match="already finalized"):
+        writer._ensure_file(0)
 
 
 def test_hdf5_writer_store_jagged_and_scalar_append_key(hdf5_output):
@@ -374,6 +776,7 @@ def test_hdf5_writer_store_jagged_and_scalar_append_key(hdf5_output):
         ],
     }
     writer.create(data)
+    writer._ensure_file(0)
 
     with h5py.File(hdf5_output, "a") as out_file:
         event = np.empty(1, writer.event_dtype)

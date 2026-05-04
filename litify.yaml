@@ -1,0 +1,42 @@
+# Configuration which turns input SPINE HDF5 files into Lite output HDF5 files
+# This configuration works for any detector
+
+# Base configuration
+base:
+  world_size: 0
+  iterations: -1
+  seed: 0
+  dtype: float32
+  unwrap: false
+  log_dir: logs
+  prefix_log: true
+  overwrite_log: true
+  log_step: 1
+  split_output: true
+
+# IO configuration
+io:
+  reader:
+    name: hdf5
+    file_keys: null
+
+  writer:
+    name: hdf5
+    file_name: null
+    overwrite: true
+    lite: true
+    keys:
+      - run_info
+      - meta
+      - reco_particles
+      - truth_particles
+      - reco_interactions
+      - truth_interactions
+
+# Build output representations
+build:
+  mode: both
+  units: cm
+  fragments: false
+  particles: true
+  interactions: true
