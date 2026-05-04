@@ -13,8 +13,10 @@ from spine.constants import (
     COORD_COLS,
     COORD_COLS_HI,
     COORD_COLS_LO,
-    COORD_END_COLS,
-    COORD_START_COLS,
+    COORD_END_COLS_HI,
+    COORD_END_COLS_LO,
+    COORD_START_COLS_HI,
+    COORD_START_COLS_LO,
     COORD_TIME_COL,
     GROUP_COL,
     PART_COL,
@@ -1015,7 +1017,8 @@ def _get_cluster_points_label(
         part_ids = np.unique(data[c, PART_COL]).astype(np.int64)
         min_id = part_ids[np.argmin(coord_label[part_ids, COORD_TIME_COL])]
         min_label = coord_label[min_id]
-        start, end = min_label[COORD_START_COLS], min_label[COORD_END_COLS]
+        start = min_label[COORD_START_COLS_LO:COORD_START_COLS_HI]
+        end = min_label[COORD_END_COLS_LO:COORD_END_COLS_HI]
         if random_order and np.random.choice(2):
             start, end = end, start
 
@@ -1028,7 +1031,10 @@ def _get_cluster_points_label(
             points[i].reshape(-1, 3), data[c][:, COORD_COLS_LO:COORD_COLS_HI]
         )
         argmins = sm.argmin(dist_mat, axis=1)
-        points[i] = data[c][argmins][:, COORD_COLS_LO:COORD_COLS_HI].reshape(-1)
+        for j, argmin in enumerate(argmins):
+            points[i, 3 * j : 3 * (j + 1)] = data[
+                c[argmin], COORD_COLS_LO:COORD_COLS_HI
+            ]
 
     return points
 

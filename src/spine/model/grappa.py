@@ -109,10 +109,10 @@ class GrapPA(torch.nn.Module):
 
     def process_model_config(
         self,
-        nodes,
-        graph,
         gnn_model,
-        node_encoder,
+        nodes=None,
+        graph=None,
+        node_encoder=None,
         edge_encoder=None,
         global_encoder=None,
         dbscan=None,
@@ -124,15 +124,15 @@ class GrapPA(torch.nn.Module):
 
         Parameters
         ----------
-        nodes : dict
-            Input node configuration
-        graph : dict
-            Input graph configuration
         gnn_model : dict
             Underlying graph neural network configuration
-        node_encoder : dict
+        nodes : dict, optional
+            Input node configuration
+        graph : dict, optional
+            Input graph configuration
+        node_encoder : dict, optional
             Node encoder configuration
-        edge_encoder : dict
+        edge_encoder : dict, optional
             Edge encoder configuration
         global_encoder : dict, optional
             Global encoder configuration
@@ -144,17 +144,28 @@ class GrapPA(torch.nn.Module):
         # Store the output types of GNNs
         self.out_types = ("node", "edge", "global")
 
-        # Process the node configuration
-        self.process_node_config(**nodes)
+        if nodes is None and (graph is not None or dbscan is not None):
+            raise ValueError(
+                "Must provide a `nodes` configuration when using GrapPA to "
+                "build clusters/graphs on the fly."
+            )
 
         # Construct the underlying graph neural network
         self.process_gnn_config(**gnn_model)
 
+        # Process the node configuration
+        if nodes is not None:
+            self.process_node_config(**nodes)
+
         # Process the graph configuration
-        self.graph_constructor = graph_factory(graph, self.node_type)
+        self.graph_constructor = None
+        if graph is not None:
+            self.graph_constructor = graph_factory(graph, self.node_type)
 
         # Process the encoder configurations
-        self.node_encoder = node_encoder_factory(node_encoder)
+        self.node_encoder = None
+        if node_encoder is not None:
+            self.node_encoder = node_encoder_factory(node_encoder)
 
         # Initialize edge encoder
         self.edge_encoder = None
@@ -208,9 +219,8 @@ class GrapPA(torch.nn.Module):
         if shapes is None:
             self.node_type = list(np.arange(LOWES_SHP))
         else:
-            assert not np.isscalar(
-                shapes
-            ), "Semantic classes should be provided as a list."
+            if np.isscalar(shapes):
+                raise ValueError("Semantic classes should be provided as a list.")
             self.node_type = enum_factory("shape", shapes)
 
         # Store the node parameters
@@ -304,19 +314,26 @@ class GrapPA(torch.nn.Module):
             Rest of the DBSCAN configuration
         """
         # Make sure the basic parameters are not specified twice
-        assert shapes is not None and min_size is not None, (
-            "Do not specify 'shapes' or 'min_size' in the "
-            "`dbscan` block, it is shared with the `node` block"
-        )
+        if shapes is not None or min_size is not None:
+            raise ValueError(
+                "Do not specify 'shapes' or 'min_size' in the "
+                "`dbscan` block, it is shared with the `node` block"
+            )
 
         # Initialize DBSCAN fragmenter
-        self.dbscan = DBSCAN(shapes=self.node_type, min_size=self.min_size, **kwargs)
+        self.dbscan = DBSCAN(
+            shapes=self.node_type, min_size=self.node_min_size, **kwargs
+        )
 
     def forward(
         self,
         data,
         coord_label=None,
         clusts=None,
+        edge_index=None,
+        node_features=None,
+        edge_features=None,
+        global_features=None,
         shapes=None,
         groups=None,
         points=None,
@@ -336,6 +353,17 @@ class GrapPA(torch.nn.Module):
             (P, 1 + 2*D + 2) Tensor of label points (start/end/time/shape)
         clusts : IndexBatch, optional
             (C) List of indexes corresponding to each cluster
+        edge_index : EdgeIndexBatch, optional
+            (E, 2) Incidence matrix. If not provided, it will be built based on
+            the cluster indexes and the graph configuration
+        node_features : TensorBatch, optional
+            (C, N_c,f) Node features. If not provided, they will be built based on
+        edge_features : TensorBatch, optional
+            (C, N_e,f) Edge features. If not provided, they will be built based on
+            the cluster indexes and the edge encoder configuration
+        global_features : TensorBatch, optional
+            (C, N_g,f) Global features. If not provided, they will be built based on
+            the cluster indexes and the global encoder configuration
         shapes : TensorBatch, optional
             (C) List of cluster semantic class used to define the max length
         groups : TensorBatch, optional
@@ -350,7 +378,7 @@ class GrapPA(torch.nn.Module):
         -------
         clusts : IndexBatch
             (C, N_c, N_{c,i}) Cluster indexes
-        edge_index : TensorBatch
+        edge_index : EdgeIndexBatch
             (E, 2) Incidence matrix
         node_features : TensorBatch
             (C, N_c,f) Node features
@@ -365,78 +393,69 @@ class GrapPA(torch.nn.Module):
         global_pred : TensorBatch
             (C, N_e) Global predictions (logits)
         """
-        # Cast the labels to numpy for the functions run on CPU
+        # Initialize the result dictionary that will be returned at the end of the method
         result = {}
-        data_np = data.to_numpy()
 
-        # If not provided, form the clusters: a list of list of voxel indices,
-        # one list per cluster matching the list of requested class
+        # Encode the node boundaries as clusters if they are not provided directly
         if clusts is None:
-            if self.dbscan is not None:
-                # Use the DBSCAN fragmenter to build the clusters
-                seg_label = TensorBatch(data.tensor[:, SHAPE_COL], data.counts)
-                clusts, _ = self.dbscan(data, seg_label, coord_label)
-            else:
-                # Use the label tensor to build the clusters
-                clusts = form_clusters_batch(
-                    data_np, self.node_min_size, self.node_source, shapes=self.node_type
-                )
-
+            clusts = self._make_clusters(data, coord_label=coord_label)
         result["clusts"] = clusts
 
-        # If the graph edge length cut is class-specific, get the class labels
-        if shapes is None and hasattr(self.graph_constructor.max_length, "__len__"):
-            if self.node_source == GROUP_COL:
-                # For groups, use primary shape to handle Michel/Delta properly
-                shapes = get_cluster_primary_label_batch(data_np, clusts, SHAPE_COL)
-            else:
-                # Just use the shape of the cluster itself otherwise
-                shapes = get_cluster_label_batch(data_np, clusts, SHAPE_COL)
+        # If needed, infer per-cluster shapes once and reuse them downstream
+        shapes = self._get_shapes(data, clusts, shapes)
 
-            shapes.data = shapes.data.astype(np.int64)
-
-        # Initialize the input graph
-        edge_index, _, closest_index = self.graph_constructor(
-            data_np, clusts, shapes, groups
-        )
-
+        # Build the graph if it is not provided directly
+        closest_index = None
+        if edge_index is None:
+            if self.graph_constructor is None:
+                raise ValueError(
+                    "Must provide edge_index or graph configuration to build it."
+                )
+            edge_index, closest_index = self._make_edge_index(
+                data, clusts, shapes=shapes, groups=groups
+            )
         result["edge_index"] = edge_index
 
         # Fetch the node features
-        node_features = self.node_encoder(
-            data, clusts, coord_label=coord_label, points=points, extra=extra
-        )
-
-        if isinstance(node_features, tuple):
-            # If the output of the node encoder is a tuple, separate points
-            node_features, points = node_features
-            start_points, end_points = points.tensor.split(3, dim=1)
-
-            result["start_points"] = TensorBatch(
-                start_points, points.counts, coord_cols=np.array([0, 1, 2])
+        if node_features is None:
+            if self.node_encoder is None:
+                raise ValueError(
+                    "Must provide node_features or node encoder configuration to build them."
+                )
+            node_features = self.node_encoder(
+                data, clusts, coord_label=coord_label, points=points, extra=extra
             )
-            result["end_points"] = TensorBatch(
-                end_points, points.counts, coord_cols=np.array([0, 1, 2])
-            )
+
+            if isinstance(node_features, tuple):
+                # If the output of the node encoder is a tuple, separate points
+                node_features, points = node_features
+                start_points, end_points = points.tensor.split(3, dim=1)
+
+                result["start_points"] = TensorBatch(
+                    start_points, points.counts, coord_cols=np.array([0, 1, 2])
+                )
+                result["end_points"] = TensorBatch(
+                    end_points, points.counts, coord_cols=np.array([0, 1, 2])
+                )
 
         if self.return_features:
             result["node_features"] = node_features
 
         # Fetch the edge features
-        edge_features = None
-        if self.edge_encoder is not None:
+        if edge_features is None and self.edge_encoder is not None:
             edge_features = self.edge_encoder(
                 data, clusts, edge_index, closest_index=closest_index
             )
-            if self.return_features:
-                result["edge_features"] = edge_features
+
+        if self.return_features and edge_features is not None:
+            result["edge_features"] = edge_features
 
         # Fetch the global_features
-        global_features = None
-        if self.global_encoder is not None:
+        if global_features is None and self.global_encoder is not None:
             global_features = self.global_encoder(data, clusts)
-            if self.return_features:
-                result["global_features"] = global_features
+
+        if global_features is not None and self.return_features:
+            result["global_features"] = global_features
 
         # Bring edge_index and batch_ids to device
         # TODO: try to keep everything (apart from clusts?) on GPU?
@@ -453,42 +472,181 @@ class GrapPA(torch.nn.Module):
 
         # If requested, build node groups from edge predictions
         if self.make_groups:
-            edge_pred_keys = [
-                key for key in result if key.startswith("edge") and key.endswith("pred")
-            ]
-            assert (
-                len(edge_pred_keys) > 0
-            ), "Must provide edge predictions to build node groups."
-            for key in edge_pred_keys:
-                edge_pred = result[key].to_numpy()
-                prefix = "group" + key.replace("edge", "").replace("_pred", "")
-                if self.grouping_method == "threshold":
-                    result[f"{prefix}_pred"] = node_assignment_batch(
-                        edge_index, edge_pred, clusts
-                    )
-                elif self.grouping_method == "score":
-                    if not self.grouping_through_track:
-                        result[f"{prefix}_pred"] = node_assignment_score_batch(
-                            edge_index, edge_pred, clusts
-                        )
-                    else:
-                        assert (
-                            shapes is not None
-                        ), "Must provide shapes to restrict track association."
-                        track_node = TensorBatch(
-                            shapes.data == TRACK_SHP, counts=shapes.counts
-                        )
-                        result[f"{prefix}_pred"] = node_assignment_score_batch(
-                            edge_index, edge_pred, clusts, track_node
-                        )
-
-                else:
-                    raise ValueError(
-                        "Group prediction algorithm not recognized:",
-                        self.grouping_method,
-                    )
+            self._make_groups(result, clusts, edge_index, shapes=shapes)
 
         return result
+
+    def _make_clusters(self, data, coord_label=None):
+        """Make the list of node clusters based on the label tensor and the requested class.
+
+        Parameters
+        ----------
+        data : TensorBatch
+            Tensor of voxel/value pairs with shape `(N, 1 + D + N_f)`, where
+            `N` is the total number of voxels, the leading column stores the
+            batch ID, `D` is the image dimensionality and `N_f` is the number
+            of features. The features must also contain the labels needed to
+            build clusters on the fly.
+        coord_label : TensorBatch, optional
+            (P, 1 + 2*D + 2) Tensor of label points
+
+        Returns
+        -------
+        clusts : IndexBatch
+            (C, N_c, N_{c,i}) Cluster indexes
+        """
+        if self.dbscan is not None:
+            # Use the DBSCAN fragmenter to build the clusters
+            seg_label = TensorBatch(data.tensor[:, SHAPE_COL], data.counts)
+            clusts, _ = self.dbscan(data, seg_label, coord_label)
+        else:
+            # Use the label tensor to build the clusters
+            clusts = form_clusters_batch(
+                data.to_numpy(),
+                self.node_min_size,
+                self.node_source,
+                shapes=self.node_type,
+            )
+
+        return clusts
+
+    def _get_shapes(self, data, clusts, shapes=None):
+        """Return per-cluster semantic labels if the graph logic needs them.
+
+        Parameters
+        ----------
+        data : TensorBatch
+            Tensor of voxel/value pairs with shape `(N, 1 + D + N_f)`.
+        clusts : IndexBatch
+            (C) List of indexes corresponding to each cluster
+        shapes : TensorBatch, optional
+            (C) Explicit semantic label per cluster
+
+        Returns
+        -------
+        TensorBatch or None
+            Cluster semantic labels, or `None` if they are not needed and were
+            not provided.
+        """
+        if shapes is not None:
+            return shapes
+
+        if self.graph_constructor is None or not hasattr(
+            self.graph_constructor.max_length, "__len__"
+        ):
+            return None
+
+        data_np = data.to_numpy()
+        if self.node_source == GROUP_COL:
+            shapes = get_cluster_primary_label_batch(data_np, clusts, SHAPE_COL)
+        else:
+            shapes = get_cluster_label_batch(data_np, clusts, SHAPE_COL)
+
+        shapes.data = shapes.data.astype(np.int64)
+
+        return shapes
+
+    def _make_edge_index(self, data, clusts, shapes=None, groups=None):
+        """Make the edge index based on the cluster indexes and the graph configuration.
+
+        Parameters
+        ----------
+        data : TensorBatch
+            Tensor of voxel/value pairs with shape `(N, 1 + D + N_f)`, where
+            `N` is the total number of voxels, the leading column stores the
+            batch ID, `D` is the image dimensionality and `N_f` is the number
+            of features. The features must also contain the labels needed to
+            build clusters on the fly.
+        clusts : IndexBatch
+            (C) List of indexes corresponding to each cluster
+        shapes : TensorBatch, optional
+            (C) List of cluster semantic class used to define the max length
+        groups : TensorBatch, optional
+            (C) List of node groups, one per cluster. If specified, removes
+            connections between nodes that belong to different groups.
+
+        Returns
+        -------
+        edge_index : EdgeIndexBatch
+            (E, 2) Incidence matrix
+        closest_index : TensorBatch
+            (E) List of closest voxel index for each edge
+        """
+        # Check that the graph constructor is defined
+        if self.graph_constructor is None:
+            raise ValueError(
+                "Must provide graph configuration to build edge index from clusters."
+            )
+
+        # Bring data to numpy for the graph construction
+        data_np = data.to_numpy()
+
+        # Initialize the input graph
+        edge_index, _, closest_index = self.graph_constructor(
+            data_np, clusts, shapes, groups
+        )
+
+        return edge_index, closest_index
+
+    def _make_groups(self, result, clusts, edge_index, shapes=None):
+        """Make node groups based on edge predictions.
+
+        Parameters
+        ----------
+        result : dict
+            Dictionary containing the output of the model, including edge predictions and
+            cluster indexes. The edge predictions should be stored under keys with the format
+            `edge{key}_pred`, where `key` is the name of the type of edge prediction (e.g. score or threshold).
+            The cluster indexes should be stored under the key `clusts`.
+        clusts : IndexBatch
+            (C) List of indexes corresponding to each cluster
+        edge_index : EdgeIndexBatch
+            (E, 2) Incidence matrix
+        shapes : TensorBatch, optional
+            (C) List of cluster semantic class used to restrict track association
+        """
+        # Fetch the list of edge prediction keys
+        edge_pred_keys = [
+            key for key in result if key.startswith("edge") and key.endswith("pred")
+        ]
+        if not edge_pred_keys:
+            raise ValueError(
+                "Must provide edge predictions to build node groups. "
+                "Edge predictions should be stored under keys with the format "
+                "`edge{key}_pred`, where `key` is the name of the prediction head."
+            )
+
+        # Loop over the edge predictions, build node groups based on each of them
+        for key in edge_pred_keys:
+            edge_pred = result[key].to_numpy()
+            prefix = "group" + key.replace("edge", "").replace("_pred", "")
+            if self.grouping_method == "threshold":
+                result[f"{prefix}_pred"] = node_assignment_batch(
+                    edge_index, edge_pred, clusts
+                )
+
+            elif self.grouping_method == "score":
+                if not self.grouping_through_track:
+                    result[f"{prefix}_pred"] = node_assignment_score_batch(
+                        edge_index, edge_pred, clusts
+                    )
+                else:
+                    if shapes is None:
+                        raise ValueError(
+                            "Must provide shapes to restrict track association."
+                        )
+                    track_node = TensorBatch(
+                        shapes.data == TRACK_SHP, counts=shapes.counts
+                    )
+                    result[f"{prefix}_pred"] = node_assignment_score_batch(
+                        edge_index, edge_pred, clusts, track_node
+                    )
+
+            else:
+                raise ValueError(
+                    "Group prediction algorithm not recognized:",
+                    self.grouping_method,
+                )
 
 
 class GrapPALoss(torch.nn.modules.loss._Loss):
@@ -549,13 +707,12 @@ class GrapPALoss(torch.nn.modules.loss._Loss):
             Global loss configuration
         """
         # Check that there is at least one loss to apply
-        self.out_types = ["node", "edge", "global"]
-        assert (
-            node_loss is not None or edge_loss is not None or global_loss is not None
-        ), (
-            "Must provide either a `node_loss`, `edge_loss` or "
-            "`global_loss` to the GrapPA loss function."
-        )
+        self.out_types = ("node", "edge", "global")
+        if node_loss is None and edge_loss is None and global_loss is None:
+            raise ValueError(
+                "Must provide at least one of `node_loss`, `edge_loss` or "
+                "`global_loss` to the GrapPA loss function."
+            )
 
         # Initialize the node/edge/global losses
         self.process_single_loss_config("node", node_loss, node_loss_factory)
