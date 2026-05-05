@@ -25,6 +25,39 @@ def test_hdf5_feature_tensor_parser():
     assert result.features.dtype == np.float32
 
 
+def test_hdf5_feature_tensor_parser_feature_ablation():
+    """Feature parser should support selecting a subset of cached columns."""
+    parser = HDF5FeatureTensorParser(
+        dtype="float32",
+        tensor_event="node_features",
+        feature_cols=[2, 0],
+    )
+    trees = {
+        "node_features": np.asarray(
+            [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype=np.float64
+        )
+    }
+
+    result = parser(trees)
+
+    np.testing.assert_allclose(
+        result.features,
+        np.asarray([[3.0, 1.0], [6.0, 4.0]], dtype=np.float32),
+    )
+
+
+def test_hdf5_feature_tensor_parser_ablation_requires_2d_input():
+    """Feature ablation should reject non-2D cached tensors."""
+    parser = HDF5FeatureTensorParser(
+        dtype="float32",
+        tensor_event="node_features",
+        feature_cols=[0],
+    )
+
+    with pytest.raises(ValueError, match="requires a 2D cached feature tensor"):
+        parser({"node_features": np.asarray([1.0, 2.0, 3.0], dtype=np.float32)})
+
+
 def test_hdf5_index_list_parser_with_count_event():
     """Cached index lists should retain per-cluster sizes and infer offset span."""
     parser = HDF5IndexListParser(
