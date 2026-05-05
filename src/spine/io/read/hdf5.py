@@ -220,7 +220,7 @@ class HDF5Reader(ReaderBase):
         reused. This method drops any cached handles on PID changes and lets
         the caller reopen them lazily in the new process.
         """
-        current_pid = os.getpid()
+        current_pid = _get_reader_pid()
         if self._handle_pid is None:
             self._handle_pid = current_pid
             return
@@ -494,3 +494,8 @@ class HDF5Reader(ReaderBase):
 
         else:
             raise ValueError(f"Dataset for key '{key}' is neither a group nor dataset.")
+
+
+def _get_reader_pid() -> int:
+    """Return the current process ID for HDF5 handle ownership checks."""
+    return os.getpid()

@@ -173,7 +173,7 @@ def test_hdf5_reader_reopens_handles_after_pid_change(monkeypatch, hdf5_data):
 
     pids = iter([100, 200])
     monkeypatch.setattr("spine.io.read.hdf5.h5py.File", counted_file)
-    monkeypatch.setattr("spine.io.read.hdf5.os.getpid", lambda: next(pids))
+    monkeypatch.setattr("spine.io.read.hdf5._get_reader_pid", lambda: next(pids))
 
     reader = HDF5Reader(hdf5_data, build_classes=False)
     init_calls = open_calls
