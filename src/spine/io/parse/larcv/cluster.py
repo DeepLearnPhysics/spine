@@ -7,7 +7,10 @@ Contains the following parsers:
 - :class:`Cluster3DChargeRescaledParser`
 """
 
+from __future__ import annotations
+
 from collections import OrderedDict
+from typing import Any
 from warnings import warn
 
 import numpy as np
@@ -69,7 +72,7 @@ class LArCVCluster2DParser(ParserBase):
     # Type of object(s) returned by the parser
     returns = "tensor"
 
-    def __init__(self, dtype, cluster_event, projection_id):
+    def __init__(self, dtype: str, cluster_event: str, projection_id: int) -> None:
         """Initialize the parser.
 
         Parameters
@@ -89,7 +92,7 @@ class LArCVCluster2DParser(ParserBase):
         self.index_cols = np.array([CLUST_COL])
         self.sum_cols = np.array([VALUE_COL])
 
-    def __call__(self, trees):
+    def __call__(self, trees: dict[str, Any]) -> ParserTensor:
         """Parse one entry.
 
         Parameters
@@ -99,7 +102,7 @@ class LArCVCluster2DParser(ParserBase):
         """
         return self.process(**self.get_input_data(trees))
 
-    def process(self, cluster_event):
+    def process(self, cluster_event: Any) -> ParserTensor:
         """Converts a 2D clusters tensor into a single tensor.
 
         Parameters
@@ -190,19 +193,19 @@ class LArCVCluster3DParser(ParserBase):
 
     def __init__(
         self,
-        dtype,
-        particle_event=None,
-        add_particle_info=False,
-        clean_data=False,
-        type_include_mpr=True,
-        type_include_secondary=True,
-        primary_include_mpr=True,
-        break_clusters=False,
-        break_eps=1.1,
-        break_metric="chebyshev",
-        shape_precedence=SHAPE_PREC,
-        **kwargs,
-    ):
+        dtype: str,
+        particle_event: Any | None = None,
+        add_particle_info: bool = False,
+        clean_data: bool = False,
+        type_include_mpr: bool = True,
+        type_include_secondary: bool = True,
+        primary_include_mpr: bool = True,
+        break_clusters: bool = False,
+        break_eps: float = 1.1,
+        break_metric: str = "chebyshev",
+        shape_precedence: np.ndarray | list[int] = SHAPE_PREC,
+        **kwargs: Any,
+    ) -> None:
         """Initialize the parser.
 
         Parameters
@@ -270,7 +273,7 @@ class LArCVCluster3DParser(ParserBase):
             )
             self.prec_col = SHAPE_COL
 
-    def __call__(self, trees):
+    def __call__(self, trees: dict[str, Any]) -> ParserTensor:
         """Parse one entry.
 
         Parameters
@@ -282,13 +285,13 @@ class LArCVCluster3DParser(ParserBase):
 
     def process(
         self,
-        cluster_event,
-        particle_event=None,
-        particle_mpv_event=None,
-        neutrino_event=None,
-        sparse_semantics_event=None,
-        sparse_value_event=None,
-    ):
+        cluster_event: Any,
+        particle_event: Any | None = None,
+        particle_mpv_event: Any | None = None,
+        neutrino_event: Any | None = None,
+        sparse_semantics_event: Any | None = None,
+        sparse_value_event: Any | None = None,
+    ) -> ParserTensor:
         """Parse a list of 3D clusters into a single tensor.
 
         Parameters
@@ -518,7 +521,13 @@ class LArCVCluster3DAggregateParser(LArCVCluster3DParser):
     # Name of the parser (as specified in the configuration)
     name = "cluster3d_aggr"
 
-    def __init__(self, dtype, sparse_value_event_list, value_aggr, **kwargs):
+    def __init__(
+        self,
+        dtype: str,
+        sparse_value_event_list: list[str],
+        value_aggr: str,
+        **kwargs: Any,
+    ) -> None:
         """Initialize the parser.
 
         Parameters
@@ -540,7 +549,7 @@ class LArCVCluster3DAggregateParser(LArCVCluster3DParser):
             dtype, sparse_event_list=sparse_value_event_list, aggr=value_aggr
         )
 
-    def __call__(self, trees):
+    def __call__(self, trees: dict[str, Any]) -> ParserTensor:
         """Parse one entry.
 
         Parameters
@@ -550,7 +559,9 @@ class LArCVCluster3DAggregateParser(LArCVCluster3DParser):
         """
         return self.process_aggr(**self.get_input_data(trees))
 
-    def process_aggr(self, sparse_value_event_list, **kwargs):
+    def process_aggr(
+        self, sparse_value_event_list: list[Any], **kwargs: Any
+    ) -> ParserTensor:
         """Parse a list of 3D clusters into a single tensor and fetch the
         value column by aggregating multiple tensor features.
 
@@ -595,12 +606,12 @@ class LArCVCluster3DChargeRescaledParser(LArCVCluster3DParser):
 
     def __init__(
         self,
-        dtype,
-        sparse_value_event_list,
-        collection_only=False,
-        collection_id=2,
-        **kwargs,
-    ):
+        dtype: str,
+        sparse_value_event_list: list[str],
+        collection_only: bool = False,
+        collection_id: int = 2,
+        **kwargs: Any,
+    ) -> None:
         """Initialize the parser.
 
         Parameters
@@ -630,7 +641,7 @@ class LArCVCluster3DChargeRescaledParser(LArCVCluster3DParser):
             collection_id=collection_id,
         )
 
-    def __call__(self, trees):
+    def __call__(self, trees: dict[str, Any]) -> ParserTensor:
         """Parse one entry.
 
         Parameters
@@ -640,7 +651,9 @@ class LArCVCluster3DChargeRescaledParser(LArCVCluster3DParser):
         """
         return self.process_rescale(**self.get_input_data(trees))
 
-    def process_rescale(self, sparse_value_event_list, **kwargs):
+    def process_rescale(
+        self, sparse_value_event_list: list[Any], **kwargs: Any
+    ) -> ParserTensor:
         """Parse a list of 3D clusters into a single tensor and reset
         the value column by rescaling the charge coming from 3 wire planes.
 

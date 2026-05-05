@@ -1,4 +1,6 @@
-"""Module that contains data structures which hold standard parser outputs."""
+"""Data structures used as canonical outputs of IO parsers."""
+
+from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
@@ -13,32 +15,36 @@ __all__ = ["ParserTensor", "ParserObjectList"]
 
 @dataclass
 class ParserTensor:
-    """Class which holds all the elements necessary to build a sparse tensor.
+    """Container describing a parsed sparse tensor or index-style payload.
 
     Attributes
     ----------
-    features : np.ndarray
-        (N, N_f) Feature vectors
+    features : np.ndarray or list[np.ndarray]
+        Feature matrix or jagged list of index arrays.
     coords : np.ndarray, optional
-        (N, 3) Sparse tensor coordinates (voxel indexes)
+        Sparse tensor coordinates, typically with shape ``(N, 3)``.
     meta : Meta, optional
-        Metadata to convert from voxel ID to detector coordinates
+        Geometry metadata used to convert voxel indices into detector
+        coordinates.
     global_shift : int, optional
-        Global shift to apply to all features to prevent overlap
+        Global index shift used when batching graph-style payloads.
+    single_counts : np.ndarray, optional
+        Per-element sizes for jagged index payloads.
     index_shifts : np.ndarray, optional
-        (C) Shifts to apply to index columns to prevent overlap
+        Shifts applied to index-bearing feature columns during batching.
     index_cols : np.ndarray, optional
-        (C) Columns which contain indexes
+        Feature columns that store indices.
     remove_duplicates : bool, default False
-        If `True`, remove duplicated voxel coordinates
+        If `True`, drop duplicate coordinates during collation.
     sum_cols : np.ndarray, optional
-        (S) Columns which should be summed when removing duplicates
+        Feature columns that should be summed when duplicates are merged.
     prec_col : int, optional
-        Column to be used as a precedence source when removing duplicates
+        Feature column used to break duplicate-coordinate ties.
     precedence : np.ndarray, optional
-        Order of precedence among the classes in prec_col
-    feats_only : np.ndarray, default False
-        If `True`, only the features of the sparse tensor are exposed
+        Precedence ordering used with ``prec_col``.
+    feats_only : bool, default False
+        If `True`, the payload is feature-only and has no associated
+        coordinate tensor.
     """
 
     features: np.ndarray | list[np.ndarray]
@@ -56,12 +62,12 @@ class ParserTensor:
 
     @property
     def feat_index_cols(self) -> np.ndarray | None:
-        """Returns the index columns for the feature tensor.
+        """Return index-bearing columns expressed in feature-only coordinates.
 
         Returns
         -------
-        np.ndarray
-            Index columns in the feature tensor
+        np.ndarray, optional
+            Feature-column indices corresponding to :attr:`index_cols`.
         """
         if self.index_cols is None:
             return self.index_cols
@@ -70,12 +76,12 @@ class ParserTensor:
 
     @property
     def feat_sum_cols(self) -> np.ndarray | None:
-        """Returns the columns to be summed in the feature tensor.
+        """Return duplicate-summed columns in feature-only coordinates.
 
         Returns
         -------
-        np.ndarray
-            Columns to be summed in the feature tensor
+        np.ndarray, optional
+            Feature-column indices corresponding to :attr:`sum_cols`.
         """
         if self.sum_cols is None:
             return self.sum_cols
@@ -84,13 +90,12 @@ class ParserTensor:
 
     @property
     def feat_prec_col(self) -> int | None:
-        """Returns the column providing a precedence source in the feature
-        tensor.
+        """Return the precedence column in feature-only coordinates.
 
         Returns
         -------
-        int
-            Column providing a precedence source in the feature tensor
+        int, optional
+            Feature-column index corresponding to :attr:`prec_col`.
         """
         if self.prec_col is None or self.prec_col < 0:
             return self.prec_col
@@ -103,8 +108,8 @@ class ParserObjectList(ObjectList):
 
     Attributes
     ----------
-    index_shifts : Union[int, Dict[str, int]]
-        Shift(s) to apply to the index attribute of the objects in the list
+    index_shifts : int or dict[str, int]
+        Shift(s) to apply to object index attributes during collation.
     """
 
     def __init__(
@@ -117,12 +122,12 @@ class ParserObjectList(ObjectList):
 
         Parameters
         ----------
-        object_list : List[object]
-            Object list
+        object_list : list[object]
+            Parsed objects associated with one event entry.
         default : object
-            Default object class to use to type the list, if it is empty
-        index_shifts : Union[int, Dict[str, int]], optional
-            Shift(s) to apply to the index attribute of the objects in the list
+            Default object used to type an empty list.
+        index_shifts : int or dict[str, int], optional
+            Shift(s) to apply to object index attributes during batching.
         """
         # Initialize the underlying object list
         super().__init__(object_list, default)
@@ -134,12 +139,12 @@ class ParserObjectList(ObjectList):
             self.index_shifts = len(object_list)
 
     @property
-    def to_object_list(self):
-        """Cast to the underlying ObjectList (drop index shifts).
+    def to_object_list(self) -> ObjectList:
+        """Drop parser-specific batching metadata and return a plain ObjectList.
 
         Returns
         -------
         ObjectList
-            Underlying object list
+            Underlying object list without ``index_shifts`` metadata.
         """
         return ObjectList(self, default=self.default)

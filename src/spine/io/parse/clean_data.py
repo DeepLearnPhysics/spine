@@ -5,6 +5,8 @@ there can be duplicate voxels. These routines are used to remove these
 duplicates and ensure the ordering of the output.
 """
 
+from __future__ import annotations
+
 import numba as nb
 import numpy as np
 
@@ -12,15 +14,14 @@ from spine.constants import SHAPE_COL, SHAPE_PREC
 
 
 def clean_sparse_data(
-    cluster_voxels,
-    cluster_data,
-    sparse_voxels=None,
-    sum_cols=None,
-    prec_col=SHAPE_COL,
-    precedence=SHAPE_PREC,
-):
-    """Helper that factorizes common cleaning operations required when trying
-    to match cluster3d data products to sparse3d data products.
+    cluster_voxels: np.ndarray,
+    cluster_data: np.ndarray,
+    sparse_voxels: np.ndarray | None = None,
+    sum_cols: np.ndarray | None = None,
+    prec_col: int | None = SHAPE_COL,
+    precedence: np.ndarray | list[int] = SHAPE_PREC,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Clean and align cluster voxels against an optional sparse reference.
 
     This function does the following:
     1. Lexicographically sort group data (images are lexicographically sorted)
@@ -44,14 +45,14 @@ def clean_sparse_data(
         List of feature columns to sum when removing duplicates
     prec_col : int, default SHAPE_COL
         Column in the input feature tensor to use as a precdence source
-    precedence: list, default SHAPE_PREC
+    precedence : np.ndarray or list[int], default SHAPE_PREC
         (C) Array of classes in the reference array, ordered by precedence
 
     Returns
     -------
-    cluster_voxels: np.ndarray
+    cluster_voxels : np.ndarray
         (M, 3) Ordered and filtered set of voxel coordinates
-    cluster_data: np.ndarray
+    cluster_data : np.ndarray
         (M, F) Ordered and filtered set of voxel values
     """
     # Lexicographically sort cluster and sparse data
@@ -68,9 +69,10 @@ def clean_sparse_data(
 
     else:
         duplicate_mask = filter_duplicate_voxels(cluster_voxels)
+        groups = None
 
     # Sum the values of duplicate voxels, if requested
-    if sum_cols is not None and len(groups) > 0:
+    if sum_cols is not None and groups is not None and len(groups) > 0:
         cluster_data = aggregate_features(cluster_data, groups, sum_cols)
 
     # Remove duplicates
@@ -243,7 +245,7 @@ def filter_voxels_ref(data: nb.int32[:, :], reference: nb.int32[:, :]) -> nb.boo
 @nb.njit(cache=True)
 def aggregate_features(
     data: nb.float32[:, :], groups: nb.typed.Dict, cols: nb.int64[:]
-):
+) -> nb.float32[:, :]:
     """Aggregate the information in pre-defined voxel groups.
 
     Parameters

@@ -8,6 +8,10 @@ Contains the following parsers:
 - :class:`TriggerParser`
 """
 
+from __future__ import annotations
+
+from typing import Any
+
 import numpy as np
 
 from spine.data import CRTHit, Flash, Meta, RunInfo, Trigger
@@ -60,7 +64,7 @@ class LArCVMetaParser(ParserBase):
     # Overlay strategy for the objects returned by the parser
     overlay = "match"
 
-    def __call__(self, trees):
+    def __call__(self, trees: dict[str, Any]) -> Meta:
         """Parse one entry.
 
         Parameters
@@ -70,7 +74,7 @@ class LArCVMetaParser(ParserBase):
         """
         return self.process(**self.get_input_data(trees))
 
-    def __init__(self, projection_id=None, **kwargs):
+    def __init__(self, projection_id: int | None = None, **kwargs: Any) -> None:
         """Initialize the parser.
 
         Parameters
@@ -86,7 +90,9 @@ class LArCVMetaParser(ParserBase):
         # Store the revelant attributes
         self.projection_id = projection_id
 
-    def process(self, sparse_event=None, cluster_event=None):
+    def process(
+        self, sparse_event: Any | None = None, cluster_event: Any | None = None
+    ) -> Meta:
         """Fetches the metadata from one object that has it.
 
         Parameters
@@ -141,7 +147,7 @@ class LArCVRunInfoParser(ParserBase):
     # Overlay strategy for the objects returned by the parser
     overlay = "cat"
 
-    def __call__(self, trees):
+    def __call__(self, trees: dict[str, Any]) -> RunInfo:
         """Parse one entry.
 
         Parameters
@@ -151,7 +157,9 @@ class LArCVRunInfoParser(ParserBase):
         """
         return self.process(**self.get_input_data(trees))
 
-    def process(self, sparse_event=None, cluster_event=None):
+    def process(
+        self, sparse_event: Any | None = None, cluster_event: Any | None = None
+    ) -> RunInfo:
         """Fetches the run information from one object that has it.
 
         Parameters
@@ -203,7 +211,7 @@ class LArCVFlashParser(ParserBase):
     # Type of object(s) returned by the parser
     returns = "object_list"
 
-    def __init__(self, merge=None, **kwargs):
+    def __init__(self, merge: dict[str, Any] | None = None, **kwargs: Any) -> None:
         """Initialize the flash parser.
 
         Parameters
@@ -230,7 +238,7 @@ class LArCVFlashParser(ParserBase):
                 "Optical geometry not found, required to resize the flash objects."
             )
 
-    def __call__(self, trees):
+    def __call__(self, trees: dict[str, Any]) -> ParserObjectList:
         """Parse one entry.
 
         Parameters
@@ -240,7 +248,11 @@ class LArCVFlashParser(ParserBase):
         """
         return self.process(**self.get_input_data(trees))
 
-    def process(self, flash_event=None, flash_event_list=None):
+    def process(
+        self,
+        flash_event: Any | None = None,
+        flash_event_list: list[Any] | None = None,
+    ) -> ParserObjectList:
         """Fetches the list of optical flashes.
 
         Parameters
@@ -325,7 +337,7 @@ class LArCVCRTHitParser(ParserBase):
     # Type of object(s) returned by the parser
     returns = "object_list"
 
-    def __call__(self, trees):
+    def __call__(self, trees: dict[str, Any]) -> ParserObjectList:
         """Parse one entry.
 
         Parameters
@@ -335,7 +347,7 @@ class LArCVCRTHitParser(ParserBase):
         """
         return self.process(**self.get_input_data(trees))
 
-    def process(self, crthit_event):
+    def process(self, crthit_event: Any) -> ParserObjectList:
         """Fetches the list of CRT hits.
 
         Parameters
@@ -373,7 +385,7 @@ class LArCVTriggerParser(ParserBase):
     # Overlay strategy for the objects returned by the parser
     overlay = "cat"
 
-    def __call__(self, trees):
+    def __call__(self, trees: dict[str, Any]) -> Trigger:
         """Parse one entry.
 
         Parameters
@@ -383,7 +395,7 @@ class LArCVTriggerParser(ParserBase):
         """
         return self.process(**self.get_input_data(trees))
 
-    def process(self, trigger_event):
+    def process(self, trigger_event: Any) -> Trigger:
         """Fetches the trigger information.
 
         Parameters

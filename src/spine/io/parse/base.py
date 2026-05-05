@@ -1,6 +1,9 @@
-"""Contains Parser class which all parsers inherit from."""
+"""Shared parser base classes and input-data plumbing."""
+
+from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import Any, ClassVar
 
 
 class ParserBase(ABC):
@@ -22,34 +25,41 @@ class ParserBase(ABC):
     """
 
     # Name of the parser (as specified in the configuration)
-    name = None
+    name: ClassVar[str | None] = None
 
     # Alternative allowed names of the parser
-    aliases = ()
+    aliases: ClassVar[tuple[str, ...]] = ()
 
     # Type of object(s) returned by the parser
-    returns = None
+    returns: ClassVar[str | None] = None
 
     # Overlay method for the objects returned by the parser
-    overlay = None
+    overlay: ClassVar[str | None] = None
 
     # List of recognized data type returns
-    _data_types = ("tensor", "object", "object_list", "scalar")
+    _data_types: ClassVar[tuple[str, ...]] = (
+        "tensor",
+        "object",
+        "object_list",
+        "scalar",
+    )
 
-    def __init__(self, dtype, **kwargs):
-        """Loops over data product names, stores them.
+    def __init__(self, dtype: str, **kwargs: Any) -> None:
+        """Register parser configuration and input tree requirements.
 
         Parameters
         ----------
         dtype : str
-            Data type to cast the input data to
+            Floating-point dtype used by the parser outputs.
         **kwargs : dict, optional
-            Keyword arguments passed to the parser function
+            Parser configuration. Any key ending in ``_event`` or
+            ``_event_list`` is interpreted as the name of one or more input
+            tree products required by the parser.
 
         Notes
         -----
-        All parser argument which correspond to the name of a tree in the
-        LArCV file must be contain either the `_event` or `_event_list` suffix.
+        Tree-product arguments must contain either the ``_event`` or
+        ``_event_list`` suffix.
         """
         # Store the type in which the parsers should return their data
         self.ftype = dtype
@@ -80,19 +90,19 @@ class ParserBase(ABC):
                         if v not in self.tree_keys:
                             self.tree_keys.append(v)
 
-    def get_input_data(self, trees):
-        """Fetches the required data products from the LArCV data trees, pass
-        them to the parser function.
+    def get_input_data(self, trees: dict[str, Any]) -> dict[str, Any]:
+        """Build the parser-call input dictionary from loaded tree products.
 
         Parameters
         ----------
         trees : dict
-            Dictionary which maps each data product name to a LArCV object
+            Mapping from data-product names to loaded event objects.
 
-        Results
+        Returns
         -------
-        object
-            Output(s) of the parser function
+        dict
+            Mapping from parser argument names to the objects that should be
+            passed to :meth:`process` or :meth:`__call__`.
         """
         # Build the input to the parser function
         data_dict = {}
@@ -111,14 +121,12 @@ class ParserBase(ABC):
         return data_dict
 
     @abstractmethod
-    def __call__(self, trees):
-        """Parse one entry.
-
-        This is a place-holder, must be defined in inheriting class.
+    def __call__(self, trees: dict[str, Any]) -> Any:
+        """Parse one event entry into a canonical SPINE parser product.
 
         Parameters
         ----------
         trees : dict
-            Dictionary which maps each data product name to a LArCV object
+            Mapping from data-product names to loaded event objects.
         """
         raise NotImplementedError("Must define `__call__` method.")

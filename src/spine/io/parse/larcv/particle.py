@@ -10,6 +10,10 @@ Contains the following parsers:
 - :class:`ParticleEnergyParser`
 """
 
+from __future__ import annotations
+
+from typing import Any
+
 import numpy as np
 
 from spine.constants import (
@@ -74,12 +78,12 @@ class LArCVParticleParser(ParserBase):
 
     def __init__(
         self,
-        pixel_coordinates=True,
-        post_process=True,
-        skip_empty=False,
-        asis=False,
-        **kwargs,
-    ):
+        pixel_coordinates: bool = True,
+        post_process: bool = True,
+        skip_empty: bool = False,
+        asis: bool = False,
+        **kwargs: Any,
+    ) -> None:
         """Initialize the parser.
 
         Parameters
@@ -108,7 +112,7 @@ class LArCVParticleParser(ParserBase):
         self.skip_empty = skip_empty
         self.asis = asis
 
-    def __call__(self, trees):
+    def __call__(self, trees: dict[str, Any]) -> ParserObjectList:
         """Parse one entry.
 
         Parameters
@@ -120,12 +124,12 @@ class LArCVParticleParser(ParserBase):
 
     def process(
         self,
-        particle_event,
-        sparse_event=None,
-        cluster_event=None,
-        particle_mpv_event=None,
-        neutrino_event=None,
-    ):
+        particle_event: Any,
+        sparse_event: Any | None = None,
+        cluster_event: Any | None = None,
+        particle_mpv_event: Any | None = None,
+        neutrino_event: Any | None = None,
+    ) -> ParserObjectList:
         """Fetch the list of true particle objects.
 
         Parameters
@@ -230,11 +234,11 @@ class LArCVNeutrinoParser(ParserBase):
 
     def __init__(
         self,
-        pixel_coordinates=True,
-        asis=False,
-        interaction_scheme=NuInteractionScheme.LARSOFT,
-        **kwargs,
-    ):
+        pixel_coordinates: bool = True,
+        asis: bool = False,
+        interaction_scheme: NuInteractionScheme = NuInteractionScheme.LARSOFT,
+        **kwargs: Any,
+    ) -> None:
         """Initialize the parser.
 
         Parameters
@@ -259,7 +263,7 @@ class LArCVNeutrinoParser(ParserBase):
             interaction_scheme = enum_factory("interaction_scheme", interaction_scheme)
         self.interaction_scheme = int(interaction_scheme)
 
-    def __call__(self, trees):
+    def __call__(self, trees: dict[str, Any]) -> ParserObjectList:
         """Parse one entry.
 
         Parameters
@@ -269,7 +273,12 @@ class LArCVNeutrinoParser(ParserBase):
         """
         return self.process(**self.get_input_data(trees))
 
-    def process(self, neutrino_event, sparse_event=None, cluster_event=None):
+    def process(
+        self,
+        neutrino_event: Any,
+        sparse_event: Any | None = None,
+        cluster_event: Any | None = None,
+    ) -> ParserObjectList:
         """Fetch the list of true neutrino objects.
 
         Parameters
@@ -347,7 +356,7 @@ class LArCVParticlePointParser(ParserBase):
     # Type of object(s) returned by the parser
     returns = "tensor"
 
-    def __init__(self, include_point_tagging=True, **kwargs):
+    def __init__(self, include_point_tagging: bool = True, **kwargs: Any) -> None:
         """Initialize the parser.
 
         Parameters
@@ -366,7 +375,7 @@ class LArCVParticlePointParser(ParserBase):
         # Define the output columns containing indexes
         self.index_cols = np.array([PPN_LPART_COL])
 
-    def __call__(self, trees):
+    def __call__(self, trees: dict[str, Any]) -> ParserTensor:
         """Parse one entry.
 
         Parameters
@@ -376,7 +385,12 @@ class LArCVParticlePointParser(ParserBase):
         """
         return self.process(**self.get_input_data(trees))
 
-    def process(self, particle_event, sparse_event=None, cluster_event=None):
+    def process(
+        self,
+        particle_event: Any,
+        sparse_event: Any | None = None,
+        cluster_event: Any | None = None,
+    ) -> ParserTensor:
         """Fetch the list of label points of interest.
 
         Parameters
@@ -445,7 +459,7 @@ class LArCVParticleCoordinateParser(ParserBase):
     # Type of object(s) returned by the parser
     returns = "tensor"
 
-    def __call__(self, trees):
+    def __call__(self, trees: dict[str, Any]) -> ParserTensor:
         """Parse one entry.
 
         Parameters
@@ -455,7 +469,12 @@ class LArCVParticleCoordinateParser(ParserBase):
         """
         return self.process(**self.get_input_data(trees))
 
-    def process(self, particle_event, sparse_event=None, cluster_event=None):
+    def process(
+        self,
+        particle_event: Any,
+        sparse_event: Any | None = None,
+        cluster_event: Any | None = None,
+    ) -> ParserTensor:
         """Fetch the start/end point and time of each true particle.
 
         Parameters
@@ -532,7 +551,7 @@ class LArCVVertexPointParser(ParserBase):
     # Type of object(s) returned by the parser
     returns = "tensor"
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: Any) -> None:
         """Initialize the parser.
 
         Parameters
@@ -546,7 +565,7 @@ class LArCVVertexPointParser(ParserBase):
         # Define the output columns containing indexes
         self.index_cols = np.array([VALUE_COL])
 
-    def __call__(self, trees):
+    def __call__(self, trees: dict[str, Any]) -> ParserTensor:
         """Parse one entry.
 
         Parameters
@@ -558,11 +577,11 @@ class LArCVVertexPointParser(ParserBase):
 
     def process(
         self,
-        particle_event=None,
-        neutrino_event=None,
-        sparse_event=None,
-        cluster_event=None,
-    ):
+        particle_event: Any | None = None,
+        neutrino_event: Any | None = None,
+        sparse_event: Any | None = None,
+        cluster_event: Any | None = None,
+    ) -> ParserTensor:
         """Fetch the list of label vertex points.
 
         Parameters
@@ -638,7 +657,7 @@ class LArCVParticleGraphParser(ParserBase):
     # Type of object(s) returned by the parser
     returns = "tensor"
 
-    def __init__(self, include_fragment_edges=False, **kwargs):
+    def __init__(self, include_fragment_edges: bool = False, **kwargs: Any) -> None:
         """Initialize the parser.
 
         Parameters
@@ -654,7 +673,7 @@ class LArCVParticleGraphParser(ParserBase):
         # Store the revelant attributes
         self.include_fragment_edges = include_fragment_edges
 
-    def __call__(self, trees):
+    def __call__(self, trees: dict[str, Any]) -> ParserTensor:
         """Parse one entry.
 
         Parameters
@@ -664,7 +683,9 @@ class LArCVParticleGraphParser(ParserBase):
         """
         return self.process(**self.get_input_data(trees))
 
-    def process(self, particle_event, cluster_event=None):
+    def process(
+        self, particle_event: Any, cluster_event: Any | None = None
+    ) -> ParserTensor:
         """Fetch the parentage connections from the true particle list.
 
         Configuration
@@ -748,7 +769,7 @@ class LArCVSingleParticlePIDParser(ParserBase):
     # Overlay strategy for the objects returned by the parser
     overlay = "cat"
 
-    def __call__(self, trees):
+    def __call__(self, trees: dict[str, Any]) -> int:
         """Parse one entry.
 
         Parameters
@@ -758,7 +779,7 @@ class LArCVSingleParticlePIDParser(ParserBase):
         """
         return self.process(**self.get_input_data(trees))
 
-    def process(self, particle_event):
+    def process(self, particle_event: Any) -> int:
         """Fetch the species of the first particle.
 
         Configuration
@@ -802,7 +823,7 @@ class LArCVSingleParticleEnergyParser(ParserBase):
     # Overlay strategy for the objects returned by the parser
     overlay = "cat"
 
-    def __call__(self, trees):
+    def __call__(self, trees: dict[str, Any]) -> float:
         """Parse one entry.
 
         Parameters
@@ -812,7 +833,7 @@ class LArCVSingleParticleEnergyParser(ParserBase):
         """
         return self.process(**self.get_input_data(trees))
 
-    def process(self, particle_event):
+    def process(self, particle_event: Any) -> float:
         """Fetch the kinetic energy of the first particle.
 
         Configuration

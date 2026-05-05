@@ -19,13 +19,38 @@ class HDF5IndexListParser(ParserBase):
     returns = "tensor"
 
     def __call__(self, trees: dict[str, Any]) -> ParserTensor:
-        """Parse one cached entry."""
+        """Parse one cached entry into a jagged index-list parser tensor.
+
+        Parameters
+        ----------
+        trees : dict
+            Mapping from configured HDF5 product names to cached entry values.
+
+        Returns
+        -------
+        ParserTensor
+            Parser tensor containing a list of 1D index arrays and their
+            batching metadata.
+        """
         return self.process(**self.get_input_data(trees))
 
     def process(
         self, index_event: np.ndarray, count_event: np.ndarray | None = None
     ) -> ParserTensor:
-        """Normalize cached lists of indexes for collation into an IndexBatch."""
+        """Normalize cached index lists for collation into an :class:`IndexBatch`.
+
+        Parameters
+        ----------
+        index_event : np.ndarray
+            Object array or nested array containing one index list per element.
+        count_event : np.ndarray, optional
+            Cached tensor used to infer the offset span of the entry.
+
+        Returns
+        -------
+        ParserTensor
+            Parser tensor containing normalized 1D index arrays.
+        """
         index_list = []
         for index in index_event:
             index_list.append(np.asarray(index, dtype=self.itype).reshape(-1))
@@ -46,7 +71,20 @@ class HDF5IndexListParser(ParserBase):
         index_list: list[np.ndarray],
         count_event: np.ndarray | None = None,
     ) -> int:
-        """Determine the offset range spanned by one cached entry."""
+        """Determine the offset span covered by one cached entry.
+
+        Parameters
+        ----------
+        index_list : list[np.ndarray]
+            Normalized 1D index arrays for one cached entry.
+        count_event : np.ndarray, optional
+            Cached tensor or scalar count used to infer the span directly.
+
+        Returns
+        -------
+        int
+            Global index span associated with the cached entry.
+        """
         if count_event is not None:
             count_array = np.asarray(count_event)
             if count_array.ndim == 0:
@@ -70,7 +108,20 @@ class HDF5EdgeIndexParser(HDF5IndexListParser):
     def process(
         self, index_event: np.ndarray, count_event: np.ndarray | None = None
     ) -> ParserTensor:
-        """Normalize cached edge indexes for collation into an EdgeIndexBatch."""
+        """Normalize cached edge indexes for collation into an EdgeIndexBatch.
+
+        Parameters
+        ----------
+        index_event : np.ndarray
+            Cached edge-index array with shape ``(2, E)`` or ``(E, 2)``.
+        count_event : np.ndarray, optional
+            Cached tensor used to infer the node span of the entry.
+
+        Returns
+        -------
+        ParserTensor
+            Parser tensor containing a normalized ``(2, E)`` edge-index array.
+        """
         index = np.asarray(index_event, dtype=self.itype)
         if index.ndim != 2:
             raise ValueError(
