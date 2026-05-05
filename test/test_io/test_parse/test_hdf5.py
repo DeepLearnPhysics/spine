@@ -1,8 +1,13 @@
 """Tests for lightweight HDF5 cache parsers."""
 
 import numpy as np
+import pytest
 
-from spine.io.parse import HDF5FeatureTensorParser, HDF5IndexListParser
+from spine.io.parse import (
+    HDF5EdgeIndexParser,
+    HDF5FeatureTensorParser,
+    HDF5IndexListParser,
+)
 from spine.io.parse.data import ParserTensor
 
 
@@ -88,3 +93,41 @@ def test_hdf5_index_list_parser_empty_without_count_event():
 
     assert result.global_shift == 0
     assert result.features == []
+
+
+def test_hdf5_edge_index_parser_accepts_transposed_input():
+    """Cached edge indexes stored as (E, 2) should be transposed on load."""
+    parser = HDF5EdgeIndexParser(
+        dtype="float32",
+        index_event="edge_index",
+        count_event="node_features",
+    )
+    trees = {
+        "edge_index": np.asarray([[0, 1], [1, 2], [2, 3]], dtype=np.int64),
+        "node_features": np.asarray([[1.0], [2.0], [3.0], [4.0]], dtype=np.float32),
+    }
+
+    result = parser(trees)
+
+    assert isinstance(result, ParserTensor)
+    np.testing.assert_array_equal(
+        result.features,
+        np.asarray([[0, 1, 2], [1, 2, 3]], dtype=np.int64),
+    )
+    assert result.global_shift == 4
+
+
+def test_hdf5_edge_index_parser_rejects_non_2d_input():
+    """Edge-index parser should reject non-2D cached arrays."""
+    parser = HDF5EdgeIndexParser(dtype="float32", index_event="edge_index")
+
+    with pytest.raises(ValueError, match="must be 2D"):
+        parser({"edge_index": np.asarray([0, 1, 2], dtype=np.int64)})
+
+
+def test_hdf5_edge_index_parser_rejects_wrong_2d_shape():
+    """Edge-index parser should reject 2D arrays that are not edge lists."""
+    parser = HDF5EdgeIndexParser(dtype="float32", index_event="edge_index")
+
+    with pytest.raises(ValueError, match=r"shape \(2, E\) or \(E, 2\)"):
+        parser({"edge_index": np.asarray([[0, 1, 2]], dtype=np.int64)})

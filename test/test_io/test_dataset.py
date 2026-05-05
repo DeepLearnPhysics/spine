@@ -424,6 +424,7 @@ def test_mixed_dataset_merges_aligned_sources(monkeypatch):
     assert entry["clusts"] == "cached-clusts"
     assert entry["node_features"] == "cached-node-features"
     assert dataset.data_types["clusts"] == "tensor"
+    assert dataset.overlay_methods["clusts"] is None
     assert set(dataset.data_keys) == {
         "index",
         "file_index",
@@ -554,6 +555,411 @@ def test_mixed_dataset_prefers_source_provenance(monkeypatch):
     entry = dataset[0]
     assert entry["file_index"] == 0
     assert entry["file_entry_index"] == 5
+
+
+def test_mixed_dataset_len_mismatch_raises(monkeypatch):
+    """The mixed dataset should reject sources with different lengths."""
+
+    class DummyDataset:
+        def __init__(self, size):
+            self.size = size
+            self.reader = object()
+
+        def __len__(self):
+            return self.size
+
+        def __getitem__(self, idx):
+            return {"index": idx, "file_index": 0, "file_entry_index": idx}
+
+        @property
+        def data_types(self):
+            return {
+                "index": "scalar",
+                "file_index": "scalar",
+                "file_entry_index": "scalar",
+            }
+
+        @property
+        def overlay_methods(self):
+            return {
+                "index": "cat",
+                "file_index": "cat",
+                "file_entry_index": "cat",
+            }
+
+    monkeypatch.setattr(
+        mixed_dataset_module, "LArCVDataset", lambda **kwargs: DummyDataset(2)
+    )
+    monkeypatch.setattr(
+        mixed_dataset_module, "HDF5Dataset", lambda **kwargs: DummyDataset(3)
+    )
+
+    with pytest.raises(ValueError, match="same number of entries"):
+        MixedDataset(
+            larcv={"file_keys": "dummy.root", "schema": {}},
+            hdf5={"file_keys": "dummy.h5"},
+            dtype="float32",
+        )
+
+
+def test_mixed_dataset_len_delegates_to_primary(monkeypatch):
+    """The mixed dataset length should come from the primary source."""
+
+    class DummyDataset:
+        def __init__(self, size):
+            self.size = size
+            self.reader = object()
+
+        def __len__(self):
+            return self.size
+
+        def __getitem__(self, idx):
+            return {"index": idx, "file_index": 0, "file_entry_index": idx}
+
+        @property
+        def data_types(self):
+            return {
+                "index": "scalar",
+                "file_index": "scalar",
+                "file_entry_index": "scalar",
+            }
+
+        @property
+        def overlay_methods(self):
+            return {
+                "index": "cat",
+                "file_index": "cat",
+                "file_entry_index": "cat",
+            }
+
+    monkeypatch.setattr(
+        mixed_dataset_module, "LArCVDataset", lambda **kwargs: DummyDataset(4)
+    )
+    monkeypatch.setattr(
+        mixed_dataset_module, "HDF5Dataset", lambda **kwargs: DummyDataset(4)
+    )
+
+    dataset = MixedDataset(
+        larcv={"file_keys": "dummy.root", "schema": {}},
+        hdf5={"file_keys": "dummy.h5"},
+        dtype="float32",
+    )
+    assert len(dataset) == 4
+
+
+def test_mixed_dataset_respects_explicit_hdf5_align_keys(monkeypatch):
+    """Explicit HDF5 alignment mappings should override automatic source_* lookup."""
+
+    class DummyDataset:
+        def __init__(self, samples):
+            self.samples = samples
+            self.reader = object()
+
+        def __len__(self):
+            return len(self.samples)
+
+        def __getitem__(self, idx):
+            return dict(self.samples[idx])
+
+        @property
+        def data_types(self):
+            return {
+                "index": "scalar",
+                "file_index": "scalar",
+                "file_entry_index": "scalar",
+            }
+
+        @property
+        def overlay_methods(self):
+            return {
+                "index": "cat",
+                "file_index": "cat",
+                "file_entry_index": "cat",
+            }
+
+    monkeypatch.setattr(
+        mixed_dataset_module,
+        "LArCVDataset",
+        lambda **kwargs: DummyDataset(
+            [{"index": 0, "file_index": 0, "file_entry_index": 5}]
+        ),
+    )
+    monkeypatch.setattr(
+        mixed_dataset_module,
+        "HDF5Dataset",
+        lambda **kwargs: DummyDataset(
+            [{"index": 0, "cache_file_id": 0, "cache_entry_id": 5}]
+        ),
+    )
+
+    dataset = MixedDataset(
+        larcv={"file_keys": "dummy.root", "schema": {}},
+        hdf5={"file_keys": "dummy.h5"},
+        dtype="float32",
+        hdf5_align_keys={
+            "file_index": "cache_file_id",
+            "file_entry_index": "cache_entry_id",
+        },
+    )
+
+    entry = dataset[0]
+    assert entry["file_entry_index"] == 5
+
+
+def test_mixed_dataset_key_collision_can_be_overwritten(monkeypatch):
+    """Explicit overwrite should let cached values replace LArCV values."""
+
+    class DummyDataset:
+        def __init__(self, samples, data_types=None, overlay_methods=None):
+            self.samples = samples
+            self.reader = object()
+            self._data_types = data_types or {
+                "index": "scalar",
+                "file_index": "scalar",
+                "file_entry_index": "scalar",
+            }
+            self._overlay_methods = overlay_methods or {
+                "index": "cat",
+                "file_index": "cat",
+                "file_entry_index": "cat",
+            }
+
+        def __len__(self):
+            return len(self.samples)
+
+        def __getitem__(self, idx):
+            return dict(self.samples[idx])
+
+        @property
+        def data_types(self):
+            return self._data_types
+
+        @property
+        def overlay_methods(self):
+            return self._overlay_methods
+
+    monkeypatch.setattr(
+        mixed_dataset_module,
+        "LArCVDataset",
+        lambda **kwargs: DummyDataset(
+            [{"index": 0, "file_index": 0, "file_entry_index": 0, "shared": "larcv"}],
+            {"index": "scalar", "file_index": "scalar", "file_entry_index": "scalar"},
+            {"index": "cat", "file_index": "cat", "file_entry_index": "cat"},
+        ),
+    )
+    monkeypatch.setattr(
+        mixed_dataset_module,
+        "HDF5Dataset",
+        lambda **kwargs: DummyDataset(
+            [{"index": 0, "file_index": 0, "file_entry_index": 0, "shared": "cache"}],
+            {"index": "scalar", "file_index": "scalar", "file_entry_index": "scalar"},
+            {"index": "cat", "file_index": "cat", "file_entry_index": "cat"},
+        ),
+    )
+
+    dataset = MixedDataset(
+        larcv={"file_keys": "dummy.root", "schema": {}},
+        hdf5={"file_keys": "dummy.h5"},
+        dtype="float32",
+        allow_overwrite=True,
+    )
+
+    assert dataset[0]["shared"] == "cache"
+
+
+def test_mixed_dataset_key_collision_raises(monkeypatch):
+    """Mixed dataset should reject colliding cache keys by default."""
+
+    class DummyDataset:
+        def __init__(self, samples):
+            self.samples = samples
+            self.reader = object()
+
+        def __len__(self):
+            return len(self.samples)
+
+        def __getitem__(self, idx):
+            return dict(self.samples[idx])
+
+        @property
+        def data_types(self):
+            return {
+                "index": "scalar",
+                "file_index": "scalar",
+                "file_entry_index": "scalar",
+            }
+
+        @property
+        def overlay_methods(self):
+            return {
+                "index": "cat",
+                "file_index": "cat",
+                "file_entry_index": "cat",
+            }
+
+    monkeypatch.setattr(
+        mixed_dataset_module,
+        "LArCVDataset",
+        lambda **kwargs: DummyDataset(
+            [{"index": 0, "file_index": 0, "file_entry_index": 0, "shared": "larcv"}]
+        ),
+    )
+    monkeypatch.setattr(
+        mixed_dataset_module,
+        "HDF5Dataset",
+        lambda **kwargs: DummyDataset(
+            [{"index": 0, "file_index": 0, "file_entry_index": 0, "shared": "cache"}]
+        ),
+    )
+
+    dataset = MixedDataset(
+        larcv={"file_keys": "dummy.root", "schema": {}},
+        hdf5={"file_keys": "dummy.h5"},
+        dtype="float32",
+    )
+
+    with pytest.raises(ValueError, match="key collision"):
+        dataset[0]
+
+
+def test_mixed_dataset_data_type_collision_raises(monkeypatch):
+    """Mixed dataset should reject incompatible collate type metadata."""
+
+    class DummyDataset:
+        def __init__(self, data_types, overlay_methods):
+            self.reader = object()
+            self._data_types = data_types
+            self._overlay_methods = overlay_methods
+
+        def __len__(self):
+            return 1
+
+        def __getitem__(self, idx):
+            return {"index": 0, "file_index": 0, "file_entry_index": 0}
+
+        @property
+        def data_types(self):
+            return self._data_types
+
+        @property
+        def overlay_methods(self):
+            return self._overlay_methods
+
+    monkeypatch.setattr(
+        mixed_dataset_module,
+        "LArCVDataset",
+        lambda **kwargs: DummyDataset(
+            {
+                "index": "scalar",
+                "file_index": "scalar",
+                "file_entry_index": "scalar",
+                "shared": "tensor",
+            },
+            {
+                "index": "cat",
+                "file_index": "cat",
+                "file_entry_index": "cat",
+                "shared": None,
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        mixed_dataset_module,
+        "HDF5Dataset",
+        lambda **kwargs: DummyDataset(
+            {
+                "index": "scalar",
+                "file_index": "scalar",
+                "file_entry_index": "scalar",
+                "shared": "object",
+            },
+            {
+                "index": "cat",
+                "file_index": "cat",
+                "file_entry_index": "cat",
+                "shared": None,
+            },
+        ),
+    )
+
+    dataset = MixedDataset(
+        larcv={"file_keys": "dummy.root", "schema": {}},
+        hdf5={"file_keys": "dummy.h5"},
+        dtype="float32",
+    )
+
+    with pytest.raises(ValueError, match="data type collision"):
+        _ = dataset.data_types
+
+
+def test_mixed_dataset_overlay_collision_raises(monkeypatch):
+    """Mixed dataset should reject incompatible overlay metadata."""
+
+    class DummyDataset:
+        def __init__(self, data_types, overlay_methods):
+            self.reader = object()
+            self._data_types = data_types
+            self._overlay_methods = overlay_methods
+
+        def __len__(self):
+            return 1
+
+        def __getitem__(self, idx):
+            return {"index": 0, "file_index": 0, "file_entry_index": 0}
+
+        @property
+        def data_types(self):
+            return self._data_types
+
+        @property
+        def overlay_methods(self):
+            return self._overlay_methods
+
+    monkeypatch.setattr(
+        mixed_dataset_module,
+        "LArCVDataset",
+        lambda **kwargs: DummyDataset(
+            {
+                "index": "scalar",
+                "file_index": "scalar",
+                "file_entry_index": "scalar",
+                "shared": "tensor",
+            },
+            {
+                "index": "cat",
+                "file_index": "cat",
+                "file_entry_index": "cat",
+                "shared": "first",
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        mixed_dataset_module,
+        "HDF5Dataset",
+        lambda **kwargs: DummyDataset(
+            {
+                "index": "scalar",
+                "file_index": "scalar",
+                "file_entry_index": "scalar",
+                "shared": "tensor",
+            },
+            {
+                "index": "cat",
+                "file_index": "cat",
+                "file_entry_index": "cat",
+                "shared": "last",
+            },
+        ),
+    )
+
+    dataset = MixedDataset(
+        larcv={"file_keys": "dummy.root", "schema": {}},
+        hdf5={"file_keys": "dummy.h5"},
+        dtype="float32",
+    )
+
+    with pytest.raises(ValueError, match="overlay collision"):
+        _ = dataset.overlay_methods
 
 
 def test_larcv_dataset_uses_augmenter_and_length(monkeypatch):
