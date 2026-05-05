@@ -532,8 +532,9 @@ def _get_cluster_closest_label(
         if g < 0 or g >= len(points):
             continue
 
-        # Get the coordinates of the start point
-        start_point = points[g].reshape(-1, 3)
+        # Build a contiguous (1, 3) view for numba-safe distance calls.
+        start_point = np.empty((1, 3), dtype=data.dtype)
+        start_point[0] = points[g]
 
         # Minimize the point-cluster distances
         dists = np.empty(len(group_index), dtype=data.dtype)
@@ -649,8 +650,9 @@ def _get_cluster_closest_primary_label(
         if g < 0 or g >= len(points):
             continue
 
-        # Get the coordinates of the start point
-        start_point = points[g].reshape(-1, 3)
+        # Build a contiguous (1, 3) view for numba-safe distance calls.
+        start_point = np.empty((1, 3), dtype=data.dtype)
+        start_point[0] = points[g]
 
         # Minimize the point-cluster distances
         dists = np.empty(len(group_index), dtype=data.dtype)
@@ -1027,8 +1029,11 @@ def _get_cluster_points_label(
 
     # Bring the start points to the closest point in the corresponding cluster
     for i, c in enumerate(clusts):
+        point_pair = np.empty((2, 3), dtype=data.dtype)
+        point_pair[0] = points[i, :3]
+        point_pair[1] = points[i, 3:6]
         dist_mat = sm.distance.cdist(
-            points[i].reshape(-1, 3), data[c][:, COORD_COLS_LO:COORD_COLS_HI]
+            point_pair, data[c][:, COORD_COLS_LO:COORD_COLS_HI]
         )
         argmins = sm.argmin(dist_mat, axis=1)
         for j, argmin in enumerate(argmins):
