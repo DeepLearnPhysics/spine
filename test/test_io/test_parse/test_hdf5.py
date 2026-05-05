@@ -3,10 +3,13 @@
 import numpy as np
 import pytest
 
+from spine.data import Meta
 from spine.io.parse import (
+    HDF5ClusterTensorParser,
     HDF5EdgeIndexParser,
     HDF5FeatureTensorParser,
     HDF5IndexListParser,
+    HDF5TensorParser,
 )
 from spine.io.parse.data import ParserTensor
 
@@ -56,6 +59,104 @@ def test_hdf5_feature_tensor_parser_ablation_requires_2d_input():
 
     with pytest.raises(ValueError, match="requires a 2D cached feature tensor"):
         parser({"node_features": np.asarray([1.0, 2.0, 3.0], dtype=np.float32)})
+
+
+def test_hdf5_tensor_parser_splits_coords_features_and_meta():
+    """Generic cached tensor parser should split batch/coords/features."""
+    meta = Meta()
+    parser = HDF5TensorParser(
+        dtype="float32",
+        tensor_event="data",
+        meta_event="meta",
+    )
+    trees = {
+        "data": np.asarray(
+            [
+                [0.0, 10.0, 11.0, 12.0, 1.0, 2.0],
+                [0.0, 20.0, 21.0, 22.0, 3.0, 4.0],
+            ],
+            dtype=np.float64,
+        ),
+        "meta": meta,
+    }
+
+    result = parser(trees)
+
+    assert isinstance(result, ParserTensor)
+    np.testing.assert_array_equal(
+        result.coords, np.asarray([[10, 11, 12], [20, 21, 22]], dtype=np.int32)
+    )
+    np.testing.assert_allclose(
+        result.features, np.asarray([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)
+    )
+    assert result.meta is meta
+
+
+def test_hdf5_tensor_parser_supports_feature_ablation():
+    """Generic cached tensor parser should support feature-column selection."""
+    parser = HDF5TensorParser(
+        dtype="float32",
+        tensor_event="data",
+        feature_cols=[1],
+    )
+    trees = {
+        "data": np.asarray(
+            [[0.0, 1.0, 2.0, 3.0, 4.0, 5.0]],
+            dtype=np.float32,
+        )
+    }
+
+    result = parser(trees)
+
+    np.testing.assert_allclose(result.features, np.asarray([[5.0]], dtype=np.float32))
+
+
+def test_hdf5_tensor_parser_requires_2d_input():
+    """Generic cached tensor parser should reject non-2D tensors."""
+    parser = HDF5TensorParser(dtype="float32", tensor_event="data")
+
+    with pytest.raises(ValueError, match="must be 2D"):
+        parser({"data": np.asarray([1.0, 2.0, 3.0], dtype=np.float32)})
+
+
+def test_hdf5_cluster_tensor_parser_restores_cluster_metadata():
+    """Cluster-tensor parser should restore duplicate-handling semantics."""
+    parser = HDF5ClusterTensorParser(
+        dtype="float32",
+        tensor_event="clust_label",
+        meta_event="meta",
+        index_cols=[0, 3],
+        sum_cols=[1],
+        prec_col=2,
+        precedence=[4, 3, 2],
+    )
+    meta = Meta()
+    trees = {
+        "clust_label": np.asarray([[0.0, 1.0, 2.0, 3.0, 9.0, 8.0]], dtype=np.float32),
+        "meta": meta,
+    }
+
+    result = parser(trees)
+
+    assert result.remove_duplicates is True
+    np.testing.assert_array_equal(result.index_cols, np.asarray([0, 3]))
+    np.testing.assert_array_equal(result.sum_cols, np.asarray([1]))
+    assert result.prec_col == 2
+    np.testing.assert_array_equal(result.precedence, np.asarray([4, 3, 2]))
+    assert result.meta is meta
+
+
+def test_hdf5_tensor_parser_rejects_invalid_batch_column_layout():
+    """Generic cached tensor parser should validate batch-column assumptions."""
+    parser = HDF5TensorParser(
+        dtype="float32",
+        tensor_event="data",
+        has_batch_col=True,
+        coord_start_col=0,
+    )
+
+    with pytest.raises(ValueError, match="coord_start_col"):
+        parser({"data": np.asarray([[1.0, 2.0, 3.0, 4.0]], dtype=np.float32)})
 
 
 def test_hdf5_index_list_parser_with_count_event():
