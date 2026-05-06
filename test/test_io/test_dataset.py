@@ -100,6 +100,10 @@ def test_hdf5_dataset(hdf5_data):
     assert entry["index"] == 0
     assert entry["file_index"] == 0
     assert entry["file_entry_index"] == 0
+    assert "source_file_name" in entry
+    assert "source_file_size" in entry
+    assert "source_file_mtime_ns" in entry
+    assert entry["source_file_entry_index"] == 0
     assert "run_info" in entry
 
 
@@ -161,6 +165,233 @@ def test_hdf5_dataset_rejects_missing_torch(monkeypatch, hdf5_data):
 
     with pytest.raises(ImportError, match="PyTorch is required"):
         HDF5Dataset(file_keys=hdf5_data, build_classes=False)
+
+
+def test_hdf5_dataset_rejects_stage_without_staged(hdf5_data):
+    """Flat HDF5 datasets should reject stray stage configuration."""
+    with pytest.raises(ValueError, match="can only be provided when `staged=True`"):
+        HDF5Dataset(
+            file_keys=hdf5_data,
+            build_classes=False,
+            staged=False,
+            stage="deghosting",
+        )
+
+
+def test_hdf5_dataset_uses_stage_reader(monkeypatch, hdf5_data):
+    """The staged flag should switch the HDF5 dataset to StageHDF5Reader."""
+
+    class DummyStageReader:
+        def __init__(self, stage=None, stage_map=None, keys=None, **kwargs):
+            self.stage = stage
+            self.stage_map = stage_map
+            self.keys = keys
+            self.kwargs = kwargs
+
+        def __len__(self):
+            return 1
+
+        def __getitem__(self, idx):
+            return {
+                "index": idx,
+                "file_index": 0,
+                "file_entry_index": 0,
+                "dummy": np.asarray([1.0]),
+            }
+
+    monkeypatch.setattr(hdf5_dataset_module, "StageHDF5Reader", DummyStageReader)
+
+    dataset = HDF5Dataset(
+        file_keys=hdf5_data,
+        build_classes=False,
+        staged=True,
+        stage="deghosting",
+    )
+
+    assert isinstance(dataset.reader, DummyStageReader)
+    assert dataset.reader.stage == "deghosting"
+
+
+def test_hdf5_dataset_supports_per_schema_stages(monkeypatch, hdf5_data):
+    """Staged HDF5 schemas should be able to source products from different stages."""
+
+    class DummyStageReader:
+        def __init__(self, stage=None, stage_map=None, keys=None, **kwargs):
+            self.stage = stage
+            self.stage_map = stage_map
+            self.keys = keys
+            self.kwargs = kwargs
+
+        def __len__(self):
+            return 1
+
+        def __getitem__(self, idx):
+            base = {
+                "index": idx,
+                "file_index": 0,
+                "file_entry_index": 0,
+                "source_file_name": "dummy.h5",
+                "source_file_size": 123,
+                "source_file_mtime_ns": 456,
+                "source_file_entry_index": 9,
+            }
+            if self.stage == "deghosting":
+                base["data_adapt"] = np.asarray([[1, 2, 3, 10, 11]], dtype=np.float32)
+            elif self.stage == "graph_spice":
+                base["clust_label_adapt"] = np.asarray(
+                    [[1, 2, 3, 20, 21]], dtype=np.float32
+                )
+            elif self.stage is None and self.stage_map is not None:
+                if self.stage_map.get("data_adapt") == "deghosting":
+                    base["data_adapt"] = np.asarray(
+                        [[1, 2, 3, 10, 11]], dtype=np.float32
+                    )
+                if self.stage_map.get("clust_label_adapt") == "graph_spice":
+                    base["clust_label_adapt"] = np.asarray(
+                        [[1, 2, 3, 20, 21]], dtype=np.float32
+                    )
+            else:
+                raise ValueError(self.stage)
+            return base
+
+    monkeypatch.setattr(hdf5_dataset_module, "StageHDF5Reader", DummyStageReader)
+
+    dataset = HDF5Dataset(
+        file_keys=hdf5_data,
+        staged=True,
+        dtype="float32",
+        schema={
+            "data_adapt": {
+                "parser": "tensor",
+                "stage": "deghosting",
+                "tensor_event": "data_adapt",
+                "has_batch_col": False,
+                "coord_start_col": 0,
+                "feature_start_col": 3,
+            },
+            "clust_label_adapt": {
+                "parser": "tensor",
+                "stage": "graph_spice",
+                "tensor_event": "clust_label_adapt",
+                "has_batch_col": False,
+                "coord_start_col": 0,
+                "feature_start_col": 3,
+            },
+        },
+    )
+
+    entry = dataset[0]
+    assert isinstance(dataset.reader, DummyStageReader)
+    assert dataset.reader.stage_map == {
+        "data_adapt": "deghosting",
+        "clust_label_adapt": "graph_spice",
+    }
+    np.testing.assert_array_equal(entry["data_adapt"].coords, np.asarray([[1, 2, 3]]))
+    np.testing.assert_array_equal(
+        entry["data_adapt"].features, np.asarray([[10, 11]], dtype=np.float32)
+    )
+    np.testing.assert_array_equal(
+        entry["clust_label_adapt"].features, np.asarray([[20, 21]], dtype=np.float32)
+    )
+    assert entry["source_file_name"] == "dummy.h5"
+    assert entry["source_file_size"] == 123
+    assert entry["source_file_mtime_ns"] == 456
+    assert entry["source_file_entry_index"] == 9
+
+
+def test_mixed_dataset_uses_source_file_metadata_alignment(monkeypatch, tmp_path):
+    """MixedDataset should align staged caches using source file metadata."""
+    import spine.io.dataset.mixed as mixed_dataset_module
+
+    source_path = tmp_path / "input.root"
+    source_path.write_bytes(b"larcv-source")
+    source_stat = source_path.stat()
+
+    class DummyPrimary:
+        def __init__(self):
+            self.reader = type("Reader", (), {"file_paths": [str(source_path)]})()
+
+        def __len__(self):
+            return 1
+
+        def __getitem__(self, idx):
+            return {"index": idx, "file_index": 0, "file_entry_index": 0, "data": "x"}
+
+        @property
+        def data_types(self):
+            return {
+                "index": "scalar",
+                "file_index": "scalar",
+                "file_entry_index": "scalar",
+                "data": "tensor",
+            }
+
+        @property
+        def overlay_methods(self):
+            return {
+                "index": "cat",
+                "file_index": "cat",
+                "file_entry_index": "cat",
+                "data": None,
+            }
+
+    class DummyCache:
+        def __len__(self):
+            return 1
+
+        def __getitem__(self, idx):
+            return {
+                "index": idx,
+                "file_index": 0,
+                "file_entry_index": 0,
+                "source_file_name": source_path.name,
+                "source_file_size": int(source_stat.st_size),
+                "source_file_mtime_ns": int(source_stat.st_mtime_ns),
+                "source_file_entry_index": 0,
+                "clusts": "y",
+            }
+
+        @property
+        def data_types(self):
+            return {
+                "index": "scalar",
+                "file_index": "scalar",
+                "file_entry_index": "scalar",
+                "source_file_name": "scalar",
+                "source_file_size": "scalar",
+                "source_file_mtime_ns": "scalar",
+                "source_file_entry_index": "scalar",
+                "clusts": "tensor",
+            }
+
+        @property
+        def overlay_methods(self):
+            return {
+                "index": "cat",
+                "file_index": "cat",
+                "file_entry_index": "cat",
+                "source_file_name": "cat",
+                "source_file_size": "cat",
+                "source_file_mtime_ns": "cat",
+                "source_file_entry_index": "cat",
+                "clusts": None,
+            }
+
+    monkeypatch.setattr(
+        mixed_dataset_module, "LArCVDataset", lambda **kwargs: DummyPrimary()
+    )
+    monkeypatch.setattr(
+        mixed_dataset_module, "HDF5Dataset", lambda **kwargs: DummyCache()
+    )
+
+    dataset = mixed_dataset_module.MixedDataset(
+        larcv={"file_keys": str(source_path), "schema": {}},
+        hdf5={"file_keys": "dummy.h5"},
+        dtype="float32",
+    )
+
+    entry = dataset[0]
+    assert entry["clusts"] == "y"
 
 
 def test_hdf5_dataset_with_augment(monkeypatch, hdf5_data):
@@ -239,6 +470,10 @@ def test_hdf5_dataset_with_schema_and_collate(tmp_path):
         "index",
         "file_index",
         "file_entry_index",
+        "source_file_name",
+        "source_file_size",
+        "source_file_mtime_ns",
+        "source_file_entry_index",
         "clusts",
         "node_features",
         "edge_features",
@@ -395,7 +630,9 @@ def test_mixed_dataset_merges_aligned_sources(monkeypatch):
                 "index": "scalar",
                 "file_index": "scalar",
                 "file_entry_index": "scalar",
-                "source_file_index": "scalar",
+                "source_file_name": "scalar",
+                "source_file_size": "scalar",
+                "source_file_mtime_ns": "scalar",
                 "source_file_entry_index": "scalar",
                 "clusts": "tensor",
                 "node_features": "tensor",
@@ -404,7 +641,9 @@ def test_mixed_dataset_merges_aligned_sources(monkeypatch):
                 "index": "cat",
                 "file_index": "cat",
                 "file_entry_index": "cat",
-                "source_file_index": "cat",
+                "source_file_name": "cat",
+                "source_file_size": "cat",
+                "source_file_mtime_ns": "cat",
                 "source_file_entry_index": "cat",
                 "clusts": None,
                 "node_features": None,
@@ -429,8 +668,6 @@ def test_mixed_dataset_merges_aligned_sources(monkeypatch):
         "index",
         "file_index",
         "file_entry_index",
-        "source_file_index",
-        "source_file_entry_index",
         "data",
         "coord_label",
         "clusts",
@@ -979,6 +1216,7 @@ def test_larcv_dataset_uses_augmenter_and_length(monkeypatch):
 
     class DummyReader:
         entry_index = [0]
+        file_paths = ["file.root"]
 
         def __init__(self, **kwargs):
             self.kwargs = kwargs
@@ -994,6 +1232,14 @@ def test_larcv_dataset_uses_augmenter_and_length(monkeypatch):
 
         def get_file_entry_index(self, idx):
             return idx
+
+        def get_source_provenance(self, file_idx, file_entry_idx):
+            return {
+                "source_file_name": "file.root",
+                "source_file_size": 1,
+                "source_file_mtime_ns": 2,
+                "source_file_entry_index": file_entry_idx,
+            }
 
         @staticmethod
         def list_data(path):
@@ -1044,6 +1290,7 @@ def test_larcv_dataset_parser_failure_logs_and_raises(monkeypatch):
 
     class DummyReader:
         entry_index = [0]
+        file_paths = ["file.root"]
 
         def __len__(self):
             return 1
@@ -1056,6 +1303,14 @@ def test_larcv_dataset_parser_failure_logs_and_raises(monkeypatch):
 
         def get_file_entry_index(self, idx):
             return idx
+
+        def get_source_provenance(self, file_idx, file_entry_idx):
+            return {
+                "source_file_name": "file.root",
+                "source_file_size": 1,
+                "source_file_mtime_ns": 2,
+                "source_file_entry_index": file_entry_idx,
+            }
 
     monkeypatch.setattr(larcv_dataset_module, "PARSER_DICT", {"dummy": DummyParser})
     monkeypatch.setattr(larcv_dataset_module, "LArCVReader", lambda **_: DummyReader())

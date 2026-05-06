@@ -9,7 +9,8 @@ from yaml.parser import ParserError
 
 import spine.data
 from spine.data.larcv.meta import ImageMeta2D, ImageMeta3D
-from spine.io.read import HDF5Reader
+from spine.io.read import HDF5Reader, StageHDF5Reader
+from spine.io.write import StageHDF5Writer
 
 
 def _read_hdf5_entry(path, queue):
@@ -256,6 +257,150 @@ def test_hdf5_reader_close_swallows_handle_close_errors():
 
     assert reader._file_handles == {}
     assert reader._handle_pid is None
+
+
+def test_stage_hdf5_reader_loads_one_stage(tmp_path):
+    """Stage cache reader should load products from one named stage."""
+    path = tmp_path / "stage_cache.h5"
+    source_path = tmp_path / "source.root"
+    source_path.write_bytes(b"source-bytes")
+    source_stat = source_path.stat()
+    writer = StageHDF5Writer(str(path), overwrite=True)
+    writer.write_stage(
+        "deghosting",
+        {
+            "index": np.asarray([0]),
+            "source_file_name": np.asarray([source_path.name]),
+            "source_file_size": np.asarray([source_stat.st_size]),
+            "source_file_mtime_ns": np.asarray([source_stat.st_mtime_ns]),
+            "dummy_data": [np.asarray([[1.0, 2.0]])],
+            "file_index": np.asarray([7]),
+            "file_entry_index": np.asarray([11]),
+        },
+    )
+    writer.finalize_stage("deghosting")
+    writer.close()
+
+    reader = StageHDF5Reader("deghosting", str(path), build_classes=False)
+    entry = reader.get(0)
+    np.testing.assert_array_equal(entry["dummy_data"], np.asarray([[1.0, 2.0]]))
+    assert entry["source_file_index"] == 7
+    assert entry["source_file_entry_index"] == 11
+    assert entry["source_file_name"] == source_path.name
+    assert entry["source_file_size"] == source_path.stat().st_size
+    reader.close()
+
+
+def test_stage_hdf5_reader_rejects_incomplete_stages(tmp_path):
+    """Incomplete stages should be rejected by default."""
+    path = tmp_path / "stage_cache.h5"
+    writer = StageHDF5Writer(str(path), overwrite=True)
+    writer.write_stage(
+        "deghosting",
+        {
+            "index": np.asarray([0]),
+            "source_file_name": np.asarray(["source.root"]),
+            "source_file_size": np.asarray([10]),
+            "source_file_mtime_ns": np.asarray([20]),
+            "dummy_data": [np.asarray([[1.0, 2.0]])],
+        },
+    )
+    writer.close()
+
+    with pytest.raises(RuntimeError, match="marked incomplete"):
+        StageHDF5Reader("deghosting", str(path))
+
+
+def test_stage_hdf5_reader_can_ignore_incomplete_stages(tmp_path):
+    """Incomplete stages can be loaded explicitly when requested."""
+    path = tmp_path / "stage_cache.h5"
+    writer = StageHDF5Writer(str(path), overwrite=True)
+    writer.write_stage(
+        "deghosting",
+        {
+            "index": np.asarray([0]),
+            "source_file_name": np.asarray(["source.root"]),
+            "source_file_size": np.asarray([10]),
+            "source_file_mtime_ns": np.asarray([20]),
+            "dummy_data": [np.asarray([[1.0, 2.0]])],
+        },
+    )
+    writer.close()
+
+    reader = StageHDF5Reader(
+        "deghosting", str(path), build_classes=False, ignore_incomplete=True
+    )
+    assert len(reader) == 1
+    reader.close()
+
+
+def test_stage_hdf5_reader_auto_discovers_unique_product_stage(tmp_path):
+    """If no stage is specified, unique product matches should be found automatically."""
+    path = tmp_path / "stage_cache.h5"
+    writer = StageHDF5Writer(str(path), overwrite=True)
+    writer.write_stage(
+        "deghosting",
+        {
+            "index": np.asarray([0]),
+            "source_file_name": np.asarray(["source.root"]),
+            "source_file_size": np.asarray([10]),
+            "source_file_mtime_ns": np.asarray([20]),
+            "data_adapt": [np.asarray([[1.0, 2.0]])],
+        },
+    )
+    writer.finalize_stage("deghosting")
+    writer.write_stage(
+        "graph_spice",
+        {
+            "index": np.asarray([0]),
+            "source_file_name": np.asarray(["source.root"]),
+            "source_file_size": np.asarray([10]),
+            "source_file_mtime_ns": np.asarray([20]),
+            "fragment_clusts": [np.asarray([[3.0, 4.0]])],
+        },
+    )
+    writer.finalize_stage("graph_spice")
+    writer.close()
+
+    reader = StageHDF5Reader(
+        file_keys=str(path), keys=("data_adapt", "fragment_clusts"), build_classes=False
+    )
+    entry = reader.get(0)
+    np.testing.assert_array_equal(entry["data_adapt"], np.asarray([[1.0, 2.0]]))
+    np.testing.assert_array_equal(entry["fragment_clusts"], np.asarray([[3.0, 4.0]]))
+    reader.close()
+
+
+def test_stage_hdf5_reader_rejects_ambiguous_product_stage(tmp_path):
+    """Auto-discovery should fail if one product exists in multiple stages."""
+    path = tmp_path / "stage_cache.h5"
+    writer = StageHDF5Writer(str(path), overwrite=True)
+    writer.write_stage(
+        "deghosting",
+        {
+            "index": np.asarray([0]),
+            "source_file_name": np.asarray(["source.root"]),
+            "source_file_size": np.asarray([10]),
+            "source_file_mtime_ns": np.asarray([20]),
+            "meta": [np.asarray([[1.0, 2.0]])],
+        },
+    )
+    writer.finalize_stage("deghosting")
+    writer.write_stage(
+        "graph_spice",
+        {
+            "index": np.asarray([0]),
+            "source_file_name": np.asarray(["source.root"]),
+            "source_file_size": np.asarray([10]),
+            "source_file_mtime_ns": np.asarray([20]),
+            "meta": [np.asarray([[3.0, 4.0]])],
+        },
+    )
+    writer.finalize_stage("graph_spice")
+    writer.close()
+
+    with pytest.raises(ValueError, match="appears in multiple stages"):
+        StageHDF5Reader(file_keys=str(path), keys=("meta",), build_classes=False)
 
 
 def test_resolve_legacy_meta_class_2d():

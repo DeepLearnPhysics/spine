@@ -325,6 +325,7 @@ class HDF5Reader(ReaderBase):
 
         # Use the event tree to find out what needs to be loaded
         data = {"file_index": file_idx, "file_entry_index": entry_idx}
+        data.update(self.get_source_provenance(file_idx, entry_idx))
         in_file, should_close = self._open_file(file_idx)
         try:
             events = in_file["events"]

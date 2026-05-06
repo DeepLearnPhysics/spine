@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Mapping, Sequence
 from typing import Any, ClassVar
 
@@ -90,13 +91,41 @@ class MixedDataset(BaseDataset):
 
     def validate_alignment(self, idx: int, primary: DataDict, cache: DataDict) -> None:
         """Ensure the configured alignment keys match between both sources."""
+        self.validate_source_alignment(idx, primary, cache)
         for key in self.align_keys:
+            if key == "file_index" and "source_file_name" in cache:
+                continue
             cache_key = self.resolve_cache_align_key(key, cache)
             if primary.get(key) != cache.get(cache_key):
                 raise ValueError(
                     "MixedDataset source alignment failed at dataset index "
                     f"{idx}: LArCV key '{key}' and HDF5 key '{cache_key}' differ "
                     f"({primary.get(key)!r} != {cache.get(cache_key)!r})."
+                )
+
+    def validate_source_alignment(
+        self, idx: int, primary: DataDict, cache: DataDict
+    ) -> None:
+        """Validate cache-file provenance against the current LArCV source file."""
+        if "source_file_name" not in cache:
+            return
+
+        file_idx = primary.get("file_index")
+        assert isinstance(file_idx, int), "Primary file index should be an integer."
+        source_path = self.primary.reader.file_paths[file_idx]
+        source_stat = os.stat(source_path)
+        source_name = os.path.basename(source_path)
+
+        expected = {
+            "source_file_name": source_name,
+            "source_file_size": int(source_stat.st_size),
+            "source_file_mtime_ns": int(source_stat.st_mtime_ns),
+        }
+        for key, value in expected.items():
+            if key in cache and cache[key] != value:
+                raise ValueError(
+                    f"MixedDataset source provenance mismatch at dataset index {idx}: "
+                    f"HDF5 '{key}' is {cache[key]!r}, expected {value!r}."
                 )
 
     def resolve_cache_align_key(self, key: str, cache: DataDict) -> str:
@@ -113,7 +142,7 @@ class MixedDataset(BaseDataset):
     def merge_cache(self, merged: DataDict, cache: DataDict) -> None:
         """Merge one cached HDF5 sample into an existing LArCV sample."""
         for key, value in cache.items():
-            if key in self._index_keys:
+            if key in self._index_keys or key in self._source_keys:
                 continue
 
             target_key = self.hdf5_key_map.get(key, key)
@@ -130,7 +159,7 @@ class MixedDataset(BaseDataset):
         """Return the collate type for each merged product."""
         data_types = dict(self.primary.data_types)
         for key, value in self.cache.data_types.items():
-            if key in self._index_keys:
+            if key in self._index_keys or key in self._source_keys:
                 continue
 
             target_key = self.hdf5_key_map.get(key, key)
@@ -149,7 +178,7 @@ class MixedDataset(BaseDataset):
         """Return the overlay method for each merged product."""
         overlay_methods = dict(self.primary.overlay_methods)
         for key, value in self.cache.overlay_methods.items():
-            if key in self._index_keys:
+            if key in self._index_keys or key in self._source_keys:
                 continue
 
             target_key = self.hdf5_key_map.get(key, key)

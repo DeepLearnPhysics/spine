@@ -259,6 +259,221 @@ def test_hdf5_writer_close_leaves_unfinalized_output_incomplete(hdf5_output):
         assert not out_file["info"].attrs["complete"]
 
 
+def test_stage_hdf5_writer_finalizes_stages_independently(hdf5_output):
+    """Each cache stage should track completeness independently."""
+    writer = StageHDF5Writer(hdf5_output, overwrite=True)
+    writer.write_stage(
+        "deghosting",
+        {
+            "index": np.asarray([0]),
+            "source_file_name": np.asarray(["source.root"]),
+            "source_file_size": np.asarray([10]),
+            "source_file_mtime_ns": np.asarray([20]),
+            "dummy_data": [np.asarray([[1.0, 2.0]])],
+        },
+    )
+    writer.finalize_stage("deghosting")
+    writer.write_stage(
+        "graph_spice",
+        {
+            "index": np.asarray([0]),
+            "source_file_name": np.asarray(["source.root"]),
+            "source_file_size": np.asarray([10]),
+            "source_file_mtime_ns": np.asarray([20]),
+            "dummy_data": [np.asarray([[3.0, 4.0]])],
+        },
+    )
+    writer.close()
+
+    with h5py.File(hdf5_output, "r") as out_file:
+        assert out_file["stages"]["deghosting"]["info"].attrs["complete"]
+        assert not out_file["stages"]["graph_spice"]["info"].attrs["complete"]
+        assert len(out_file["stages"]["deghosting"]["events"]) == 1
+        assert len(out_file["stages"]["graph_spice"]["events"]) == 1
+
+
+def test_stage_hdf5_writer_overwrite_stage_preserves_other_stages(hdf5_output):
+    """Rewriting one stage should leave sibling stages untouched."""
+    writer = StageHDF5Writer(hdf5_output, overwrite=True)
+    writer.write_stage(
+        "deghosting",
+        {
+            "index": np.asarray([0]),
+            "source_file_name": np.asarray(["source.root"]),
+            "source_file_size": np.asarray([10]),
+            "source_file_mtime_ns": np.asarray([20]),
+            "dummy_data": [np.asarray([[1.0, 2.0]])],
+        },
+    )
+    writer.finalize_stage("deghosting")
+    writer.write_stage(
+        "graph_spice",
+        {
+            "index": np.asarray([0]),
+            "source_file_name": np.asarray(["source.root"]),
+            "source_file_size": np.asarray([10]),
+            "source_file_mtime_ns": np.asarray([20]),
+            "dummy_data": [np.asarray([[3.0, 4.0]])],
+        },
+    )
+    writer.finalize_stage("graph_spice")
+    writer.write_stage(
+        "graph_spice",
+        {
+            "index": np.asarray([0]),
+            "source_file_name": np.asarray(["source.root"]),
+            "source_file_size": np.asarray([10]),
+            "source_file_mtime_ns": np.asarray([20]),
+            "dummy_data": [np.asarray([[5.0, 6.0]])],
+        },
+        overwrite_stage=True,
+    )
+    writer.finalize_stage("graph_spice")
+    writer.close()
+
+    with h5py.File(hdf5_output, "r") as out_file:
+        np.testing.assert_array_equal(
+            out_file["stages"]["deghosting"]["dummy_data"][:],
+            np.asarray([[1.0, 2.0]]),
+        )
+        np.testing.assert_array_equal(
+            out_file["stages"]["graph_spice"]["dummy_data"][:],
+            np.asarray([[5.0, 6.0]]),
+        )
+
+
+def test_stage_hdf5_writer_lists_written_stages(hdf5_output):
+    """Stage cache writer should expose the written stage names."""
+    writer = StageHDF5Writer(hdf5_output, overwrite=True)
+    writer.write_stage(
+        "deghosting",
+        {
+            "index": np.asarray([0]),
+            "source_file_name": np.asarray(["source.root"]),
+            "source_file_size": np.asarray([10]),
+            "source_file_mtime_ns": np.asarray([20]),
+            "dummy_data": [np.asarray([[1.0, 2.0]])],
+        },
+    )
+    writer.write_stage(
+        "graph_spice",
+        {
+            "index": np.asarray([0]),
+            "source_file_name": np.asarray(["source.root"]),
+            "source_file_size": np.asarray([10]),
+            "source_file_mtime_ns": np.asarray([20]),
+            "dummy_data": [np.asarray([[3.0, 4.0]])],
+        },
+    )
+    assert writer.list_stages() == ("deghosting", "graph_spice")
+    writer.close()
+
+
+def test_stage_hdf5_writer_stores_source_provenance(tmp_path):
+    """Stage cache files should persist lightweight source-file provenance."""
+    source_path = tmp_path / "source.root"
+    source_path.write_bytes(b"source-bytes")
+    cache_path = tmp_path / "cache.h5"
+
+    stat_result = source_path.stat()
+    writer = StageHDF5Writer(str(cache_path), overwrite=True)
+    writer.write_stage(
+        "deghosting",
+        {
+            "index": np.asarray([0]),
+            "source_file_name": np.asarray([source_path.name]),
+            "source_file_size": np.asarray([stat_result.st_size]),
+            "source_file_mtime_ns": np.asarray([stat_result.st_mtime_ns]),
+            "dummy_data": [np.asarray([[1.0, 2.0]])],
+        },
+    )
+    writer.finalize_stage("deghosting")
+    writer.close()
+
+    with h5py.File(cache_path, "r") as out_file:
+        source_group = out_file["source"]
+        assert source_group.attrs["file_name"] == source_path.name
+        assert source_group.attrs["file_size"] == stat_result.st_size
+        assert source_group.attrs["file_mtime_ns"] == stat_result.st_mtime_ns
+
+
+def test_stage_hdf5_writer_rejects_mismatched_source(tmp_path):
+    """Writing a later stage with different source provenance should fail."""
+    source_a = tmp_path / "source_a.root"
+    source_b = tmp_path / "source_b.root"
+    source_a.write_bytes(b"a")
+    source_b.write_bytes(b"bb")
+    cache_path = tmp_path / "cache.h5"
+
+    stat_a = source_a.stat()
+    stat_b = source_b.stat()
+    writer = StageHDF5Writer(str(cache_path), overwrite=True)
+    writer.write_stage(
+        "deghosting",
+        {
+            "index": np.asarray([0]),
+            "source_file_name": np.asarray([source_a.name]),
+            "source_file_size": np.asarray([stat_a.st_size]),
+            "source_file_mtime_ns": np.asarray([stat_a.st_mtime_ns]),
+            "dummy_data": [np.asarray([[1.0, 2.0]])],
+        },
+    )
+    writer.finalize_stage("deghosting")
+    writer.close()
+
+    writer = StageHDF5Writer(str(cache_path))
+    with pytest.raises(RuntimeError, match="Cache source mismatch"):
+        writer.write_stage(
+            "graph_spice",
+            {
+                "index": np.asarray([0]),
+                "source_file_name": np.asarray([source_b.name]),
+                "source_file_size": np.asarray([stat_b.st_size]),
+                "source_file_mtime_ns": np.asarray([stat_b.st_mtime_ns]),
+                "dummy_data": [np.asarray([[3.0, 4.0]])],
+            },
+        )
+    writer.close()
+
+
+def test_stage_hdf5_writer_splits_batch_by_source(tmp_path):
+    """A mixed-source batch should be routed into one cache file per source."""
+    output = tmp_path / "cache.h5"
+    writer = StageHDF5Writer(str(output), overwrite=True)
+    writer.write_stage(
+        "deghosting",
+        {
+            "index": np.asarray([0, 1]),
+            "source_file_name": np.asarray(["source_a.root", "source_b.root"]),
+            "source_file_size": np.asarray([10, 20]),
+            "source_file_mtime_ns": np.asarray([30, 40]),
+            "source_file_entry_index": np.asarray([5, 6]),
+            "dummy_data": [np.asarray([[1.0, 2.0]]), np.asarray([[3.0, 4.0]])],
+        },
+    )
+    writer.finalize_stage("deghosting")
+    writer.close()
+
+    source_a_cache = tmp_path / "source_a_stage.h5"
+    source_b_cache = tmp_path / "source_b_stage.h5"
+    assert source_a_cache.is_file()
+    assert source_b_cache.is_file()
+
+    with h5py.File(source_a_cache, "r") as out_file:
+        assert out_file["source"].attrs["file_name"] == "source_a.root"
+        assert out_file["stages"]["deghosting"]["info"].attrs["complete"]
+        np.testing.assert_array_equal(
+            out_file["stages"]["deghosting"]["source_file_entry_index"][:], [5]
+        )
+
+    with h5py.File(source_b_cache, "r") as out_file:
+        assert out_file["source"].attrs["file_name"] == "source_b.root"
+        assert out_file["stages"]["deghosting"]["info"].attrs["complete"]
+        np.testing.assert_array_equal(
+            out_file["stages"]["deghosting"]["source_file_entry_index"][:], [6]
+        )
+
+
 def test_hdf5_writer_stores_stored_properties(hdf5_output):
     """Test HDF5 writer serializes stored properties on data objects."""
     particle = RecoParticle(id=3, index=np.arange(4, dtype=np.int64), pid=2)

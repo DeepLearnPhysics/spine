@@ -2,3 +2,4 @@
 
 from .hdf5 import *
 from .larcv import *
+from .stage_hdf5 import *

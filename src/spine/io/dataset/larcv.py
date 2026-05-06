@@ -57,15 +57,7 @@ class LArCVDataset(BaseDataset):
     def __getitem__(self, idx: int) -> DataDict:
         """Return one parsed dataset entry."""
         data_dict = self.reader[idx]
-
-        entry_idx = self.reader.entry_index[idx]
-        file_idx = self.reader.get_file_index(idx)
-        file_entry_idx = self.reader.get_file_entry_index(idx)
-        result: DataDict = {
-            "index": entry_idx,
-            "file_index": file_idx,
-            "file_entry_index": file_entry_idx,
-        }
+        result = self.metadata_dict(data_dict)
 
         for name, parser in self.parsers.items():
             try:
@@ -97,7 +89,7 @@ class LArCVDataset(BaseDataset):
     @property
     def data_keys(self) -> tuple[str, ...]:
         """Return the names of all data products produced by this dataset."""
-        return (*self._index_keys, *self.parsers.keys())
+        return (*self._index_keys, *self._source_keys, *self.parsers.keys())
 
     @staticmethod
     def list_data(file_path: str) -> dict[str, list[str]]:

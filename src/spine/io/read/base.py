@@ -54,6 +54,12 @@ class ReaderBase(ABC):
     num_entries: int
     run_info: list[tuple[int, int, int]] | None = None
     run_map: dict[tuple[int, int, int], int] | None = None
+    source_keys: tuple[str, str, str, str] = (
+        "source_file_name",
+        "source_file_size",
+        "source_file_mtime_ns",
+        "source_file_entry_index",
+    )
 
     def __init_subclass__(cls, **kwargs):
         """Automatically merge docstrings from parent classes.
@@ -119,6 +125,35 @@ class ReaderBase(ABC):
             Ditionary of input data products corresponding to one event
         """
         return self.get(self.get_run_event_index(run, subrun, event))
+
+    def get_source_provenance(
+        self, file_idx: int, file_entry_idx: int
+    ) -> dict[str, Any]:
+        """Return lightweight source-file provenance for one entry.
+
+        Parameters
+        ----------
+        file_idx : int
+            Index of the file in `self.file_paths`
+        file_entry_idx : int
+            Entry index within that file
+
+        Returns
+        -------
+        dict
+            Dictionary containing source-file identity fields.
+        """
+        file_path = self.file_paths[file_idx]
+        provenance = {
+            "source_file_name": os.path.basename(file_path),
+            "source_file_entry_index": int(file_entry_idx),
+        }
+        if not self.is_remote_path(file_path):
+            stat_result = os.stat(file_path)
+            provenance["source_file_size"] = int(stat_result.st_size)
+            provenance["source_file_mtime_ns"] = int(stat_result.st_mtime_ns)
+
+        return provenance
 
     @staticmethod
     def is_remote_path(path: str) -> bool:

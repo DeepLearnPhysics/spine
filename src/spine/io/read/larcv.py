@@ -189,6 +189,8 @@ class LArCVReader(ReaderBase):
                 f"Index {idx} out of bounds for dataset of size {len(self)}."
             )
         entry_idx = self.entry_index[idx]
+        file_idx = self.get_file_index(idx)
+        file_entry_idx = self.get_file_entry_index(idx)
 
         # If this is the first data loading, instantiate chains
         if not self.trees_ready:
@@ -204,7 +206,12 @@ class LArCVReader(ReaderBase):
             tree.GetEntry(int(entry_idx))
 
         # Load the relevant data products
-        data = {}
+        data = {
+            "index": int(entry_idx),
+            "file_index": file_idx,
+            "file_entry_index": file_entry_idx,
+        }
+        data.update(self.get_source_provenance(file_idx, file_entry_idx))
         for key, tree in self.trees.items():
             data[key] = getattr(tree, f"{key}_branch")
 

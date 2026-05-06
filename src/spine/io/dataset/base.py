@@ -31,6 +31,12 @@ class BaseDataset(Dataset):
         "file_index",
         "file_entry_index",
     )
+    _source_keys: ClassVar[tuple[str, ...]] = (
+        "source_file_name",
+        "source_file_size",
+        "source_file_mtime_ns",
+        "source_file_entry_index",
+    )
     augmenter: Augmenter | None
 
     def __init__(self) -> None:
@@ -59,11 +65,19 @@ class BaseDataset(Dataset):
         return self.augmenter(data)
 
     @classmethod
+    def metadata_dict(cls, data: DataDict) -> DataDict:
+        """Extract standard dataset metadata from one reader output."""
+        keep = set(cls._index_keys).union(cls._source_keys)
+        return {key: data[key] for key in data if key in keep}
+
+    @classmethod
     def index_data_types(cls) -> dict[str, str]:
         """Return the standard scalar types for dataset index keys."""
-        return {key: "scalar" for key in cls._index_keys}
+        keys = (*cls._index_keys, *cls._source_keys)
+        return {key: "scalar" for key in keys}
 
     @classmethod
     def index_overlay_methods(cls) -> dict[str, str]:
         """Return the standard overlay methods for dataset index keys."""
-        return {key: "cat" for key in cls._index_keys}
+        keys = (*cls._index_keys, *cls._source_keys)
+        return {key: "cat" for key in keys}
