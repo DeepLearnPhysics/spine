@@ -57,6 +57,9 @@ class StageHDF5Writer(HDF5Writer):
         directory: str | None = None,
         prefix: str | None = None,
         suffix: str = "stage",
+        stage: str | None = None,
+        keys: list[str] | None = None,
+        skip_keys: list[str] | None = None,
         split: bool = True,
         lite: bool = False,
         keep_open: bool = True,
@@ -81,6 +84,17 @@ class StageHDF5Writer(HDF5Writer):
         suffix : str, default "stage"
             Suffix appended to source file basenames when deriving split cache
             file names.
+        stage : str, optional
+            Stage name to use for the standard driver-facing writer contract.
+            When provided, :meth:`__call__` writes to this stage and
+            :meth:`finalize` marks it complete. If omitted, use
+            :meth:`write_stage` and :meth:`finalize_stage` directly.
+        keys : list[str], optional
+            List of data-product keys to persist in each stage. If omitted,
+            store every product present in the batch apart from administrative
+            source-file metadata.
+        skip_keys : list[str], optional
+            List of data-product keys to exclude from each stage.
         split : bool, default True
             Stage caches are always written one file per source file. This
             argument is accepted for compatibility with generic writer
@@ -113,13 +127,14 @@ class StageHDF5Writer(HDF5Writer):
         )[0]
         self.directory = directory
         self.suffix = suffix
+        self.stage = stage
         self.lite = lite
         self.keep_open = keep_open
         self.flush_frequency = flush_frequency
         self.source_info: dict[str, Any] | None = None
 
-        self.keys = None
-        self.skip_keys = None
+        self.keys = set(keys) if keys is not None else None
+        self.skip_keys = skip_keys
         self.dummy_ds = None
         self.append = True
         self.split = True
@@ -136,6 +151,34 @@ class StageHDF5Writer(HDF5Writer):
 
         if overwrite and os.path.exists(self.file_name):
             os.remove(self.file_name)
+
+    def __call__(self, data: dict[str, Any], cfg: dict[str, Any] | None = None) -> None:
+        """Append one batch to the configured stage.
+
+        Parameters
+        ----------
+        data : dict
+            Dictionary of data products
+        cfg : dict, optional
+            Dictionary containing the complete SPINE configuration
+        """
+        if self.stage is None:
+            raise RuntimeError(
+                "StageHDF5Writer requires a configured `stage` to be used "
+                "through the standard writer call path."
+            )
+
+        self.write_stage(self.stage, data, cfg=cfg)
+
+    def finalize(self) -> None:
+        """Mark the configured stage as complete across touched cache files."""
+        if self.stage is None:
+            raise RuntimeError(
+                "StageHDF5Writer requires a configured `stage` to finalize "
+                "through the standard writer interface."
+            )
+
+        self.finalize_stage(self.stage)
 
     def close(self) -> None:
         """Close any persistent cache-file handles.
@@ -333,14 +376,10 @@ class StageHDF5Writer(HDF5Writer):
         data : dict
             Normalized batch dictionary used as the schema template.
         """
-        keys = {"index"}
-        keys.update(data.keys())
-        for key, source_key in self.source_index_keys.items():
-            if key in data:
-                keys.add(source_key)
+        keys = self.get_stored_keys(data)
+        if "source_file_entry_index" in data:
+            keys.add("source_file_entry_index")
         keys.difference_update(self._file_source_keys)
-        if self.skip_keys is not None:
-            keys.difference_update(self.skip_keys)
         type_dict, object_dtypes = self.get_data_types(data, keys)
         state = self.StageState(
             keys=keys, type_dict=type_dict, object_dtypes=object_dtypes

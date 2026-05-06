@@ -438,6 +438,78 @@ def test_stage_hdf5_writer_stores_source_provenance(tmp_path):
         assert source_group.attrs["file_mtime_ns"] == stat_result.st_mtime_ns
 
 
+def test_stage_hdf5_writer_call_uses_configured_stage(tmp_path):
+    """The standard writer interface should target the configured stage."""
+    cache_path = tmp_path / "cache.h5"
+    writer = StageHDF5Writer(str(cache_path), stage="deghosting", overwrite=True)
+    writer(
+        {
+            "index": np.asarray([0]),
+            "source_file_name": np.asarray(["source.root"]),
+            "source_file_size": np.asarray([10]),
+            "source_file_mtime_ns": np.asarray([20]),
+            "dummy_data": [np.asarray([[1.0, 2.0]])],
+        }
+    )
+    writer.finalize()
+    writer.close()
+
+    with h5py.File(cache_path, "r") as out_file:
+        assert "deghosting" in out_file["stages"]
+        assert out_file["stages"]["deghosting"]["info"].attrs["complete"]
+
+
+def test_stage_hdf5_writer_call_requires_configured_stage(tmp_path):
+    """The generic writer call path should fail without a configured stage."""
+    writer = StageHDF5Writer(str(tmp_path / "cache.h5"), overwrite=True)
+    with pytest.raises(RuntimeError, match="configured `stage`"):
+        writer(
+            {
+                "index": np.asarray([0]),
+                "source_file_name": np.asarray(["source.root"]),
+                "source_file_size": np.asarray([10]),
+                "source_file_mtime_ns": np.asarray([20]),
+                "dummy_data": [np.asarray([[1.0, 2.0]])],
+            }
+        )
+    with pytest.raises(RuntimeError, match="configured `stage`"):
+        writer.finalize()
+    writer.close()
+
+
+def test_stage_hdf5_writer_respects_explicit_keys(tmp_path):
+    """Stage caches should persist only the requested stage products."""
+    cache_path = tmp_path / "cache.h5"
+    writer = StageHDF5Writer(
+        str(cache_path),
+        overwrite=True,
+        keys=["dummy_data"],
+    )
+    writer.write_stage(
+        "deghosting",
+        {
+            "index": np.asarray([0]),
+            "source_file_name": np.asarray(["source.root"]),
+            "source_file_size": np.asarray([10]),
+            "source_file_mtime_ns": np.asarray([20]),
+            "source_file_entry_index": np.asarray([5]),
+            "dummy_data": [np.asarray([[1.0, 2.0]])],
+            "extra_tensor": [np.asarray([[3.0, 4.0]])],
+        },
+    )
+    writer.finalize_stage("deghosting")
+    writer.close()
+
+    with h5py.File(cache_path, "r") as out_file:
+        stage_group = out_file["stages"]["deghosting"]
+        assert "dummy_data" in stage_group
+        assert "extra_tensor" not in stage_group
+        assert "source_file_entry_index" in stage_group
+        events = stage_group["events"]
+        assert "dummy_data" in events.dtype.names
+        assert "extra_tensor" not in events.dtype.names
+
+
 def test_stage_hdf5_writer_rejects_mismatched_source(tmp_path):
     """Writing a later stage with different source provenance should fail."""
     source_a = tmp_path / "source_a.root"
