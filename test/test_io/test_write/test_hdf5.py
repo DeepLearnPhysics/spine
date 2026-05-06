@@ -768,7 +768,7 @@ def test_stage_hdf5_writer_accepts_prefix_with_directory(tmp_path):
     directory = tmp_path / "cache_dir"
     writer = StageHDF5Writer(
         file_name=None,
-        prefix="input.root",
+        prefix=["input.root"],
         overwrite=True,
         directory=str(directory),
         suffix="cache",

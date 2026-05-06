@@ -55,7 +55,7 @@ class StageHDF5Writer(HDF5Writer):
         self,
         file_name: str | None = None,
         directory: str | None = None,
-        prefix: str | None = None,
+        prefix: str | list[str] | None = None,
         suffix: str = "stage",
         stage: str | None = None,
         keys: list[str] | None = None,
@@ -78,7 +78,7 @@ class StageHDF5Writer(HDF5Writer):
         directory : str, optional
             Output directory used for all source-derived cache files. When
             provided, it overrides the directory encoded in ``file_name``.
-        prefix : str, optional
+        prefix : str or list[str], optional
             Input file prefix used to derive the base staged-cache file name
             when ``file_name`` is not specified.
         suffix : str, default "stage"
@@ -118,11 +118,12 @@ class StageHDF5Writer(HDF5Writer):
                 "are written one file per source file."
             )
 
+        name_split = split if prefix is not None else False
         self.file_name = self.get_file_names(
             file_name=file_name,
             prefix=prefix,
             suffix=suffix,
-            split=False,
+            split=name_split,
             directory=directory,
         )[0]
         self.directory = directory
