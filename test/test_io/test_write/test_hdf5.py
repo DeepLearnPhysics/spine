@@ -135,6 +135,33 @@ def test_hdf5_writer_file_name_inferred_from_prefix():
     ]
 
 
+def test_hdf5_writer_file_name_inferred_from_prefix_with_directory(tmp_path):
+    """A writer directory should relocate inferred names without changing stems."""
+    output_dir = tmp_path / "outputs"
+    assert HDF5Writer.get_file_names(
+        None, "input.root", split=False, directory=str(output_dir), suffix="cache"
+    ) == [os.path.join(output_dir, "input_cache.h5")]
+    assert HDF5Writer.get_file_names(
+        None,
+        ["a.root", "b.root"],
+        split=True,
+        directory=str(output_dir),
+        suffix="cache",
+    ) == [
+        os.path.join(output_dir, "a_cache.h5"),
+        os.path.join(output_dir, "b_cache.h5"),
+    ]
+
+
+def test_hdf5_writer_explicit_file_name_with_directory(tmp_path):
+    """A writer directory should relocate explicit output names too."""
+    output_dir = tmp_path / "outputs"
+    file_name = os.path.join(tmp_path, "custom.h5")
+    assert HDF5Writer.get_file_names(
+        file_name, split=False, directory=str(output_dir)
+    ) == [os.path.join(output_dir, "custom.h5")]
+
+
 def test_hdf5_writer_split_explicit_single_file(hdf5_output):
     """Test split output keeps an explicit name when there is one input file."""
     assert HDF5Writer.get_file_names(hdf5_output, ["input"], split=True) == [
@@ -150,6 +177,20 @@ def test_hdf5_writer_split_explicit_multiple_files(tmp_path):
         os.path.join(tmp_path, "output_0.h5"),
         os.path.join(tmp_path, "output_1.h5"),
         os.path.join(tmp_path, "output_2.h5"),
+    ]
+
+
+def test_hdf5_writer_split_explicit_multiple_files_with_directory(tmp_path):
+    """Split explicit names should relocate into the requested directory."""
+    file_name = os.path.join(tmp_path, "output.h5")
+    output_dir = tmp_path / "outputs"
+
+    assert HDF5Writer.get_file_names(
+        file_name, ["a", "b", "c"], split=True, directory=str(output_dir)
+    ) == [
+        os.path.join(output_dir, "output_0.h5"),
+        os.path.join(output_dir, "output_1.h5"),
+        os.path.join(output_dir, "output_2.h5"),
     ]
 
 
@@ -632,6 +673,41 @@ def test_stage_hdf5_writer_output_path_and_split_missing_keys(tmp_path):
     )
     with pytest.raises(KeyError, match="Missing key"):
         writer.split_batch_by_source({"index": np.asarray([0])})
+    writer.close()
+
+
+def test_stage_hdf5_writer_uses_explicit_directory(tmp_path):
+    """Stage cache output paths should honor an explicit output directory."""
+    directory = tmp_path / "cache_dir"
+    writer = StageHDF5Writer(
+        str(tmp_path / "cache.h5"), overwrite=True, directory=str(directory)
+    )
+    assert writer.get_output_path({"file_name": "source.root"}) == os.path.join(
+        directory, "cache.h5"
+    )
+    assert writer.get_output_path({"file_name": "source.root"}, True) == os.path.join(
+        directory, "source_stage.h5"
+    )
+    writer.close()
+
+
+def test_stage_hdf5_writer_accepts_prefix_with_directory(tmp_path):
+    """Stage cache naming should support prefix-based defaults under a new directory."""
+    directory = tmp_path / "cache_dir"
+    writer = StageHDF5Writer(
+        file_name=None,
+        prefix="input.root",
+        overwrite=True,
+        directory=str(directory),
+        suffix="cache",
+    )
+    assert writer.file_name == os.path.join(directory, "input_cache.h5")
+    assert writer.get_output_path({"file_name": "source.root"}) == os.path.join(
+        directory, "input_cache.h5"
+    )
+    assert writer.get_output_path({"file_name": "source.root"}, True) == os.path.join(
+        directory, "source_cache.h5"
+    )
     writer.close()
 
 

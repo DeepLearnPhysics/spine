@@ -53,7 +53,9 @@ class StageHDF5Writer(HDF5Writer):
 
     def __init__(
         self,
-        file_name: str,
+        file_name: str | None = None,
+        directory: str | None = None,
+        prefix: str | None = None,
         suffix: str = "stage",
         lite: bool = False,
         keep_open: bool = True,
@@ -64,10 +66,17 @@ class StageHDF5Writer(HDF5Writer):
 
         Parameters
         ----------
-        file_name : str
-            Output cache file name. When a batch spans multiple source files,
-            this path provides the parent directory and file names are derived
-            from the source file names plus ``suffix``.
+        file_name : str, optional
+            Output cache file name. When ``directory`` is not provided, this
+            path also provides the parent directory for source-derived cache
+            files. If omitted, the base output path is built from ``prefix``
+            and ``suffix`` using the same naming rules as :class:`HDF5Writer`.
+        directory : str, optional
+            Output directory used for all source-derived cache files. When
+            provided, it overrides the directory encoded in ``file_name``.
+        prefix : str, optional
+            Input file prefix used to derive the base staged-cache file name
+            when ``file_name`` is not specified.
         suffix : str, default "stage"
             Suffix appended to source file basenames when deriving split cache
             file names.
@@ -81,7 +90,14 @@ class StageHDF5Writer(HDF5Writer):
         overwrite : bool, default False
             If `True`, replace the entire cache file if it already exists.
         """
-        self.file_name = file_name
+        self.file_name = self.get_file_names(
+            file_name=file_name,
+            prefix=prefix,
+            suffix=suffix,
+            split=False,
+            directory=directory,
+        )[0]
+        self.directory = directory
         self.suffix = suffix
         self.lite = lite
         self.keep_open = keep_open
@@ -334,9 +350,15 @@ class StageHDF5Writer(HDF5Writer):
             Otherwise reuse ``self.file_name`` directly.
         """
         if not multiple_sources:
-            return self.file_name
+            if self.directory is None:
+                return self.file_name
+            return os.path.join(self.directory, os.path.basename(self.file_name))
 
-        dir_name = os.path.dirname(self.file_name)
+        dir_name = (
+            self.directory
+            if self.directory is not None
+            else os.path.dirname(self.file_name)
+        )
         base_name = os.path.splitext(str(source_info["file_name"]))[0]
         return os.path.join(dir_name, f"{base_name}_{self.suffix}.h5")
 

@@ -45,6 +45,7 @@ class HDF5Writer:
     def __init__(
         self,
         file_name: str | None = None,
+        directory: str | None = None,
         prefix: str | list[str] | None = None,
         suffix: str = "spine",
         keys: list[str] | None = None,
@@ -63,6 +64,10 @@ class HDF5Writer:
         ----------
         file_name : str, optional
             Name of the output HDF5 file
+        directory : str, optional
+            Output directory. When provided, all generated file names are
+            relocated into this directory while preserving their resolved base
+            names.
         prefix : str or List[str], optional
             Input file prefix. It will be use to form the output file name,
             provided that no file_name is explicitly provided. Must be a list
@@ -94,7 +99,9 @@ class HDF5Writer:
             the file handle is closed.
         """
         # Build the output file name(s) from the input prefix(es) if not provided
-        self.file_names = self.get_file_names(file_name, prefix, suffix, split)
+        self.file_names = self.get_file_names(
+            file_name, prefix, suffix, split, directory
+        )
 
         # Check that the output file(s) do(es) not already exist, if requested
         if not overwrite and not append:
@@ -350,6 +357,7 @@ class HDF5Writer:
         prefix: str | list[str] | None = None,
         suffix: str = "spine",
         split: bool = False,
+        directory: str | None = None,
     ) -> list[str]:
         """Build output file name(s) from an explicit name or input prefix(es).
 
@@ -375,22 +383,35 @@ class HDF5Writer:
             Suffix to add to the output file name if it is built from the input
         split : bool, default False
             If `True`, split the output to produce one file per input file.
+        directory : str, optional
+            Output directory. When provided, the resolved output file base name
+            is placed under this directory regardless of the directory encoded
+            in ``file_name`` or ``prefix``.
 
         Returns
         -------
         List[str]
             List of output file names.
         """
+
+        def relocate(path: str) -> str:
+            """Move one resolved output file name into the requested directory."""
+            if directory is None:
+                return path
+            return os.path.join(directory, os.path.basename(path))
+
         # If the output is not split, use the provided file name or build it from the prefix
         if not split:
             if file_name:
-                return [file_name]
+                return [relocate(file_name)]
 
             assert prefix is not None and isinstance(prefix, str), (
                 "If the output `file_name` is not provided, must provide "
                 "the input file `prefix` to build it from."
             )
-            return [f"{prefix}_{suffix}.h5"]
+            prefix_dir = directory if directory is not None else os.path.dirname(prefix)
+            prefix_base = os.path.splitext(os.path.basename(prefix))[0]
+            return [os.path.join(prefix_dir, f"{prefix_base}_{suffix}.h5")]
 
         # If the output is split, build the file names from the provided one by
         # adding an index, unless there is only one prefix per file,
@@ -401,13 +422,22 @@ class HDF5Writer:
         )
 
         if file_name and len(prefix) == 1:
-            return [file_name]
+            return [relocate(file_name)]
 
         if not file_name:
-            return [f"{pre}_{suffix}.h5" for pre in prefix]
+            output_dir = (
+                directory if directory is not None else os.path.dirname(prefix[0])
+            )
+            return [
+                os.path.join(
+                    output_dir,
+                    f"{os.path.splitext(os.path.basename(pre))[0]}_{suffix}.h5",
+                )
+                for pre in prefix
+            ]
 
         # Otherwise, build the file names from the provided one by adding an index
-        dir_name = os.path.dirname(file_name)
+        dir_name = directory if directory is not None else os.path.dirname(file_name)
         base_name = os.path.splitext(os.path.basename(file_name))[0]
         return [
             os.path.join(dir_name, f"{base_name}_{i}.h5") for i in range(len(prefix))

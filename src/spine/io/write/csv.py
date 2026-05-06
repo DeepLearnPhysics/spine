@@ -62,6 +62,7 @@ class CSVWriter:
     def __init__(
         self,
         file_name: str = "output.csv",
+        directory: str | None = None,
         overwrite: bool = False,
         append: bool = False,
         accept_missing: bool = False,
@@ -73,6 +74,9 @@ class CSVWriter:
         ----------
         file_name : str, default 'output.csv'
             Name of the output CSV file
+        directory : str, optional
+            Output directory. When provided, the CSV file is written under
+            this directory using the basename of ``file_name``.
         overwrite : bool, default False
             If True, overwrite the output file if it already exists
         append : bool, default False
@@ -84,6 +88,9 @@ class CSVWriter:
             -1 uses system default buffering, 0 is unbuffered,
             >1 is buffer size in bytes
         """
+        if directory is not None:
+            file_name = os.path.join(directory, os.path.basename(file_name))
+
         # Check that output file does not already exist, if requested
         if not overwrite and not append and os.path.isfile(file_name):
             raise FileExistsError(f"File with name {file_name} already exists.")

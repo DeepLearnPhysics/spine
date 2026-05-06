@@ -87,3 +87,10 @@ def test_csv_writer_array_diff():
     """CSVWriter.array_diff should return elements missing from the second array."""
     diff = CSVWriter.array_diff(["a", "b", "c"], ["b"])
     assert set(diff) == {"a", "c"}
+
+
+def test_csv_writer_directory_relocates_output(tmp_path):
+    """CSVWriter should support relocating output under an explicit directory."""
+    out_dir = tmp_path / "logs"
+    writer = CSVWriter("output.csv", directory=str(out_dir), overwrite=True)
+    assert writer.file_name == str(out_dir / "output.csv")
