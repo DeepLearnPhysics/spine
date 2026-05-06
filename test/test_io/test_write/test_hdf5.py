@@ -711,6 +711,16 @@ def test_stage_hdf5_writer_accepts_prefix_with_directory(tmp_path):
     writer.close()
 
 
+def test_stage_hdf5_writer_requires_split_mode(tmp_path):
+    """Stage caches should reject non-split writer configuration."""
+    writer = StageHDF5Writer(str(tmp_path / "cache.h5"))
+    assert writer.split is True
+    writer.close()
+
+    with pytest.raises(ValueError, match="split=True"):
+        StageHDF5Writer(str(tmp_path / "cache.h5"), split=False)
+
+
 def test_stage_hdf5_writer_split_batch_preserves_scalar_values(tmp_path):
     """Source splitting should preserve scalar-valued batch metadata."""
     writer = StageHDF5Writer(str(tmp_path / "cache.h5"), overwrite=True)

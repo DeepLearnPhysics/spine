@@ -57,6 +57,7 @@ class StageHDF5Writer(HDF5Writer):
         directory: str | None = None,
         prefix: str | None = None,
         suffix: str = "stage",
+        split: bool = True,
         lite: bool = False,
         keep_open: bool = True,
         flush_frequency: int | None = None,
@@ -80,6 +81,10 @@ class StageHDF5Writer(HDF5Writer):
         suffix : str, default "stage"
             Suffix appended to source file basenames when deriving split cache
             file names.
+        split : bool, default True
+            Stage caches are always written one file per source file. This
+            argument is accepted for compatibility with generic writer
+            configuration, but it must remain `True`.
         lite : bool, default False
             If `True`, store lite object representations when applicable
         keep_open : bool, default True
@@ -90,6 +95,15 @@ class StageHDF5Writer(HDF5Writer):
         overwrite : bool, default False
             If `True`, replace the entire cache file if it already exists.
         """
+        self._handle_pid: int | None = None
+        self._handles: dict[str, h5py.File] = {}
+
+        if not split:
+            raise ValueError(
+                "StageHDF5Writer requires `split=True` because staged caches "
+                "are written one file per source file."
+            )
+
         self.file_name = self.get_file_names(
             file_name=file_name,
             prefix=prefix,
@@ -108,15 +122,13 @@ class StageHDF5Writer(HDF5Writer):
         self.skip_keys = None
         self.dummy_ds = None
         self.append = True
-        self.split = False
+        self.split = True
         self.ready = False
         self.object_dtypes = []
         self.type_dict = None
         self.event_dtype = None
 
         self._cfg: dict[str, Any] | None = None
-        self._handle_pid: int | None = None
-        self._handles: dict[str, h5py.File] = {}
         self._initialized_files: set[str] = set()
         self._stage_states: dict[str, StageHDF5Writer.StageState] = {}
         self._completed_stages: dict[str, set[str]] = defaultdict(set)

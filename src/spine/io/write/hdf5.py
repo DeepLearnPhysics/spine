@@ -133,9 +133,9 @@ class HDF5Writer:
         self._handle_pid: int | None = None
         self._file_handles: dict[int, h5py.File] = {}
         self._cfg: dict[str, Any] | None = None
-        self._initialized_files: set[int] = set()
-        self._completed_files: set[int] = set()
-        self._entries_since_flush: dict[int, int] = {}
+        self._initialized_file_ids: set[int] = set()
+        self._completed_file_ids: set[int] = set()
+        self._entries_since_flush_by_file_id: dict[int, int] = {}
         self._max_written_file_id: int | None = None
         self._split_sequential = True
 
@@ -195,7 +195,7 @@ class HDF5Writer:
         This method should only be called once the caller knows writing
         completed successfully for the relevant files.
         """
-        for file_id in sorted(self._initialized_files - self._completed_files):
+        for file_id in sorted(self._initialized_file_ids - self._completed_file_ids):
             if self.keep_open:
                 handle, _ = self._get_output_handle(file_id)
                 handle["info"].attrs["complete"] = True
@@ -204,7 +204,7 @@ class HDF5Writer:
                 with h5py.File(self.file_names[file_id], "a") as out_file:
                     out_file["info"].attrs["complete"] = True
 
-            self._completed_files.add(file_id)
+            self._completed_file_ids.add(file_id)
 
     def __del__(self) -> None:
         """Best-effort cleanup of persistent output handles on teardown."""
@@ -257,12 +257,12 @@ class HDF5Writer:
 
     def _ensure_file(self, file_id: int) -> None:
         """Create or prepare one output file for writing on first use."""
-        if file_id in self._completed_files:
+        if file_id in self._completed_file_ids:
             raise RuntimeError(
                 f"Output file '{self.file_names[file_id]}' was already finalized."
             )
 
-        if file_id in self._initialized_files:
+        if file_id in self._initialized_file_ids:
             return
 
         file_name = self.file_names[file_id]
@@ -310,18 +310,18 @@ class HDF5Writer:
                 if not self.keep_open:
                     out_file.close()
 
-        self._initialized_files.add(file_id)
-        self._entries_since_flush[file_id] = 0
+        self._initialized_file_ids.add(file_id)
+        self._entries_since_flush_by_file_id[file_id] = 0
 
     def _record_write(self, file_id: int, count: int, out_file: h5py.File) -> None:
         """Update flush bookkeeping for one file after appending entries."""
         if self.flush_frequency is None:
             return
 
-        self._entries_since_flush[file_id] += count
-        if self._entries_since_flush[file_id] >= self.flush_frequency:
+        self._entries_since_flush_by_file_id[file_id] += count
+        if self._entries_since_flush_by_file_id[file_id] >= self.flush_frequency:
             out_file.flush()
-            self._entries_since_flush[file_id] = 0
+            self._entries_since_flush_by_file_id[file_id] = 0
 
     def _finalize_split_predecessors(self, current_file_ids: np.ndarray) -> None:
         """Finalize older split outputs once the writer advances monotonically."""
@@ -340,7 +340,7 @@ class HDF5Writer:
         if not self._split_sequential or min_file_id <= self._max_written_file_id:
             return
 
-        for file_id in sorted(self._initialized_files - self._completed_files):
+        for file_id in sorted(self._initialized_file_ids - self._completed_file_ids):
             if file_id < min_file_id:
                 if self.keep_open:
                     handle, _ = self._get_output_handle(file_id)
@@ -349,7 +349,7 @@ class HDF5Writer:
                 else:
                     with h5py.File(self.file_names[file_id], "a") as out_file:
                         out_file["info"].attrs["complete"] = True
-                self._completed_files.add(file_id)
+                self._completed_file_ids.add(file_id)
 
     @staticmethod
     def get_file_names(
