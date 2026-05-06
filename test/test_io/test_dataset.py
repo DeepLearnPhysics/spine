@@ -212,6 +212,44 @@ def test_hdf5_dataset_uses_stage_reader(monkeypatch, hdf5_data):
     assert dataset.reader.stage == "deghosting"
 
 
+def test_hdf5_dataset_requires_stage_for_staged_schema(hdf5_data):
+    """Staged schemas should require a stage at either dataset or parser level."""
+    with pytest.raises(ValueError, match="Must provide a `stage`"):
+        HDF5Dataset(
+            file_keys=hdf5_data,
+            staged=True,
+            dtype="float32",
+            schema={
+                "data_adapt": {
+                    "parser": "tensor",
+                    "tensor_event": "data_adapt",
+                }
+            },
+        )
+
+
+def test_hdf5_dataset_rejects_conflicting_raw_product_stage(hdf5_data):
+    """One raw product should not be sourced from conflicting stages."""
+    with pytest.raises(ValueError, match="Conflicting staged HDF5 schema"):
+        HDF5Dataset(
+            file_keys=hdf5_data,
+            staged=True,
+            dtype="float32",
+            schema={
+                "data_a": {
+                    "parser": "tensor",
+                    "stage": "stage_a",
+                    "tensor_event": "data_adapt",
+                },
+                "data_b": {
+                    "parser": "tensor",
+                    "stage": "stage_b",
+                    "tensor_event": "data_adapt",
+                },
+            },
+        )
+
+
 def test_hdf5_dataset_supports_per_schema_stages(monkeypatch, hdf5_data):
     """Staged HDF5 schemas should be able to source products from different stages."""
 
@@ -392,6 +430,95 @@ def test_mixed_dataset_uses_source_file_metadata_alignment(monkeypatch, tmp_path
 
     entry = dataset[0]
     assert entry["clusts"] == "y"
+
+
+def test_mixed_dataset_rejects_source_file_metadata_mismatch(monkeypatch, tmp_path):
+    """MixedDataset should fail when cache-file provenance disagrees."""
+    import spine.io.dataset.mixed as mixed_dataset_module
+
+    source_path = tmp_path / "input.root"
+    source_path.write_bytes(b"larcv-source")
+
+    class DummyPrimary:
+        def __init__(self):
+            self.reader = type("Reader", (), {"file_paths": [str(source_path)]})()
+
+        def __len__(self):
+            return 1
+
+        def __getitem__(self, idx):
+            return {"index": idx, "file_index": 0, "file_entry_index": 0}
+
+        @property
+        def data_types(self):
+            return {
+                "index": "scalar",
+                "file_index": "scalar",
+                "file_entry_index": "scalar",
+            }
+
+        @property
+        def overlay_methods(self):
+            return {
+                "index": "cat",
+                "file_index": "cat",
+                "file_entry_index": "cat",
+            }
+
+    class DummyCache:
+        def __len__(self):
+            return 1
+
+        def __getitem__(self, idx):
+            return {
+                "index": idx,
+                "file_index": 0,
+                "file_entry_index": 0,
+                "source_file_name": source_path.name,
+                "source_file_size": source_path.stat().st_size + 1,
+                "source_file_mtime_ns": int(source_path.stat().st_mtime_ns),
+                "source_file_entry_index": 0,
+            }
+
+        @property
+        def data_types(self):
+            return {
+                "index": "scalar",
+                "file_index": "scalar",
+                "file_entry_index": "scalar",
+                "source_file_name": "scalar",
+                "source_file_size": "scalar",
+                "source_file_mtime_ns": "scalar",
+                "source_file_entry_index": "scalar",
+            }
+
+        @property
+        def overlay_methods(self):
+            return {
+                "index": "cat",
+                "file_index": "cat",
+                "file_entry_index": "cat",
+                "source_file_name": "cat",
+                "source_file_size": "cat",
+                "source_file_mtime_ns": "cat",
+                "source_file_entry_index": "cat",
+            }
+
+    monkeypatch.setattr(
+        mixed_dataset_module, "LArCVDataset", lambda **kwargs: DummyPrimary()
+    )
+    monkeypatch.setattr(
+        mixed_dataset_module, "HDF5Dataset", lambda **kwargs: DummyCache()
+    )
+
+    dataset = mixed_dataset_module.MixedDataset(
+        larcv={"file_keys": str(source_path), "schema": {}},
+        hdf5={"file_keys": "dummy.h5"},
+        dtype="float32",
+    )
+
+    with pytest.raises(ValueError, match="source provenance mismatch"):
+        dataset[0]
 
 
 def test_hdf5_dataset_with_augment(monkeypatch, hdf5_data):

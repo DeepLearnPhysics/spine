@@ -474,6 +474,269 @@ def test_stage_hdf5_writer_splits_batch_by_source(tmp_path):
         )
 
 
+def test_stage_hdf5_writer_overwrite_removes_existing_output(hdf5_output):
+    """Overwrite should remove an existing target cache file eagerly."""
+    open(hdf5_output, "a", encoding="utf-8").close()
+    writer = StageHDF5Writer(hdf5_output, overwrite=True)
+    assert not os.path.exists(hdf5_output)
+    writer.close()
+
+
+def test_stage_hdf5_writer_close_swallows_handle_errors(hdf5_output):
+    """Writer cleanup should clear state even if one handle raises on close."""
+    writer = StageHDF5Writer(hdf5_output)
+
+    class BadHandle:
+        def close(self):
+            raise OSError("boom")
+
+    writer._handles["x"] = BadHandle()
+    writer._handle_pid = 123
+    writer.close()
+    assert writer._handles == {}
+    assert writer._handle_pid is None
+
+
+def test_stage_hdf5_writer_rejects_pid_change(hdf5_output, monkeypatch):
+    """Persistent staged-writer handles should stay process-local."""
+    writer = StageHDF5Writer(hdf5_output)
+    writer._handle_pid = 1
+    monkeypatch.setattr("spine.io.write.stage_hdf5.os.getpid", lambda: 2)
+    with pytest.raises(RuntimeError, match="process-local"):
+        writer._check_handle_pid()
+
+
+def test_stage_hdf5_writer_open_handle_keep_open_false(hdf5_output):
+    """Disabling persistent handles should return a close-on-use handle."""
+    writer = StageHDF5Writer(hdf5_output, keep_open=False, overwrite=True)
+    handle, should_close = writer._open_handle(hdf5_output)
+    assert should_close is True
+    handle.close()
+    writer.close()
+
+
+def test_stage_hdf5_writer_open_handle_reopens_invalid_cached_handle(hdf5_output):
+    """Persistent handle lookup should reopen invalid cached handles."""
+    writer = StageHDF5Writer(hdf5_output, overwrite=True)
+    handle, _ = writer._open_handle(hdf5_output)
+    handle.close()
+    reopened, should_close = writer._open_handle(hdf5_output)
+    assert reopened.id.valid
+    assert should_close is False
+    writer.close()
+
+
+def test_stage_hdf5_writer_get_batch_source_info_edges(hdf5_output):
+    """Source provenance extraction should cover missing, scalar, and bad inputs."""
+    writer = StageHDF5Writer(hdf5_output)
+    with pytest.raises(KeyError, match="Missing keys"):
+        writer.get_batch_source_info({"index": np.asarray([0])})
+
+    info = writer.get_batch_source_info(
+        {
+            "source_file_name": np.asarray("source.root"),
+            "source_file_size": np.asarray(10),
+            "source_file_mtime_ns": np.asarray(20),
+        }
+    )
+    assert info == {"file_name": "source.root", "file_size": 10, "file_mtime_ns": 20}
+
+    info = writer.get_batch_source_info(
+        {
+            "source_file_name": "source.root",
+            "source_file_size": 10,
+            "source_file_mtime_ns": 20,
+        }
+    )
+    assert info["file_size"] == 10
+
+    with pytest.raises(ValueError, match="is empty"):
+        writer.get_batch_source_info(
+            {
+                "source_file_name": np.asarray([], dtype=object),
+                "source_file_size": np.asarray([10]),
+                "source_file_mtime_ns": np.asarray([20]),
+            }
+        )
+
+    with pytest.raises(ValueError, match="contains multiple values"):
+        writer.get_batch_source_info(
+            {
+                "source_file_name": np.asarray(["a.root", "b.root"]),
+                "source_file_size": np.asarray([10, 10]),
+                "source_file_mtime_ns": np.asarray([20, 20]),
+            }
+        )
+
+
+def test_stage_hdf5_writer_ensure_source_group_existing_matches_and_mismatches(
+    tmp_path,
+):
+    """Existing source groups should validate cache-file provenance."""
+    path = tmp_path / "cache.h5"
+    writer = StageHDF5Writer(str(path), overwrite=True)
+    writer._ensure_file(str(path))
+    handle, should_close = writer._open_handle(str(path))
+    try:
+        batch = {
+            "index": np.asarray([0]),
+            "source_file_name": np.asarray(["source.root"]),
+            "source_file_size": np.asarray([10]),
+            "source_file_mtime_ns": np.asarray([20]),
+        }
+        writer.ensure_source_group(handle, batch, str(path))
+        writer.ensure_source_group(handle, batch, str(path))
+        bad = dict(batch)
+        bad["source_file_size"] = np.asarray([11])
+        with pytest.raises(RuntimeError, match="Cache source mismatch"):
+            writer.ensure_source_group(handle, bad, str(path))
+    finally:
+        if should_close:
+            handle.close()
+        writer.close()
+
+
+def test_stage_hdf5_writer_prepare_batch_scalar_and_skip_keys(tmp_path):
+    """Single-entry normalization and skip-key filtering should both work."""
+    path = tmp_path / "cache.h5"
+    writer = StageHDF5Writer(str(path), overwrite=True)
+    batch, batch_size = writer._prepare_batch(
+        {
+            "index": np.int64(0),
+            "file_index": np.int64(1),
+            "file_entry_index": np.int64(2),
+            "source_file_name": "source.root",
+            "source_file_size": 10,
+            "source_file_mtime_ns": 20,
+            "dummy_data": np.asarray([[1.0, 2.0]]),
+        }
+    )
+    assert batch_size == 1
+    assert isinstance(batch["index"], list)
+    state = StageHDF5Writer(str(path), overwrite=True)
+    state.skip_keys = ["dummy_data"]
+    stage_state = state._create_stage_state("deghosting", batch)
+    assert "dummy_data" not in stage_state.keys
+    assert "source_file_name" not in stage_state.keys
+    state.close()
+    writer.close()
+
+
+def test_stage_hdf5_writer_output_path_and_split_missing_keys(tmp_path):
+    """Output-path resolution and split validation should cover edge paths."""
+    path = tmp_path / "cache.h5"
+    writer = StageHDF5Writer(str(path), overwrite=True)
+    assert writer.get_output_path({"file_name": "source.root"}) == str(path)
+    assert writer.get_output_path({"file_name": "source.root"}, True).endswith(
+        "source_stage.h5"
+    )
+    with pytest.raises(KeyError, match="Missing key"):
+        writer.split_batch_by_source({"index": np.asarray([0])})
+    writer.close()
+
+
+def test_stage_hdf5_writer_split_batch_preserves_scalar_values(tmp_path):
+    """Source splitting should preserve scalar-valued batch metadata."""
+    writer = StageHDF5Writer(str(tmp_path / "cache.h5"), overwrite=True)
+    groups = writer.split_batch_by_source(
+        {
+            "index": np.asarray([0, 1]),
+            "epoch": 3,
+            "source_file_name": np.asarray(["a.root", "b.root"]),
+            "source_file_size": np.asarray([10, 20]),
+            "source_file_mtime_ns": np.asarray([30, 40]),
+            "dummy_data": [np.asarray([[1.0]]), np.asarray([[2.0]])],
+        }
+    )
+    assert groups[0][1]["epoch"] == 3
+    assert groups[1][1]["epoch"] == 3
+    writer.close()
+
+
+def test_stage_hdf5_writer_stage_group_existing_paths_and_flush(tmp_path):
+    """Existing-stage update branches and flush bookkeeping should be covered."""
+    path = tmp_path / "cache.h5"
+    writer = StageHDF5Writer(str(path), overwrite=True, flush_frequency=1)
+    batch = {
+        "index": np.asarray([0]),
+        "source_file_name": np.asarray(["source.root"]),
+        "source_file_size": np.asarray([10]),
+        "source_file_mtime_ns": np.asarray([20]),
+        "dummy_data": [np.asarray([[1.0, 2.0]])],
+    }
+    writer.write_stage("deghosting", batch, cfg={"a": 1}, attrs={"tag": "x"})
+    writer.write_stage("deghosting", batch, cfg={"a": 2}, attrs={"tag": "y"})
+    writer.close()
+
+    with h5py.File(path, "r") as out_file:
+        info = out_file["stages"]["deghosting"]["info"].attrs
+        assert info["tag"] == "y"
+        assert "cfg" in info
+
+
+def test_stage_hdf5_writer_rejects_reopen_existing_stage_across_sessions(tmp_path):
+    """Appending to an existing stage from a new writer session should fail."""
+    path = tmp_path / "cache.h5"
+    batch = {
+        "index": np.asarray([0]),
+        "source_file_name": np.asarray(["source.root"]),
+        "source_file_size": np.asarray([10]),
+        "source_file_mtime_ns": np.asarray([20]),
+        "dummy_data": [np.asarray([[1.0, 2.0]])],
+    }
+    writer = StageHDF5Writer(str(path), overwrite=True)
+    writer.write_stage("deghosting", batch)
+    writer.close()
+
+    writer = StageHDF5Writer(str(path))
+    normalized, _ = writer._prepare_batch(batch)
+    state = writer._create_stage_state("deghosting", normalized)
+    out_file, should_close = writer._open_handle(str(path))
+    try:
+        del writer._stage_states["deghosting"]
+        with pytest.raises(
+            RuntimeError, match="Reopening and appending an existing stage"
+        ):
+            writer._ensure_stage_group(out_file, str(path), "deghosting", state)
+    finally:
+        if should_close:
+            out_file.close()
+    writer.close()
+
+
+def test_stage_hdf5_writer_keep_open_false_closes_in_write_finalize_and_list(tmp_path):
+    """Close-on-use mode should exercise all staged-writer close branches."""
+    path = tmp_path / "cache.h5"
+    writer = StageHDF5Writer(str(path), overwrite=True, keep_open=False)
+    batch = {
+        "index": np.asarray([0]),
+        "source_file_name": np.asarray(["source.root"]),
+        "source_file_size": np.asarray([10]),
+        "source_file_mtime_ns": np.asarray([20]),
+        "dummy_data": [np.asarray([[1.0, 2.0]])],
+    }
+    writer.write_stage("deghosting", batch)
+    writer.finalize_stage("deghosting")
+    assert writer.list_stages() == ("deghosting",)
+    writer.close()
+
+
+def test_stage_hdf5_writer_finalize_and_list_ignore_missing_stage(tmp_path):
+    """Finalize/list helpers should tolerate files without the requested stage."""
+    writer = StageHDF5Writer(str(tmp_path / "cache.h5"), overwrite=True)
+    batch = {
+        "index": np.asarray([0, 1]),
+        "source_file_name": np.asarray(["a.root", "b.root"]),
+        "source_file_size": np.asarray([10, 20]),
+        "source_file_mtime_ns": np.asarray([30, 40]),
+        "dummy_data": [np.asarray([[1.0, 2.0]]), np.asarray([[3.0, 4.0]])],
+    }
+    writer.write_stage("deghosting", batch)
+    writer.finalize_stage("graph_spice")
+    assert writer.list_stages() == ("deghosting",)
+    writer.close()
+
+
 def test_hdf5_writer_stores_stored_properties(hdf5_output):
     """Test HDF5 writer serializes stored properties on data objects."""
     particle = RecoParticle(id=3, index=np.arange(4, dtype=np.int64), pid=2)

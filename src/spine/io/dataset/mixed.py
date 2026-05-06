@@ -14,7 +14,13 @@ __all__ = ["MixedDataset"]
 
 
 class MixedDataset(BaseDataset):
-    """Torch dataset that merges aligned samples from LArCV and HDF5."""
+    """Torch dataset that merges aligned samples from LArCV and HDF5.
+
+    The LArCV dataset is treated as the primary source of iteration order and
+    truth products. The HDF5 dataset acts as an aligned cache or augmentation
+    source whose products are merged into the primary sample only after
+    metadata and source provenance checks pass.
+    """
 
     name: ClassVar[str] = "mixed"
     primary: LArCVDataset
@@ -77,11 +83,29 @@ class MixedDataset(BaseDataset):
         self.build_augmenter(augment, geo=geo)
 
     def __len__(self) -> int:
-        """Return the number of aligned entries."""
+        """Return the number of aligned entries.
+
+        Returns
+        -------
+        int
+            Number of samples shared by the primary and cache datasets.
+        """
         return len(self.primary)
 
     def __getitem__(self, idx: int) -> DataDict:
-        """Return one merged sample from the aligned sources."""
+        """Return one merged sample from the aligned sources.
+
+        Parameters
+        ----------
+        idx : int
+            Dataset entry index shared by both underlying sources.
+
+        Returns
+        -------
+        dict
+            Merged sample dictionary containing primary LArCV products plus
+            non-metadata HDF5 cache products.
+        """
         primary = self.primary[idx]
         cache = self.cache[idx]
         self.validate_alignment(idx, primary, cache)
@@ -90,7 +114,17 @@ class MixedDataset(BaseDataset):
         return self.apply_augmenter(merged)
 
     def validate_alignment(self, idx: int, primary: DataDict, cache: DataDict) -> None:
-        """Ensure the configured alignment keys match between both sources."""
+        """Ensure the configured alignment keys match between both sources.
+
+        Parameters
+        ----------
+        idx : int
+            Dataset entry index being validated.
+        primary : dict
+            Sample returned by the primary LArCV dataset.
+        cache : dict
+            Sample returned by the HDF5 cache dataset.
+        """
         self.validate_source_alignment(idx, primary, cache)
         for key in self.align_keys:
             if key == "file_index" and "source_file_name" in cache:
@@ -106,7 +140,13 @@ class MixedDataset(BaseDataset):
     def validate_source_alignment(
         self, idx: int, primary: DataDict, cache: DataDict
     ) -> None:
-        """Validate cache-file provenance against the current LArCV source file."""
+        """Validate cache-file provenance against the current LArCV source file.
+
+        This check is only applied when the HDF5 sample exposes staged-cache
+        provenance keys. In that case the cache is expected to correspond to
+        exactly one original source file, identified by file name, file size,
+        and modification time.
+        """
         if "source_file_name" not in cache:
             return
 
@@ -129,7 +169,21 @@ class MixedDataset(BaseDataset):
                 )
 
     def resolve_cache_align_key(self, key: str, cache: DataDict) -> str:
-        """Return the HDF5 key used to align one LArCV index field."""
+        """Return the HDF5 key used to align one LArCV index field.
+
+        Parameters
+        ----------
+        key : str
+            Alignment key expected on the primary dataset side.
+        cache : dict
+            Cache sample dictionary used to determine whether a
+            ``source_<key>`` variant is available.
+
+        Returns
+        -------
+        str
+            HDF5-side key name that should match the primary ``key``.
+        """
         if key in self.hdf5_align_keys:
             return self.hdf5_align_keys[key]
 
@@ -140,7 +194,16 @@ class MixedDataset(BaseDataset):
         return key
 
     def merge_cache(self, merged: DataDict, cache: DataDict) -> None:
-        """Merge one cached HDF5 sample into an existing LArCV sample."""
+        """Merge one cached HDF5 sample into an existing LArCV sample.
+
+        Parameters
+        ----------
+        merged : dict
+            Mutable sample dictionary initially populated from the primary
+            dataset.
+        cache : dict
+            HDF5 cache sample to merge into ``merged``.
+        """
         for key, value in cache.items():
             if key in self._index_keys or key in self._source_keys:
                 continue
@@ -156,7 +219,13 @@ class MixedDataset(BaseDataset):
 
     @property
     def data_types(self) -> dict[str, str]:
-        """Return the collate type for each merged product."""
+        """Return the collate type for each merged product.
+
+        Returns
+        -------
+        dict[str, str]
+            Mapping from merged output key to collate type.
+        """
         data_types = dict(self.primary.data_types)
         for key, value in self.cache.data_types.items():
             if key in self._index_keys or key in self._source_keys:
@@ -175,7 +244,13 @@ class MixedDataset(BaseDataset):
 
     @property
     def overlay_methods(self) -> dict[str, str]:
-        """Return the overlay method for each merged product."""
+        """Return the overlay method for each merged product.
+
+        Returns
+        -------
+        dict[str, str]
+            Mapping from merged output key to overlay strategy.
+        """
         overlay_methods = dict(self.primary.overlay_methods)
         for key, value in self.cache.overlay_methods.items():
             if key in self._index_keys or key in self._source_keys:
@@ -194,5 +269,11 @@ class MixedDataset(BaseDataset):
 
     @property
     def data_keys(self) -> tuple[str, ...]:
-        """Return the names of all merged data products."""
+        """Return the names of all merged data products.
+
+        Returns
+        -------
+        tuple[str, ...]
+            Ordered tuple of keys exposed by the merged dataset.
+        """
         return tuple(self.data_types.keys())

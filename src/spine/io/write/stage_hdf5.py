@@ -37,7 +37,13 @@ class StageHDF5Writer(HDF5Writer):
 
     @dataclass
     class StageState:
-        """In-memory description of one stage schema."""
+        """In-memory description of one stage schema.
+
+        The regular :class:`HDF5Writer` stores one flat schema for the whole
+        file. Stage caches need one schema per stage, so this small dataclass
+        carries the state required to keep appending consistently to a given
+        stage group.
+        """
 
         keys: set[str]
         type_dict: dict[str, HDF5Writer.DataFormat]
@@ -104,7 +110,11 @@ class StageHDF5Writer(HDF5Writer):
             os.remove(self.file_name)
 
     def close(self) -> None:
-        """Close any persistent cache-file handles."""
+        """Close any persistent cache-file handles.
+
+        This only affects handles cached in the current process and may be
+        called repeatedly.
+        """
         for handle in self._handles.values():
             try:
                 handle.close()
@@ -115,7 +125,12 @@ class StageHDF5Writer(HDF5Writer):
         self._handle_pid = None
 
     def _check_handle_pid(self) -> None:
-        """Ensure persistent writer handles remain process-local."""
+        """Ensure persistent writer handles remain process-local.
+
+        Stage caches are not safe to append to through a writer instance that
+        has crossed a process boundary. This method enforces the same
+        single-process handle ownership contract as :class:`HDF5Writer`.
+        """
         current_pid = os.getpid()
         if self._handle_pid is None:
             self._handle_pid = current_pid
@@ -128,7 +143,14 @@ class StageHDF5Writer(HDF5Writer):
             )
 
     def _open_handle(self, file_path: str) -> tuple[h5py.File, bool]:
-        """Return an appendable cache-file handle for one output path."""
+        """Return an appendable cache-file handle for one output path.
+
+        Returns
+        -------
+        tuple[h5py.File, bool]
+            Open HDF5 handle and a flag indicating whether the caller is
+            responsible for closing it immediately.
+        """
         self._ensure_file(file_path)
         if not self.keep_open:
             return h5py.File(file_path, "a"), True
@@ -142,7 +164,12 @@ class StageHDF5Writer(HDF5Writer):
         return handle, False
 
     def _ensure_file(self, file_path: str) -> None:
-        """Initialize one output cache file structure on first use."""
+        """Initialize one output cache file structure on first use.
+
+        The top-level administrative groups are created lazily because staged
+        cache files are derived from source provenance and may not all be
+        touched by every write call.
+        """
         if file_path in self._initialized_files:
             return
 
@@ -170,7 +197,19 @@ class StageHDF5Writer(HDF5Writer):
         self._known_files.add(file_path)
 
     def get_batch_source_info(self, data: dict[str, Any]) -> dict[str, Any]:
-        """Extract cache-file source provenance from one normalized batch."""
+        """Extract cache-file source provenance from one normalized batch.
+
+        Parameters
+        ----------
+        data : dict
+            Normalized batch dictionary prepared for writing.
+
+        Returns
+        -------
+        dict[str, Any]
+            File-level source identity stored under the cache file's top-level
+            ``/source`` group.
+        """
         required = ("source_file_name", "source_file_size", "source_file_mtime_ns")
         missing = [key for key in required if key not in data]
         if missing:
@@ -212,7 +251,12 @@ class StageHDF5Writer(HDF5Writer):
     def ensure_source_group(
         self, out_file: h5py.File, data: dict[str, Any], file_path: str
     ) -> None:
-        """Create or validate the top-level source provenance group."""
+        """Create or validate the top-level source provenance group.
+
+        This enforces the one-cache-file-per-source-file contract. If a later
+        stage attempts to write into an existing cache file with mismatched
+        source provenance, the writer raises immediately.
+        """
         source_info = self.get_batch_source_info(data)
         self.source_info = source_info
 
@@ -235,7 +279,12 @@ class StageHDF5Writer(HDF5Writer):
                 )
 
     def _prepare_batch(self, data: dict[str, Any]) -> tuple[dict[str, Any], int]:
-        """Normalize one batch for stage writing."""
+        """Normalize one batch for stage writing.
+
+        This mirrors the flat HDF5 writer behavior by accepting either scalar
+        single-entry payloads or already batched payloads and returning a
+        uniform list-like representation.
+        """
         data = self.with_source_provenance(data)
         if np.isscalar(data["index"]):
             for key in data:
@@ -247,7 +296,15 @@ class StageHDF5Writer(HDF5Writer):
     def _create_stage_state(
         self, stage: str, data: dict[str, Any]
     ) -> StageHDF5Writer.StageState:
-        """Infer the schema of one stage from the first written batch."""
+        """Infer the schema of one stage from the first written batch.
+
+        Parameters
+        ----------
+        stage : str
+            Stage name whose schema is being initialized.
+        data : dict
+            Normalized batch dictionary used as the schema template.
+        """
         keys = {"index"}
         keys.update(data.keys())
         for key, source_key in self.source_index_keys.items():
@@ -266,7 +323,16 @@ class StageHDF5Writer(HDF5Writer):
     def get_output_path(
         self, source_info: dict[str, Any], multiple_sources: bool = False
     ) -> str:
-        """Resolve the cache-file path for one source file."""
+        """Resolve the cache-file path for one source file.
+
+        Parameters
+        ----------
+        source_info : dict
+            File-level source identity returned by :meth:`get_batch_source_info`.
+        multiple_sources : bool, default False
+            If `True`, derive one output path from the source file basename.
+            Otherwise reuse ``self.file_name`` directly.
+        """
         if not multiple_sources:
             return self.file_name
 
@@ -277,7 +343,15 @@ class StageHDF5Writer(HDF5Writer):
     def split_batch_by_source(
         self, data: dict[str, Any]
     ) -> list[tuple[str, dict[str, Any], dict[str, Any]]]:
-        """Split one normalized batch into one subset per source file."""
+        """Split one normalized batch into one subset per source file.
+
+        Returns
+        -------
+        list[tuple[str, dict, dict]]
+            One tuple per source file containing the resolved output file path,
+            the batch subset that belongs to that source file, and the
+            file-level source provenance dictionary.
+        """
         required = ("source_file_name", "source_file_size", "source_file_mtime_ns")
         for key in required:
             if key not in data:
@@ -339,7 +413,25 @@ class StageHDF5Writer(HDF5Writer):
         attrs: dict[str, Any] | None = None,
         overwrite_stage: bool = False,
     ) -> h5py.Group:
-        """Create or fetch one stage group."""
+        """Create or fetch one stage group.
+
+        Parameters
+        ----------
+        out_file : h5py.File
+            Open cache-file handle.
+        file_path : str
+            Output cache-file path used for error messages and bookkeeping.
+        stage : str
+            Stage name to create or reopen.
+        state : StageState
+            Inferred schema state for the stage.
+        cfg : dict, optional
+            Stage configuration to serialize into metadata.
+        attrs : dict, optional
+            Additional stage metadata attributes.
+        overwrite_stage : bool, default False
+            If `True`, delete any existing stage group and rebuild it.
+        """
         stages = out_file["stages"]
         assert isinstance(stages, h5py.Group), "'stages' must be an HDF5 group."
 
@@ -407,6 +499,12 @@ class StageHDF5Writer(HDF5Writer):
         overwrite_stage : bool, default False
             If `True`, delete any existing stage group with the same name and
             rebuild it from the provided data.
+
+        Notes
+        -----
+        The input batch may span multiple source files. In that case the batch
+        is partitioned by source provenance and written into one cache file per
+        source file automatically.
         """
         normalized, batch_size = self._prepare_batch(data)
         state = self._stage_states.get(stage)
@@ -446,7 +544,14 @@ class StageHDF5Writer(HDF5Writer):
                     out_file.close()
 
     def finalize_stage(self, stage: str) -> None:
-        """Mark one stage as complete in every touched cache file."""
+        """Mark one stage as complete in every touched cache file.
+
+        Parameters
+        ----------
+        stage : str
+            Stage name to finalize across all cache files written by this
+            writer instance.
+        """
         for file_path in sorted(self._known_files):
             out_file, should_close = self._open_handle(file_path)
             try:
@@ -464,7 +569,14 @@ class StageHDF5Writer(HDF5Writer):
                     out_file.close()
 
     def list_stages(self) -> tuple[str, ...]:
-        """Return the union of stage-group names across touched cache files."""
+        """Return the union of stage-group names across touched cache files.
+
+        Returns
+        -------
+        tuple[str, ...]
+            Sorted tuple of unique stage names seen in all output cache files
+            touched by this writer instance.
+        """
         stage_names: set[str] = set()
         for file_path in sorted(self._known_files):
             out_file, should_close = self._open_handle(file_path)

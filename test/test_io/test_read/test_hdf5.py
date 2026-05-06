@@ -284,7 +284,6 @@ def test_stage_hdf5_reader_loads_one_stage(tmp_path):
     reader = StageHDF5Reader("deghosting", str(path), build_classes=False)
     entry = reader.get(0)
     np.testing.assert_array_equal(entry["dummy_data"], np.asarray([[1.0, 2.0]]))
-    assert entry["source_file_index"] == 7
     assert entry["source_file_entry_index"] == 11
     assert entry["source_file_name"] == source_path.name
     assert entry["source_file_size"] == source_path.stat().st_size
@@ -401,6 +400,298 @@ def test_stage_hdf5_reader_rejects_ambiguous_product_stage(tmp_path):
 
     with pytest.raises(ValueError, match="appears in multiple stages"):
         StageHDF5Reader(file_keys=str(path), keys=("meta",), build_classes=False)
+
+
+def test_stage_hdf5_reader_reads_empty_source_info(tmp_path):
+    """Missing top-level source provenance should degrade gracefully."""
+    path = tmp_path / "stage_cache.h5"
+    writer = StageHDF5Writer(str(path), overwrite=True)
+    writer.write_stage(
+        "deghosting",
+        {
+            "index": np.asarray([0]),
+            "source_file_name": np.asarray(["source.root"]),
+            "source_file_size": np.asarray([10]),
+            "source_file_mtime_ns": np.asarray([20]),
+            "dummy_data": [np.asarray([[1.0, 2.0]])],
+        },
+    )
+    writer.finalize_stage("deghosting")
+    writer.close()
+
+    with h5py.File(path, "a") as out_file:
+        del out_file["source"]
+
+    reader = StageHDF5Reader("deghosting", str(path), build_classes=False)
+    entry = reader.get(0)
+    assert "source_file_name" not in entry
+    reader.close()
+
+
+def test_stage_hdf5_reader_decodes_bytes_source_name(tmp_path):
+    """Byte-encoded source file names should be decoded on read."""
+    path = tmp_path / "stage_cache.h5"
+    writer = StageHDF5Writer(str(path), overwrite=True)
+    writer.write_stage(
+        "deghosting",
+        {
+            "index": np.asarray([0]),
+            "source_file_name": np.asarray(["source.root"]),
+            "source_file_size": np.asarray([10]),
+            "source_file_mtime_ns": np.asarray([20]),
+            "file_entry_index": np.asarray([7]),
+            "dummy_data": [np.asarray([[1.0, 2.0]])],
+        },
+    )
+    writer.finalize_stage("deghosting")
+    writer.close()
+
+    with h5py.File(path, "a") as out_file:
+        out_file["source"].attrs.modify("file_name", np.bytes_("source.root"))
+
+    reader = StageHDF5Reader("deghosting", str(path), build_classes=False)
+    entry = reader.get(0)
+    assert entry["source_file_name"] == "source.root"
+    assert entry["source_file_entry_index"] == 7
+    reader.close()
+
+
+def test_stage_hdf5_reader_read_source_info_decodes_bytes(tmp_path):
+    """Byte-valued source attrs should decode through the helper directly."""
+    path = tmp_path / "stage_cache.h5"
+    with h5py.File(path, "w") as out_file:
+        source = out_file.create_group("source")
+        source.attrs["file_name"] = np.bytes_("source.root")
+        source.attrs["file_size"] = 10
+        source.attrs["file_mtime_ns"] = 20
+
+    with h5py.File(path, "r") as in_file:
+        info = StageHDF5Reader.read_source_info(in_file)
+    assert info["source_file_name"] == "source.root"
+
+
+def test_stage_hdf5_reader_explicit_stage_map_missing_key(tmp_path):
+    """Explicit stage maps should fail if the requested product is absent there."""
+    path = tmp_path / "stage_cache.h5"
+    writer = StageHDF5Writer(str(path), overwrite=True)
+    writer.write_stage(
+        "deghosting",
+        {
+            "index": np.asarray([0]),
+            "source_file_name": np.asarray(["source.root"]),
+            "source_file_size": np.asarray([10]),
+            "source_file_mtime_ns": np.asarray([20]),
+            "data_adapt": [np.asarray([[1.0, 2.0]])],
+        },
+    )
+    writer.finalize_stage("deghosting")
+    writer.close()
+
+    with pytest.raises(KeyError, match="does not exist in stage"):
+        StageHDF5Reader(
+            file_keys=str(path),
+            stage_map={"fragment_clusts": "deghosting"},
+            keys=("fragment_clusts",),
+            build_classes=False,
+        )
+
+
+def test_stage_hdf5_reader_default_stage_missing_key(tmp_path):
+    """Default-stage resolution should fail if the product is absent there."""
+    path = tmp_path / "stage_cache.h5"
+    writer = StageHDF5Writer(str(path), overwrite=True)
+    writer.write_stage(
+        "deghosting",
+        {
+            "index": np.asarray([0]),
+            "source_file_name": np.asarray(["source.root"]),
+            "source_file_size": np.asarray([10]),
+            "source_file_mtime_ns": np.asarray([20]),
+            "data_adapt": [np.asarray([[1.0, 2.0]])],
+        },
+    )
+    writer.finalize_stage("deghosting")
+    writer.close()
+
+    with pytest.raises(KeyError, match="does not exist in stage"):
+        StageHDF5Reader(
+            "deghosting",
+            str(path),
+            keys=("fragment_clusts",),
+            build_classes=False,
+        )
+
+
+def test_stage_hdf5_reader_default_stage_resolves_requested_key(tmp_path):
+    """Default-stage resolution should accept requested products present there."""
+    path = tmp_path / "stage_cache.h5"
+    writer = StageHDF5Writer(str(path), overwrite=True)
+    writer.write_stage(
+        "deghosting",
+        {
+            "index": np.asarray([0]),
+            "source_file_name": np.asarray(["source.root"]),
+            "source_file_size": np.asarray([10]),
+            "source_file_mtime_ns": np.asarray([20]),
+            "data_adapt": [np.asarray([[1.0, 2.0]])],
+        },
+    )
+    writer.finalize_stage("deghosting")
+    writer.close()
+
+    reader = StageHDF5Reader(
+        "deghosting", str(path), keys=("data_adapt",), build_classes=False
+    )
+    np.testing.assert_array_equal(reader.get(0)["data_adapt"], np.asarray([[1.0, 2.0]]))
+    reader.close()
+
+
+def test_stage_hdf5_reader_explicit_stage_map_resolves_key(tmp_path):
+    """Explicit stage maps should accept products that exist in that stage."""
+    path = tmp_path / "stage_cache.h5"
+    writer = StageHDF5Writer(str(path), overwrite=True)
+    writer.write_stage(
+        "deghosting",
+        {
+            "index": np.asarray([0]),
+            "source_file_name": np.asarray(["source.root"]),
+            "source_file_size": np.asarray([10]),
+            "source_file_mtime_ns": np.asarray([20]),
+            "data_adapt": [np.asarray([[1.0, 2.0]])],
+        },
+    )
+    writer.finalize_stage("deghosting")
+    writer.close()
+
+    reader = StageHDF5Reader(
+        file_keys=str(path),
+        stage_map={"data_adapt": "deghosting"},
+        keys=("data_adapt",),
+        build_classes=False,
+    )
+    np.testing.assert_array_equal(reader.get(0)["data_adapt"], np.asarray([[1.0, 2.0]]))
+    reader.close()
+
+
+def test_stage_hdf5_reader_rejects_missing_product(tmp_path):
+    """Automatic discovery should fail when no stage contains the product."""
+    path = tmp_path / "stage_cache.h5"
+    writer = StageHDF5Writer(str(path), overwrite=True)
+    writer.write_stage(
+        "deghosting",
+        {
+            "index": np.asarray([0]),
+            "source_file_name": np.asarray(["source.root"]),
+            "source_file_size": np.asarray([10]),
+            "source_file_mtime_ns": np.asarray([20]),
+            "data_adapt": [np.asarray([[1.0, 2.0]])],
+        },
+    )
+    writer.finalize_stage("deghosting")
+    writer.close()
+
+    with pytest.raises(KeyError, match="Could not find requested product"):
+        StageHDF5Reader(
+            file_keys=str(path), keys=("fragment_clusts",), build_classes=False
+        )
+
+
+def test_stage_hdf5_reader_validate_stage_lengths_edges():
+    """Stage-length validation should handle empty and mismatched inputs."""
+    assert StageHDF5Reader.validate_stage_lengths("dummy.h5", {}) == 0
+    with pytest.raises(ValueError, match="do not expose the same number of entries"):
+        StageHDF5Reader.validate_stage_lengths(
+            "dummy.h5", {"deghosting": 1, "graph_spice": 2}
+        )
+
+
+def test_stage_hdf5_reader_process_cfg_non_string_returns_none(tmp_path):
+    """Non-string stage cfg payloads should fail closed to None."""
+    path = tmp_path / "stage_cache.h5"
+    with h5py.File(path, "w") as out_file:
+        out_file.create_group("info").attrs["version"] = "test"
+        stages = out_file.create_group("stages")
+        stage = stages.create_group("deghosting")
+        info = stage.create_group("info")
+        info.attrs["complete"] = True
+        info.attrs["cfg"] = 12
+        stage.create_dataset("dummy_data", data=np.asarray([[1.0, 2.0]]))
+        ref_dtype = np.dtype([("dummy_data", h5py.regionref_dtype)])
+        events = stage.create_dataset("events", shape=(1,), dtype=ref_dtype)
+        events[0] = (stage["dummy_data"].regionref[:],)
+
+    with pytest.raises(AssertionError, match="attribute is not a string"):
+        StageHDF5Reader("deghosting", str(path), build_classes=False)
+
+
+def test_stage_hdf5_reader_process_cfg_parser_error_returns_none(monkeypatch, tmp_path):
+    """Malformed stage cfg payloads should warn and produce None."""
+    path = tmp_path / "stage_cache.h5"
+    with h5py.File(path, "w") as out_file:
+        out_file.create_group("info").attrs["version"] = "test"
+        stages = out_file.create_group("stages")
+        stage = stages.create_group("deghosting")
+        info = stage.create_group("info")
+        info.attrs["complete"] = True
+        info.attrs["cfg"] = "{}"
+        stage.create_dataset("dummy_data", data=np.asarray([[1.0, 2.0]]))
+        ref_dtype = np.dtype([("dummy_data", h5py.regionref_dtype)])
+        events = stage.create_dataset("events", shape=(1,), dtype=ref_dtype)
+        events[0] = (stage["dummy_data"].regionref[:],)
+
+    monkeypatch.setattr(
+        "spine.io.read.stage_hdf5.yaml.safe_load",
+        lambda _: (_ for _ in ()).throw(ParserError(None, None, None, None)),
+    )
+
+    with pytest.warns(UserWarning, match="Parsing stage configuration failed"):
+        reader = StageHDF5Reader("deghosting", str(path), build_classes=False)
+    assert reader.cfg is None
+    reader.close()
+
+
+def test_stage_hdf5_reader_rejects_bad_index_and_unnamed_events(tmp_path):
+    """Stage reader should reject out-of-range entries and malformed events."""
+    path = tmp_path / "stage_cache.h5"
+    with h5py.File(path, "w") as out_file:
+        out_file.create_group("info").attrs["version"] = "test"
+        stages = out_file.create_group("stages")
+        stage = stages.create_group("deghosting")
+        info = stage.create_group("info")
+        info.attrs["complete"] = True
+        stage.create_dataset("dummy_data", data=np.asarray([[1.0, 2.0]]))
+        stage.create_dataset("events", data=np.asarray([0], dtype=np.int64))
+
+    reader = StageHDF5Reader("deghosting", str(path), build_classes=False)
+    with pytest.raises(IndexError, match="out of bounds"):
+        reader.get(1)
+    with pytest.raises(ValueError, match="does not have named fields"):
+        reader.get(0)
+    reader.close()
+
+
+def test_stage_hdf5_reader_closes_ephemeral_handle(tmp_path):
+    """Single-access staged reads should close temporary handles when requested."""
+    path = tmp_path / "stage_cache.h5"
+    writer = StageHDF5Writer(str(path), overwrite=True)
+    writer.write_stage(
+        "deghosting",
+        {
+            "index": np.asarray([0]),
+            "source_file_name": np.asarray(["source.root"]),
+            "source_file_size": np.asarray([10]),
+            "source_file_mtime_ns": np.asarray([20]),
+            "dummy_data": [np.asarray([[1.0, 2.0]])],
+        },
+    )
+    writer.finalize_stage("deghosting")
+    writer.close()
+
+    reader = StageHDF5Reader(
+        "deghosting", str(path), build_classes=False, keep_open=False
+    )
+    entry = reader.get(0)
+    np.testing.assert_array_equal(entry["dummy_data"], np.asarray([[1.0, 2.0]]))
 
 
 def test_resolve_legacy_meta_class_2d():

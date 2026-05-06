@@ -19,7 +19,17 @@ PARSER_DICT = module_dict(parse_hdf5)
 
 
 class HDF5Dataset(BaseDataset):
-    """Thin torch dataset wrapper around :class:`HDF5Reader`."""
+    """Torch dataset wrapper around flat or staged HDF5 readers.
+
+    The dataset can operate in two modes:
+
+    - flat HDF5 mode, backed by :class:`spine.io.read.HDF5Reader`
+    - staged cache mode, backed by :class:`spine.io.read.StageHDF5Reader`
+
+    In both cases the dataset exposes a uniform parser-driven interface to the
+    DataLoader layer. Reader-produced metadata such as entry indexes and source
+    provenance are forwarded automatically alongside any parsed products.
+    """
 
     name: ClassVar[str] = "hdf5"
     parsers: dict[str, Any]
@@ -132,11 +142,24 @@ class HDF5Dataset(BaseDataset):
             self.reader = HDF5Reader(**kwargs)
 
     def __len__(self) -> int:
-        """Return the number of cached entries."""
+        """Return the number of entries exposed by the backend reader."""
         return len(self.reader)
 
     def __getitem__(self, idx: int) -> DataDict:
-        """Return one cached dataset entry."""
+        """Return one cached dataset entry.
+
+        Parameters
+        ----------
+        idx : int
+            Dataset entry index.
+
+        Returns
+        -------
+        dict
+            Either the raw reader output (optionally filtered to ``keys``) or
+            a parsed dictionary containing standard metadata plus the products
+            described by ``schema``.
+        """
         result = self.reader[idx]
 
         if self.keys is not None:
@@ -161,7 +184,13 @@ class HDF5Dataset(BaseDataset):
 
     @property
     def data_types(self) -> dict[str, str]:
-        """Return the collate type for each HDF5 product."""
+        """Return the collate type for each exposed HDF5 product.
+
+        Returns
+        -------
+        dict[str, str]
+            Mapping from dataset output key to collate type.
+        """
         data_types = self.index_data_types()
         if self.parsers:
             for name, parser in self.parsers.items():
@@ -178,7 +207,13 @@ class HDF5Dataset(BaseDataset):
 
     @property
     def overlay_methods(self) -> dict[str, str]:
-        """Return the overlay method for each HDF5 product."""
+        """Return the overlay method for each exposed HDF5 product.
+
+        Returns
+        -------
+        dict[str, str]
+            Mapping from dataset output key to overlay strategy.
+        """
         overlay_methods = self.index_overlay_methods()
         if self.parsers:
             for name, parser in self.parsers.items():
@@ -190,7 +225,13 @@ class HDF5Dataset(BaseDataset):
 
     @property
     def data_keys(self) -> tuple[str, ...]:
-        """Return the names of all data products exposed by the dataset."""
+        """Return the names of all data products exposed by the dataset.
+
+        Returns
+        -------
+        tuple[str, ...]
+            Ordered tuple of metadata and parser-product keys.
+        """
         if self.parsers:
             return (*self._index_keys, *self._source_keys, *self.parsers.keys())
 

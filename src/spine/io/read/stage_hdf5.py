@@ -60,6 +60,12 @@ class StageHDF5Reader(HDF5Reader):
         keys : sequence[str], optional
             Product keys that should be exposed by the reader. If omitted, all
             products from the selected stage(s) are exposed.
+        file_keys, file_list, limit_num_files, max_print_files, n_entry, n_skip, \
+        entry_list, skip_entry_list, build_classes, skip_unknown_attrs, \
+        allow_missing, keep_open, swmr, ignore_incomplete
+            See :class:`spine.io.read.HDF5Reader`. These options control file
+            discovery, entry selection, object reconstruction, file-handle
+            lifetime, and incomplete-stage handling.
         """
         self.stage = stage
         self.stage_map = dict(stage_map or {})
@@ -112,7 +118,15 @@ class StageHDF5Reader(HDF5Reader):
 
     @staticmethod
     def get_stages_group(in_file: h5py.File, path: str) -> h5py.Group:
-        """Return the top-level ``stages`` group."""
+        """Return the top-level ``stages`` group.
+
+        Parameters
+        ----------
+        in_file : h5py.File
+            Open cache file handle.
+        path : str
+            File path used to build informative error messages.
+        """
         assert "stages" in in_file, f"Stage-cache file '{path}' is missing 'stages'."
         stages = in_file["stages"]
         assert isinstance(
@@ -122,7 +136,17 @@ class StageHDF5Reader(HDF5Reader):
 
     @classmethod
     def get_stage_group(cls, in_file: h5py.File, path: str, stage: str) -> h5py.Group:
-        """Return one named stage group."""
+        """Return one named stage group.
+
+        Parameters
+        ----------
+        in_file : h5py.File
+            Open cache file handle.
+        path : str
+            File path used to build informative error messages.
+        stage : str
+            Name of the stage group to load under ``/stages``.
+        """
         stages = cls.get_stages_group(in_file, path)
         assert (
             stage in stages
@@ -135,7 +159,19 @@ class StageHDF5Reader(HDF5Reader):
 
     @staticmethod
     def read_source_info(in_file: h5py.File) -> dict[str, object]:
-        """Return top-level source provenance stored in the cache file."""
+        """Return top-level source provenance stored in the cache file.
+
+        Parameters
+        ----------
+        in_file : h5py.File
+            Open cache file handle.
+
+        Returns
+        -------
+        dict[str, object]
+            File-level provenance dictionary. If the cache predates the source
+            group convention, this returns an empty dictionary.
+        """
         if "source" not in in_file:
             return {}
         source_group = in_file["source"]
@@ -152,11 +188,24 @@ class StageHDF5Reader(HDF5Reader):
         }
 
     def list_stage_keys(self, stage_group: h5py.Group) -> tuple[str, ...]:
-        """List product keys stored in one stage group."""
+        """List product keys stored in one stage group.
+
+        This excludes the administrative ``info`` and ``events`` members.
+        """
         return tuple(key for key in stage_group.keys() if key not in {"info", "events"})
 
     def resolve_product_stages(self, in_file: h5py.File, path: str) -> dict[str, str]:
-        """Resolve each requested product key to one stage."""
+        """Resolve each requested product key to one stage.
+
+        Resolution order is:
+
+        1. explicit ``stage_map`` entry for the key
+        2. dataset-level default ``stage``
+        3. automatic discovery across all available stages
+
+        Automatic discovery requires a unique match. If the same product name
+        appears in multiple stages, the caller must disambiguate it.
+        """
         if (
             self.stage is not None
             and self.requested_keys is None
@@ -228,7 +277,17 @@ class StageHDF5Reader(HDF5Reader):
     def check_stage_complete(
         self, stage_group: h5py.Group, path: str, stage: str
     ) -> None:
-        """Reject incomplete stages unless explicitly allowed."""
+        """Reject incomplete stages unless explicitly allowed.
+
+        Parameters
+        ----------
+        stage_group : h5py.Group
+            Resolved stage group.
+        path : str
+            Cache file path.
+        stage : str
+            Stage name used in the error message.
+        """
         if (
             "info" in stage_group
             and "complete" in stage_group["info"].attrs
@@ -243,7 +302,17 @@ class StageHDF5Reader(HDF5Reader):
     def get_stage_lengths(
         self, in_file: h5py.File, path: str, product_stage_map: Mapping[str, str]
     ) -> dict[str, int]:
-        """Return the event count of each referenced stage."""
+        """Return the event count of each referenced stage.
+
+        Parameters
+        ----------
+        in_file : h5py.File
+            Open cache file handle.
+        path : str
+            Cache file path.
+        product_stage_map : mapping
+            Mapping from requested raw product key to resolved stage name.
+        """
         stage_lengths: dict[str, int] = {}
         for stage_name in set(product_stage_map.values()):
             stage_group = self.get_stage_group(in_file, path, stage_name)
@@ -256,7 +325,13 @@ class StageHDF5Reader(HDF5Reader):
 
     @staticmethod
     def validate_stage_lengths(path: str, stage_lengths: Mapping[str, int]) -> int:
-        """Ensure all referenced stages in one file have the same length."""
+        """Ensure all referenced stages in one file have the same length.
+
+        Returns
+        -------
+        int
+            Shared number of entries across all referenced stages.
+        """
         lengths = list(stage_lengths.values())
         if not lengths:
             return 0
@@ -268,7 +343,15 @@ class StageHDF5Reader(HDF5Reader):
         return lengths[0]
 
     def process_cfg(self) -> dict[str, object] | None:
-        """Return the stored configuration for the referenced stage(s), if any."""
+        """Return the stored configuration for the referenced stage(s), if any.
+
+        Returns
+        -------
+        dict or object or None
+            Parsed YAML configuration stored under stage metadata. A single
+            stage yields its parsed object directly; multiple stages return a
+            mapping from stage name to parsed object.
+        """
         with h5py.File(self.file_paths[0], "r") as in_file:
             stage_names = sorted(set(self._resolved_products[0].values()))
             cfg_map: dict[str, object | None] = {}
@@ -295,7 +378,19 @@ class StageHDF5Reader(HDF5Reader):
         return cfg_map
 
     def get(self, idx: int) -> dict[str, object]:
-        """Return one merged cache entry."""
+        """Return one merged cache entry.
+
+        Parameters
+        ----------
+        idx : int
+            Dataset entry index in the staged cache.
+
+        Returns
+        -------
+        dict[str, object]
+            Raw merged event dictionary containing standard metadata plus all
+            requested stage products for the selected entry.
+        """
         if idx < 0 or idx >= len(self):
             raise IndexError(
                 f"Index {idx} out of bounds for dataset of size {len(self)}."
