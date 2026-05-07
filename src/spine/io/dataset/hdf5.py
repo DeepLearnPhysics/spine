@@ -101,11 +101,6 @@ class HDF5Dataset(BaseDataset):
             for data_product, parser_cfg in schema.items():
                 parser_cfg = dict(parser_cfg)
                 parser_stage = parser_cfg.pop("stage", stage)
-                if staged and parser_stage is None:
-                    raise ValueError(
-                        f"Must provide a `stage` for staged HDF5 parser '{data_product}', "
-                        "either at the dataset level or inside its schema block."
-                    )
                 parser = instantiate(
                     PARSER_DICT, parser_cfg, alt_name="parser", dtype=dtype
                 )

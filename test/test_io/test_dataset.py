@@ -212,20 +212,55 @@ def test_hdf5_dataset_uses_stage_reader(monkeypatch, hdf5_data):
     assert dataset.reader.stage == "deghosting"
 
 
-def test_hdf5_dataset_requires_stage_for_staged_schema(hdf5_data):
-    """Staged schemas should require a stage at either dataset or parser level."""
-    with pytest.raises(ValueError, match="Must provide a `stage`"):
-        HDF5Dataset(
-            file_keys=hdf5_data,
-            staged=True,
-            dtype="float32",
-            schema={
-                "data_adapt": {
-                    "parser": "tensor",
-                    "tensor_event": "data_adapt",
-                }
-            },
-        )
+def test_hdf5_dataset_allows_stage_autodiscovery(monkeypatch, hdf5_data):
+    """Staged schemas should allow the reader to auto-discover product stages."""
+
+    class DummyStageReader:
+        def __init__(self, stage=None, stage_map=None, keys=None, **kwargs):
+            self.stage = stage
+            self.stage_map = stage_map
+            self.keys = keys
+            self.kwargs = kwargs
+
+        def __len__(self):
+            return 1
+
+        def __getitem__(self, idx):
+            return {
+                "index": idx,
+                "file_index": 0,
+                "file_entry_index": 0,
+                "source_file_name": "dummy.h5",
+                "source_file_size": 123,
+                "source_file_mtime_ns": 456,
+                "source_file_entry_index": 9,
+                "data_adapt": np.asarray([[1, 2, 3, 10, 11]], dtype=np.float32),
+            }
+
+    monkeypatch.setattr(hdf5_dataset_module, "StageHDF5Reader", DummyStageReader)
+
+    dataset = HDF5Dataset(
+        file_keys=hdf5_data,
+        staged=True,
+        dtype="float32",
+        schema={
+            "data_adapt": {
+                "parser": "tensor",
+                "tensor_event": "data_adapt",
+                "has_batch_col": False,
+                "coord_start_col": 0,
+                "feature_start_col": 3,
+            }
+        },
+    )
+
+    entry = dataset[0]
+    assert dataset.reader.stage is None
+    assert dataset.reader.stage_map == {}
+    np.testing.assert_array_equal(entry["data_adapt"].coords, np.asarray([[1, 2, 3]]))
+    np.testing.assert_array_equal(
+        entry["data_adapt"].features, np.asarray([[10, 11]], dtype=np.float32)
+    )
 
 
 def test_hdf5_dataset_rejects_conflicting_raw_product_stage(hdf5_data):
