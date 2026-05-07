@@ -3,15 +3,17 @@
 import numpy as np
 import pytest
 
-from spine.data import Meta
+from spine.data import Meta, ObjectList, Particle
 from spine.io.parse import (
     HDF5ClusterTensorParser,
     HDF5EdgeIndexParser,
     HDF5FeatureTensorParser,
     HDF5IndexListParser,
+    HDF5ObjectListParser,
+    HDF5ObjectParser,
     HDF5TensorParser,
 )
-from spine.io.parse.data import ParserTensor
+from spine.io.parse.data import ParserObjectList, ParserTensor
 
 
 def test_hdf5_feature_tensor_parser():
@@ -157,6 +159,50 @@ def test_hdf5_tensor_parser_rejects_invalid_batch_column_layout():
 
     with pytest.raises(ValueError, match="coord_start_col"):
         parser({"data": np.asarray([[1.0, 2.0, 3.0, 4.0]], dtype=np.float32)})
+
+
+def test_hdf5_object_parser_returns_cached_object():
+    """Object parser should forward reconstructed cached objects unchanged."""
+    parser = HDF5ObjectParser(dtype="float32", object_event="meta")
+    meta = Meta()
+
+    result = parser({"meta": meta})
+
+    assert result is meta
+
+
+def test_hdf5_object_list_parser_wraps_typed_object_list():
+    """Object-list parser should preserve explicit ObjectList typing."""
+    particles = ObjectList([Particle(id=1), Particle(id=2)], default=Particle())
+    parser = HDF5ObjectListParser(dtype="float32", object_list_event="particles")
+
+    result = parser({"particles": particles})
+
+    assert isinstance(result, ParserObjectList)
+    assert isinstance(result.default, Particle)
+    assert len(result) == 2
+    assert result[0].id == 1
+    assert result[1].id == 2
+
+
+def test_hdf5_object_list_parser_infers_default_from_first_element():
+    """Object-list parser should infer typing from non-empty plain lists."""
+    parser = HDF5ObjectListParser(dtype="float32", object_list_event="particles")
+
+    result = parser({"particles": [Particle(id=3)]})
+
+    assert isinstance(result, ParserObjectList)
+    assert isinstance(result.default, Particle)
+    assert len(result) == 1
+    assert result[0].id == 3
+
+
+def test_hdf5_object_list_parser_rejects_empty_untyped_lists():
+    """Empty plain lists should fail because their object type is ambiguous."""
+    parser = HDF5ObjectListParser(dtype="float32", object_list_event="particles")
+
+    with pytest.raises(ValueError, match="Cannot infer the default type"):
+        parser({"particles": []})
 
 
 def test_hdf5_index_list_parser_with_count_event():
