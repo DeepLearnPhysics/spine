@@ -315,6 +315,7 @@ class FullChain(torch.nn.Module):
         sources=None,
         seg_label=None,
         clust_label=None,
+        orig_index=None,
         coord_label=None,
         energy_label=None,
         meta=None,
@@ -338,6 +339,10 @@ class FullChain(torch.nn.Module):
         clust_label : TensorBatch, optional
             (N, 1 + D + N_c) Tensor of cluster labels
             - N_c is is the number of cluster labels
+        orig_index : IndexBatch, optional
+            (N_deghost) Index of the deghosted voxels in the original input
+            voxel ordering. This is used to adapt cluster labels on the fly
+            when deghosting was cached offline.
         coord_label : TensorBatch, optional
             (N, 1 + D + N_p) Tensor of point of interest labels
             - N_p is the number point labels
@@ -362,7 +367,9 @@ class FullChain(torch.nn.Module):
         # Run the semantic segmentation (and point proposal) stage
         if self.calibration_stage == "segmentation":
             data = self.run_calibration(data, sources, energy_label, meta, run_info)
-        clust_label = self.run_segmentation_ppn(data, seg_label, clust_label)
+        clust_label = self.run_segmentation_ppn(
+            data, seg_label, clust_label, orig_index
+        )
 
         # Run the fragmentation stage
         if self.calibration_stage == "fragmentation":
@@ -540,7 +547,9 @@ class FullChain(torch.nn.Module):
             # Nothing to do
             return data, sources_adapt
 
-    def run_segmentation_ppn(self, data, seg_label=None, clust_label=None):
+    def run_segmentation_ppn(
+        self, data, seg_label=None, clust_label=None, orig_index=None
+    ):
         """Run the semantic segmentation and the point proposal algorithms.
 
         This classifies each individual voxel in the image into different
@@ -555,6 +564,10 @@ class FullChain(torch.nn.Module):
             (N, 1 + D + 1) Tensor of segmentation labels
         clust_label : TensorBatch, optional
             (N, 1 + D + N_c) Tensor of cluster labels
+        orig_index : IndexBatch, optional
+            (N_deghost) Index of the adapted voxels in the original input
+            voxel ordering. This is used to adapt cluster labels on the fly
+            when deghosting was cached offline.
         """
         if self.segmentation == "uresnet":
             # Run the data through the appropriate model
@@ -566,22 +579,29 @@ class FullChain(torch.nn.Module):
             # If the deghosting is done as part of this step, process it
             if "ghost" in res_seg:
                 # Store the ghost scores and the ghost mask
-                ghost_tensor = res_deghost["host"].tensor
+                ghost_tensor = res_seg["ghost"].tensor
                 ghost_pred = torch.argmax(ghost_tensor, dim=1)
+                adapt_index = torch.nonzero(ghost_pred == 0, as_tuple=False).flatten()
                 data_adapt = TensorBatch(
-                    data.tensor[ghost_pred == 0],
+                    data.tensor[adapt_index],
                     batch_size=data.batch_size,
+                    has_batch_col=True,
                     coord_cols=data.coord_cols,
+                )
+                orig_index_adapt = IndexBatch(
+                    adapt_index,
+                    offsets=data.edges[:-1],
+                    counts=data_adapt.counts,
                 )
                 ghost_pred = TensorBatch(ghost_pred, data.counts)
 
                 self.result["ghost_pred"] = ghost_pred
                 self.result["data_adapt"] = data_adapt
+                self.result["orig_index"] = orig_index_adapt
 
                 # If there are PPN outputs, deghost them
                 if "ppn_points" in res_seg:
-                    deghost_index = torch.where(ghost_pred == 0)[0]
-                    res_seg["ppn_points"] = res_seg["ppn_points"][deghost_index]
+                    res_seg["ppn_points"] = res_seg["ppn_points"][adapt_index]
                     for key in [
                         "ppn_masks",
                         "ppn_coords",
@@ -589,7 +609,7 @@ class FullChain(torch.nn.Module):
                         "ppn_classify_endpoints",
                     ]:
                         if key in res_seg:
-                            res_seg[key][-1] = res_seg[key][-1][deghost_index]
+                            res_seg[key][-1] = res_seg[key][-1][adapt_index]
 
             # Update the result dictionary
             self.result.update(res_seg)
@@ -600,9 +620,12 @@ class FullChain(torch.nn.Module):
             # If the rest of the chain is run, must adapt cluster labels now
             if seg_label is not None and clust_label is not None:
                 seg_pred = self.result["seg_pred"]
-                ghost_pred = self.result.get("ghost_pred", None)
+                orig_index = self.result.get("orig_index", orig_index)
                 clust_label = self.label_adapter(
-                    clust_label, seg_label, seg_pred, ghost_pred
+                    clust_label,
+                    seg_label,
+                    seg_pred,
+                    orig_index=orig_index,
                 )
 
                 self.result["clust_label_adapt"] = clust_label
