@@ -585,37 +585,47 @@ class StageHDF5Writer(HDF5Writer):
         if state is None or overwrite_stage:
             state = self._create_stage_state(stage, normalized)
 
-        for file_path, subset, _ in self.split_batch_by_source(normalized):
-            out_file, should_close = self._open_handle(file_path)
-            try:
-                self.ensure_source_group(out_file, subset, file_path)
-                stage_group = self._ensure_stage_group(
-                    out_file,
-                    file_path,
-                    stage,
-                    state,
-                    cfg=cfg,
-                    attrs=attrs,
-                    overwrite_stage=overwrite_stage,
-                )
+        original_keys = self.keys
+        original_type_dict = self.type_dict
+        original_object_dtypes = self.object_dtypes
+        original_event_dtype = self.event_dtype
+        try:
+            for file_path, subset, _ in self.split_batch_by_source(normalized):
+                out_file, should_close = self._open_handle(file_path)
+                try:
+                    self.ensure_source_group(out_file, subset, file_path)
+                    stage_group = self._ensure_stage_group(
+                        out_file,
+                        file_path,
+                        stage,
+                        state,
+                        cfg=cfg,
+                        attrs=attrs,
+                        overwrite_stage=overwrite_stage,
+                    )
 
-                self.keys = state.keys
-                self.type_dict = state.type_dict
-                self.object_dtypes = state.object_dtypes
-                self.event_dtype = state.event_dtype
+                    self.keys = state.keys
+                    self.type_dict = state.type_dict
+                    self.object_dtypes = state.object_dtypes
+                    self.event_dtype = state.event_dtype
 
-                for batch_id in range(len(subset["index"])):
-                    self.append_entry(stage_group, subset, batch_id)
+                    for batch_id in range(len(subset["index"])):
+                        self.append_entry(stage_group, subset, batch_id)
 
-                state.event_dtype = self.event_dtype
-                if self.flush_frequency is not None:
-                    state.entries_since_flush += len(subset["index"])
-                    if state.entries_since_flush >= self.flush_frequency:
-                        out_file.flush()
-                        state.entries_since_flush = 0
-            finally:
-                if should_close:
-                    out_file.close()
+                    state.event_dtype = self.event_dtype
+                    if self.flush_frequency is not None:
+                        state.entries_since_flush += len(subset["index"])
+                        if state.entries_since_flush >= self.flush_frequency:
+                            out_file.flush()
+                            state.entries_since_flush = 0
+                finally:
+                    if should_close:
+                        out_file.close()
+        finally:
+            self.keys = original_keys
+            self.type_dict = original_type_dict
+            self.object_dtypes = original_object_dtypes
+            self.event_dtype = original_event_dtype
 
     def finalize_stage(self, stage: str) -> None:
         """Mark one stage as complete in every touched cache file.
