@@ -28,6 +28,26 @@ class _MissingType:
     """Placeholder type used for annotations and simple availability checks."""
 
 
+class _MissingNamespace:
+    """Annotation-safe namespace for unavailable optional modules.
+
+    This allows type-hint evaluation of chained names such as
+    ``torch.utils.data.Dataset`` without importing the real dependency. Any
+    apparent runtime use still raises the original import error when called.
+    """
+
+    def __init__(self, error: str) -> None:
+        self._error = error
+
+    def __getattr__(self, name: str) -> Any:
+        if name and name[0].isupper():
+            return _MissingType
+        return self
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        raise ImportError(self._error)
+
+
 class _LazyModule:
     """Proxy that imports an optional module on first real use."""
 
@@ -91,12 +111,25 @@ class _MissingTorch(_LazyModule):
     """Torch proxy with a Tensor placeholder when torch is unavailable."""
 
     Tensor = _MissingType
+    BoolTensor = _MissingType
+    LongTensor = _MissingType
+    FloatTensor = _MissingType
+
+    def __getattr__(self, name: str) -> Any:
+        if name and name[0].isupper():
+            return _MissingType
+        return _MissingNamespace(self._error)
 
 
 class _MissingME(_LazyModule):
     """MinkowskiEngine proxy with a SparseTensor placeholder when unavailable."""
 
     SparseTensor = _MissingType
+
+    def __getattr__(self, name: str) -> Any:
+        if name and name[0].isupper():
+            return _MissingType
+        return _MissingNamespace(self._error)
 
 
 def _module_available(module_name: str) -> bool:
