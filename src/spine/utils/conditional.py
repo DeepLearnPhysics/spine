@@ -134,7 +134,15 @@ class _MissingME(_LazyModule):
 
 def _module_available(module_name: str) -> bool:
     if module_name in sys.modules:
-        return sys.modules[module_name] is not None
+        module = sys.modules[module_name]
+        if module is None:
+            return False
+
+        # Sphinx autodoc mock imports can populate `sys.modules` with lightweight
+        # placeholders that do not correspond to a real importable package. Only
+        # treat preloaded modules as available when they carry a real module spec.
+        if getattr(module, "__spec__", None) is not None:
+            return True
     try:
         return importlib.util.find_spec(module_name) is not None
     except (ImportError, ValueError):
