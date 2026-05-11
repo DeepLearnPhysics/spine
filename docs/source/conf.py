@@ -15,6 +15,11 @@ import sys
 sys.path.insert(0, os.path.abspath("../../src"))
 sys.path.insert(0, os.path.abspath("./"))
 
+# Force SPINE optional-dependency detection into documentation-safe mode.
+# RTD/Sphinx may inject mocked modules for unavailable packages; for docs we
+# want those dependencies to behave as absent so lazy proxies remain import-safe.
+os.environ.setdefault("SPINE_DOC_BUILD", "1")
+
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 

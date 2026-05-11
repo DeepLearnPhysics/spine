@@ -8,6 +8,7 @@ deferred until an attribute on the proxy is used.
 
 import importlib
 import importlib.util
+import os
 import sys
 from typing import TYPE_CHECKING, Any
 
@@ -133,6 +134,15 @@ class _MissingME(_LazyModule):
 
 
 def _module_available(module_name: str) -> bool:
+    if os.getenv("SPINE_DOC_BUILD") and module_name in {
+        "torch",
+        "MinkowskiEngine",
+        "MinkowskiFunctional",
+        "larcv",
+        "ROOT",
+    }:
+        return False
+
     if module_name in sys.modules:
         module = sys.modules[module_name]
         if module is None:
