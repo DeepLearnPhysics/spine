@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.12.0] - 2026-05-10
+
+### Added
+- **Staged HDF5 caching**: Add staged cache readers and writers that support one cache file per source file, per-stage completeness tracking, provenance validation, and staged cache reuse across sequential workflows ([#128](https://github.com/DeepLearnPhysics/spine/pull/128)).
+- **Mixed dataset loading**: Add `MixedDataset` plus staged/flat `HDF5Dataset` support so live LArCV inputs can be aligned with cached HDF5 products in training and inference jobs ([#128](https://github.com/DeepLearnPhysics/spine/pull/128)).
+- **Generic HDF5 parsers**: Add cached-tensor, cached-index, and cached-object parsers for HDF5-backed SPINE products, including feature ablation and cluster-tensor reconstruction support ([#128](https://github.com/DeepLearnPhysics/spine/pull/128)).
+- **Data augmentation**: Add rotation and pixel-jitter augmentation plus broader augmentation test coverage and geometry-aware worker initialization ([#127](https://github.com/DeepLearnPhysics/spine/pull/127)).
+- **Validation tooling**: Update `bin/output_check_valid.py` to prefer staged-cache completeness and provenance metadata when available while preserving legacy fallback checks.
+
+### Changed
+- **I/O package structure**: Reorganize `spine.io` around top-level readers, writers, parsers, datasets, augmentation, collation, overlay, and sampling utilities, replacing the older `core`/`torch` split ([#128](https://github.com/DeepLearnPhysics/spine/pull/128)).
+- **Writers**: Extend HDF5, staged HDF5, and CSV writers with cleaner prefix/suffix/directory handling and driver-facing staged-writer integration ([#128](https://github.com/DeepLearnPhysics/spine/pull/128)).
+- **Documentation**: Refresh the `spine.io` API docs to reflect the new staged-cache and dataset structure, and harden docs builds against missing optional ML dependencies.
+- **Testing**: Expand `spine.io`, augmentation, bin-script, and staged-cache regression coverage substantially; restore full `spine.io` coverage after the refactor ([#127](https://github.com/DeepLearnPhysics/spine/pull/127), [#128](https://github.com/DeepLearnPhysics/spine/pull/128)).
+
+### Fixed
+- **GrapPA caching path**: Preserve the standard GrapPA path while supporting cached cluster/edge/feature inputs, and fix related geometric-feature and Numba indexing/reshape issues ([#128](https://github.com/DeepLearnPhysics/spine/pull/128)).
+- **Cluster-label adaptation**: Switch full-chain cluster label adaptation to use `orig_index` provenance instead of dense ghost masks, enabling cached deghosted workflows with evolving segmentation predictions ([#128](https://github.com/DeepLearnPhysics/spine/pull/128)).
+- **Optional imports**: Make optional-dependency proxies and docs builds robust when PyTorch and other heavy dependencies are absent or mocked.
+- **Stage writer stability**: Isolate per-stage schema state correctly so staged cache writes do not leak product definitions across stages ([#128](https://github.com/DeepLearnPhysics/spine/pull/128)).
+
+### Notes
+- **Caching workflow maturity**: This release includes the core staged-caching infrastructure needed for sequential training and inference workflows. The end-to-end full-chain caching-enabled training workflow has not yet been exhaustively validated across every stage and may still require additional integration debugging.
+
 ## [0.11.1] - 2026-04-29
 
 ### Added
