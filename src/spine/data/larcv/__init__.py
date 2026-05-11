@@ -17,6 +17,8 @@ __all__ = [
     # CRT
     "CRTHit",
     # Meta
+    "ImageMeta2D",
+    "ImageMeta3D",
     "Meta",
     # Neutrino
     "Neutrino",

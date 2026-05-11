@@ -25,7 +25,7 @@ from .banner import ascii_logo
 from .construct import BuildManager
 from .geo import GeoManager
 from .io import reader_factory, writer_factory
-from .io.core.write.csv import CSVWriter
+from .io.write.csv import CSVWriter
 from .math import seed as numba_seed
 from .model import ModelManager
 from .post import PostManager
@@ -670,6 +670,9 @@ class Driver:
         # Clean up: close all analysis script CSV writers
         if self.ana is not None:
             self.ana.close()
+        if self.writer is not None:
+            self.writer.finalize()
+            self.writer.close()
 
     def process(
         self, entry=None, run=None, subrun=None, event=None, iteration=None, epoch=None

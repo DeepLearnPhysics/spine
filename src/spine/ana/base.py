@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 from warnings import warn
 
-from spine.io.core.write.csv import CSVWriter
+from spine.io.write.csv import CSVWriter
 
 
 class AnaBase(ABC):

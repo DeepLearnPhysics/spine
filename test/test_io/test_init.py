@@ -1,10 +1,10 @@
-"""Test that optional I/O dependencies are handled properly."""
+"""Tests for top-level IO package behavior."""
 
 import pytest
 
 
 def test_torch_io_conditional_import():
-    """Test that torch IO can be conditionally imported."""
+    """The top-level IO package should expose the torch availability flag."""
     from spine.io import TORCH_IO_AVAILABLE
 
     if TORCH_IO_AVAILABLE:
@@ -17,15 +17,15 @@ def test_torch_io_conditional_import():
 
 
 def test_meta_import():
-    """Test that Meta can be imported from spine.data.meta."""
+    """Meta should still be importable independently of the IO refactor."""
     from spine.data import Meta
 
     assert Meta is not None
 
 
-@pytest.mark.skipif(condition=True, reason="ROOT tests require optional dependencies")
-def test_root_dependent_functionality():
-    """Test ROOT-dependent functionality (skipped in CI)."""
-    # This test would run locally but be skipped in CI
-    # ROOT-specific tests would go here
-    assert True
+def test_io_exports_read_write_factories():
+    """The top-level IO package should still export the main factories."""
+    from spine.io import reader_factory, writer_factory
+
+    assert callable(reader_factory)
+    assert callable(writer_factory)
