@@ -1,7 +1,10 @@
 Input/Output Module
 ===================
 
-The ``spine.io`` module handles data ingress and egress for SPINE jobs. It includes framework-independent readers and writers as well as PyTorch-aware dataset, collation, augmentation, and sampling utilities used during model training and inference.
+The ``spine.io`` module handles data ingress and egress for SPINE jobs. It
+provides readers and writers for event data, parsers that translate raw
+storage products into SPINE parser objects, and the dataset/collation tools
+used during model training and inference.
 
 .. currentmodule:: spine.io
 
@@ -11,12 +14,18 @@ The ``spine.io`` module handles data ingress and egress for SPINE jobs. It inclu
 Overview
 --------
 
-The I/O layer is split into two main parts:
+The I/O layer is organized into a few cooperating pieces:
 
-- **Core I/O** for framework-independent reading and writing of HDF5, LArCV, ROOT, and related event data
-- **Torch I/O** for datasets, collation, augmentation, overlays, and sampling in ML workflows
+- **Readers** expose event products from on-disk formats such as HDF5 and
+  LArCV.
+- **Writers** persist flat outputs and staged cache products.
+- **Parsers** convert raw reader outputs into SPINE parser products used by
+  downstream code.
+- **Datasets and pipeline utilities** bridge readers/parsers into PyTorch
+  data loading workflows.
 
-This is the first stage of the driver pipeline and the point where external detector data is mapped into SPINE's internal data structures.
+This is the first stage of the driver pipeline and the point where external
+detector data is mapped into SPINE's internal data structures.
 
 File Readers
 ------------
@@ -24,8 +33,9 @@ File Readers
 .. autosummary::
    :toctree: generated
 
-   core.read.HDF5Reader
-   core.read.LArCVReader
+   read.HDF5Reader
+   read.LArCVReader
+   read.StageHDF5Reader
 
 File Writers
 ------------
@@ -33,20 +43,55 @@ File Writers
 .. autosummary::
    :toctree: generated
 
-   core.write.HDF5Writer
-   core.write.CSVWriter
+   write.HDF5Writer
+   write.CSVWriter
+   write.StageHDF5Writer
 
-Data Processing
----------------
+Datasets
+--------
+
+The dataset layer bridges low-level readers and parser logic into PyTorch
+``Dataset`` objects. The staged cache workflow is exposed through the HDF5
+dataset and the mixed LArCV/HDF5 dataset.
+
+.. autosummary::
+   :toctree: generated
+
+   dataset.LArCVDataset
+   dataset.HDF5Dataset
+   dataset.MixedDataset
+
+Parsers
+-------
+
+Parsers translate raw reader outputs into framework-neutral parser products.
+The HDF5 parser layer includes generic tensor, index, and object parsers for
+cached data products.
+
+.. autosummary::
+   :toctree: generated
+
+   parse.base
+   parse.data
+   parse.clean_data
+   parse.hdf5.tensor
+   parse.hdf5.index
+   parse.hdf5.object
+   parse.larcv.misc
+   parse.larcv.sparse
+   parse.larcv.cluster
+   parse.larcv.particle
+
+Data Pipeline Utilities
+-----------------------
 
 Tools for dataset preparation, augmentation, collation, and sampling.
 
 .. autosummary::
    :toctree: generated
 
-   torch.collate
-   torch.dataset
-   torch.sample
-   torch.augment
-   torch.overlay
-   torch.factories
+   collate
+   sample
+   augment
+   overlay
+   factories

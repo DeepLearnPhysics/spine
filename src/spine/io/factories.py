@@ -25,23 +25,20 @@ __all__ = [
 
 
 def reader_factory(reader_cfg: Mapping[str, Any] | str) -> Any:
-    """Instantiates reader based on type specified in configuration under
-    `io.reader.name`. The name must match the name of a class under
-    `spine.io.readers`.
+    """Instantiate a reader from a configuration block.
+
+    The configured ``name`` must match a reader class exported from
+    :mod:`spine.io.read`.
 
     Parameters
     ----------
-    reader_cfg : dict
-        Writer configuration dictionary
+    reader_cfg : Mapping[str, Any] or str
+        Reader configuration dictionary or the short reader name.
 
     Returns
     -------
     object
-        Writer object
-
-    Note
-    ----
-    Currently the choice is limited to `HDF5Writer` only.
+        Instantiated reader object.
     """
     # Initialize reader
     return instantiate(READER_DICT, reader_cfg)
@@ -52,27 +49,26 @@ def writer_factory(
     prefix: str | list[str] | None = None,
     split: bool = False,
 ) -> Any:
-    """Instantiates writer based on type specified in configuration under
-    `io.writer.name`. The name must match the name of a class under
-    `spine.io.writers`.
+    """Instantiate a writer from a configuration block.
+
+    The configured ``name`` must match a writer class exported from
+    :mod:`spine.io.write`.
 
     Parameters
     ----------
-    writer_cfg : dict
-        Writer configuration dictionary
-    prefix : str, optional
-        Input file prefix to use as an output name
+    writer_cfg : Mapping[str, Any] or str
+        Writer configuration dictionary or the short writer name.
+    prefix : str or list[str], optional
+        Input file prefix or per-file list of prefixes used to derive output
+        names when the writer supports prefix-based naming.
     split : bool, default False
-        Split the output into one file per input file
+        Request one output file per input file. Writers that do not support
+        unsplit output may reject ``split=False`` explicitly.
 
     Returns
     -------
     object
-        Writer object
-
-    Note
-    ----
-    Currently the choice is limited to `HDF5Writer` only.
+        Instantiated writer object.
     """
     # Initialize writer
     extra_kwargs = {}
