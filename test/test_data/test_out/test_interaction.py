@@ -418,3 +418,17 @@ class TestTruthInteraction:
 
         assert obj.pdg_code == 12
         assert obj.energy_init == 1.0
+
+    def test_truthinteraction_from_particles_preserves_units(self):
+        """Truth interactions should inherit particle coordinate units."""
+        from spine.data.out.interaction import TruthInteraction
+        from spine.data.out.particle import TruthParticle
+
+        particles = [
+            TruthParticle(id=0, interaction_id=0, units="px"),
+            TruthParticle(id=1, interaction_id=0, units="px"),
+        ]
+
+        interaction = TruthInteraction.from_particles(particles)
+
+        assert interaction.units == "px"

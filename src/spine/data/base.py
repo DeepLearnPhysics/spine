@@ -161,6 +161,22 @@ class DataBase:
                 # Cast the array to the correct type
                 setattr(self, field.name, np.asarray(value, dtype=meta.dtype))
 
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        """Restore pickled instances and rebuild per-class cached metadata.
+
+        Objects transferred across multiprocessing worker boundaries are
+        unpickled without running ``__post_init__`` again. Rebuild the cached
+        class attribute lists in the receiving process so methods relying on
+        them, such as unit conversion, still work.
+
+        Parameters
+        ----------
+        state : dict
+            Pickled instance state
+        """
+        self.__dict__.update(state)
+        type(self)._ensure_cached_attrs()
+
     def __eq__(self, other: object) -> bool:
         """Checks that all attributes of two class instances are the same.
 
