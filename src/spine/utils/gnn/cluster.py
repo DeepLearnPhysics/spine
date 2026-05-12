@@ -1247,7 +1247,7 @@ def _get_cluster_dedxs(
         dedxs[k] = cluster_dedx(
             voxels[clusts[ids[k]]],
             values[clusts[ids[k]]],
-            starts[k].astype(np.float64),
+            starts[k],
             max_dist,
             anchor,
         )
@@ -1287,6 +1287,8 @@ def cluster_dedx(
     assert (
         voxels.shape[1] == 3
     ), "The shape of the input is not compatible with voxel coordinates."
+
+    start = start.astype(voxels.dtype)
 
     # If necessary, anchor start point to the closest cluster point
     if anchor:
@@ -1352,6 +1354,8 @@ def cluster_dedx_dir(
     assert (
         voxels.shape[1] == 3
     ), "The shape of the input is not compatible with voxel coordinates."
+
+    start = start.astype(voxels.dtype)
 
     # If necessary, anchor start point to the closest cluster point
     if anchor:
