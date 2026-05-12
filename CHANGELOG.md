@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.12.2] - 2026-05-12
+
+### Fixed
+- **Truth object units**: Rebuild per-class field metadata caches after multiprocessing worker unpickle so truth particle and interaction coordinates convert from pixel units to detector coordinates correctly during output construction.
+
 ## [0.12.1] - 2026-05-11
 
 ### Fixed
