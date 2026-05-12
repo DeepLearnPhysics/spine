@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.12.1] - 2026-05-11
+
+### Fixed
+- **GrapPA cluster dE/dx**: Normalize mixed coordinate dtypes before anchored distance calls so GrapPA feature engineering no longer fails in Numba when `start` arrives as `float64` and voxel coordinates are `float32`.
+
 ## [0.12.0] - 2026-05-10
 
 ### Added
