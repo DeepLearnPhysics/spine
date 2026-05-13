@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.12.3] - 2026-05-12
+
+### Added
+- **Data attribute introspection**: Add `DataBase.attr_names()` to expose the
+  full valid attribute surface, including derived and serialization-skipped
+  attributes by default.
+
+### Fixed
+- **Output visualization attributes**: Use `DataBase.attr_names()` when
+  validating drawer hover attributes so derived quantities such as
+  `RecoParticle.ke` can be displayed.
+
 ## [0.12.2] - 2026-05-12
 
 ### Fixed

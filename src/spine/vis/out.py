@@ -1,7 +1,5 @@
 """Draw reconstruction output-level objects"""
 
-from dataclasses import asdict
-
 import numpy as np
 from plotly import graph_objs as go
 
@@ -271,7 +269,7 @@ class Drawer:
             class_obj = getattr(spine.data.out, class_name)()
 
             # Find list of valid attributes for this object type and declination
-            valid_attrs = set(asdict(class_obj).keys())
+            valid_attrs = set(class_obj.attr_names())
             attrs[prefix] = req_attrs.intersection(valid_attrs)
             found_attrs.update(attrs[prefix])
 

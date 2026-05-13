@@ -354,6 +354,50 @@ class TestDataBase:
         assert "skip_field" not in result
         assert "lite_skip_field" not in result  # Should be skipped in lite mode
 
+    def test_attr_names_includes_all_attrs_by_default(self):
+        """Test attr_names includes fields, skipped fields and derived attributes."""
+        attrs = DerivedData.attr_names()
+
+        assert "_value" in attrs
+        assert "energy" in attrs
+        assert "ke" in attrs
+
+        skip_attrs = SkipData.attr_names()
+
+        assert "visible" in skip_attrs
+        assert "skip_field" in skip_attrs
+        assert "lite_skip_field" in skip_attrs
+
+    def test_attr_names_can_match_as_dict_keys(self):
+        """Test attr_names can expose the serialization attribute policy."""
+        obj = SkipData()
+
+        attrs = SkipData.attr_names(include_skipped=False)
+
+        assert set(attrs) == set(obj.as_dict())
+        assert "visible" in attrs
+        assert "skip_field" not in attrs
+        assert "lite_skip_field" in attrs
+
+    def test_attr_names_can_match_lite_as_dict_keys(self):
+        """Test attr_names can expose the lite serialization attribute policy."""
+        obj = SkipData()
+
+        attrs = SkipData.attr_names(include_skipped=False, lite=True)
+
+        assert set(attrs) == set(obj.as_dict(lite=True))
+        assert "visible" in attrs
+        assert "skip_field" not in attrs
+        assert "lite_skip_field" not in attrs
+
+    def test_attr_names_can_exclude_derived(self):
+        """Test attr_names can exclude derived properties."""
+        attrs = DerivedData.attr_names(include_derived=False)
+
+        assert "_value" in attrs
+        assert "energy" not in attrs
+        assert "ke" not in attrs
+
     def test_scalar_dict_scalars(self):
         """Test scalar_dict with scalar attributes."""
         obj = SimpleData(value=42, name="test")
