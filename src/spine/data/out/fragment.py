@@ -188,7 +188,7 @@ class TruthFragment(Particle, FragmentBase, TruthBase):
         return "Truth" + super().__str__()
 
     @property
-    @stored_property
+    @stored_property(length=3, dtype=np.float32, vector=True)
     def start_dir(self) -> np.ndarray:
         """Converts the initial momentum to a direction vector.
 
@@ -204,7 +204,7 @@ class TruthFragment(Particle, FragmentBase, TruthBase):
         return np.full(3, np.nan, dtype=np.float32)
 
     @property
-    @stored_property
+    @stored_property(length=3, dtype=np.float32, vector=True)
     def end_dir(self) -> np.ndarray:
         """Converts the final momentum to a direction vector.
 

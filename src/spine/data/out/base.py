@@ -146,7 +146,7 @@ class OutBase(PosDataBase):
         return np.sum(self.depositions).item()
 
     @property
-    @stored_property
+    @stored_property(dtype=np.int32)
     def module_ids(self) -> np.ndarray:
         """List of modules that contribute to this object.
 

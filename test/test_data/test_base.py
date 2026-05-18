@@ -9,6 +9,10 @@ import pytest
 from spine.data.base import DataBase, PosDataBase
 from spine.data.decorator import stored_alias, stored_property
 from spine.data.field import FieldMetadata
+from spine.data.out.base import OutBase
+from spine.data.out.fragment import TruthFragment
+from spine.data.out.interaction import InteractionBase
+from spine.data.out.particle import RecoParticle, TruthParticle
 
 
 class SampleParticleType(IntEnum):
@@ -506,6 +510,35 @@ class TestDataBase:
         units = obj.field_units
 
         assert units["energy"] == "MeV"
+
+    def test_output_stored_property_metadata(self):
+        """Test stored output properties carry array and unit metadata."""
+        classes = (OutBase, TruthFragment, RecoParticle, TruthParticle, InteractionBase)
+
+        for cls in classes:
+            for name, meta in cls._get_stored_properties().items():
+                if meta.return_type is np.ndarray:
+                    assert meta.dtype is not None, (
+                        f"{cls.__name__}.{name} is an array stored property "
+                        "without dtype metadata"
+                    )
+
+        assert OutBase._get_stored_properties()["module_ids"].dtype is np.int32
+
+        truth_fragment_meta = TruthFragment._get_stored_properties()
+        assert truth_fragment_meta["start_dir"].vector
+        assert truth_fragment_meta["end_dir"].vector
+
+        reco_particle_meta = RecoParticle._get_stored_properties()
+        assert not reco_particle_meta["momentum"].vector
+        assert reco_particle_meta["momentum"].units == "MeV/c"
+
+        truth_particle_meta = TruthParticle._get_stored_properties()
+        assert truth_particle_meta["start_dir"].vector
+        assert truth_particle_meta["end_dir"].vector
+        assert truth_particle_meta["ke"].units == "MeV"
+        assert not truth_particle_meta["reco_momentum"].vector
+        assert truth_particle_meta["reco_momentum"].units == "MeV/c"
 
     def test_value_with_units(self):
         """Test fetching an attribute value alongside its units."""

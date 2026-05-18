@@ -588,7 +588,7 @@ class TruthParticle(Particle, ParticleBase, TruthBase):
         return "Truth" + super().__str__()
 
     @property
-    @stored_property(length=3, dtype=np.float32)
+    @stored_property(length=3, dtype=np.float32, vector=True)
     def start_dir(self) -> np.ndarray:
         """Converts the initial momentum to a direction vector.
 
@@ -604,7 +604,7 @@ class TruthParticle(Particle, ParticleBase, TruthBase):
         return np.full(3, np.nan, dtype=np.float32)
 
     @property
-    @stored_property(length=3, dtype=np.float32)
+    @stored_property(length=3, dtype=np.float32, vector=True)
     def end_dir(self) -> np.ndarray:
         """Converts the final momentum to a direction vector.
 
@@ -624,7 +624,7 @@ class TruthParticle(Particle, ParticleBase, TruthBase):
         return np.full(3, np.nan, dtype=np.float32)
 
     @property
-    @stored_property(units="MeV/c^2")
+    @stored_property(units="MeV")
     def ke(self) -> float:
         """Converts the particle initial energy to a kinetic energy.
 
