@@ -9,6 +9,7 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  CACHE_IMAGE: ghcr.io/${{ github.repository }}:buildcache
 
 jobs:
   build-spine:
@@ -52,8 +53,13 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           pull: true
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: |
+            type=registry,ref=${{ env.CACHE_IMAGE }}
+            type=gha,scope=spine-${{ github.ref_name }}
+            type=gha,scope=spine-main
+          cache-to: |
+            type=registry,ref=${{ env.CACHE_IMAGE }},mode=max
+            type=gha,scope=spine-${{ github.ref_name }},mode=max
 
   cleanup-old-images:
     runs-on: ubuntu-latest

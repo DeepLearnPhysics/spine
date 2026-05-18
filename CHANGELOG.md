@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.12.4] - 2026-05-18
+
+### Changed
+- **Docker publishing**: Add a persistent Buildx registry cache for published
+  container builds so release-tag builds can reuse expensive dependency layers
+  across workflow runs instead of relying only on GitHub Actions cache scope.
+
+### Fixed
+- **Stored property metadata**: Add missing array metadata for output data
+  derived attributes so values such as `module_ids` and truth direction
+  vectors are correctly classified for scalar expansion and serialization
+  introspection.
+- **Truth particle units**: Correct `TruthParticle.ke` metadata from rest-mass
+  units to kinetic-energy units.
+
 ## [0.12.3] - 2026-05-12
 
 ### Added
