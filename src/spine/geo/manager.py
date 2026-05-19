@@ -1,20 +1,25 @@
 """Manages a singleton instance of a Geometry class."""
 
+from __future__ import annotations
+
 import inspect
-from typing import Optional
 
 from .base import Geometry
 from .factories import geo_factory
+from .utils import version_matches
 
 
 class GeoManager:
     """Manages a singleton instance of a Geometry class."""
 
-    _instance: Optional[Geometry] = None
+    _instance: Geometry | None = None
 
     @classmethod
     def initialize(
-        cls, detector: str, tag: Optional[str] = None, version: Optional[str] = None
+        cls,
+        detector: str,
+        tag: str | None = None,
+        version: str | int | float | None = None,
     ) -> Geometry:
         """Initialize the geometry module for a given detector.
 
@@ -41,7 +46,10 @@ class GeoManager:
 
     @classmethod
     def initialize_or_get(
-        cls, detector: str, tag: Optional[str] = None, version: Optional[str] = None
+        cls,
+        detector: str,
+        tag: str | None = None,
+        version: str | int | float | None = None,
     ) -> Geometry:
         """Initialize the geometry if needed, or return the existing instance.
 
@@ -62,7 +70,9 @@ class GeoManager:
         # If the geometry is already initialized, check if it matches the
         # requested configuration. If it does not match, initialize it again
         current = cls._instance
-        if current.name != detector or current.tag != tag or current.version != version:
+        version_mismatch = not version_matches(current.version, version)
+        tag_mismatch = tag is not None and current.tag != tag
+        if current.name.lower() != detector.lower() or tag_mismatch or version_mismatch:
             cls._instance = geo_factory(detector, tag, version)
 
         return cls._instance
@@ -116,7 +126,7 @@ class GeoManager:
         return cls._instance
 
     @classmethod
-    def get_instance_if_initialized(cls) -> Optional[Geometry]:
+    def get_instance_if_initialized(cls) -> Geometry | None:
         """Get the current geometry instance if initialized.
 
         Returns

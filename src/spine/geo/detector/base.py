@@ -5,7 +5,6 @@ This currently handles:
 """
 
 from dataclasses import dataclass
-from typing import List, Union
 
 import numpy as np
 
@@ -30,7 +29,7 @@ class Plane:
     norm: np.ndarray
     boundary: float
 
-    def __init__(self, intercept: np.ndarray, norm: np.ndarray):
+    def __init__(self, intercept: np.ndarray, norm: np.ndarray) -> None:
         """Initialize the box object.
 
         Parameters
@@ -77,7 +76,7 @@ class Box:
 
     boundaries: np.ndarray
 
-    def __init__(self, lower: np.ndarray, upper: np.ndarray):
+    def __init__(self, lower: np.ndarray, upper: np.ndarray) -> None:
         """Initialize the box object.
 
         Parameters
@@ -146,7 +145,7 @@ class Box:
         return float(np.prod(self.dimensions))
 
     @property
-    def faces(self) -> List[Plane]:
+    def faces(self) -> list[Plane]:
         """Returns the 6 faces of the box as Plane objects.
 
         Returns
@@ -171,7 +170,7 @@ class Box:
 
         return faces
 
-    def distance(self, points: np.ndarray) -> Union[float, np.ndarray]:
+    def distance(self, points: np.ndarray) -> float | np.ndarray:
         """Computes the minimum distance from a set of points to the box.
 
         If the point(s) is(are) inside the box, the distance is 0.
