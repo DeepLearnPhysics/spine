@@ -9,7 +9,7 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
-  CACHE_IMAGE: ghcr.io/deeplearnphysics/spine:buildcache
+  CACHE_IMAGE: ghcr.io/deeplearnphysics/spine-buildcache:buildcache
 
 jobs:
   build-spine:
