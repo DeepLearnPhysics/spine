@@ -24,10 +24,10 @@ Example
 
    from spine.construct import BuildManager
 
-   builder = BuildManager(config)
-   objects = builder.build_from_ml_chain(ml_results)
+   builder = BuildManager(fragments=True, particles=True, interactions=True)
+   builder(data)
 
-   interaction = objects.interactions[0]
+   interaction = data["reco_interactions"][0]
    particles = interaction.particles
    fragments = particles[0].fragments
 

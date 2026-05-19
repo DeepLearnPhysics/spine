@@ -261,6 +261,33 @@ class TestDataBase:
         assert "values=list(len=2)" in repr_str
         assert "SimpleData(" not in repr_str
 
+    def test_setstate_rebuilds_cached_attrs(self):
+        """Test that unpickled objects rebuild class-level cached metadata."""
+
+        @dataclass(eq=False)
+        class StatefulData(DataBase):
+            value: int = 0
+            array: np.ndarray = field(
+                default_factory=lambda: np.array([1.0, 2.0], dtype=np.float32),
+                metadata=FieldMetadata(length=2, dtype=np.float32),
+            )
+
+        _ = StatefulData()
+        StatefulData._attrs_cached = False  # pylint: disable=protected-access
+        StatefulData._fixed_length_attrs = ()  # pylint: disable=protected-access
+
+        restored = object.__new__(StatefulData)
+        restored.__setstate__(
+            {"value": 7, "array": np.array([3.0, 4.0], dtype=np.float32)}
+        )
+
+        assert restored.value == 7
+        assert np.array_equal(restored.array, np.array([3.0, 4.0], dtype=np.float32))
+        assert StatefulData._attrs_cached is True  # pylint: disable=protected-access
+        assert (
+            "array" in StatefulData._fixed_length_attrs
+        )  # pylint: disable=protected-access
+
     def test_array_dtype_casting(self):
         """Test that arrays are cast to correct dtype in __post_init__."""
         obj = ArrayData(position=np.array([1, 2, 3]))  # int array

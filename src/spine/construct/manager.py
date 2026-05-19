@@ -1,6 +1,10 @@
 """Class to build all require representations."""
 
+from __future__ import annotations
+
 from collections import OrderedDict, defaultdict
+from collections.abc import Sequence
+from typing import Any, ClassVar
 
 import numpy as np
 
@@ -9,6 +13,7 @@ from spine.constants import COORD_COLS, VALUE_COL
 from .fragment import FragmentBuilder
 from .interaction import InteractionBuilder
 from .particle import ParticleBuilder
+from .utils import RunMode, Units, get_batch_size, is_single_index
 
 
 class BuildManager:
@@ -27,7 +32,7 @@ class BuildManager:
 
     # Name of input data products needed to build representations. These names
     # are not set in stone; they can be set in the configuration
-    _sources = (
+    _default_sources: ClassVar[tuple[tuple[str, tuple[str, ...]], ...]] = (
         ("data_tensor", ("data_adapt", "data")),
         ("label_tensor", ("clust_label",)),
         ("label_adapt_tensor", ("clust_label_adapt",)),
@@ -46,14 +51,14 @@ class BuildManager:
 
     def __init__(
         self,
-        fragments,
-        particles,
-        interactions,
-        mode="both",
-        units="cm",
-        sources=None,
-        lite=False,
-    ):
+        fragments: bool,
+        particles: bool,
+        interactions: bool,
+        mode: RunMode = "both",
+        units: Units = "cm",
+        sources: dict[str, str | tuple[str, ...] | list[str]] | None = None,
+        lite: bool = False,
+    ) -> None:
         """Initializes the build manager.
 
         Parameters
@@ -74,31 +79,44 @@ class BuildManager:
             to long-form attributes. Simply load the matches.
         """
         # Check on the mode, store it
-        assert (
-            mode in self._run_modes
-        ), f"Run mode not recognized: {mode}. Must be one {self._run_modes}"
+        if mode not in self._run_modes:
+            raise ValueError(
+                f"Run mode not recognized: {mode}. Must be one {self._run_modes}"
+            )
         self.mode = mode
 
         # Check on the units, store them
-        assert (
-            units in self._units
-        ), f"Units not recognized: {units}. Must be one {self._units}"
+        if units not in self._units:
+            raise ValueError(
+                f"Units not recognized: {units}. Must be one {self._units}"
+            )
         self.units = units
 
-        # If custom sources are provided, update the tuple
+        # Resolve the per-instance source mapping
+        sources_dict = dict(self._default_sources)
         if sources is not None:
-            sources_dict = dict(self._sources)
             for key, value in sources.items():
-                assert key in sources_dict, (
-                    "Unexpected data product specified in `sources`: "
-                    f"{key}. Should be one of {list(sources_dict.keys())}."
-                )
+                if key not in sources_dict:
+                    raise KeyError(
+                        "Unexpected data product specified in `sources`: "
+                        f"{key}. Should be one of {list(sources_dict.keys())}."
+                    )
                 if isinstance(value, str):
                     sources_dict[key] = (value,)
                 else:
+                    if not isinstance(value, Sequence) or isinstance(
+                        value, (str, bytes)
+                    ):
+                        raise TypeError(
+                            "Source overrides must be strings or sequences of strings."
+                        )
+                    if not all(isinstance(item, str) for item in value):
+                        raise TypeError(
+                            "Source override sequences must contain only strings."
+                        )
                     sources_dict[key] = tuple(value)
 
-            self._sources = tuple(sources_dict.items())
+        self.sources = sources_dict
 
         # Initialize the builders
         self.builders = OrderedDict()
@@ -107,16 +125,17 @@ class BuildManager:
         if particles:
             self.builders["particle"] = ParticleBuilder(mode, units)
         if interactions:
-            assert particles, (
-                "Interactions are built from particles. If `interactions` "
-                "is True, so must `particles` be."
-            )
+            if not particles:
+                raise ValueError(
+                    "Interactions are built from particles. If `interactions` "
+                    "is True, so must `particles` be."
+                )
             self.builders["interaction"] = InteractionBuilder(mode, units)
 
         # Store whether to load the long-form attributes or not
         self.lite = lite
 
-    def __call__(self, data):
+    def __call__(self, data: dict[str, Any]) -> None:
         """Build the representations for one entry.
 
         Parameters
@@ -133,11 +152,11 @@ class BuildManager:
         load = True
         if not self.lite and "points" not in data and "points_label" not in data:
             load = False
-            if np.isscalar(data["index"]):
+            if is_single_index(data["index"]):
                 sources = self.build_sources(data)
             else:
                 sources = defaultdict(list)
-                for entry in range(len(data["index"])):
+                for entry in range(get_batch_size(data["index"])):
                     sources_e = self.build_sources(data, entry)
                     for key, val in sources_e.items():
                         sources[key].append(val)
@@ -151,18 +170,20 @@ class BuildManager:
 
             # Generate match pairs from stored matches
             if load and self.mode in ["both", "all"]:
-                if np.isscalar(data["index"]):
+                if is_single_index(data["index"]):
                     match_dict = self.load_match_pairs(data, name)
                 else:
                     match_dict = defaultdict(list)
-                    for entry in range(len(data["index"])):
+                    for entry in range(get_batch_size(data["index"])):
                         match_dict_e = self.load_match_pairs(data, name, entry)
                         for key, val in match_dict_e.items():
                             match_dict[key].append(val)
 
                 data.update(**match_dict)
 
-    def build_sources(self, data, entry=None):
+    def build_sources(
+        self, data: dict[str, Any], entry: int | None = None
+    ) -> dict[str, Any]:
         """Construct the reference coordinate and value tensors used by
         all the representations built by the module.
 
@@ -178,7 +199,7 @@ class BuildManager:
         """
         # Fetch the orginal sources
         sources = {}
-        for key, alt_keys in self._sources:
+        for key, alt_keys in self.sources.items():
             for alt in alt_keys:
                 if alt in data:
                     sources[key] = data[alt]
@@ -242,7 +263,8 @@ class BuildManager:
         # Convert everything to the proper units once and for all
         if self.units != "px":
             # Fetch metadata
-            assert "meta" in data, "Must provide metadata to build objects in cm."
+            if "meta" not in data:
+                raise KeyError("Must provide metadata to build objects in cm.")
 
             meta = data["meta"][entry] if entry is not None else data["meta"]
             for key in update:
@@ -260,7 +282,9 @@ class BuildManager:
         return update
 
     @staticmethod
-    def load_match_pairs(data, name, entry=None):
+    def load_match_pairs(
+        data: dict[str, Any], name: str, entry: int | None = None
+    ) -> dict[str, list[Any]]:
         """Generate lists of matched object pairs from stored matches.
 
         Parameters

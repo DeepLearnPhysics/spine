@@ -1,5 +1,8 @@
 """Class in charge of constructing Interaction objects."""
 
+from __future__ import annotations
+
+from typing import Any
 from warnings import warn
 
 import numpy as np
@@ -38,7 +41,7 @@ class InteractionBuilder(BuilderBase):
     # Necessary/optional data products to load a truth object
     _load_truth_keys = (("truth_interactions", True), ("truth_particles", True))
 
-    def build_reco(self, data):
+    def build_reco(self, data: dict[str, Any]) -> list[RecoInteraction]:
         """Builds :class:`RecoInteraction` objects from the full chain output.
 
         Parameters
@@ -53,7 +56,7 @@ class InteractionBuilder(BuilderBase):
         """
         return self._build_reco(**data)
 
-    def _build_reco(self, reco_particles):
+    def _build_reco(self, reco_particles: list[Any]) -> list[RecoInteraction]:
         """Builds :class:`RecoInteraction` objects from the full chain output.
 
         This class builds an interaction by assembling particles together.
@@ -73,7 +76,8 @@ class InteractionBuilder(BuilderBase):
         inter_ids = np.array([part.interaction_id for part in reco_particles])
         for i, inter_id in enumerate(np.unique(inter_ids)):
             # Get the list of particles associates with this interaction
-            assert inter_id > -1, "Invalid reconstructed interaction ID found."
+            if inter_id <= -1:
+                raise ValueError("Invalid reconstructed interaction ID found.")
             particle_ids = np.where(inter_ids == inter_id)[0]
             inter_particles = [reco_particles[j] for j in particle_ids]
 
@@ -92,7 +96,7 @@ class InteractionBuilder(BuilderBase):
 
         return reco_interactions
 
-    def build_truth(self, data):
+    def build_truth(self, data: dict[str, Any]) -> list[TruthInteraction]:
         """Builds :class:`TruthInteraction` objects from the full chain output.
 
         Parameters
@@ -107,7 +111,11 @@ class InteractionBuilder(BuilderBase):
         """
         return self._build_truth(**data)
 
-    def _build_truth(self, truth_particles, neutrinos=None):
+    def _build_truth(
+        self,
+        truth_particles: list[Any],
+        neutrinos: list[Any] | None = None,
+    ) -> list[TruthInteraction]:
         """Builds :class:`TruthInteraction` objects from the full chain output.
 
         This class builds an interaction by assembling particles together.
@@ -143,13 +151,18 @@ class InteractionBuilder(BuilderBase):
 
             # Append the neutrino information, if it is provided
             nu_ids = [part.nu_id for part in inter_particles]
-            assert len(np.unique(nu_ids)) == 1, (
-                "Interaction made up of particles with different "
-                "neutrino IDs. Must be unique."
-            )
+            if len(np.unique(nu_ids)) != 1:
+                raise ValueError(
+                    "Interaction made up of particles with different "
+                    "neutrino IDs. Must be unique."
+                )
             interaction.nu_id = nu_ids[0]
 
             if neutrinos is not None and nu_ids[0] > -1:
+                if nu_ids[0] >= len(neutrinos):
+                    raise ValueError(
+                        "Invalid neutrino ID found in truth interaction particles."
+                    )
                 interaction.attach_neutrino(neutrinos[nu_ids[0]])
 
             else:
@@ -168,7 +181,7 @@ class InteractionBuilder(BuilderBase):
 
         return truth_interactions
 
-    def load_reco(self, data):
+    def load_reco(self, data: dict[str, Any]) -> list[RecoInteraction]:
         """Load :class:`RecoInteraction` objects from their stored versions.
 
         Parameters
@@ -183,7 +196,11 @@ class InteractionBuilder(BuilderBase):
         """
         return self._load_reco(**data)
 
-    def _load_reco(self, reco_interactions, reco_particles):
+    def _load_reco(
+        self,
+        reco_interactions: list[RecoInteraction],
+        reco_particles: list[Any],
+    ) -> list[RecoInteraction]:
         """Load :class:`RecoInteraction` objects from their stored versions.
 
         Parameters
@@ -201,15 +218,13 @@ class InteractionBuilder(BuilderBase):
         # Loop over the dictionaries
         for i, interaction in enumerate(reco_interactions):
             # Check that the interaction ID checks out
-            assert (
-                interaction.id == i
-            ), "The ordering of the stored ineractions is wrong."
+            if interaction.id != i:
+                raise ValueError("The ordering of the stored interactions is wrong.")
 
             # Fetch and assign the list of particles matched to this interaction
             inter_particles = [reco_particles[j] for j in interaction.particle_ids]
-            assert len(
-                inter_particles
-            ), "Every interaction should contain >= 1 particle."
+            if not len(inter_particles):
+                raise ValueError("Every interaction should contain >= 1 particle.")
             interaction.particles = inter_particles
 
             # Update the interaction with its long-form attributes
@@ -219,7 +234,7 @@ class InteractionBuilder(BuilderBase):
 
         return reco_interactions
 
-    def load_truth(self, data):
+    def load_truth(self, data: dict[str, Any]) -> list[TruthInteraction]:
         """Load :class:`TruthInteraction` objects from their stored versions.
 
         Parameters
@@ -234,7 +249,11 @@ class InteractionBuilder(BuilderBase):
         """
         return self._load_truth(**data)
 
-    def _load_truth(self, truth_interactions, truth_particles):
+    def _load_truth(
+        self,
+        truth_interactions: list[TruthInteraction],
+        truth_particles: list[Any],
+    ) -> list[TruthInteraction]:
         """Load :class:`TruthInteraction` objects from their stored versions.
 
         Parameters
@@ -257,15 +276,13 @@ class InteractionBuilder(BuilderBase):
         # Loop over the dictionaries
         for i, interaction in enumerate(truth_interactions):
             # Check that the interaction ID checks out
-            assert (
-                interaction.id == i
-            ), "The ordering of the stored ineractions is wrong."
+            if interaction.id != i:
+                raise ValueError("The ordering of the stored interactions is wrong.")
 
             # Fetch and assign the list of particles matched to this interaction
             inter_particles = [truth_particles[j] for j in interaction.particle_ids]
-            assert len(
-                inter_particles
-            ), "Every interaction should contain >= 1 particle."
+            if not len(inter_particles):
+                raise ValueError("Every interaction should contain >= 1 particle.")
             interaction.particles = inter_particles
 
             # Update the interaction with its long-form attributes

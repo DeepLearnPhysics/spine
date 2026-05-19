@@ -1,5 +1,9 @@
 """Classes in charge of constructing Particle objects."""
 
+from __future__ import annotations
+
+from typing import Any
+
 import numpy as np
 from scipy.special import softmax
 
@@ -63,7 +67,7 @@ class ParticleBuilder(BuilderBase):
         *BuilderBase._load_truth_keys,
     )
 
-    def build_reco(self, data):
+    def build_reco(self, data: dict[str, Any]) -> list[RecoParticle]:
         """Builds :class:`RecoParticle` objects from the full chain output.
 
         Parameters
@@ -75,20 +79,20 @@ class ParticleBuilder(BuilderBase):
 
     def _build_reco(
         self,
-        points,
-        depositions,
-        particle_clusts,
-        particle_shapes,
-        particle_start_points,
-        particle_end_points,
-        particle_group_pred,
-        particle_node_type_pred,
-        particle_node_primary_pred,
-        particle_node_orient_pred=None,
-        sources=None,
-        orig_index=None,
-        reco_fragments=None,
-    ):
+        points: np.ndarray,
+        depositions: np.ndarray,
+        particle_clusts: list[np.ndarray],
+        particle_shapes: np.ndarray,
+        particle_start_points: np.ndarray,
+        particle_end_points: np.ndarray,
+        particle_group_pred: np.ndarray,
+        particle_node_type_pred: np.ndarray,
+        particle_node_primary_pred: np.ndarray,
+        particle_node_orient_pred: np.ndarray | None = None,
+        sources: np.ndarray | None = None,
+        orig_index: np.ndarray | None = None,
+        reco_fragments: list[Any] | None = None,
+    ) -> list[RecoParticle]:
         """Builds :class:`RecoParticle` objects from the full chain output.
 
         Parameters
@@ -131,12 +135,14 @@ class ParticleBuilder(BuilderBase):
         primary_scores = softmax(particle_node_primary_pred, axis=1)
         pid_pred = np.argmax(pid_scores, axis=1)
         primary_pred = np.argmax(primary_scores, axis=1)
+        orient_pred = None
         if particle_node_orient_pred is not None:
             orient_pred = np.argmax(particle_node_orient_pred, axis=1)
 
         # Prepare fragment associations, if they were built
+        particle_ids = np.empty(0, dtype=np.int64)
         if reco_fragments is not None:
-            particle_ids = [frag.particle_id for frag in reco_fragments]
+            particle_ids = np.array([frag.particle_id for frag in reco_fragments])
             particle_ids = np.unique(particle_ids, return_inverse=True)[-1]
 
         # Loop over the particle instances
@@ -164,9 +170,8 @@ class ParticleBuilder(BuilderBase):
             if particle.shape == TRACK_SHP:
                 particle.end_point = particle_end_points[i]
 
-            # If the orientation prediction is provided, use it
-            if orient_pred is not None and not orient_pred[i]:
-                if particle.shape == TRACK_SHP:
+                # If the orientation prediction is provided, use it
+                if orient_pred is not None and not orient_pred[i]:
                     particle.start_point, particle.end_point = (
                         particle.end_point,
                         particle.start_point,
@@ -194,7 +199,7 @@ class ParticleBuilder(BuilderBase):
 
         return reco_particles
 
-    def build_truth(self, data):
+    def build_truth(self, data: dict[str, Any]) -> list[TruthParticle]:
         """Builds :class:`TruthParticle` objects from the full chain output.
 
         Parameters
@@ -206,23 +211,23 @@ class ParticleBuilder(BuilderBase):
 
     def _build_truth(
         self,
-        particles,
-        label_tensor,
-        points_label,
-        depositions_label,
-        depositions_q_label=None,
-        label_adapt_tensor=None,
-        points=None,
-        depositions=None,
-        label_g4_tensor=None,
-        points_g4=None,
-        depositions_g4=None,
-        sources_label=None,
-        sources=None,
-        orig_index_label=None,
-        graph_label=None,
-        truth_fragments=None,
-    ):
+        particles: list[Any],
+        label_tensor: np.ndarray,
+        points_label: np.ndarray,
+        depositions_label: np.ndarray,
+        depositions_q_label: np.ndarray | None = None,
+        label_adapt_tensor: np.ndarray | None = None,
+        points: np.ndarray | None = None,
+        depositions: np.ndarray | None = None,
+        label_g4_tensor: np.ndarray | None = None,
+        points_g4: np.ndarray | None = None,
+        depositions_g4: np.ndarray | None = None,
+        sources_label: np.ndarray | None = None,
+        sources: np.ndarray | None = None,
+        orig_index_label: np.ndarray | None = None,
+        graph_label: np.ndarray | None = None,
+        truth_fragments: list[Any] | None = None,
+    ) -> list[TruthParticle]:
         """Builds :class:`TruthParticle` objects from the full chain output.
 
         Parameters
@@ -273,6 +278,7 @@ class ParticleBuilder(BuilderBase):
         group_ids = np.array([p.group_id for p in particles], dtype=int)
 
         # Prepare fragment associations, if they were built
+        fragment_group_ids = np.empty(0, dtype=np.int64)
         if truth_fragments is not None:
             fragment_group_ids = np.array(
                 [frag.orig_group_id for frag in truth_fragments]
@@ -284,15 +290,13 @@ class ParticleBuilder(BuilderBase):
         valid_group_ids = unique_group_ids[unique_group_ids > -1]
         for i, group_id in enumerate(valid_group_ids):
             # Load the MC particle information
-            assert group_id < len(
-                particles
-            ), "Invalid group ID, cannot build true particle."
+            if group_id >= len(particles):
+                raise ValueError("Invalid group ID, cannot build true particle.")
             particle = TruthParticle(
                 **particles[group_id].as_dict(include_derived=False)
             )
-            assert (
-                particle.id == group_id
-            ), "The ordering of the true particles is wrong."
+            if particle.id != group_id:
+                raise ValueError("The ordering of the true particles is wrong.")
 
             # Override the index of the particle and its group, but preserve it
             particle.orig_id = group_id
@@ -334,6 +338,11 @@ class ParticleBuilder(BuilderBase):
                 particle.orig_index = orig_index_label[index]
 
             if label_adapt_tensor is not None:
+                if points is None or depositions is None:
+                    raise ValueError(
+                        "Points and depositions must be provided to build "
+                        "adapted truth particles."
+                    )
                 index_adapt = np.where(label_adapt_tensor[:, GROUP_COL] == group_id)[
                     0
                 ].astype(np.int32, copy=False)
@@ -344,6 +353,11 @@ class ParticleBuilder(BuilderBase):
                     particle.sources_adapt = sources[index_adapt]
 
             if label_g4_tensor is not None:
+                if points_g4 is None or depositions_g4 is None:
+                    raise ValueError(
+                        "Geant4 points and depositions must be provided if "
+                        "label_g4_tensor is given."
+                    )
                 index_g4 = np.where(label_g4_tensor[:, GROUP_COL] == group_id)[
                     0
                 ].astype(np.int32, copy=False)
@@ -368,13 +382,14 @@ class ParticleBuilder(BuilderBase):
         # use them to assign parent/children IDs in the new particle set
         if graph_label is not None:
             # Narrow down the list of edges to those connecting visible particles
+            edge_index = graph_label
             inval = set(np.unique(graph_label)).difference(set(valid_group_ids))
             if len(inval) > 0:
-                graph_label = filter_invalid_nodes(graph_label, tuple(inval))
+                edge_index = filter_invalid_nodes(graph_label, tuple(inval))
 
             # Use the remaining edges to build parentage relations
             mapping = {group_id: i for i, group_id in enumerate(valid_group_ids)}
-            for source, target in graph_label:
+            for source, target in edge_index:
                 parent = truth_particles[mapping[source]]
                 child = truth_particles[mapping[target]]
 
@@ -385,7 +400,7 @@ class ParticleBuilder(BuilderBase):
 
         return truth_particles
 
-    def load_reco(self, data):
+    def load_reco(self, data: dict[str, Any]) -> list[RecoParticle]:
         """Construct :class:`RecoParticle` objects from their stored versions.
 
         Parameters
@@ -397,12 +412,12 @@ class ParticleBuilder(BuilderBase):
 
     def _load_reco(
         self,
-        reco_particles,
-        points=None,
-        depositions=None,
-        sources=None,
-        reco_fragments=None,
-    ):
+        reco_particles: list[RecoParticle],
+        points: np.ndarray | None = None,
+        depositions: np.ndarray | None = None,
+        sources: np.ndarray | None = None,
+        reco_fragments: list[Any] | None = None,
+    ) -> list[RecoParticle]:
         """Construct :class:`RecoParticle` objects from their stored versions.
 
         Parameters
@@ -426,10 +441,16 @@ class ParticleBuilder(BuilderBase):
         # Loop over the dictionaries
         for i, particle in enumerate(reco_particles):
             # Check that the particle ID checks out
-            assert particle.id == i, "The ordering of the stored particles is wrong."
+            if particle.id != i:
+                raise ValueError("The ordering of the stored particles is wrong.")
 
             # Update the particle with its long-form attributes
             if points is not None:
+                if depositions is None:
+                    raise ValueError(
+                        "Depositions must be provided to load reco particles if "
+                        "points are provided."
+                    )
                 particle.points = points[particle.index]
                 particle.depositions = depositions[particle.index]
                 if sources is not None:
@@ -441,7 +462,7 @@ class ParticleBuilder(BuilderBase):
 
         return reco_particles
 
-    def load_truth(self, data):
+    def load_truth(self, data: dict[str, Any]) -> list[TruthParticle]:
         """Construct :class:`TruthParticle` objects from their stored versions.
 
         Parameters
@@ -453,18 +474,18 @@ class ParticleBuilder(BuilderBase):
 
     def _load_truth(
         self,
-        truth_particles,
-        points_label=None,
-        depositions_label=None,
-        depositions_q_label=None,
-        points=None,
-        depositions=None,
-        points_g4=None,
-        depositions_g4=None,
-        sources_label=None,
-        sources=None,
-        truth_fragments=None,
-    ):
+        truth_particles: list[TruthParticle],
+        points_label: np.ndarray | None = None,
+        depositions_label: np.ndarray | None = None,
+        depositions_q_label: np.ndarray | None = None,
+        points: np.ndarray | None = None,
+        depositions: np.ndarray | None = None,
+        points_g4: np.ndarray | None = None,
+        depositions_g4: np.ndarray | None = None,
+        sources_label: np.ndarray | None = None,
+        sources: np.ndarray | None = None,
+        truth_fragments: list[Any] | None = None,
+    ) -> list[TruthParticle]:
         """Construct :class:`TruthParticle` objects from their stored versions.
 
         Parameters
@@ -501,10 +522,16 @@ class ParticleBuilder(BuilderBase):
         # Loop over the dictionaries
         for i, particle in enumerate(truth_particles):
             # Check that the particle ID checks out
-            assert particle.id == i, "The ordering of the stored particles is wrong."
+            if particle.id != i:
+                raise ValueError("The ordering of the stored particles is wrong.")
 
             # Update the particle with its long-form attributes
             if points_label is not None:
+                if depositions_label is None:
+                    raise ValueError(
+                        "Depositions must be provided to load truth particles if "
+                        "label points are provided."
+                    )
                 particle.points = points_label[particle.index]
                 particle.depositions = depositions_label[particle.index]
                 if depositions_q_label is not None:
@@ -513,12 +540,22 @@ class ParticleBuilder(BuilderBase):
                     particle.sources = sources_label[particle.index]
 
             if points is not None:
+                if depositions is None:
+                    raise ValueError(
+                        "Depositions must be provided to load adapted truth "
+                        "particles if points are provided."
+                    )
                 particle.points_adapt = points[particle.index_adapt]
                 particle.depositions_adapt = depositions[particle.index_adapt]
                 if sources is not None:
                     particle.sources_adapt = sources[particle.index_adapt]
 
             if points_g4 is not None:
+                if depositions_g4 is None:
+                    raise ValueError(
+                        "Depositions must be provided to load Geant4 truth "
+                        "particles if points are provided."
+                    )
                 particle.points_g4 = points_g4[particle.index_g4]
                 particle.depositions_g4 = depositions_g4[particle.index_g4]
 
