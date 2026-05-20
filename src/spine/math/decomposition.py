@@ -8,7 +8,7 @@ __all__ = ["PCA", "principal_components"]
 PCA_DTYPE = (("n_components", nb.int64),)
 
 
-@nb.experimental.jitclass(PCA_DTYPE)
+@nb.experimental.jitclass(spec=PCA_DTYPE)  # type: ignore[call-arg]
 class PCA:
     """Class-version of the Numba-accelerate :func:`principal_components` function.
 
@@ -22,7 +22,7 @@ class PCA:
         (N_c) Variance along each of the principal axes
     """
 
-    def __init__(self, n_components: nb.int64):
+    def __init__(self, n_components: int) -> None:
         """Initialize the PCA parameters.
 
         Parameters
@@ -50,6 +50,7 @@ class PCA:
             (N_c) Variance along each of the principal axes
         """
         # Check input
+        assert len(x) > 1, "Must provide at least two samples."
         assert x.shape[1] >= self.n_components, (
             f"The dimensionality of the data ({x.shape[1]}) is smaller "
             f"than the number of components ({self.n_components}."
@@ -69,7 +70,7 @@ class PCA:
 
 
 @nb.njit(cache=True)
-def principal_components(x: nb.float32[:, :]) -> nb.float32[:, :]:
+def principal_components(x: np.ndarray) -> np.ndarray:
     """Computes the principal components of a point cloud by computing the
     eigenvectors of the centered covariance matrix.
 
@@ -83,6 +84,8 @@ def principal_components(x: nb.float32[:, :]) -> nb.float32[:, :]:
     np.ndarray
         (d, d) List of principal components (row-ordered)
     """
+    assert len(x) > 1, "Must provide at least two samples."
+
     # Get covariance matrix
     A = np.cov(x.T, ddof=len(x) - 1).astype(x.dtype)  # Casting needed...
 

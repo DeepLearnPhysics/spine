@@ -9,7 +9,7 @@ import numba as nb
 import numpy as np
 
 from .base import mode
-from .distance import METRICS, cdist, get_metric_id
+from .distance import cdist, get_metric_id
 
 __all__ = ["RadiusNeighborsClassifier", "KNeighborsClassifier"]
 
@@ -25,7 +25,7 @@ RNC_DTYPE = (
 KNC_DTYPE = (("k", nb.int64), ("metric_id", nb.int64), ("p", nb.float32))
 
 
-@nb.experimental.jitclass(RNC_DTYPE)
+@nb.experimental.jitclass(spec=RNC_DTYPE)  # type: ignore[call-arg]
 class RadiusNeighborsClassifier:
     """Class which assigns labels to points based on radial neighborhood
     majority vote.
@@ -54,11 +54,11 @@ class RadiusNeighborsClassifier:
 
     def __init__(
         self,
-        radius: nb.float32,
-        metric: nb.types.string = "euclidean",
-        p: nb.float32 = 2.0,
-        iterate: nb.boolean = True,
-    ):
+        radius: float,
+        metric: str = "euclidean",
+        p: float = 2.0,
+        iterate: bool = True,
+    ) -> None:
         """Initialize the RadiusNeighborsClassifier parameters.
 
         Parameters
@@ -72,6 +72,9 @@ class RadiusNeighborsClassifier:
         iterate : bool, default True
             Whether to recurse the search until no new labels are assigned
         """
+        if radius < 0.0:
+            raise ValueError("Radius must be non-negative.")
+
         # For Euclidean, save time by using squared Euclidean
         if metric == "euclidean":
             metric = "sqeuclidean"
@@ -83,7 +86,9 @@ class RadiusNeighborsClassifier:
         self.p = p
         self.iterate = iterate
 
-    def fit_predict(self, X: nb.float32[:, :], y: nb.float32[:], Xq: nb.float32[:, :]):
+    def fit_predict(
+        self, X: np.ndarray, y: np.ndarray, Xq: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
         """Assign labels to a set of points given a set of reference points.
 
         Parameters
@@ -91,16 +96,16 @@ class RadiusNeighborsClassifier:
         X : np.ndarray
             (N, 3) Set of reference points
         y : np.ndarray
-            (N) Labels of reference points
+            (N,) Labels of reference points
         Xq : nb.ndarray
             (M, 3) Set of query points
 
         Returns
         -------
         np.ndarray
-            (M) Labels assigned to the query points
+            (M,) Labels assigned to the query points
         np.ndarray
-            Index of points which have not been sucessfully assigned
+            Index of points which have not been successfully assigned
         """
         # Loop over query points until no new labels can be assigned
         num_query = len(Xq)
@@ -150,7 +155,7 @@ class RadiusNeighborsClassifier:
         return labels, orphan_index
 
 
-@nb.experimental.jitclass(KNC_DTYPE)
+@nb.experimental.jitclass(spec=KNC_DTYPE)  # type: ignore[call-arg]
 class KNeighborsClassifier:
     """Class which assigns labels to points based on a nearest neighbor
     majority vote.
@@ -175,9 +180,7 @@ class KNeighborsClassifier:
         p-norm factor for the Minkowski metric, if used
     """
 
-    def __init__(
-        self, k: nb.int64, metric: nb.types.string = "euclidean", p: nb.float32 = 2.0
-    ):
+    def __init__(self, k: int, metric: str = "euclidean", p: float = 2.0) -> None:
         """Initialize the RadiusNeighborsClassifier parameters.
 
         Parameters
@@ -189,6 +192,9 @@ class KNeighborsClassifier:
         p : float, default 2.
             p-norm factor for the Minkowski metric, if used
         """
+        if k <= 0:
+            raise ValueError("Number of neighbors must be positive.")
+
         # For Euclidean, save time by using squared Euclidean
         if metric == "euclidean":
             metric = "sqeuclidean"
@@ -198,7 +204,9 @@ class KNeighborsClassifier:
         self.metric_id = get_metric_id(metric, p)
         self.p = p
 
-    def fit_predict(self, X: nb.float32[:, :], y: nb.float32[:], Xq: nb.float32[:, :]):
+    def fit_predict(
+        self, X: np.ndarray, y: np.ndarray, Xq: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
         """Assign labels to a set of points given a set of reference points.
 
         Parameters
@@ -206,16 +214,16 @@ class KNeighborsClassifier:
         X : np.ndarray
             (N, 3) Set of reference points
         y : np.ndarray
-            (N) Labels of reference points
+            (N,) Labels of reference points
         Xq : nb.ndarray
             (M, 3) Set of query points
 
         Returns
         -------
         np.ndarray
-            (M) Labels assigned to the query points
+            (M,) Labels assigned to the query points
         np.ndarray
-            Index of points which have not been sucessfully assigned
+            Index of points which have not been successfully assigned
         """
         # If there are no labeled points provided, nothing to do
         if len(X) == 0:
@@ -227,7 +235,7 @@ class KNeighborsClassifier:
         # Start by computing the distance between the query and reference
         dists = cdist(Xq, X, metric_id=self.metric_id, p=self.p)
 
-        # Loop over query poins
+        # Loop over query points
         labels = np.empty(len(Xq), dtype=np.int64)
         for i in range(len(Xq)):
             # Find the list k closest labels

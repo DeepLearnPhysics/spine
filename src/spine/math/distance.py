@@ -1,7 +1,7 @@
 """Numba JIT compiled implementation of distance computation routines.
 
 This module is entirely dedicated to 3D points, which is the core representation
-of objects targetted by this software package.
+of objects targeted by this software package.
 """
 
 import numba as nb
@@ -21,18 +21,25 @@ __all__ = [
     "closest_pair",
 ]
 
-# Available distance metrics (casting is important for numba optimization)
+MINKOWSKI = 0
+CITYBLOCK = 1
+EUCLIDEAN = 2
+SQEUCLIDEAN = 3
+CHEBYSHEV = 4
+
+# Available distance metrics. Keep the public mapping for callers, while using
+# named integer constants internally so Numba sees stable scalar IDs.
 METRICS = {
-    "minkowski": np.int64(0),
-    "cityblock": np.int64(1),
-    "euclidean": np.int64(2),
-    "sqeuclidean": np.int64(3),
-    "chebyshev": np.int64(4),
+    "minkowski": MINKOWSKI,
+    "cityblock": CITYBLOCK,
+    "euclidean": EUCLIDEAN,
+    "sqeuclidean": SQEUCLIDEAN,
+    "chebyshev": CHEBYSHEV,
 }
 
 
 @nb.njit(cache=True)
-def get_metric_id(metric: nb.types.string, p: nb.float32) -> nb.int64:
+def get_metric_id(metric: str, p: float) -> int:
     """Checks on the metric name, returns an enumerated form of the metric.
 
     Parameters
@@ -49,33 +56,33 @@ def get_metric_id(metric: nb.types.string, p: nb.float32) -> nb.int64:
     """
     if metric == "minkowski":
         if p == 1.0:
-            return np.int64(1)
+            return CITYBLOCK
         elif p == 2.0:
-            return np.int64(2)
+            return EUCLIDEAN
         else:
-            return np.int64(0)
+            return MINKOWSKI
     elif metric == "cityblock":
-        return np.int64(1)
+        return CITYBLOCK
     elif metric == "euclidean":
-        return np.int64(2)
+        return EUCLIDEAN
     elif metric == "sqeuclidean":
-        return np.int64(3)
+        return SQEUCLIDEAN
     elif metric == "chebyshev":
-        return np.int64(4)
+        return CHEBYSHEV
     else:
         raise ValueError(f"Distance metric not recognized: {metric}")
 
 
 @nb.njit(cache=True)
-def cityblock(x: nb.float32[:], y: nb.float32[:]) -> nb.float32:
-    """Compute the cityblock distance (L1) between to 3D points.
+def cityblock(x: np.ndarray, y: np.ndarray) -> float:
+    """Compute the cityblock distance (L1) between two 3D points.
 
     Parameters
     ----------
     x : np.ndarray
-        (3) Coorinates of the first point
+        (3,) Coordinates of the first point
     y : np.ndarray
-        (3) Coorinates of the second point
+        (3,) Coordinates of the second point
 
     Returns
     -------
@@ -86,15 +93,15 @@ def cityblock(x: nb.float32[:], y: nb.float32[:]) -> nb.float32:
 
 
 @nb.njit(cache=True)
-def euclidean(x: nb.float32[:], y: nb.float32[:]) -> nb.float32:
+def euclidean(x: np.ndarray, y: np.ndarray) -> float:
     """Compute the Euclidean distance (L2) between two 3D points.
 
     Parameters
     ----------
     x : np.ndarray
-        (3) Coorinates of the first point
+        (3,) Coordinates of the first point
     y : np.ndarray
-        (3) Coorinates of the second point
+        (3,) Coordinates of the second point
 
     Returns
     -------
@@ -105,15 +112,15 @@ def euclidean(x: nb.float32[:], y: nb.float32[:]) -> nb.float32:
 
 
 @nb.njit(cache=True)
-def sqeuclidean(x: nb.float32[:], y: nb.float32[:]) -> nb.float32:
+def sqeuclidean(x: np.ndarray, y: np.ndarray) -> float:
     """Compute the squared Euclidean distance (L2) between two 3D points.
 
     Parameters
     ----------
     x : np.ndarray
-        (3) Coorinates of the first point
+        (3,) Coordinates of the first point
     y : np.ndarray
-        (3) Coorinates of the second point
+        (3,) Coordinates of the second point
 
     Returns
     -------
@@ -124,15 +131,15 @@ def sqeuclidean(x: nb.float32[:], y: nb.float32[:]) -> nb.float32:
 
 
 @nb.njit(cache=True)
-def chebyshev(x: nb.float32[:], y: nb.float32[:]) -> nb.float32:
-    """Compute the Chebyshev distance (Linf) between to 3D points.
+def chebyshev(x: np.ndarray, y: np.ndarray) -> float:
+    """Compute the Chebyshev distance (Linf) between two 3D points.
 
     Parameters
     ----------
     x : np.ndarray
-        (3) Coorinates of the first point
+        (3,) Coordinates of the first point
     y : np.ndarray
-        (3) Coorinates of the second point
+        (3,) Coordinates of the second point
 
     Returns
     -------
@@ -143,15 +150,15 @@ def chebyshev(x: nb.float32[:], y: nb.float32[:]) -> nb.float32:
 
 
 @nb.njit(cache=True)
-def minkowski(x: nb.float32[:], y: nb.float32[:], p: nb.float32) -> nb.float32:
+def minkowski(x: np.ndarray, y: np.ndarray, p: float) -> float:
     """Compute the Minkowski distance (Lp) between two 3D points.
 
     Parameters
     ----------
     x : np.ndarray
-        (3) Coorinates of the first point
+        (3,) Coordinates of the first point
     y : np.ndarray
-        (3) Coorinates of the second point
+        (3,) Coordinates of the second point
 
     Returns
     -------
@@ -165,8 +172,8 @@ def minkowski(x: nb.float32[:], y: nb.float32[:], p: nb.float32) -> nb.float32:
 
 @nb.njit(cache=True)
 def pdist(
-    x: nb.float32[:, :], metric_id: nb.int64 = METRICS["euclidean"], p: nb.float32 = 2.0
-) -> nb.float32[:, :]:
+    x: np.ndarray, metric_id: int = METRICS["euclidean"], p: float = 2.0
+) -> np.ndarray:
     """Numba implementation of
     `scipy.spatial.distance.pdist(x, metric=metric, p=p)` in 3D.
 
@@ -187,83 +194,83 @@ def pdist(
     # Check on the input
     assert x.shape[1] == 3, "Only supports 3D points for now."
 
-    # Dispatch (faster this way than dipatching at each distance call)
-    if metric_id == np.int64(0):
+    # Dispatch (faster this way than dispatching at each distance call)
+    if metric_id == MINKOWSKI:
         return _pdist_minkowski(x, p)
-    elif metric_id == np.int64(1):
+    elif metric_id == CITYBLOCK:
         return _pdist_cityblock(x)
-    elif metric_id == np.int64(2):
+    elif metric_id == EUCLIDEAN:
         return _pdist_euclidean(x)
-    elif metric_id == np.int64(3):
+    elif metric_id == SQEUCLIDEAN:
         return _pdist_sqeuclidean(x)
-    elif metric_id == np.int64(4):
+    elif metric_id == CHEBYSHEV:
         return _pdist_chebyshev(x)
     else:
         raise ValueError("Distance metric not recognized.")
 
 
 @nb.njit(cache=True)
-def _pdist_cityblock(x: nb.float32[:, :]) -> nb.float32[:, :]:
+def _pdist_cityblock(x: np.ndarray) -> np.ndarray:
     res = np.empty((len(x), len(x)), dtype=x.dtype)
-    for i in range(len(x)):
+    for i, xi in enumerate(x):
         res[i, i] = 0.0
         for j in range(i + 1, len(x)):
-            res[i, j] = res[j, i] = cityblock(x[i], x[j])
+            res[i, j] = res[j, i] = cityblock(xi, x[j])
 
     return res
 
 
 @nb.njit(cache=True)
-def _pdist_euclidean(x: nb.float32[:, :]) -> nb.float32[:, :]:
+def _pdist_euclidean(x: np.ndarray) -> np.ndarray:
     res = np.empty((len(x), len(x)), dtype=x.dtype)
-    for i in range(len(x)):
+    for i, xi in enumerate(x):
         res[i, i] = 0.0
         for j in range(i + 1, len(x)):
-            res[i, j] = res[j, i] = euclidean(x[i], x[j])
+            res[i, j] = res[j, i] = euclidean(xi, x[j])
 
     return res
 
 
 @nb.njit(cache=True)
-def _pdist_sqeuclidean(x: nb.float32[:, :]) -> nb.float32[:, :]:
+def _pdist_sqeuclidean(x: np.ndarray) -> np.ndarray:
     res = np.empty((len(x), len(x)), dtype=x.dtype)
-    for i in range(len(x)):
+    for i, xi in enumerate(x):
         res[i, i] = 0.0
         for j in range(i + 1, len(x)):
-            res[i, j] = res[j, i] = sqeuclidean(x[i], x[j])
+            res[i, j] = res[j, i] = sqeuclidean(xi, x[j])
 
     return res
 
 
 @nb.njit(cache=True)
-def _pdist_chebyshev(x: nb.float32[:, :]) -> nb.float32[:, :]:
+def _pdist_chebyshev(x: np.ndarray) -> np.ndarray:
     res = np.empty((len(x), len(x)), dtype=x.dtype)
-    for i in range(len(x)):
+    for i, xi in enumerate(x):
         res[i, i] = 0.0
         for j in range(i + 1, len(x)):
-            res[i, j] = res[j, i] = chebyshev(x[i], x[j])
+            res[i, j] = res[j, i] = chebyshev(xi, x[j])
 
     return res
 
 
 @nb.njit(cache=True)
-def _pdist_minkowski(x: nb.float32[:, :], p: nb.float32) -> nb.float32[:, :]:
+def _pdist_minkowski(x: np.ndarray, p: float) -> np.ndarray:
     res = np.empty((len(x), len(x)), dtype=x.dtype)
-    for i in range(len(x)):
+    for i, xi in enumerate(x):
         res[i, i] = 0.0
         for j in range(i + 1, len(x)):
-            res[i, j] = res[j, i] = minkowski(x[i], x[j], p)
+            res[i, j] = res[j, i] = minkowski(xi, x[j], p)
 
     return res
 
 
 @nb.njit(cache=True)
 def cdist(
-    x1: nb.float32[:, :],
-    x2: nb.float32[:, :],
-    metric_id: nb.int64 = METRICS["euclidean"],
-    p: nb.float32 = 2.0,
-) -> nb.float32[:, :]:
+    x1: np.ndarray,
+    x2: np.ndarray,
+    metric_id: int = METRICS["euclidean"],
+    p: float = 2.0,
+) -> np.ndarray:
     """Numba implementation of Euclidean
     `scipy.spatial.distance.cdist(x, metric=p=2)` in 3D.
 
@@ -286,80 +293,78 @@ def cdist(
     # Check on the input
     assert x1.shape[1] == 3 and x2.shape[1] == 3, "Only supports 3D points for now."
 
-    # Dispatch (faster this way than dipatching at each distance call)
-    if metric_id == np.int64(0):
+    # Dispatch (faster this way than dispatching at each distance call)
+    if metric_id == MINKOWSKI:
         return _cdist_minkowski(x1, x2, p)
-    elif metric_id == np.int64(1):
+    elif metric_id == CITYBLOCK:
         return _cdist_cityblock(x1, x2)
-    elif metric_id == np.int64(2):
+    elif metric_id == EUCLIDEAN:
         return _cdist_euclidean(x1, x2)
-    elif metric_id == np.int64(3):
+    elif metric_id == SQEUCLIDEAN:
         return _cdist_sqeuclidean(x1, x2)
-    elif metric_id == np.int64(4):
+    elif metric_id == CHEBYSHEV:
         return _cdist_chebyshev(x1, x2)
     else:
         raise ValueError("Distance metric not recognized.")
 
 
 @nb.njit(cache=True)
-def _cdist_cityblock(x1: nb.float32[:, :], x2: nb.float32[:, :]) -> nb.float32[:, :]:
+def _cdist_cityblock(x1: np.ndarray, x2: np.ndarray) -> np.ndarray:
     res = np.empty((len(x1), len(x2)), dtype=x1.dtype)
-    for i1 in range(len(x1)):
-        for i2 in range(len(x2)):
-            res[i1, i2] = cityblock(x1[i1], x2[i2])
+    for i1, x1i in enumerate(x1):
+        for i2, x2i in enumerate(x2):
+            res[i1, i2] = cityblock(x1i, x2i)
 
     return res
 
 
 @nb.njit(cache=True)
-def _cdist_euclidean(x1: nb.float32[:, :], x2: nb.float32[:, :]) -> nb.float32[:, :]:
+def _cdist_euclidean(x1: np.ndarray, x2: np.ndarray) -> np.ndarray:
     res = np.empty((len(x1), len(x2)), dtype=x1.dtype)
-    for i1 in range(len(x1)):
-        for i2 in range(len(x2)):
-            res[i1, i2] = euclidean(x1[i1], x2[i2])
+    for i1, x1i in enumerate(x1):
+        for i2, x2i in enumerate(x2):
+            res[i1, i2] = euclidean(x1i, x2i)
 
     return res
 
 
 @nb.njit(cache=True)
-def _cdist_sqeuclidean(x1: nb.float32[:, :], x2: nb.float32[:, :]) -> nb.float32[:, :]:
+def _cdist_sqeuclidean(x1: np.ndarray, x2: np.ndarray) -> np.ndarray:
     res = np.empty((len(x1), len(x2)), dtype=x1.dtype)
-    for i1 in range(len(x1)):
-        for i2 in range(len(x2)):
-            res[i1, i2] = sqeuclidean(x1[i1], x2[i2])
+    for i1, x1i in enumerate(x1):
+        for i2, x2i in enumerate(x2):
+            res[i1, i2] = sqeuclidean(x1i, x2i)
 
     return res
 
 
 @nb.njit(cache=True)
-def _cdist_chebyshev(x1: nb.float32[:, :], x2: nb.float32[:, :]) -> nb.float32[:, :]:
+def _cdist_chebyshev(x1: np.ndarray, x2: np.ndarray) -> np.ndarray:
     res = np.empty((len(x1), len(x2)), dtype=x1.dtype)
-    for i1 in range(len(x1)):
-        for i2 in range(len(x2)):
-            res[i1, i2] = chebyshev(x1[i1], x2[i2])
+    for i1, x1i in enumerate(x1):
+        for i2, x2i in enumerate(x2):
+            res[i1, i2] = chebyshev(x1i, x2i)
 
     return res
 
 
 @nb.njit(cache=True)
-def _cdist_minkowski(
-    x1: nb.float32[:, :], x2: nb.float32[:, :], p: nb.float32
-) -> nb.float32[:, :]:
+def _cdist_minkowski(x1: np.ndarray, x2: np.ndarray, p: float) -> np.ndarray:
     res = np.empty((len(x1), len(x2)), dtype=x1.dtype)
-    for i1 in range(len(x1)):
-        for i2 in range(len(x2)):
-            res[i1, i2] = minkowski(x1[i1], x2[i2], p)
+    for i1, x1i in enumerate(x1):
+        for i2, x2i in enumerate(x2):
+            res[i1, i2] = minkowski(x1i, x2i, p)
 
     return res
 
 
 @nb.njit(cache=True)
 def farthest_pair(
-    x: nb.float32[:, :],
-    iterative: nb.boolean = False,
-    metric_id: nb.int64 = METRICS["euclidean"],
-    p: nb.float32 = 2.0,
-) -> (nb.int64, nb.int64, nb.float32):
+    x: np.ndarray,
+    iterative: bool = False,
+    metric_id: int = METRICS["euclidean"],
+    p: float = 2.0,
+) -> tuple[int, int, float]:
     """Algorithm which finds the two points which are farthest from each other
     in a set, in the Euclidean sense.
 
@@ -390,10 +395,10 @@ def farthest_pair(
         Distance between the two points
     """
     # To save time, if Euclidean distance is used, use its square
-    euclidean = False
-    if metric_id == np.int64(2):
-        euclidean = True
-        metric_id = np.int64(3)
+    is_euclidean = False
+    if metric_id == EUCLIDEAN:
+        is_euclidean = True
+        metric_id = SQEUCLIDEAN
 
     # Dispatch
     if not iterative:
@@ -417,29 +422,30 @@ def farthest_pair(
         while dist > tempdist:
             tempdist = dist
             dists = cdist(x[idxs[subidx]][None, :], x, metric_id, p).flatten()
-            idxs[~subidx] = np.argmax(dists)
-            dist = dists[idxs[~subidx]]
-            subidx = ~subidx
+            other_idx = 1 - subidx
+            idxs[other_idx] = np.argmax(dists)
+            dist = dists[idxs[other_idx]]
+            subidx = other_idx
 
         # Unroll index
         i, j = idxs
 
     # If needed, take the square root of the distance
-    if euclidean:
+    if is_euclidean:
         dist = np.sqrt(dist)
 
-    return i, j, dist
+    return int(i), int(j), float(dist)
 
 
 @nb.njit(cache=True)
 def closest_pair(
-    x1: nb.float32[:, :],
-    x2: nb.float32[:, :],
-    iterative: nb.boolean = False,
-    seed: nb.boolean = True,
-    metric_id: nb.int64 = METRICS["euclidean"],
-    p: nb.float32 = 2.0,
-) -> (nb.int64, nb.int64, nb.float32):
+    x1: np.ndarray,
+    x2: np.ndarray,
+    iterative: bool = False,
+    seed: bool = True,
+    metric_id: int = METRICS["euclidean"],
+    p: float = 2.0,
+) -> tuple[int, int, float]:
     """Algorithm which finds the two points which are closest to each other
     from two separate sets.
 
@@ -452,9 +458,9 @@ def closest_pair(
     Parameters
     ----------
     x1 : np.ndarray
-        (Nx3) array of point coordinates in the first set
+        (N, 3) array of point coordinates in the first set
     x2 : np.ndarray
-        (Nx3) array of point coordinates in the second set
+        (M, 3) array of point coordinates in the second set
     iterative : bool
         If `True`, uses an iterative, fast approximation
     seed : bool
@@ -475,10 +481,10 @@ def closest_pair(
         Distance between the two points
     """
     # To save time, if Euclidean distance is used, use its square
-    euclidean = False
-    if metric_id == np.int64(2):
-        euclidean = True
-        metric_id = np.int64(3)
+    is_euclidean = False
+    if metric_id == EUCLIDEAN:
+        is_euclidean = True
+        metric_id = SQEUCLIDEAN
 
     # Find the two points in two sets of points that are closest to each other
     if not iterative:
@@ -498,35 +504,38 @@ def closest_pair(
         idxs, set_id, dist, tempdist = [0, 0], 0, 1e9, 1e9 + 1.0
         if seed:
             # Find the end points of the two sets
-            for i, x in enumerate(xarr):
-                seed_idxs = np.array(farthest_pair(xarr[i], True)[:2])
-                seed_dists = cdist(xarr[i][seed_idxs], xarr[~i], metric_id, p)
+            for i, xi in enumerate(xarr):
+                other_id = 1 - i
+                seed_idxs = np.array(farthest_pair(xi, True)[:2])
+                seed_dists = cdist(xi[seed_idxs], xarr[other_id], metric_id, p)
                 seed_argmins = argmin(seed_dists, axis=1)
                 seed_mins = np.array(
                     [seed_dists[0][seed_argmins[0]], seed_dists[1][seed_argmins[1]]]
                 )
                 if np.min(seed_mins) < dist:
-                    set_id = ~i
-                    seed_choice = np.argmin(seed_mins)
-                    idxs[int(~set_id)] = seed_idxs[seed_choice]
-                    idxs[int(set_id)] = seed_argmins[seed_choice]
-                    dist = seed_mins[seed_choice]
+                    set_id = other_id
+                    seed_choice = int(np.argmin(seed_mins))
+                    idxs[i] = int(seed_idxs[seed_choice])
+                    idxs[set_id] = int(seed_argmins[seed_choice])
+                    dist = float(seed_mins[seed_choice])
 
         # Find the closest point in the other set, repeat until convergence
         while dist < tempdist:
             tempdist = dist
+            other_id = 1 - set_id
             dists = cdist(
-                xarr[set_id][idxs[set_id]][None, :], xarr[~set_id], metric_id, p
+                xarr[set_id][idxs[set_id]][None, :], xarr[other_id], metric_id, p
             ).flatten()
-            idxs[~set_id] = np.argmin(dists)
-            dist = dists[idxs[~set_id]]
-            subidx = ~set_id
+            closest_idx = int(np.argmin(dists))
+            idxs[other_id] = closest_idx
+            dist = float(dists[closest_idx])
+            set_id = other_id
 
         # Unroll index
         i, j = idxs
 
     # If needed, take the square root of the distance
-    if euclidean:
+    if is_euclidean:
         dist = np.sqrt(dist)
 
-    return i, j, dist
+    return int(i), int(j), float(dist)

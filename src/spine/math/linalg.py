@@ -7,7 +7,7 @@ __all__ = ["norm", "submatrix", "contingency_table"]
 
 
 @nb.njit(cache=True)
-def norm(x: nb.float32[:, :], axis: nb.int32) -> nb.float32[:]:
+def norm(x: np.ndarray, axis: int) -> np.ndarray:
     """Compute vector norms along specified axis.
 
     This is a Numba-compiled implementation of `np.linalg.norm(x, axis=axis)`
@@ -44,19 +44,17 @@ def norm(x: nb.float32[:, :], axis: nb.int32) -> nb.float32[:]:
     assert axis == 0 or axis == 1
     xnorm = np.empty(x.shape[1 - axis], dtype=x.dtype)
     if axis == 0:
-        for i in range(len(xnorm)):
+        for i in range(x.shape[1]):
             xnorm[i] = np.linalg.norm(x[:, i])
     else:
-        for i in range(len(xnorm)):
-            xnorm[i] = np.linalg.norm(x[i])
+        for i, xi in enumerate(x):
+            xnorm[i] = np.linalg.norm(xi)
 
     return xnorm
 
 
 @nb.njit(cache=True)
-def submatrix(
-    x: nb.float32[:, :], index1: nb.int32[:], index2: nb.int32[:]
-) -> nb.float32[:, :]:
+def submatrix(x: np.ndarray, index1: np.ndarray, index2: np.ndarray) -> np.ndarray:
     """Extract submatrix using row and column indices.
 
     This function creates a submatrix by selecting specific rows and columns
@@ -104,8 +102,8 @@ def submatrix(
 
 @nb.njit(cache=True)
 def contingency_table(
-    x: nb.int32[:], y: nb.int32[:], nx: nb.int32 = None, ny: nb.int32 = None
-) -> nb.int64[:, :]:
+    x: np.ndarray, y: np.ndarray, nx: int | None = None, ny: int | None = None
+) -> np.ndarray:
     """Build a contingency table for two sets of labels.
 
     A contingency table (also known as a cross-tabulation or crosstab) shows
@@ -156,14 +154,22 @@ def contingency_table(
            [0, 2],
            [0, 0]])
     """
+    if len(x) != len(y):
+        raise ValueError("Label arrays must have the same length.")
+
     # If not provided, assume that the max label is the max of the label array
-    if not nx:
-        nx = np.max(x) + 1 if len(x) > 0 else 1
-    if not ny:
-        ny = np.max(y) + 1 if len(y) > 0 else 1
+    if nx is None:
+        nx_val = np.max(x) + 1 if len(x) > 0 else 1
+    else:
+        nx_val = nx
+
+    if ny is None:
+        ny_val = np.max(y) + 1 if len(y) > 0 else 1
+    else:
+        ny_val = ny
 
     # Bin the table
-    table = np.zeros((nx, ny), dtype=np.int64)
+    table = np.zeros((nx_val, ny_val), dtype=np.int64)
     for i, j in zip(x, y):
         table[i, j] += 1
 

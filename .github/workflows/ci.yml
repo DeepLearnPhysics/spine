@@ -197,7 +197,7 @@ jobs:
             python -m pip install --root-user-action=ignore -e . pytest pytest-cov coverage[toml]
             mkdir -p /tmp/spine-sitecustomize
             printf "import h5py\n" > /tmp/spine-sitecustomize/sitecustomize.py
-            PYTHONPATH="/tmp/spine-sitecustomize:${PYTHONPATH:-}" pytest test \
+            NUMBA_DISABLE_JIT=1 PYTHONPATH="/tmp/spine-sitecustomize:${PYTHONPATH:-}" pytest test \
               -v \
               --cov=spine \
               --cov-report=xml:coverage.xml \

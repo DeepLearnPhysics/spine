@@ -96,7 +96,7 @@ def network_topology(
             # For scatter and hull, join closest point to closest point
             for i, j in edge_index:
                 vi, vj = points[clusts[i]], points[clusts[j]]
-                i1, i2, _ = closest_pair(vi, vj, "recursive")
+                i1, i2, _ = closest_pair(vi, vj, iterative=True)
                 edge_vertices.extend([vi[i1], vj[i2], [None, None, None]])
 
         else:
