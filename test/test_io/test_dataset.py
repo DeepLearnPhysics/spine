@@ -656,6 +656,58 @@ def test_hdf5_dataset_with_schema_and_collate(tmp_path):
     assert batch["edge_features"].counts.tolist() == [2, 1]
 
 
+def test_hdf5_dataset_flat_index_schema_and_collate(tmp_path):
+    """Flat cached indexes should collate back into a flat IndexBatch."""
+    output = tmp_path / "flat_index_cache.h5"
+    writer = HDF5Writer(str(output))
+    writer(
+        {
+            "index": np.asarray([0, 1]),
+            "orig_index": [
+                np.asarray([0, 2, 4], dtype=np.int64),
+                np.asarray([1, 3], dtype=np.int64),
+            ],
+            "node_features": [
+                np.asarray([[1.0], [2.0], [3.0], [4.0], [5.0]], dtype=np.float32),
+                np.asarray([[6.0], [7.0], [8.0], [9.0]], dtype=np.float32),
+            ],
+        },
+        cfg={"io": {"writer": {"name": "hdf5"}}},
+    )
+    writer.finalize()
+    writer.close()
+
+    dataset = HDF5Dataset(
+        file_keys=str(output),
+        dtype="float32",
+        schema={
+            "orig_index": {
+                "parser": "index",
+                "index_event": "orig_index",
+                "count_event": "node_features",
+            }
+        },
+    )
+
+    entry = dataset[0]
+    assert "orig_index" in entry
+    np.testing.assert_array_equal(entry["orig_index"].features, np.asarray([0, 2, 4]))
+    assert entry["orig_index"].global_shift == 5
+
+    collate = CollateAll(dataset.data_types)
+    batch = collate([dataset[0], dataset[1]])
+
+    assert isinstance(batch["orig_index"], IndexBatch)
+    assert batch["orig_index"].is_list is False
+    assert batch["orig_index"].batch_size == 2
+    assert batch["orig_index"].counts.tolist() == [3, 2]
+    np.testing.assert_array_equal(
+        batch["orig_index"].index, np.asarray([0, 2, 4, 6, 8])
+    )
+    np.testing.assert_array_equal(batch["orig_index"][0], np.asarray([0, 2, 4]))
+    np.testing.assert_array_equal(batch["orig_index"][1], np.asarray([1, 3]))
+
+
 def test_hdf5_dataset_schema_updates_explicit_raw_keys(tmp_path):
     """Schema inference should merge required raw HDF5 keys into explicit selection."""
     output = tmp_path / "schema_keys.h5"

@@ -8,8 +8,54 @@ import numpy as np
 
 from ..base import ParserBase
 from ..data import ParserTensor
+from .utils import resolve_index_global_shift
 
-__all__ = ["HDF5IndexListParser", "HDF5EdgeIndexParser"]
+__all__ = ["HDF5IndexParser", "HDF5IndexListParser", "HDF5EdgeIndexParser"]
+
+
+class HDF5IndexParser(ParserBase):
+    """Build a flat index :class:`ParserTensor` from cached HDF5 data."""
+
+    name = "index"
+    returns = "tensor"
+
+    def __call__(self, trees: dict[str, Any]) -> ParserTensor:
+        """Parse one cached entry into a flat index parser tensor.
+
+        Parameters
+        ----------
+        trees : dict
+            Mapping from configured HDF5 product names to cached entry values.
+
+        Returns
+        -------
+        ParserTensor
+            Parser tensor containing one normalized 1D index array and its
+            batching metadata.
+        """
+        return self.process(**self.get_input_data(trees))
+
+    def process(
+        self, index_event: np.ndarray, count_event: np.ndarray | None = None
+    ) -> ParserTensor:
+        """Normalize one cached flat index for collation into an IndexBatch.
+
+        Parameters
+        ----------
+        index_event : np.ndarray
+            Cached flat index array for one event entry.
+        count_event : np.ndarray, optional
+            Cached tensor used to infer the offset span of the entry.
+
+        Returns
+        -------
+        ParserTensor
+            Parser tensor containing one normalized 1D index array.
+        """
+        index = np.asarray(index_event, dtype=self.itype).reshape(-1)
+        global_shift = resolve_index_global_shift([index], count_event)
+
+        return ParserTensor(features=index, global_shift=global_shift)
 
 
 class HDF5IndexListParser(ParserBase):
@@ -58,46 +104,13 @@ class HDF5IndexListParser(ParserBase):
         single_counts = np.asarray(
             [len(index) for index in index_list], dtype=self.itype
         )
-        global_shift = self.resolve_global_shift(index_list, count_event)
+        global_shift = resolve_index_global_shift(index_list, count_event)
 
         return ParserTensor(
             features=index_list,
             global_shift=global_shift,
             single_counts=single_counts,
         )
-
-    def resolve_global_shift(
-        self,
-        index_list: list[np.ndarray],
-        count_event: np.ndarray | None = None,
-    ) -> int:
-        """Determine the offset span covered by one cached entry.
-
-        Parameters
-        ----------
-        index_list : list[np.ndarray]
-            Normalized 1D index arrays for one cached entry.
-        count_event : np.ndarray, optional
-            Cached tensor or scalar count used to infer the span directly.
-
-        Returns
-        -------
-        int
-            Global index span associated with the cached entry.
-        """
-        if count_event is not None:
-            count_array = np.asarray(count_event)
-            if count_array.ndim == 0:
-                return int(count_array)
-            return int(len(count_array))
-
-        if not index_list:
-            return 0
-
-        full_index = (
-            np.concatenate(index_list) if len(index_list) > 1 else index_list[0]
-        )
-        return int(np.max(full_index, initial=-1) + 1)
 
 
 class HDF5EdgeIndexParser(HDF5IndexListParser):
@@ -137,5 +150,5 @@ class HDF5EdgeIndexParser(HDF5IndexListParser):
                 f"Received {index.shape}."
             )
 
-        global_shift = self.resolve_global_shift([], count_event)
+        global_shift = resolve_index_global_shift([], count_event)
         return ParserTensor(features=index, global_shift=global_shift)

@@ -9,6 +9,7 @@ from spine.io.parse import (
     HDF5EdgeIndexParser,
     HDF5FeatureTensorParser,
     HDF5IndexListParser,
+    HDF5IndexParser,
     HDF5ObjectListParser,
     HDF5ObjectParser,
     HDF5TensorParser,
@@ -231,6 +232,47 @@ def test_hdf5_index_list_parser_with_count_event():
     np.testing.assert_array_equal(result.single_counts, np.asarray([2, 3]))
     np.testing.assert_array_equal(result.features[0], np.asarray([0, 2]))
     np.testing.assert_array_equal(result.features[1], np.asarray([1, 3, 4]))
+
+
+def test_hdf5_index_parser_with_count_event():
+    """Cached flat indexes should stay flat and infer the event offset span."""
+    parser = HDF5IndexParser(
+        dtype="float32",
+        index_event="orig_index",
+        count_event="node_features",
+    )
+    trees = {
+        "orig_index": np.asarray([0, 2, 4], dtype=np.int64),
+        "node_features": np.asarray([[1.0], [2.0], [3.0], [4.0], [5.0]]),
+    }
+
+    result = parser(trees)
+
+    assert isinstance(result, ParserTensor)
+    assert isinstance(result.features, np.ndarray)
+    np.testing.assert_array_equal(result.features, np.asarray([0, 2, 4]))
+    assert result.single_counts is None
+    assert result.global_shift == 5
+
+
+def test_hdf5_index_parser_infers_global_shift_from_max_index():
+    """Flat cached indexes should infer the covered range from their max value."""
+    parser = HDF5IndexParser(dtype="float32", index_event="orig_index")
+
+    result = parser({"orig_index": np.asarray([4, 6, 5], dtype=np.int64)})
+
+    np.testing.assert_array_equal(result.features, np.asarray([4, 6, 5]))
+    assert result.global_shift == 7
+
+
+def test_hdf5_index_parser_empty_without_count_event():
+    """Empty flat cached indexes should fall back to a zero offset span."""
+    parser = HDF5IndexParser(dtype="float32", index_event="orig_index")
+
+    result = parser({"orig_index": np.asarray([], dtype=np.int64)})
+
+    np.testing.assert_array_equal(result.features, np.asarray([], dtype=np.int32))
+    assert result.global_shift == 0
 
 
 def test_hdf5_index_list_parser_infers_global_shift_from_max_index():
