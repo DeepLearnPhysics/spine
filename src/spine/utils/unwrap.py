@@ -157,13 +157,16 @@ class Unwrapper:
 
         tensors = []
         batch_size = data.batch_size // self.num_volumes
+        coord_groups = None
+        if data.coord_cols is not None:
+            coord_groups = np.asarray(data.coord_cols).reshape(-1, 3)
         for b in range(batch_size):
             tensor_list = []
             for v in range(self.num_volumes):
                 idx = b * self.num_volumes + v
                 tensor = data[idx]
-                if v > 0 and data.coord_cols is not None:
-                    for cols in data.coord_cols.reshape(-1, 3):
+                if v > 0 and coord_groups is not None:
+                    for cols in coord_groups:
                         tensor[:, cols] = self.geo.translate(
                             tensor[:, cols], 0, v, 1.0 / meta[b].size
                         )
