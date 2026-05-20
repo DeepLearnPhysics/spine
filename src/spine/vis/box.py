@@ -356,5 +356,12 @@ def scatter_boxes(
     uppers = coords + dimension
 
     return box_traces(
-        lowers, uppers, draw_faces, color, linewidth, hovertext, shared_legend, **kwargs
+        lowers,
+        uppers,
+        draw_faces=draw_faces,
+        color=color,
+        linewidth=linewidth,
+        hovertext=hovertext,
+        shared_legend=shared_legend,
+        **kwargs,
     )

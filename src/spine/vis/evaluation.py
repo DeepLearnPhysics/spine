@@ -1,5 +1,7 @@
 """Routines to produce reconstruction performance metric plots."""
 
+from __future__ import annotations
+
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.ticker import Formatter
@@ -14,17 +16,21 @@ class UncertaintyFormatter(Formatter):
     for the tick position must be labeled *pos*.
     """
 
-    def __init__(self, fmt):
+    def __init__(self, fmt: str):
         self.fmt = fmt
 
-    def __call__(self, x, pos=None):
+    def __call__(self, x, pos=None) -> str:
         """
         Return the formatted label string.
 
         *x* and *pos* are passed to `str.format` as keyword arguments
         with those exact names.
         """
-        return self.fmt.format(*x)
+        unc = None
+        if isinstance(x, tuple):
+            x, unc = x
+
+        return self.fmt.format(x=x, pos=pos, unc=unc)
 
 
 def heatmap(data, row_labels, col_labels, ax=None, **kwargs):
@@ -110,6 +116,8 @@ def annotate_heatmap(
 
     if not isinstance(data, (list, np.ndarray)):
         data = im.get_array()
+    if unc is None:
+        unc = np.full_like(data, np.nan, dtype=float)
 
     # Normalize the threshold to the images color range.
     if threshold is not None:

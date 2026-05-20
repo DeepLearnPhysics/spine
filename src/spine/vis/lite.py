@@ -486,6 +486,9 @@ def legend_trace(
     object
         Plotly Scatter3d trace representing the legend entry.
     """
+    if color is None:
+        color = "black"
+
     return go.Scatter3d(
         x=[None],
         y=[None],

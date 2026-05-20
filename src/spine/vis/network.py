@@ -224,15 +224,16 @@ def network_schematic(
 
         edge_vertices = np.vstack(edge_vertices)
 
-    # Initialize the edge labels, if they are provided
+    # Initialize the edge labels, if they are provided. Plotly 2D line traces
+    # do not support per-vertex color arrays, so expose labels as hover text.
+    edge_hovertext = None
     if edge_labels is not None:
-        edge_labels = np.repeat(edge_labels, 3)
+        edge_hovertext = np.repeat([f"Edge label: {label}" for label in edge_labels], 3)
 
     # Add the edge trace
-    edge_trace = []
     edge_trace = scatter_points(
         edge_vertices,
-        color=edge_labels,
+        hovertext=edge_hovertext,
         linewidth=linewidth,
         mode="lines",
         name=edge_name,

@@ -98,7 +98,7 @@ def scatter_clusters(
             hovertext = [hovertext] * len(clusts)
         elif len(hovertext) == len(points) and len(points) != len(clusts):
             hovertext = [hovertext[c] for c in clusts]
-        elif len(hovertext) == len(hovertext):
+        elif len(hovertext) == len(clusts):
             if mode == "scatter" and len(hovertext) > 0 and np.isscalar(hovertext[0]):
                 hovertext = [[hovertext[i]] * len(c) for i, c in enumerate(clusts)]
         elif len(hovertext) != len(clusts):
@@ -109,7 +109,7 @@ def scatter_clusters(
 
     else:
         hovertext = [f"Cluster ID: {i:.0f}" for i in clust_ids]
-        if has_labels and len(color):
+        if has_labels and len(color) and not isinstance(color[0], str):
             if np.isscalar(color[0]):
                 for i, hc in enumerate(hovertext):
                     fmt = ".0f" if float(color[i]).is_integer() else ".2f"
@@ -174,7 +174,12 @@ def scatter_clusters(
 
     # If cmin/cmax are not provided, must build them so that all clusters
     # share the same colorscale range (not guaranteed otherwise)
-    if color is not None and not np.isscalar(color) and len(color) > 0:
+    if (
+        color is not None
+        and not np.isscalar(color)
+        and len(color) > 0
+        and not isinstance(color[0], str)
+    ):
         if cmin is None:
             if np.isscalar(color[0]):
                 cmin = np.min(color)

@@ -427,7 +427,7 @@ class GeoDrawer:
         draw_faces: bool = True,
         shared_legend: bool = True,
         name: str = "CRT",
-        color: Union[int, str, np.ndarray] = "rgba(0,256,256,0.150)",
+        color: Union[int, str, np.ndarray] = "rgba(0,255,255,0.150)",
         draw_ids: Optional[List[int]] = None,
         **kwargs,
     ) -> List[BaseTraceType]:

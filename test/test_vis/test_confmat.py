@@ -3,7 +3,7 @@
 import numpy as np
 import pandas as pd
 
-from spine.vis.metric.confmat import build_matrix, rebuild_matrix
+from spine.vis.metric.confmat import build_matrix, draw_confusion_matrix, rebuild_matrix
 
 
 def test_build_matrix_counts_predictions_by_label():
@@ -53,3 +53,23 @@ def test_rebuild_matrix_applies_class_mapping():
     hist = rebuild_matrix(data, mapping=mapping)
 
     np.testing.assert_array_equal(hist, [[10, 12], [14, 9]])
+
+
+def test_draw_confusion_matrix_writes_figure(tmp_path, monkeypatch):
+    """Confusion-matrix drawing should load CSV inputs and save a PNG."""
+    data_path = tmp_path / "metrics.csv"
+    figure_path = tmp_path / "confmat"
+    pd.DataFrame({"pred": [0, 1], "label": [0, 1], "score_0": 0}).to_csv(
+        data_path, index=False
+    )
+    monkeypatch.setattr("matplotlib.pyplot.show", lambda: None)
+
+    draw_confusion_matrix(
+        data_path,
+        num_classes=2,
+        figure_name=str(figure_path),
+        class_names=["a", "b"],
+        show_counts=True,
+    )
+
+    assert figure_path.with_suffix(".png").exists()

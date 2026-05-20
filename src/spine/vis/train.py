@@ -1,6 +1,7 @@
 """Tools to monitor training/validation processes."""
 
 import glob
+import os
 from functools import partial
 
 import numpy as np
@@ -269,7 +270,7 @@ class TrainDrawer:
         # Get the DataFrames for the requested models/metrics
         dfs, val_dfs, colors, draw_val = {}, {}, {}, {}
         for i, key in enumerate(model):
-            log_subdir = self.log_dir + key
+            log_subdir = os.path.join(self.log_dir, key)
             dfs[key] = self.get_training_df(log_subdir, metric)
             val_dfs[key] = self.get_validation_df(log_subdir, metric)
             draw_val[key] = bool(len(val_dfs[key]["iter"]))
@@ -419,7 +420,8 @@ class TrainDrawer:
                 plt.xlabel("Epochs")
                 ylabel = metric_name[metric[0]]
                 plt.ylabel(ylabel if len(metric) == 1 else "Metric")
-                plt.gca().set_ylim(limits[metric[0]])
+                if limits is not None and metric[0] in limits:
+                    plt.gca().set_ylim(limits[metric[0]])
                 legend_title = model_name[model[0]] if len(model) == 1 else None
                 plt.legend(
                     ncol=leg_ncols,
@@ -487,7 +489,7 @@ class TrainDrawer:
         # Loop over the log files, concatenate them
         log_dfs = []
         for i, f in enumerate(np.array(log_files)[order]):
-            df = pd.read_csv(f, nrows=end_points[i + 1] - end_points[i])
+            df = pd.read_csv(f, nrows=int(end_points[i + 1] - end_points[i]))
             if len(df) == 0:
                 continue
             for key_list in keys:
