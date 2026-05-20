@@ -1,5 +1,9 @@
 """Draw reconstruction output-level objects"""
 
+from __future__ import annotations
+
+from typing import Any
+
 import numpy as np
 from plotly import graph_objs as go
 
@@ -51,16 +55,16 @@ class Drawer:
 
     def __init__(
         self,
-        data,
-        draw_mode="both",
-        truth_point_mode="points",
-        truth_dep_mode="depositions",
-        split_scene=True,
-        geo=None,
-        detector_coords=True,
-        lite=False,
-        **kwargs,
-    ):
+        data: dict[str, Any],
+        draw_mode: str = "both",
+        truth_point_mode: str = "points",
+        truth_dep_mode: str = "depositions",
+        split_scene: bool = True,
+        geo: Any | None = None,
+        detector_coords: bool = True,
+        lite: bool = False,
+        **kwargs: Any,
+    ) -> None:
         """Initialize the drawer attributes
 
         Parameters
@@ -93,10 +97,11 @@ class Drawer:
         self.data = data
 
         # Set up the list of prefixes to access
-        assert draw_mode in self._draw_modes, (
-            f"`mode` not recognized: {draw_mode}. Must be one of "
-            f"{self._draw_modes}."
-        )
+        if draw_mode not in self._draw_modes:
+            raise ValueError(
+                f"`mode` not recognized: {draw_mode}. Must be one of "
+                f"{self._draw_modes}."
+            )
 
         self.prefixes = []
         if draw_mode != "truth":
@@ -111,10 +116,16 @@ class Drawer:
                 self.supported_objs.append(f"{mode}_{obj_type}")
 
         # Set up the truth point mode
-        assert truth_point_mode in self.point_modes, (
-            "The `truth_point_mode` argument must be one of "
-            f"{self.point_modes.keys()}. Got `{truth_point_mode}` instead."
-        )
+        if truth_point_mode not in self.point_modes:
+            raise ValueError(
+                "The `truth_point_mode` argument must be one of "
+                f"{self.point_modes.keys()}. Got `{truth_point_mode}` instead."
+            )
+        if truth_dep_mode not in self.dep_modes:
+            raise ValueError(
+                "The `truth_dep_mode` argument must be one of "
+                f"{self.dep_modes.keys()}. Got `{truth_dep_mode}` instead."
+            )
         self.truth_point_mode = truth_point_mode
         self.truth_point_key = self.point_modes[truth_point_mode]
         self.truth_dep_key = self.dep_modes[truth_dep_mode]
@@ -138,7 +149,7 @@ class Drawer:
         self.layout_kwargs = kwargs
 
     @property
-    def point_modes(self):
+    def point_modes(self) -> dict[str, str]:
         """Dictionary which makes the correspondance between the name of a true
         object point attribute with the underlying point tensor it points to.
 
@@ -150,7 +161,7 @@ class Drawer:
         return dict(self._point_modes)
 
     @property
-    def dep_modes(self):
+    def dep_modes(self) -> dict[str, str]:
         """Dictionary which makes the correspondance between the name of a true
         object deposition attribute with the underlying deposition array it points to.
 
@@ -162,7 +173,7 @@ class Drawer:
         return dict(self._dep_modes)
 
     @property
-    def source_modes(self):
+    def source_modes(self) -> dict[str, str]:
         """Dictionary which makes the correspondance between the name of a true
         object source attribute with the underlying source array it points to.
 
@@ -173,7 +184,7 @@ class Drawer:
         """
         return dict(self._source_modes)
 
-    def get_index(self, obj):
+    def get_index(self, obj: Any) -> np.ndarray:
         """Get a certain pre-defined index attribute of an object.
 
         The :class:`TruthFragment`, :class:`TruthParticle` and
@@ -197,21 +208,21 @@ class Drawer:
 
     def get(
         self,
-        obj_type,
-        attr=None,
-        color_attr=None,
-        draw_raw=False,
-        draw_end_points=False,
-        draw_directions=False,
-        draw_vertices=False,
-        draw_flashes=False,
-        matched_flash_only=True,
-        draw_crthits=False,
-        matched_crthit_only=True,
-        synchronize=False,
-        titles=None,
-        split_traces=False,
-    ):
+        obj_type: str,
+        attr: str | list[str] | None = None,
+        color_attr: str | None = None,
+        draw_raw: bool = False,
+        draw_end_points: bool = False,
+        draw_directions: bool = False,
+        draw_vertices: bool = False,
+        draw_flashes: bool = False,
+        matched_flash_only: bool = True,
+        draw_crthits: bool = False,
+        matched_crthit_only: bool = True,
+        synchronize: bool = False,
+        titles: list[str] | None = None,
+        split_traces: bool = False,
+    ) -> go.Figure:
         """Draw the requested object type with the requested mode.
 
         Parameters
@@ -252,10 +263,11 @@ class Drawer:
             Figure containing all the necessary information to draw
         """
         # Check that what is to be drawn is a known object type that is provided
-        assert obj_type in self._obj_types, (
-            f"Object type not recognized: {obj_type}. Must be one of "
-            f"{self._obj_types}."
-        )
+        if obj_type not in self._obj_types:
+            raise ValueError(
+                f"Object type not recognized: {obj_type}. Must be one of "
+                f"{self._obj_types}."
+            )
 
         # Produce an attribute list per object declination (truth and reco might
         # have different sets of valid attributes to draw)
@@ -284,9 +296,10 @@ class Drawer:
         traces = {}
         for prefix in self.prefixes:
             obj_name = f"{prefix}_{obj_type}"
-            assert (
-                obj_name in self.data
-            ), f"Must provide `{obj_name}` in the data products to draw them."
+            if obj_name not in self.data:
+                raise ValueError(
+                    f"Must provide `{obj_name}` in the data products to draw them."
+                )
             traces[prefix] = self._object_traces(
                 obj_name, attrs[prefix], color_attr, split_traces
             )
@@ -298,9 +311,8 @@ class Drawer:
 
         # Fetch the end points, if requested
         if draw_end_points:
-            assert (
-                obj_type != "interactions"
-            ), "Interactions do not have end point attributes."
+            if obj_type == "interactions":
+                raise ValueError("Interactions do not have end point attributes.")
             for prefix in self.prefixes:
                 obj_name = f"{prefix}_{obj_type}"
                 traces[prefix] += self._start_point_trace(obj_name, split_traces)
@@ -308,9 +320,8 @@ class Drawer:
 
         # Fetch the directions, if requested
         if draw_directions:
-            assert (
-                obj_type != "interactions"
-            ), "Interactions do not have direction attributes."
+            if obj_type == "interactions":
+                raise ValueError("Interactions do not have direction attributes.")
             for prefix in self.prefixes:
                 obj_name = f"{prefix}_{obj_type}"
                 traces[prefix] += self._direction_trace(obj_name, split_traces)
@@ -319,31 +330,31 @@ class Drawer:
         if draw_vertices:
             for prefix in self.prefixes:
                 obj_name = f"{prefix}_interactions"
-                assert (
-                    obj_name in self.data
-                ), "Must provide interactions to draw their vertices."
+                if obj_name not in self.data:
+                    raise ValueError(
+                        "Must provide interactions to draw their vertices."
+                    )
                 traces[prefix] += self._vertex_trace(obj_name, split_traces)
 
         # Fetch the flashes, if requested
         show_optical = False
         if draw_flashes:
-            assert (
-                "flashes" in self.data
-            ), "Must provide the `flashes` objects to draw them."
+            if "flashes" not in self.data:
+                raise ValueError("Must provide the `flashes` objects to draw them.")
             show_optical = True
             for prefix in self.prefixes:
                 obj_name = f"{prefix}_interactions"
-                assert (
-                    obj_name in self.data
-                ), "Must provide interactions to draw matched flashes."
+                if obj_name not in self.data:
+                    raise ValueError(
+                        "Must provide interactions to draw matched flashes."
+                    )
                 traces[prefix] += self._flash_trace(obj_name, matched_flash_only)
 
         # Fetch the CRT hits, if requested
         show_crt = False
         if draw_crthits:
-            assert (
-                "crthits" in self.data
-            ), "Must provide the `crthits` objects to draw them."
+            if "crthits" not in self.data:
+                raise ValueError("Must provide the `crthits` objects to draw them.")
             show_crt = True
             for prefix in self.prefixes:
                 obj_name = f"{prefix}_{obj_type}"
@@ -381,9 +392,10 @@ class Drawer:
             )
 
         else:
-            assert titles is None, (
-                "Providing titles does not do anything when split_scene " "is False."
-            )
+            if titles is not None:
+                raise ValueError(
+                    "Providing titles does not do anything when split_scene is False."
+                )
             all_traces = []
             for trace_group in traces.values():
                 all_traces += trace_group
@@ -391,7 +403,13 @@ class Drawer:
 
         return figure
 
-    def _object_traces(self, obj_name, attr, color_attr, split_traces):
+    def _object_traces(
+        self,
+        obj_name: str,
+        attr: set[str],
+        color_attr: str | None,
+        split_traces: bool,
+    ) -> list:
         """Draw a specific object.
 
         Parameters
@@ -417,10 +435,11 @@ class Drawer:
         if not self.lite:
             # Check that the object has points to be drawn
             point_key = self.truth_point_key if "truth" in obj_name else "points"
-            assert point_key in self.data, (
-                f"The `{point_key}` attribute must be provided if the full "
-                f"version of the `{obj_name}` objects is to be drawn."
-            )
+            if point_key not in self.data:
+                raise ValueError(
+                    f"The `{point_key}` attribute must be provided if the full "
+                    f"version of the `{obj_name}` objects is to be drawn."
+                )
 
             # Fetch the points and the clusters
             points = self.data[point_key]
@@ -445,7 +464,13 @@ class Drawer:
 
         return traces
 
-    def _object_colors(self, obj_name, attrs, color_attr, split_traces):
+    def _object_colors(
+        self,
+        obj_name: str,
+        attrs: set[str],
+        color_attr: str | None,
+        split_traces: bool,
+    ) -> dict[str, Any]:
         """Provides an appropriate colorscale and range for a given attribute.
 
         Parameters
@@ -471,17 +496,19 @@ class Drawer:
 
         # Make sure the color attribute is included in the hovertext attributes
         if color_attr is not None:
-            assert color_attr in attrs, (
-                "The attribute used to define the color scale must be "
-                "included in the list of hovertext attributes."
-            )
+            if color_attr not in attrs:
+                raise ValueError(
+                    "The attribute used to define the color scale must be "
+                    "included in the list of hovertext attributes."
+                )
 
         # Make sure that the geometry is provided if needed
         if any(self._is_sources(attr) for attr in attrs or []):
-            assert self.geo is not None, (
-                "Provide detector name/geometry if the TPC "
-                "sources are to be displayed."
-            )
+            if self.geo is None:
+                raise ValueError(
+                    "Provide detector name/geometry if the TPC "
+                    "sources are to be displayed."
+                )
 
         # Initialize hovertext per object
         obj_type = obj_name.split("_")[-1][:-1].capitalize()
@@ -514,21 +541,26 @@ class Drawer:
                 if "truth" in obj_name:
                     if self._is_depositions(attr):
                         prefix = self.truth_point_mode.replace("points", "depositions")
-                        assert attr.startswith(prefix), (
-                            f"Points mode {self.truth_point_mode} and deposition "
-                            f"mode {attr} are incompatible."
-                        )
+                        if not attr.startswith(prefix):
+                            raise ValueError(
+                                f"Points mode {self.truth_point_mode} and deposition "
+                                f"mode {attr} are incompatible."
+                            )
                     if self._is_sources(attr):
                         ref_name = self.truth_point_mode.replace("points", "sources")
-                        assert attr == ref_name, (
-                            f"Points mode {self.truth_point_mode} and source "
-                            f"mode {attr} are incompatible."
-                        )
+                        if attr != ref_name:
+                            raise ValueError(
+                                f"Points mode {self.truth_point_mode} and source "
+                                f"mode {attr} are incompatible."
+                            )
 
                 # Get the list of values
                 values = [getattr(obj, attr) for obj in self.data[obj_name]]
                 if self._is_sources(attr):
-                    assert self.geo is not None  # For the linter's sake
+                    if self.geo is None:
+                        raise ValueError(
+                            "Provide detector name/geometry to display sources."
+                        )
                     values = [self.geo.get_sources(v) for v in values]
 
                 # Get the colors, if needed
@@ -536,10 +568,11 @@ class Drawer:
                     if not self._is_sources(attr):
                         color = values
                     else:
-                        assert self.geo is not None, (
-                            "Provide detector name/geometry if the TPC "
-                            "sources are to be displayed."
-                        )
+                        if self.geo is None:
+                            raise ValueError(
+                                "Provide detector name/geometry if the TPC "
+                                "sources are to be displayed."
+                            )
                         color = [self.geo.get_chambers(v) for v in values]
 
                 # Get the hovertext for this attribute
@@ -581,7 +614,8 @@ class Drawer:
 
         elif self._is_sources(color_attr):
             # Variable-length descrete values
-            assert self.geo is not None  # For the linter's sake
+            if self.geo is None:
+                raise ValueError("Provide detector name/geometry to display sources.")
             count = self.geo.tpc.num_chambers
             colorscale = HIGH_CONTRAST_COLORS
             if count == 0:
@@ -648,7 +682,7 @@ class Drawer:
             "cmax": cmax,
         }
 
-    def _raw_trace(self, prefix):
+    def _raw_trace(self, prefix: str) -> list[go.Scatter3d]:
         """Draws the raw input image (pre-reconstruction).
 
         Parameters
@@ -706,13 +740,13 @@ class Drawer:
 
     def _start_point_trace(
         self,
-        obj_name,
-        split_traces,
-        color="black",
-        markersize=7,
-        marker_symbol="circle",
-        **kwargs,
-    ):
+        obj_name: str,
+        split_traces: bool,
+        color: str | np.ndarray = "black",
+        markersize: float = 7,
+        marker_symbol: str = "circle",
+        **kwargs: Any,
+    ) -> list[go.Scatter3d]:
         """Scatters the start points of the requested object type.
 
         Parameters
@@ -747,13 +781,13 @@ class Drawer:
 
     def _end_point_trace(
         self,
-        obj_name,
-        split_traces,
-        color="black",
-        markersize=7,
-        marker_symbol="circle-open",
-        **kwargs,
-    ):
+        obj_name: str,
+        split_traces: bool,
+        color: str | np.ndarray = "black",
+        markersize: float = 7,
+        marker_symbol: str = "circle-open",
+        **kwargs: Any,
+    ) -> list[go.Scatter3d]:
         """Scatters the end points of the requested object type.
 
         Parameters
@@ -788,14 +822,14 @@ class Drawer:
 
     def _vertex_trace(
         self,
-        obj_name,
-        split_traces,
-        vertex_attr="vertex",
-        color="green",
-        markersize=10,
-        marker_symbol="diamond",
-        **kwargs,
-    ):
+        obj_name: str,
+        split_traces: bool,
+        vertex_attr: str = "vertex",
+        color: str | np.ndarray = "green",
+        markersize: float = 10,
+        marker_symbol: str = "diamond",
+        **kwargs: Any,
+    ) -> list[go.Scatter3d]:
         """Scatters the vertex of the requested object type.
 
         Parameters
@@ -828,7 +862,9 @@ class Drawer:
             **kwargs,
         )
 
-    def _point_trace(self, obj_name, point_attr, split_traces, **kwargs):
+    def _point_trace(
+        self, obj_name: str, point_attr: str, split_traces: bool, **kwargs: Any
+    ) -> list[go.Scatter3d]:
         """Scatters a set of discrete points per object instance.
 
         Parameters
@@ -892,7 +928,13 @@ class Drawer:
 
         return traces
 
-    def _direction_trace(self, obj_name, split_traces, color="black", **kwargs):
+    def _direction_trace(
+        self,
+        obj_name: str,
+        split_traces: bool,
+        color: str | np.ndarray = "black",
+        **kwargs: Any,
+    ) -> list:
         """Scatters a set of discrete points per object instance.
 
         Parameters
@@ -957,7 +999,7 @@ class Drawer:
 
         return traces
 
-    def _flash_trace(self, obj_name, matched_only, **kwargs):
+    def _flash_trace(self, obj_name: str, matched_only: bool, **kwargs: Any) -> list:
         """Draw the cumulative PEs of flashes.
 
         Parameters
@@ -975,14 +1017,14 @@ class Drawer:
             List of optical detector traces
         """
         # If there was no geometry provided by the user, nothing to do here
-        assert (
-            self.geo_drawer is not None
-        ), "Cannot draw optical detectors without geometry information."
+        if self.geo_drawer is None:
+            raise RuntimeError(
+                "Cannot draw optical detectors without geometry information."
+            )
 
         # Check that there are optical detectors to draw
-        assert (
-            self.geo is not None and self.geo.optical is not None
-        ), "This geometry does not have optical detectors to draw."
+        if self.geo is None or self.geo.optical is None:
+            raise RuntimeError("This geometry does not have optical detectors to draw.")
 
         # Define the name of the trace
         name = " ".join(obj_name.split("_")).capitalize()[:-1] + " flashes"
@@ -1019,7 +1061,7 @@ class Drawer:
             **kwargs,
         )
 
-    def _crt_trace(self, obj_name, matched_only, **kwargs):
+    def _crt_trace(self, obj_name: str, matched_only: bool, **kwargs: Any) -> list:
         """Draw the CRT planes and the hits.
 
         Parameters
@@ -1037,14 +1079,14 @@ class Drawer:
             List of optical detector traces
         """
         # If there was no geometry provided by the user, nothing to do here
-        assert (
-            self.geo is not None and self.geo_drawer is not None
-        ), "Cannot draw CRT detectors without geometry information."
+        if self.geo is None or self.geo_drawer is None:
+            raise RuntimeError(
+                "Cannot draw CRT detectors without geometry information."
+            )
 
         # Check that there are CRT planes to draw
-        assert (
-            self.geo.crt is not None
-        ), "This geometry does not have CRT planes to draw."
+        if self.geo.crt is None:
+            raise RuntimeError("This geometry does not have CRT planes to draw.")
 
         # Define the names of the traces
         name_pl = " ".join(obj_name.split("_")).capitalize()[:-1] + " CRT planes"
@@ -1095,7 +1137,7 @@ class Drawer:
 
         return traces
 
-    def _is_long_form(self, attr):
+    def _is_long_form(self, attr: str) -> bool:
         """Check if an attribute is a long-form attribute (depositions or sources).
 
         Parameters
@@ -1111,7 +1153,7 @@ class Drawer:
         return self._is_depositions(attr) or self._is_sources(attr)
 
     @staticmethod
-    def _is_depositions(attr):
+    def _is_depositions(attr: str) -> bool:
         """Check if an attribute represents one deposition value per point.
 
         Parameters
@@ -1127,7 +1169,7 @@ class Drawer:
         return attr.startswith("depositions") and not attr.endswith("sum")
 
     @staticmethod
-    def _is_sources(attr):
+    def _is_sources(attr: str) -> bool:
         """Check if an attribute represents one source value per point.
 
         Parameters
@@ -1142,7 +1184,7 @@ class Drawer:
         """
         return attr.startswith("sources")
 
-    def _tostr(self, attr_name, value):
+    def _tostr(self, attr_name: str, value: Any) -> str:
         """Convert a scalar attribute value to a human-readable string.
 
         Parameters
@@ -1159,7 +1201,7 @@ class Drawer:
         """
         return f"<br>{attr_name}: {value}"
 
-    def _enum_name(self, obj, attr, value):
+    def _enum_name(self, obj: Any, attr: str, value: Any) -> str | None:
         """Resolve an enumerated attribute value to its symbolic name."""
         if isinstance(obj, spine.data.out.TruthInteraction) and attr in (
             "interaction_type",
@@ -1175,7 +1217,7 @@ class Drawer:
 
         return obj.enum_values[attr].get(value)
 
-    def _format_hover_value(self, obj, attr, value):
+    def _format_hover_value(self, obj: Any, attr: str, value: Any) -> Any:
         """Format one hovertext value with enum labels and documented units."""
         enum_name = self._enum_name(obj, attr, value)
         if enum_name is not None:
@@ -1187,7 +1229,7 @@ class Drawer:
 
         return value
 
-    def _dep_tostr(self, value):
+    def _dep_tostr(self, value: float) -> str:
         """Convert a deposition value to a human-readable string.
 
         Parameters
@@ -1202,7 +1244,7 @@ class Drawer:
         """
         return f"<br>Deposition: {value:0.3f}"
 
-    def _src_tostr(self, value):
+    def _src_tostr(self, value: np.ndarray) -> str:
         """Convert a source value to a human-readable string.
 
         Parameters

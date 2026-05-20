@@ -72,7 +72,8 @@ def cylinder_trace(
 
     # Convert the color provided to a set of intensities, if needed
     if color is not None and not isinstance(color, str):
-        assert intensity is None, "Must not provide both `color` and `intensity`."
+        if intensity is not None:
+            raise ValueError("Must not provide both `color` and `intensity`.")
         intensity = np.full(len(cyl_points), color)
         color = None
 
@@ -94,26 +95,27 @@ def cylinder_trace(
         intensity=intensity,
         alphahull=0,
         showscale=showscale,
+        hovertext=hovertext,
         hovertemplate=hovertemplate,
         **kwargs,
     )
 
 
 def cylinder_traces(
-    centroids,
-    axis,
-    height,
-    diameter,
-    color=None,
-    hovertext=None,
-    cmin=None,
-    cmax=None,
-    shared_legend=True,
-    legendgroup=None,
-    showlegend=True,
-    name=None,
-    **kwargs,
-):
+    centroids: np.ndarray,
+    axis: np.ndarray,
+    height: float | np.ndarray,
+    diameter: float | np.ndarray,
+    color: str | float | np.ndarray | None = None,
+    hovertext: int | str | np.ndarray | None = None,
+    cmin: float | None = None,
+    cmax: float | None = None,
+    shared_legend: bool = True,
+    legendgroup: str | None = None,
+    showlegend: bool = True,
+    name: str | None = None,
+    **kwargs: Any,
+) -> list[go.Mesh3d]:
     """Function which produces a list of plotly traces of cylinders given a
     list of centroids and one covariance matrix in x, y and z.
 
@@ -153,22 +155,30 @@ def cylinder_traces(
         Ellipsoid traces
     """
     # Check the parameters
-    assert (
-        color is None or np.isscalar(color) or len(color) == len(centroids)
-    ), "Specify one color for all cylinders, or one color per cylinder."
-    assert (
-        hovertext is None or np.isscalar(hovertext) or len(hovertext) == len(centroids)
-    ), "Specify one hovertext for all cylinders, or one hovertext per cylinder."
-    assert axis.shape == (3,) or axis.shape == (
-        len(centroids),
-        3,
-    ), "Specify one axis for all cylinders, or one axis per cylinder."
-    assert np.isscalar(height) or len(height) == len(
-        centroids
-    ), "Specify one height for all cylinders, or one height per cylinder."
-    assert np.isscalar(diameter) or len(diameter) == len(
-        centroids
-    ), "Specify one diameter for all cylinders, or one diameter per cylinder."
+    if color is not None and not np.isscalar(color) and len(color) != len(centroids):
+        raise ValueError(
+            "Specify one color for all cylinders, or one color per cylinder."
+        )
+    if (
+        hovertext is not None
+        and not np.isscalar(hovertext)
+        and len(hovertext) != len(centroids)
+    ):
+        raise ValueError(
+            "Specify one hovertext for all cylinders, or one hovertext per cylinder."
+        )
+    if axis.shape != (3,) and axis.shape != (len(centroids), 3):
+        raise ValueError(
+            "Specify one axis for all cylinders, or one axis per cylinder."
+        )
+    if not np.isscalar(height) and len(height) != len(centroids):
+        raise ValueError(
+            "Specify one height for all cylinders, or one height per cylinder."
+        )
+    if not np.isscalar(diameter) and len(diameter) != len(centroids):
+        raise ValueError(
+            "Specify one diameter for all cylinders, or one diameter per cylinder."
+        )
 
     # If one color is provided per cylinder, give an associated hovertext
     if hovertext is None and isinstance(color, (list, tuple, np.ndarray)):

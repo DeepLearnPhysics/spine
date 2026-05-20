@@ -1,8 +1,11 @@
 """Tools to monitor training/validation processes."""
 
+from __future__ import annotations
+
 import glob
 import os
 from functools import partial
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -23,14 +26,14 @@ class TrainDrawer:
 
     def __init__(
         self,
-        log_dir,
-        interactive=True,
-        paper=False,
-        alpha=0.5,
-        train_prefix="train",
-        val_prefix="inference",
-        separator=":",
-    ):
+        log_dir: str,
+        interactive: bool = True,
+        paper: bool = False,
+        alpha: float = 0.5,
+        train_prefix: str = "train",
+        val_prefix: str = "inference",
+        separator: str = ":",
+    ) -> None:
         """Initialize the drawer.
 
         Parameters
@@ -60,7 +63,7 @@ class TrainDrawer:
         # Initialize the style
         self.interactive = interactive
         if interactive:
-            self.layout = None
+            self.layout = {}
             self.cr_char = "<br>"
             self.initialize_plotly()
         else:
@@ -78,7 +81,7 @@ class TrainDrawer:
         else:
             self.colors = PLOTLY_COLORS_TUPLE
 
-    def initialize_plotly(self):
+    def initialize_plotly(self) -> None:
         """Initialize the style parameters for plotly."""
         font = {"size": 20}
         axis_base = {"tickfont": font, "linecolor": "black", "mirror": True}
@@ -92,7 +95,7 @@ class TrainDrawer:
             legend={"font": font, "tracegroupgap": 1},
         )
 
-    def initialize_matplotlib(self, paper):
+    def initialize_matplotlib(self, paper: bool) -> None:
         """Initialize the style parameters for matplotlib.
 
         paper : bool, default False
@@ -113,7 +116,7 @@ class TrainDrawer:
             self.linewidth = 2
             self.markersize = 10
 
-    def set_log_dir(self, log_dir):
+    def set_log_dir(self, log_dir: str) -> None:
         """Simply reset the base log directory to another one.
 
         Parameters
@@ -125,21 +128,21 @@ class TrainDrawer:
 
     def draw(
         self,
-        model,
-        metric,
-        limits=None,
-        model_name=None,
-        metric_name=None,
-        max_iter=None,
-        step=None,
-        smoothing=None,
-        iter_per_epoch=None,
-        print_min=False,
-        print_max=False,
-        same_plot=True,
-        leg_ncols=1,
-        figure_name=None,
-    ):
+        model: str | list[str],
+        metric: str | list[str],
+        limits: list[float] | dict[str, list[float]] | None = None,
+        model_name: str | dict[str, str] | None = None,
+        metric_name: str | dict[str, str] | None = None,
+        max_iter: int | None = None,
+        step: int | None = None,
+        smoothing: int | None = None,
+        iter_per_epoch: float | None = None,
+        print_min: bool = False,
+        print_max: bool = False,
+        same_plot: bool = True,
+        leg_ncols: int = 1,
+        figure_name: str | None = None,
+    ) -> None:
         """Finds all training and validation log files inside the specified
         directory and draws an evolution plot of the requested quantities.
 
@@ -182,10 +185,11 @@ class TrainDrawer:
         # Make sure each model is given a name
         model_name = model_name or {}
         if isinstance(model_name, str):
-            assert len(model) == 1, (
-                "Should provide a single `model_name` if there is a "
-                "single `model` to be represented."
-            )
+            if len(model) != 1:
+                raise ValueError(
+                    "Should provide a single `model_name` if there is a "
+                    "single `model` to be represented."
+                )
             model_name = {model[0]: model_name}
         else:
             for m in model:
@@ -195,10 +199,11 @@ class TrainDrawer:
         # Make sure each metric is given a name
         metric_name = metric_name or {}
         if isinstance(metric_name, str):
-            assert len(metric) == 1, (
-                "Should provide a single `metric_name` if there is a "
-                "single `metric` to be represented."
-            )
+            if len(metric) != 1:
+                raise ValueError(
+                    "Should provide a single `metric_name` if there is a "
+                    "single `metric` to be represented."
+                )
             metric_name = {metric[0]: metric_name}
         else:
             for m in metric:
@@ -297,6 +302,7 @@ class TrainDrawer:
                         epoch_v = [epoch_t[iter_t == it] for it in iter_v]
                         mask = np.where(np.array([len(e) for e in epoch_v]) == 1)[0]
                         epoch_v = [float(epoch_v[i].iloc[0]) for i in mask]
+                        epoch_v = np.asarray(epoch_v)
                         iter_v = iter_v[mask]
                         metric_v_mean = metric_v_mean[mask]
                         metric_v_err = metric_v_err[mask]
@@ -450,7 +456,7 @@ class TrainDrawer:
 
             iplot(fig)
 
-    def get_training_df(self, log_dir, keys):
+    def get_training_df(self, log_dir: str, keys: list[str]) -> pd.DataFrame:
         """Finds all training log files inside the specified directory and
         concatenates them. If the range of iterations overlap, keep only that
         from the file started further in the training.
@@ -499,7 +505,7 @@ class TrainDrawer:
 
         return pd.concat(log_dfs, sort=True)
 
-    def get_validation_df(self, log_dir, keys):
+    def get_validation_df(self, log_dir: str, keys: list[str]) -> pd.DataFrame:
         """Finds all validation log files inside the specified directory and
         build a single dataframe out of them. It returns the mean and std of
         the requested keys for each file.
@@ -547,7 +553,9 @@ class TrainDrawer:
 
         return pd.DataFrame(val_data)
 
-    def find_key(self, df, key_list):
+    def find_key(
+        self, df: pd.DataFrame | dict[str, Any], key_list: str
+    ) -> tuple[str, str]:
         """Checks if a :class:`pd.DataFrame` contains any of the keys listed
         in a character-separated string.
 

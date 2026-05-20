@@ -1,8 +1,12 @@
 """Tools to draw voxelized data organized in clusts."""
 
+from __future__ import annotations
+
 import time
+from typing import Any
 
 import numpy as np
+import plotly.graph_objs as go
 
 from .cone import cone_trace
 from .ellipsoid import ellipsoid_trace
@@ -13,18 +17,18 @@ __all__ = ["scatter_clusters"]
 
 
 def scatter_clusters(
-    points,
-    clusts,
-    color=None,
-    hovertext=None,
-    single_trace=False,
-    name=None,
-    mode="scatter",
-    cmin=None,
-    cmax=None,
-    shared_legend=True,
-    **kwargs,
-):
+    points: np.ndarray,
+    clusts: list[np.ndarray],
+    color: str | float | np.ndarray | None = None,
+    hovertext: int | str | np.ndarray | None = None,
+    single_trace: bool = False,
+    name: str | list[str] | None = None,
+    mode: str = "scatter",
+    cmin: float | None = None,
+    cmax: float | None = None,
+    shared_legend: bool = True,
+    **kwargs: Any,
+) -> list[go.Scatter3d | go.Mesh3d]:
     """Arranges points in clusters and scatters them and their cluster labels.
 
     Produces :class:`plotly.graph_objs.Scatter3d` trace object to be drawn
@@ -123,13 +127,14 @@ def scatter_clusters(
     # If requested, combine all clusters into a single trace
     if single_trace:
         # Check that we are operating in the expected mode
-        assert mode in [
-            "circle",
-            "scatter",
-        ], "Can only combine in one trace in 'circle' or 'scatter' mode."
-        assert (
-            shared_legend
-        ), "Cannot split legend when merging all clusters in one trace."
+        if mode not in ["circle", "scatter"]:
+            raise ValueError(
+                "Can only combine in one trace in 'circle' or 'scatter' mode."
+            )
+        if not shared_legend:
+            raise ValueError(
+                "Cannot split legend when merging all clusters in one trace."
+            )
 
         # Aggregate the coordinates, color and hovertext
         if mode == "circle":
@@ -205,10 +210,11 @@ def scatter_clusters(
             if np.isscalar(name):
                 name_i = f"{name} {i}"
             else:
-                assert len(name) == len(clusts), (
-                    "When providing the name as a list, there should be "
-                    "one name per cluster."
-                )
+                if len(name) != len(clusts):
+                    raise ValueError(
+                        "When providing the name as a list, there should be "
+                        "one name per cluster."
+                    )
                 name_i = name[i]
 
         # Dispatch

@@ -1,6 +1,9 @@
 """Module to draw 3D arrows."""
 
+from __future__ import annotations
+
 import time
+from typing import Any
 
 import numpy as np
 from plotly import graph_objs as go
@@ -11,16 +14,16 @@ __all__ = ["scatter_arrows"]
 
 
 def scatter_arrows(
-    points,
-    directions,
-    length=10.0,
-    tip_ratio=0.25,
-    color=None,
-    hovertext=None,
-    line=None,
-    linewidth=5,
-    name=None,
-):
+    points: np.ndarray,
+    directions: np.ndarray,
+    length: float = 10.0,
+    tip_ratio: float = 0.25,
+    color: str | float | np.ndarray | None = None,
+    hovertext: int | str | np.ndarray | None = None,
+    line: dict[str, Any] | None = None,
+    linewidth: float = 5,
+    name: str | None = None,
+) -> list[go.Scatter3d | go.Cone]:
     """Converts a list of points and directions into a set of arrows.
 
     Parameters
@@ -47,10 +50,11 @@ def scatter_arrows(
     # Process color and hovertext information for the arrows
     color_trunks, hovertext_trunks = color, hovertext
     if isinstance(color, (list, tuple, np.ndarray)):
-        assert len(color) == len(points), (
-            "If providing a list of colors for the arrows, "
-            "its length must match the number of points."
-        )
+        if len(color) != len(points):
+            raise ValueError(
+                "If providing a list of colors for the arrows, "
+                "its length must match the number of points."
+            )
         color_trunks = np.repeat(color, 3)
 
     hovertext_arrows = []

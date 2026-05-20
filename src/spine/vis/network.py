@@ -1,6 +1,11 @@
 """Tools to draw voxelized data organized in clusts."""
 
+from __future__ import annotations
+
+from typing import Any
+
 import numpy as np
+import plotly.graph_objs as go
 
 from spine.constants import COORD_COLS
 from spine.math.distance import closest_pair
@@ -12,18 +17,18 @@ __all__ = ["network_topology", "network_schematic"]
 
 
 def network_topology(
-    points,
-    clusts,
-    edge_index,
-    clust_labels=None,
-    edge_labels=None,
-    mode="scatter",
-    color=None,
-    line=None,
-    linewidth=2,
-    name=None,
-    **kwargs,
-):
+    points: np.ndarray,
+    clusts: list[np.ndarray],
+    edge_index: np.ndarray,
+    clust_labels: np.ndarray | None = None,
+    edge_labels: np.ndarray | None = None,
+    mode: str = "scatter",
+    color: str | np.ndarray | None = None,
+    line: dict[str, Any] | None = None,
+    linewidth: float = 2,
+    name: str | None = None,
+    **kwargs: Any,
+) -> list[go.Scatter | go.Scatter3d | go.Mesh3d]:
     """Network 3D topological representation in Euclidean space.
 
     Parameters
@@ -61,9 +66,10 @@ def network_topology(
         points = points[:, COORD_COLS]
 
     # Check that color is not passed directly, ambiguous for a network
-    assert (
-        color is None
-    ), "Use `clust_labels` instead of `color` to specify node colors."
+    if color is not None:
+        raise ValueError(
+            "Use `clust_labels` instead of `color` to specify node colors."
+        )
 
     # Set the prefix to add to the trace names
     prefix = f"{name}" if name is not None else "Graph"
@@ -130,15 +136,15 @@ def network_topology(
 
 
 def network_schematic(
-    clusts,
-    edge_index,
-    clust_labels,
-    edge_labels=None,
-    color=None,
-    name=None,
-    linewidth=2,
-    **kwargs,
-):
+    clusts: list[np.ndarray],
+    edge_index: np.ndarray,
+    clust_labels: np.ndarray,
+    edge_labels: np.ndarray | None = None,
+    color: str | np.ndarray | None = None,
+    name: str | None = None,
+    linewidth: float = 2,
+    **kwargs: Any,
+) -> list[go.Scatter]:
     """Network 2D schematic representation.
 
     This is to be used exclusevely with bipartite graphs where the nodes
@@ -172,9 +178,10 @@ def network_schematic(
         Node and edge traces in the same list
     """
     # Check that color is not passed directly, ambiguous for a network
-    assert (
-        color is None
-    ), "Use `clust_labels` instead of `color` to specify node colors."
+    if color is not None:
+        raise ValueError(
+            "Use `clust_labels` instead of `color` to specify node colors."
+        )
 
     # Define the node size on the bases of the cluster size
     counts = np.array([len(c) for c in clusts])
@@ -186,12 +193,10 @@ def network_schematic(
     edge_name = f"{prefix} edges"
 
     # Check that the labels are binary (0 or 1)
-    assert len(clust_labels) == len(
-        clusts
-    ), "Must provide a primary label for each cluster."
-    assert np.all(
-        (clust_labels == 0) | (clust_labels == 1)
-    ), "All cluster labels should be 0 or 1."
+    if len(clust_labels) != len(clusts):
+        raise ValueError("Must provide a primary label for each cluster.")
+    if not np.all((clust_labels == 0) | (clust_labels == 1)):
+        raise ValueError("All cluster labels should be 0 or 1.")
 
     # Define the hovertext attribute
     num_clusts = len(clusts)

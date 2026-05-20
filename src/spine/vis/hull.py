@@ -1,5 +1,9 @@
 """Module to convert a point cloud into an convex hull envelope."""
 
+from __future__ import annotations
+
+from typing import Any
+
 import numpy as np
 import plotly.graph_objs as go
 
@@ -7,14 +11,14 @@ __all__ = ["hull_trace"]
 
 
 def hull_trace(
-    points,
-    color=None,
-    intensity=None,
-    hovertext=None,
-    showscale=False,
-    alphahull=0,
-    **kwargs,
-):
+    points: np.ndarray,
+    color: str | float | np.ndarray | None = None,
+    intensity: int | float | np.ndarray | None = None,
+    hovertext: int | str | np.ndarray | None = None,
+    showscale: bool = False,
+    alphahull: float = 0,
+    **kwargs: Any,
+) -> go.Mesh3d:
     """Converts a cloud of points into a 3D convex hull.
 
     This function represents a point cloud by forming a mesh with the points
@@ -41,7 +45,8 @@ def hull_trace(
     """
     # Convert the color provided to a set of intensities, if needed
     if color is not None and not isinstance(color, str):
-        assert intensity is None, "Must not provide both `color` and `intensity`."
+        if intensity is not None:
+            raise ValueError("Must not provide both `color` and `intensity`.")
         intensity = np.full(len(points), color)
         color = None
 
@@ -59,9 +64,11 @@ def hull_trace(
         x=points[:, 0],
         y=points[:, 1],
         z=points[:, 2],
+        color=color,
         intensity=intensity,
         alphahull=alphahull,
         showscale=showscale,
+        hovertext=hovertext,
         hovertemplate=hovertemplate,
         **kwargs,
     )

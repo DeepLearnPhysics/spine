@@ -1,5 +1,9 @@
 """Tools to draw a (labeled) point cloud."""
 
+from __future__ import annotations
+
+from typing import Any
+
 import numpy as np
 import plotly.graph_objs as go
 
@@ -9,22 +13,22 @@ __all__ = ["scatter_points"]
 
 
 def scatter_points(
-    points,
-    color=None,
-    markersize=2,
-    linewidth=2,
-    colorscale=None,
-    cmin=None,
-    cmax=None,
-    opacity=None,
-    hovertext=None,
-    hovertemplate=None,
-    dim=3,
-    mode="markers",
-    marker=None,
-    line=None,
-    **kwargs,
-):
+    points: np.ndarray,
+    color: str | float | np.ndarray | None = None,
+    markersize: float = 2,
+    linewidth: float = 2,
+    colorscale: str | list | None = None,
+    cmin: int | float | None = None,
+    cmax: int | float | None = None,
+    opacity: float | None = None,
+    hovertext: int | str | list | np.ndarray | None = None,
+    hovertemplate: str | None = None,
+    dim: int = 3,
+    mode: str = "markers",
+    marker: dict[str, Any] | None = None,
+    line: dict[str, Any] | None = None,
+    **kwargs: Any,
+) -> list[go.Scatter | go.Scatter3d]:
     """Scatters points and their labels.
 
     Produces :class:`plotly.graph_objs.Scatter3d` or

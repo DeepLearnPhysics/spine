@@ -22,7 +22,7 @@ from .utils import rotation_matrix_from_z
 __all__ = ["scatter_lite"]
 
 
-def scatter_lite(objects, **kwargs):
+def scatter_lite(objects: list, **kwargs: Any) -> list[go.Scatter3d | go.Mesh3d]:
     """Produces plotly traces for Lite objects.
 
     Parameters
@@ -49,15 +49,15 @@ def scatter_lite(objects, **kwargs):
 
 
 def scatter_lite_interactions(
-    interactions,
-    color=None,
-    hovertext=None,
-    name=None,
-    cmin=None,
-    cmax=None,
-    shared_legend=True,
-    **kwargs,
-):
+    interactions: list,
+    color: str | float | np.ndarray | None = None,
+    hovertext: int | str | np.ndarray | None = None,
+    name: str | list[str] | None = None,
+    cmin: float | None = None,
+    cmax: float | None = None,
+    shared_legend: bool = True,
+    **kwargs: Any,
+) -> list[go.Scatter3d | go.Mesh3d]:
     """Produces plotly traces for Lite interactions.
 
     Parameters
@@ -82,9 +82,10 @@ def scatter_lite_interactions(
     # If cmin/cmax are not provided, must build them so that all clusters
     # share the same colorscale range (not guaranteed otherwise)
     if color is not None and isinstance(color, (list, tuple, np.ndarray)):
-        assert len(color) == len(
-            interactions
-        ), "If providing a list of colors, must provide one per interaction."
+        if len(color) != len(interactions):
+            raise ValueError(
+                "If providing a list of colors, must provide one per interaction."
+            )
         if len(color) > 0 and not isinstance(color[0], str):
             if cmin is None:
                 cmin = np.min(color)
@@ -138,21 +139,21 @@ def scatter_lite_interactions(
 
 
 def scatter_lite_particles(
-    particles,
-    color=None,
-    hovertext=None,
-    showscale=False,
-    linewidth=5.0,
-    cone_num_samples=10,
-    name=None,
-    cmin=None,
-    cmax=None,
-    colorscale=None,
-    legendgroup=None,
-    showlegend=True,
-    shared_legend=True,
-    **kwargs,
-):
+    particles: list,
+    color: str | float | np.ndarray | None = None,
+    hovertext: int | str | np.ndarray | None = None,
+    showscale: bool = False,
+    linewidth: float = 5.0,
+    cone_num_samples: int = 10,
+    name: str | list[str] | None = None,
+    cmin: float | None = None,
+    cmax: float | None = None,
+    colorscale: str | list | None = None,
+    legendgroup: str | None = None,
+    showlegend: bool = True,
+    shared_legend: bool = True,
+    **kwargs: Any,
+) -> list[go.Scatter3d | go.Mesh3d]:
     """Produces plotly traces for Lite particles.
 
     Parameters
@@ -192,9 +193,10 @@ def scatter_lite_particles(
     # If cmin/cmax are not provided, must build them so that all clusters
     # share the same colorscale range (not guaranteed otherwise)
     if color is not None and isinstance(color, (list, tuple, np.ndarray)):
-        assert len(color) == len(
-            particles
-        ), "If providing a list of colors, must provide one per particle."
+        if len(color) != len(particles):
+            raise ValueError(
+                "If providing a list of colors, must provide one per particle."
+            )
         if len(color) > 0 and not isinstance(color[0], str):
             if cmin is None:
                 cmin = np.min(color)
@@ -289,17 +291,17 @@ def scatter_lite_particles(
 
 
 def track_line_trace(
-    start_point,
-    end_point,
-    line=None,
-    color=None,
-    hovertext=None,
-    colorscale=None,
-    cmin=None,
-    cmax=None,
-    linewidth=5.0,
-    **kwargs,
-):
+    start_point: np.ndarray,
+    end_point: np.ndarray,
+    line: dict[str, Any] | None = None,
+    color: str | float | None = None,
+    hovertext: int | str | None = None,
+    colorscale: str | list | None = None,
+    cmin: float | None = None,
+    cmax: float | None = None,
+    linewidth: float = 5.0,
+    **kwargs: Any,
+) -> go.Scatter3d:
     """Generates a line trace representing a track between two points.
 
     Parameters
@@ -331,7 +333,8 @@ def track_line_trace(
     if line is None:
         line = {}
     if color is not None:
-        assert np.isscalar(color), "Should provide a single color for the line."
+        if not np.isscalar(color):
+            raise ValueError("Should provide a single color for the line.")
         line["color"] = [color, color]  # One per line endpoint
     if linewidth is not None:
         line["width"] = linewidth
@@ -428,8 +431,10 @@ def em_cone_trace(
     # Convert the color provided to a set of intensities
     mesh_color = None
     if color is not None:
-        assert intensity is None, "Provide either `color` or `intensity`, not both."
-        assert np.isscalar(color), "Should provide a single color for the cone."
+        if intensity is not None:
+            raise ValueError("Provide either `color` or `intensity`, not both.")
+        if not np.isscalar(color):
+            raise ValueError("Should provide a single color for the cone.")
         if isinstance(color, str):
             mesh_color = color
         else:
@@ -453,19 +458,20 @@ def em_cone_trace(
         intensity=intensity,
         alphahull=0,
         showscale=showscale,
+        hovertext=hovertext,
         hovertemplate=hovertemplate,
         **kwargs,
     )
 
 
 def legend_trace(
-    color,
-    cmin=None,
-    cmax=None,
-    colorscale=None,
-    legendgroup=None,
-    name=None,
-):
+    color: str | float | None,
+    cmin: float | None = None,
+    cmax: float | None = None,
+    colorscale: str | list | None = None,
+    legendgroup: str | None = None,
+    name: str | None = None,
+) -> go.Scatter3d:
     """Generates a dummy trace to show in the legend.
 
     Parameters

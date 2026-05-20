@@ -72,9 +72,8 @@ def cone_trace(
                 diff = point - points[end_id]
                 dots[i, j] = np.dot(diff / np.linalg.norm(diff), dirs[i])
 
-    assert (
-        fraction > 0.0 and fraction < 1.0
-    ), "The `fraction` parameter should be a probability."
+    if not 0.0 < fraction < 1.0:
+        raise ValueError("The `fraction` parameter should be a probability.")
     angles = np.arccos(dots)
     means = np.mean(angles, axis=1)
     quantiles = np.quantile(angles, fraction, axis=1)
@@ -102,8 +101,10 @@ def cone_trace(
     # Convert the color provided to a set of intensities
     mesh_color = None
     if color is not None:
-        assert intensity is None, "Provide either `color` or `intensity`, not both."
-        assert np.isscalar(color), "Should provide a single color for the cone."
+        if intensity is not None:
+            raise ValueError("Provide either `color` or `intensity`, not both.")
+        if not np.isscalar(color):
+            raise ValueError("Should provide a single color for the cone.")
         if isinstance(color, str):
             mesh_color = color
         else:
@@ -127,6 +128,7 @@ def cone_trace(
         intensity=intensity,
         alphahull=0,
         showscale=showscale,
+        hovertext=hovertext,
         hovertemplate=hovertemplate,
         **kwargs,
     )

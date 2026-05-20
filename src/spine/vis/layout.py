@@ -1,6 +1,9 @@
 """Defines default plotly layouts."""
 
+from __future__ import annotations
+
 from copy import deepcopy
+from typing import Any
 
 import matplotlib as mpl
 import numpy as np
@@ -25,28 +28,28 @@ __all__ = ["layout3d", "dual_figure3d"]
 
 
 def layout3d(
-    ranges=None,
-    meta=None,
-    geo=None,
-    use_geo=False,
-    show_optical=False,
-    show_crt=False,
-    detector_padding=0.1,
-    titles=None,
-    detector_coords=False,
-    backgroundcolor="white",
-    gridcolor="lightgray",
-    width=800,
-    height=800,
-    showlegend=True,
-    camera=None,
-    aspectmode="manual",
-    aspectratio=None,
-    dark=False,
-    margin=None,
-    hoverlabel=None,
-    **kwargs,
-):
+    ranges: np.ndarray | None = None,
+    meta: Any | None = None,
+    geo: Any | None = None,
+    use_geo: bool = False,
+    show_optical: bool = False,
+    show_crt: bool = False,
+    detector_padding: float = 0.1,
+    titles: list[str] | None = None,
+    detector_coords: bool = False,
+    backgroundcolor: str = "white",
+    gridcolor: str = "lightgray",
+    width: int = 800,
+    height: int = 800,
+    showlegend: bool = True,
+    camera: dict[str, Any] | None = None,
+    aspectmode: str = "manual",
+    aspectratio: dict[str, float] | None = None,
+    dark: bool = False,
+    margin: dict[str, int] | None = None,
+    hoverlabel: dict[str, Any] | None = None,
+    **kwargs: Any,
+) -> go.Layout:
     """Produces plotly.graph_objs.Layout object for a certain format.
 
     Parameters
@@ -112,19 +115,24 @@ def layout3d(
     else:
         # If the range is provided, just use it
         if ranges.shape != (3, 2):
-            assert (
-                len(ranges.shape) == 2 and ranges.shape[1] == 3
-            ), "If ranges is not of shape (3, 2), it must be of shape (N, 3)."
+            if len(ranges.shape) != 2 or ranges.shape[1] != 3:
+                raise ValueError(
+                    "If ranges is not of shape (3, 2), it must be of shape (N, 3)."
+                )
             ranges = np.vstack([np.min(ranges, axis=0), np.max(ranges, axis=0)]).T
 
         # Check that the range is sensible
-        assert np.all(ranges[:, 1] >= ranges[:, 0])
+        if not np.all(ranges[:, 1] >= ranges[:, 0]):
+            raise ValueError(
+                "Each range upper bound must be greater than its lower bound."
+            )
 
     if use_geo or geo is not None:
         # If detector geometry is provided, make the full detector the range
-        assert (
-            ranges is None or None in ranges
-        ), "Should not pass geo or ask to `use_geo=True` along with `ranges`."
+        if ranges is not None and None not in ranges:
+            raise ValueError(
+                "Should not pass geo or ask to `use_geo=True` along with `ranges`."
+            )
         if geo is None:
             geo = GeoManager.get_instance()
         ranges = geo.get_boundaries(with_optical=show_optical, with_crt=show_crt)
@@ -136,17 +144,17 @@ def layout3d(
 
         # If pixel coordinates are requested, use meta to make the conversion
         if detector_coords is False:
-            assert meta is not None, (
-                "Must provide metadata information to convert the detector "
-                "coordinates to pixel coordinates."
-            )
+            if meta is None:
+                raise ValueError(
+                    "Must provide metadata information to convert the detector "
+                    "coordinates to pixel coordinates."
+                )
             ranges = meta.to_px(ranges.T).T
 
     elif meta is not None:
         # If meta information is provided, make the full image the range
-        assert (
-            ranges is None or None in ranges
-        ), "Should not specify both `ranges` and `meta` parameters."
+        if ranges is not None and None not in ranges:
+            raise ValueError("Should not specify both `ranges` and `meta` parameters.")
         if detector_coords:
             ranges = np.vstack([meta.lower, meta.upper]).T
         else:
@@ -169,16 +177,18 @@ def layout3d(
             ratios = np.ones(len(ranges))
             if ranges is not None and ranges[0] is not None:
                 ranges_arr = np.array(ranges)
-                assert ranges_arr.shape == (
-                    3,
-                    2,
-                ), "If ranges is provided to infer aspectratio, it must be of shape (3, 2)."
+                if ranges_arr.shape != (3, 2):
+                    raise ValueError(
+                        "If ranges is provided to infer aspectratio, "
+                        "it must be of shape (3, 2)."
+                    )
                 max_range = np.max(ranges_arr[:, 1] - ranges_arr[:, 0])
                 ratios = (ranges_arr[:, 1] - ranges_arr[:, 0]) / max_range
             aspectratio = {axes[i]: v for i, v in enumerate(ratios)}
 
     # Check on the axis titles, define default
-    assert titles is None or len(titles) == 3, "Must specify one title per axis"
+    if titles is not None and len(titles) != 3:
+        raise ValueError("Must specify one title per axis")
     if titles is None:
         unit = "cm" if detector_coords else "pixel"
         titles = [f"x [{unit}]", f"y [{unit}]", f"z [{unit}]"]
@@ -241,16 +251,16 @@ def layout3d(
 
 
 def dual_figure3d(
-    traces_left,
-    traces_right,
-    layout=None,
-    titles=None,
-    width=1500,
-    height=750,
-    synchronize=False,
-    margin=None,
-    **kwargs,
-):
+    traces_left: list[object],
+    traces_right: list[object],
+    layout: go.Layout | None = None,
+    titles: list[str] | None = None,
+    width: int = 1500,
+    height: int = 750,
+    synchronize: bool = False,
+    margin: dict[str, int] | None = None,
+    **kwargs: Any,
+) -> go.Figure:
     """Function which returns a plotly.graph_objs.Figure with two set of traces
     side-by-side in separate subplots.
 
@@ -316,13 +326,13 @@ def dual_figure3d(
         # Track if we're currently syncing to prevent infinite loops
         _syncing = [False]
 
-        def cam_change_left(_, camera):
+        def cam_change_left(_: Any, camera: dict[str, Any]) -> None:
             if not _syncing[0]:
                 _syncing[0] = True
                 fig.layout.scene2.camera = camera
                 _syncing[0] = False
 
-        def cam_change_right(_, camera):
+        def cam_change_right(_: Any, camera: dict[str, Any]) -> None:
             if not _syncing[0]:
                 _syncing[0] = True
                 fig.layout.scene1.camera = camera
@@ -334,7 +344,7 @@ def dual_figure3d(
     return fig
 
 
-def apply_latex_style():
+def apply_latex_style() -> None:
     """Sets the necessary :mod:`matplotlib` and :mod:`seaborn` parameters
     to draw a plot using latex style.
     """
@@ -355,10 +365,10 @@ def apply_latex_style():
     )
     sns.set_style("white")
     sns.set_style(rc={"axes.grid": True, "font.family": "serif"})
-    mpl.rcParams["text.latex.preamble"] = [r"\usepackage{amsmath,bm}"]
+    mpl.rcParams["text.latex.preamble"] = r"\usepackage{amsmath,bm}"
 
 
-def set_latex_size(width, fraction=1):
+def set_latex_size(width: float, fraction: float = 1) -> tuple[float, float]:
     """Returns optimal figure dimension for a latex plot, depending on
     the requested width.
 
@@ -395,7 +405,7 @@ def set_latex_size(width, fraction=1):
     return fig_width_in, fig_height_in
 
 
-def color_rgba(color, alpha):
+def color_rgba(color: tuple[int, int, int], alpha: float) -> str:
     """Convert an RGB color array into an RGBA string.
 
     Parameters

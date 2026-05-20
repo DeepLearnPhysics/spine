@@ -1,6 +1,9 @@
 """Module to convert a point cloud into an ellipsoidal envelope."""
 
+from __future__ import annotations
+
 import time
+from typing import Any
 
 import numpy as np
 import plotly.graph_objs as go
@@ -10,17 +13,17 @@ __all__ = ["ellipsoid_trace", "ellipsoid_traces"]
 
 
 def ellipsoid_trace(
-    points=None,
-    centroid=None,
-    covmat=None,
-    contour=0.5,
-    num_samples=10,
-    color=None,
-    intensity=None,
-    hovertext=None,
-    showscale=False,
-    **kwargs,
-):
+    points: np.ndarray | None = None,
+    centroid: np.ndarray | None = None,
+    covmat: np.ndarray | None = None,
+    contour: float = 0.5,
+    num_samples: int = 10,
+    color: str | float | np.ndarray | None = None,
+    intensity: int | float | np.ndarray | None = None,
+    hovertext: int | str | np.ndarray | None = None,
+    showscale: bool = False,
+    **kwargs: Any,
+) -> go.Mesh3d:
     """Converts a cloud of points or a covariance matrix into a 3D ellipsoid.
 
     This function uses the centroid and the covariance matrix of a cloud of
@@ -55,9 +58,10 @@ def ellipsoid_trace(
         :class:`plotly.graph_objs.Mesh3d` object
     """
     # Ensure that either a cloud of points or a covariance matrix is provided
-    assert (points is not None) ^ (
-        centroid is not None and covmat is not None
-    ), "Must provide either `points` or both `centroid` and `covmat`."
+    if (points is not None) == (centroid is not None and covmat is not None):
+        raise ValueError(
+            "Must provide either `points` or both `centroid` and `covmat`."
+        )
 
     # Compute the points on a unit sphere
     phi = np.linspace(0, 2 * np.pi, num=num_samples)
@@ -71,10 +75,11 @@ def ellipsoid_trace(
     # Get the centroid and the covariance matrix, if needed
     covmat_provided = True
     if covmat is None:
-        assert points is not None, (
-            "Points must be provided to compute covariance matrix "
-            "if it is not provided explicitly."
-        )
+        if points is None:
+            raise ValueError(
+                "Points must be provided to compute covariance matrix "
+                "if it is not provided explicitly."
+            )
         covmat_provided = False
 
         if len(points) > 1:
@@ -93,16 +98,16 @@ def ellipsoid_trace(
     # the points into the basis of the covariance matrix
     radius = 1.0
     if not covmat_provided:
-        assert (
-            contour > 0.0 and contour < 1.0
-        ), "The `contour` parameter should be a probability."
+        if not 0.0 < contour < 1.0:
+            raise ValueError("The `contour` parameter should be a probability.")
         radius = np.sqrt(2 * gammaincinv(1.5, contour))
 
     ell_points = centroid + radius * np.dot(unit_points, rotmat)
 
     # Convert the color provided to a set of intensities, if needed
     if color is not None and not isinstance(color, str):
-        assert intensity is None, "Must not provide both `color` and `intensity`."
+        if intensity is not None:
+            raise ValueError("Must not provide both `color` and `intensity`.")
         intensity = np.full(len(ell_points), color)
         color = None
 
@@ -124,24 +129,25 @@ def ellipsoid_trace(
         intensity=intensity,
         alphahull=0,
         showscale=showscale,
+        hovertext=hovertext,
         hovertemplate=hovertemplate,
         **kwargs,
     )
 
 
 def ellipsoid_traces(
-    centroids,
-    covmat,
-    color=None,
-    hovertext=None,
-    cmin=None,
-    cmax=None,
-    shared_legend=True,
-    legendgroup=None,
-    showlegend=True,
-    name=None,
-    **kwargs,
-):
+    centroids: np.ndarray,
+    covmat: np.ndarray,
+    color: str | float | np.ndarray | None = None,
+    hovertext: int | str | np.ndarray | None = None,
+    cmin: float | None = None,
+    cmax: float | None = None,
+    shared_legend: bool = True,
+    legendgroup: str | None = None,
+    showlegend: bool = True,
+    name: str | None = None,
+    **kwargs: Any,
+) -> list[go.Mesh3d]:
     """Function which produces a list of plotly traces of ellipsoids given a
     list of centroids and one covariance matrix in x, y and z.
 
@@ -177,12 +183,18 @@ def ellipsoid_traces(
         Ellipsoid traces
     """
     # Check the parameters
-    assert (
-        color is None or np.isscalar(color) or len(color) == len(centroids)
-    ), "Specify one color for all ellipsoids, or one color per ellipsoid."
-    assert (
-        hovertext is None or np.isscalar(hovertext) or len(hovertext) == len(centroids)
-    ), "Specify one hovertext for all ellipsoids, or one hovertext per ellipsoid."
+    if color is not None and not np.isscalar(color) and len(color) != len(centroids):
+        raise ValueError(
+            "Specify one color for all ellipsoids, or one color per ellipsoid."
+        )
+    if (
+        hovertext is not None
+        and not np.isscalar(hovertext)
+        and len(hovertext) != len(centroids)
+    ):
+        raise ValueError(
+            "Specify one hovertext for all ellipsoids, or one hovertext per ellipsoid."
+        )
 
     # If one color is provided per ellipsoid, give an associated hovertext
     if hovertext is None and isinstance(color, (list, tuple, np.ndarray)):

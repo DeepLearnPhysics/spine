@@ -73,3 +73,40 @@ def test_draw_confusion_matrix_writes_figure(tmp_path, monkeypatch):
     )
 
     assert figure_path.with_suffix(".png").exists()
+
+
+def test_confusion_matrix_infers_classes_and_rebuilds_file(tmp_path, monkeypatch):
+    """Confusion matrix drawing should cover inferred class/file formats."""
+    pixel = pd.DataFrame(
+        {
+            "pred": [0, 1],
+            "label": [0, 1],
+            "score_0": [0.9, 0.1],
+            "score_1": [0.1, 0.9],
+        }
+    )
+    flat = pd.DataFrame(
+        {
+            "count_00": [1],
+            "count_01": [2],
+            "count_10": [3],
+            "count_11": [4],
+        }
+    )
+    flat_path = tmp_path / "flat.csv"
+    flat.to_csv(flat_path, index=False)
+    monkeypatch.setattr("matplotlib.pyplot.show", lambda: None)
+
+    inferred = build_matrix(pixel)
+    rebuilt = rebuild_matrix(flat)
+    draw_confusion_matrix(
+        flat_path,
+        figure_name=str(tmp_path / "flat"),
+        norm_axis=1,
+        show_counts=True,
+        class_names=["a", "b"],
+    )
+
+    assert inferred.shape == (2, 2)
+    assert rebuilt.tolist() == [[1, 2], [3, 4]]
+    assert (tmp_path / "flat.png").exists()

@@ -9,7 +9,10 @@ The :func:`box_trace` function is also used to represent the extent of the
 active volume of the modules that make up a detector.
 """
 
+from __future__ import annotations
+
 import time
+from typing import Any
 
 import numpy as np
 import plotly.graph_objs as go
@@ -18,20 +21,20 @@ __all__ = ["scatter_boxes"]
 
 
 def box_trace(
-    lower,
-    upper,
-    draw_faces=False,
-    line=None,
-    linewidth=None,
-    color=None,
-    cmin=None,
-    cmax=None,
-    colorscale=None,
-    intensity=None,
-    hovertext=None,
-    showscale=False,
-    **kwargs,
-):
+    lower: np.ndarray,
+    upper: np.ndarray,
+    draw_faces: bool = False,
+    line: dict[str, Any] | None = None,
+    linewidth: float | None = None,
+    color: str | float | np.ndarray | None = None,
+    cmin: float | None = None,
+    cmax: float | None = None,
+    colorscale: str | dict | None = None,
+    intensity: int | float | np.ndarray | None = None,
+    hovertext: int | str | np.ndarray | None = None,
+    showscale: bool = False,
+    **kwargs: Any,
+) -> go.Scatter3d | go.Mesh3d:
     """Function which produces a plotly trace of a box given its lower bounds
     and upper bounds in x, y and z.
 
@@ -73,12 +76,12 @@ def box_trace(
         Box trace
     """
     # Check the parameters
-    assert (
-        len(lower) == len(upper) == 3
-    ), "Must specify 3 values for both lower and upper boundaries."
-    assert np.all(
-        np.asarray(upper) > np.asarray(lower)
-    ), "Each upper boundary should be greater than its lower counterpart."
+    if len(lower) != 3 or len(upper) != 3:
+        raise ValueError("Must specify 3 values for both lower and upper boundaries.")
+    if not np.all(np.asarray(upper) > np.asarray(lower)):
+        raise ValueError(
+            "Each upper boundary should be greater than its lower counterpart."
+        )
 
     # List of box vertices in the edges that join them in the box mesh
     box_vertices = np.array(
@@ -123,10 +126,11 @@ def box_trace(
             or cmax is not None
             or colorscale is not None
         ):
-            assert line is None, (
-                "Must not specify `line` when providing `color`, "
-                "`linewidth`, `cmin` or `cmax` independently."
-            )
+            if line is not None:
+                raise ValueError(
+                    "Must not specify `line` when providing `color`, "
+                    "`linewidth`, `cmin` or `cmax` independently."
+                )
             if color is not None and not isinstance(color, str):
                 color = np.full(len(edges), color)
 
@@ -153,7 +157,8 @@ def box_trace(
     else:
         # If the color is a number, must be specified as an intensity
         if color is not None and not isinstance(color, str):
-            assert intensity is None, "Must not provide both `color` and `intensity`."
+            if intensity is not None:
+                raise ValueError("Must not provide both `color` and `intensity`.")
             intensity = np.full(len(vertices), color)
             color = None
 
@@ -180,20 +185,20 @@ def box_trace(
 
 
 def box_traces(
-    lowers,
-    uppers,
-    draw_faces=False,
-    color=None,
-    linewidth=None,
-    hovertext=None,
-    cmin=None,
-    cmax=None,
-    shared_legend=True,
-    legendgroup=None,
-    showlegend=True,
-    name=None,
-    **kwargs,
-):
+    lowers: np.ndarray,
+    uppers: np.ndarray,
+    draw_faces: bool = False,
+    color: str | float | np.ndarray | None = None,
+    linewidth: float | None = None,
+    hovertext: int | str | np.ndarray | None = None,
+    cmin: float | None = None,
+    cmax: float | None = None,
+    shared_legend: bool = True,
+    legendgroup: str | None = None,
+    showlegend: bool = True,
+    name: str | None = None,
+    **kwargs: Any,
+) -> list[go.Scatter3d | go.Mesh3d]:
     """Function which produces a list of plotly traces of boxes given a list of
     lower bounds and upper bounds in x, y and z.
 
@@ -235,15 +240,20 @@ def box_traces(
         Box traces
     """
     # Check the parameters
-    assert len(lowers) == len(
-        uppers
-    ), "Provide as many upper boundary vector as their lower counterpart."
-    assert (
-        color is None or np.isscalar(color) or len(color) == len(lowers)
-    ), "Specify one color for all boxes, or one color per box."
-    assert (
-        hovertext is None or np.isscalar(hovertext) or len(hovertext) == len(lowers)
-    ), "Specify one hovertext for all boxes, or one hovertext per box."
+    if len(lowers) != len(uppers):
+        raise ValueError(
+            "Provide as many upper boundary vector as their lower counterpart."
+        )
+    if color is not None and not np.isscalar(color) and len(color) != len(lowers):
+        raise ValueError("Specify one color for all boxes, or one color per box.")
+    if (
+        hovertext is not None
+        and not np.isscalar(hovertext)
+        and len(hovertext) != len(lowers)
+    ):
+        raise ValueError(
+            "Specify one hovertext for all boxes, or one hovertext per box."
+        )
 
     # If one color is provided per box, give an associated hovertext
     if hovertext is None and isinstance(color, (list, tuple, np.ndarray)):
@@ -300,15 +310,15 @@ def box_traces(
 
 
 def scatter_boxes(
-    coords,
-    dimension,
-    draw_faces=True,
-    color="orange",
-    hovertext=None,
-    linewidth=2,
-    shared_legend=True,
-    **kwargs,
-):
+    coords: np.ndarray,
+    dimension: float | np.ndarray,
+    draw_faces: bool = True,
+    color: str | float | np.ndarray = "orange",
+    hovertext: int | str | np.ndarray | None = None,
+    linewidth: float = 2,
+    shared_legend: bool = True,
+    **kwargs: Any,
+) -> list[go.Scatter3d | go.Mesh3d]:
     """Function which produces a list of plotly traces of boxes given a list of
     coordinates and a box dimension.
 
@@ -348,7 +358,8 @@ def scatter_boxes(
     """
     # Check the input
     if isinstance(dimension, (list, tuple, np.ndarray)):
-        assert len(dimension) == 3, "Must specify three dimensions for the box size."
+        if len(dimension) != 3:
+            raise ValueError("Must specify three dimensions for the box size.")
         dimension = np.asarray(dimension)
 
     # Compute the lower and upper boundaries, return box traces

@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.axes import Axes
+from matplotlib.image import AxesImage
+from matplotlib.text import Text
 from matplotlib.ticker import Formatter
 
 __all__ = ["heatmap", "annotate_heatmap"]
@@ -16,10 +19,10 @@ class UncertaintyFormatter(Formatter):
     for the tick position must be labeled *pos*.
     """
 
-    def __init__(self, fmt: str):
+    def __init__(self, fmt: str) -> None:
         self.fmt = fmt
 
-    def __call__(self, x, pos=None) -> str:
+    def __call__(self, x: float | tuple[float, float], pos: int | None = None) -> str:
         """
         Return the formatted label string.
 
@@ -33,7 +36,13 @@ class UncertaintyFormatter(Formatter):
         return self.fmt.format(x=x, pos=pos, unc=unc)
 
 
-def heatmap(data, row_labels, col_labels, ax=None, **kwargs):
+def heatmap(
+    data: np.ndarray,
+    row_labels: list[str] | np.ndarray,
+    col_labels: list[str] | np.ndarray,
+    ax: Axes | None = None,
+    **kwargs: object,
+) -> AxesImage:
     """Create a heatmap from a numpy array and two lists of labels.
 
     Parameters
@@ -82,14 +91,14 @@ def heatmap(data, row_labels, col_labels, ax=None, **kwargs):
 
 
 def annotate_heatmap(
-    im,
-    data=None,
-    unc=None,
-    valfmt="{x:.2f}",
-    textcolors=("black", "white"),
-    threshold=None,
-    **textkw,
-):
+    im: AxesImage,
+    data: np.ndarray | None = None,
+    unc: np.ndarray | None = None,
+    valfmt: str | Formatter = "{x:.2f}",
+    textcolors: tuple[str, str] = ("black", "white"),
+    threshold: float | None = None,
+    **textkw: object,
+) -> list[Text]:
     """A function to annotate a heatmap.
 
     Parameters

@@ -58,10 +58,8 @@ def draw_confusion_matrix(
     fig.patch.set_alpha(0)
 
     # Normalize the histogram counts to the total number of entries in each true class bin
-    assert norm_axis in (
-        0,
-        1,
-    ), "The normalization axis must be 0 (recall) or 1 (precision)."
+    if norm_axis not in (0, 1):
+        raise ValueError("The normalization axis must be 0 (recall) or 1 (precision).")
     norms = np.sum(hist, axis=norm_axis)
     if norm_axis == 0:
         hist_norm = hist / norms
@@ -92,9 +90,8 @@ def draw_confusion_matrix(
     plt.xlabel("Class label")
     plt.ylabel("Class prediction")
     if class_names is not None:
-        assert (
-            len(class_names) == num_classes
-        ), "Must provide one class label per class."
+        if len(class_names) != num_classes:
+            raise ValueError("Must provide one class label per class.")
         plt.xticks(np.arange(num_classes), labels=class_names)
         plt.yticks(np.arange(num_classes), labels=class_names)
     plt.colorbar()
@@ -131,9 +128,8 @@ def build_matrix(
                     classes.append(int(k[-1]))
             num_classes = np.max(classes) + 1
 
-    assert (
-        mapping is None or len(mapping) == num_classes
-    ), "The number of classes should match those in the map."
+    if mapping is not None and len(mapping) != num_classes:
+        raise ValueError("The number of classes should match those in the map.")
 
     # Apply the requested class mapping, if any
     pred = data.pred.to_numpy()
@@ -187,9 +183,8 @@ def rebuild_matrix(
                     classes.append(int(k[-1]))
             num_classes = np.max(classes) + 1
 
-    assert (
-        mapping is None or len(mapping) == num_classes
-    ), "The number of classes should match those in the map."
+    if mapping is not None and len(mapping) != num_classes:
+        raise ValueError("The number of classes should match those in the map.")
 
     # Rebuild confusion matrix
     hist = np.empty((num_classes, num_classes), dtype=np.int64)
