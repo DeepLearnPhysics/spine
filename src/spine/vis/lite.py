@@ -6,13 +6,18 @@ It represents:
 - Lite interactions as collections of lines and cones
 """
 
+from __future__ import annotations
+
 import time
+from typing import Any
 
 import numpy as np
 from plotly import graph_objs as go
 
 from spine.constants import TRACK_SHP
 from spine.utils.shower import shower_angle_quantile, shower_long_quantile
+
+from .utils import rotation_matrix_from_z
 
 __all__ = ["scatter_lite"]
 
@@ -361,16 +366,16 @@ def track_line_trace(
 
 
 def em_cone_trace(
-    start_point,
-    direction,
-    energy,
-    num_samples=10,
-    color=None,
-    intensity=None,
-    hovertext=None,
-    showscale=False,
-    **kwargs,
-):
+    start_point: np.ndarray,
+    direction: np.ndarray,
+    energy: float,
+    num_samples: int = 10,
+    color: str | float | None = None,
+    intensity: str | float | np.ndarray | None = None,
+    hovertext: int | str | None = None,
+    showscale: bool = False,
+    **kwargs: Any,
+) -> go.Mesh3d:
     """Generates a cone trace representing an electromagnetic shower.
 
     Parameters
@@ -415,26 +420,20 @@ def em_cone_trace(
     unit_points = np.vstack((x.flatten(), y.flatten(), z.flatten())).T
 
     # Get the rotation matrix to point the cone in the direction of the shower
-    # This uses the Rodrigues' rotation formula
-    rotmat = np.eye(3)
-    z_axis = np.array([0.0, 0.0, 1.0])
-    if not np.allclose(direction, z_axis):
-        v = np.cross(z_axis, direction)
-        s = np.linalg.norm(v)
-        c = np.dot(z_axis, direction)
-        vx = np.array(
-            [[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]]
-        )  # Cross-product matrix
-        rotmat = np.eye(3) + vx + np.dot(vx, vx) * ((1 - c) / (s**2))
+    rotmat = rotation_matrix_from_z(direction)
 
     # Rotate and offset the cone
     cone_points = start_point + length * np.dot(unit_points, rotmat.T)
 
     # Convert the color provided to a set of intensities
+    mesh_color = None
     if color is not None:
         assert intensity is None, "Provide either `color` or `intensity`, not both."
-        assert np.isscalar("color"), "Should provide a single color for the cone."
-        intensity = [color] * len(cone_points)
+        assert np.isscalar(color), "Should provide a single color for the cone."
+        if isinstance(color, str):
+            mesh_color = color
+        else:
+            intensity = np.full(len(cone_points), color)
 
     # Update hovertemplate style
     hovertemplate = "x: %{x}<br>y: %{y}<br>z: %{z}"
@@ -450,6 +449,7 @@ def em_cone_trace(
         x=cone_points[:, 0],
         y=cone_points[:, 1],
         z=cone_points[:, 2],
+        color=mesh_color,
         intensity=intensity,
         alphahull=0,
         showscale=showscale,

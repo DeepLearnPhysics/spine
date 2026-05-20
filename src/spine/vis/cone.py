@@ -1,4 +1,8 @@
-"""Module to convert a point cloud into an cone envelope."""
+"""Module to convert a point cloud into a cone envelope."""
+
+from __future__ import annotations
+
+from typing import Any
 
 import numpy as np
 from plotly import graph_objs as go
@@ -9,15 +13,15 @@ __all__ = ["cone_trace"]
 
 
 def cone_trace(
-    points,
-    fraction=0.5,
-    num_samples=10,
-    color=None,
-    hovertext=None,
-    intensity=None,
-    showscale=False,
-    **kwargs,
-):
+    points: np.ndarray,
+    fraction: float = 0.5,
+    num_samples: int = 10,
+    color: str | float | None = None,
+    hovertext: int | str | np.ndarray | None = None,
+    intensity: str | float | np.ndarray | None = None,
+    showscale: bool = False,
+    **kwargs: Any,
+) -> go.Mesh3d:
     """Converts a cloud of points into a 3D cone.
 
     This function uses the PCA and the average angle w.r.t. to the point
@@ -96,10 +100,14 @@ def cone_trace(
     cone_points = start_pos + length * np.dot(unit_points, rotmat)
 
     # Convert the color provided to a set of intensities
+    mesh_color = None
     if color is not None:
         assert intensity is None, "Provide either `color` or `intensity`, not both."
-        assert np.isscalar("color"), "Should provide a single color for the cone."
-        intensity = [color] * len(cone_points)
+        assert np.isscalar(color), "Should provide a single color for the cone."
+        if isinstance(color, str):
+            mesh_color = color
+        else:
+            intensity = np.full(len(cone_points), color)
 
     # Update hovertemplate style
     hovertemplate = "x: %{x}<br>y: %{y}<br>z: %{z}"
@@ -115,6 +123,7 @@ def cone_trace(
         x=cone_points[:, 0],
         y=cone_points[:, 1],
         z=cone_points[:, 2],
+        color=mesh_color,
         intensity=intensity,
         alphahull=0,
         showscale=showscale,

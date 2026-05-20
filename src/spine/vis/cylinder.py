@@ -1,25 +1,30 @@
 """Module to draw cylinders."""
 
+from __future__ import annotations
+
 import time
+from typing import Any
 
 import numpy as np
 import plotly.graph_objs as go
+
+from .utils import rotation_matrix_from_z
 
 __all__ = ["cylinder_traces"]
 
 
 def cylinder_trace(
-    centroid,
-    axis,
-    height,
-    diameter,
-    num_samples=10,
-    color=None,
-    intensity=None,
-    hovertext=None,
-    showscale=False,
-    **kwargs,
-):
+    centroid: np.ndarray,
+    axis: np.ndarray,
+    height: float,
+    diameter: float,
+    num_samples: int = 10,
+    color: str | float | None = None,
+    intensity: int | float | np.ndarray | None = None,
+    hovertext: int | str | np.ndarray | None = None,
+    showscale: bool = False,
+    **kwargs: Any,
+) -> go.Mesh3d:
     """Draw a cylinder centered at a given position.
 
     Parameters
@@ -57,15 +62,7 @@ def cylinder_trace(
     unit_points = np.vstack((x.flatten(), y.flatten(), z.flatten())).T
 
     # Compute the rotation matrix which aligns the z axis to the cylinder axis
-    axis = axis / np.linalg.norm(axis)
-    z_axis = np.array([0.0, 0.0, 1.0])
-    rotmat = np.eye(3)
-    if (axis != z_axis).any():
-        v = np.cross(z_axis, axis)
-        c = np.dot(z_axis, axis)
-        s = np.linalg.norm(v)
-        kmat = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
-        rotmat = np.eye(3) + kmat + kmat.dot(kmat) * ((1 - c) / (s**2))
+    rotmat = rotation_matrix_from_z(axis)
 
     # Compute the scaling vectors for radius and height
     scale = np.diag([diameter, diameter, height])
