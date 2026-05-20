@@ -1475,6 +1475,46 @@ class FullChainLoss(torch.nn.Module):
         """
         return dict(self._modes)
 
+    @staticmethod
+    def restrict_segmentation_loss_input(
+        seg_label,
+        segmentation,
+        orig_index=None,
+    ):
+        """Align segmentation loss inputs to the deghosted voxel subset.
+
+        Parameters
+        ----------
+        seg_label : TensorBatch
+            Segmentation labels defined on the original voxel set.
+        segmentation : TensorBatch or None
+            Segmentation logits defined on the effective voxel set.
+        orig_index : IndexBatch, optional
+            Original-voxel indices corresponding to the effective voxel set.
+
+        Returns
+        -------
+        tuple[TensorBatch, TensorBatch | None]
+            Segmentation labels and logits restricted to true non-ghosts.
+        """
+        if segmentation is None:
+            return seg_label, segmentation
+
+        if orig_index is None:
+            return seg_label, segmentation
+
+        seg_label_t = seg_label.tensor[orig_index.full_index]
+
+        index = seg_label_t[:, SHAPE_COL] < GHOST_SHP
+        seg_label = TensorBatch(
+            seg_label_t[index],
+            batch_size=seg_label.batch_size,
+            has_batch_col=True,
+        )
+        segmentation = TensorBatch(segmentation.tensor[index], seg_label.counts)
+
+        return seg_label, segmentation
+
     def forward(
         self,
         seg_label=None,
@@ -1484,6 +1524,7 @@ class FullChainLoss(torch.nn.Module):
         coord_label=None,
         graph_label=None,
         meta=None,
+        orig_index=None,
         ghost=None,
         ghost_pred=None,
         segmentation=None,
@@ -1513,6 +1554,8 @@ class FullChainLoss(torch.nn.Module):
             connections between true particle in the image
         meta : Meta, optional
             Image metadata information
+        orig_index : IndexBatch, optional
+            Original-voxel indices corresponding to the effective voxel set.
         ghost : TensorBatch, optional
             (N, 2) Tensor of logits from the deghosting model
         ghost_pred : TensorBatch, optional
@@ -1540,20 +1583,14 @@ class FullChainLoss(torch.nn.Module):
             res_deghost = self.deghost_loss(seg_label=ghost_label, segmentation=ghost)
             self.update_result(res_deghost, "ghost")
 
-            # Restrict the segmentation labels and segmentation outputs
-            # to true non-ghosts (do not apply deghosting loss twice)
-            if segmentation is not None:
-                # Find the index of true non-ghosts in the pred non-ghosts
-                deghost_index = ghost_pred.tensor == 0
-                seg_label_t = seg_label.tensor[deghost_index]
-                index = seg_label_t[:, SHAPE_COL] < GHOST_SHP
-
-                seg_label = TensorBatch(
-                    seg_label_t[index],
-                    batch_size=seg_label.batch_size,
-                    has_batch_col=True,
-                )
-                segmentation = TensorBatch(segmentation.tensor[index], seg_label.counts)
+        # Restrict segmentation loss inputs to true non-ghosts when the
+        # effective voxel set is already deghosted, whether cached or computed
+        # on the fly.
+        seg_label, segmentation = self.restrict_segmentation_loss_input(
+            seg_label,
+            segmentation,
+            orig_index=output.get("orig_index", orig_index),
+        )
 
         # Apply the segmentation and point proposal loss
         if self.segmentation == "uresnet":
