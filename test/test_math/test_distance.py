@@ -231,7 +231,7 @@ class TestDistanceArrays:
                 dtype=np.float32,
             )
 
-            i, j, distance = farthest_pair(points, METRICS["euclidean"])
+            i, j, distance = farthest_pair(points, metric_id=METRICS["euclidean"])
 
             # Should find the farthest pair (points 0 and 2)
             assert set([i, j]) == {0, 2}

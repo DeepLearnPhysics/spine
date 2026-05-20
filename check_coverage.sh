@@ -10,6 +10,7 @@ docker run --rm \
   -w /workspace \
   -e TEST_PATH="$test_path" \
   -e COVERAGE_TARGET="$coverage_target" \
+  -e NUMBA_DISABLE_JIT=1 \
   --platform linux/amd64 \
   ghcr.io/deeplearnphysics/spine:latest \
   bash -lc '

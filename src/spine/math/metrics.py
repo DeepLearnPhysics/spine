@@ -85,6 +85,9 @@ def adjusted_rand_score(labels_true, labels_pred):
     >>> adjusted_rand_score(labels_true, labels_pred)  # doctest: +ELLIPSIS
     0.0
     """
+    if len(labels_true) != len(labels_pred):
+        raise ValueError("Labels must have the same length")
+
     # Get dimensions for contingency table
     nx = labels_true.max() + 1 if len(labels_true) > 0 else 1
     ny = labels_pred.max() + 1 if len(labels_pred) > 0 else 1
