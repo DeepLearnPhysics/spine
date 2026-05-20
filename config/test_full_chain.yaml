@@ -202,7 +202,7 @@ model:
         - 25
         - 0
         - 25
-        dist_algorithm: recursive
+        dist_algorithm: iterative
       node_encoder:
         name: geo
         use_numpy: true
@@ -268,7 +268,7 @@ model:
       graph:
         name: complete
         max_length: 100
-        dist_algorithm: recursive
+        dist_algorithm: iterative
       node_encoder:
         name: geo
         use_numpy: true
@@ -341,7 +341,7 @@ model:
         - 0
         - 0
         - 0
-        dist_algorithm: recursive
+        dist_algorithm: iterative
       node_encoder:
         name: geo
         use_numpy: true

@@ -12,6 +12,11 @@ from spine.io.parse.clean_data import (
 )
 
 
+def python_impl(func):
+    """Return the Python implementation of a Numba helper when available."""
+    return getattr(func, "py_func", func)
+
+
 def test_filter_duplicate_voxels():
     """Duplicate voxel filtering should keep the last duplicate."""
     voxels = np.asarray([[0, 0, 0], [0, 0, 0], [1, 0, 0]], dtype=np.int32)
@@ -110,11 +115,11 @@ def test_clean_data_python_paths_for_coverage():
     precedence = nb.typed.List([2, 1])
 
     assert np.array_equal(
-        filter_duplicate_voxels.py_func(voxels),
+        python_impl(filter_duplicate_voxels)(voxels),
         np.asarray([False, True, True]),
     )
 
-    mask, groups = filter_duplicate_voxels_group.py_func(
+    mask, groups = python_impl(filter_duplicate_voxels_group)(
         np.asarray([[0, 0, 0], [0, 0, 0]], dtype=np.int32),
         ref,
         precedence,
@@ -123,7 +128,7 @@ def test_clean_data_python_paths_for_coverage():
     assert np.array_equal(groups[1], np.asarray([0, 1]))
 
     assert np.array_equal(
-        filter_voxels_ref.py_func(
+        python_impl(filter_voxels_ref)(
             np.asarray([[0, 0, 0], [1, 0, 0]], dtype=np.int32),
             np.asarray([[0, 0, 0]], dtype=np.int32),
         ),
@@ -132,21 +137,21 @@ def test_clean_data_python_paths_for_coverage():
 
     groups_dict = nb.typed.Dict.empty(key_type=nb.int64, value_type=nb.int64[:])
     groups_dict[1] = np.asarray([0, 1], dtype=np.int64)
-    result = aggregate_features.py_func(
+    result = python_impl(aggregate_features)(
         np.asarray([[1.0], [2.0]], dtype=np.float32),
         groups_dict,
         np.asarray([0], dtype=np.int64),
     )
     assert result[1, 0] == 3.0
 
-    mask, groups = filter_duplicate_voxels_group.py_func(
+    mask, groups = python_impl(filter_duplicate_voxels_group)(
         np.asarray([[0, 0, 0], [0, 0, 0], [0, 0, 0]], dtype=np.int32)
     )
     assert np.array_equal(mask, np.asarray([False, False, True]))
     assert np.array_equal(groups[2], np.asarray([0, 1, 2]))
 
     assert np.array_equal(
-        filter_voxels_ref.py_func(
+        python_impl(filter_voxels_ref)(
             np.asarray([[0, 0, 0], [1, 0, 0], [2, 0, 0]], dtype=np.int32),
             np.asarray([[0, 0, 0], [3, 0, 0]], dtype=np.int32),
         ),

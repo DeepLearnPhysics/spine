@@ -392,7 +392,7 @@ class CathodeCrosserProcessor(PostBase):
             # Get the end points of the track segment
             index = self.geo.get_volume_index(self.get_sources(particle), module, tpc)
             points = self.get_points(particle)[index]
-            idx0, idx1, _ = farthest_pair(points, "recursive")
+            idx0, idx1, _ = farthest_pair(points, iterative=True)
             end_points = points[[idx0, idx1]]
 
             # Find the point closest to the cathode
