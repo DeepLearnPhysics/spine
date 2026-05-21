@@ -1,5 +1,7 @@
 """Tests for output object visualization."""
 
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 
@@ -296,12 +298,27 @@ def test_drawer_raw_and_source_error_branches():
 
 def test_drawer_truth_interaction_enum_hover_value():
     """Truth interaction enum formatting should handle missing enum values."""
-    interaction = TruthInteraction(id=0, interaction_type=0)
+    from spine.constants.enums import LArSoftNuInteractionType, NuInteractionScheme
+
+    interaction = TruthInteraction(
+        id=0,
+        interaction_type=int(LArSoftNuInteractionType.QE),
+        interaction_scheme=int(NuInteractionScheme.LARSOFT),
+    )
     drawer = Drawer({"truth_interactions": [interaction]}, draw_mode="truth")
 
-    assert drawer._enum_name(interaction, "interaction_type", 0) is not None
-    interaction.interaction_type = -1
-    assert drawer._enum_name(interaction, "interaction_type", -1) is None
+    assert (
+        drawer._enum_name(interaction, "interaction_type", interaction.interaction_type)
+        == "QE"
+    )
+    assert drawer._format_hover_value(
+        interaction, "interaction_type", interaction.interaction_type
+    ).startswith("QE")
+    interaction.interaction_scheme = -1
+    assert (
+        drawer._enum_name(interaction, "interaction_type", interaction.interaction_type)
+        is None
+    )
 
 
 def test_drawer_source_colorscale_edge_counts():
@@ -331,6 +348,24 @@ def test_drawer_source_colorscale_edge_counts():
         )()
         colors = drawer._object_colors("reco_particles", {"sources"}, "sources", False)
         assert colors["cmax"] == count - 1
+
+
+def test_drawer_id_colorscale_repeats_for_many_unique_ids():
+    """ID colorscales should repeat when unique IDs exceed the base palette."""
+    particles = [
+        RecoParticle(id=i, index=np.array([0], dtype=np.int32)) for i in range(60)
+    ]
+    drawer = Drawer(
+        {
+            "points": np.array([[0.0, 0.0, 0.0]], dtype=np.float32),
+            "reco_particles": particles,
+        },
+        draw_mode="reco",
+    )
+
+    colors = drawer._object_colors("reco_particles", {"id"}, "id", False)
+
+    assert len(colors["colorscale"]) == 60
 
 
 def test_drawer_split_scene_and_missing_auxiliary_interactions():
@@ -370,6 +405,39 @@ def test_drawer_split_scene_and_missing_auxiliary_interactions():
         drawer._crt_trace("reco_particles", matched_only=False)
 
 
+def test_drawer_adds_geo_traces_without_split_scene_and_rejects_titles():
+    """Non-split scenes should still include detector traces on the last prefix."""
+    geo = Geometry(
+        name="demo",
+        tag="v1",
+        version=1,
+        tpc={
+            "dimensions": [10.0, 20.0, 30.0],
+            "positions": [[-6.0, 0.0, 0.0], [6.0, 0.0, 0.0]],
+            "module_ids": [0, 0],
+        },
+    )
+    data = {
+        "points": np.array([[0.0, 0.0, 0.0]], dtype=np.float32),
+        "points_label": np.array([[0.0, 0.0, 0.0]], dtype=np.float32),
+        "reco_particles": [RecoParticle(id=0, index=np.array([0], dtype=np.int32))],
+        "truth_particles": [
+            TruthParticle(
+                id=0,
+                index=np.array([0], dtype=np.int32),
+                points=np.array([[0.0, 0.0, 0.0]], dtype=np.float32),
+            )
+        ],
+    }
+    drawer = Drawer(data, draw_mode="both", geo=geo, split_scene=False)
+
+    figure = drawer.get("particles")
+
+    assert len(figure.data) >= 4
+    with pytest.raises(ValueError, match="titles"):
+        drawer.get("particles", titles=["Reco", "Truth"])
+
+
 def test_drawer_truth_mode_compatibility_validation():
     """Truth point/deposition/source modes must be compatible."""
     particle = TruthParticle(
@@ -390,12 +458,53 @@ def test_drawer_truth_mode_compatibility_validation():
         "depositions_label_adapt": particle.depositions_adapt,
         "truth_particles": [particle],
     }
-    drawer = Drawer(data, draw_mode="truth", truth_point_mode="points_adapt")
+    geo = Geometry(
+        name="demo",
+        tag="v1",
+        version=1,
+        tpc={
+            "dimensions": [10.0, 20.0, 30.0],
+            "positions": [[-6.0, 0.0, 0.0], [6.0, 0.0, 0.0]],
+            "module_ids": [0, 0],
+        },
+    )
+    drawer = Drawer(data, draw_mode="truth", truth_point_mode="points_adapt", geo=geo)
 
     with pytest.raises(ValueError, match="incompatible"):
         drawer.get("particles", attr=["depositions"], color_attr="depositions")
+    with pytest.raises(ValueError, match="incompatible"):
+        drawer.get("particles", attr=["sources"], color_attr="sources")
+    drawer_no_geo = Drawer(data, draw_mode="truth", truth_point_mode="points_adapt")
     with pytest.raises(ValueError, match="geometry"):
-        drawer.get("particles", attr=["sources_adapt"], color_attr="sources_adapt")
+        drawer_no_geo.get(
+            "particles", attr=["sources_adapt"], color_attr="sources_adapt"
+        )
+
+
+def test_drawer_truth_raw_trace_and_empty_truth_auxiliaries():
+    """Truth helpers should draw raw input and skip empty truth objects."""
+    truth_particle = SimpleNamespace(
+        is_truth=True,
+        shape=TRACK_SHP,
+        index=np.array([], dtype=np.int32),
+        end_point=np.ones(3, dtype=np.float32),
+        start_point=np.zeros(3, dtype=np.float32),
+        start_dir=np.array([1.0, 0.0, 0.0], dtype=np.float32),
+    )
+    data = {
+        "points_label": np.array([[0.0, 0.0, 0.0]], dtype=np.float32),
+        "depositions_label": np.array([1.0], dtype=np.float32),
+        "truth_particles": [truth_particle],
+    }
+    drawer = Drawer(data, draw_mode="truth")
+
+    raw_trace = drawer._raw_trace("truth")
+    end_points = drawer._point_trace("truth_particles", "end_point", split_traces=True)
+    directions = drawer._direction_trace("truth_particles", split_traces=True)
+
+    assert len(raw_trace) == 1
+    assert end_points == []
+    assert directions == []
 
 
 def test_drawer_geo_and_auxiliary_validation_paths():
@@ -447,6 +556,7 @@ def test_drawer_draws_matched_flashes_and_crt_hits():
             "shape": "box",
             "dimensions": [2.0, 2.0, 2.0],
             "positions": [[0.0, 15.0, 0.0]],
+            "det_ids": [0, 0],
         },
         crt={
             "dimensions": [[2.0, 2.0, 2.0]],
@@ -469,7 +579,7 @@ def test_drawer_draws_matched_flashes_and_crt_hits():
     data = {
         "points": np.array([[0.0, 0.0, 0.0]], dtype=np.float32),
         "reco_interactions": [interaction],
-        "flashes": [Flash(id=0, volume_id=0, pe_per_ch=np.array([3.0]))],
+        "flashes": [Flash(id=0, volume_id=0, pe_per_ch=np.array([1.0, 2.0]))],
         "crthits": [CRTHit(id=0, plane=0, center=np.array([0.0, 30.0, 0.0]))],
     }
 
@@ -481,3 +591,42 @@ def test_drawer_draws_matched_flashes_and_crt_hits():
 
     assert any("flashes" in (trace.name or "") for trace in figure.data)
     assert any("CRT hits" in (trace.name or "") for trace in figure.data)
+
+
+def test_drawer_draws_unmatched_flashes_and_crt_empty_plane_errors():
+    """Flash and CRT helpers should cover unmatched flashes and missing CRT planes."""
+    geo = Geometry(
+        name="demo",
+        tag="v1",
+        version=1,
+        tpc={
+            "dimensions": [10.0, 20.0, 30.0],
+            "positions": [[-6.0, 0.0, 0.0], [6.0, 0.0, 0.0]],
+            "module_ids": [0, 0],
+        },
+        optical={
+            "volume": "module",
+            "shape": "box",
+            "dimensions": [2.0, 2.0, 2.0],
+            "positions": [[0.0, 15.0, 0.0]],
+            "det_ids": [0, 0],
+        },
+    )
+    interaction = RecoInteraction(id=0, index=np.array([0], dtype=np.int32))
+    flashes = [Flash(id=0, volume_id=0, pe_per_ch=np.array([1.0, 2.0]))]
+    drawer = Drawer(
+        {
+            "points": np.array([[0.0, 0.0, 0.0]], dtype=np.float32),
+            "reco_interactions": [interaction],
+            "flashes": flashes,
+            "crthits": [],
+        },
+        draw_mode="reco",
+        geo=geo,
+    )
+
+    traces = drawer._flash_trace("reco_interactions", matched_only=False)
+
+    assert traces
+    with pytest.raises(RuntimeError, match="CRT planes"):
+        drawer._crt_trace("reco_interactions", matched_only=False)

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 from plotly import graph_objs as go
@@ -503,12 +503,13 @@ class Drawer:
                 )
 
         # Make sure that the geometry is provided if needed
-        if any(self._is_sources(attr) for attr in attrs or []):
-            if self.geo is None:
-                raise ValueError(
-                    "Provide detector name/geometry if the TPC "
-                    "sources are to be displayed."
-                )
+        needs_geo = any(self._is_sources(attr) for attr in attrs or [])
+        if needs_geo and self.geo is None:
+            raise ValueError(
+                "Provide detector name/geometry if the TPC "
+                "sources are to be displayed."
+            )
+        geo = cast(Any, self.geo)
 
         # Initialize hovertext per object
         obj_type = obj_name.split("_")[-1][:-1].capitalize()
@@ -557,23 +558,14 @@ class Drawer:
                 # Get the list of values
                 values = [getattr(obj, attr) for obj in self.data[obj_name]]
                 if self._is_sources(attr):
-                    if self.geo is None:
-                        raise ValueError(
-                            "Provide detector name/geometry to display sources."
-                        )
-                    values = [self.geo.get_sources(v) for v in values]
+                    values = [geo.get_sources(v) for v in values]
 
                 # Get the colors, if needed
                 if attr == color_attr:
                     if not self._is_sources(attr):
                         color = values
                     else:
-                        if self.geo is None:
-                            raise ValueError(
-                                "Provide detector name/geometry if the TPC "
-                                "sources are to be displayed."
-                            )
-                        color = [self.geo.get_chambers(v) for v in values]
+                        color = [geo.get_chambers(v) for v in values]
 
                 # Get the hovertext for this attribute
                 if self._is_depositions(attr):
@@ -614,9 +606,7 @@ class Drawer:
 
         elif self._is_sources(color_attr):
             # Variable-length descrete values
-            if self.geo is None:
-                raise ValueError("Provide detector name/geometry to display sources.")
-            count = self.geo.tpc.num_chambers
+            count = geo.tpc.num_chambers
             colorscale = HIGH_CONTRAST_COLORS
             if count == 0:
                 colorscale = None

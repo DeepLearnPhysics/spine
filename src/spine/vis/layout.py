@@ -177,11 +177,6 @@ def layout3d(
             ratios = np.ones(len(ranges))
             if ranges is not None and ranges[0] is not None:
                 ranges_arr = np.array(ranges)
-                if ranges_arr.shape != (3, 2):
-                    raise ValueError(
-                        "If ranges is provided to infer aspectratio, "
-                        "it must be of shape (3, 2)."
-                    )
                 max_range = np.max(ranges_arr[:, 1] - ranges_arr[:, 0])
                 ratios = (ranges_arr[:, 1] - ranges_arr[:, 0]) / max_range
             aspectratio = {axes[i]: v for i, v in enumerate(ratios)}

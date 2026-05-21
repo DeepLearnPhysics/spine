@@ -75,11 +75,6 @@ def ellipsoid_trace(
     # Get the centroid and the covariance matrix, if needed
     covmat_provided = True
     if covmat is None:
-        if points is None:
-            raise ValueError(
-                "Points must be provided to compute covariance matrix "
-                "if it is not provided explicitly."
-            )
         covmat_provided = False
 
         if len(points) > 1:

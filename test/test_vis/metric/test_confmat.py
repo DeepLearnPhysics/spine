@@ -2,12 +2,12 @@
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from spine.vis.metric.confmat import build_matrix, draw_confusion_matrix, rebuild_matrix
 
 
 def test_build_matrix_counts_predictions_by_label():
-    """Pixel-wise confusion matrices should count prediction/label pairs."""
     data = pd.DataFrame({"pred": [0, 1, 1], "label": [0, 0, 1], "score_0": 0})
 
     hist = build_matrix(data, num_classes=2)
@@ -16,7 +16,6 @@ def test_build_matrix_counts_predictions_by_label():
 
 
 def test_build_matrix_applies_class_mapping():
-    """Pixel-wise confusion matrices should honor requested class regrouping."""
     data = pd.DataFrame(
         {
             "pred": [0, 1, 2, 2],
@@ -34,7 +33,6 @@ def test_build_matrix_applies_class_mapping():
 
 
 def test_rebuild_matrix_applies_class_mapping():
-    """Entry-wise confusion matrices should aggregate mapped source classes."""
     data = pd.DataFrame(
         {
             "count_00": [1],
@@ -56,7 +54,6 @@ def test_rebuild_matrix_applies_class_mapping():
 
 
 def test_draw_confusion_matrix_writes_figure(tmp_path, monkeypatch):
-    """Confusion-matrix drawing should load CSV inputs and save a PNG."""
     data_path = tmp_path / "metrics.csv"
     figure_path = tmp_path / "confmat"
     pd.DataFrame({"pred": [0, 1], "label": [0, 1], "score_0": 0}).to_csv(
@@ -75,14 +72,13 @@ def test_draw_confusion_matrix_writes_figure(tmp_path, monkeypatch):
     assert figure_path.with_suffix(".png").exists()
 
 
-def test_confusion_matrix_infers_classes_and_rebuilds_file(tmp_path, monkeypatch):
-    """Confusion matrix drawing should cover inferred class/file formats."""
+def test_confusion_matrix_infers_classes_and_validation_paths(tmp_path, monkeypatch):
     pixel = pd.DataFrame(
         {
             "pred": [0, 1],
             "label": [0, 1],
-            "score_0": [0.9, 0.1],
-            "score_1": [0.1, 0.9],
+            "score_0": [0.8, 0.1],
+            "score_1": [0.2, 0.9],
         }
     )
     flat = pd.DataFrame(
@@ -93,7 +89,9 @@ def test_confusion_matrix_infers_classes_and_rebuilds_file(tmp_path, monkeypatch
             "count_11": [4],
         }
     )
+    path = tmp_path / "confmat.csv"
     flat_path = tmp_path / "flat.csv"
+    pixel.to_csv(path, index=False)
     flat.to_csv(flat_path, index=False)
     monkeypatch.setattr("matplotlib.pyplot.show", lambda: None)
 
@@ -110,3 +108,12 @@ def test_confusion_matrix_infers_classes_and_rebuilds_file(tmp_path, monkeypatch
     assert inferred.shape == (2, 2)
     assert rebuilt.tolist() == [[1, 2], [3, 4]]
     assert (tmp_path / "flat.png").exists()
+
+    with pytest.raises(ValueError, match="number of classes"):
+        build_matrix(pixel, num_classes=3, mapping={0: [0], 1: [1]})
+    with pytest.raises(ValueError, match="number of classes"):
+        rebuild_matrix(flat, num_classes=3, mapping={0: [0], 1: [1]})
+    with pytest.raises(ValueError, match="normalization axis"):
+        draw_confusion_matrix(path, num_classes=2, norm_axis=2)
+    with pytest.raises(ValueError, match="one class label"):
+        draw_confusion_matrix(path, num_classes=2, class_names=["a"])
