@@ -739,7 +739,8 @@ def test_stage_hdf5_writer_output_path_and_split_missing_keys(tmp_path):
     """Output-path resolution and split validation should cover edge paths."""
     path = tmp_path / "cache.h5"
     writer = StageHDF5Writer(str(path), overwrite=True)
-    assert writer.get_output_path({"file_name": "source.root"}).endswith(
+    assert writer.get_output_path({"file_name": "source.root"}) == str(path)
+    assert writer.get_output_path({"file_name": "source.root"}, True).endswith(
         "source_stage.h5"
     )
     with pytest.raises(KeyError, match="Missing key"):
@@ -754,6 +755,9 @@ def test_stage_hdf5_writer_uses_explicit_directory(tmp_path):
         str(tmp_path / "cache.h5"), overwrite=True, directory=str(directory)
     )
     assert writer.get_output_path({"file_name": "source.root"}) == os.path.join(
+        directory, "cache.h5"
+    )
+    assert writer.get_output_path({"file_name": "source.root"}, True) == os.path.join(
         directory, "source_stage.h5"
     )
     writer.close()
@@ -771,6 +775,9 @@ def test_stage_hdf5_writer_accepts_prefix_with_directory(tmp_path):
     )
     assert writer.file_name == os.path.join(directory, "input_cache.h5")
     assert writer.get_output_path({"file_name": "source.root"}) == os.path.join(
+        directory, "input_cache.h5"
+    )
+    assert writer.get_output_path({"file_name": "source.root"}, True) == os.path.join(
         directory, "source_cache.h5"
     )
     writer.close()
@@ -806,7 +813,11 @@ def test_stage_hdf5_writer_split_batch_preserves_scalar_values(tmp_path):
 
 def test_stage_hdf5_writer_uses_source_paths_for_single_source_batches(tmp_path):
     """Single-source batches from different files should still use distinct cache paths."""
-    writer = StageHDF5Writer(str(tmp_path / "cache.h5"), overwrite=True)
+    writer = StageHDF5Writer(
+        file_name=str(tmp_path / "cache.h5"),
+        prefix=["train_000.root", "train_001.root"],
+        overwrite=True,
+    )
     groups_a = writer.split_batch_by_source(
         {
             "index": np.asarray([0]),

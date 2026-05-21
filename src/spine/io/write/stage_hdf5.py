@@ -126,6 +126,7 @@ class StageHDF5Writer(HDF5Writer):
             split=name_split,
             directory=directory,
         )[0]
+        self._route_by_source = isinstance(prefix, list) and len(prefix) > 1
         self.directory = directory
         self.suffix = suffix
         self.stage = stage
@@ -388,14 +389,25 @@ class StageHDF5Writer(HDF5Writer):
         self._stage_states[stage] = state
         return state
 
-    def get_output_path(self, source_info: dict[str, Any]) -> str:
+    def get_output_path(
+        self, source_info: dict[str, Any], multiple_sources: bool = False
+    ) -> str:
         """Resolve the cache-file path for one source file.
 
         Parameters
         ----------
         source_info : dict
             File-level source identity returned by :meth:`get_batch_source_info`.
+        multiple_sources : bool, default False
+            If `True`, derive one output path from the source file basename.
+            Otherwise reuse ``self.file_name`` directly unless this writer is
+            already in source-routed mode.
         """
+        if not (self._route_by_source or multiple_sources):
+            if self.directory is None:
+                return self.file_name
+            return os.path.join(self.directory, os.path.basename(self.file_name))
+
         dir_name = (
             self.directory
             if self.directory is not None
@@ -435,6 +447,8 @@ class StageHDF5Writer(HDF5Writer):
                 )
             ].append(batch_id)
 
+        multiple_sources = len(groups) > 1
+        self._route_by_source = self._route_by_source or multiple_sources
         result = []
         for (file_name, file_size, file_mtime_ns), batch_ids in groups.items():
             source_info = {
@@ -458,7 +472,7 @@ class StageHDF5Writer(HDF5Writer):
                 subset[key] = [value[i] for i in batch_ids]
             result.append(
                 (
-                    self.get_output_path(source_info),
+                    self.get_output_path(source_info, multiple_sources),
                     subset,
                     source_info,
                 )
