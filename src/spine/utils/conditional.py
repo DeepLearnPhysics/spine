@@ -169,13 +169,13 @@ def _module_available(module_name: str) -> bool:
 
     try:
         module = importlib.import_module(module_name)
-    except Exception:
+    except ImportError:
         return False
 
     if module_name == "larcv":
         try:
             getattr(module, "larcv")
-        except Exception:
+        except AttributeError:
             return False
 
     return True
