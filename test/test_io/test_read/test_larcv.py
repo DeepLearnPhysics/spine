@@ -1,5 +1,7 @@
 """Tests for the LArCV reader."""
 
+from collections import defaultdict
+
 import pytest
 
 import spine.io.read.larcv as larcv_read_module
@@ -164,3 +166,47 @@ def test_larcv_reader_list_data_filters_non_tree_keys(monkeypatch):
         "cluster3d": [],
         "particle": ["particle_label"],
     }
+
+
+def test_larcv_reader_reinitializes_trees_on_pid_change(monkeypatch):
+    """Tree handles should be rebuilt when the reader is used in a new process."""
+
+    created = defaultdict(list)
+
+    class DummyChain:
+        def __init__(self, name):
+            self.name = name
+            self.files = []
+            self.entries = []
+            self.sparse3d_branch = self
+            created[name].append(self)
+
+        def AddFile(self, path):
+            self.files.append(path)
+
+        def GetEntry(self, entry):
+            self.entries.append(entry)
+
+    monkeypatch.setattr(
+        larcv_read_module, "ROOT", type("DummyROOT", (), {"TChain": DummyChain})
+    )
+
+    reader = object.__new__(LArCVReader)
+    reader.entry_index = [0]
+    reader.file_paths = ["dummy.root"]
+    reader.trees = {"sparse3d": None}
+    reader.trees_ready = False
+    reader.trees_pid = None
+    reader.get_file_index = lambda idx: 0
+    reader.get_file_entry_index = lambda idx: 0
+    reader.get_source_provenance = lambda file_idx, file_entry_idx: {}
+
+    pid_iter = iter([100, 200, 200])
+    monkeypatch.setattr(larcv_read_module.os, "getpid", lambda: next(pid_iter))
+
+    first = reader.get(0)
+    second = reader.get(0)
+
+    assert first["sparse3d"] is created["sparse3d_tree"][0]
+    assert second["sparse3d"] is created["sparse3d_tree"][1]
+    assert len(created["sparse3d_tree"]) == 2

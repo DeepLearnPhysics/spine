@@ -1,5 +1,6 @@
 """Contains a reader class dedicated to loading data from LArCV files."""
 
+import os
 from typing import Any
 
 import numpy as np
@@ -105,6 +106,7 @@ class LArCVReader(ReaderBase):
         self.num_entries = -1
         self.trees = {}
         self.trees_ready = False
+        self.trees_pid = None
         self.file_offsets = np.empty(len(self.file_paths), dtype=np.int64)
         file_counts = []
         for key in tree_keys:
@@ -170,6 +172,17 @@ class LArCVReader(ReaderBase):
             allow_missing,
         )
 
+    def initialize_trees(self) -> None:
+        """Instantiate TChains in the current process."""
+        for key in self.trees:
+            chain = ROOT.TChain(f"{key}_tree")  # pylint: disable=E1101
+            for f in self.file_paths:
+                chain.AddFile(f)
+            self.trees[key] = chain
+
+        self.trees_ready = True
+        self.trees_pid = os.getpid()
+
     def get(self, idx: int) -> dict[str, Any]:
         """Returns a specific entry in the file.
 
@@ -193,13 +206,8 @@ class LArCVReader(ReaderBase):
         file_entry_idx = self.get_file_entry_index(idx)
 
         # If this is the first data loading, instantiate chains
-        if not self.trees_ready:
-            for key in self.trees:
-                chain = ROOT.TChain(f"{key}_tree")  # pylint: disable=E1101
-                for f in self.file_paths:
-                    chain.AddFile(f)
-                self.trees[key] = chain
-            self.trees_ready = True
+        if not self.trees_ready or self.trees_pid != os.getpid():
+            self.initialize_trees()
 
         # Move the entry pointer
         for tree in self.trees.values():
