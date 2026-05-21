@@ -1,12 +1,11 @@
 """Contains a reader class dedicated to loading data from LArCV files."""
 
-import importlib
 import os
 from typing import Any
 
 import numpy as np
 
-from spine.utils.conditional import LARCV_AVAILABLE, ROOT, ROOT_AVAILABLE
+from spine.utils.conditional import LARCV_AVAILABLE, ROOT, ROOT_AVAILABLE, larcv
 from spine.utils.logger import logger
 
 from .base import ReaderBase
@@ -85,18 +84,14 @@ class LArCVReader(ReaderBase):
         allow_missing : bool, default False
             If `True`, allows missing entries in the entry or event list
         """
-        if not ROOT_AVAILABLE:
-            raise ImportError("ROOT is required to read LArCV files.")
-        if not LARCV_AVAILABLE:
-            raise ImportError("larcv is required to read LArCV files.")
-        self.process_pid = None
-        self.initialize_process_state()
+        # Check that the dependencies are available, with fallback for fragile
+        # PyROOT discovery in some environments.
+        self._check_larcv_imports()
 
         # Process the file_paths
         self.process_file_paths(file_keys, file_list, limit_num_files, max_print_files)
-        assert (
-            tree_keys is not None and len(tree_keys) > 0
-        ), "No input `tree_keys` provided, abort."
+        if tree_keys is None or len(tree_keys) == 0:
+            raise ValueError("No input `tree_keys` provided, abort.")
 
         # If an entry list is requested based on run/subrun/event ID, create map
         if run_event_list is not None or skip_run_event_list is not None:
@@ -123,11 +118,12 @@ class LArCVReader(ReaderBase):
                     file_counts.append(count)
 
             if self.num_entries >= 0:
-                assert self.num_entries == chain.GetEntries(), (
-                    f"Mismatch between the number of entries for {key} "
-                    f"({chain.GetEntries()}) and the number of entries "
-                    f"in other data products ({self.num_entries})."
-                )
+                if self.num_entries != chain.GetEntries():
+                    raise ValueError(
+                        f"Mismatch between the number of entries for {key} "
+                        f"({chain.GetEntries()}) and the number of entries "
+                        f"in other data products ({self.num_entries})."
+                    )
             else:
                 self.num_entries = chain.GetEntries()
 
@@ -143,10 +139,11 @@ class LArCVReader(ReaderBase):
         # If requested, must extract the run information for each entry
         if create_run_map:
             # Initialize the TChain object
-            assert run_info_key is not None and run_info_key in tree_keys, (
-                "Must provide the `run_info_key` if a run map is needed. "
-                "The key must appear in the list of `tree_keys`"
-            )
+            if run_info_key is None or run_info_key not in tree_keys:
+                raise ValueError(
+                    "Must provide the `run_info_key` if a run map is needed. "
+                    "The key must appear in the list of `tree_keys`"
+                )
             chain = ROOT.TChain(f"{run_info_key}_tree")  # pylint: disable=E1101
             for f in self.file_paths:
                 chain.AddFile(f)
@@ -172,35 +169,6 @@ class LArCVReader(ReaderBase):
             allow_missing,
         )
 
-    def initialize_process_state(self) -> None:
-        """Ensure optional LArCV bindings are initialized in this process."""
-        pid = os.getpid()
-        if self.process_pid == pid:
-            return
-
-        module = importlib.import_module("larcv")
-        if self.process_pid is not None:
-            module = importlib.reload(module)
-
-        # Accessing the namespace registers the C++ dictionaries that ROOT
-        # needs to cast branch objects in the current process.
-        namespace = getattr(module, "larcv")
-        _ = namespace.__name__
-        self.process_pid = pid
-
-    def initialize_trees(self) -> None:
-        """Instantiate TChains in the current process."""
-        self.initialize_process_state()
-
-        for key in self.trees:
-            chain = ROOT.TChain(f"{key}_tree")  # pylint: disable=E1101
-            for f in self.file_paths:
-                chain.AddFile(f)
-            self.trees[key] = chain
-
-        self.trees_ready = True
-        self.trees_pid = os.getpid()
-
     def get(self, idx: int) -> dict[str, Any]:
         """Returns a specific entry in the file.
 
@@ -223,9 +191,26 @@ class LArCVReader(ReaderBase):
         file_idx = self.get_file_index(idx)
         file_entry_idx = self.get_file_entry_index(idx)
 
+        # TChains and LArCV/PyROOT branch bindings are process-local. This
+        # matters when the dataset is copied/forked into DataLoader workers:
+        # the reader may have been constructed in the parent/rank process, but
+        # get() runs in the worker process.
+        pid = os.getpid()
+        if self.trees_ready and self.trees_pid != pid:
+            for key in self.trees:
+                self.trees[key] = None
+            self.trees_ready = False
+
         # If this is the first data loading, instantiate chains
-        if not self.trees_ready or self.trees_pid != os.getpid():
-            self.initialize_trees()
+        if not self.trees_ready:
+            self._check_larcv_imports()
+            for key in self.trees:
+                chain = ROOT.TChain(f"{key}_tree")  # pylint: disable=E1101
+                for f in self.file_paths:
+                    chain.AddFile(f)
+                self.trees[key] = chain
+            self.trees_ready = True
+            self.trees_pid = pid
 
         # Move the entry pointer
         for tree in self.trees.values():
@@ -281,3 +266,30 @@ class LArCVReader(ReaderBase):
             data[key].append(name[: name.rfind("_")])
 
         return data
+
+    @staticmethod
+    def _check_larcv_imports() -> None:
+        """Check ROOT/LArCV availability, with fallback for fragile PyROOT discovery.
+
+        The normal path uses the conditional import availability flags. If those
+        flags fail, try resolving the lazy modules directly before raising. This
+        handles environments where PyROOT/LArCV are importable but not discoverable
+        through the static availability check.
+        """
+        if ROOT_AVAILABLE and LARCV_AVAILABLE:
+            _ = larcv.__name__
+            return
+
+        if not ROOT_AVAILABLE:
+            try:
+                _ = ROOT.__name__
+            except Exception as exc:
+                raise ImportError("ROOT is required to read LArCV files.") from exc
+
+        if not LARCV_AVAILABLE:
+            try:
+                _ = larcv.__name__
+            except Exception as exc:
+                raise ImportError("larcv is required to read LArCV files.") from exc
+
+        _ = larcv.__name__

@@ -112,22 +112,43 @@ def test_larcv_reader_enables_run_map_for_run_event_filters(larcv_data):
 
 def test_larcv_reader_requires_dependencies_and_tree_keys(monkeypatch):
     """Reader initialization should guard missing dependencies and tree keys."""
-    monkeypatch.setattr(larcv_read_module, "ROOT_AVAILABLE", False)
-    with pytest.raises(ImportError, match="ROOT"):
-        LArCVReader(file_keys="dummy.root", tree_keys=["sparse3d"])
-
-    monkeypatch.setattr(larcv_read_module, "ROOT_AVAILABLE", True)
-    monkeypatch.setattr(larcv_read_module, "LARCV_AVAILABLE", False)
-    with pytest.raises(ImportError, match="larcv"):
-        LArCVReader(file_keys="dummy.root", tree_keys=["sparse3d"])
-
-    monkeypatch.setattr(larcv_read_module, "LARCV_AVAILABLE", True)
     monkeypatch.setattr(
         LArCVReader,
         "process_file_paths",
         lambda self, *args, **kwargs: setattr(self, "file_paths", ["dummy.root"]),
     )
-    with pytest.raises(AssertionError, match="tree_keys"):
+
+    class MissingModule:
+        def __getattr__(self, name):
+            raise RuntimeError(name)
+
+    monkeypatch.setattr(larcv_read_module, "ROOT_AVAILABLE", False)
+    monkeypatch.setattr(larcv_read_module, "LARCV_AVAILABLE", True)
+    monkeypatch.setattr(larcv_read_module, "ROOT", MissingModule())
+    monkeypatch.setattr(
+        larcv_read_module, "larcv", type("DummyLArCV", (), {"__name__": "larcv"})()
+    )
+    with pytest.raises(ImportError, match="ROOT"):
+        LArCVReader(file_keys="dummy.root", tree_keys=["sparse3d"])
+
+    monkeypatch.setattr(larcv_read_module, "ROOT_AVAILABLE", True)
+    monkeypatch.setattr(larcv_read_module, "LARCV_AVAILABLE", False)
+    monkeypatch.setattr(
+        larcv_read_module, "ROOT", type("DummyROOT", (), {"__name__": "ROOT"})()
+    )
+    monkeypatch.setattr(larcv_read_module, "larcv", MissingModule())
+    with pytest.raises(ImportError, match="larcv"):
+        LArCVReader(file_keys="dummy.root", tree_keys=["sparse3d"])
+
+    monkeypatch.setattr(larcv_read_module, "ROOT_AVAILABLE", False)
+    monkeypatch.setattr(larcv_read_module, "LARCV_AVAILABLE", False)
+    monkeypatch.setattr(
+        larcv_read_module, "ROOT", type("DummyROOT", (), {"__name__": "ROOT"})()
+    )
+    monkeypatch.setattr(
+        larcv_read_module, "larcv", type("DummyLArCV", (), {"__name__": "larcv"})()
+    )
+    with pytest.raises(ValueError, match="tree_keys"):
         LArCVReader(file_keys="dummy.root", tree_keys=[])
 
 
@@ -156,9 +177,10 @@ def test_larcv_reader_list_data_filters_non_tree_keys(monkeypatch):
         def Open(*args, **kwargs):
             return DummyFile()
 
-    monkeypatch.setattr(
-        larcv_read_module, "ROOT", type("DummyROOT", (), {"TFile": DummyTFile})
-    )
+    class DummyROOTModule:
+        TFile = DummyTFile
+
+    monkeypatch.setattr(larcv_read_module, "ROOT", DummyROOTModule())
     result = LArCVReader.list_data("dummy.root")
 
     assert result == {
@@ -169,7 +191,7 @@ def test_larcv_reader_list_data_filters_non_tree_keys(monkeypatch):
 
 
 def test_larcv_reader_reinitializes_trees_on_pid_change(monkeypatch):
-    """Tree handles should be rebuilt when the reader is used in a new process."""
+    """Cross-process reader use should rebuild process-local TChains."""
 
     created = defaultdict(list)
 
@@ -184,26 +206,34 @@ def test_larcv_reader_reinitializes_trees_on_pid_change(monkeypatch):
         def AddFile(self, path):
             self.files.append(path)
 
+        def GetEntries(self):
+            return len(self.files)
+
         def GetEntry(self, entry):
             self.entries.append(entry)
 
+    dummy_root = type("DummyROOT", (), {"TChain": DummyChain})
+
+    touch_calls = []
+
+    monkeypatch.setattr(larcv_read_module, "ROOT", dummy_root)
     monkeypatch.setattr(
-        larcv_read_module, "ROOT", type("DummyROOT", (), {"TChain": DummyChain})
+        LArCVReader,
+        "_check_larcv_imports",
+        staticmethod(lambda: touch_calls.append("checked")),
     )
 
     reader = object.__new__(LArCVReader)
     reader.entry_index = [0]
     reader.file_paths = ["dummy.root"]
-    reader.process_pid = None
     reader.trees = {"sparse3d": None}
     reader.trees_ready = False
     reader.trees_pid = None
-    reader.initialize_process_state = lambda: None
     reader.get_file_index = lambda idx: 0
     reader.get_file_entry_index = lambda idx: 0
     reader.get_source_provenance = lambda file_idx, file_entry_idx: {}
 
-    pid_iter = iter([100, 200, 200])
+    pid_iter = iter([100, 200])
     monkeypatch.setattr(larcv_read_module.os, "getpid", lambda: next(pid_iter))
 
     first = reader.get(0)
@@ -212,43 +242,99 @@ def test_larcv_reader_reinitializes_trees_on_pid_change(monkeypatch):
     assert first["sparse3d"] is created["sparse3d_tree"][0]
     assert second["sparse3d"] is created["sparse3d_tree"][1]
     assert len(created["sparse3d_tree"]) == 2
+    assert touch_calls == ["checked", "checked"]
 
 
-def test_larcv_reader_reloads_larcv_bindings_on_pid_change(monkeypatch):
-    """LArCV bindings should be reloaded when the reader crosses processes."""
+def test_larcv_reader_rejects_mismatched_tree_entries(monkeypatch):
+    """Reader initialization should reject tree lists with inconsistent sizes."""
 
-    calls = []
+    class DummyChain:
+        def __init__(self, name):
+            self.name = name
+            self.entries = 0
 
-    class DummyNamespace:
-        __name__ = "larcv"
+        def AddFile(self, path):
+            del path
+            if self.name == "sparse3d_tree":
+                self.entries += 2
+            else:
+                self.entries += 3
 
-    class DummyModule:
-        larcv = DummyNamespace()
+        def GetEntries(self):
+            return self.entries
 
-    dummy_module = DummyModule()
-
-    def fake_import_module(name):
-        assert name == "larcv"
-        calls.append("import")
-        return dummy_module
-
-    def fake_reload(module):
-        assert module is dummy_module
-        calls.append("reload")
-        return module
-
-    reader = object.__new__(LArCVReader)
-    reader.process_pid = None
-
-    pid_iter = iter([100, 100, 200, 200])
-    monkeypatch.setattr(larcv_read_module.os, "getpid", lambda: next(pid_iter))
     monkeypatch.setattr(
-        larcv_read_module.importlib, "import_module", fake_import_module
+        LArCVReader,
+        "process_file_paths",
+        lambda self, *args, **kwargs: setattr(self, "file_paths", ["dummy.root"]),
     )
-    monkeypatch.setattr(larcv_read_module.importlib, "reload", fake_reload)
+    monkeypatch.setattr(
+        LArCVReader,
+        "_check_larcv_imports",
+        staticmethod(lambda: None),
+    )
+    monkeypatch.setattr(
+        larcv_read_module,
+        "ROOT",
+        type("DummyROOT", (), {"TChain": DummyChain})(),
+    )
 
-    reader.initialize_process_state()
-    reader.initialize_process_state()
-    reader.initialize_process_state()
+    with pytest.raises(ValueError, match="Mismatch between the number of entries"):
+        LArCVReader(file_keys="dummy.root", tree_keys=["sparse3d", "particle"])
 
-    assert calls == ["import", "import", "reload"]
+
+def test_larcv_reader_requires_valid_run_info_key(monkeypatch):
+    """Run-map creation should require a run-info key present in tree_keys."""
+
+    class DummyInfo:
+        @staticmethod
+        def run():
+            return 1
+
+        @staticmethod
+        def subrun():
+            return 2
+
+        @staticmethod
+        def event():
+            return 3
+
+    class DummyChain:
+        def __init__(self, name):
+            self.name = name
+            self.entries = 0
+            self.sparse3d_branch = DummyInfo()
+
+        def AddFile(self, path):
+            del path
+            self.entries += 1
+
+        def GetEntries(self):
+            return self.entries
+
+        def GetEntry(self, entry):
+            del entry
+
+    monkeypatch.setattr(
+        LArCVReader,
+        "process_file_paths",
+        lambda self, *args, **kwargs: setattr(self, "file_paths", ["dummy.root"]),
+    )
+    monkeypatch.setattr(
+        LArCVReader,
+        "_check_larcv_imports",
+        staticmethod(lambda: None),
+    )
+    monkeypatch.setattr(
+        larcv_read_module,
+        "ROOT",
+        type("DummyROOT", (), {"TChain": DummyChain})(),
+    )
+
+    with pytest.raises(ValueError, match="run_info_key"):
+        LArCVReader(
+            file_keys="dummy.root",
+            tree_keys=["sparse3d"],
+            create_run_map=True,
+            run_info_key="particle",
+        )
