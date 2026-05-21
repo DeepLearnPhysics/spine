@@ -739,8 +739,7 @@ def test_stage_hdf5_writer_output_path_and_split_missing_keys(tmp_path):
     """Output-path resolution and split validation should cover edge paths."""
     path = tmp_path / "cache.h5"
     writer = StageHDF5Writer(str(path), overwrite=True)
-    assert writer.get_output_path({"file_name": "source.root"}) == str(path)
-    assert writer.get_output_path({"file_name": "source.root"}, True).endswith(
+    assert writer.get_output_path({"file_name": "source.root"}).endswith(
         "source_stage.h5"
     )
     with pytest.raises(KeyError, match="Missing key"):
@@ -755,9 +754,6 @@ def test_stage_hdf5_writer_uses_explicit_directory(tmp_path):
         str(tmp_path / "cache.h5"), overwrite=True, directory=str(directory)
     )
     assert writer.get_output_path({"file_name": "source.root"}) == os.path.join(
-        directory, "cache.h5"
-    )
-    assert writer.get_output_path({"file_name": "source.root"}, True) == os.path.join(
         directory, "source_stage.h5"
     )
     writer.close()
@@ -775,9 +771,6 @@ def test_stage_hdf5_writer_accepts_prefix_with_directory(tmp_path):
     )
     assert writer.file_name == os.path.join(directory, "input_cache.h5")
     assert writer.get_output_path({"file_name": "source.root"}) == os.path.join(
-        directory, "input_cache.h5"
-    )
-    assert writer.get_output_path({"file_name": "source.root"}, True) == os.path.join(
         directory, "source_cache.h5"
     )
     writer.close()
@@ -808,6 +801,34 @@ def test_stage_hdf5_writer_split_batch_preserves_scalar_values(tmp_path):
     )
     assert groups[0][1]["epoch"] == 3
     assert groups[1][1]["epoch"] == 3
+    writer.close()
+
+
+def test_stage_hdf5_writer_uses_source_paths_for_single_source_batches(tmp_path):
+    """Single-source batches from different files should still use distinct cache paths."""
+    writer = StageHDF5Writer(str(tmp_path / "cache.h5"), overwrite=True)
+    groups_a = writer.split_batch_by_source(
+        {
+            "index": np.asarray([0]),
+            "source_file_name": np.asarray(["train_000.root"]),
+            "source_file_size": np.asarray([10]),
+            "source_file_mtime_ns": np.asarray([30]),
+            "dummy_data": [np.asarray([[1.0]])],
+        }
+    )
+    groups_b = writer.split_batch_by_source(
+        {
+            "index": np.asarray([1]),
+            "source_file_name": np.asarray(["train_001.root"]),
+            "source_file_size": np.asarray([20]),
+            "source_file_mtime_ns": np.asarray([40]),
+            "dummy_data": [np.asarray([[2.0]])],
+        }
+    )
+
+    assert groups_a[0][0].endswith("train_000_stage.h5")
+    assert groups_b[0][0].endswith("train_001_stage.h5")
+    assert groups_a[0][0] != groups_b[0][0]
     writer.close()
 
 
