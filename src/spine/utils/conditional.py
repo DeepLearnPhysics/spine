@@ -1,9 +1,9 @@
 """Lazy access to optional third-party dependencies.
 
-The symbols exported here preserve the previous ``from spine.utils.conditional
-import torch`` style while avoiding eager imports and unrelated warnings.
-Availability flags are cheap import-spec checks. The actual package import is
-deferred until an attribute on the proxy is used.
+The symbols exported here preserve the previous
+``from spine.utils.conditional import torch`` style while avoiding eager imports
+and unrelated warnings. Availability flags are cheap import-spec checks. The
+actual package import is deferred until an attribute on the proxy is used.
 """
 
 import importlib
@@ -71,7 +71,7 @@ class _LazyModule:
 
     def __repr__(self) -> str:
         if self._module is None:
-            return f"<lazy optional module {self._display_name!r}>"
+            return f"<lazy module {self._display_name}>"
         return repr(self._module)
 
 
@@ -104,7 +104,7 @@ class _LazyAttribute:
 
     def __repr__(self) -> str:
         if self._attr is None:
-            return f"<lazy optional attribute {self._display_name!r}>"
+            return f"<lazy attribute {self._display_name}>"
         return repr(self._attr)
 
 
@@ -148,22 +148,43 @@ def _module_available(module_name: str) -> bool:
         if module is None:
             return False
 
-        # Sphinx autodoc mock imports can populate `sys.modules` with lightweight
-        # placeholders that do not correspond to a real importable package. Only
-        # treat preloaded modules as available when they carry a real module spec.
+        # Sphinx autodoc mock imports can populate `sys.modules` with
+        # lightweight placeholders that do not correspond to a real importable
+        # package. Only treat preloaded modules as available when they carry a
+        # real module spec.
         if getattr(module, "__spec__", None) is not None:
             return True
+
     try:
-        return importlib.util.find_spec(module_name) is not None
+        if importlib.util.find_spec(module_name) is not None:
+            return True
     except (ImportError, ValueError):
+        pass
+
+    # PyROOT/LArCV can be importable even when importlib metadata discovery
+    # fails in some HPC/container/module environments. For these modules only,
+    # fall back to an actual import probe before declaring them unavailable.
+    if module_name not in {"ROOT", "larcv"}:
         return False
+
+    try:
+        module = importlib.import_module(module_name)
+    except Exception:
+        return False
+
+    if module_name == "larcv":
+        try:
+            getattr(module, "larcv")
+        except Exception:
+            return False
+
+    return True
 
 
 ROOT_AVAILABLE = _module_available("ROOT")
 LARCV_AVAILABLE = _module_available("larcv")
 TORCH_AVAILABLE = _module_available("torch")
 ME_AVAILABLE = _module_available("MinkowskiEngine")
-
 
 if TYPE_CHECKING:
     import MinkowskiEngine as ME

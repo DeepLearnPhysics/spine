@@ -9,6 +9,19 @@ from spine.io.read import LArCVReader
 from spine.utils.conditional import ROOT, ROOT_AVAILABLE
 
 
+class CountingLArCV:
+    """Track accesses to the lazily resolved LArCV namespace."""
+
+    def __init__(self):
+        self.name_calls = 0
+
+    def __getattribute__(self, name):
+        if name == "__name__":
+            object.__setattr__(self, "name_calls", self.name_calls + 1)
+            return "larcv"
+        return object.__getattribute__(self, name)
+
+
 @pytest.mark.skipif(not ROOT_AVAILABLE, reason="ROOT is required to read LArCV files.")
 def test_larcv_reader(larcv_data):
     """Tests the loading of a LArCV file."""
@@ -140,8 +153,8 @@ def test_larcv_reader_requires_dependencies_and_tree_keys(monkeypatch):
     with pytest.raises(ImportError, match="larcv"):
         LArCVReader(file_keys="dummy.root", tree_keys=["sparse3d"])
 
-    monkeypatch.setattr(larcv_read_module, "ROOT_AVAILABLE", False)
-    monkeypatch.setattr(larcv_read_module, "LARCV_AVAILABLE", False)
+    monkeypatch.setattr(larcv_read_module, "ROOT_AVAILABLE", True)
+    monkeypatch.setattr(larcv_read_module, "LARCV_AVAILABLE", True)
     monkeypatch.setattr(
         larcv_read_module, "ROOT", type("DummyROOT", (), {"__name__": "ROOT"})()
     )
@@ -213,15 +226,10 @@ def test_larcv_reader_reinitializes_trees_on_pid_change(monkeypatch):
             self.entries.append(entry)
 
     dummy_root = type("DummyROOT", (), {"TChain": DummyChain})
-
-    touch_calls = []
+    dummy_larcv = CountingLArCV()
 
     monkeypatch.setattr(larcv_read_module, "ROOT", dummy_root)
-    monkeypatch.setattr(
-        LArCVReader,
-        "_check_larcv_imports",
-        staticmethod(lambda: touch_calls.append("checked")),
-    )
+    monkeypatch.setattr(larcv_read_module, "larcv", dummy_larcv)
 
     reader = object.__new__(LArCVReader)
     reader.entry_index = [0]
@@ -242,7 +250,7 @@ def test_larcv_reader_reinitializes_trees_on_pid_change(monkeypatch):
     assert first["sparse3d"] is created["sparse3d_tree"][0]
     assert second["sparse3d"] is created["sparse3d_tree"][1]
     assert len(created["sparse3d_tree"]) == 2
-    assert touch_calls == ["checked", "checked"]
+    assert dummy_larcv.name_calls == 2
 
 
 def test_larcv_reader_rejects_mismatched_tree_entries(monkeypatch):
@@ -268,11 +276,9 @@ def test_larcv_reader_rejects_mismatched_tree_entries(monkeypatch):
         "process_file_paths",
         lambda self, *args, **kwargs: setattr(self, "file_paths", ["dummy.root"]),
     )
-    monkeypatch.setattr(
-        LArCVReader,
-        "_check_larcv_imports",
-        staticmethod(lambda: None),
-    )
+    monkeypatch.setattr(larcv_read_module, "ROOT_AVAILABLE", True)
+    monkeypatch.setattr(larcv_read_module, "LARCV_AVAILABLE", True)
+    monkeypatch.setattr(larcv_read_module, "larcv", CountingLArCV())
     monkeypatch.setattr(
         larcv_read_module,
         "ROOT",
@@ -320,11 +326,9 @@ def test_larcv_reader_requires_valid_run_info_key(monkeypatch):
         "process_file_paths",
         lambda self, *args, **kwargs: setattr(self, "file_paths", ["dummy.root"]),
     )
-    monkeypatch.setattr(
-        LArCVReader,
-        "_check_larcv_imports",
-        staticmethod(lambda: None),
-    )
+    monkeypatch.setattr(larcv_read_module, "ROOT_AVAILABLE", True)
+    monkeypatch.setattr(larcv_read_module, "LARCV_AVAILABLE", True)
+    monkeypatch.setattr(larcv_read_module, "larcv", CountingLArCV())
     monkeypatch.setattr(
         larcv_read_module,
         "ROOT",

@@ -84,9 +84,15 @@ class LArCVReader(ReaderBase):
         allow_missing : bool, default False
             If `True`, allows missing entries in the entry or event list
         """
-        # Check that the dependencies are available, with fallback for fragile
-        # PyROOT discovery in some environments.
-        self._check_larcv_imports()
+        # Check that ROOT and larcv are available
+        if not ROOT_AVAILABLE:
+            raise ImportError("ROOT is required to read LArCV files.")
+        if not LARCV_AVAILABLE:
+            raise ImportError("larcv is required to read LArCV files.")
+
+        # Loading the larcv namespace registers the C++ dictionaries that ROOT
+        # needs to cast branch objects.
+        _ = larcv.__name__
 
         # Process the file_paths
         self.process_file_paths(file_keys, file_list, limit_num_files, max_print_files)
@@ -203,7 +209,10 @@ class LArCVReader(ReaderBase):
 
         # If this is the first data loading, instantiate chains
         if not self.trees_ready:
-            self._check_larcv_imports()
+            # Loading the larcv namespace registers the C++ dictionaries that
+            # ROOT needs to cast branch objects. Repeat this in the process that
+            # builds the read-time TChains, including DataLoader workers.
+            _ = larcv.__name__
             for key in self.trees:
                 chain = ROOT.TChain(f"{key}_tree")  # pylint: disable=E1101
                 for f in self.file_paths:
@@ -266,30 +275,3 @@ class LArCVReader(ReaderBase):
             data[key].append(name[: name.rfind("_")])
 
         return data
-
-    @staticmethod
-    def _check_larcv_imports() -> None:
-        """Check ROOT/LArCV availability, with fallback for fragile PyROOT discovery.
-
-        The normal path uses the conditional import availability flags. If those
-        flags fail, try resolving the lazy modules directly before raising. This
-        handles environments where PyROOT/LArCV are importable but not discoverable
-        through the static availability check.
-        """
-        if ROOT_AVAILABLE and LARCV_AVAILABLE:
-            _ = larcv.__name__
-            return
-
-        if not ROOT_AVAILABLE:
-            try:
-                _ = ROOT.__name__
-            except Exception as exc:
-                raise ImportError("ROOT is required to read LArCV files.") from exc
-
-        if not LARCV_AVAILABLE:
-            try:
-                _ = larcv.__name__
-            except Exception as exc:
-                raise ImportError("larcv is required to read LArCV files.") from exc
-
-        _ = larcv.__name__
