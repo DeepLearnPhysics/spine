@@ -194,9 +194,11 @@ def test_larcv_reader_reinitializes_trees_on_pid_change(monkeypatch):
     reader = object.__new__(LArCVReader)
     reader.entry_index = [0]
     reader.file_paths = ["dummy.root"]
+    reader.process_pid = None
     reader.trees = {"sparse3d": None}
     reader.trees_ready = False
     reader.trees_pid = None
+    reader.initialize_process_state = lambda: None
     reader.get_file_index = lambda idx: 0
     reader.get_file_entry_index = lambda idx: 0
     reader.get_source_provenance = lambda file_idx, file_entry_idx: {}
@@ -210,3 +212,43 @@ def test_larcv_reader_reinitializes_trees_on_pid_change(monkeypatch):
     assert first["sparse3d"] is created["sparse3d_tree"][0]
     assert second["sparse3d"] is created["sparse3d_tree"][1]
     assert len(created["sparse3d_tree"]) == 2
+
+
+def test_larcv_reader_reloads_larcv_bindings_on_pid_change(monkeypatch):
+    """LArCV bindings should be reloaded when the reader crosses processes."""
+
+    calls = []
+
+    class DummyNamespace:
+        __name__ = "larcv"
+
+    class DummyModule:
+        larcv = DummyNamespace()
+
+    dummy_module = DummyModule()
+
+    def fake_import_module(name):
+        assert name == "larcv"
+        calls.append("import")
+        return dummy_module
+
+    def fake_reload(module):
+        assert module is dummy_module
+        calls.append("reload")
+        return module
+
+    reader = object.__new__(LArCVReader)
+    reader.process_pid = None
+
+    pid_iter = iter([100, 100, 200, 200])
+    monkeypatch.setattr(larcv_read_module.os, "getpid", lambda: next(pid_iter))
+    monkeypatch.setattr(
+        larcv_read_module.importlib, "import_module", fake_import_module
+    )
+    monkeypatch.setattr(larcv_read_module.importlib, "reload", fake_reload)
+
+    reader.initialize_process_state()
+    reader.initialize_process_state()
+    reader.initialize_process_state()
+
+    assert calls == ["import", "import", "reload"]

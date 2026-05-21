@@ -1,11 +1,12 @@
 """Contains a reader class dedicated to loading data from LArCV files."""
 
+import importlib
 import os
 from typing import Any
 
 import numpy as np
 
-from spine.utils.conditional import LARCV_AVAILABLE, ROOT, ROOT_AVAILABLE, larcv
+from spine.utils.conditional import LARCV_AVAILABLE, ROOT, ROOT_AVAILABLE
 from spine.utils.logger import logger
 
 from .base import ReaderBase
@@ -88,9 +89,8 @@ class LArCVReader(ReaderBase):
             raise ImportError("ROOT is required to read LArCV files.")
         if not LARCV_AVAILABLE:
             raise ImportError("larcv is required to read LArCV files.")
-        # Loading the larcv namespace registers the C++ dictionaries that ROOT
-        # needs to cast branch objects.
-        _ = larcv.__name__
+        self.process_pid = None
+        self.initialize_process_state()
 
         # Process the file_paths
         self.process_file_paths(file_keys, file_list, limit_num_files, max_print_files)
@@ -172,8 +172,26 @@ class LArCVReader(ReaderBase):
             allow_missing,
         )
 
+    def initialize_process_state(self) -> None:
+        """Ensure optional LArCV bindings are initialized in this process."""
+        pid = os.getpid()
+        if self.process_pid == pid:
+            return
+
+        module = importlib.import_module("larcv")
+        if self.process_pid is not None:
+            module = importlib.reload(module)
+
+        # Accessing the namespace registers the C++ dictionaries that ROOT
+        # needs to cast branch objects in the current process.
+        namespace = getattr(module, "larcv")
+        _ = namespace.__name__
+        self.process_pid = pid
+
     def initialize_trees(self) -> None:
         """Instantiate TChains in the current process."""
+        self.initialize_process_state()
+
         for key in self.trees:
             chain = ROOT.TChain(f"{key}_tree")  # pylint: disable=E1101
             for f in self.file_paths:
