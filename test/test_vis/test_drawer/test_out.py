@@ -15,11 +15,20 @@ from spine.data.out import (
     TruthParticle,
 )
 from spine.geo.base import Geometry
+from spine.geo.manager import GeoManager
 from spine.vis import Drawer
 
 out_colors = import_module("spine.vis.drawer.out.colors")
 out_formatting = import_module("spine.vis.drawer.out.formatting")
 out_traces = import_module("spine.vis.drawer.out.traces")
+
+
+@pytest.fixture(autouse=True)
+def reset_geo_manager():
+    """Keep geometry-singleton state from leaking across visualization tests."""
+    GeoManager.reset()
+    yield
+    GeoManager.reset()
 
 
 def test_drawer_accepts_derived_hover_attr():
@@ -677,6 +686,34 @@ def test_drawer_geo_and_auxiliary_validation_paths():
             geo=geo_drawer.geo,
             geo_drawer=geo_drawer.geo_drawer,
             meta=geo_drawer.meta,
+        )
+
+    optical_geo = Geometry(
+        name="demo",
+        tag="v1",
+        version=1,
+        tpc={
+            "dimensions": [10.0, 20.0, 30.0],
+            "positions": [[-6.0, 0.0, 0.0], [6.0, 0.0, 0.0]],
+            "module_ids": [0, 0],
+        },
+        optical={
+            "volume": "module",
+            "shape": "box",
+            "dimensions": [2.0, 2.0, 2.0],
+            "positions": [[0.0, 15.0, 0.0]],
+            "det_ids": [0, 0],
+        },
+    )
+    optical_drawer = Drawer(data, draw_mode="reco", geo=optical_geo)
+    with pytest.raises(ValueError, match="flashes"):
+        out_traces.build_flash_trace(
+            data=optical_drawer.data,
+            obj_name="reco_interactions",
+            matched_only=False,
+            geo=optical_drawer.geo,
+            geo_drawer=optical_drawer.geo_drawer,
+            meta=optical_drawer.meta,
         )
 
 

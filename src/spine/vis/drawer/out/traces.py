@@ -435,6 +435,8 @@ def build_flash_trace(
         )
     if geo is None or geo.optical is None:
         raise RuntimeError("This geometry does not have optical detectors to draw.")
+    if "flashes" not in data:
+        raise ValueError("Must provide the `flashes` objects to draw them.")
 
     name = " ".join(obj_name.split("_")).capitalize()[:-1] + " flashes"
 
