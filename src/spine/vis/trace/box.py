@@ -1,0 +1,390 @@
+"""Defines functions used to draw finite-sized boxes.
+
+These tools are typically used to represent the extent of a voxel or
+a voxel neighborhood in an image. In the context of the Point-Proposal Network,
+this helps represent the region proposed by the network at layers
+deeper than the original resolution of the image.
+
+The :func:`box_trace` function is also used to represent the extent of the
+active volume of the modules that make up a detector.
+"""
+
+from __future__ import annotations
+
+import time
+from typing import Any
+
+import numpy as np
+import plotly.graph_objs as go
+
+from .utils import (
+    ColorInput,
+    HoverTextInput,
+    IntensityInput,
+    is_scalar_sequence,
+    require_matching_length,
+)
+
+__all__ = ["box_trace", "box_traces", "scatter_boxes"]
+
+
+def box_trace(
+    lower: np.ndarray,
+    upper: np.ndarray,
+    draw_faces: bool = False,
+    line: dict[str, Any] | None = None,
+    linewidth: float | None = None,
+    color: ColorInput = None,
+    cmin: float | None = None,
+    cmax: float | None = None,
+    colorscale: str | dict | None = None,
+    intensity: IntensityInput = None,
+    hovertext: HoverTextInput = None,
+    showscale: bool = False,
+    **kwargs: Any,
+) -> go.Scatter3d | go.Mesh3d:
+    """Function which produces a plotly trace of a box given its lower bounds
+    and upper bounds in x, y and z.
+
+    Parameters
+    ----------
+    lower : np.ndarray
+        (3) Vector of lower boundaries in x, z and z
+    upper : np.ndarray
+        (3) Vector of upper boundaries in x, z and z
+    draw_faces : bool, default False
+        Weather or not to draw the box faces, or only the edges
+    line : dict, optional
+        Dictionary which specifies box line properties
+    linewidth : int, optional
+        Width of the box edge lines
+    color : Union[str, int, float, Sequence], optional
+        Color of the box. Can be a single Plotly color, a single numeric value,
+        or a per-vertex sequence of scalar values.
+    cmin : float, optional
+        Minimum value of the color range
+    cmax : float, optional
+        Maximum value of the color range
+    colorscale : Union[str, dict]
+        Colorscale
+    intensity : Union[int, float, Sequence], optional
+        Color intensity of the box along the colorscale axis. Can be a single
+        numeric value or a per-vertex sequence.
+    hovertext : Union[int, float, str, Sequence], optional
+        Text associated with the box. Can be a scalar label or a per-vertex
+        sequence of labels.
+    showscale : bool, default False
+        If True, show the colorscale of the :class:`plotly.graph_objs.Mesh3d`
+    **kwargs : dict, optional
+        List of additional arguments to pass to
+        :class:`plotly.graph_objs.Scatter3D` or
+        :class:`plotly.graph_objs.Mesh3D`, depending on what the `draw_faces`
+        parameter is set to.
+
+    Returns
+    -------
+    Union[plotly.graph_objs.Scatter3D, plotly.graph_objs.Mesh3D]
+        Box trace
+    """
+    # Check the parameters
+    if len(lower) != 3 or len(upper) != 3:
+        raise ValueError("Must specify 3 values for both lower and upper boundaries.")
+    if not np.all(np.asarray(upper) > np.asarray(lower)):
+        raise ValueError(
+            "Each upper boundary should be greater than its lower counterpart."
+        )
+
+    # List of box vertices in the edges that join them in the box mesh
+    box_vertices = np.array(
+        [[0, 0, 0, 0, 1, 1, 1, 1], [0, 0, 1, 1, 0, 0, 1, 1], [0, 1, 0, 1, 0, 1, 0, 1]]
+    ).T
+    box_edge_index = np.array(
+        [[0, 0, 0, 1, 1, 2, 2, 3, 4, 4, 5, 6], [1, 2, 4, 3, 5, 3, 6, 7, 5, 6, 7, 7]]
+    )
+    box_tri_index = np.array(
+        [
+            [0, 6, 3, 2, 7, 6, 1, 1, 5, 5, 6, 7],
+            [6, 0, 0, 0, 4, 4, 7, 7, 4, 0, 2, 3],
+            [2, 4, 1, 3, 5, 7, 5, 3, 0, 1, 7, 2],
+        ]
+    )
+
+    # List of scaled vertices
+    vertices = lower + box_vertices * (upper - lower)
+
+    # Update hovertemplate style
+    hovertemplate = "x: %{x}<br>y: %{y}<br>z: %{z}"
+    if hovertext is not None:
+        if is_scalar_sequence(hovertext):
+            hovertemplate += "<br>%{text}"
+        else:
+            hovertemplate += f"<br>{hovertext}"
+            hovertext = None
+
+    # Create the box trace
+    if not draw_faces:
+        # Build a list of box edges to draw (padded with None values to break
+        # them from each other)
+        edges = np.full((3 * box_edge_index.shape[1], 3), None)
+        edges[np.arange(0, edges.shape[0], 3)] = vertices[box_edge_index[0]]
+        edges[np.arange(1, edges.shape[0], 3)] = vertices[box_edge_index[1]]
+
+        # Build a line property, if needed
+        if (
+            color is not None
+            or linewidth is not None
+            or cmin is not None
+            or cmax is not None
+            or colorscale is not None
+        ):
+            if line is not None:
+                raise ValueError(
+                    "Must not specify `line` when providing `color`, "
+                    "`linewidth`, `cmin` or `cmax` independently."
+                )
+            if color is not None and not isinstance(color, str):
+                color = np.full(len(edges), color)
+
+            line = {
+                "color": color,
+                "width": linewidth,
+                "cmin": cmin,
+                "cmax": cmax,
+                "colorscale": colorscale,
+            }
+
+        # Return trace
+        trace = go.Scatter3d(
+            x=edges[:, 0],
+            y=edges[:, 1],
+            z=edges[:, 2],
+            mode="lines",
+            line=line,
+            hovertext=hovertext,
+            hovertemplate=hovertemplate,
+            **kwargs,
+        )
+
+    else:
+        # If the color is a number, must be specified as an intensity
+        if color is not None and not isinstance(color, str):
+            if intensity is not None:
+                raise ValueError("Must not provide both `color` and `intensity`.")
+            intensity = np.full(len(vertices), color)
+            color = None
+
+        trace = go.Mesh3d(
+            x=vertices[:, 0],
+            y=vertices[:, 1],
+            z=vertices[:, 2],
+            i=box_tri_index[0],
+            j=box_tri_index[1],
+            k=box_tri_index[2],
+            color=color,
+            intensity=intensity,
+            showscale=showscale,
+            cmin=cmin,
+            cmax=cmax,
+            colorscale=colorscale,
+            hovertext=hovertext,
+            hovertemplate=hovertemplate,
+            **kwargs,
+        )
+
+    # Return trace
+    return trace
+
+
+def box_traces(
+    lowers: np.ndarray,
+    uppers: np.ndarray,
+    draw_faces: bool = False,
+    color: ColorInput = None,
+    linewidth: float | None = None,
+    hovertext: HoverTextInput = None,
+    cmin: float | None = None,
+    cmax: float | None = None,
+    shared_legend: bool = True,
+    legendgroup: str | None = None,
+    showlegend: bool = True,
+    name: str | None = None,
+    **kwargs: Any,
+) -> list[go.Scatter3d | go.Mesh3d]:
+    """Function which produces a list of plotly traces of boxes given a list of
+    lower bounds and upper bounds in x, y and z.
+
+    Parameters
+    ----------
+    lowers : np.ndarray
+        (N, 3) List of vector of lower boundaries in x, z and z
+    uppers : np.ndarray
+        (N, 3) List of vector of upper boundaries in x, z and z
+    draw_faces : bool, default False
+        Weather or not to draw the box faces, or only the edges
+    color : Union[str, int, float, Sequence], optional
+        Color of the boxes, either as one shared value or one value per box.
+    linewidth : int, default 2
+        Width of the box edge lines
+    hovertext : Union[int, float, str, Sequence], optional
+        Text associated with the boxes, either as one shared label or one
+        label per box.
+    cmin : float, optional
+        Minimum value along the color scale
+    cmax : float, optional
+        Maximum value along the color scale
+    shared_legend : bool, default True
+        If True, the plotly legend of all boxes is shared as one
+    legendgroup : str, optional
+        Legend group to be shared between all boxes
+    showlegend : bool, default `True`
+        Whether to show legends on not
+    name : str, optional
+        Name of the trace(s)
+    **kwargs : dict, optional
+        List of additional arguments to pass to
+        :class:`plotly.graph_objs.Scatter3D` or
+        :class:`plotly.graph_objs.Mesh3D`, depending on what the `draw_faces`
+        parameter is set to.
+
+    Returns
+    -------
+    Union[List[plotly.graph_objs.Scatter3D], List[plotly.graph_objs.Mesh3D]]
+        Box traces
+    """
+    # Check the parameters
+    if len(lowers) != len(uppers):
+        raise ValueError(
+            "Provide as many upper boundary vector as their lower counterpart."
+        )
+    require_matching_length(
+        color,
+        len(lowers),
+        "Specify one color for all boxes, or one color per box.",
+    )
+    require_matching_length(
+        hovertext,
+        len(lowers),
+        "Specify one hovertext for all boxes, or one hovertext per box.",
+    )
+
+    # If one color is provided per box, give an associated hovertext
+    if hovertext is None and is_scalar_sequence(color):
+        hovertext = [f"Value: {v:0.3f}" for v in color]
+
+    # If cmin/cmax are not provided, must build them so that all boxes
+    # share the same colorscale range (not guaranteed otherwise)
+    if is_scalar_sequence(color) and len(color) > 0:
+        if cmin is None:
+            cmin = np.min(np.asarray(color))
+        if cmax is None:
+            cmax = np.max(np.asarray(color))
+
+    # If the legend is to be shared, make sure there is a common legend group
+    if shared_legend and legendgroup is None:
+        legendgroup = "group_" + str(time.time())
+
+    # Loop over the list of box boundaries
+    traces = []
+    for i, (lower, upper) in enumerate(zip(lowers, uppers)):
+        # Fetch the right color/hovertext combination
+        col, hov = color, hovertext
+        if is_scalar_sequence(color):
+            col = color[i]
+        if is_scalar_sequence(hovertext):
+            hov = hovertext[i]
+
+        # If the legend is shared, only draw the legend of the first trace
+        if shared_legend:
+            showlegend = showlegend and i == 0
+            name_i = name
+        else:
+            name_i = f"{name} {i}"
+
+        # Append list of traces
+        traces.append(
+            box_trace(
+                lower,
+                upper,
+                draw_faces,
+                linewidth=linewidth,
+                color=col,
+                hovertext=hov,
+                cmin=cmin,
+                cmax=cmax,
+                legendgroup=legendgroup,
+                showlegend=showlegend,
+                name=name_i,
+                **kwargs,
+            )
+        )
+
+    return traces
+
+
+def scatter_boxes(
+    coords: np.ndarray,
+    dimension: float | np.ndarray,
+    draw_faces: bool = True,
+    color: str | float | np.ndarray = "orange",
+    hovertext: int | str | np.ndarray | None = None,
+    linewidth: float = 2,
+    shared_legend: bool = True,
+    **kwargs: Any,
+) -> list[go.Scatter3d | go.Mesh3d]:
+    """Function which produces a list of plotly traces of boxes given a list of
+    coordinates and a box dimension.
+
+    This function assumes that the coordinates represent the lower bounds of
+    the voxels they point at. This follows the `MinkowskiEngine` convention,
+    which is the package used for space convolutions. This can be used to
+    represent the PPN regions of interest in a space compressed by a factor
+    (b_x, b_y, b_z) from the original image resolution.
+
+    Parameters
+    ----------
+    coords : np.ndarray
+        (N, 3) Coordinates of in multiples of box lengths in each dimension
+    dimension : Union[float, np.ndarray]
+        Dimensions of the boxes. Specify it as either a single number (for
+        cubes) or an array of values in each dimension, i.e. (b_x, b_y, b_z)
+    draw_faces : bool, default True
+        Weather or not to draw the box faces, or only the edges
+    color : Union[str, np.ndarray], default 'orange'
+        Color of boxes or list of color of boxes
+    hovertext : Union[int, str, np.ndarray], optional
+        Text associated with every box or each box
+    linewidth : int, default 2
+        Width of the box edge lines
+    shared_legend : bool, default True
+        If True, the plotly legend of all boxes is shared as one
+    **kwargs : dict, optional
+        List of additional arguments to pass to
+        :class:`plotly.graph_objs.Scatter3D` or
+        :class:`plotly.graph_objs.Mesh3D`, depending on what the `draw_faces`
+        parameter is set to.
+
+    Returns
+    -------
+    Union[List[plotly.graph_objs.Scatter3D], List[plotly.graph_objs.Mesh3D]]
+        Box traces
+    """
+    # Check the input
+    if isinstance(dimension, (list, tuple, np.ndarray)):
+        if len(dimension) != 3:
+            raise ValueError("Must specify three dimensions for the box size.")
+        dimension = np.asarray(dimension)
+
+    # Compute the lower and upper boundaries, return box traces
+    lowers = coords
+    uppers = coords + dimension
+
+    return box_traces(
+        lowers,
+        uppers,
+        draw_faces=draw_faces,
+        color=color,
+        linewidth=linewidth,
+        hovertext=hovertext,
+        shared_legend=shared_legend,
+        **kwargs,
+    )

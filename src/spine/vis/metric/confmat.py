@@ -73,9 +73,9 @@ def draw_confusion_matrix(
     for i in range(num_classes):
         for j in range(num_classes):
             label = (
-                "{:0.3f}\n({})".format(hist_norm[i, j], int(hist[i, j]))
+                f"{hist_norm[i, j]:0.3f}\n({int(hist[i, j])})"
                 if show_counts
-                else "{:0.3f}".format(hist_norm[i, j])
+                else f"{hist_norm[i, j]:0.3f}"
             )
             plt.text(
                 j,
@@ -126,7 +126,14 @@ def build_matrix(
             for k in data.keys():
                 if k.startswith("score"):
                     classes.append(int(k[-1]))
+            if len(classes) == 0:
+                raise ValueError(
+                    "Could not infer the number of classes from the file. "
+                    "Please provide the `num_classes` parameter."
+                )
             num_classes = np.max(classes) + 1
+
+    assert num_classes is not None  # for the type checker
 
     if mapping is not None and len(mapping) != num_classes:
         raise ValueError("The number of classes should match those in the map.")
@@ -181,7 +188,14 @@ def rebuild_matrix(
             for k in data.keys():
                 if k.startswith("count"):
                     classes.append(int(k[-1]))
+            if len(classes) == 0:
+                raise ValueError(
+                    "Could not infer the number of classes from the file. "
+                    "Please provide the `num_classes` parameter."
+                )
             num_classes = np.max(classes) + 1
+
+    assert num_classes is not None  # for the type checker
 
     if mapping is not None and len(mapping) != num_classes:
         raise ValueError("The number of classes should match those in the map.")

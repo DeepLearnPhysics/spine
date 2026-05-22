@@ -1,3 +1,4 @@
-"""Visualization tools dedicated to drawing full chain performance metrics."""
+"""Metric-specific visualization helpers."""
 
 from .confmat import *
+from .heatmap import *
