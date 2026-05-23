@@ -1,20 +1,26 @@
 """Module to convert a point cloud into an convex hull envelope."""
 
+from __future__ import annotations
+
+from typing import Any
+
 import numpy as np
 import plotly.graph_objs as go
+
+from .utils import ColorInput, HoverTextInput, IntensityInput, is_scalar_sequence
 
 __all__ = ["hull_trace"]
 
 
 def hull_trace(
-    points,
-    color=None,
-    intensity=None,
-    hovertext=None,
-    showscale=False,
-    alphahull=0,
-    **kwargs,
-):
+    points: np.ndarray,
+    color: ColorInput = None,
+    intensity: IntensityInput = None,
+    hovertext: HoverTextInput = None,
+    showscale: bool = False,
+    alphahull: float = 0,
+    **kwargs: Any,
+) -> go.Mesh3d:
     """Converts a cloud of points into a 3D convex hull.
 
     This function represents a point cloud by forming a mesh with the points
@@ -24,12 +30,14 @@ def hull_trace(
     ----------
     points : np.ndarray
         (N, 3) Array of point coordinates
-    color : Union[str, float, np.ndarray], optional
-        Color of hull
-    intensity : Union[int, float], optional
-        Color intensity of the box along the colorscale axis
-    hovertext : Union[int, str, np.ndarray], optional
-        Text associated with the cone
+    color : Union[str, int, float, Sequence], optional
+        Color of the hull. Can be a single Plotly color or numeric value.
+    intensity : Union[int, float, Sequence], optional
+        Color intensity of the hull along the colorscale axis. Can be a single
+        numeric value or a per-vertex sequence.
+    hovertext : Union[int, float, str, Sequence], optional
+        Text associated with the hull. Can be a scalar label or a per-vertex
+        sequence of labels.
     showscale : bool, default False
         If True, show the colorscale of the :class:`plotly.graph_objs.Mesh3d`
     alphahull : float, default 0
@@ -41,14 +49,15 @@ def hull_trace(
     """
     # Convert the color provided to a set of intensities, if needed
     if color is not None and not isinstance(color, str):
-        assert intensity is None, "Must not provide both `color` and `intensity`."
+        if intensity is not None:
+            raise ValueError("Must not provide both `color` and `intensity`.")
         intensity = np.full(len(points), color)
         color = None
 
     # Update hovertemplate style
     hovertemplate = "x: %{x}<br>y: %{y}<br>z: %{z}"
     if hovertext is not None:
-        if not np.isscalar(hovertext):
+        if is_scalar_sequence(hovertext):
             hovertemplate += "<br>%{text}"
         else:
             hovertemplate += f"<br>{hovertext}"
@@ -59,9 +68,11 @@ def hull_trace(
         x=points[:, 0],
         y=points[:, 1],
         z=points[:, 2],
+        color=color,
         intensity=intensity,
         alphahull=alphahull,
         showscale=showscale,
+        hovertext=hovertext,
         hovertemplate=hovertemplate,
         **kwargs,
     )

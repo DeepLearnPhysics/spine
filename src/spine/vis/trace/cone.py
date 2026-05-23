@@ -1,23 +1,29 @@
-"""Module to convert a point cloud into an cone envelope."""
+"""Module to convert a point cloud into a cone envelope."""
+
+from __future__ import annotations
+
+from typing import Any
 
 import numpy as np
 from plotly import graph_objs as go
 
 from spine.math.decomposition import principal_components
 
+from .utils import ColorInput, HoverTextInput, IntensityInput, is_scalar_sequence
+
 __all__ = ["cone_trace"]
 
 
 def cone_trace(
-    points,
-    fraction=0.5,
-    num_samples=10,
-    color=None,
-    hovertext=None,
-    intensity=None,
-    showscale=False,
-    **kwargs,
-):
+    points: np.ndarray,
+    fraction: float = 0.5,
+    num_samples: int = 10,
+    color: ColorInput = None,
+    hovertext: HoverTextInput = None,
+    intensity: IntensityInput = None,
+    showscale: bool = False,
+    **kwargs: Any,
+) -> go.Mesh3d:
     """Converts a cloud of points into a 3D cone.
 
     This function uses the PCA and the average angle w.r.t. to the point
@@ -34,12 +40,14 @@ def cone_trace(
         system of the cone. A larger number increases the resolution.
     showscale : bool, default False
         If True, show the colorscale of the :class:`plotly.graph_objs.Mesh3d`
-    color : Union[str, float], optional
-        Color of the cone
-    hovertext : Union[int, str, np.ndarray], optional
-        Text associated with the cone
-    intensity : Union[str, float, np.ndarray], optional
-        Intensity of the cone colors
+    color : Union[str, int, float, Sequence], optional
+        Color of the cone. Must be provided as one scalar value.
+    hovertext : Union[int, float, str, Sequence], optional
+        Text associated with the cone. Can be a scalar label or a per-vertex
+        sequence of labels.
+    intensity : Union[int, float, Sequence], optional
+        Intensity of the cone colors. Can be a single numeric value or a
+        per-vertex sequence.
     showscale : bool, default False
         Whether to show the color scale for the mesh
     **kwargs : dict, optional
@@ -68,9 +76,8 @@ def cone_trace(
                 diff = point - points[end_id]
                 dots[i, j] = np.dot(diff / np.linalg.norm(diff), dirs[i])
 
-    assert (
-        fraction > 0.0 and fraction < 1.0
-    ), "The `fraction` parameter should be a probability."
+    if not 0.0 < fraction < 1.0:
+        raise ValueError("The `fraction` parameter should be a probability.")
     angles = np.arccos(dots)
     means = np.mean(angles, axis=1)
     quantiles = np.quantile(angles, fraction, axis=1)
@@ -96,15 +103,21 @@ def cone_trace(
     cone_points = start_pos + length * np.dot(unit_points, rotmat)
 
     # Convert the color provided to a set of intensities
+    mesh_color = None
     if color is not None:
-        assert intensity is None, "Provide either `color` or `intensity`, not both."
-        assert np.isscalar("color"), "Should provide a single color for the cone."
-        intensity = [color] * len(cone_points)
+        if intensity is not None:
+            raise ValueError("Provide either `color` or `intensity`, not both.")
+        if is_scalar_sequence(color):
+            raise ValueError("Should provide a single color for the cone.")
+        if isinstance(color, str):
+            mesh_color = color
+        else:
+            intensity = np.full(len(cone_points), color)
 
     # Update hovertemplate style
     hovertemplate = "x: %{x}<br>y: %{y}<br>z: %{z}"
     if hovertext is not None:
-        if not np.isscalar(hovertext):
+        if is_scalar_sequence(hovertext):
             hovertemplate += "<br>%{text}"
         else:
             hovertemplate += f"<br>{hovertext}"
@@ -115,9 +128,11 @@ def cone_trace(
         x=cone_points[:, 0],
         y=cone_points[:, 1],
         z=cone_points[:, 2],
+        color=mesh_color,
         intensity=intensity,
         alphahull=0,
         showscale=showscale,
+        hovertext=hovertext,
         hovertemplate=hovertemplate,
         **kwargs,
     )

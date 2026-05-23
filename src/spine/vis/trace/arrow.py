@@ -1,26 +1,35 @@
 """Module to draw 3D arrows."""
 
+from __future__ import annotations
+
 import time
+from typing import Any
 
 import numpy as np
 from plotly import graph_objs as go
 
-from .point import scatter_points
+from .point import scatter_points_3d
+from .utils import (
+    ColorInput,
+    HoverTextInput,
+    is_scalar_sequence,
+    select_scalar_or_sequence,
+)
 
 __all__ = ["scatter_arrows"]
 
 
 def scatter_arrows(
-    points,
-    directions,
-    length=10.0,
-    tip_ratio=0.25,
-    color=None,
-    hovertext=None,
-    line=None,
-    linewidth=5,
-    name=None,
-):
+    points: np.ndarray,
+    directions: np.ndarray,
+    length: float = 10.0,
+    tip_ratio: float = 0.25,
+    color: ColorInput = None,
+    hovertext: HoverTextInput = None,
+    line: dict[str, Any] | None = None,
+    linewidth: float = 5,
+    name: str | None = None,
+) -> list[go.Scatter3d | go.Cone]:
     """Converts a list of points and directions into a set of arrows.
 
     Parameters
@@ -33,10 +42,12 @@ def scatter_arrows(
         Length of the arrows
     tip_ratio : float, defautl 0.05
         Relative arrow tip size w.r.t. its full length
-    color : Union[str, float], optional
-        Color of the arrow
-    hovertext : Union[int, str, np.ndarray], optional
-        Text associated with the arrow
+    color : Union[str, int, float, Sequence], optional
+        Color of the arrows, either as one shared scalar value or one value
+        per arrow.
+    hovertext : Union[int, float, str, Sequence], optional
+        Text associated with the arrows, either as one shared label or one
+        label per arrow.
     line : dict, optional
         Arrow trunk line property dictionary
     linewidth : float, default 2
@@ -46,26 +57,27 @@ def scatter_arrows(
     """
     # Process color and hovertext information for the arrows
     color_trunks, hovertext_trunks = color, hovertext
-    if isinstance(color, (list, tuple, np.ndarray)):
-        assert len(color) == len(points), (
-            "If providing a list of colors for the arrows, "
-            "its length must match the number of points."
-        )
-        color_trunks = np.repeat(color, 3)
+    if is_scalar_sequence(color):
+        if len(color) != len(points):
+            raise ValueError(
+                "If providing a list of colors for the arrows, "
+                "its length must match the number of points."
+            )
+        color_trunks = np.repeat(np.asarray(color), 3)
 
     hovertext_arrows = []
     for i, direction in enumerate(directions):
         vx, vy, vz = direction
         ht = f"vx: {vx:0.3f}<br>vy: {vy:0.3f}<br>vz: {vz:0.3f}"
         if hovertext is not None:
-            if not isinstance(hovertext, (list, tuple, np.ndarray)):
+            if not is_scalar_sequence(hovertext):
                 ht += f"<br>{hovertext}"
             else:
-                ht += f"<br>{hovertext[i]}"
+                ht += f"<br>{select_scalar_or_sequence(hovertext, i)}"
 
         hovertext_arrows.append(ht)
 
-    hovertext_trunks = np.repeat(hovertext_arrows, 3)
+    hovertext_trunks = np.repeat(np.asarray(hovertext_arrows), 3)
 
     legendgroup = "group_" + str(time.time())
 
@@ -78,7 +90,7 @@ def scatter_arrows(
 
         vertices = np.vstack(vertices)
 
-    traces = scatter_points(
+    traces = scatter_points_3d(
         vertices,
         color=color_trunks,
         hovertext=hovertext_trunks,

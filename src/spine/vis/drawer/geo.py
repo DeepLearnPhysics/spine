@@ -1,19 +1,27 @@
-"""Draw detectors based on their geometry definition."""
+"""Detector-geometry drawers and helpers."""
+
+from __future__ import annotations
 
 import time
-from typing import List, Optional, Union
+from typing import Any
 
 import numpy as np
 import plotly.graph_objs as go
-from plotly.basedatatypes import BaseTraceType
 
 from spine.data import Meta
 from spine.geo import GeoManager, Geometry
-from spine.vis.cylinder import cylinder_traces
 
-from .box import box_traces
-from .ellipsoid import ellipsoid_traces
-from .layout import layout3d
+from ..layout import layout3d
+from ..trace.box import box_traces
+from ..trace.cylinder import cylinder_traces
+from ..trace.ellipsoid import ellipsoid_traces
+from ..trace.utils import (
+    ColorInput,
+    HoverTextInput,
+    ScalarLike,
+    is_scalar_sequence,
+    require_matching_length,
+)
 
 __all__ = ["GeoDrawer"]
 
@@ -35,7 +43,9 @@ class GeoDrawer:
         Whether or not to use detector coordinates (True) or pixel indices
     """
 
-    def __init__(self, geo: Optional[Geometry] = None, detector_coords: bool = True):
+    def __init__(
+        self, geo: Geometry | None = None, detector_coords: bool = True
+    ) -> None:
         """Initializes the underlying detector :class:`Geometry` object.
 
         Parameters
@@ -50,9 +60,8 @@ class GeoDrawer:
         if geo is None:
             self.geo = GeoManager.get_instance()
         else:
-            assert isinstance(
-                geo, Geometry
-            ), "The `geo` parameter must be a Geometry instance."
+            if not isinstance(geo, Geometry):
+                raise TypeError("The `geo` parameter must be a Geometry instance.")
             self.geo = geo
 
         # Store whether to use detector coordinates or not
@@ -60,12 +69,12 @@ class GeoDrawer:
 
     def show(
         self,
-        meta: Optional[Meta] = None,
+        meta: Meta | None = None,
         tpc: bool = True,
         optical: bool = True,
         crt: bool = True,
-        **kwargs,
-    ):
+        **kwargs: Any,
+    ) -> None:
         """Displays the detector geometry in a 3D plotly figure.
 
         Parameters
@@ -109,11 +118,11 @@ class GeoDrawer:
 
     def traces(
         self,
-        meta: Optional[Meta] = None,
+        meta: Meta | None = None,
         tpc: bool = True,
         optical: bool = True,
         crt: bool = True,
-    ) -> List[BaseTraceType]:
+    ) -> list[go.Scatter3d | go.Mesh3d]:
         """Returns all traces associated with the detector geometry.
 
         Parameters
@@ -144,14 +153,14 @@ class GeoDrawer:
 
     def tpc_traces(
         self,
-        meta: Optional[Meta] = None,
+        meta: Meta | None = None,
         draw_faces: bool = False,
         shared_legend: bool = True,
         name: str = "TPC",
-        color: Union[int, str, np.ndarray] = "rgba(0,0,0,0.150)",
+        color: int | str | np.ndarray = "rgba(0,0,0,0.150)",
         linewidth: int = 5,
-        **kwargs,
-    ) -> List[BaseTraceType]:
+        **kwargs: Any,
+    ) -> list[go.Scatter3d | go.Mesh3d]:
         """Function which produces a list of traces which represent the TPCs in
         a 3D event display.
 
@@ -184,10 +193,11 @@ class GeoDrawer:
 
         # If required, convert to pixel coordinates
         if not self.detector_coords:
-            assert meta is not None, (
-                "Must provide meta information to convert the TPC "
-                "boundaries to pixel coordinates."
-            )
+            if meta is None:
+                raise ValueError(
+                    "Must provide meta information to convert the TPC "
+                    "boundaries to pixel coordinates."
+                )
             boundaries = meta.to_px(boundaries.transpose(0, 2, 1)).transpose(0, 2, 1)
 
         # Get a trace per TPC volume
@@ -206,18 +216,18 @@ class GeoDrawer:
 
     def optical_traces(
         self,
-        meta: Optional[Meta] = None,
+        meta: Meta | None = None,
         shared_legend: bool = True,
-        legendgroup: Optional[str] = None,
+        legendgroup: str | None = None,
         name: str = "Optical",
-        color: Union[int, str, np.ndarray] = "rgba(0,0,255,0.25)",
-        hovertext: Optional[Union[str, List[str]]] = None,
-        cmin: Optional[float] = None,
-        cmax: Optional[float] = None,
+        color: ColorInput = "rgba(0,0,255,0.25)",
+        hovertext: HoverTextInput = None,
+        cmin: float | None = None,
+        cmax: float | None = None,
         zero_supress: bool = False,
-        volume_id: Optional[int] = None,
-        **kwargs,
-    ) -> List[BaseTraceType]:
+        volume_id: int | None = None,
+        **kwargs: Any,
+    ) -> list[go.Scatter3d | go.Mesh3d]:
         """Function which produces a list of traces which represent the optical
         detectors in a 3D event display.
 
@@ -232,10 +242,11 @@ class GeoDrawer:
             Legend group to be shared between all boxes
         name : str, default 'Optical'
             Name of the optical volumes
-        color : Union[int, str, np.ndarray]
-            Color of optical detectors or list of color of optical detectors
-        hovertext : Union[str, List[str]], optional
-            Label or list of labels associated with each optical detector
+        color : Union[str, int, float, Sequence]
+            Color of the optical detectors, either as one shared value or one
+            value per detector.
+        hovertext : Union[int, float, str, Sequence], optional
+            Label or labels associated with each optical detector.
         cmin : float, optional
             Minimum value along the color scale
         cmax : float, optional
@@ -247,7 +258,8 @@ class GeoDrawer:
             the optical volumes are drawn
         **kwargs : dict, optional
             List of additional arguments to pass to
-            spine.vis.ellipsoid.ellipsoid_traces or spine.vis.box.box_traces
+            spine.vis.trace.ellipsoid.ellipsoid_traces or
+            spine.vis.trace.box.box_traces
 
         Returns
         -------
@@ -255,9 +267,8 @@ class GeoDrawer:
             List of optical detector traces (one per optical detector)
         """
         # Check that there is optical detectors to draw
-        assert (
-            self.geo.optical is not None
-        ), "This geometry does not have optical detectors to draw."
+        if self.geo.optical is None:
+            raise RuntimeError("This geometry does not have optical detectors to draw.")
 
         # Fetch the optical element positions and sizes
         if volume_id is None:
@@ -271,42 +282,50 @@ class GeoDrawer:
 
         # Convert the positions to pixel coordinates, if needed
         if not self.detector_coords:
-            assert meta is not None, (
-                "Must provide meta information to convert the optical "
-                "element positions/sizes to pixel coordinates."
-            )
+            if meta is None:
+                raise ValueError(
+                    "Must provide meta information to convert the optical "
+                    "element positions/sizes to pixel coordinates."
+                )
             positions = meta.to_px(positions)
             half_sizes = half_sizes / meta.size
 
         # Check that the colors provided fix the appropriate range
-        if color is not None and isinstance(color, (list, tuple, np.ndarray)):
-            assert len(color) == len(
-                positions
-            ), "Must provide one value for each optical detector."
+        require_matching_length(
+            color,
+            len(positions),
+            "Must provide one value for each optical detector.",
+        )
+        color_by_detector = np.asarray(color) if is_scalar_sequence(color) else color
 
         # Build the hovertext vectors
+        hovertext_by_detector: list[ScalarLike]
         if hovertext is not None:
-            if not isinstance(hovertext, (list, tuple, np.ndarray)):
-                hovertext = [hovertext] * len(positions)
-            elif len(hovertext) != len(positions):
-                raise ValueError(
-                    "The `hovertext` attribute should be provided as a scalar, "
-                    "one value per point or one value per optical detector."
+            if not is_scalar_sequence(hovertext):
+                hovertext_by_detector = [str(hovertext)] * len(positions)
+            else:
+                require_matching_length(
+                    hovertext,
+                    len(positions),
+                    "The `hovertext` attribute should be provided as a scalar, one value per point or one value per optical detector.",
                 )
+                hovertext_by_detector = list(hovertext)
 
         else:
-            hovertext = [f"PD ID: {i}" for i in range(len(positions))]
-            if isinstance(color, (list, tuple, np.ndarray)):
-                for i, hc in enumerate(hovertext):
-                    hovertext[i] = hc + f"<br>Value: {color[i]:.3f}"
+            hovertext_by_detector = [f"PD ID: {i}" for i in range(len(positions))]
+            if is_scalar_sequence(color_by_detector):
+                for i, hover_label in enumerate(hovertext_by_detector):
+                    hovertext_by_detector[i] = (
+                        str(hover_label) + f"<br>Value: {color_by_detector[i]:.3f}"
+                    )
 
         # If cmin/cmax are not provided, must build them so that all optical
         # detectors share the same colorscale range (not guaranteed otherwise)
-        if isinstance(color, (list, tuple, np.ndarray)) and len(color) > 0:
+        if is_scalar_sequence(color_by_detector) and len(color_by_detector) > 0:
             if cmin is None:
-                cmin = np.min(color)
+                cmin = np.min(np.asarray(color_by_detector))
             if cmax is None:
-                cmax = np.max(color)
+                cmax = np.max(np.asarray(color_by_detector))
 
         # If the legend is to be shared, make sure there is a common legend group
         if shared_legend and legendgroup is None:
@@ -318,23 +337,24 @@ class GeoDrawer:
             # Restrict the positions to those of this shape, if needed
             if shape_ids is None:
                 pos = positions
-                col = color
-                ht = hovertext
+                col = color_by_detector
+                ht = hovertext_by_detector
             else:
                 index = np.where(np.asarray(shape_ids) == i)[0]
                 pos = positions[index]
-                if isinstance(color, (list, tuple, np.ndarray)):
-                    col = color[index]
+                if is_scalar_sequence(color_by_detector):
+                    col = np.asarray(color_by_detector)[index]
                 else:
-                    col = color
-                ht = [hovertext[i] for i in index]
+                    col = color_by_detector
+                ht = [hovertext_by_detector[j] for j in index]
 
             # If zero-supression is requested, only draw the optical detectors
             # which record a non-zero signal
-            if zero_supress and isinstance(col, (list, tuple, np.ndarray)):
-                index = np.where(np.asarray(col) != 0)[0]
+            if zero_supress and is_scalar_sequence(col):
+                col_array = np.asarray(col)
+                index = np.where(col_array != 0)[0]
                 pos = pos[index]
-                col = col[index]
+                col = col_array[index]
                 ht = [ht[i] for i in index]
 
             # Dispatch the drawing based on the type of optical detector
@@ -423,14 +443,14 @@ class GeoDrawer:
 
     def crt_traces(
         self,
-        meta: Optional[Meta] = None,
+        meta: Meta | None = None,
         draw_faces: bool = True,
         shared_legend: bool = True,
         name: str = "CRT",
-        color: Union[int, str, np.ndarray] = "rgba(0,256,256,0.150)",
-        draw_ids: Optional[List[int]] = None,
-        **kwargs,
-    ) -> List[BaseTraceType]:
+        color: int | str | np.ndarray = "rgba(0,255,255,0.150)",
+        draw_ids: list[int] | None = None,
+        **kwargs: Any,
+    ) -> list[go.Scatter3d | go.Mesh3d]:
         """Function which produces a list of traces which represent the optical
         detectors in a 3D event display.
 
@@ -451,7 +471,8 @@ class GeoDrawer:
             If specified, only the requested CRT planes are drawn
         **kwargs : dict, optional
             List of additional arguments to pass to
-            spine.vis.ellipsoid.ellipsoid_traces or spine.vis.box.box_traces
+            spine.vis.trace.ellipsoid.ellipsoid_traces or
+            spine.vis.trace.box.box_traces
 
         Returns
         -------
@@ -459,19 +480,19 @@ class GeoDrawer:
             List of CRT detector traces (one per CRT element)
         """
         # Check that there are CRT planes to draw
-        assert (
-            self.geo.crt is not None
-        ), "This geometry does not have CRT planes to draw."
+        if self.geo.crt is None:
+            raise RuntimeError("This geometry does not have CRT planes to draw.")
 
         # Load the list of CRT plane boundaries
         boundaries = np.stack([p.boundaries for p in self.geo.crt.planes])
 
         # If required, convert to pixel coordinates
         if not self.detector_coords:
-            assert meta is not None, (
-                "Must provide meta information to convert the CRT plane "
-                "boundaries to pixel coordinates."
-            )
+            if meta is None:
+                raise ValueError(
+                    "Must provide meta information to convert the CRT plane "
+                    "boundaries to pixel coordinates."
+                )
             boundaries = meta.to_px(boundaries.transpose(0, 2, 1)).transpose(0, 2, 1)
 
         # Restrict the list of boundaries, if requested

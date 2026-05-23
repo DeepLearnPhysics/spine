@@ -1,19 +1,28 @@
-"""Tools to draw true particles information."""
+"""Draw truth-particle labels on top of labeled point clouds."""
+
+from __future__ import annotations
+
+from typing import Any
 
 import numpy as np
+import plotly.graph_objs as go
 
 from spine.constants import PART_COL
 from spine.data import Particle
 
-from .layout import HIGH_CONTRAST_COLORS
-from .point import scatter_points
+from ..layout import HIGH_CONTRAST_COLORS
+from ..trace.point import scatter_points
 
 __all__ = ["scatter_particles"]
 
 
 def scatter_particles(
-    cluster_label, particles, part_col=PART_COL, markersize=1, **kwargs
-):
+    cluster_label: np.ndarray,
+    particles: list[Particle],
+    part_col: int = PART_COL,
+    markersize: float = 1,
+    **kwargs: Any,
+) -> list[go.Scatter3d]:
     """Builds a graph of true particles in the image.
 
     Function which returns a graph object per true particle in the
