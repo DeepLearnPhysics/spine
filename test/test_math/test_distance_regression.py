@@ -138,3 +138,27 @@ def test_farthest_pair_brute_with_non_euclidean_metric():
 
     assert {i, j} == {1, 2}
     assert np.isclose(dist, 3.0)
+
+
+def test_farthest_pair_iterative_matches_brute_for_non_euclidean_metric():
+    """Iterative farthest pair should converge to the brute solution here."""
+    brute = farthest_pair(POINTS, iterative=False, metric_id=METRICS["cityblock"])
+    iterative = farthest_pair(POINTS, iterative=True, metric_id=METRICS["cityblock"])
+
+    assert set(iterative[:2]) == set(brute[:2])
+    assert np.isclose(iterative[2], brute[2])
+
+
+def test_farthest_pair_iterative_handles_duplicate_points():
+    """Duplicate points should not prevent iterative farthest-pair convergence."""
+    points = np.array(
+        [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [3.0, 4.0, 0.0]],
+        dtype=np.float32,
+    )
+
+    brute = farthest_pair(points, iterative=False)
+    iterative = farthest_pair(points, iterative=True)
+
+    assert np.isclose(iterative[2], brute[2])
+    assert np.isclose(iterative[2], 5.0)
+    assert len({iterative[0], iterative[1]}) == 2

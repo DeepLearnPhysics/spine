@@ -419,17 +419,25 @@ def farthest_pair(
         start_idx = np.argmax(cdist(centroid[None, :], x, metric_id, p))
 
         # Jump to the farthest point until convergence
-        idxs, subidx, dist, tempdist = [start_idx, start_idx], 0, 0.0, -1.0
-        while dist > tempdist:
-            tempdist = dist
-            dists = cdist(x[idxs[subidx]][None, :], x, metric_id, p).flatten()
-            other_idx = 1 - subidx
-            idxs[other_idx] = np.argmax(dists)
-            dist = dists[idxs[other_idx]]
-            subidx = other_idx
+        pair_idxs, set_id = [start_idx, start_idx], 0
+        dist = -np.inf
+        while True:
+            previous_dist = dist
+            other_id = 1 - set_id
+
+            dists = cdist(x[pair_idxs[set_id]][None, :], x, metric_id, p).flatten()
+            farthest_idx = int(np.argmax(dists))
+            farthest_dist = float(dists[farthest_idx])
+
+            if farthest_dist <= previous_dist:
+                break
+
+            pair_idxs[other_id] = farthest_idx
+            dist = farthest_dist
+            set_id = other_id
 
         # Unroll index
-        i, j = idxs
+        i, j = pair_idxs
 
     # If needed, take the square root of the distance
     if is_euclidean:
@@ -578,14 +586,15 @@ def closest_pair(
 
     else:
         # Pick the point to start iterating from
-        xarr = [x1, x2]
-        idxs, set_id, dist, tempdist = [0, 0], 0, 1e9, 1e9 + 1.0
+        point_sets = [x1, x2]
+        pair_idxs, set_id = [0, 0], 0
+        dist = np.inf
         if seed:
             # Find the end points of the two sets
-            for i, xi in enumerate(xarr):
+            for i, xi in enumerate(point_sets):
                 other_id = 1 - i
                 seed_idxs = np.array(farthest_pair(xi, True)[:2])
-                seed_dists = cdist(xi[seed_idxs], xarr[other_id], metric_id, p)
+                seed_dists = cdist(xi[seed_idxs], point_sets[other_id], metric_id, p)
                 seed_argmins = argmin(seed_dists, axis=1)
                 seed_mins = np.array(
                     [seed_dists[0][seed_argmins[0]], seed_dists[1][seed_argmins[1]]]
@@ -593,24 +602,32 @@ def closest_pair(
                 if np.min(seed_mins) < dist:
                     set_id = other_id
                     seed_choice = int(np.argmin(seed_mins))
-                    idxs[i] = int(seed_idxs[seed_choice])
-                    idxs[set_id] = int(seed_argmins[seed_choice])
+                    pair_idxs[i] = int(seed_idxs[seed_choice])
+                    pair_idxs[set_id] = int(seed_argmins[seed_choice])
                     dist = float(seed_mins[seed_choice])
 
         # Find the closest point in the other set, repeat until convergence
-        while dist < tempdist:
-            tempdist = dist
+        while True:
+            previous_dist = dist
             other_id = 1 - set_id
             dists = cdist(
-                xarr[set_id][idxs[set_id]][None, :], xarr[other_id], metric_id, p
+                point_sets[set_id][pair_idxs[set_id]][None, :],
+                point_sets[other_id],
+                metric_id,
+                p,
             ).flatten()
             closest_idx = int(np.argmin(dists))
-            idxs[other_id] = closest_idx
-            dist = float(dists[closest_idx])
+            closest_dist = float(dists[closest_idx])
+
+            if closest_dist >= previous_dist:
+                break
+
+            pair_idxs[other_id] = closest_idx
+            dist = closest_dist
             set_id = other_id
 
         # Unroll index
-        i, j = idxs
+        i, j = pair_idxs
 
     # If needed, take the square root of the distance
     if is_euclidean:
