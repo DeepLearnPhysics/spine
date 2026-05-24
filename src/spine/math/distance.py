@@ -426,7 +426,7 @@ def farthest_pair(
             other_id = 1 - set_id
 
             dists = cdist(x[pair_idxs[set_id]][None, :], x, metric_id, p).flatten()
-            farthest_idx = int(np.argmax(dists))
+            farthest_idx = np.argmax(dists)
             farthest_dist = float(dists[farthest_idx])
 
             if farthest_dist <= previous_dist:
