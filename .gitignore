@@ -89,6 +89,9 @@ target/
 # Jupyter Notebook
 .ipynb_checkpoints
 
+# macOS Finder metadata
+.DS_Store
+
 # pyenv
 .python-version
 
