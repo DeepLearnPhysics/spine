@@ -3,7 +3,7 @@
 import argparse
 import difflib
 import sys
-from typing import List, Optional, TextIO
+from typing import TextIO
 
 import yaml
 
@@ -61,7 +61,7 @@ def resolved_config_yaml(cfg_path: str, download: bool = False) -> str:
 
 
 def dump_config(
-    cfg_path: str, output: Optional[str] = None, download: bool = False
+    cfg_path: str, output: str | None = None, download: bool = False
 ) -> None:
     """Dump a resolved config to stdout or a file.
 
@@ -176,11 +176,11 @@ Examples:
     return parser
 
 
-def cli(argv: Optional[List[str]] = None, stream: Optional[TextIO] = None) -> int:
+def cli(argv: list[str] | None = None, stream: TextIO | None = None) -> int:
     """Run the config inspection CLI."""
     parser = build_parser()
     args = parser.parse_args(argv)
-    stream = stream or sys.stdout
+    out_stream = stream or sys.stdout
 
     if args.command == "dump":
         dump_config(args.config, args.output, args.download)
@@ -188,7 +188,7 @@ def cli(argv: Optional[List[str]] = None, stream: Optional[TextIO] = None) -> in
 
     if args.command == "diff":
         diff = diff_configs(args.config, args.reference, args.context, args.download)
-        stream.write(diff)
+        out_stream.write(diff)
         return 1 if diff else 0
 
     parser.error(f"Unknown command: {args.command}")

@@ -1,7 +1,9 @@
 """Tests for the SPINE config inspection command line tool."""
 
 from io import StringIO
+from types import SimpleNamespace
 
+import pytest
 import yaml
 
 from spine.bin.config import cli, diff_configs, dump_config, resolved_config_yaml
@@ -55,6 +57,16 @@ def test_dump_config_writes_output_file(tmp_path):
     }
 
 
+def test_dump_config_writes_to_stdout(tmp_path, capsys):
+    """Dumping without an output path should write to stdout."""
+    config = tmp_path / "config.yaml"
+    config.write_text("base:\n  iterations: 100\n", encoding="utf-8")
+
+    dump_config(str(config), output=None)
+
+    assert "iterations: 100" in capsys.readouterr().out
+
+
 def test_resolved_config_yaml_preserves_download_by_default(tmp_path, monkeypatch):
     """Test that dump output does not trigger !download by default."""
     config = tmp_path / "config.yaml"
@@ -97,6 +109,25 @@ def test_resolved_config_yaml_can_resolve_downloads(tmp_path, monkeypatch):
     cfg = yaml.safe_load(rendered)
 
     assert cfg["model"]["weights"] == "/tmp/model.ckpt"
+
+
+def test_resolved_config_yaml_preserves_mapping_download_tags(tmp_path):
+    """Download tags with mapping payloads should round-trip in dumped YAML."""
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        """
+model:
+  weights: !download
+    url: https://example.com/model.ckpt
+    file_name: model.ckpt
+""",
+        encoding="utf-8",
+    )
+
+    rendered = resolved_config_yaml(str(config))
+
+    assert "!download" in rendered
+    assert "url: https://example.com/model.ckpt" in rendered
 
 
 def test_diff_configs_compares_resolved_yaml(tmp_path):
@@ -142,3 +173,37 @@ def test_cli_diff_exit_codes(tmp_path):
     assert diff_status == 1
     assert "-  iterations: 100" in diff_stream.getvalue()
     assert "+  iterations: 200" in diff_stream.getvalue()
+
+
+def test_cli_dump_exit_code_and_unknown_command(monkeypatch):
+    """CLI should cover dump dispatch and parser error fallback."""
+    monkeypatch.setattr("spine.bin.config.dump_config", lambda *args, **kwargs: None)
+    assert cli(["dump", "config.yaml"]) == 0
+
+    class DummyParser:
+        def parse_args(self, argv):
+            return SimpleNamespace(command="bad")
+
+        def error(self, message):
+            raise RuntimeError(message)
+
+    monkeypatch.setattr("spine.bin.config.build_parser", lambda: DummyParser())
+    with pytest.raises(RuntimeError, match="Unknown command: bad"):
+        cli([])
+
+
+def test_cli_unknown_command_fallback_return(monkeypatch):
+    """If parser.error does not raise, cli should fall back to status code 2."""
+
+    class DummyParser:
+        def parse_args(self, argv):
+            return SimpleNamespace(command="bad")
+
+        def error(self, message):
+            self.message = message
+
+    parser = DummyParser()
+    monkeypatch.setattr("spine.bin.config.build_parser", lambda: parser)
+
+    assert cli([]) == 2
+    assert parser.message == "Unknown command: bad"
