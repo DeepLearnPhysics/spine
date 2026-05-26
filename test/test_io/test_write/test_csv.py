@@ -83,6 +83,17 @@ def test_csv_writer_rejects_missing_keys_by_default(tmp_path):
     writer.close()
 
 
+def test_csv_writer_accepts_reordered_keys(tmp_path):
+    """CSVWriter should use header order when rows provide the same keys."""
+    path = tmp_path / "output.csv"
+    writer = CSVWriter(path)
+    writer.append({"a": 1, "b": 2})
+    writer.append({"b": 4, "a": 3})
+    writer.close()
+
+    assert path.read_text(encoding="utf-8").splitlines() == ["a,b", "1,2", "3,4"]
+
+
 def test_csv_writer_array_diff():
     """CSVWriter.array_diff should return elements missing from the second array."""
     diff = CSVWriter.array_diff(["a", "b", "c"], ["b"])

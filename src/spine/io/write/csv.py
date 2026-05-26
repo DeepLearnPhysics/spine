@@ -232,7 +232,7 @@ class CSVWriter:
                         f"New keys: {list(excess)}"
                     )
 
-                if not self.accept_missing:
+                if len(missing) and not self.accept_missing:
                     raise AssertionError(
                         "There are keys missing in this entry which were "
                         "present when the CSV file was initialized. "
