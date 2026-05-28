@@ -146,6 +146,15 @@ class MixedDataset(BaseDataset):
         provenance keys. In that case the cache is expected to correspond to
         exactly one original source file, identified by file name, file size,
         and modification time.
+
+        Parameters
+        ----------
+        idx : int
+            Dataset entry index being validated.
+        primary : dict
+            Sample returned by the primary LArCV dataset.
+        cache : dict
+            Sample returned by the HDF5 cache dataset.
         """
         if "source_file_name" not in cache:
             return

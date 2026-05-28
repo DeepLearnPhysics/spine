@@ -183,7 +183,7 @@ class Neutrino(PosDataBase):
     def from_larcv(
         cls,
         neutrino,
-        interaction_scheme: int | NuInteractionScheme = NuInteractionScheme.LARSOFT,
+        interaction_scheme: int = NuInteractionScheme.LARSOFT,
     ) -> "Neutrino":
         """Builds and returns a Neutrino object from a LArCV Neutrino object.
 
@@ -191,7 +191,7 @@ class Neutrino(PosDataBase):
         ----------
         neutrino : larcv.Neutrino
             LArCV-format neutrino object
-        interaction_scheme : int or NuInteractionScheme, default LARSOFT
+        interaction_scheme : int, default LARSOFT
             Convention used to interpret the interaction mode/type codes.
 
         Returns

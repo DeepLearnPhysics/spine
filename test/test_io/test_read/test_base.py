@@ -67,13 +67,13 @@ def test_reader_base_process_file_paths(tmp_path):
 def test_reader_base_process_file_paths_errors(tmp_path):
     """ReaderBase should reject invalid file path inputs."""
     reader = DummyReader()
-    with pytest.raises(AssertionError, match="either `file_keys` or `file_list`"):
+    with pytest.raises(ValueError, match="either `file_keys` or `file_list`"):
         reader.process_file_paths()
-    with pytest.raises(AssertionError, match="larger than 0"):
+    with pytest.raises(ValueError, match="larger than 0"):
         reader.process_file_paths(file_keys=[], limit_num_files=0)
-    with pytest.raises(AssertionError, match="valid path to a text file"):
+    with pytest.raises(FileNotFoundError, match="valid path to a text file"):
         reader.process_file_paths(file_list=str(tmp_path / "missing.txt"))
-    with pytest.raises(AssertionError, match="yielded no compatible path"):
+    with pytest.raises(FileNotFoundError, match="yielded no compatible path"):
         reader.process_file_paths(file_keys=str(tmp_path / "*.missing"))
 
 
@@ -129,15 +129,15 @@ def test_reader_base_process_entry_list_errors():
     reader = DummyReader(num_entries=3, run_info=[(1, 0, i) for i in range(3)])
     reader.process_run_info()
 
-    with pytest.raises(AssertionError, match="Cannot specify `n_entry`"):
+    with pytest.raises(ValueError, match="Cannot specify `n_entry`"):
         reader.process_entry_list(n_entry=1, entry_list=[0])
-    with pytest.raises(AssertionError, match="Cannot specify both `entry_list`"):
+    with pytest.raises(ValueError, match="Cannot specify both `entry_list`"):
         reader.process_entry_list(entry_list=[0], skip_entry_list=[1])
-    with pytest.raises(AssertionError, match="Cannot specify both `run_event_list`"):
+    with pytest.raises(ValueError, match="Cannot specify both `run_event_list`"):
         reader.process_entry_list(
             run_event_list=[(1, 0, 0)], skip_run_event_list=[(1, 0, 1)]
         )
-    with pytest.raises(AssertionError, match="Incompatibility between `n_entry`"):
+    with pytest.raises(ValueError, match="Incompatibility between `n_entry`"):
         reader.process_entry_list(n_entry=5)
     with pytest.raises(IndexError, match="No entries selected"):
         reader.process_entry_list(skip_entry_list=[0, 1, 2])
@@ -161,17 +161,17 @@ def test_reader_base_parse_helpers(tmp_path):
     assert ReaderBase.parse_run_event_list([[1, 0, 1]]) == [(1, 0, 1)]
     assert ReaderBase.parse_run_event_list(str(events_file)) == [(1, 0, 1), (2, 0, 3)]
 
-    with pytest.raises(AssertionError, match="does not exist"):
+    with pytest.raises(FileNotFoundError, match="does not exist"):
         ReaderBase.parse_entry_list(str(tmp_path / "missing.txt"))
     with pytest.raises(ValueError, match="List format not recognized"):
         ReaderBase.parse_entry_list(1.5)
-    with pytest.raises(AssertionError, match="three integers"):
+    with pytest.raises(ValueError, match="three integers"):
         ReaderBase.parse_run_event_list([[1, 2]])
-    with pytest.raises(AssertionError, match="does not exist"):
+    with pytest.raises(FileNotFoundError, match="does not exist"):
         ReaderBase.parse_run_event_list(str(tmp_path / "missing_events.txt"))
     bad_events_file = tmp_path / "bad_events.txt"
     bad_events_file.write_text("1 0\n", encoding="utf-8")
-    with pytest.raises(AssertionError, match="three integers"):
+    with pytest.raises(ValueError, match="three integers"):
         ReaderBase.parse_run_event_list(str(bad_events_file))
     with pytest.raises(ValueError, match="List format not recognized"):
         ReaderBase.parse_run_event_list(1.5)
@@ -180,21 +180,21 @@ def test_reader_base_parse_helpers(tmp_path):
 def test_reader_base_process_run_info_errors():
     """ReaderBase should reject invalid run information."""
     reader = DummyReader(num_entries=2, run_info=[(1, 0, 0)])
-    with pytest.raises(AssertionError):
+    with pytest.raises(ValueError):
         reader.process_run_info()
 
     reader = DummyReader(num_entries=2, run_info=[(1, 0, 0), (1, 0, 0)])
-    with pytest.raises(AssertionError, match="not unique"):
+    with pytest.raises(ValueError, match="not unique"):
         reader.process_run_info()
 
 
 def test_reader_base_get_run_event_index_errors():
     """ReaderBase should require a run map and known triplets."""
     reader = DummyReader(num_entries=1)
-    with pytest.raises(AssertionError, match="Must build a run map"):
+    with pytest.raises(ValueError, match="Must build a run map"):
         reader.get_run_event_index(1, 0, 0)
 
     reader = DummyReader(num_entries=1, run_info=[(1, 0, 0)])
     reader.process_run_info()
-    with pytest.raises(AssertionError, match="Could not find"):
+    with pytest.raises(KeyError, match="Could not find"):
         reader.get_run_event_index(1, 0, 1)

@@ -194,20 +194,23 @@ class ReaderBase(ABC):
             Maximum number of loaded file names to be printed
         """
         # Some basic checks
-        assert (file_keys is not None) ^ (
-            file_list is not None
-        ), "Must provide either `file_keys` or `file_list` to process files."
-        assert (
-            limit_num_files is None or limit_num_files > 0
-        ), "If `limit_num_files` is provided, it must be larger than 0."
+        if not ((file_keys is not None) ^ (file_list is not None)):
+            raise ValueError(
+                "Must provide either `file_keys` or `file_list` to process files."
+            )
+        if limit_num_files is not None and limit_num_files <= 0:
+            raise ValueError(
+                "If `limit_num_files` is provided, it must be larger than 0."
+            )
 
         # When using a file list in text format, read it and parse to a list
         if file_list is not None:
             # If the file list is a text file, extract the list of paths
-            assert os.path.isfile(file_list), (
-                "If the `file_list` arguments is provided, it must point to a valid "
-                "path to a text file with a file list."
-            )
+            if not os.path.isfile(file_list):
+                raise FileNotFoundError(
+                    "If the `file_list` arguments is provided, it must point to a "
+                    "valid path to a text file with a file list."
+                )
             with open(file_list, "r", encoding="utf-8") as f:
                 file_keys = f.read().splitlines()
 
@@ -221,7 +224,10 @@ class ReaderBase(ABC):
                 file_paths = [file_key]
             else:
                 file_paths = glob.glob(file_key)
-                assert file_paths, f"File key {file_key} yielded no compatible path."
+                if not file_paths:
+                    raise FileNotFoundError(
+                        f"File key {file_key} yielded no compatible path."
+                    )
             for path in file_paths:
                 if (
                     limit_num_files is not None
@@ -246,12 +252,16 @@ class ReaderBase(ABC):
         """
         # Check for duplicates
         if self.run_info is not None:
-            assert len(self.run_info) == self.num_entries
+            if len(self.run_info) != self.num_entries:
+                raise ValueError(
+                    "Run information length must match the number of entries."
+                )
             num_unique = len(np.unique(self.run_info, axis=0))
-            assert num_unique == len(self.run_info), (
-                "Cannot create a run map if (run, subrun, event) triplets "
-                "are not unique in the dataset. Abort."
-            )
+            if num_unique != len(self.run_info):
+                raise ValueError(
+                    "Cannot create a run map if (run, subrun, event) triplets "
+                    "are not unique in the dataset. Abort."
+                )
 
         # If run_info is set, flip it into a map from info to entry
         self.run_map = None
@@ -307,33 +317,37 @@ class ReaderBase(ABC):
                 skip_run_event_list is not None,
             ]
         ):
-            assert (
+            if not (
                 (n_entry is not None or n_skip is not None)
                 ^ (entry_list is not None or skip_entry_list is not None)
                 ^ (run_event_list is not None or skip_run_event_list is not None)
-            ), (
-                "Cannot specify `n_entry` or `n_skip` at the same time "
-                "as `entry_list` or `skip_entry_list` or at the same time "
-                "as `run_event_list` or `skip_run_event_list`."
-            )
+            ):
+                raise ValueError(
+                    "Cannot specify `n_entry` or `n_skip` at the same time "
+                    "as `entry_list` or `skip_entry_list` or at the same time "
+                    "as `run_event_list` or `skip_run_event_list`."
+                )
 
         if n_entry is not None or n_skip is not None:
             n_skip = n_skip if n_skip else 0
             n_entry = n_entry if n_entry else self.num_entries - n_skip
-            assert n_skip + n_entry <= self.num_entries, (
-                f"Incompatibility between `n_entry` ({n_entry}), `n_skip` ({n_skip}) "
-                f"and the number of entries in the files ({self.num_entries})."
+            if n_skip + n_entry > self.num_entries:
+                raise ValueError(
+                    f"Incompatibility between `n_entry` ({n_entry}), "
+                    f"`n_skip` ({n_skip}) and the number of entries in the files "
+                    f"({self.num_entries})."
+                )
+
+        if entry_list and skip_entry_list:
+            raise ValueError(
+                "Cannot specify both `entry_list` and `skip_entry_list` at the same time."
             )
 
-        assert not entry_list or not skip_entry_list, (
-            "Cannot specify both `entry_list` and "
-            "`skip_entry_list` at the same time."
-        )
-
-        assert not run_event_list or not skip_run_event_list, (
-            "Cannot specify both `run_event_list` and "
-            "`skip_run_event_list` at the same time."
-        )
+        if run_event_list and skip_run_event_list:
+            raise ValueError(
+                "Cannot specify both `run_event_list` and "
+                "`skip_run_event_list` at the same time."
+            )
 
         # Create a list of entries to be loaded
         entry_list_arr = None
@@ -346,15 +360,15 @@ class ReaderBase(ABC):
 
         elif entry_list:
             entry_list_arr = self.parse_entry_list(entry_list)
-            assert np.all(
-                entry_list_arr < self.num_entries
-            ), "Values in entry_list outside of bounds."
+            if not np.all(entry_list_arr < self.num_entries):
+                raise ValueError("Values in entry_list outside of bounds.")
 
         elif run_event_list:
-            assert (
-                self.run_map is not None
-            ), "Must build a run map to get entries by (run, subrun, event)."
             self.process_run_info()
+            if self.run_map is None:
+                raise ValueError(
+                    "Must build a run map to get entries by (run, subrun, event)."
+                )
             run_event_list_tuple = self.parse_run_event_list(run_event_list)
             entry_list = []
             for r, s, e in run_event_list_tuple:
@@ -367,15 +381,15 @@ class ReaderBase(ABC):
             skip_entry_list_arr = None
             if skip_entry_list:
                 skip_entry_list_arr = self.parse_entry_list(skip_entry_list)
-                assert np.all(
-                    skip_entry_list_arr < self.num_entries
-                ), "Values in skip_entry_list outside of bounds."
+                if not np.all(skip_entry_list_arr < self.num_entries):
+                    raise ValueError("Values in skip_entry_list outside of bounds.")
 
             elif skip_run_event_list:
-                assert (
-                    self.run_map is not None
-                ), "Must build a run map to skip entries by (run, subrun, event)."
                 self.process_run_info()
+                if self.run_map is None:
+                    raise ValueError(
+                        "Must build a run map to skip entries by (run, subrun, event)."
+                    )
                 skip_run_event_list_tuple = self.parse_run_event_list(
                     skip_run_event_list
                 )
@@ -423,16 +437,14 @@ class ReaderBase(ABC):
             Event number
         """
         # Get the appropriate entry index
-        assert (
-            self.run_map is not None
-        ), "Must build a run map to get entries by (run, sunrun, event)."
-        assert (
-            run,
-            subrun,
-            event,
-        ) in self.run_map, (
-            f"Could not find (run={run}, subrun={subrun}, event={event})."
-        )
+        if self.run_map is None:
+            raise ValueError(
+                "Must build a run map to get entries by (run, sunrun, event)."
+            )
+        if (run, subrun, event) not in self.run_map:
+            raise KeyError(
+                f"Could not find (run={run}, subrun={subrun}, event={event})."
+            )
 
         return self.run_map[(run, subrun, event)]
 
@@ -509,7 +521,8 @@ class ReaderBase(ABC):
             return np.asarray(list_source, dtype=int)
 
         if isinstance(list_source, str):
-            assert os.path.isfile(list_source), "The list source file does not exist."
+            if not os.path.isfile(list_source):
+                raise FileNotFoundError("The list source file does not exist.")
             with open(list_source, "r", encoding="utf-8") as f:
                 lines = f.read().splitlines()
                 line_list = [l.replace(",", " ").split() for l in lines]
@@ -542,19 +555,22 @@ class ReaderBase(ABC):
             return []
 
         if isinstance(list_source, list):
-            assert all(
-                len(val) == 3 for val in list_source
-            ), "Each entry in the run-event list must have three integers."
+            if not all(len(val) == 3 for val in list_source):
+                raise ValueError(
+                    "Each entry in the run-event list must have three integers."
+                )
             return [(int(r), int(s), int(e)) for r, s, e in list_source]
 
         if isinstance(list_source, str):
-            assert os.path.isfile(list_source), "The list source file does not exist."
+            if not os.path.isfile(list_source):
+                raise FileNotFoundError("The list source file does not exist.")
             with open(list_source, "r", encoding="utf-8") as f:
                 lines = f.read().splitlines()
                 line_list = [l.replace(",", " ").split() for l in lines]
-                assert all(
-                    len(l) == 3 for l in line_list
-                ), "Each line in the run-event list file must have three integers."
+                if not all(len(l) == 3 for l in line_list):
+                    raise ValueError(
+                        "Each line in the run-event list file must have three integers."
+                    )
                 return [(int(r), int(s), int(e)) for r, s, e in line_list]
 
         raise ValueError("List format not recognized.")

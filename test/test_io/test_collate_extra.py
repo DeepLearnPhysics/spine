@@ -5,7 +5,12 @@ import pytest
 
 from spine.data import EdgeIndexBatch, IndexBatch, Meta, TensorBatch
 from spine.io.collate import CollateAll
-from spine.io.parse.data import ParserTensor
+from spine.io.parse.data import (
+    ParserEdgeIndex,
+    ParserIndex,
+    ParserIndexList,
+    ParserTensor,
+)
 from spine.utils.conditional import TORCH_AVAILABLE
 
 pytestmark = pytest.mark.skipif(
@@ -38,8 +43,8 @@ def test_collate_with_overlay():
 def test_collate_index_tensor_returns_index_batch():
     """One-dimensional index tensors should produce an IndexBatch."""
     batch = [
-        {"index_tensor": ParserTensor(features=np.asarray([0, 1]), global_shift=2)},
-        {"index_tensor": ParserTensor(features=np.asarray([0, 2]), global_shift=3)},
+        {"index_tensor": ParserIndex(features=np.asarray([0, 1]), global_shift=2)},
+        {"index_tensor": ParserIndex(features=np.asarray([0, 2]), global_shift=3)},
     ]
     collate_fn = CollateAll(data_types={"index_tensor": "tensor"})
 
@@ -51,12 +56,12 @@ def test_collate_edge_index_tensor_returns_edge_index_batch():
     """Two-dimensional index tensors should produce an EdgeIndexBatch."""
     batch = [
         {
-            "edge_tensor": ParserTensor(
+            "edge_tensor": ParserEdgeIndex(
                 features=np.asarray([[0, 1], [1, 0]]), global_shift=2
             )
         },
         {
-            "edge_tensor": ParserTensor(
+            "edge_tensor": ParserEdgeIndex(
                 features=np.asarray([[0, 1], [1, 0]]), global_shift=2
             )
         },
@@ -71,14 +76,14 @@ def test_collate_index_list_tensor_returns_index_batch():
     """List-backed index tensors should produce an IndexBatch with per-index sizes."""
     batch = [
         {
-            "index_tensor": ParserTensor(
+            "index_tensor": ParserIndexList(
                 features=[np.asarray([0, 2]), np.asarray([1])],
                 global_shift=3,
                 single_counts=np.asarray([2, 1]),
             )
         },
         {
-            "index_tensor": ParserTensor(
+            "index_tensor": ParserIndexList(
                 features=[np.asarray([0, 1, 2])],
                 global_shift=3,
             )

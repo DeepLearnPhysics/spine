@@ -10,7 +10,7 @@ import pytest
 from spine.data import Meta
 from spine.geo import GeoManager
 from spine.io.collate import CollateAll
-from spine.io.parse.data import ParserTensor
+from spine.io.parse.data import ParserEdgeIndex, ParserTensor
 from spine.utils.conditional import TORCH_AVAILABLE
 
 pytestmark = pytest.mark.skipif(
@@ -87,7 +87,7 @@ def fixture_batch_edge_index(request):
 
             edge_index = np.random.randint(0, 10, size=(2, num_edges))
 
-            data[f"edge_index_{name}"] = ParserTensor(
+            data[f"edge_index_{name}"] = ParserEdgeIndex(
                 features=edge_index, global_shift=10
             )
 

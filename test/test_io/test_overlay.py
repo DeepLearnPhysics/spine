@@ -5,7 +5,12 @@ import pytest
 
 from spine.data import Meta
 from spine.io.overlay import Overlayer
-from spine.io.parse.data import ParserObjectList, ParserTensor
+from spine.io.parse.data import (
+    ParserEdgeIndex,
+    ParserIndexList,
+    ParserObjectList,
+    ParserTensor,
+)
 
 
 def make_meta():
@@ -61,13 +66,13 @@ def test_overlayer_offsets_index_tensors():
     """Overlay should shift feature indexes when global shifts are provided."""
     batch = [
         {
-            "edges": ParserTensor(
-                features=np.asarray([[0, 1]], dtype=np.int64), global_shift=2
+            "edges": ParserEdgeIndex(
+                features=np.asarray([[0], [1]], dtype=np.int64), global_shift=2
             )
         },
         {
-            "edges": ParserTensor(
-                features=np.asarray([[0, 1]], dtype=np.int64), global_shift=2
+            "edges": ParserEdgeIndex(
+                features=np.asarray([[0], [1]], dtype=np.int64), global_shift=2
             )
         },
     ]
@@ -80,9 +85,45 @@ def test_overlayer_offsets_index_tensors():
     result = overlay(batch)
     assert len(result) == 1
     assert np.array_equal(
-        result[0]["edges"].features, np.asarray([[0, 1, 2, 3]], dtype=np.int64)
+        result[0]["edges"].features, np.asarray([[0, 2], [1, 3]], dtype=np.int64)
     )
     assert result[0]["edges"].global_shift == 4
+
+
+def test_overlayer_offsets_index_lists():
+    """Overlay should shift each entry of a jagged index-list payload."""
+    batch = [
+        {
+            "clusts": ParserIndexList(
+                features=[np.asarray([0, 1]), np.asarray([1])],
+                global_shift=2,
+                single_counts=np.asarray([2, 1]),
+            )
+        },
+        {
+            "clusts": ParserIndexList(
+                features=[np.asarray([0])],
+                global_shift=2,
+                single_counts=np.asarray([1]),
+            )
+        },
+    ]
+    overlay = Overlayer(
+        data_types={"clusts": "tensor"},
+        methods={"clusts": "cat"},
+        multiplicity=2,
+    )
+
+    result = overlay(batch)
+    assert len(result) == 1
+    assert isinstance(result[0]["clusts"], ParserIndexList)
+    assert result[0]["clusts"].global_shift == 4
+    np.testing.assert_array_equal(result[0]["clusts"].features[0], np.asarray([0, 1]))
+    np.testing.assert_array_equal(result[0]["clusts"].features[1], np.asarray([1]))
+    np.testing.assert_array_equal(result[0]["clusts"].features[2], np.asarray([2]))
+    np.testing.assert_array_equal(
+        result[0]["clusts"].single_counts, np.asarray([2, 1, 1])
+    )
 
 
 def test_overlayer_rejects_mismatched_match_scalars():

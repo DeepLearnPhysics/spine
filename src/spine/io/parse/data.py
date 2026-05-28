@@ -10,26 +10,28 @@ import numpy as np
 from spine.constants import VALUE_COL
 from spine.data import Meta, ObjectList
 
-__all__ = ["ParserTensor", "ParserObjectList"]
+__all__ = [
+    "ParserTensor",
+    "ParserIndex",
+    "ParserIndexList",
+    "ParserEdgeIndex",
+    "ParserObjectList",
+]
 
 
 @dataclass
 class ParserTensor:
-    """Container describing a parsed sparse tensor or index-style payload.
+    """Container describing a parsed tensor-like payload.
 
     Attributes
     ----------
-    features : np.ndarray or list[np.ndarray]
-        Feature matrix or jagged list of index arrays.
+    features : np.ndarray
+        Feature matrix associated with the parsed tensor.
     coords : np.ndarray, optional
         Sparse tensor coordinates, typically with shape ``(N, 3)``.
     meta : Meta, optional
         Geometry metadata used to convert voxel indices into detector
         coordinates.
-    global_shift : int, optional
-        Global index shift used when batching graph-style payloads.
-    single_counts : np.ndarray, optional
-        Per-element sizes for jagged index payloads.
     index_shifts : np.ndarray, optional
         Shifts applied to index-bearing feature columns during batching.
     index_cols : np.ndarray, optional
@@ -47,11 +49,9 @@ class ParserTensor:
         coordinate tensor.
     """
 
-    features: np.ndarray | list[np.ndarray]
+    features: np.ndarray
     coords: np.ndarray | None = None
     meta: Meta | None = None
-    global_shift: int | None = None
-    single_counts: np.ndarray | None = None
     index_shifts: np.ndarray | None = None
     index_cols: np.ndarray | None = None
     remove_duplicates: bool = False
@@ -103,6 +103,57 @@ class ParserTensor:
         return self.prec_col - VALUE_COL
 
 
+@dataclass
+class ParserIndex:
+    """Container describing one flat index payload.
+
+    Attributes
+    ----------
+    features : np.ndarray
+        One-dimensional index array.
+    global_shift : int
+        Global index shift used when batching entries.
+    """
+
+    features: np.ndarray
+    global_shift: int
+
+
+@dataclass
+class ParserIndexList:
+    """Container describing one jagged index-list payload.
+
+    Attributes
+    ----------
+    features : list[np.ndarray]
+        List of one-dimensional index arrays.
+    global_shift : int
+        Global index shift used when batching entries.
+    single_counts : np.ndarray, optional
+        Per-index sizes used to restore jagged list structure after batching.
+    """
+
+    features: list[np.ndarray]
+    global_shift: int
+    single_counts: np.ndarray | None = None
+
+
+@dataclass
+class ParserEdgeIndex:
+    """Container describing one edge-index payload.
+
+    Attributes
+    ----------
+    features : np.ndarray
+        Two-dimensional edge-index array with shape ``(2, E)``.
+    global_shift : int
+        Global node-index shift used when batching entries.
+    """
+
+    features: np.ndarray
+    global_shift: int
+
+
 class ParserObjectList(ObjectList):
     """Object list with index shifting instructions.
 
@@ -114,7 +165,7 @@ class ParserObjectList(ObjectList):
 
     def __init__(
         self,
-        object_list: list[object],
+        object_list: list[Any],
         default: Any,
         index_shifts: int | dict[str, int] | None = None,
     ) -> None:
@@ -122,9 +173,9 @@ class ParserObjectList(ObjectList):
 
         Parameters
         ----------
-        object_list : list[object]
+        object_list : list[Any]
             Parsed objects associated with one event entry.
-        default : object
+        default : Any
             Default object used to type an empty list.
         index_shifts : int or dict[str, int], optional
             Shift(s) to apply to object index attributes during batching.

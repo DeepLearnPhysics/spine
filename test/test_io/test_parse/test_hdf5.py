@@ -14,7 +14,13 @@ from spine.io.parse import (
     HDF5ObjectParser,
     HDF5TensorParser,
 )
-from spine.io.parse.data import ParserObjectList, ParserTensor
+from spine.io.parse.data import (
+    ParserEdgeIndex,
+    ParserIndex,
+    ParserIndexList,
+    ParserObjectList,
+    ParserTensor,
+)
 
 
 def test_hdf5_feature_tensor_parser():
@@ -226,7 +232,7 @@ def test_hdf5_index_list_parser_with_count_event():
 
     result = parser(trees)
 
-    assert isinstance(result, ParserTensor)
+    assert isinstance(result, ParserIndexList)
     assert isinstance(result.features, list)
     assert result.global_shift == 5
     np.testing.assert_array_equal(result.single_counts, np.asarray([2, 3]))
@@ -248,10 +254,9 @@ def test_hdf5_index_parser_with_count_event():
 
     result = parser(trees)
 
-    assert isinstance(result, ParserTensor)
+    assert isinstance(result, ParserIndex)
     assert isinstance(result.features, np.ndarray)
     np.testing.assert_array_equal(result.features, np.asarray([0, 2, 4]))
-    assert result.single_counts is None
     assert result.global_shift == 5
 
 
@@ -331,7 +336,7 @@ def test_hdf5_edge_index_parser_accepts_transposed_input():
 
     result = parser(trees)
 
-    assert isinstance(result, ParserTensor)
+    assert isinstance(result, ParserEdgeIndex)
     np.testing.assert_array_equal(
         result.features,
         np.asarray([[0, 1, 2], [1, 2, 3]], dtype=np.int64),

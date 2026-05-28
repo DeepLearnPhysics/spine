@@ -16,8 +16,6 @@ else:
     class Dataset:
         """Import-safe stand-in used when PyTorch is unavailable."""
 
-        pass
-
 
 DataDict = dict[str, Any]
 Augmenter = Callable[[DataDict], DataDict]

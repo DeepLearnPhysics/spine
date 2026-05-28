@@ -18,7 +18,7 @@ pytestmark = pytest.mark.skipif(
 def test_parse_sparse2d(sparse2d_event, projection_id):
     """Tests the parsing of LArCV 2D sparse data."""
     # Initialize the parser
-    parser = Sparse2DParser(
+    parser = LArCVSparse2DParser(
         dtype="float32", sparse_event=sparse2d_event, projection_id=projection_id
     )
 
@@ -34,7 +34,7 @@ def test_parse_sparse2d(sparse2d_event, projection_id):
     assert result.features.shape[1] == 1
     assert isinstance(result.meta, ImageMeta2D)
 
-    call_parser = Sparse2DParser(
+    call_parser = LArCVSparse2DParser(
         dtype="float32", sparse_event="sparse", projection_id=projection_id
     )
     call_result = call_parser({"sparse": sparse2d_event})
@@ -46,7 +46,7 @@ def test_parse_sparse2d(sparse2d_event, projection_id):
 def test_parse_sparse2d_list(sparse2d_event_list, projection_id):
     """Tests the parsing of a LArCV 2D sparse data list (multi-features)."""
     # Initialize the parser
-    parser = Sparse2DParser(
+    parser = LArCVSparse2DParser(
         dtype="float32",
         sparse_event_list=sparse2d_event_list,
         projection_id=projection_id,
@@ -68,7 +68,7 @@ def test_parse_sparse2d_list(sparse2d_event_list, projection_id):
 def test_parse_sparse3d(sparse3d_event):
     """Tests the parsing of LArCV 3D sparse data."""
     # Initialize the parser
-    parser = Sparse3DParser(dtype="float32", sparse_event=sparse3d_event)
+    parser = LArCVSparse3DParser(dtype="float32", sparse_event=sparse3d_event)
 
     # Parse the data
     result = parser.process(sparse_event=sparse3d_event)
@@ -88,7 +88,7 @@ def test_parse_sparse3d(sparse3d_event):
 def test_parse_sparse3d_list(sparse3d_event_list, num_features):
     """Tests the parsing of a LArCV 3D sparse data list (multi-features)."""
     # Initialize the parser
-    parser = Sparse3DParser(
+    parser = LArCVSparse3DParser(
         dtype="float32",
         sparse_event_list=sparse3d_event_list,
         num_features=num_features,
@@ -111,7 +111,7 @@ def test_parse_sparse3d_list(sparse3d_event_list, num_features):
 def test_parse_sparse3d_ghost(sparse3d_seg_event):
     """Tests the parsing of LArCV 3D sparse semantic labels to ghost labels."""
     # Initialize the parser
-    parser = Sparse3DGhostParser(dtype="float32", sparse_event=sparse3d_seg_event)
+    parser = LArCVSparse3DGhostParser(dtype="float32", sparse_event=sparse3d_seg_event)
 
     # Parse the data
     result = parser.process_ghost(sparse_event=sparse3d_seg_event)
@@ -140,7 +140,7 @@ def test_parse_spars3d_rescale(
     sparse3d_event_list += [sparse3d_seg_event]
 
     # Initialize the parser
-    parser = Sparse3DChargeRescaledParser(
+    parser = LArCVSparse3DChargeRescaledParser(
         dtype="float32",
         sparse_event_list=sparse3d_event_list,
         collection_only=collection_only,
@@ -164,10 +164,10 @@ def test_sparse_parser_call_paths(
     sparse3d_event, sparse3d_event_list, sparse3d_seg_event
 ):
     """Wrapper calls should route named inputs through the sparse parsers."""
-    sparse_parser = Sparse3DParser(dtype="float32", sparse_event="sparse")
+    sparse_parser = LArCVSparse3DParser(dtype="float32", sparse_event="sparse")
     assert isinstance(sparse_parser({"sparse": sparse3d_event}), ParserTensor)
 
-    aggr_parser = Sparse3DAggregateParser(
+    aggr_parser = LArCVSparse3DAggregateParser(
         dtype="float32", sparse_event_list=["s0", "s1"], aggr="sum"
     )
     assert isinstance(
@@ -175,7 +175,7 @@ def test_sparse_parser_call_paths(
         ParserTensor,
     )
 
-    rescale_parser = Sparse3DChargeRescaledParser(
+    rescale_parser = LArCVSparse3DChargeRescaledParser(
         dtype="float32",
         sparse_event_list=[f"s{i}" for i in range(7)],
     )
@@ -191,7 +191,7 @@ def test_sparse_parser_call_paths(
         ParserTensor,
     )
 
-    ghost_parser = Sparse3DGhostParser(dtype="float32", sparse_event="seg")
+    ghost_parser = LArCVSparse3DGhostParser(dtype="float32", sparse_event="seg")
     assert isinstance(ghost_parser({"seg": sparse3d_seg_event}), ParserTensor)
 
 
@@ -201,23 +201,23 @@ def test_sparse3d_parser_constructor_validation_and_options(
 ):
     """Sparse parser construction should validate feature configuration eagerly."""
     with pytest.raises(ValueError, match="No need to lexsort"):
-        Sparse3DParser(dtype="float32", sparse_event=sparse3d_event, lexsort=True)
+        LArCVSparse3DParser(dtype="float32", sparse_event=sparse3d_event, lexsort=True)
 
     with pytest.raises(ValueError, match="nhits_idx"):
-        Sparse3DParser(
+        LArCVSparse3DParser(
             dtype="float32",
             sparse_event_list=sparse3d_event_list[:1],
             hit_keys=[0],
         )
 
     with pytest.raises(ValueError, match="divider"):
-        Sparse3DParser(
+        LArCVSparse3DParser(
             dtype="float32",
             sparse_event_list=sparse3d_event_list[:2],
             num_features=3,
         )
 
-    parser = Sparse3DParser(
+    parser = LArCVSparse3DParser(
         dtype="float32",
         sparse_event_list=sparse3d_event_list[:2],
         num_features=1,
@@ -234,8 +234,8 @@ def test_sparse3d_parser_constructor_validation_and_options(
 
 @pytest.mark.parametrize("sparse3d_event_list", [2], indirect=True)
 def test_sparse3d_parser_computes_nhits_and_validates_index(sparse3d_event_list):
-    """Sparse3DParser should add nhits features and reject invalid insertion indices."""
-    parser = Sparse3DParser(
+    """LArCVSparse3DParser should add nhits features and reject invalid insertion indices."""
+    parser = LArCVSparse3DParser(
         dtype="float32",
         sparse_event_list=sparse3d_event_list,
         num_features=2,
@@ -246,7 +246,7 @@ def test_sparse3d_parser_computes_nhits_and_validates_index(sparse3d_event_list)
     assert isinstance(result, ParserTensor)
     assert result.features.shape[1] == 3
 
-    parser = Sparse3DParser(
+    parser = LArCVSparse3DParser(
         dtype="float32",
         sparse_event_list=sparse3d_event_list,
         num_features=2,

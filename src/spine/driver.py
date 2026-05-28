@@ -14,17 +14,18 @@ import os
 import random
 import subprocess as sc
 import time
+from collections.abc import Mapping
 from datetime import datetime
+from typing import Any
 
 import numpy as np
 import psutil
 import yaml
 
 from .ana import AnaManager
-from .banner import ascii_logo
 from .construct import BuildManager
 from .geo import GeoManager
-from .io import reader_factory, writer_factory
+from .io import IOManager
 from .io.write.csv import CSVWriter
 from .math import seed as numba_seed
 from .model import ModelManager
@@ -34,7 +35,6 @@ from .utils.logger import logger
 from .utils.stopwatch import StopwatchManager
 from .utils.torch import runtime
 from .utils.torch.devices import set_visible_devices
-from .utils.unwrap import Unwrapper
 from .version import __version__
 
 __all__ = ["Driver"]
@@ -72,7 +72,7 @@ class Driver:
           <Analysis scripts>
     """
 
-    def __init__(self, cfg, rank=None):
+    def __init__(self, cfg: dict[str, Any], rank: int | None = None) -> None:
         """Initializes the class attributes.
 
         Parameters
@@ -103,9 +103,10 @@ class Driver:
         # Initialize the ML model
         self.model = None
         if model is not None:
-            assert (
-                self.loader is not None
-            ), "The model can only be used in conjunction with a loader."
+            if self.loader is None:
+                raise ValueError(
+                    "The model can only be used in conjunction with a loader."
+                )
             self.watch.initialize("model")
 
             # Check if PyTorch is available for model functionality
@@ -125,28 +126,30 @@ class Driver:
             )
 
         else:
-            assert (
-                train is None
-            ), "Received a train block but there is no model to train."
+            if train is not None:
+                raise ValueError(
+                    "Received a train block but there is no model to train."
+                )
 
         self.builder = None
         # Initialize the data representation builder
         if build is not None:
-            assert (
-                self.model is None or self.unwrap
-            ), "Must unwrap the model output to build representations."
-            assert (
-                self.model is None or self.model.to_numpy
-            ), "Must cast model output to numpy to build representations."
+            if self.model is not None and not self.unwrap:
+                raise ValueError(
+                    "Must unwrap the model output to build representations."
+                )
+            if self.model is not None and not self.model.to_numpy:
+                raise ValueError(
+                    "Must cast model output to numpy to build representations."
+                )
             self.watch.initialize("build")
             self.builder = BuildManager(**build)
 
         # Initialize the post-processors
         self.post = None
         if post is not None:
-            assert (
-                self.model is None or self.unwrap
-            ), "Must unwrap the model output to run post-processors."
+            if self.model is not None and not self.unwrap:
+                raise ValueError("Must unwrap the model output to run post-processors.")
             self.watch.initialize("post")
             self.post = PostManager(
                 post,
@@ -157,23 +160,32 @@ class Driver:
         # Initialize the analysis scripts
         self.ana = None
         if ana is not None:
-            assert (
-                self.model is None or self.unwrap
-            ), "Must unwrap the model output to run analysis scripts."
+            if self.model is not None and not self.unwrap:
+                raise ValueError(
+                    "Must unwrap the model output to run analysis scripts."
+                )
             self.watch.initialize("ana")
             self.ana = AnaManager(ana, log_dir=self.log_dir, prefix=self.log_prefix)
 
     def process_config(
         self,
-        io=None,
-        base=None,
-        geo=None,
-        model=None,
-        build=None,
-        post=None,
-        ana=None,
-        rank=None,
-    ):
+        io: dict[str, Any] | None = None,
+        base: dict[str, Any] | None = None,
+        geo: dict[str, Any] | None = None,
+        model: dict[str, Any] | None = None,
+        build: dict[str, Any] | None = None,
+        post: dict[str, Any] | None = None,
+        ana: dict[str, Any] | None = None,
+        rank: int | None = None,
+    ) -> tuple[
+        dict[str, Any],
+        dict[str, Any],
+        dict[str, Any] | None,
+        dict[str, Any] | None,
+        dict[str, Any] | None,
+        dict[str, Any] | None,
+        dict[str, Any] | None,
+    ]:
         """Reads the configuration and dumps it to the logger.
 
         Parameters
@@ -216,7 +228,8 @@ class Driver:
 
         # If the seed is not set for the sampler, randomize it. This is done
         # here to keep a record of the seeds provided to the samplers
-        assert io is not None, "The `io` block is always required."
+        if io is None:
+            raise ValueError("The `io` block is always required.")
         if "loader" in io:
             if "sampler" in io["loader"]:
                 if isinstance(io["loader"]["sampler"], str):
@@ -232,9 +245,10 @@ class Driver:
         if "seed" not in base or base["seed"] < 0:
             base["seed"] = int(time.time())
         else:
-            assert isinstance(
-                base["seed"], int
-            ), f"The driver seed must be an integer, got: {base['seed']}"
+            if not isinstance(base["seed"], int):
+                raise TypeError(
+                    f"The driver seed must be an integer, got: {base['seed']}"
+                )
 
         # Rebuild global configuration dictionary
         self.cfg = {"base": base, "io": io}
@@ -251,9 +265,6 @@ class Driver:
 
         # Log information for the main process only
         if rank is None or rank < 1:
-            # Log package logo
-            logger.info("\n%s", ascii_logo)
-
             # Log environment information
             logger.info("Release version: %s\n", __version__)
 
@@ -271,26 +282,26 @@ class Driver:
 
     def initialize_base(
         self,
-        seed,
-        dtype="float32",
-        world_size=None,
-        gpus=None,
-        log_dir="logs",
-        prefix_log=False,
-        overwrite_log=False,
-        csv_buffer_size=1,
-        parent_path=None,
-        iterations=None,
-        epochs=None,
-        unwrap=False,
-        rank=None,
-        log_step=1,
-        distributed=False,
-        torch_sharing_strategy=None,
-        split_output=False,
-        train=None,
-        verbosity="info",
-    ):
+        seed: int,
+        dtype: str = "float32",
+        world_size: int | None = None,
+        gpus: list[int] | None = None,
+        log_dir: str = "logs",
+        prefix_log: bool = False,
+        overwrite_log: bool = False,
+        csv_buffer_size: int = 1,
+        parent_path: str | None = None,
+        iterations: int | None = None,
+        epochs: float | None = None,
+        unwrap: bool = False,
+        rank: int | None = None,
+        log_step: int = 1,
+        distributed: bool = False,
+        torch_sharing_strategy: str | None = None,
+        split_output: bool = False,
+        train: dict[str, Any] | None = None,
+        verbosity: str = "info",
+    ) -> dict[str, Any] | None:
         """Initialize the base driver parameters.
 
         Parameters
@@ -349,9 +360,10 @@ class Driver:
 
         # Set up the device the model will run on
         if rank is None and world_size > 0:
-            assert (
-                world_size < 2
-            ), "Must not request > 1 GPU without specifying a GPU rank."
+            if world_size >= 2:
+                raise ValueError(
+                    "Must not request > 1 GPU without specifying a GPU rank."
+                )
             rank = 0
 
         self.rank = rank
@@ -359,10 +371,11 @@ class Driver:
         self.main_process = rank is None or rank == 0
 
         # Check on the distributed process
-        assert self.rank is None or self.rank < world_size, (
-            f"The GPU rank index of this driver ({rank}) is too large "
-            f"for the number of GPUs available ({world_size})."
-        )
+        if self.rank is not None and self.rank >= world_size:
+            raise ValueError(
+                f"The GPU rank index of this driver ({rank}) is too large "
+                f"for the number of GPUs available ({world_size})."
+            )
 
         self.distributed = distributed
         if not distributed and world_size > 1:
@@ -384,175 +397,54 @@ class Driver:
 
         return train
 
-    def initialize_io(self, loader=None, reader=None, writer=None):
+    def initialize_io(
+        self,
+        loader: Mapping[str, Any] | None = None,
+        reader: Mapping[str, Any] | None = None,
+        writer: Mapping[str, Any] | None = None,
+    ) -> None:
         """Initializes the input/output scripts.
 
         Parameters
         ----------
-        loader : dict, optional
-            PyTorch DataLoader configuration dictionary
-        reader : dict, optional
-            Reader configuration dictionary
-        writer : dict, optional
-            Writer configuration dictionary
+        loader : mapping, optional
+            PyTorch DataLoader configuration mapping
+        reader : mapping, optional
+            Reader configuration mapping
+        writer : mapping, optional
+            Writer configuration mapping
         """
-        # Make sure that we have either a data loader or a reader, not both
-        assert (loader is not None) ^ (
-            reader is not None
-        ), "Must provide either a loader or a reader configuration."
-
-        # Initialize the data loader/reader
-        self.loader = None
-        self.loader_iter = None
-        self.counter = None
-        self.unwrapper = None
-        if loader is not None:
-            # Initialize the torch data loader - requires PyTorch
-            if not TORCH_AVAILABLE:
-                raise ImportError(
-                    "PyTorch is required for loader functionality. "
-                    "Install with: pip install spine[model]"
-                )
-
-            # Import loader_factory only when PyTorch is available
-            from .io import loader_factory
-
-            self.watch.initialize("load")
-            self.loader = loader_factory(
-                **loader,
-                geo=self.cfg.get("geo"),
-                rank=self.rank,
-                dtype=self.dtype,
-                world_size=self.world_size,
-                distributed=self.distributed,
-            )
-
-            self.iter_per_epoch = len(self.loader)
-            self.reader = self.loader.dataset.reader
-
-            # If requested, initialize the unwrapper
-            if self.unwrap:
-                self.watch.initialize("unwrap")
-                self.unwrapper = Unwrapper()
-
-            # If working from LArCV files, no post-processor was yet run
-            self.post_list = ()
-
-        else:
-            # Initialize the reader
-            self.watch.initialize("read")
-            self.reader = reader_factory(reader)
-            self.iter_per_epoch = len(self.reader)
-
-            # Fetch the list of previously run post-processors
-            # TODO: this only works with two runs in a row, not 3 and above
-            self.post_list = None
-            if self.reader.cfg is not None and "post" in self.reader.cfg:
-                self.post_list = tuple(self.reader.cfg["post"])
-
-        # Fetch an appropriate common prefix for all input files
-        self.log_prefix, self.output_prefix = self.get_prefixes(
-            self.reader.file_paths, self.split_output
+        self.io = IOManager(
+            loader=loader,
+            reader=reader,
+            writer=writer,
+            watch=self.watch,
+            geo=self.cfg.get("geo"),
+            rank=self.rank,
+            dtype=self.dtype,
+            world_size=self.world_size,
+            distributed=self.distributed,
+            unwrap=self.unwrap,
+            iterations=self.iterations,
+            epochs=self.epochs,
+            split_output=self.split_output,
         )
 
-        # Initialize the data writer, if provided
-        self.writer = None
-        if writer is not None:
-            assert (
-                self.loader is None or self.unwrap
-            ), "Must unwrap the model output to write it to file."
-            self.watch.initialize("write")
-            self.writer = writer_factory(
-                writer, prefix=self.output_prefix, split=self.split_output
-            )
+        # Expose I/O state on Driver for backwards compatibility.
+        self.loader = self.io.loader
+        self.loader_iter = self.io.loader_iter
+        self.counter = self.io.counter
+        self.unwrapper = self.io.unwrapper
+        self.reader = self.io.reader
+        self.writer = self.io.writer
+        self.iter_per_epoch = self.io.iter_per_epoch
+        self.post_list = self.io.post_list
+        self.log_prefix = self.io.log_prefix
+        self.output_prefix = self.io.output_prefix
+        self.iterations = self.io.iterations
+        self.epochs = self.io.epochs
 
-        # Harmonize the iterations and epochs parameters
-        assert (self.iterations is None) or (
-            self.epochs is None
-        ), "Must not specify both `iterations` or `epochs` parameters."
-        if self.iterations is not None:
-            if self.iterations < 0:
-                self.iterations = self.iter_per_epoch
-            self.epochs = 1.0
-        elif self.epochs is not None:
-            self.iterations = int(self.epochs * self.iter_per_epoch)
-
-    @staticmethod
-    def get_prefixes(file_paths, split_output):
-        """Builds an appropriate output prefix based on the list of input files.
-
-        Parameters
-        ----------
-        file_paths : List[str]
-            List of input file paths
-        split_output : bool
-            Split the output of the process into one file per input file
-
-        Returns
-        -------
-        Union[str, List[str]]
-            Shared input summary string to be used to prefix outputs
-        """
-        # Fetch file base names (ignore where they live)
-        file_names = [os.path.splitext(os.path.basename(f))[0] for f in file_paths]
-
-        # Get the shared prefix of all files in the list
-        prefix = os.path.commonprefix(file_names)
-
-        # If there is only one file, done
-        if len(file_names) == 1:
-            if not split_output:
-                return prefix, prefix
-            else:
-                return prefix, [prefix]
-
-        # Otherwise, assemble log name from input file names
-        sep = "--"
-        log_prefix = ""
-        if len(prefix):
-            log_prefix += prefix
-
-        # Get the shared suffix of all files in the list
-        file_names_f = [f[::-1] for f in file_names]
-        suffix = os.path.commonprefix(file_names_f)[::-1]
-        if prefix == suffix:
-            suffix = ""
-
-        # Pad the center of the log name with compnents which are not shared
-        first = file_names[0][len(prefix) : len(file_names[0]) - len(suffix)]
-        if len(first):
-            if len(log_prefix):
-                log_prefix += sep
-            log_prefix += first
-
-        skip_count = len(file_names) - 2
-        if len(file_names) > 2:
-            if len(log_prefix):
-                log_prefix += sep
-            log_prefix += f"{skip_count}"
-
-        last = file_names[-1][len(prefix) : len(file_names[-1]) - len(suffix)]
-        if len(last):
-            if len(log_prefix):
-                log_prefix += sep
-            log_prefix += last
-
-        # Add the shared suffix
-        if len(suffix):
-            log_prefix += f"--{suffix}"
-
-        # Truncate file names that are too long
-        max_length = 150
-        if len(log_prefix) > max_length:
-            log_prefix = log_prefix[: max_length - 3] + "---"
-
-        # Always provide a single prefix for the log, adapt output prefix
-        if not split_output:
-            return log_prefix, log_prefix
-        else:
-            return log_prefix, file_names
-
-    def initialize_log(self):
+    def initialize_log(self) -> None:
         """Initialize the output log for this driver process."""
         # Make a directory if it does not exist
         if self.log_dir and not os.path.exists(self.log_dir):
@@ -572,7 +464,12 @@ class Driver:
 
         # If requested, prefix the log name with the input file name
         if self.prefix_log:
-            log_name = f"{self.log_prefix}_{log_name}"
+            suffix = f"_{log_name}"
+            log_prefix = self.log_prefix
+            if hasattr(self, "io"):
+                max_length = max(1, self.io._name_max(self.log_dir) - len(suffix))
+                log_prefix = self.io._truncate_prefix(log_prefix, max_length)
+            log_name = f"{log_prefix}{suffix}"
 
         # Initialize the log
         log_path = os.path.join(self.log_dir, log_name)
@@ -580,7 +477,7 @@ class Driver:
             log_path, overwrite=self.overwrite_log, buffer_size=self.csv_buffer_size
         )
 
-    def __len__(self):
+    def __len__(self) -> int:
         """Returns the number of events in the underlying reader object.
 
         Returns
@@ -590,7 +487,7 @@ class Driver:
         """
         return len(self.reader)
 
-    def __iter__(self):
+    def __iter__(self) -> "Driver":
         """Resets the counter and returns itself.
 
         Returns
@@ -606,7 +503,7 @@ class Driver:
 
         return self
 
-    def __next__(self):
+    def __next__(self) -> dict[str, Any] | list[dict[str, Any]]:
         """Defines how to process the next entry in the iterator.
 
         Returns
@@ -627,12 +524,11 @@ class Driver:
 
             raise StopIteration
 
-    def run(self):
+    def run(self) -> None:
         """Loop over the requested number of iterations, process them."""
         # To run the loop, must know how many times it must be done
-        assert (
-            self.iterations is not None
-        ), "Must specify either `iterations` or `epochs` parameters."
+        if self.iterations is None:
+            raise ValueError("Must specify either `iterations` or `epochs` parameters.")
 
         # Initialize the output log
         self.initialize_log()
@@ -675,8 +571,14 @@ class Driver:
             self.writer.close()
 
     def process(
-        self, entry=None, run=None, subrun=None, event=None, iteration=None, epoch=None
-    ):
+        self,
+        entry: int | None = None,
+        run: int | None = None,
+        subrun: int | None = None,
+        event: int | None = None,
+        iteration: int | None = None,
+        epoch: float | None = None,
+    ) -> dict[str, Any] | list[dict[str, Any]]:
         """Process one entry or a batch of entries.
 
         Run single step of main SPINE driver. This includes data loading,
@@ -761,7 +663,13 @@ class Driver:
         # Return
         return data
 
-    def load(self, entry=None, run=None, subrun=None, event=None):
+    def load(
+        self,
+        entry: int | None = None,
+        run: int | None = None,
+        subrun: int | None = None,
+        event: int | None = None,
+    ) -> dict[str, Any] | list[dict[str, Any]]:
         """Loads one batch/entry to process.
 
         If the model is run on the fly, the data is batched. Otherwise,
@@ -786,10 +694,18 @@ class Driver:
         # Dispatch to the appropriate loader
         if self.loader is not None:
             # Can only load batches sequentially, not by index
-            assert entry is None and run is None and subrun is None and event is None, (
-                "When calling the loader, there is no way to request a "
-                "specific entry or run/subrun/event triplet."
-            )
+            if (
+                entry is not None
+                or run is not None
+                or subrun is not None
+                or event is not None
+            ):
+                raise ValueError(
+                    "When calling the loader, there is no way to request a "
+                    "specific entry or run/subrun/event triplet, because the loader "
+                    "is designed to load batches sequentially. Use the apply_filter "
+                    "method to restrict the list of entries to load."
+                )
 
             # Initialize the loader, if necessary
             if self.loader_iter is None:
@@ -802,14 +718,16 @@ class Driver:
 
         else:
             # Must provide either entry number or both run and event numbers
-            assert (entry is not None) or (
-                run is not None and subrun is not None and event is not None
-            ), (
-                "Provide either the entry number or the run, subrun "
-                "and event number to read."
-            )
+            if entry is None and (run is None or subrun is None or event is None):
+                raise ValueError(
+                    "Provide either the entry number or the run, subrun "
+                    "and event number to read."
+                )
 
             # Read an entry
+            assert (
+                self.reader is not None
+            )  # For type checker, guaranteed by initialize_io
             self.watch.start("read")
             if entry is not None:
                 data = self.reader.get(entry)
@@ -821,13 +739,13 @@ class Driver:
 
     def apply_filter(
         self,
-        n_entry=None,
-        n_skip=None,
-        entry_list=None,
-        skip_entry_list=None,
-        run_event_list=None,
-        skip_run_event_list=None,
-    ):
+        n_entry: int | None = None,
+        n_skip: int | None = None,
+        entry_list: list[int] | None = None,
+        skip_entry_list: list[int] | None = None,
+        run_event_list: list[tuple[int, int, int]] | None = None,
+        skip_run_event_list: list[tuple[int, int, int]] | None = None,
+    ) -> None:
         """Restrict the list of entries.
 
         Parameters
@@ -846,6 +764,7 @@ class Driver:
             List of (run, subrun, event) triplets to skip from the index
         """
         # Simply change the underlying entry list
+        assert self.reader is not None  # For type checker, guaranteed by initialize_io
         self.reader.process_entry_list(
             n_entry,
             n_skip,
@@ -858,7 +777,13 @@ class Driver:
         # Reset the iterator
         self.loader_iter = None
 
-    def log(self, data, tstamp, iteration, epoch=None):
+    def log(
+        self,
+        data: dict[str, Any],
+        tstamp: str,
+        iteration: int,
+        epoch: float | None = None,
+    ) -> None:
         """Log relevant information to CSV files and stdout.
 
         Parameters

@@ -1,6 +1,7 @@
 """Augmentation manager."""
 
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 
 from spine.data import Meta
 from spine.geo import GeoManager
@@ -27,14 +28,18 @@ class AugmentManager:
     }
 
     def __init__(
-        self, geo: Mapping[str, Any] | None = None, **augmenters: dict[str, Any]
+        self,
+        geo: Mapping[str, Any] | None = None,
+        **augmenters: Mapping[str, Any] | None,
     ) -> None:
         """Initialize the augmentation manager.
 
         Parameters
         ----------
-        **augmenters : dict, optional
-            Ordered dictionary of augmentation module configurations.
+        geo : mapping, optional
+            Geometry configuration passed to the geometry manager.
+        **augmenters : mapping, optional
+            Ordered mapping of augmentation module configurations.
             If the configuration key matches a registered augmentation
             name (e.g. `crop`, `jitter`, `mask`, `rotate`, `translate`), the
             `name` entry can be omitted. If using a custom label to
@@ -55,9 +60,9 @@ class AugmentManager:
         for key, cfg in augmenters.items():
             if cfg is None:
                 continue
-            if not isinstance(cfg, dict):
+            if not isinstance(cfg, Mapping):
                 raise ValueError(
-                    f"Augmentation configuration for `{key}` must be a dictionary."
+                    f"Augmentation configuration for `{key}` must be a mapping."
                 )
 
             config = dict(cfg)

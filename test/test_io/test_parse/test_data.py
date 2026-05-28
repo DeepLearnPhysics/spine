@@ -3,7 +3,14 @@
 import numpy as np
 
 from spine.constants import VALUE_COL
-from spine.io.parse.data import ParserObjectList, ParserTensor
+from spine.data import Particle
+from spine.io.parse.data import (
+    ParserEdgeIndex,
+    ParserIndex,
+    ParserIndexList,
+    ParserObjectList,
+    ParserTensor,
+)
 
 
 class DummyObject:
@@ -50,3 +57,34 @@ def test_parser_object_list_defaults_and_cast():
     casted = shifted.to_object_list
     assert list(casted) == list(shifted)
     assert casted.default == shifted.default
+
+
+def test_parser_index_payloads_store_specialized_contracts():
+    """Index-style parser payloads should preserve their specialized shape."""
+    index = ParserIndex(features=np.asarray([0, 2, 4]), global_shift=5)
+    index_list = ParserIndexList(
+        features=[np.asarray([0, 2]), np.asarray([1])],
+        global_shift=3,
+        single_counts=np.asarray([2, 1]),
+    )
+    edge_index = ParserEdgeIndex(
+        features=np.asarray([[0, 1], [1, 2]], dtype=np.int64),
+        global_shift=3,
+    )
+
+    np.testing.assert_array_equal(index.features, np.asarray([0, 2, 4]))
+    assert index.global_shift == 5
+    assert len(index_list.features) == 2
+    np.testing.assert_array_equal(index_list.single_counts, np.asarray([2, 1]))
+    np.testing.assert_array_equal(
+        edge_index.features, np.asarray([[0, 1], [1, 2]], dtype=np.int64)
+    )
+
+
+def test_data_objects_expose_public_index_attrs():
+    """Data objects should expose index metadata through a public property."""
+    particle = Particle()
+
+    assert "id" in particle.index_attrs
+    assert "parent_id" in particle.index_attrs
+    assert "children_id" in particle.index_attrs

@@ -7,7 +7,7 @@ from spine.constants import NuInteractionScheme
 from spine.constants.sentinels import INVAL_ID
 from spine.data.larcv import Meta, Neutrino, Particle
 from spine.data.larcv.meta import ImageMeta3D
-from spine.io.parse.data import ParserTensor
+from spine.io.parse.data import ParserEdgeIndex, ParserTensor
 from spine.io.parse.larcv.particle import *
 from spine.utils.conditional import LARCV_AVAILABLE, larcv
 
@@ -38,7 +38,7 @@ def test_parse_particles(
 ):
     """Tests the parsing of LArCV particle information."""
     # Initialize the parser
-    parser = ParticleParser(
+    parser = LArCVParticleParser(
         dtype="float32",
         particle_event=particle_event,
         neutrino_event=neutrino_event,
@@ -75,7 +75,7 @@ def test_parse_particles(
 def test_parse_neutrinos(neutrino_event, sparse3d_event, asis, pixel_coordinates):
     """Tests the parsing of LArCV neutrino information."""
     # Initialize the parser
-    parser = NeutrinoParser(
+    parser = LArCVNeutrinoParser(
         dtype="float32",
         neutrino_event=neutrino_event,
         sparse_event=sparse3d_event,
@@ -104,7 +104,7 @@ def test_parse_neutrinos(neutrino_event, sparse3d_event, asis, pixel_coordinates
 @pytest.mark.filterwarnings("ignore::UserWarning")
 def test_parse_neutrinos_interaction_scheme_override(neutrino_event, sparse3d_event):
     """Tests overriding the interaction scheme used by the neutrino parser."""
-    parser = NeutrinoParser(
+    parser = LArCVNeutrinoParser(
         dtype="float32",
         neutrino_event=neutrino_event,
         sparse_event=sparse3d_event,
@@ -122,7 +122,7 @@ def test_parse_neutrinos_interaction_scheme_override(neutrino_event, sparse3d_ev
 def test_parse_particle_points(particle_event, sparse3d_event, include_point_tagging):
     """Tests the parsing of LArCV particle points (PPN labels)."""
     # Initialize the parser
-    parser = ParticlePointParser(
+    parser = LArCVParticlePointParser(
         dtype="float32",
         particle_event=particle_event,
         sparse_event=sparse3d_event,
@@ -149,7 +149,7 @@ def test_parse_particle_coordinates(particle_event, sparse3d_event):
     end cluster end points label for standalone training).
     """
     # Initialize the parser
-    parser = ParticleCoordinateParser(
+    parser = LArCVParticleCoordinateParser(
         dtype="float32", particle_event=particle_event, sparse_event=sparse3d_event
     )
 
@@ -177,7 +177,7 @@ def test_parse_particle_graph(particle_event, cluster3d_event):
     parentage relations.
     """
     # Initialize the parser
-    parser = ParticleGraphParser(
+    parser = LArCVParticleGraphParser(
         dtype="float32", particle_event=particle_event, cluster_event=cluster3d_event
     )
 
@@ -189,7 +189,7 @@ def test_parse_particle_graph(particle_event, cluster3d_event):
     # There should be 2 components of the output
     # - The first contains an (2, E) matrix with E the number of edges
     # - The second is a single number corresponding to the number of particles
-    assert isinstance(result, ParserTensor)
+    assert isinstance(result, ParserEdgeIndex)
     assert result.features.shape[0] == 2
     assert result.global_shift == particle_event.size()
 
@@ -198,7 +198,9 @@ def test_parse_particle_graph(particle_event, cluster3d_event):
 def test_parse_particle_pid(particle_event):
     """Tests the parsing of LArCV single particle PID parser."""
     # Initialize the parser
-    parser = SingleParticlePIDParser(dtype="float32", particle_event=particle_event)
+    parser = LArCVSingleParticlePIDParser(
+        dtype="float32", particle_event=particle_event
+    )
 
     # Parse the data
     result = parser.process(particle_event=particle_event)
@@ -213,7 +215,9 @@ def test_parse_particle_pid(particle_event):
 def test_parse_particle_energy(particle_event):
     """Tests the parsing of LArCV single particle energy parser."""
     # Initialize the parser
-    parser = SingleParticleEnergyParser(dtype="float32", particle_event=particle_event)
+    parser = LArCVSingleParticleEnergyParser(
+        dtype="float32", particle_event=particle_event
+    )
 
     # Parse the data
     result = parser.process(particle_event=particle_event)
@@ -239,7 +243,7 @@ def test_particle_parser_skip_empty_uses_placeholder():
         def as_vector(self):
             return [DummyParticle()]
 
-    parser = ParticleParser(
+    parser = LArCVParticleParser(
         dtype="float32",
         particle_event="particle",
         skip_empty=True,
@@ -259,7 +263,7 @@ def test_particle_parser_call_paths(
     particle_event, neutrino_event, sparse3d_event, cluster3d_event
 ):
     """Wrapper calls should route named inputs through the particle parsers."""
-    neutrino_parser = NeutrinoParser(
+    neutrino_parser = LArCVNeutrinoParser(
         dtype="float32", neutrino_event="neutrino", sparse_event="sparse"
     )
     neutrino_result = neutrino_parser(
@@ -267,7 +271,7 @@ def test_particle_parser_call_paths(
     )
     assert isinstance(neutrino_result.default, Neutrino)
 
-    point_parser = ParticlePointParser(
+    point_parser = LArCVParticlePointParser(
         dtype="float32", particle_event="particle", sparse_event="sparse"
     )
     assert isinstance(
@@ -275,7 +279,7 @@ def test_particle_parser_call_paths(
         ParserTensor,
     )
 
-    coord_parser = ParticleCoordinateParser(
+    coord_parser = LArCVParticleCoordinateParser(
         dtype="float32", particle_event="particle", sparse_event="sparse"
     )
     assert isinstance(
@@ -283,15 +287,17 @@ def test_particle_parser_call_paths(
         ParserTensor,
     )
 
-    pid_parser = SingleParticlePIDParser(dtype="float32", particle_event="particle")
+    pid_parser = LArCVSingleParticlePIDParser(
+        dtype="float32", particle_event="particle"
+    )
     assert isinstance(pid_parser({"particle": particle_event}), int)
 
-    energy_parser = SingleParticleEnergyParser(
+    energy_parser = LArCVSingleParticleEnergyParser(
         dtype="float32", particle_event="particle"
     )
     assert isinstance(energy_parser({"particle": particle_event}), float)
 
-    graph_parser = ParticleGraphParser(
+    graph_parser = LArCVParticleGraphParser(
         dtype="float32", particle_event="particle", cluster_event="cluster"
     )
     assert isinstance(
@@ -311,7 +317,7 @@ def test_vertex_point_parser_process_and_call(
         lambda particle_v, neutrino_v, meta, ftype: labels,
     )
 
-    parser = VertexPointParser(
+    parser = LArCVVertexPointParser(
         dtype="float32", particle_event="particle", sparse_event="sparse"
     )
     result = parser({"particle": particle_event, "sparse": sparse3d_event})
@@ -342,7 +348,7 @@ def test_particle_graph_skips_invalid_and_fragment_edges():
         def as_vector(self):
             return DummyVector([DummyParticle(INVAL_ID, 0), DummyParticle(0, 0)])
 
-    parser = ParticleGraphParser(dtype="float32", particle_event="particle")
+    parser = LArCVParticleGraphParser(dtype="float32", particle_event="particle")
     result = parser.process(particle_event=DummyEvent())
 
     assert isinstance(result, ParserTensor)

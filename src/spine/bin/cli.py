@@ -6,6 +6,7 @@ import os
 import pathlib
 import sys
 
+from spine.banner import ascii_logo
 from spine.config import load_config_file
 from spine.config.loader import resolve_config_path
 from spine.config.operations import parse_value, set_nested_value
@@ -154,6 +155,7 @@ def main(
     from spine.main import run
 
     # Run the main function
+    print(ascii_logo)
     run(cfg)
 
 

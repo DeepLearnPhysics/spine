@@ -33,7 +33,7 @@ def reader_factory(reader_cfg: Mapping[str, Any] | str) -> Any:
     Parameters
     ----------
     reader_cfg : Mapping[str, Any] or str
-        Reader configuration dictionary or the short reader name.
+        Reader configuration mapping or the short reader name.
 
     Returns
     -------
@@ -57,7 +57,7 @@ def writer_factory(
     Parameters
     ----------
     writer_cfg : Mapping[str, Any] or str
-        Writer configuration dictionary or the short writer name.
+        Writer configuration mapping or the short writer name.
     prefix : str or list[str], optional
         Input file prefix or per-file list of prefixes used to derive output
         names when the writer supports prefix-based naming.
@@ -93,26 +93,62 @@ def loader_factory(
     entry_list: list[int] | None = None,
     distributed: bool = False,
     world_size: int = 0,
-    rank: int = 0,
+    rank: int | None = None,
     **kwargs: Any,
 ) -> Any:
-    """Instantiates a PyTorch DataLoader based on configuration."""
+    """Instantiate a PyTorch ``DataLoader`` from configuration.
+
+    Parameters
+    ----------
+    dataset : mapping or str
+        Dataset configuration mapping or short dataset name.
+    dtype : str
+        Floating-point dtype passed to the dataset factory.
+    geo : mapping, optional
+        Geometry configuration passed through to the dataset factory.
+    batch_size : int, optional
+        Global batch size. Mutually exclusive with ``minibatch_size``.
+    minibatch_size : int, optional
+        Per-process batch size. Mutually exclusive with ``batch_size``.
+    shuffle : bool, default True
+        Whether to shuffle batches in the underlying loader.
+    sampler : mapping or str, optional
+        Sampler configuration mapping or short sampler name.
+    num_workers : int, default 0
+        Number of loader worker processes.
+    collate_fn : mapping or str, optional
+        Collate function configuration mapping or short collate name.
+    entry_list : list[int], optional
+        Explicit subset of dataset entries to expose.
+    distributed : bool, default False
+        If ``True``, wrap the sampler for distributed loading.
+    world_size : int, default 0
+        Number of distributed processes/devices.
+    rank : int, optional
+        Distributed process rank. Required when ``distributed=True``.
+    **kwargs : dict
+        Extra keyword arguments forwarded to ``torch.utils.data.DataLoader``.
+
+    Returns
+    -------
+    torch.utils.data.DataLoader
+        Instantiated data loader.
+    """
     if not TORCH_AVAILABLE:
         raise ImportError("PyTorch is required to use loader_factory.")
 
     from torch.utils.data import DataLoader
 
     # Process the batch size, make sure it is sensible
-    assert (batch_size is not None) ^ (
-        minibatch_size is not None
-    ), "Provide either `batch_size` or `minibatch_size`, not both."
+    if not (batch_size is not None) ^ (minibatch_size is not None):
+        raise ValueError("Provide either `batch_size` or `minibatch_size`, not both.")
 
     if batch_size is not None:
-        assert (
-            world_size == 0 or (batch_size % world_size) == 0
-        ), "The batch_size must be a multiple of the number of GPUs."
+        if world_size != 0 and (batch_size % world_size) != 0:
+            raise ValueError("The batch_size must be a multiple of the number of GPUs.")
         minibatch_size = batch_size // max(world_size, 1)
-    elif minibatch_size is not None:
+    else:
+        assert minibatch_size is not None  # Guaranteed by the check above
         batch_size = minibatch_size * max(world_size, 1)
 
     # Initialize the dataset
@@ -148,9 +184,28 @@ def dataset_factory(
     dtype: str | None = None,
     geo: Mapping[str, Any] | None = None,
 ) -> Any:
-    """Instantiates a Dataset based on a configuration."""
+    """Instantiate a dataset from configuration.
+
+    Parameters
+    ----------
+    dataset_cfg : Mapping[str, Any] or str
+        Dataset configuration mapping or short dataset name.
+    entry_list : list[int], optional
+        Explicit subset of dataset entries to expose. When provided here, it
+        overrides any ``entry_list`` already present in ``dataset_cfg``.
+    dtype : str, optional
+        Floating-point dtype forwarded to the dataset constructor.
+    geo : mapping, optional
+        Geometry configuration forwarded to dataset types that require it.
+
+    Returns
+    -------
+    object
+        Instantiated dataset object.
+    """
     from . import dataset
 
+    # Get the dataset class dictionary
     dataset_dict = module_dict(dataset)
 
     # Append the entry_list if it is provided independently
@@ -159,11 +214,13 @@ def dataset_factory(
             "You are manually overwriting the existing `entry_list` "
             "argument provided in the configuration file."
         )
-        dataset_cfg = dict(dataset_cfg)
+        dataset_cfg = (
+            {"name": dataset_cfg} if isinstance(dataset_cfg, str) else dict(dataset_cfg)
+        )
         dataset_cfg["entry_list"] = entry_list
 
     # Initialize dataset
-    extra_kwargs = {"dtype": dtype}
+    extra_kwargs: dict[str, Any] = {"dtype": dtype}
     if geo is not None:
         extra_kwargs["geo"] = geo
 
@@ -176,14 +233,40 @@ def sampler_factory(
     minibatch_size: int,
     distributed: bool = False,
     num_replicas: int = 1,
-    rank: int = 0,
+    rank: int | None = None,
 ) -> Any:
-    """Instantiates sampler based on configuration."""
+    """Instantiate a sampler from configuration.
+
+    Parameters
+    ----------
+    sampler_cfg : mapping or str
+        Sampler configuration mapping or short sampler name.
+    dataset : object
+        Dataset instance used to initialize the sampler.
+    minibatch_size : int
+        Per-process batch size passed to the sampler.
+    distributed : bool, default False
+        If ``True``, wrap the sampler in ``DistributedProxySampler``.
+    num_replicas : int, default 1
+        Number of distributed processes/devices.
+    rank : int, optional
+        Distributed process rank. Required when ``distributed=True``.
+
+    Returns
+    -------
+    object
+        Instantiated sampler object, optionally wrapped for distributed
+        loading.
+    """
     if not TORCH_AVAILABLE:
         raise ImportError("PyTorch is required to use sampler_factory.")
 
+    if distributed and rank is None:
+        raise ValueError("A distributed sampler requires an explicit integer `rank`.")
+
     from . import sample
 
+    # Get the sampler class dictionary
     sampler_dict = module_dict(sample)
 
     # Initialize sampler
@@ -203,9 +286,26 @@ def collate_factory(
     data_types: Mapping[str, str],
     overlay_methods: Mapping[str, str],
 ) -> Any:
-    """Instantiates collate function based on configuration."""
+    """Instantiate a collate function from configuration.
+
+    Parameters
+    ----------
+    collate_cfg : Mapping[str, Any] or str
+        Collate configuration mapping or short collate function name.
+    data_types : Mapping[str, str]
+        Mapping from parser output keys to their declared data type.
+    overlay_methods : Mapping[str, str]
+        Mapping from parser output keys to the overlay method used when
+        combining data from multiple sources.
+
+    Returns
+    -------
+    collections.abc.Callable
+        Instantiated collate callable.
+    """
     from . import collate
 
+    # Get the collate function class dictionary
     collate_dict = module_dict(collate)
 
     return instantiate(
