@@ -44,6 +44,9 @@ def test_parse_cluster2d(cluster2d_event, projection_id):
     [(False, False), (False, False), (True, False), (True, True)],
 )
 @pytest.mark.parametrize("break_clusters", [False, True])
+@pytest.mark.filterwarnings(
+    "ignore:Neutrino IDs are being produced on the basis of floating point agreement.*:UserWarning"
+)
 def test_parse_cluster3d(
     cluster3d_event,
     particle_event,
@@ -95,6 +98,9 @@ def test_parse_cluster3d(
 @pytest.mark.parametrize("neutrino_event", [1], indirect=True)
 @pytest.mark.parametrize("add_particle_info, clean_data", [(True, True)])
 @pytest.mark.parametrize("break_clusters", [True])
+@pytest.mark.filterwarnings(
+    "ignore:Neutrino IDs are being produced on the basis of floating point agreement.*:UserWarning"
+)
 def test_parse_cluster3d_rescale(
     cluster3d_event,
     particle_event,
@@ -147,6 +153,9 @@ def test_parse_cluster3d_rescale(
 @pytest.mark.parametrize("neutrino_event", [1], indirect=True)
 @pytest.mark.parametrize("add_particle_info, clean_data", [(True, True)])
 @pytest.mark.parametrize("break_clusters", [True])
+@pytest.mark.filterwarnings(
+    "ignore:Neutrino IDs are being produced on the basis of floating point agreement.*:UserWarning"
+)
 def test_parse_cluster3d_aggregate(
     cluster3d_event,
     particle_event,
@@ -259,6 +268,9 @@ def cluster3d_to_sparse3d(cluster3d_event, segmentation=False, ghost=True):
     [(1, 20, 20, 1)],
     indirect=True,
 )
+@pytest.mark.filterwarnings(
+    "ignore:Neutrino IDs are being produced on the basis of floating point agreement.*:UserWarning"
+)
 def test_cluster_parser_call_paths(
     cluster2d_event, cluster3d_event, particle_event, neutrino_event
 ):
@@ -323,7 +335,6 @@ def test_cluster_parser_call_paths(
     )
 
 
-@pytest.mark.filterwarnings("ignore::UserWarning")
 @pytest.mark.parametrize("cluster3d_event, particle_event", [(20, 20)], indirect=True)
 def test_cluster3d_add_particle_info_special_cases(cluster3d_event, particle_event):
     """Cluster parsing should cover secondary/MPR masking, auto-clean, and inferred neutrino count."""
@@ -342,12 +353,18 @@ def test_cluster3d_add_particle_info_special_cases(cluster3d_event, particle_eve
         type_include_mpr=False,
         primary_include_mpr=False,
     )
-    result = parser.process(
-        cluster_event=cluster3d_event,
-        particle_event=particle_event,
-        sparse_value_event=sparse3d_event,
-        sparse_semantics_event=sparse3d_seg_event,
-    )
+    with pytest.warns(UserWarning) as caught:
+        result = parser.process(
+            cluster_event=cluster3d_event,
+            particle_event=particle_event,
+            sparse_value_event=sparse3d_event,
+            sparse_semantics_event=sparse3d_seg_event,
+        )
 
     assert isinstance(result, ParserTensor)
     assert parser.clean_data is True
+    warning_messages = [str(w.message) for w in caught]
+    assert any("interaction multiplicity" in message for message in warning_messages)
+    assert any(
+        "You must set `clean_data` to `True`" in message for message in warning_messages
+    )

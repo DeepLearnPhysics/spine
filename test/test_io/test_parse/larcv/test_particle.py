@@ -26,6 +26,7 @@ from spine.utils.conditional import LARCV_AVAILABLE, larcv
 @pytest.mark.parametrize("particle_event", [0, 1, 20], indirect=True)
 @pytest.mark.parametrize("neutrino_event", [0, 1, 2], indirect=True)
 @pytest.mark.filterwarnings("ignore::UserWarning")
+@pytest.mark.filterwarnings("ignore:overflow encountered in cast:RuntimeWarning")
 def test_parse_particles(
     particle_event,
     neutrino_event,
@@ -257,10 +258,30 @@ def test_particle_parser_skip_empty_uses_placeholder():
 @pytest.mark.parametrize(
     "particle_event, neutrino_event, cluster3d_event", [(20, 1, 20)], indirect=True
 )
+@pytest.mark.filterwarnings(
+    "ignore:Neutrino IDs are being produced on the basis of floating point agreement.*:UserWarning"
+)
+@pytest.mark.filterwarnings("ignore:overflow encountered in cast:RuntimeWarning")
 def test_particle_parser_call_paths(
     particle_event, neutrino_event, sparse3d_event, cluster3d_event
 ):
     """Wrapper calls should route named inputs through the particle parsers."""
+    particle_parser = LArCVParticleParser(
+        dtype="float32",
+        particle_event="particle",
+        neutrino_event="neutrino",
+        sparse_event="sparse",
+        post_process=True,
+    )
+    particle_result = particle_parser(
+        {
+            "particle": particle_event,
+            "neutrino": neutrino_event,
+            "sparse": sparse3d_event,
+        }
+    )
+    assert isinstance(particle_result.default, Particle)
+
     neutrino_parser = LArCVNeutrinoParser(
         dtype="float32", neutrino_event="neutrino", sparse_event="sparse"
     )
@@ -302,6 +323,129 @@ def test_particle_parser_call_paths(
         graph_parser({"particle": particle_event, "cluster": cluster3d_event}),
         ParserEdgeIndex,
     )
+
+
+def test_particle_from_larcv_overflow_warning_is_expected():
+    """Casting LArCV DBL_MAX end-momentum sentinels to float32 should overflow to inf."""
+
+    class DummyVector:
+        def x(self):
+            return 0.0
+
+        def y(self):
+            return 0.0
+
+        def z(self):
+            return 0.0
+
+        def t(self):
+            return 0.0
+
+    class DummyParticle:
+        def id(self):
+            return 0
+
+        def group_id(self):
+            return 0
+
+        def interaction_id(self):
+            return 0
+
+        def parent_id(self):
+            return 0
+
+        def mct_index(self):
+            return 0
+
+        def mcst_index(self):
+            return 0
+
+        def num_voxels(self):
+            return 1
+
+        def shape(self):
+            return 0
+
+        def energy_init(self):
+            return 1.0
+
+        def energy_deposit(self):
+            return 1.0
+
+        def distance_travel(self):
+            return 1.0
+
+        def track_id(self):
+            return 0
+
+        def pdg_code(self):
+            return 13
+
+        def parent_track_id(self):
+            return 0
+
+        def parent_pdg_code(self):
+            return 13
+
+        def ancestor_track_id(self):
+            return 0
+
+        def ancestor_pdg_code(self):
+            return 13
+
+        def creation_process(self):
+            return ""
+
+        def parent_creation_process(self):
+            return ""
+
+        def ancestor_creation_process(self):
+            return ""
+
+        def t(self):
+            return 0.0
+
+        def parent_t(self):
+            return 0.0
+
+        def ancestor_t(self):
+            return 0.0
+
+        def end_position(self):
+            return DummyVector()
+
+        position = parent_position = ancestor_position = first_step = last_step = (
+            end_position
+        )
+
+        def children_id(self):
+            return []
+
+        def px(self):
+            return 0.0
+
+        def py(self):
+            return 0.0
+
+        def pz(self):
+            return 0.0
+
+        def momentum(self):
+            return True
+
+        def end_px(self):
+            return np.finfo(np.float64).max
+
+        end_py = end_px
+        end_pz = end_px
+
+        def end_momentum(self):
+            return True
+
+    with pytest.warns(RuntimeWarning, match="overflow encountered in cast"):
+        particle = Particle.from_larcv(DummyParticle())
+
+    assert np.isinf(particle.end_momentum).all()
 
 
 @pytest.mark.parametrize("particle_event", [20], indirect=True)

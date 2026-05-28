@@ -8,7 +8,7 @@ from warnings import warn
 
 import numpy as np
 
-from spine.constants import PID_LABELS, SHAPE_LABELS, ParticlePID, ParticleShape
+from spine.constants import ParticlePID, ParticleShape
 from spine.data.base import PosDataBase
 from spine.data.decorator import stored_property
 from spine.data.field import FieldMetadata

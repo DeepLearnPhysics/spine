@@ -225,7 +225,8 @@ def test_overlayer_singleton_overlay_passthrough():
         multiplicity=2,
     )
 
-    result = overlay([sample])
+    with pytest.warns(UserWarning, match="not a divider"):
+        result = overlay([sample])
     assert result == [sample]
 
 

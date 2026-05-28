@@ -1,6 +1,7 @@
 """Test that the dataset classes work as intended."""
 
 import importlib
+import warnings
 
 import numpy as np
 import pytest
@@ -37,7 +38,7 @@ def test_larcv_dataset(larcv_data):
     for tree in root_file.GetListOfKeys():
         tree_keys.append(tree.GetName().split("_tree")[0])
         if num_entries is None:
-            num_entries = getattr(root_file, tree.GetName()).GetEntries()
+            num_entries = root_file[tree.GetName()].GetEntries()
 
     root_file.Close()
 
@@ -62,26 +63,38 @@ def test_larcv_dataset(larcv_data):
         schema[key] = el
 
     # Initialize the dataset
-    dataset = LArCVDataset(file_keys=larcv_data, schema=schema, dtype="float32")
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        dataset = LArCVDataset(file_keys=larcv_data, schema=schema, dtype="float32")
 
-    # Load the items in the dataset, check the keys
-    for i, entry in enumerate(dataset):
+        # Load the items in the dataset, check the keys
+        for i, entry in enumerate(dataset):
+            for key in tree_keys:
+                assert key in entry
+            assert "index" in entry
+            assert entry["index"] == i
+
+        # Check that the data keys are as expected
         for key in tree_keys:
-            assert key in entry
-        assert "index" in entry
-        assert entry["index"] == i
+            assert key in dataset.data_keys
 
-    # Check that the data keys are as expected
-    for key in tree_keys:
-        assert key in dataset.data_keys
+        # Check that one can list the content of the dataset
+        data_dict = dataset.list_data(larcv_data)
+        data_keys = []
+        for val in data_dict.values():
+            data_keys += list(val)
+        for key in tree_keys:
+            assert key in data_keys
 
-    # Check that one can list the content of the dataset
-    data_dict = dataset.list_data(larcv_data)
-    data_keys = []
-    for val in data_dict.values():
-        data_keys += list(val)
-    for key in tree_keys:
-        assert key in data_keys
+    warning_messages = [str(w.message) for w in caught]
+    assert any("interaction multiplicity" in message for message in warning_messages)
+    assert any(
+        "Bad group ID (65535) not matching INVAL_ID" in message
+        for message in warning_messages
+    )
+    assert any(
+        "overflow encountered in cast" in message for message in warning_messages
+    )
 
 
 def test_hdf5_dataset(hdf5_data):
