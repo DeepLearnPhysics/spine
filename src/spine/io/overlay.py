@@ -149,7 +149,7 @@ class Overlayer:
             if batch_size % self.multiplicity != 0:
                 warn(
                     f"The overlay multiplicity ({self.multiplicity}) is not a "
-                    "divider of the batch size ({batch_size}). The overlay "
+                    f"divider of the batch size ({batch_size}). The overlay "
                     "multiplicity will not be uniform."
                 )
 

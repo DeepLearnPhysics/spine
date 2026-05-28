@@ -13,10 +13,6 @@ from spine.geo import GeoManager
 from spine.io.parse.larcv.misc import *
 from spine.utils.conditional import LARCV_AVAILABLE
 
-pytestmark = pytest.mark.skipif(
-    not LARCV_AVAILABLE, reason="LArCV is required to generate parser fixtures."
-)
-
 
 @pytest.mark.parametrize("projection_id", [0, 1, 2])
 def test_parse_meta2d(sparse2d_event, projection_id):
@@ -223,3 +219,56 @@ def test_flash_parser_requires_optical_geometry(monkeypatch):
 
     with pytest.raises(ValueError, match="Optical geometry"):
         LArCVFlashParser(dtype="float32", flash_event="flash")
+
+
+def test_run_info_parser_requires_exactly_one_source():
+    """Run-info parsing should reject missing or ambiguous sources."""
+    parser = LArCVRunInfoParser(dtype="float32")
+
+    with pytest.raises(ValueError, match="either `sparse_event` or `cluster_event`"):
+        parser.process()
+
+    with pytest.raises(ValueError, match="either `sparse_event` or `cluster_event`"):
+        parser.process(sparse_event=object(), cluster_event=object())
+
+
+def test_flash_parser_validation_branches(monkeypatch):
+    """Flash parsing should reject ambiguous inputs and None list entries."""
+
+    class DummyFlashEvent:
+        def __init__(self, flashes):
+            self._flashes = flashes
+
+        def as_vector(self):
+            return self._flashes
+
+    monkeypatch.setattr(
+        "spine.io.parse.larcv.misc.GeoManager.get_instance",
+        lambda: SimpleNamespace(optical=SimpleNamespace(num_channels_per_volume=4)),
+    )
+    parser = LArCVFlashParser(dtype="float32", flash_event="flash")
+
+    with pytest.raises(ValueError, match="either `flash_event` or `flash_event_list`"):
+        parser.process()
+
+    with pytest.raises(ValueError, match="either `flash_event` or `flash_event_list`"):
+        parser.process(
+            flash_event=DummyFlashEvent([]),
+            flash_event_list=[DummyFlashEvent([])],
+        )
+
+    with pytest.raises(ValueError, match="Flash event at index 0 is None"):
+        parser.process(flash_event_list=[None])
+
+
+if not LARCV_AVAILABLE:
+    _NO_LARCV_TESTS = {
+        "test_run_info_parser_requires_exactly_one_source",
+        "test_flash_parser_validation_branches",
+        "test_flash_parser_requires_optical_geometry",
+    }
+    for _name, _obj in list(globals().items()):
+        if _name.startswith("test_") and _name not in _NO_LARCV_TESTS:
+            globals()[_name] = pytest.mark.skip(
+                reason="LArCV is required to generate parser fixtures."
+            )(_obj)

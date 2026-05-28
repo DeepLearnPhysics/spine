@@ -143,6 +143,26 @@ def test_reader_base_process_entry_list_errors():
         reader.process_entry_list(skip_entry_list=[0, 1, 2])
 
 
+def test_reader_base_process_entry_list_bounds_and_run_map_errors():
+    """ReaderBase should reject out-of-bounds explicit entry selections."""
+    reader = DummyReader(num_entries=3, run_info=[(1, 0, i) for i in range(3)])
+    reader.process_run_info()
+
+    with pytest.raises(ValueError, match="entry_list outside of bounds"):
+        reader.process_entry_list(entry_list=[0, 3])
+
+    with pytest.raises(ValueError, match="skip_entry_list outside of bounds"):
+        reader.process_entry_list(skip_entry_list=[0, 3])
+
+    reader.process_run_info = lambda: None
+    reader.run_map = None
+    with pytest.raises(ValueError, match="Must build a run map"):
+        reader.process_entry_list(run_event_list=[(1, 0, 0)])
+
+    with pytest.raises(ValueError, match="Must build a run map"):
+        reader.process_entry_list(skip_run_event_list=[(1, 0, 0)])
+
+
 def test_reader_base_parse_helpers(tmp_path):
     """ReaderBase should parse entry and run-event lists from lists and files."""
     entries_file = tmp_path / "entries.txt"

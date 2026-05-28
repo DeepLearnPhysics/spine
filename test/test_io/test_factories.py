@@ -302,6 +302,60 @@ def test_dataset_factory_forwards_geo(monkeypatch):
     assert seen[1] == {"dtype": "float32", "geo": {"detector": "icarus"}}
 
 
+def test_loader_factory_requires_exactly_one_batch_size(monkeypatch):
+    """Loader factory should reject ambiguous batch-size configuration before loading."""
+    import sys
+    import types
+
+    fake_torch = types.ModuleType("torch")
+    fake_utils = types.ModuleType("torch.utils")
+    fake_data = types.ModuleType("torch.utils.data")
+    fake_data.DataLoader = object
+    fake_utils.data = fake_data
+    fake_torch.utils = fake_utils
+
+    monkeypatch.setattr(factories_module, "TORCH_AVAILABLE", True)
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+    monkeypatch.setitem(sys.modules, "torch.utils", fake_utils)
+    monkeypatch.setitem(sys.modules, "torch.utils.data", fake_data)
+
+    with pytest.raises(
+        ValueError, match="Provide either `batch_size` or `minibatch_size`"
+    ):
+        factories_module.loader_factory(
+            dataset={"name": "dummy"},
+            dtype="float32",
+            batch_size=2,
+            minibatch_size=1,
+        )
+
+
+def test_loader_factory_requires_batch_size_multiple_of_world_size(monkeypatch):
+    """Loader factory should reject incompatible global batch sizes."""
+    import sys
+    import types
+
+    fake_torch = types.ModuleType("torch")
+    fake_utils = types.ModuleType("torch.utils")
+    fake_data = types.ModuleType("torch.utils.data")
+    fake_data.DataLoader = object
+    fake_utils.data = fake_data
+    fake_torch.utils = fake_utils
+
+    monkeypatch.setattr(factories_module, "TORCH_AVAILABLE", True)
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+    monkeypatch.setitem(sys.modules, "torch.utils", fake_utils)
+    monkeypatch.setitem(sys.modules, "torch.utils.data", fake_data)
+
+    with pytest.raises(ValueError, match="multiple of the number of GPUs"):
+        factories_module.loader_factory(
+            dataset={"name": "dummy"},
+            dtype="float32",
+            batch_size=3,
+            world_size=2,
+        )
+
+
 @pytest.mark.skipif(
     not TORCH_AVAILABLE,
     reason="PyTorch is required for distributed sampler factory tests.",

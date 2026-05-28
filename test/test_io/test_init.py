@@ -4,16 +4,15 @@ import pytest
 
 
 def test_torch_io_conditional_import():
-    """The top-level IO package should expose the torch availability flag."""
-    from spine.io import TORCH_IO_AVAILABLE
+    """The top-level IO package should expose the torch availability flag and loader factory."""
+    from spine.io import TORCH_IO_AVAILABLE, loader_factory
 
     if TORCH_IO_AVAILABLE:
-        from spine.io import loader_factory
-
         assert callable(loader_factory)
     else:
-        with pytest.raises(ImportError):
-            from spine.io import loader_factory
+        assert callable(loader_factory)
+        with pytest.raises(ImportError, match="PyTorch is required"):
+            loader_factory(dataset={}, dtype="float32", batch_size=1)
 
 
 def test_meta_import():

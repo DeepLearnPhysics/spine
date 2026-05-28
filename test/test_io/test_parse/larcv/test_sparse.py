@@ -1,17 +1,16 @@
 """Test that the sparse data parsers work as intended."""
 
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 
+import spine.io.parse.larcv.sparse as sparse_module
 from spine.data.larcv import Meta
 from spine.data.larcv.meta import ImageMeta2D, ImageMeta3D
 from spine.io.parse.data import ParserTensor
 from spine.io.parse.larcv.sparse import *
 from spine.utils.conditional import LARCV_AVAILABLE
-
-pytestmark = pytest.mark.skipif(
-    not LARCV_AVAILABLE, reason="LArCV is required to generate parser fixtures."
-)
 
 
 @pytest.mark.parametrize("projection_id", [0, 1, 2])
@@ -255,3 +254,175 @@ def test_sparse3d_parser_computes_nhits_and_validates_index(sparse3d_event_list)
     )
     with pytest.raises(ValueError, match="out of range"):
         parser.process(sparse_event_list=sparse3d_event_list)
+
+
+class DummyVector(list):
+    """List with the ``size`` method used by LArCV containers."""
+
+    def size(self):
+        return len(self)
+
+
+class DummyMeta:
+    """Simple comparable metadata stand-in."""
+
+    def __init__(self, label):
+        self.label = label
+
+    def __eq__(self, other):
+        return isinstance(other, DummyMeta) and self.label == other.label
+
+
+class DummyTensor2D:
+    """Sparse 2D tensor stand-in."""
+
+    def __init__(self, meta, size):
+        self._meta = meta
+        self._size = size
+
+    def meta(self):
+        return self._meta
+
+    def as_vector(self):
+        return DummyVector([None] * self._size)
+
+
+class DummySparse2DEvent:
+    """2D sparse event stand-in."""
+
+    def __init__(self, tensor):
+        self._tensor = tensor
+
+    def sparse_tensor_2d(self, projection_id):
+        return self._tensor
+
+
+class DummySparse3DEvent:
+    """3D sparse event stand-in."""
+
+    def __init__(self, meta, size):
+        self._meta = meta
+        self._size = size
+
+    def meta(self):
+        return self._meta
+
+    def as_vector(self):
+        return DummyVector([None] * self._size)
+
+
+def test_sparse2d_parser_validation_and_process_errors(monkeypatch):
+    """Sparse2D parser should validate source selection and tensor consistency."""
+    with pytest.raises(
+        ValueError, match="either `sparse_event` or `sparse_event_list`"
+    ):
+        LArCVSparse2DParser(dtype="float32", projection_id=0)
+
+    with pytest.raises(ValueError, match="least 1 sparse_event"):
+        LArCVSparse2DParser(dtype="float32", projection_id=0, sparse_event_list=[])
+
+    monkeypatch.setattr(
+        sparse_module,
+        "larcv",
+        SimpleNamespace(
+            fill_2d_voxels=lambda tensor, arr: None,
+            fill_2d_pcloud=lambda tensor, arr: None,
+        ),
+    )
+
+    parser = LArCVSparse2DParser(
+        dtype="float32",
+        projection_id=0,
+        sparse_event_list=[DummySparse2DEvent(DummyTensor2D(DummyMeta("a"), 2))],
+    )
+
+    with pytest.raises(ValueError, match="metadata must match"):
+        parser.process(
+            sparse_event_list=[
+                DummySparse2DEvent(DummyTensor2D(DummyMeta("a"), 2)),
+                DummySparse2DEvent(DummyTensor2D(DummyMeta("b"), 2)),
+            ]
+        )
+
+    with pytest.raises(ValueError, match="number of pixels must match"):
+        parser.process(
+            sparse_event_list=[
+                DummySparse2DEvent(DummyTensor2D(DummyMeta("a"), 2)),
+                DummySparse2DEvent(DummyTensor2D(DummyMeta("a"), 3)),
+            ]
+        )
+
+
+def test_sparse3d_parser_validation_and_process_errors(monkeypatch):
+    """Sparse3D parser should validate source selection, tensor consistency, and nhits index."""
+    with pytest.raises(
+        ValueError, match="either `sparse_event` or `sparse_event_list`"
+    ):
+        LArCVSparse3DParser(dtype="float32")
+
+    with pytest.raises(ValueError, match="least 1 sparse_event"):
+        LArCVSparse3DParser(dtype="float32", sparse_event_list=[])
+
+    monkeypatch.setattr(
+        sparse_module,
+        "larcv",
+        SimpleNamespace(
+            fill_3d_voxels=lambda tensor, arr: None,
+            fill_3d_pcloud=lambda tensor, arr: arr.fill(1.0),
+        ),
+    )
+
+    parser = LArCVSparse3DParser(
+        dtype="float32",
+        sparse_event_list=[
+            DummySparse3DEvent(DummyMeta("a"), 2),
+            DummySparse3DEvent(DummyMeta("a"), 2),
+        ],
+    )
+
+    with pytest.raises(ValueError, match="metadata must match"):
+        parser.process(
+            sparse_event_list=[
+                DummySparse3DEvent(DummyMeta("a"), 2),
+                DummySparse3DEvent(DummyMeta("b"), 2),
+            ]
+        )
+
+    with pytest.raises(ValueError, match="number of pixels must match"):
+        parser.process(
+            sparse_event_list=[
+                DummySparse3DEvent(DummyMeta("a"), 2),
+                DummySparse3DEvent(DummyMeta("a"), 3),
+            ]
+        )
+
+    parser = LArCVSparse3DParser(
+        dtype="float32",
+        sparse_event_list=[
+            DummySparse3DEvent(DummyMeta("a"), 2),
+            DummySparse3DEvent(DummyMeta("a"), 2),
+        ],
+        num_features=2,
+        hit_keys=[0, 1],
+        nhits_idx=-1,
+    )
+
+    with pytest.raises(ValueError, match="cannot be negative"):
+        parser.process(
+            sparse_event_list=[
+                DummySparse3DEvent(DummyMeta("a"), 2),
+                DummySparse3DEvent(DummyMeta("a"), 2),
+            ]
+        )
+
+
+if not LARCV_AVAILABLE:
+    _NO_LARCV_TESTS = {
+        "test_sparse2d_parser_validation_and_process_errors",
+        "test_sparse3d_parser_validation_and_process_errors",
+    }
+    for _name, _obj in list(globals().items()):
+        if _name.startswith("test_") and _name not in _NO_LARCV_TESTS:
+            globals()[_name] = pytest.mark.skip(
+                reason="LArCV is required to generate parser fixtures."
+            )(_obj)
