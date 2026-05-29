@@ -15,9 +15,22 @@ class FakeWatch:
 
     def __init__(self) -> None:
         self.initialized: list[str] = []
+        self.calls: list[tuple[str, str]] = []
 
     def initialize(self, key: str) -> None:
         self.initialized.append(key)
+
+    def start(self, key: str) -> None:
+        self.calls.append(("start", key))
+
+    def stop(self, key: str) -> None:
+        self.calls.append(("stop", key))
+
+
+@pytest.fixture(autouse=True)
+def fixture_fake_stopwatch_manager(monkeypatch):
+    """Use a lightweight stopwatch manager in IOManager tests."""
+    monkeypatch.setattr(manager_mod, "StopwatchManager", FakeWatch)
 
 
 class FakeReader:
@@ -26,8 +39,22 @@ class FakeReader:
     file_paths = ["/tmp/input_a.root", "/tmp/input_b.root"]
     cfg = {"post": {"existing": {}}}
 
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, object]] = []
+
     def __len__(self) -> int:
         return 4
+
+    def get(self, entry: int) -> dict[str, int]:
+        self.calls.append(("get", entry))
+        return {"index": entry}
+
+    def get_run_event(self, run: int, subrun: int, event: int) -> dict[str, int]:
+        self.calls.append(("get_run_event", (run, subrun, event)))
+        return {"index": event}
+
+    def process_entry_list(self, *args: object) -> None:
+        self.calls.append(("process_entry_list", args))
 
 
 class FakeLoader:
@@ -35,9 +62,19 @@ class FakeLoader:
 
     def __init__(self) -> None:
         self.dataset = SimpleNamespace(reader=FakeReader())
+        self.batches = iter([{"index": [0, 1]}, {"index": [2, 3]}])
+        self.sampler = SimpleNamespace(epochs=[])
+        self.sampler.set_epoch = lambda epoch: self.sampler.epochs.append(epoch)
 
     def __len__(self) -> int:
         return 2
+
+    def __iter__(self):
+        self.batches = iter([{"index": [0, 1]}, {"index": [2, 3]}])
+        return self
+
+    def __next__(self) -> dict[str, list[int]]:
+        return next(self.batches)
 
 
 class FakeLoaderNoReader:
@@ -64,17 +101,19 @@ def test_io_manager_initializes_reader_writer_and_iterations(monkeypatch):
     manager = IOManager(
         reader={"name": "hdf5"},
         writer={"name": "hdf5"},
-        watch=FakeWatch(),
         iterations=-1,
         split_output=False,
     )
 
     assert manager.loader is None
+    assert not manager.has_loader
     assert manager.reader.file_paths == ["/tmp/input_a.root", "/tmp/input_b.root"]
+    assert len(manager) == 4
     assert manager.post_list == ("existing",)
     assert manager.iterations == 4
     assert manager.epochs == 1.0
     assert manager.writer == "writer"
+    assert manager.has_writer
     assert writer_calls == [({"name": "hdf5"}, "input_a--input_b", False)]
 
 
@@ -91,8 +130,6 @@ def test_io_manager_initializes_loader_and_unwrapper(monkeypatch):
 
     manager = IOManager(
         loader={"dataset": {}},
-        watch=FakeWatch(),
-        geo={"detector": "icarus"},
         rank=1,
         dtype="float64",
         world_size=2,
@@ -103,11 +140,11 @@ def test_io_manager_initializes_loader_and_unwrapper(monkeypatch):
     )
 
     assert manager.loader is not None
+    assert manager.has_loader
     assert manager.unwrapper == "unwrapper"
     assert manager.post_list == ()
     assert manager.iterations == 3
     assert manager.output_prefix == ["input_a", "input_b"]
-    assert calls[0]["geo"] == {"detector": "icarus"}
     assert calls[0]["rank"] == 1
     assert calls[0]["dtype"] == "float64"
     assert calls[0]["distributed"] is True
@@ -116,28 +153,37 @@ def test_io_manager_initializes_loader_and_unwrapper(monkeypatch):
 def test_io_manager_validation(monkeypatch):
     """IOManager should reject invalid I/O combinations."""
     with pytest.raises(ValueError, match="either a loader or a reader"):
-        IOManager(watch=FakeWatch())
+        IOManager()
 
     with pytest.raises(ValueError, match="either a loader or a reader"):
-        IOManager(loader={}, reader={}, watch=FakeWatch())
+        IOManager(loader={}, reader={})
 
     with pytest.raises(ValueError, match="iterations"):
-        IOManager(reader={}, watch=FakeWatch(), iterations=1, epochs=1)
+        IOManager(reader={}, iterations=1, epochs=1)
 
     monkeypatch.setattr(manager_mod, "TORCH_AVAILABLE", False)
     with pytest.raises(ImportError, match="loader"):
-        IOManager(loader={}, watch=FakeWatch())
+        IOManager(loader={}, epochs=1.0)
 
     monkeypatch.setattr(manager_mod, "TORCH_AVAILABLE", True)
     monkeypatch.setattr(manager_mod, "loader_factory", lambda **kwargs: FakeLoader())
     with pytest.raises(ValueError, match="write"):
-        IOManager(loader={}, writer={}, watch=FakeWatch(), unwrap=False)
+        IOManager(loader={}, writer={}, unwrap=False, epochs=1.0)
 
     monkeypatch.setattr(
         manager_mod, "loader_factory", lambda **kwargs: FakeLoaderNoReader()
     )
     with pytest.raises(RuntimeError, match="reader"):
-        IOManager(loader={}, watch=FakeWatch())
+        IOManager(loader={}, epochs=1.0)
+
+    manager = object.__new__(IOManager)
+    manager.reader = None
+    with pytest.raises(RuntimeError, match="length"):
+        len(manager)
+
+    manager.watch = FakeWatch()
+    with pytest.raises(RuntimeError, match="Reader configuration"):
+        manager._initialize_reader(None)
 
 
 def test_io_manager_prefix_variants(monkeypatch):
@@ -182,3 +228,132 @@ def test_io_manager_prefix_variants(monkeypatch):
     )
     assert len(log_prefix) == 80
     assert all(len(prefix) == 70 for prefix in output_prefix)
+
+    manager.log_prefix = "input"
+    monkeypatch.setattr(manager, "_name_max", lambda path=".": 20)
+    assert manager.format_log_name("spine_log.csv", ".") == "input_spine_log.csv"
+
+
+def test_io_manager_load_reader_paths(monkeypatch):
+    """IOManager.load should dispatch reader entry and run-event requests."""
+    reader = FakeReader()
+    monkeypatch.setattr(manager_mod, "reader_factory", lambda cfg: reader)
+
+    manager = IOManager(reader={"name": "hdf5"}, iterations=-1)
+
+    assert manager.load(entry=1) == {"index": 1}
+    assert manager.load(run=1, subrun=2, event=3) == {"index": 3}
+    assert reader.calls == [("get", 1), ("get_run_event", (1, 2, 3))]
+    assert ("start", "read") in manager.watch.calls
+    assert ("stop", "read") in manager.watch.calls
+
+    with pytest.raises(ValueError, match="entry number"):
+        manager.load()
+
+    manager.reader = None
+    with pytest.raises(RuntimeError, match="reader"):
+        manager.load(entry=1)
+
+
+def test_io_manager_load_loader_paths(monkeypatch):
+    """IOManager.load should own sequential loader access."""
+    monkeypatch.setattr(manager_mod, "TORCH_AVAILABLE", True)
+    monkeypatch.setattr(manager_mod, "loader_factory", lambda **kwargs: FakeLoader())
+
+    manager = IOManager(loader={"dataset": {}}, epochs=1.0)
+
+    assert manager.load() == {"index": [0, 1]}
+    assert manager.load() == {"index": [2, 3]}
+    assert ("start", "load") in manager.watch.calls
+    assert ("stop", "load") in manager.watch.calls
+
+    with pytest.raises(ValueError, match="specific entry"):
+        manager.load(entry=0)
+
+
+def test_io_manager_iteration_unwrap_write_and_close(monkeypatch):
+    """IOManager should own loader iteration, unwrapping and writer lifecycle."""
+    writer_calls: list[object] = []
+
+    class FakeWriter:
+        def __call__(self, data, cfg):
+            writer_calls.append(("write", data, cfg))
+
+        def finalize(self):
+            writer_calls.append("finalize")
+
+        def close(self):
+            writer_calls.append("close")
+
+    monkeypatch.setattr(manager_mod, "TORCH_AVAILABLE", True)
+    monkeypatch.setattr(manager_mod, "loader_factory", lambda **kwargs: FakeLoader())
+    monkeypatch.setattr(
+        manager_mod, "Unwrapper", lambda: lambda data: {"index": [data["index"]]}
+    )
+    monkeypatch.setattr(
+        manager_mod, "writer_factory", lambda *args, **kwargs: FakeWriter()
+    )
+
+    manager = IOManager(
+        loader={"dataset": {}},
+        writer={"name": "hdf5"},
+        distributed=True,
+        unwrap=True,
+        epochs=1.0,
+    )
+
+    assert manager.loader_iter is None
+    manager.prepare_iteration(0)
+    assert manager.loader_iter is not None
+    assert manager.loader.sampler.epochs == [0]
+
+    loader_iter = manager.loader_iter
+    manager.prepare_iteration(1)
+    assert manager.loader_iter is loader_iter
+    manager.prepare_iteration(2)
+    assert manager.loader.sampler.epochs == [0, 1]
+
+    assert manager.unwrap({"index": [0]}) == {"index": [[0]]}
+    assert ("start", "unwrap") in manager.watch.calls
+    assert ("stop", "unwrap") in manager.watch.calls
+
+    manager.write({"index": 0}, {"cfg": True})
+    manager.close()
+    assert writer_calls == [
+        ("write", {"index": 0}, {"cfg": True}),
+        "finalize",
+        "close",
+    ]
+
+    manager.writer = None
+    assert not manager.has_writer
+    manager.write({"index": 1}, {})
+    manager.close()
+
+    manager.unwrapper = None
+    data = {"index": 1}
+    assert manager.unwrap(data) is data
+
+    manager.loader = None
+    manager.loader_iter = None
+    manager.prepare_iteration(0)
+    assert manager.loader_iter is None
+
+
+def test_io_manager_apply_filter(monkeypatch):
+    """IOManager.apply_filter should delegate to the reader and reset loaders."""
+    reader = FakeReader()
+    monkeypatch.setattr(manager_mod, "reader_factory", lambda cfg: reader)
+
+    manager = IOManager(reader={"name": "hdf5"}, iterations=-1)
+    manager.loader_iter = object()
+    manager.apply_filter(1, 2, [3], [4], [(1, 2, 3)], [(4, 5, 6)])
+
+    assert reader.calls == [
+        ("process_entry_list", (1, 2, [3], [4], [(1, 2, 3)], [(4, 5, 6)]))
+    ]
+    assert manager.loader_iter is None
+
+    manager.reader = None
+    with pytest.raises(RuntimeError, match="reader"):
+        manager.apply_filter()

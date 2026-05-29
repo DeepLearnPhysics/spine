@@ -10,6 +10,18 @@ from spine.banner import ascii_logo
 from spine.config import load_config_file
 from spine.config.loader import resolve_config_path
 from spine.config.operations import parse_value, set_nested_value
+from spine.version import __version__
+
+
+def format_banner() -> str:
+    """Build the CLI banner string.
+
+    Returns
+    -------
+    str
+        SPINE ASCII logo followed by a single-line version string.
+    """
+    return f"{ascii_logo}SPINE v{__version__}\n"
 
 
 def main(
@@ -154,8 +166,10 @@ def main(
     # For actual training/inference, we need the main functionality
     from spine.main import run
 
+    # Print the banner with version information before running
+    print(format_banner(), end="")
+
     # Run the main function
-    print(ascii_logo)
     run(cfg)
 
 

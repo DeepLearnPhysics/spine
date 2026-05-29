@@ -83,7 +83,6 @@ def writer_factory(
 def loader_factory(
     dataset: Mapping[str, Any] | str,
     dtype: str,
-    geo: Mapping[str, Any] | None = None,
     batch_size: int | None = None,
     minibatch_size: int | None = None,
     shuffle: bool = True,
@@ -104,8 +103,6 @@ def loader_factory(
         Dataset configuration mapping or short dataset name.
     dtype : str
         Floating-point dtype passed to the dataset factory.
-    geo : mapping, optional
-        Geometry configuration passed through to the dataset factory.
     batch_size : int, optional
         Global batch size. Mutually exclusive with ``minibatch_size``.
     minibatch_size : int, optional
@@ -140,19 +137,20 @@ def loader_factory(
     from torch.utils.data import DataLoader
 
     # Process the batch size, make sure it is sensible
-    if not (batch_size is not None) ^ (minibatch_size is not None):
+    if batch_size is not None and minibatch_size is not None:
         raise ValueError("Provide either `batch_size` or `minibatch_size`, not both.")
 
     if batch_size is not None:
         if world_size != 0 and (batch_size % world_size) != 0:
             raise ValueError("The batch_size must be a multiple of the number of GPUs.")
         minibatch_size = batch_size // max(world_size, 1)
-    else:
-        assert minibatch_size is not None  # Guaranteed by the check above
+    elif minibatch_size is not None:
         batch_size = minibatch_size * max(world_size, 1)
+    else:
+        raise ValueError("Provide either `batch_size` or `minibatch_size`, not both.")
 
     # Initialize the dataset
-    torch_dataset = dataset_factory(dataset, entry_list, dtype, geo=geo)
+    torch_dataset = dataset_factory(dataset, entry_list, dtype)
 
     # Initialize the sampler
     if sampler is not None:
@@ -182,7 +180,6 @@ def dataset_factory(
     dataset_cfg: Mapping[str, Any] | str,
     entry_list: list[int] | None = None,
     dtype: str | None = None,
-    geo: Mapping[str, Any] | None = None,
 ) -> Any:
     """Instantiate a dataset from configuration.
 
@@ -195,8 +192,6 @@ def dataset_factory(
         overrides any ``entry_list`` already present in ``dataset_cfg``.
     dtype : str, optional
         Floating-point dtype forwarded to the dataset constructor.
-    geo : mapping, optional
-        Geometry configuration forwarded to dataset types that require it.
 
     Returns
     -------
@@ -221,8 +216,6 @@ def dataset_factory(
 
     # Initialize dataset
     extra_kwargs: dict[str, Any] = {"dtype": dtype}
-    if geo is not None:
-        extra_kwargs["geo"] = geo
 
     return instantiate(dataset_dict, dataset_cfg, **extra_kwargs)
 

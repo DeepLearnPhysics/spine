@@ -131,12 +131,11 @@ def test_dataset_factory_entry_list_warning(hdf5_data):
     not TORCH_AVAILABLE,
     reason="PyTorch is required for torch-backed dataset factory tests.",
 )
-def test_dataset_factory_does_not_forward_none_geo(hdf5_data):
-    """Generic dataset construction should not leak `geo=None` into HDF5 readers."""
+def test_dataset_factory_builds_hdf5_dataset(hdf5_data):
+    """Generic dataset construction should instantiate HDF5 datasets."""
     dataset = dataset_factory(
         {"name": "hdf5", "file_keys": hdf5_data, "build_classes": False},
         dtype="float32",
-        geo=None,
     )
 
     assert len(dataset) > 0
@@ -279,8 +278,8 @@ def test_loader_factory_distributed_requires_explicit_rank(monkeypatch):
         )
 
 
-def test_dataset_factory_forwards_geo(monkeypatch):
-    """Dataset factory should only forward geometry when it is provided."""
+def test_dataset_factory_forwards_dtype(monkeypatch):
+    """Dataset factory should forward shared dataset initialization settings."""
     seen = []
 
     monkeypatch.setattr(
@@ -294,12 +293,8 @@ def test_dataset_factory_forwards_geo(monkeypatch):
     monkeypatch.setattr(factories_module, "instantiate", fake_instantiate)
 
     factories_module.dataset_factory({"name": "dummy"}, dtype="float32")
-    factories_module.dataset_factory(
-        {"name": "dummy"}, dtype="float32", geo={"detector": "icarus"}
-    )
 
     assert seen[0] == {"dtype": "float32"}
-    assert seen[1] == {"dtype": "float32", "geo": {"detector": "icarus"}}
 
 
 def test_loader_factory_requires_exactly_one_batch_size(monkeypatch):
@@ -327,6 +322,14 @@ def test_loader_factory_requires_exactly_one_batch_size(monkeypatch):
             dtype="float32",
             batch_size=2,
             minibatch_size=1,
+        )
+
+    with pytest.raises(
+        ValueError, match="Provide either `batch_size` or `minibatch_size`"
+    ):
+        factories_module.loader_factory(
+            dataset={"name": "dummy"},
+            dtype="float32",
         )
 
 

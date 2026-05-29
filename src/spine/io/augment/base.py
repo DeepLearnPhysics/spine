@@ -276,14 +276,23 @@ class AugmentBase(ABC):
             spread = np.std(coords, axis=0)
             return center.astype(np.float32), spread.astype(np.float32)
 
-        weights = np.concatenate(weights_list).astype(np.float64)
-        if np.allclose(weights.sum(), 0.0):
+        weights = np.concatenate(weights_list).astype(np.float64).reshape(-1)
+        total_weight = np.sum(weights, dtype=np.float64, initial=0.0)
+        if np.allclose(total_weight, 0.0):
             center = np.mean(coords, axis=0)
             spread = np.std(coords, axis=0)
             return center.astype(np.float32), spread.astype(np.float32)
 
-        center = np.average(coords, axis=0, weights=weights)
-        variance = np.average((coords - center) ** 2, axis=0, weights=weights)
+        weighted_coords = coords * weights[:, None]
+        center = (
+            np.sum(weighted_coords, axis=0, dtype=np.float64, initial=0.0)
+            / total_weight
+        )
+        weighted_variance = ((coords - center) ** 2) * weights[:, None]
+        variance = (
+            np.sum(weighted_variance, axis=0, dtype=np.float64, initial=0.0)
+            / total_weight
+        )
         spread = np.sqrt(variance)
         return center.astype(np.float32), spread.astype(np.float32)
 

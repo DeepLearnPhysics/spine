@@ -1,6 +1,8 @@
 # typical files made in repo
 log*
 !logger.py
+!src/spine/utils/log/
+!src/spine/utils/log/*.py
 weights*
 .cache/
 *.txt

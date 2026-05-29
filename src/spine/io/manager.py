@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from spine.utils.conditional import TORCH_AVAILABLE
+from spine.utils.stopwatch import StopwatchManager
 from spine.utils.unwrap import Unwrapper
 
 from .factories import loader_factory, reader_factory, writer_factory
@@ -22,6 +23,9 @@ class IOManager:
     PyTorch-style loader or an entry reader, exposes the underlying reader used
     for event addressing, derives log/output prefixes from input file names,
     configures the optional writer and harmonizes ``iterations`` and ``epochs``.
+    It also owns loader-batch unwrapping because that operation converts the
+    loader I/O view into the per-entry view consumed by writers, builders,
+    post-processors and analysis scripts.
 
     Attributes
     ----------
@@ -29,11 +33,15 @@ class IOManager:
         Instantiated PyTorch DataLoader-like object. ``None`` when running from
         a reader.
     loader_iter : iterator or None
-        Loader iterator used by the driver for sequential batch access.
-    counter : int or None
-        Entry counter used by the driver for reader-based iteration.
+        Loader iterator used for sequential batch access.
+    watch : StopwatchManager
+        Stopwatch manager for I/O-owned operations. The driver may merge this
+        into its aggregate stopwatch manager after processing.
     unwrapper : Unwrapper or None
         Batch unwrapper initialized when requested for loader-based execution.
+        This belongs to the I/O boundary: reader mode already yields one entry,
+        while loader mode may need to convert batched values into per-entry
+        value lists.
     reader : object
         Reader object backing either the configured reader or the loader
         dataset.
@@ -61,8 +69,6 @@ class IOManager:
         reader: Mapping[str, Any] | None = None,
         writer: Mapping[str, Any] | None = None,
         *,
-        watch: Any,
-        geo: Mapping[str, Any] | None = None,
         rank: int | None = None,
         dtype: str = "float32",
         world_size: int = 0,
@@ -84,11 +90,8 @@ class IOManager:
             ``loader``.
         writer : mapping, optional
             Writer configuration mapping. If provided with a loader, the
-            loader output must be unwrapped before writing.
-        watch : StopwatchManager
-            Driver stopwatch manager used to register I/O timers.
-        geo : mapping, optional
-            Geometry configuration passed through to loader datasets.
+            loader output must be unwrapped before writing. This is enforced
+            here because writer input shape depends on loader-batch unwrapping.
         rank : int, optional
             Process rank used by distributed loaders.
         dtype : str, default 'float32'
@@ -98,7 +101,9 @@ class IOManager:
         distributed : bool, default False
             If ``True``, initialize distributed data loading hooks.
         unwrap : bool, default False
-            If ``True`` and using a loader, initialize an ``Unwrapper``.
+            If ``True`` and using a loader, initialize an ``Unwrapper``. This
+            is ignored for reader mode, which already loads one event at a
+            time.
         iterations : int, optional
             Number of batches/entries to process. ``-1`` means one epoch.
         epochs : float, optional
@@ -114,30 +119,31 @@ class IOManager:
         """
         # Must provide exactly one of loader or reader configurations.
         if (loader is not None) == (reader is not None):
-            raise ValueError("Must provide either a loader or a reader configuration.")
-
-        # Must provide at most one of iterations or epochs.
-        if iterations is not None and epochs is not None:
             raise ValueError(
-                "Must not specify both `iterations` or `epochs` parameters."
+                "Must provide either a loader or a reader configuration, not both."
+            )
+
+        # Must provide exactly one of iterations or epochs.
+        if (iterations is not None) == (epochs is not None):
+            raise ValueError(
+                "Must specify either `iterations` or `epochs` parameters, not both."
             )
 
         # Initialize attributes to default values before calling setup methods.
-        self.watch = watch
+        self.watch = StopwatchManager()
         self.loader = None
         self.loader_iter = None
-        self.counter = None
         self.unwrapper = None
         self.reader = None
         self.writer = None
         self.iterations = iterations
         self.epochs = epochs
+        self.distributed = distributed
 
         # Initialize the loader or reader
         if loader is not None:
             self._initialize_loader(
                 loader,
-                geo=geo,
                 rank=rank,
                 dtype=dtype,
                 world_size=world_size,
@@ -167,7 +173,6 @@ class IOManager:
         self,
         loader: Mapping[str, Any],
         *,
-        geo: Mapping[str, Any] | None,
         rank: int | None,
         dtype: str,
         world_size: int,
@@ -180,8 +185,6 @@ class IOManager:
         ----------
         loader : mapping
             Loader configuration mapping.
-        geo : mapping, optional
-            Geometry configuration passed through to the dataset factory.
         rank : int, optional
             Process rank used by distributed samplers.
         dtype : str
@@ -192,7 +195,8 @@ class IOManager:
             If ``True``, initialize loader components for distributed use.
         unwrap : bool
             If ``True``, initialize an ``Unwrapper`` and register the unwrap
-            timer.
+            timer. Unwrapping is coupled to loader-backed I/O because it turns
+            batches into the event-level data view expected downstream.
 
         Raises
         ------
@@ -210,7 +214,6 @@ class IOManager:
         self.watch.initialize("load")
         self.loader = loader_factory(
             **loader,
-            geo=geo,
             rank=rank,
             dtype=dtype,
             world_size=world_size,
@@ -219,7 +222,8 @@ class IOManager:
         self.iter_per_epoch = len(self.loader)
         self.reader = self.loader.dataset.reader
 
-        # Initialize the unwrapper if requested, and register the unwrap timer.
+        # Initialize the unwrapper if requested. This stays with I/O because it
+        # is only meaningful for loader-backed batches.
         if unwrap:
             self.watch.initialize("unwrap")
             self.unwrapper = Unwrapper()
@@ -235,7 +239,9 @@ class IOManager:
         reader : mapping
             Reader configuration mapping.
         """
-        assert reader is not None  # For the type checker, guaranteed by the caller.
+        if reader is None:
+            raise RuntimeError("Reader configuration is required in reader mode.")
+
         self.watch.initialize("read")
         self.reader = reader_factory(reader)
         self.iter_per_epoch = len(self.reader)
@@ -275,7 +281,8 @@ class IOManager:
         if writer is None:
             return
 
-        # If a writer is configured with a loader, the loader output must be unwrapped.
+        # Writers consume dictionaries with per-entry values; loader batches
+        # must be unwrapped before they can be safely written.
         if self.loader is not None and not unwrap:
             raise ValueError("Must unwrap the model output to write it to file.")
 
@@ -299,6 +306,28 @@ class IOManager:
             self.epochs = 1.0
         elif self.epochs is not None:
             self.iterations = int(self.epochs * self.iter_per_epoch)
+
+    def __len__(self) -> int:
+        """Returns the number of events in the underlying reader object.
+
+        Returns
+        -------
+        int
+            Number of elements in the underlying loader/reader.
+        """
+        if self.reader is None:
+            raise RuntimeError("Cannot determine length without an initialized reader.")
+        return len(self.reader)
+
+    @property
+    def has_loader(self) -> bool:
+        """Whether this manager is backed by a sequential loader."""
+        return self.loader is not None
+
+    @property
+    def has_writer(self) -> bool:
+        """Whether this manager owns an output writer."""
+        return self.writer is not None
 
     def _name_max(self, path: str = ".") -> int:
         """Return the maximum filename component length for a path."""
@@ -333,6 +362,216 @@ class IOManager:
 
         suffix = writer.get("suffix", default_suffixes[writer_name])
         return f"_{suffix}.h5"
+
+    def format_log_name(self, log_name: str, log_dir: str) -> str:
+        """Prefix and truncate a driver log name using the input-derived stem.
+
+        Parameters
+        ----------
+        log_name : str
+            Baseline log filename, such as ``spine_log.csv`` or
+            ``train_log-0000001.csv``.
+        log_dir : str
+            Directory in which the log will be created. This is used to query
+            the filesystem filename-component limit.
+
+        Returns
+        -------
+        str
+            Log filename prefixed by ``self.log_prefix`` and truncated, if
+            needed, to fit the target filesystem constraints.
+        """
+        suffix = f"_{log_name}"
+        max_length = max(1, self._name_max(log_dir) - len(suffix))
+        log_prefix = self._truncate_prefix(self.log_prefix, max_length)
+        return f"{log_prefix}{suffix}"
+
+    def load(
+        self,
+        entry: int | None = None,
+        run: int | None = None,
+        subrun: int | None = None,
+        event: int | None = None,
+    ) -> dict[str, Any]:
+        """Load one batch or reader entry.
+
+        Parameters
+        ----------
+        entry : int, optional
+            Entry number to load from a reader. This is not valid when using a
+            loader.
+        run : int, optional
+            Run number to load from a reader.
+        subrun : int, optional
+            Subrun number to load from a reader.
+        event : int, optional
+            Event number to load from a reader.
+
+        Returns
+        -------
+        dict[str, Any]
+            Loaded batch or entry data. Loader-backed execution still returns
+            one batched dictionary; per-entry lists are produced later by
+            :meth:`unwrap`.
+
+        Raises
+        ------
+        ValueError
+            If direct entry addressing is requested from a loader, or if a
+            reader request is incomplete.
+        """
+        if self.loader is not None:
+            if (
+                entry is not None
+                or run is not None
+                or subrun is not None
+                or event is not None
+            ):
+                raise ValueError(
+                    "When calling the loader, there is no way to request a "
+                    "specific entry or run/subrun/event triplet, because the loader "
+                    "is designed to load batches sequentially. Use the apply_filter "
+                    "method to restrict the list of entries to load."
+                )
+
+            if self.loader_iter is None:
+                self.loader_iter = iter(self.loader)
+
+            self.watch.start("load")
+            data = next(self.loader_iter)
+            self.watch.stop("load")
+            return data
+
+        if entry is None and (run is None or subrun is None or event is None):
+            raise ValueError(
+                "Provide either the entry number or the run, subrun "
+                "and event number to read."
+            )
+
+        if self.reader is None:
+            raise RuntimeError("Cannot load data without an initialized reader.")
+
+        self.watch.start("read")
+        if entry is not None:
+            data = self.reader.get(entry)
+        else:
+            data = self.reader.get_run_event(run, subrun, event)
+        self.watch.stop("read")
+        return data
+
+    def reset_loader(self) -> None:
+        """Reset the loader iterator, if this manager owns a loader."""
+        if self.loader is not None:
+            self.loader_iter = iter(self.loader)
+
+    def prepare_iteration(self, iteration: int) -> None:
+        """Prepare loader state for a driver iteration.
+
+        Parameters
+        ----------
+        iteration : int
+            Global driver iteration number. Loader-backed execution uses this
+            to reset the iterator at epoch boundaries and to seed distributed
+            samplers with their epoch number.
+        """
+        if self.loader is None:
+            return
+
+        if self.loader_iter is None or iteration % self.iter_per_epoch == 0:
+            if self.distributed:
+                epoch_cnt = iteration // self.iter_per_epoch
+                self.loader.sampler.set_epoch(epoch_cnt)
+            self.reset_loader()
+
+    def unwrap(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Convert loader-batched values to per-entry values, if configured.
+
+        Parameters
+        ----------
+        data : dict[str, Any]
+            Loaded and optionally model-processed batch data.
+
+        Returns
+        -------
+        dict[str, Any]
+            Original data when no unwrapper is configured, otherwise unwrapped
+            data products. The result remains a dictionary, but individual
+            values may be converted from batched arrays/tensors into per-entry
+            lists. This is a no-op for reader-backed I/O.
+        """
+        if self.unwrapper is None:
+            return data
+
+        self.watch.start("unwrap")
+        result = self.unwrapper(data)
+        self.watch.stop("unwrap")
+        return result
+
+    def write(
+        self,
+        data: dict[str, Any],
+        cfg: Mapping[str, Any],
+    ) -> None:
+        """Write processed output, if a writer was configured.
+
+        Parameters
+        ----------
+        data : dict[str, Any]
+            Processed data products.
+        cfg : Mapping[str, Any]
+            Resolved driver configuration.
+        """
+        if self.writer is None:
+            return
+
+        self.watch.start("write")
+        self.writer(data, cfg)
+        self.watch.stop("write")
+
+    def close(self) -> None:
+        """Finalize and close the output writer, if any."""
+        if self.writer is not None:
+            self.writer.finalize()
+            self.writer.close()
+
+    def apply_filter(
+        self,
+        n_entry: int | None = None,
+        n_skip: int | None = None,
+        entry_list: list[int] | None = None,
+        skip_entry_list: list[int] | None = None,
+        run_event_list: list[tuple[int, int, int]] | None = None,
+        skip_run_event_list: list[tuple[int, int, int]] | None = None,
+    ) -> None:
+        """Restrict the reader entry list.
+
+        Parameters
+        ----------
+        n_entry : int, optional
+            Maximum number of entries to load.
+        n_skip : int, optional
+            Number of entries to skip at the beginning.
+        entry_list : list[int], optional
+            Entry IDs to keep.
+        skip_entry_list : list[int], optional
+            Entry IDs to skip.
+        run_event_list : list[tuple[int, int, int]], optional
+            Run/subrun/event triplets to keep.
+        skip_run_event_list : list[tuple[int, int, int]], optional
+            Run/subrun/event triplets to skip.
+        """
+        if self.reader is None:
+            raise RuntimeError("Cannot filter entries without an initialized reader.")
+
+        self.reader.process_entry_list(
+            n_entry,
+            n_skip,
+            entry_list,
+            skip_entry_list,
+            run_event_list,
+            skip_run_event_list,
+        )
+        self.loader_iter = None
 
     def get_prefixes(
         self,

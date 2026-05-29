@@ -29,7 +29,6 @@ class LArCVDataset(BaseDataset):
         schema: Mapping[str, Mapping[str, Any]],
         dtype: str,
         augment: Mapping[str, Any] | None = None,
-        geo: Mapping[str, Any] | None = None,
         **kwargs: Any,
     ) -> None:
         """Instantiate the LArCV-backed dataset."""
@@ -47,7 +46,7 @@ class LArCVDataset(BaseDataset):
                 if key not in tree_keys:
                     tree_keys.append(key)
 
-        self.build_augmenter(augment, geo=geo)
+        self.build_augmenter(augment)
         self.reader = LArCVReader(tree_keys=tree_keys, **kwargs)
 
     def __len__(self) -> int:

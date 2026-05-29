@@ -9,6 +9,7 @@ from .helpers import (
     make_meta,
     np,
     pytest,
+    weighted_stats,
 )
 
 
@@ -90,10 +91,7 @@ def test_mask_augment_defaults_to_weighted_activity_spread(monkeypatch):
     augment.generate_mask(data, meta, ["voxels", "meta"])
 
     coords_cm = meta.to_cm(coords, center=True)
-    expected_center = np.average(coords_cm, axis=0, weights=weights)
-    expected_spread = np.sqrt(
-        np.average((coords_cm - expected_center) ** 2, axis=0, weights=weights)
-    )
+    expected_center, expected_spread = weighted_stats(coords_cm, weights)
     assert np.allclose(seen["anchor"], expected_center)
     assert np.allclose(seen["spread"], expected_spread)
 

@@ -15,6 +15,14 @@
 ARG LARCV2_VERSION=2.3.4
 FROM --platform=linux/amd64 ghcr.io/deeplearnphysics/larcv2:${LARCV2_VERSION}-ubuntu22.04
 
+LABEL maintainer="DeepLearnPhysics Collaboration <drielsma@stanford.edu>" \
+      maintainer.name="DeepLearnPhysics Collaboration" \
+      maintainer.email="drielsma@stanford.edu" \
+      org.opencontainers.image.vendor="DeepLearnPhysics Collaboration" \
+      org.opencontainers.image.ref.name="spine" \
+      org.label-schema.vendor="DeepLearnPhysics Collaboration" \
+      org.label-schema.name="spine"
+
 # Set working directory
 WORKDIR /app
 

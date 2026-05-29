@@ -4,6 +4,8 @@ This module provides conditional PyTorch utilities that gracefully handle
 PyTorch unavailability with sensible fallbacks or clear error messages.
 """
 
+from importlib import import_module
+
 from ..conditional import TORCH_AVAILABLE, torch
 
 __all__ = [
@@ -14,6 +16,7 @@ __all__ = [
     "is_tensor",
     "distributed_barrier",
     "require_torch",
+    "create_summary_writer",
 ]
 
 
@@ -73,3 +76,31 @@ def require_torch(operation="this operation"):
             f"PyTorch is required for {operation}. "
             "Install with: pip install spine[model]"
         )
+
+
+def create_summary_writer(log_dir, **kwargs):
+    """Create a TensorBoard summary writer.
+
+    Parameters
+    ----------
+    log_dir : str
+        Output directory for TensorBoard event files.
+    **kwargs
+        Additional keyword arguments forwarded to
+        ``torch.utils.tensorboard.SummaryWriter``.
+
+    Returns
+    -------
+    object
+        TensorBoard summary writer instance.
+    """
+    require_torch("TensorBoard logging")
+    try:
+        summary_writer_cls = import_module("torch.utils.tensorboard").SummaryWriter
+    except (ImportError, ModuleNotFoundError) as exc:
+        raise ImportError(
+            "TensorBoard logging requested but torch.utils.tensorboard is "
+            "unavailable. Install the `tensorboard` package."
+        ) from exc
+
+    return summary_writer_cls(log_dir=log_dir, **kwargs)

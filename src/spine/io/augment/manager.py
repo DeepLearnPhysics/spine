@@ -4,7 +4,6 @@ from collections.abc import Mapping
 from typing import Any
 
 from spine.data import Meta
-from spine.geo import GeoManager
 from spine.io.parse.data import ParserTensor
 
 from .crop import CropAugment
@@ -29,15 +28,12 @@ class AugmentManager:
 
     def __init__(
         self,
-        geo: Mapping[str, Any] | None = None,
         **augmenters: Mapping[str, Any] | None,
     ) -> None:
         """Initialize the augmentation manager.
 
         Parameters
         ----------
-        geo : mapping, optional
-            Geometry configuration passed to the geometry manager.
         **augmenters : mapping, optional
             Ordered mapping of augmentation module configurations.
             If the configuration key matches a registered augmentation
@@ -51,8 +47,6 @@ class AugmentManager:
         None
             This method does not return anything
         """
-        self.geo = dict(geo) if geo is not None else None
-
         if not augmenters:
             raise ValueError("Must provide at least one augmentation module.")
 
@@ -107,9 +101,6 @@ class AugmentManager:
 
         if meta is None:
             return data
-
-        if self.geo is not None:
-            GeoManager.initialize_or_get(**self.geo)
 
         context = {"original_meta": self.copy_meta(meta)}
         for module in self.modules:

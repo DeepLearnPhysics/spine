@@ -11,7 +11,7 @@ from typing import Optional, Tuple
 
 from .driver import Driver
 from .utils.conditional import TORCH_AVAILABLE, torch
-from .utils.logger import logger
+from .utils.logger import configure_rank_logging, logger
 from .utils.torch.devices import set_visible_devices
 
 
@@ -90,6 +90,8 @@ def train_single(
     torch_sharing : str or None, optional
         File sharing strategy for torch distributed training
     """
+    configure_rank_logging(rank)
+
     # Training always requires torch
     if not TORCH_AVAILABLE:
         raise ImportError(
@@ -125,6 +127,8 @@ def inference_single(cfg: dict) -> None:
     cfg : dict
         Full driver configuration
     """
+    configure_rank_logging()
+
     # Prepare the driver
     driver = Driver(cfg)
 

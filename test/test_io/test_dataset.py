@@ -1478,8 +1478,7 @@ def test_larcv_dataset_uses_augmenter_and_length(monkeypatch):
             result["augmented"] = True
             return result
 
-    def build_augmenter(*, geo=None, **augment):
-        seen["geo"] = geo
+    def build_augmenter(**augment):
         seen["augment"] = augment
         return DummyAugmenter()
 
@@ -1491,12 +1490,10 @@ def test_larcv_dataset_uses_augmenter_and_length(monkeypatch):
         schema={"x": {"parser": "dummy"}},
         dtype="float32",
         augment={"mask": {"min_dimensions": [1, 1, 1], "max_dimensions": [1, 1, 1]}},
-        geo={"detector": "icarus"},
     )
 
     assert len(dataset) == 1
     assert dataset[0]["augmented"] is True
-    assert seen["geo"] == {"detector": "icarus"}
     assert "mask" in seen["augment"]
     assert dataset.list_data("file.root") == {"dummy": ["file.root"]}
 

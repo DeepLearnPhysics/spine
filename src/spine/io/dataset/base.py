@@ -52,9 +52,7 @@ class BaseDataset(Dataset):
         """Initialize shared dataset state."""
         self.augmenter = None
 
-    def build_augmenter(
-        self, augment: Mapping[str, Any] | None, geo: Mapping[str, Any] | None = None
-    ) -> None:
+    def build_augmenter(self, augment: Mapping[str, Any] | None) -> None:
         """Instantiate the configured augmenter, if any.
 
         Parameters
@@ -62,19 +60,13 @@ class BaseDataset(Dataset):
         augment : mapping, optional
             Augmentation configuration block passed to
             :class:`spine.io.augment.AugmentManager`.
-        geo : mapping, optional
-            Geometry configuration forwarded to the augmenter when geometric
-            augmentations are enabled.
         """
         if augment is None:
             self.augmenter = None
             return
 
         kwargs = dict(augment)
-        if geo is not None:
-            self.augmenter = AugmentManager(geo=geo, **kwargs)
-        else:
-            self.augmenter = AugmentManager(**kwargs)
+        self.augmenter = AugmentManager(**kwargs)
 
     def apply_augmenter(self, data: DataDict) -> DataDict:
         """Apply the configured augmenter, if present.

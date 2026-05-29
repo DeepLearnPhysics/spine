@@ -71,7 +71,9 @@ def test_main_updates_reader_config_and_runs(monkeypatch, tmp_path, capsys):
     assert cfg["model"]["weight_path"] == "weights.ckpt"
     assert cfg["model"]["weight_list"] == "weights.txt"
     assert cfg["override"] == ("io.batch_size", 8)
-    assert "██████████" in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert "██████████" in output
+    assert "SPINE v" in output
 
 
 def test_main_updates_loader_dataset(monkeypatch, tmp_path):

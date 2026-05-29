@@ -49,7 +49,7 @@ class FakeWatchManager:
         self.calls.append(("stop", key))
         self.watches.setdefault(key, FakeWatch()).running = False
 
-    def update(self, watch: object, key: str) -> None:
+    def update(self, watch: object, key: str | None = None) -> None:
         self.calls.append(("update", key))
 
     def reset(self) -> None:
@@ -117,21 +117,12 @@ class FakeLoader:
         return next(self.batches)
 
 
-class FakeLogger:
-    """CSV writer stand-in."""
-
-    def __init__(self) -> None:
-        self.rows: list[dict[str, object]] = []
-
-    def append(self, row: dict[str, object]) -> None:
-        self.rows.append(row)
-
-
 def bare_driver() -> Driver:
     """Construct a Driver instance without running its initializer."""
     drv = object.__new__(Driver)
     drv.watch = FakeWatchManager()
     drv.watch.initialize("iteration")
+    drv.tensorboard_cfg = None
     return drv
 
 
@@ -163,9 +154,11 @@ def test_process_config_normalizes_and_logs(monkeypatch):
         driver_mod.sc, "getstatusoutput", lambda cmd: (0, "test-kernel")
     )
 
+    input_base = {"verbosity": "debug", "seed": -1, "gpus": [0, 1]}
+    input_io = {"loader": {"sampler": "random"}}
     base, io, geo, model, build, post, ana = drv.process_config(
-        io={"loader": {"sampler": "random"}},
-        base={"verbosity": "debug", "seed": -1, "gpus": [0, 1]},
+        io=input_io,
+        base=input_base,
         geo={"detector": "icarus"},
         model={"name": "model"},
         build={"mode": "reco"},
@@ -174,6 +167,8 @@ def test_process_config_normalizes_and_logs(monkeypatch):
         rank=0,
     )
 
+    assert input_base == {"verbosity": "debug", "seed": -1, "gpus": [0, 1]}
+    assert input_io == {"loader": {"sampler": "random"}}
     assert levels == ["DEBUG"]
     assert base["world_size"] == 2
     assert base["seed"] == 123
@@ -205,6 +200,32 @@ def test_process_config_validates_required_io_and_seed(monkeypatch):
 
     with pytest.raises(TypeError, match="integer"):
         drv.process_config(io={"reader": {}}, base={"seed": 1.5}, rank=1)
+
+    with pytest.raises(TypeError, match="sampler"):
+        drv.process_config(io={"loader": {"sampler": object()}}, base={}, rank=1)
+
+
+def test_process_config_reuses_one_generated_seed(monkeypatch):
+    """process_config should reuse one generated default seed per config pass."""
+    drv = bare_driver()
+
+    time_values = iter([123.4, 987.6])
+    monkeypatch.setattr(driver_mod.time, "time", lambda: next(time_values))
+    monkeypatch.setattr(driver_mod, "set_visible_devices", lambda world_size, gpus: 0)
+    monkeypatch.setattr(driver_mod.logger, "setLevel", lambda level: None)
+    monkeypatch.setattr(driver_mod.logger, "info", lambda *args: None)
+    monkeypatch.setattr(
+        driver_mod.sc, "getstatusoutput", lambda cmd: (0, "test-kernel")
+    )
+
+    base, io, *_ = drv.process_config(
+        io={"loader": {"sampler": {"name": "random"}}},
+        base={},
+        rank=0,
+    )
+
+    assert base["seed"] == 123
+    assert io["loader"]["sampler"]["seed"] == 123
 
 
 def test_initialize_base_sets_runtime_state(monkeypatch):
@@ -261,6 +282,38 @@ def test_initialize_base_sets_runtime_state(monkeypatch):
         drv.initialize_base(seed=1, world_size=1, rank=2)
 
 
+def test_extract_driver_base_config_filters_runtime_keys():
+    """extract_driver_base_config should keep launcher-only keys out of initialize_base."""
+    base = {
+        "seed": 7,
+        "dtype": "float32",
+        "world_size": 2,
+        "gpus": [0, 1],
+        "verbosity": "debug",
+        "torch_sharing_strategy": "file_system",
+        "log_dir": "logs",
+        "distributed": True,
+        "tensorboard": True,
+    }
+
+    driver_base = Driver.extract_driver_base_config(base)
+
+    assert driver_base == {
+        "seed": 7,
+        "dtype": "float32",
+        "world_size": 2,
+        "log_dir": "logs",
+        "distributed": True,
+        "tensorboard": True,
+    }
+
+
+def test_extract_driver_base_config_rejects_unknown_keys():
+    """extract_driver_base_config should fail on unrecognized base settings."""
+    with pytest.raises(KeyError, match="unexpected_key"):
+        Driver.extract_driver_base_config({"seed": 7, "unexpected_key": 1})
+
+
 def test_initialize_io_reader_writer_and_iteration_harmonization(monkeypatch):
     """Reader I/O initialization should set prefixes, writer and iteration count."""
     drv = bare_driver()
@@ -284,26 +337,26 @@ def test_initialize_io_reader_writer_and_iteration_harmonization(monkeypatch):
         or "writer",
     )
 
-    drv.initialize_io(reader={"name": "hdf5"}, writer={"name": "csv"})
+    drv.initialize_io({"reader": {"name": "hdf5"}, "writer": {"name": "csv"}})
 
-    assert drv.reader is reader
-    assert drv.iter_per_epoch == 4
-    assert drv.post_list == ("calib", "pid")
+    assert drv.io.reader is reader
+    assert drv.io.iter_per_epoch == 4
+    assert drv.io.post_list == ("calib", "pid")
     assert drv.iterations == 4
     assert drv.epochs == 1.0
-    assert drv.writer == "writer"
+    assert drv.io.writer == "writer"
     assert writer_calls == [({"name": "csv"}, "input_000--input_001", False)]
 
     with pytest.raises(ValueError, match="either a loader or a reader"):
-        drv.initialize_io()
+        drv.initialize_io({})
     with pytest.raises(ValueError, match="either a loader or a reader"):
-        drv.initialize_io(loader={}, reader={})
+        drv.initialize_io({"loader": {}, "reader": {}})
 
 
 def test_initialize_io_loader_paths(monkeypatch):
     """Loader I/O initialization should require torch and optionally unwrap."""
     drv = bare_driver()
-    drv.cfg = {"geo": {"detector": "dummy"}}
+    drv.cfg = {}
     drv.rank = 0
     drv.dtype = "float32"
     drv.world_size = 2
@@ -323,15 +376,14 @@ def test_initialize_io_loader_paths(monkeypatch):
     )
     monkeypatch.setattr(io_manager_mod, "Unwrapper", lambda: "unwrapper")
 
-    drv.initialize_io(loader={"batch_size": 2})
+    drv.initialize_io({"loader": {"batch_size": 2}})
 
-    assert drv.loader is loader
-    assert drv.reader is loader.dataset.reader
-    assert drv.unwrapper == "unwrapper"
-    assert drv.post_list == ()
+    assert drv.io.loader is loader
+    assert drv.io.reader is loader.dataset.reader
+    assert drv.io.unwrapper == "unwrapper"
+    assert drv.io.post_list == ()
     assert drv.iterations == 3
-    assert drv.output_prefix == ["input_000", "input_001"]
-    assert calls[0]["geo"] == {"detector": "dummy"}
+    assert drv.io.output_prefix == ["input_000", "input_001"]
     assert calls[0]["distributed"] is True
 
     drv = bare_driver()
@@ -342,38 +394,45 @@ def test_initialize_io_loader_paths(monkeypatch):
     drv.distributed = False
     drv.unwrap = False
     drv.iterations = None
-    drv.epochs = None
+    drv.epochs = 1.0
     drv.split_output = False
     monkeypatch.setattr(io_manager_mod, "TORCH_AVAILABLE", False)
     with pytest.raises(ImportError, match="loader"):
-        drv.initialize_io(loader={})
+        drv.initialize_io({"loader": {}})
 
 
 def test_initialize_log_names_and_writer(monkeypatch, tmp_path):
     """initialize_log should choose generic or model-specific log names."""
-    created: list[tuple[str, bool, int]] = []
+    created: list[tuple[str, bool, int, object, str]] = []
 
-    class DummyCSVWriter:
-        def __init__(self, path, overwrite=False, buffer_size=1):
-            created.append((path, overwrite, buffer_size))
+    class DummyLogManager:
+        def __init__(
+            self,
+            path,
+            overwrite=False,
+            buffer_size=1,
+            tensorboard=None,
+            tensorboard_dir=None,
+        ):
+            created.append((path, overwrite, buffer_size, tensorboard, tensorboard_dir))
 
-    monkeypatch.setattr(driver_mod, "CSVWriter", DummyCSVWriter)
+    monkeypatch.setattr(driver_mod, "LogManager", DummyLogManager)
 
     drv = bare_driver()
     drv.log_dir = str(tmp_path / "logs")
     drv.builder = object()
     drv.model = None
     drv.prefix_log = True
-    drv.log_prefix = "sample"
     drv.overwrite_log = True
     drv.csv_buffer_size = 10
+    drv.io = SimpleNamespace(
+        format_log_name=lambda log_name, log_dir: f"sample_{log_name}",
+    )
     drv.initialize_log()
     assert created[-1][0].endswith("sample_spine_log.csv")
 
-    drv.log_prefix = "x" * 200
     drv.io = SimpleNamespace(
-        _name_max=lambda path=".": 40,
-        _truncate_prefix=lambda prefix, max_length: prefix[:max_length],
+        format_log_name=lambda log_name, log_dir: f"{'x' * 26}_{log_name}",
     )
     drv.initialize_log()
     assert os.path.basename(created[-1][0]) == f"{'x' * 26}_spine_log.csv"
@@ -388,6 +447,48 @@ def test_initialize_log_names_and_writer(monkeypatch, tmp_path):
     drv.model = SimpleNamespace(start_iteration=5, train=False, distributed=False)
     drv.initialize_log()
     assert created[-1][0].endswith("inference_log-0000005.csv")
+
+
+def test_initialize_tensorboard_logger(monkeypatch, tmp_path):
+    """initialize_log should optionally create a TensorBoard writer."""
+    created: list[tuple[str, object, str]] = []
+
+    class DummyLogManager:
+        def __init__(
+            self,
+            path,
+            overwrite=False,
+            buffer_size=1,
+            tensorboard=None,
+            tensorboard_dir=None,
+        ):
+            created.append((path, tensorboard, tensorboard_dir))
+
+    monkeypatch.setattr(driver_mod, "LogManager", DummyLogManager)
+
+    drv = bare_driver()
+    drv.log_dir = str(tmp_path / "logs")
+    drv.builder = object()
+    drv.model = None
+    drv.prefix_log = False
+    drv.overwrite_log = False
+    drv.csv_buffer_size = 1
+    drv.tensorboard_cfg = {"log_dir": "tb", "flush_secs": 5}
+    drv.initialize_log()
+
+    assert created[-1] == (
+        os.path.join(drv.log_dir, "spine_log.csv"),
+        {"log_dir": "tb", "flush_secs": 5},
+        os.path.join(drv.log_dir, "tensorboard"),
+    )
+
+    drv.tensorboard_cfg = True
+    drv.initialize_log()
+    assert created[-1] == (
+        os.path.join(drv.log_dir, "spine_log.csv"),
+        True,
+        os.path.join(drv.log_dir, "tensorboard"),
+    )
 
 
 def test_driver_constructor_initializes_optional_managers(monkeypatch):
@@ -411,17 +512,19 @@ def test_driver_constructor_initializes_optional_managers(monkeypatch):
         self.dtype = "float32"
         self.rank = kwargs["rank"]
         self.distributed = False
-        self.iter_per_epoch = 2
         self.unwrap = True
         self.parent_path = "/tmp"
         self.log_dir = "logs"
-        self.log_prefix = "input"
         return {"train": "cfg"}
 
-    def initialize_io(self, **kwargs):
-        calls.append(("initialize_io", kwargs))
-        self.loader = object()
-        self.post_list = ("previous",)
+    def initialize_io(self, io):
+        calls.append(("initialize_io", io))
+        self.io = SimpleNamespace(
+            has_loader=True,
+            iter_per_epoch=2,
+            post_list=("previous",),
+            log_prefix="input",
+        )
 
     class FakeModel:
         to_numpy = True
@@ -493,16 +596,18 @@ def test_driver_constructor_validates_model_dependent_modes(monkeypatch):
             self.dtype = "float32"
             self.rank = None
             self.distributed = False
-            self.iter_per_epoch = 1
             self.unwrap = unwrap
             self.parent_path = None
             self.log_dir = "logs"
-            self.log_prefix = "input"
             return initialize_base_return
 
-        def initialize_io(self, **kwargs):
-            self.loader = loader
-            self.post_list = ()
+        def initialize_io(self, io):
+            self.io = SimpleNamespace(
+                has_loader=loader is not None,
+                iter_per_epoch=1,
+                post_list=(),
+                log_prefix="input",
+            )
 
         monkeypatch.setattr(Driver, "initialize_base", initialize_base)
         monkeypatch.setattr(Driver, "initialize_io", initialize_io)
@@ -563,6 +668,17 @@ def test_driver_constructor_validates_model_dependent_modes(monkeypatch):
         Driver({})
 
 
+def test_optional_initializers_accept_absent_configs():
+    """Optional driver managers should stay unset when configs are omitted."""
+    drv = bare_driver()
+    drv.io = SimpleNamespace(has_loader=False, post_list=None, log_prefix="input")
+    drv.initialize_model(None, None)
+    drv.initialize_ana(None)
+
+    assert drv.model is None
+    assert drv.ana is None
+
+
 def test_initialize_io_validation_branches(monkeypatch):
     """initialize_io should reject incompatible writer and iteration settings."""
     drv = bare_driver()
@@ -573,13 +689,13 @@ def test_initialize_io_validation_branches(monkeypatch):
     drv.distributed = False
     drv.unwrap = False
     drv.iterations = None
-    drv.epochs = None
+    drv.epochs = 1.0
     drv.split_output = False
 
     monkeypatch.setattr(io_manager_mod, "TORCH_AVAILABLE", True)
     monkeypatch.setattr(io_manager_mod, "loader_factory", lambda **kwargs: FakeLoader())
     with pytest.raises(ValueError, match="write"):
-        drv.initialize_io(loader={"name": "loader"}, writer={"name": "writer"})
+        drv.initialize_io({"loader": {"name": "loader"}, "writer": {"name": "writer"}})
 
     drv = bare_driver()
     drv.cfg = {}
@@ -596,15 +712,22 @@ def test_initialize_io_validation_branches(monkeypatch):
         io_manager_mod, "reader_factory", lambda cfg: FakeReader(length=2)
     )
     with pytest.raises(ValueError, match="iterations"):
-        drv.initialize_io(reader={"name": "reader"})
+        drv.initialize_io({"reader": {"name": "reader"}})
 
 
 def test_iteration_and_load_paths():
-    """Driver iteration should dispatch through loader or reader correctly."""
+    """Driver iteration should dispatch through process correctly."""
+
+    class IterIO(SimpleNamespace):
+        def __len__(self):
+            return 2
+
     drv = bare_driver()
-    drv.reader = FakeReader(length=2)
-    drv.loader = None
-    drv.counter = None
+    drv.io = IterIO(
+        has_loader=False,
+        reset_loader=lambda: None,
+        close=lambda: None,
+    )
     processed: list[object] = []
     drv.process = lambda entry=None, **kwargs: processed.append(entry) or {
         "index": entry
@@ -617,25 +740,18 @@ def test_iteration_and_load_paths():
         next(drv)
 
     drv = bare_driver()
-    drv.loader = FakeLoader()
-    drv.loader_iter = None
-    drv.reader = drv.loader.dataset.reader
-    drv.process = lambda entry=None, **kwargs: drv.load(entry)
+    drv.io = IterIO(
+        has_loader=True,
+        reset_loader=lambda: None,
+        close=lambda: None,
+    )
+    processed.clear()
+    drv.process = lambda entry=None, **kwargs: processed.append(entry) or {
+        "index": [0, 1]
+    }
     assert iter(drv) is drv
     assert next(drv) == {"index": [0, 1]}
-    drv.loader_iter = None
-    assert drv.load() == {"index": [0, 1]}
-
-    with pytest.raises(ValueError, match="specific entry"):
-        drv.load(entry=0)
-
-    drv = bare_driver()
-    drv.loader = None
-    drv.reader = FakeReader()
-    with pytest.raises(ValueError, match="entry number"):
-        drv.load()
-    assert drv.load(entry=1) == {"index": 1}
-    assert drv.load(run=1, subrun=2, event=3) == {"index": 3}
+    assert processed == [None]
 
 
 def test_process_runs_pipeline_in_order():
@@ -643,7 +759,12 @@ def test_process_runs_pipeline_in_order():
     drv = bare_driver()
     drv.watch.watches["iteration"].running = True
     calls: list[str] = []
-    drv.load = lambda *args: calls.append("load") or {"index": 0}
+    drv.io = SimpleNamespace(
+        load=lambda *args: calls.append("load") or {"index": 0},
+        unwrap=lambda data: calls.append("unwrap") or data,
+        write=lambda data, cfg: calls.append("write"),
+        watch="io-watch",
+    )
 
     class Model:
         watch = "model-watch"
@@ -653,7 +774,6 @@ def test_process_runs_pipeline_in_order():
             return {"loss": 1.0}
 
     drv.model = Model()
-    drv.unwrapper = lambda data: calls.append("unwrap") or data
     drv.builder = lambda data: calls.append("build")
     drv.post = SimpleNamespace(
         watch="post-watch", __call__=lambda data: calls.append("post")
@@ -668,7 +788,6 @@ def test_process_runs_pipeline_in_order():
         (),
         {"watch": "ana-watch", "__call__": lambda self, data: calls.append("ana")},
     )()
-    drv.writer = lambda data, cfg: calls.append("write")
     drv.cfg = {"base": {}}
 
     data = drv.process(entry=4, iteration=9, epoch=1.5)
@@ -676,6 +795,7 @@ def test_process_runs_pipeline_in_order():
     assert data == {"index": 0, "loss": 1.0}
     assert calls == ["load", "model:9:1.5", "unwrap", "build", "post", "ana", "write"]
     assert ("reset", None) in drv.watch.calls
+    assert ("update", None) in drv.watch.calls
     assert drv.watch.calls[-1] == ("stop", "iteration")
 
 
@@ -684,16 +804,19 @@ def test_run_loop_resets_loader_logs_and_closes():
     drv = bare_driver()
     drv.iterations = 3
     drv.model = SimpleNamespace(train=True, start_iteration=1)
-    drv.loader = FakeLoader()
-    drv.loader_iter = None
-    drv.iter_per_epoch = 2
     drv.distributed = True
     drv.ana = SimpleNamespace(close=lambda: calls.append("ana_close"))
-    drv.writer = SimpleNamespace(
-        finalize=lambda: calls.append("writer_finalize"),
-        close=lambda: calls.append("writer_close"),
-    )
+    drv.log_manager = SimpleNamespace(close=lambda: calls.append("log_close"))
     calls: list[object] = []
+    sampler_epochs: list[int] = []
+    drv.io = SimpleNamespace(
+        has_loader=True,
+        iter_per_epoch=2,
+        prepare_iteration=lambda iteration: (
+            sampler_epochs.append(iteration // 2) if iteration % 2 == 0 else None
+        ),
+        close=lambda: calls.append("io_close"),
+    )
     drv.initialize_log = lambda: calls.append("initialize_log")
     drv.process = lambda entry=None, iteration=None, epoch=None: calls.append(
         ("process", entry, iteration, epoch)
@@ -707,93 +830,123 @@ def test_run_loop_resets_loader_logs_and_closes():
     assert calls[0] == "initialize_log"
     assert ("process", None, 1, 1.0) in calls
     assert ("process", None, 2, 1.5) in calls
-    assert drv.loader.sampler.epochs == [0, 1]
-    assert calls[-3:] == ["ana_close", "writer_finalize", "writer_close"]
+    assert sampler_epochs == [1]
+    assert calls[-3:] == [
+        "ana_close",
+        "log_close",
+        "io_close",
+    ]
 
     drv.iterations = None
     with pytest.raises(ValueError, match="iterations"):
         drv.run()
 
 
+def test_run_loop_cleans_up_on_processing_failure():
+    """run should close resources even if processing raises."""
+    drv = bare_driver()
+    drv.iterations = 1
+    drv.model = None
+    drv.ana = SimpleNamespace(close=lambda: calls.append("ana_close"))
+    drv.log_manager = SimpleNamespace(close=lambda: calls.append("log_close"))
+    drv.io = SimpleNamespace(
+        has_loader=False,
+        iter_per_epoch=1,
+        prepare_iteration=lambda iteration: calls.append("prepare"),
+        close=lambda: calls.append("io_close"),
+    )
+    calls: list[str] = []
+    drv.initialize_log = lambda: calls.append("initialize_log")
+
+    def fail_process(**kwargs):
+        calls.append("process")
+        raise RuntimeError("boom")
+
+    drv.process = fail_process
+
+    with pytest.raises(RuntimeError, match="boom"):
+        drv.run()
+
+    assert calls == [
+        "initialize_log",
+        "prepare",
+        "process",
+        "ana_close",
+        "log_close",
+        "io_close",
+    ]
+
+
 def test_apply_filter_resets_loader_iterator():
     """apply_filter should delegate to reader and invalidate loader iterator."""
     drv = bare_driver()
-    drv.reader = FakeReader()
-    drv.loader_iter = object()
+    calls: list[tuple[object, ...]] = []
+    drv.io = SimpleNamespace(
+        apply_filter=lambda *args: calls.append(args),
+    )
 
     drv.apply_filter(1, 2, [3], [4], [(1, 2, 3)], [(4, 5, 6)])
 
-    assert drv.reader.calls == [
-        ("process_entry_list", (1, 2, [3], [4], [(1, 2, 3)], [(4, 5, 6)]))
-    ]
-    assert drv.loader_iter is None
+    assert calls == [(1, 2, [3], [4], [(1, 2, 3)], [(4, 5, 6)])]
 
 
 def test_log_collects_scalars_memory_and_stdout(monkeypatch):
     """log should append scalar metrics and emit formatted progress lines."""
     drv = bare_driver()
     drv.watch.initialize("model")
-    drv.logger = FakeLogger()
     drv.log_step = 1
     drv.model = SimpleNamespace(train=True)
     drv.rank = 0
     drv.distributed = True
     drv.main_process = True
+    rows: list[dict[str, object]] = []
     infos: list[str] = []
-    barriers: list[None] = []
-
-    monkeypatch.setattr(
-        driver_mod.psutil,
-        "virtual_memory",
-        lambda: SimpleNamespace(used=4.0e9, percent=50.0),
+    drv.log_manager = SimpleNamespace(
+        append=lambda data, watch, iteration, epoch: rows.append(
+            {
+                "first_entry": 7,
+                "cpu_mem": 4.0,
+                "gpu_mem": 2.0,
+                "gpu_mem_perc": 25.0,
+                "tensor_metric": 3.5,
+            }
+        )
+        or rows[-1],
+        log_stdout_summary=lambda *args, **kwargs: infos.append("Iter. 0"),
     )
-    monkeypatch.setattr(driver_mod.runtime, "cuda_is_available", lambda: True)
-    monkeypatch.setattr(driver_mod.runtime, "cuda_mem_info", lambda: (0, 8.0e9))
-    monkeypatch.setattr(driver_mod.runtime, "cuda_max_memory_allocated", lambda: 2.0e9)
-    monkeypatch.setattr(
-        driver_mod.runtime, "distributed_barrier", lambda: barriers.append(None)
-    )
-    monkeypatch.setattr(
-        driver_mod.runtime, "is_tensor", lambda value: hasattr(value, "dim")
-    )
-    monkeypatch.setattr(
-        driver_mod.logger,
-        "info",
-        lambda msg, *args: infos.append(msg % args if args else msg),
-    )
-
-    class ScalarTensor:
-        def dim(self):
-            return 0
-
-        def item(self):
-            return 3.5
 
     drv.log(
         {
             "index": [7, 8],
             "loss": 1.25,
             "accuracy": 0.5,
-            "tensor_metric": ScalarTensor(),
+            "tensor_metric": 3.5,
         },
         "2026-01-01 00:00:00",
         iteration=0,
         epoch=0.5,
     )
 
-    row = drv.logger.rows[-1]
+    row = rows[-1]
     assert row["first_entry"] == 7
     assert row["cpu_mem"] == 4.0
     assert row["gpu_mem"] == 2.0
     assert row["gpu_mem_perc"] == 25.0
     assert row["tensor_metric"] == 3.5
-    assert len(barriers) == 2
     assert any("Iter. 0" in msg for msg in infos)
 
     drv.rank = None
     drv.distributed = False
     drv.main_process = False
     drv.model = None
-    monkeypatch.setattr(driver_mod.runtime, "cuda_is_available", lambda: False)
     drv.log({"index": 9}, "2026-01-01 00:00:01", iteration=1, epoch=1.0)
-    assert drv.logger.rows[-1]["gpu_mem"] == 0.0
+    assert rows[-1]["gpu_mem"] == 2.0
+
+
+def test_log_requires_initialized_log_manager():
+    """log should fail clearly before initialize_log has been called."""
+    drv = bare_driver()
+    drv.log_manager = None
+
+    with pytest.raises(RuntimeError, match="log manager"):
+        drv.log({"index": 0}, "2026-01-01 00:00:00", iteration=0)
