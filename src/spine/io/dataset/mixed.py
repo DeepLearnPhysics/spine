@@ -37,6 +37,7 @@ class MixedDataset(BaseDataset):
         hdf5_align_keys: Mapping[str, str] | None = None,
         hdf5_key_map: Mapping[str, str] | None = None,
         allow_overwrite: bool = False,
+        **kwargs: Any,
     ) -> None:
         """Instantiate the mixed dataset.
 
@@ -60,6 +61,10 @@ class MixedDataset(BaseDataset):
             Optional rename map applied to HDF5 product keys before merging
         allow_overwrite : bool, default False
             If `True`, allow HDF5 products to overwrite colliding LArCV keys
+        **kwargs : Any
+            Shared keyword arguments forwarded to both underlying dataset
+            constructors. This is primarily used for reader-level options such
+            as entry-list filtering that must remain aligned across sources.
         """
         super().__init__()
 
@@ -68,8 +73,8 @@ class MixedDataset(BaseDataset):
         self.hdf5_key_map = dict(hdf5_key_map or {})
         self.allow_overwrite = allow_overwrite
 
-        self.primary = LArCVDataset(**dict(larcv), dtype=dtype, augment=None)
-        self.cache = HDF5Dataset(**dict(hdf5), dtype=dtype, augment=None)
+        self.primary = LArCVDataset(**larcv, dtype=dtype, augment=None, **kwargs)
+        self.cache = HDF5Dataset(**hdf5, dtype=dtype, augment=None, **kwargs)
         self.reader = self.primary.reader
         if len(self.primary) != len(self.cache):
             raise ValueError(

@@ -1111,6 +1111,78 @@ def test_mixed_dataset_len_delegates_to_primary(monkeypatch):
     assert len(dataset) == 4
 
 
+def test_mixed_dataset_forwards_shared_kwargs(monkeypatch):
+    """MixedDataset should forward shared reader kwargs to both sources."""
+    seen: list[tuple[str, dict[str, object]]] = []
+
+    class DummyDataset:
+        def __init__(self, which, kwargs):
+            seen.append((which, kwargs))
+            self.reader = object()
+
+        def __len__(self):
+            return 1
+
+        def __getitem__(self, idx):
+            return {"index": idx, "file_index": 0, "file_entry_index": idx}
+
+        @property
+        def data_types(self):
+            return {
+                "index": "scalar",
+                "file_index": "scalar",
+                "file_entry_index": "scalar",
+            }
+
+        @property
+        def overlay_methods(self):
+            return {
+                "index": "cat",
+                "file_index": "cat",
+                "file_entry_index": "cat",
+            }
+
+    monkeypatch.setattr(
+        mixed_dataset_module,
+        "LArCVDataset",
+        lambda **kwargs: DummyDataset("larcv", kwargs),
+    )
+    monkeypatch.setattr(
+        mixed_dataset_module,
+        "HDF5Dataset",
+        lambda **kwargs: DummyDataset("hdf5", kwargs),
+    )
+
+    MixedDataset(
+        larcv={"file_keys": "dummy.root", "schema": {}},
+        hdf5={"file_keys": "dummy.h5"},
+        dtype="float32",
+        entry_list=[0],
+    )
+
+    assert seen == [
+        (
+            "larcv",
+            {
+                "file_keys": "dummy.root",
+                "schema": {},
+                "dtype": "float32",
+                "augment": None,
+                "entry_list": [0],
+            },
+        ),
+        (
+            "hdf5",
+            {
+                "file_keys": "dummy.h5",
+                "dtype": "float32",
+                "augment": None,
+                "entry_list": [0],
+            },
+        ),
+    ]
+
+
 def test_mixed_dataset_respects_explicit_hdf5_align_keys(monkeypatch):
     """Explicit HDF5 alignment mappings should override automatic source_* lookup."""
 
