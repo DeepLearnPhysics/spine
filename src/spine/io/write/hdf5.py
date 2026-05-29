@@ -108,6 +108,10 @@ class HDF5Writer:
             for file_name in self.file_names:
                 if os.path.isfile(file_name):
                     raise FileExistsError(f"File with name {file_name} already exists.")
+        elif overwrite and not append:
+            for file_name in self.file_names:
+                if os.path.isfile(file_name):
+                    os.remove(file_name)
 
         # Store other persistent attributes
         self.append = append

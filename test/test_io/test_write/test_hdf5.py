@@ -957,6 +957,16 @@ def test_hdf5_writer_rejects_existing_file(hdf5_output):
         HDF5Writer(hdf5_output)
 
 
+def test_hdf5_writer_overwrite_removes_existing_output(hdf5_output):
+    """Overwrite should remove an existing target file eagerly."""
+    open(hdf5_output, "a", encoding="utf-8").close()
+
+    writer = HDF5Writer(hdf5_output, overwrite=True)
+
+    assert not os.path.exists(hdf5_output)
+    writer.close()
+
+
 def test_hdf5_writer_get_file_names_errors():
     """File name inference should reject incompatible inputs."""
     with pytest.raises(AssertionError, match="must provide the input file `prefix`"):
