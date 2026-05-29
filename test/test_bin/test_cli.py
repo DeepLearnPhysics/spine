@@ -73,7 +73,7 @@ def test_main_updates_reader_config_and_runs(monkeypatch, tmp_path, capsys):
     assert cfg["override"] == ("io.batch_size", 8)
     output = capsys.readouterr().out
     assert "██████████" in output
-    assert "SPINE v" in output
+    assert "SPINE v" not in output
 
 
 def test_main_updates_loader_dataset(monkeypatch, tmp_path):

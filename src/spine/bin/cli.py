@@ -10,7 +10,6 @@ from spine.banner import ascii_logo
 from spine.config import load_config_file
 from spine.config.loader import resolve_config_path
 from spine.config.operations import parse_value, set_nested_value
-from spine.version import __version__
 
 
 def format_banner() -> str:
@@ -19,9 +18,9 @@ def format_banner() -> str:
     Returns
     -------
     str
-        SPINE ASCII logo followed by a single-line version string.
+        SPINE ASCII logo followed by a blank separator line.
     """
-    return f"{ascii_logo}SPINE v{__version__}\n"
+    return f"{ascii_logo}\n"
 
 
 def main(
@@ -76,6 +75,10 @@ def main(
     config_overrides : list[str], optional
         List of config overrides in the form "key.path=value"
     """
+    # Print the banner before configuration loading starts, since loading may
+    # trigger download/cache messages and warnings.
+    print(format_banner(), end="")
+
     # Load the configuration tools to find the appropriate config file
     cfg_file = resolve_config_path(config, current_dir=os.getcwd())
 
@@ -165,9 +168,6 @@ def main(
 
     # For actual training/inference, we need the main functionality
     from spine.main import run
-
-    # Print the banner with version information before running
-    print(format_banner(), end="")
 
     # Run the main function
     run(cfg)
