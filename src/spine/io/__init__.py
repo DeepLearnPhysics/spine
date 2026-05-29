@@ -9,6 +9,7 @@ and inference configurations.
 from spine.utils.conditional import TORCH_AVAILABLE
 
 from .factories import *
+from .manager import *
 from .read import *
 from .write import *
 

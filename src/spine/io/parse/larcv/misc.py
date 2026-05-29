@@ -1,11 +1,11 @@
 """Module that contains parsers that do not fit in other categories.
 
 Contains the following parsers:
-- :class:`Meta2DParser`
-- :class:`Meta3DParser`
-- :class:`RunInfoParser`
-- :class:`CRTHitParser`
-- :class:`TriggerParser`
+- :class:`LArCVMetaParser`
+- :class:`LArCVRunInfoParser`
+- :class:`LArCVFlashParser`
+- :class:`LArCVCRTHitParser`
+- :class:`LArCVTriggerParser`
 """
 
 from __future__ import annotations
@@ -28,11 +28,6 @@ __all__ = [
     "LArCVFlashParser",
     "LArCVCRTHitParser",
     "LArCVTriggerParser",
-    "MetaParser",
-    "RunInfoParser",
-    "FlashParser",
-    "CRTHitParser",
-    "TriggerParser",
 ]
 
 
@@ -177,9 +172,8 @@ class LArCVRunInfoParser(ParserBase):
             Run information object
         """
         # Check on the input, pick a source for the run information
-        assert (sparse_event is not None) ^ (
-            cluster_event is not None
-        ), "Must specify either `sparse_event` or `cluster_event`."
+        if not (sparse_event is not None) ^ (cluster_event is not None):
+            raise ValueError("Must specify either `sparse_event` or `cluster_event`.")
         ref_event = sparse_event if sparse_event is not None else cluster_event
 
         return RunInfo.from_larcv(ref_event)
@@ -268,9 +262,8 @@ class LArCVFlashParser(ParserBase):
             List of optical flash objects
         """
         # Check on the input
-        assert (flash_event is not None) ^ (
-            flash_event_list is not None
-        ), "Must specify either `flash_event` or `flash_event_list`."
+        if not (flash_event is not None) ^ (flash_event_list is not None):
+            raise ValueError("Must specify either `flash_event` or `flash_event_list`.")
 
         # Parse flash objects
         flashes = []
@@ -284,6 +277,8 @@ class LArCVFlashParser(ParserBase):
             # and count the flash index from 0 to the largest number
             idx = 0
             for volume_id, flash_event in enumerate(flash_event_list):
+                if flash_event is None:
+                    raise ValueError(f"Flash event at index {volume_id} is None.")
                 for f in flash_event.as_vector():
                     # Cast and update attributes
                     flash = Flash.from_larcv(f)
@@ -411,11 +406,3 @@ class LArCVTriggerParser(ParserBase):
         trigger = Trigger.from_larcv(larcv.Trigger(trigger_event))
 
         return trigger
-
-
-# Backward-compatible aliases
-MetaParser = LArCVMetaParser
-RunInfoParser = LArCVRunInfoParser
-FlashParser = LArCVFlashParser
-CRTHitParser = LArCVCRTHitParser
-TriggerParser = LArCVTriggerParser

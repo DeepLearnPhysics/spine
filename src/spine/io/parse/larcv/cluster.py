@@ -1,10 +1,10 @@
 """Module that contains all parsers related to LArCV cluster data.
 
 Contains the following parsers:
-- :class:`Cluster2DParser`
-- :class:`Cluster3DParser`
-- :class:`Cluster3DAggregateParser`
-- :class:`Cluster3DChargeRescaledParser`
+- :class:`LArCVCluster2DParser`
+- :class:`LArCVCluster3DParser`
+- :class:`LArCVCluster3DAggregateParser`
+- :class:`LArCVCluster3DChargeRescaledParser`
 """
 
 from __future__ import annotations
@@ -48,10 +48,6 @@ __all__ = [
     "LArCVCluster3DParser",
     "LArCVCluster3DAggregateParser",
     "LArCVCluster3DChargeRescaledParser",
-    "Cluster2DParser",
-    "Cluster3DParser",
-    "Cluster3DAggregateParser",
-    "Cluster3DChargeRescaledParser",
 ]
 
 
@@ -203,7 +199,7 @@ class LArCVCluster3DParser(ParserBase):
         break_clusters: bool = False,
         break_eps: float = 1.1,
         break_metric: str = "chebyshev",
-        shape_precedence: np.ndarray | list[int] = SHAPE_PREC,
+        shape_precedence: np.ndarray | list[int] | tuple[int, ...] = SHAPE_PREC,
         **kwargs: Any,
     ) -> None:
         """Initialize the parser.
@@ -244,7 +240,7 @@ class LArCVCluster3DParser(ParserBase):
         self.type_include_mpr = type_include_mpr
         self.type_include_secondary = type_include_secondary
         self.primary_include_mpr = primary_include_mpr
-        self.shape_precedence = shape_precedence
+        self.shape_precedence = np.asarray(shape_precedence)
 
         # Intialize DBSCAN if the clusters are to be broken up
         self.break_clusters = break_clusters
@@ -335,8 +331,10 @@ class LArCVCluster3DParser(ParserBase):
         labels = OrderedDict()
         labels["cluster"] = np.arange(num_clusters)
         num_particles = num_clusters
+        num_neutrinos = 0
         if self.add_particle_info:
             # Check that that particle objects are of the expected length
+            assert particle_event is not None  # Guaranteed by __init__
             num_particles = particle_event.size()
             assert num_particles in (num_clusters, num_clusters - 1), (
                 f"The number of particles ({num_particles}) must be "
@@ -689,10 +687,3 @@ class LArCVCluster3DChargeRescaledParser(LArCVCluster3DParser):
         tensor.features[:, 0] = tensor_val.features[:, 0]
 
         return tensor
-
-
-# Backward-compatible aliases
-Cluster2DParser = LArCVCluster2DParser
-Cluster3DParser = LArCVCluster3DParser
-Cluster3DAggregateParser = LArCVCluster3DAggregateParser
-Cluster3DChargeRescaledParser = LArCVCluster3DChargeRescaledParser

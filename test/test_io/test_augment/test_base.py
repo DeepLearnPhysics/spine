@@ -2,7 +2,15 @@
 
 from spine.io.augment.base import AugmentBase
 
-from .helpers import BOX2, GeoManager, ParserTensor, make_meta, np, pytest
+from .helpers import (
+    BOX2,
+    GeoManager,
+    ParserTensor,
+    make_meta,
+    np,
+    pytest,
+    weighted_stats,
+)
 
 
 class DummyAugment(AugmentBase):
@@ -98,7 +106,7 @@ def test_resolve_activity_center_skips_empty_tensors_and_supports_1d_weights():
     )
 
     coords_cm = meta.to_cm(coords, center=True)
-    expected = np.average(coords_cm, axis=0, weights=np.asarray([1.0, 3.0]))
+    expected, _ = weighted_stats(coords_cm, np.asarray([1.0, 3.0]))
     assert np.allclose(center, expected)
 
 
@@ -135,10 +143,7 @@ def test_resolve_activity_stats_returns_weighted_activity_spread():
     )
 
     coords_cm = meta.to_cm(coords, center=True)
-    expected_center = np.average(coords_cm, axis=0, weights=weights)
-    expected_spread = np.sqrt(
-        np.average((coords_cm - expected_center) ** 2, axis=0, weights=weights)
-    )
+    expected_center, expected_spread = weighted_stats(coords_cm, weights)
     assert np.allclose(center, expected_center)
     assert np.allclose(spread, expected_spread)
 

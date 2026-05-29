@@ -2,7 +2,9 @@
 
 import glob
 import os
+from collections.abc import Mapping
 from copy import deepcopy
+from typing import Any
 
 import numpy as np
 
@@ -26,7 +28,7 @@ class ModelManager:
         loss_input=None,
         weight_path=None,
         weight_list=None,
-        train=None,
+        train: Mapping[str, Any] | None = None,
         to_numpy=False,
         time_dependent_loss=False,
         dtype="float32",
@@ -79,7 +81,7 @@ class ModelManager:
             )
 
         # Save parameters
-        self.train = train
+        self.train: bool = train is not None
         self.to_numpy = to_numpy
         self.time_dependant = time_dependent_loss
         self.dtype = getattr(torch, dtype)
@@ -100,7 +102,7 @@ class ModelManager:
         # Initialize the timers and the configuration dictionary
         self.watch = StopwatchManager()
         self.watch.initialize("forward")
-        if train:
+        if self.train:
             self.watch.initialize(["backward", "save"])
 
         # If anomaly detection is requested, set it
@@ -132,7 +134,6 @@ class ModelManager:
         if train is not None:
             self.initialize_train(**train, iter_per_epoch=iter_per_epoch)
         else:
-            self.train = False
             self.net.eval()
 
         # If requested, freeze some/all the model weights

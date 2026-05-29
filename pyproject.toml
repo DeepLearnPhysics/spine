@@ -57,6 +57,12 @@ viz = [
     "seaborn>=0.11.0",
 ]
 
+# Model-adjacent runtime dependencies. PyTorch and compiled torch ecosystem
+# packages are installed separately in model-capable environments.
+model = [
+    "tensorboard>=2.10.0",
+]
+
 # Development and testing
 dev = [
     "pytest>=6.0.0",
@@ -77,6 +83,7 @@ dev = [
 # All optional dependencies (PyTorch ecosystem installed separately)
 all = [
     "spine[viz]",
+    "spine[model]",
     "spine[dev]",
 ]
 

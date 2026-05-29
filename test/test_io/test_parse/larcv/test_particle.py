@@ -1,5 +1,7 @@
 """Test that the particle/neutrino data parsers work as intended."""
 
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 
@@ -7,13 +9,9 @@ from spine.constants import NuInteractionScheme
 from spine.constants.sentinels import INVAL_ID
 from spine.data.larcv import Meta, Neutrino, Particle
 from spine.data.larcv.meta import ImageMeta3D
-from spine.io.parse.data import ParserTensor
+from spine.io.parse.data import ParserEdgeIndex, ParserTensor
 from spine.io.parse.larcv.particle import *
 from spine.utils.conditional import LARCV_AVAILABLE, larcv
-
-pytestmark = pytest.mark.skipif(
-    not LARCV_AVAILABLE, reason="LArCV is required to generate parser fixtures."
-)
 
 
 @pytest.mark.parametrize(
@@ -28,6 +26,7 @@ pytestmark = pytest.mark.skipif(
 @pytest.mark.parametrize("particle_event", [0, 1, 20], indirect=True)
 @pytest.mark.parametrize("neutrino_event", [0, 1, 2], indirect=True)
 @pytest.mark.filterwarnings("ignore::UserWarning")
+@pytest.mark.filterwarnings("ignore:overflow encountered in cast:RuntimeWarning")
 def test_parse_particles(
     particle_event,
     neutrino_event,
@@ -38,7 +37,7 @@ def test_parse_particles(
 ):
     """Tests the parsing of LArCV particle information."""
     # Initialize the parser
-    parser = ParticleParser(
+    parser = LArCVParticleParser(
         dtype="float32",
         particle_event=particle_event,
         neutrino_event=neutrino_event,
@@ -75,7 +74,7 @@ def test_parse_particles(
 def test_parse_neutrinos(neutrino_event, sparse3d_event, asis, pixel_coordinates):
     """Tests the parsing of LArCV neutrino information."""
     # Initialize the parser
-    parser = NeutrinoParser(
+    parser = LArCVNeutrinoParser(
         dtype="float32",
         neutrino_event=neutrino_event,
         sparse_event=sparse3d_event,
@@ -104,7 +103,7 @@ def test_parse_neutrinos(neutrino_event, sparse3d_event, asis, pixel_coordinates
 @pytest.mark.filterwarnings("ignore::UserWarning")
 def test_parse_neutrinos_interaction_scheme_override(neutrino_event, sparse3d_event):
     """Tests overriding the interaction scheme used by the neutrino parser."""
-    parser = NeutrinoParser(
+    parser = LArCVNeutrinoParser(
         dtype="float32",
         neutrino_event=neutrino_event,
         sparse_event=sparse3d_event,
@@ -122,7 +121,7 @@ def test_parse_neutrinos_interaction_scheme_override(neutrino_event, sparse3d_ev
 def test_parse_particle_points(particle_event, sparse3d_event, include_point_tagging):
     """Tests the parsing of LArCV particle points (PPN labels)."""
     # Initialize the parser
-    parser = ParticlePointParser(
+    parser = LArCVParticlePointParser(
         dtype="float32",
         particle_event=particle_event,
         sparse_event=sparse3d_event,
@@ -149,7 +148,7 @@ def test_parse_particle_coordinates(particle_event, sparse3d_event):
     end cluster end points label for standalone training).
     """
     # Initialize the parser
-    parser = ParticleCoordinateParser(
+    parser = LArCVParticleCoordinateParser(
         dtype="float32", particle_event=particle_event, sparse_event=sparse3d_event
     )
 
@@ -177,7 +176,7 @@ def test_parse_particle_graph(particle_event, cluster3d_event):
     parentage relations.
     """
     # Initialize the parser
-    parser = ParticleGraphParser(
+    parser = LArCVParticleGraphParser(
         dtype="float32", particle_event=particle_event, cluster_event=cluster3d_event
     )
 
@@ -189,7 +188,7 @@ def test_parse_particle_graph(particle_event, cluster3d_event):
     # There should be 2 components of the output
     # - The first contains an (2, E) matrix with E the number of edges
     # - The second is a single number corresponding to the number of particles
-    assert isinstance(result, ParserTensor)
+    assert isinstance(result, ParserEdgeIndex)
     assert result.features.shape[0] == 2
     assert result.global_shift == particle_event.size()
 
@@ -198,7 +197,9 @@ def test_parse_particle_graph(particle_event, cluster3d_event):
 def test_parse_particle_pid(particle_event):
     """Tests the parsing of LArCV single particle PID parser."""
     # Initialize the parser
-    parser = SingleParticlePIDParser(dtype="float32", particle_event=particle_event)
+    parser = LArCVSingleParticlePIDParser(
+        dtype="float32", particle_event=particle_event
+    )
 
     # Parse the data
     result = parser.process(particle_event=particle_event)
@@ -213,7 +214,9 @@ def test_parse_particle_pid(particle_event):
 def test_parse_particle_energy(particle_event):
     """Tests the parsing of LArCV single particle energy parser."""
     # Initialize the parser
-    parser = SingleParticleEnergyParser(dtype="float32", particle_event=particle_event)
+    parser = LArCVSingleParticleEnergyParser(
+        dtype="float32", particle_event=particle_event
+    )
 
     # Parse the data
     result = parser.process(particle_event=particle_event)
@@ -239,7 +242,7 @@ def test_particle_parser_skip_empty_uses_placeholder():
         def as_vector(self):
             return [DummyParticle()]
 
-    parser = ParticleParser(
+    parser = LArCVParticleParser(
         dtype="float32",
         particle_event="particle",
         skip_empty=True,
@@ -255,11 +258,31 @@ def test_particle_parser_skip_empty_uses_placeholder():
 @pytest.mark.parametrize(
     "particle_event, neutrino_event, cluster3d_event", [(20, 1, 20)], indirect=True
 )
+@pytest.mark.filterwarnings(
+    "ignore:Neutrino IDs are being produced on the basis of floating point agreement.*:UserWarning"
+)
+@pytest.mark.filterwarnings("ignore:overflow encountered in cast:RuntimeWarning")
 def test_particle_parser_call_paths(
     particle_event, neutrino_event, sparse3d_event, cluster3d_event
 ):
     """Wrapper calls should route named inputs through the particle parsers."""
-    neutrino_parser = NeutrinoParser(
+    particle_parser = LArCVParticleParser(
+        dtype="float32",
+        particle_event="particle",
+        neutrino_event="neutrino",
+        sparse_event="sparse",
+        post_process=True,
+    )
+    particle_result = particle_parser(
+        {
+            "particle": particle_event,
+            "neutrino": neutrino_event,
+            "sparse": sparse3d_event,
+        }
+    )
+    assert isinstance(particle_result.default, Particle)
+
+    neutrino_parser = LArCVNeutrinoParser(
         dtype="float32", neutrino_event="neutrino", sparse_event="sparse"
     )
     neutrino_result = neutrino_parser(
@@ -267,7 +290,7 @@ def test_particle_parser_call_paths(
     )
     assert isinstance(neutrino_result.default, Neutrino)
 
-    point_parser = ParticlePointParser(
+    point_parser = LArCVParticlePointParser(
         dtype="float32", particle_event="particle", sparse_event="sparse"
     )
     assert isinstance(
@@ -275,7 +298,7 @@ def test_particle_parser_call_paths(
         ParserTensor,
     )
 
-    coord_parser = ParticleCoordinateParser(
+    coord_parser = LArCVParticleCoordinateParser(
         dtype="float32", particle_event="particle", sparse_event="sparse"
     )
     assert isinstance(
@@ -283,21 +306,146 @@ def test_particle_parser_call_paths(
         ParserTensor,
     )
 
-    pid_parser = SingleParticlePIDParser(dtype="float32", particle_event="particle")
+    pid_parser = LArCVSingleParticlePIDParser(
+        dtype="float32", particle_event="particle"
+    )
     assert isinstance(pid_parser({"particle": particle_event}), int)
 
-    energy_parser = SingleParticleEnergyParser(
+    energy_parser = LArCVSingleParticleEnergyParser(
         dtype="float32", particle_event="particle"
     )
     assert isinstance(energy_parser({"particle": particle_event}), float)
 
-    graph_parser = ParticleGraphParser(
+    graph_parser = LArCVParticleGraphParser(
         dtype="float32", particle_event="particle", cluster_event="cluster"
     )
     assert isinstance(
         graph_parser({"particle": particle_event, "cluster": cluster3d_event}),
-        ParserTensor,
+        ParserEdgeIndex,
     )
+
+
+def test_particle_from_larcv_overflow_warning_is_expected():
+    """Casting LArCV DBL_MAX end-momentum sentinels to float32 should overflow to inf."""
+
+    class DummyVector:
+        def x(self):
+            return 0.0
+
+        def y(self):
+            return 0.0
+
+        def z(self):
+            return 0.0
+
+        def t(self):
+            return 0.0
+
+    class DummyParticle:
+        def id(self):
+            return 0
+
+        def group_id(self):
+            return 0
+
+        def interaction_id(self):
+            return 0
+
+        def parent_id(self):
+            return 0
+
+        def mct_index(self):
+            return 0
+
+        def mcst_index(self):
+            return 0
+
+        def num_voxels(self):
+            return 1
+
+        def shape(self):
+            return 0
+
+        def energy_init(self):
+            return 1.0
+
+        def energy_deposit(self):
+            return 1.0
+
+        def distance_travel(self):
+            return 1.0
+
+        def track_id(self):
+            return 0
+
+        def pdg_code(self):
+            return 13
+
+        def parent_track_id(self):
+            return 0
+
+        def parent_pdg_code(self):
+            return 13
+
+        def ancestor_track_id(self):
+            return 0
+
+        def ancestor_pdg_code(self):
+            return 13
+
+        def creation_process(self):
+            return ""
+
+        def parent_creation_process(self):
+            return ""
+
+        def ancestor_creation_process(self):
+            return ""
+
+        def t(self):
+            return 0.0
+
+        def parent_t(self):
+            return 0.0
+
+        def ancestor_t(self):
+            return 0.0
+
+        def end_position(self):
+            return DummyVector()
+
+        position = parent_position = ancestor_position = first_step = last_step = (
+            end_position
+        )
+
+        def children_id(self):
+            return []
+
+        def px(self):
+            return 0.0
+
+        def py(self):
+            return 0.0
+
+        def pz(self):
+            return 0.0
+
+        def momentum(self):
+            return True
+
+        def end_px(self):
+            return np.finfo(np.float64).max
+
+        end_py = end_px
+        end_pz = end_px
+
+        def end_momentum(self):
+            return True
+
+    with pytest.warns(RuntimeWarning, match="overflow encountered in cast"):
+        particle = Particle.from_larcv(DummyParticle())
+
+    assert np.isinf(particle.end_momentum).all()
 
 
 @pytest.mark.parametrize("particle_event", [20], indirect=True)
@@ -311,7 +459,7 @@ def test_vertex_point_parser_process_and_call(
         lambda particle_v, neutrino_v, meta, ftype: labels,
     )
 
-    parser = VertexPointParser(
+    parser = LArCVVertexPointParser(
         dtype="float32", particle_event="particle", sparse_event="sparse"
     )
     result = parser({"particle": particle_event, "sparse": sparse3d_event})
@@ -342,8 +490,223 @@ def test_particle_graph_skips_invalid_and_fragment_edges():
         def as_vector(self):
             return DummyVector([DummyParticle(INVAL_ID, 0), DummyParticle(0, 0)])
 
-    parser = ParticleGraphParser(dtype="float32", particle_event="particle")
+    parser = LArCVParticleGraphParser(dtype="float32", particle_event="particle")
     result = parser.process(particle_event=DummyEvent())
 
-    assert isinstance(result, ParserTensor)
+    assert isinstance(result, ParserEdgeIndex)
     assert result.features.size == 0
+
+
+class DummyVector(list):
+    """List with the ``size`` method used by LArCV containers."""
+
+    def size(self):
+        return len(self)
+
+
+class DummyParticleObj:
+    """Particle stand-in for validation-only parser checks."""
+
+    def num_voxels(self):
+        return 1
+
+    def id(self):
+        return 0
+
+    def group_id(self):
+        return 0
+
+
+class DummyParticleEvent:
+    """Particle event stand-in."""
+
+    def __init__(self, count=1):
+        self._parts = DummyVector([DummyParticleObj() for _ in range(count)])
+
+    def as_vector(self):
+        return self._parts
+
+    def size(self):
+        return len(self._parts)
+
+
+class DummyNeutrinoEvent:
+    """Neutrino event stand-in."""
+
+    def __init__(self, count=1):
+        self._neutrinos = DummyVector([object() for _ in range(count)])
+
+    def as_vector(self):
+        return self._neutrinos
+
+
+class DummyCluster:
+    """Cluster stand-in with a configurable size."""
+
+    def __init__(self, size):
+        self._size = size
+
+    def size(self):
+        return self._size
+
+
+class DummyClusterEvent:
+    """Cluster event stand-in."""
+
+    def __init__(self, sizes):
+        self._clusters = DummyVector([DummyCluster(size) for size in sizes])
+
+    def as_vector(self):
+        return self._clusters
+
+
+def test_particle_parser_asis_validation_branches():
+    """Particle parser should reject incompatible flags in as-is mode."""
+    particle_event = DummyParticleEvent()
+
+    with pytest.raises(ValueError, match="pixel_coordinates"):
+        LArCVParticleParser(
+            dtype="float32",
+            particle_event="particle",
+            asis=True,
+            pixel_coordinates=True,
+            post_process=False,
+            skip_empty=False,
+        ).process(particle_event=particle_event)
+
+    with pytest.raises(ValueError, match="post_process"):
+        LArCVParticleParser(
+            dtype="float32",
+            particle_event="particle",
+            asis=True,
+            pixel_coordinates=False,
+            post_process=True,
+            skip_empty=False,
+        ).process(particle_event=particle_event)
+
+    with pytest.raises(ValueError, match="skip_empty"):
+        LArCVParticleParser(
+            dtype="float32",
+            particle_event="particle",
+            asis=True,
+            pixel_coordinates=False,
+            post_process=False,
+            skip_empty=True,
+        ).process(particle_event=particle_event)
+
+
+def test_particle_and_neutrino_metadata_validation():
+    """Particle-family parsers should require exactly one metadata source."""
+    particle_event = DummyParticleEvent()
+    neutrino_event = DummyNeutrinoEvent()
+
+    with pytest.raises(
+        ValueError, match="Must provide either `sparse_event` or `cluster_event`"
+    ):
+        parser = LArCVParticleParser(
+            dtype="float32",
+            particle_event="particle",
+            pixel_coordinates=True,
+            post_process=False,
+        )
+        original = Particle.from_larcv
+        Particle.from_larcv = staticmethod(
+            lambda p: SimpleNamespace(id=0, nu_id=-1, to_px=lambda meta: None)
+        )
+        try:
+            parser.process(particle_event=particle_event)
+        finally:
+            Particle.from_larcv = original
+
+    with pytest.raises(
+        ValueError, match="Must provide either `sparse_event` or `cluster_event`"
+    ):
+        parser = LArCVNeutrinoParser(
+            dtype="float32",
+            neutrino_event="neutrino",
+            pixel_coordinates=True,
+        )
+        original = Neutrino.from_larcv
+        Neutrino.from_larcv = staticmethod(
+            lambda n, interaction_scheme=None: SimpleNamespace(
+                interaction_id=-1, to_px=lambda meta: None
+            )
+        )
+        try:
+            parser.process(neutrino_event=neutrino_event)
+        finally:
+            Neutrino.from_larcv = original
+
+    with pytest.raises(
+        ValueError, match="Must provide either `sparse_event` or `cluster_event`"
+    ):
+        LArCVParticlePointParser(
+            dtype="float32",
+            particle_event="particle",
+        ).process(particle_event=particle_event)
+
+    with pytest.raises(
+        ValueError, match="Must provide either `sparse_event` or `cluster_event`"
+    ):
+        LArCVParticleCoordinateParser(
+            dtype="float32",
+            particle_event="particle",
+        ).process(particle_event=particle_event)
+
+
+def test_neutrino_parser_asis_validation_branch():
+    """Neutrino parser should reject pixel-coordinate conversion in as-is mode."""
+    with pytest.raises(ValueError, match="pixel_coordinates"):
+        LArCVNeutrinoParser(
+            dtype="float32",
+            neutrino_event="neutrino",
+            asis=True,
+            pixel_coordinates=True,
+        ).process(neutrino_event=DummyNeutrinoEvent())
+
+
+def test_vertex_parser_requires_exactly_one_vertex_source_and_meta():
+    """Vertex parser should validate event and metadata source XORs."""
+    parser = LArCVVertexPointParser(dtype="float32", particle_event="particle")
+
+    with pytest.raises(ValueError, match="either `particle_event` or `sparse_event`"):
+        parser.process()
+
+    with pytest.raises(ValueError, match="either `particle_event` or `sparse_event`"):
+        parser.process(
+            particle_event=DummyParticleEvent(),
+            neutrino_event=DummyNeutrinoEvent(),
+        )
+
+    with pytest.raises(
+        ValueError, match="Must provide either `sparse_event` or `cluster_event`"
+    ):
+        parser.process(particle_event=DummyParticleEvent())
+
+
+def test_particle_graph_rejects_cluster_count_mismatch():
+    """Particle graph parsing should reject inconsistent cluster counts."""
+    parser = LArCVParticleGraphParser(dtype="float32", particle_event="particle")
+
+    with pytest.raises(ValueError, match="aligned with the number of clusters"):
+        parser.process(
+            particle_event=DummyParticleEvent(count=2),
+            cluster_event=DummyClusterEvent([1, 1, 1, 1]),
+        )
+
+
+if not LARCV_AVAILABLE:
+    _NO_LARCV_TESTS = {
+        "test_particle_parser_asis_validation_branches",
+        "test_particle_and_neutrino_metadata_validation",
+        "test_neutrino_parser_asis_validation_branch",
+        "test_vertex_parser_requires_exactly_one_vertex_source_and_meta",
+        "test_particle_graph_rejects_cluster_count_mismatch",
+        "test_particle_graph_skips_invalid_and_fragment_edges",
+        "test_particle_parser_skip_empty_uses_placeholder",
+    }
+    for _name, _obj in list(globals().items()):
+        if _name.startswith("test_") and _name not in _NO_LARCV_TESTS:
+            globals()[_name] = pytest.mark.skip(
+                reason="LArCV is required to generate parser fixtures."
+            )(_obj)

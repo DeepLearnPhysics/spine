@@ -483,6 +483,18 @@ class DataBase:
         return getattr(self, attr), self.field_units.get(attr)
 
     @property
+    def index_attrs(self) -> tuple[str, ...]:
+        """Return the tuple of index-bearing attributes.
+
+        Returns
+        -------
+        tuple[str, ...]
+            Names of attributes that should be shifted during batching or
+            overlay operations.
+        """
+        return self._index_attrs
+
+    @property
     def enum_dicts(self) -> dict[str, dict[str, int]]:
         """Fetches the dictionary of enumerated attributes and their enumerator descriptors.
 

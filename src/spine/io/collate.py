@@ -15,6 +15,7 @@ from spine.data import EdgeIndexBatch, IndexBatch, TensorBatch
 from spine.geo import GeoManager
 
 from .overlay import Overlayer
+from .parse.data import ParserEdgeIndex, ParserIndex, ParserIndexList, ParserTensor
 
 SampleDict = dict[str, Any]
 BatchType = Sequence[SampleDict]
@@ -30,8 +31,8 @@ class CollateAll:
     - A `ParserTensor` with coordinates, features and metadata, merged into
       rows of the form `[batch_id, *coords, *features]`
     - A feature-only `ParserTensor`, merged into `[batch_id, *features]`
-    - A `ParserTensor` carrying indexes and offsets, merged into a single
-      offset-adjusted index
+    - A `ParserIndex`, `ParserIndexList` or `ParserEdgeIndex`, merged into
+      an offset-adjusted index batch
     - Scalar values, lists and objects, gathered into a list
     """
 
@@ -50,20 +51,20 @@ class CollateAll:
 
         Parameters
         ----------
-        data_types : dict
-            Dictionary of data types returned by the parsers
+        data_types : mapping
+            Mapping of data types returned by the parsers
         split : bool, default False
             Whether to split the input by module ID (each module gets its
             own batch ID, multiplies the number of batches by `num_modules`)
         target_id : int, default 0
             If split is `True`, specifies where to relocate the points
-        source : dict, optional
-            Dictionary which maps keys to their corresponding sources. This can
+        source : mapping, optional
+            Mapping which maps keys to their corresponding sources. This can
             be used to split tensors without having to check the geometry
-        overlay : dict, optional
+        overlay : mapping, optional
             Image overlay configuration
-        overlay_methods : dict
-            Dictionary of overlay methods
+        overlay_methods : mapping
+            Mapping of overlay methods
         """
         # Store the data types of each parser output
         self.data_types = data_types
@@ -80,6 +81,10 @@ class CollateAll:
         # Initialize the overlayer, if required
         self.overlayer = None
         if overlay is not None:
+            if overlay_methods is None:
+                raise ValueError(
+                    "`overlay_methods` must be provided if `overlay` is not None."
+                )
             self.overlayer = Overlayer(
                 **overlay, data_types=data_types, methods=overlay_methods
             )
@@ -109,18 +114,28 @@ class CollateAll:
             # Dispatch
             ref_data = batch[0][key]
             if data_type == "tensor":
-                if ref_data.coords is not None and not ref_data.feats_only:
-                    # Case where a coordinates tensor and a feature tensor
-                    # are provided, along with the metadata information
-                    data[key] = self.stack_coord_tensors(batch, key)
+                if isinstance(ref_data, ParserTensor):
+                    if ref_data.coords is not None and not ref_data.feats_only:
+                        # Case where a coordinates tensor and a feature tensor
+                        # are provided, along with the metadata information
+                        data[key] = self.stack_coord_tensors(batch, key)
 
-                elif ref_data.global_shift is not None:
-                    # Case where an index and a count is provided per entry
+                    else:
+                        # Case where there is a feature tensor provided per entry
+                        data[key] = self.stack_feat_tensors(batch, key)
+
+                elif isinstance(
+                    ref_data, (ParserIndex, ParserIndexList, ParserEdgeIndex)
+                ):
+                    # Case where a coordinates tensor and a feature tensor
+                    # are not provided and the payload is index-like
                     data[key] = self.stack_index_tensors(batch, key)
 
                 else:
-                    # Case where there is a feature tensor provided per entry
-                    data[key] = self.stack_feat_tensors(batch, key)
+                    raise TypeError(
+                        f"Unsupported parser payload type for `{key}`: "
+                        f"{type(ref_data).__name__}."
+                    )
 
             else:
                 # In all other cases, just make a list
@@ -228,8 +243,7 @@ class CollateAll:
         offsets = np.zeros(len(total_counts), dtype=int)
         offsets[1:] = np.cumsum(total_counts)[:-1]
 
-        ref_index = batch[0][key].features
-        if isinstance(ref_index, list):
+        if isinstance(batch[0][key], ParserIndexList):
             index_list = []
             counts = []
             single_counts = []

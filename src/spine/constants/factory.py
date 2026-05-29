@@ -5,13 +5,27 @@ The enum module should define canonical enumerated types; this module contains
 parsing helpers that translate user/config strings into those enum values.
 """
 
+from typing import overload
+
 from .columns import ClusterLabelCol
 from .enums import NuInteractionScheme, ParticlePID, ParticleShape
 
 __all__ = ["enum_factory"]
 
 
-def enum_factory(enum: str, value):
+@overload
+def enum_factory(enum: str, value: str) -> int:
+    """Parse one enum-member name into its integer value."""
+
+
+@overload
+def enum_factory(enum: str, value: list[str] | tuple[str, ...]) -> list[int]:
+    """Parse a sequence of enum-member names into integer values."""
+
+
+def enum_factory(
+    enum: str, value: str | list[str] | tuple[str, ...]
+) -> int | list[int]:
     """Parse canonical SPINE enum values from config strings.
 
     This is a small compatibility/helper layer used by config-driven code that
@@ -36,7 +50,7 @@ def enum_factory(enum: str, value):
 
     Raises
     ------
-    AssertionError
+    ValueError
         If the requested enum group is not supported.
     ValueError
         If one of the provided member names does not exist on the target enum.
@@ -47,10 +61,11 @@ def enum_factory(enum: str, value):
         "pid": ParticlePID,
         "interaction_scheme": NuInteractionScheme,
     }
-    assert enum in enum_dict, (
-        f"Enumerated type not recognized: {enum}. "
-        f"Must be one of {list(enum_dict.keys())}."
-    )
+    if enum not in enum_dict:
+        raise ValueError(
+            f"Enumerated type not recognized: {enum}. "
+            f"Must be one of {list(enum_dict.keys())}."
+        )
     enum_type = enum_dict[enum]
 
     def parse_one(name: str) -> int:

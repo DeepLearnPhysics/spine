@@ -1,13 +1,13 @@
 """Module that contains all parsers related to LArCV particle data.
 
 Contains the following parsers:
-- :class:`ParticleParser`
-- :class:`NeutrinoParser`
-- :class:`ParticlePointParser`
-- :class:`ParticleCoordinateParser`
-- :class:`ParticleGraphParser`
-- :class:`ParticlePIDParser`
-- :class:`ParticleEnergyParser`
+- :class:`LArCVParticleParser`
+- :class:`LArCVNeutrinoParser`
+- :class:`LArCVParticlePointParser`
+- :class:`LArCVParticleCoordinateParser`
+- :class:`LArCVParticleGraphParser`
+- :class:`LArCVSingleParticlePIDParser`
+- :class:`LArCVSingleParticleEnergyParser`
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ from spine.utils.particles import process_particles
 from spine.utils.ppn import get_ppn_labels, get_vertex_labels, image_coordinates
 
 from ..base import ParserBase
-from ..data import ParserObjectList, ParserTensor
+from ..data import ParserEdgeIndex, ParserObjectList, ParserTensor
 
 __all__ = [
     "LArCVParticleParser",
@@ -44,14 +44,6 @@ __all__ = [
     "LArCVParticleGraphParser",
     "LArCVSingleParticlePIDParser",
     "LArCVSingleParticleEnergyParser",
-    "ParticleParser",
-    "NeutrinoParser",
-    "ParticlePointParser",
-    "ParticleCoordinateParser",
-    "VertexPointParser",
-    "ParticleGraphParser",
-    "SingleParticlePIDParser",
-    "SingleParticleEnergyParser",
 ]
 
 
@@ -155,15 +147,14 @@ class LArCVParticleParser(ParserBase):
         # If asis is true, return larcv objects
         particle_list = list(particle_event.as_vector())
         if self.asis:
-            assert (
-                not self.pixel_coordinates
-            ), "If `asis` is True, `pixel_coordinates` must be False."
-            assert (
-                not self.post_process
-            ), "If `asis` is True, `post_process` must be False."
-            assert (
-                not self.skip_empty
-            ), "If `asis` is True`, `skip_empty` must be False."
+            if self.pixel_coordinates:
+                raise ValueError(
+                    "If `asis` is True, `pixel_coordinates` must be False."
+                )
+            if self.post_process:
+                raise ValueError("If `asis` is True, `post_process` must be False.")
+            if self.skip_empty:
+                raise ValueError("If `asis` is True`, `skip_empty` must be False.")
 
             return ParserObjectList(particle_list, larcv.Particle())
 
@@ -184,11 +175,13 @@ class LArCVParticleParser(ParserBase):
         # If requested, convert the point positions to pixel coordinates
         if self.pixel_coordinates:
             # Fetch the metadata
-            assert (sparse_event is not None) ^ (cluster_event is not None), (
-                "Must provide either `sparse_event` or `cluster_event` to "
-                "get the metadata and convert positions to voxel units."
-            )
+            if not (sparse_event is not None) ^ (cluster_event is not None):
+                raise ValueError(
+                    "Must provide either `sparse_event` or `cluster_event` to "
+                    "get the metadata and convert positions to voxel units."
+                )
             ref_event = sparse_event if sparse_event is not None else cluster_event
+            assert ref_event is not None  # Guaranteed by the check above
             meta = Meta.from_larcv(ref_event.meta())
 
             # Convert all the relevant attributes
@@ -205,7 +198,7 @@ class LArCVParticleParser(ParserBase):
             num_neutrinos = np.max(nu_ids, initial=-1) + 1
 
         index_shifts = {}
-        for attr in Particle()._index_attrs:
+        for attr in Particle().index_attrs:
             index_shifts[attr] = num_particles if attr != "nu_id" else num_neutrinos
 
         # Return
@@ -236,7 +229,7 @@ class LArCVNeutrinoParser(ParserBase):
         self,
         pixel_coordinates: bool = True,
         asis: bool = False,
-        interaction_scheme: NuInteractionScheme = NuInteractionScheme.LARSOFT,
+        interaction_scheme: int | str = NuInteractionScheme.LARSOFT,
         **kwargs: Any,
     ) -> None:
         """Initialize the parser.
@@ -260,8 +253,11 @@ class LArCVNeutrinoParser(ParserBase):
         self.pixel_coordinates = pixel_coordinates
         self.asis = asis
         if isinstance(interaction_scheme, str):
-            interaction_scheme = enum_factory("interaction_scheme", interaction_scheme)
-        self.interaction_scheme = int(interaction_scheme)
+            self.interaction_scheme = enum_factory(
+                "interaction_scheme", interaction_scheme
+            )
+        else:
+            self.interaction_scheme = int(interaction_scheme)
 
     def __call__(self, trees: dict[str, Any]) -> ParserObjectList:
         """Parse one entry.
@@ -300,9 +296,10 @@ class LArCVNeutrinoParser(ParserBase):
         # If asis is true, return larcv objects
         neutrino_list = list(neutrino_event.as_vector())
         if self.asis:
-            assert (
-                not self.pixel_coordinates
-            ), "If `asis` is True, `pixel_coordinates` must be False."
+            if self.pixel_coordinates:
+                raise ValueError(
+                    "If `asis` is True, `pixel_coordinates` must be False."
+                )
 
             return ParserObjectList(neutrino_list, larcv.Neutrino())
 
@@ -315,11 +312,13 @@ class LArCVNeutrinoParser(ParserBase):
         # If requested, convert the point positions to pixel coordinates
         if self.pixel_coordinates:
             # Fetch the metadata
-            assert (sparse_event is not None) ^ (cluster_event is not None), (
-                "Must provide either `sparse_event` or `cluster_event` to "
-                "get the metadata and convert positions to voxel units."
-            )
+            if not (sparse_event is not None) ^ (cluster_event is not None):
+                raise ValueError(
+                    "Must provide either `sparse_event` or `cluster_event` to "
+                    "get the metadata and convert positions to voxel units."
+                )
             ref_event = sparse_event if sparse_event is not None else cluster_event
+            assert ref_event is not None  # Guaranteed by the check above
             meta = Meta.from_larcv(ref_event.meta())
 
             # Convert all the relevant attributes
@@ -414,11 +413,13 @@ class LArCVParticlePointParser(ParserBase):
             Metadata of the parsed image
         """
         # Fetch the metadata
-        assert (sparse_event is not None) ^ (cluster_event is not None), (
-            "Must provide either `sparse_event` or `cluster_event` to "
-            "get the metadata and convert positions to voxel units."
-        )
+        if not (sparse_event is not None) ^ (cluster_event is not None):
+            raise ValueError(
+                "Must provide either `sparse_event` or `cluster_event` to "
+                "get the metadata and convert positions to voxel units."
+            )
         ref_event = sparse_event if sparse_event is not None else cluster_event
+        assert ref_event is not None  # Guaranteed by the check above
         meta = ref_event.meta()
 
         # Get the point labels
@@ -499,11 +500,13 @@ class LArCVParticleCoordinateParser(ParserBase):
             Metadata of the parsed image
         """
         # Fetch the metadata
-        assert (sparse_event is not None) ^ (cluster_event is not None), (
-            "Must provide either `sparse_event` or `cluster_event` to "
-            "get the metadata and convert positions to voxel units."
-        )
+        if not (sparse_event is not None) ^ (cluster_event is not None):
+            raise ValueError(
+                "Must provide either `sparse_event` or `cluster_event` to "
+                "get the metadata and convert positions to voxel units."
+            )
         ref_event = sparse_event if sparse_event is not None else cluster_event
+        assert ref_event is not None  # Guaranteed by the check above
         meta = ref_event.meta()
 
         # Scale particle coordinates to image size
@@ -607,17 +610,20 @@ class LArCVVertexPointParser(ParserBase):
             Metadata of the parsed image
         """
         # Check that only one source of vertex is provided
-        assert (particle_event is not None) ^ (neutrino_event is not None), (
-            "Must provide either `particle_event` or `sparse_event` to "
-            "get the vertex points, not both."
-        )
+        if not (particle_event is not None) ^ (neutrino_event is not None):
+            raise ValueError(
+                "Must provide either `particle_event` or `sparse_event` to "
+                "get the vertex points, not both."
+            )
 
         # Fetch the metadata
-        assert (sparse_event is not None) ^ (cluster_event is not None), (
-            "Must provide either `sparse_event` or `cluster_event` to "
-            "get the metadata and convert positions to voxel units."
-        )
+        if not (sparse_event is not None) ^ (cluster_event is not None):
+            raise ValueError(
+                "Must provide either `sparse_event` or `cluster_event` to "
+                "get the metadata and convert positions to voxel units."
+            )
         ref_event = sparse_event if sparse_event is not None else cluster_event
+        assert ref_event is not None  # Guaranteed by the check above
         meta = ref_event.meta()
 
         # Get the vertex labels
@@ -673,7 +679,7 @@ class LArCVParticleGraphParser(ParserBase):
         # Store the revelant attributes
         self.include_fragment_edges = include_fragment_edges
 
-    def __call__(self, trees: dict[str, Any]) -> ParserTensor:
+    def __call__(self, trees: dict[str, Any]) -> ParserEdgeIndex:
         """Parse one entry.
 
         Parameters
@@ -685,7 +691,7 @@ class LArCVParticleGraphParser(ParserBase):
 
     def process(
         self, particle_event: Any, cluster_event: Any | None = None
-    ) -> ParserTensor:
+    ) -> ParserEdgeIndex:
         """Fetch the parentage connections from the true particle list.
 
         Configuration
@@ -699,23 +705,24 @@ class LArCVParticleGraphParser(ParserBase):
 
         Returns
         -------
-        np.ndarray
-            (2, E) Array of directed edges for each [parent, child] connection
-        int
-            Number of particles in the input
+        ParserEdgeIndex
+            Parsed edge-index payload with shape ``(2, E)`` and the number of
+            particles stored as the global shift span.
         """
         # Check on the cluster input, if provided
         particles_v = particle_event.as_vector()
         num_particles = particles_v.size()
+        clusters_v = None
         if cluster_event is not None:
             # Check that the cluster list is of the expected length
             clusters_v = cluster_event.as_vector()
             num_clusters = len(clusters_v)
-            assert num_particles == num_clusters or num_particles == num_clusters - 1, (
-                f"The number of particles ({num_particles}) must be "
-                f"aligned with the number of clusters ({num_clusters}). "
-                "There can me one more catch-all cluster at the end."
-            )
+            if num_particles not in (num_clusters, num_clusters - 1):
+                raise ValueError(
+                    f"The number of particles ({num_particles}) must be "
+                    f"aligned with the number of clusters ({num_clusters}). "
+                    "There can me one more catch-all cluster at the end."
+                )
 
         # Build a list of edges
         edges, zero_nodes = [], []
@@ -733,7 +740,7 @@ class LArCVParticleGraphParser(ParserBase):
                 edges.append([int(part.parent_id()), cluster_id])
 
             # If the cluster event is provided, keep track of empty nodes
-            if cluster_event is not None and clusters_v[cluster_id].size() == 0:
+            if clusters_v is not None and clusters_v[cluster_id].size() == 0:
                 zero_nodes.append(cluster_id)
 
         # Convert the list of edges to a numpy array
@@ -746,7 +753,7 @@ class LArCVParticleGraphParser(ParserBase):
         if len(zero_nodes) > 0 and len(edges) > 0:
             edges = filter_invalid_nodes(edges, zero_nodes)
 
-        return ParserTensor(features=edges.T, global_shift=num_particles)
+        return ParserEdgeIndex(features=edges.T, global_shift=num_particles)
 
 
 class LArCVSingleParticlePIDParser(ParserBase):
@@ -795,7 +802,7 @@ class LArCVSingleParticlePIDParser(ParserBase):
         pid = -1
         for p in particle_event.as_vector():
             if p.track_id() == 1:
-                if int(p.pdg_code()) in PDG_TO_PID.keys():
+                if int(p.pdg_code()) in PDG_TO_PID:
                     pid = PDG_TO_PID[int(p.pdg_code())]
 
                 break
@@ -849,7 +856,7 @@ class LArCVSingleParticleEnergyParser(ParserBase):
         ke = -1.0
         for p in particle_event.as_vector():
             if p.track_id() == 1:
-                if int(p.pdg_code()) in PDG_TO_PID.keys():
+                if int(p.pdg_code()) in PDG_TO_PID:
                     einit = p.energy_init()
                     pid = PDG_TO_PID[int(p.pdg_code())]
                     mass = PID_MASSES[pid]
@@ -858,14 +865,3 @@ class LArCVSingleParticleEnergyParser(ParserBase):
                 break
 
         return ke
-
-
-# Backward-compatible aliases
-ParticleParser = LArCVParticleParser
-NeutrinoParser = LArCVNeutrinoParser
-ParticlePointParser = LArCVParticlePointParser
-ParticleCoordinateParser = LArCVParticleCoordinateParser
-VertexPointParser = LArCVVertexPointParser
-ParticleGraphParser = LArCVParticleGraphParser
-SingleParticlePIDParser = LArCVSingleParticlePIDParser
-SingleParticleEnergyParser = LArCVSingleParticleEnergyParser

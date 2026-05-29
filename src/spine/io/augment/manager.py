@@ -1,9 +1,9 @@
 """Augmentation manager."""
 
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 
 from spine.data import Meta
-from spine.geo import GeoManager
 from spine.io.parse.data import ParserTensor
 
 from .crop import CropAugment
@@ -27,14 +27,15 @@ class AugmentManager:
     }
 
     def __init__(
-        self, geo: Mapping[str, Any] | None = None, **augmenters: dict[str, Any]
+        self,
+        **augmenters: Mapping[str, Any] | None,
     ) -> None:
         """Initialize the augmentation manager.
 
         Parameters
         ----------
-        **augmenters : dict, optional
-            Ordered dictionary of augmentation module configurations.
+        **augmenters : mapping, optional
+            Ordered mapping of augmentation module configurations.
             If the configuration key matches a registered augmentation
             name (e.g. `crop`, `jitter`, `mask`, `rotate`, `translate`), the
             `name` entry can be omitted. If using a custom label to
@@ -46,8 +47,6 @@ class AugmentManager:
         None
             This method does not return anything
         """
-        self.geo = dict(geo) if geo is not None else None
-
         if not augmenters:
             raise ValueError("Must provide at least one augmentation module.")
 
@@ -55,9 +54,9 @@ class AugmentManager:
         for key, cfg in augmenters.items():
             if cfg is None:
                 continue
-            if not isinstance(cfg, dict):
+            if not isinstance(cfg, Mapping):
                 raise ValueError(
-                    f"Augmentation configuration for `{key}` must be a dictionary."
+                    f"Augmentation configuration for `{key}` must be a mapping."
                 )
 
             config = dict(cfg)
@@ -102,9 +101,6 @@ class AugmentManager:
 
         if meta is None:
             return data
-
-        if self.geo is not None:
-            GeoManager.initialize_or_get(**self.geo)
 
         context = {"original_meta": self.copy_meta(meta)}
         for module in self.modules:

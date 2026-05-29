@@ -13,16 +13,12 @@ from spine.geo import GeoManager
 from spine.io.parse.larcv.misc import *
 from spine.utils.conditional import LARCV_AVAILABLE
 
-pytestmark = pytest.mark.skipif(
-    not LARCV_AVAILABLE, reason="LArCV is required to generate parser fixtures."
-)
-
 
 @pytest.mark.parametrize("projection_id", [0, 1, 2])
 def test_parse_meta2d(sparse2d_event, projection_id):
     """Tests the parsing of metadata for 2D sparse events."""
     # Initialize the parser
-    parser = MetaParser(
+    parser = LArCVMetaParser(
         dtype="float32", sparse_event=sparse2d_event, projection_id=projection_id
     )
 
@@ -40,7 +36,7 @@ def test_parse_meta2d(sparse2d_event, projection_id):
 def test_parse_meta3d(sparse3d_event):
     """Tests the parsing of metadata for 3D sparse events."""
     # Initialize the parser
-    parser = MetaParser(dtype="float32", sparse_event=sparse3d_event)
+    parser = LArCVMetaParser(dtype="float32", sparse_event=sparse3d_event)
 
     # Parse the data
     result = parser.process(sparse_event=sparse3d_event)
@@ -55,7 +51,7 @@ def test_parse_meta3d(sparse3d_event):
 
 def test_parse_meta_requires_exactly_one_source():
     """Metadata parsing should reject ambiguous or missing sources."""
-    parser = MetaParser(dtype="float32")
+    parser = LArCVMetaParser(dtype="float32")
 
     with pytest.raises(ValueError, match="exactly one"):
         parser.process()
@@ -64,7 +60,7 @@ def test_parse_meta_requires_exactly_one_source():
 def test_parse_run_info(sparse3d_event):
     """Tests the parsing of the run info of 3D sparse events."""
     # Initialize the parser
-    parser = RunInfoParser(dtype="float32", sparse_event=sparse3d_event)
+    parser = LArCVRunInfoParser(dtype="float32", sparse_event=sparse3d_event)
 
     # Parse the data
     result = parser.process(sparse_event=sparse3d_event)
@@ -81,7 +77,7 @@ def test_parse_flashes(flash_event):
     GeoManager.initialize_or_get(detector="icarus")
 
     # Initialize the parser
-    parser = FlashParser(dtype="float32", flash_event=flash_event)
+    parser = LArCVFlashParser(dtype="float32", flash_event=flash_event)
 
     # Parse the data
     result = parser.process(flash_event=flash_event)
@@ -100,7 +96,7 @@ def test_parse_flashes(flash_event):
 def test_parse_flash_lists(flash_event_list):
     """Tests the parsing of a list of list of optical flashes."""
     # Initialize the parser
-    parser = FlashParser(dtype="float32", flash_event_list=flash_event_list)
+    parser = LArCVFlashParser(dtype="float32", flash_event_list=flash_event_list)
 
     # Parse the data
     result = parser.process(flash_event_list=flash_event_list)
@@ -120,7 +116,7 @@ def test_parse_flash_lists(flash_event_list):
 def test_parse_crthits(crthit_event):
     """Tests the parsing of a list of CRT hits."""
     # Initialize the parser
-    parser = CRTHitParser(dtype="float32", crthit_event=crthit_event)
+    parser = LArCVCRTHitParser(dtype="float32", crthit_event=crthit_event)
 
     # Parse the data
     result = parser.process(crthit_event=crthit_event)
@@ -143,7 +139,7 @@ def test_parse_trigger(trigger_event):
         return
 
     # Initialize the parser
-    parser = TriggerParser(dtype="float32", trigger_event=trigger_event)
+    parser = LArCVTriggerParser(dtype="float32", trigger_event=trigger_event)
 
     # Parse the data
     result = parser.process(trigger_event=trigger_event)
@@ -156,17 +152,17 @@ def test_parse_trigger(trigger_event):
 @pytest.mark.parametrize("crthit_event", [1], indirect=True)
 def test_misc_parser_call_paths(sparse3d_event, crthit_event, trigger_event):
     """Wrapper calls should route named inputs through the misc parsers."""
-    meta_parser = MetaParser(dtype="float32", sparse_event="sparse")
+    meta_parser = LArCVMetaParser(dtype="float32", sparse_event="sparse")
     assert isinstance(meta_parser({"sparse": sparse3d_event}), ImageMeta3D)
 
-    run_info_parser = RunInfoParser(dtype="float32", sparse_event="sparse")
+    run_info_parser = LArCVRunInfoParser(dtype="float32", sparse_event="sparse")
     assert isinstance(run_info_parser({"sparse": sparse3d_event}), RunInfo)
 
-    crthit_parser = CRTHitParser(dtype="float32", crthit_event="crthit")
+    crthit_parser = LArCVCRTHitParser(dtype="float32", crthit_event="crthit")
     assert isinstance(crthit_parser({"crthit": crthit_event}).default, CRTHit)
 
     if trigger_event is not None:
-        trigger_parser = TriggerParser(dtype="float32", trigger_event="trigger")
+        trigger_parser = LArCVTriggerParser(dtype="float32", trigger_event="trigger")
         assert isinstance(trigger_parser({"trigger": trigger_event}), Trigger)
 
 
@@ -199,11 +195,11 @@ def test_flash_parser_special_cases(monkeypatch):
         lambda **kwargs: (lambda flashes: (list(reversed(flashes)), None)),
     )
 
-    parser = FlashParser(dtype="float32", flash_event="flash", merge={"dt": 1.0})
+    parser = LArCVFlashParser(dtype="float32", flash_event="flash", merge={"dt": 1.0})
     result = parser({"flash": DummyEvent([DummyFlash([1, 2, 3, 4])])})
     assert result[0].pe_per_ch.shape == (4,)
 
-    parser = FlashParser(dtype="float32", flash_event_list=["f0", "f1"])
+    parser = LArCVFlashParser(dtype="float32", flash_event_list=["f0", "f1"])
     result = parser(
         {
             "f0": DummyEvent([DummyFlash([1, 2])]),
@@ -222,4 +218,57 @@ def test_flash_parser_requires_optical_geometry(monkeypatch):
     )
 
     with pytest.raises(ValueError, match="Optical geometry"):
-        FlashParser(dtype="float32", flash_event="flash")
+        LArCVFlashParser(dtype="float32", flash_event="flash")
+
+
+def test_run_info_parser_requires_exactly_one_source():
+    """Run-info parsing should reject missing or ambiguous sources."""
+    parser = LArCVRunInfoParser(dtype="float32")
+
+    with pytest.raises(ValueError, match="either `sparse_event` or `cluster_event`"):
+        parser.process()
+
+    with pytest.raises(ValueError, match="either `sparse_event` or `cluster_event`"):
+        parser.process(sparse_event=object(), cluster_event=object())
+
+
+def test_flash_parser_validation_branches(monkeypatch):
+    """Flash parsing should reject ambiguous inputs and None list entries."""
+
+    class DummyFlashEvent:
+        def __init__(self, flashes):
+            self._flashes = flashes
+
+        def as_vector(self):
+            return self._flashes
+
+    monkeypatch.setattr(
+        "spine.io.parse.larcv.misc.GeoManager.get_instance",
+        lambda: SimpleNamespace(optical=SimpleNamespace(num_channels_per_volume=4)),
+    )
+    parser = LArCVFlashParser(dtype="float32", flash_event="flash")
+
+    with pytest.raises(ValueError, match="either `flash_event` or `flash_event_list`"):
+        parser.process()
+
+    with pytest.raises(ValueError, match="either `flash_event` or `flash_event_list`"):
+        parser.process(
+            flash_event=DummyFlashEvent([]),
+            flash_event_list=[DummyFlashEvent([])],
+        )
+
+    with pytest.raises(ValueError, match="Flash event at index 0 is None"):
+        parser.process(flash_event_list=[None])
+
+
+if not LARCV_AVAILABLE:
+    _NO_LARCV_TESTS = {
+        "test_run_info_parser_requires_exactly_one_source",
+        "test_flash_parser_validation_branches",
+        "test_flash_parser_requires_optical_geometry",
+    }
+    for _name, _obj in list(globals().items()):
+        if _name.startswith("test_") and _name not in _NO_LARCV_TESTS:
+            globals()[_name] = pytest.mark.skip(
+                reason="LArCV is required to generate parser fixtures."
+            )(_obj)

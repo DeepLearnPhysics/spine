@@ -148,7 +148,7 @@ def test_enum_factory_parses_scalar_and_sequence_values():
 
 def test_enum_factory_rejects_unknown_enum_group():
     """Enum factory should fail clearly on unsupported enum groups."""
-    with pytest.raises(AssertionError, match="Enumerated type not recognized"):
+    with pytest.raises(ValueError, match="Enumerated type not recognized"):
         enum_factory("not_a_real_group", "value")
 
 

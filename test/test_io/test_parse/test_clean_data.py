@@ -2,6 +2,7 @@
 
 import numba as nb
 import numpy as np
+import pytest
 
 from spine.io.parse.clean_data import (
     aggregate_features,
@@ -108,6 +109,17 @@ def test_clean_sparse_data_without_precedence_or_sum_cols_uses_simple_filter():
     assert np.array_equal(data[:, 0], np.asarray([2.0, 3.0], dtype=np.float32))
 
 
+def test_clean_sparse_data_requires_precedence_when_needed():
+    """Sparse cleanup should require precedence for grouped duplicate resolution."""
+    with pytest.raises(ValueError, match="Precedence must be provided"):
+        clean_sparse_data(
+            np.asarray([[0, 0, 0], [0, 0, 0]], dtype=np.int32),
+            np.asarray([[1.0], [2.0]], dtype=np.float32),
+            prec_col=0,
+            precedence=None,
+        )
+
+
 def test_clean_data_python_paths_for_coverage():
     """Execute numba helpers through their Python implementations for coverage."""
     voxels = np.asarray([[0, 0, 0], [0, 0, 0], [1, 0, 0]], dtype=np.int32)
@@ -157,3 +169,13 @@ def test_clean_data_python_paths_for_coverage():
         ),
         np.asarray([True, False, False]),
     )
+
+
+def test_filter_duplicate_voxels_group_python_requires_precedence():
+    """Grouped duplicate filtering should reject missing precedence with references."""
+    with pytest.raises(ValueError, match="Precedence must be provided"):
+        python_impl(filter_duplicate_voxels_group)(
+            np.asarray([[0, 0, 0], [0, 0, 0]], dtype=np.int32),
+            np.asarray([1, 2], dtype=np.int32),
+            None,
+        )

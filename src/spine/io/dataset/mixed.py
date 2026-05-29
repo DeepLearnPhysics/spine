@@ -33,7 +33,6 @@ class MixedDataset(BaseDataset):
         hdf5: Mapping[str, Any],
         dtype: str,
         augment: Mapping[str, Any] | None = None,
-        geo: Mapping[str, Any] | None = None,
         align_keys: Sequence[str] = ("file_index", "file_entry_index"),
         hdf5_align_keys: Mapping[str, str] | None = None,
         hdf5_key_map: Mapping[str, str] | None = None,
@@ -51,8 +50,6 @@ class MixedDataset(BaseDataset):
             Floating-point dtype used by parser factories
         augment : dict, optional
             Augmentation configuration applied once to the merged sample
-        geo : dict, optional
-            Geometry configuration forwarded to the LArCV dataset/augmenter
         align_keys : sequence[str], default ("file_index", "file_entry_index")
             Keys that must match between the LArCV and HDF5 samples
         hdf5_align_keys : dict, optional
@@ -71,7 +68,7 @@ class MixedDataset(BaseDataset):
         self.hdf5_key_map = dict(hdf5_key_map or {})
         self.allow_overwrite = allow_overwrite
 
-        self.primary = LArCVDataset(**dict(larcv), dtype=dtype, augment=None, geo=geo)
+        self.primary = LArCVDataset(**dict(larcv), dtype=dtype, augment=None)
         self.cache = HDF5Dataset(**dict(hdf5), dtype=dtype, augment=None)
         self.reader = self.primary.reader
         if len(self.primary) != len(self.cache):
@@ -80,7 +77,7 @@ class MixedDataset(BaseDataset):
                 f"to be mixed safely. Got {len(self.primary)} and {len(self.cache)}."
             )
 
-        self.build_augmenter(augment, geo=geo)
+        self.build_augmenter(augment)
 
     def __len__(self) -> int:
         """Return the number of aligned entries.
@@ -146,6 +143,15 @@ class MixedDataset(BaseDataset):
         provenance keys. In that case the cache is expected to correspond to
         exactly one original source file, identified by file name, file size,
         and modification time.
+
+        Parameters
+        ----------
+        idx : int
+            Dataset entry index being validated.
+        primary : dict
+            Sample returned by the primary LArCV dataset.
+        cache : dict
+            Sample returned by the HDF5 cache dataset.
         """
         if "source_file_name" not in cache:
             return

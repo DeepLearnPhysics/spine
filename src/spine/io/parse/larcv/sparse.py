@@ -1,11 +1,11 @@
 """Module that contains all parsers related to LArCV sparse data.
 
 Contains the following parsers:
-- :class:`Sparse2DParser`
-- :class:`Sparse3DParser`
-- :class:`Sparse3DAggregateParser`
-- :class:`Sparse3DChargeRescaledParser`
-- :class:`Sparse3DGhostParser`
+- :class:`LArCVSparse2DParser`
+- :class:`LArCVSparse3DParser`
+- :class:`LArCVSparse3DAggregateParser`
+- :class:`LArCVSparse3DChargeRescaledParser`
+- :class:`LArCVSparse3DGhostParser`
 """
 
 from __future__ import annotations
@@ -28,11 +28,6 @@ __all__ = [
     "LArCVSparse3DAggregateParser",
     "LArCVSparse3DChargeRescaledParser",
     "LArCVSparse3DGhostParser",
-    "Sparse2DParser",
-    "Sparse3DParser",
-    "Sparse3DAggregateParser",
-    "Sparse3DChargeRescaledParser",
-    "Sparse3DGhostParser",
 ]
 
 
@@ -84,12 +79,12 @@ class LArCVSparse2DParser(ParserBase):
         self.projection_id = projection_id
 
         # Get the number of features in the output tensor
-        assert (sparse_event is not None) ^ (
-            sparse_event_list is not None
-        ), "Must provide either `sparse_event` or `sparse_event_list`."
-        assert sparse_event_list is None or len(
-            sparse_event_list
-        ), "Must provide as least 1 sparse_event in the list."
+        if not (sparse_event is not None) ^ (sparse_event_list is not None):
+            raise ValueError(
+                "Must provide either `sparse_event` or `sparse_event_list`."
+            )
+        if sparse_event_list is not None and len(sparse_event_list) == 0:
+            raise ValueError("Must provide as least 1 sparse_event in the list.")
 
         self.num_features = 1
         if sparse_event_list is not None:
@@ -131,14 +126,15 @@ class LArCVSparse2DParser(ParserBase):
         """
         # Parse input into a list
         if sparse_event_list is None:
+            assert sparse_event is not None  # Guranteed by the check in __init__
             sparse_event_list = [sparse_event]
 
         # Loop over the list of sparse events
-        np_voxels, meta, num_points = None, None, None
+        np_voxels, meta, num_points = None, None, 0
         np_features = []
-        for sparse_event in sparse_event_list:
+        for event in sparse_event_list:
             # Get the tensor from the appropriate projection
-            tensor = sparse_event.sparse_tensor_2d(self.projection_id)
+            tensor = event.sparse_tensor_2d(self.projection_id)
 
             # Get the shared information
             if meta is None:
@@ -148,10 +144,10 @@ class LArCVSparse2DParser(ParserBase):
                 larcv.fill_2d_voxels(tensor, np_voxels)
                 np_voxels = np_voxels.astype(self.itype)
             else:
-                assert meta == tensor.meta(), "The metadata must match between tensors."
-                assert (
-                    num_points == tensor.as_vector().size()
-                ), "The number of pixels must match between tensors."
+                if meta != tensor.meta():
+                    raise ValueError("The metadata must match between tensors.")
+                if num_points != tensor.as_vector().size():
+                    raise ValueError("The number of pixels must match between tensors.")
 
             # Get the feature vector for this tensor
             np_data = np.empty((num_points, 1), dtype=np.float32)
@@ -199,7 +195,7 @@ class LArCVSparse3DParser(ParserBase):
         index_cols: np.ndarray | None = None,
         sum_cols: np.ndarray | None = None,
         prec_col: int | None = None,
-        precedence: np.ndarray | list[int] = SHAPE_PREC,
+        precedence: np.ndarray | list[int] | tuple[int, ...] = SHAPE_PREC,
     ) -> None:
         """Initialize the parser.
 
@@ -264,14 +260,17 @@ class LArCVSparse3DParser(ParserBase):
             )
 
         # Get the number of features in the output tensor
-        assert (sparse_event is not None) ^ (
-            sparse_event_list is not None
-        ), "Must provide either `sparse_event` or `sparse_event_list`."
-        assert sparse_event_list is None or len(
-            sparse_event_list
-        ), "Must provide as least 1 sparse_event in the list."
+        if not (sparse_event is not None) ^ (sparse_event_list is not None):
+            raise ValueError(
+                "Must provide either `sparse_event` or `sparse_event_list`."
+            )
+        if sparse_event_list is not None and len(sparse_event_list) == 0:
+            raise ValueError("Must provide as least 1 sparse_event in the list.")
 
-        num_tensors = 1 if sparse_event is not None else len(sparse_event_list)
+        num_tensors = 1
+        if sparse_event_list is not None:
+            num_tensors = len(sparse_event_list)
+
         if self.num_features is not None:
             if num_tensors % self.num_features != 0:
                 raise ValueError(
@@ -289,7 +288,7 @@ class LArCVSparse3DParser(ParserBase):
         if sum_cols is not None:
             self.sum_cols = np.asarray(sum_cols)
         self.prec_col = prec_col
-        self.precedence = precedence
+        self.precedence = np.asarray(precedence)
 
     def __call__(self, trees: dict[str, Any]) -> ParserTensor:
         """Parse one entry.
@@ -331,7 +330,9 @@ class LArCVSparse3DParser(ParserBase):
 
         # If requested, split the input list into multiple lists
         split_sparse_event_list = [sparse_event_list]
-        if self.num_features != len(sparse_event_list):
+        if self.num_features is not None and self.num_features != len(
+            sparse_event_list
+        ):
             num_groups = len(sparse_event_list) // self.num_features
             split_sparse_event_list = [
                 sparse_event_list[i * self.num_features : (i + 1) * self.num_features]
@@ -345,43 +346,54 @@ class LArCVSparse3DParser(ParserBase):
             np_voxels, num_points = None, None
             np_features = []
             hit_key_array = []
-            for idx, sparse_event in enumerate(sparse_event_list):
+            for idx, event in enumerate(sparse_event_list):
                 # Get the shared information
                 if meta is None:
-                    meta = sparse_event.meta()
+                    meta = event.meta()
                 else:
-                    assert (
-                        meta == sparse_event.meta()
-                    ), "The metadata must match between tensors."
+                    if meta != event.meta():
+                        raise ValueError("The metadata must match between tensors.")
 
                 if num_points is None:
-                    num_points = sparse_event.as_vector().size()
+                    num_points = event.as_vector().size()
                     np_voxels = np.empty((num_points, 3), dtype=np.int32)
-                    larcv.fill_3d_voxels(sparse_event, np_voxels)
+                    larcv.fill_3d_voxels(event, np_voxels)
                     np_voxels = np_voxels.astype(self.itype)
                 else:
-                    assert (
-                        num_points == sparse_event.as_vector().size()
-                    ), "The number of pixels must match between tensors."
+                    if num_points != event.as_vector().size():
+                        raise ValueError(
+                            "The number of pixels must match between tensors."
+                        )
 
                 # Get the feature vector for this tensor
                 np_data = np.empty((num_points, 1), dtype=np.float32)
-                larcv.fill_3d_pcloud(sparse_event, np_data)
+                larcv.fill_3d_pcloud(event, np_data)
                 np_data = np_data.astype(self.ftype)
                 np_features.append(np_data)
 
                 # If the number of hits is to be computed, keep track of the
                 # required information to do so downstream
                 if self.compute_nhits:
+                    assert (
+                        self.hit_keys is not None
+                    )  # Guaranteed by the check in __init__
                     if idx in self.hit_keys:
                         hit_key_array.append(np_data)
 
             # If requested, add a feature related to the number of planes
             if self.compute_nhits:
+                assert self.nhits_idx is not None  # Guaranteed by the check in __init__
                 hit_key_array = np.hstack(hit_key_array)
                 nhits = np.sum(hit_key_array >= 0.0, axis=1, keepdims=True)
-                if self.nhits_idx < 0 or self.nhits_idx > self.num_features:
-                    raise ValueError(f"`nhits_idx` ({self.nhits_idx}) is out of range.")
+                if self.nhits_idx < 0:
+                    raise ValueError(
+                        f"`nhits_idx` ({self.nhits_idx}) cannot be negative."
+                    )
+                if self.num_features is not None and self.nhits_idx > self.num_features:
+                    raise ValueError(
+                        f"`nhits_idx` ({self.nhits_idx}) is out of range given the "
+                        f"number of features ({self.num_features})."
+                    )
                 np_features.insert(self.nhits_idx, nhits)
 
             # Append to the global list of voxel/features
@@ -613,11 +625,3 @@ class LArCVSparse3DGhostParser(LArCVSparse3DParser):
         tensor.features = (tensor.features == GHOST_SHP).astype(tensor.features.dtype)
 
         return tensor
-
-
-# Backward-compatible aliases
-Sparse2DParser = LArCVSparse2DParser
-Sparse3DParser = LArCVSparse3DParser
-Sparse3DAggregateParser = LArCVSparse3DAggregateParser
-Sparse3DChargeRescaledParser = LArCVSparse3DChargeRescaledParser
-Sparse3DGhostParser = LArCVSparse3DGhostParser

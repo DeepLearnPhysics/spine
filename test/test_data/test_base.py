@@ -538,6 +538,12 @@ class TestDataBase:
 
         assert units["energy"] == "MeV"
 
+    def test_index_attrs(self):
+        """Test index_attrs property."""
+        obj = IndexData()
+
+        assert obj.index_attrs == ("id", "parent_id", "cluster_ids")
+
     def test_output_stored_property_metadata(self):
         """Test stored output properties carry array and unit metadata."""
         classes = (OutBase, TruthFragment, RecoParticle, TruthParticle, InteractionBase)

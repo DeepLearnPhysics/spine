@@ -9,7 +9,13 @@ from warnings import warn
 import numpy as np
 
 from .parse.clean_data import clean_sparse_data
-from .parse.data import ParserObjectList, ParserTensor
+from .parse.data import (
+    ParserEdgeIndex,
+    ParserIndex,
+    ParserIndexList,
+    ParserObjectList,
+    ParserTensor,
+)
 
 SampleDict = dict[str, Any]
 BatchType = Sequence[SampleDict]
@@ -43,9 +49,9 @@ class Overlayer:
 
         Parameters
         ----------
-        data_types : Dict[str, str]
+        data_types : mapping
             Types of data returned by the upstream parsers
-        methods : Dict[str, str]
+        methods : mapping
             Maps data products onto overlay methods
         multiplicity : int
             Number of images to stack in the overlay
@@ -53,15 +59,17 @@ class Overlayer:
             Overlay mode (one of 'constant', 'uniform' or 'poisson')
         """
         # Check that the overlay mode is recognized
-        assert mode in self._modes, (
-            f"Overlay mode not recognized: {mode}. Must be one of " f"{self._modes}."
-        )
+        if mode not in self._modes:
+            raise ValueError(
+                f"Overlay mode not recognized: {mode}. Must be one of {self._modes}."
+            )
         self.mode = mode
 
         # Check that multiplicity is sensible
-        assert (
-            multiplicity > 0
-        ), "Overlay multiplicity should be a non-zero positive integer."
+        if multiplicity <= 0:
+            raise ValueError(
+                "Overlay multiplicity should be a non-zero positive integer."
+            )
         self.multiplicity = multiplicity
 
         # Store the data types and methods
@@ -141,7 +149,7 @@ class Overlayer:
             if batch_size % self.multiplicity != 0:
                 warn(
                     f"The overlay multiplicity ({self.multiplicity}) is not a "
-                    "divider of the batch size ({batch_size}). The overlay "
+                    f"divider of the batch size ({batch_size}). The overlay "
                     "multiplicity will not be uniform."
                 )
 
@@ -307,8 +315,8 @@ class Overlayer:
 
     def stack_tensors(
         self, batch: BatchType, key: str, index: np.ndarray | Sequence[int]
-    ) -> ParserTensor:
-        """Stack tensors together across an overlay.
+    ) -> ParserTensor | ParserIndex | ParserIndexList | ParserEdgeIndex:
+        """Stack parser payloads together across an overlay.
 
         Parameters
         ----------
@@ -322,12 +330,36 @@ class Overlayer:
 
         Returns
         -------
-        ParserTensor
-            Overlayed tensor
+        ParserTensor or ParserIndex or ParserIndexList or ParserEdgeIndex
+            Overlayed parser payload of the same logical type as the input.
         """
         # Define a reference tensor
         ref_data = batch[index[0]][key]
 
+        if isinstance(ref_data, ParserTensor):
+            return self.stack_tensor_data(batch, key, index, ref_data)
+
+        if isinstance(ref_data, ParserIndex):
+            return self.stack_flat_index_data(batch, key, index, ref_data)
+
+        if isinstance(ref_data, ParserIndexList):
+            return self.stack_index_list_data(batch, key, index, ref_data)
+
+        if isinstance(ref_data, ParserEdgeIndex):
+            return self.stack_edge_index_data(batch, key, index, ref_data)
+
+        raise TypeError(
+            f"Unsupported parser payload type for `{key}`: {type(ref_data).__name__}."
+        )
+
+    def stack_tensor_data(
+        self,
+        batch: BatchType,
+        key: str,
+        index: np.ndarray | Sequence[int],
+        ref_data: ParserTensor,
+    ) -> ParserTensor:
+        """Overlay one tensor-like parser payload."""
         # Stack coordinates, if present
         coords = None
         if ref_data.coords is not None:
@@ -337,17 +369,13 @@ class Overlayer:
             coords = np.vstack([batch[idx][key].coords for idx in index])
 
         # If required, offset indexes in the feature tensor
-        global_shift, index_shifts = None, None
-        if ref_data.global_shift is not None:
-            # Shift the whole feature tensor (index tensor)
-            global_shift = ref_data.global_shift
-            for idx in index[1:]:
-                mask = batch[idx][key].features > -1
-                batch[idx][key].features[mask] += global_shift
-                global_shift += batch[idx][key].global_shift
-
-        elif ref_data.feat_index_cols is not None:
+        index_shifts = None
+        if ref_data.feat_index_cols is not None:
             # Apply offsets to the relevant columns only (mixed features)
+            if ref_data.index_shifts is None:
+                raise ValueError(
+                    "Index shifts must be provided if index columns are present."
+                )
             index_shifts = ref_data.index_shifts.copy()
             for idx in index[1:]:
                 for i, col in enumerate(ref_data.feat_index_cols):
@@ -356,21 +384,16 @@ class Overlayer:
                 index_shifts += batch[idx][key].index_shifts
 
         # Stack features
-        if ref_data.global_shift is None:
-            features = np.vstack([batch[idx][key].features for idx in index])
-        else:
-            features = np.concatenate(
-                [batch[idx][key].features for idx in index], axis=-1
-            )
+        features = np.vstack([batch[idx][key].features for idx in index])
 
         # If requested, remove rows corresponding to duplicate coordinates
         if ref_data.remove_duplicates:
             # Check that we have coordinates to make the check
-            assert (
-                ref_data.coords is not None
-            ), "Must provide coordinates to filter duplicates."
+            if coords is None:
+                raise ValueError("Must provide coordinates to filter duplicates.")
 
             # Filter out duplicates, aggregate features
+            assert ref_data.precedence is not None  # Guaranteed by the check above
             coords, features = clean_sparse_data(
                 coords,
                 features,
@@ -384,7 +407,6 @@ class Overlayer:
             coords=coords,
             features=features,
             meta=ref_data.meta,
-            global_shift=global_shift,
             index_shifts=index_shifts,
             index_cols=ref_data.index_cols,
             sum_cols=ref_data.sum_cols,
@@ -392,3 +414,79 @@ class Overlayer:
             precedence=ref_data.precedence,
             feats_only=ref_data.feats_only,
         )
+
+    def stack_flat_index_data(
+        self,
+        batch: BatchType,
+        key: str,
+        index: np.ndarray | Sequence[int],
+        ref_data: ParserIndex,
+    ) -> ParserIndex:
+        """Overlay one flat index payload."""
+        global_shift = ref_data.global_shift
+        shifted_indexes = [batch[index[0]][key].features]
+        for idx in index[1:]:
+            shifted_index = batch[idx][key].features.copy()
+            mask = shifted_index > -1
+            shifted_index[mask] += global_shift
+            shifted_indexes.append(shifted_index)
+            global_shift += batch[idx][key].global_shift
+
+        features = np.concatenate(shifted_indexes, axis=-1)
+        return ParserIndex(features=features, global_shift=global_shift)
+
+    def stack_index_list_data(
+        self,
+        batch: BatchType,
+        key: str,
+        index: np.ndarray | Sequence[int],
+        ref_data: ParserIndexList,
+    ) -> ParserIndexList:
+        """Overlay one jagged index-list payload."""
+        global_shift = ref_data.global_shift
+        features = [entry.copy() for entry in batch[index[0]][key].features]
+        single_counts = []
+        if ref_data.single_counts is not None:
+            single_counts.extend(ref_data.single_counts.tolist())
+        else:
+            single_counts.extend(len(entry) for entry in features)
+
+        for idx in index[1:]:
+            shifted_entries = []
+            for entry in batch[idx][key].features:
+                shifted_entry = entry.copy()
+                mask = shifted_entry > -1
+                shifted_entry[mask] += global_shift
+                shifted_entries.append(shifted_entry)
+            features.extend(shifted_entries)
+            if batch[idx][key].single_counts is not None:
+                single_counts.extend(batch[idx][key].single_counts.tolist())
+            else:
+                single_counts.extend(len(entry) for entry in shifted_entries)
+            global_shift += batch[idx][key].global_shift
+
+        return ParserIndexList(
+            features=features,
+            global_shift=global_shift,
+            single_counts=np.asarray(single_counts, dtype=np.int64),
+        )
+
+    def stack_edge_index_data(
+        self,
+        batch: BatchType,
+        key: str,
+        index: np.ndarray | Sequence[int],
+        ref_data: ParserEdgeIndex,
+    ) -> ParserEdgeIndex:
+        """Overlay one edge-index payload."""
+        global_shift = ref_data.global_shift
+        shifted_indexes = [batch[index[0]][key].features]
+        for idx in index[1:]:
+            shifted_index = batch[idx][key].features.copy()
+            mask = shifted_index > -1
+            shifted_index[mask] += global_shift
+            shifted_indexes.append(shifted_index)
+            global_shift += batch[idx][key].global_shift
+
+        features = np.concatenate(shifted_indexes, axis=-1)
+        return ParserEdgeIndex(features=features, global_shift=global_shift)

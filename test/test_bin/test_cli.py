@@ -11,7 +11,7 @@ import pytest
 from spine.bin import cli as cli_module
 
 
-def test_main_updates_reader_config_and_runs(monkeypatch, tmp_path):
+def test_main_updates_reader_config_and_runs(monkeypatch, tmp_path, capsys):
     """Command-line overrides should update reader configs before dispatch."""
     config_path = tmp_path / "train.yaml"
     config_path.write_text("io: {}\n", encoding="utf-8")
@@ -71,6 +71,9 @@ def test_main_updates_reader_config_and_runs(monkeypatch, tmp_path):
     assert cfg["model"]["weight_path"] == "weights.ckpt"
     assert cfg["model"]["weight_list"] == "weights.txt"
     assert cfg["override"] == ("io.batch_size", 8)
+    output = capsys.readouterr().out
+    assert "██████████" in output
+    assert "SPINE v" not in output
 
 
 def test_main_updates_loader_dataset(monkeypatch, tmp_path):

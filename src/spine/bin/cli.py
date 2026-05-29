@@ -6,9 +6,21 @@ import os
 import pathlib
 import sys
 
+from spine.banner import ascii_logo
 from spine.config import load_config_file
 from spine.config.loader import resolve_config_path
 from spine.config.operations import parse_value, set_nested_value
+
+
+def format_banner() -> str:
+    """Build the CLI banner string.
+
+    Returns
+    -------
+    str
+        SPINE ASCII logo followed by a blank separator line.
+    """
+    return f"\n{ascii_logo}\n"
 
 
 def main(
@@ -63,6 +75,10 @@ def main(
     config_overrides : list[str], optional
         List of config overrides in the form "key.path=value"
     """
+    # Print the banner before configuration loading starts, since loading may
+    # trigger download/cache messages and warnings.
+    print(format_banner(), end="")
+
     # Load the configuration tools to find the appropriate config file
     cfg_file = resolve_config_path(config, current_dir=os.getcwd())
 

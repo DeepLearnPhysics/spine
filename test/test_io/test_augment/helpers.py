@@ -39,6 +39,26 @@ def make_tensor(coords, meta):
     return ParserTensor(coords=coords.copy(), features=features, meta=meta)
 
 
+def weighted_stats(coords, weights):
+    """Return weighted center and spread for test expectations."""
+    weights = np.asarray(weights, dtype=np.float64).reshape(-1)
+    total_weight = np.sum(weights, dtype=np.float64, initial=0.0)
+    center = (
+        np.sum(coords * weights[:, None], axis=0, dtype=np.float64, initial=0.0)
+        / total_weight
+    )
+    variance = (
+        np.sum(
+            ((coords - center) ** 2) * weights[:, None],
+            axis=0,
+            dtype=np.float64,
+            initial=0.0,
+        )
+        / total_weight
+    )
+    return center, np.sqrt(variance)
+
+
 __all__ = [
     "Any",
     "BOX2",
@@ -52,4 +72,5 @@ __all__ = [
     "make_tensor",
     "np",
     "pytest",
+    "weighted_stats",
 ]
