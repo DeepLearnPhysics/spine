@@ -20,7 +20,7 @@ def format_banner() -> str:
     str
         SPINE ASCII logo followed by a blank separator line.
     """
-    return f"{ascii_logo}\n"
+    return f"\n{ascii_logo}\n"
 
 
 def main(
