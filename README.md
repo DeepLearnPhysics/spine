@@ -23,8 +23,8 @@ SPINE supports both container-based and local Python installation workflows, but
 Every SPINE release publishes a matching container image to GHCR. For end-to-end reconstruction, training, and inference, use a release tag when you want a pinned environment. When in doubt, use `latest` or omit the tag entirely:
 
 ```bash
-# Equivalent to: docker pull ghcr.io/deeplearnphysics/spine
-docker pull ghcr.io/deeplearnphysics/spine:latest
+# Equivalent to: docker pull ghcr.io/deeplearnphysics/spine:latest
+docker pull ghcr.io/deeplearnphysics/spine
 
 # Example: replace <release> with a SPINE release tag such as 1.2.3
 docker pull ghcr.io/deeplearnphysics/spine:<release>
@@ -39,12 +39,12 @@ Use Docker when you have a local workstation or server with container runtime su
 ```bash
 docker run --gpus all -v $(pwd):/workspace \
     ghcr.io/deeplearnphysics/spine:latest \
-    spine --config /workspace/config/train_uresnet.yaml --source /workspace/data.h5
+    spine --config /workspace/config/train_uresnet.yaml --source /workspace/data.root
 
 # Or pin to a specific release
 docker run --gpus all -v $(pwd):/workspace \
     ghcr.io/deeplearnphysics/spine:<release> \
-    spine --config /workspace/config/train_uresnet.yaml --source /workspace/data.h5
+    spine --config /workspace/config/train_uresnet.yaml --source /workspace/data.root
 ```
 
 On Apple Silicon macOS systems, the published SPINE image should still be run
@@ -70,12 +70,12 @@ Use Apptainer or Singularity on HPC systems that do not allow Docker directly. T
 ```bash
 apptainer pull spine_latest.sif docker://ghcr.io/deeplearnphysics/spine:latest
 apptainer exec --nv spine_latest.sif \
-    spine --config /workspace/config/train_uresnet.yaml --source /workspace/data.h5
+    spine --config /workspace/config/train_uresnet.yaml --source /workspace/data.root
 
 # Or pin to a specific release
 apptainer pull spine_<release>.sif docker://ghcr.io/deeplearnphysics/spine:<release>
 apptainer exec --nv spine_<release>.sif \
-    spine --config /workspace/config/train_uresnet.yaml --source /workspace/data.h5
+    spine --config /workspace/config/train_uresnet.yaml --source /workspace/data.root
 ```
 
 The Docker and Apptainer paths consume the same released image; the difference is only the container runtime.
@@ -83,8 +83,6 @@ The Docker and Apptainer paths consume the same released image; the difference i
 ### Local Python Installation
 
 Use a local pip installation when you only need downstream tooling such as post-processing, analysis, visualization, documentation, or light development.
-
-### Installation Options
 
 **1. Core Package (minimal dependencies)**
 ```bash
@@ -104,7 +102,7 @@ pip install spine[viz]
 pip install spine[dev]
 ```
 
-**4. Everything (except PyTorch)**
+**4. Everything (except non-pip dependencies, i.e. ROOT, larcv, MinkowskiEngine, etc.)**
 ```bash
 # All optional dependencies (visualization + development tools)
 pip install spine[all]
@@ -169,11 +167,11 @@ cd spine
 pip install numpy scipy pandas pyyaml h5py numba psutil
 
 # Run directly from source
-python src/spine/bin/run.py --config config/train_uresnet.yaml --source /path/to/data.h5
+python src/spine/bin/run.py --config config/train_uresnet.yaml --source /path/to/data.root
 
 # Or make it executable and run directly
 chmod +x src/spine/bin/run.py
-./src/spine/bin/run.py --config your_config.yaml --source data.h5
+./src/spine/bin/run.py --config your_config.yaml --source data.root
 ```
 
 > **💡 Development Tip**: This approach lets you test code changes immediately without reinstalling. Perfect for rapid iteration during development.
@@ -210,7 +208,7 @@ spine --config config/train_uresnet.yaml --source /path/to/data.h5
 
 ```bash
 # From the spine repository directory
-python src/spine/bin/run.py --config config/train_uresnet.yaml --source /path/to/data.h5
+python src/spine/bin/cli.py --config config/train_uresnet.yaml --source /path/to/data.h5
 ```
 
 ### Python API
@@ -254,13 +252,11 @@ Key configuration parameters you may want to modify:
 * `batch_size` - batch size for training/inference
 * `weight_prefix` - directory to save model checkpoints
 * `log_dir` - directory to save training logs
+* `tensorboard` - optional TensorBoard scalar logging configuration
 * `iterations` - number of training iterations
 * `model_path` - path to checkpoint to load (optional)
-* `train` - boolean flag for training vs inference mode
+* `train` - training instruction block
 * `gpus` - GPU IDs to use (leave empty '' for CPU)
-
-
-For more information on storing analysis outputs and running custom analysis scripts, see the documentation on `outputs` (formatters) and `analysis` (scripts) configurations.
 
 ### Running A Configuration File
 
@@ -300,6 +296,49 @@ plt.show()
 # list all column names
 print(df.columns.values)
 ```
+
+### TensorBoard Logging
+
+TensorBoard logging is optional and configured under the `base` block.
+
+Use the default TensorBoard directory under `log_dir`:
+
+```yaml
+base:
+    log_dir: logs/train_run
+    tensorboard: true
+```
+
+This writes TensorBoard event files under `logs/train_run/tensorboard`.
+
+You can also pass TensorBoard writer options directly:
+
+```yaml
+base:
+    log_dir: logs/train_run
+    tensorboard:
+        log_dir: tb
+        flush_secs: 5
+```
+
+In that case, a relative `log_dir` such as `tb` is resolved relative to the
+main log directory, so event files are written under `logs/train_run/tb`.
+
+To inspect the logs:
+
+```bash
+tensorboard --logdir logs/train_run/tensorboard
+```
+
+or, when using a custom TensorBoard directory:
+
+```bash
+tensorboard --logdir logs/train_run/tb
+```
+
+SPINE still writes its CSV log alongside TensorBoard output. TensorBoard
+requires the `tensorboard` Python package to be installed in the runtime
+environment.
 
 ### Recording network output or running analysis
 Documentation for analysis tools and output formatting is available in the main documentation at https://spine.readthedocs.io/latest/.
