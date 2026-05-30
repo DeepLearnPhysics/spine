@@ -250,7 +250,7 @@ class DBSCAN(torch.nn.Module):
         clusts_nb = np.empty(len(clusts), dtype=object)
         clusts_nb[:] = clusts
 
-        index = IndexBatch(clusts_nb, offsets, counts, single_counts)
+        index = IndexBatch(clusts_nb, data.counts, counts, single_counts)
         if len(shapes):
             shapes = TensorBatch(np.concatenate(shapes), counts)
         else:

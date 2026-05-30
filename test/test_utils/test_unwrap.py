@@ -5,7 +5,16 @@ import pytest
 
 from spine.data import IndexBatch, TensorBatch
 from spine.data.list import ObjectList
-from spine.utils.unwrap import Unwrapper
+from spine.io.unwrap import Unwrapper
+
+
+def _spans(offsets, last=0):
+    """Convert cumulative offsets into constructor spans for tests."""
+    spans = np.array(offsets, copy=True)
+    if len(spans) > 1:
+        spans[:-1] = offsets[1:] - offsets[:-1]
+    spans[-1] = last
+    return spans
 
 
 @pytest.fixture(name="tensor_batch")
@@ -58,7 +67,7 @@ def fixture_index_batch(request):
             counts.append(0)
 
     # Initialize the batch objec
-    index_batch = IndexBatch(indexes, offsets, counts, single_counts)
+    index_batch = IndexBatch(indexes, _spans(offsets), counts, single_counts)
 
     return index_batch
 
@@ -73,7 +82,7 @@ def test_unwrap_multi_volume_index_list(monkeypatch):
         tpc = MockTPC()
 
     monkeypatch.setattr(
-        "spine.utils.unwrap.GeoManager.get_instance_if_initialized",
+        "spine.io.unwrap.GeoManager.get_instance_if_initialized",
         lambda: MockGeo(),
     )
 
@@ -84,7 +93,7 @@ def test_unwrap_multi_volume_index_list(monkeypatch):
             np.array([10]),
             np.array([11, 12]),
         ],
-        offsets=np.array([0, 10]),
+        spans=np.array([10, 0]),
         counts=np.array([2, 2]),
         single_counts=np.array([2, 1, 1, 2]),
     )
@@ -99,3 +108,49 @@ def test_unwrap_multi_volume_index_list(monkeypatch):
     np.testing.assert_array_equal(result[0][1], np.array([2]))
     np.testing.assert_array_equal(result[0][2], np.array([10]))
     np.testing.assert_array_equal(result[0][3], np.array([11, 12]))
+
+
+def test_unwrap_exports_single_volume_index_spans():
+    """Single-volume unwrapping should expose one stored span per entry."""
+    orig_index = IndexBatch(
+        np.asarray([0, 2, 4], dtype=np.int64),
+        spans=np.asarray([5], dtype=np.int64),
+        counts=np.asarray([3], dtype=np.int64),
+    )
+
+    result = Unwrapper()({"index": [0], "orig_index": orig_index})
+
+    assert result["orig_index_spans"] == [5]
+    np.testing.assert_array_equal(result["orig_index"][0], np.asarray([0, 2, 4]))
+
+
+def test_unwrap_exports_multi_volume_index_spans(monkeypatch):
+    """Multi-volume index unwrapping should sum per-volume spans per event."""
+
+    class MockTPC:
+        num_modules = 2
+
+    class MockGeo:
+        tpc = MockTPC()
+
+    monkeypatch.setattr(
+        "spine.io.unwrap.GeoManager.get_instance_if_initialized",
+        lambda: MockGeo(),
+    )
+
+    orig_index = IndexBatch(
+        [
+            np.array([0, 1]),
+            np.array([2]),
+            np.array([10]),
+            np.array([11, 12]),
+        ],
+        spans=np.array([10, 20]),
+        counts=np.array([2, 2]),
+        single_counts=np.array([2, 1, 1, 2]),
+    )
+
+    result = Unwrapper()({"index": [0], "orig_index": orig_index})
+
+    assert result["orig_index_spans"] == [30]
+    assert len(result["orig_index"]) == 1

@@ -705,7 +705,7 @@ def test_hdf5_dataset_flat_index_schema_and_collate(tmp_path):
     entry = dataset[0]
     assert "orig_index" in entry
     np.testing.assert_array_equal(entry["orig_index"].features, np.asarray([0, 2, 4]))
-    assert entry["orig_index"].global_shift == 5
+    assert entry["orig_index"].span == 5
 
     collate = CollateAll(dataset.data_types)
     batch = collate([dataset[0], dataset[1]])
@@ -749,7 +749,7 @@ def test_hdf5_dataset_schema_updates_explicit_raw_keys(tmp_path):
         },
     )
 
-    assert dataset[0]["clusts"].global_shift == 1
+    assert dataset[0]["clusts"].span == 1
 
 
 def test_hdf5_dataset_schema_parser_failure(tmp_path):

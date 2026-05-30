@@ -190,7 +190,7 @@ def test_parse_particle_graph(particle_event, cluster3d_event):
     # - The second is a single number corresponding to the number of particles
     assert isinstance(result, ParserEdgeIndex)
     assert result.features.shape[0] == 2
-    assert result.global_shift == particle_event.size()
+    assert result.span == particle_event.size()
 
 
 @pytest.mark.parametrize("particle_event", [0, 1], indirect=True)

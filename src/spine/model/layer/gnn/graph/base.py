@@ -185,8 +185,8 @@ class GraphBase:
             )
 
         # Get the offsets, initialize an EdgeIndexBatch obejct
-        offsets = clusts.edges[:-1]
-        edge_index = EdgeIndexBatch(edge_index, edge_counts, offsets, self.directed)
+        spans = clusts.counts
+        edge_index = EdgeIndexBatch(edge_index, edge_counts, spans, self.directed)
 
         return edge_index, dist_mat, closest_index
 

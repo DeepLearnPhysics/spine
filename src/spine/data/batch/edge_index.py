@@ -22,16 +22,20 @@ class EdgeIndexBatch(BatchBase):
 
     Attributes
     ----------
+    spans : Union[np.ndarray, torch.Tensor]
+        (B) Per-entry parent spans used to build the batch offsets.
     offsets : Union[np.ndarray, torch.Tensor]
-        (B) Offsets between successive indexes in the batch
+        (B) Offsets between successive indexes in the batch, computed from
+        the cumulative sum of ``spans``.
     directed : bool
         Whether the edge index is directed or undirected
     """
 
+    spans: np.ndarray | torch.Tensor
     offsets: np.ndarray | torch.Tensor
     directed: bool
 
-    def __init__(self, data, counts, offsets, directed):
+    def __init__(self, data, counts, spans, directed):
         """Initialize the attributes of the class.
 
         If the edge index corresponds to an undirected graph, each edge
@@ -48,8 +52,8 @@ class EdgeIndexBatch(BatchBase):
             (2, E) Batched edge index
         counts : Union[List[int], np.ndarray, torch.Tensor]
             (B) Number of index elements per entry in the batch
-        offsets : Union[List[int], np.ndarray, torch.Tensor]
-            (B) Offsets between successive indexes in the batch
+        spans : Union[List[int], np.ndarray, torch.Tensor]
+            (B) Per-entry parent spans used to derive ``offsets``.
         directed : bool
             Whether the edge index is directed or undirected
         """
@@ -58,14 +62,14 @@ class EdgeIndexBatch(BatchBase):
 
         # Cast
         counts = self._as_long(counts)
-        offsets = self._as_long(offsets)
+        spans = self._as_long(spans)
 
         # Do a couple of basic sanity checks
         if self._sum(counts) != data.shape[1]:
             raise ValueError("The `counts` provided do not add up to the index length")
-        if len(counts) != len(offsets):
+        if len(counts) != len(spans):
             raise ValueError(
-                "The number of `offsets` does not match the number of `counts`"
+                "The number of `spans` does not match the number of `counts`"
             )
         if not directed and data.shape[1] % 2 != 0:
             raise ValueError(
@@ -73,12 +77,17 @@ class EdgeIndexBatch(BatchBase):
                 "even number of edge"
             )
 
+        # Compute the offsets from the per-entry spans
+        offsets = self._zeros(len(spans), None if self.is_numpy else spans.device)
+        offsets[1:] = self._cumsum(spans)[:-1]
+
         # Get the boundaries between successive index using the counts
         edges = self.get_edges(counts)
 
         # Store the attributes
         self.data = data
         self.counts = counts
+        self.spans = spans
         self.edges = edges
         self.offsets = offsets
         self.directed = directed
@@ -222,9 +231,9 @@ class EdgeIndexBatch(BatchBase):
 
         data = self._to_numpy(self.data)
         counts = self._to_numpy(self.counts)
-        offsets = self._to_numpy(self.offsets)
+        spans = self._to_numpy(self.spans)
 
-        return EdgeIndexBatch(data, counts, offsets, self.directed)
+        return EdgeIndexBatch(data, counts, spans, self.directed)
 
     def to_tensor(self, dtype=None, device=None):
         """Cast underlying index to a `torch.tensor` and return a new instance.
@@ -247,6 +256,6 @@ class EdgeIndexBatch(BatchBase):
 
         data = self._to_tensor(self.data, dtype, device)
         counts = self._to_tensor(self.counts, dtype, device)
-        offsets = self._to_tensor(self.offsets, dtype, device)
+        spans = self._to_tensor(self.spans, dtype, device)
 
-        return EdgeIndexBatch(data, counts, offsets, self.directed)
+        return EdgeIndexBatch(data, counts, spans, self.directed)

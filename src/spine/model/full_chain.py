@@ -437,7 +437,7 @@ class FullChain(torch.nn.Module):
             )
             orig_index_adapt = IndexBatch(
                 adapt_index,
-                offsets=data.edges[:-1],
+                spans=data.counts,
                 counts=data_adapt.counts,
             )
             ghost_pred = TensorBatch(ghost_pred, data.counts)
@@ -466,7 +466,7 @@ class FullChain(torch.nn.Module):
                 )
                 orig_index_label = IndexBatch(
                     adapt_index,
-                    offsets=seg_label.edges[:-1],
+                    spans=seg_label.counts,
                     counts=seg_label_adapt.counts,
                 )
 
@@ -518,7 +518,7 @@ class FullChain(torch.nn.Module):
                 tensor_deghost, batch_size=data.batch_size, coord_cols=data.coord_cols
             )
             orig_index_adapt = IndexBatch(
-                adapt_index, offsets=data.edges[:-1], counts=data_adapt.counts
+                adapt_index, spans=data.counts, counts=data_adapt.counts
             )
             self.result["ghost_pred"] = ghost_pred
             self.result["data_adapt"] = data_adapt
@@ -590,7 +590,7 @@ class FullChain(torch.nn.Module):
                 )
                 orig_index_adapt = IndexBatch(
                     adapt_index,
-                    offsets=data.edges[:-1],
+                    spans=data.counts,
                     counts=data_adapt.counts,
                 )
                 ghost_pred = TensorBatch(ghost_pred, data.counts)
@@ -659,7 +659,7 @@ class FullChain(torch.nn.Module):
 
         # Initialize the fragment-level output
         counts = np.zeros(data.batch_size, dtype=np.int64)
-        fragments = IndexBatch([], data.edges[:-1], counts, [])
+        fragments = IndexBatch([], data.counts, counts, [])
         fragment_shapes = TensorBatch(np.empty(0, dtype=np.int64), counts)
 
         # Append the fragment list
@@ -690,7 +690,12 @@ class FullChain(torch.nn.Module):
                 for i, f in enumerate(clusts.index_list):
                     clusts.data[i] = filter_index[f]
 
-                clusts.offsets = data.edges[:-1]
+                clusts = IndexBatch(
+                    clusts.index_list,
+                    data.counts,
+                    clusts.counts,
+                    clusts.single_counts,
+                )
 
                 # Append
                 fragments = fragments.merge(clusts.to_numpy())
@@ -745,9 +750,9 @@ class FullChain(torch.nn.Module):
 
         # Initialize the particle-level output
         counts = np.zeros(fragments.batch_size, dtype=np.int64)
-        particles = IndexBatch([], fragments.offsets, counts, [])
+        particles = IndexBatch([], fragments.spans, counts, [])
         particle_shapes = TensorBatch(np.empty(0, dtype=np.int64), counts)
-        particle_primaries = IndexBatch([], fragments.offsets, counts, [])
+        particle_primaries = IndexBatch([], fragments.spans, counts, [])
 
         # Loop over GraPA models, append the particle list
         shapes = {
@@ -1165,7 +1170,7 @@ class FullChain(torch.nn.Module):
             clusts_np[:] = clusts.index_list
             clusts = IndexBatch(
                 clusts_np[shape_index],
-                offsets=clusts.offsets,
+                spans=clusts.spans,
                 single_counts=clusts.single_counts[shape_index],
                 batch_ids=batch_ids,
                 batch_size=clusts.batch_size,
@@ -1345,13 +1350,13 @@ class FullChain(torch.nn.Module):
                     )
                     group_shapes.append(shapes[np.argmax(shape_counts)])
 
-        groups = IndexBatch(groups, clusts.offsets, counts, single_counts)
+        groups = IndexBatch(groups, clusts.spans, counts, single_counts)
         if aggregate_shapes:
             group_shapes = np.array(group_shapes, dtype=np.int64)
             group_shapes = TensorBatch(group_shapes, counts)
         if retain_primaries:
             group_primaries = IndexBatch(
-                group_primaries, clusts.offsets, counts, single_primary_counts
+                group_primaries, clusts.spans, counts, single_primary_counts
             )
         else:
             group_primaries = groups
@@ -1526,7 +1531,6 @@ class FullChainLoss(torch.nn.Module):
         meta=None,
         orig_index=None,
         ghost=None,
-        ghost_pred=None,
         segmentation=None,
         seg_pred=None,
         **output,

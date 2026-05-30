@@ -93,9 +93,7 @@ def fixture_batch_edge_index(request):
 
             edge_index = np.random.randint(0, 10, size=(2, num_edges))
 
-            data[f"edge_index_{name}"] = ParserEdgeIndex(
-                features=edge_index, global_shift=10
-            )
+            data[f"edge_index_{name}"] = ParserEdgeIndex(features=edge_index, span=10)
 
         # Append the batch list
         batch.append(data)
@@ -228,21 +226,17 @@ def test_collate_index_tensor_and_edge_tensor_offsets():
     collate_fn = CollateAll(data_types={"flat": "tensor", "edge": "tensor"})
     batch = [
         {
-            "flat": ParserIndex(
-                features=np.asarray([0, 1], dtype=np.int64), global_shift=2
-            ),
+            "flat": ParserIndex(features=np.asarray([0, 1], dtype=np.int64), span=2),
             "edge": ParserEdgeIndex(
                 features=np.asarray([[0, 1], [1, 0]], dtype=np.int64),
-                global_shift=2,
+                span=2,
             ),
         },
         {
-            "flat": ParserIndex(
-                features=np.asarray([0], dtype=np.int64), global_shift=1
-            ),
+            "flat": ParserIndex(features=np.asarray([0], dtype=np.int64), span=1),
             "edge": ParserEdgeIndex(
                 features=np.asarray([[0], [0]], dtype=np.int64),
-                global_shift=1,
+                span=1,
             ),
         },
     ]
@@ -250,8 +244,10 @@ def test_collate_index_tensor_and_edge_tensor_offsets():
 
     assert isinstance(result["flat"], IndexBatch)
     assert result["flat"].index.tolist() == [0, 1, 2]
+    assert result["flat"].spans.tolist() == [2, 1]
     assert isinstance(result["edge"], EdgeIndexBatch)
     assert result["edge"].index.tolist() == [[0, 1, 2], [1, 0, 2]]
+    assert result["edge"].spans.tolist() == [2, 1]
 
 
 def test_collate_with_overlay():
@@ -275,8 +271,8 @@ def test_collate_overlay_requires_overlay_methods():
 def test_collate_index_tensor_returns_index_batch():
     """One-dimensional index tensors should produce an IndexBatch."""
     batch = [
-        {"index_tensor": ParserIndex(features=np.asarray([0, 1]), global_shift=2)},
-        {"index_tensor": ParserIndex(features=np.asarray([0, 2]), global_shift=3)},
+        {"index_tensor": ParserIndex(features=np.asarray([0, 1]), span=2)},
+        {"index_tensor": ParserIndex(features=np.asarray([0, 2]), span=3)},
     ]
     collate_fn = CollateAll(data_types={"index_tensor": "tensor"})
 
@@ -287,16 +283,8 @@ def test_collate_index_tensor_returns_index_batch():
 def test_collate_edge_index_tensor_returns_edge_index_batch():
     """Two-dimensional index tensors should produce an EdgeIndexBatch."""
     batch = [
-        {
-            "edge_tensor": ParserEdgeIndex(
-                features=np.asarray([[0, 1], [1, 0]]), global_shift=2
-            )
-        },
-        {
-            "edge_tensor": ParserEdgeIndex(
-                features=np.asarray([[0, 1], [1, 0]]), global_shift=2
-            )
-        },
+        {"edge_tensor": ParserEdgeIndex(features=np.asarray([[0, 1], [1, 0]]), span=2)},
+        {"edge_tensor": ParserEdgeIndex(features=np.asarray([[0, 1], [1, 0]]), span=2)},
     ]
     collate_fn = CollateAll(data_types={"edge_tensor": "tensor"})
 
@@ -310,14 +298,14 @@ def test_collate_index_list_tensor_returns_index_batch():
         {
             "index_tensor": ParserIndexList(
                 features=[np.asarray([0, 2]), np.asarray([1])],
-                global_shift=3,
+                span=3,
                 single_counts=np.asarray([2, 1]),
             )
         },
         {
             "index_tensor": ParserIndexList(
                 features=[np.asarray([0, 1, 2])],
-                global_shift=3,
+                span=3,
             )
         },
     ]
@@ -327,6 +315,7 @@ def test_collate_index_list_tensor_returns_index_batch():
     assert isinstance(result["index_tensor"], IndexBatch)
     assert result["index_tensor"].counts.tolist() == [2, 1]
     assert result["index_tensor"].single_counts.tolist() == [2, 1, 3]
+    assert result["index_tensor"].spans.tolist() == [3, 3]
 
 
 def test_collate_feature_tensors_without_coords():
@@ -480,13 +469,13 @@ def test_collate_index_list_without_single_counts():
         {
             "index_tensor": ParserIndexList(
                 features=[np.asarray([0, 2]), np.asarray([1])],
-                global_shift=3,
+                span=3,
             )
         },
         {
             "index_tensor": ParserIndexList(
                 features=[np.asarray([0, 1, 2])],
-                global_shift=3,
+                span=3,
             )
         },
     ]

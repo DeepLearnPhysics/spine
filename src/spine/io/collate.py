@@ -239,7 +239,8 @@ class CollateAll:
             Batched index tensor
         """
         # Start by computing the necessary node ID offsets to apply
-        total_counts = [sample[key].global_shift for sample in batch]
+        total_counts = [sample[key].span for sample in batch]
+        spans = np.asarray(total_counts, dtype=np.int64)
         offsets = np.zeros(len(total_counts), dtype=int)
         offsets[1:] = np.cumsum(total_counts)[:-1]
 
@@ -259,7 +260,7 @@ class CollateAll:
                 else:
                     single_counts.extend(len(index) for index in sample_index_list)
 
-            return IndexBatch(index_list, offsets, counts, single_counts)
+            return IndexBatch(index_list, spans, counts, single_counts)
 
         # Stack the indexes, do not add a batch column
         index_list = []
@@ -270,9 +271,9 @@ class CollateAll:
         counts = [sample[key].features.shape[-1] for sample in batch]
 
         if len(index.shape) == 1:
-            return IndexBatch(index, offsets, counts)
+            return IndexBatch(index, spans, counts)
         else:
-            return EdgeIndexBatch(index, counts, offsets, directed=True)
+            return EdgeIndexBatch(index, counts, spans, directed=True)
 
     def stack_feat_tensors(self, batch: BatchType, key: str) -> TensorBatch:
         """Stack feature tensors together across an overlay.

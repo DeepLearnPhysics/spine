@@ -57,7 +57,7 @@ def test_full_chain_loss_uses_orig_index_to_align_cached_segmentation_labels():
     )
     orig_index = IndexBatch(
         torch.tensor([0, 2, 4], dtype=torch.long),
-        offsets=torch.tensor([0], dtype=torch.long),
+        spans=torch.tensor([0], dtype=torch.long),
         counts=torch.tensor([3], dtype=torch.long),
     )
 

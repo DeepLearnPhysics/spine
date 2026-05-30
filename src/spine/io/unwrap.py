@@ -28,124 +28,72 @@ class Unwrapper:
         remove_batch_col : bool
              Remove column which specifies batch ID from the unwrapped tensors
         """
-        # Fetch the geometry instance, if available
         self.geo = GeoManager.get_instance_if_initialized()
 
-        # Store parameters
         self.num_volumes = self.geo.tpc.num_modules if self.geo else 1
         self.meta_key = meta_key
         self.remove_batch_col = remove_batch_col
         self.batch_size = None
 
     def __call__(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Main unwrapping function.
-
-        Loops over the data keys and applies the unwrapping rules. Returns the
-        unwrapped versions of the dictionary
-
-        Parameters
-        ----------
-        data : Dict[str, Any]
-            Dictionary of data products
-
-        Returns
-        -------
-        Dict[str, Any]
-            Dictionary of unwrapped data products
-        """
-        # If there are multiple volumes, fetch the metadata
+        """Main unwrapping function."""
         meta = None
         if self.num_volumes > 1 and self.meta_key in data:
             meta = data[self.meta_key]
 
-        # Loop over data products and unwrap them
         data_unwrapped = {}
         self.batch_size = len(data["index"])
         for key, value in data.items():
             data_unwrapped[key] = self._unwrap(key, value, meta)
+            if isinstance(value, (IndexBatch, EdgeIndexBatch)):
+                span_key = f"{key}_spans"
+                if span_key not in data:
+                    data_unwrapped[span_key] = self._unwrap_index_spans(value)
 
         return data_unwrapped
 
     def _unwrap(self, key: str, data: Any, meta: Optional[List[Meta]] = None) -> Any:
-        """Routes set of data to the appropriate unwrapping scheme.
-
-        Parameters
-        ----------
-        key : str
-            Name of the data product to unwrap
-        data : Any
-            Data product
-        meta : List[Meta], optional
-            Metadata associated with each image in the batch
-
-        Returns
-        -------
-        Any
-            Unwrapped data product
-        """
-        # Data should never be an empty list
+        """Route data to the appropriate unwrapping scheme."""
         if isinstance(data, (list, tuple)) and len(data) == 0:
             raise ValueError(f"Batched data for {key} is an empty list, cannot unwrap.")
         if self.batch_size is None:
             raise ValueError("Batch size should be set before unwrapping.")
 
-        # Dispatch to the correct unwrapping scheme
         dim = len(getattr(data, "shape", (0,)))
         if (
             np.isscalar(data)
             or dim == 0
             or (isinstance(data, list) and not isinstance(data[0], TensorBatch))
         ):
-            # If there is a single scalar for the entire batch or a simple list
-            # of objects (one per entry), return as is
             return data
 
-        elif isinstance(data, TensorBatch):
-            # If the data is a tensor, split it between its constituents
+        if isinstance(data, TensorBatch):
             return self._unwrap_tensor(data, meta)
 
-        elif isinstance(data, list) and isinstance(data[0], TensorBatch):
-            # If the data is a tensor list, split each between its constituents
+        if isinstance(data, list) and isinstance(data[0], TensorBatch):
             data_split = [self._unwrap_tensor(t, meta) for t in data]
             tensor_lists = []
-            for b in range(self.batch_size):
-                tensor_lists.append([l[b] for l in data_split])
+            for batch_id in range(self.batch_size):
+                tensor_lists.append([value[batch_id] for value in data_split])
 
             return tensor_lists
 
-        elif isinstance(data, (IndexBatch, EdgeIndexBatch)):
-            # If the data is an index, split it between its constituents
+        if isinstance(data, (IndexBatch, EdgeIndexBatch)):
             return self._unwrap_index(data)
 
-        else:
-            raise ValueError(f"Type of {key} not unwrappable: {type(data)}")
+        raise ValueError(f"Type of {key} not unwrappable: {type(data)}")
 
     def _unwrap_tensor(
         self, data: TensorBatch, meta: Optional[List[Meta]] = None
     ) -> List[np.ndarray]:
-        """Unwrap a batch of tensors into its constituents.
-
-        Parameters
-        ----------
-        data : TensorBatch
-            Tensor batch product
-        meta : Meta, optional
-            Metadata associated with each image in the batch
-
-        Returns
-        -------
-        List[np.ndarray]
-            List of unwrapped tensors
-        """
-        # If there is one volume per batch, trivial
+        """Unwrap a batch of tensors into its constituents."""
         if self.num_volumes == 1 or data.batch_size == self.batch_size:
             if not self.remove_batch_col or not data.has_batch_col:
                 return data.split()
-            else:
-                data_nobc = TensorBatch(data.tensor[:, BATCH_COL + 1 :], data.counts)
-                return data_nobc.split()
 
-        # Otherwise, must shift coordinates back
+            data_nobc = TensorBatch(data.tensor[:, BATCH_COL + 1 :], data.counts)
+            return data_nobc.split()
+
         if self.geo is None:
             raise ValueError(
                 "Geometry must be initialized to unwrap tensors from multiple volumes."
@@ -160,15 +108,15 @@ class Unwrapper:
         coord_groups = None
         if data.coord_cols is not None:
             coord_groups = np.asarray(data.coord_cols).reshape(-1, 3)
-        for b in range(batch_size):
+        for batch_id in range(batch_size):
             tensor_list = []
-            for v in range(self.num_volumes):
-                idx = b * self.num_volumes + v
+            for volume_id in range(self.num_volumes):
+                idx = batch_id * self.num_volumes + volume_id
                 tensor = data[idx]
-                if v > 0 and coord_groups is not None:
+                if volume_id > 0 and coord_groups is not None:
                     for cols in coord_groups:
                         tensor[:, cols] = self.geo.translate(
-                            tensor[:, cols], 0, v, 1.0 / meta[b].size
+                            tensor[:, cols], 0, volume_id, 1.0 / meta[batch_id].size
                         )
                 if self.remove_batch_col and data.has_batch_col:
                     tensor = tensor[:, BATCH_COL + 1 :]
@@ -182,32 +130,19 @@ class Unwrapper:
     def _unwrap_index(
         self, data: Union[IndexBatch, EdgeIndexBatch]
     ) -> Union[List[np.ndarray], List[ObjectList]]:
-        """Unwrap an index list into its constituents.
-
-        Parameters
-        ----------
-        data : Union[IndexBatch, EdgeIndexBatch]
-            Index batch product
-
-        Returns
-        -------
-        Union[List[np.ndarray], List[ObjectList]]
-            List of unwrapped indexes
-        """
-        # Unwrap
+        """Unwrap an index list into its constituents."""
         if self.num_volumes == 1 or data.batch_size == self.batch_size:
-            # If there is only one volume, trivial
             indexes = data.split()
-
         else:
-            # If there is more than one volume, merge them together
             batch_size = data.batch_size // self.num_volumes
             indexes = []
-            for b in range(batch_size):
+            for batch_id in range(batch_size):
                 index_list = []
-                for v in range(self.num_volumes):
-                    idx = b * self.num_volumes + v
-                    offset = data.offsets[idx] - data.offsets[b * self.num_volumes]
+                for volume_id in range(self.num_volumes):
+                    idx = batch_id * self.num_volumes + volume_id
+                    offset = (
+                        data.offsets[idx] - data.offsets[batch_id * self.num_volumes]
+                    )
                     index = data[idx]
                     if isinstance(data, IndexBatch) and data.is_list:
                         index_list.extend(offset + element for element in index)
@@ -219,7 +154,6 @@ class Unwrapper:
                 else:
                     indexes.append(np.concatenate(index_list))
 
-        # Cast the index lists to ObjectList, in case they are empty
         if isinstance(data, IndexBatch) and data.is_list:
             shape = (0, data.shape[1]) if len(data.shape) == 2 else 0
             default = np.empty(shape, dtype=np.int64)
@@ -230,3 +164,21 @@ class Unwrapper:
             return indexes_obl
 
         return indexes
+
+    def _unwrap_index_spans(self, data: Union[IndexBatch, EdgeIndexBatch]) -> List[int]:
+        """Unwrap per-entry parent spans alongside index-like batches."""
+        spans = data.spans
+        if not isinstance(spans, np.ndarray):
+            spans = spans.detach().cpu().numpy()
+
+        if self.num_volumes == 1 or data.batch_size == self.batch_size:
+            return [int(span) for span in spans]
+
+        batch_size = data.batch_size // self.num_volumes
+        unwrapped_spans = []
+        for batch_id in range(batch_size):
+            lower = batch_id * self.num_volumes
+            upper = (batch_id + 1) * self.num_volumes
+            unwrapped_spans.append(int(np.sum(spans[lower:upper], dtype=np.int64)))
+
+        return unwrapped_spans

@@ -48,7 +48,7 @@ def form_clusters_batch(data, min_size=-1, column=CLUST_COL, shapes=None):
         Object used to index clusters within a batch of data
     """
     # Loop over the individual entries
-    clusts, counts, single_counts, offsets = [], [], [], [0]
+    clusts, counts, single_counts = [], [], []
     for b in range(data.batch_size):
         # Get the list of clusters and cluster sizes within this entry
         data_b = data[b]
@@ -56,17 +56,15 @@ def form_clusters_batch(data, min_size=-1, column=CLUST_COL, shapes=None):
 
         # Offset the cluster indexes appropriately
         for i, clust in enumerate(clusts_b):
-            clusts_b[i] = clust + offsets[-1]
+            clusts_b[i] = clust + data.edges[b]
 
         # Append
         clusts.extend(clusts_b)
         counts.append(len(counts_b))
         single_counts.extend(counts_b)
-        if b < (data.batch_size - 1):
-            offsets.append(offsets[-1] + len(data_b))
 
     # Make an IndexBatch out of the list
-    return IndexBatch(clusts, offsets, counts, single_counts)
+    return IndexBatch(clusts, data.counts, counts, single_counts)
 
 
 def get_cluster_label_batch(data, clusts, column=CLUST_COL):
