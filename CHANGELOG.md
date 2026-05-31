@@ -1,5 +1,59 @@
 # Changelog
 
+## [0.13.0] - 2026-05-30
+
+### Added
+- **Visualization docs**: Add a dedicated `spine.vis` README covering the
+  reorganized trace, drawer, metric, and layout structure introduced in
+  [#131](https://github.com/DeepLearnPhysics/spine/pull/131).
+- **Driver logging backends**: Add a structured `LogManager` with optional
+  TensorBoard integration and CSV/timing/memory logging support as part of the
+  driver refactor in [#132](https://github.com/DeepLearnPhysics/spine/pull/132).
+- **Index-span metadata**: Add explicit parser payload classes and span-aware
+  batch metadata for flat indexes, index lists, and edge indexes in
+  [#133](https://github.com/DeepLearnPhysics/spine/pull/133).
+
+### Changed
+- **Math package cleanup**: Review and tighten `spine.math` typing, tests, and
+  helper behavior, including the iterative pair-distance path now used by the
+  full-chain regression baseline in
+  [#130](https://github.com/DeepLearnPhysics/spine/pull/130).
+- **Visualization package structure**: Reorganize `spine.vis` into explicit
+  `trace`, `drawer`, `metric`, and `layout` subpackages, preserve direct import
+  exposure through `spine.vis`, and restore comprehensive coverage in
+  [#131](https://github.com/DeepLearnPhysics/spine/pull/131).
+- **Driver and I/O ownership boundaries**: Refactor driver initialization,
+  move batching/unwrapping responsibilities under `spine.io`, introduce an
+  `IOManager`, and separate structured logging concerns through
+  [#132](https://github.com/DeepLearnPhysics/spine/pull/132).
+- **Index batching model**: Replace implicit global index shifts with explicit
+  per-entry spans throughout parsing, collation, overlay, unwrapping, and
+  cached HDF5 index handling in
+  [#133](https://github.com/DeepLearnPhysics/spine/pull/133).
+- **Container/runtime defaults**: Simplify container metadata handling and
+  restore multi-rank training summaries so distributed runs emit one coherent
+  per-rank progress table from the main process.
+
+### Fixed
+- **Closest/farthest pair utilities**: Fix pair-distance helper behavior used by
+  GrapPA feature engineering and align the deterministic full-chain regression
+  reference with the iterative implementation in
+  [#130](https://github.com/DeepLearnPhysics/spine/pull/130).
+- **Visualization regressions**: Fix CI regressions in the reorganized output
+  drawer, restore coverage, and preserve existing behavior after the package
+  shuffle in [#131](https://github.com/DeepLearnPhysics/spine/pull/131).
+- **CLI and runtime polish**: Move banner printing to the CLI, reduce duplicate
+  startup output, improve bin-package typing, and expand coverage around the
+  main runtime and entrypoint helpers as part of
+  [#132](https://github.com/DeepLearnPhysics/spine/pull/132).
+- **Index list semantics**: Preserve list-backed `IndexBatch` behavior for
+  object-array-backed cluster lists, fix downstream PPN cluster access after the
+  span refactor, and require count metadata for HDF5 index parsers where spans
+  must be reconstructed after [#133](https://github.com/DeepLearnPhysics/spine/pull/133).
+- **Distributed training summaries**: Gather per-rank iteration rows onto rank
+  0 so training logs once again report timing, memory, loss, and accuracy for
+  every process without duplicating the full header block.
+
 ## [0.12.4] - 2026-05-18
 
 ### Changed
