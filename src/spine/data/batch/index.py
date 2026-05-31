@@ -40,20 +40,6 @@ class IndexBatch(BatchBase):
     offsets: ArrayLike
     single_counts: ArrayLike
 
-    @property
-    def _index_data(self) -> ArrayLike:
-        """Underlying single index with index-list cases excluded."""
-        if isinstance(self.data, Sequence) and not isinstance(self.data, np.ndarray):
-            raise TypeError("IndexBatch data is an index list.")
-        return self.data
-
-    @property
-    def _index_list(self) -> Sequence[ArrayLike]:
-        """Underlying index list with single-index cases excluded."""
-        if not isinstance(self.data, Sequence) or isinstance(self.data, np.ndarray):
-            raise TypeError("IndexBatch data is a single index.")
-        return self.data
-
     def __init__(
         self,
         data: ArrayLike | Sequence[ArrayLike],
@@ -184,6 +170,22 @@ class IndexBatch(BatchBase):
                 index - self.offsets[batch_id]
                 for index in self._index_list[lower:upper]
             ]
+
+    @property
+    def _index_data(self) -> ArrayLike:
+        """Underlying single index with index-list cases excluded."""
+        if self.is_list:
+            raise TypeError("IndexBatch data is an index list.")
+        return self.data
+
+    @property
+    def _index_list(self) -> Sequence[ArrayLike]:
+        """Underlying index list with single-index cases excluded."""
+        if not self.is_list:
+            raise TypeError("IndexBatch data is a single index.")
+        if isinstance(self.data, np.ndarray):
+            return self.data.tolist()
+        return self.data
 
     @property
     def index(self) -> ArrayLike:

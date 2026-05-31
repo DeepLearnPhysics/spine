@@ -286,6 +286,21 @@ class TestIndexBatchProperties:
 
         assert batch.index_list is batch.data
 
+    def test_object_array_index_list_property(self):
+        """Object arrays should preserve list-backed index semantics."""
+        data = np.empty(2, dtype=object)
+        data[:] = [np.array([0, 1]), np.array([2, 3])]
+        offsets = np.array([0, 0])
+        counts = [1, 1]
+        single_counts = [2, 2]
+
+        batch = IndexBatch(
+            data, spans=_spans(offsets), counts=counts, single_counts=single_counts
+        )
+
+        assert batch.is_list
+        np.testing.assert_array_equal(batch.index_list[0], [0, 1])
+
     def test_index_list_property_fails_for_single(self):
         """Test index_list property raises error for single index."""
         data = np.array([0, 1, 2])
