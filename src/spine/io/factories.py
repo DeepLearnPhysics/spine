@@ -153,6 +153,8 @@ def loader_factory(
     torch_dataset = dataset_factory(dataset, entry_list, dtype)
 
     # Initialize the sampler
+    if sampler is None and getattr(torch_dataset, "joint", False):
+        raise ValueError("JointDataset requires an explicit joint sampler.")
     if sampler is not None:
         sampler = sampler_factory(
             sampler, torch_dataset, batch_size, distributed, world_size, rank
@@ -205,6 +207,14 @@ def dataset_factory(
 
     # Append the entry_list if it is provided independently
     if entry_list is not None:
+        dataset_name = (
+            dataset_cfg if isinstance(dataset_cfg, str) else dataset_cfg.get("name")
+        )
+        if dataset_name in ("joint", "JointDataset"):
+            raise ValueError(
+                "`entry_list` must be configured inside `base`, `primary`, "
+                "or `secondary` for JointDataset."
+            )
         warn(
             "You are manually overwriting the existing `entry_list` "
             "argument provided in the configuration file."
@@ -266,6 +276,18 @@ def sampler_factory(
     sampler_obj = instantiate(
         sampler_dict, sampler_cfg, dataset=dataset, batch_size=minibatch_size
     )
+
+    # Joint datasets consume tuple indexes; standard datasets consume scalars.
+    is_joint_dataset = getattr(dataset, "joint", False)
+    is_joint_sampler = getattr(sampler_obj, "joint", False)
+    if is_joint_dataset != is_joint_sampler:
+        expected = "joint" if is_joint_dataset else "standard"
+        got = "joint" if is_joint_sampler else "standard"
+        raise ValueError(
+            f"Cannot use a {got} sampler with a {expected} dataset. "
+            "Use a joint sampler with JointDataset and a standard sampler "
+            "with standard datasets."
+        )
 
     # If we are working a distributed environment, wrap the sampler
     if distributed:

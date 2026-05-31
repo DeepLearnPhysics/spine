@@ -12,8 +12,10 @@ from spine.io.collate import CollateAll
 from spine.io.dataset import *
 from spine.io.dataset import base as dataset_base_module
 from spine.io.dataset import hdf5 as hdf5_dataset_module
+from spine.io.dataset import joint as joint_dataset_module
 from spine.io.dataset import larcv as larcv_dataset_module
 from spine.io.dataset import mixed as mixed_dataset_module
+from spine.io.parse.data import ParserTensor
 from spine.io.write import HDF5Writer
 from spine.utils.conditional import ROOT, ROOT_AVAILABLE, TORCH_AVAILABLE
 
@@ -1496,6 +1498,181 @@ def test_mixed_dataset_overlay_collision_raises(monkeypatch):
 
     with pytest.raises(ValueError, match="overlay collision"):
         _ = dataset.overlay_methods
+
+
+def test_joint_dataset_overlays_primary_and_secondary_pair():
+    """JointDataset should overlay one explicit primary/secondary pair."""
+
+    class DummyDataset:
+        def __init__(self, samples):
+            self.samples = samples
+            self.reader = object()
+
+        def __len__(self):
+            return len(self.samples)
+
+        def __getitem__(self, idx):
+            sample = self.samples[idx]
+            return {
+                "index": sample["index"],
+                "data": ParserTensor(
+                    features=np.asarray(sample["features"], dtype=np.float32),
+                    feats_only=True,
+                ),
+            }
+
+        @property
+        def data_types(self):
+            return {"index": "scalar", "data": "tensor"}
+
+        @property
+        def overlay_methods(self):
+            return {"index": "cat", "data": None}
+
+    primary = DummyDataset(
+        [
+            {"index": 0, "features": [[1.0], [2.0]]},
+            {"index": 1, "features": [[3.0]]},
+        ]
+    )
+    secondary = DummyDataset(
+        [
+            {"index": 10, "features": [[10.0]]},
+            {"index": 11, "features": [[11.0], [12.0]]},
+        ]
+    )
+
+    dataset = joint_dataset_module.JointDataset(
+        primary=primary,
+        secondary=secondary,
+    )
+
+    first = dataset[(0, 0)]
+    np.testing.assert_array_equal(first["index"], np.asarray([0, 10]))
+    np.testing.assert_array_equal(
+        first["data"].features, np.asarray([[1.0], [2.0], [10.0]], dtype=np.float32)
+    )
+    second = dataset[(1, 1)]
+    np.testing.assert_array_equal(second["index"], np.asarray([1, 11]))
+    np.testing.assert_array_equal(
+        second["data"].features, np.asarray([[3.0], [11.0], [12.0]], dtype=np.float32)
+    )
+    assert len(dataset) == 2
+    assert dataset.data_types == {"index": "scalar", "data": "tensor"}
+    assert dataset.overlay_methods == {"index": "cat", "data": None}
+    assert dataset.data_keys == ("index", "data")
+
+
+def test_joint_dataset_rejects_incompatible_sources():
+    """JointDataset should fail clearly when products cannot be overlaid."""
+
+    class DummyDataset:
+        overlay_methods = {"index": "cat"}
+
+        def __init__(self, data_types):
+            self.data_types = data_types
+
+        def __len__(self):
+            return 1
+
+        def __getitem__(self, idx):
+            return {"index": idx}
+
+    with pytest.raises(ValueError, match="data type keys must match"):
+        joint_dataset_module.JointDataset(
+            primary=DummyDataset({"index": "scalar", "data": "tensor"}),
+            secondary=DummyDataset({"index": "scalar"}),
+        )
+
+
+def test_joint_dataset_accepts_explicit_pair_index():
+    """Pair indexes should let an external sampler own secondary pairing."""
+
+    class DummyDataset:
+        data_types = {"index": "scalar"}
+        overlay_methods = {"index": "cat"}
+
+        def __init__(self, indexes):
+            self.indexes = indexes
+
+        def __len__(self):
+            return len(self.indexes)
+
+        def __getitem__(self, idx):
+            return {"index": self.indexes[idx]}
+
+    dataset = joint_dataset_module.JointDataset(
+        primary=DummyDataset([0, 1]),
+        secondary=DummyDataset([10, 11]),
+    )
+
+    assert dataset[0]["index"] == 0
+    np.testing.assert_array_equal(dataset[(0, 1)]["index"], np.asarray([0, 11]))
+    assert dataset[(1, None)]["index"] == 1
+
+
+def test_joint_dataset_merges_shared_dataset_config(monkeypatch):
+    """Shared dataset config should let source blocks override only paths."""
+
+    class DummyDataset:
+        data_types = {"index": "scalar"}
+        overlay_methods = {"index": "cat"}
+
+        def __init__(self, index):
+            self.index = index
+
+        def __len__(self):
+            return 1
+
+        def __getitem__(self, idx):
+            return {"index": self.index}
+
+    seen = []
+
+    def build_dataset(source, dtype):
+        seen.append((source, dtype))
+        return DummyDataset(source["index"])
+
+    monkeypatch.setattr(
+        joint_dataset_module.JointDataset,
+        "build_dataset",
+        staticmethod(build_dataset),
+    )
+
+    dataset = joint_dataset_module.JointDataset(
+        base={
+            "name": "hdf5",
+            "schema": {"data": {"parser": "tensor"}},
+            "entry_list": [2, 3],
+        },
+        primary={"file_keys": "primary.h5", "index": 0, "entry_list": [0]},
+        secondary={"file_keys": "secondary.h5", "index": 10, "entry_list": [1]},
+        dtype="float32",
+    )
+
+    np.testing.assert_array_equal(dataset[(0, 0)]["index"], np.asarray([0, 10]))
+    assert seen == [
+        (
+            {
+                "name": "hdf5",
+                "schema": {"data": {"parser": "tensor"}},
+                "entry_list": [0],
+                "file_keys": "primary.h5",
+                "index": 0,
+            },
+            "float32",
+        ),
+        (
+            {
+                "name": "hdf5",
+                "schema": {"data": {"parser": "tensor"}},
+                "entry_list": [1],
+                "file_keys": "secondary.h5",
+                "index": 10,
+            },
+            "float32",
+        ),
+    ]
 
 
 def test_larcv_dataset_uses_augmenter_and_length(monkeypatch):

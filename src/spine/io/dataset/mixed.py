@@ -66,13 +66,18 @@ class MixedDataset(BaseDataset):
             constructors. This is primarily used for reader-level options such
             as entry-list filtering that must remain aligned across sources.
         """
+        # Initialize the parent class
         super().__init__()
 
+        # Store the alignment and merge configuration for use when samples are
+        # fetched.
         self.align_keys = tuple(align_keys)
         self.hdf5_align_keys = dict(hdf5_align_keys or {})
         self.hdf5_key_map = dict(hdf5_key_map or {})
         self.allow_overwrite = allow_overwrite
 
+        # Initialize the aligned sources. Shared keyword arguments are forwarded
+        # to both datasets so reader-level filters preserve one-to-one ordering.
         self.primary = LArCVDataset(**larcv, dtype=dtype, augment=None, **kwargs)
         self.cache = HDF5Dataset(**hdf5, dtype=dtype, augment=None, **kwargs)
         self.reader = self.primary.reader
@@ -82,6 +87,7 @@ class MixedDataset(BaseDataset):
                 f"to be mixed safely. Got {len(self.primary)} and {len(self.cache)}."
             )
 
+        # Initialize the augmenter
         self.build_augmenter(augment)
 
     def __len__(self) -> int:

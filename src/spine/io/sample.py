@@ -33,6 +33,9 @@ __all__ = [
     "SequentialBatchSampler",
     "RandomSequenceBatchSampler",
     "BootstrapBatchSampler",
+    "JointSequentialBatchSampler",
+    "JointRandomSequenceBatchSampler",
+    "JointBootstrapBatchSampler",
 ]
 
 
@@ -44,6 +47,8 @@ class AbstractBatchSampler(Sampler):
     self.num_samples and self.batch_size as well as a self._random
     RNG, if needed.
     """
+
+    joint = False
 
     def __init__(
         self,
@@ -189,6 +194,116 @@ class BootstrapBatchSampler(AbstractBatchSampler):
         return iter(np.concatenate(batches))
 
 
+class _Sized:
+    """Minimal sized proxy used to drive paired secondary samplers."""
+
+    def __init__(self, size: int) -> None:
+        self.size = size
+
+    def __len__(self) -> int:
+        return self.size
+
+
+class AbstractJointBatchSampler(Sampler):
+    """Pair primary sampler indices with independently sampled secondary indices."""
+
+    joint = True
+    sampler_cls: type[AbstractBatchSampler]
+
+    def __init__(
+        self,
+        dataset: Sized,
+        batch_size: int,
+        seed: int | None = None,
+        drop_last: bool = True,
+        pair_probability: float = 1.0,
+    ) -> None:
+        """Build matched primary and secondary index streams.
+
+        Parameters
+        ----------
+        dataset : JointDataset
+            Dataset with a ``secondary`` source to sample from.
+        batch_size : int
+            Number of primary samples to load per iteration.
+        seed : int, optional
+            Seed forwarded to the primary sampler. The secondary sampler uses
+            the next seed so random policies are independent.
+        drop_last : bool, default True
+            Whether the primary sampler should drop incomplete batches.
+        pair_probability : float, default 1.0
+            Probability of pairing a primary index with a secondary index.
+            When the draw fails, the sampler yields ``None`` for the secondary
+            index and the joint dataset returns the primary sample unchanged.
+        """
+        super().__init__(data_source=None)
+
+        if not getattr(dataset, "joint", False) or not hasattr(dataset, "secondary"):
+            raise ValueError("Joint samplers require a JointDataset.")
+        if pair_probability < 0.0 or pair_probability > 1.0:
+            raise ValueError("`pair_probability` must be between 0 and 1.")
+
+        self.primary_sampler = self.sampler_cls(dataset, batch_size, seed, drop_last)
+        secondary_seed = None if seed is None else seed + 1
+        self.secondary_sampler = self.sampler_cls(
+            _Sized(len(self.primary_sampler)),
+            batch_size,
+            secondary_seed,
+            drop_last,
+        )
+        self.secondary_size = len(dataset.secondary)
+        self.batch_size = self.primary_sampler.batch_size
+        self.drop_last = self.primary_sampler.drop_last
+        self.num_samples = len(self.primary_sampler)
+        self.pair_probability = pair_probability
+        rng_seed = int(time.time()) if seed is None else seed + 2
+        self._random = np.random.RandomState(seed=rng_seed)  # pylint: disable=E1101
+
+    def __len__(self) -> int:
+        return self.num_samples
+
+    def __iter__(self) -> Iterator[tuple[int, int | None]]:
+        primary_indices = list(self.primary_sampler)
+        pair_mask = self._random.random_sample(len(primary_indices))
+        pair_mask = pair_mask < self.pair_probability
+
+        num_pairs = int(np.count_nonzero(pair_mask))
+        paired_indices = np.asarray(list(self.secondary_sampler), dtype=int)
+        paired_indices = paired_indices[:num_pairs] % self.secondary_size
+
+        secondary_indices: list[int | None] = []
+        paired_pos = 0
+        for paired in pair_mask:
+            if paired:
+                secondary_indices.append(int(paired_indices[paired_pos]))
+                paired_pos += 1
+            else:
+                secondary_indices.append(None)
+
+        return iter(zip(primary_indices, secondary_indices))
+
+
+class JointSequentialBatchSampler(AbstractJointBatchSampler):
+    """Sequential primary sampling with paired sequential secondary sampling."""
+
+    name = "joint_sequential"
+    sampler_cls = SequentialBatchSampler
+
+
+class JointRandomSequenceBatchSampler(AbstractJointBatchSampler):
+    """Random-sequence primary sampling with paired random secondary sampling."""
+
+    name = "joint_random_sequence"
+    sampler_cls = RandomSequenceBatchSampler
+
+
+class JointBootstrapBatchSampler(AbstractJointBatchSampler):
+    """Bootstrap primary sampling with paired bootstrap secondary sampling."""
+
+    name = "joint_bootstrap"
+    sampler_cls = BootstrapBatchSampler
+
+
 class DistributedProxySampler(DistributedSampler):
     """Sampler that restricts data loading to a subset of input sampler indices.
 
@@ -261,7 +376,7 @@ class DistributedProxySampler(DistributedSampler):
         minibatch_size = self.batch_size / self.num_replicas
         ranks = (np.arange(self.total_size) // minibatch_size) % self.num_replicas
 
-        indices = np.array(indices, dtype=int)[ranks == self.rank]
+        indices = [indices[i] for i in np.where(ranks == self.rank)[0]]
         assert len(indices) == self.num_samples
 
         return iter(indices)
