@@ -15,6 +15,7 @@ __all__ = [
     "cuda_max_memory_allocated",
     "is_tensor",
     "distributed_barrier",
+    "distributed_all_gather_object",
     "require_torch",
     "create_summary_writer",
 ]
@@ -65,8 +66,38 @@ def is_tensor(obj):
 
 def distributed_barrier():
     """Call distributed barrier if available."""
-    if TORCH_AVAILABLE and torch.distributed.is_available():
+    if (
+        TORCH_AVAILABLE
+        and torch.distributed.is_available()
+        and torch.distributed.is_initialized()
+    ):
         torch.distributed.barrier()
+
+
+def distributed_all_gather_object(obj):
+    """Gather a Python object from every distributed rank.
+
+    Parameters
+    ----------
+    obj : object
+        Python object to gather from the local rank.
+
+    Returns
+    -------
+    list[object]
+        Gathered objects from all ranks. In non-distributed execution, this
+        simply returns ``[obj]``.
+    """
+    if (
+        TORCH_AVAILABLE
+        and torch.distributed.is_available()
+        and torch.distributed.is_initialized()
+    ):
+        objects = [None] * torch.distributed.get_world_size()
+        torch.distributed.all_gather_object(objects, obj)
+        return objects
+
+    return [obj]
 
 
 def require_torch(operation="this operation"):

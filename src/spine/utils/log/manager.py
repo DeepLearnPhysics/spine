@@ -288,10 +288,17 @@ class LogManager:
             [f"{values[i]:<{widths[i]}}" for i in range(len(keys))]
         )
         msg += "|"
-        logger.info(msg)
-
         if distributed:
-            runtime.distributed_barrier()
+            rows = runtime.distributed_all_gather_object((rank, msg))
+            if main_process:
+                for _, row_msg in sorted(
+                    rows, key=lambda item: -1 if item[0] is None else item[0]
+                ):
+                    logger.info(row_msg)
+                logger.info("")
+            return
+
+        logger.info(msg)
         if main_process:
             logger.info("")
 

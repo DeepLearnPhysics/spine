@@ -178,6 +178,17 @@ def test_log_manager_stdout_summary(monkeypatch):
     monkeypatch.setattr(
         log_manager_mod.runtime, "distributed_barrier", lambda: barriers.append(None)
     )
+    monkeypatch.setattr(
+        log_manager_mod.runtime,
+        "distributed_all_gather_object",
+        lambda obj: [
+            obj,
+            (
+                1,
+                "  | 1    | 1.50 s (90.00 %)    | 1.00 GB (10.00 %)    | 1.000    | 0.250    |",
+            ),
+        ],
+    )
 
     LogManager.log_stdout_summary(
         {
@@ -198,9 +209,11 @@ def test_log_manager_stdout_summary(monkeypatch):
         main_process=True,
     )
 
-    assert len(barriers) == 2
+    assert len(barriers) == 1
     assert any("Iter. 0" in msg for msg in infos)
     assert any("train" in msg for msg in infos)
+    assert any("| 0    |" in msg for msg in infos)
+    assert any("| 1    |" in msg for msg in infos)
 
 
 def test_log_manager_optional_branches(monkeypatch, tmp_path):
@@ -238,6 +251,43 @@ def test_log_manager_optional_branches(monkeypatch, tmp_path):
     )
 
     assert infos
+
+
+def test_log_manager_stdout_summary_non_main_rank_only_contributes_row(monkeypatch):
+    """Non-main distributed ranks should not print headers directly."""
+    infos: list[str] = []
+    monkeypatch.setattr(
+        log_manager_mod.logger,
+        "info",
+        lambda msg, *args: infos.append(msg % args if args else msg),
+    )
+    monkeypatch.setattr(log_manager_mod.runtime, "distributed_barrier", lambda: None)
+    monkeypatch.setattr(
+        log_manager_mod.runtime,
+        "distributed_all_gather_object",
+        lambda obj: [obj],
+    )
+
+    LogManager.log_stdout_summary(
+        {
+            "cpu_mem": 4.0,
+            "cpu_mem_perc": 50.0,
+            "gpu_mem": 2.0,
+            "gpu_mem_perc": 25.0,
+            "model_time": 1.0,
+        },
+        {"loss": 1.25, "accuracy": 0.5},
+        FakeWatchManager(),
+        "2026-01-01 00:00:00",
+        iteration=0,
+        epoch=0.5,
+        model_train=True,
+        rank=1,
+        distributed=True,
+        main_process=False,
+    )
+
+    assert infos == []
     assert get_first_entry([1, 2]) == 1
     assert get_first_entry((3, 4)) == 3
     assert get_first_entry(np.array([5, 6])) == 5
