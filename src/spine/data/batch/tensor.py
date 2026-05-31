@@ -1,13 +1,17 @@
 """Module with a dataclass targeted at batched matrix/tensors."""
 
+from __future__ import annotations
+
+from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 
 from spine.constants import BATCH_COL, COORD_COLS
-from spine.utils.conditional import ME, torch
+from spine.utils.conditional import ME, is_sparse_tensor_like, torch
 
-from .base import BatchBase
+from .base import ArrayLike, BatchBase, SparseTensorLike
 
 __all__ = ["TensorBatch"]
 
@@ -16,15 +20,36 @@ __all__ = ["TensorBatch"]
 class TensorBatch(BatchBase):
     """Batched tensor with the necessary methods to slice it."""
 
+    data: ArrayLike | SparseTensorLike
+    counts: ArrayLike
+    edges: ArrayLike
+    batch_size: int
+    has_batch_col: bool
+    coord_cols: Sequence[int] | np.ndarray | None
+
+    @property
+    def _array_data(self) -> ArrayLike:
+        """Dense tensor data with sparse cases excluded."""
+        if is_sparse_tensor_like(self.data):
+            raise TypeError("TensorBatch data is sparse.")
+        return self.data
+
+    @property
+    def _sparse_data(self) -> SparseTensorLike:
+        """Sparse tensor data with dense cases excluded."""
+        if not is_sparse_tensor_like(self.data):
+            raise TypeError("TensorBatch data is not sparse.")
+        return self.data
+
     def __init__(
         self,
-        data,
-        counts=None,
-        batch_size=None,
-        is_sparse=False,
-        has_batch_col=False,
-        coord_cols=None,
-    ):
+        data: ArrayLike | SparseTensorLike,
+        counts: Sequence[int] | ArrayLike | None = None,
+        batch_size: int | None = None,
+        is_sparse: bool = False,
+        has_batch_col: bool = False,
+        coord_cols: Sequence[int] | np.ndarray | None = None,
+    ) -> None:
         """Initialize the attributes of the class.
 
         Parameters
@@ -59,11 +84,25 @@ class TensorBatch(BatchBase):
             # Define the array functions depending on the input type
             if not has_batch_col:
                 raise ValueError("Cannot get the counts without a batch column.")
-            ref = data if not is_sparse else data.C
-            counts = self.get_counts(ref[:, BATCH_COL], batch_size)
+            if batch_size is None:  # pragma: no cover
+                raise ValueError("Must provide `batch_size` to infer counts.")
+            batch_size_value = batch_size
+
+            if is_sparse:
+                if not is_sparse_tensor_like(data):  # pragma: no cover
+                    raise TypeError(
+                        "Sparse tensor batches must be initialized with "
+                        "MinkowskiEngine-like sparse tensor data."
+                    )
+                ref = data.C
+            else:
+                if is_sparse_tensor_like(data):
+                    raise TypeError("Sparse tensor data must set `is_sparse=True`.")
+                ref = data
+            counts = self.get_counts(ref[:, BATCH_COL], batch_size_value)
         else:
             # If the number of batches is not provided, get it from the counts
-            batch_size = len(counts)
+            batch_size_value = len(counts)
 
         # Cast
         counts = self._as_long(counts)
@@ -79,11 +118,11 @@ class TensorBatch(BatchBase):
         self.data = data
         self.counts = counts
         self.edges = edges
-        self.batch_size = batch_size
+        self.batch_size = batch_size_value
         self.has_batch_col = has_batch_col
         self.coord_cols = coord_cols
 
-    def __getitem__(self, batch_id):
+    def __getitem__(self, batch_id: int) -> ArrayLike | SparseTensorLike:
         """Returns a subset of the tensor corresponding to one entry.
 
         Parameters
@@ -101,14 +140,13 @@ class TensorBatch(BatchBase):
         # Return
         lower, upper = self.edges[batch_id], self.edges[batch_id + 1]
         if not self.is_sparse:
-            return self.data[lower:upper]
+            return self._array_data[lower:upper]
         else:
-            return ME.SparseTensor(
-                self.data.F[lower:upper], coordinates=self.data.C[lower:upper]
-            )
+            data = self._sparse_data
+            return ME.SparseTensor(data.F[lower:upper], coordinates=data.C[lower:upper])
 
     @property
-    def tensor(self):
+    def tensor(self) -> ArrayLike | SparseTensorLike:
         """Alias for the underlying data stored.
 
         Returns
@@ -119,7 +157,7 @@ class TensorBatch(BatchBase):
         return self.data
 
     @property
-    def batch_ids(self):
+    def batch_ids(self) -> ArrayLike:
         """Returns the batch ID of each of the elements in the tensor.
 
         Returns
@@ -129,7 +167,7 @@ class TensorBatch(BatchBase):
         """
         return self._repeat(self._arange(self.batch_size), self.counts)
 
-    def split(self):
+    def split(self) -> list[ArrayLike | SparseTensorLike]:
         """Breaks up the tensor batch into its constituents.
 
         Returns
@@ -138,16 +176,17 @@ class TensorBatch(BatchBase):
             List of one tensor per entry in the batch
         """
         if not self.is_sparse:
-            return self._split(self.data, self.splits)
+            return self._split(self._array_data, self.splits)
         else:
-            coords = self._split(self.data.C, self.splits)
-            feats = self._split(self.data.F, self.splits)
+            data = self._sparse_data
+            coords = self._split(data.C, self.splits)
+            feats = self._split(data.F, self.splits)
             return [
                 ME.SparseTensor(feats[i], coordinates=coords[i])
                 for i in range(self.batch_size)
             ]
 
-    def apply_mask(self, mask):
+    def apply_mask(self, mask: ArrayLike) -> None:
         """Apply a global mask to the underlying tensor, update batching.
 
         Parameters
@@ -163,7 +202,7 @@ class TensorBatch(BatchBase):
         self.counts = self.get_counts(batch_ids, self.batch_size)
         self.edges = self.get_edges(self.counts)
 
-    def merge(self, tensor_batch):
+    def merge(self, tensor_batch: "TensorBatch") -> "TensorBatch":
         """Merge this tensor batch with another.
 
         Parameters
@@ -187,7 +226,7 @@ class TensorBatch(BatchBase):
 
         return TensorBatch(tensor, counts)
 
-    def to_numpy(self):
+    def to_numpy(self) -> "TensorBatch":
         """Cast underlying tensor to a `np.ndarray` and return a new instance.
 
         Returns
@@ -201,8 +240,9 @@ class TensorBatch(BatchBase):
 
         data = self.data
         if self.is_sparse:
+            sparse_data = self._sparse_data
             data = torch.cat(
-                [self.data.C.to(dtype=self.data.F.dtype), self.data.F], dim=1
+                [sparse_data.C.to(dtype=sparse_data.F.dtype), sparse_data.F], dim=1
             )
 
         data = self._to_numpy(data)
@@ -212,7 +252,7 @@ class TensorBatch(BatchBase):
             data, counts, has_batch_col=self.has_batch_col, coord_cols=self.coord_cols
         )
 
-    def to_tensor(self, dtype=None, device=None):
+    def to_tensor(self, dtype: Any = None, device: Any = None) -> "TensorBatch":
         """Cast underlying tensor to a `torch.tensor` and return a new instance.
 
         Parameters
@@ -238,7 +278,7 @@ class TensorBatch(BatchBase):
             data, counts, has_batch_col=self.has_batch_col, coord_cols=self.coord_cols
         )
 
-    def to_cm(self, meta):
+    def to_cm(self, meta: Any) -> None:
         """Converts the pixel coordinates of the tensor to cm.
 
         Parameters
@@ -248,9 +288,10 @@ class TensorBatch(BatchBase):
         """
         if not self.is_numpy:
             raise ValueError("Can only convert units of numpy arrays.")
-        self.data[:, COORD_COLS] = meta.to_cm(self.data[:, COORD_COLS], center=True)
+        data = self._array_data
+        data[:, COORD_COLS] = meta.to_cm(data[:, COORD_COLS], center=True)
 
-    def to_px(self, meta):
+    def to_px(self, meta: Any) -> None:
         """Converts the coordinates of the tensor to pixel indexes.
 
         Parameters
@@ -260,10 +301,11 @@ class TensorBatch(BatchBase):
         """
         if not self.is_numpy:
             raise ValueError("Can only convert units of numpy arrays.")
-        self.data[:, COORD_COLS] = meta.to_px(self.data[:, COORD_COLS], floor=True)
+        data = self._array_data
+        data[:, COORD_COLS] = meta.to_px(data[:, COORD_COLS], floor=True)
 
     @classmethod
-    def from_list(cls, data_list):
+    def from_list(cls, data_list: Sequence[ArrayLike]) -> "TensorBatch":
         """Builds a batch from a list of tensors.
 
         Parameters

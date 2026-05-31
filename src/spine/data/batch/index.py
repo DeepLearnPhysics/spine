@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Any
 from warnings import warn
 
 import numpy as np
 
-from spine.utils.conditional import torch
-
-from .base import BatchBase
+from .base import ArrayLike, BatchBase
 
 __all__ = ["IndexBatch"]
 
@@ -32,20 +32,38 @@ class IndexBatch(BatchBase):
         is the same as counts if the underlying data is a single index
     """
 
-    spans: np.ndarray | torch.Tensor
-    offsets: np.ndarray | torch.Tensor
-    single_counts: np.ndarray | torch.Tensor
+    data: ArrayLike | Sequence[ArrayLike]
+    counts: ArrayLike
+    edges: ArrayLike
+    batch_size: int
+    spans: ArrayLike
+    offsets: ArrayLike
+    single_counts: ArrayLike
+
+    @property
+    def _index_data(self) -> ArrayLike:
+        """Underlying single index with index-list cases excluded."""
+        if isinstance(self.data, Sequence) and not isinstance(self.data, np.ndarray):
+            raise TypeError("IndexBatch data is an index list.")
+        return self.data
+
+    @property
+    def _index_list(self) -> Sequence[ArrayLike]:
+        """Underlying index list with single-index cases excluded."""
+        if not isinstance(self.data, Sequence) or isinstance(self.data, np.ndarray):
+            raise TypeError("IndexBatch data is a single index.")
+        return self.data
 
     def __init__(
         self,
-        data,
-        spans,
-        counts=None,
-        single_counts=None,
-        batch_ids=None,
-        batch_size=None,
-        default=None,
-    ):
+        data: ArrayLike | Sequence[ArrayLike],
+        spans: Sequence[int] | ArrayLike,
+        counts: Sequence[int] | ArrayLike | None = None,
+        single_counts: Sequence[int] | ArrayLike | None = None,
+        batch_ids: Sequence[int] | ArrayLike | None = None,
+        batch_size: int | None = None,
+        default: ArrayLike | None = None,
+    ) -> None:
         """Initialize the attributes of the class.
 
         Parameters
@@ -69,7 +87,9 @@ class IndexBatch(BatchBase):
             Empty-index prototype used when initializing an empty index list
         """
         # Check weather the input is a single index or a list
-        is_list = isinstance(data, (list, tuple)) or data.dtype == object
+        is_list = (
+            isinstance(data, (list, tuple)) or getattr(data, "dtype", None) == object
+        )
 
         # Initialize the base class
         if not is_list:
@@ -139,7 +159,7 @@ class IndexBatch(BatchBase):
         self.offsets = offsets
         self.batch_size = batch_size
 
-    def __getitem__(self, batch_id):
+    def __getitem__(self, batch_id: int) -> ArrayLike | list[ArrayLike]:
         """Returns a subset of the index corresponding to one entry.
 
         Parameters
@@ -157,13 +177,16 @@ class IndexBatch(BatchBase):
         # Return
         lower, upper = self.edges[batch_id], self.edges[batch_id + 1]
         if not self.is_list:
-            return self.data[lower:upper] - self.offsets[batch_id]
+            return self._index_data[lower:upper] - self.offsets[batch_id]
 
         else:
-            return [index - self.offsets[batch_id] for index in self.data[lower:upper]]
+            return [
+                index - self.offsets[batch_id]
+                for index in self._index_list[lower:upper]
+            ]
 
     @property
-    def index(self):
+    def index(self) -> ArrayLike:
         """Alias for the underlying data stored.
 
         Returns
@@ -174,10 +197,10 @@ class IndexBatch(BatchBase):
         if self.is_list:
             raise ValueError("Underlying data is not a single index, use `index_list`")
 
-        return self.data
+        return self._index_data
 
     @property
-    def index_list(self):
+    def index_list(self) -> Sequence[ArrayLike]:
         """Alias for the underlying data list stored.
 
         Returns
@@ -188,10 +211,10 @@ class IndexBatch(BatchBase):
         if not self.is_list:
             raise ValueError("Underlying data is a single index, use `index`")
 
-        return self.data
+        return self._index_list
 
     @property
-    def full_index(self):
+    def full_index(self) -> ArrayLike:
         """Returns the index combining all sub-indexes, if relevant.
 
         Returns
@@ -200,12 +223,13 @@ class IndexBatch(BatchBase):
             (N) Complete concatenated index
         """
         if not self.is_list:
-            return self.data
+            return self._index_data
         else:
-            return self._cat(self.data) if len(self.data) else self._empty(0)
+            index_list = self._index_list
+            return self._cat(index_list) if len(index_list) else self._empty(0)
 
     @property
-    def index_ids(self):
+    def index_ids(self) -> ArrayLike:
         """Returns the ID of the index in the list each element belongs to.
 
         Returns
@@ -219,7 +243,7 @@ class IndexBatch(BatchBase):
         return self._repeat(self._arange(len(self.data)), self.single_counts)
 
     @property
-    def full_counts(self):
+    def full_counts(self) -> ArrayLike:
         """Returns the total number of elements in each batch entry.
 
         Returns
@@ -238,7 +262,7 @@ class IndexBatch(BatchBase):
             return self._as_long(full_counts)
 
     @property
-    def batch_ids(self):
+    def batch_ids(self) -> ArrayLike:
         """Returns the batch ID of each index in the list.
 
         Returns
@@ -249,7 +273,7 @@ class IndexBatch(BatchBase):
         return self._repeat(self._arange(self.batch_size), self.counts)
 
     @property
-    def full_batch_ids(self):
+    def full_batch_ids(self) -> ArrayLike:
         """Returns the batch ID of each element in the full index list.
 
         Returns
@@ -259,7 +283,7 @@ class IndexBatch(BatchBase):
         """
         return self._repeat(self._arange(self.batch_size), self.full_counts)
 
-    def split(self):
+    def split(self) -> list[ArrayLike] | list[list[ArrayLike]]:
         """Breaks up the index batch into its constituents.
 
         Returns
@@ -283,7 +307,7 @@ class IndexBatch(BatchBase):
 
         return indexes
 
-    def merge(self, index_batch):
+    def merge(self, index_batch: "IndexBatch") -> "IndexBatch":
         """Merge this index batch with another.
 
         Parameters
@@ -331,7 +355,7 @@ class IndexBatch(BatchBase):
         else:
             return IndexBatch(self._cat(indexes), self.spans, counts)
 
-    def to_numpy(self):
+    def to_numpy(self) -> "IndexBatch":
         """Cast underlying index to a `np.ndarray` and return a new instance.
 
         Returns
@@ -357,7 +381,7 @@ class IndexBatch(BatchBase):
 
         return IndexBatch(data, spans, counts, single_counts)
 
-    def to_tensor(self, dtype=None, device=None):
+    def to_tensor(self, dtype: Any = None, device: Any = None) -> "IndexBatch":
         """Cast underlying index to a `torch.tensor` and return a new instance.
 
         Parameters

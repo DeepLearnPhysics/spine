@@ -2,12 +2,23 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, TypeAlias
 
 import numpy as np
 
-from spine.utils.conditional import ME, torch
+from spine.utils.conditional import SparseTensorLike, is_sparse_tensor_like, torch
 from spine.utils.docstring import merge_ancestor_docstrings
+
+if TYPE_CHECKING:  # pragma: no cover
+    ArrayLike: TypeAlias = np.ndarray | torch.Tensor
+    BatchData: TypeAlias = (
+        ArrayLike | SparseTensorLike | list[np.ndarray] | list[torch.Tensor]
+    )
+else:
+    ArrayLike: TypeAlias = Any
+    BatchData: TypeAlias = Any
 
 
 @dataclass(eq=False)
@@ -26,15 +37,9 @@ class BatchBase:
         Number of entries that make up the batched data
     """
 
-    data: (
-        np.ndarray
-        | torch.Tensor
-        | ME.SparseTensor
-        | list[np.ndarray]
-        | list[torch.Tensor]
-    )
-    counts: np.ndarray | torch.Tensor
-    edges: np.ndarray | torch.Tensor
+    data: BatchData
+    counts: ArrayLike
+    edges: ArrayLike
     batch_size: int
 
     def __init_subclass__(cls, **kwargs: object) -> None:
@@ -54,7 +59,7 @@ class BatchBase:
 
     def __init__(
         self,
-        data: np.ndarray | torch.Tensor | ME.SparseTensor,
+        data: ArrayLike | SparseTensorLike,
         is_sparse: bool = False,
         is_list: bool = False,
     ) -> None:
@@ -79,11 +84,15 @@ class BatchBase:
 
         # Store the device
         self.device = None
-        if not self.is_numpy:
-            if isinstance(data, torch.Tensor):
-                self.device = data.device
-            else:
-                self.device = data.F.device
+        if isinstance(data, torch.Tensor):
+            self.device = data.device
+        elif is_sparse:
+            if not is_sparse_tensor_like(data):
+                raise TypeError(
+                    "Sparse batch data must provide the MinkowskiEngine "
+                    "SparseTensor interface."
+                )
+            self.device = data.F.device
 
     def __len__(self) -> int:
         """Returns the number of entries that make up the batch."""
@@ -137,13 +146,13 @@ class BatchBase:
         tuple
             Tuple of sizes in each dimension
         """
-        if not self.is_list:
-            return self.data.shape
-        else:
+        if self.is_list:
             return (len(self.data),)
 
+        return tuple(getattr(self.data, "shape"))
+
     @property
-    def splits(self):
+    def splits(self) -> ArrayLike:
         """Boundaries needed to split the data into its constituents.
 
         Returns
@@ -153,7 +162,7 @@ class BatchBase:
         """
         return self.edges[1:-1]
 
-    def get_counts(self, batch_ids, batch_size):
+    def get_counts(self, batch_ids: ArrayLike, batch_size: int) -> ArrayLike:
         """Finds the number of elements in each entry, provided a batch ID list.
 
         Parameters
@@ -178,7 +187,7 @@ class BatchBase:
 
         return counts
 
-    def get_edges(self, counts):
+    def get_edges(self, counts: ArrayLike) -> ArrayLike:
         """Finds the edges between successive entries in the batch.
 
         Parameters
@@ -199,25 +208,25 @@ class BatchBase:
 
         return edges
 
-    def _empty(self, x):
+    def _empty(self, x: int | tuple[int, ...]) -> ArrayLike:
         if self.is_numpy:
             return np.empty(x, dtype=np.int64)
         else:
             return torch.empty(x, dtype=torch.long, device=self.device)
 
-    def _zeros(self, x, device=None):
+    def _zeros(self, x: int | tuple[int, ...], device: Any = None) -> ArrayLike:
         if self.is_numpy:
             return np.zeros(x, dtype=np.int64)
         else:
             return torch.zeros(x, dtype=torch.long, device=device)
 
-    def _ones(self, x):
+    def _ones(self, x: int | tuple[int, ...]) -> ArrayLike:
         if self.is_numpy:
             return np.ones(x, dtype=np.int64)
         else:
             return torch.ones(x, dtype=torch.long, device=self.device)
 
-    def _as_long(self, x):
+    def _as_long(self, x: Any) -> ArrayLike:
         if self.is_numpy:
             return np.asarray(x, dtype=np.int64)
         else:
@@ -225,62 +234,62 @@ class BatchBase:
             # CPU regardless of the location of the underlying data
             return torch.as_tensor(x, dtype=torch.long, device="cpu")
 
-    def _unique(self, x):
+    def _unique(self, x: ArrayLike) -> tuple[ArrayLike, ArrayLike]:
         if self.is_numpy:
             return np.unique(x, return_counts=True)
         else:
             return torch.unique(x, return_counts=True)
 
-    def _transpose(self, x):
+    def _transpose(self, x: ArrayLike) -> ArrayLike:
         if self.is_numpy:
             return np.transpose(x)
         else:
             return torch.transpose(x, 0, 1)
 
-    def _sum(self, x):
+    def _sum(self, x: ArrayLike) -> Any:
         if self.is_numpy:
             return np.sum(x)
         else:
             return torch.sum(x)
 
-    def _cumsum(self, x):
+    def _cumsum(self, x: ArrayLike) -> ArrayLike:
         if self.is_numpy:
             return np.cumsum(x)
         else:
             return torch.cumsum(x, dim=0)
 
-    def _arange(self, x):
+    def _arange(self, x: int) -> ArrayLike:
         if self.is_numpy:
             return np.arange(x)
         else:
             return torch.arange(x, device=self.device)
 
-    def _cat(self, x):
+    def _cat(self, x: Sequence[ArrayLike]) -> ArrayLike:
         if self.is_numpy:
             return np.concatenate(x)
         else:
             return torch.cat(x, dim=0)
 
-    def _split(self, *x):
+    def _split(self, *x: Any) -> list[ArrayLike]:
         if self.is_numpy:
             return np.split(*x)
         else:
             return torch.tensor_split(*x)
 
-    def _stack(self, x):
+    def _stack(self, x: Sequence[ArrayLike]) -> ArrayLike:
         if self.is_numpy:
             return np.stack(x, axis=0)
         else:
             return torch.stack(x)
 
-    def _repeat(self, *x):
+    def _repeat(self, *x: Any) -> ArrayLike:
         if self.is_numpy:
             return np.repeat(*x)
         else:
             return torch.repeat_interleave(*x)
 
-    def _to_numpy(self, x):
+    def _to_numpy(self, x: torch.Tensor) -> np.ndarray:
         return x.cpu().detach().numpy()
 
-    def _to_tensor(self, x, dtype=None, device=None):
+    def _to_tensor(self, x: Any, dtype: Any = None, device: Any = None) -> torch.Tensor:
         return torch.as_tensor(x, dtype=dtype, device=device)

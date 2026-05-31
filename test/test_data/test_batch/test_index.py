@@ -79,6 +79,21 @@ class TestIndexBatchInitialization:
         np.testing.assert_array_equal(batch.counts, [2, 1])
         np.testing.assert_array_equal(batch.single_counts, [2, 3, 2])
 
+    def test_internal_index_accessors_validate_shape(self):
+        """Internal accessors should reject the wrong index representation."""
+        single = IndexBatch(np.array([0, 1]), spans=[2], counts=[2])
+        listed = IndexBatch(
+            [np.array([0]), np.array([1])],
+            spans=[2],
+            counts=[2],
+            single_counts=[1, 1],
+        )
+
+        with pytest.raises(TypeError, match="single index"):
+            single._index_list
+        with pytest.raises(TypeError, match="index list"):
+            listed._index_data
+
     def test_initialization_batch_ids_and_batch_size_required(self):
         """Test that batch_ids requires batch_size."""
         data = np.array([1, 2, 3])

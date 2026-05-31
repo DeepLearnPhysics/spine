@@ -1,6 +1,6 @@
-"""Module with the classes/functions needed to unwrap batched data."""
+"""Utilities for converting batched data structures into per-entry objects."""
 
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 import numpy as np
 
@@ -12,12 +12,19 @@ __all__ = ["Unwrapper"]
 
 
 class Unwrapper:
-    """Unwraps batched data to its constituent entries.
+    """Convert batched data structures into per-event entries.
 
-    Class used to break down the batched input and output dictionaries into
-    individual events. When passed through the model, the input is concatenated
-    into single tensors/arrays for faster processing; this class breaks the
-    output down event-wise to be human-readable.
+    The `Unwrapper` is responsible for converting model input/output dictionaries
+    containing batched tensors, indices, and metadata into a human-readable,
+    per-event format. This is essential for post-processing, visualization, and
+    evaluation, as model operations typically concatenate or stack data for
+    efficient computation. The unwrapper restores the original event-wise
+    structure, handling both single- and multi-volume (e.g., multi-TPC) data,
+    and exporting auxiliary metadata such as per-entry spans.
+
+    The main supported structures are `TensorBatch`, `IndexBatch`, and
+    `EdgeIndexBatch`. Index-like batches also export per-entry span metadata
+    under an additional `<name>_spans` key when it is not already present.
     """
 
     def __init__(self, meta_key: str = "meta", remove_batch_col: bool = False):
@@ -25,8 +32,12 @@ class Unwrapper:
 
         Parameters
         ----------
-        remove_batch_col : bool
-             Remove column which specifies batch ID from the unwrapped tensors
+        meta_key : str, optional
+            Key in the input dictionary containing per-event metadata. This is
+            used by multi-volume tensor unwrapping to translate coordinates.
+        remove_batch_col : bool, optional
+            If `True`, remove the batch index column from unwrapped tensors
+            when it is present.
         """
         self.geo = GeoManager.get_instance_if_initialized()
 
@@ -35,8 +46,23 @@ class Unwrapper:
         self.remove_batch_col = remove_batch_col
         self.batch_size = None
 
-    def __call__(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Main unwrapping function."""
+    def __call__(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Unwrap a batched input/output dictionary into per-event entries.
+
+        Parameters
+        ----------
+        data : dict
+            Dictionary containing batched model inputs or outputs. Keys may
+            include tensors, index batches, edge index batches, and optional
+            metadata.
+
+        Returns
+        -------
+        dict
+            Dictionary with the same keys as input, but with each value unwrapped
+            into per-event entries. For index-like batches, an additional
+            `<name>_spans` key is added when absent.
+        """
         meta = None
         if self.num_volumes > 1 and self.meta_key in data:
             meta = data[self.meta_key]
@@ -52,8 +78,29 @@ class Unwrapper:
 
         return data_unwrapped
 
-    def _unwrap(self, key: str, data: Any, meta: Optional[List[Meta]] = None) -> Any:
-        """Route data to the appropriate unwrapping scheme."""
+    def _unwrap(self, key: str, data: Any, meta: list[Meta] | None = None) -> Any:
+        """Route one value to the appropriate unwrapping scheme.
+
+        Parameters
+        ----------
+        key : str
+            Name of the data field, used for error messages.
+        data : Any
+            Batched value to unwrap.
+        meta : list[Meta], optional
+            Per-event metadata, required for multi-volume unwrapping.
+
+        Returns
+        -------
+        Any
+            Unwrapped value, typically a list or ObjectList of per-event entries.
+
+        Raises
+        ------
+        ValueError
+            If the input is empty, the batch size is unset, or the type is
+            unsupported.
+        """
         if isinstance(data, (list, tuple)) and len(data) == 0:
             raise ValueError(f"Batched data for {key} is an empty list, cannot unwrap.")
         if self.batch_size is None:
@@ -84,9 +131,36 @@ class Unwrapper:
         raise ValueError(f"Type of {key} not unwrappable: {type(data)}")
 
     def _unwrap_tensor(
-        self, data: TensorBatch, meta: Optional[List[Meta]] = None
-    ) -> List[np.ndarray]:
-        """Unwrap a batch of tensors into its constituents."""
+        self, data: TensorBatch, meta: list[Meta] | None = None
+    ) -> list[Any]:
+        """Unwrap a tensor batch into per-event tensors.
+
+        Handles both single-volume and multi-volume data. For multi-volume
+        tensors, coordinates may be translated to a common volume using the
+        initialized geometry and per-entry metadata.
+
+        Parameters
+        ----------
+        data : TensorBatch
+            Batched tensor object to unwrap.
+        meta : list[Meta], optional
+            Per-event metadata, required for multi-volume unwrapping.
+
+        Returns
+        -------
+        list
+            Per-event tensors. Entries are usually `np.ndarray` objects, but
+            they may follow the backend used by the input `TensorBatch` in the
+            simple single-volume path.
+
+        Raises
+        ------
+        ValueError
+            If geometry or metadata is missing for multi-volume unwrapping.
+        TypeError
+            If multi-volume coordinate translation is requested on a
+            non-numpy-backed tensor batch.
+        """
         if self.num_volumes == 1 or data.batch_size == self.batch_size:
             if not self.remove_batch_col or not data.has_batch_col:
                 return data.split()
@@ -113,11 +187,22 @@ class Unwrapper:
             for volume_id in range(self.num_volumes):
                 idx = batch_id * self.num_volumes + volume_id
                 tensor = data[idx]
+                if not isinstance(tensor, np.ndarray):
+                    raise TypeError(
+                        "Multi-volume tensor unwrapping with geometry translation "
+                        "requires a numpy-backed TensorBatch."
+                    )
+
                 if volume_id > 0 and coord_groups is not None:
                     for cols in coord_groups:
-                        tensor[:, cols] = self.geo.translate(
-                            tensor[:, cols], 0, volume_id, 1.0 / meta[batch_id].size
+                        coord_cols = np.asarray(cols, dtype=np.int64)
+                        translated_coords = self.geo.translate(
+                            tensor[:, coord_cols],
+                            0,
+                            volume_id,
+                            1.0 / meta[batch_id].size,
                         )
+                        tensor[:, coord_cols] = translated_coords
                 if self.remove_batch_col and data.has_batch_col:
                     tensor = tensor[:, BATCH_COL + 1 :]
 
@@ -128,9 +213,25 @@ class Unwrapper:
         return tensors
 
     def _unwrap_index(
-        self, data: Union[IndexBatch, EdgeIndexBatch]
-    ) -> Union[List[np.ndarray], List[ObjectList]]:
-        """Unwrap an index list into its constituents."""
+        self, data: IndexBatch | EdgeIndexBatch
+    ) -> list[np.ndarray] | list[ObjectList]:
+        """Unwrap an index-like batch into per-event indexes.
+
+        For multi-volume data, offsets are adjusted to produce event-local
+        indexes. For `IndexBatch` objects with list structure, the result is
+        wrapped in `ObjectList` containers.
+
+        Parameters
+        ----------
+        data : IndexBatch or EdgeIndexBatch
+            Batched index or edge index object to unwrap.
+
+        Returns
+        -------
+        list[np.ndarray] or list[ObjectList]
+            Per-event index arrays or object lists, matching the input
+            structure.
+        """
         if self.num_volumes == 1 or data.batch_size == self.batch_size:
             indexes = data.split()
         else:
@@ -159,14 +260,29 @@ class Unwrapper:
             default = np.empty(shape, dtype=np.int64)
             indexes_obl = []
             for index in indexes:
-                indexes_obl.append(ObjectList(index, default=default))
+                object_list: list[object] = [element for element in index]
+                indexes_obl.append(ObjectList(object_list, default=default))
 
             return indexes_obl
 
         return indexes
 
-    def _unwrap_index_spans(self, data: Union[IndexBatch, EdgeIndexBatch]) -> List[int]:
-        """Unwrap per-entry parent spans alongside index-like batches."""
+    def _unwrap_index_spans(self, data: IndexBatch | EdgeIndexBatch) -> list[int]:
+        """Unwrap and export per-entry parent spans for index-like batches.
+
+        For multi-volume data, sums the spans across all volumes for each event.
+        For single-volume, returns the stored spans directly.
+
+        Parameters
+        ----------
+        data : IndexBatch or EdgeIndexBatch
+            Batched index or edge index object with span metadata.
+
+        Returns
+        -------
+        list[int]
+            List of per-event parent spans, one per event in the batch.
+        """
         spans = data.spans
         if not isinstance(spans, np.ndarray):
             spans = spans.detach().cpu().numpy()
