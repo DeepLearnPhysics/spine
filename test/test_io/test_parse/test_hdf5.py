@@ -234,7 +234,7 @@ def test_hdf5_index_list_parser_with_count_event():
 
     assert isinstance(result, ParserIndexList)
     assert isinstance(result.features, list)
-    assert result.global_shift == 5
+    assert result.span == 5
     np.testing.assert_array_equal(result.single_counts, np.asarray([2, 3]))
     np.testing.assert_array_equal(result.features[0], np.asarray([0, 2]))
     np.testing.assert_array_equal(result.features[1], np.asarray([1, 3, 4]))
@@ -257,19 +257,19 @@ def test_hdf5_index_parser_with_count_event():
     assert isinstance(result, ParserIndex)
     assert isinstance(result.features, np.ndarray)
     np.testing.assert_array_equal(result.features, np.asarray([0, 2, 4]))
-    assert result.global_shift == 5
+    assert result.span == 5
 
 
 def test_hdf5_index_parser_requires_count_event():
     """Cached flat indexes must declare the indexed parent count explicitly."""
     with pytest.raises(TypeError, match="count_event"):
-        HDF5IndexParser(dtype="float32", index_event="orig_index")
+        HDF5IndexParser(dtype="float32", index_event="orig_index", **{})
 
 
 def test_hdf5_index_list_parser_requires_count_event():
     """Cached index lists must declare the indexed parent count explicitly."""
     with pytest.raises(TypeError, match="count_event"):
-        HDF5IndexListParser(dtype="float32", index_event="clusts")
+        HDF5IndexListParser(dtype="float32", index_event="clusts", **{})
 
 
 def test_hdf5_index_list_parser_empty_and_scalar_count_event():
@@ -283,7 +283,7 @@ def test_hdf5_index_list_parser_empty_and_scalar_count_event():
 
     result = parser(trees)
 
-    assert result.global_shift == 4
+    assert result.span == 4
     assert result.features == []
     np.testing.assert_array_equal(result.single_counts, np.asarray([], dtype=np.int32))
 
@@ -298,7 +298,7 @@ def test_hdf5_index_list_parser_empty_with_scalar_count_event():
 
     result = parser({"clusts": np.asarray([], dtype=object), "num_nodes": 0})
 
-    assert result.global_shift == 0
+    assert result.span == 0
     assert result.features == []
 
 
@@ -321,7 +321,7 @@ def test_hdf5_edge_index_parser_accepts_transposed_input():
         result.features,
         np.asarray([[0, 1, 2], [1, 2, 3]], dtype=np.int64),
     )
-    assert result.global_shift == 4
+    assert result.span == 4
 
 
 def test_hdf5_edge_index_parser_rejects_non_2d_input():

@@ -423,17 +423,17 @@ class Overlayer:
         ref_data: ParserIndex,
     ) -> ParserIndex:
         """Overlay one flat index payload."""
-        global_shift = ref_data.global_shift
+        span = ref_data.span
         shifted_indexes = [batch[index[0]][key].features]
         for idx in index[1:]:
             shifted_index = batch[idx][key].features.copy()
             mask = shifted_index > -1
-            shifted_index[mask] += global_shift
+            shifted_index[mask] += span
             shifted_indexes.append(shifted_index)
-            global_shift += batch[idx][key].global_shift
+            span += batch[idx][key].span
 
         features = np.concatenate(shifted_indexes, axis=-1)
-        return ParserIndex(features=features, global_shift=global_shift)
+        return ParserIndex(features=features, span=span)
 
     def stack_index_list_data(
         self,
@@ -443,7 +443,7 @@ class Overlayer:
         ref_data: ParserIndexList,
     ) -> ParserIndexList:
         """Overlay one jagged index-list payload."""
-        global_shift = ref_data.global_shift
+        span = ref_data.span
         features = [entry.copy() for entry in batch[index[0]][key].features]
         single_counts = []
         if ref_data.single_counts is not None:
@@ -456,18 +456,18 @@ class Overlayer:
             for entry in batch[idx][key].features:
                 shifted_entry = entry.copy()
                 mask = shifted_entry > -1
-                shifted_entry[mask] += global_shift
+                shifted_entry[mask] += span
                 shifted_entries.append(shifted_entry)
             features.extend(shifted_entries)
             if batch[idx][key].single_counts is not None:
                 single_counts.extend(batch[idx][key].single_counts.tolist())
             else:
                 single_counts.extend(len(entry) for entry in shifted_entries)
-            global_shift += batch[idx][key].global_shift
+            span += batch[idx][key].span
 
         return ParserIndexList(
             features=features,
-            global_shift=global_shift,
+            span=span,
             single_counts=np.asarray(single_counts, dtype=np.int64),
         )
 
@@ -479,14 +479,14 @@ class Overlayer:
         ref_data: ParserEdgeIndex,
     ) -> ParserEdgeIndex:
         """Overlay one edge-index payload."""
-        global_shift = ref_data.global_shift
+        span = ref_data.span
         shifted_indexes = [batch[index[0]][key].features]
         for idx in index[1:]:
             shifted_index = batch[idx][key].features.copy()
             mask = shifted_index > -1
-            shifted_index[mask] += global_shift
+            shifted_index[mask] += span
             shifted_indexes.append(shifted_index)
-            global_shift += batch[idx][key].global_shift
+            span += batch[idx][key].span
 
         features = np.concatenate(shifted_indexes, axis=-1)
-        return ParserEdgeIndex(features=features, global_shift=global_shift)
+        return ParserEdgeIndex(features=features, span=span)

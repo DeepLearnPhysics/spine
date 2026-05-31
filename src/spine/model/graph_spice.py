@@ -171,7 +171,7 @@ class GraphSPICE(torch.nn.Module):
         index = torch.where(mask)[0]
 
         # Restrict the input
-        offsets = data.edges[:-1]
+        spans = data.counts
         data = TensorBatch(
             data.tensor[index], batch_size=data.batch_size, has_batch_col=True
         )
@@ -191,7 +191,7 @@ class GraphSPICE(torch.nn.Module):
             clust_label = TensorBatch(clust_label.tensor[index], data.counts)
 
         # Store the index as an IndexBatch
-        index = IndexBatch(index, offsets, data.counts)
+        index = IndexBatch(index, spans, data.counts)
 
         return data, seg_label, clust_label, index
 

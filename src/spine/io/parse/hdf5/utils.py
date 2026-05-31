@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import numpy as np
 
-__all__ = ["resolve_index_global_shift"]
+__all__ = ["resolve_index_span"]
 
 
-def resolve_index_global_shift(count_event: np.ndarray) -> int:
+def resolve_index_span(count_event: np.ndarray) -> int:
     """Determine the offset span covered by one cached index entry.
 
     Parameters
@@ -18,7 +18,7 @@ def resolve_index_global_shift(count_event: np.ndarray) -> int:
     Returns
     -------
     int
-        Global index span associated with the cached entry.
+        Parent-entry span associated with the cached entry.
     """
     count_array = np.asarray(count_event)
     if count_array.ndim == 0:

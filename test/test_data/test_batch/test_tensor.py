@@ -9,6 +9,25 @@ from spine.data.batch.tensor import TensorBatch
 from spine.utils.conditional import ME, ME_AVAILABLE, TORCH_AVAILABLE, torch
 
 
+class SparseLike:
+    """Minimal sparse tensor-like object for validation branches."""
+
+    dtype = np.dtype(np.float32)
+    coordinate_map_key = object()
+    coordinate_manager = object()
+
+    def __init__(self):
+        self.F = Mock(device=None)
+        self.C = (
+            torch.tensor([[0, 0], [0, 1]])
+            if TORCH_AVAILABLE
+            else np.array([[0, 0], [0, 1]])
+        )
+
+    def __len__(self):
+        return 2
+
+
 class TestTensorBatchInitialization:
     """Test TensorBatch initialization patterns."""
 
@@ -98,6 +117,33 @@ class TestTensorBatchInitialization:
 
         assert batch.batch_size == 0
         assert len(batch) == 0
+
+    def test_sparse_like_data_requires_sparse_flag(self):
+        """Sparse-like data should not silently initialize as dense."""
+        with pytest.raises(TypeError, match="is_sparse=True"):
+            TensorBatch(SparseLike(), batch_size=1, has_batch_col=True)
+
+    def test_internal_tensor_accessors_validate_storage(self):
+        """Internal accessors should reject the wrong tensor representation."""
+        dense = TensorBatch(np.ones((2, 2)), counts=[2])
+        with pytest.raises(TypeError, match="not sparse"):
+            dense._sparse_data
+
+        if not TORCH_AVAILABLE:
+            pytest.skip("torch not available")
+
+        sparse = TensorBatch(SparseLike(), counts=[2], is_sparse=True)
+        with pytest.raises(TypeError, match="is sparse"):
+            sparse._array_data
+
+    def test_sparse_like_counts_from_batch_column(self):
+        """Sparse-like data should infer counts from its coordinate batch column."""
+        if not TORCH_AVAILABLE:
+            pytest.skip("torch not available")
+
+        batch = TensorBatch(SparseLike(), batch_size=1, is_sparse=True)
+
+        assert torch.equal(batch.counts, torch.tensor([2]))
 
 
 class TestTensorBatchIndexing:

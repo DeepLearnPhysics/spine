@@ -32,7 +32,7 @@ from spine.constants import (
     TRACK_SHP,
     UNKWN_SHP,
 )
-from spine.data import TensorBatch
+from spine.data import IndexBatch, TensorBatch
 
 from .conditional import torch
 from .jit import numbafy
@@ -440,6 +440,14 @@ class ParticlePointPredictor:
         is_batch = False
         if isinstance(data, TensorBatch):
             is_batch = True
+            if not isinstance(clusts, IndexBatch):
+                raise TypeError(
+                    "Batched particle point prediction expects an IndexBatch."
+                )
+            if not clusts.is_list:
+                raise TypeError(
+                    "Particle point prediction expects list-backed cluster indexes."
+                )
             data, clust_shapes, ppn_points = (
                 data.tensor,
                 clust_shapes.tensor,

@@ -111,12 +111,12 @@ class ParserIndex:
     ----------
     features : np.ndarray
         One-dimensional index array.
-    global_shift : int
-        Global index shift used when batching entries.
+    span : int
+        Parent-entry span used when batching entries.
     """
 
     features: np.ndarray
-    global_shift: int
+    span: int
 
 
 @dataclass
@@ -127,14 +127,14 @@ class ParserIndexList:
     ----------
     features : list[np.ndarray]
         List of one-dimensional index arrays.
-    global_shift : int
-        Global index shift used when batching entries.
+    span : int
+        Parent-entry span used when batching entries.
     single_counts : np.ndarray, optional
         Per-index sizes used to restore jagged list structure after batching.
     """
 
     features: list[np.ndarray]
-    global_shift: int
+    span: int
     single_counts: np.ndarray | None = None
 
 
@@ -146,12 +146,12 @@ class ParserEdgeIndex:
     ----------
     features : np.ndarray
         Two-dimensional edge-index array with shape ``(2, E)``.
-    global_shift : int
-        Global node-index shift used when batching entries.
+    span : int
+        Parent-entry node span used when batching entries.
     """
 
     features: np.ndarray
-    global_shift: int
+    span: int
 
 
 class ParserObjectList(ObjectList):

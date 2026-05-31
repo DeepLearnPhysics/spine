@@ -753,7 +753,7 @@ class LArCVParticleGraphParser(ParserBase):
         if len(zero_nodes) > 0 and len(edges) > 0:
             edges = filter_invalid_nodes(edges, zero_nodes)
 
-        return ParserEdgeIndex(features=edges.T, global_shift=num_particles)
+        return ParserEdgeIndex(features=edges.T, span=num_particles)
 
 
 class LArCVSingleParticlePIDParser(ParserBase):

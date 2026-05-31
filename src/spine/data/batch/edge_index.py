@@ -5,13 +5,11 @@ An edge index is a sparse representation of a graph incidence matrix.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Any
 
-import numpy as np
-
-from spine.utils.conditional import torch
-
-from .base import BatchBase
+from .base import ArrayLike, BatchBase
 
 __all__ = ["EdgeIndexBatch"]
 
@@ -22,16 +20,30 @@ class EdgeIndexBatch(BatchBase):
 
     Attributes
     ----------
+    spans : Union[np.ndarray, torch.Tensor]
+        (B) Per-entry parent spans used to build the batch offsets.
     offsets : Union[np.ndarray, torch.Tensor]
-        (B) Offsets between successive indexes in the batch
+        (B) Offsets between successive indexes in the batch, computed from
+        the cumulative sum of ``spans``.
     directed : bool
         Whether the edge index is directed or undirected
     """
 
-    offsets: np.ndarray | torch.Tensor
+    data: ArrayLike
+    counts: ArrayLike
+    edges: ArrayLike
+    batch_size: int
+    spans: ArrayLike
+    offsets: ArrayLike
     directed: bool
 
-    def __init__(self, data, counts, offsets, directed):
+    def __init__(
+        self,
+        data: ArrayLike,
+        counts: Sequence[int] | ArrayLike,
+        spans: Sequence[int] | ArrayLike,
+        directed: bool,
+    ) -> None:
         """Initialize the attributes of the class.
 
         If the edge index corresponds to an undirected graph, each edge
@@ -48,8 +60,8 @@ class EdgeIndexBatch(BatchBase):
             (2, E) Batched edge index
         counts : Union[List[int], np.ndarray, torch.Tensor]
             (B) Number of index elements per entry in the batch
-        offsets : Union[List[int], np.ndarray, torch.Tensor]
-            (B) Offsets between successive indexes in the batch
+        spans : Union[List[int], np.ndarray, torch.Tensor]
+            (B) Per-entry parent spans used to derive ``offsets``.
         directed : bool
             Whether the edge index is directed or undirected
         """
@@ -58,14 +70,14 @@ class EdgeIndexBatch(BatchBase):
 
         # Cast
         counts = self._as_long(counts)
-        offsets = self._as_long(offsets)
+        spans = self._as_long(spans)
 
         # Do a couple of basic sanity checks
         if self._sum(counts) != data.shape[1]:
             raise ValueError("The `counts` provided do not add up to the index length")
-        if len(counts) != len(offsets):
+        if len(counts) != len(spans):
             raise ValueError(
-                "The number of `offsets` does not match the number of `counts`"
+                "The number of `spans` does not match the number of `counts`"
             )
         if not directed and data.shape[1] % 2 != 0:
             raise ValueError(
@@ -73,18 +85,23 @@ class EdgeIndexBatch(BatchBase):
                 "even number of edge"
             )
 
+        # Compute the offsets from the per-entry spans
+        offsets = self._zeros(len(spans), None if self.is_numpy else spans.device)
+        offsets[1:] = self._cumsum(spans)[:-1]
+
         # Get the boundaries between successive index using the counts
         edges = self.get_edges(counts)
 
         # Store the attributes
         self.data = data
         self.counts = counts
+        self.spans = spans
         self.edges = edges
         self.offsets = offsets
         self.directed = directed
         self.batch_size = len(counts)
 
-    def __getitem__(self, batch_id):
+    def __getitem__(self, batch_id: int) -> ArrayLike:
         """Returns a subset of the index corresponding to one entry.
 
         Parameters
@@ -105,7 +122,7 @@ class EdgeIndexBatch(BatchBase):
         return self._transpose(index)
 
     @property
-    def index(self):
+    def index(self) -> ArrayLike:
         """Alias for the underlying data stored.
 
         Returns
@@ -116,7 +133,7 @@ class EdgeIndexBatch(BatchBase):
         return self.data
 
     @property
-    def index_t(self):
+    def index_t(self) -> ArrayLike:
         """Alias for the underlying data stored, transposed
 
         Returns
@@ -127,7 +144,7 @@ class EdgeIndexBatch(BatchBase):
         return self._transpose(self.data)
 
     @property
-    def batch_ids(self):
+    def batch_ids(self) -> ArrayLike:
         """Returns the batch ID of each element in the full index list.
 
         Returns
@@ -138,7 +155,7 @@ class EdgeIndexBatch(BatchBase):
         return self._repeat(self._arange(self.batch_size), self.counts)
 
     @property
-    def directed_index(self):
+    def directed_index(self) -> ArrayLike:
         """Index of the directed graph. If a graph is undirected, it only
         returns one of the two edges corresponding to a connection.
 
@@ -155,7 +172,7 @@ class EdgeIndexBatch(BatchBase):
         return self.data[:, ::2]
 
     @property
-    def directed_index_t(self):
+    def directed_index_t(self) -> ArrayLike:
         """Index of the directed graph, transposed. If the graph is undirected,
         it only returns one of the two edges corresponding to a connection.
 
@@ -167,7 +184,7 @@ class EdgeIndexBatch(BatchBase):
         return self._transpose(self.directed_index)
 
     @property
-    def directed_counts(self):
+    def directed_counts(self) -> ArrayLike:
         """Returns the number of edges per entry, counting edges once even
         if they are bidirectional.
 
@@ -184,7 +201,7 @@ class EdgeIndexBatch(BatchBase):
         return self.counts // 2
 
     @property
-    def directed_batch_ids(self):
+    def directed_batch_ids(self) -> ArrayLike:
         """Returns the batch ID of each element in the directed index.
 
         Returns
@@ -194,7 +211,7 @@ class EdgeIndexBatch(BatchBase):
         """
         return self._repeat(self._arange(self.batch_size), self.directed_counts)
 
-    def split(self):
+    def split(self) -> list[ArrayLike]:
         """Breaks up the index batch into its constituents.
 
         Returns
@@ -208,7 +225,7 @@ class EdgeIndexBatch(BatchBase):
 
         return indexes
 
-    def to_numpy(self):
+    def to_numpy(self) -> "EdgeIndexBatch":
         """Cast underlying index to a `np.ndarray` and return a new instance.
 
         Returns
@@ -222,11 +239,11 @@ class EdgeIndexBatch(BatchBase):
 
         data = self._to_numpy(self.data)
         counts = self._to_numpy(self.counts)
-        offsets = self._to_numpy(self.offsets)
+        spans = self._to_numpy(self.spans)
 
-        return EdgeIndexBatch(data, counts, offsets, self.directed)
+        return EdgeIndexBatch(data, counts, spans, self.directed)
 
-    def to_tensor(self, dtype=None, device=None):
+    def to_tensor(self, dtype: Any = None, device: Any = None) -> "EdgeIndexBatch":
         """Cast underlying index to a `torch.tensor` and return a new instance.
 
         Parameters
@@ -247,6 +264,6 @@ class EdgeIndexBatch(BatchBase):
 
         data = self._to_tensor(self.data, dtype, device)
         counts = self._to_tensor(self.counts, dtype, device)
-        offsets = self._to_tensor(self.offsets, dtype, device)
+        spans = self._to_tensor(self.spans, dtype, device)
 
-        return EdgeIndexBatch(data, counts, offsets, self.directed)
+        return EdgeIndexBatch(data, counts, spans, self.directed)

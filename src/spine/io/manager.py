@@ -8,9 +8,9 @@ from typing import Any
 
 from spine.utils.conditional import TORCH_AVAILABLE
 from spine.utils.stopwatch import StopwatchManager
-from spine.utils.unwrap import Unwrapper
 
 from .factories import loader_factory, reader_factory, writer_factory
+from .unwrap import Unwrapper
 
 __all__ = ["IOManager"]
 

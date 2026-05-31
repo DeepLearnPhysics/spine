@@ -105,6 +105,17 @@ class TestBatchBaseInitialization:
 
         assert batch_float.dtype == np.float64
 
+    def test_sparse_flag_requires_sparse_interface(self):
+        """Sparse initialization should reject non-sparse data."""
+        with pytest.raises(TypeError, match="Sparse batch data"):
+            ConcreteBatch(
+                data=np.array([1, 2, 3]),
+                counts=np.array([3]),
+                edges=np.array([0, 3]),
+                batch_size=1,
+                is_sparse=True,
+            )
+
 
 class TestBatchBaseLength:
     """Test BatchBase length property."""

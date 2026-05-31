@@ -10,7 +10,7 @@ import importlib
 import importlib.util
 import os
 import sys
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol, TypeGuard
 
 __all__ = [
     "ROOT",
@@ -22,7 +22,44 @@ __all__ = [
     "LARCV_AVAILABLE",
     "TORCH_AVAILABLE",
     "ME_AVAILABLE",
+    "SparseTensorLike",
 ]
+
+
+class SparseTensorLike(Protocol):
+    """Structural type for MinkowskiEngine sparse tensors.
+
+    MinkowskiEngine is an optional runtime dependency exposed through a lazy
+    proxy, so ``ME.SparseTensor`` cannot be used directly in type expressions.
+    This protocol captures the sparse tensor surface used by SPINE without
+    making static analysis depend on MinkowskiEngine stubs.
+    """
+
+    dtype: Any
+    device: Any
+    F: Any
+    C: Any
+    coordinate_map_key: Any
+    coordinate_manager: Any
+
+    def __len__(self) -> int: ...
+
+    def __getitem__(self, index: Any) -> Any: ...
+
+    def features_at(self, batch_id: int) -> Any: ...
+
+    def coordinates_at(self, batch_id: int) -> Any: ...
+
+
+def is_sparse_tensor_like(obj: object) -> TypeGuard[SparseTensorLike]:
+    """Check whether an object exposes the sparse tensor API SPINE uses."""
+    return (
+        hasattr(obj, "dtype")
+        and hasattr(obj, "F")
+        and hasattr(obj, "C")
+        and hasattr(obj, "coordinate_map_key")
+        and hasattr(obj, "coordinate_manager")
+    )
 
 
 class _MissingType:

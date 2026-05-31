@@ -7,6 +7,19 @@ from spine.data.batch.index import IndexBatch
 from spine.utils.conditional import TORCH_AVAILABLE, torch
 
 
+def _spans(offsets, last=0):
+    """Convert cumulative offsets into constructor spans for tests."""
+    spans = (
+        offsets.clone()
+        if torch is not None and torch.is_tensor(offsets)
+        else np.array(offsets, copy=True)
+    )
+    if len(spans) > 1:
+        spans[:-1] = offsets[1:] - offsets[:-1]
+    spans[-1] = last
+    return spans
+
+
 class TestIndexBatchInitialization:
     """Test IndexBatch initialization patterns."""
 
@@ -16,13 +29,25 @@ class TestIndexBatchInitialization:
         offsets = np.array([0, 10])
         counts = [2, 3]
 
-        batch = IndexBatch(data, offsets=offsets, counts=counts)
+        batch = IndexBatch(data, spans=_spans(offsets), counts=counts)
 
         assert batch.batch_size == 2
         assert batch.is_list is False
         np.testing.assert_array_equal(batch.counts, [2, 3])
         np.testing.assert_array_equal(batch.single_counts, [2, 3])
         np.testing.assert_array_equal(batch.offsets, [0, 10])
+        np.testing.assert_array_equal(batch.spans, _spans(offsets))
+
+    def test_initialization_with_spans(self):
+        """Test initialization with explicit per-entry spans."""
+        data = np.array([0, 1, 10, 11, 12])
+        offsets = np.array([0, 10])
+        counts = [2, 3]
+        spans = [10, 5]
+
+        batch = IndexBatch(data, spans=spans, counts=counts)
+
+        np.testing.assert_array_equal(batch.spans, [10, 5])
 
     def test_initialization_with_batch_ids(self):
         """Test initialization using batch_ids instead of counts."""
@@ -32,7 +57,7 @@ class TestIndexBatchInitialization:
         batch_size = 2
 
         batch = IndexBatch(
-            data, offsets=offsets, batch_ids=batch_ids, batch_size=batch_size
+            data, spans=_spans(offsets), batch_ids=batch_ids, batch_size=batch_size
         )
 
         assert batch.batch_size == 2
@@ -46,13 +71,28 @@ class TestIndexBatchInitialization:
         single_counts = [2, 3, 2]
 
         batch = IndexBatch(
-            data, offsets=offsets, counts=counts, single_counts=single_counts
+            data, spans=_spans(offsets), counts=counts, single_counts=single_counts
         )
 
         assert batch.batch_size == 2
         assert batch.is_list is True
         np.testing.assert_array_equal(batch.counts, [2, 1])
         np.testing.assert_array_equal(batch.single_counts, [2, 3, 2])
+
+    def test_internal_index_accessors_validate_shape(self):
+        """Internal accessors should reject the wrong index representation."""
+        single = IndexBatch(np.array([0, 1]), spans=[2], counts=[2])
+        listed = IndexBatch(
+            [np.array([0]), np.array([1])],
+            spans=[2],
+            counts=[2],
+            single_counts=[1, 1],
+        )
+
+        with pytest.raises(TypeError, match="single index"):
+            single._index_list
+        with pytest.raises(TypeError, match="index list"):
+            listed._index_data
 
     def test_initialization_batch_ids_and_batch_size_required(self):
         """Test that batch_ids requires batch_size."""
@@ -62,7 +102,7 @@ class TestIndexBatchInitialization:
 
         # Missing batch_size
         with pytest.raises(ValueError, match="batch_size"):
-            IndexBatch(data, offsets=offsets, batch_ids=batch_ids)
+            IndexBatch(data, spans=_spans(offsets), batch_ids=batch_ids)
 
     def test_initialization_index_list_requires_single_counts(self):
         """Test that index list requires single_counts."""
@@ -71,7 +111,7 @@ class TestIndexBatchInitialization:
         counts = [1, 1]
 
         with pytest.raises(ValueError, match="provide `single_counts`"):
-            IndexBatch(data, offsets=offsets, counts=counts)
+            IndexBatch(data, spans=_spans(offsets), counts=counts)
 
     def test_initialization_counts_sum_validation(self):
         """Test that counts must sum to data length."""
@@ -80,7 +120,7 @@ class TestIndexBatchInitialization:
         counts = [2, 2]  # Sum is 4, but data has 5 elements
 
         with pytest.raises(ValueError, match="add up"):
-            IndexBatch(data, offsets=offsets, counts=counts)
+            IndexBatch(data, spans=_spans(offsets), counts=counts)
 
     def test_initialization_counts_offsets_length_match(self):
         """Test that counts and offsets must have same length."""
@@ -89,7 +129,7 @@ class TestIndexBatchInitialization:
         counts = [3]  # Only 1 count, but 2 offsets
 
         with pytest.raises(ValueError, match="match the number"):
-            IndexBatch(data, offsets=offsets, counts=counts)
+            IndexBatch(data, spans=_spans(offsets), counts=counts)
 
     def test_initialization_single_counts_length_validation(self):
         """Test that single_counts length must match data length."""
@@ -100,7 +140,7 @@ class TestIndexBatchInitialization:
 
         with pytest.raises(ValueError, match="one single count per index"):
             IndexBatch(
-                data, offsets=offsets, counts=counts, single_counts=single_counts
+                data, spans=_spans(offsets), counts=counts, single_counts=single_counts
             )
 
     def test_initialization_empty_list_with_default(self):
@@ -113,7 +153,7 @@ class TestIndexBatchInitialization:
 
         batch = IndexBatch(
             data,
-            offsets=offsets,
+            spans=_spans(offsets),
             counts=counts,
             single_counts=single_counts,
             default=default,
@@ -131,7 +171,7 @@ class TestIndexBatchInitialization:
 
         with pytest.warns(UserWarning, match="empty list without a default"):
             batch = IndexBatch(
-                data, offsets=offsets, counts=counts, single_counts=single_counts
+                data, spans=_spans(offsets), counts=counts, single_counts=single_counts
             )
 
         assert batch.is_list is True
@@ -146,7 +186,7 @@ class TestIndexBatchIndexing:
         offsets = np.array([0, 10])
         counts = [2, 3]
 
-        batch = IndexBatch(data, offsets=offsets, counts=counts)
+        batch = IndexBatch(data, spans=_spans(offsets), counts=counts)
 
         batch_0 = batch[0]
         batch_1 = batch[1]
@@ -163,7 +203,7 @@ class TestIndexBatchIndexing:
         single_counts = [2, 2, 2]  # Fixed: 3 indexes
 
         batch = IndexBatch(
-            data, offsets=offsets, counts=counts, single_counts=single_counts
+            data, spans=_spans(offsets), counts=counts, single_counts=single_counts
         )
 
         batch_0 = batch[0]
@@ -183,7 +223,7 @@ class TestIndexBatchIndexing:
         offsets = np.array([0])
         counts = [3]
 
-        batch = IndexBatch(data, offsets=offsets, counts=counts)
+        batch = IndexBatch(data, spans=_spans(offsets), counts=counts)
 
         with pytest.raises(IndexError, match="out of bound"):
             _ = batch[1]
@@ -194,7 +234,7 @@ class TestIndexBatchIndexing:
         offsets = np.array([0, 10, 20])
         counts = [0, 2, 0]
 
-        batch = IndexBatch(data, offsets=offsets, counts=counts)
+        batch = IndexBatch(data, spans=_spans(offsets), counts=counts)
 
         batch_0 = batch[0]
         batch_1 = batch[1]
@@ -214,7 +254,7 @@ class TestIndexBatchProperties:
         offsets = np.array([0, 10])
         counts = [2, 2]
 
-        batch = IndexBatch(data, offsets=offsets, counts=counts)
+        batch = IndexBatch(data, spans=_spans(offsets), counts=counts)
 
         assert batch.index is batch.data
         np.testing.assert_array_equal(batch.index, data)
@@ -227,7 +267,7 @@ class TestIndexBatchProperties:
         single_counts = [2, 2]
 
         batch = IndexBatch(
-            data, offsets=offsets, counts=counts, single_counts=single_counts
+            data, spans=_spans(offsets), counts=counts, single_counts=single_counts
         )
 
         with pytest.raises(ValueError, match="not a single index"):
@@ -241,10 +281,25 @@ class TestIndexBatchProperties:
         single_counts = [2, 2]
 
         batch = IndexBatch(
-            data, offsets=offsets, counts=counts, single_counts=single_counts
+            data, spans=_spans(offsets), counts=counts, single_counts=single_counts
         )
 
         assert batch.index_list is batch.data
+
+    def test_object_array_index_list_property(self):
+        """Object arrays should preserve list-backed index semantics."""
+        data = np.empty(2, dtype=object)
+        data[:] = [np.array([0, 1]), np.array([2, 3])]
+        offsets = np.array([0, 0])
+        counts = [1, 1]
+        single_counts = [2, 2]
+
+        batch = IndexBatch(
+            data, spans=_spans(offsets), counts=counts, single_counts=single_counts
+        )
+
+        assert batch.is_list
+        np.testing.assert_array_equal(batch.index_list[0], [0, 1])
 
     def test_index_list_property_fails_for_single(self):
         """Test index_list property raises error for single index."""
@@ -252,7 +307,7 @@ class TestIndexBatchProperties:
         offsets = np.array([0])
         counts = [3]
 
-        batch = IndexBatch(data, offsets=offsets, counts=counts)
+        batch = IndexBatch(data, spans=_spans(offsets), counts=counts)
 
         with pytest.raises(ValueError, match="single index"):
             _ = batch.index_list
@@ -263,7 +318,7 @@ class TestIndexBatchProperties:
         offsets = np.array([0, 10])
         counts = [2, 2]
 
-        batch = IndexBatch(data, offsets=offsets, counts=counts)
+        batch = IndexBatch(data, spans=_spans(offsets), counts=counts)
 
         np.testing.assert_array_equal(batch.full_index, data)
 
@@ -275,7 +330,7 @@ class TestIndexBatchProperties:
         single_counts = [2, 3, 1]
 
         batch = IndexBatch(
-            data, offsets=offsets, counts=counts, single_counts=single_counts
+            data, spans=_spans(offsets), counts=counts, single_counts=single_counts
         )
 
         full = batch.full_index
@@ -291,7 +346,7 @@ class TestIndexBatchProperties:
 
         batch = IndexBatch(
             data,
-            offsets=offsets,
+            spans=_spans(offsets),
             counts=counts,
             single_counts=single_counts,
             default=default,
@@ -308,7 +363,7 @@ class TestIndexBatchProperties:
         single_counts = [2, 3, 1]
 
         batch = IndexBatch(
-            data, offsets=offsets, counts=counts, single_counts=single_counts
+            data, spans=_spans(offsets), counts=counts, single_counts=single_counts
         )
 
         index_ids = batch.index_ids
@@ -321,7 +376,7 @@ class TestIndexBatchProperties:
         offsets = np.array([0])
         counts = [3]
 
-        batch = IndexBatch(data, offsets=offsets, counts=counts)
+        batch = IndexBatch(data, spans=_spans(offsets), counts=counts)
 
         with pytest.raises(ValueError, match="list of index"):
             _ = batch.index_ids
@@ -332,7 +387,7 @@ class TestIndexBatchProperties:
         offsets = np.array([0, 10])
         counts = [2, 3]
 
-        batch = IndexBatch(data, offsets=offsets, counts=counts)
+        batch = IndexBatch(data, spans=_spans(offsets), counts=counts)
 
         np.testing.assert_array_equal(batch.full_counts, batch.counts)
 
@@ -344,7 +399,7 @@ class TestIndexBatchProperties:
         single_counts = [2, 3, 2]
 
         batch = IndexBatch(
-            data, offsets=offsets, counts=counts, single_counts=single_counts
+            data, spans=_spans(offsets), counts=counts, single_counts=single_counts
         )
 
         full_counts = batch.full_counts
@@ -360,7 +415,7 @@ class TestIndexBatchProperties:
         single_counts = [1, 1, 1, 1]
 
         batch = IndexBatch(
-            data, offsets=offsets, counts=counts, single_counts=single_counts
+            data, spans=_spans(offsets), counts=counts, single_counts=single_counts
         )
 
         batch_ids = batch.batch_ids
@@ -374,7 +429,7 @@ class TestIndexBatchProperties:
         single_counts = [2, 3, 2]
 
         batch = IndexBatch(
-            data, offsets=offsets, counts=counts, single_counts=single_counts
+            data, spans=_spans(offsets), counts=counts, single_counts=single_counts
         )
 
         full_batch_ids = batch.full_batch_ids
@@ -391,7 +446,7 @@ class TestIndexBatchSplit:
         offsets = np.array([0, 10])
         counts = [2, 3]
 
-        batch = IndexBatch(data, offsets=offsets, counts=counts)
+        batch = IndexBatch(data, spans=_spans(offsets), counts=counts)
 
         result = batch.split()
 
@@ -407,7 +462,7 @@ class TestIndexBatchSplit:
         single_counts = [2, 2, 2]
 
         batch = IndexBatch(
-            data, offsets=offsets, counts=counts, single_counts=single_counts
+            data, spans=_spans(offsets), counts=counts, single_counts=single_counts
         )
 
         result = batch.split()
@@ -428,8 +483,8 @@ class TestIndexBatchMerge:
         counts1 = [2, 2]
         counts2 = [2, 1]
 
-        batch1 = IndexBatch(data1, offsets=offsets, counts=counts1)
-        batch2 = IndexBatch(data2, offsets=offsets, counts=counts2)
+        batch1 = IndexBatch(data1, spans=_spans(offsets), counts=counts1)
+        batch2 = IndexBatch(data2, spans=_spans(offsets), counts=counts2)
 
         merged = batch1.merge(batch2)
 
@@ -446,10 +501,10 @@ class TestIndexBatchMerge:
         single_counts = [1, 1]
 
         batch1 = IndexBatch(
-            data1, offsets=offsets, counts=counts1, single_counts=single_counts
+            data1, spans=_spans(offsets), counts=counts1, single_counts=single_counts
         )
         batch2 = IndexBatch(
-            data2, offsets=offsets, counts=counts2, single_counts=single_counts
+            data2, spans=_spans(offsets), counts=counts2, single_counts=single_counts
         )
 
         merged = batch1.merge(batch2)
@@ -457,18 +512,18 @@ class TestIndexBatchMerge:
         assert merged.batch_size == 2
         np.testing.assert_array_equal(merged.counts, [2, 2])
 
-    def test_merge_mismatched_offsets_fails(self):
-        """Test merge fails with mismatched offsets."""
+    def test_merge_mismatched_spans_fails(self):
+        """Test merge fails with mismatched spans."""
         data1 = np.array([0, 1])
         data2 = np.array([2, 3])
         offsets1 = np.array([0, 10])
         offsets2 = np.array([0, 20])  # Different!
         counts = [1, 1]
 
-        batch1 = IndexBatch(data1, offsets=offsets1, counts=counts)
-        batch2 = IndexBatch(data2, offsets=offsets2, counts=counts)
+        batch1 = IndexBatch(data1, spans=_spans(offsets1), counts=counts)
+        batch2 = IndexBatch(data2, spans=_spans(offsets2), counts=counts)
 
-        with pytest.raises(ValueError, match="same tensor"):
+        with pytest.raises(ValueError, match="same spans"):
             batch1.merge(batch2)
 
 
@@ -481,7 +536,7 @@ class TestIndexBatchTypeConversions:
         offsets = np.array([0])
         counts = [3]
 
-        batch = IndexBatch(data, offsets=offsets, counts=counts)
+        batch = IndexBatch(data, spans=_spans(offsets), counts=counts)
         result = batch.to_numpy()
 
         assert result is batch
@@ -494,7 +549,7 @@ class TestIndexBatchTypeConversions:
         single_counts = [2, 2]
 
         batch = IndexBatch(
-            data, offsets=offsets, counts=counts, single_counts=single_counts
+            data, spans=_spans(offsets), counts=counts, single_counts=single_counts
         )
         result = batch.to_numpy()
 
@@ -507,7 +562,7 @@ class TestIndexBatchTypeConversions:
         offsets = np.array([0])
         counts = [3]
 
-        batch = IndexBatch(data, offsets=offsets, counts=counts)
+        batch = IndexBatch(data, spans=_spans(offsets), counts=counts)
         result = batch.to_tensor()
 
         assert isinstance(result.data, torch.Tensor)
@@ -522,7 +577,7 @@ class TestIndexBatchTypeConversions:
         single_counts = [2, 2]
 
         batch = IndexBatch(
-            data, offsets=offsets, counts=counts, single_counts=single_counts
+            data, spans=_spans(offsets), counts=counts, single_counts=single_counts
         )
         result = batch.to_tensor()
 
@@ -541,7 +596,7 @@ class TestIndexBatchEdgeCases:
         offsets = np.array([0, 10, 20])
         counts = [0, 2, 0]
 
-        batch = IndexBatch(data, offsets=offsets, counts=counts)
+        batch = IndexBatch(data, spans=_spans(offsets), counts=counts)
 
         assert batch.batch_size == 3
         np.testing.assert_array_equal(batch.counts, [0, 2, 0])
@@ -552,7 +607,7 @@ class TestIndexBatchEdgeCases:
         offsets = np.array([0, 10, 20])
         counts = [1, 1, 1]
 
-        batch = IndexBatch(data, offsets=offsets, counts=counts)
+        batch = IndexBatch(data, spans=_spans(offsets), counts=counts)
 
         assert batch.batch_size == 3
         for i in range(3):
@@ -560,11 +615,11 @@ class TestIndexBatchEdgeCases:
 
     def test_large_offsets(self):
         """Test with large offset values."""
-        data = np.array([100000, 100001, 200000, 200001])
+        data = np.array([0, 1, 100000, 100001])
         offsets = np.array([100000, 200000])
         counts = [2, 2]
 
-        batch = IndexBatch(data, offsets=offsets, counts=counts)
+        batch = IndexBatch(data, spans=_spans(offsets), counts=counts)
 
         batch_0 = batch[0]
         batch_1 = batch[1]
@@ -578,7 +633,7 @@ class TestIndexBatchEdgeCases:
         offsets = np.array([0, 0, 0])
         counts = [2, 2, 1]
 
-        batch = IndexBatch(data, offsets=offsets, counts=counts)
+        batch = IndexBatch(data, spans=_spans(offsets), counts=counts)
 
         assert batch.batch_size == 3
         # All should have same values since offset is 0
@@ -598,7 +653,7 @@ class TestIndexBatchEdgeCases:
         single_counts = [1, 4, 2, 1]
 
         batch = IndexBatch(
-            data, offsets=offsets, counts=counts, single_counts=single_counts
+            data, spans=_spans(offsets), counts=counts, single_counts=single_counts
         )
 
         # Batch 0 has indexes 0,1,2: 1+4+2=7 total elements
@@ -617,7 +672,7 @@ class TestIndexBatchWithTorch:
         offsets = torch.tensor([0, 10])
         counts = [3, 2]
 
-        batch = IndexBatch(data, offsets=offsets, counts=counts)
+        batch = IndexBatch(data, spans=_spans(offsets), counts=counts)
 
         assert batch.is_numpy is False
         assert batch.is_list is False
@@ -636,7 +691,7 @@ class TestIndexBatchWithTorch:
         single_counts = [3, 2, 1]
 
         batch = IndexBatch(
-            data, offsets=offsets, counts=counts, single_counts=single_counts
+            data, spans=_spans(offsets), counts=counts, single_counts=single_counts
         )
 
         assert batch.is_list is True
@@ -649,7 +704,7 @@ class TestIndexBatchWithTorch:
         offsets = torch.tensor([0, 10])
         counts = [3, 2]
 
-        batch = IndexBatch(data, offsets=offsets, counts=counts)
+        batch = IndexBatch(data, spans=_spans(offsets), counts=counts)
 
         # Test single index
         batch_0 = batch[0]
@@ -664,7 +719,7 @@ class TestIndexBatchWithTorch:
         offsets = torch.tensor([0, 10])
         counts = [3, 2]
 
-        batch = IndexBatch(data, offsets=offsets, counts=counts)
+        batch = IndexBatch(data, spans=_spans(offsets), counts=counts)
         split_data = batch.split()
 
         assert len(split_data) == 2
@@ -677,7 +732,7 @@ class TestIndexBatchWithTorch:
         offsets = torch.tensor([0, 10])
         counts = [3, 2]
 
-        batch = IndexBatch(data, offsets=offsets, counts=counts)
+        batch = IndexBatch(data, spans=_spans(offsets), counts=counts)
         batch_ids = batch.batch_ids
 
         assert torch.equal(batch_ids, torch.tensor([0, 0, 0, 1, 1]))
@@ -693,7 +748,7 @@ class TestIndexBatchWithTorch:
         single_counts = [2, 2]
 
         batch = IndexBatch(
-            data, offsets=offsets, counts=counts, single_counts=single_counts
+            data, spans=_spans(offsets), counts=counts, single_counts=single_counts
         )
 
         full_index = batch.full_index
@@ -705,7 +760,7 @@ class TestIndexBatchWithTorch:
         offsets = torch.tensor([0])
         counts = [3]
 
-        batch = IndexBatch(data, offsets=offsets, counts=counts)
+        batch = IndexBatch(data, spans=_spans(offsets), counts=counts)
         result = batch.to_tensor()
 
         assert result is batch
@@ -717,7 +772,7 @@ class TestIndexBatchWithTorch:
         offsets = torch.tensor([0, 10])
         counts = [2, 2]
 
-        batch = IndexBatch(data, offsets=offsets, counts=counts)
+        batch = IndexBatch(data, spans=_spans(offsets), counts=counts)
         result = batch.to_numpy()
 
         assert result.is_numpy is True
@@ -732,7 +787,7 @@ class TestIndexBatchWithTorch:
         single_counts = [2, 2]
 
         batch = IndexBatch(
-            data, offsets=offsets, counts=counts, single_counts=single_counts
+            data, spans=_spans(offsets), counts=counts, single_counts=single_counts
         )
         result = batch.to_numpy()
 
@@ -754,10 +809,10 @@ class TestIndexBatchWithTorch:
         single_counts2 = [2, 2]
 
         batch1 = IndexBatch(
-            data1, offsets=offsets1, counts=counts1, single_counts=single_counts1
+            data1, spans=_spans(offsets1), counts=counts1, single_counts=single_counts1
         )
         batch2 = IndexBatch(
-            data2, offsets=offsets2, counts=counts2, single_counts=single_counts2
+            data2, spans=_spans(offsets2), counts=counts2, single_counts=single_counts2
         )
 
         merged = batch1.merge(batch2)

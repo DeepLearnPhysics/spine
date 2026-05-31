@@ -7,6 +7,19 @@ from spine.data.batch.edge_index import EdgeIndexBatch
 from spine.utils.conditional import TORCH_AVAILABLE, torch
 
 
+def _spans(offsets, last=0):
+    """Convert cumulative offsets into constructor spans for tests."""
+    spans = (
+        offsets.clone()
+        if torch is not None and torch.is_tensor(offsets)
+        else np.array(offsets, copy=True)
+    )
+    if len(spans) > 1:
+        spans[:-1] = offsets[1:] - offsets[:-1]
+    spans[-1] = last
+    return spans
+
+
 class TestEdgeIndexBatchInitialization:
     """Test EdgeIndexBatch initialization patterns."""
 
@@ -21,12 +34,32 @@ class TestEdgeIndexBatchInitialization:
         counts = [3]
         offsets = np.array([0])
 
-        batch = EdgeIndexBatch(edges, counts=counts, offsets=offsets, directed=True)
+        batch = EdgeIndexBatch(
+            edges, counts=counts, spans=_spans(offsets), directed=True
+        )
 
         assert batch.batch_size == 1
         assert batch.directed is True
         np.testing.assert_array_equal(batch.counts, [3])
         np.testing.assert_array_equal(batch.offsets, [0])
+        np.testing.assert_array_equal(batch.spans, _spans(offsets))
+
+    def test_initialization_with_spans(self):
+        """Test initialization with explicit per-entry spans."""
+        edges = np.array(
+            [
+                [0, 1, 2],
+                [1, 2, 0],
+            ]
+        )
+        batch = EdgeIndexBatch(
+            edges,
+            counts=[3],
+            spans=[7],
+            directed=True,
+        )
+
+        np.testing.assert_array_equal(batch.spans, [7])
 
     def test_initialization_undirected_graph(self):
         """Test initialization with undirected graph."""
@@ -40,7 +73,9 @@ class TestEdgeIndexBatchInitialization:
         counts = [4]
         offsets = np.array([0])
 
-        batch = EdgeIndexBatch(edges, counts=counts, offsets=offsets, directed=False)
+        batch = EdgeIndexBatch(
+            edges, counts=counts, spans=_spans(offsets), directed=False
+        )
 
         assert batch.batch_size == 1
         assert batch.directed is False
@@ -57,7 +92,9 @@ class TestEdgeIndexBatchInitialization:
         counts = [2, 2]
         offsets = np.array([0, 2])
 
-        batch = EdgeIndexBatch(edges, counts=counts, offsets=offsets, directed=True)
+        batch = EdgeIndexBatch(
+            edges, counts=counts, spans=_spans(offsets), directed=True
+        )
 
         assert batch.batch_size == 2
         np.testing.assert_array_equal(batch.counts, [2, 2])
@@ -73,7 +110,7 @@ class TestEdgeIndexBatchInitialization:
         counts = [2]  # Only 2, but data has 3 edges
 
         with pytest.raises(ValueError, match="do not add up"):
-            EdgeIndexBatch(edges, counts=counts, offsets=np.array([0]), directed=True)
+            EdgeIndexBatch(edges, counts=counts, spans=np.array([0]), directed=True)
 
     def test_initialization_counts_offsets_length_match(self):
         """Test that counts and offsets must have same length."""
@@ -89,7 +126,7 @@ class TestEdgeIndexBatchInitialization:
         with pytest.raises(
             ValueError, match="does not match"
         ):  # Typo in source: "es not match"
-            EdgeIndexBatch(edges, counts=counts, offsets=offsets, directed=True)
+            EdgeIndexBatch(edges, counts=counts, spans=_spans(offsets), directed=True)
 
     def test_initialization_undirected_even_edges_validation(self):
         """Test that undirected graphs must have even number of edges."""
@@ -103,7 +140,7 @@ class TestEdgeIndexBatchInitialization:
         offsets = np.array([0])
 
         with pytest.raises(ValueError, match="even number"):
-            EdgeIndexBatch(edges, counts=counts, offsets=offsets, directed=False)
+            EdgeIndexBatch(edges, counts=counts, spans=_spans(offsets), directed=False)
 
     def test_initialization_empty_graphs(self):
         """Test initialization with empty graphs."""
@@ -111,7 +148,9 @@ class TestEdgeIndexBatchInitialization:
         counts = [0, 0]
         offsets = np.array([0, 10])
 
-        batch = EdgeIndexBatch(edges, counts=counts, offsets=offsets, directed=True)
+        batch = EdgeIndexBatch(
+            edges, counts=counts, spans=_spans(offsets), directed=True
+        )
 
         assert batch.batch_size == 2
         np.testing.assert_array_equal(batch.counts, [0, 0])
@@ -131,7 +170,9 @@ class TestEdgeIndexBatchIndexing:
         counts = [2, 2]
         offsets = np.array([0, 10])
 
-        batch = EdgeIndexBatch(edges, counts=counts, offsets=offsets, directed=True)
+        batch = EdgeIndexBatch(
+            edges, counts=counts, spans=_spans(offsets), directed=True
+        )
 
         batch_0 = batch[0]
         batch_1 = batch[1]
@@ -153,7 +194,9 @@ class TestEdgeIndexBatchIndexing:
         counts = [1, 1, 1]
         offsets = np.array([0, 1, 2])
 
-        batch = EdgeIndexBatch(edges, counts=counts, offsets=offsets, directed=True)
+        batch = EdgeIndexBatch(
+            edges, counts=counts, spans=_spans(offsets), directed=True
+        )
 
         batch_0 = batch[0]
         batch_1 = batch[1]
@@ -174,7 +217,9 @@ class TestEdgeIndexBatchIndexing:
         counts = [2]
         offsets = np.array([0])
 
-        batch = EdgeIndexBatch(edges, counts=counts, offsets=offsets, directed=True)
+        batch = EdgeIndexBatch(
+            edges, counts=counts, spans=_spans(offsets), directed=True
+        )
 
         with pytest.raises(IndexError, match="out of bound"):
             _ = batch[1]
@@ -190,7 +235,9 @@ class TestEdgeIndexBatchIndexing:
         counts = [0, 2, 0]
         offsets = np.array([0, 0, 10])
 
-        batch = EdgeIndexBatch(edges, counts=counts, offsets=offsets, directed=True)
+        batch = EdgeIndexBatch(
+            edges, counts=counts, spans=_spans(offsets), directed=True
+        )
 
         batch_0 = batch[0]
         batch_1 = batch[1]
@@ -215,7 +262,9 @@ class TestEdgeIndexBatchProperties:
         counts = [3]
         offsets = np.array([0])
 
-        batch = EdgeIndexBatch(edges, counts=counts, offsets=offsets, directed=True)
+        batch = EdgeIndexBatch(
+            edges, counts=counts, spans=_spans(offsets), directed=True
+        )
 
         assert batch.index is batch.data
         assert batch.index.shape == (2, 3)
@@ -232,7 +281,9 @@ class TestEdgeIndexBatchProperties:
         counts = [3]
         offsets = np.array([0])
 
-        batch = EdgeIndexBatch(edges, counts=counts, offsets=offsets, directed=True)
+        batch = EdgeIndexBatch(
+            edges, counts=counts, spans=_spans(offsets), directed=True
+        )
 
         index_t = batch.index_t
         assert index_t.shape == (3, 2)
@@ -249,7 +300,9 @@ class TestEdgeIndexBatchProperties:
         counts = [3, 2]
         offsets = np.array([0, 10])
 
-        batch = EdgeIndexBatch(edges, counts=counts, offsets=offsets, directed=True)
+        batch = EdgeIndexBatch(
+            edges, counts=counts, spans=_spans(offsets), directed=True
+        )
 
         batch_ids = batch.batch_ids
         np.testing.assert_array_equal(batch_ids, [0, 0, 0, 1, 1])
@@ -265,7 +318,9 @@ class TestEdgeIndexBatchProperties:
         counts = [3]
         offsets = np.array([0])
 
-        batch = EdgeIndexBatch(edges, counts=counts, offsets=offsets, directed=True)
+        batch = EdgeIndexBatch(
+            edges, counts=counts, spans=_spans(offsets), directed=True
+        )
 
         directed_idx = batch.directed_index
         np.testing.assert_array_equal(directed_idx, edges)
@@ -281,7 +336,9 @@ class TestEdgeIndexBatchProperties:
         counts = [8]
         offsets = np.array([0])
 
-        batch = EdgeIndexBatch(edges, counts=counts, offsets=offsets, directed=False)
+        batch = EdgeIndexBatch(
+            edges, counts=counts, spans=_spans(offsets), directed=False
+        )
 
         directed_idx = batch.directed_index
         # Should skip every second edge
@@ -304,7 +361,9 @@ class TestEdgeIndexBatchProperties:
         counts = [4]
         offsets = np.array([0])
 
-        batch = EdgeIndexBatch(edges, counts=counts, offsets=offsets, directed=False)
+        batch = EdgeIndexBatch(
+            edges, counts=counts, spans=_spans(offsets), directed=False
+        )
 
         directed_idx_t = batch.directed_index_t
         # Should be (2, 2) after skipping every other edge
@@ -322,7 +381,9 @@ class TestEdgeIndexBatchProperties:
         counts = [2, 2]
         offsets = np.array([0, 10])
 
-        batch = EdgeIndexBatch(edges, counts=counts, offsets=offsets, directed=True)
+        batch = EdgeIndexBatch(
+            edges, counts=counts, spans=_spans(offsets), directed=True
+        )
 
         directed_counts = batch.directed_counts
         np.testing.assert_array_equal(directed_counts, counts)
@@ -338,7 +399,9 @@ class TestEdgeIndexBatchProperties:
         counts = [4, 4]
         offsets = np.array([0, 10])
 
-        batch = EdgeIndexBatch(edges, counts=counts, offsets=offsets, directed=False)
+        batch = EdgeIndexBatch(
+            edges, counts=counts, spans=_spans(offsets), directed=False
+        )
 
         directed_counts = batch.directed_counts
         np.testing.assert_array_equal(directed_counts, [2, 2])
@@ -354,7 +417,9 @@ class TestEdgeIndexBatchProperties:
         counts = [3, 2]
         offsets = np.array([0, 10])
 
-        batch = EdgeIndexBatch(edges, counts=counts, offsets=offsets, directed=True)
+        batch = EdgeIndexBatch(
+            edges, counts=counts, spans=_spans(offsets), directed=True
+        )
 
         directed_batch_ids = batch.directed_batch_ids
         np.testing.assert_array_equal(directed_batch_ids, [0, 0, 0, 1, 1])
@@ -370,7 +435,9 @@ class TestEdgeIndexBatchProperties:
         counts = [4, 4]
         offsets = np.array([0, 10])
 
-        batch = EdgeIndexBatch(edges, counts=counts, offsets=offsets, directed=False)
+        batch = EdgeIndexBatch(
+            edges, counts=counts, spans=_spans(offsets), directed=False
+        )
 
         directed_batch_ids = batch.directed_batch_ids
         # 4 edges -> 2 directed, 4 edges -> 2 directed
@@ -391,7 +458,9 @@ class TestEdgeIndexBatchSplit:
         counts = [2, 2]
         offsets = np.array([0, 10])
 
-        batch = EdgeIndexBatch(edges, counts=counts, offsets=offsets, directed=True)
+        batch = EdgeIndexBatch(
+            edges, counts=counts, spans=_spans(offsets), directed=True
+        )
 
         result = batch.split()
 
@@ -414,7 +483,9 @@ class TestEdgeIndexBatchSplit:
         counts = [2, 1, 2]
         offsets = np.array([0, 10, 20])
 
-        batch = EdgeIndexBatch(edges, counts=counts, offsets=offsets, directed=True)
+        batch = EdgeIndexBatch(
+            edges, counts=counts, spans=_spans(offsets), directed=True
+        )
 
         result = batch.split()
 
@@ -434,7 +505,9 @@ class TestEdgeIndexBatchSplit:
         counts = [3]
         offsets = np.array([0])
 
-        batch = EdgeIndexBatch(edges, counts=counts, offsets=offsets, directed=True)
+        batch = EdgeIndexBatch(
+            edges, counts=counts, spans=_spans(offsets), directed=True
+        )
 
         result = batch.split()
 
@@ -456,7 +529,9 @@ class TestEdgeIndexBatchTypeConversions:
         counts = [2]
         offsets = np.array([0])
 
-        batch = EdgeIndexBatch(edges, counts=counts, offsets=offsets, directed=True)
+        batch = EdgeIndexBatch(
+            edges, counts=counts, spans=_spans(offsets), directed=True
+        )
         result = batch.to_numpy()
 
         assert result is batch
@@ -472,7 +547,9 @@ class TestEdgeIndexBatchTypeConversions:
         counts = [4]
         offsets = np.array([0])
 
-        batch = EdgeIndexBatch(edges, counts=counts, offsets=offsets, directed=False)
+        batch = EdgeIndexBatch(
+            edges, counts=counts, spans=_spans(offsets), directed=False
+        )
         result = batch.to_numpy()
 
         assert result.directed is False
@@ -489,7 +566,9 @@ class TestEdgeIndexBatchTypeConversions:
         counts = [4]
         offsets = np.array([0])
 
-        batch = EdgeIndexBatch(edges, counts=counts, offsets=offsets, directed=False)
+        batch = EdgeIndexBatch(
+            edges, counts=counts, spans=_spans(offsets), directed=False
+        )
         result = batch.to_tensor()
 
         assert isinstance(result.data, torch.Tensor)
@@ -510,7 +589,9 @@ class TestEdgeIndexBatchEdgeCases:
         counts = [2, 0, 2]
         offsets = np.array([0, 5, 10])
 
-        batch = EdgeIndexBatch(edges, counts=counts, offsets=offsets, directed=True)
+        batch = EdgeIndexBatch(
+            edges, counts=counts, spans=_spans(offsets), directed=True
+        )
 
         assert batch.batch_size == 3
         assert len(batch[0]) == 2
@@ -528,7 +609,9 @@ class TestEdgeIndexBatchEdgeCases:
         counts = [1, 1, 1]
         offsets = np.array([0, 1, 2])
 
-        batch = EdgeIndexBatch(edges, counts=counts, offsets=offsets, directed=True)
+        batch = EdgeIndexBatch(
+            edges, counts=counts, spans=_spans(offsets), directed=True
+        )
 
         assert batch.batch_size == 3
         for i in range(3):
@@ -541,7 +624,9 @@ class TestEdgeIndexBatchEdgeCases:
         counts = [n_edges]
         offsets = np.array([0])
 
-        batch = EdgeIndexBatch(edges, counts=counts, offsets=offsets, directed=True)
+        batch = EdgeIndexBatch(
+            edges, counts=counts, spans=_spans(offsets), directed=True
+        )
 
         assert batch.batch_size == 1
         assert batch.data.shape == (2, n_edges)
@@ -550,14 +635,16 @@ class TestEdgeIndexBatchEdgeCases:
         """Test with large offset values."""
         edges = np.array(
             [
-                [100000, 100001, 200000, 200001],
-                [100001, 100000, 200001, 200000],
+                [0, 1, 100000, 100001],
+                [1, 0, 100001, 100000],
             ]
         )
         counts = [2, 2]
         offsets = np.array([100000, 200000])
 
-        batch = EdgeIndexBatch(edges, counts=counts, offsets=offsets, directed=True)
+        batch = EdgeIndexBatch(
+            edges, counts=counts, spans=_spans(offsets), directed=True
+        )
 
         batch_0 = batch[0]
         batch_1 = batch[1]
@@ -578,7 +665,9 @@ class TestEdgeIndexBatchEdgeCases:
         counts = [6]
         offsets = np.array([0])
 
-        batch = EdgeIndexBatch(edges, counts=counts, offsets=offsets, directed=False)
+        batch = EdgeIndexBatch(
+            edges, counts=counts, spans=_spans(offsets), directed=False
+        )
 
         # directed_index should have 3 edges (half of 6)
         directed_idx = batch.directed_index
@@ -598,7 +687,9 @@ class TestEdgeIndexBatchEdgeCases:
         counts = [2, 2, 2]
         offsets = np.array([0, 0, 0])
 
-        batch = EdgeIndexBatch(edges, counts=counts, offsets=offsets, directed=True)
+        batch = EdgeIndexBatch(
+            edges, counts=counts, spans=_spans(offsets), directed=True
+        )
 
         # All batches should have same values since offset is 0
         batch_0 = batch[0]
@@ -616,10 +707,10 @@ class TestEdgeIndexBatchEdgeCases:
         offsets = np.array([0])
 
         directed_batch = EdgeIndexBatch(
-            edges, counts=counts, offsets=offsets, directed=True
+            edges, counts=counts, spans=_spans(offsets), directed=True
         )
         undirected_batch = EdgeIndexBatch(
-            edges, counts=counts, offsets=offsets, directed=False
+            edges, counts=counts, spans=_spans(offsets), directed=False
         )
 
         # Directed has all 4 edges
@@ -641,7 +732,9 @@ class TestEdgeIndexBatchWithTorch:
         counts = [3]
         offsets = torch.tensor([0])
 
-        batch = EdgeIndexBatch(edges, counts=counts, offsets=offsets, directed=True)
+        batch = EdgeIndexBatch(
+            edges, counts=counts, spans=_spans(offsets), directed=True
+        )
 
         assert batch.is_numpy is False
         assert isinstance(batch.data, torch.Tensor)
@@ -655,7 +748,9 @@ class TestEdgeIndexBatchWithTorch:
         counts = [4]
         offsets = torch.tensor([0])
 
-        batch = EdgeIndexBatch(edges, counts=counts, offsets=offsets, directed=False)
+        batch = EdgeIndexBatch(
+            edges, counts=counts, spans=_spans(offsets), directed=False
+        )
 
         assert batch.directed is False
         # Verify even number of edges
@@ -667,7 +762,9 @@ class TestEdgeIndexBatchWithTorch:
         counts = [2, 2]
         offsets = torch.tensor([0, 10])
 
-        batch = EdgeIndexBatch(edges, counts=counts, offsets=offsets, directed=True)
+        batch = EdgeIndexBatch(
+            edges, counts=counts, spans=_spans(offsets), directed=True
+        )
 
         # Test single index - returns (N, 2) transposed format
         batch_0 = batch[0]
@@ -686,7 +783,9 @@ class TestEdgeIndexBatchWithTorch:
         counts = [2, 1]
         offsets = torch.tensor([0, 10])
 
-        batch = EdgeIndexBatch(edges, counts=counts, offsets=offsets, directed=True)
+        batch = EdgeIndexBatch(
+            edges, counts=counts, spans=_spans(offsets), directed=True
+        )
         split_data = batch.split()
 
         assert len(split_data) == 2
@@ -702,7 +801,9 @@ class TestEdgeIndexBatchWithTorch:
         counts = [3]
         offsets = torch.tensor([0])
 
-        batch = EdgeIndexBatch(edges, counts=counts, offsets=offsets, directed=True)
+        batch = EdgeIndexBatch(
+            edges, counts=counts, spans=_spans(offsets), directed=True
+        )
 
         index = batch.index
         # Should be transposed to (2, N)
@@ -715,7 +816,9 @@ class TestEdgeIndexBatchWithTorch:
         counts = [2]
         offsets = torch.tensor([0])
 
-        batch = EdgeIndexBatch(edges, counts=counts, offsets=offsets, directed=True)
+        batch = EdgeIndexBatch(
+            edges, counts=counts, spans=_spans(offsets), directed=True
+        )
 
         index_t = batch.index_t
         # Transposed (2, 2) format
@@ -728,7 +831,9 @@ class TestEdgeIndexBatchWithTorch:
         counts = [2, 2]
         offsets = torch.tensor([0, 10])
 
-        batch = EdgeIndexBatch(edges, counts=counts, offsets=offsets, directed=True)
+        batch = EdgeIndexBatch(
+            edges, counts=counts, spans=_spans(offsets), directed=True
+        )
         batch_ids = batch.batch_ids
 
         assert torch.equal(batch_ids, torch.tensor([0, 0, 1, 1]))
@@ -739,7 +844,9 @@ class TestEdgeIndexBatchWithTorch:
         counts = [4]
         offsets = torch.tensor([0])
 
-        batch = EdgeIndexBatch(edges, counts=counts, offsets=offsets, directed=False)
+        batch = EdgeIndexBatch(
+            edges, counts=counts, spans=_spans(offsets), directed=False
+        )
 
         # directed_index should filter every other edge
         directed_index = batch.directed_index
@@ -752,7 +859,9 @@ class TestEdgeIndexBatchWithTorch:
         counts = [4, 2]
         offsets = torch.tensor([0, 10])
 
-        batch = EdgeIndexBatch(edges, counts=counts, offsets=offsets, directed=False)
+        batch = EdgeIndexBatch(
+            edges, counts=counts, spans=_spans(offsets), directed=False
+        )
 
         directed_counts = batch.directed_counts
         # Each undirected edge is stored as pair, so half the counts
@@ -764,7 +873,9 @@ class TestEdgeIndexBatchWithTorch:
         counts = [2]
         offsets = torch.tensor([0])
 
-        batch = EdgeIndexBatch(edges, counts=counts, offsets=offsets, directed=True)
+        batch = EdgeIndexBatch(
+            edges, counts=counts, spans=_spans(offsets), directed=True
+        )
         result = batch.to_tensor()
 
         assert result is batch
@@ -776,7 +887,9 @@ class TestEdgeIndexBatchWithTorch:
         counts = [2]
         offsets = torch.tensor([0])
 
-        batch = EdgeIndexBatch(edges, counts=counts, offsets=offsets, directed=True)
+        batch = EdgeIndexBatch(
+            edges, counts=counts, spans=_spans(offsets), directed=True
+        )
         result = batch.to_numpy()
 
         assert result.is_numpy is True
@@ -789,7 +902,9 @@ class TestEdgeIndexBatchWithTorch:
         counts = [0]
         offsets = torch.tensor([0])
 
-        batch = EdgeIndexBatch(edges, counts=counts, offsets=offsets, directed=True)
+        batch = EdgeIndexBatch(
+            edges, counts=counts, spans=_spans(offsets), directed=True
+        )
 
         assert batch.batch_size == 1
         assert batch.index.shape == (2, 0)
@@ -800,7 +915,9 @@ class TestEdgeIndexBatchWithTorch:
         counts = [1, 1]
         offsets = torch.tensor([0, 1000000])
 
-        batch = EdgeIndexBatch(edges, counts=counts, offsets=offsets, directed=True)
+        batch = EdgeIndexBatch(
+            edges, counts=counts, spans=_spans(offsets), directed=True
+        )
 
         # Indexing should handle large offsets
         batch_1 = batch[1]

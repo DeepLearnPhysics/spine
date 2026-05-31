@@ -8,7 +8,7 @@ import numpy as np
 
 from ..base import ParserBase
 from ..data import ParserEdgeIndex, ParserIndex, ParserIndexList
-from .utils import resolve_index_global_shift
+from .utils import resolve_index_span
 
 __all__ = ["HDF5IndexParser", "HDF5IndexListParser", "HDF5EdgeIndexParser"]
 
@@ -60,9 +60,9 @@ class HDF5IndexParser(ParserBase):
             Parser index containing one normalized 1D index array.
         """
         index = np.asarray(index_event, dtype=self.itype).reshape(-1)
-        global_shift = resolve_index_global_shift(count_event)
+        span = resolve_index_span(count_event)
 
-        return ParserIndex(features=index, global_shift=global_shift)
+        return ParserIndex(features=index, span=span)
 
 
 class HDF5IndexListParser(ParserBase):
@@ -120,11 +120,11 @@ class HDF5IndexListParser(ParserBase):
         single_counts = np.asarray(
             [len(index) for index in index_list], dtype=self.itype
         )
-        global_shift = resolve_index_global_shift(count_event)
+        span = resolve_index_span(count_event)
 
         return ParserIndexList(
             features=index_list,
-            global_shift=global_shift,
+            span=span,
             single_counts=single_counts,
         )
 
@@ -192,5 +192,5 @@ class HDF5EdgeIndexParser(ParserBase):
                 f"Received {index.shape}."
             )
 
-        global_shift = resolve_index_global_shift(count_event)
-        return ParserEdgeIndex(features=index, global_shift=global_shift)
+        span = resolve_index_span(count_event)
+        return ParserEdgeIndex(features=index, span=span)

@@ -68,12 +68,12 @@ def test_overlayer_offsets_index_tensors():
     batch = [
         {
             "edges": ParserEdgeIndex(
-                features=np.asarray([[0], [1]], dtype=np.int64), global_shift=2
+                features=np.asarray([[0], [1]], dtype=np.int64), span=2
             )
         },
         {
             "edges": ParserEdgeIndex(
-                features=np.asarray([[0], [1]], dtype=np.int64), global_shift=2
+                features=np.asarray([[0], [1]], dtype=np.int64), span=2
             )
         },
     ]
@@ -88,22 +88,14 @@ def test_overlayer_offsets_index_tensors():
     assert np.array_equal(
         result[0]["edges"].features, np.asarray([[0, 2], [1, 3]], dtype=np.int64)
     )
-    assert result[0]["edges"].global_shift == 4
+    assert result[0]["edges"].span == 4
 
 
 def test_overlayer_offsets_flat_indexes():
     """Overlay should shift flat index tensors by cumulative global shifts."""
     batch = [
-        {
-            "index": ParserIndex(
-                features=np.asarray([0, 1], dtype=np.int64), global_shift=2
-            )
-        },
-        {
-            "index": ParserIndex(
-                features=np.asarray([0], dtype=np.int64), global_shift=1
-            )
-        },
+        {"index": ParserIndex(features=np.asarray([0, 1], dtype=np.int64), span=2)},
+        {"index": ParserIndex(features=np.asarray([0], dtype=np.int64), span=1)},
     ]
     overlay = Overlayer(
         data_types={"index": "tensor"},
@@ -116,7 +108,7 @@ def test_overlayer_offsets_flat_indexes():
     assert np.array_equal(
         result[0]["index"].features, np.asarray([0, 1, 2], dtype=np.int64)
     )
-    assert result[0]["index"].global_shift == 3
+    assert result[0]["index"].span == 3
 
 
 def test_overlayer_offsets_index_lists():
@@ -125,14 +117,14 @@ def test_overlayer_offsets_index_lists():
         {
             "clusts": ParserIndexList(
                 features=[np.asarray([0, 1]), np.asarray([1])],
-                global_shift=2,
+                span=2,
                 single_counts=np.asarray([2, 1]),
             )
         },
         {
             "clusts": ParserIndexList(
                 features=[np.asarray([0])],
-                global_shift=2,
+                span=2,
                 single_counts=np.asarray([1]),
             )
         },
@@ -146,7 +138,7 @@ def test_overlayer_offsets_index_lists():
     result = overlay(batch)
     assert len(result) == 1
     assert isinstance(result[0]["clusts"], ParserIndexList)
-    assert result[0]["clusts"].global_shift == 4
+    assert result[0]["clusts"].span == 4
     np.testing.assert_array_equal(result[0]["clusts"].features[0], np.asarray([0, 1]))
     np.testing.assert_array_equal(result[0]["clusts"].features[1], np.asarray([1]))
     np.testing.assert_array_equal(result[0]["clusts"].features[2], np.asarray([2]))
@@ -158,8 +150,8 @@ def test_overlayer_offsets_index_lists():
 def test_overlayer_offsets_index_lists_without_single_counts():
     """Overlay should infer index-list element sizes when single counts are absent."""
     batch = [
-        {"clusts": ParserIndexList(features=[np.asarray([0, 1])], global_shift=2)},
-        {"clusts": ParserIndexList(features=[np.asarray([0])], global_shift=2)},
+        {"clusts": ParserIndexList(features=[np.asarray([0, 1])], span=2)},
+        {"clusts": ParserIndexList(features=[np.asarray([0])], span=2)},
     ]
     overlay = Overlayer(
         data_types={"clusts": "tensor"},

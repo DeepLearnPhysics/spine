@@ -61,19 +61,19 @@ def test_parser_object_list_defaults_and_cast():
 
 def test_parser_index_payloads_store_specialized_contracts():
     """Index-style parser payloads should preserve their specialized shape."""
-    index = ParserIndex(features=np.asarray([0, 2, 4]), global_shift=5)
+    index = ParserIndex(features=np.asarray([0, 2, 4]), span=5)
     index_list = ParserIndexList(
         features=[np.asarray([0, 2]), np.asarray([1])],
-        global_shift=3,
+        span=3,
         single_counts=np.asarray([2, 1]),
     )
     edge_index = ParserEdgeIndex(
         features=np.asarray([[0, 1], [1, 2]], dtype=np.int64),
-        global_shift=3,
+        span=3,
     )
 
     np.testing.assert_array_equal(index.features, np.asarray([0, 2, 4]))
-    assert index.global_shift == 5
+    assert index.span == 5
     assert len(index_list.features) == 2
     np.testing.assert_array_equal(index_list.single_counts, np.asarray([2, 1]))
     np.testing.assert_array_equal(
