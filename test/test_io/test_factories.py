@@ -279,6 +279,42 @@ def test_loader_factory_uses_minibatch_and_helpers(monkeypatch):
     assert captured["pin_memory"] is True
 
 
+def test_loader_factory_requires_sampler_for_joint_dataset(monkeypatch):
+    """Joint datasets should fail early when no joint sampler is configured."""
+
+    class DummyDataset:
+        joint = True
+        data_types = {"value": "scalar"}
+        overlay_methods = {"value": "cat"}
+
+    class DummyDataLoader:
+        def __init__(self, dataset, **kwargs):
+            self.dataset = dataset
+            self.kwargs = kwargs
+
+    fake_torch = types.ModuleType("torch")
+    fake_utils = types.ModuleType("torch.utils")
+    fake_data = types.ModuleType("torch.utils.data")
+    fake_data.DataLoader = DummyDataLoader
+    fake_utils.data = fake_data
+    fake_torch.utils = fake_utils
+
+    monkeypatch.setattr(factories_module, "TORCH_AVAILABLE", True)
+    monkeypatch.setattr(
+        factories_module, "dataset_factory", lambda *args, **kwargs: DummyDataset()
+    )
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+    monkeypatch.setitem(sys.modules, "torch.utils", fake_utils)
+    monkeypatch.setitem(sys.modules, "torch.utils.data", fake_data)
+
+    with pytest.raises(ValueError, match="explicit joint sampler"):
+        factories_module.loader_factory(
+            dataset={"name": "joint"},
+            dtype="float32",
+            minibatch_size=2,
+        )
+
+
 def test_loader_factory_distributed_requires_explicit_rank(monkeypatch):
     """Distributed loader setup should reject an unspecified process rank."""
 

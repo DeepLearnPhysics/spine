@@ -1585,6 +1585,57 @@ def test_joint_dataset_rejects_incompatible_sources():
         )
 
 
+def test_joint_dataset_rejects_overlay_metadata_mismatch():
+    """JointDataset should reject matching keys with conflicting metadata."""
+
+    class DummyDataset:
+        data_types = {"index": "scalar"}
+
+        def __init__(self, overlay_methods):
+            self.overlay_methods = overlay_methods
+
+        def __len__(self):
+            return 1
+
+        def __getitem__(self, idx):
+            return {"index": idx}
+
+    with pytest.raises(ValueError, match="overlay mismatch"):
+        joint_dataset_module.JointDataset(
+            primary=DummyDataset({"index": "cat"}),
+            secondary=DummyDataset({"index": "first"}),
+        )
+
+
+def test_joint_dataset_rejects_empty_sources():
+    """JointDataset should require both primary and secondary samples."""
+
+    class DummyDataset:
+        data_types = {"index": "scalar"}
+        overlay_methods = {"index": "cat"}
+
+        def __init__(self, size):
+            self.size = size
+
+        def __len__(self):
+            return self.size
+
+        def __getitem__(self, idx):
+            return {"index": idx}
+
+    with pytest.raises(ValueError, match="primary dataset must expose"):
+        joint_dataset_module.JointDataset(
+            primary=DummyDataset(0),
+            secondary=DummyDataset(1),
+        )
+
+    with pytest.raises(ValueError, match="secondary dataset must expose"):
+        joint_dataset_module.JointDataset(
+            primary=DummyDataset(1),
+            secondary=DummyDataset(0),
+        )
+
+
 def test_joint_dataset_accepts_explicit_pair_index():
     """Pair indexes should let an external sampler own secondary pairing."""
 
@@ -1609,6 +1660,34 @@ def test_joint_dataset_accepts_explicit_pair_index():
     assert dataset[0]["index"] == 0
     np.testing.assert_array_equal(dataset[(0, 1)]["index"], np.asarray([0, 11]))
     assert dataset[(1, None)]["index"] == 1
+
+
+def test_joint_dataset_rejects_bad_pair_indexes():
+    """JointDataset should validate tuple shape and secondary bounds."""
+
+    class DummyDataset:
+        data_types = {"index": "scalar"}
+        overlay_methods = {"index": "cat"}
+
+        def __init__(self, indexes):
+            self.indexes = indexes
+
+        def __len__(self):
+            return len(self.indexes)
+
+        def __getitem__(self, idx):
+            return {"index": self.indexes[idx]}
+
+    dataset = joint_dataset_module.JointDataset(
+        primary=DummyDataset([0, 1]),
+        secondary=DummyDataset([10]),
+    )
+
+    with pytest.raises(ValueError, match="length 2"):
+        dataset[(0, 1, 2)]
+
+    with pytest.raises(ValueError, match="outside of bounds"):
+        dataset[(0, 4)]
 
 
 def test_joint_dataset_merges_shared_dataset_config(monkeypatch):
@@ -1672,6 +1751,48 @@ def test_joint_dataset_merges_shared_dataset_config(monkeypatch):
             },
             "float32",
         ),
+    ]
+
+
+def test_joint_dataset_resolve_source_config_rejects_string_base():
+    """A string base cannot be merged into mapping source overrides."""
+    with pytest.raises(ValueError, match="shared `base`"):
+        joint_dataset_module.JointDataset.resolve_source_config(
+            "hdf5", {"file_keys": "input.h5"}
+        )
+
+
+def test_joint_dataset_build_dataset_uses_factory(monkeypatch):
+    """Mapping-based source configs should instantiate through dataset_factory."""
+
+    class DummyDataset:
+        data_types = {"index": "scalar"}
+        overlay_methods = {"index": "cat"}
+
+        def __len__(self):
+            return 1
+
+        def __getitem__(self, idx):
+            return {"index": idx}
+
+    calls = []
+
+    def fake_dataset_factory(source, entry_list=None, dtype=None):
+        calls.append((source, entry_list, dtype))
+        return DummyDataset()
+
+    monkeypatch.setattr("spine.io.factories.dataset_factory", fake_dataset_factory)
+
+    dataset = joint_dataset_module.JointDataset(
+        primary={"name": "hdf5", "file_keys": "a.h5"},
+        secondary={"name": "hdf5", "file_keys": "b.h5"},
+        dtype="float32",
+    )
+
+    assert len(dataset) == 1
+    assert calls == [
+        ({"name": "hdf5", "file_keys": "a.h5"}, None, "float32"),
+        ({"name": "hdf5", "file_keys": "b.h5"}, None, "float32"),
     ]
 
 
