@@ -123,8 +123,10 @@ class IOManager:
                 "Must provide either a loader or a reader configuration, not both."
             )
 
-        # Must provide exactly one of iterations or epochs.
-        if (iterations is not None) == (epochs is not None):
+        # A bounded run can be expressed in iterations or epochs, but not both.
+        # Both can be omitted for loading through Driver.__next__ or direct
+        # Driver.process calls.
+        if iterations is not None and epochs is not None:
             raise ValueError(
                 "Must specify either `iterations` or `epochs` parameters, not both."
             )

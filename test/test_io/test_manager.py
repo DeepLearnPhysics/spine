@@ -150,6 +150,17 @@ def test_io_manager_initializes_loader_and_unwrapper(monkeypatch):
     assert calls[0]["distributed"] is True
 
 
+def test_io_manager_allows_on_demand_iteration_config(monkeypatch):
+    """IOManager should allow omitted iteration bounds for on-demand loading."""
+    monkeypatch.setattr(manager_mod, "reader_factory", lambda cfg: FakeReader())
+
+    manager = IOManager(reader={"name": "hdf5"})
+
+    assert manager.iterations is None
+    assert manager.epochs is None
+    assert manager.iter_per_epoch == 4
+
+
 def test_io_manager_validation(monkeypatch):
     """IOManager should reject invalid I/O combinations."""
     with pytest.raises(ValueError, match="either a loader or a reader"):

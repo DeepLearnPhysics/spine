@@ -347,6 +347,21 @@ def test_initialize_io_reader_writer_and_iteration_harmonization(monkeypatch):
     assert drv.io.writer == "writer"
     assert writer_calls == [({"name": "csv"}, "input_000--input_001", False)]
 
+    drv = bare_driver()
+    drv.cfg = {"base": {}, "io": {}}
+    drv.rank = None
+    drv.dtype = "float32"
+    drv.world_size = 0
+    drv.distributed = False
+    drv.unwrap = False
+    drv.iterations = None
+    drv.epochs = None
+    drv.split_output = False
+
+    drv.initialize_io({"reader": {"name": "hdf5"}})
+    assert drv.iterations is None
+    assert drv.epochs is None
+
     with pytest.raises(ValueError, match="either a loader or a reader"):
         drv.initialize_io({})
     with pytest.raises(ValueError, match="either a loader or a reader"):
