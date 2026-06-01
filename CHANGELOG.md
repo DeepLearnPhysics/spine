@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.13.1] - 2026-06-01
+
+### Added
+- **Joint overlay datasets**: Add backend-agnostic `JointDataset` support for
+  overlay training across independently sampled primary and secondary datasets,
+  plus dedicated joint samplers and loader validation so tuple-based pairing is
+  only used with joint datasets.
+
+### Changed
+- **Dataset documentation and coverage**: Expand dataset-layer docstrings,
+  clarify aligned (`MixedDataset`) versus unaligned (`JointDataset`) composition
+  semantics, and add focused tests for joint dataset construction, pairing, and
+  loader/sampler validation.
+
+### Fixed
+- **On-demand driver usability**: Restore the ability to omit both
+  `iterations` and `epochs` when using the driver and I/O manager in on-demand
+  mode, while still rejecting the ambiguous case where both are specified.
+
 ## [0.13.0] - 2026-05-30
 
 ### Added
