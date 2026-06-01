@@ -33,6 +33,21 @@ class DummyDataset:
         return self.size
 
 
+@dataclass
+class DummyJointDataset:
+    """Joint dataset stand-in with primary and secondary sizes."""
+
+    size: int
+    secondary_size: int
+    joint = True
+
+    def __post_init__(self):
+        self.secondary = DummyDataset(self.secondary_size)
+
+    def __len__(self):
+        return self.size
+
+
 @pytest.fixture(name="dataset")
 def fixture_dataset(request):
     """Generates a dummy dataset whith the necessary attributes and
@@ -148,6 +163,61 @@ def test_bootstrap_sampler(dataset, batch_size, seed):
 
             # Make the distributed sampler has half the entries
             assert len(dist_sampler) == len(sampler) / 2
+
+
+def test_joint_sequential_sampler_pairs_primary_and_secondary():
+    """Joint sequential sampling should return primary/secondary index pairs."""
+    dataset = DummyJointDataset(size=5, secondary_size=2)
+    sampler = JointSequentialBatchSampler(dataset, batch_size=2, seed=1)
+
+    assert list(sampler) == [(0, 0), (1, 1), (2, 0), (3, 1)]
+
+
+def test_joint_random_sequence_sampler_pairs_are_bounded():
+    """Joint random-sequence sampling should keep secondary indexes in range."""
+    dataset = DummyJointDataset(size=12, secondary_size=3)
+    sampler = JointRandomSequenceBatchSampler(dataset, batch_size=4, seed=8)
+    samples = list(sampler)
+
+    assert len(samples) == 12
+    assert all(0 <= primary < 12 for primary, _ in samples)
+    assert all(0 <= secondary < 3 for _, secondary in samples)
+
+
+def test_joint_sampler_pair_probability_skips_without_consuming_secondary():
+    """Skipped pairs should not advance the secondary index stream."""
+    dataset = DummyJointDataset(size=4, secondary_size=3)
+    sampler = JointSequentialBatchSampler(
+        dataset, batch_size=2, seed=2, pair_probability=0.8
+    )
+
+    assert list(sampler) == [(0, None), (1, 0), (2, None), (3, 1)]
+
+
+def test_joint_sampler_rejects_invalid_pair_probability():
+    """Joint samplers should validate pair probability."""
+    with pytest.raises(ValueError, match="pair_probability"):
+        JointSequentialBatchSampler(
+            DummyJointDataset(size=4, secondary_size=2),
+            batch_size=2,
+            pair_probability=1.5,
+        )
+
+
+def test_joint_sampler_requires_joint_dataset():
+    """Joint samplers should reject standard datasets."""
+    with pytest.raises(ValueError, match="JointDataset"):
+        JointSequentialBatchSampler(DummyDataset(4), batch_size=2, seed=1)
+
+
+def test_distributed_proxy_sampler_preserves_joint_pairs():
+    """Distributed wrapping should preserve tuple indexes from joint samplers."""
+    sampler = JointSequentialBatchSampler(
+        DummyJointDataset(size=4, secondary_size=2), batch_size=2, seed=1
+    )
+    dist_sampler = DistributedProxySampler(sampler, num_replicas=2, rank=1)
+
+    assert list(dist_sampler) == [(1, 1), (3, 1)]
 
 
 def test_sampler_input_validation():

@@ -113,6 +113,39 @@ def test_dataset_factory_mixed(monkeypatch):
     not TORCH_AVAILABLE,
     reason="PyTorch is required for torch-backed dataset factory tests.",
 )
+def test_dataset_factory_joint():
+    """The generic dataset factory should instantiate the joint dataset."""
+
+    class DummyDataset:
+        data_types = {"index": "scalar"}
+        overlay_methods = {"index": "cat"}
+
+        def __init__(self, indexes):
+            self.indexes = indexes
+
+        def __len__(self):
+            return len(self.indexes)
+
+        def __getitem__(self, idx):
+            return {"index": self.indexes[idx]}
+
+    dataset = dataset_factory(
+        {
+            "name": "joint",
+            "primary": DummyDataset([0]),
+            "secondary": DummyDataset([10]),
+        },
+        dtype="float32",
+    )
+
+    assert dataset.name == "joint"
+    np.testing.assert_array_equal(dataset[(0, 0)]["index"], np.asarray([0, 10]))
+
+
+@pytest.mark.skipif(
+    not TORCH_AVAILABLE,
+    reason="PyTorch is required for torch-backed dataset factory tests.",
+)
 def test_dataset_factory_entry_list_warning(hdf5_data):
     """Providing an external entry list should override the config with a warning."""
     cfg = {
@@ -125,6 +158,16 @@ def test_dataset_factory_entry_list_warning(hdf5_data):
         dataset = dataset_factory(cfg, entry_list=[0], dtype="float32")
 
     assert len(dataset) == 1
+
+
+def test_dataset_factory_rejects_external_joint_entry_list():
+    """JointDataset entry filters should live in source configs."""
+    with pytest.raises(ValueError, match="entry_list"):
+        dataset_factory(
+            {"name": "joint", "primary": "hdf5", "secondary": "hdf5"},
+            entry_list=[0],
+            dtype="float32",
+        )
 
 
 @pytest.mark.skipif(
@@ -234,6 +277,42 @@ def test_loader_factory_uses_minibatch_and_helpers(monkeypatch):
     assert captured["sampler"] == "sampler"
     assert captured["collate_fn"] == "collate"
     assert captured["pin_memory"] is True
+
+
+def test_loader_factory_requires_sampler_for_joint_dataset(monkeypatch):
+    """Joint datasets should fail early when no joint sampler is configured."""
+
+    class DummyDataset:
+        joint = True
+        data_types = {"value": "scalar"}
+        overlay_methods = {"value": "cat"}
+
+    class DummyDataLoader:
+        def __init__(self, dataset, **kwargs):
+            self.dataset = dataset
+            self.kwargs = kwargs
+
+    fake_torch = types.ModuleType("torch")
+    fake_utils = types.ModuleType("torch.utils")
+    fake_data = types.ModuleType("torch.utils.data")
+    fake_data.DataLoader = DummyDataLoader
+    fake_utils.data = fake_data
+    fake_torch.utils = fake_utils
+
+    monkeypatch.setattr(factories_module, "TORCH_AVAILABLE", True)
+    monkeypatch.setattr(
+        factories_module, "dataset_factory", lambda *args, **kwargs: DummyDataset()
+    )
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+    monkeypatch.setitem(sys.modules, "torch.utils", fake_utils)
+    monkeypatch.setitem(sys.modules, "torch.utils.data", fake_data)
+
+    with pytest.raises(ValueError, match="explicit joint sampler"):
+        factories_module.loader_factory(
+            dataset={"name": "joint"},
+            dtype="float32",
+            minibatch_size=2,
+        )
 
 
 def test_loader_factory_distributed_requires_explicit_rank(monkeypatch):
@@ -371,6 +450,7 @@ def test_sampler_factory_wraps_distributed(monkeypatch):
 
     class DummySampler:
         batch_size = 4
+        joint = False
 
     monkeypatch.setattr(
         factories_module, "instantiate", lambda *args, **kwargs: DummySampler()
@@ -394,6 +474,49 @@ def test_sampler_factory_wraps_distributed(monkeypatch):
 
     assert wrapped["value"][1:] == (2, 1)
     assert result == wrapped["value"]
+
+
+@pytest.mark.skipif(
+    not TORCH_AVAILABLE,
+    reason="PyTorch is required for sampler factory tests.",
+)
+def test_sampler_factory_rejects_standard_sampler_for_joint_dataset(monkeypatch):
+    """Joint datasets should require explicit joint samplers."""
+
+    class DummyDataset:
+        joint = True
+
+    class DummySampler:
+        joint = False
+
+    monkeypatch.setattr(
+        factories_module, "instantiate", lambda *args, **kwargs: DummySampler()
+    )
+
+    with pytest.raises(ValueError, match="standard sampler with a joint dataset"):
+        factories_module.sampler_factory(
+            {"name": "dummy"}, dataset=DummyDataset(), minibatch_size=2
+        )
+
+
+@pytest.mark.skipif(
+    not TORCH_AVAILABLE,
+    reason="PyTorch is required for sampler factory tests.",
+)
+def test_sampler_factory_rejects_joint_sampler_for_standard_dataset(monkeypatch):
+    """Standard datasets should reject joint samplers."""
+
+    class DummySampler:
+        joint = True
+
+    monkeypatch.setattr(
+        factories_module, "instantiate", lambda *args, **kwargs: DummySampler()
+    )
+
+    with pytest.raises(ValueError, match="joint sampler with a standard dataset"):
+        factories_module.sampler_factory(
+            {"name": "dummy"}, dataset=[1, 2], minibatch_size=2
+        )
 
 
 def test_loader_factory_rejects_missing_torch(monkeypatch):

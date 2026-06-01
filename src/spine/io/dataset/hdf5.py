@@ -76,8 +76,11 @@ class HDF5Dataset(BaseDataset):
             Reader-specific keyword arguments forwarded to the selected HDF5
             backend reader
         """
+        # Initialize parent class
         super().__init__()
 
+        # Validate the configuration and prepare reader arguments before
+        # instantiating the backend.
         if not TORCH_AVAILABLE:
             raise ImportError("PyTorch is required to use HDF5Dataset.")
         if keys is not None and skip_keys is not None:
@@ -94,6 +97,9 @@ class HDF5Dataset(BaseDataset):
         )
         reader_stage_map: dict[str, str] = {}
 
+        # If a parser schema is provided, instantiate the parsers and collect
+        # the raw HDF5 products they require. In staged mode, also validate
+        # schema-level stage assignments and build the reader key-to-stage map.
         if schema is not None:
             if dtype is None:
                 raise ValueError("An explicit `dtype` is required when using `schema`.")
@@ -125,7 +131,7 @@ class HDF5Dataset(BaseDataset):
             else:
                 self.keys.update(inferred_keys)
 
-        self.build_augmenter(augment)
+        # Initialize the appropriate reader backend
         if staged:
             self.reader = StageHDF5Reader(
                 stage=stage,
@@ -135,6 +141,9 @@ class HDF5Dataset(BaseDataset):
             )
         else:
             self.reader = HDF5Reader(**kwargs)
+
+        # Initialize the augmenter
+        self.build_augmenter(augment)
 
     def __len__(self) -> int:
         """Return the number of entries exposed by the backend reader."""
