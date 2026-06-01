@@ -16,15 +16,36 @@ class FakeWatch:
     def __init__(self) -> None:
         self.initialized: list[str] = []
         self.calls: list[tuple[str, str]] = []
+        self.watches: dict[str, SimpleNamespace] = {}
 
     def initialize(self, key: str) -> None:
         self.initialized.append(key)
+        self.watches.setdefault(key, SimpleNamespace(running=False, paused=False))
 
     def start(self, key: str) -> None:
         self.calls.append(("start", key))
+        self.watches.setdefault(key, SimpleNamespace(running=False, paused=False))
+        self.watches[key].running = True
 
     def stop(self, key: str) -> None:
         self.calls.append(("stop", key))
+        self.watches.setdefault(key, SimpleNamespace(running=False, paused=False))
+        self.watches[key].running = False
+
+    def reset(self) -> None:
+        self.calls.append(("reset", None))
+        for watch in self.watches.values():
+            watch.running = False
+            watch.paused = False
+
+    def reset_if_active(self) -> None:
+        for watch in self.watches.values():
+            if watch.running or watch.paused:
+                self.reset()
+                break
+
+    def values(self):
+        return self.watches.values()
 
 
 @pytest.fixture(autouse=True)
@@ -280,6 +301,24 @@ def test_io_manager_load_loader_paths(monkeypatch):
 
     with pytest.raises(ValueError, match="specific entry"):
         manager.load(entry=0)
+
+
+def test_io_manager_resets_stale_watch_before_timed_operation(monkeypatch):
+    """IOManager should clear its own active watch before a new timed call."""
+    reader = FakeReader()
+    monkeypatch.setattr(manager_mod, "reader_factory", lambda cfg: reader)
+
+    manager = IOManager(reader={"name": "hdf5"}, iterations=-1)
+    manager.watch.calls.clear()
+    manager.watch.start("read")
+
+    assert manager.load(entry=1) == {"index": 1}
+    assert manager.watch.calls[:3] == [
+        ("start", "read"),
+        ("reset", None),
+        ("start", "read"),
+    ]
+    assert manager.watch.calls[-1] == ("stop", "read")
 
 
 def test_io_manager_iteration_unwrap_write_and_close(monkeypatch):

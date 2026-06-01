@@ -18,6 +18,9 @@
 - **On-demand driver usability**: Restore the ability to omit both
   `iterations` and `epochs` when using the driver and I/O manager in on-demand
   mode, while still rejecting the ambiguous case where both are specified.
+- **Stopwatch recovery after failures**: Reset active manager-owned stopwatches
+  before timed model, I/O, post-processing, and analysis calls so repeated
+  processing can recover cleanly after an interrupted operation.
 
 ## [0.13.0] - 2026-05-30
 

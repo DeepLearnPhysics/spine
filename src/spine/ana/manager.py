@@ -97,6 +97,9 @@ class AnaManager:
         data : dict
             Dictionary of data products
         """
+        # Reset active stopwatches
+        self.watch.reset_if_active()
+
         # Loop over the analysis script modules
         single_entry = np.isscalar(data["index"])
         for key, module in self.modules.items():

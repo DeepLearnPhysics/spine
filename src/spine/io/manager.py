@@ -422,6 +422,8 @@ class IOManager:
             If direct entry addressing is requested from a loader, or if a
             reader request is incomplete.
         """
+        self.watch.reset_if_active()
+
         if self.loader is not None:
             if (
                 entry is not None
@@ -504,6 +506,7 @@ class IOManager:
         if self.unwrapper is None:
             return data
 
+        self.watch.reset_if_active()
         self.watch.start("unwrap")
         result = self.unwrapper(data)
         self.watch.stop("unwrap")
@@ -526,6 +529,7 @@ class IOManager:
         if self.writer is None:
             return
 
+        self.watch.reset_if_active()
         self.watch.start("write")
         self.writer(data, cfg)
         self.watch.stop("write")

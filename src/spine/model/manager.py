@@ -261,6 +261,9 @@ class ModelManager:
         dict
             Dictionary of model and loss outputs
         """
+        # Reset active stopwatches
+        self.watch.reset_if_active()
+
         # Reset the gradient accumulation, free memory
         if self.train:
             self.optimizer.zero_grad(set_to_none=True)

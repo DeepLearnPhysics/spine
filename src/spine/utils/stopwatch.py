@@ -1,3 +1,5 @@
+"""Simple stopwatch class to track execution times of various processes."""
+
 import time
 from dataclasses import dataclass
 
@@ -14,10 +16,10 @@ class Time:
          CPU time
     """
 
-    wall: float = None
-    cpu: float = None
+    wall: float | None = None
+    cpu: float | None = None
 
-    def __add__(self, time):
+    def __add__(self, time_obj):
         """Overload the addition operator.
 
         Parameters
@@ -30,9 +32,9 @@ class Time:
         Time
            Summed times
         """
-        return Time(wall=self.wall + time.wall, cpu=self.cpu + time.cpu)
+        return Time(wall=self.wall + time_obj.wall, cpu=self.cpu + time_obj.cpu)
 
-    def __sub__(self, time):
+    def __sub__(self, time_obj):
         """Overload the substraction operator.
 
         Parameters
@@ -45,9 +47,9 @@ class Time:
         Time
            Substracted times
         """
-        return Time(wall=self.wall - time.wall, cpu=self.cpu - time.cpu)
+        return Time(wall=self.wall - time_obj.wall, cpu=self.cpu - time_obj.cpu)
 
-    def __eq__(self, time):
+    def __eq__(self, time_obj):
         """Overload the equality operator.
 
         Parameters
@@ -60,10 +62,10 @@ class Time:
         bool
             True if both times are identical
         """
-        if isinstance(time, type(self)):
-            return self.wall == time.wall and self.cpu == time.cpu
+        if isinstance(time_obj, type(self)):
+            return self.wall == time_obj.wall and self.cpu == time_obj.cpu
         else:
-            return self.wall == time and self.cpu == time
+            return self.wall == time_obj and self.cpu == time_obj
 
     def copy(self):
         """Returns an independant copy of the object.
@@ -253,11 +255,18 @@ class StopwatchManager:
         keys = [key] if isinstance(key, str) else key
         for k in keys:
             # Check that a stopwatch exists
-            if not k in self._watch:
+            if k not in self._watch:
                 raise KeyError(f"No stopwatch initialized under the name: {k}")
 
             # Reset stopwatch
             self._watch[k] = Stopwatch()
+
+    def reset_if_active(self):
+        """Reset all stopwatches if any tracked watch is still active."""
+        for watch in self.values():
+            if watch.running or watch.paused:
+                self.reset()
+                break
 
     def start(self, key):
         """Starts a stopwatch for a unique key.

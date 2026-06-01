@@ -66,6 +66,9 @@ class PostManager:
         data : dict
             Dictionary of data products
         """
+        # Reset active stopwatches
+        self.watch.reset_if_active()
+
         # Loop over the post-processor modules
         single_entry = np.isscalar(data["index"])
         for key, module in self.modules.items():
