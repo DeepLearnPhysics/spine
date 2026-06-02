@@ -38,6 +38,7 @@ SHAPE_PREC = (
     int(ParticleShape.DELTA),
     int(ParticleShape.LOWE),
     int(ParticleShape.LARCV_UNKNOWN),
+    int(ParticleShape.GHOST),
 )
 
 SHAPE_LABELS = {

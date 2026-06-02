@@ -201,6 +201,7 @@ def test_label_mappings_remain_consistent_with_enums():
         int(ParticleShape.DELTA),
         int(ParticleShape.LOWE),
         int(ParticleShape.LARCV_UNKNOWN),
+        int(ParticleShape.GHOST),
     )
     assert SHAPE_LABELS[int(ParticleShape.SHOWER)] == "Shower"
     assert SHAPE_LABELS[int(ParticleShape.UNKNOWN)] == "Unknown"
