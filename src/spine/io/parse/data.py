@@ -40,6 +40,8 @@ class ParserTensor:
         If `True`, drop duplicate coordinates during collation.
     sum_cols : np.ndarray, optional
         Feature columns that should be summed when duplicates are merged.
+    avg_cols : np.ndarray, optional
+        Feature columns that should be averaged when duplicates are merged.
     prec_col : int, optional
         Feature column used to break duplicate-coordinate ties.
     precedence : np.ndarray, optional
@@ -47,6 +49,9 @@ class ParserTensor:
     feats_only : bool, default False
         If `True`, the payload is feature-only and has no associated
         coordinate tensor.
+    overlay_reference : str, optional
+        Product key whose duplicate-cleaning row selection should be applied
+        to this tensor during overlay.
     """
 
     features: np.ndarray
@@ -56,9 +61,11 @@ class ParserTensor:
     index_cols: np.ndarray | None = None
     remove_duplicates: bool = False
     sum_cols: np.ndarray | None = None
+    avg_cols: np.ndarray | None = None
     prec_col: int | None = None
     precedence: np.ndarray | None = None
     feats_only: bool = False
+    overlay_reference: str | None = None
 
     @property
     def feat_index_cols(self) -> np.ndarray | None:
@@ -87,6 +94,20 @@ class ParserTensor:
             return self.sum_cols
 
         return self.sum_cols - VALUE_COL
+
+    @property
+    def feat_avg_cols(self) -> np.ndarray | None:
+        """Return duplicate-averaged columns in feature-only coordinates.
+
+        Returns
+        -------
+        np.ndarray, optional
+            Feature-column indices corresponding to :attr:`avg_cols`.
+        """
+        if self.avg_cols is None:
+            return self.avg_cols
+
+        return self.avg_cols - VALUE_COL
 
     @property
     def feat_prec_col(self) -> int | None:

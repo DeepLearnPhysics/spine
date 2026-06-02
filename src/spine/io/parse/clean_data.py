@@ -7,6 +7,8 @@ duplicates and ensure the ordering of the output.
 
 from __future__ import annotations
 
+from typing import Literal, overload
+
 import numba as nb
 import numba.typed as nbt
 import numpy as np
@@ -14,14 +16,45 @@ import numpy as np
 from spine.constants import SHAPE_COL, SHAPE_PREC
 
 
+@overload
 def clean_sparse_data(
     cluster_voxels: np.ndarray,
     cluster_data: np.ndarray,
     sparse_voxels: np.ndarray | None = None,
     sum_cols: np.ndarray | None = None,
+    avg_cols: np.ndarray | None = None,
     prec_col: int | None = SHAPE_COL,
     precedence: np.ndarray | list[int] | tuple[int, ...] | None = SHAPE_PREC,
-) -> tuple[np.ndarray, np.ndarray]:
+    *,
+    return_index: Literal[False] = False,
+) -> tuple[np.ndarray, np.ndarray]: ...
+
+
+@overload
+def clean_sparse_data(
+    cluster_voxels: np.ndarray,
+    cluster_data: np.ndarray,
+    sparse_voxels: np.ndarray | None = None,
+    sum_cols: np.ndarray | None = None,
+    avg_cols: np.ndarray | None = None,
+    prec_col: int | None = SHAPE_COL,
+    precedence: np.ndarray | list[int] | tuple[int, ...] | None = SHAPE_PREC,
+    *,
+    return_index: Literal[True],
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]: ...
+
+
+def clean_sparse_data(
+    cluster_voxels: np.ndarray,
+    cluster_data: np.ndarray,
+    sparse_voxels: np.ndarray | None = None,
+    sum_cols: np.ndarray | None = None,
+    avg_cols: np.ndarray | None = None,
+    prec_col: int | None = SHAPE_COL,
+    precedence: np.ndarray | list[int] | tuple[int, ...] | None = SHAPE_PREC,
+    *,
+    return_index: bool = False,
+) -> tuple[np.ndarray, np.ndarray] | tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Clean and align cluster voxels against an optional sparse reference.
 
     This function does the following:
@@ -44,10 +77,15 @@ def clean_sparse_data(
         (M, 3) Matrix of voxel coordinates in the reference sparse tensor
     sum_cols : np.ndarray, optional
         List of feature columns to sum when removing duplicates
+    avg_cols : np.ndarray, optional
+        List of feature columns to average when removing duplicates
     prec_col : int, default SHAPE_COL
         Column in the input feature tensor to use as a precdence source
     precedence : np.ndarray or list[int], default SHAPE_PREC
         (C) Array of classes in the reference array, ordered by precedence
+    return_index : bool, default False
+        If ``True``, also return the selected row indexes into the original
+        ``cluster_voxels`` / ``cluster_data`` arrays.
 
     Returns
     -------
@@ -55,6 +93,9 @@ def clean_sparse_data(
         (M, 3) Ordered and filtered set of voxel coordinates
     cluster_data : np.ndarray
         (M, F) Ordered and filtered set of voxel values
+    index : np.ndarray, optional
+        (M) Selected row indexes in the original input ordering. Only returned
+        when ``return_index`` is ``True``.
     """
     # Lexicographically sort cluster and sparse data
     perm = np.lexsort(cluster_voxels.T)
@@ -62,14 +103,13 @@ def clean_sparse_data(
     cluster_data = cluster_data[perm]
 
     # Find duplicates (and the groups they belong to)
-    if prec_col is not None or sum_cols is not None:
-        if precedence is None:
-            raise ValueError(
-                "Precedence must be provided if `prec_col` or `sum_cols` is not None."
-            )
+    if prec_col is not None or sum_cols is not None or avg_cols is not None:
+        if prec_col is not None and precedence is None:
+            raise ValueError("Precedence must be provided if `prec_col` is not None.")
         reference = cluster_data[:, prec_col] if prec_col is not None else None
+        precedence_list = nbt.List(precedence) if prec_col is not None else None  # type: ignore[attr-defined]
         duplicate_mask, groups = filter_duplicate_voxels_group(
-            cluster_voxels, reference, nbt.List(precedence)  # type: ignore[attr-defined]
+            cluster_voxels, reference, precedence_list
         )
 
     else:
@@ -78,12 +118,17 @@ def clean_sparse_data(
 
     # Sum the values of duplicate voxels, if requested
     if sum_cols is not None and groups is not None and len(groups) > 0:
-        cluster_data = aggregate_features(cluster_data, groups, sum_cols)
+        cluster_data = aggregate_sum_features(cluster_data, groups, sum_cols)
+
+    # Average the values of duplicate voxels, if requested
+    if avg_cols is not None and groups is not None and len(groups) > 0:
+        cluster_data = aggregate_mean_features(cluster_data, groups, avg_cols)
 
     # Remove duplicates
     duplicate_index = np.where(duplicate_mask)[0]
     cluster_voxels = cluster_voxels[duplicate_index]
     cluster_data = cluster_data[duplicate_index]
+    index = perm[duplicate_index]
 
     # Remove voxels not present in the sparse matrix, if needed
     if sparse_voxels is not None:
@@ -94,7 +139,10 @@ def clean_sparse_data(
         non_ref_index = np.where(non_ref_mask)[0]
         cluster_voxels = cluster_voxels[non_ref_index]
         cluster_data = cluster_data[non_ref_index]
+        index = index[non_ref_index]
 
+    if return_index:
+        return cluster_voxels, cluster_data, index
     return cluster_voxels, cluster_data
 
 
@@ -255,6 +303,14 @@ def filter_voxels_ref(data: np.ndarray, reference: np.ndarray) -> np.ndarray:
 def aggregate_features(
     data: np.ndarray, groups: dict[int, np.ndarray], cols: np.ndarray
 ) -> np.ndarray:
+    """Aggregate features by summing the requested columns over groups."""
+    return aggregate_sum_features(data, groups, cols)
+
+
+@nb.njit(cache=True)
+def aggregate_sum_features(
+    data: np.ndarray, groups: dict[int, np.ndarray], cols: np.ndarray
+) -> np.ndarray:
     """Aggregate the information in pre-defined voxel groups.
 
     Parameters
@@ -274,5 +330,17 @@ def aggregate_features(
     for col in cols:
         for idx, group in groups.items():
             data[idx, col] = np.sum(data[group, col])
+
+    return data
+
+
+@nb.njit(cache=True)
+def aggregate_mean_features(
+    data: np.ndarray, groups: dict[int, np.ndarray], cols: np.ndarray
+) -> np.ndarray:
+    """Average the information in pre-defined voxel groups."""
+    for col in cols:
+        for idx, group in groups.items():
+            data[idx, col] = np.mean(data[group, col])
 
     return data

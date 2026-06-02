@@ -62,6 +62,24 @@ def test_aggregate_features():
     assert result[1, 1] == 20.0
 
 
+def test_clean_sparse_data_averages_requested_columns():
+    """Sparse cleanup should average requested columns without precedence."""
+    voxels = np.asarray([[0, 0, 0], [0, 0, 0], [1, 0, 0]], dtype=np.int32)
+    data = np.asarray([[1.0, 10.0], [3.0, 20.0], [5.0, 30.0]], dtype=np.float32)
+
+    voxels, data = clean_sparse_data(
+        voxels,
+        data,
+        avg_cols=np.asarray([0], dtype=np.int64),
+        prec_col=None,
+        precedence=None,
+    )
+
+    assert np.array_equal(voxels, np.asarray([[0, 0, 0], [1, 0, 0]], dtype=np.int32))
+    assert np.array_equal(data[:, 0], np.asarray([2.0, 5.0], dtype=np.float32))
+    assert np.array_equal(data[:, 1], np.asarray([20.0, 30.0], dtype=np.float32))
+
+
 def test_clean_sparse_data_with_duplicates_and_reference():
     """Sparse cleanup should sort, deduplicate, aggregate, and filter."""
     cluster_voxels = np.asarray(
@@ -110,7 +128,7 @@ def test_clean_sparse_data_without_precedence_or_sum_cols_uses_simple_filter():
 
 
 def test_clean_sparse_data_requires_precedence_when_needed():
-    """Sparse cleanup should require precedence for grouped duplicate resolution."""
+    """Sparse cleanup should require precedence for semantic duplicate resolution."""
     with pytest.raises(ValueError, match="Precedence must be provided"):
         clean_sparse_data(
             np.asarray([[0, 0, 0], [0, 0, 0]], dtype=np.int32),

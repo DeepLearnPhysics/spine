@@ -471,6 +471,93 @@ def test_overlayer_stack_tensor_feat_index_cols_and_duplicates():
     assert np.array_equal(result.features, np.asarray([[12.0, 4.0]], dtype=np.float32))
 
 
+def test_overlayer_applies_duplicate_selection_to_feature_only_tensors():
+    """Feature-only aligned tensors should follow coordinate duplicate cleanup."""
+    batch = [
+        {
+            "sources": make_tensor(
+                [[0, 0, 0], [1, 1, 1]],
+                [[0, 0], [0, 1]],
+                remove_duplicates=True,
+                feats_only=True,
+                overlay_reference="data",
+            ),
+            "data": make_tensor(
+                [[0, 0, 0], [1, 1, 1]],
+                [[1.0], [2.0]],
+                remove_duplicates=True,
+                sum_cols=np.asarray([4], dtype=np.int64),
+                precedence=np.asarray([0], dtype=np.int64),
+            ),
+        },
+        {
+            "sources": make_tensor(
+                [[1, 1, 1], [2, 2, 2]],
+                [[1, 0], [1, 1]],
+                remove_duplicates=True,
+                feats_only=True,
+                overlay_reference="data",
+            ),
+            "data": make_tensor(
+                [[1, 1, 1], [2, 2, 2]],
+                [[3.0], [4.0]],
+                remove_duplicates=True,
+                sum_cols=np.asarray([4], dtype=np.int64),
+                precedence=np.asarray([0], dtype=np.int64),
+            ),
+        },
+    ]
+    overlay = Overlayer(
+        data_types={"sources": "tensor", "data": "tensor"},
+        methods={"sources": "cat", "data": "cat"},
+        multiplicity=2,
+    )
+
+    result = overlay(batch)[0]
+    assert np.array_equal(
+        result["data"].coords,
+        np.asarray([[0, 0, 0], [1, 1, 1], [2, 2, 2]]),
+    )
+    assert np.array_equal(
+        result["data"].features,
+        np.asarray([[1.0], [5.0], [4.0]], dtype=np.float32),
+    )
+    assert np.array_equal(
+        result["sources"].features,
+        np.asarray([[0, 0], [1, 0], [1, 1]], dtype=np.float32),
+    )
+
+
+def test_overlayer_feature_only_duplicate_cleanup_requires_reference():
+    """Feature-only tensors should name a reference for duplicate cleanup."""
+    batch = [
+        {
+            "sources": make_tensor(
+                [[0, 0, 0]],
+                [[0, 0]],
+                remove_duplicates=True,
+                feats_only=True,
+            )
+        },
+        {
+            "sources": make_tensor(
+                [[0, 0, 0]],
+                [[1, 0]],
+                remove_duplicates=True,
+                feats_only=True,
+            )
+        },
+    ]
+    overlay = Overlayer(
+        data_types={"sources": "tensor"},
+        methods={"sources": "cat"},
+        multiplicity=2,
+    )
+
+    with pytest.raises(ValueError, match="overlay_reference"):
+        overlay(batch)
+
+
 def test_overlayer_stack_tensor_requires_index_shifts():
     """Tensor overlay should require index shifts when index columns are declared."""
     batch = [

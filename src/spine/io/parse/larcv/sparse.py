@@ -194,8 +194,10 @@ class LArCVSparse3DParser(ParserBase):
         lexsort: bool = False,
         index_cols: np.ndarray | None = None,
         sum_cols: np.ndarray | None = None,
+        avg_cols: np.ndarray | None = None,
         prec_col: int | None = None,
         precedence: np.ndarray | list[int] | tuple[int, ...] = SHAPE_PREC,
+        overlay_reference: str | None = None,
     ) -> None:
         """Initialize the parser.
 
@@ -228,10 +230,15 @@ class LArCVSparse3DParser(ParserBase):
             (C) Columns which contain indexes
         sum_cols : np.ndarray, optional
             (S) Columns which should be summed when removing duplicates
+        avg_cols : np.ndarray, optional
+            (A) Columns which should be averaged when removing duplicates
         prec_col : int, optional
             Column to be used as a precedence source when removing duplicates
         precedence : np.ndarray, default SHAPE_PREC
             Order of precedence among the classes in prec_col
+        overlay_reference : str, optional
+            Product key whose duplicate-cleaning row selection should be used
+            for this tensor when overlaying.
         """
         # Initialize the parent class
         super().__init__(
@@ -287,8 +294,12 @@ class LArCVSparse3DParser(ParserBase):
         self.sum_cols = None
         if sum_cols is not None:
             self.sum_cols = np.asarray(sum_cols)
+        self.avg_cols = None
+        if avg_cols is not None:
+            self.avg_cols = np.asarray(avg_cols)
         self.prec_col = prec_col
         self.precedence = np.asarray(precedence)
+        self.overlay_reference = overlay_reference
 
     def __call__(self, trees: dict[str, Any]) -> ParserTensor:
         """Parse one entry.
@@ -418,9 +429,11 @@ class LArCVSparse3DParser(ParserBase):
             remove_duplicates=True,
             index_cols=self.index_cols,
             sum_cols=self.sum_cols,
+            avg_cols=self.avg_cols,
             prec_col=self.prec_col,
             precedence=self.precedence,
             feats_only=self.feature_only,
+            overlay_reference=self.overlay_reference,
         )
 
 

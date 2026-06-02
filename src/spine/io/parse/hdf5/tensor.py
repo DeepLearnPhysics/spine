@@ -105,6 +105,7 @@ class HDF5ClusterTensorParser(HDF5TensorParser):
         dtype: str,
         index_cols: list[int] | tuple[int, ...] | np.ndarray | None = None,
         sum_cols: list[int] | tuple[int, ...] | np.ndarray | None = None,
+        avg_cols: list[int] | tuple[int, ...] | np.ndarray | None = None,
         prec_col: int | None = None,
         precedence: list[int] | tuple[int, ...] | np.ndarray | None = None,
         remove_duplicates: bool = True,
@@ -122,6 +123,9 @@ class HDF5ClusterTensorParser(HDF5TensorParser):
         sum_cols : sequence[int], optional
             Feature columns that should be summed when duplicate coordinates are
             merged.
+        avg_cols : sequence[int], optional
+            Feature columns that should be averaged when duplicate coordinates
+            are merged.
         prec_col : int, optional
             Feature column used to resolve duplicate-coordinate precedence.
         precedence : sequence[int], optional
@@ -135,6 +139,7 @@ class HDF5ClusterTensorParser(HDF5TensorParser):
         super().__init__(dtype, **kwargs)
         self.index_cols = None if index_cols is None else np.asarray(index_cols)
         self.sum_cols = None if sum_cols is None else np.asarray(sum_cols)
+        self.avg_cols = None if avg_cols is None else np.asarray(avg_cols)
         self.prec_col = prec_col
         self.precedence = None if precedence is None else np.asarray(precedence)
         self.remove_duplicates = remove_duplicates
@@ -146,6 +151,7 @@ class HDF5ClusterTensorParser(HDF5TensorParser):
         tensor = super().process(tensor_event=tensor_event, meta_event=meta_event)
         tensor.index_cols = self.index_cols
         tensor.sum_cols = self.sum_cols
+        tensor.avg_cols = self.avg_cols
         tensor.prec_col = self.prec_col
         tensor.precedence = self.precedence
         tensor.remove_duplicates = self.remove_duplicates
@@ -162,6 +168,8 @@ class HDF5FeatureTensorParser(ParserBase):
         self,
         dtype: str,
         feature_cols: list[int] | tuple[int, ...] | np.ndarray | None = None,
+        remove_duplicates: bool = False,
+        overlay_reference: str | None = None,
         **kwargs: Any,
     ) -> None:
         """Initialize the cached feature-tensor parser.
@@ -174,6 +182,12 @@ class HDF5FeatureTensorParser(ParserBase):
             Optional list of feature-column indices to keep from the cached
             tensor. When provided, this acts as a feature ablation step before
             the parser tensor is returned.
+        remove_duplicates : bool, default False
+            If `True`, require an ``overlay_reference`` when overlaying this
+            feature-only tensor.
+        overlay_reference : str, optional
+            Product key whose duplicate-cleaning row selection should be used
+            for this tensor when overlaying.
         **kwargs : dict, optional
             Parser configuration forwarded to :class:`ParserBase`.
         """
@@ -181,6 +195,8 @@ class HDF5FeatureTensorParser(ParserBase):
         self.feature_cols = None
         if feature_cols is not None:
             self.feature_cols = np.asarray(feature_cols, dtype=np.int64)
+        self.remove_duplicates = remove_duplicates
+        self.overlay_reference = overlay_reference
 
     def __call__(self, trees: dict[str, Any]) -> ParserTensor:
         """Parse one cached entry into a feature-only parser tensor.
@@ -220,4 +236,9 @@ class HDF5FeatureTensorParser(ParserBase):
                 )
             features = features[:, self.feature_cols]
 
-        return ParserTensor(features=features, feats_only=True)
+        return ParserTensor(
+            features=features,
+            remove_duplicates=self.remove_duplicates,
+            feats_only=True,
+            overlay_reference=self.overlay_reference,
+        )
