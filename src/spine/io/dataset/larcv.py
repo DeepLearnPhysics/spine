@@ -40,6 +40,7 @@ class LArCVDataset(BaseDataset):
         self,
         schema: Mapping[str, Mapping[str, Any]],
         dtype: str,
+        overlay_methods: Mapping[str, str] | None = None,
         augment: Mapping[str, Any] | None = None,
         **kwargs: Any,
     ) -> None:
@@ -54,6 +55,8 @@ class LArCVDataset(BaseDataset):
             provide any parser-specific LArCV product names.
         dtype : str
             Floating-point dtype forwarded to parser factories.
+        overlay_methods : mapping, optional
+            Explicit overlay-method overrides for parser products.
         augment : mapping, optional
             Augmentation configuration applied to each parsed sample.
         **kwargs : Any
@@ -63,6 +66,9 @@ class LArCVDataset(BaseDataset):
         """
         # Initialize the parent class
         super().__init__()
+        self._overlay_methods = (
+            dict(overlay_methods) if overlay_methods is not None else None
+        )
 
         # Instantiate the configured parsers and collect the LArCV tree keys
         # needed by any parser.
@@ -137,6 +143,8 @@ class LArCVDataset(BaseDataset):
         overlay_methods = self.index_overlay_methods()
         for name, parser in self.parsers.items():
             overlay_methods[name] = parser.overlay
+        if self._overlay_methods is not None:
+            overlay_methods.update(self._overlay_methods)
 
         return overlay_methods
 

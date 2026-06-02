@@ -1868,6 +1868,33 @@ def test_larcv_dataset_uses_augmenter_and_length(monkeypatch):
     assert dataset.list_data("file.root") == {"dummy": ["file.root"]}
 
 
+def test_larcv_dataset_uses_explicit_overlay_methods(monkeypatch):
+    """The LArCV dataset should expose explicit overlay-method overrides."""
+
+    class DummyParser:
+        tree_keys = ["tree_a"]
+        returns = "object"
+        overlay = "cat"
+
+        def __init__(self, dtype):
+            self.dtype = dtype
+
+    class DummyReader:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    monkeypatch.setattr(larcv_dataset_module, "PARSER_DICT", {"dummy": DummyParser})
+    monkeypatch.setattr(larcv_dataset_module, "LArCVReader", DummyReader)
+
+    dataset = LArCVDataset(
+        schema={"run_info": {"parser": "dummy"}},
+        dtype="float32",
+        overlay_methods={"run_info": "first"},
+    )
+
+    assert dataset.overlay_methods["run_info"] == "first"
+
+
 def test_larcv_dataset_parser_failure_logs_and_raises(monkeypatch):
     """The LArCV dataset should log parser failures and re-raise them."""
 
