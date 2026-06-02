@@ -6,6 +6,8 @@ import pytest
 
 from spine.io.parse.clean_data import (
     aggregate_features,
+    aggregate_mean_features,
+    aggregate_sum_features,
     clean_sparse_data,
     filter_duplicate_voxels,
     filter_duplicate_voxels_group,
@@ -104,6 +106,49 @@ def test_clean_sparse_data_with_duplicates_and_reference():
     assert np.array_equal(data[:, 1], np.asarray([1.0, 2.0], dtype=np.float32))
 
 
+def test_clean_sparse_data_returns_original_indexes():
+    """Sparse cleanup should optionally return selected input row indexes."""
+    cluster_voxels = np.asarray(
+        [[2, 0, 0], [0, 0, 0], [0, 0, 0], [1, 0, 0]], dtype=np.int32
+    )
+    cluster_data = np.asarray([[4.0], [1.0], [2.0], [3.0]], dtype=np.float32)
+    sparse_voxels = np.asarray([[0, 0, 0], [1, 0, 0]], dtype=np.int32)
+
+    voxels, data, index = clean_sparse_data(
+        cluster_voxels,
+        cluster_data,
+        sparse_voxels=sparse_voxels,
+        prec_col=None,
+        precedence=None,
+        return_index=True,
+    )
+
+    assert np.array_equal(voxels, sparse_voxels)
+    assert np.array_equal(data[:, 0], np.asarray([2.0, 3.0], dtype=np.float32))
+    assert np.array_equal(index, np.asarray([2, 3]))
+
+
+def test_clean_sparse_data_sum_and_average_columns():
+    """Sparse cleanup should support sum and average aggregation together."""
+    voxels = np.asarray([[0, 0, 0], [0, 0, 0], [1, 0, 0]], dtype=np.int32)
+    data = np.asarray(
+        [[1.0, 10.0, 100.0], [2.0, 20.0, 200.0], [3.0, 30.0, 300.0]],
+        dtype=np.float32,
+    )
+
+    voxels, data = clean_sparse_data(
+        voxels,
+        data,
+        sum_cols=np.asarray([0], dtype=np.int64),
+        avg_cols=np.asarray([1], dtype=np.int64),
+        prec_col=None,
+        precedence=None,
+    )
+
+    assert np.array_equal(voxels, np.asarray([[0, 0, 0], [1, 0, 0]], dtype=np.int32))
+    assert np.array_equal(data[0], np.asarray([3.0, 15.0, 200.0], dtype=np.float32))
+
+
 def test_clean_sparse_data_without_reference_or_aggregation():
     """Sparse cleanup should also work in the simple duplicate-removal mode."""
     cluster_voxels = np.asarray([[0, 0, 0], [0, 0, 0], [1, 0, 0]], dtype=np.int32)
@@ -187,6 +232,36 @@ def test_clean_data_python_paths_for_coverage():
         ),
         np.asarray([True, False, False]),
     )
+
+    mask, groups = python_impl(filter_duplicate_voxels_group)(
+        np.asarray(
+            [[0, 0, 0], [0, 0, 0], [1, 0, 0], [2, 0, 0], [2, 0, 0]],
+            dtype=np.int32,
+        )
+    )
+    assert np.array_equal(mask, np.asarray([False, True, True, False, True]))
+    assert np.array_equal(groups[1], np.asarray([0, 1]))
+    assert np.array_equal(groups[4], np.asarray([3, 4]))
+
+    assert np.array_equal(
+        python_impl(filter_voxels_ref)(
+            np.asarray([[0, 0, 0], [1, 0, 0]], dtype=np.int32),
+            np.asarray([[2, 0, 0]], dtype=np.int32),
+        ),
+        np.asarray([False, False]),
+    )
+
+    groups_dict = nb.typed.Dict.empty(key_type=nb.int64, value_type=nb.int64[:])
+    groups_dict[2] = np.asarray([0, 1, 2], dtype=np.int64)
+    data = np.asarray([[1.0, 10.0], [2.0, 20.0], [3.0, 30.0]], dtype=np.float32)
+    summed = python_impl(aggregate_sum_features)(
+        data.copy(), groups_dict, np.asarray([0], dtype=np.int64)
+    )
+    averaged = python_impl(aggregate_mean_features)(
+        data.copy(), groups_dict, np.asarray([1], dtype=np.int64)
+    )
+    assert summed[2, 0] == 6.0
+    assert averaged[2, 1] == 20.0
 
 
 def test_filter_duplicate_voxels_group_python_requires_precedence():

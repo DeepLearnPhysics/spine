@@ -528,6 +528,66 @@ def test_overlayer_applies_duplicate_selection_to_feature_only_tensors():
     )
 
 
+def test_overlayer_feature_only_reference_without_cleanup_stacks_features():
+    """Feature-only references should be no-ops when the reference keeps all rows."""
+    batch = [
+        {
+            "data": make_tensor([[0, 0, 0]], [[1.0]]),
+            "sources": make_tensor(
+                [[0, 0, 0]],
+                [[0, 0]],
+                remove_duplicates=True,
+                feats_only=True,
+                overlay_reference="data",
+            ),
+        },
+        {
+            "data": make_tensor([[1, 1, 1]], [[2.0]]),
+            "sources": make_tensor(
+                [[1, 1, 1]],
+                [[1, 0]],
+                remove_duplicates=True,
+                feats_only=True,
+                overlay_reference="data",
+            ),
+        },
+    ]
+    overlay = Overlayer(
+        data_types={"data": "tensor", "sources": "tensor"},
+        methods={"data": "cat", "sources": "cat"},
+        multiplicity=2,
+    )
+
+    result = overlay(batch)[0]["sources"]
+    assert np.array_equal(result.features, np.asarray([[0, 0], [1, 0]]))
+
+
+def test_overlayer_feature_only_without_duplicate_cleanup_stacks_features():
+    """Feature-only tensors should stack directly when cleanup is disabled."""
+    batch = [
+        {
+            "sources": ParserTensor(
+                features=np.asarray([[0, 0]], dtype=np.float32),
+                feats_only=True,
+            )
+        },
+        {
+            "sources": ParserTensor(
+                features=np.asarray([[1, 0]], dtype=np.float32),
+                feats_only=True,
+            )
+        },
+    ]
+    overlay = Overlayer(
+        data_types={"sources": "tensor"},
+        methods={"sources": "cat"},
+        multiplicity=2,
+    )
+
+    result = overlay(batch)[0]["sources"]
+    assert np.array_equal(result.features, np.asarray([[0, 0], [1, 0]]))
+
+
 def test_overlayer_feature_only_duplicate_cleanup_requires_reference():
     """Feature-only tensors should name a reference for duplicate cleanup."""
     batch = [
@@ -556,6 +616,71 @@ def test_overlayer_feature_only_duplicate_cleanup_requires_reference():
 
     with pytest.raises(ValueError, match="overlay_reference"):
         overlay(batch)
+
+
+def test_overlayer_feature_only_reference_size_mismatch_raises():
+    """Feature-only cleanup should reject stale or incompatible reference selections."""
+    batch = [
+        {
+            "sources": ParserTensor(
+                features=np.asarray([[0, 0]], dtype=np.float32),
+                remove_duplicates=True,
+                feats_only=True,
+                overlay_reference="data",
+            )
+        }
+    ]
+    overlay = Overlayer(
+        data_types={"sources": "tensor"},
+        methods={"sources": "cat"},
+        multiplicity=1,
+    )
+    overlay._row_selections = {"data": (np.asarray([0], dtype=np.int64), 2)}
+
+    with pytest.raises(ValueError, match="has 1 rows"):
+        overlay.stack_feature_tensor_data(batch, "sources", [0], batch[0]["sources"])
+
+
+def test_overlayer_overlay_reference_validation():
+    """Overlay ordering should reject missing or cyclic overlay references."""
+    missing_batch = [
+        {
+            "sources": ParserTensor(
+                features=np.asarray([[0]], dtype=np.float32),
+                feats_only=True,
+                overlay_reference="missing",
+            )
+        }
+    ]
+    overlay = Overlayer(
+        data_types={"sources": "tensor"},
+        methods={"sources": "cat"},
+        multiplicity=1,
+    )
+    with pytest.raises(ValueError, match="not available"):
+        overlay.get_overlay_order(missing_batch, [0])
+
+    cyclic_batch = [
+        {
+            "a": ParserTensor(
+                features=np.asarray([[0]], dtype=np.float32),
+                feats_only=True,
+                overlay_reference="b",
+            ),
+            "b": ParserTensor(
+                features=np.asarray([[0]], dtype=np.float32),
+                feats_only=True,
+                overlay_reference="a",
+            ),
+        }
+    ]
+    overlay = Overlayer(
+        data_types={"a": "tensor", "b": "tensor"},
+        methods={"a": "cat", "b": "cat"},
+        multiplicity=1,
+    )
+    with pytest.raises(ValueError, match="Cyclic overlay reference"):
+        overlay.get_overlay_order(cyclic_batch, [0])
 
 
 def test_overlayer_stack_tensor_requires_index_shifts():
@@ -650,3 +775,54 @@ def test_overlayer_stack_tensor_requires_matching_meta():
 
     with pytest.raises(ValueError, match="metadata must match"):
         overlay(batch)
+
+
+def test_overlayer_direct_index_payload_stackers_cover_branches():
+    """Direct stacker calls should cover index payload branch details."""
+    overlay = Overlayer(
+        data_types={},
+        methods={},
+        multiplicity=1,
+    )
+
+    flat = overlay.stack_flat_index_data(
+        [
+            {"index": ParserIndex(np.asarray([0, -1], dtype=np.int64), span=2)},
+            {"index": ParserIndex(np.asarray([1], dtype=np.int64), span=3)},
+        ],
+        "index",
+        [0, 1],
+        ParserIndex(np.asarray([0, -1], dtype=np.int64), span=2),
+    )
+    assert flat.span == 5
+    assert np.array_equal(flat.features, np.asarray([0, -1, 3], dtype=np.int64))
+
+    index_list = overlay.stack_index_list_data(
+        [
+            {"clusts": ParserIndexList([np.asarray([0, -1])], span=2)},
+            {
+                "clusts": ParserIndexList(
+                    [np.asarray([0]), np.asarray([-1])],
+                    span=3,
+                    single_counts=np.asarray([1, 1]),
+                )
+            },
+        ],
+        "clusts",
+        [0, 1],
+        ParserIndexList([np.asarray([0, -1])], span=2),
+    )
+    assert index_list.span == 5
+    assert np.array_equal(index_list.single_counts, np.asarray([2, 1, 1]))
+
+    edge = overlay.stack_edge_index_data(
+        [
+            {"edge": ParserEdgeIndex(np.asarray([[0, -1]], dtype=np.int64), span=2)},
+            {"edge": ParserEdgeIndex(np.asarray([[1]], dtype=np.int64), span=3)},
+        ],
+        "edge",
+        [0, 1],
+        ParserEdgeIndex(np.asarray([[0, -1]], dtype=np.int64), span=2),
+    )
+    assert edge.span == 5
+    assert np.array_equal(edge.features, np.asarray([[0, -1, 3]], dtype=np.int64))

@@ -378,7 +378,9 @@ def test_sparse3d_parser_validation_and_process_errors(monkeypatch):
             DummySparse3DEvent(DummyMeta("a"), 2),
             DummySparse3DEvent(DummyMeta("a"), 2),
         ],
+        avg_cols=[4],
     )
+    assert np.array_equal(parser.avg_cols, np.asarray([4]))
 
     with pytest.raises(ValueError, match="metadata must match"):
         parser.process(

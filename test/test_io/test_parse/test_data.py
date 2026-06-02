@@ -25,11 +25,13 @@ def test_parser_tensor_feature_index_helpers():
         features=np.ones((2, 4), dtype=np.float32),
         index_cols=np.array([VALUE_COL + 1, VALUE_COL + 3], dtype=np.int64),
         sum_cols=np.array([VALUE_COL + 2], dtype=np.int64),
+        avg_cols=np.array([VALUE_COL + 0], dtype=np.int64),
         prec_col=VALUE_COL + 4,
     )
 
     assert np.array_equal(tensor.feat_index_cols, np.array([1, 3], dtype=np.int64))
     assert np.array_equal(tensor.feat_sum_cols, np.array([2], dtype=np.int64))
+    assert np.array_equal(tensor.feat_avg_cols, np.array([0], dtype=np.int64))
     assert tensor.feat_prec_col == 4
 
 
