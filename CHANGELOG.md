@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.13.2] - 2026-06-02
+
+### Changed
+- **Semantic overlay precedence**: Include the ghost semantic class at the end of the default shape precedence so ghost-inclusive semantic labels can use precedence-based duplicate cleanup safely during overlays.
+- **LArCV overlay configuration**: Add dataset-level `overlay_methods` overrides to `LArCVDataset`, matching `HDF5Dataset`, so products such as `run_info` can use policies like `first`, `match`, or `cat` without changing parser defaults.
+
+### Fixed
+- **Overlay duplicate cleanup**: Preserve aligned feature-only tensors during overlay duplicate cleanup by letting tensors such as `sources` reuse the row selection from an explicit `overlay_reference`, and add sum/average aggregation support for duplicate sparse features.
+- **Manager stopwatch recovery**: Reset active manager-owned stopwatches before new manager calls so exceptions in I/O, model, post-processing, or analysis do not leave watches stuck in a running state.
+
 ## [0.13.1] - 2026-06-01
 
 ### Added
