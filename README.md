@@ -80,6 +80,19 @@ apptainer exec --nv spine_<release>.sif \
 
 The Docker and Apptainer paths consume the same released image; the difference is only the container runtime.
 
+The published image now includes a canonical fallback setup script at
+`/opt/spine/setup.sh`. Normal Docker and Apptainer execution should not require
+manual sourcing. Some sites expose the image through CVMFS as an unpacked root
+filesystem; in that mode, the site integration should still apply the image
+environment automatically. If it does not, diagnose the runtime from inside that
+unpacked-image environment with:
+
+```bash
+source /opt/spine/setup.sh
+/opt/spine/check-env.sh
+python -c "import ROOT, larcv, spine"
+```
+
 ### Local Python Installation
 
 Use a local pip installation when you only need downstream tooling such as post-processing, analysis, visualization, documentation, or light development.

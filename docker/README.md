@@ -244,6 +244,29 @@ apptainer run --nv \
 
 When pulled with Apptainer/Singularity, the fully built image is about **5.7 GB**.
 
+### CVMFS / Unpacked Image Environments
+
+Some sites distribute container root filesystems through CVMFS or another
+unpacked-image mechanism instead of asking users to run a local `.sif` file.
+That is a supported distribution model, but the site integration layer is still
+responsible for applying the image environment automatically. Users should not
+normally need to set `PYTHONPATH` or `LD_LIBRARY_PATH` by hand.
+
+The SPINE image includes `/opt/spine/setup.sh` as the canonical fallback recipe
+for the runtime environment, plus `/opt/spine/check-env.sh` for diagnostics. If
+an unpacked-image launch path starts SPINE but cannot import ROOT or LArCV,
+run the following from inside that same unpacked-image environment:
+
+```bash
+source /opt/spine/setup.sh
+/opt/spine/check-env.sh
+python -c "import ROOT, larcv, spine"
+```
+
+If that succeeds, the image contains the expected dependencies and the remaining
+issue is that the CVMFS/OSG launch path is not applying the image environment
+before starting SPINE.
+
 ### HPC SLURM Example
 
 ```bash

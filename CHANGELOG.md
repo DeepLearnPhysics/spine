@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.13.3] - 2026-06-03
+
+### Added
+- **Container runtime setup script**: Add `/opt/spine/setup.sh` and `/opt/spine/check-env.sh` to the published container image so ROOT/LArCV/SPINE runtime environment setup is explicit, testable, and recoverable when unpacked-image runtimes fail to apply the container environment automatically.
+
 ## [0.13.2] - 2026-06-02
 
 ### Changed

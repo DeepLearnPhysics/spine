@@ -127,20 +127,28 @@ RUN pip install --no-cache-dir \
 ARG OPT0FINDER_REF=v1.0.0
 ARG OPT0FINDER_COMMIT=bd03fa90eaae9d753a68db390df80470a6181039
 ARG OPT0FINDER_MAX_JOBS=2
-ENV FMATCH_BASEDIR=/opt/OpT0Finder \
+ENV SPINE_RUNTIME_DIR=/opt/spine \
+    ROOTSYS=/opt/root \
+    LARCV_BASEDIR=/app/larcv2 \
+    LARCV_LIBDIR=/app/larcv2/build/lib \
+    LARCV_PYTHONDIR=/app/larcv2/python \
+    FMATCH_BASEDIR=/opt/OpT0Finder \
     FMATCH_BUILDDIR=/opt/OpT0Finder/build \
     FMATCH_LIBDIR=/opt/OpT0Finder/build/lib \
     FMATCH_INCDIR=/opt/OpT0Finder/build/include \
     FMATCH_BINDIR=/opt/OpT0Finder/build/bin \
     FMATCH_DATADIR=/opt/OpT0Finder/dat \
-    LD_LIBRARY_PATH=/opt/OpT0Finder/build/lib:${LD_LIBRARY_PATH} \
-    PYTHONPATH=/opt/OpT0Finder/python:${PYTHONPATH} \
-    PATH=/opt/OpT0Finder/bin:/opt/OpT0Finder/build/bin:${PATH}
+    LD_LIBRARY_PATH=/opt/root/lib:/app/larcv2/build/lib:/opt/OpT0Finder/build/lib:${LD_LIBRARY_PATH} \
+    PYTHONPATH=/app/larcv2/python:/opt/OpT0Finder/python:/opt/root/lib:${PYTHONPATH} \
+    PATH=/opt/root/bin:/opt/OpT0Finder/bin:/opt/OpT0Finder/build/bin:${PATH}
 RUN git clone https://github.com/DeepLearnPhysics/OpT0Finder.git ${FMATCH_BASEDIR} && \
     cd ${FMATCH_BASEDIR} && \
     git checkout ${OPT0FINDER_REF} && \
     test "$(git rev-parse HEAD)" = "${OPT0FINDER_COMMIT}" && \
     bash -lc "source ./configure.sh && make -j${OPT0FINDER_MAX_JOBS}"
+
+COPY docker/spine/setup.sh docker/spine/check-env.sh /opt/spine/
+RUN chmod 755 /opt/spine/setup.sh /opt/spine/check-env.sh
 
 # Make ROOT/LArCV/OpT0Finder imports survive user-provided PYTHONPATH overrides,
 # such as `-e PYTHONPATH=/workspace/src` for editable notebook sessions.
@@ -176,6 +184,14 @@ COPY src/ ./src/
 
 # Install SPINE with all dependencies
 RUN pip install --no-cache-dir --no-build-isolation .[all]
+
+# Verify that the default container environment and the explicit fallback setup
+# recipe both provide the compiled dependency imports SPINE needs at runtime.
+RUN python -c "import ROOT, larcv, spine; print('container runtime imports ok')"
+RUN /opt/spine/check-env.sh
+RUN env -u ROOTSYS -u LARCV_BASEDIR -u LARCV_LIBDIR -u LARCV_PYTHONDIR \
+    -u PYTHONPATH -u LD_LIBRARY_PATH bash -lc \
+    "source /opt/spine/setup.sh && /opt/spine/check-env.sh"
 
 # Set working directory for user data
 WORKDIR /workspace
