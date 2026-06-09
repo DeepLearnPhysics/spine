@@ -1,9 +1,11 @@
 """Apply wire transparency corrections."""
 
-from typing import Optional
+from __future__ import annotations
+
 from warnings import warn
 
 import numpy as np
+from numpy.typing import NDArray
 
 from .database import CalibrationDatabase
 
@@ -22,8 +24,8 @@ class TransparencyCalibrator:
         transparency_db: str,
         num_tpcs: int,
         value_key: str = "scale",
-        run_id: Optional[int] = None,
-    ):
+        run_id: int | None = None,
+    ) -> None:
         """Load the calibration maps.
 
         Parameters
@@ -52,8 +54,12 @@ class TransparencyCalibrator:
             )
 
     def process(
-        self, points: np.ndarray, values: np.ndarray, tpc_id: int, run_id: int
-    ) -> np.ndarray:
+        self,
+        points: NDArray[np.floating],
+        values: NDArray[np.floating],
+        tpc_id: int,
+        run_id: int | None,
+    ) -> NDArray[np.floating]:
         """Apply the transparency correction.
 
         Parameters
@@ -76,7 +82,8 @@ class TransparencyCalibrator:
         if self.run_id is not None:
             run_id = self.run_id
 
-        assert run_id is not None, "Must provide a run ID to get the transparency map."
+        if run_id is None:
+            raise ValueError("Must provide a run ID to get the transparency map.")
 
         # Get the appropriate transparency map for this run
         transparency_lut = self.transparency[run_id]

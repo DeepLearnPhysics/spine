@@ -1,12 +1,18 @@
 """Applies conversion form ADC to number ionization electrons."""
 
-from typing import Dict, List, Optional, Union
+from __future__ import annotations
+
+from typing import TypeAlias
 
 import numpy as np
+from numpy.typing import NDArray
 
 from .constant import CalibrationConstant
 
 __all__ = ["GainCalibrator"]
+
+CalibValue: TypeAlias = float | list[float] | tuple[float, ...] | NDArray[np.floating]
+CalibDatabaseSource: TypeAlias = str | dict[int, CalibValue]
 
 
 class GainCalibrator:
@@ -21,9 +27,9 @@ class GainCalibrator:
     def __init__(
         self,
         num_tpcs: int,
-        gain: Optional[Union[float, List[float]]] = None,
-        gain_db: Optional[Union[str, Dict[int, Union[float, List[float]]]]] = None,
-    ):
+        gain: CalibValue | None = None,
+        gain_db: CalibDatabaseSource | None = None,
+    ) -> None:
         """Initialize the recombination model and its constants.
 
         Parameters
@@ -39,8 +45,8 @@ class GainCalibrator:
         self.gain = CalibrationConstant(num_tpcs=num_tpcs, value=gain, database=gain_db)
 
     def process(
-        self, values: np.ndarray, tpc_id: int, run_id: Optional[int] = None
-    ) -> np.ndarray:
+        self, values: NDArray[np.floating], tpc_id: int, run_id: int | None = None
+    ) -> NDArray[np.floating]:
         """Converts deposition values from ADC to a number of electrons.
 
         Parameters

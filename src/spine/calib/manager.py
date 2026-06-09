@@ -4,16 +4,18 @@ in the appropriate sequence."""
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
+from numpy.typing import NDArray
 
 from spine.geo import GeoManager
+from spine.utils.factory import parse_module_config
 from spine.utils.stopwatch import StopwatchManager
 
 from .factories import calibrator_factory
 
-if TYPE_CHECKING:
+if TYPE_CHECKING:  # pragma: no cover
     from spine.data import Meta
 
 
@@ -22,7 +24,9 @@ class CalibrationManager:
     a set of 3D space points and their associated measured charge depositions.
     """
 
-    def __init__(self, gain_applied: bool = False, **cfg):
+    def __init__(
+        self, gain_applied: bool = False, **cfg: dict[str, Any] | None
+    ) -> None:
         """Initialize the manager.
 
         Parameters
@@ -35,38 +39,51 @@ class CalibrationManager:
         # Fetch the geometry instance
         self.geo = GeoManager.get_instance()
 
-        # Make sure the essential calibration modules are present
-        assert (
-            gain_applied or "recombination" not in cfg or "gain" in cfg
-        ), "Must provide gain configuration if recombination is applied."
+        # Add the modules to a processor list in configuration order
+        parsed = parse_module_config(cfg)
+        names = [spec["name"] for spec in parsed.values()]
 
-        # Add the modules to a processor list in decreasing order of priority
-        self.modules = {}
+        # Make sure the essential calibration modules are present
+        if not gain_applied and "recombination" in names and "gain" not in names:
+            raise ValueError(
+                "Must provide gain configuration if recombination is applied."
+            )
+        if not gain_applied and "gain" in names and "recombination" in names:
+            if names.index("gain") > names.index("recombination"):
+                raise ValueError(
+                    "Gain calibration must be configured before recombination "
+                    "calibration."
+                )
+
+        self.modules: dict[str, Any] = {}
+        self.module_names: dict[str, str] = {}
         self.watch = StopwatchManager()
-        for key, value in cfg.items():
+        for key, spec in parsed.items():
             # Profile the module
             self.watch.initialize(key)
 
             # Add necessary geometry information
-            value = deepcopy(value)
-            if key != "recombination":
+            name = spec["name"]
+            value = deepcopy(spec["cfg"])
+            if name != "recombination":
                 value["num_tpcs"] = self.geo.tpc.num_chambers
             else:
                 value["drift_dir"] = self.geo.tpc[0][0].drift_dir
 
             # Append
-            self.modules[key] = calibrator_factory(key, value)
+            self.modules[key] = calibrator_factory(name, value)
+            self.module_names[key] = name
 
     def __call__(
         self,
-        points: np.ndarray,
-        values: np.ndarray,
-        sources: Optional[np.ndarray] = None,
-        run_id: Optional[int] = None,
-        track: Optional[bool] = None,
-        meta: Optional[Meta] = None,
-        module_id: Optional[int] = None,
-    ):
+        points: NDArray[np.floating],
+        values: NDArray[np.floating],
+        sources: NDArray[np.integer] | None = None,
+        run_id: int | None = None,
+        track: bool | None = None,
+        meta: Meta | None = None,
+        module_id: int | None = None,
+    ) -> NDArray[np.floating]:
         """Main calibration driver.
 
         Parameters
@@ -112,9 +129,10 @@ class CalibrationManager:
                     tpc_indexes.append(tpc_index)
 
         else:
-            assert (
-                points is not None
-            ), "If sources are not given, must provide points instead."
+            if points is None:
+                raise ValueError(
+                    "If sources are not given, must provide points instead."
+                )
             tpc_indexes = self.geo.get_closest_tpc_indexes(points)
 
         # Loop over the TPCs, apply the relevant calibration corrections
@@ -126,35 +144,22 @@ class CalibrationManager:
             tpc_points = points[tpc_indexes[t]]
             tpc_values = values[tpc_indexes[t]]
 
-            # Apply the transparency correction
-            if "transparency" in self.modules:
-                self.watch.start("transparency")
-                tpc_values = self.modules["transparency"].process(
-                    tpc_points, tpc_values, t, run_id
-                )  # ADC
-                self.watch.stop("transparency")
-
-            # Apply the lifetime correction
-            if "lifetime" in self.modules:
-                self.watch.start("lifetime")
-                tpc_values = self.modules["lifetime"].process(
-                    tpc_points, tpc_values, self.geo, t, run_id
-                )  # ADC
-                self.watch.stop("lifetime")
-
-            # Apply the gain correction
-            if "gain" in self.modules:
-                self.watch.start("gain")
-                tpc_values = self.modules["gain"].process(tpc_values, t, run_id)  # e-
-                self.watch.stop("gain")
-
-            # Apply the recombination correction
-            if "recombination" in self.modules:
-                self.watch.start("recombination")
-                tpc_values = self.modules["recombination"].process(
-                    tpc_values, tpc_points, track
-                )  # MeV
-                self.watch.stop("recombination")
+            for key, module in self.modules.items():
+                name = self.module_names[key]
+                self.watch.start(key)
+                if name == "transparency":
+                    tpc_values = module.process(tpc_points, tpc_values, t, run_id)
+                elif name == "lifetime":
+                    tpc_values = module.process(
+                        tpc_points, tpc_values, self.geo, t, run_id
+                    )
+                elif name == "gain":
+                    tpc_values = module.process(tpc_values, t, run_id)
+                elif name == "recombination":
+                    tpc_values = module.process(tpc_values, tpc_points, track)
+                else:
+                    raise ValueError(f"Calibration module not recognized: {name}.")
+                self.watch.stop(key)
 
             # Append
             new_values[tpc_indexes[t]] = tpc_values

@@ -1,5 +1,7 @@
 """Applies field non-uniformity corrections."""
 
+from __future__ import annotations
+
 __all__ = ["FieldCalibrator"]
 
 
@@ -10,7 +12,7 @@ class FieldCalibrator:
 
     name = "field"
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the field calibrator.
 
         Notes
@@ -19,7 +21,7 @@ class FieldCalibrator:
         """
         raise NotImplementedError("Field calibrator not yet available.")
 
-    def process(self):
+    def process(self) -> None:
         """Corrects for field non-uniformities.
 
         Notes

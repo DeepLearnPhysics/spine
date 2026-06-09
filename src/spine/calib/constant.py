@@ -1,10 +1,22 @@
 """Constants used in calibration modules."""
 
-from typing import Dict, List, Optional, Union
+from __future__ import annotations
+
+from typing import Protocol, TypeAlias, cast
 
 import numpy as np
+from numpy.typing import NDArray
 
 from .database import CalibrationDatabase
+
+CalibValue: TypeAlias = float | list[float] | tuple[float, ...] | NDArray[np.floating]
+CalibDatabaseSource: TypeAlias = str | dict[int, CalibValue]
+
+
+class ValueDatabase(Protocol):
+    """Protocol for run-indexed scalar/per-TPC calibration values."""
+
+    def __getitem__(self, __run_id: int) -> NDArray[np.floating]: ...
 
 
 class CalibrationConstant:
@@ -15,9 +27,9 @@ class CalibrationConstant:
     def __init__(
         self,
         num_tpcs: int,
-        value: Optional[Union[float, List[float]]] = None,
-        database: Optional[Union[str, Dict[int, Union[float, List[float]]]]] = None,
-    ):
+        value: CalibValue | None = None,
+        database: CalibDatabaseSource | None = None,
+    ) -> None:
         """Initialize a calibration constant.
 
         Parameters
@@ -35,7 +47,8 @@ class CalibrationConstant:
             raise ValueError("Must provide either a value or a database.")
 
         # Initialize the gain values
-        self.value, self.database = None, None
+        self.value: NDArray[np.floating] | None = None
+        self.database: ValueDatabase | None = None
         if value is not None:
             # If values are provided, make sure they are correct
             if isinstance(value, (list, tuple, np.ndarray)) and len(value) != num_tpcs:
@@ -45,9 +58,8 @@ class CalibrationConstant:
                 )
             self.value = self.load_value(value, num_tpcs)
 
-        else:
+        elif database is not None:
             # If a database path is provided, load it
-            assert database is not None  # For the linter's sake
             if isinstance(database, dict):
                 # If a dictionary is provided, make sure all entries are correct
                 self.database = {
@@ -55,9 +67,11 @@ class CalibrationConstant:
                     for run_id, val in database.items()
                 }
             else:
-                self.database = CalibrationDatabase(database, num_tpcs)
+                self.database = cast(
+                    ValueDatabase, CalibrationDatabase(database, num_tpcs)
+                )
 
-    def load_value(self, value: Union[float, List[float]], num_tpcs: int) -> np.ndarray:
+    def load_value(self, value: CalibValue, num_tpcs: int) -> NDArray[np.floating]:
         """Process value whether it is provided as a scalar or a list.
 
         Parameters
@@ -76,13 +90,14 @@ class CalibrationConstant:
         if not isinstance(value, (list, tuple, np.ndarray)):
             return np.full(num_tpcs, value)
 
-        assert len(value) == num_tpcs, (
-            "Calibration constant must be specified as either a scalar "
-            f"or a list of length {num_tpcs}."
-        )
+        if len(value) != num_tpcs:
+            raise ValueError(
+                "Calibration constant must be specified as either a scalar "
+                f"or a list of length {num_tpcs}."
+            )
         return np.asarray(value)
 
-    def get(self, tpc_id: int, run_id: Optional[int] = None) -> float:
+    def get(self, tpc_id: int, run_id: int | None = None) -> float:
         """Fetch the calibration constant for a specific TPC and run.
 
         Parameters
@@ -99,10 +114,11 @@ class CalibrationConstant:
         """
         # Fetch the calibration constant
         if self.database is not None:
-            assert run_id is not None, (
-                "When using a calibration database, the run_id must be provided "
-                "to fetch the correct gain value."
-            )
+            if run_id is None:
+                raise ValueError(
+                    "When using a calibration database, the run_id must be provided "
+                    "to fetch the correct gain value."
+                )
             return self.database[run_id][tpc_id]
 
         elif self.value is not None:

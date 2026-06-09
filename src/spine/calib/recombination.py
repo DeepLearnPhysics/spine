@@ -1,13 +1,18 @@
 """Applies electron recombination corrections."""
 
-from typing import Optional, Union
+from __future__ import annotations
+
+from typing import Any, TypeAlias
 
 import numpy as np
+from numpy.typing import NDArray
 
 from spine.constants import LAR_DENSITY, LAR_WION
 from spine.utils.tracking import get_track_segment_dedxs
 
 __all__ = ["RecombinationCalibrator"]
+
+FloatLike: TypeAlias = float | NDArray[np.floating]
 
 
 class RecombinationCalibrator:
@@ -36,8 +41,8 @@ class RecombinationCalibrator:
         mbox_ell_r: float = 1.25,
         mip_dedx: float = 2.105168,
         tracking_mode: str = "bin_pca",
-        **kwargs,
-    ):
+        **kwargs: Any,
+    ) -> None:
         """Initialize the recombination model and its constants.
 
         Parameters
@@ -99,7 +104,7 @@ class RecombinationCalibrator:
         self.tracking_mode = tracking_mode
         self.tracking_kwargs = kwargs
 
-    def birks(self, dedx: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
+    def birks(self, dedx: FloatLike) -> FloatLike:
         """Birks equation to calculate electron quenching (higher local energy
         deposition are prone to more electron-ion recombination).
 
@@ -115,7 +120,7 @@ class RecombinationCalibrator:
         """
         return self.a / (1.0 + self.k * dedx)
 
-    def inv_birks(self, dqdx: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
+    def inv_birks(self, dqdx: FloatLike) -> FloatLike:
         """Inverse Birks equation to undo electron quenching (higher local
         energy deposition are prone to more electron-ion recombination).
 
@@ -133,9 +138,9 @@ class RecombinationCalibrator:
 
     def mbox(
         self,
-        dedx: Union[float, np.ndarray],
-        cosphi: Optional[Union[float, np.ndarray]] = None,
-    ) -> Union[float, np.ndarray]:
+        dedx: FloatLike,
+        cosphi: FloatLike | None = None,
+    ) -> FloatLike:
         """Modified box model equation to calculate electron quenching (higher
         local energy deposition are prone to more electron-ion recombination).
 
@@ -160,9 +165,9 @@ class RecombinationCalibrator:
 
     def inv_mbox(
         self,
-        dqdx: Union[float, np.ndarray],
-        cosphi: Optional[Union[float, np.ndarray]] = None,
-    ) -> Union[float, np.ndarray]:
+        dqdx: FloatLike,
+        cosphi: FloatLike | None = None,
+    ) -> FloatLike:
         """Inverse modified box model equation to undo electron quenching
         (higher local energy deposition are prone to more electron-ion
         recombination).
@@ -188,9 +193,9 @@ class RecombinationCalibrator:
 
     def recombination_factor(
         self,
-        dedx: Union[float, np.ndarray],
-        cosphi: Optional[Union[float, np.ndarray]] = None,
-    ) -> Union[float, np.ndarray]:
+        dedx: FloatLike,
+        cosphi: FloatLike | None = None,
+    ) -> FloatLike:
         """Calls the predefined recombination models to evaluate the
         appropriate quenching factors.
 
@@ -214,9 +219,9 @@ class RecombinationCalibrator:
 
     def inv_recombination_factor(
         self,
-        dqdx: Union[float, np.ndarray],
-        cosphi: Optional[Union[float, np.ndarray]] = None,
-    ) -> Union[float, np.ndarray]:
+        dqdx: FloatLike,
+        cosphi: FloatLike | None = None,
+    ) -> FloatLike:
         """Calls the predefined inverse recombination models to evaluate the
         appropriate correction factors.
 
@@ -240,10 +245,10 @@ class RecombinationCalibrator:
 
     def process(
         self,
-        values: np.ndarray,
-        points: Optional[np.ndarray] = None,
+        values: NDArray[np.floating],
+        points: NDArray[np.floating] | None = None,
         track: bool = False,
-    ) -> np.ndarray:
+    ) -> NDArray[np.floating]:
         """Corrects for electron recombination.
 
         Parameters
@@ -269,7 +274,8 @@ class RecombinationCalibrator:
         # If the object is a track, segment the track use each segment to
         # compute a local dQ/dx (+ angle w.r.t. to the drift direction, if
         # requested) and assign a correction for all points in the segment.
-        assert points is not None, "Cannot track the object without point coordinates"
+        if points is None:
+            raise ValueError("Cannot track the object without point coordinates")
         seg_dqdxs, _, _, seg_clusts, seg_dirs, _ = get_track_segment_dedxs(
             points, values, method=self.tracking_mode, **self.tracking_kwargs
         )

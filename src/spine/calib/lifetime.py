@@ -1,14 +1,20 @@
 """Apply electron lifetime corrections."""
 
-from typing import Dict, List, Optional, Union
+from __future__ import annotations
+
+from typing import TypeAlias
 
 import numpy as np
+from numpy.typing import NDArray
 
 from spine.geo.base import Geometry
 
 from .constant import CalibrationConstant
 
 __all__ = ["LifetimeCalibrator"]
+
+CalibValue: TypeAlias = float | list[float] | tuple[float, ...] | NDArray[np.floating]
+CalibDatabaseSource: TypeAlias = str | dict[int, CalibValue]
 
 
 class LifetimeCalibrator:
@@ -21,11 +27,11 @@ class LifetimeCalibrator:
     def __init__(
         self,
         num_tpcs: int,
-        lifetime: Optional[Union[float, List[float]]] = None,
-        driftv: Optional[Union[float, List[float]]] = None,
-        lifetime_db: Optional[Union[str, Dict[int, Union[float, List[float]]]]] = None,
-        driftv_db: Optional[Union[str, Dict[int, Union[float, List[float]]]]] = None,
-    ):
+        lifetime: CalibValue | None = None,
+        driftv: CalibValue | None = None,
+        lifetime_db: CalibDatabaseSource | None = None,
+        driftv_db: CalibDatabaseSource | None = None,
+    ) -> None:
         """Load the information needed to make a lifetime correction.
 
         Parameters
@@ -61,8 +67,8 @@ class LifetimeCalibrator:
         values: np.ndarray,
         geo: Geometry,
         tpc_id: int,
-        run_id: Optional[int] = None,
-    ):
+        run_id: int | None = None,
+    ) -> NDArray[np.floating]:
         """Apply the lifetime correction.
 
         Parameters

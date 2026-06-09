@@ -7,6 +7,7 @@ import torch
 import yaml
 from torch_scatter import scatter_mean, scatter_std
 
+from spine.calib import CalibrationManager
 from spine.constants import (
     CLUST_COL,
     COORD_COLS,
@@ -19,7 +20,6 @@ from spine.constants import (
     VALUE_COL,
 )
 from spine.data import IndexBatch, RunInfo, TensorBatch
-from spine.utils.calib import CalibrationManager
 from spine.utils.cluster.label import ClusterLabelAdapter
 from spine.utils.ghost import ChargeRescaler
 from spine.utils.gnn.cluster import form_clusters_batch, get_cluster_label_batch

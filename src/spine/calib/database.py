@@ -1,11 +1,17 @@
 """SQLite calibration database parsing."""
 
+from __future__ import annotations
+
 import sqlite3 as sql
 from pathlib import Path
-from typing import List
+from typing import TypeAlias, cast
 
 import numpy as np
 import pandas as pd
+from numpy.typing import NDArray
+
+FloatArray: TypeAlias = NDArray[np.floating]
+IntArray: TypeAlias = NDArray[np.integer]
 
 
 class CalibrationDatabase:
@@ -26,7 +32,7 @@ class CalibrationDatabase:
         num_tpcs: int,
         db_type: str = "value",
         value_key: str = "scale",
-    ):
+    ) -> None:
         """Given a path to a calibration data base, load the
         information into a dictionary.
 
@@ -72,9 +78,9 @@ class CalibrationDatabase:
 
         # Loop over unique runs, store the values per TPCs for each run
         self.num_tpcs = num_tpcs
-        self.dict = {}
+        self.dict: dict[int, FloatArray | list[CalibrationLUT]] = {}
         for run in np.unique(df.begin_time):
-            df_run = df[df.begin_time == run]
+            df_run = cast(pd.DataFrame, df[df.begin_time == run])
             run_id = run - int(1e9)
             if db_type == "value":
                 self.dict[run_id] = self.load_values(df_run, quantity)
@@ -84,7 +90,7 @@ class CalibrationDatabase:
         # Create a list of boundary runs
         self.runs = np.sort(list(self.dict.keys()))
 
-    def load_values(self, df_run: pd.DataFrame, quantity: str) -> np.ndarray:
+    def load_values(self, df_run: pd.DataFrame, quantity: str) -> FloatArray:
         """Loads one value per TPC.
 
         Parameters
@@ -100,9 +106,8 @@ class CalibrationDatabase:
             (N_tpc) Array of calibration values
         """
         # Check that there is exactly one value per tpc
-        assert (
-            len(df_run) == self.num_tpcs
-        ), "There should be one quantity specified per TPC"
+        if len(df_run) != self.num_tpcs:
+            raise ValueError("There should be one quantity specified per TPC")
 
         # Store the values into an array
         array = np.empty(self.num_tpcs)
@@ -113,7 +118,9 @@ class CalibrationDatabase:
 
         return array
 
-    def load_tables(self, df_run: pd.DataFrame, quantity: str) -> List[np.ndarray]:
+    def load_tables(
+        self, df_run: pd.DataFrame, quantity: str
+    ) -> list["CalibrationLUT"]:
         """Loads one look-up table per TPC.
 
         Parameters
@@ -136,14 +143,14 @@ class CalibrationDatabase:
             bins_z = np.max(df_tpc.zbin) + 1
             range_y = [np.min(df_tpc.ylow), np.max(df_tpc.yhigh)]
             range_z = [np.min(df_tpc.zlow), np.max(df_tpc.zhigh)]
-            values = df_tpc[quantity].to_numpy().reshape(bins_y, bins_z)
+            values = np.asarray(df_tpc[quantity]).reshape(bins_y, bins_z)
 
             lut = CalibrationLUT([1, 2], [bins_y, bins_z], [range_y, range_z], values)
             tpc_luts.append(lut)
 
         return tpc_luts
 
-    def __getitem__(self, run_id: int) -> np.ndarray:
+    def __getitem__(self, run_id: int) -> FloatArray | list["CalibrationLUT"]:
         """Mirrors the `query` function.
 
         Parameters
@@ -158,7 +165,7 @@ class CalibrationDatabase:
         """
         return self.query(run_id)
 
-    def query(self, run_id: int) -> np.ndarray:
+    def query(self, run_id: int) -> FloatArray | list[CalibrationLUT]:
         """Gets the database information for a given run. If the run does not
         exist in the list, pick the one closest but earlier than it.
 
@@ -178,7 +185,7 @@ class CalibrationDatabase:
                 "No calibration information for run " f"{run_id} < {self.runs[0]}"
             )
 
-        closest_run = self.runs[np.where(self.runs <= run_id)[0][-1]]
+        closest_run = int(self.runs[np.where(self.runs <= run_id)[0][-1]])
 
         return self.dict[closest_run]
 
@@ -190,12 +197,12 @@ class CalibrationLUT:
 
     def __init__(
         self,
-        dims: List[int],
-        bins: List[int],
-        range: List[List[float]],
-        values: np.ndarray,
-        dummy=-999.0,
-    ):  # pylint: disable=W0622
+        dims: list[int],
+        bins: list[int],
+        range: list[list[float]],
+        values: FloatArray,
+        dummy: float | None = -999.0,
+    ) -> None:  # pylint: disable=W0622
         """Initialize the calibration map.
 
         Parameters
@@ -212,18 +219,16 @@ class CalibrationLUT:
             Dummy values which should be overwritten with 1. (no information)
         """
         # Store metadata information
-        assert len(range) == len(dims) and len(bins) == len(
-            dims
-        ), "Must provide a bin count and range per dimension."
+        if len(range) != len(dims) or len(bins) != len(dims):
+            raise ValueError("Must provide a bin count and range per dimension.")
         self.dims = dims
         self.range = np.array(range)
         self.bins = np.array(bins)
         self.bin_sizes = (self.range[:, 1] - self.range[:, 0]) / self.bins
 
         # Store the values in each bin. Should be a dense matrix
-        assert np.all(
-            values.shape == self.bins
-        ), "Must provide one calibration value per bin."
+        if not np.all(values.shape == self.bins):
+            raise ValueError("Must provide one calibration value per bin.")
         self.values = values
 
         # Overwrite dummy values to 1.
@@ -231,7 +236,7 @@ class CalibrationLUT:
             self.values[self.values == dummy] = 1.0
 
     @property
-    def edges(self) -> List[np.ndarray]:
+    def edges(self) -> list[FloatArray]:
         """Returns the bin edges in each axis.
 
         Returns
@@ -240,13 +245,13 @@ class CalibrationLUT:
             (D) List of (N_i + 1) edges per dimension, with N_i the number
             of bins in the the ith dimension
         """
-        edges = []
+        edges: list[FloatArray] = []
         for i, ran in enumerate(self.range):
             edges.append(np.arange(ran[0], ran[1] + 1e-9, self.bin_sizes[i]))
 
         return edges
 
-    def query(self, points: np.ndarray) -> np.ndarray:
+    def query(self, points: FloatArray) -> FloatArray:
         """Queries the LUT to get the calibration values for a set of points.
 
         Parameters
@@ -264,8 +269,6 @@ class CalibrationLUT:
         bin_ids = (offsets / self.bin_sizes).astype(int)
 
         # Collapse to the closest bin if it is outisde of range
-        # assert np.all(bin_ids > -1) and np.all(bin_ids < self.bins), (
-        #        "Some of the points fall outside of the look-up table.")
         bad_mask = np.where(bin_ids < 0)
         bin_ids[bad_mask] = 0
         bad_mask = np.where(bin_ids >= self.bins)
