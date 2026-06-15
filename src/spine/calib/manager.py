@@ -147,7 +147,9 @@ class CalibrationManager:
             for key, module in self.modules.items():
                 name = self.module_names[key]
                 self.watch.start(key)
-                if name == "transparency":
+                if name == "field":
+                    tpc_points = module.process(tpc_points, t)
+                elif name == "transparency":
                     tpc_values = module.process(tpc_points, tpc_values, t, run_id)
                 elif name == "lifetime":
                     tpc_values = module.process(

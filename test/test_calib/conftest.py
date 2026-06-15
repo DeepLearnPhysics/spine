@@ -80,11 +80,21 @@ def transparency_db(tmp_path):
 
 
 class FakeTPC:
-    def __init__(self, anode_pos, drift_axis=0, dimensions=(10.0, 10.0, 10.0)):
+    def __init__(
+        self,
+        anode_pos,
+        center=(0.0, 0.0, 0.0),
+        drift_axis=0,
+        dimensions=(10.0, 10.0, 10.0),
+    ):
         self.anode_pos = anode_pos
         self.drift_axis = drift_axis
         self.drift_dir = np.array([1.0, 0.0, 0.0])
+        self.center = np.asarray(center, dtype=float)
         self.dimensions = np.asarray(dimensions, dtype=float)
+        self.boundaries = np.vstack(
+            (self.center - self.dimensions / 2.0, self.center + self.dimensions / 2.0)
+        ).T
 
 
 class FakeTPCSet:
@@ -93,7 +103,27 @@ class FakeTPCSet:
     num_chambers = 2
 
     def __init__(self):
-        self._tpcs = [[FakeTPC(0.0), FakeTPC(10.0)]]
+        self._tpcs = [
+            [
+                FakeTPC(0.0, center=(0.0, 0.0, 0.0)),
+                FakeTPC(10.0, center=(10.0, 0.0, 0.0)),
+            ]
+        ]
+        self.chambers = [tpc for module in self._tpcs for tpc in module]
+        lower = np.min(
+            np.vstack([tpc.boundaries[:, 0] for tpc in self.chambers]), axis=0
+        )
+        upper = np.max(
+            np.vstack([tpc.boundaries[:, 1] for tpc in self.chambers]), axis=0
+        )
+        self.center = (lower + upper) / 2.0
+        self.modules = [
+            SimpleNamespace(
+                center=self.center,
+                dimensions=upper - lower,
+                boundaries=np.vstack((lower, upper)).T,
+            )
+        ]
 
     def __getitem__(self, index):
         return self._tpcs[index]

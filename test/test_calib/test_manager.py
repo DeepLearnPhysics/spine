@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 
 import spine.calib.manager as manager_mod
+from spine.calib.field import FieldMap
 from spine.calib.gain import GainCalibrator
 from spine.calib.manager import CalibrationManager
 from spine.calib.recombination import RecombinationCalibrator
@@ -137,3 +138,23 @@ def test_manager_dispatches_transparency(monkeypatch, fake_geo, transparency_db)
     )
 
     assert np.allclose(corrected, [3.0])
+
+
+def test_manager_dispatches_field_before_lifetime(monkeypatch, fake_geo):
+    monkeypatch.setattr(manager_mod.GeoManager, "get_instance", lambda: fake_geo)
+    field_map = FieldMap(
+        np.full((1, 1, 1, 3), [2.0, 0.0, 0.0], dtype=float),
+        [[0.0, 10.0], [-1.0, 1.0], [-1.0, 1.0]],
+    )
+    manager = CalibrationManager(
+        field={"field_map": field_map},
+        lifetime={"lifetime": 10.0, "driftv": 2.0},
+    )
+
+    corrected = manager(
+        np.array([[1.0, 0.0, 0.0]]),
+        np.array([1.0]),
+        sources=np.array([[0, 0]]),
+    )
+
+    assert np.allclose(corrected, [np.exp(3.0 / 20.0)])
