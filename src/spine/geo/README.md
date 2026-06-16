@@ -204,14 +204,14 @@ Containment modes:
 
 Two helper scripts exist for geometry extraction:
 
-- `bin/parse_larsoft_geometry.py`: parses LArSoft geometry dumps.
-- `bin/parse_flow_geometry.py`: parses FLOW HDF5 geometry metadata.
+- `bin/geo/parse_larsoft_geometry.py`: parses LArSoft geometry dumps.
+- `bin/geo/parse_flow_geometry.py`: parses FLOW HDF5 geometry metadata.
 
 Typical LArSoft workflow:
 
 ```bash
 lar -c dump_<detector>_geometry.fcl > geometry_dump.txt
-python bin/parse_larsoft_geometry.py \
+python bin/geo/parse_larsoft_geometry.py \
   --source geometry_dump.txt \
   --output src/spine/geo/config/<detector>/<detector>_<tag>_geometry.yaml
 ```
@@ -219,7 +219,7 @@ python bin/parse_larsoft_geometry.py \
 Typical FLOW workflow:
 
 ```bash
-python bin/parse_flow_geometry.py \
+python bin/geo/parse_flow_geometry.py \
   --source detector.flow.hdf5 \
   --tag mr6-5 \
   --opdet-thickness 1.0 \
