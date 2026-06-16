@@ -16,6 +16,35 @@ import numpy as np
 import yaml
 
 
+def extract_version(tag, fallback=None):
+    """Extract a geometry version from a detector tag.
+
+    Prefer explicit version tokens such as ``v3`` or ``_v3_``. Otherwise,
+    support ``mr6.5``/``mr6-5`` style tags and then fall back to the final
+    digit group anywhere in the tag.
+    """
+    version_matches = re.findall(r"(?:^|[_-])v(\d+)(?=$|[_-])", tag)
+    if version_matches:
+        return int(version_matches[-1])
+
+    match = re.search(r"(\d+)([.\-](\d+))?", tag)
+    if match:
+        major = match.group(1)
+        minor = match.group(3) if match.group(3) else None
+        if minor:
+            return float(f"{major}.{minor}")
+        return int(major)
+
+    digit_matches = re.findall(r"\d+", tag)
+    if digit_matches:
+        return int(digit_matches[-1])
+
+    if fallback is not None:
+        return fallback
+
+    raise ValueError("Could not extract version from tag")
+
+
 def extract_tpc_geometry(f):
     """
     Extract TPC geometry information from HDF5 file.
@@ -305,20 +334,7 @@ def main(source, tag, output=None, opdet_thickness=None):
         geometry_yaml["name"] = detector_name
         geometry_yaml["tag"] = tag
 
-        # Match patterns like 'mr5', 'mr6.5', 'mr6-5', etc.
-        match = re.search(r"(\d+)([.\-](\d+))?", tag)
-        if match:
-            major = match.group(1)
-            minor = match.group(3) if match.group(3) else None
-            if minor:
-                version = float(f"{major}.{minor}")
-            else:
-                version = int(major)
-        else:
-            # Fallback to class_version if no version can be extracted from tag
-            version = class_version
-
-        geometry_yaml["version"] = version
+        geometry_yaml["version"] = extract_version(tag, fallback=class_version)
 
         # Add geometry file references if available
         if crs_geometry_files is not None:

@@ -38,6 +38,23 @@ def parse_vector(text):
     return None
 
 
+def extract_version(tag):
+    """Extract a geometry version from a detector tag.
+
+    Prefer explicit version tokens such as ``v3`` or ``_v3_``. If no such
+    token exists, fall back to the final digit group anywhere in the tag.
+    """
+    version_matches = re.findall(r"(?:^|[_-])v(\d+)(?=$|[_-])", tag)
+    if version_matches:
+        return int(version_matches[-1])
+
+    digit_matches = re.findall(r"\d+", tag)
+    if digit_matches:
+        return int(digit_matches[-1])
+
+    raise ValueError("Could not extract version from tag")
+
+
 def parse_tpc_block(lines, start_idx, cathode_thickness=0.0, pixel_size=0.0):
     """Parse a single TPC block from the geometry file.
 
@@ -980,10 +997,7 @@ def main(source, output=None, cathode_thickness=0.0, pixel_size=0.0, crt_mapping
         raise ValueError("Could not extract tag from geometry file")
     tag = tag_match.group(1)
 
-    version_match = re.search(r"(\d+)$", tag)
-    if not version_match:
-        raise ValueError("Could not extract version from tag")
-    version = int(version_match.group(1))
+    version = extract_version(tag)
 
     # Extract GDML file name
     gdml = None
