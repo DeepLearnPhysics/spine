@@ -10,8 +10,10 @@ import numpy as np
 
 
 def load_output_check_valid_module():
-    """Import ``bin/output_check_valid.py`` as a test module."""
-    script_path = Path(__file__).resolve().parents[2] / "bin" / "output_check_valid.py"
+    """Import ``bin/output/output_check_valid.py`` as a test module."""
+    script_path = (
+        Path(__file__).resolve().parents[2] / "bin" / "output" / "output_check_valid.py"
+    )
     spec = importlib.util.spec_from_file_location("output_check_valid", script_path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)

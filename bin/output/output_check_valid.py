@@ -180,7 +180,7 @@ def main(
 
     .. code-block:: bash
 
-        $ python3 bin/output_check_valid.py -S file_list.txt -o missing.txt
+        $ python3 bin/output/output_check_valid.py -S file_list.txt -o missing.txt
           --dest /path/to/output/files/ --suffix output_file_suffix
 
     Parameters
