@@ -39,6 +39,8 @@ class InteractionBase:
         (P) Number of primary particles of each species in this interaction
     vertex : np.ndarray
         (3) Coordinates of the interaction vertex
+    nu_dir : np.ndarray
+        (3) Reconstructed neutrino direction
     is_fiducial : bool
         Whether this interaction vertex is inside the fiducial volume
     is_flash_matched : bool
@@ -76,6 +78,7 @@ class InteractionBase:
     particle_counts: np.ndarray = None
     primary_particle_counts: np.ndarray = None
     vertex: np.ndarray = None
+    nu_dir: np.ndarray = None
     is_fiducial: bool = False
     is_flash_matched: bool = False
     flash_ids: np.ndarray = None
@@ -92,6 +95,7 @@ class InteractionBase:
     # Fixed-length attributes
     _fixed_length_attrs = (
         ("vertex", 3),
+        ("nu_dir", 3),
         ("particle_counts", len(PID_LABELS) - 1),
         ("primary_particle_counts", len(PID_LABELS) - 1),
     )
@@ -113,6 +117,9 @@ class InteractionBase:
 
     # Attributes specifying coordinates
     _pos_attrs = ("vertex",)
+
+    # Attributes specifying vector components
+    _vec_attrs = ("nu_dir",)
 
     # Boolean attributes
     _bool_attrs = ("is_fiducial", "is_flash_matched", "is_crt_matched")
@@ -465,6 +472,9 @@ class TruthInteraction(Neutrino, InteractionBase, TruthBase):
 
     # Attributes specifying coordinates
     _pos_attrs = ("reco_vertex", *InteractionBase._pos_attrs, *Neutrino._pos_attrs)
+
+    # Attributes specifying vector components
+    _vec_attrs = (*InteractionBase._vec_attrs, *Neutrino._vec_attrs)
 
     # Boolean attributes
     _bool_attrs = (*TruthBase._bool_attrs, *InteractionBase._bool_attrs)
