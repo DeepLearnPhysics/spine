@@ -1,8 +1,8 @@
 """Detector-geometry-based reconstruction module."""
 
+from spine.constants import PID_LABELS
 from spine.geo import GeoManager
 from spine.post.base import PostBase
-from spine.utils.globals import PID_LABELS
 
 __all__ = ["ContainmentProcessor", "FiducialProcessor"]
 

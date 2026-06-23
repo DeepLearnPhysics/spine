@@ -1,47 +1,25 @@
 Analysis Module
 ===============
 
-The spine.ana module provides tools for analyzing reconstruction results and computing metrics.
+The ``spine.ana`` module contains the analysis layer that runs after reconstruction, construction, and post-processing. It is intended for configuration-driven studies of reconstruction quality, detector performance, and physics-facing event content.
 
-Base Classes
+.. currentmodule:: spine.ana
+
+.. automodule:: spine.ana
+   :no-members:
+
+Module Index
 ------------
 
-.. automodule:: spine.ana.base
-   :members:
-   :show-inheritance:
+Use this package when the goal is to turn reconstructed SPINE outputs into metrics, derived tables, plots, or physics-study inputs.
 
-Manager
--------
+.. autosummary::
+   :toctree: generated
 
-.. automodule:: spine.ana.manager
-   :members:
-   :show-inheritance:
-
-Template System
----------------
-
-.. automodule:: spine.ana.template
-   :members:
-   :show-inheritance:
-
-Factories
----------
-
-.. automodule:: spine.ana.factories
-   :members:
-   :show-inheritance:
-
-Analysis Tools
---------------
-
-.. automodule:: spine.ana.calib
-   :members:
-   :show-inheritance:
-
-.. automodule:: spine.ana.diag
-   :members:
-   :show-inheritance:
-
-.. automodule:: spine.ana.metric
-   :members:
-   :show-inheritance:
+   base
+   manager
+   template
+   factories
+   calib
+   diag
+   metric

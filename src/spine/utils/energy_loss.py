@@ -15,10 +15,16 @@ from scipy.interpolate import CubicSpline
 from scipy.optimize import brentq
 from scipy.special import digamma
 
-from .globals import (
+from spine.constants import (
     ELEC_MASS,
     KAON_PID,
     LAR_A,
+    LAR_DE_A,
+    LAR_DE_CBAR,
+    LAR_DE_DELTA0,
+    LAR_DE_K,
+    LAR_DE_X0,
+    LAR_DE_X1,
     LAR_DENSITY,
     LAR_MEE,
     LAR_Z,
@@ -26,12 +32,6 @@ from .globals import (
     MUON_PID,
     PION_PID,
     PROT_PID,
-    LAR_a,
-    LAR_Cbar,
-    LAR_delta0,
-    LAR_k,
-    LAR_x0,
-    LAR_x1,
 )
 
 
@@ -365,12 +365,12 @@ def delta_lar(bg):
         Density correction to the Bethe-Bloch function
     """
     x = np.log10(bg)
-    if x < LAR_x0:
-        return LAR_delta0 * 10 ** (2 * (x - LAR_x0))
-    elif x >= LAR_x0 and x < LAR_x1:
-        return 2 * np.log(10) * x - LAR_Cbar + LAR_a * (LAR_x1 - x) ** LAR_k
+    if x < LAR_DE_X0:
+        return LAR_DE_DELTA0 * 10 ** (2 * (x - LAR_DE_X0))
+    elif x >= LAR_DE_X0 and x < LAR_DE_X1:
+        return 2 * np.log(10) * x - LAR_DE_CBAR + LAR_DE_A * (LAR_DE_X1 - x) ** LAR_DE_K
     else:
-        return 2 * np.log(10) * x - LAR_Cbar
+        return 2 * np.log(10) * x - LAR_DE_CBAR
 
 
 # @nb.njit(cache=True) # Find an alternative to scipy's digamma to support njit

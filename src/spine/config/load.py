@@ -20,6 +20,7 @@ from .operations import (
     _apply_overrides_and_removals,
     apply_collection_operation,
     deep_merge,
+    expand_env_vars,
     extract_includes_and_overrides,
     parse_value,
     set_nested_value,
@@ -34,6 +35,7 @@ def _load_config_recursive(
     root_dir: Optional[str] = None,
     include_stack: Optional[List[str]] = None,
     compatibility_checks: Optional[List[Tuple[Dict, Dict, str]]] = None,
+    download: bool = True,
 ) -> Tuple[Dict[str, Any], Dict[str, Any], List[str], Dict[str, Any]]:
     """Recursively load config with cycle detection.
 
@@ -51,6 +53,9 @@ def _load_config_recursive(
         Stack of currently-loading files (for cycle detection)
     compatibility_checks : Optional[List[Tuple[Dict, Dict, str]]]
         List to accumulate (parent_meta, included_meta, path) for deferred checking
+    download : bool, default True
+        If `True`, resolve `!download` tags by downloading files. If `False`,
+        preserve `!download` tags as unresolved values.
 
     Returns
     -------
@@ -96,8 +101,8 @@ def _load_config_recursive(
 
     # Create a custom loader class with the specified root_dir
     class CustomConfigLoader(ConfigLoader):
-        def __init__(self, stream):
-            super().__init__(stream, root_dir)
+        def __init__(self, stream) -> None:
+            super().__init__(stream, root_dir, download=download)
 
     # Load YAML
     try:
@@ -148,6 +153,7 @@ def _load_config_recursive(
             root_dir=None,
             include_stack=include_stack,
             compatibility_checks=compatibility_checks,
+            download=download,
         )
 
         # Warn if included file has no metadata (but keep the metadata that was extracted)
@@ -207,7 +213,9 @@ def _load_config_recursive(
     return config, overrides, removals, metadata
 
 
-def load_config(config_str: str, root_dir: Optional[str] = None) -> Dict[str, Any]:
+def load_config(
+    config_str: str, root_dir: Optional[str] = None, download: bool = True
+) -> Dict[str, Any]:
     """Load a SPINE configuration from a YAML string.
 
     Similar to yaml.safe_load(), but with SPINE's advanced features:
@@ -228,6 +236,9 @@ def load_config(config_str: str, root_dir: Optional[str] = None) -> Dict[str, An
         Also used as the base for SPINE_CONFIG_PATH searches.
         If not provided, defaults to current working directory.
         Required if config contains __include__ directives with relative paths.
+    download : bool, default True
+        If `True`, resolve `!download` tags by downloading files. If `False`,
+        preserve `!download` tags as unresolved values.
 
     Returns
     -------
@@ -288,6 +299,7 @@ def load_config(config_str: str, root_dir: Optional[str] = None) -> Dict[str, An
         config_string=config_str,
         root_dir=root_dir,
         compatibility_checks=compatibility_checks,
+        download=download,
     )
 
     # Now that all includes are loaded, check all compatibility requirements
@@ -326,10 +338,10 @@ def load_config(config_str: str, root_dir: Optional[str] = None) -> Dict[str, An
     if META_KEY in config:
         del config[META_KEY]
 
-    return config
+    return expand_env_vars(config)
 
 
-def load_config_file(cfg_path: str) -> Dict[str, Any]:
+def load_config_file(cfg_path: str, download: bool = True) -> Dict[str, Any]:
     """Load a SPINE configuration from a file.
 
     Convenience function that reads a configuration file and passes it to load_config.
@@ -339,6 +351,9 @@ def load_config_file(cfg_path: str) -> Dict[str, Any]:
     ----------
     cfg_path : str
         Path to configuration file
+    download : bool, default True
+        If `True`, resolve `!download` tags by downloading files. If `False`,
+        preserve `!download` tags as unresolved values.
 
     Returns
     -------
@@ -374,7 +389,10 @@ def load_config_file(cfg_path: str) -> Dict[str, Any]:
     root_dir = os.path.dirname(cfg_path)
 
     config, overrides, removals, metadata = _load_config_recursive(
-        cfg_path=cfg_path, root_dir=root_dir, compatibility_checks=compatibility_checks
+        cfg_path=cfg_path,
+        root_dir=root_dir,
+        compatibility_checks=compatibility_checks,
+        download=download,
     )
 
     # Now that all includes are loaded, check all compatibility requirements
@@ -413,4 +431,4 @@ def load_config_file(cfg_path: str) -> Dict[str, Any]:
     if META_KEY in config:
         del config[META_KEY]
 
-    return config
+    return expand_env_vars(config)

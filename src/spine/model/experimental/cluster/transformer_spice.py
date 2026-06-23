@@ -3,13 +3,13 @@ import MinkowskiEngine.MinkowskiOps as me
 import torch
 import torch.nn as nn
 
+from spine.constants import *
 from spine.model.experimental.transformers.positional_encodings import (
     FourierEmbeddings,
     get_normalized_coordinates,
 )
 from spine.model.experimental.transformers.transformer import GenericMLP
 from spine.model.layer.cnn.uresnet_layers import UResNetDecoder, UResNetEncoder
-from spine.utils.globals import *
 
 
 class QueryModule(nn.Module):

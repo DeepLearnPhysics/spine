@@ -1,0 +1,43 @@
+# Data files
+*.h5
+*.hdf5
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Test and coverage
+htmlcov/
+.coverage
+.pytest_cache/
+.tox/
+
+# Documentation
+docs/build/
+
+# Logs
+logs/
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# Git
+.git/
+.gitignore
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# OS
+.DS_Store
+Thumbs.db

@@ -3,9 +3,9 @@ import numpy as np
 import scipy
 
 import spine.math as sm
+from spine.constants import LAR_X0
 
 from .energy_loss import step_energy_loss_lar
-from .globals import LAR_X0
 
 ANGLE_METHODS = {"cos": 0, "atan2": 1, "kahan": 2}
 

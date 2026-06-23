@@ -3,7 +3,7 @@
 import numba as nb
 import numpy as np
 
-from spine.utils.globals import PRINT_COL
+from spine.constants import PRINT_COL
 from spine.utils.gnn.cluster import get_cluster_label
 
 from .base import GraphBase

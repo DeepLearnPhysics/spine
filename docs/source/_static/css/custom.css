@@ -1,11 +1,136 @@
 /* Custom styles for SPINE documentation */
 
+:root {
+    --spine-orange: #f57c00;
+    --spine-orange-dark: #d96b00;
+    --spine-orange-soft: #fff3e6;
+    --spine-charcoal: #121212;
+    --spine-charcoal-soft: #222222;
+    --spine-border: #e7ddd2;
+}
+
+/* Sidebar and navigation */
+.wy-side-nav-search,
+.wy-nav-top {
+    background: var(--spine-charcoal);
+}
+
+.wy-side-nav-search {
+    background: #4a4a4a;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.wy-nav-side {
+    background: #1a1a1a;
+}
+
+.wy-side-nav-search > a,
+.wy-side-nav-search .wy-dropdown > a {
+    color: #ffffff;
+}
+
+.wy-menu-vertical a {
+    color: #d9d9d9;
+}
+
+.wy-menu-vertical a:hover,
+.wy-menu-vertical a:focus {
+    background: rgba(245, 124, 0, 0.12);
+    color: #ffffff;
+}
+
+.wy-menu-vertical li.current > a,
+.wy-menu-vertical li.current > a:hover {
+    border-left: 3px solid var(--spine-orange);
+}
+
 /* Style the version display created by JavaScript */
 .wy-side-nav-search .version-display {
     color: #fcfcfc;
     font-size: 0.85em;
-    margin-top: 8px;        /* Close to logo above */
-    margin-bottom: 20px;    /* More space from search bar below */
+    margin-top: 8px;
+    margin-bottom: 20px;
     text-align: center;
     opacity: 0.8;
+}
+
+/* Typography and links */
+.wy-nav-content {
+    max-width: 980px;
+}
+
+.wy-nav-content a,
+.rst-content a {
+    color: var(--spine-orange-dark);
+}
+
+.wy-nav-content a:hover,
+.rst-content a:hover {
+    color: var(--spine-orange);
+}
+
+.rst-content h1,
+.rst-content h2,
+.rst-content h3,
+.rst-content h4 {
+    color: var(--spine-charcoal);
+}
+
+.rst-content h2,
+.rst-content h3 {
+    padding-top: 0.15rem;
+}
+
+/* Landing-page lead paragraphs */
+.rst-content .lead p {
+    font-size: 1.08rem;
+    line-height: 1.75;
+    color: #3d3d3d;
+    margin-bottom: 1.1rem;
+}
+
+/* Admonitions and notes */
+.rst-content .admonition,
+.rst-content .note,
+.rst-content .tip,
+.rst-content .important {
+    background: var(--spine-orange-soft);
+    border: 1px solid var(--spine-border);
+    border-left: 4px solid var(--spine-orange);
+    box-shadow: none;
+}
+
+.rst-content .admonition-title,
+.rst-content .note .admonition-title,
+.rst-content .tip .admonition-title,
+.rst-content .important .admonition-title {
+    background: rgba(245, 124, 0, 0.14);
+    color: var(--spine-charcoal);
+}
+
+/* Code blocks */
+.rst-content div[class^="highlight"],
+.rst-content pre.literal-block {
+    border: 1px solid var(--spine-border);
+    border-top: 3px solid var(--spine-orange);
+    border-radius: 4px;
+}
+
+.rst-content code.literal,
+.rst-content tt.literal {
+    color: var(--spine-orange-dark);
+}
+
+/* Tables */
+.rst-content table.docutils:not(.field-list) thead th {
+    background: #fff7ef;
+    border-bottom: 2px solid var(--spine-orange);
+}
+
+/* Small mobile adjustment */
+@media screen and (max-width: 768px) {
+    .rst-content .lead p {
+        font-size: 1rem;
+        line-height: 1.65;
+    }
 }

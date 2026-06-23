@@ -5,8 +5,8 @@ from warnings import warn
 
 import numpy as np
 
+from spine.constants import COORD_COLS
 from spine.data import EdgeIndexBatch
-from spine.utils.globals import COORD_COLS
 from spine.utils.gnn.network import inter_cluster_distance
 
 
@@ -49,7 +49,9 @@ class GraphBase:
         dist_method : str, default 'voxel'
             Method used to compute inter-node distance ('voxel' or 'centroid')
         dist_algorithm : str, default 'brute'
-            Algorithm used to comppute inter-node distance ('brute' or 'iterative')
+            Algorithm used to compute inter-node distance. The 'recursive'
+            option is a legacy alias for the historical iterative
+            approximation.
         """
         # Check on enumarated strings
         assert dist_method in self._dist_methods, (
@@ -60,12 +62,22 @@ class GraphBase:
             f"Distance computation algorithm not recognized: {dist_algorithm}. "
             f"Must be one of {self._dist_algorithms}."
         )
+        if dist_algorithm == "recursive":
+            warn(
+                "`dist_algorithm='recursive'` preserves the historical "
+                "legacy closest-pair approximation and does not perform "
+                "recursive search. Use `dist_algorithm='iterative'` for the "
+                "corrected iterative closest-pair approximation.",
+                FutureWarning,
+                stacklevel=2,
+            )
 
         # Store attributes
         self.directed = directed
         self.max_count = max_count
         self.dist_centroid = dist_method == "centroid"
         self.dist_iterative = dist_algorithm != "brute"
+        self.dist_legacy = dist_algorithm == "recursive"
 
         # Convert `max_length` to a matrix, if provided as a `triu`
         self.max_length = max_length
@@ -124,6 +136,7 @@ class GraphBase:
                 clusts.counts,
                 centroid=self.dist_centroid,
                 iterative=self.dist_iterative,
+                use_legacy_distance=self.dist_legacy,
                 return_index=True,
             )
 
@@ -172,8 +185,8 @@ class GraphBase:
             )
 
         # Get the offsets, initialize an EdgeIndexBatch obejct
-        offsets = clusts.edges[:-1]
-        edge_index = EdgeIndexBatch(edge_index, edge_counts, offsets, self.directed)
+        spans = clusts.counts
+        edge_index = EdgeIndexBatch(edge_index, edge_counts, spans, self.directed)
 
         return edge_index, dist_mat, closest_index
 

@@ -4,8 +4,8 @@ import numba as nb
 import numpy as np
 
 import spine.math as sm
+from spine.constants import COORD_COLS
 from spine.data import TensorBatch
-from spine.utils.globals import COORD_COLS
 from spine.utils.jit import numbafy
 
 

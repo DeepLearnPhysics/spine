@@ -1,60 +1,15 @@
-"""Visualization tools for SPINE data and results.
+"""Visualization helpers, trace builders, and domain-aware drawers.
 
-This module provides comprehensive visualization capabilities for neutrino physics data,
-ML model outputs, and analysis results using Plotly for interactive 3D visualization.
+The top-level :mod:`spine.vis` namespace re-exports the public visualization
+API while the implementation is organized internally into:
 
-**Core Visualization Functions:**
-- `point`: General voxel and point cloud visualization (`scatter_points`)
-- `particle`: Particle trajectory and property visualization
-- `cluster`: Cluster analysis and display (`scatter_clusters`)
-- `box`: Bounding box and region-of-interest visualization (`scatter_boxes`)
-- `arrow`: Directional vector and momentum visualization
-
-**Network & Graph Visualization:**
-- `network`: Graph neural network topology visualization
-  - `network_topology`: Display graph structure and connections
-  - `network_schematic`: Simplified network diagrams
-
-**Analysis & Output Visualization:**
-- `out`: Model output and prediction visualization
-- `evaluation`: Performance metrics and evaluation plots
-- `train`: Training progress and loss visualization
-
-**Geometry & Detector:**
-- `geo`: Detector geometry and coordinate system visualization
-
-**Layout & Styling:**
-- `layout`: Pre-configured Plotly layouts (`plotly_layout3d`) for consistent styling
-
-**Key Features:**
-- Interactive 3D visualization with Plotly
-- Automatic color coding and legends
-- Support for large datasets with efficient rendering
-- Detector geometry integration
-- Truth vs. prediction comparison plots
-- Export capabilities for publication-quality figures
-
-**Example Usage:**
-```python
-from spine.vis import scatter_points, scatter_clusters, layout3d
-
-# Visualize detector hits
-fig = scatter_points(coordinates, features, color='energy')
-fig.update_layout(layout3d)
-
-# Visualize clustering results
-fig = scatter_clusters(data, cluster_labels, method='dbscan')
-```
+- :mod:`spine.vis.trace` for low-level Plotly trace builders
+- :mod:`spine.vis.drawer` for higher-level object and detector drawers
+- :mod:`spine.vis.layout` for shared Plotly and Matplotlib styling
+- :mod:`spine.vis.metric` for metric-specific plotting helpers
 """
 
-from .arrow import *
-from .box import *
-from .cluster import *
-from .evaluation import *
-from .geo import *
+from .drawer import *
 from .layout import *
-from .network import *
-from .out import *
-from .particle import *
-from .point import *
-from .train import *
+from .metric import *
+from .trace import *

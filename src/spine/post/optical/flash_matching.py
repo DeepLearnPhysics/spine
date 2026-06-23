@@ -1,5 +1,7 @@
 """Post-processor in charge of finding matches between charge and light."""
 
+from collections import defaultdict
+
 import numpy as np
 
 from spine.data.out.base import OutBase
@@ -172,9 +174,13 @@ class FlashMatchProcessor(PostBase):
 
             # Clear previous flash matching information
             for inter in interactions:
-                inter.reset_flash_match(typed=False)
+                inter.reset_flash_match()
 
             # Loop over the optical volumes
+            flash_ids = defaultdict(list)
+            flash_volume_ids = defaultdict(list)
+            flash_times = defaultdict(list)
+            flash_scores = defaultdict(list)
             for volume_id in np.unique(volume_ids):
                 # Get the list of flashes associated with this optical volume
                 flashes_v = []
@@ -256,26 +262,29 @@ class FlashMatchProcessor(PostBase):
                         orig_flashes = [
                             data[self.flash_key][i] for i in orig_ids[flash.id]
                         ]
-                        inter.flash_ids.extend([f.id for f in orig_flashes])
-                        inter.flash_volume_ids.extend(
+                        flash_ids[inter.id].extend([f.id for f in orig_flashes])
+                        flash_volume_ids[inter.id].extend(
                             [f.volume_id for f in orig_flashes]
                         )
-                        inter.flash_times.extend([f.time for f in orig_flashes])
-                        inter.flash_scores.extend([score for _ in orig_flashes])
+                        flash_times[inter.id].extend([f.time for f in orig_flashes])
+                        flash_scores[inter.id].extend([score for _ in orig_flashes])
                     else:
-                        inter.flash_ids.append(int(flash.id))
-                        inter.flash_volume_ids.append(int(flash.volume_id))
-                        inter.flash_times.append(float(flash.time))
-                        inter.flash_scores.append(score)
+                        flash_ids[inter.id].append(int(flash.id))
+                        flash_volume_ids[inter.id].append(int(flash.volume_id))
+                        flash_times[inter.id].append(float(flash.time))
+                        flash_scores[inter.id].append(score)
 
             # Cast list attributes to numpy arrays
-            for inter in interactions:
-                inter.flash_ids = np.asarray(inter.flash_ids, dtype=np.int32)
+            for inter_id in flash_ids:
+                inter = interactions[inter_id]
+                inter.flash_ids = np.asarray(flash_ids[inter_id], dtype=np.int32)
                 inter.flash_volume_ids = np.asarray(
-                    inter.flash_volume_ids, dtype=np.int32
+                    flash_volume_ids[inter_id], dtype=np.int32
                 )
-                inter.flash_times = np.asarray(inter.flash_times, dtype=np.float32)
-                inter.flash_scores = np.asarray(inter.flash_scores, dtype=np.float32)
+                inter.flash_times = np.asarray(flash_times[inter_id], dtype=np.float32)
+                inter.flash_scores = np.asarray(
+                    flash_scores[inter_id], dtype=np.float32
+                )
 
         # Return an updated flash list, if requested
         if self.update_flashes:

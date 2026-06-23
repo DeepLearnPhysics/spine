@@ -1,10 +1,16 @@
 """Base class for all data representation builders."""
 
-from abc import ABC, abstractmethod
+from __future__ import annotations
 
-import numpy as np
+from abc import ABC, abstractmethod
+from collections.abc import Sequence
+from typing import Any, ClassVar
 
 from spine.data import ObjectList
+from spine.data.out.base import RecoBase, TruthBase
+from spine.utils.docstring import merge_ancestor_docstrings
+
+from .utils import BuildMode, RunMode, Units, get_batch_size, is_single_index
 
 
 class BuilderBase(ABC):
@@ -15,14 +21,23 @@ class BuilderBase(ABC):
     """
 
     # Builder name
-    name = None
+    name: ClassVar[str | None] = None
+
+    # List of recognized run modes and units
+    _run_modes: ClassVar[tuple[RunMode, ...]] = ("reco", "truth", "both", "all")
+    _units: ClassVar[tuple[Units, ...]] = ("cm", "px")
 
     # Types of objects constructed by the builder
-    _reco_type = None
-    _truth_type = None
+    _reco_type: ClassVar[type[RecoBase] | None] = None
+    _truth_type: ClassVar[type[TruthBase] | None] = None
 
     # Necessary/optional data products to build a reconstructed object
-    _build_reco_keys = (("points", True), ("depositions", True), ("sources", False))
+    _build_reco_keys = (
+        ("points", True),
+        ("depositions", True),
+        ("sources", False),
+        ("orig_index", False),
+    )
 
     # Necessary/optional data products to build a truth object
     _build_truth_keys = (
@@ -38,6 +53,7 @@ class BuilderBase(ABC):
         ("depositions_g4", False),
         ("sources_label", False),
         ("sources", False),
+        ("orig_index_label", False),
     )
 
     # Necessary/optional data products to load a reconstructed object
@@ -56,7 +72,16 @@ class BuilderBase(ABC):
         ("sources", False),
     )
 
-    def __init__(self, mode, units):
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        """Automatically merge parent docstrings when BuilderBase is subclassed."""
+        super().__init_subclass__(**kwargs)
+        merge_ancestor_docstrings(cls)
+
+    def __init__(
+        self,
+        mode: RunMode,
+        units: Units,
+    ) -> None:
         """Initializes the builder.
 
         Parameters
@@ -68,11 +93,20 @@ class BuilderBase(ABC):
             Units in which the position arguments of the constructed objects
             should be expressed (one of 'cm' or 'px')
         """
+        if mode not in self._run_modes:
+            raise ValueError(
+                f"Run mode not recognized: {mode}. Must be one {self._run_modes}"
+            )
+        if units not in self._units:
+            raise ValueError(
+                f"Units not recognized: {units}. Must be one {self._units}"
+            )
+
         # Store the mode and units
         self.mode = mode
         self.units = units
 
-    def __call__(self, data):
+    def __call__(self, data: dict[str, Any]) -> None:
         """Build representations for a batch of data.
 
         Parameters
@@ -81,21 +115,30 @@ class BuilderBase(ABC):
             Dictionary of data products
         """
         # Dispatch
-        for mode, avoid in [("reco", "truth"), ("truth", "reco")]:
+        dispatch_modes: tuple[tuple[BuildMode, BuildMode], ...] = (
+            ("reco", "truth"),
+            ("truth", "reco"),
+        )
+        for mode, avoid in dispatch_modes:
             out_key = f"{mode}_{self.name}s"
             if self.mode != avoid:
-                if np.isscalar(data["index"]):
+                if is_single_index(data["index"]):
                     # Single entry to process
                     data[out_key] = self.process(data, mode)
 
                 else:
                     # Batch of data to process
-                    const_list = []
-                    for entry in range(len(data["index"])):
+                    const_list: list[ObjectList] = []
+                    for entry in range(get_batch_size(data["index"])):
                         const_list.append(self.process(data, mode, entry))
                     data[out_key] = const_list
 
-    def process(self, data, mode, entry=None):
+    def process(
+        self,
+        data: dict[str, Any],
+        mode: BuildMode,
+        entry: int | None = None,
+    ) -> ObjectList:
         """Build representations for a single entry.
 
         Parameters
@@ -122,7 +165,9 @@ class BuilderBase(ABC):
 
         return result
 
-    def check_units(self, data, key, entry=None):
+    def check_units(
+        self, data: dict[str, Any], key: str, entry: int | None = None
+    ) -> None:
         """Checks that the objects in the list are expressed in the
         appropriate units. Convert them otherwise.
 
@@ -135,15 +180,17 @@ class BuilderBase(ABC):
         entry : int, optional
             Entry to process
         """
-        for obj in data[key]:
+        objects = data[key][entry] if entry is not None else data[key]
+        for obj in objects:
             if obj.units != self.units:
-                assert (
-                    "meta" in data
-                ), "Cannot convert units without metadata information."
+                if "meta" not in data:
+                    raise KeyError("Cannot convert units without metadata information.")
                 meta = data["meta"][entry] if entry is not None else data["meta"]
                 getattr(obj, f"to_{self.units}")(meta)
 
-    def construct(self, func, data, entry=None):
+    def construct(
+        self, func: str, data: dict[str, Any], entry: int | None = None
+    ) -> ObjectList:
         """Prepares the input based on the required data and runs constructor.
 
         Parameters
@@ -184,7 +231,7 @@ class BuilderBase(ABC):
         return ObjectList(obj_list, default)
 
     @abstractmethod
-    def build_reco(self, data):
+    def build_reco(self, data: dict[str, Any]) -> Sequence[RecoBase]:
         """Place-holder for a method used to build reconstructed objects.
 
         Parameters
@@ -195,7 +242,7 @@ class BuilderBase(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def build_truth(self, data):
+    def build_truth(self, data: dict[str, Any]) -> Sequence[TruthBase]:
         """Place-holder for a method used to build truth objects.
 
         Parameters
@@ -206,7 +253,7 @@ class BuilderBase(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def load_reco(self, data):
+    def load_reco(self, data: dict[str, Any]) -> Sequence[RecoBase]:
         """Place-holder for a method used to load reconstructed objects.
 
         Parameters
@@ -217,7 +264,7 @@ class BuilderBase(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def load_truth(self, data):
+    def load_truth(self, data: dict[str, Any]) -> Sequence[TruthBase]:
         """Place-holder for a method used to load truth objects.
 
         Parameters

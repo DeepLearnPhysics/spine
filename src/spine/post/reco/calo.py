@@ -3,9 +3,9 @@
 import numexpr as ne
 import numpy as np
 
+from spine.calib import CalibrationManager
+from spine.constants import TRACK_SHP
 from spine.post.base import PostBase
-from spine.utils.calib import CalibrationManager
-from spine.utils.globals import TRACK_SHP
 
 __all__ = ["CalorimetricEnergyProcessor", "CalibrationProcessor"]
 
@@ -44,12 +44,12 @@ class CalorimetricEnergyProcessor(PostBase):
         # Store the conversion factor
         self.scaling = scaling
         if isinstance(self.scaling, str):
-            self.scaling = ne.evaluate(self.scaling)
+            self.scaling = float(ne.evaluate(self.scaling))
 
         # Store the shower fudge factor
         self.shower_fudge = shower_fudge
         if isinstance(self.shower_fudge, str):
-            self.shower_fudge = ne.evaluate(self.shower_fudge)
+            self.shower_fudge = float(ne.evaluate(self.shower_fudge))
 
     def process(self, data):
         """Reconstruct the calorimetric KE for each particle in one entry.

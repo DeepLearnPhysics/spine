@@ -1,36 +1,26 @@
 Math Module
 ===========
 
-The spine.math module provides high-performance mathematical operations optimized with Numba.
+The ``spine.math`` module provides the Numba-accelerated numerical kernels and geometry helpers used internally across SPINE. These routines support clustering, neighborhood queries, distance calculations, decomposition, and graph-style operations that appear throughout reconstruction and analysis.
 
-Clustering
-----------
+.. currentmodule:: spine.math
 
-.. automodule:: spine.math.cluster
-   :members:
-   :undoc-members:
-   :show-inheritance:
+.. automodule:: spine.math
+   :no-members:
 
-Decomposition
--------------
+Core Modules
+------------
 
-.. automodule:: spine.math.decomposition
-   :members:
-   :undoc-members:
-   :show-inheritance:
+This package is an implementation layer for the reconstruction stack, not the main user-facing entry point of SPINE. It is documented here because many higher-level modules depend on it.
 
-Distance Metrics
-----------------
+.. autosummary::
+   :toctree: generated
 
-.. automodule:: spine.math.metrics
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Neighbors
----------
-
-.. automodule:: spine.math.neighbors
-   :members:
-   :undoc-members:
-   :show-inheritance:
+   base
+   cluster
+   decomposition
+   distance
+   graph
+   linalg
+   metrics
+   neighbors

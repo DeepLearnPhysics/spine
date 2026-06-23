@@ -4,7 +4,7 @@ import numpy as np
 from scipy.special import softmax
 
 from spine.ana.base import AnaBase
-from spine.utils.globals import GHOST_SHP, LOWES_SHP, SHAPE_COL
+from spine.constants import GHOST_SHP, LOWES_SHP, SHAPE_COL
 
 __all__ = ["SegmentAna"]
 

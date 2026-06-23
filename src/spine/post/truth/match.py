@@ -18,6 +18,9 @@ class MatchProcessor(PostBase):
     # Name of the post-processor (as specified in the configuration)
     name = "match"
 
+    # Set of data keys needed for this post-processor to operate
+    _keys = (("meta", False),)
+
     def __init__(
         self,
         fragment=None,
@@ -47,7 +50,6 @@ class MatchProcessor(PostBase):
             "particle": particle,
             "interaction": interaction,
         }
-        keys = {}
         self.matchers = {}
         for key, cfg in configs.items():
             if cfg is not None and cfg is not False:
@@ -56,16 +58,9 @@ class MatchProcessor(PostBase):
                     cfg = {}
                 self.matchers[key] = self.Matcher(**cfg, **kwargs)
 
-                # If any matcher includes ghost points, must load meta
-                if self.matchers[key].ghost:
-                    keys["meta"] = True
-
         assert len(
             self.matchers
         ), "Must specify one of 'fragment', 'particle' or 'interaction'."
-
-        # Update the set of keys necessary for this post-processor
-        self.update_keys(keys)
 
         # Initialize the parent class
         super().__init__(list(self.matchers.keys()), "both", truth_point_mode)
@@ -89,6 +84,11 @@ class MatchProcessor(PostBase):
         ghost : bool, default False
             Whether a deghosting process was applied (in which case the indexes
             of the reco and the truth particles do not align)
+        use_orig_index : bool, default True
+            When matching ghosted reco and truth objects with
+            `truth_point_mode='points'`, use the stored provenance information
+            to map objects back to the original point cloud. If `False`, fall
+            back to recovering indexes from the coordinates and metadata
         """
 
         fn: object = None
@@ -97,12 +97,13 @@ class MatchProcessor(PostBase):
         min_overlap: float = 0.0
         weight_overlap: bool = False
         ghost: bool = False
+        use_orig_index: bool = True
 
         # Valid match modes
-        _match_modes = ["reco_to_truth", "truth_to_reco", "both", "all"]
+        _match_modes = ("reco_to_truth", "truth_to_reco", "both", "all")
 
         # Valid overlap modes
-        _overlap_modes = ["count", "iou", "dice", "chamfer"]
+        _overlap_modes = ("count", "iou", "dice", "chamfer")
 
         def __post_init__(self):
             """Check that the values provided are valid."""
@@ -143,16 +144,31 @@ class MatchProcessor(PostBase):
             reco_objs = data[f"reco_{name}s"]
             truth_objs = data[f"truth_{name}s"]
 
-            # Fetch the metadata, if needed
-            meta = None
-            if matcher.ghost:
-                meta = data["meta"]
+            # Fetch the metadata, if available
+            meta = data.get("meta", None)
 
             # Pass it to the individual processor
             res_one = self.process_single(reco_objs, truth_objs, matcher, name, meta)
             result.update(**res_one)
 
         return result
+
+    @staticmethod
+    def prepare_overlap_index(index: np.ndarray) -> np.ndarray:
+        """Cast overlap indexes to int64 and ensure sorted unique order.
+
+        Most object index arrays are already sorted because they are built from
+        `np.where(...)`. This check avoids paying the sort cost unless an
+        upstream provenance array arrives unsorted.
+        """
+        index = np.asarray(index, dtype=np.int64)
+        if len(index) < 2:
+            return index
+
+        if np.all(index[1:] > index[:-1]):
+            return index
+
+        return np.unique(index)
 
     def process_single(self, reco_objs, truth_objs, matcher, name, meta=None):
         """Match all the requested objects in a single category.
@@ -173,36 +189,83 @@ class MatchProcessor(PostBase):
         # Convert the object list into an index/coordinate list
         if matcher.overlap_mode != "chamfer":
             # For overlap matches, use pixel indexes (faster)
-            if not matcher.ghost or self.truth_point_mode == "points_adapt":
-                # The indexes of reco and truth point to the same point set
-                reco_input = typed.List.empty_list(nb.int64[:])
-                for p in reco_objs:
-                    reco_input.append(self.get_index(p))
-                truth_input = typed.List.empty_list(nb.int64[:])
-                for p in truth_objs:
-                    truth_input.append(self.get_index(p))
-
-            else:
-                # The indexes of reco and truth point to different point sets.
-                # In this case, convert the positions to indexes
+            if self.truth_point_mode == "points_g4":
+                # If using the g4 points as truth, the indexes of reco and truth
+                # do not point to the same point set. In this case, we need to
+                # convert the positions to indexes using the metadata information
                 assert meta is not None, (
                     "When using separate point sets for reco and truth objects, "
                     "must provide the metadata object to convert positions to "
                     "indexes."
                 )
-                reco_input = []
+                reco_input = typed.List.empty_list(nb.int64[:])
                 for p in reco_objs:
                     coords = self.get_points(p)
                     if p.units != "px":
                         coords = meta.to_px(coords, floor=True)
-                    reco_input.append(meta.index(coords))
+                    reco_input.append(self.prepare_overlap_index(meta.index(coords)))
 
-                truth_input = []
+                truth_input = typed.List.empty_list(nb.int64[:])
                 for p in truth_objs:
                     coords = self.get_points(p)
                     if p.units != "px":
                         coords = meta.to_px(coords, floor=True)
-                    truth_input.append(meta.index(coords))
+                    truth_input.append(self.prepare_overlap_index(meta.index(coords)))
+
+            elif not matcher.ghost or self.truth_point_mode == "points_adapt":
+                # Without ghosting, or if using the adapted points as truth, the
+                # indexes of reco and truth always point to the same point set
+                reco_input = typed.List.empty_list(nb.int64[:])
+                for p in reco_objs:
+                    reco_input.append(self.prepare_overlap_index(self.get_index(p)))
+                truth_input = typed.List.empty_list(nb.int64[:])
+                for p in truth_objs:
+                    truth_input.append(self.prepare_overlap_index(self.get_index(p)))
+
+            else:
+                if matcher.use_orig_index:
+                    # With ghosting and using points as truth, use the stored
+                    # provenance to map reco and truth objects back to the
+                    # original point cloud.
+                    for p in (*reco_objs, *truth_objs):
+                        assert len(p.orig_index) == len(p.index), (
+                            "Ghost matching with `truth_point_mode='points'` "
+                            "and `use_orig_index=True` requires "
+                            "valid `orig_index` provenance on all objects."
+                        )
+
+                    reco_input = typed.List.empty_list(nb.int64[:])
+                    for p in reco_objs:
+                        reco_input.append(self.prepare_overlap_index(p.orig_index))
+                    truth_input = typed.List.empty_list(nb.int64[:])
+                    for p in truth_objs:
+                        truth_input.append(self.prepare_overlap_index(p.orig_index))
+
+                else:
+                    # Fall back to recovering indexes from the object
+                    # coordinates using the metadata object.
+                    assert meta is not None, (
+                        "Ghost matching with `use_orig_index=False` must "
+                        "provide the metadata object to convert positions to "
+                        "indexes."
+                    )
+                    reco_input = typed.List.empty_list(nb.int64[:])
+                    for p in reco_objs:
+                        coords = self.get_points(p)
+                        if p.units != "px":
+                            coords = meta.to_px(coords, floor=True)
+                        reco_input.append(
+                            self.prepare_overlap_index(meta.index(coords))
+                        )
+
+                    truth_input = typed.List.empty_list(nb.int64[:])
+                    for p in truth_objs:
+                        coords = self.get_points(p)
+                        if p.units != "px":
+                            coords = meta.to_px(coords, floor=True)
+                        truth_input.append(
+                            self.prepare_overlap_index(meta.index(coords))
+                        )
 
         else:
             # For the chamfer distance, simply use the point positions
@@ -273,7 +336,7 @@ class MatchProcessor(PostBase):
             if not len(match_idxs):
                 # If there are no matches, fill dummy values
                 s.is_matched = False
-                s.match_ids = np.empty(0, dtype=np.int64)
+                s.match_ids = np.empty(0, dtype=np.int32)
                 s.match_overlaps = np.empty(0, dtype=np.float32)
 
                 pairs.append((s, None))
@@ -284,7 +347,7 @@ class MatchProcessor(PostBase):
                 overlaps = ovl_matrix[i, match_idxs]
                 perm = np.argsort(overlaps)[::-1]
                 s.is_matched = True
-                s.match_ids = match_idxs[perm]
+                s.match_ids = match_idxs[perm].astype(np.int32, copy=False)
                 s.match_overlaps = overlaps[perm]
 
                 best_idx = s.match_ids[0]

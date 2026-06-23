@@ -3,9 +3,9 @@
 import numpy as np
 from scipy.stats import pearsonr
 
+from spine.constants import ELEC_PID, PHOT_PID, SHOWR_SHP
 from spine.math.decomposition import PCA
 from spine.post.base import PostBase
-from spine.utils.globals import ELEC_PID, PHOT_PID, SHOWR_SHP
 from spine.utils.gnn.cluster import cluster_dedx, cluster_dedx_dir
 
 __all__ = [

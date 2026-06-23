@@ -1,0 +1,222 @@
+"""Data structures used as canonical outputs of IO parsers."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
+
+import numpy as np
+
+from spine.constants import VALUE_COL
+from spine.data import Meta, ObjectList
+
+__all__ = [
+    "ParserTensor",
+    "ParserIndex",
+    "ParserIndexList",
+    "ParserEdgeIndex",
+    "ParserObjectList",
+]
+
+
+@dataclass
+class ParserTensor:
+    """Container describing a parsed tensor-like payload.
+
+    Attributes
+    ----------
+    features : np.ndarray
+        Feature matrix associated with the parsed tensor.
+    coords : np.ndarray, optional
+        Sparse tensor coordinates, typically with shape ``(N, 3)``.
+    meta : Meta, optional
+        Geometry metadata used to convert voxel indices into detector
+        coordinates.
+    index_shifts : np.ndarray, optional
+        Shifts applied to index-bearing feature columns during batching.
+    index_cols : np.ndarray, optional
+        Feature columns that store indices.
+    remove_duplicates : bool, default False
+        If `True`, drop duplicate coordinates during collation.
+    sum_cols : np.ndarray, optional
+        Feature columns that should be summed when duplicates are merged.
+    avg_cols : np.ndarray, optional
+        Feature columns that should be averaged when duplicates are merged.
+    prec_col : int, optional
+        Feature column used to break duplicate-coordinate ties.
+    precedence : np.ndarray, optional
+        Precedence ordering used with ``prec_col``.
+    feats_only : bool, default False
+        If `True`, the payload is feature-only and has no associated
+        coordinate tensor.
+    overlay_reference : str, optional
+        Product key whose duplicate-cleaning row selection should be applied
+        to this tensor during overlay.
+    """
+
+    features: np.ndarray
+    coords: np.ndarray | None = None
+    meta: Meta | None = None
+    index_shifts: np.ndarray | None = None
+    index_cols: np.ndarray | None = None
+    remove_duplicates: bool = False
+    sum_cols: np.ndarray | None = None
+    avg_cols: np.ndarray | None = None
+    prec_col: int | None = None
+    precedence: np.ndarray | None = None
+    feats_only: bool = False
+    overlay_reference: str | None = None
+
+    @property
+    def feat_index_cols(self) -> np.ndarray | None:
+        """Return index-bearing columns expressed in feature-only coordinates.
+
+        Returns
+        -------
+        np.ndarray, optional
+            Feature-column indices corresponding to :attr:`index_cols`.
+        """
+        if self.index_cols is None:
+            return self.index_cols
+
+        return self.index_cols - VALUE_COL
+
+    @property
+    def feat_sum_cols(self) -> np.ndarray | None:
+        """Return duplicate-summed columns in feature-only coordinates.
+
+        Returns
+        -------
+        np.ndarray, optional
+            Feature-column indices corresponding to :attr:`sum_cols`.
+        """
+        if self.sum_cols is None:
+            return self.sum_cols
+
+        return self.sum_cols - VALUE_COL
+
+    @property
+    def feat_avg_cols(self) -> np.ndarray | None:
+        """Return duplicate-averaged columns in feature-only coordinates.
+
+        Returns
+        -------
+        np.ndarray, optional
+            Feature-column indices corresponding to :attr:`avg_cols`.
+        """
+        if self.avg_cols is None:
+            return self.avg_cols
+
+        return self.avg_cols - VALUE_COL
+
+    @property
+    def feat_prec_col(self) -> int | None:
+        """Return the precedence column in feature-only coordinates.
+
+        Returns
+        -------
+        int, optional
+            Feature-column index corresponding to :attr:`prec_col`.
+        """
+        if self.prec_col is None or self.prec_col < 0:
+            return self.prec_col
+
+        return self.prec_col - VALUE_COL
+
+
+@dataclass
+class ParserIndex:
+    """Container describing one flat index payload.
+
+    Attributes
+    ----------
+    features : np.ndarray
+        One-dimensional index array.
+    span : int
+        Parent-entry span used when batching entries.
+    """
+
+    features: np.ndarray
+    span: int
+
+
+@dataclass
+class ParserIndexList:
+    """Container describing one jagged index-list payload.
+
+    Attributes
+    ----------
+    features : list[np.ndarray]
+        List of one-dimensional index arrays.
+    span : int
+        Parent-entry span used when batching entries.
+    single_counts : np.ndarray, optional
+        Per-index sizes used to restore jagged list structure after batching.
+    """
+
+    features: list[np.ndarray]
+    span: int
+    single_counts: np.ndarray | None = None
+
+
+@dataclass
+class ParserEdgeIndex:
+    """Container describing one edge-index payload.
+
+    Attributes
+    ----------
+    features : np.ndarray
+        Two-dimensional edge-index array with shape ``(2, E)``.
+    span : int
+        Parent-entry node span used when batching entries.
+    """
+
+    features: np.ndarray
+    span: int
+
+
+class ParserObjectList(ObjectList):
+    """Object list with index shifting instructions.
+
+    Attributes
+    ----------
+    index_shifts : int or dict[str, int]
+        Shift(s) to apply to object index attributes during collation.
+    """
+
+    def __init__(
+        self,
+        object_list: list[Any],
+        default: Any,
+        index_shifts: int | dict[str, int] | None = None,
+    ) -> None:
+        """Initialize the list and the default value.
+
+        Parameters
+        ----------
+        object_list : list[Any]
+            Parsed objects associated with one event entry.
+        default : Any
+            Default object used to type an empty list.
+        index_shifts : int or dict[str, int], optional
+            Shift(s) to apply to object index attributes during batching.
+        """
+        # Initialize the underlying object list
+        super().__init__(object_list, default)
+
+        # Store the index shifts
+        if index_shifts is not None:
+            self.index_shifts = index_shifts
+        else:
+            self.index_shifts = len(object_list)
+
+    @property
+    def to_object_list(self) -> ObjectList:
+        """Drop parser-specific batching metadata and return a plain ObjectList.
+
+        Returns
+        -------
+        ObjectList
+            Underlying object list without ``index_shifts`` metadata.
+        """
+        return ObjectList(self, default=self.default)

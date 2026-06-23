@@ -1,83 +1,35 @@
 Visualization Module
-===================
+====================
 
-The spine.vis module provides visualization tools for sparse 3D data and reconstruction results.
+The ``spine.vis`` module provides interactive visualization tools for detector inputs, reconstructed objects, truth labels, geometry, and training or evaluation products. It is primarily Plotly-based and is designed for inspecting sparse 3D reconstruction outputs rather than serving as the center of the package.
 
-Core Visualization
-------------------
+.. currentmodule:: spine.vis
 
 .. automodule:: spine.vis
-   :members:
-   :show-inheritance:
+   :no-members:
 
-Layout and Output
------------------
+Module Index
+------------
 
-.. automodule:: spine.vis.layout
-   :members:
-   :show-inheritance:
+Use this package to inspect detector point clouds, overlay reconstructed or truth objects, and visualize model or evaluation outputs in notebooks and analysis workflows.
 
-.. automodule:: spine.vis.out
-   :members:
-   :show-inheritance:
+.. autosummary::
+   :toctree: generated
 
-3D Primitives
--------------
-
-.. automodule:: spine.vis.point
-   :members:
-   :show-inheritance:
-
-.. automodule:: spine.vis.arrow
-   :members:
-   :show-inheritance:
-
-.. automodule:: spine.vis.box
-   :members:
-   :show-inheritance:
-
-.. automodule:: spine.vis.cone
-   :members:
-   :show-inheritance:
-
-.. automodule:: spine.vis.ellipsoid
-   :members:
-   :show-inheritance:
-
-.. automodule:: spine.vis.hull
-   :members:
-   :show-inheritance:
-
-Physics Objects
----------------
-
-.. automodule:: spine.vis.cluster
-   :members:
-   :show-inheritance:
-
-.. automodule:: spine.vis.particle
-   :members:
-   :show-inheritance:
-
-.. automodule:: spine.vis.network
-   :members:
-   :show-inheritance:
-
-Analysis Visualization
-----------------------
-
-.. automodule:: spine.vis.evaluation
-   :members:
-   :show-inheritance:
-
-.. automodule:: spine.vis.train
-   :members:
-   :show-inheritance:
-
-.. automodule:: spine.vis.geo
-   :members:
-   :show-inheritance:
-
-.. automodule:: spine.vis.metric
-   :members:
-   :show-inheritance:
+   layout
+   out
+   point
+   arrow
+   box
+   cone
+   cylinder
+   ellipsoid
+   hull
+   cluster
+   particle
+   network
+   lite
+   evaluation
+   train
+   geo
+   metric

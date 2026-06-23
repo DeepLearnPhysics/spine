@@ -1,33 +1,35 @@
-Build Module
-============
+Construct Module
+================
 
-The spine.build module provides tools for building higher-level objects from reconstruction primitives.
+The ``spine.construct`` module converts model outputs and intermediate reconstruction products into the high-level object hierarchy used throughout SPINE analysis. Although configuration files still use the ``build:`` key for backward compatibility, the Python package name is ``spine.construct``.
 
-Base Classes
-------------
+.. currentmodule:: spine.construct
 
-.. automodule:: spine.build.base
-   :members:
-   :show-inheritance:
+.. automodule:: spine.construct
+   :no-members:
 
-Manager
--------
+.. note::
+   This module was formerly named ``build`` and configuration files still use ``build:`` for backward compatibility.
 
-.. automodule:: spine.build.manager
-   :members:
-   :show-inheritance:
-
-Builders
+Overview
 --------
 
-.. automodule:: spine.build.fragment
-   :members:
-   :show-inheritance:
+Construction is where sparse predictions become physics objects with relationships and provenance:
 
-.. automodule:: spine.build.particle
-   :members:
-   :show-inheritance:
+- **BuildManager** coordinates object construction, truth matching, and validation
+- **FragmentBuilder** groups low-level outputs into fragment objects
+- **ParticleBuilder** assembles fragment-level information into particle candidates
+- **InteractionBuilder** builds event-level interaction hierarchies
 
-.. automodule:: spine.build.interaction
-   :members:
-   :show-inheritance:
+This stage sits between model execution and post-processing, and defines the reconstructed and truth object model consumed by downstream analysis tools.
+
+Reference
+---------
+
+.. autosummary::
+   :toctree: generated
+
+   BuildManager
+   fragment.FragmentBuilder
+   particle.ParticleBuilder
+   interaction.InteractionBuilder

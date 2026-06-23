@@ -1,5 +1,6 @@
 [run]
 source = src/spine
+concurrency = thread
 omit =
     */tests/*
     */test_*
@@ -9,6 +10,7 @@ omit =
     */virtualenv/*
     */__pycache__/*
     */migrations/*
+    */site-packages/torch/*
 
 [report]
 # Regexes for lines to exclude from consideration

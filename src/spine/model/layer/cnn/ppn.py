@@ -6,8 +6,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from spine.data import TensorBatch
-from spine.utils.globals import (
+from spine.constants import (
     COORD_COLS,
     GHOST_SHP,
     PART_COL,
@@ -21,6 +20,7 @@ from spine.utils.globals import (
     TRACK_SHP,
     VALUE_COL,
 )
+from spine.data import TensorBatch
 from spine.utils.logger import logger
 from spine.utils.torch.scripts import cdist_fast
 from spine.utils.weighting import get_class_weights

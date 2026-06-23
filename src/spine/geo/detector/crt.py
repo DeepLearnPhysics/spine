@@ -1,7 +1,7 @@
 """CRT detector geometry classes."""
 
+from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import Dict, Iterator, List, Optional
 
 import numpy as np
 
@@ -25,7 +25,9 @@ class CRTPlane(Box):
     normal: np.ndarray
     normal_axis: int
 
-    def __init__(self, position: np.ndarray, dimensions: np.ndarray, normal_axis: int):
+    def __init__(
+        self, position: np.ndarray, dimensions: np.ndarray, normal_axis: int
+    ) -> None:
         """Initialize the CRT plane object.
 
         Parameters
@@ -60,16 +62,16 @@ class CRTDetector(Box):
         Mapping between the CRT channel and its corresponding detector
     """
 
-    planes: List[CRTPlane]
-    det_ids: Optional[Dict[int, int]] = None
+    planes: list[CRTPlane]
+    det_ids: dict[int, int] | None = None
 
     def __init__(
         self,
-        dimensions: List[List[float]],
-        positions: List[List[float]],
-        normals: List[int],
-        logical_ids: Optional[List[int]] = None,
-    ):
+        dimensions: list[list[float]],
+        positions: list[list[float]],
+        normals: list[int],
+        logical_ids: list[int] | None = None,
+    ) -> None:
         """Parse the CRT detector configuration.
 
         The assumption here is that the CRT detectors collectively cover the

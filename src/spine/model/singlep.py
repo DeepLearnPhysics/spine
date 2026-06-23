@@ -14,14 +14,15 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch_geometric.data import Batch, Data
 
+from spine.constants import PID_COL
 from spine.data import TensorBatch
-from spine.utils.globals import PID_COL
 from spine.utils.gnn.cluster import form_clusters, get_cluster_label
 
 # from .experimental.layer.pointmlp import PointMLPEncoder
 from .experimental.bayes.encoder import MCDropoutEncoder
 from .experimental.bayes.evidential import EVDLoss
 from .experimental.layer.pointnet import PointNetEncoder
+from .image import ImageClassifier
 from .layer.cnn.act_norm import act_factory
 from .layer.cnn.configuration import setup_cnn_configuration
 from .layer.cnn.encoder import SparseResidualEncoder

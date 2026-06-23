@@ -1,22 +1,20 @@
 """Classes in charge of constructing Fragment objects."""
 
-import inspect
-from dataclasses import dataclass
-from typing import List
+from __future__ import annotations
+
+from typing import Any
 
 import numpy as np
 from scipy.special import softmax
 
+from spine.constants import CLUST_COL, PART_COL, TRACK_SHP
 from spine.data.out import RecoFragment, TruthFragment
-from spine.utils.docstring import inherit_docstring
-from spine.utils.globals import CLUST_COL, PART_COL, TRACK_SHP
 
 from .base import BuilderBase
 
 __all__ = ["FragmentBuilder"]
 
 
-@inherit_docstring(BuilderBase)
 class FragmentBuilder(BuilderBase):
     """Builds reconstructed and truth fragments.
 
@@ -52,7 +50,7 @@ class FragmentBuilder(BuilderBase):
     # Necessary/optional data products to load a truth object
     _load_truth_keys = (("truth_fragments", True), *BuilderBase._load_truth_keys)
 
-    def build_reco(self, data):
+    def build_reco(self, data: dict[str, Any]) -> list[RecoFragment]:
         """Builds :class:`RecoFragment` objects from the full chain output.
 
         Parameters
@@ -69,16 +67,17 @@ class FragmentBuilder(BuilderBase):
 
     def _build_reco(
         self,
-        points,
-        depositions,
-        fragment_clusts,
-        fragment_shapes,
-        fragment_start_points=None,
-        fragment_end_points=None,
-        fragment_group_pred=None,
-        fragment_node_pred=None,
-        sources=None,
-    ):
+        points: np.ndarray,
+        depositions: np.ndarray,
+        fragment_clusts: list[np.ndarray],
+        fragment_shapes: np.ndarray,
+        fragment_start_points: np.ndarray | None = None,
+        fragment_end_points: np.ndarray | None = None,
+        fragment_group_pred: np.ndarray | None = None,
+        fragment_node_pred: np.ndarray | None = None,
+        sources: np.ndarray | None = None,
+        orig_index: np.ndarray | None = None,
+    ) -> list[RecoFragment]:
         """Builds :class:`RecoFragment` objects from the full chain output.
 
         Parameters
@@ -99,6 +98,9 @@ class FragmentBuilder(BuilderBase):
             (P) Interaction group each fragment belongs to
         sources : np.ndarray, optional
             (N, 2) Tensor which contains the module/tpc information
+        orig_index : np.ndarray, optional
+            (N) Tensor which contains the indexes in the original
+            point cloud (before any filtering or deghosting)
 
         Returns
         -------
@@ -106,9 +108,11 @@ class FragmentBuilder(BuilderBase):
             List of constructed reconstructed fragment instances
         """
         # Convert the logits to softmax scores and the scores to a prediction
+        primary_info: tuple[np.ndarray, np.ndarray] | None = None
         if fragment_node_pred is not None:
             primary_scores = softmax(fragment_node_pred, axis=1)
             primary_pred = np.argmax(primary_scores, axis=1)
+            primary_info = (primary_scores, primary_pred)
 
         # Loop over the fragment instances
         reco_fragments = []
@@ -125,13 +129,16 @@ class FragmentBuilder(BuilderBase):
             # Add optional arguments
             if sources is not None:
                 fragment.sources = sources[index]
+            if orig_index is not None:
+                fragment.orig_index = orig_index[index]
             if fragment_start_points is not None:
                 fragment.start_point = fragment_start_points[i]
             if fragment_end_points is not None and fragment.shape == TRACK_SHP:
                 fragment.end_point = fragment_end_points[i]
             if fragment_group_pred is not None:
                 fragment.particle_id = fragment_group_pred[i]
-            if fragment_node_pred is not None:
+            if primary_info is not None:
+                primary_scores, primary_pred = primary_info
                 fragment.primary_scores = primary_scores[i]
                 fragment.is_primary = bool(primary_pred[i])
 
@@ -140,7 +147,7 @@ class FragmentBuilder(BuilderBase):
 
         return reco_fragments
 
-    def build_truth(self, data):
+    def build_truth(self, data: dict[str, Any]) -> list[TruthFragment]:
         """Builds :class:`TruthFragment` objects from the full chain output.
 
         Parameters
@@ -157,20 +164,21 @@ class FragmentBuilder(BuilderBase):
 
     def _build_truth(
         self,
-        label_tensor,
-        points_label,
-        depositions_label,
-        depositions_q_label=None,
-        label_adapt_tensor=None,
-        points=None,
-        depositions=None,
-        label_g4_tensor=None,
-        points_g4=None,
-        depositions_g4=None,
-        sources_label=None,
-        sources=None,
-        particles=None,
-    ):
+        label_tensor: np.ndarray,
+        points_label: np.ndarray,
+        depositions_label: np.ndarray,
+        depositions_q_label: np.ndarray | None = None,
+        label_adapt_tensor: np.ndarray | None = None,
+        points: np.ndarray | None = None,
+        depositions: np.ndarray | None = None,
+        label_g4_tensor: np.ndarray | None = None,
+        points_g4: np.ndarray | None = None,
+        depositions_g4: np.ndarray | None = None,
+        sources_label: np.ndarray | None = None,
+        sources: np.ndarray | None = None,
+        orig_index_label: np.ndarray | None = None,
+        particles: list[Any] | None = None,
+    ) -> list[TruthFragment]:
         """Builds :class:`TruthFragment` objects from the full chain output.
 
         Parameters
@@ -202,6 +210,9 @@ class FragmentBuilder(BuilderBase):
             (N', 2) Tensor which contains the label module/tpc information
         sources : np.ndarray, optional
             (N, 2) Tensor which contains the module/tpc information
+        orig_index_label : np.ndarray, optional
+            (N') Tensor which contains the indexes in the original
+            point cloud (before any filtering or deghosting)
         particles : List[Particle], optional
             List of true particles
 
@@ -237,11 +248,12 @@ class FragmentBuilder(BuilderBase):
 
                 if part_id > -1:
                     # Load the MC particle information
-                    assert part_id < len(
-                        particles
-                    ), "Invalid particle ID found in fragment labels."
+                    if part_id >= len(particles):
+                        raise ValueError(
+                            "Invalid particle ID found in fragment labels."
+                        )
                     particle = particles[part_id]
-                    fragment = TruthFragment(**particle.as_dict())
+                    fragment = TruthFragment(**particle.as_dict(include_derived=False))
 
                     # Override the indexes of the fragment but preserve them
                     fragment.orig_id = part_id
@@ -267,11 +279,18 @@ class FragmentBuilder(BuilderBase):
                     fragment.depositions_q = depositions_q_label[index_ref]
                 if sources_label is not None:
                     fragment.sources = sources_label[index_ref]
+                if orig_index_label is not None:
+                    fragment.orig_index = orig_index_label[index_ref]
 
                 # If the fragments are not broken, can match to G4 info
                 if not broken:
                     # If available, append the Geant4 information
                     if label_g4_tensor is not None:
+                        if points_g4 is None or depositions_g4 is None:
+                            raise ValueError(
+                                "Geant4 points and depositions must be provided "
+                                "if label_g4_tensor is given."
+                            )
                         index_g4 = np.where(label_g4_tensor[:, CLUST_COL] == frag_id)[0]
                         fragment.index_g4 = index_g4
                         fragment.points_g4 = points_g4[index_g4]
@@ -279,6 +298,11 @@ class FragmentBuilder(BuilderBase):
 
             else:
                 # Fill the adapted long-form attributes otherwise
+                if points is None or depositions is None:
+                    raise ValueError(
+                        "Points and depositions must be provided to build "
+                        "adapted truth fragments."
+                    )
                 fragment.index_adapt = index_ref
                 fragment.points_adapt = points[index_ref]
                 fragment.depositions_adapt = depositions[index_ref]
@@ -290,7 +314,7 @@ class FragmentBuilder(BuilderBase):
 
         return truth_fragments
 
-    def load_reco(self, data):
+    def load_reco(self, data: dict[str, Any]) -> list[RecoFragment]:
         """Load :class:`RecoFragment` objects from their stored versions.
 
         Parameters
@@ -305,7 +329,13 @@ class FragmentBuilder(BuilderBase):
         """
         return self._load_reco(**data)
 
-    def _load_reco(self, reco_fragments, points=None, depositions=None, sources=None):
+    def _load_reco(
+        self,
+        reco_fragments: list[RecoFragment],
+        points: np.ndarray | None = None,
+        depositions: np.ndarray | None = None,
+        sources: np.ndarray | None = None,
+    ) -> list[RecoFragment]:
         """Load :class:`RecoFragment` objects from their stored versions.
 
         Parameters
@@ -327,10 +357,16 @@ class FragmentBuilder(BuilderBase):
         # Loop over the dictionaries
         for i, fragment in enumerate(reco_fragments):
             # Check that the fragment ID checks out
-            assert fragment.id == i, "The ordering of the stored fragments is wrong."
+            if fragment.id != i:
+                raise ValueError("The ordering of the stored fragments is wrong.")
 
             # Update the fragment with its long-form attributes
             if points is not None:
+                if depositions is None:
+                    raise ValueError(
+                        "Depositions must be provided to load reco fragments if "
+                        "points are provided."
+                    )
                 fragment.points = points[fragment.index]
                 fragment.depositions = depositions[fragment.index]
                 if sources is not None:
@@ -338,7 +374,7 @@ class FragmentBuilder(BuilderBase):
 
         return reco_fragments
 
-    def load_truth(self, data):
+    def load_truth(self, data: dict[str, Any]) -> list[TruthFragment]:
         """Load :class:`TruthFragment` objects from their stored versions.
 
         Parameters
@@ -355,17 +391,17 @@ class FragmentBuilder(BuilderBase):
 
     def _load_truth(
         self,
-        truth_fragments,
-        points_label=None,
-        depositions_label=None,
-        depositions_q_label=None,
-        points=None,
-        depositions=None,
-        points_g4=None,
-        depositions_g4=None,
-        sources_label=None,
-        sources=None,
-    ):
+        truth_fragments: list[TruthFragment],
+        points_label: np.ndarray | None = None,
+        depositions_label: np.ndarray | None = None,
+        depositions_q_label: np.ndarray | None = None,
+        points: np.ndarray | None = None,
+        depositions: np.ndarray | None = None,
+        points_g4: np.ndarray | None = None,
+        depositions_g4: np.ndarray | None = None,
+        sources_label: np.ndarray | None = None,
+        sources: np.ndarray | None = None,
+    ) -> list[TruthFragment]:
         """Load :class:`TruthFragment` objects from their stored versions.
 
         Parameters
@@ -400,10 +436,16 @@ class FragmentBuilder(BuilderBase):
         # Loop over the dictionaries
         for i, fragment in enumerate(truth_fragments):
             # Check that the fragment ID checks out
-            assert fragment.id == i, "The ordering of the stored fragments is wrong."
+            if fragment.id != i:
+                raise ValueError("The ordering of the stored fragments is wrong.")
 
             # Update the fragment with its long-form attributes
             if points_label is not None:
+                if depositions_label is None:
+                    raise ValueError(
+                        "Depositions must be provided to load truth fragments if "
+                        "label points are provided."
+                    )
                 fragment.points = points_label[fragment.index]
                 fragment.depositions = depositions_label[fragment.index]
                 if depositions_q_label is not None:
@@ -412,12 +454,22 @@ class FragmentBuilder(BuilderBase):
                     fragment.sources = sources_label[fragment.index]
 
             if points is not None:
+                if depositions is None:
+                    raise ValueError(
+                        "Depositions must be provided to load adapted truth "
+                        "fragments if points are provided."
+                    )
                 fragment.points_adapt = points[fragment.index_adapt]
                 fragment.depositions_adapt = depositions[fragment.index_adapt]
                 if sources is not None:
                     fragment.sources_adapt = sources[fragment.index_adapt]
 
             if points_g4 is not None:
+                if depositions_g4 is None:
+                    raise ValueError(
+                        "Depositions must be provided to load Geant4 truth "
+                        "fragments if points are provided."
+                    )
                 fragment.points_g4 = points_g4[fragment.index_g4]
                 fragment.depositions_g4 = depositions_g4[fragment.index_g4]
 

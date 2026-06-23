@@ -16,7 +16,7 @@ DBSCAN_DTYPE = (
 )
 
 
-@nb.experimental.jitclass(DBSCAN_DTYPE)
+@nb.experimental.jitclass(spec=DBSCAN_DTYPE)  # type: ignore[call-arg]
 class DBSCAN:
     """Class-version of the Numba-accelerate :func:`dbscan` function.
 
@@ -33,11 +33,11 @@ class DBSCAN:
 
     def __init__(
         self,
-        eps: nb.float32,
-        min_samples: nb.int64 = 1,
-        metric: nb.types.string = "euclidean",
-        p: nb.int64 = 2.0,
-    ):
+        eps: float,
+        min_samples: int = 1,
+        metric: str = "euclidean",
+        p: float = 2.0,
+    ) -> None:
         """Initialize the DBSCAN parameters.
 
         Parameters
@@ -52,6 +52,11 @@ class DBSCAN:
         p : float, default 2.
             p-norm factor for the Minkowski metric, if used
         """
+        if eps < 0.0:
+            raise ValueError("Epsilon must be non-negative.")
+        if min_samples <= 0:
+            raise ValueError("Minimum number of samples must be positive.")
+
         # For Euclidean, save time by using squared Euclidean
         if metric == "euclidean":
             metric = "sqeuclidean"
@@ -80,7 +85,7 @@ class DBSCAN:
         Returns
         -------
         np.ndarray
-            (N) Group assignments
+            (N,) Group assignments
         """
         # Produce a radius graph
         edge_index = radius_graph(x, self.eps, self.metric_id, self.p)
@@ -93,12 +98,12 @@ class DBSCAN:
 
 @nb.njit(cache=True)
 def dbscan(
-    x: nb.float32[:, :],
-    eps: nb.float32,
-    min_samples: nb.int64 = 1,
-    metric_id: nb.int64 = METRICS["euclidean"],
-    p: nb.float32 = 2.0,
-) -> nb.float32[:]:
+    x: np.ndarray,
+    eps: float,
+    min_samples: int = 1,
+    metric_id: int = METRICS["euclidean"],
+    p: float = 2.0,
+) -> np.ndarray:
     """Runs DBSCAN on 3D points and returns the group assignments.
 
     Parameters
@@ -117,8 +122,13 @@ def dbscan(
     Returns
     -------
     np.ndarray
-        (N) Group assignments
+        (N,) Group assignments
     """
+    if eps < 0.0:
+        raise ValueError("Epsilon must be non-negative.")
+    if min_samples <= 0:
+        raise ValueError("Minimum number of samples must be positive.")
+
     # Produce a radius graph
     edge_index = radius_graph(x, eps, metric_id, p)
 

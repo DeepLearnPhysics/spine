@@ -3,11 +3,11 @@
 import numpy as np
 from scipy.spatial.distance import cdist
 
+from spine.constants import TRACK_SHP
 from spine.data import RecoInteraction
 from spine.geo import GeoManager
 from spine.math.distance import farthest_pair
 from spine.post.base import PostBase
-from spine.utils.globals import TRACK_SHP
 from spine.utils.gnn.cluster import cluster_direction
 
 __all__ = ["CathodeCrosserProcessor"]
@@ -392,7 +392,7 @@ class CathodeCrosserProcessor(PostBase):
             # Get the end points of the track segment
             index = self.geo.get_volume_index(self.get_sources(particle), module, tpc)
             points = self.get_points(particle)[index]
-            idx0, idx1, _ = farthest_pair(points, "recursive")
+            idx0, idx1, _ = farthest_pair(points, iterative=True)
             end_points = points[[idx0, idx1]]
 
             # Find the point closest to the cathode

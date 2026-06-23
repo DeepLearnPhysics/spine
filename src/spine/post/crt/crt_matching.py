@@ -1,5 +1,7 @@
 """Post-processor in charge of finding matches between charge and CRT."""
 
+from collections import defaultdict
+
 import numpy as np
 
 from spine.post.base import PostBase
@@ -77,20 +79,24 @@ class CRTMatchProcessor(PostBase):
 
             # Clear previous crt matching information
             for part in particles:
-                part.reset_crt_match(typed=False)
+                part.reset_crt_match()
 
             # Run CRT matching
             matches = self.matcher.get_matches(particles, crthits)
 
             # Store the CRT information
+            crt_ids = defaultdict(list)
+            crt_times = defaultdict(list)
+            crt_scores = defaultdict(list)
             for part, crt, match in matches:
-                part.is_crt_matched = True
-                part.crt_ids.append(crt.id)
-                part.crt_times.append(crt.time)
-                part.crt_scores.append(match)
+                crt_ids[part.id].append(crt.id)
+                crt_times[part.id].append(crt.time)
+                crt_scores[part.id].append(match)
 
-            # Cast list attributes to numpy arrays
-            for part in particles:
-                part.crt_ids = np.asarray(part.crt_ids, dtype=np.int32)
-                part.crt_times = np.asarray(part.crt_times, dtype=np.float32)
-                part.crt_scores = np.asarray(part.crt_scores, dtype=np.float32)
+            # Cast list attributes to numpy arrays, store in particle objects
+            for part_id in crt_ids:
+                part = particles[part_id]
+                part.is_crt_matched = True
+                part.crt_ids = np.asarray(crt_ids[part_id], dtype=np.int32)
+                part.crt_times = np.asarray(crt_times[part_id], dtype=np.float32)
+                part.crt_scores = np.asarray(crt_scores[part_id], dtype=np.float32)

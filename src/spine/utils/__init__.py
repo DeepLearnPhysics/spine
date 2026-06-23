@@ -2,48 +2,24 @@
 
 This module contains reusable utility functions organized into several categories:
 
-**Core Utilities:**
-- `conditional`: Conditional imports for optional dependencies (ROOT, LArCV, MinkowskiEngine, PyTorch)
-- `config`: Configuration file parsing and validation
-- `factory`: Generic factory pattern implementations
-- `logger`: Logging utilities and configuration
-- `globals`: Global constants and enumerations
+Core utilities:
 
-**Decorators:**
-- `docstring`: Docstring inheritance utilities for class hierarchies
-- `jit`: JIT compilation decorators using Numba for performance optimization
+- ``conditional`` for optional imports such as ROOT, LArCV, MinkowskiEngine, and PyTorch.
+- ``factory`` and ``logger`` for application infrastructure.
+- ``globals`` for deprecated shared-constant compatibility.
 
-**Mathematical & Scientific:**
-- `cluster`: CNN clustering algorithms and utilities
-- `gnn`: Graph Neural Network utilities (network operations, clustering, voxel processing)
-- `particles`: Particle physics calculations and utilities
-- `pid`: Particle identification algorithms
-- `tracking`: Track reconstruction algorithms
-- `vertex`: Vertex reconstruction utilities
+Scientific utilities:
 
-**PyTorch Utilities:**
-- `torch`: PyTorch utilities organized into submodules:
-  - `torch.runtime`: Tensor operations, CUDA memory management, distributed operations
-  - `torch.devices`: CUDA device configuration and distributed training setup
-  - `torch.training`: Optimizer and learning rate scheduler factories
-  - `torch.scripts`: Utility scripts and PyTorch function extensions (e.g., cdist_fast)
-  - `torch.adabound`: Custom AdaBound and AdaBoundW optimizer implementations
+- ``cluster`` and ``gnn`` for clustering and graph operations.
+- ``particles``, ``pid``, ``tracking``, and ``vertex`` for reconstruction helpers.
+- ``energy_loss`` and ``optical`` for detector-physics calculations.
 
-**Hardware & Performance:**
-- `energy_loss`: Energy loss calculations and CSDA tables
-- `optical`: Optical detector simulation and analysis
-- `calib`: Calibration utilities and corrections
+Developer utilities:
 
-**Analysis Tools:**
-- `ppn`: Point Proposal Network utilities
-- `match`: Truth matching algorithms
-- `metrics`: Evaluation metrics and statistics
-- `inference`: Model inference utilities
-- `stopwatch`: Performance timing utilities
-
-**Data Processing:**
-- `unwrap`: Data unwrapping and processing utilities
-- `weighting`: Sample weighting and balancing
+- ``docstring`` for docstring inheritance.
+- ``jit`` for Numba-backed acceleration.
+- ``stopwatch`` for timing and profiling.
+- ``unwrap`` and ``weighting`` for data processing.
 
 Most utilities are designed to be framework-agnostic where possible, with PyTorch-specific
 functionality clearly separated and conditionally imported.

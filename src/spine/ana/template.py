@@ -2,7 +2,7 @@
 
 Use this template as a basis to build your own analysis script. An analysis
 script takes the output of the reconstruction and the post-processors and
-performs basic selection cuts and store the output to a CSV file.
+performs basic selection cuts and stores the output to a CSV file.
 """
 
 # Add the imports specific to this module here

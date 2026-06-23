@@ -5,15 +5,15 @@ from warnings import warn
 import numpy as np
 import torch
 
-from spine.data import IndexBatch
-from spine.model.layer.factories import loss_fn_factory
-from spine.utils.globals import (
+from spine.constants import (
     COORD_END_COLS,
     COORD_START_COLS,
     PART_COL,
     SHAPE_COL,
     TRACK_SHP,
 )
+from spine.data import IndexBatch
+from spine.model.layer.factories import loss_fn_factory
 from spine.utils.gnn.cluster import get_cluster_label_batch
 
 __all__ = ["NodeOrientLoss"]

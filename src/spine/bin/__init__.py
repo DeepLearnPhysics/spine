@@ -11,12 +11,8 @@ Main Components
              inference, and analysis with conditional PyTorch imports
 
 **Data Processing Utilities**:
-    larcv_check_valid.py : Validate LArCV files for corruption
-    larcv_count_entries.py : Count entries in LArCV files
-    larcv_find_duplicates.py : Find duplicate events in datasets
-    larcv_find_run.py : Find specific run numbers in datasets
-    larcv_inject_run_number.py : Inject run numbers into LArCV files
-    output_check_valid.py : Validate SPINE analysis output files
+    bin/larcv/ : Validate, inspect, and edit LArCV files
+    bin/output/ : Validate SPINE processing outputs
 
 Architecture
 ------------
@@ -35,9 +31,9 @@ Main CLI usage::
 
 Utility script usage::
 
-    python -m spine.bin.larcv_check_valid input.root
-    python -m spine.bin.larcv_count_entries data/*.root
-    python -m spine.bin.output_check_valid output.h5
+    python bin/larcv/larcv_check_valid.py input.root
+    python bin/larcv/larcv_count_entries.py data/*.root
+    python bin/output/output_check_valid.py output.h5
 
 Notes
 -----

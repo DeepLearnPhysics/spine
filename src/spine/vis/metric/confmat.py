@@ -1,5 +1,10 @@
 """Visualization tools for confusion matrices."""
 
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Mapping, Sequence
+
 import matplotlib as mpl
 import numpy as np
 import pandas as pd
@@ -10,15 +15,15 @@ mpl.rcParams.update({"figure.autolayout": True})
 
 
 def draw_confusion_matrix(
-    file_path,
-    num_classes=None,
-    mapping=None,
-    figure_name="confmat",
-    show_counts=False,
-    class_names=None,
-    figsize=(9, 6),
-    norm_axis=0,
-):
+    file_path: str | Path,
+    num_classes: int | None = None,
+    mapping: Mapping[int, Sequence[int]] | None = None,
+    figure_name: str = "confmat",
+    show_counts: bool = False,
+    class_names: Sequence[str] | None = None,
+    figsize: tuple[float, float] = (9, 6),
+    norm_axis: int = 0,
+) -> None:
     """Draws the confusion matrix from a file produced by the analysis
     script used to evaluate the classification accuracy.
 
@@ -53,10 +58,8 @@ def draw_confusion_matrix(
     fig.patch.set_alpha(0)
 
     # Normalize the histogram counts to the total number of entries in each true class bin
-    assert norm_axis in (
-        0,
-        1,
-    ), "The normalization axis must be 0 (recall) or 1 (precision)."
+    if norm_axis not in (0, 1):
+        raise ValueError("The normalization axis must be 0 (recall) or 1 (precision).")
     norms = np.sum(hist, axis=norm_axis)
     if norm_axis == 0:
         hist_norm = hist / norms
@@ -70,9 +73,9 @@ def draw_confusion_matrix(
     for i in range(num_classes):
         for j in range(num_classes):
             label = (
-                "{:0.3f}\n({})".format(hist_norm[i, j], int(hist[i, j]))
+                f"{hist_norm[i, j]:0.3f}\n({int(hist[i, j])})"
                 if show_counts
-                else "{:0.3f}".format(hist_norm[i, j])
+                else f"{hist_norm[i, j]:0.3f}"
             )
             plt.text(
                 j,
@@ -87,9 +90,8 @@ def draw_confusion_matrix(
     plt.xlabel("Class label")
     plt.ylabel("Class prediction")
     if class_names is not None:
-        assert (
-            len(class_names) == num_classes
-        ), "Must provide one class label per class."
+        if len(class_names) != num_classes:
+            raise ValueError("Must provide one class label per class.")
         plt.xticks(np.arange(num_classes), labels=class_names)
         plt.yticks(np.arange(num_classes), labels=class_names)
     plt.colorbar()
@@ -99,7 +101,11 @@ def draw_confusion_matrix(
     plt.show()
 
 
-def build_matrix(data, num_classes=None, mapping=None):
+def build_matrix(
+    data: pd.DataFrame,
+    num_classes: int | None = None,
+    mapping: Mapping[int, Sequence[int]] | None = None,
+) -> np.ndarray:
     """Builds a confusion matrix from a pixel-wise storage file.
 
     Parameters
@@ -120,16 +126,36 @@ def build_matrix(data, num_classes=None, mapping=None):
             for k in data.keys():
                 if k.startswith("score"):
                     classes.append(int(k[-1]))
+            if len(classes) == 0:
+                raise ValueError(
+                    "Could not infer the number of classes from the file. "
+                    "Please provide the `num_classes` parameter."
+                )
             num_classes = np.max(classes) + 1
 
-    assert (
-        mapping is None or len(mapping) == num_classes
-    ), "The number of classes should match those in the map."
+    assert num_classes is not None  # for the type checker
+
+    if mapping is not None and len(mapping) != num_classes:
+        raise ValueError("The number of classes should match those in the map.")
+
+    # Apply the requested class mapping, if any
+    pred = data.pred.to_numpy()
+    label = data.label.to_numpy()
+    if mapping is not None:
+        mapped_pred = np.full(len(pred), -1, dtype=np.int64)
+        mapped_label = np.full(len(label), -1, dtype=np.int64)
+        for class_id, source_ids in mapping.items():
+            mapped_pred[np.isin(pred, source_ids)] = class_id
+            mapped_label[np.isin(label, source_ids)] = class_id
+
+        mapped_mask = (mapped_pred >= 0) & (mapped_label >= 0)
+        pred = mapped_pred[mapped_mask]
+        label = mapped_label[mapped_mask]
 
     # Build the confusion matrix
     hist = np.histogram2d(
-        data.pred,
-        data.label,
+        pred,
+        label,
         bins=[num_classes, num_classes],
         range=[[0, num_classes], [0, num_classes]],
     )[0]
@@ -137,7 +163,11 @@ def build_matrix(data, num_classes=None, mapping=None):
     return hist
 
 
-def rebuild_matrix(data, num_classes=None, mapping=None):
+def rebuild_matrix(
+    data: pd.DataFrame,
+    num_classes: int | None = None,
+    mapping: Mapping[int, Sequence[int]] | None = None,
+) -> np.ndarray:
     """Builds a confusion matrix from an entry-wise storage file.
 
     Parameters
@@ -158,11 +188,17 @@ def rebuild_matrix(data, num_classes=None, mapping=None):
             for k in data.keys():
                 if k.startswith("count"):
                     classes.append(int(k[-1]))
+            if len(classes) == 0:
+                raise ValueError(
+                    "Could not infer the number of classes from the file. "
+                    "Please provide the `num_classes` parameter."
+                )
             num_classes = np.max(classes) + 1
 
-    assert (
-        mapping is None or len(mapping) == num_classes
-    ), "The number of classes should match those in the map."
+    assert num_classes is not None  # for the type checker
+
+    if mapping is not None and len(mapping) != num_classes:
+        raise ValueError("The number of classes should match those in the map.")
 
     # Rebuild confusion matrix
     hist = np.empty((num_classes, num_classes), dtype=np.int64)

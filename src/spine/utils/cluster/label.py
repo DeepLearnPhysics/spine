@@ -3,9 +3,7 @@
 import numpy as np
 import torch
 
-from spine.data import TensorBatch
-from spine.math.distance import METRICS, cdist, get_metric_id
-from spine.utils.globals import (
+from spine.constants import (
     CLUST_COL,
     COORD_COLS,
     DELTA_SHP,
@@ -16,6 +14,8 @@ from spine.utils.globals import (
     TRACK_SHP,
     VALUE_COL,
 )
+from spine.data import TensorBatch
+from spine.math.distance import METRICS, cdist, get_metric_id
 from spine.utils.gnn.cluster import break_clusters
 from spine.utils.torch.scripts import cdist_fast
 
@@ -70,7 +70,13 @@ class ClusterLabelAdapter:
         # Attributes used to fetch the correct functions
         self.torch, self.dtype, self.device = None, None, None
 
-    def __call__(self, clust_label, seg_label, seg_pred, ghost_pred=None):
+    def __call__(
+        self,
+        clust_label,
+        seg_label,
+        seg_pred,
+        orig_index=None,
+    ):
         """Adapts the cluster labels for one entry or a batch of entries.
 
         Parameters
@@ -81,8 +87,10 @@ class ClusterLabelAdapter:
             (M, 5) Segmentation label tensor
         seg_pred : Union[TensorBatch, np.ndarray, torch.Tensor]
             (M/N_deghost) Segmentation predictions for each voxel
-        ghost_pred : Union[TensorBatch, np.ndarray, torch.Tensor], optional
-            (M) Ghost predictions for each voxel
+        orig_index : Union[IndexBatch, np.ndarray, torch.Tensor], optional
+            (N_deghost) Index of the deghosted voxels in the original input
+            voxel ordering. This is used to map current predictions back into
+            the original label space.
 
         Returns
         -------
@@ -109,18 +117,21 @@ class ClusterLabelAdapter:
             )
             for b in range(clust_label.batch_size):
                 lower, upper = seg_pred.edges[b], seg_pred.edges[b + 1]
-                ghost_pred_b = ghost_pred[b] if ghost_pred is not None else None
+                orig_index_b = orig_index[b] if orig_index is not None else None
                 clust_label_adapted[lower:upper] = self._process(
-                    clust_label[b], seg_label[b], seg_pred[b], ghost_pred_b
+                    clust_label[b],
+                    seg_label[b],
+                    seg_pred[b],
+                    orig_index_b,
                 )
 
             return TensorBatch(clust_label_adapted, seg_pred.counts)
 
         else:
             # Otherwise, call the main process function directly
-            return self._process(clust_label, seg_label, seg_pred, ghost_pred)
+            return self._process(clust_label, seg_label, seg_pred, orig_index)
 
-    def _process(self, clust_label, seg_label, seg_pred, ghost_pred=None):
+    def _process(self, clust_label, seg_label, seg_pred, orig_index=None):
         """Adapts the cluster labels for one entry or a batch of entries.
 
         Parameters
@@ -131,8 +142,9 @@ class ClusterLabelAdapter:
             (M, 5) Segmentation label tensor
         seg_pred : Union[np.ndarray, torch.Tensor]
             (M/N_deghost) Segmentation predictions for each voxel
-        ghost_pred : Union[np.ndarray, torch.Tensor], optional
-            (M) Ghost predictions for each voxel
+        orig_index : Union[np.ndarray, torch.Tensor], optional
+            (N_deghost) Index of the deghosted voxels in the original input
+            voxel ordering.
 
         Returns
         -------
@@ -145,15 +157,16 @@ class ClusterLabelAdapter:
         if not len(coords):
             return self._ones((0, num_cols))
 
+        deghost_index = orig_index
+
         # If there are no points after deghosting, nothing to do
-        if ghost_pred is not None:
-            deghost_index = self._where(ghost_pred == 0)[0]
+        if deghost_index is not None:
             if not len(deghost_index):
                 return self._ones((0, num_cols))
 
         # If there are no label points in this event, return dummy labels
         if not len(clust_label):
-            if ghost_pred is None:
+            if deghost_index is None:
                 shape = (len(coords), num_cols)
                 dummy_labels = -self._ones(shape)
                 dummy_labels[:, :VALUE_COL] = coords
@@ -167,7 +180,7 @@ class ClusterLabelAdapter:
 
         # Build a tensor of predicted segmentation that includes ghost points
         seg_label = self._to_long(seg_label[:, SHAPE_COL])
-        if ghost_pred is not None and (len(ghost_pred) != len(seg_pred)):
+        if deghost_index is not None and (len(seg_pred) != len(coords)):
             seg_pred_long = self._to_long(GHOST_SHP * self._ones(len(coords)))
             seg_pred_long[deghost_index] = seg_pred
             seg_pred = seg_pred_long
@@ -245,7 +258,7 @@ class ClusterLabelAdapter:
 
         # Remove predicted ghost points from the labels, set the shape
         # column of the label to the segmentation predictions.
-        if ghost_pred is not None:
+        if deghost_index is not None:
             new_label = new_label[deghost_index]
             new_label[:, SHAPE_COL] = seg_pred[deghost_index]
         else:

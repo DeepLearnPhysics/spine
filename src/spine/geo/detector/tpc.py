@@ -1,7 +1,7 @@
 """TPC detector geometry classes."""
 
+from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import Dict, Iterator, List, Optional
 
 import numpy as np
 
@@ -28,7 +28,7 @@ class TPCChamber(Box):
 
     def __init__(
         self, position: np.ndarray, dimensions: np.ndarray, drift_dir: np.ndarray
-    ):
+    ) -> None:
         """Initialize the TPC object.
 
         Parameters
@@ -125,14 +125,14 @@ class TPCModule(Box):
         List of individual TPCs that make up the module
     """
 
-    chambers: List[TPCChamber]
+    chambers: list[TPCChamber]
 
     def __init__(
         self,
         positions: np.ndarray,
         dimensions: np.ndarray,
-        drift_dirs: Optional[np.ndarray] = None,
-    ):
+        drift_dirs: np.ndarray | None = None,
+    ) -> None:
         """Intialize the TPC module.
 
         Parameters
@@ -271,20 +271,20 @@ class TPCDetector(Box):
         (N_i) List of bounding planes which restrict the active volume
     """
 
-    modules: List[TPCModule]
-    chambers: List[TPCChamber]
-    limits: Optional[List[Plane]] = None
-    det_ids: Optional[np.ndarray] = None
+    modules: list[TPCModule]
+    chambers: list[TPCChamber]
+    limits: list[Plane] | None = None
+    det_ids: np.ndarray | None = None
 
     def __init__(
         self,
-        dimensions: List[List[float]],
-        positions: List[List[float]],
-        module_ids: List[int],
-        det_ids: Optional[List[int]] = None,
-        drift_dirs: Optional[List[List[float]]] = None,
-        limits: Optional[Dict[str, List[List[float]]]] = None,
-    ):
+        dimensions: list[list[float]],
+        positions: list[list[float]],
+        module_ids: list[int],
+        det_ids: list[int] | None = None,
+        drift_dirs: list[list[float]] | None = None,
+        limits: dict[str, list[list[float]]] | None = None,
+    ) -> None:
         """Parse the detector boundary configuration.
 
         Parameters
@@ -374,8 +374,8 @@ class TPCDetector(Box):
             self.limits = self.initialize_limits(**limits)
 
     def initialize_limits(
-        self, intercepts: List[List[float]], norms: List[List[float]]
-    ) -> List[Plane]:
+        self, intercepts: list[list[float]], norms: list[list[float]]
+    ) -> list[Plane]:
         """Initialize a list of bounding planes which restrict the active region.
 
         Parameters

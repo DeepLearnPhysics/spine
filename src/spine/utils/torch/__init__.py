@@ -12,6 +12,7 @@ Usage:
     from spine.utils.torch.devices import set_visible_devices
     from spine.utils.torch.training import optim_factory
     from spine.utils.torch.scripts import cdist_fast
+    from spine.utils.torch.runtime import create_summary_writer
 
 All utilities gracefully handle PyTorch unavailability.
 """

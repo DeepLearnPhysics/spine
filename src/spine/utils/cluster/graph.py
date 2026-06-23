@@ -11,9 +11,9 @@ import numpy as np
 import torch
 from torch_cluster import knn_graph, radius_graph
 
+from spine.constants import CLUST_COL, SHAPE_COL
+from spine.constants.factory import enum_factory
 from spine.data import IndexBatch, ObjectList, TensorBatch
-from spine.utils.enums import enum_factory
-from spine.utils.globals import CLUST_COL, SHAPE_COL
 from spine.utils.gnn.cluster import form_clusters
 from spine.utils.metrics import ari, eff, pur
 
@@ -157,8 +157,8 @@ class ClusterGraphConstructor:
                 counts = [len(self.shapes)] * coords.batch_size
                 single_counts = [len(c) for c in value]
                 is_edge = key.startswith("edge")
-                offsets = edge_offsets if is_edge else coords.edges[:-1]
-                graph[key] = IndexBatch(value, offsets, counts, single_counts)
+                spans = edge_counts if is_edge else coords.counts
+                graph[key] = IndexBatch(value, spans, counts, single_counts)
 
             else:
                 # Turn edge index/attributes into tensor batches
@@ -330,7 +330,7 @@ class ClusterGraphConstructor:
                 counts.append(counts_b)
 
             # Make an IndexBatch out of the list
-            clusts = IndexBatch(clusts, node_pred.edges[:-1], counts, single_counts)
+            clusts = IndexBatch(clusts, node_pred.counts, counts, single_counts)
             clust_shapes = TensorBatch(np.concatenate(shapes), counts)
 
             # Return

@@ -4,9 +4,9 @@ import MinkowskiEngine as ME
 import torch
 import torch.nn as nn
 
+from spine.constants import COORD_COLS, VALUE_COL
 from spine.data import TensorBatch
 from spine.model.layer.cnn.uresnet_layers import UResNet
-from spine.utils.globals import COORD_COLS, VALUE_COL
 
 __all__ = ["GraphSPICEEmbedder"]
 

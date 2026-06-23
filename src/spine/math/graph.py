@@ -7,7 +7,18 @@ which tremendously speeds up graph construction and computation in Numba.
 import numba as nb
 import numpy as np
 
-from .distance import METRICS, cdist, chebyshev, cityblock, minkowski, sqeuclidean
+from .distance import (
+    CHEBYSHEV,
+    CITYBLOCK,
+    EUCLIDEAN,
+    METRICS,
+    MINKOWSKI,
+    SQEUCLIDEAN,
+    chebyshev,
+    cityblock,
+    minkowski,
+    sqeuclidean,
+)
 
 CSR_DTYPE = (
     ("num_nodes", nb.int64),
@@ -16,32 +27,30 @@ CSR_DTYPE = (
 )
 
 
-@nb.experimental.jitclass(CSR_DTYPE)
+@nb.experimental.jitclass(spec=CSR_DTYPE)  # type: ignore[call-arg]
 class CSRGraph:
     """Numba-enabled compressed Sparse Row (CSR) representation of a sparse matrix.
 
     Attributes
     ----------
     neighbors : np.ndarray
-        (E) List of node neighbors in a compressed array
+        (E,) List of node neighbors in a compressed array
     offsets : np.ndarray
-        (N+1) Per-node slicing boundaries to query each node neighborhood
+        (N + 1,) Per-node slicing boundaries to query each node neighborhood
     num_nodes : int
         Number of nodes in the graph, N
     """
 
-    def __init__(
-        self, neighbors: nb.int64[:], offsets: nb.int64[:], num_nodes: nb.int64
-    ):
+    def __init__(self, neighbors: np.ndarray, offsets: np.ndarray, num_nodes: int):
         """Construct the Compressed Sparse Row (CSR) representation of a
         sparse matrix based on a list of nodes and edges.
 
         Parameters
         ----------
         neighbors : np.ndarray
-            (E) List of node neighbors in a compressed array
+            (E,) List of node neighbors in a compressed array
         offsets : np.ndarray
-            (N+1) Per-node slicing boundaries to query each node neighborhood
+            (N + 1,) Per-node slicing boundaries to query each node neighborhood
         num_nodes : int
             Number of nodes in the graph, N
         """
@@ -49,7 +58,7 @@ class CSRGraph:
         self.offsets = offsets
         self.num_nodes = num_nodes
 
-    def __getitem__(self, node_id: nb.int64):
+    def __getitem__(self, node_id: int) -> np.ndarray:
         """Get the list of neighbors associated with a node.
 
         Parameters
@@ -65,7 +74,7 @@ class CSRGraph:
         start, end = self.offsets[node_id], self.offsets[node_id + 1]
         return self.neighbors[start:end]
 
-    def num_neighbors(self, node_id: nb.int64):
+    def num_neighbors(self, node_id: int) -> int:
         """Returns the number of neighbors of a node.
 
         Parameters
@@ -84,8 +93,8 @@ class CSRGraph:
 
 @nb.njit
 def csr_graph(
-    edge_index: nb.int64[:, :], num_nodes: nb.int64, directed: nb.boolean = True
-) -> CSR_DTYPE:
+    edge_index: np.ndarray, num_nodes: int, directed: bool = True
+) -> CSRGraph:
     """Construct the Compressed Sparse Row (CSR) representation of a sparse
     matrix based on a list of nodes and edges.
 
@@ -129,11 +138,11 @@ def csr_graph(
 
 @nb.njit(cache=True)
 def connected_components(
-    edge_index: nb.int64[:, :],
-    num_nodes: nb.int64,
-    min_samples: nb.int64 = 1,
-    directed: nb.boolean = True,
-) -> nb.int64[:]:
+    edge_index: np.ndarray,
+    num_nodes: int,
+    min_samples: int = 1,
+    directed: bool = True,
+) -> np.ndarray:
     """Find connected components.
 
     Parameters
@@ -148,23 +157,23 @@ def connected_components(
     Returns
     -------
     np.ndarray
-        (N) Cluster label associated with each node
+        (N,) Cluster label associated with each node
     """
     # Initialize the CSR data structure
     graph = csr_graph(edge_index, num_nodes, directed)
 
     # Initialize output
     labels = np.arange(graph.num_nodes)
-    visited = np.zeros(graph.num_nodes, dtype=nb.boolean)
-    component = np.empty(graph.num_nodes, dtype=nb.int64)
-    comp_idx = np.empty(1, dtype=nb.int64)  # Acts as pointer
+    visited = np.zeros(graph.num_nodes, dtype=np.bool_)
+    component = np.empty(graph.num_nodes, dtype=np.int64)
+    comp_idx = np.empty(1, dtype=np.int64)  # Acts as pointer
 
     # Loop through all nodes and start DFS from unvisited nodes
     label = 0
     min_neighbors = min_samples - 1
     for node in range(graph.num_nodes):
         if not visited[node]:
-            if graph.num_neighbors(node) > min_neighbors:
+            if graph.num_neighbors(node) >= min_neighbors:
                 # Perform DFS and collect all nodes in this connected component
                 comp_idx[0] = 0
                 dfs_iterative(graph, visited, node, component, comp_idx)
@@ -185,34 +194,34 @@ def connected_components(
 
 @nb.njit(cache=True)
 def dfs(
-    graph: CSR_DTYPE,
-    visited: nb.boolean[:],
-    node: nb.int64,
-    component: nb.int64[:],
-    comp_idx: nb.int64[:],
-):
+    graph: CSRGraph,
+    visited: np.ndarray,
+    node: int,
+    component: np.ndarray,
+    comp_idx: np.ndarray,
+) -> None:
     """Does a depth-first search and builds a connected component.
 
     Parameters
     ----------
     graph : CSRGraph
         CSR representation of a graph
-    visitied : np.ndarray
-        (N) Boolean array which specified weather a node has been visited or not.
+    visited : np.ndarray
+        (N,) Boolean array which specifies whether a node has been visited.
     node : int
         Current node index
     component : np.ndarray
-        (N) Current component (padded)
+        (N,) Current component (padded)
     comp_idx : np.ndarray
         Current component index (pointer)
 
     Notes
     -----
     This implementation is recursive, which is the fastest implementation but
-    silently throws segementation faults if the maximum recursion depth is
+    silently throws segmentation faults if the maximum recursion depth is
     reached. The :func:`dfs_iterative` function is safer, but slightly slower.
     """
-    # Mark the node as visited, incremant pointer
+    # Mark the node as visited, increment pointer
     visited[node] = True
     component[comp_idx[0]] = node
     comp_idx[0] += 1
@@ -225,24 +234,24 @@ def dfs(
 
 @nb.njit(cache=True)
 def dfs_iterative(
-    graph: CSR_DTYPE,
-    visited: nb.boolean[:],
-    start_node: nb.int64,
-    component: nb.int64[:],
-    comp_idx: nb.int64[:],
-):
+    graph: CSRGraph,
+    visited: np.ndarray,
+    start_node: int,
+    component: np.ndarray,
+    comp_idx: np.ndarray,
+) -> None:
     """Does a depth-first search and builds a connected component.
 
     Parameters
     ----------
     graph : CSRGraph
         CSR representation of a graph
-    visitied : np.ndarray
-        (N) Boolean array which specified weather a node has been visited or not.
-    node : int
-        Current node index
+    visited : np.ndarray
+        (N,) Boolean array which specifies whether a node has been visited.
+    start_node : int
+        Starting node index
     component : np.ndarray
-        (N) Current component (padded)
+        (N,) Current component (padded)
     comp_idx : np.ndarray
         Current component index (pointer)
 
@@ -253,7 +262,7 @@ def dfs_iterative(
     to the overall execution speed.
     """
     # Initialize a node stack (fixed size)
-    stack = np.empty(graph.num_nodes, dtype=nb.int64)
+    stack = np.empty(graph.num_nodes, dtype=np.int64)
     stack[0] = start_node
     stack_idx = 1
 
@@ -276,11 +285,11 @@ def dfs_iterative(
 
 @nb.njit(cache=True)
 def radius_graph(
-    x: nb.float32[:, :],
-    radius: nb.float32,
-    metric_id: nb.int64 = METRICS["euclidean"],
-    p: nb.float32 = 2.0,
-) -> nb.int64[:, :]:
+    x: np.ndarray,
+    radius: float,
+    metric_id: int = METRICS["euclidean"],
+    p: float = 2.0,
+) -> np.ndarray:
     """Builds an undirected radius graph.
 
     This function generates a list of edges in a graph which connects all nodes
@@ -304,31 +313,29 @@ def radius_graph(
     """
     # Determine the distance function to use. If the metric is Euclidean, it
     # is cheaper to square the radius and use the squared Euclidean metric
-    if metric_id == np.int64(0):
+    if metric_id == MINKOWSKI:
         return _radius_graph_minkowski(x, radius, p)
-    elif metric_id == np.int64(1):
+    elif metric_id == CITYBLOCK:
         return _radius_graph_cityblock(x, radius)
-    elif metric_id == np.int64(2):
+    elif metric_id == EUCLIDEAN:
         radius = radius * radius
         return _radius_graph_sqeuclidean(x, radius)
-    elif metric_id == np.int64(3):
+    elif metric_id == SQEUCLIDEAN:
         return _radius_graph_sqeuclidean(x, radius)
-    elif metric_id == np.int64(4):
+    elif metric_id == CHEBYSHEV:
         return _radius_graph_chebyshev(x, radius)
     else:
         raise ValueError("Distance metric not recognized.")
 
 
 @nb.njit(cache=True)
-def _radius_graph_minkowski(
-    x: nb.float32[:, :], radius: nb.float32, p: nb.float32
-) -> nb.float32[:, :]:
+def _radius_graph_minkowski(x: np.ndarray, radius: float, p: float) -> np.ndarray:
     # Initialize a data structure to hold edges
     num_nodes = len(x)
     max_edges = num_nodes * (num_nodes - 1) // 2
     edge_index = np.empty((max_edges, 2), dtype=np.int64)
 
-    # Loop over pairs of nodes, ass edges if the distance fits the bill
+    # Loop over pairs of nodes, add edges if the distance fits the bill
     edge_count = 0
     for i in range(num_nodes):
         for j in range(i + 1, num_nodes):
@@ -340,15 +347,13 @@ def _radius_graph_minkowski(
 
 
 @nb.njit(cache=True)
-def _radius_graph_cityblock(
-    x: nb.float32[:, :], radius: nb.float32
-) -> nb.float32[:, :]:
+def _radius_graph_cityblock(x: np.ndarray, radius: float) -> np.ndarray:
     # Initialize a data structure to hold edges
     num_nodes = len(x)
     max_edges = num_nodes * (num_nodes - 1) // 2
     edge_index = np.empty((max_edges, 2), dtype=np.int64)
 
-    # Loop over pairs of nodes, ass edges if the distance fits the bill
+    # Loop over pairs of nodes, add edges if the distance fits the bill
     edge_count = 0
     for i in range(num_nodes):
         for j in range(i + 1, num_nodes):
@@ -360,15 +365,13 @@ def _radius_graph_cityblock(
 
 
 @nb.njit(cache=True)
-def _radius_graph_sqeuclidean(
-    x: nb.float32[:, :], radius: nb.float32
-) -> nb.float32[:, :]:
+def _radius_graph_sqeuclidean(x: np.ndarray, radius: float) -> np.ndarray:
     # Initialize a data structure to hold edges
     num_nodes = len(x)
     max_edges = num_nodes * (num_nodes - 1) // 2
     edge_index = np.empty((max_edges, 2), dtype=np.int64)
 
-    # Loop over pairs of nodes, ass edges if the distance fits the bill
+    # Loop over pairs of nodes, add edges if the distance fits the bill
     edge_count = 0
     for i in range(num_nodes):
         for j in range(i + 1, num_nodes):
@@ -380,15 +383,13 @@ def _radius_graph_sqeuclidean(
 
 
 @nb.njit(cache=True)
-def _radius_graph_chebyshev(
-    x: nb.float32[:, :], radius: nb.float32
-) -> nb.float32[:, :]:
+def _radius_graph_chebyshev(x: np.ndarray, radius: float) -> np.ndarray:
     # Initialize a data structure to hold edges
     num_nodes = len(x)
     max_edges = num_nodes * (num_nodes - 1) // 2
     edge_index = np.empty((max_edges, 2), dtype=np.int64)
 
-    # Loop over pairs of nodes, ass edges if the distance fits the bill
+    # Loop over pairs of nodes, add edges if the distance fits the bill
     edge_count = 0
     for i in range(num_nodes):
         for j in range(i + 1, num_nodes):
@@ -400,9 +401,24 @@ def _radius_graph_chebyshev(
 
 
 @nb.njit(cache=True)
+def _find_root(parents: np.ndarray, node: int) -> int:
+    """Find the root parent of a node with path compression."""
+    root = node
+    while parents[root] != root:
+        root = parents[root]
+
+    while parents[node] != node:
+        parent = parents[node]
+        parents[node] = root
+        node = parent
+
+    return root
+
+
+@nb.njit(cache=True)
 def union_find(
-    edge_index: nb.int64[:, :], count: nb.int64, return_inverse: bool = True
-) -> nb.int64[:]:
+    edge_index: np.ndarray, count: int, return_inverse: bool = True
+) -> tuple[np.ndarray, dict[int, np.ndarray]]:
     """Numba implementation of the Union-Find algorithm.
 
     This function assigns a group to each node in a graph, provided
@@ -420,18 +436,29 @@ def union_find(
     Returns
     -------
     np.ndarray
-        (C) Group assignments for each of the nodes in the graph
+        (C,) Group assignments for each of the nodes in the graph
     Dict[int, np.ndarray]
         Dictionary which maps groups to indexes
     """
-    labels = np.arange(count)
-    groups = {i: np.array([i]) for i in labels}
-    for e in edge_index:
-        li, lj = labels[e[0]], labels[e[1]]
-        if li != lj:
-            labels[groups[lj]] = li
-            groups[li] = np.concatenate((groups[li], groups[lj]))
-            del groups[lj]
+    if count == 0:
+        labels = np.empty(0, dtype=np.int64)
+        groups = {0: labels}
+        del groups[0]
+        return labels, groups
+
+    parents = np.arange(count)
+    for src, dst in edge_index:
+        src_root = _find_root(parents, int(src))
+        dst_root = _find_root(parents, int(dst))
+        if src_root != dst_root:
+            if src_root < dst_root:
+                parents[dst_root] = src_root
+            else:
+                parents[src_root] = dst_root
+
+    labels = np.empty(count, dtype=np.int64)
+    for node in range(count):
+        labels[node] = _find_root(parents, node)
 
     if return_inverse:
         mask = np.zeros(count, dtype=np.bool_)
@@ -439,5 +466,14 @@ def union_find(
         mapping = np.empty(count, dtype=labels.dtype)
         mapping[mask] = np.arange(np.sum(mask))
         labels = mapping[labels]
+
+    groups = {labels[0]: np.array([0])}
+    for node in range(1, count):
+        label = labels[node]
+        node_arr = np.array([node])
+        if label in groups:
+            groups[label] = np.concatenate((groups[label], node_arr))
+        else:
+            groups[label] = node_arr
 
     return labels, groups

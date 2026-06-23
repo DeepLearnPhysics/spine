@@ -3,10 +3,10 @@
 import numpy as np
 import torch
 
+from spine.constants import PRINT_COL, VTX_COLS
 from spine.data import Meta, TensorBatch
 from spine.geo import GeoManager
 from spine.model.layer.factories import loss_fn_factory
-from spine.utils.globals import PRINT_COL, VTX_COLS
 from spine.utils.gnn.cluster import get_cluster_label_batch
 
 from .node_class import NodeClassLoss

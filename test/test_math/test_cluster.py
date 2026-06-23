@@ -76,10 +76,10 @@ class TestMathCluster:
                 [[0.0, 0.0, 0.0], [0.1, 0.1, 0.1], [5.0, 5.0, 5.0]], dtype=np.float32
             )
 
-            # Test fit method if available
-            if hasattr(clusterer, "fit"):
-                labels = clusterer.fit(points)
-                assert len(labels) == len(points)
+            labels = clusterer.fit_predict(points)
+            assert len(labels) == len(points)
+            assert labels[0] == labels[1]
+            assert labels[2] != labels[0]
 
         except (ImportError, TypeError, AttributeError):
             pytest.skip("DBSCAN class not available")
@@ -117,6 +117,28 @@ class TestMathCluster:
 
         except (ImportError, TypeError, AttributeError):
             pytest.skip("DBSCAN parameters test not available")
+
+    def test_dbscan_rejects_invalid_parameters(self):
+        """DBSCAN should reject invalid density parameters."""
+        try:
+            from spine.math.cluster import DBSCAN, dbscan
+
+            points = np.zeros((1, 3), dtype=np.float32)
+
+            with pytest.raises(ValueError, match="non-negative"):
+                DBSCAN(eps=-1.0)
+
+            with pytest.raises(ValueError, match="positive"):
+                DBSCAN(eps=1.0, min_samples=0)
+
+            with pytest.raises(ValueError, match="non-negative"):
+                dbscan(points, eps=-1.0)
+
+            with pytest.raises(ValueError, match="positive"):
+                dbscan(points, eps=1.0, min_samples=0)
+
+        except (ImportError, TypeError, AttributeError):
+            pytest.skip("DBSCAN invalid parameter test not available")
 
     def test_dbscan_noise_detection(self):
         """Test DBSCAN noise detection."""

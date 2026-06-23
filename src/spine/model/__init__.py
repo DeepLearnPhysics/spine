@@ -3,52 +3,35 @@
 This module handles the construction, training, and execution of deep learning models
 for liquid argon time projection chamber (LArTPC) data analysis.
 
-**Model Management:**
-- `ModelManager`: Central class for model lifecycle management
-  - Model instantiation and configuration
-  - Training loop orchestration
-  - Validation and testing
-  - Checkpoint saving and loading
-  - Multi-GPU support
+Model management:
 
-**Supported Model Architectures:**
-- **UResNet**: U-Net with ResNet blocks for semantic segmentation
-- **PPN**: Point Proposal Network for particle endpoint detection
-- **SPICE**: Spatial Point cloud Instance Clustering and Embedding
-- **GrapPA**: Graph neural networks for particle analysis
-- **Chain Models**: End-to-end reconstruction pipelines
+- ``ModelManager`` coordinates model instantiation, training, evaluation, and checkpoints.
 
-**Key Features:**
-- Modular architecture with configurable components
-- Support for sparse and dense convolutions
-- Graph neural network implementations
-- Multi-task learning capabilities
-- Automatic mixed precision training
-- Distributed training support
-- Comprehensive logging and monitoring
+Supported model families:
 
-**Training Pipeline:**
-1. Data loading and preprocessing
-2. Model architecture selection
-3. Loss function configuration
-4. Optimizer and scheduler setup
-5. Training loop with validation
-6. Model evaluation and metrics
-7. Result visualization and analysis
+- ``UResNet`` for semantic segmentation.
+- ``PPN`` for endpoint proposals.
+- ``SPICE`` for point-cloud instance clustering.
+- ``GrapPA`` and related graph models for relational reconstruction.
+- End-to-end chain models for full reconstruction workflows.
 
-**Example Usage:**
-```python
-from spine.model import ModelManager
+Key features:
 
-# Initialize model manager with configuration
-manager = ModelManager(config)
+- Modular configuration-driven model assembly.
+- Support for sparse and dense convolutions.
+- Graph neural network components.
+- Mixed precision and distributed training support.
 
-# Train the model
-manager.train(train_loader, val_loader)
+Example
+-------
 
-# Run inference
-results = manager.forward(data_batch)
-```
+.. code-block:: python
+
+   from spine.model import ModelManager
+
+   manager = ModelManager(config)
+   manager.train(train_loader, val_loader)
+   results = manager.forward(data_batch)
 
 The module integrates with the broader SPINE ecosystem for data I/O,
 visualization, and post-processing workflows.

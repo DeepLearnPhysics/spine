@@ -5,27 +5,39 @@ import argparse
 import os
 import pathlib
 import sys
-from typing import List
 
+from spine.banner import ascii_logo
 from spine.config import load_config_file
 from spine.config.loader import resolve_config_path
 from spine.config.operations import parse_value, set_nested_value
 
 
+def format_banner() -> str:
+    """Build the CLI banner string.
+
+    Returns
+    -------
+    str
+        SPINE ASCII logo followed by a blank separator line.
+    """
+    return f"\n{ascii_logo}\n"
+
+
 def main(
     config: str,
-    source: List[str],
-    source_list: str,
-    output: str,
-    n: int,
-    nskip: int,
-    entry_list: str,
-    skip_entry_list: str,
-    log_dir: str,
-    weight_prefix: str,
-    weight_path: str,
-    config_overrides: List[str],
-):
+    source: list[str] | None,
+    source_list: str | None,
+    output: str | None,
+    n: int | None,
+    nskip: int | None,
+    entry_list: str | None,
+    skip_entry_list: str | None,
+    log_dir: str | None,
+    weight_prefix: str | None,
+    weight_path: str | None,
+    weight_list: str | None,
+    config_overrides: list[str] | None,
+) -> None:
     """Main driver for training/validation/inference/analysis.
 
     Performs these basic functions:
@@ -36,30 +48,37 @@ def main(
     ----------
     config : str
         Path to the configuration file
-    source : List[str]
+    source : list[str], optional
         List of paths to the input files
-    source_list : str
+    source_list : str, optional
         Path to a text file containing a list of data file paths
-    output : str
+    output : str, optional
         Path to the output file
-    n : int
+    n : int, optional
         Number of iterations to run
-    nskip : int
+    nskip : int, optional
         Number of iterations to skip
-    entry_list : str
+    entry_list : str, optional
         Path to a text file containing a list of entries to process
-    skip_entry_list : str
+    skip_entry_list : str, optional
         Path to a text file containing a list of entries to skip
-    log_dir : str
+    log_dir : str, optional
         Path to the directory for storing the training log
-    weight_prefix : str
+    weight_prefix : str, optional
         Path to the directory for storing the training weights
-    weight_path : str
+    weight_path : str, optional
         Path to a weight file or pattern for multiple weight files to load
         the model weights
-    config_overrides : List[str]
+    weight_list : str, optional
+        Path to a text file containing a list of weight file paths to load
+        the model weights
+    config_overrides : list[str], optional
         List of config overrides in the form "key.path=value"
     """
+    # Print the banner before configuration loading starts, since loading may
+    # trigger download/cache messages and warnings.
+    print(format_banner(), end="")
+
     # Load the configuration tools to find the appropriate config file
     cfg_file = resolve_config_path(config, current_dir=os.getcwd())
 
@@ -118,6 +137,8 @@ def main(
     # Override the weight loading path if provided
     if weight_path is not None:
         cfg["model"]["weight_path"] = weight_path
+    if weight_list is not None:
+        cfg["model"]["weight_list"] = weight_list
 
     # Apply any generic config overrides from --set arguments
     if config_overrides:
@@ -138,6 +159,13 @@ def main(
             # Set the nested value (returns tuple of (config, applied))
             cfg, _ = set_nested_value(cfg, key_path, value)
 
+    # Override distributed settings from environment variables (SLURM/torchrun)
+    # This handles multi-node training where each process sees 1 GPU but is part
+    # of a larger distributed group
+    if "RANK" in os.environ and "WORLD_SIZE" in os.environ:
+        cfg["base"]["world_size"] = int(os.environ["WORLD_SIZE"])
+        cfg["base"]["distributed"] = True
+
     # For actual training/inference, we need the main functionality
     from spine.main import run
 
@@ -145,7 +173,7 @@ def main(
     run(cfg)
 
 
-def cli():
+def cli() -> None:
     """Main CLI entry point with conditional torch imports."""
     parser = argparse.ArgumentParser(
         description="SPINE - Scalable Particle Imaging with Neural Embeddings",
@@ -187,11 +215,11 @@ For ML training/inference functionality, ensure PyTorch is installed:
     )
 
     # Add mutually exclusive group for source input
-    group = parser.add_mutually_exclusive_group()
-    group.add_argument(
+    source_group = parser.add_mutually_exclusive_group()
+    source_group.add_argument(
         "-s", "--source", nargs="+", type=str, help="List of paths to the input files"
     )
-    group.add_argument(
+    source_group.add_argument(
         "-S",
         "--source-list",
         help="Path to a text file containing a list of data file paths",
@@ -227,10 +255,15 @@ For ML training/inference functionality, ensure PyTorch is installed:
     )
 
     # Add path to weight file or pattern for loading model weights
-    parser.add_argument(
+    weight_group = parser.add_mutually_exclusive_group()
+    weight_group.add_argument(
         "--weight-path",
         help="Path string a weight file or pattern for multiple weight "
         "files to load model weights",
+    )
+    weight_group.add_argument(
+        "--weight-list",
+        help="Path to a text file containing a list of weight file paths",
     )
 
     # Add option to dynamically override any config parameter using dot notation
@@ -273,6 +306,7 @@ For ML training/inference functionality, ensure PyTorch is installed:
         log_dir=args.log_dir,
         weight_prefix=args.weight_prefix,
         weight_path=args.weight_path,
+        weight_list=args.weight_list,
         config_overrides=args.config_overrides,
     )
 

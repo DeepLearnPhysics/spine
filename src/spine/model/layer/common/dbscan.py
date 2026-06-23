@@ -3,9 +3,7 @@
 import numpy as np
 import torch
 
-from spine.data import IndexBatch, TensorBatch
-from spine.math.cluster import DBSCAN as spine_dbscan
-from spine.utils.globals import (
+from spine.constants import (
     COORD_COLS,
     COORD_END_COLS,
     COORD_START_COLS,
@@ -15,6 +13,8 @@ from spine.utils.globals import (
     SHOWR_SHP,
     TRACK_SHP,
 )
+from spine.data import IndexBatch, TensorBatch
+from spine.math.cluster import DBSCAN as spine_dbscan
 from spine.utils.point_break_clustering import PointBreakClusterer
 from spine.utils.ppn import PPNPredictor
 
@@ -250,7 +250,7 @@ class DBSCAN(torch.nn.Module):
         clusts_nb = np.empty(len(clusts), dtype=object)
         clusts_nb[:] = clusts
 
-        index = IndexBatch(clusts_nb, offsets, counts, single_counts)
+        index = IndexBatch(clusts_nb, data.counts, counts, single_counts)
         if len(shapes):
             shapes = TensorBatch(np.concatenate(shapes), counts)
         else:

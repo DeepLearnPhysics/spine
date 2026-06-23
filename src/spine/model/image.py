@@ -17,6 +17,7 @@ class ImageClassifier(nn.Module):
     image as belonging to a certain class.
 
     .. code-block:: yaml
+
         model:
           name: image_class
           modules:

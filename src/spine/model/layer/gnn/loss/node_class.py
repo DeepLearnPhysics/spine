@@ -5,8 +5,8 @@ from warnings import warn
 import numpy as np
 import torch
 
+from spine.constants.factory import enum_factory
 from spine.model.layer.factories import loss_fn_factory
-from spine.utils.enums import enum_factory
 from spine.utils.gnn.cluster import (
     get_cluster_closest_label_batch,
     get_cluster_label_batch,

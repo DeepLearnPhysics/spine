@@ -1,6 +1,8 @@
 # typical files made in repo
 log*
 !logger.py
+!src/spine/utils/log/
+!src/spine/utils/log/*.py
 weights*
 .cache/
 *.txt
@@ -88,6 +90,9 @@ target/
 
 # Jupyter Notebook
 .ipynb_checkpoints
+
+# macOS Finder metadata
+.DS_Store
 
 # pyenv
 .python-version

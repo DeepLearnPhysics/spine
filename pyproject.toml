@@ -20,15 +20,15 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Physics",
     "Topic :: Scientific/Engineering :: Artificial Intelligence"
 ]
 keywords = ["machine learning", "physics", "neutrino", "sparse convolution", "graph neural network"]
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 
 # Core dependencies (minimal functionality)
 dependencies = [
@@ -57,6 +57,12 @@ viz = [
     "seaborn>=0.11.0",
 ]
 
+# Model-adjacent runtime dependencies. PyTorch and compiled torch ecosystem
+# packages are installed separately in model-capable environments.
+model = [
+    "tensorboard>=2.10.0",
+]
+
 # Development and testing
 dev = [
     "pytest>=6.0.0",
@@ -77,6 +83,7 @@ dev = [
 # All optional dependencies (PyTorch ecosystem installed separately)
 all = [
     "spine[viz]",
+    "spine[model]",
     "spine[dev]",
 ]
 
@@ -87,6 +94,7 @@ core = [
 
 [project.scripts]
 spine = "spine.bin.cli:cli"
+spine-config = "spine.bin.config:cli"
 
 [tool.setuptools.dynamic]
 version = {attr = "spine.version.__version__"}
@@ -102,7 +110,7 @@ spine = ["config/*.cfg", "*.yaml", "*.yml"]
 # Black code formatting
 [tool.black]
 line-length = 88
-target-version = ['py38', 'py39', 'py310', 'py311']
+target-version = ['py310', 'py311', 'py312', 'py313']
 include = '\.pyi?$'
 extend-exclude = '''
 /(

@@ -152,7 +152,7 @@ def edge_assignment_score_batch(edge_index, edge_pred, clusts, track_node=None):
 
     # Make a new EdgeIndexBatch out of the selected edges
     new_edge_index = EdgeIndexBatch(
-        np.vstack(edge_index_list).T, edge_counts, edge_index.offsets, directed=True
+        np.vstack(edge_index_list).T, edge_counts, edge_index.spans, directed=True
     )
 
     return new_edge_index, TensorBatch(group_ids, clusts.counts), scores

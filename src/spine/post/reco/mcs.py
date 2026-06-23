@@ -2,8 +2,7 @@
 
 import numpy as np
 
-from spine.post.base import PostBase
-from spine.utils.globals import (
+from spine.constants import (
     KAON_PID,
     MUON_PID,
     PID_MASSES,
@@ -11,6 +10,7 @@ from spine.utils.globals import (
     PROT_PID,
     TRACK_SHP,
 )
+from spine.post.base import PostBase
 from spine.utils.mcs import ANGLE_METHODS, mcs_angles, mcs_fit
 from spine.utils.tracking import get_track_segments
 

@@ -2,8 +2,8 @@
 
 import numpy as np
 
+from spine.constants import SHOWR_SHP, TRACK_SHP
 from spine.post.base import PostBase
-from spine.utils.globals import SHOWR_SHP, TRACK_SHP
 from spine.utils.vertex import get_vertex
 
 __all__ = ["VertexProcessor"]

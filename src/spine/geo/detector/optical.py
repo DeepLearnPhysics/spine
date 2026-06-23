@@ -1,7 +1,6 @@
 """Optical detector geometry classes."""
 
 from dataclasses import dataclass
-from typing import List, Optional, Union
 
 import numpy as np
 
@@ -40,19 +39,19 @@ class OpticalVolume(Box):
     centroid: np.ndarray
     positions: np.ndarray
     sizes: np.ndarray
-    shape: Union[str, List[str]]
-    shape_ids: Optional[np.ndarray] = None
-    det_ids: Optional[np.ndarray] = None
+    shape: str | list[str]
+    shape_ids: np.ndarray | None = None
+    det_ids: np.ndarray | None = None
 
     def __init__(
         self,
         centroid: np.ndarray,
         positions: np.ndarray,
         sizes: np.ndarray,
-        shape: Union[str, List[str]],
-        shape_ids: Optional[np.ndarray] = None,
-        det_ids: Optional[np.ndarray] = None,
-    ):
+        shape: str | list[str],
+        shape_ids: np.ndarray | None = None,
+        det_ids: np.ndarray | None = None,
+    ) -> None:
         """Initialize the optical volume.
 
         Parameters
@@ -131,7 +130,7 @@ class OptDetector(Box):
 
     Attributes
     ----------
-    volumes: List[OpticalVolume]
+    volumes: list[OpticalVolume]
         List of optical volumes in the detector
     segmentation : str
         The level of optical detector segmentation ('tpc' or 'module')
@@ -140,22 +139,22 @@ class OptDetector(Box):
         to the entire index of optical detectors, rather than one volume
     """
 
-    volumes: List[OpticalVolume]
+    volumes: list[OpticalVolume]
     segmentation: str
     global_index: bool
 
     def __init__(
         self,
         volume: str,
-        volume_offsets: List[np.ndarray],
-        shape: Union[str, List[str]],
-        dimensions: Union[List[float], List[List[float]]],
-        positions: List[List[float]],
-        shape_ids: Optional[List[int]] = None,
-        det_ids: Optional[List[int]] = None,
+        volume_offsets: list[np.ndarray],
+        shape: str | list[str],
+        dimensions: list[float] | list[list[float]],
+        positions: list[list[float]],
+        shape_ids: list[int] | None = None,
+        det_ids: list[int] | None = None,
         global_index: bool = False,
         mirror: bool = False,
-    ):
+    ) -> None:
         """Parse the optical detector configuration.
 
         Parameters
@@ -380,7 +379,7 @@ class OptDetector(Box):
         return self.volumes[0].sizes
 
     @property
-    def shape(self) -> Union[str, List[str]]:
+    def shape(self) -> str | list[str]:
         """Returns the shape of all optical detectors.
 
         Returns
@@ -391,7 +390,7 @@ class OptDetector(Box):
         return self.volumes[0].shape
 
     @property
-    def shape_ids(self) -> Optional[np.ndarray]:
+    def shape_ids(self) -> np.ndarray | None:
         """Returns the shape IDs of all optical detectors.
 
         Returns
@@ -413,7 +412,7 @@ class OptDetector(Box):
         return np.concatenate(shape_ids)
 
     @property
-    def det_ids(self) -> Optional[np.ndarray]:
+    def det_ids(self) -> np.ndarray | None:
         """Returns the detector IDs of all optical detectors.
 
         Returns

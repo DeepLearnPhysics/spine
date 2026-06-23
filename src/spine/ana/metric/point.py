@@ -4,7 +4,7 @@ import numpy as np
 from scipy.spatial.distance import cdist
 
 from spine.ana.base import AnaBase
-from spine.utils.globals import (
+from spine.constants import (
     COORD_COLS,
     LOWES_SHP,
     PPN_END_COLS,

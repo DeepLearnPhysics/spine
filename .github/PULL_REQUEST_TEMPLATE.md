@@ -24,7 +24,7 @@ Describe the tests you ran to verify your changes. Provide instructions so revie
 
 **Test Configuration**:
 - OS: [e.g., Ubuntu 22.04]
-- Python version: [e.g., 3.9.7]
+- Python version: [e.g., 3.10.13]
 - SPINE version: [e.g., main branch, commit abc1234]
 
 ## Checklist

@@ -10,6 +10,7 @@ repos:
         exclude: '\.md$'  # Allow trailing spaces in Markdown
       - id: end-of-file-fixer
       - id: check-yaml
+        args: [--unsafe]  # Allow project-specific YAML tags such as !download.
       - id: check-toml  # Added for pyproject.toml
       - id: check-json
       - id: check-added-large-files

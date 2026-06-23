@@ -2,7 +2,9 @@
 
 import glob
 import os
+from collections.abc import Mapping
 from copy import deepcopy
+from typing import Any
 
 import numpy as np
 
@@ -25,7 +27,8 @@ class ModelManager:
         network_input,
         loss_input=None,
         weight_path=None,
-        train=None,
+        weight_list=None,
+        train: Mapping[str, Any] | None = None,
         to_numpy=False,
         time_dependent_loss=False,
         dtype="float32",
@@ -49,6 +52,8 @@ class ModelManager:
             List of keys of parsed objects to input into the loss forward
         weight_path : str, optional
             Path to global model weights to load
+        weight_list : str, optional
+            Path to a text file containing a list of weight file paths to load
         to_numpy : int, default False
             Cast model output to numpy ndarray
         time_dependant_loss : bool, default False
@@ -68,20 +73,36 @@ class ModelManager:
         iter_per_epoch : int, optional
             Number of iterations per epoch (relevant for training)
         """
+        # Check that torch is available for model operations
+        if not TORCH_AVAILABLE:
+            raise ImportError(
+                "PyTorch is required to use the model manager. "
+                "Install with: pip install spine[model]"
+            )
+
         # Save parameters
-        self.train = train
+        self.train: bool = train is not None
         self.to_numpy = to_numpy
         self.time_dependant = time_dependent_loss
         self.dtype = getattr(torch, dtype)
         self.distributed = distributed
-        self.rank = rank
-        self.device = "cpu" if self.rank is None else f"cuda:{self.rank}"
+        self.rank = rank  # Global rank (process ID in distributed group)
         self.main_process = rank is None or rank == 0
+
+        # Determine device: use current_device() which setup_ddp() already configured
+        if self.rank is None:
+            self.device = "cpu"
+            self.device_id = None
+        else:
+            # In distributed mode, setup_ddp() already called torch.cuda.set_device(local_rank)
+            # This ensures we use the correct local GPU index, not global rank
+            self.device_id = torch.cuda.current_device()
+            self.device = f"cuda:{self.device_id}"
 
         # Initialize the timers and the configuration dictionary
         self.watch = StopwatchManager()
         self.watch.initialize("forward")
-        if train:
+        if self.train:
             self.watch.initialize(["backward", "save"])
 
         # If anomaly detection is requested, set it
@@ -97,14 +118,14 @@ class ModelManager:
         net_cls, loss_cls = model_factory(name)
         try:
             self.net = net_cls(**modules)
-            self.net.to(device=rank, dtype=self.dtype)
+            self.net.to(device=self.device, dtype=self.dtype)
         except Exception as err:
             msg = f"Failed to instantiate {net_cls}"
             raise type(err)(f"{err}\n{msg}")
 
         try:
             self.loss_fn = loss_cls(**modules)
-            self.loss_fn.to(device=rank, dtype=self.dtype)
+            self.loss_fn.to(device=self.device, dtype=self.dtype)
         except Exception as err:
             msg = f"Failed to instantiate {loss_cls}"
             raise type(err)(f"{err}\n{msg}")
@@ -113,22 +134,39 @@ class ModelManager:
         if train is not None:
             self.initialize_train(**train, iter_per_epoch=iter_per_epoch)
         else:
-            self.train = False
             self.net.eval()
 
         # If requested, freeze some/all the model weights
         self.freeze_weights()
 
-        # If requested, load the some/all the model weights
+        # Parse the list of weight files to consider for loading
         self.weight_path = weight_path
-        self.load_weights(weight_path)
+        if weight_path is not None:
+            # If a path is provided, check if it is an simple path or a wildcard pattern
+            if weight_list is not None:
+                raise ValueError("Cannot specify both `weight_path` and `weight_list`.")
+            if not os.path.isfile(weight_path):
+                if self.train or not glob.glob(weight_path):
+                    raise ValueError(f"Weight file not found: {weight_path}")
+                self.weight_path = glob.glob(weight_path)
+
+        elif weight_list is not None:
+            with open(weight_list, "r", encoding="utf-8") as f:
+                self.weight_path = [line.strip() for line in f if line.strip()]
+                if not self.weight_path:
+                    raise ValueError(f"No weight paths found in {weight_list}.")
+
+        # Load the weights only if a single weight file is provided. If multiple weight
+        # files are provided, the loading will be handled in a loop in the main driver.
+        if self.weight_path is None or isinstance(self.weight_path, str):
+            self.load_weights(self.weight_path)
 
         # If the execution is distributed, wrap with DDP
         if self.distributed:
             self.net = torch.nn.parallel.DistributedDataParallel(
                 self.net,
-                device_ids=[rank],
-                output_device=rank,
+                device_ids=[self.device_id],
+                output_device=self.device_id,
                 find_unused_parameters=find_unused_parameters,
             )
 
@@ -223,6 +261,9 @@ class ModelManager:
         dict
             Dictionary of model and loss outputs
         """
+        # Reset active stopwatches
+        self.watch.reset_if_active()
+
         # Reset the gradient accumulation, free memory
         if self.train:
             self.optimizer.zero_grad(set_to_none=True)
@@ -356,23 +397,27 @@ class ModelManager:
 
         # Loop over provided model paths
         for module, weight_path, model_name in weight_paths:
-            # Check that the requested weight file can be found. If the path
-            # points at > 1 file, skip for now (loaded in a loop later)
+            # Module-level weight paths must resolve to a single checkpoint.
             if not os.path.isfile(weight_path):
-                if not self.train and glob.glob(weight_path):
-                    continue
-
                 raise ValueError(
                     "Weight file not found for module " f"{module}: {weight_path}"
                 )
 
             # Load weight file into existing model
             logger.info(
-                "Restoring weights for module %s " "from %s...", module, weight_path
+                "Restoring weights for module %s from %s...", module, weight_path
             )
             with open(weight_path, "rb") as f:
                 # Read checkpoint
-                checkpoint = torch.load(f, map_location=self.device)
+                try:
+                    checkpoint = torch.load(
+                        f, map_location=self.device, weights_only=True
+                    )
+                except TypeError as err:
+                    if "weights_only" not in str(err):
+                        raise
+                    f.seek(0)
+                    checkpoint = torch.load(f, map_location=self.device)
                 state_dict = checkpoint["state_dict"]
 
                 # Check that all the needed weights are provided
@@ -387,7 +432,7 @@ class ModelManager:
                     state_dict = {}
                     for name in self.net.state_dict():
                         if f"{module}." in name:
-                            suffix = "." if len(model_name) else ""
+                            suffix = "." if len(model_name) > 0 else ""
                             key = name.replace(f"{module}.", f"{model_name}{suffix}")
                             if key in checkpoint["state_dict"].keys():
                                 state_dict[name] = checkpoint["state_dict"][key]
@@ -454,7 +499,7 @@ class ModelManager:
 
                 value = data[name]
                 if isinstance(value, TensorBatch):
-                    value = data[name].to_tensor(device=self.rank, dtype=self.dtype)
+                    value = data[name].to_tensor(device=self.device, dtype=self.dtype)
                 input_dict[param] = value
 
             # Load the data products for the loss function
@@ -468,7 +513,9 @@ class ModelManager:
 
                     value = data[name]
                     if isinstance(value, TensorBatch):
-                        value = data[name].to_tensor(device=self.rank, dtype=self.dtype)
+                        value = data[name].to_tensor(
+                            device=self.device, dtype=self.dtype
+                        )
                     loss_dict[param] = value
 
         return input_dict, loss_dict

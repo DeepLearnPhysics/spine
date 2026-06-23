@@ -15,11 +15,16 @@ import sys
 sys.path.insert(0, os.path.abspath("../../src"))
 sys.path.insert(0, os.path.abspath("./"))
 
+# Force SPINE optional-dependency detection into documentation-safe mode.
+# RTD/Sphinx may inject mocked modules for unavailable packages; for docs we
+# want those dependencies to behave as absent so lazy proxies remain import-safe.
+os.environ.setdefault("SPINE_DOC_BUILD", "1")
+
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 project = "SPINE"
-copyright = "2025, DeepLearningPhysics Collaboration"
+copyright = "2024, DeepLearningPhysics Collaboration"
 author = "DeepLearningPhysics Collaboration"
 
 # Get version from spine package
@@ -39,6 +44,7 @@ except ImportError:
 # ones.
 extensions = [
     "sphinx.ext.autodoc",
+    "sphinx.ext.autosummary",
     "sphinx.ext.napoleon",
     "sphinx.ext.viewcode",
     "sphinx.ext.autosectionlabel",
@@ -64,10 +70,20 @@ napoleon_include_private_with_doc = False
 autodoc_default_options = {
     "members": True,
     "member-order": "bysource",
-    "special-members": True,
-    "undoc-members": True,
-    "exclude-members": "__weakref__",
+    "undoc-members": False,
+    "private-members": False,
+    "exclude-members": "__weakref__, __dataclass_fields__, __dataclass_params__, __dataclass_transform__, __post_init__, __match_args__, __init__",
 }
+
+# Autosummary settings for automatic API generation
+autosummary_generate = True
+autosummary_imported_members = False
+
+# Show all inherited members in docs
+autodoc_inherit_docstrings = True
+
+# Show only class docstring, not __init__ (since dataclass attributes are already documented)
+autoclass_content = "class"
 
 # Mock imports for optional dependencies that may not be available during doc build
 # These packages need to be installed separately by users for full functionality
@@ -77,7 +93,6 @@ autodoc_mock_imports = [
     "torch_geometric",
     "torch_scatter",
     "torch_cluster",
-    "torch_sparse",
     "MinkowskiEngine",
     "MinkowskiFunctional",
     "MinkowskiNonlinearity",
@@ -91,14 +106,12 @@ autodoc_mock_imports = [
 
 html_theme = "sphinx_rtd_theme"
 html_theme_options = {
-    "show_toc_level": 2,
     "collapse_navigation": False,
     "sticky_navigation": True,
     "navigation_depth": 4,
     "includehidden": True,
     "titles_only": False,
     "logo_only": True,
-    "display_version": True,
     "version_selector": True,
 }
 
@@ -130,6 +143,9 @@ napoleon_custom_sections = [
     ("Configuration", "params_style"),
     ("Output", "params_style"),
 ]
+
+# Numpydoc settings
+numpydoc_xref_param_type = False
 
 autosectionlabel_prefix_document = True
 

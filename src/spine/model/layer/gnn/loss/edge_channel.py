@@ -3,12 +3,13 @@
 import numpy as np
 import torch
 
+from spine.constants import CLUST_COL, GROUP_COL, PART_COL, PRGRP_COL
+from spine.constants.factory import enum_factory
 from spine.model.layer.factories import loss_fn_factory
-from spine.utils.enums import enum_factory
-from spine.utils.globals import CLUST_COL, GROUP_COL, PART_COL, PRGRP_COL
 from spine.utils.gnn.cluster import get_cluster_label_batch
 from spine.utils.gnn.evaluation import (
     edge_assignment_batch,
+    edge_assignment_forest_batch,
     edge_assignment_from_graph_batch,
     edge_purity_mask_batch,
 )
@@ -148,7 +149,7 @@ class EdgeChannelLoss(torch.nn.Module):
             )
 
             part_ids = get_cluster_label_batch(clust_label, clusts, PART_COL)
-            edge_assn = edge_assignement_from_graph_batch(
+            edge_assn = edge_assignment_from_graph_batch(
                 edge_index, true_edge_index, part_ids
             )
 
