@@ -6,6 +6,7 @@ import argparse
 from larcv import larcv  # pylint: disable=W0611
 from ROOT import TFile  # pylint: disable=E0611
 from tqdm import tqdm
+from utils import get_tree, get_tree_key
 
 
 def main(source, source_list, tree_name):
@@ -32,13 +33,10 @@ def main(source, source_list, tree_name):
     for file_path in tqdm(source):
         # Get the tree to get the number of entries from
         f = TFile(file_path, "r")
-        if tree_name is None:
-            key = [key.GetName() for key in f.GetListOfKeys()][0]
-        else:
-            key = f"{tree_name}_tree"
+        key = get_tree_key(f, tree_name)
 
         # Count the number of entries in this file
-        num_entries = getattr(f, key).GetEntries()
+        num_entries = get_tree(f, key).GetEntries()
         f.Close()
 
         # Dump number for this file, increment

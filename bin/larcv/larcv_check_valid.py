@@ -7,6 +7,7 @@ import numpy as np
 from larcv import larcv  # pylint: disable=W0611
 from ROOT import TFile  # pylint: disable=E0611
 from tqdm import tqdm
+from utils import get_tree, list_tree_keys
 
 
 def main(source, source_list, output):
@@ -51,8 +52,8 @@ def main(source, source_list, output):
             unique_counts.append([])
             continue
 
-        keys = [key.GetName() for key in f.GetListOfKeys()]
-        trees = [f.Get(key) for key in keys]
+        keys = list_tree_keys(f)
+        trees = [get_tree(f, key) for key in keys]
         num_entries = [tree.GetEntries() for tree in trees]
         f.Close()
 

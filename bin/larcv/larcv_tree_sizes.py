@@ -7,6 +7,7 @@ from pathlib import Path
 from larcv import larcv  # pylint: disable=W0611
 from ROOT import TFile  # pylint: disable=E0611
 from tqdm import tqdm
+from utils import get_tree
 
 
 def main(source, source_list, tree_names, suffix=None, replace=False):
@@ -54,7 +55,7 @@ def main(source, source_list, tree_names, suffix=None, replace=False):
         f = TFile(file_path, "r")
 
         # Loop over the entries in the file
-        num_entries = f.Get(tree_keys[0]).GetEntries()
+        num_entries = get_tree(f, tree_keys[0]).GetEntries()
         for entry in tqdm(range(num_entries)):
             # Write the entry number
             out_file.write(f"{entry}")
@@ -62,7 +63,7 @@ def main(source, source_list, tree_names, suffix=None, replace=False):
             # Loop over the tree names
             for tree_key, tree_branch in zip(tree_keys, branch_keys):
                 # Get the tree entry
-                tree = getattr(f, tree_key)
+                tree = get_tree(f, tree_key)
                 tree.GetEntry(entry)
 
                 # Get the branch size

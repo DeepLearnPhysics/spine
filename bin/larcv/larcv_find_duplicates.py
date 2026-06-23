@@ -7,6 +7,7 @@ import numpy as np
 from larcv import larcv  # pylint: disable=W0611
 from ROOT import TFile  # pylint: disable=E0611
 from tqdm import tqdm
+from utils import get_branch_key, get_tree, get_tree_key
 
 
 def main(source, source_list, output, tree_name):
@@ -43,14 +44,11 @@ def main(source, source_list, output, tree_name):
     for idx, file_path in enumerate(tqdm(source)):
         # Get the tree to get the number of entries from
         f = TFile(file_path, "r")
-        if tree_name is None:
-            key = [key.GetName() for key in f.GetListOfKeys()][0]
-        else:
-            key = f"{tree_name}_tree"
-        branch_key = key.replace("_tree", "_branch")
+        key = get_tree_key(f, tree_name)
+        branch_key = get_branch_key(key)
 
         # Check the number of entries in the file
-        tree = getattr(f, key)
+        tree = get_tree(f, key)
         num_entries = tree.GetEntries()
 
         # Get the event information of the first entry in the file
