@@ -1,14 +1,14 @@
-"""Neutrino direction reconstruction module."""
+"""Calorimetric interaction direction reconstruction module."""
 
 import numpy as np
 
 from spine.post.base import PostBase
 
-__all__ = ["NeutrinoDirectionProcessor"]
+__all__ = ["CalorimetricDirectionProcessor"]
 
 
-class NeutrinoDirectionProcessor(PostBase):
-    """Reconstructs the direction of each neutrino interaction.
+class CalorimetricDirectionProcessor(PostBase):
+    """Reconstructs the direction of each interaction.
 
     For each interaction, this algorithm takes the reconstructed vertex,
     projects all voxel positions onto a unit sphere centered at the vertex,
@@ -16,9 +16,9 @@ class NeutrinoDirectionProcessor(PostBase):
     The final direction is the normalized sum.
     """
 
-    name = "nu_direction"
+    name = "calorimetric_direction"
 
-    aliases = ("reconstruct_nu_direction",)
+    aliases = ("reconstruct_calorimetric_direction", "reconstruct_nu_direction")
 
     _upstream = ("vertex",)
 
@@ -27,7 +27,7 @@ class NeutrinoDirectionProcessor(PostBase):
         run_mode="both",
         truth_point_mode="points",
     ):
-        """Initialize the neutrino direction reconstruction parameters.
+        """Initialize the calorimetric direction reconstruction parameters.
 
         Parameters
         ----------
@@ -47,7 +47,7 @@ class NeutrinoDirectionProcessor(PostBase):
             self.update_keys({self.truth_point_key: True})
 
     def process(self, data):
-        """Reconstruct the neutrino direction for each interaction.
+        """Reconstruct the direction for each interaction.
 
         Parameters
         ----------
@@ -60,7 +60,7 @@ class NeutrinoDirectionProcessor(PostBase):
                 self._reconstruct_direction(inter, data, points_key)
 
     def _reconstruct_direction(self, inter, data, points_key):
-        """Reconstruct the neutrino direction for one interaction.
+        """Reconstruct the direction for one interaction.
 
         Parameters
         ----------
