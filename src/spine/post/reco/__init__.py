@@ -1,6 +1,7 @@
 """Reconstruction post-processor modules."""
 
 from .calo import *
+from .calorimetric_direction import *
 from .cathode_cross import *
 from .cluster import *
 from .direction import *
