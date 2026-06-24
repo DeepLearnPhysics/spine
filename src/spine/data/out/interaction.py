@@ -41,7 +41,7 @@ class InteractionBase(OutBase):
         (P) Number of primary particles of each species in this interaction
     vertex : np.ndarray
         (3) Coordinates of the interaction vertex
-    nu_dir : np.ndarray
+    calo_dir : np.ndarray
         (3) Calorimetric direction of the interaction
     is_fiducial : bool
         Whether this interaction vertex is inside the fiducial volume
@@ -101,7 +101,7 @@ class InteractionBase(OutBase):
         ),
     )
 
-    nu_dir: np.ndarray = field(
+    calo_dir: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
         metadata=FieldMetadata(
             length=3,

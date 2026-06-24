@@ -18,7 +18,7 @@ class CalorimetricDirectionProcessor(PostBase):
 
     name = "calorimetric_direction"
 
-    aliases = ("reconstruct_calorimetric_direction", "reconstruct_nu_direction")
+    aliases = ("reconstruct_calorimetric_direction", "reconstruct_calo_direction")
 
     _upstream = ("vertex",)
 
@@ -96,7 +96,7 @@ class CalorimetricDirectionProcessor(PostBase):
         if total_weight <= 0:
             return
 
-        nu_dir = np.sum(dirs * weights[:, np.newaxis], axis=0) / total_weight
-        norm = np.linalg.norm(nu_dir)
+        calo_dir = np.sum(dirs * weights[:, np.newaxis], axis=0) / total_weight
+        norm = np.linalg.norm(calo_dir)
         if norm > 0:
-            inter.nu_dir = nu_dir / norm
+            inter.calo_dir = calo_dir / norm
