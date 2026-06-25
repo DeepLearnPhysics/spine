@@ -65,6 +65,7 @@ class AnaBase(ABC):
         obj_type=None,
         run_mode=None,
         truth_point_mode=None,
+        truth_index_mode=None,
         truth_dep_mode=None,
         append=False,
         overwrite=False,
@@ -86,6 +87,10 @@ class AnaBase(ABC):
             If specified, tells which attribute of the :class:`TruthFragment`,
             :class:`TruthParticle` or :class:`TruthInteraction` object to use
             to fetch its point coordinates
+        truth_index_mode : str, optional
+            If specified, tells which attribute of the :class:`TruthFragment`,
+            :class:`TruthParticle` or :class:`TruthInteraction` object to use
+            to fetch its index
         truth_dep_mode : str, optional
             If specified, tells which attribute of the :class:`TruthFragment`,
             :class:`TruthParticle` or :class:`TruthInteraction` object to use
@@ -167,6 +172,10 @@ class AnaBase(ABC):
             self.truth_point_mode = truth_point_mode
             self.truth_point_key = self.point_modes[truth_point_mode]
             self.truth_index_mode = truth_point_mode.replace("points", "index")
+
+        # If a truth index mode is specified, store it
+        if truth_index_mode is not None:
+            self.truth_index_mode = truth_index_mode
 
         # If a truth deposition mode is specified, store it
         if truth_dep_mode is not None:

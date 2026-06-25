@@ -37,6 +37,7 @@ class ClusterAna(AnaBase):
         metrics=("pur", "eff", "ari"),
         label_key="clust_label_adapt",
         label_col=None,
+        truth_index_mode="index_adapt",
         **kwargs,
     ):
         """Initialize the analysis script.
@@ -61,6 +62,9 @@ class ClusterAna(AnaBase):
             using the raw reconstruction output
         label_col : str, optional
             Column name in the label tensor specifying the aggregation label_col
+        truth_index_mode : str, default 'index_adapt'
+            Name of the truth object index attribute to use when rebuilding
+            truth labels from objects
         **kwargs : dict, optional
             Additional arguments to pass to :class:`AnaBase`
         """
@@ -79,7 +83,7 @@ class ClusterAna(AnaBase):
         )
 
         # Initialize the parent class
-        super().__init__(obj_type, "both", **kwargs)
+        super().__init__(obj_type, "both", truth_index_mode=truth_index_mode, **kwargs)
 
         # If the clustering is not done per object, fix target
         if not per_object:
@@ -167,7 +171,7 @@ class ClusterAna(AnaBase):
                 labels = -np.ones(num_points)
                 num_truth = len(data[f"truth_{obj_type}s"])
                 for i, obj in enumerate(data[f"truth_{obj_type}s"]):
-                    labels[obj.index_adapt] = i
+                    labels[self.get_index(obj)] = i
 
             # Build the cluster predictions for this object type
             preds = -np.ones(num_points)
