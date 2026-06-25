@@ -72,6 +72,16 @@ class TestNeutrinoCreation:
         assert neutrino.target == 1000060120  # Carbon-12
         assert neutrino.nucleon == 2212  # proton
 
+    def test_neutrino_dir_property(self):
+        """Test Neutrino direction derived from momentum."""
+        from spine.data import Neutrino
+
+        neutrino = Neutrino(momentum=np.array([0.0, 3.0, 4.0], dtype=np.float32))
+        np.testing.assert_allclose(neutrino.dir, [0.0, 0.6, 0.8])
+
+        neutrino = Neutrino(momentum=np.zeros(3, dtype=np.float32))
+        assert np.isnan(neutrino.dir).all()
+
     def test_neutrino_interaction_types(self):
         """Test different neutrino interaction types."""
         from spine.constants import NuInteractionScheme

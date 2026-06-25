@@ -372,6 +372,15 @@ class TestRecoInteraction:
         assert leading_shower is not None
         assert leading_shower.id == 3
 
+    def test_recointeraction_reco_dir_alias(self):
+        """RecoInteraction reco_dir should alias dir."""
+        from spine.data.out.interaction import RecoInteraction
+
+        direction = np.array([1.0, 0.0, 0.0], dtype=np.float32)
+        obj = RecoInteraction(id=0, dir=direction)
+
+        np.testing.assert_array_equal(obj.reco_dir, obj.dir)
+
 
 class TestTruthInteraction:
     """Test TruthInteraction class."""
@@ -418,6 +427,20 @@ class TestTruthInteraction:
 
         assert obj.pdg_code == 12
         assert obj.energy_init == 1.0
+
+    def test_truthinteraction_dir_and_reco_dir(self):
+        """TruthInteraction dir should be true direction and reco_dir settable."""
+        from spine.data.out.interaction import TruthInteraction
+
+        reco_dir = np.array([1.0, 0.0, 0.0], dtype=np.float32)
+        obj = TruthInteraction(
+            id=0,
+            momentum=np.array([0.0, 3.0, 4.0], dtype=np.float32),
+            reco_dir=reco_dir,
+        )
+
+        np.testing.assert_allclose(obj.dir, [0.0, 0.6, 0.8])
+        np.testing.assert_array_equal(obj.reco_dir, reco_dir)
 
     def test_truthinteraction_from_particles_preserves_units(self):
         """Truth interactions should inherit particle coordinate units."""

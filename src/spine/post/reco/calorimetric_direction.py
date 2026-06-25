@@ -99,4 +99,7 @@ class CalorimetricDirectionProcessor(PostBase):
         calo_dir = np.sum(dirs * weights[:, np.newaxis], axis=0) / total_weight
         norm = np.linalg.norm(calo_dir)
         if norm > 0:
-            inter.dir = calo_dir / norm
+            if inter.is_truth:
+                inter.reco_dir = calo_dir / norm
+            else:
+                inter.dir = calo_dir / norm
