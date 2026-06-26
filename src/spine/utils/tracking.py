@@ -488,7 +488,7 @@ def get_track_segments(
                 continue
 
             # Compute principal component of the segment, use it as direction
-            if len(seg) > min_count:
+            if len(seg) > min_count and len(seg) > 1:
                 direction = sm.decomposition.principal_components(coordinates[seg])[0]
                 if np.dot(direction, track_dir) < 0.0:
                     direction = -direction

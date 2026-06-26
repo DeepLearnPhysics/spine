@@ -134,7 +134,7 @@ class MCSEnergyProcessor(PostBase):
 
                 # Get point coordinates
                 points = self.get_points(obj)
-                if len(points) == 0:
+                if len(points) < 2:
                     continue
 
                 # Get the list of segment directions
