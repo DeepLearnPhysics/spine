@@ -17,6 +17,9 @@ from pathlib import Path
 from typing import Optional
 from urllib.error import HTTPError, URLError
 
+CACHE_DIR_MODE = 0o775
+CACHE_FILE_MODE = 0o664
+
 
 def get_cache_dir() -> Path:
     """Get the directory for caching downloaded files.
@@ -225,7 +228,15 @@ def download_from_url(
         cache_dir = get_cache_dir()
 
     # Create cache directory if it doesn't exist
-    cache_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+    except PermissionError as exc:
+        raise PermissionError(
+            "Cannot create SPINE download cache directory "
+            f"'{cache_dir}'. Check directory ownership/permissions or set "
+            "SPINE_CACHE_DIR to a writable location."
+        ) from exc
+    _chmod_best_effort(cache_dir, CACHE_DIR_MODE)
 
     # Generate filename from URL
     filename = url_to_filename(url)
@@ -239,7 +250,16 @@ def download_from_url(
     # Acquire lock to prevent concurrent downloads
     lock_file = None
     try:
-        lock_file = open(lock_path, "w", encoding="utf-8")
+        try:
+            lock_file = open(lock_path, "w", encoding="utf-8")
+        except PermissionError as exc:
+            raise PermissionError(
+                "Cannot create or write SPINE download lock file "
+                f"'{lock_path}'. The cache directory may not be writable by "
+                "this user; check shared cache permissions or set "
+                "SPINE_CACHE_DIR to a writable location."
+            ) from exc
+        _chmod_best_effort(lock_path, CACHE_FILE_MODE)
 
         # Try to acquire lock with timeout
         start_time = time.time()
@@ -273,9 +293,16 @@ def download_from_url(
             return str(output_path.absolute())
 
         # Download to a temporary file first (atomic operation)
-        temp_fd, temp_path = tempfile.mkstemp(
-            dir=cache_dir, prefix=f".{filename}.", suffix=".tmp"
-        )
+        try:
+            temp_fd, temp_path = tempfile.mkstemp(
+                dir=cache_dir, prefix=f".{filename}.", suffix=".tmp"
+            )
+        except PermissionError as exc:
+            raise PermissionError(
+                "Cannot create temporary SPINE download file in cache "
+                f"directory '{cache_dir}'. Check shared cache permissions or set "
+                "SPINE_CACHE_DIR to a writable location."
+            ) from exc
         temp_path = Path(temp_path)
 
         try:
@@ -283,9 +310,11 @@ def download_from_url(
 
             # Download the file
             download_file(url, temp_path, expected_hash)
+            _chmod_best_effort(temp_path, CACHE_FILE_MODE)
 
             # Atomically move to final location (overwrites if exists)
             temp_path.replace(output_path)
+            _chmod_best_effort(output_path, CACHE_FILE_MODE)
 
             print(f"✓ Download complete: {output_path}")
             return str(output_path.absolute())
@@ -352,6 +381,30 @@ def _validate_cached_file(
                 pass  # Best effort cleanup
             return False
 
+    except PermissionError as e:
+        raise PermissionError(
+            "Cannot read cached SPINE download "
+            f"'{file_path}'. This usually means the file was created by another "
+            "user without group/world read permissions. Ask the owner or an "
+            "admin to fix the cache permissions, remove the cached file, or set "
+            "SPINE_CACHE_DIR to a writable location."
+        ) from e
+
     except OSError as e:
         print(f"⚠ Error validating cached file: {e}, will re-download...")
         return False
+
+
+def _chmod_best_effort(path: Path, mode: int) -> None:
+    """Set cache artifact permissions without failing the download path.
+
+    Shared cache directories may be group-writable. The download code uses
+    secure creation primitives such as :func:`tempfile.mkstemp`, which create
+    owner-only files regardless of the process umask. Relax permissions
+    explicitly so other users in the same deployment can validate and reuse
+    downloaded files.
+    """
+    try:
+        path.chmod(mode)
+    except OSError:
+        pass

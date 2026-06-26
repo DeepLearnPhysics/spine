@@ -2,6 +2,7 @@
 
 import hashlib
 import multiprocessing
+import os
 import time
 from pathlib import Path
 from unittest.mock import patch
@@ -10,6 +11,7 @@ from urllib.error import HTTPError, URLError
 import pytest
 
 from spine.config.download import (
+    _chmod_best_effort,
     _validate_cached_file,
     compute_file_hash,
     download_file,
@@ -224,6 +226,28 @@ class TestDownloadUtilities:
         mock_download.assert_called_once()
         assert Path(result).exists()
 
+    @patch("spine.config.download.download_file")
+    def test_download_from_url_sets_shared_cache_permissions(
+        self, mock_download, tmp_path
+    ):
+        """Test downloaded cache artifacts are not left owner-only."""
+        url = "https://example.com/model.ckpt"
+        cache_dir = tmp_path / "cache"
+
+        def fake_download(url, path, expected_hash=None):
+            path.write_text("downloaded")
+
+        mock_download.side_effect = fake_download
+
+        old_umask = os.umask(0o077)
+        try:
+            result = download_from_url(url, cache_dir=cache_dir)
+        finally:
+            os.umask(old_umask)
+
+        assert stat_mode(cache_dir) == 0o775
+        assert stat_mode(Path(result)) == 0o664
+
     def test_concurrent_downloads_safe(self, tmp_path):
         """Test that concurrent downloads do not corrupt the cached file."""
         cache_dir = tmp_path / "cache"
@@ -284,6 +308,54 @@ class TestDownloadUtilities:
             TimeoutError, match="Timeout waiting for download lock after 1s"
         ):
             download_from_url(url, cache_dir=cache_dir, max_wait_seconds=1)
+
+    def test_download_from_url_reports_cache_directory_permission_error(
+        self, tmp_path, monkeypatch
+    ):
+        """Test cache directory creation permission errors are contextualized."""
+        cache_dir = tmp_path / "cache"
+
+        def fake_mkdir(*args, **kwargs):
+            raise PermissionError("denied")
+
+        monkeypatch.setattr(Path, "mkdir", fake_mkdir)
+
+        with pytest.raises(PermissionError, match="Cannot create SPINE download cache"):
+            download_from_url("https://example.com/model.ckpt", cache_dir=cache_dir)
+
+    def test_download_from_url_reports_lock_permission_error(
+        self, tmp_path, monkeypatch
+    ):
+        """Test lock file permission errors are contextualized."""
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        original_open = open
+
+        def fake_open(path, *args, **kwargs):
+            if path == cache_dir / f".{url_to_filename(url)}.lock":
+                raise PermissionError("denied")
+            return original_open(path, *args, **kwargs)
+
+        url = "https://example.com/model.ckpt"
+        monkeypatch.setattr("builtins.open", fake_open)
+
+        with pytest.raises(PermissionError, match="download lock file"):
+            download_from_url(url, cache_dir=cache_dir)
+
+    def test_download_from_url_reports_temp_file_permission_error(
+        self, tmp_path, monkeypatch
+    ):
+        """Test temporary file permission errors are contextualized."""
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+
+        def fake_mkstemp(*args, **kwargs):
+            raise PermissionError("denied")
+
+        monkeypatch.setattr("spine.config.download.tempfile.mkstemp", fake_mkstemp)
+
+        with pytest.raises(PermissionError, match="temporary SPINE download file"):
+            download_from_url("https://example.com/model.ckpt", cache_dir=cache_dir)
 
     def test_download_from_url_reports_long_waits(self, tmp_path, monkeypatch, capsys):
         """Test waiting messages switch to the minute-based status format."""
@@ -450,6 +522,28 @@ class TestDownloadUtilities:
         assert result is False
         assert "Error validating cached file" in capsys.readouterr().out
 
+    def test_validate_cached_file_reports_permission_error(self, tmp_path, monkeypatch):
+        """Test unreadable cached files raise actionable permission errors."""
+        file_path = tmp_path / "cached.bin"
+        file_path.write_text("cached")
+        monkeypatch.setattr(
+            "spine.config.download.compute_file_hash",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(PermissionError("denied")),
+        )
+
+        with pytest.raises(PermissionError, match="Cannot read cached SPINE download"):
+            _validate_cached_file(file_path, expected_hash="abc")
+
+    def test_chmod_best_effort_ignores_oserror(self, tmp_path, monkeypatch):
+        """Test chmod failures do not interrupt cache handling."""
+        path = tmp_path / "cached.bin"
+        path.write_text("cached")
+        monkeypatch.setattr(
+            Path, "chmod", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError)
+        )
+
+        _chmod_best_effort(path, 0o664)
+
 
 class TestConfigLoaderDownload:
     """Test suite for !download YAML tag in config loader."""
@@ -572,3 +666,8 @@ def _download_worker(url, cache_dir, worker_id, result_queue):
             result_queue.put((worker_id, "success", result))
     except Exception as exc:  # pragma: no cover - reported through the queue
         result_queue.put((worker_id, "error", str(exc)))
+
+
+def stat_mode(path):
+    """Return permission bits for a filesystem path."""
+    return path.stat().st_mode & 0o777
