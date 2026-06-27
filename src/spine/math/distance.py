@@ -194,6 +194,7 @@ def pdist(
     """
     # Check on the input
     assert x.shape[1] == 3, "Only supports 3D points for now."
+    x = np.ascontiguousarray(x)
 
     # Dispatch (faster this way than dispatching at each distance call)
     if metric_id == MINKOWSKI:
@@ -293,6 +294,8 @@ def cdist(
     """
     # Check on the input
     assert x1.shape[1] == 3 and x2.shape[1] == 3, "Only supports 3D points for now."
+    x1 = np.ascontiguousarray(x1)
+    x2 = np.ascontiguousarray(x2)
 
     # Dispatch (faster this way than dispatching at each distance call)
     if metric_id == MINKOWSKI:
@@ -395,6 +398,8 @@ def farthest_pair(
     float
         Distance between the two points
     """
+    x = np.ascontiguousarray(x)
+
     # To save time, if Euclidean distance is used, use its square
     is_euclidean = False
     if metric_id == EUCLIDEAN:
@@ -461,6 +466,9 @@ def closest_pair_legacy(
     set switch after each closest-point update. New code should use
     :func:`closest_pair`.
     """
+    x1 = np.ascontiguousarray(x1)
+    x2 = np.ascontiguousarray(x2)
+
     # To save time, if Euclidean distance is used, use its square
     is_euclidean = False
     if metric_id == EUCLIDEAN:
@@ -566,6 +574,9 @@ def closest_pair(
     float
         Distance between the two points
     """
+    x1 = np.ascontiguousarray(x1)
+    x2 = np.ascontiguousarray(x2)
+
     # To save time, if Euclidean distance is used, use its square
     is_euclidean = False
     if metric_id == EUCLIDEAN:

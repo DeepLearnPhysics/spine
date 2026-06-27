@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.14.1] - 2026-06-27
+
+### Fixed
+- **GrapPA inference stability**: Normalize indexed cluster coordinate views before Numba-compiled distance, endpoint, node-feature, and edge-feature helpers so full-chain GrapPA inference no longer fails intermittently on arbitrary-layout arrays in batch jobs.
+- **Regression coverage**: Add focused tests for arbitrary-layout Numba callers in distance helpers and GrapPA cluster/node/edge feature extraction.
+
 ## [0.14.0] - 2026-06-26
 
 ### Added

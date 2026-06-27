@@ -846,7 +846,7 @@ def _get_cluster_features_base(
     for k in nb.prange(len(clusts)):
         # Get list of voxels in the cluster
         clust = clusts[ids[k]]
-        x = data[clust][:, COORD_COLS_LO:COORD_COLS_HI]
+        x = np.ascontiguousarray(data[clust][:, COORD_COLS_LO:COORD_COLS_HI])
 
         # Get cluster center
         center = sm.mean(x, 0)

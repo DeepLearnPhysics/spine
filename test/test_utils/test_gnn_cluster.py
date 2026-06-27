@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from spine.utils.gnn.cluster import cluster_dedx
+from spine.utils.gnn.cluster import cluster_dedx, get_cluster_features_base
 
 
 def test_cluster_dedx_accepts_mixed_coordinate_dtypes():
@@ -17,3 +17,28 @@ def test_cluster_dedx_accepts_mixed_coordinate_dtypes():
     dedx = cluster_dedx(voxels, values, start, 5.0, True)
 
     assert dedx == np.float32(3.0)
+
+
+def test_cluster_features_base_accepts_indexed_float32_coordinates():
+    """Indexed cluster coordinate views should compile through Numba helpers."""
+    data = np.array(
+        [
+            [0.0, 0.0, 0.0, 1.0],
+            [1.0, 0.0, 0.0, 2.0],
+            [0.0, 1.0, 0.0, 3.0],
+            [2.0, 0.0, 0.0, 4.0],
+            [2.0, 1.0, 0.0, 5.0],
+            [3.0, 0.0, 0.0, 6.0],
+        ],
+        dtype=np.float32,
+    )
+    clusts = [
+        np.array([0, 2, 1], dtype=np.int64),
+        np.array([3, 5, 4], dtype=np.int64),
+    ]
+
+    feats = get_cluster_features_base(data, clusts)
+
+    assert feats.shape == (2, 16)
+    np.testing.assert_allclose(feats[0, :3], [1.0 / 3.0, 0.0, 2.0])
+    np.testing.assert_allclose(feats[1, :3], [1.0 / 3.0, 0.0, 5.0])

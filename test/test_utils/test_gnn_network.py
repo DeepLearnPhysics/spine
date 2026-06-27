@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from spine.utils.gnn.network import inter_cluster_distance
+from spine.utils.gnn.network import get_cluster_edge_features, inter_cluster_distance
 
 GRAPH_BASE_PATH = (
     Path(__file__).resolve().parents[2]
@@ -93,3 +93,34 @@ def test_inter_cluster_distance_can_use_legacy_iterative_closest_pair():
     assert fixed_index[0, 1] == 11
     assert np.isclose(legacy_dist[0, 1], 0.7099366)
     assert legacy_index[0, 1] == 10
+
+
+def test_cluster_edge_features_accept_indexed_float32_coordinates_legacy():
+    """Indexed cluster coordinate views should compile in legacy CPA mode."""
+    data = np.array(
+        [
+            [0.0, 0.0, 0.0, 1.0],
+            [0.0, 1.0, 0.0, 2.0],
+            [0.0, 0.0, 1.0, 3.0],
+            [0.0, 4.0, 0.0, 4.0],
+            [0.0, 4.0, 1.0, 5.0],
+            [0.0, 5.0, 0.0, 6.0],
+        ],
+        dtype=np.float32,
+    )
+    clusts = [
+        np.array([0, 2, 1], dtype=np.int64),
+        np.array([3, 5, 4], dtype=np.int64),
+    ]
+    edge_index = np.array([[0, 1]], dtype=np.int64)
+
+    feats = get_cluster_edge_features(
+        data,
+        clusts,
+        edge_index,
+        iterative=False,
+        use_legacy_distance=True,
+    )
+
+    assert feats.shape == (1, 19)
+    assert feats.dtype == np.float32

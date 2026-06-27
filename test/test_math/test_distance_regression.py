@@ -1,5 +1,6 @@
 """Regression tests for distance helpers."""
 
+import numba as nb
 import numpy as np
 import pytest
 
@@ -17,6 +18,13 @@ POINTS = np.array(
     [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 2.0, 0.0]],
     dtype=np.float32,
 )
+SQEUCLIDEAN_METRIC = METRICS["sqeuclidean"]
+
+
+@nb.njit(nb.float32[:, :](nb.float32[:, :]), cache=True)
+def _pdist_sqeuclidean_arbitrary_layout(points):
+    """Compile pdist from an arbitrary-layout caller, as PPN does."""
+    return pdist(points, SQEUCLIDEAN_METRIC)
 
 
 def test_get_metric_id_dispatches_minkowski_aliases_and_errors():
@@ -56,6 +64,17 @@ def test_pdist_dispatches_all_metrics_and_errors():
 
     with pytest.raises(ValueError, match="Distance metric"):
         pdist(POINTS, np.int64(99))
+
+
+def test_pdist_accepts_arbitrary_layout_from_jitted_callers():
+    """Nested Numba callers may pass arbitrary-layout row views."""
+    distances = _pdist_sqeuclidean_arbitrary_layout(POINTS)
+
+    np.testing.assert_allclose(
+        distances,
+        [[0.0, 1.0, 4.0], [1.0, 0.0, 5.0], [4.0, 5.0, 0.0]],
+        atol=1e-5,
+    )
 
 
 def test_cdist_dispatches_all_metrics_and_errors():
