@@ -529,6 +529,36 @@ def test_stage_hdf5_writer_respects_explicit_keys(tmp_path):
         assert "extra_tensor" not in events.dtype.names
 
 
+def test_stage_hdf5_writer_preserves_source_entry_with_explicit_keys(tmp_path):
+    """Stage caches should preserve source entry provenance from file_entry_index."""
+    cache_path = tmp_path / "cache.h5"
+    writer = StageHDF5Writer(
+        str(cache_path),
+        overwrite=True,
+        keys=["dummy_data"],
+    )
+    writer.write_stage(
+        "deghosting",
+        {
+            "index": np.asarray([0]),
+            "file_entry_index": np.asarray([7]),
+            "source_file_name": np.asarray(["source.root"]),
+            "source_file_size": np.asarray([10]),
+            "source_file_mtime_ns": np.asarray([20]),
+            "dummy_data": [np.asarray([[1.0, 2.0]])],
+            "extra_tensor": [np.asarray([[3.0, 4.0]])],
+        },
+    )
+    writer.finalize_stage("deghosting")
+    writer.close()
+
+    with h5py.File(cache_path, "r") as out_file:
+        stage_group = out_file["stages"]["deghosting"]
+        assert "source_file_entry_index" in stage_group
+        assert "source_file_entry_index" in stage_group["events"].dtype.names
+        np.testing.assert_array_equal(stage_group["source_file_entry_index"][:], [7])
+
+
 def test_stage_hdf5_writer_rejects_mismatched_source(tmp_path):
     """Writing a later stage with different source provenance should fail."""
     source_a = tmp_path / "source_a.root"

@@ -401,6 +401,7 @@ class StageHDF5Reader(HDF5Reader):
         data: dict[str, object] = {
             "file_index": file_idx,
             "file_entry_index": entry_idx,
+            "source_file_entry_index": entry_idx,
         }
         data.update(self._source_info.get(file_idx, {}))
         product_stage_map = self._resolved_products[file_idx]

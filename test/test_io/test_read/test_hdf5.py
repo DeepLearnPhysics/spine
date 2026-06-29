@@ -290,6 +290,34 @@ def test_stage_hdf5_reader_loads_one_stage(tmp_path):
     reader.close()
 
 
+def test_stage_hdf5_reader_fills_missing_source_entry_index(tmp_path):
+    """Older/minimal stage caches should expose source entry metadata."""
+    path = tmp_path / "stage_cache.h5"
+    writer = StageHDF5Writer(str(path), overwrite=True)
+    writer.write_stage(
+        "deghosting",
+        {
+            "index": np.asarray([0, 1]),
+            "source_file_name": np.asarray(["source.root", "source.root"]),
+            "source_file_size": np.asarray([10, 10]),
+            "source_file_mtime_ns": np.asarray([20, 20]),
+            "dummy_data": [
+                np.asarray([[1.0, 2.0]]),
+                np.asarray([[3.0, 4.0]]),
+            ],
+        },
+    )
+    writer.finalize_stage("deghosting")
+    writer.close()
+
+    reader = StageHDF5Reader("deghosting", str(path), build_classes=False)
+    entry = reader.get(1)
+    assert entry["file_entry_index"] == 1
+    assert entry["source_file_entry_index"] == 1
+    np.testing.assert_array_equal(entry["dummy_data"], np.asarray([[3.0, 4.0]]))
+    reader.close()
+
+
 def test_stage_hdf5_reader_rejects_incomplete_stages(tmp_path):
     """Incomplete stages should be rejected by default."""
     path = tmp_path / "stage_cache.h5"
