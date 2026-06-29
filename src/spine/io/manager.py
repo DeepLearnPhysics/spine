@@ -161,6 +161,7 @@ class IOManager:
         # Derive log and output prefixes from the input file names.
         if self.reader is None:
             raise RuntimeError("I/O initialization did not produce a reader.")
+        self._validate_writer_config(writer, split_output)
         output_suffix = self._get_output_suffix(writer)
         self.log_prefix, self.output_prefix = self.get_prefixes(
             self.reader.file_paths,
@@ -364,6 +365,22 @@ class IOManager:
 
         suffix = writer.get("suffix", default_suffixes[writer_name])
         return f"_{suffix}.h5"
+
+    def _validate_writer_config(
+        self, writer: Mapping[str, Any] | None, split_output: bool
+    ) -> None:
+        """Reject writer/base combinations with ambiguous output routing."""
+        if writer is None:
+            return
+
+        writer_name = writer.get("name")
+        if writer_name == "stage_hdf5" and not split_output:
+            raise ValueError(
+                "The `stage_hdf5` writer writes one cache file per input file "
+                "and requires `base.split_output: true`. Add "
+                "`split_output: true` to the `base` block, or use the regular "
+                "`hdf5` writer for a single combined output file."
+            )
 
     def format_log_name(self, log_name: str, log_dir: str) -> str:
         """Prefix and truncate a driver log name using the input-derived stem.

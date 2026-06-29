@@ -293,6 +293,7 @@ class HDF5Writer:
                     self.event_dtype = getattr(event_obj, "dtype")
                     out_file["info"].attrs["complete"] = False
         else:
+            self._ensure_parent_dir(file_name)
             if self.keep_open:
                 self._check_handle_pid()
                 out_file = h5py.File(file_name, "w")
@@ -316,6 +317,13 @@ class HDF5Writer:
 
         self._initialized_file_ids.add(file_id)
         self._entries_since_flush_by_file_id[file_id] = 0
+
+    @staticmethod
+    def _ensure_parent_dir(file_name: str) -> None:
+        """Create the parent directory for an output file, if needed."""
+        dir_name = os.path.dirname(file_name)
+        if dir_name:
+            os.makedirs(dir_name, exist_ok=True)
 
     def _record_write(self, file_id: int, count: int, out_file: h5py.File) -> None:
         """Update flush bookkeeping for one file after appending entries."""

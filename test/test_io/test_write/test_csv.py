@@ -101,7 +101,14 @@ def test_csv_writer_array_diff():
 
 
 def test_csv_writer_directory_relocates_output(tmp_path):
-    """CSVWriter should support relocating output under an explicit directory."""
-    out_dir = tmp_path / "logs"
+    """CSVWriter should create and write under an explicit output directory."""
+    out_dir = tmp_path / "missing" / "logs"
     writer = CSVWriter("output.csv", directory=str(out_dir), overwrite=True)
     assert writer.file_name == str(out_dir / "output.csv")
+    writer.append({"a": 1})
+    writer.close()
+
+    assert (out_dir / "output.csv").read_text(encoding="utf-8").splitlines() == [
+        "a",
+        "1",
+    ]

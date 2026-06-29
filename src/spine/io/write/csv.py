@@ -160,6 +160,10 @@ class CSVWriter:
         """
         if self.file_handle is None:
             mode = "a" if self.append_file and os.path.isfile(self.file_name) else "w"
+            if mode == "w":
+                dir_name = os.path.dirname(self.file_name)
+                if dir_name:
+                    os.makedirs(dir_name, exist_ok=True)
             self.file_handle = open(
                 self.file_name, mode, encoding="utf-8", buffering=self.buffer_size
             )

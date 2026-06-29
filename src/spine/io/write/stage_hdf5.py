@@ -247,6 +247,9 @@ class StageHDF5Writer(HDF5Writer):
             return
 
         mode = "a" if os.path.exists(file_path) else "w"
+        if mode == "w":
+            self._ensure_parent_dir(file_path)
+
         if self.keep_open:
             self._check_handle_pid()
             out_file = h5py.File(file_path, mode)

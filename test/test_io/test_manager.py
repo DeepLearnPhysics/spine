@@ -193,6 +193,10 @@ def test_io_manager_validation(monkeypatch):
     with pytest.raises(ValueError, match="iterations"):
         IOManager(reader={}, iterations=1, epochs=1)
 
+    monkeypatch.setattr(manager_mod, "reader_factory", lambda cfg: FakeReader())
+    with pytest.raises(ValueError, match=r"base\.split_output: true"):
+        IOManager(reader={}, writer={"name": "stage_hdf5"}, split_output=False)
+
     monkeypatch.setattr(manager_mod, "TORCH_AVAILABLE", False)
     with pytest.raises(ImportError, match="loader"):
         IOManager(loader={}, epochs=1.0)

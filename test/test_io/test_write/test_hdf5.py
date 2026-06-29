@@ -162,6 +162,25 @@ def test_hdf5_writer_explicit_file_name_with_directory(tmp_path):
     ) == [os.path.join(output_dir, "custom.h5")]
 
 
+def test_hdf5_writer_creates_missing_output_directory(tmp_path):
+    """HDF5Writer should create a configured output directory on first write."""
+    output_dir = tmp_path / "missing" / "outputs"
+    writer = HDF5Writer(
+        file_name="custom.h5",
+        directory=str(output_dir),
+        overwrite=True,
+    )
+    writer(
+        {
+            "index": np.asarray([0]),
+            "dummy_data": [np.asarray([[1.0, 2.0]])],
+        }
+    )
+    writer.close()
+
+    assert (output_dir / "custom.h5").is_file()
+
+
 def test_hdf5_writer_split_explicit_single_file(hdf5_output):
     """Test split output keeps an explicit name when there is one input file."""
     assert HDF5Writer.get_file_names(hdf5_output, ["input"], split=True) == [
@@ -781,6 +800,30 @@ def test_stage_hdf5_writer_accepts_prefix_with_directory(tmp_path):
         directory, "source_cache.h5"
     )
     writer.close()
+
+
+def test_stage_hdf5_writer_creates_missing_output_directory(tmp_path):
+    """Stage cache writes should create a configured output directory."""
+    directory = tmp_path / "missing" / "cache"
+    writer = StageHDF5Writer(
+        file_name=None,
+        prefix=["source.root"],
+        overwrite=True,
+        directory=str(directory),
+        stage="grappa_inter",
+    )
+    writer(
+        {
+            "index": np.asarray([0]),
+            "source_file_name": np.asarray(["source.root"]),
+            "source_file_size": np.asarray([10]),
+            "source_file_mtime_ns": np.asarray([30]),
+            "dummy_data": [np.asarray([[1.0, 2.0]])],
+        }
+    )
+    writer.close()
+
+    assert (directory / "source_stage.h5").is_file()
 
 
 def test_stage_hdf5_writer_requires_split_mode(tmp_path):
