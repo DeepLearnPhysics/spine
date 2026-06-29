@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+- **CVMFS container setup**: Restore LArCV feature flags in `/opt/spine/setup.sh` so unpacked-image runtimes expose PyUtil bindings such as `larcv.fill_3d_voxels`, and make `/opt/spine/check-env.sh` validate that binding explicitly.
+
 ## [0.14.1] - 2026-06-27
 
 ### Fixed

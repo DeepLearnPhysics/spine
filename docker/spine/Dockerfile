@@ -189,7 +189,9 @@ RUN pip install --no-cache-dir --no-build-isolation .[all]
 # recipe both provide the compiled dependency imports SPINE needs at runtime.
 RUN python -c "import ROOT, larcv, spine; print('container runtime imports ok')"
 RUN /opt/spine/check-env.sh
-RUN env -u ROOTSYS -u LARCV_BASEDIR -u LARCV_LIBDIR -u LARCV_PYTHONDIR \
+RUN env -u ROOTSYS -u LARCV_BASEDIR -u LARCV_BUILDDIR -u LARCV_LIBDIR \
+    -u LARCV_PYTHONDIR -u LARCV_INCDIR -u LARCV_BINDIR -u LARCV_COREDIR \
+    -u LARCV_APPDIR -u LARCV_NUMPY -u LARCV_OPENCV -u LARCV_ROOT6 \
     -u PYTHONPATH -u LD_LIBRARY_PATH bash -lc \
     "source /opt/spine/setup.sh && /opt/spine/check-env.sh"
 
