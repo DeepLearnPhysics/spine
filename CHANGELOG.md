@@ -1,9 +1,13 @@
 # Changelog
 
-## [Unreleased]
+## [0.14.2] - 2026-06-30
 
 ### Fixed
 - **CVMFS container setup**: Restore LArCV feature flags in `/opt/spine/setup.sh` so unpacked-image runtimes expose PyUtil bindings such as `larcv.fill_3d_voxels`, and make `/opt/spine/check-env.sh` validate that binding explicitly.
+- **Stage-cache writer configuration**: Raise a clear configuration error when `stage_hdf5` is used without `base.split_output: true`.
+- **Writer output directories**: Create configured output directories automatically for HDF5, staged HDF5, and CSV writers.
+- **Staged cache provenance**: Preserve source entry metadata in staged caches and provide a fallback when reading older/minimal stage-cache files without explicit `source_file_entry_index`.
+- **Remote source provenance**: Populate stable source provenance keys for XRootD-streamed inputs using sentinel values when file size and modification time are unavailable.
 
 ## [0.14.1] - 2026-06-27
 
