@@ -64,6 +64,29 @@ def test_reader_base_process_file_paths(tmp_path):
     assert not ReaderBase.is_remote_path(str(first))
 
 
+def test_reader_base_source_provenance_local_and_remote(tmp_path):
+    """Source provenance should expose a stable key set for all path types."""
+    local_path = tmp_path / "input.root"
+    local_path.write_text("data", encoding="utf-8")
+
+    reader = DummyReader()
+    reader.file_paths = [str(local_path)]
+    local = reader.get_source_provenance(0, 3)
+    assert local["source_file_name"] == local_path.name
+    assert local["source_file_size"] == local_path.stat().st_size
+    assert local["source_file_mtime_ns"] == local_path.stat().st_mtime_ns
+    assert local["source_file_entry_index"] == 3
+
+    reader.file_paths = ["root://server/path/input.root"]
+    remote = reader.get_source_provenance(0, 4)
+    assert remote == {
+        "source_file_name": "input.root",
+        "source_file_size": -1,
+        "source_file_mtime_ns": -1,
+        "source_file_entry_index": 4,
+    }
+
+
 def test_reader_base_process_file_paths_errors(tmp_path):
     """ReaderBase should reject invalid file path inputs."""
     reader = DummyReader()

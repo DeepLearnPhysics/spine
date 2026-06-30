@@ -146,6 +146,8 @@ class ReaderBase(ABC):
         file_path = self.file_paths[file_idx]
         provenance = {
             "source_file_name": os.path.basename(file_path),
+            "source_file_size": -1,
+            "source_file_mtime_ns": -1,
             "source_file_entry_index": int(file_entry_idx),
         }
         if not self.is_remote_path(file_path):
