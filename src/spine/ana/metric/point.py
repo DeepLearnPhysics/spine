@@ -1,5 +1,10 @@
 """Analysis script used to evaluate the point proposal accuracy."""
 
+from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import Any
+
 import numpy as np
 from scipy.spatial.distance import cdist
 
@@ -34,16 +39,20 @@ class PointProposalAna(AnaBase):
     _keys = (("ppn_pred", True),)
 
     def __init__(
-        self, num_classes=LOWES_SHP, label_key="ppn_label", endpoints=False, **kwargs
-    ):
+        self,
+        num_classes: int = LOWES_SHP,
+        label_key: str = "ppn_label",
+        endpoints: bool = False,
+        **kwargs: Any,
+    ) -> None:
         """Initialize the analysis script.
 
         Parameters
         ----------
         num_classes : int, default 4
-            Number of pixel classses, excluding the ghost class
-        label_key : str, default 'seg_label'
-            Name of the tensor which contains the segmentation labels
+            Number of pixel classes, excluding the ghost class
+        label_key : str, default 'ppn_label'
+            Name of the tensor which contains point proposal labels
         endpoints : bool, default False
             Evaluate the accuracy of end point classification
         **kwargs : dict, optional
@@ -72,8 +81,8 @@ class PointProposalAna(AnaBase):
             self.dummy_dict["end"] = -1
             self.dummy_dict["closest_end"] = -1
 
-    def process(self, data):
-        """Store the semantic segmentation metrics for one entry.
+    def process(self, data: Mapping[str, Any]) -> None:
+        """Store the point proposal metrics for one entry.
 
         Parameters
         ----------

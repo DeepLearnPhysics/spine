@@ -49,6 +49,22 @@ def test_parse_module_config_can_sort_lower_priority_first():
     assert list(parsed) == ["early", "late", "default_order"]
 
 
+def test_parse_module_config_can_sort_higher_priority_first():
+    parsed = parse_module_config(
+        OrderedDict(
+            [
+                ("late", {"name": "alpha", "priority": 10}),
+                ("early", {"name": "beta", "priority": 20}),
+                ("default_order", {"name": "alpha"}),
+            ]
+        ),
+        sort_by_priority=True,
+        priority_descending=True,
+    )
+
+    assert list(parsed) == ["early", "late", "default_order"]
+
+
 def test_parse_module_config_validates_blocks():
     with pytest.raises(TypeError, match="must be a mapping"):
         parse_module_config([])

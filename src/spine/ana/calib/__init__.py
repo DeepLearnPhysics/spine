@@ -1,9 +1,12 @@
 """Calibration analysis scripts.
 
-This submodule is used to extract basic calibration constants, such as:
-- Track dE/dx profile
-- Wire transparency map
-- MCS angular resolution calibration
+This submodule contains analysis scripts that extract calibration inputs from
+reconstruction objects. Currently it includes the MCS angular resolution
+calibration workflow.
+
+Other examples of sensible future additions:
+- dE/dx calibration
+- Shower calorimetric energy calibration
 - ...
 """
 

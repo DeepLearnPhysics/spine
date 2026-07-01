@@ -1,5 +1,10 @@
 """Construct an analysis script module class from its name."""
 
+from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import Any
+
 from spine.utils.factory import instantiate, module_dict
 
 from . import calib, diag, metric, script
@@ -11,8 +16,13 @@ for module in [calib, diag, metric, script]:
 
 
 def ana_script_factory(
-    name, cfg, overwrite=None, log_dir=None, prefix=None, buffer_size=1
-):
+    name: str,
+    cfg: Mapping[str, Any],
+    overwrite: bool | None = None,
+    log_dir: str | None = None,
+    prefix: str | None = None,
+    buffer_size: int = 1,
+) -> Any:
     """Instantiates an analyzer module from a configuration dictionary.
 
     Parameters
@@ -40,13 +50,14 @@ def ana_script_factory(
          Initialized analyzer object
     """
     # Provide the name to the configuration
-    cfg["name"] = name
+    config = dict(cfg)
+    config["name"] = name
 
     # Instantiate the analysis script module
     if overwrite is not None:
         return instantiate(
             ANA_DICT,
-            cfg,
+            config,
             overwrite=overwrite,
             log_dir=log_dir,
             prefix=prefix,
@@ -54,5 +65,5 @@ def ana_script_factory(
         )
     else:
         return instantiate(
-            ANA_DICT, cfg, log_dir=log_dir, prefix=prefix, buffer_size=buffer_size
+            ANA_DICT, config, log_dir=log_dir, prefix=prefix, buffer_size=buffer_size
         )

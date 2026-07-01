@@ -1,8 +1,12 @@
 """Module to evaluate diagnostic metrics on tracks."""
 
-from typing import Any, Dict, List, Optional, Tuple, Union
+from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 import numpy as np
+from numpy.typing import NDArray
 
 from spine.ana.base import AnaBase
 from spine.constants import MUON_PID, TRACK_SHP
@@ -12,11 +16,10 @@ __all__ = ["TrackCompletenessAna"]
 
 
 class TrackCompletenessAna(AnaBase):
-    """This analysis script identifies gaps in tracks and measures the
-    cumulative length of these gaps relative to the track length.
+    """Identify gaps in tracks and measure their cumulative missing length.
 
     This is a useful diagnostic tool to evaluate the space-point efficiency
-    on tracks (good standard candal as track should have exactly no gap in
+    on tracks (a good standard candle, as tracks should have no gaps in
     a perfectly efficient detector).
     """
 
@@ -25,37 +28,45 @@ class TrackCompletenessAna(AnaBase):
 
     def __init__(
         self,
-        time_window: Optional[Union[List[float], Tuple[float, float]]] = None,
-        length_threshold: Optional[float] = 10,
-        include_pids: Optional[Union[Tuple[int], List[int]]] = (MUON_PID,),
+        time_window: Sequence[float] | None = None,
+        length_threshold: float | None = 10,
+        include_pids: Sequence[int] | None = (MUON_PID,),
         run_mode: str = "both",
         truth_point_mode: str = "points",
         **kwargs,
-    ):
+    ) -> None:
         """Initialize the analysis script.
 
         Parameters
         ----------
-        time_window : List[float]
+        time_window : Sequence[float], optional
             Time window within which to include particle (only works for `truth`)
         length_threshold : float, optional
             Minimum length of tracks to consider, in cm
-        include_pids : Union[Tuple[int], List[int]], optional
+        include_pids : Sequence[int], optional
             Particle IDs to include in the analysis
         **kwargs : dict, optional
             Additional arguments to pass to :class:`AnaBase`
         """
         # Initialize the parent class
-        super().__init__("particle", run_mode, truth_point_mode, **kwargs)
+        super().__init__(
+            obj_type="particle",
+            run_mode=run_mode,
+            truth_point_mode=truth_point_mode,
+            **kwargs,
+        )
 
         # Store the time window
-        self.time_window = time_window
-        assert (
-            time_window is None or len(time_window) == 2
-        ), "Time window must be specified as an array of two values."
-        assert (
-            time_window is None or run_mode == "truth"
-        ), "Time of reconstructed particle is unknown."
+        normalized_time_window: tuple[float, float] | None = None
+        if time_window is not None:
+            if not isinstance(time_window, Sequence) or len(time_window) != 2:
+                raise ValueError(
+                    "Time window must be specified as an array of two values."
+                )
+            if run_mode != "truth":
+                raise ValueError("Time of reconstructed particle is unknown.")
+            normalized_time_window = (time_window[0], time_window[1])
+        self.time_window = normalized_time_window
 
         # Store the length threshold and included PIDs
         self.length_threshold = length_threshold
@@ -68,18 +79,17 @@ class TrackCompletenessAna(AnaBase):
         for prefix in self.prefixes:
             self.initialize_writer(prefix)
 
-    def process(self, data: Dict[str, Any]) -> None:
+    def process(self, data: Mapping[str, Any]) -> None:
         """Evaluate track completeness for tracks in one entry.
 
         Parameters
         ----------
-        data : Dict[str, Any]
+        data : dict
             Dictionary of data products
         """
         # Fetch the pixel size in this image (assume cubic cells)
-        assert np.all(
-            data["meta"].size[0] == data["meta"].size
-        ), "Non-cubic pixels not supported."
+        if not np.all(data["meta"].size[0] == data["meta"].size):
+            raise ValueError("Non-cubic pixels not supported.")
         pixel_size = data["meta"].size[0]
 
         # Loop over the types of particle data products
@@ -150,10 +160,12 @@ class TrackCompletenessAna(AnaBase):
 
     @staticmethod
     def cluster_track_chunks(
-        points, start_point: np.ndarray, end_point: np.ndarray, pixel_size: float
-    ) -> np.ndarray:
-        """Find point where the track is broken, divide out the track
-        into self-contained chunks which are Linf connect (Moore neighbors).
+        points: NDArray[np.floating],
+        start_point: NDArray[np.floating],
+        end_point: NDArray[np.floating],
+        pixel_size: float,
+    ) -> NDArray[np.integer]:
+        """Split a track into chunks at gaps along its main axis.
 
         Parameters
         ----------
@@ -179,7 +191,7 @@ class TrackCompletenessAna(AnaBase):
         perm = np.argsort(projs)
         seps = projs[perm][1:] - projs[perm][:-1]
         breaks = np.where(seps > min_gap * 1.1)[0] + 1
-        cluster_labels = np.empty(len(projs), dtype=int)
+        cluster_labels = np.empty(len(projs), dtype=np.int64)
         for i, index in enumerate(np.split(np.arange(len(projs)), breaks)):
             cluster_labels[perm[index]] = i
 
@@ -187,8 +199,10 @@ class TrackCompletenessAna(AnaBase):
 
     @staticmethod
     def sequential_cluster_distances(
-        points: np.ndarray, labels: np.ndarray, start_point: np.ndarray
-    ) -> np.ndarray:
+        points: NDArray[np.floating],
+        labels: NDArray[np.integer],
+        start_point: NDArray[np.floating],
+    ) -> NDArray[np.floating]:
         """Order clusters in order of distance from a starting point, compute
         the distances between successive clusters.
 
@@ -204,18 +218,18 @@ class TrackCompletenessAna(AnaBase):
         # If there's only one cluster, nothing to do here
         unique_labels = np.unique(labels)
         if len(unique_labels) < 2:
-            return np.empty(0, dtype=float)
+            return np.empty(0, dtype=np.float64)
 
         # Order clusters
         start_dist = cdist(start_point[None, :], points).flatten()
-        start_clust_dist = np.empty(len(unique_labels))
+        start_clust_dist = np.empty(len(unique_labels), dtype=np.float64)
         for i, c in enumerate(unique_labels):
             start_clust_dist[i] = np.min(start_dist[labels == c])
         ordered_labels = unique_labels[np.argsort(start_clust_dist)]
 
         # Compute the intercluster distance and relative angle
         n_gaps = len(ordered_labels) - 1
-        dists = np.empty(n_gaps, dtype=float)
+        dists = np.empty(n_gaps, dtype=np.float64)
         for i in range(n_gaps):
             points_i = points[labels == ordered_labels[i]]
             points_j = points[labels == ordered_labels[i + 1]]

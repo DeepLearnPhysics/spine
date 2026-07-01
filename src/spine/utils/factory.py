@@ -210,6 +210,7 @@ def parse_module_config(
     name_key: str = "name",
     priority_key: str = "priority",
     sort_by_priority: bool = False,
+    priority_descending: bool = False,
     skip_none: bool = True,
 ) -> ParsedModules:
     """Parse an ordered mapping of module blocks.
@@ -246,6 +247,9 @@ def parse_module_config(
         If ``True``, modules with smaller priority values run first. Modules
         without a priority retain their relative order after prioritized
         modules.
+    priority_descending : bool, default False
+        If ``True`` and ``sort_by_priority`` is ``True``, modules with larger
+        priority values run first instead.
     skip_none : bool, default True
         If ``True``, skip entries explicitly set to ``None``.
 
@@ -271,13 +275,22 @@ def parse_module_config(
         parsed.append((index, label, name, priority, config))
 
     if sort_by_priority:
-        parsed.sort(
-            key=lambda item: (
-                item[3] is None,
-                item[3] if item[3] is not None else item[0],
-                item[0],
+        if priority_descending:
+            parsed.sort(
+                key=lambda item: (
+                    item[3] is None,
+                    -item[3] if item[3] is not None else item[0],
+                    item[0],
+                )
             )
-        )
+        else:
+            parsed.sort(
+                key=lambda item: (
+                    item[3] is None,
+                    item[3] if item[3] is not None else item[0],
+                    item[0],
+                )
+            )
 
     return OrderedDict(
         (label, {"name": name, "cfg": config, "priority": priority})
@@ -291,6 +304,7 @@ def instantiate_modules(
     name_key: str = "name",
     priority_key: str = "priority",
     sort_by_priority: bool = False,
+    priority_descending: bool = False,
     skip_none: bool = True,
     **kwargs: Any,
 ) -> OrderedDict[str, Any]:
@@ -308,6 +322,9 @@ def instantiate_modules(
         Configuration key which specifies optional execution priority.
     sort_by_priority : bool, default False
         If ``True``, modules with smaller priority values run first.
+    priority_descending : bool, default False
+        If ``True`` and ``sort_by_priority`` is ``True``, modules with larger
+        priority values run first instead.
     skip_none : bool, default True
         If ``True``, skip entries explicitly set to ``None``.
     **kwargs : dict
@@ -323,6 +340,7 @@ def instantiate_modules(
         name_key=name_key,
         priority_key=priority_key,
         sort_by_priority=sort_by_priority,
+        priority_descending=priority_descending,
         skip_none=skip_none,
     )
 
