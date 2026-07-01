@@ -54,9 +54,10 @@ class TriggerProcessor(PostBase):
         # Store the parameters
         self.correct_flash_times = correct_flash_times
         if self.correct_flash_times:
-            assert flash_keys is not None and len(
-                flash_keys
-            ), "When correcting flash times, must provide the flash keys."
+            if flash_keys is None or len(flash_keys) == 0:
+                raise ValueError(
+                    "When correcting flash times, must provide the flash keys."
+                )
             self.flash_keys = flash_keys
             self.flash_time_corr_us = flash_time_corr_us
 
@@ -89,7 +90,7 @@ class TriggerProcessor(PostBase):
                 f"event {event_id} in the trigger file."
             )
 
-        trigger_info = trigger_info.to_dict(orient="records")[0]
+        trigger_info = trigger_info.iloc[0].to_dict()
 
         # Build trigger object
         trigger = Trigger(

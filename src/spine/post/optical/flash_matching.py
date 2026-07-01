@@ -1,6 +1,8 @@
 """Post-processor in charge of finding matches between charge and light."""
 
 from collections import defaultdict
+from collections.abc import Mapping
+from typing import Any
 
 import numpy as np
 
@@ -86,14 +88,12 @@ class FlashMatchProcessor(PostBase):
         )
 
         # Make sure the flash data product is available, store
-        self.flash_key = flash_key
+        self.flash_key: str = flash_key
         self.update_keys({flash_key: True})
 
         # Get the volume within which each flash is confined
-        assert volume in (
-            "tpc",
-            "module",
-        ), "The `volume` must be one of 'tpc' or 'module'."
+        if volume not in ("tpc", "module"):
+            raise ValueError("The `volume` must be one of 'tpc' or 'module'.")
         self.volume = volume
         self.ref_volume_id = ref_volume_id
 
@@ -126,7 +126,7 @@ class FlashMatchProcessor(PostBase):
             self.merger = FlashMerger(**merge)
         self.update_flashes = update_flashes
 
-    def process(self, data):
+    def process(self, data: Mapping[str, Any]) -> dict[str, Any] | None:
         """Find [interaction, flash] pairs.
 
         Parameters
@@ -244,10 +244,14 @@ class FlashMatchProcessor(PostBase):
 
                     # Get the flash hypothesis (if the matcher produces one)
                     hypo_pe, score = -1.0, -1.0
-                    if hasattr(match, "hypothesis"):
-                        hypo_pe = float(np.sum(list(match.hypothesis)))
-                    if hasattr(match, "score"):
-                        score = float(match.score)
+                    if np.isscalar(match):
+                        score = float(np.asarray(match, dtype=np.float64).item())
+                    else:
+                        match_obj: Any = match
+                        if hasattr(match_obj, "hypothesis"):
+                            hypo_pe = float(np.sum(list(match_obj.hypothesis)))
+                        if hasattr(match_obj, "score"):
+                            score = float(match_obj.score)
 
                     # Update
                     if not inter.is_flash_matched:

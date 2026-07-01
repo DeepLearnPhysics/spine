@@ -1,10 +1,19 @@
 """Module which supports likelihood-based flash matchin (OpT0Finder)."""
 
+from __future__ import annotations
+
 import os
 import sys
+from importlib import import_module
+from typing import Any
 
 import numexpr as ne
 import numpy as np
+
+
+def get_flashmatch() -> Any:
+    """Load the optional OpT0Finder Python bindings at runtime."""
+    return import_module("flashmatch").flashmatch
 
 
 class LikelihoodFlashMatcher:
@@ -81,11 +90,12 @@ class LikelihoodFlashMatcher:
         """
         # Add OpT0finder python interface to the python path
         basedir = os.getenv("FMATCH_BASEDIR")
-        assert basedir is not None, (
-            "You need to source OpT0Finder's configure.sh or set the "
-            "FMATCH_BASEDIR environment variable before running flash "
-            "matching."
-        )
+        if basedir is None:
+            raise ValueError(
+                "You need to source OpT0Finder's configure.sh or set the "
+                "FMATCH_BASEDIR environment variable before running flash "
+                "matching."
+            )
         sys.path.append(os.path.join(basedir, "python"))
 
         # Add the OpT0Finder library to the dynamic link loader
@@ -109,8 +119,7 @@ class LikelihoodFlashMatcher:
                 f"Cannot file detector specification file: {det_cfg}."
             )
 
-        from flashmatch import flashmatch
-
+        flashmatch = get_flashmatch()
         flashmatch.DetectorSpecs.GetME(det_cfg)
 
         # Fetch and initialize the OpT0Finder configuration
@@ -183,8 +192,7 @@ class LikelihoodFlashMatcher:
            List of OpT0Finder flashmatch::QCluster_t objects
         """
         # Loop over the interacions
-        from flashmatch import flashmatch
-
+        flashmatch = get_flashmatch()
         qcluster_v = []
         for idx, inter in enumerate(interactions):
             # Produce a mask to remove negative value points (can happen)
@@ -234,8 +242,7 @@ class LikelihoodFlashMatcher:
             List of flashmatch::Flash_t objects
         """
         # Loop over the optical flashes
-        from flashmatch import flashmatch
-
+        flashmatch = get_flashmatch()
         flash_v = []
         for idx, f in enumerate(flashes):
             # Initialize the Flash_t object
@@ -266,9 +273,8 @@ class LikelihoodFlashMatcher:
             List of matches
         """
         # Make sure the interaction and flash objects were set
-        assert (
-            self.qcluster_v is not None and self.flash_v is not None
-        ), "Must make_qcluster_list and make_flash_list first."
+        if self.qcluster_v is None or self.flash_v is None:
+            raise ValueError("Must make_qcluster_list and make_flash_list first.")
 
         # Register all objects in the manager
         self.mgr.Reset()
@@ -304,8 +310,7 @@ class LikelihoodFlashMatcher:
         Union[flashmatch::QCluster_t, np.ndarray]
             QCluster object
         """
-        from flashmatch import flashmatch
-
+        flashmatch = get_flashmatch()
         if self.qcluster_v is None:
             raise ValueError("self.qcluster_v is None")
 
@@ -334,8 +339,7 @@ class LikelihoodFlashMatcher:
         Union[flashmatch::Flash, np.ndarray]
             Flash object
         """
-        from flashmatch import flashmatch
-
+        flashmatch = get_flashmatch()
         if self.flash_v is None:
             raise ValueError("self.flash_v is None")
 

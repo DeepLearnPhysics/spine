@@ -2,8 +2,6 @@
 
 import numpy as np
 
-from spine.math.distance import cdist
-
 
 class BarycenterFlashMatcher:
     """Matches interactions and flashes by matching the charge barycenter of
@@ -54,8 +52,8 @@ class BarycenterFlashMatcher:
                 f"{match_method}. Must be one of {self._match_methods}."
             )
 
-        if match_method == "threshold":
-            assert match_distance is not None, (
+        if match_method == "threshold" and match_distance is None:
+            raise ValueError(
                 "When using the `threshold` method, must specify the "
                 "`match_distance` parameter."
             )
@@ -114,9 +112,10 @@ class BarycenterFlashMatcher:
         # Get the flash centroids
         op_centroids = np.empty((len(flashes), len(self.dims)))
         op_widths = np.empty((len(flashes), len(self.dims)))
+        dims = list(self.dims)
         for i, f in enumerate(flashes):
-            op_centroids[i] = f.center[self.dims]
-            op_widths[i] = f.width[self.dims]
+            op_centroids[i] = f.center[dims]
+            op_widths[i] = f.width[dims]
 
         # Get interactions centroids
         int_centroids = np.empty((len(interactions), len(self.dims)))
@@ -131,7 +130,9 @@ class BarycenterFlashMatcher:
                 int_centroids[i] /= np.sum(inter.depositions)
 
         # Compute the flash to interaction distance matrix
-        dist_mat = cdist(op_centroids, int_centroids)
+        dist_mat = np.linalg.norm(
+            op_centroids[:, None, :] - int_centroids[None, :, :], axis=2
+        )
 
         # Produce matches
         matches = []

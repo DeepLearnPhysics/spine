@@ -86,19 +86,17 @@ class MCSEnergyProcessor(PostBase):
         self.only_uncontained = only_uncontained
 
         # Store the tracking parameters
-        assert tracking_mode in [
-            "step",
-            "step_next",
-            "bin_pca",
-        ], "The tracking algorithm must provide segment angles"
+        if tracking_mode not in ("step", "step_next", "bin_pca"):
+            raise ValueError("The tracking algorithm must provide segment angles.")
         self.tracking_mode = tracking_mode
         self.tracking_kwargs = kwargs
 
         # Store the angle computation parameters
-        assert angle_method in ANGLE_METHODS, (
-            f"Angular reconstruction method not recognized: {angle_method}. "
-            f"Must be one of {ANGLE_METHODS.keys()}"
-        )
+        if angle_method not in ANGLE_METHODS:
+            raise ValueError(
+                f"Angular reconstruction method not recognized: {angle_method}. "
+                f"Must be one of {ANGLE_METHODS.keys()}"
+            )
         self.angle_method = ANGLE_METHODS[angle_method]
 
         # Store the MCS parameters
