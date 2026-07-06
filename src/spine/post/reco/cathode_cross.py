@@ -1,5 +1,10 @@
 """Cathode crossing identification + merging module."""
 
+from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import Any
+
 import numpy as np
 from scipy.spatial.distance import cdist
 
@@ -17,8 +22,8 @@ class CathodeCrosserProcessor(PostBase):
     """Find particles that cross the cathode of a LArTPC module that is divided
     into two TPCs. It might manifest itself into two forms:
     - If the particle is ~in-time, it will be a single particle, with
-      potentially a small break/offset in the center
-    - If the particle is sigificantly out-of-time, a cathode crosser will
+      potentially a small break/offset near the cathode
+    - If the particle is significantly out-of-time, a cathode crosser will
       be composed of two distinct reconstructed particle objects
     """
 
@@ -36,15 +41,15 @@ class CathodeCrosserProcessor(PostBase):
 
     def __init__(
         self,
-        crossing_point_tolerance,
-        offset_tolerance,
-        angle_tolerance,
-        merge_crossers=True,
-        adjust_crossers=True,
-        adjust_method="distance",
-        run_mode="reco",
-        truth_point_mode="points",
-    ):
+        crossing_point_tolerance: float,
+        offset_tolerance: float,
+        angle_tolerance: float,
+        merge_crossers: bool = True,
+        adjust_crossers: bool = True,
+        adjust_method: str = "distance",
+        run_mode: str = "reco",
+        truth_point_mode: str = "points",
+    ) -> None:
         """Initialize the cathode crosser finder algorithm.
 
         Parameters
@@ -52,7 +57,7 @@ class CathodeCrosserProcessor(PostBase):
         crossing_point_tolerance : float
             Maximum allowed distance in the cathode plane (in cm) between two
             fragments of a cathode crosser to be considered compatible
-        offset_tolerance
+        offset_tolerance : float
             Maximum allowed discrepancy between end-point to cathode offsets of
             two fragments of a cathode crosser to be considered compatible
         angle_tolerance : float
@@ -64,7 +69,7 @@ class CathodeCrosserProcessor(PostBase):
             the crosser belongs to
         adjust_crossers : bool, default True
             If True, shifts cathode crosser positions to match at the cathode
-        adjust_method : str, default distance
+        adjust_method : str, default 'distance'
             Method used to adjust the cathode crossers:
             - 'distance': make the tracks meet at the cathode
             - 'projection': make the y-intercepts of the two tracks match in the
@@ -100,7 +105,7 @@ class CathodeCrosserProcessor(PostBase):
             keys[self.truth_point_key] = True
         self.update_keys(keys)
 
-    def process(self, data):
+    def process(self, data: Mapping[str, Any]) -> dict[str, Any]:
         """Find cathode crossing particles in one entry.
 
         Parameters
@@ -148,7 +153,7 @@ class CathodeCrosserProcessor(PostBase):
                 # TODO: expand functionality to support multi-module crossers
                 modules, tpcs = self.geo.get_contributors(self.get_sources(part))
                 assert len(np.unique(modules)) == 1, (
-                    "The cathode crosser identification/mergin post-"
+                    "The cathode crosser identification/merging post-"
                     "processor does not support multi-module crossers."
                 )
 
@@ -208,20 +213,20 @@ class CathodeCrosserProcessor(PostBase):
 
         return update_dict
 
-    def find_matches(self, particles):
+    def find_matches(self, particles: list[Any]) -> tuple[list[Any], list[Any]]:
         """Loop over all particles, find matches and update the
         particle/interaction list accordingly.
 
         Parameters
         ----------
-        particles : List[RecoParticle]
+        particles : list[RecoParticle]
             List of reconstructed particles
 
         Returns
         -------
-        List[RecoParticle]
+        list[RecoParticle]
             Updated list of reconstructed particles
-        List[RecoInteraction]
+        list[RecoInteraction]
             Updated list of reconstructed interactions
         """
         # Restrict candidates to particles which are not already tagged and
@@ -323,7 +328,9 @@ class CathodeCrosserProcessor(PostBase):
 
         return particles, interactions
 
-    def merge_particles(self, particles, idx_i, idx_j):
+    def merge_particles(
+        self, particles: list[Any], idx_i: int, idx_j: int
+    ) -> list[Any]:
         """Given two particles which form a single cathode crosser, merge
         the two instances into one in place.
 
@@ -332,7 +339,7 @@ class CathodeCrosserProcessor(PostBase):
 
         Parameters
         ----------
-        particles : List[RecoParticle]
+        particles : list[RecoParticle]
             List of reconstructed particles
         idx_i : int
             Index of a cathode crosser (or a cathode crosser fragment)
@@ -341,7 +348,7 @@ class CathodeCrosserProcessor(PostBase):
 
         Returns
         -------
-        List[RecoParticle]
+        list[RecoParticle]
             Updated list of reconstructed particles
         """
         # Merge particles, retain original interaction IDs
@@ -358,21 +365,19 @@ class CathodeCrosserProcessor(PostBase):
 
         return particles
 
-    def get_cathode_offset(self, particle):
+    def get_cathode_offset(self, particle: Any) -> float:
         """Find the distance one must shift a particle points by to make
         both TPC contributions align at the cathode.
 
         Parameters
         ----------
-        particle : Union[Particle, TruthParticle]
+        particle : Particle or TruthParticle
             Particle object
 
         Returns
         -------
-        np.ndarray
-            Offsets to apply to the each TPC contributions
         float
-            Offset applied to the particle as a whole (signed by time)
+            Offset applied to the particle as a whole, signed by drift direction
         """
         # Get TPCs that contributed to this particle
         modules, tpcs = self.geo.get_contributors(self.get_sources(particle))
@@ -432,7 +437,7 @@ class CathodeCrosserProcessor(PostBase):
         return global_offset
 
     @staticmethod
-    def projection_offset(points, directions):
+    def projection_offset(points: np.ndarray, directions: np.ndarray) -> float:
         """Finds the offset to optimize the alignment in xy and xz.
 
         It minimizes (xy intercept mismatch)^2 + (xz intercept mismatch)^2.
@@ -447,7 +452,7 @@ class CathodeCrosserProcessor(PostBase):
         Returns
         -------
         float
-            Optimal offset based on projection projection interecepts
+            Optimal offset based on projection intercepts
         """
         # Check that the x component of the two vector is non-zero
         assert np.all(np.abs(directions[:, 0]) > 0.0), (
@@ -473,7 +478,7 @@ class CathodeCrosserProcessor(PostBase):
         return -np.sum(weights * diffs) / np.sum(weights**2)
 
     @staticmethod
-    def dot_offset(points, directions):
+    def dot_offset(points: np.ndarray, directions: np.ndarray) -> float:
         """Finds the offset to optimize the alignment between the line
         directions and the vector joining the two line points.
 
@@ -506,7 +511,14 @@ class CathodeCrosserProcessor(PostBase):
         # Optimize delta such that the norm displacement vector are perpendicular
         return -np.dot(norm, v) / 2 * norm[0]
 
-    def adjust_positions(self, data, particles, interactions, idx, offset):
+    def adjust_positions(
+        self,
+        data: Mapping[str, Any],
+        particles: list[Any],
+        interactions: list[Any],
+        idx: int,
+        offset: float,
+    ) -> None:
         """Given a cathode crosser, apply the necessary position offsets to
         match it at the cathode.
 
@@ -514,9 +526,9 @@ class CathodeCrosserProcessor(PostBase):
         ----------
         data : dict
             Dictionary of data products
-        particles : List[ParticleBase]
+        particles : list[ParticleBase]
             List of particles
-        interactions : List[InteractionBase]
+        interactions : list[InteractionBase]
             List of interactions
         idx : int
             Index of a cathode crosser

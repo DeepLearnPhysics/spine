@@ -11,7 +11,7 @@ class PostBase(ABC):
     """Base class of all post-processors.
 
     This base class performs the following functions:
-      - Ensures that the necessary method exist
+      - Ensures that the necessary methods exist
       - Checks that the post-processor is provided the necessary information
         to do its job
       - Fetches the appropriate coordinate attributes
@@ -21,7 +21,7 @@ class PostBase(ABC):
     ----------
     name : str
         Name of the post-processor as defined in the configuration file
-    aliases : Tuple[str]
+    aliases : tuple[str, ...]
         Alternative acceptable names for a post-processor
     """
 
@@ -88,11 +88,11 @@ class PostBase(ABC):
 
         Parameters
         ----------
-        obj_type : Union[str, List[str]]
+        obj_type : str or sequence[str], optional
             Name or list of names of the object types to process
         run_mode : str, optional
             If specified, tells whether the post-processor must run on
-            reconstructed ('reco'), true ('true') or both objects
+            reconstructed ('reco'), true ('truth') or both objects
             ('both' or 'all')
         truth_point_mode : str, optional
             If specified, tells which attribute of the :class:`TruthFragment`,
@@ -204,7 +204,7 @@ class PostBase(ABC):
 
         Returns
         -------
-        Dict[str, bool]
+        dict[str, bool]
             Dictionary of (key, necessity) pairs to be used
         """
         return dict(self._keys)
@@ -216,7 +216,7 @@ class PostBase(ABC):
 
         Returns
         -------
-        Dict[str, str]
+        dict[str, str]
             Dictionary of (attribute, key) mapping for point coordinates
         """
         return dict(self._point_modes)
@@ -228,7 +228,7 @@ class PostBase(ABC):
 
         Returns
         -------
-        Dict[str, str]
+        dict[str, str]
             Dictionary of (attribute, key) mapping for point sources
         """
         return dict(self._source_modes)
@@ -240,7 +240,7 @@ class PostBase(ABC):
 
         Returns
         -------
-        Dict[str, str]
+        dict[str, str]
             Dictionary of (attribute, key) mapping for point depositions
         """
         return dict(self._dep_modes)
@@ -250,7 +250,7 @@ class PostBase(ABC):
 
         Parameters
         ----------
-        update_dict : Dict[str, bool]
+        update_dict : Mapping[str, bool]
             Dictionary of (key, necessity) pairs to update the keys with
         """
         if len(update_dict) > 0:
@@ -313,7 +313,7 @@ class PostBase(ABC):
 
         Parameters
         ----------
-        obj : Union[FragmentBase, ParticleBase, InteractionBase]
+        obj : FragmentBase, ParticleBase or InteractionBase
             Fragment, Particle or Interaction object
 
         Results
@@ -335,7 +335,7 @@ class PostBase(ABC):
 
         Parameters
         ----------
-        obj : Union[FragmentBase, ParticleBase, InteractionBase]
+        obj : FragmentBase, ParticleBase or InteractionBase
             Fragment, Particle or Interaction object
 
         Results
@@ -357,7 +357,7 @@ class PostBase(ABC):
 
         Parameters
         ----------
-        obj : Union[FragmentBase, ParticleBase, InteractionBase]
+        obj : FragmentBase, ParticleBase or InteractionBase
             Fragment, Particle or Interaction object
 
         Results
@@ -379,7 +379,7 @@ class PostBase(ABC):
 
         Parameters
         ----------
-        obj : Union[FragmentBase, ParticleBase, InteractionBase]
+        obj : FragmentBase, ParticleBase or InteractionBase
             Fragment, Particle or Interaction object
 
         Results
@@ -400,7 +400,7 @@ class PostBase(ABC):
 
         Parameters
         ----------
-        obj : Union[ParticleBase]
+        obj : ParticleBase
             Particle object
 
         Results
@@ -418,7 +418,7 @@ class PostBase(ABC):
 
         Parameters
         ----------
-        obj : Union[FragmentBase, ParticleBase, InteractionBase]
+        obj : FragmentBase, ParticleBase or InteractionBase
             Particle or interaction object
 
         Results

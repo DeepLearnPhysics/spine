@@ -1,5 +1,10 @@
 """Module that supports TPC-CRT matching."""
 
+from __future__ import annotations
+
+from collections.abc import Sequence
+from typing import Any
+
 import numpy as np
 
 from spine.constants import TRACK_SHP
@@ -17,21 +22,21 @@ class CRTMatcher:
 
     def __init__(
         self,
-        driftv,
-        match_method="threshold",
-        tolerance=5,
-        time_window=None,
-        min_part_size=None,
-        min_crt_pe=None,
-        match_distance=None,
-    ):
-        """Initalize the barycenter flash matcher.
+        driftv: float,
+        match_method: str = "threshold",
+        tolerance: float = 5.0,
+        time_window: Sequence[float] | None = None,
+        min_part_size: int | None = None,
+        min_crt_pe: float | None = None,
+        match_distance: float | None = None,
+    ) -> None:
+        """Initialize the CRT/TPC matcher.
 
         Parameters
         ----------
         driftv : float
             Drift velocity in cm/us
-        match_method : str, default 'distance'
+        match_method : str, default 'threshold'
             Matching method (one of 'threshold' or 'best')
             - 'threshold': If a TPC track can be propagated such that it matches
             the CRT hit within some threshold, they are matched
@@ -39,10 +44,8 @@ class CRTMatcher:
         tolerance : float, default 5
             Distance along x in cm that a track is allowed to float around the
             expected position given a CRT hit time
-        time_window : List, optional
+        time_window : Sequence[float], optional
             List of [min, max] values of optical flash times to consider
-        first_flash_only : bool, default False
-            Only try to match the first flash in the time window
         min_part_size : int, optional
             Minimum number of voxel in an particle to consider it
         min_crt_pe : float, optional
@@ -75,20 +78,22 @@ class CRTMatcher:
         self.min_part_size = min_part_size
         self.min_crt_pe = min_crt_pe
 
-    def get_matches(self, particles, crthits):
+    def get_matches(
+        self, particles: Sequence[Any], crthits: Sequence[Any]
+    ) -> list[tuple[Any, Any, float]]:
         """Makes [particle, crthit] pairs that are compatible.
 
         Parameters
         ----------
-        particles : List[Union[RecoParticle, TruthParticle]]
+        particles : Sequence[RecoParticle | TruthParticle]
             List of particles
-        crthits : List[CRTHit]
+        crthits : Sequence[CRTHit]
             List of CRT hits
 
         Returns
         -------
-        List[[Interaction, larcv.Flash, float]]
-            List of [particle, flash, distance] triplets
+        list[tuple[Particle, CRTHit, float]]
+            List of [particle, CRT hit, distance] triplets
         """
         # Check on the geometry
         assert (
@@ -178,27 +183,31 @@ class CRTMatcher:
 
         return matches
 
-    def restrict_objects(self, particles, crthits):
+    def restrict_objects(
+        self, particles: Sequence[Any], crthits: Sequence[Any]
+    ) -> tuple[list[Any], list[Any]]:
         """Restrict the list of particles/CRT hits to match the configuration.
 
         Parameters
         ----------
-        particles : List[Union[RecoParticle, TruthParticle]]
+        particles : Sequence[RecoParticle | TruthParticle]
             List of particles
-        crthits : List[CRTHit]
+        crthits : Sequence[CRTHit]
             List of CRT hits
 
         Returns
         -------
-        List[Union[RecoParticle, TruthParticle]]
+        list[RecoParticle | TruthParticle]
             Restricted list of particles
-        List[CRTHit]
+        list[CRTHit]
             Restricted list of CRT hits
         """
         # Restrict the CRT hits to those that fit the selection criterion
         if self.time_window is not None:
             t1, t2 = self.time_window
             crthits = [h for h in crthits if (h.time > t1 and h.time < t2)]
+        else:
+            crthits = list(crthits)
 
         # Restrict the particles to tracks that fit the selection criteria
         particles = [part for part in particles if part.shape == TRACK_SHP]
@@ -207,7 +216,13 @@ class CRTMatcher:
 
         return particles, crthits
 
-    def line_plane_intercept(self, line_p, line_v, plane_p, plane_n):
+    def line_plane_intercept(
+        self,
+        line_p: np.ndarray,
+        line_v: np.ndarray,
+        plane_p: np.ndarray,
+        plane_n: np.ndarray,
+    ) -> np.ndarray:
         """Find the intercept between a line and a plane in 3D.
 
         Parameters

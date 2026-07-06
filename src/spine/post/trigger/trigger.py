@@ -1,6 +1,10 @@
 """Trigger information parser post-processor module."""
 
+from __future__ import annotations
+
 import os
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 import pandas as pd
 
@@ -25,8 +29,12 @@ class TriggerProcessor(PostBase):
     _keys = (("run_info", True),)
 
     def __init__(
-        self, file_path, correct_flash_times=True, flash_keys=None, flash_time_corr_us=4
-    ):
+        self,
+        file_path: str,
+        correct_flash_times: bool = True,
+        flash_keys: Sequence[str] | None = None,
+        flash_time_corr_us: float = 4.0,
+    ) -> None:
         """Initialize the trigger information parser.
 
         Parameters
@@ -35,7 +43,7 @@ class TriggerProcessor(PostBase):
             Path to the csv file which contains the trigger information
         correct_flash_times : bool, default True
             If True, corrects the flash times using w.r.t. the trigger times
-        flash_keys : List[str], optional
+        flash_keys : sequence[str], optional
             When correcting flash times, provide the list of flash products
             to correct times for
         flash_time_corr_us : float, default 4
@@ -64,7 +72,7 @@ class TriggerProcessor(PostBase):
             # Add flash keys to the required data products
             self.update_keys({k: True for k in self.flash_keys})
 
-    def process(self, data):
+    def process(self, data: Mapping[str, Any]) -> dict[str, Trigger]:
         """Parse the trigger information of one entry.
 
         Parameters

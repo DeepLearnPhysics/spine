@@ -34,20 +34,20 @@ class FlashMatchProcessor(PostBase):
 
     def __init__(
         self,
-        flash_key,
-        volume,
-        ref_volume_id=None,
-        method="likelihood",
-        time_contained=False,
-        max_cathode_offset=None,
-        run_mode="reco",
-        truth_point_mode="points",
-        truth_dep_mode="depositions",
-        parent_path=None,
-        merge=None,
-        update_flashes=False,
-        **kwargs,
-    ):
+        flash_key: str,
+        volume: str,
+        ref_volume_id: int | None = None,
+        method: str = "likelihood",
+        time_contained: bool = False,
+        max_cathode_offset: float | None = None,
+        run_mode: str = "reco",
+        truth_point_mode: str = "points",
+        truth_dep_mode: str = "depositions",
+        parent_path: str | None = None,
+        merge: Mapping[str, Any] | None = None,
+        update_flashes: bool = False,
+        **kwargs: Any,
+    ) -> None:
         """Initialize the flash matching algorithm.
 
         Parameters

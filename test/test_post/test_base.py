@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any, cast
+
 import pytest
 
 from spine.post.base import PostBase
@@ -14,7 +16,7 @@ class DummyPost(PostBase):
 
 def test_post_base_validates_configuration():
     with pytest.raises(TypeError, match="obj_type"):
-        DummyPost(obj_type=1)
+        DummyPost(obj_type=cast(Any, 1))
 
     with pytest.raises(ValueError, match="run_mode"):
         DummyPost(run_mode="bad")

@@ -1,5 +1,10 @@
 """Multiple-Coulomb scattering (MCS) energy reconstruction module."""
 
+from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
+from typing import Any
+
 import numpy as np
 
 from spine.constants import (
@@ -30,23 +35,23 @@ class MCSEnergyProcessor(PostBase):
 
     def __init__(
         self,
-        tracking_mode="bin_pca",
-        segment_length=5.0,
-        res_a=0.25,
-        res_b=1.25,
-        res_mixture=False,
-        res_weight_ratio=0.5,
-        res_scale_ratio=2.25,
-        include_pids=(MUON_PID, PION_PID, PROT_PID, KAON_PID),
-        fill_per_pid=False,
-        only_uncontained=False,
-        angle_method="atan2",
-        obj_type="particle",
-        run_mode="both",
-        truth_point_mode="points",
-        pid_mode="pid",
-        **kwargs,
-    ):
+        tracking_mode: str = "bin_pca",
+        segment_length: float = 5.0,
+        res_a: float = 0.25,
+        res_b: float = 1.25,
+        res_mixture: bool = False,
+        res_weight_ratio: float = 0.5,
+        res_scale_ratio: float = 2.25,
+        include_pids: Sequence[int] = (MUON_PID, PION_PID, PROT_PID, KAON_PID),
+        fill_per_pid: bool = False,
+        only_uncontained: bool = False,
+        angle_method: str = "atan2",
+        obj_type: str | Sequence[str] | None = "particle",
+        run_mode: str = "both",
+        truth_point_mode: str = "points",
+        pid_mode: str = "pid",
+        **kwargs: Any,
+    ) -> None:
         """Store the necessary attributes to do MCS-based estimations.
 
         Parameters
@@ -66,7 +71,7 @@ class MCSEnergyProcessor(PostBase):
             When using a Rayleigh mixture, defines the weight ratio between components
         res_scale_ratio : float, default 2.25
             When using a Rayleigh mixture, defines the scale ratio between components
-        include_pids : list, default [2, 3, 4, 5]
+        include_pids : sequence[int], default [2, 3, 4, 5]
             Particle species to compute the kinetic energy for
         fill_per_pid : bool, default False
             If `True`, compute the MCS KE estimate under all PID assumptions
@@ -74,7 +79,7 @@ class MCSEnergyProcessor(PostBase):
             Only run the algorithm on particles that are not contained
         angle_method : str, default 'atan2'
             Angular reconstruction method
-        **kwargs : dict, optiona
+        **kwargs : dict, optional
             Additional arguments to pass to the tracking algorithm
         """
         # Initialize the parent class
@@ -107,7 +112,7 @@ class MCSEnergyProcessor(PostBase):
         self.res_weight_ratio = res_weight_ratio
         self.res_scale_ratio = res_scale_ratio
 
-    def process(self, data):
+    def process(self, data: Mapping[str, Any]) -> None:
         """Reconstruct the MCS KE estimates for each particle in one entry.
 
         Parameters

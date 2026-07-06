@@ -1,5 +1,7 @@
 """Tests for calorimetric interaction direction reconstruction."""
 
+from types import SimpleNamespace
+
 import numpy as np
 
 from spine.data.out import (
@@ -39,3 +41,61 @@ def test_calorimetric_direction_sets_reco_and_truth_direction_attributes():
     np.testing.assert_allclose(reco_inter.reco_dir, [1.0, 0.0, 0.0])
     np.testing.assert_allclose(truth_inter.dir, [0.0, 0.0, 1.0])
     np.testing.assert_allclose(truth_inter.reco_dir, [0.0, 1.0, 0.0])
+
+
+def test_calorimetric_direction_skips_degenerate_inputs():
+    processor = CalorimetricDirectionProcessor(run_mode="reco")
+    data = {
+        "points": np.zeros((1, 3), dtype=np.float32),
+        "depositions": np.ones(1, dtype=np.float32),
+    }
+
+    inter = SimpleNamespace(
+        is_truth=False,
+        vertex=None,
+        dir=None,
+        particles=[RecoParticle(index=np.array([0]))],
+    )
+    processor._reconstruct_direction(inter, data, "points")
+    assert inter.dir is None
+
+    inter = SimpleNamespace(
+        is_truth=False,
+        vertex=np.zeros(3),
+        dir=None,
+        particles=[],
+    )
+    processor._reconstruct_direction(inter, data, "points")
+    assert inter.dir is None
+
+    inter = SimpleNamespace(
+        is_truth=False,
+        vertex=np.zeros(3),
+        dir=None,
+        particles=[SimpleNamespace(size=0, index=np.empty(0, dtype=np.int64))],
+    )
+    processor._reconstruct_direction(inter, data, "points")
+    assert inter.dir is None
+
+    inter = SimpleNamespace(
+        is_truth=False,
+        vertex=np.zeros(3),
+        dir=None,
+        particles=[SimpleNamespace(size=1, index=np.empty(0, dtype=np.int64))],
+    )
+    processor._reconstruct_direction(inter, data, "points")
+    assert inter.dir is None
+
+    inter = SimpleNamespace(
+        is_truth=False,
+        vertex=np.zeros(3),
+        dir=None,
+        particles=[RecoParticle(index=np.array([0]))],
+    )
+    processor._reconstruct_direction(inter, data, "points")
+    assert inter.dir is None
+
+    data["points"] = np.array([[1.0, 0.0, 0.0]], dtype=np.float32)
+    data["depositions"] = np.zeros(1, dtype=np.float32)
+    processor._reconstruct_direction(inter, data, "points")
+    assert inter.dir is None

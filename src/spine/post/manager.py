@@ -25,7 +25,7 @@ class PostModule(Protocol):
 
 
 class PostManager(ModuleManager[PostModule]):
-    """Manager in charge of handling post-processing scripts.
+    """Manager in charge of handling post-processors.
 
     It loads all the post-processor objects once and feeds them data.
     """
@@ -42,10 +42,10 @@ class PostManager(ModuleManager[PostModule]):
         ----------
         cfg : dict
             Post-processor configurations
-        post_list : List[str], optional
+        post_list : sequence[str], optional
             List of post-processors which have already been run
         parent_path : str, optional
-            Path to the analysis tools configuration file
+            Path to the parent directory of the main configuration file
         """
         # Add the modules to a processor list in decreasing order of priority
         self.watch = StopwatchManager()

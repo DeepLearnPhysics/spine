@@ -1,5 +1,10 @@
 """Particle direction reconstruction module."""
 
+from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
+from typing import Any
+
 import numpy as np
 
 from spine.constants import TRACK_SHP
@@ -24,12 +29,12 @@ class DirectionProcessor(PostBase):
 
     def __init__(
         self,
-        radius=-1,
-        optimize=True,
-        obj_type="particle",
-        truth_point_mode="points",
-        run_mode="both",
-    ):
+        radius: float = -1.0,
+        optimize: bool = True,
+        obj_type: str | Sequence[str] | None = "particle",
+        truth_point_mode: str = "points",
+        run_mode: str = "both",
+    ) -> None:
         """Store the particle direction reconstruction parameters.
 
         Parameters
@@ -52,7 +57,7 @@ class DirectionProcessor(PostBase):
         if run_mode != "reco":
             self.update_keys({self.truth_point_key: True})
 
-    def process(self, data):
+    def process(self, data: Mapping[str, Any]) -> None:
         """Reconstruct the directions of all particles in one entry.
 
         Parameters

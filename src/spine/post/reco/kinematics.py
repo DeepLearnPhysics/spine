@@ -1,5 +1,10 @@
 """Kinematics update module."""
 
+from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import Any
+
 import numpy as np
 
 from spine.constants import (
@@ -41,7 +46,12 @@ class ParticleShapeLogicProcessor(PostBase):
     # Alternative allowed names of the post-processor
     aliases = ("enforce_particle_semantics",)
 
-    def __init__(self, enforce_pid=True, enforce_primary=True, maximum_michel_ke=None):
+    def __init__(
+        self,
+        enforce_pid: bool = True,
+        enforce_primary: bool = True,
+        maximum_michel_ke: float | None = None,
+    ) -> None:
         """Store information about which particle properties should
         or should not be updated.
 
@@ -67,7 +77,7 @@ class ParticleShapeLogicProcessor(PostBase):
         if self.maximum_michel_ke is not None:
             self.update_upstream("calo_ke")
 
-    def process(self, data):
+    def process(self, data: Mapping[str, Any]) -> None:
         """Update PID and primary predictions of each particle in one entry
 
         Parameters
@@ -122,10 +132,10 @@ class ParticleThresholdProcessor(PostBase):
 
     def __init__(
         self,
-        shower_pid_thresholds=None,
-        track_pid_thresholds=None,
-        primary_threshold=None,
-    ):
+        shower_pid_thresholds: Mapping[int, float] | None = None,
+        track_pid_thresholds: Mapping[int, float] | None = None,
+        primary_threshold: float | None = None,
+    ) -> None:
         """Store the new thresholds to be used to update the PID and primary
         information of particles.
 
@@ -137,7 +147,7 @@ class ParticleThresholdProcessor(PostBase):
         track_pid_thresholds : dict, optional
             Dictionary which maps a track PID output to a threshold value,
             in order
-        primary_treshold : float, optional
+        primary_threshold : float, optional
             Primary score above which a particle is considered a primary
         """
         # Intialize the parent class
@@ -159,7 +169,7 @@ class ParticleThresholdProcessor(PostBase):
         self.track_pid_thresholds = track_pid_thresholds
         self.primary_threshold = primary_threshold
 
-    def process(self, data):
+    def process(self, data: Mapping[str, Any]) -> None:
         """Update PID predictions of each particle one entry.
 
         Parameters
@@ -217,7 +227,7 @@ class ParticleNeutrinoLogicProcessor(PostBase):
     # Lepton selection method
     _methods = ("size", "score")
 
-    def __init__(self, method="size", cc_only=True):
+    def __init__(self, method: str = "size", cc_only: bool = True) -> None:
         """Store information about how to enforce neutrino logic.
 
         Parameters
@@ -240,7 +250,7 @@ class ParticleNeutrinoLogicProcessor(PostBase):
         self.method = method
         self.cc_only = cc_only
 
-    def process(self, data):
+    def process(self, data: Mapping[str, Any]) -> None:
         """Update PID and primary predictions of each particle in one entry
 
         Parameters
@@ -302,18 +312,18 @@ class InteractionTopologyProcessor(PostBase):
 
     def __init__(
         self,
-        ke_thresholds=None,
-        reco_ke_mode="ke",
-        truth_ke_mode="energy_deposit",
-        run_mode="both",
-    ):
+        ke_thresholds: float | Mapping[int | str, float] | None = None,
+        reco_ke_mode: str = "ke",
+        truth_ke_mode: str = "energy_deposit",
+        run_mode: str = "both",
+    ) -> None:
         """Store the new thresholds to be used to update interaction topologies.
 
         Parameters
         ----------
-        ke_thresholds : Union[float, dict]
+        ke_thresholds : float or dict, optional
             If a scalar, it specifies a blanket KE cut to apply to all
-            particles. If it is a dictionary, it maps an PID to a KE threshold.
+            particles. If it is a dictionary, it maps a PID to a KE threshold.
             If a 'default' key is provided, it is used for all particles,
             unless a number is provided for a specific PID.
         reco_ke_mode : str, default 'ke'
@@ -341,7 +351,7 @@ class InteractionTopologyProcessor(PostBase):
             else:
                 self.ke_thresholds[pid] = 0.0
 
-    def process(self, data):
+    def process(self, data: Mapping[str, Any]) -> None:
         """Update each interaction topology in one interaction.
 
         Parameters

@@ -1,6 +1,10 @@
 """Post-processor in charge of finding matches between charge and CRT."""
 
+from __future__ import annotations
+
 from collections import defaultdict
+from collections.abc import Mapping
+from typing import Any
 
 import numpy as np
 
@@ -23,7 +27,7 @@ class CRTMatchProcessor(PostBase):
     # Set of post-processors which must be run before this one is
     _upstream = ("direction",)
 
-    def __init__(self, crt_key, run_mode="reco", **kwargs):
+    def __init__(self, crt_key: str, run_mode: str = "reco", **kwargs: Any) -> None:
         """Initialize the CRT/TPC matching post-processor.
 
         Parameters
@@ -43,7 +47,7 @@ class CRTMatchProcessor(PostBase):
         # Initialzie the matcher
         self.matcher = CRTMatcher(**kwargs)
 
-    def process(self, data):
+    def process(self, data: Mapping[str, Any]) -> None:
         """Find [particle, crthit] pairs.
 
         Parameters

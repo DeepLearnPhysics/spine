@@ -1,8 +1,13 @@
 """Source assignment modules.
 
 This module implements routines to assign module/tpc sources when
-they are not explicitely provided.
+they are not explicitly provided.
 """
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import Any
 
 import numpy as np
 
@@ -25,10 +30,10 @@ class SourceAssigner(PostBase):
 
     def __init__(
         self,
-        run_mode="reco",
-        truth_point_mode="points",
-    ):
-        """Initialize the source assigner"""
+        run_mode: str = "reco",
+        truth_point_mode: str = "points",
+    ) -> None:
+        """Initialize the source assigner."""
         # Initialize the parent class, store run mode
         super().__init__(run_mode=run_mode, truth_point_mode=truth_point_mode)
 
@@ -42,7 +47,7 @@ class SourceAssigner(PostBase):
         if run_mode != "reco":
             self.update_keys({self.truth_point_key: True})
 
-    def process(self, data):
+    def process(self, data: Mapping[str, Any]) -> dict[str, np.ndarray]:
         """Assign sources to the relevant depositions.
 
         Parameters
@@ -53,7 +58,7 @@ class SourceAssigner(PostBase):
         Returns
         -------
         dict
-            Dictionary which sources
+            Dictionary containing source assignment tensors
         """
         # Initialize output
         result = {}
@@ -68,7 +73,7 @@ class SourceAssigner(PostBase):
 
         return result
 
-    def get_closest(self, points):
+    def get_closest(self, points: np.ndarray) -> np.ndarray:
         """Assign sources to one set of points based on proximity.
 
         Parameters

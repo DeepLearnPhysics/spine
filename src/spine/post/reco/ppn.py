@@ -1,5 +1,10 @@
 """PPN point construction module."""
 
+from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import Any
+
 import numpy as np
 from scipy.spatial.distance import cdist
 
@@ -39,16 +44,16 @@ class PPNProcessor(PostBase):
 
     def __init__(
         self,
-        assign_to_particles=False,
-        restrict_shape=False,
-        match_threshold=2.0,
-        **ppn_pred_cfg,
-    ):
+        assign_to_particles: bool = False,
+        restrict_shape: bool = False,
+        match_threshold: float = 2.0,
+        **ppn_pred_cfg: Any,
+    ) -> None:
         """Store the `get_ppn_predictions` keyword arguments.
 
         Parameters
         ----------
-        assign_to_particles: bool, default False
+        assign_to_particles : bool, default False
             If `True`, will assign PPN candidates to particle objects
         restrict_shape : bool, default False
             If `True`, only associate PPN candidates with compatible shape
@@ -57,10 +62,6 @@ class PPNProcessor(PostBase):
         **ppn_pred_cfg : dict, optional
             Keyword arguments to pass to the `PPNPredictor` class
 
-        Returns
-        -------
-        dict
-            Update result dictionary containing 'ppn_candidates' key
         """
         # Intialize the parent class
         obj_type = "particle" if assign_to_particles else None
@@ -72,7 +73,7 @@ class PPNProcessor(PostBase):
         self.match_threshold = match_threshold
         self.ppn_predictor = PPNPredictor(**ppn_pred_cfg)
 
-    def process(self, data):
+    def process(self, data: Mapping[str, Any]) -> dict[str, Any]:
         """Produce PPN candidates for one entry.
 
         Parameters
@@ -98,11 +99,11 @@ class PPNProcessor(PostBase):
                     valid_index = np.where(ppn_pred[:, PPN_SHAPE_COL] == part.shape)[0]
                     candidates = ppn_points[valid_index]
 
-                # Restrict to points that are susfficienly close
+                # Restrict to points that are sufficiently close
                 dists = np.min(cdist(candidates, part.points), axis=1)
                 dist_index = np.where(dists < self.match_threshold)[0]
 
-                # Compute and sotre points matches to this particle
+                # Compute and store point matches to this particle
                 matches = candidates[dist_index]
                 part.ppn_points = matches
                 if not self.restrict_shape:

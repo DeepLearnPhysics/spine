@@ -1,6 +1,10 @@
 """True particle children counting module."""
 
+from __future__ import annotations
+
 from collections import Counter, defaultdict
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 import numpy as np
 
@@ -21,7 +25,9 @@ class ChildrenProcessor(PostBase):
     # Alternative allowed names of the post-processor
     aliases = ("count_children",)
 
-    def __init__(self, mode="shape", obj_type="particle"):
+    def __init__(
+        self, mode: str = "shape", obj_type: str | Sequence[str] | None = "particle"
+    ) -> None:
         """Initialize the children counting parameters.
 
         Parameters
@@ -45,7 +51,7 @@ class ChildrenProcessor(PostBase):
                 "one of 'shape' or 'pid'."
             )
 
-    def process(self, data):
+    def process(self, data: Mapping[str, Any]) -> None:
         """Count children of each true particle in one entry.
 
         Parameters

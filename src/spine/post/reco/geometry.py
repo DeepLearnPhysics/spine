@@ -1,5 +1,12 @@
 """Detector-geometry-based reconstruction module."""
 
+from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
+from typing import Any
+
+import numpy as np
+
 from spine.constants import PID_LABELS
 from spine.geo import GeoManager
 from spine.post.base import PostBase
@@ -23,17 +30,17 @@ class ContainmentProcessor(PostBase):
 
     def __init__(
         self,
-        margin,
-        cathode_margin=None,
-        mode="module",
-        allow_multi_module=False,
-        logical=False,
-        exclude_pids=None,
-        min_particle_sizes=0,
-        obj_type=("particle", "interaction"),
-        truth_point_mode="points",
-        run_mode="both",
-    ):
+        margin: float | list[float] | np.ndarray,
+        cathode_margin: float | None = None,
+        mode: str = "module",
+        allow_multi_module: bool = False,
+        logical: bool = False,
+        exclude_pids: Sequence[int] | None = None,
+        min_particle_sizes: int | Mapping[int | str, int] = 0,
+        obj_type: str | Sequence[str] | None = ("particle", "interaction"),
+        truth_point_mode: str = "points",
+        run_mode: str = "both",
+    ) -> None:
         """Initialize the containment conditions.
 
         If the `source` method is used, the cut will be based on the source of
@@ -43,17 +50,18 @@ class ContainmentProcessor(PostBase):
 
         Parameters
         ----------
-        margin : Union[float, List[float], np.array]
+        margin : float, sequence or np.ndarray
             Minimum distance from a detector wall to be considered contained:
             - If float: distance buffer is shared between all 6 walls
-            - If [x,y,z]: distance is shared between pairs of falls facing
+            - If [x,y,z]: distance is shared between pairs of walls facing
               each other and perpendicular to a shared axis
             - If [[x_low,x_up], [y_low,y_up], [z_low,z_up]]: distance is
               specified individually of each wall.
         cathode_margin : float, optional
             If specified, sets a different margin for the cathode boundaries
         mode : str, default 'module'
-            Containement criterion (one of 'global', 'module', 'tpc'):
+            Containment criterion (one of 'detector', 'module', 'tpc',
+            'source' or 'meta'):
             - If 'tpc', makes sure it is contained within a single tpc
             - If 'module', makes sure it is contained within a single module
             - If 'detector', makes sure it is contained within the
@@ -68,10 +76,10 @@ class ContainmentProcessor(PostBase):
             If `True`, the module is checking for logical containment, i.e. that
             particles/interactions do not span outside of the drift window, with
             padding defined by the margin/cathode margin parameters
-        exclude_pids : List[int], optional
+        exclude_pids : sequence[int], optional
             When checking interaction containment, ignore particles which
             have a species specified by this list
-        min_particle_sizes : Union[int, dict], default 0
+        min_particle_sizes : int or dict, default 0
             When checking interaction containment, ignore particles below the
             size (in voxel count) specified by this parameter. If specified
             as a dictionary, it maps a specific particle type to its own cut.
@@ -123,7 +131,7 @@ class ContainmentProcessor(PostBase):
             else:
                 self.min_particle_sizes[pid] = 0
 
-    def process(self, data):
+    def process(self, data: Mapping[str, Any]) -> None:
         """Check the containment of all objects in one entry.
 
         Parameters
@@ -219,34 +227,34 @@ class FiducialProcessor(PostBase):
 
     def __init__(
         self,
-        margin,
-        cathode_margin=None,
-        mode="module",
-        run_mode="both",
-        truth_vertex_mode="vertex",
-    ):
+        margin: float | list[float] | np.ndarray,
+        cathode_margin: float | None = None,
+        mode: str = "module",
+        run_mode: str = "both",
+        truth_vertex_mode: str = "vertex",
+    ) -> None:
         """Initialize the fiducial conditions.
 
         Parameters
         ----------
-        margin : Union[float, List[float], np.array]
+        margin : float, sequence or np.ndarray
             Minimum distance from a detector wall to be considered contained:
             - If float: distance buffer is shared between all 6 walls
-            - If [x,y,z]: distance is shared between pairs of falls facing
+            - If [x,y,z]: distance is shared between pairs of walls facing
               each other and perpendicular to a shared axis
             - If [[x_low,x_up], [y_low,y_up], [z_low,z_up]]: distance is
               specified individually of each wall.
         cathode_margin : float, optional
             If specified, sets a different margin for the cathode boundaries
         mode : str, default 'module'
-            Containement criterion (one of 'global', 'module', 'tpc'):
+            Containment criterion (one of 'detector', 'module', 'tpc' or 'meta'):
             - If 'tpc', makes sure it is contained within a single tpc
             - If 'module', makes sure it is contained within a single module
             - If 'detector', makes sure it is contained within the
               outermost walls
             - If 'meta', use the metadata range as a basis for containment.
               Note that this does not guarantee containment within the detector.
-        truth_vertex_mode : str, default 'truth_vertex'
+        truth_vertex_mode : str, default 'vertex'
              Vertex attribute to use to check containment of true interactions
         """
         # Initialize the parent class
@@ -272,7 +280,7 @@ class FiducialProcessor(PostBase):
         )
         self.truth_vertex_mode = truth_vertex_mode
 
-    def process(self, data):
+    def process(self, data: Mapping[str, Any]) -> None:
         """Check the fiducial status of all interactions in one entry.
 
         Parameters
@@ -297,7 +305,7 @@ class FiducialProcessor(PostBase):
                         vertex > (data["meta"].lower + self.margin)
                     ).all() and (vertex < (data["meta"].upper - self.margin)).all()
 
-    def get_vertex(self, inter):
+    def get_vertex(self, inter: Any) -> np.ndarray:
         """Get a certain pre-defined vertex attribute of an interaction.
 
         The :class:`TruthInteraction` vertexes are obtained using the
@@ -305,7 +313,7 @@ class FiducialProcessor(PostBase):
 
         Parameters
         ----------
-        obj : InteractionBase
+        inter : InteractionBase
             Interaction object
 
         Returns

@@ -1,5 +1,10 @@
 """Calorimetric interaction direction reconstruction module."""
 
+from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import Any
+
 import numpy as np
 
 from spine.post.base import PostBase
@@ -24,9 +29,9 @@ class CalorimetricDirectionProcessor(PostBase):
 
     def __init__(
         self,
-        run_mode="both",
-        truth_point_mode="points",
-    ):
+        run_mode: str = "both",
+        truth_point_mode: str = "points",
+    ) -> None:
         """Initialize the calorimetric direction reconstruction parameters.
 
         Parameters
@@ -46,7 +51,7 @@ class CalorimetricDirectionProcessor(PostBase):
         if run_mode != "reco":
             self.update_keys({self.truth_point_key: True})
 
-    def process(self, data):
+    def process(self, data: Mapping[str, Any]) -> None:
         """Reconstruct the direction for each interaction.
 
         Parameters
@@ -59,7 +64,9 @@ class CalorimetricDirectionProcessor(PostBase):
             for inter in data[k]:
                 self._reconstruct_direction(inter, data, points_key)
 
-    def _reconstruct_direction(self, inter, data, points_key):
+    def _reconstruct_direction(
+        self, inter: Any, data: Mapping[str, Any], points_key: str
+    ) -> None:
         """Reconstruct the direction for one interaction.
 
         Parameters
@@ -75,9 +82,11 @@ class CalorimetricDirectionProcessor(PostBase):
         if vertex is None or len(inter.particles) == 0:
             return
 
-        all_indices = np.concatenate(
-            [part.index for part in inter.particles if part.size > 0]
-        )
+        indices = [part.index for part in inter.particles if part.size > 0]
+        if len(indices) == 0:
+            return
+
+        all_indices = np.concatenate(indices)
         if len(all_indices) == 0:
             return
 

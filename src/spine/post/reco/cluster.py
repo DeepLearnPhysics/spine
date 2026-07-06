@@ -5,6 +5,11 @@ without requiring model weights. This is useful to produce basic data
 assessment metrics without relying on high-level reconstruction tools.
 """
 
+from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import Any
+
 import numpy as np
 
 from spine.constants import TRACK_SHP
@@ -37,25 +42,25 @@ class TrackClusterer(PostBase):
 
     def __init__(
         self,
-        eps=5.0,
-        min_samples=1,
-        metric="euclidean",
-        min_size=10,
-        max_rel_spread=0.1,
-        max_axis_dist=None,
-        split_volume=None,
-        particle_type="reco",
-    ):
+        eps: float = 5.0,
+        min_samples: int = 1,
+        metric: str = "euclidean",
+        min_size: int = 10,
+        max_rel_spread: float = 0.1,
+        max_axis_dist: float | None = None,
+        split_volume: str | None = None,
+        particle_type: str = "reco",
+    ) -> None:
         """Initialize the track factory.
 
         Parameters
         ----------
         eps : float, default 5.
-            DBSCAN distance parameter for intial clustering (cm)
+            DBSCAN distance parameter for initial clustering (cm)
         min_samples : int, default 1
             DBSCAN min samples parameter for initial clustering
         metric : str, default 'euclidean'
-            DBSCAN metric for intial clustering
+            DBSCAN metric for initial clustering
         min_size : int, default 10
             Minimum track size, in number of hits
         max_rel_spread : float, default 0.1
@@ -64,7 +69,7 @@ class TrackClusterer(PostBase):
             Maximum track axis distance to filter points to, if requested
         split_volume : str, optional
             If specified, the track clusters are restricted within either
-            a detecor 'module' or 'tpc'
+            a detector 'module' or 'tpc'
         particle_type : str, default 'reco'
             Type of particle output by this algorithm
         """
@@ -98,7 +103,7 @@ class TrackClusterer(PostBase):
         self.particle_class = self.particle_classes[particle_type]
 
     @property
-    def particle_classes(self):
+    def particle_classes(self) -> dict[str, type[RecoParticle] | type[TruthParticle]]:
         """Dictionary which maps particle type to particle classes.
 
         Returns
@@ -108,7 +113,7 @@ class TrackClusterer(PostBase):
         """
         return dict(self._particle_classes)
 
-    def process(self, data):
+    def process(self, data: Mapping[str, Any]) -> dict[str, ObjectList]:
         """Produce track clusters for one entry.
 
         Parameters
@@ -119,7 +124,7 @@ class TrackClusterer(PostBase):
         Returns
         -------
         dict
-            Dictionary which reconstructed track instances
+            Dictionary containing reconstructed track instances
         """
         # Dispatch
         points, depositions = data["points"], data["depositions"]
@@ -176,7 +181,7 @@ class TrackClusterer(PostBase):
 
         return {f"{self.particle_type}_particles": particles}
 
-    def process_volume(self, points):
+    def process_volume(self, points: np.ndarray) -> list[np.ndarray]:
         """Produce track clusters for one volume.
 
         Parameters
@@ -186,7 +191,7 @@ class TrackClusterer(PostBase):
 
         Returns
         -------
-        List[np.ndarray]
+        list[np.ndarray]
             List of cluster indexes
         """
         # Fetch the list of points in the image

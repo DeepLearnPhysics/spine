@@ -8,6 +8,10 @@ takes the output of the reconstruction and either
 
 # Add the imports specific to this module here
 # import ...
+from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 # Must import the post-processor base class
 from spine.post.base import PostBase
@@ -19,38 +23,47 @@ __all__ = ["TemplateProcessor"]
 
 
 class TemplateProcessor(PostBase):
-    """Description of what the post-processor is supposed to be doing."""
+    """Template post-processor showing the expected PostBase interface."""
 
     name = "template"  # Name used to call the post-processor in the config
 
-    def __init__(self, arg0, arg1, obj_type, run_mode):
+    def __init__(
+        self,
+        arg0: Any,
+        arg1: Any,
+        obj_type: str | Sequence[str] | None = None,
+        run_mode: str | None = None,
+        **kwargs: Any,
+    ) -> None:
         """Initialize the post-processor.
 
         Parameters
         ----------
-        arg0 : type
-            Description of arg0
-        arg1 : type
-            Description of arg1
-        obj_type : Union[str, List[str]]
+        arg0 : object
+            Example required argument
+        arg1 : object
+            Example required argument
+        obj_type : str or sequence[str], optional
             Types of objects needed in this post-processor (fragments,
             particles and/or interactions). This argument is shared between
             all post-processors. If None, does not load these objects.
         run_mode : str
             One of 'reco', 'truth' or 'both'. Determines what kind of object
             the post-processor has to run on.
+        **kwargs : dict, optional
+            Additional arguments to pass to :class:`PostBase`
         """
         # Initialize the parent class
-        super().__init__(obj_type, run_mode)
+        super().__init__(obj_type=obj_type, run_mode=run_mode, **kwargs)
 
         # Store parameter
         self.arg0 = arg0
         self.arg1 = arg1
 
         # Add additional required data products
-        self.keys["prod"] = True  # Means we must have 'prod' in the dictionary
+        self.update_keys({"prod": True})
 
-    def process(self, data):
+    def process(self, data: Mapping[str, Any]) -> dict[str, Any] | None:
         """Pass data products corresponding to one entry through the processor.
 
         Parameters
@@ -66,10 +79,10 @@ class TemplateProcessor(PostBase):
             # Loop over all objects of that type
             for obj in data[key]:
                 # Fetch points attributes
-                points = self.get_points(obj)
+                self.get_points(obj)
 
                 # Get another attribute
-                sources = obj.sources
+                obj.sources
 
                 # Do something...
 

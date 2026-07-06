@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import cast
+
 import pytest
 
 import spine.post.manager as manager_mod
@@ -37,7 +39,10 @@ def test_post_manager_parses_priority_names_and_keeps_config_clean(monkeypatch):
     manager = PostManager(cfg, parent_path="config")
 
     assert list(manager.modules) == ["high", "low"]
-    assert manager.modules["high"].cfg == {"offset": 2, "parent_path": "config"}
+    assert cast(FakePostModule, manager.modules["high"]).cfg == {
+        "offset": 2,
+        "parent_path": "config",
+    }
     assert cfg["high"]["priority"] == 3
     assert cfg["high"]["name"] == "processor"
 

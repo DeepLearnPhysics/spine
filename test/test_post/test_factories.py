@@ -12,6 +12,10 @@ class DummyPost:
         self.parent_path = parent_path
 
 
+class DummyPostNoParent(DummyPost):
+    provide_parent_path = False
+
+
 def test_post_processor_factory_does_not_mutate_config(monkeypatch):
     monkeypatch.setattr(factories, "POST_DICT", {"dummy": DummyPost})
     cfg = {"value": 3}
@@ -21,3 +25,14 @@ def test_post_processor_factory_does_not_mutate_config(monkeypatch):
     assert cfg == {"value": 3}
     assert module.value == 3
     assert module.parent_path == "config"
+
+
+def test_post_processor_factory_skips_parent_path(monkeypatch):
+    monkeypatch.setattr(factories, "POST_DICT", {"dummy": DummyPostNoParent})
+
+    module = factories.post_processor_factory(
+        "dummy", {"value": 4}, parent_path="config"
+    )
+
+    assert module.value == 4
+    assert module.parent_path is None

@@ -24,14 +24,14 @@ class LikelihoodFlashMatcher:
 
     def __init__(
         self,
-        cfg,
-        detector,
-        parent_path=None,
-        scaling=1.0,
-        alpha=0.21,
-        recombination_mip=0.65,
-        legacy=False,
-    ):
+        cfg: str,
+        detector: str | None,
+        parent_path: str | None = None,
+        scaling: float | str = 1.0,
+        alpha: float | str = 0.21,
+        recombination_mip: float | str = 0.65,
+        legacy: bool = False,
+    ) -> None:
         """Initialize the likelihood-based flash matching algorithm.
 
         Parameters
@@ -42,7 +42,7 @@ class LikelihoodFlashMatcher:
             Detector to get the optical detector properties for
         parent_path : str, optional
             Path to the parent configuration file (allows for relative paths)
-        scaling : Union[float, str], default 1.
+        scaling : float or str, default 1.
             Global scaling factor for the depositions (can be an expression)
         alpha : float, default 0.21
             Number of excitons (Ar*) divided by number of electron-ion pairs (e-,Ar+)
@@ -71,7 +71,9 @@ class LikelihoodFlashMatcher:
         self.qcluster_v = None
         self.flash_v = None
 
-    def initialize_backend(self, cfg, detector, parent_path):
+    def initialize_backend(
+        self, cfg: str, detector: str | None, parent_path: str | None
+    ) -> None:
         """Initialize OpT0Finder (backend).
 
         Expects that the environment variable `FMATCH_BASEDIR` is set.
@@ -81,7 +83,7 @@ class LikelihoodFlashMatcher:
 
         Parameters
         ----------
-        cfg: str
+        cfg : str
             Path to config for OpT0Finder
         detector : str, optional
             Detector to get the optical detector properties for
@@ -128,34 +130,36 @@ class LikelihoodFlashMatcher:
         if not os.path.isfile(cfg):
             raise FileNotFoundError(f"Cannot find flash-matcher config: {cfg}")
 
-        cfg = flashmatch.CreateFMParamsFromFile(cfg)
+        fm_cfg = flashmatch.CreateFMParamsFromFile(cfg)
 
         # Initialize The OpT0Finder flash match manager
         self.mgr = flashmatch.FlashMatchManager()
-        self.mgr.Configure(cfg)
+        self.mgr.Configure(fm_cfg)
 
         # Get the light path algorithm to produce QCluster_t objects
         self.light_path = flashmatch.CustomAlgoFactory.get().create(
             "LightPath", "ToyMCLightPath"
         )
-        self.light_path.Configure(cfg.get["flashmatch::FMParams"]("LightPath"))
+        self.light_path.Configure(fm_cfg.get["flashmatch::FMParams"]("LightPath"))
 
-    def get_matches(self, interactions, flashes):
+    def get_matches(
+        self, interactions: list[Any], flashes: list[Any]
+    ) -> list[tuple[Any, Any, Any]]:
         """Find TPC interactions compatible with optical flashes.
 
         Parameters
         ----------
-        interactions : List[Union[Interaction, TruthInteraction]]
+        interactions : list[Interaction | TruthInteraction]
             List of TPC interactions
-        flashes : List[Flash]
+        flashes : list[Flash]
             List of optical flashes
 
         Returns
         -------
-        List[Tuple[Interaction, Flash, flashmatch::FlashMatch_t]]
+        list[tuple[Interaction, Flash, flashmatch::FlashMatch_t]]
             Set of interaction/flash matches with their matching characteristics
         """
-        # If there is no interaction or no flashe, nothing to do
+        # If there is no interaction or no flash, nothing to do
         if not len(interactions) or not len(flashes):
             return []
 
@@ -177,21 +181,21 @@ class LikelihoodFlashMatcher:
 
         return result
 
-    def make_qcluster_list(self, interactions):
+    def make_qcluster_list(self, interactions: list[Any]) -> list[Any]:
         """Converts a list of SPINE interaction into a list of OpT0Finder
         flashmatch.QCluster_t objects.
 
         Parameters
         ----------
-        interactions : List[Union[Interaction, TruthInteraction]]
+        interactions : list[Interaction | TruthInteraction]
             List of TPC interactions
 
         Returns
         -------
-        List[QCluster_t]
+        list[QCluster_t]
            List of OpT0Finder flashmatch::QCluster_t objects
         """
-        # Loop over the interacions
+        # Loop over the interactions
         flashmatch = get_flashmatch()
         qcluster_v = []
         for idx, inter in enumerate(interactions):
@@ -228,17 +232,17 @@ class LikelihoodFlashMatcher:
 
         return qcluster_v
 
-    def make_flash_list(self, flashes):
+    def make_flash_list(self, flashes: list[Any]) -> tuple[list[Any], list[Any]]:
         """Creates a list of flashmatch.Flash_t from the local class.
 
         Parameters
         ----------
-        flashes : List[Flash]
+        flashes : list[Flash]
             List of optical flashes
 
         Returns
         -------
-        List[Flash_t]
+        list[Flash_t]
             List of flashmatch::Flash_t objects
         """
         # Loop over the optical flashes
@@ -264,12 +268,12 @@ class LikelihoodFlashMatcher:
 
         return flash_v, flashes
 
-    def run_flash_matching(self):
+    def run_flash_matching(self) -> list[Any]:
         """Drive the OpT0Finder flash matching.
 
         Returns
         -------
-        List[flashmatch::FlashMatch_t]
+        list[flashmatch::FlashMatch_t]
             List of matches
         """
         # Make sure the interaction and flash objects were set
@@ -295,7 +299,7 @@ class LikelihoodFlashMatcher:
 
         return all_matches
 
-    def get_qcluster(self, idx, array=False):
+    def get_qcluster(self, idx: int, array: bool = False) -> Any:
         """Fetch a given flashmatch::QCluster_t object.
 
         Parameters
@@ -307,7 +311,7 @@ class LikelihoodFlashMatcher:
 
         Returns
         -------
-        Union[flashmatch::QCluster_t, np.ndarray]
+        flashmatch::QCluster_t or np.ndarray
             QCluster object
         """
         flashmatch = get_flashmatch()
@@ -324,7 +328,7 @@ class LikelihoodFlashMatcher:
 
         raise IndexError(f"TPC object {idx} does not exist in self.qcluster_v")
 
-    def get_flash(self, idx, array=False):
+    def get_flash(self, idx: int, array: bool = False) -> Any:
         """Fetch a given flashmatch::Flash object.
 
         Parameters
@@ -336,7 +340,7 @@ class LikelihoodFlashMatcher:
 
         Returns
         -------
-        Union[flashmatch::Flash, np.ndarray]
+        flashmatch::Flash or np.ndarray
             Flash object
         """
         flashmatch = get_flashmatch()
@@ -353,7 +357,7 @@ class LikelihoodFlashMatcher:
 
         raise IndexError(f"Flash {idx} does not exist in self.flash_v")
 
-    def get_match(self, idx):
+    def get_match(self, idx: int) -> Any | None:
         """Fetch a match for a given TPC interaction ID.
 
         Parameters
@@ -376,7 +380,7 @@ class LikelihoodFlashMatcher:
 
         return None
 
-    def get_matched_flash(self, idx):
+    def get_matched_flash(self, idx: int) -> Any | None:
         """Fetch a matched flash for a given TPC interaction ID.
 
         Parameters
@@ -407,7 +411,7 @@ class LikelihoodFlashMatcher:
 
         return self.flash_v[flash_id]
 
-    def get_t0(self, idx):
+    def get_t0(self, idx: int) -> float | None:
         """Fetch a matched flash time for a given TPC interaction ID.
 
         Parameters
