@@ -1,8 +1,9 @@
+import numpy as np
 import torch
 
-from spine.constants import GHOST_SHP, SHAPE_COL
+from spine.constants import GHOST_SHP, GROUP_COL, PRGRP_COL, SHAPE_COL, SHOWR_SHP
 from spine.data import IndexBatch, TensorBatch
-from spine.model.full_chain import FullChainLoss
+from spine.model.full_chain import FullChain, FullChainLoss
 
 
 class RecordingLoss:
@@ -73,3 +74,36 @@ def test_full_chain_loss_uses_orig_index_to_align_cached_segmentation_labels():
     assert segmentation_used.tensor.shape[0] == 2
     assert torch.equal(seg_label_used.tensor[:, SHAPE_COL], torch.tensor([0.0, 1.0]))
     assert torch.equal(segmentation_used.tensor, segmentation.tensor[:2])
+
+
+def test_group_labels_accepts_shape_restriction_without_model():
+    full_chain = object.__new__(FullChain)
+    full_chain.fragment_shapes = [SHOWR_SHP, GHOST_SHP]
+
+    clust_label_array = np.zeros((3, PRGRP_COL + 1), dtype=np.float32)
+    clust_label_array[:, GROUP_COL] = np.array([7, 7, 9], dtype=np.float32)
+    clust_label_array[:, PRGRP_COL] = np.array([1, 1, 0], dtype=np.float32)
+    clust_label = TensorBatch(clust_label_array, counts=np.array([3]))
+
+    clusts = IndexBatch(
+        [np.array([0, 1], dtype=np.int64), np.array([2], dtype=np.int64)],
+        spans=np.array([3]),
+        counts=np.array([2]),
+        single_counts=np.array([2, 1]),
+    )
+    clust_shapes = TensorBatch(np.array([SHOWR_SHP, GHOST_SHP]), counts=np.array([2]))
+
+    groups, group_shapes, group_primaries, shape_index = full_chain.group_labels(
+        clust_label,
+        clusts,
+        clust_shapes,
+        shapes=[SHOWR_SHP],
+        aggregate_shapes=True,
+        shape_use_primary=True,
+    )
+
+    assert np.array_equal(shape_index, [0])
+    assert groups.counts.tolist() == [1]
+    assert np.array_equal(groups.index_list[0], [0, 1])
+    assert group_shapes.tensor.tolist() == [SHOWR_SHP]
+    assert group_primaries is groups

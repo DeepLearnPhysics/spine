@@ -13,7 +13,9 @@ from spine.constants import (
     COORD_COLS,
     DELTA_SHP,
     GHOST_SHP,
+    GROUP_COL,
     MICHL_SHP,
+    PRGRP_COL,
     SHAPE_COL,
     SHOWR_SHP,
     TRACK_SHP,
@@ -796,11 +798,14 @@ class FullChain(torch.nn.Module):
 
             elif switch == "label":
                 # Use cluster labels to aggregate instances
+                assert (
+                    clust_label is not None
+                ), "Must provide `clust_label` to aggregate particles by label."
                 groups, group_shapes, group_primaries, shape_index = self.group_labels(
-                    shapes[name],
-                    data,
+                    clust_label,
                     fragments,
                     fragment_shapes,
+                    shapes=shapes[name],
                     aggregate_shapes=True,
                     shape_use_primary=use_primary[name],
                     retain_primaries=use_primary[name],
@@ -890,8 +895,11 @@ class FullChain(torch.nn.Module):
 
         elif self.inter_aggregation == "label":
             # Use cluster labels to aggregate instances
+            assert (
+                clust_label is not None
+            ), "Must provide `clust_label` to aggregate interactions by label."
             interactions, _, _, _ = self.group_labels(
-                shapes[name], data, particles, particle_shapes
+                clust_label, particles, particle_shapes
             )
 
         # Store interaction objects
@@ -1079,9 +1087,10 @@ class FullChain(torch.nn.Module):
 
     def group_labels(
         self,
-        data,
+        clust_label,
         clusts,
         clust_shapes,
+        shapes=None,
         aggregate_shapes=False,
         shape_use_primary=False,
         retain_primaries=False,
@@ -1090,12 +1099,14 @@ class FullChain(torch.nn.Module):
 
         Parameters
         ----------
-        data : TensorBatch
-            (N, 1 + D + N_f) tensor of voxel/value pairs
+        clust_label : TensorBatch
+            (N, 1 + D + N_c) Tensor of cluster labels
         clusts : IndexBatch
-            List of clusters to aggregate using GrapPA
+            List of clusters to aggregate using labels
         clust_shapes : TensorBatch
             Semantic type of each of the clusters
+        shapes : List[int], optional
+            List of semantic shapes to restrict to
         aggregate_shapes : bool, default False
             Combine shapes to give a shape to the aggregated object
         shape_use_primary : bool, default False
@@ -1115,16 +1126,18 @@ class FullChain(torch.nn.Module):
             List of indexes used to restrict the original cluster list
         """
         # Restrict the clusters to those in the input of the model
-        clusts, clust_shapes, shape_index = self.restrict_clusts(
-            clusts, clust_shapes, model.node_type
-        )
+        shape_index = False
+        if shapes is not None:
+            clusts, clust_shapes, shape_index = self.restrict_clusts(
+                clusts, clust_shapes, shapes
+            )
 
         # If requested, convert the node predictions to a primary mask
-        group_ids = get_cluster_label_batch(data, clusts, GROUP_COL)
+        group_ids = get_cluster_label_batch(clust_label, clusts, GROUP_COL)
         primary_mask = None
         if shape_use_primary:
-            primary_mask = get_cluster_label_batch(data, clusts, PRGRP_COL)
-            primary_mask = primary_mask.astype(bool)
+            primary_mask = get_cluster_label_batch(clust_label, clusts, PRGRP_COL)
+            primary_mask.data = primary_mask.tensor.astype(bool)
 
         # Build shower instances, get their semantic type
         return (
