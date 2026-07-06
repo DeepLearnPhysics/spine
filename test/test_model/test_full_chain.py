@@ -1,6 +1,9 @@
+from types import SimpleNamespace
+
 import numpy as np
 import torch
 
+import spine.model.full_chain as full_chain_mod
 from spine.constants import GHOST_SHP, GROUP_COL, PRGRP_COL, SHAPE_COL, SHOWR_SHP
 from spine.data import IndexBatch, TensorBatch
 from spine.model.full_chain import FullChain, FullChainLoss
@@ -107,3 +110,49 @@ def test_group_labels_accepts_shape_restriction_without_model():
     assert np.array_equal(groups.index_list[0], [0, 1])
     assert group_shapes.tensor.tolist() == [SHOWR_SHP]
     assert group_primaries is groups
+
+
+def test_prepare_grappa_input_uses_label_points_without_ppn(monkeypatch):
+    full_chain = object.__new__(FullChain)
+    full_chain.result = {}
+
+    model = SimpleNamespace(node_encoder=SimpleNamespace(add_points=True))
+    data = TensorBatch(np.zeros((3, 4), dtype=np.float32), counts=np.array([3]))
+    clusts = IndexBatch(
+        [np.array([0], dtype=np.int64), np.array([1, 2], dtype=np.int64)],
+        spans=np.array([3]),
+        counts=np.array([2]),
+        single_counts=np.array([1, 2]),
+    )
+    primaries = IndexBatch(
+        [np.array([1], dtype=np.int64), np.array([2], dtype=np.int64)],
+        spans=np.array([3]),
+        counts=np.array([2]),
+        single_counts=np.array([1, 1]),
+    )
+    clust_shapes = TensorBatch(np.array([SHOWR_SHP, SHOWR_SHP]), counts=np.array([2]))
+    coord_label = TensorBatch(np.zeros((2, 9), dtype=np.float32), counts=np.array([2]))
+    label_points = TensorBatch(np.ones((2, 6), dtype=np.float32), counts=np.array([2]))
+    calls = []
+
+    def fake_label_points(data_arg, coord_label_arg, clusts_arg):
+        calls.append((data_arg, coord_label_arg, clusts_arg))
+        return label_points
+
+    monkeypatch.setattr(
+        full_chain_mod, "get_cluster_points_label_batch", fake_label_points
+    )
+
+    grappa_input = full_chain.prepare_grappa_input(
+        model,
+        data,
+        clusts,
+        clust_shapes,
+        clust_primaries=primaries,
+        coord_label=coord_label,
+        point_use_primaries=True,
+    )
+
+    assert grappa_input["points"] is label_points
+    assert "coord_label" not in grappa_input
+    assert calls == [(data, coord_label, primaries)]

@@ -24,7 +24,11 @@ from spine.constants import (
 from spine.data import IndexBatch, RunInfo, TensorBatch
 from spine.utils.cluster.label import ClusterLabelAdapter
 from spine.utils.ghost import ChargeRescaler
-from spine.utils.gnn.cluster import form_clusters_batch, get_cluster_label_batch
+from spine.utils.gnn.cluster import (
+    form_clusters_batch,
+    get_cluster_label_batch,
+    get_cluster_points_label_batch,
+)
 from spine.utils.gnn.evaluation import primary_assignment_batch
 from spine.utils.logger import logger
 from spine.utils.ppn import ParticlePointPredictor
@@ -1248,9 +1252,6 @@ class FullChain(torch.nn.Module):
         grappa_input["data"] = data
         grappa_input["clusts"] = clusts
         grappa_input["shapes"] = clust_shapes
-        if coord_label is not None:
-            grappa_input["coord_label"] = coord_label
-
         # Get the particle end points, if requested
         if hasattr(model.node_encoder, "add_points") and model.node_encoder.add_points:
             # Fetch the cluster list to use to get points
@@ -1262,11 +1263,21 @@ class FullChain(torch.nn.Module):
                 ref_clusts = clust_primaries
 
             # Get and store the points
-            points = self.point_predictor(
-                data, ref_clusts, clust_shapes, self.result["ppn_points"]
-            )
+            if "ppn_points" in self.result:
+                points = self.point_predictor(
+                    data, ref_clusts, clust_shapes, self.result["ppn_points"]
+                )
+            else:
+                assert coord_label is not None, (
+                    "Must provide either `ppn_points` or `coord_label` to add "
+                    "points to the GrapPA input."
+                )
+                points = get_cluster_points_label_batch(data, coord_label, ref_clusts)
 
             grappa_input["points"] = points
+
+        elif coord_label is not None:
+            grappa_input["coord_label"] = coord_label
 
         # Get the supplemental information, if requested
         if hasattr(model.node_encoder, "add_value") and (
