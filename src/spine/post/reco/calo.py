@@ -164,9 +164,11 @@ class CalibrationProcessor(PostBase):
 
                 # Apply calibration
                 if not self.do_tracking or part.shape != TRACK_SHP:
-                    depositions = self.calibrator(points, deps, sources, run_id)
+                    cal_points, depositions = self.calibrator(
+                        points, deps, sources, run_id
+                    )
                 else:
-                    depositions = self.calibrator(
+                    cal_points, depositions = self.calibrator(
                         points, deps, sources, run_id, track=True
                     )
 
@@ -176,6 +178,12 @@ class CalibrationProcessor(PostBase):
                 else:
                     setattr(part, self.truth_dep_mode, depositions)
 
+                if self.calibrator.update_points:
+                    if not part.is_truth:
+                        part.points = cal_points
+                    else:
+                        setattr(part, self.truth_point_mode, cal_points)
+                    data[points_key][part.index] = cal_points
                 data[dep_key][part.index] = depositions
                 unass_mask[part.index] = False
 
@@ -183,15 +191,20 @@ class CalibrationProcessor(PostBase):
             unass_index = np.where(unass_mask)[0]
             points = data[points_key][unass_index]
             depositions = data[dep_key][unass_index]
+            sources = None
             if source_key in data:
                 sources = data[source_key][unass_index]
 
-            data[dep_key][unass_index] = self.calibrator(
+            cal_points, depositions = self.calibrator(
                 points, depositions, sources, run_id
             )
+            if self.calibrator.update_points:
+                data[points_key][unass_index] = cal_points
+            data[dep_key][unass_index] = depositions
 
         # If requested, updated the depositions attribute of interactions
         for k in self.interaction_keys:
+            points_key = "points" if not "truth" in k else self.truth_point_key
             dep_key = "depositions" if not "truth" in k else self.truth_dep_key
             for inter in data[k]:
                 # Update depositions for the interaction
@@ -200,3 +213,10 @@ class CalibrationProcessor(PostBase):
                     inter.depositions = depositions
                 else:
                     setattr(inter, self.truth_dep_mode, depositions)
+
+                if self.calibrator.update_points:
+                    points = data[points_key][inter.index]
+                    if not inter.is_truth:
+                        inter.points = points
+                    else:
+                        setattr(inter, self.truth_point_mode, points)

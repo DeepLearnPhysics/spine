@@ -12,6 +12,9 @@ class FakeMeta:
     def to_cm(self, points, center=True):
         return points + 1.0
 
+    def to_px(self, points):
+        return points - 1.0
+
 
 def test_manager_parses_labels_and_explicit_names(monkeypatch, fake_geo):
     monkeypatch.setattr(manager_mod.GeoManager, "get_instance", lambda: fake_geo)
@@ -50,7 +53,7 @@ def test_manager_applies_modules_in_config_order(monkeypatch, fake_geo):
     values = np.array([10.0, 10.0])
     sources = np.array([[0, 0], [0, 1]])
 
-    corrected = manager(points, values, sources=sources)
+    _, corrected = manager(points, values, sources=sources)
 
     assert np.allclose(corrected, [20.0, 30.0])
 
@@ -59,7 +62,7 @@ def test_manager_can_infer_tpc_indexes_without_sources(monkeypatch, fake_geo):
     monkeypatch.setattr(manager_mod.GeoManager, "get_instance", lambda: fake_geo)
     manager = CalibrationManager(gain={"gain": [2.0, 3.0]})
 
-    corrected = manager(
+    _, corrected = manager(
         np.array([[1.0, 0.0, 0.0], [8.0, 0.0, 0.0]]),
         np.array([10.0, 10.0]),
     )
@@ -71,7 +74,7 @@ def test_manager_applies_meta_module_translation_and_empty_tpc(monkeypatch, fake
     monkeypatch.setattr(manager_mod.GeoManager, "get_instance", lambda: fake_geo)
     manager = CalibrationManager(gain={"gain": [2.0, 3.0]})
 
-    corrected = manager(
+    _, corrected = manager(
         np.array([[1.0, 0.0, 0.0]]),
         np.array([10.0]),
         sources=np.array([[0, 0]]),
@@ -86,7 +89,7 @@ def test_manager_dispatches_lifetime_and_unknown_modules(monkeypatch, fake_geo):
     monkeypatch.setattr(manager_mod.GeoManager, "get_instance", lambda: fake_geo)
     manager = CalibrationManager(lifetime={"lifetime": 10.0, "driftv": 2.0})
 
-    corrected = manager(
+    _, corrected = manager(
         np.array([[4.0, 0.0, 0.0]]),
         np.array([1.0]),
         sources=np.array([[0, 0]]),
@@ -115,7 +118,7 @@ def test_manager_dispatches_recombination(monkeypatch, fake_geo):
         recombination={"efield": 0.5},
     )
 
-    corrected = manager(
+    _, corrected = manager(
         np.array([[1.0, 0.0, 0.0]]),
         np.array([1000.0]),
         sources=np.array([[0, 0]]),
@@ -131,7 +134,7 @@ def test_manager_dispatches_transparency(monkeypatch, fake_geo, transparency_db)
         transparency={"transparency_db": str(transparency_db), "run_id": 100}
     )
 
-    corrected = manager(
+    _, corrected = manager(
         np.array([[0.0, 1.25, 1.25]]),
         np.array([12.0]),
         sources=np.array([[0, 1]]),
@@ -151,10 +154,47 @@ def test_manager_dispatches_field_before_lifetime(monkeypatch, fake_geo):
         lifetime={"lifetime": 10.0, "driftv": 2.0},
     )
 
-    corrected = manager(
+    _, corrected = manager(
         np.array([[1.0, 0.0, 0.0]]),
         np.array([1.0]),
         sources=np.array([[0, 0]]),
     )
 
     assert np.allclose(corrected, [np.exp(3.0 / 20.0)])
+
+
+def test_manager_can_return_field_corrected_points(monkeypatch, fake_geo):
+    monkeypatch.setattr(manager_mod.GeoManager, "get_instance", lambda: fake_geo)
+    field_map = FieldMap(
+        np.full((1, 1, 1, 3), [2.0, 0.0, 0.0], dtype=float),
+        [[0.0, 10.0], [-1.0, 1.0], [-1.0, 1.0]],
+    )
+    manager = CalibrationManager(field={"field_map": field_map})
+
+    points, values = manager(
+        np.array([[1.0, 0.0, 0.0]]),
+        np.array([1.0]),
+        sources=np.array([[0, 0]]),
+    )
+
+    assert np.allclose(points, [[3.0, 0.0, 0.0]])
+    assert np.allclose(values, [1.0])
+
+
+def test_manager_returns_field_corrected_points_in_input_units(monkeypatch, fake_geo):
+    monkeypatch.setattr(manager_mod.GeoManager, "get_instance", lambda: fake_geo)
+    field_map = FieldMap(
+        np.full((1, 1, 1, 3), [2.0, 0.0, 0.0], dtype=float),
+        [[0.0, 10.0], [-1.0, 1.0], [-1.0, 1.0]],
+    )
+    manager = CalibrationManager(field={"field_map": field_map})
+
+    points, values = manager(
+        np.array([[1.0, -0.5, -0.5]]),
+        np.array([1.0]),
+        sources=np.array([[0, 0]]),
+        meta=FakeMeta(),
+    )
+
+    assert np.allclose(points, [[3.0, -0.5, -0.5]])
+    assert np.allclose(values, [1.0])

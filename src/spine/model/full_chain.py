@@ -950,7 +950,7 @@ class FullChain(torch.nn.Module):
                 run_id = run_info[b // rep].run if run_info is not None else None
 
                 # Calibrate voxel values
-                values_b = self.calibrator(
+                voxels_b, values_b = self.calibrator(
                     voxels_b,
                     values_b,
                     sources_b,
@@ -959,6 +959,10 @@ class FullChain(torch.nn.Module):
                     module_id=b % rep,
                 )
 
+                if self.calibrator.update_points:
+                    data.tensor[lower:upper, COORD_COLS] = torch.tensor(
+                        voxels_b, dtype=data.dtype, device=data.device
+                    )
                 data.tensor[lower:upper, VALUE_COL] = torch.tensor(
                     values_b, dtype=data.dtype, device=data.device
                 )
