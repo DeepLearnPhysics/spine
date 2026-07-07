@@ -185,10 +185,22 @@ def _module_available(module_name: str) -> bool:
         if module is None:
             return False
 
+        # PyROOT can be preloaded by external environment setup with
+        # `__spec__ = None`. In that state, `find_spec("ROOT")` raises a
+        # ValueError even though the already-loaded module may be usable.
+        if module_name == "ROOT":
+            return True
+
+        # LArCV exposes the actual bindings as the `larcv` attribute on the
+        # top-level module. Accept preloaded modules that provide it without
+        # querying importlib metadata again.
+        if module_name == "larcv":
+            return hasattr(module, "larcv")
+
         # Sphinx autodoc mock imports can populate `sys.modules` with
         # lightweight placeholders that do not correspond to a real importable
-        # package. Only treat preloaded modules as available when they carry a
-        # real module spec.
+        # package. Only treat other preloaded modules as available when they
+        # carry a real module spec.
         if getattr(module, "__spec__", None) is not None:
             return True
 
@@ -196,26 +208,9 @@ def _module_available(module_name: str) -> bool:
         if importlib.util.find_spec(module_name) is not None:
             return True
     except (ImportError, ValueError):
-        pass
-
-    # PyROOT/LArCV can be importable even when importlib metadata discovery
-    # fails in some HPC/container/module environments. For these modules only,
-    # fall back to an actual import probe before declaring them unavailable.
-    if module_name not in {"ROOT", "larcv"}:
         return False
 
-    try:
-        module = importlib.import_module(module_name)
-    except ImportError:
-        return False
-
-    if module_name == "larcv":
-        try:
-            getattr(module, "larcv")
-        except AttributeError:
-            return False
-
-    return True
+    return False
 
 
 ROOT_AVAILABLE = _module_available("ROOT")

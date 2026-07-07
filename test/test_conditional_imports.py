@@ -1,6 +1,7 @@
 """Comprehensive tests for conditional imports and dependency management."""
 
 import sys
+import types
 from unittest.mock import patch
 
 import pytest
@@ -50,6 +51,38 @@ class TestConditionalImports:
         from spine.driver import Driver
 
         assert Driver is not None
+
+    def test_preloaded_root_without_spec_is_available(self, monkeypatch):
+        """Test PyROOT preloaded without importlib metadata is accepted."""
+        from spine.utils import conditional
+
+        root_module = types.ModuleType("ROOT")
+        root_module.__spec__ = None
+        monkeypatch.setitem(sys.modules, "ROOT", root_module)
+
+        def fail_find_spec(_):
+            raise AssertionError("find_spec should not be called for preloaded ROOT")
+
+        monkeypatch.setattr(conditional.importlib.util, "find_spec", fail_find_spec)
+
+        assert conditional._module_available("ROOT") is True
+
+    def test_root_discovery_does_not_import_probe(self, monkeypatch):
+        """Test ROOT availability checks do not import ROOT as a fallback."""
+        from spine.utils import conditional
+
+        monkeypatch.delitem(sys.modules, "ROOT", raising=False)
+
+        def fail_find_spec(_):
+            raise ValueError("ROOT.__spec__ is None")
+
+        def fail_import_module(_):
+            raise AssertionError("ROOT should not be imported by availability checks")
+
+        monkeypatch.setattr(conditional.importlib.util, "find_spec", fail_find_spec)
+        monkeypatch.setattr(conditional.importlib, "import_module", fail_import_module)
+
+        assert conditional._module_available("ROOT") is False
 
 
 class TestManagerIndependence:
