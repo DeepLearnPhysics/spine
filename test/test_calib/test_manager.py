@@ -12,8 +12,9 @@ class FakeMeta:
     def to_cm(self, points, center=True):
         return points + 1.0
 
-    def to_px(self, points):
-        return points - 1.0
+    def to_px(self, points, floor=False):
+        points = points - 1.0
+        return np.floor(points) if floor else points
 
 
 def test_manager_parses_labels_and_explicit_names(monkeypatch, fake_geo):
@@ -196,5 +197,5 @@ def test_manager_returns_field_corrected_points_in_input_units(monkeypatch, fake
         meta=FakeMeta(),
     )
 
-    assert np.allclose(points, [[3.0, -0.5, -0.5]])
+    assert np.allclose(points, [[3.0, -1.0, -1.0]])
     assert np.allclose(values, [1.0])

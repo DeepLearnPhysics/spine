@@ -177,6 +177,6 @@ class CalibrationManager:
             if module_id is not None:
                 new_points = self.geo.translate(new_points, module_id, 0)
             if meta is not None:
-                new_points = meta.to_px(new_points)
+                new_points = meta.to_px(new_points, floor=True)
 
         return new_points, new_values
