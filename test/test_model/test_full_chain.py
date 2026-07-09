@@ -4,7 +4,15 @@ import numpy as np
 import torch
 
 import spine.model.full_chain as full_chain_mod
-from spine.constants import GHOST_SHP, GROUP_COL, PRGRP_COL, SHAPE_COL, SHOWR_SHP
+from spine.constants import (
+    CLUST_COL,
+    GHOST_SHP,
+    GROUP_COL,
+    PRGRP_COL,
+    SHAPE_COL,
+    SHOWR_SHP,
+    TRACK_SHP,
+)
 from spine.data import IndexBatch, TensorBatch
 from spine.model.full_chain import FullChain, FullChainLoss
 
@@ -110,6 +118,29 @@ def test_group_labels_accepts_shape_restriction_without_model():
     assert np.array_equal(groups.index_list[0], [0, 1])
     assert group_shapes.tensor.tolist() == [SHOWR_SHP]
     assert group_primaries is groups
+
+
+def test_label_fragmentation_reads_shapes_from_shape_column():
+    full_chain = object.__new__(FullChain)
+    full_chain.fragmentation = "label"
+    full_chain.result = {}
+
+    data = TensorBatch(np.zeros((4, 1), dtype=np.float32), counts=np.array([4]))
+    clust_label_array = np.zeros((4, CLUST_COL + 2), dtype=np.float32)
+    clust_label_array[:, CLUST_COL] = np.array([10, 10, 20, 20], dtype=np.float32)
+    clust_label_array[:, SHAPE_COL] = np.array(
+        [SHOWR_SHP, SHOWR_SHP, TRACK_SHP, TRACK_SHP], dtype=np.float32
+    )
+    clust_label = TensorBatch(clust_label_array, counts=np.array([4]))
+
+    full_chain.run_fragmentation(data, clust_label)
+
+    fragments = full_chain.result["fragment_clusts"]
+    fragment_shapes = full_chain.result["fragment_shapes"]
+
+    assert fragments.counts.tolist() == [2]
+    assert [f.tolist() for f in fragments.index_list] == [[0, 1], [2, 3]]
+    assert fragment_shapes.tensor.tolist() == [SHOWR_SHP, TRACK_SHP]
 
 
 def test_prepare_grappa_input_uses_label_points_without_ppn(monkeypatch):

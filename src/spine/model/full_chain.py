@@ -712,7 +712,9 @@ class FullChain(torch.nn.Module):
                 clust_label is not None
             ), "Must provide `clust_label` to use it for fragmentation."
             fragments = form_clusters_batch(clust_label.to_numpy(), column=CLUST_COL)
-            fragment_shapes = get_cluster_label_batch(clust_label, fragments)
+            fragment_shapes = get_cluster_label_batch(
+                clust_label, fragments, column=SHAPE_COL
+            )
 
         if fragments is not None:
             self.result["fragment_clusts"] = fragments
