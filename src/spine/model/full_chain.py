@@ -1265,6 +1265,7 @@ class FullChain(torch.nn.Module):
         grappa_input["data"] = data
         grappa_input["clusts"] = clusts
         grappa_input["shapes"] = clust_shapes
+
         # Get the particle end points, if requested
         if hasattr(model.node_encoder, "add_points") and model.node_encoder.add_points:
             # Fetch the cluster list to use to get points
@@ -1289,12 +1290,10 @@ class FullChain(torch.nn.Module):
                     "Must provide `clust_label` with `coord_label` to add "
                     "label points to the GrapPA input."
                 )
-                point_clusts = clusts if point_use_primaries else ref_clusts
                 points = get_cluster_points_label_batch(
                     clust_label,
                     coord_label,
-                    point_clusts,
-                    use_group=point_use_primaries,
+                    ref_clusts,
                 )
 
             grappa_input["points"] = points

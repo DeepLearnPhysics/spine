@@ -171,9 +171,7 @@ def get_cluster_closest_primary_label_batch(data, coord_label, clusts, primary_i
     return TensorBatch(labels, clusts.counts)
 
 
-def get_cluster_points_label_batch(
-    data, coord_label, clusts, random_order=True, use_group=False
-):
+def get_cluster_points_label_batch(data, coord_label, clusts, random_order=True):
     """Batched version of :func:`get_cluster_points_label`
 
     Parameters
@@ -187,11 +185,6 @@ def get_cluster_points_label_batch(
     random_order : bool, default True
         If `True`, randomize the order in which the start en end points of
         a track are stored in the output
-    use_group : bool, default False
-        If `True`, use the true group ID to fetch the particle end point
-        labels. Otherwise, use particle IDs and select the earliest particle
-        in time.
-
     Returns
     -------
     np.ndarray
@@ -210,7 +203,6 @@ def get_cluster_points_label_batch(
             coord_label[b],
             clusts[b],
             random_order,
-            use_group,
         )
 
     return TensorBatch(points, clusts.counts, coord_cols=points.shape[1])
@@ -982,9 +974,7 @@ def _get_cluster_features_extended(
     keep_torch=True,
     ref_arg="data",
 )
-def get_cluster_points_label(
-    data, coord_label, clusts, random_order=True, use_group=False
-):
+def get_cluster_points_label(data, coord_label, clusts, random_order=True):
     """Gets label points for each cluster.
 
     Returns start point of primary shower fragment twice if shower, delta or
@@ -1002,11 +992,6 @@ def get_cluster_points_label(
     random_order : bool, default True
         If `True`, randomize the order in which the start en end points of
         a track are stored in the output
-    use_group : bool, default False
-        If `True`, use the true group ID to fetch the particle end point
-        labels. Otherwise, use particle IDs and select the earliest particle
-        in time.
-
     Returns
     -------
     np.ndarray
@@ -1015,7 +1000,7 @@ def get_cluster_points_label(
     if len(clusts) == 0:
         return np.empty((0, 6), dtype=data.dtype)
 
-    return _get_cluster_points_label(data, coord_label, clusts, random_order, use_group)
+    return _get_cluster_points_label(data, coord_label, clusts, random_order)
 
 
 @nb.njit(cache=True)
@@ -1024,28 +1009,22 @@ def _get_cluster_points_label(
     coord_label: nb.float64[:, :],
     clusts: nb.types.List(nb.int64[:]),
     random_order: nb.boolean = True,
-    use_group: nb.boolean = False,
 ) -> nb.float64[:, :]:
 
     # Get start and end points (one and the same for all but track class)
     points = np.empty((len(clusts), 6), dtype=data.dtype)
     for i, c in enumerate(clusts):
-        if use_group:
-            # Use the true aggregate particle identity directly.
-            label_ids = np.unique(data[c, GROUP_COL]).astype(np.int64)
-            label_id = label_ids[0]
-        else:
-            # Use the first constituent particle in time.
-            part_ids = np.unique(data[c, PART_COL]).astype(np.int64)
-            label_id = -1
-            min_time = np.inf
-            for part_id in part_ids:
-                if part_id < 0 or part_id >= len(coord_label):
-                    raise IndexError("Invalid label index for coord_label.")
-                time = coord_label[part_id, COORD_TIME_COL]
-                if time < min_time:
-                    min_time = time
-                    label_id = part_id
+        # Use the first constituent particle in time.
+        part_ids = np.unique(data[c, PART_COL]).astype(np.int64)
+        label_id = -1
+        min_time = np.inf
+        for part_id in part_ids:
+            if part_id < 0 or part_id >= len(coord_label):
+                raise IndexError("Invalid label index for coord_label.")
+            time = coord_label[part_id, COORD_TIME_COL]
+            if time < min_time:
+                min_time = time
+                label_id = part_id
 
         if label_id < 0 or label_id >= len(coord_label):
             raise IndexError("Invalid label index for coord_label.")
