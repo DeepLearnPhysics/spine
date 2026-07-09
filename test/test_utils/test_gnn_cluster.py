@@ -1,6 +1,7 @@
 """Regression tests for GNN cluster utilities."""
 
 import numpy as np
+import pytest
 
 from spine.constants import GROUP_COL, PART_COL
 from spine.utils.gnn.cluster import (
@@ -78,3 +79,32 @@ def test_cluster_points_label_can_use_group_identity():
 
     np.testing.assert_allclose(points[0, :3], [20.0, 0.0, 0.0])
     np.testing.assert_allclose(points[0, 3:], [20.0, 0.0, 0.0])
+
+
+def test_cluster_points_label_rejects_invalid_particle_id():
+    data = np.zeros((1, PART_COL + 1), dtype=np.float32)
+    data[:, PART_COL] = 1
+    coord_label = np.zeros((1, 9), dtype=np.float32)
+
+    with pytest.raises(IndexError, match="Invalid label index"):
+        get_cluster_points_label(
+            data,
+            coord_label,
+            [np.array([0], dtype=np.int64)],
+            random_order=False,
+        )
+
+
+def test_cluster_points_label_rejects_invalid_group_id():
+    data = np.zeros((1, GROUP_COL + 1), dtype=np.float32)
+    data[:, GROUP_COL] = 1
+    coord_label = np.zeros((1, 9), dtype=np.float32)
+
+    with pytest.raises(IndexError, match="Invalid label index"):
+        get_cluster_points_label(
+            data,
+            coord_label,
+            [np.array([0], dtype=np.int64)],
+            random_order=False,
+            use_group=True,
+        )

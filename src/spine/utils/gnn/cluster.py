@@ -1033,12 +1033,23 @@ def _get_cluster_points_label(
         if use_group:
             # Use the true aggregate particle identity directly.
             label_ids = np.unique(data[c, GROUP_COL]).astype(np.int64)
-            label = coord_label[label_ids[0]]
+            label_id = label_ids[0]
         else:
             # Use the first constituent particle in time.
             part_ids = np.unique(data[c, PART_COL]).astype(np.int64)
-            min_id = part_ids[np.argmin(coord_label[part_ids, COORD_TIME_COL])]
-            label = coord_label[min_id]
+            label_id = -1
+            min_time = np.inf
+            for part_id in part_ids:
+                if part_id < 0 or part_id >= len(coord_label):
+                    raise IndexError("Invalid label index for coord_label.")
+                time = coord_label[part_id, COORD_TIME_COL]
+                if time < min_time:
+                    min_time = time
+                    label_id = part_id
+
+        if label_id < 0 or label_id >= len(coord_label):
+            raise IndexError("Invalid label index for coord_label.")
+        label = coord_label[label_id]
 
         start = label[COORD_START_COLS_LO:COORD_START_COLS_HI]
         end = label[COORD_END_COLS_LO:COORD_END_COLS_HI]

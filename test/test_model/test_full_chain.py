@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 import torch
 
 import spine.model.full_chain as full_chain_mod
@@ -183,6 +184,9 @@ def test_prepare_grappa_input_uses_label_points_without_ppn(monkeypatch):
 
     model = SimpleNamespace(node_encoder=SimpleNamespace(add_points=True))
     data = TensorBatch(np.zeros((3, 4), dtype=np.float32), counts=np.array([3]))
+    clust_label = TensorBatch(
+        np.zeros((3, GROUP_COL + 1), dtype=np.float32), counts=np.array([3])
+    )
     clusts = IndexBatch(
         [np.array([0], dtype=np.int64), np.array([1, 2], dtype=np.int64)],
         spans=np.array([3]),
@@ -214,6 +218,7 @@ def test_prepare_grappa_input_uses_label_points_without_ppn(monkeypatch):
         clusts,
         clust_shapes,
         clust_primaries=primaries,
+        clust_label=clust_label,
         coord_label=coord_label,
         point_use_primaries=True,
     )
@@ -221,5 +226,30 @@ def test_prepare_grappa_input_uses_label_points_without_ppn(monkeypatch):
     assert grappa_input["points"] is label_points
     assert "coord_label" not in grappa_input
     assert calls == [
-        (data, coord_label, clusts, {"use_group": True}),
+        (clust_label, coord_label, clusts, {"use_group": True}),
     ]
+
+
+def test_prepare_grappa_input_requires_clust_label_for_label_points():
+    full_chain = object.__new__(FullChain)
+    full_chain.result = {}
+
+    model = SimpleNamespace(node_encoder=SimpleNamespace(add_points=True))
+    data = TensorBatch(np.zeros((1, 4), dtype=np.float32), counts=np.array([1]))
+    clusts = IndexBatch(
+        [np.array([0], dtype=np.int64)],
+        spans=np.array([1]),
+        counts=np.array([1]),
+        single_counts=np.array([1]),
+    )
+    clust_shapes = TensorBatch(np.array([SHOWR_SHP]), counts=np.array([1]))
+    coord_label = TensorBatch(np.zeros((1, 9), dtype=np.float32), counts=np.array([1]))
+
+    with pytest.raises(AssertionError, match="clust_label"):
+        full_chain.prepare_grappa_input(
+            model,
+            data,
+            clusts,
+            clust_shapes,
+            coord_label=coord_label,
+        )
