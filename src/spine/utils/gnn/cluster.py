@@ -172,7 +172,7 @@ def get_cluster_closest_primary_label_batch(data, coord_label, clusts, primary_i
 
 
 def get_cluster_points_label_batch(
-    data, coord_label, clusts, random_order=True, snap_clusts=None
+    data, coord_label, clusts, random_order=True, use_group=False
 ):
     """Batched version of :func:`get_cluster_points_label`
 
@@ -187,9 +187,10 @@ def get_cluster_points_label_batch(
     random_order : bool, default True
         If `True`, randomize the order in which the start en end points of
         a track are stored in the output
-    snap_clusts : IndexBatch, optional
-        (C) List of cluster indexes used to snap the label points to visible
-        coordinates. If not provided, `clusts` is used.
+    use_group : bool, default False
+        If `True`, use the true group ID to fetch the particle end point
+        labels. Otherwise, use particle IDs and select the earliest particle
+        in time.
 
     Returns
     -------
@@ -197,14 +198,6 @@ def get_cluster_points_label_batch(
         (C, 6) Cluster-wise start and end points (in random order if requested)
     """
     num_clusts = len(clusts.index_list)
-    if snap_clusts is not None:
-        assert (
-            len(snap_clusts.index_list) == num_clusts
-        ), "`snap_clusts` must contain one cluster per input cluster."
-        assert np.array_equal(
-            snap_clusts.counts, clusts.counts
-        ), "`snap_clusts` must have the same batch counts as `clusts`."
-
     if isinstance(data.tensor, torch.Tensor):
         points = torch.empty((num_clusts, 6), dtype=data.dtype, device=data.device)
     else:
@@ -212,9 +205,12 @@ def get_cluster_points_label_batch(
 
     for b in range(data.batch_size):
         lower, upper = clusts.edges[b], clusts.edges[b + 1]
-        snap_clusts_b = snap_clusts[b] if snap_clusts is not None else None
         points[lower:upper] = get_cluster_points_label(
-            data[b], coord_label[b], clusts[b], random_order, snap_clusts_b
+            data[b],
+            coord_label[b],
+            clusts[b],
+            random_order,
+            use_group,
         )
 
     return TensorBatch(points, clusts.counts, coord_cols=points.shape[1])
@@ -982,12 +978,12 @@ def _get_cluster_features_extended(
 
 @numbafy(
     cast_args=["data", "coord_label"],
-    list_args=["clusts", "snap_clusts"],
+    list_args=["clusts"],
     keep_torch=True,
     ref_arg="data",
 )
 def get_cluster_points_label(
-    data, coord_label, clusts, random_order=True, snap_clusts=None
+    data, coord_label, clusts, random_order=True, use_group=False
 ):
     """Gets label points for each cluster.
 
@@ -1006,9 +1002,10 @@ def get_cluster_points_label(
     random_order : bool, default True
         If `True`, randomize the order in which the start en end points of
         a track are stored in the output
-    snap_clusts : List[np.ndarray], optional
-        (C) List of cluster indexes used to snap the label points to visible
-        coordinates. If not provided, `clusts` is used.
+    use_group : bool, default False
+        If `True`, use the true group ID to fetch the particle end point
+        labels. Otherwise, use particle IDs and select the earliest particle
+        in time.
 
     Returns
     -------
@@ -1018,12 +1015,7 @@ def get_cluster_points_label(
     if len(clusts) == 0:
         return np.empty((0, 6), dtype=data.dtype)
 
-    if snap_clusts is None:
-        snap_clusts = clusts
-
-    return _get_cluster_points_label(
-        data, coord_label, clusts, snap_clusts, random_order
-    )
+    return _get_cluster_points_label(data, coord_label, clusts, random_order, use_group)
 
 
 @nb.njit(cache=True)
@@ -1031,19 +1023,25 @@ def _get_cluster_points_label(
     data: nb.float64[:, :],
     coord_label: nb.float64[:, :],
     clusts: nb.types.List(nb.int64[:]),
-    snap_clusts: nb.types.List(nb.int64[:]),
     random_order: nb.boolean = True,
+    use_group: nb.boolean = False,
 ) -> nb.float64[:, :]:
 
     # Get start and end points (one and the same for all but track class)
     points = np.empty((len(clusts), 6), dtype=data.dtype)
     for i, c in enumerate(clusts):
-        # Use the first cluster in time
-        part_ids = np.unique(data[c, PART_COL]).astype(np.int64)
-        min_id = part_ids[np.argmin(coord_label[part_ids, COORD_TIME_COL])]
-        min_label = coord_label[min_id]
-        start = min_label[COORD_START_COLS_LO:COORD_START_COLS_HI]
-        end = min_label[COORD_END_COLS_LO:COORD_END_COLS_HI]
+        if use_group:
+            # Use the true aggregate particle identity directly.
+            label_ids = np.unique(data[c, GROUP_COL]).astype(np.int64)
+            label = coord_label[label_ids[0]]
+        else:
+            # Use the first constituent particle in time.
+            part_ids = np.unique(data[c, PART_COL]).astype(np.int64)
+            min_id = part_ids[np.argmin(coord_label[part_ids, COORD_TIME_COL])]
+            label = coord_label[min_id]
+
+        start = label[COORD_START_COLS_LO:COORD_START_COLS_HI]
+        end = label[COORD_END_COLS_LO:COORD_END_COLS_HI]
         if random_order and np.random.choice(2):
             start, end = end, start
 
@@ -1051,7 +1049,7 @@ def _get_cluster_points_label(
         points[i, 3:6] = end
 
     # Bring the start points to the closest point in the corresponding cluster
-    for i, c in enumerate(snap_clusts):
+    for i, c in enumerate(clusts):
         point_pair = np.empty((2, 3), dtype=data.dtype)
         point_pair[0] = points[i, :3]
         point_pair[1] = points[i, 3:6]

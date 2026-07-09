@@ -221,5 +221,5 @@ def test_prepare_grappa_input_uses_label_points_without_ppn(monkeypatch):
     assert grappa_input["points"] is label_points
     assert "coord_label" not in grappa_input
     assert calls == [
-        (data, coord_label, primaries, {"snap_clusts": clusts}),
+        (data, coord_label, clusts, {"use_group": True}),
     ]
