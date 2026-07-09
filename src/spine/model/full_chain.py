@@ -1367,11 +1367,21 @@ class FullChain(torch.nn.Module):
 
                 # Extract the shape and primary ID for this group
                 if primary_mask is not None:
-                    primary_id = group_index[primary_mask_b[group_index]][0]
+                    primary_index = group_index[primary_mask_b[group_index]]
+                    primary_id = primary_index[0] if len(primary_index) else None
                     if aggregate_shapes:
-                        group_shapes.append(clust_shapes_b[primary_id])
+                        if primary_id is not None:
+                            group_shapes.append(clust_shapes_b[primary_id])
+                        else:
+                            shapes, shape_counts = np.unique(
+                                clust_shapes_b[group_index], return_counts=True
+                            )
+                            group_shapes.append(shapes[np.argmax(shape_counts)])
                     if retain_primaries:
-                        group_primaries.append(offset_b + clusts_b[primary_id])
+                        if primary_id is not None:
+                            group_primaries.append(offset_b + clusts_b[primary_id])
+                        else:
+                            group_primaries.append(groups[-1])
                         single_primary_counts.append(len(group_primaries[-1]))
 
                 elif aggregate_shapes:

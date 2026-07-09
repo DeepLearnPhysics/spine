@@ -143,6 +143,40 @@ def test_label_fragmentation_reads_shapes_from_shape_column():
     assert fragment_shapes.tensor.tolist() == [SHOWR_SHP, TRACK_SHP]
 
 
+def test_build_groups_falls_back_when_primary_is_missing():
+    full_chain = object.__new__(FullChain)
+
+    clusts = IndexBatch(
+        [
+            np.array([0], dtype=np.int64),
+            np.array([1], dtype=np.int64),
+            np.array([2], dtype=np.int64),
+        ],
+        spans=np.array([3]),
+        counts=np.array([3]),
+        single_counts=np.array([1, 1, 1]),
+    )
+    clust_shapes = TensorBatch(
+        np.array([SHOWR_SHP, SHOWR_SHP, TRACK_SHP]), counts=np.array([3])
+    )
+    group_pred = TensorBatch(np.array([5, 5, 9]), counts=np.array([3]))
+    primary_mask = TensorBatch(np.array([False, False, True]), counts=np.array([3]))
+
+    groups, group_shapes, group_primaries = full_chain.build_groups(
+        clusts,
+        clust_shapes,
+        group_pred,
+        primary_mask=primary_mask,
+        aggregate_shapes=True,
+        shape_use_primary=True,
+        retain_primaries=True,
+    )
+
+    assert [g.tolist() for g in groups.index_list] == [[0, 1], [2]]
+    assert group_shapes.tensor.tolist() == [SHOWR_SHP, TRACK_SHP]
+    assert [p.tolist() for p in group_primaries.index_list] == [[0, 1], [2]]
+
+
 def test_prepare_grappa_input_uses_label_points_without_ppn(monkeypatch):
     full_chain = object.__new__(FullChain)
     full_chain.result = {}
