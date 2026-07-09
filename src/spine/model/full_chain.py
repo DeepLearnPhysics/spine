@@ -783,7 +783,8 @@ class FullChain(torch.nn.Module):
                     data,
                     fragments,
                     fragment_shapes,
-                    coord_label,
+                    clust_label=clust_label,
+                    coord_label=coord_label,
                     aggregate_shapes=True,
                     shape_use_primary=use_primary[name],
                     retain_primaries=use_primary[name],
@@ -895,7 +896,8 @@ class FullChain(torch.nn.Module):
                 particles,
                 particle_shapes,
                 particle_primaries,
-                coord_label,
+                clust_label=clust_label,
+                coord_label=coord_label,
                 point_use_primary=True,
             )
 
@@ -1002,6 +1004,7 @@ class FullChain(torch.nn.Module):
         clusts,
         clust_shapes,
         clust_primaries=None,
+        clust_label=None,
         coord_label=None,
         aggregate_shapes=False,
         shape_use_primary=False,
@@ -1024,6 +1027,9 @@ class FullChain(torch.nn.Module):
             Semantic type of each of the clusters
         clust_primaries : IndexBatch
             List of primary fragments associated with each input cluster
+        clust_label : TensorBatch, optional
+            (N, 1 + D + N_c) Tensor of cluster labels used to infer label
+            point identities
         coord_label : TensorBatch, optional
             (N, 1 + D + 6) Array of label particle end points
         aggregate_shapes : bool, default False
@@ -1058,6 +1064,7 @@ class FullChain(torch.nn.Module):
             clusts,
             clust_shapes,
             clust_primaries,
+            clust_label,
             coord_label,
             point_use_primary,
         )
@@ -1209,6 +1216,7 @@ class FullChain(torch.nn.Module):
         clusts,
         clust_shapes,
         clust_primaries=None,
+        clust_label=None,
         coord_label=None,
         point_use_primaries=False,
     ):
@@ -1231,6 +1239,9 @@ class FullChain(torch.nn.Module):
             Semantic type of each of the clusters
         clust_primaries : IndexBatch, optional
             List of primary fragment within each cluster to aggregate
+        clust_label : TensorBatch, optional
+            (N, 1 + D + N_c) Tensor of cluster labels used to infer label
+            point identities
         coord_label : TensorBatch, optional
             (N, 1 + D + 6) Array of label particle end points
         point_use_primaries:
@@ -1274,9 +1285,13 @@ class FullChain(torch.nn.Module):
                     "Must provide either `ppn_points` or `coord_label` to add "
                     "points to the GrapPA input."
                 )
+                assert clust_label is not None, (
+                    "Must provide `clust_label` with `coord_label` to add "
+                    "label points to the GrapPA input."
+                )
                 point_clusts = clusts if point_use_primaries else ref_clusts
                 points = get_cluster_points_label_batch(
-                    data,
+                    clust_label,
                     coord_label,
                     point_clusts,
                     use_group=point_use_primaries,
