@@ -171,7 +171,9 @@ def get_cluster_closest_primary_label_batch(data, coord_label, clusts, primary_i
     return TensorBatch(labels, clusts.counts)
 
 
-def get_cluster_points_label_batch(data, coord_label, clusts, random_order=True):
+def get_cluster_points_label_batch(
+    data, coord_label, clusts, random_order=True, snap_clusts=None
+):
     """Batched version of :func:`get_cluster_points_label`
 
     Parameters
@@ -181,10 +183,13 @@ def get_cluster_points_label_batch(data, coord_label, clusts, random_order=True)
     coord_label : TensorBatch
         Batch of particle end points labels
     clusts : IndexBatch
-        (C) List of cluster indexes
+        (C) List of cluster indexes used to infer label identities
     random_order : bool, default True
         If `True`, randomize the order in which the start en end points of
         a track are stored in the output
+    snap_clusts : IndexBatch, optional
+        (C) List of cluster indexes used to snap the label points to visible
+        coordinates. If not provided, `clusts` is used.
 
     Returns
     -------
@@ -192,6 +197,14 @@ def get_cluster_points_label_batch(data, coord_label, clusts, random_order=True)
         (C, 6) Cluster-wise start and end points (in random order if requested)
     """
     num_clusts = len(clusts.index_list)
+    if snap_clusts is not None:
+        assert (
+            len(snap_clusts.index_list) == num_clusts
+        ), "`snap_clusts` must contain one cluster per input cluster."
+        assert np.array_equal(
+            snap_clusts.counts, clusts.counts
+        ), "`snap_clusts` must have the same batch counts as `clusts`."
+
     if isinstance(data.tensor, torch.Tensor):
         points = torch.empty((num_clusts, 6), dtype=data.dtype, device=data.device)
     else:
@@ -199,8 +212,9 @@ def get_cluster_points_label_batch(data, coord_label, clusts, random_order=True)
 
     for b in range(data.batch_size):
         lower, upper = clusts.edges[b], clusts.edges[b + 1]
+        snap_clusts_b = snap_clusts[b] if snap_clusts is not None else None
         points[lower:upper] = get_cluster_points_label(
-            data[b], coord_label[b], clusts[b], random_order
+            data[b], coord_label[b], clusts[b], random_order, snap_clusts_b
         )
 
     return TensorBatch(points, clusts.counts, coord_cols=points.shape[1])
@@ -968,11 +982,13 @@ def _get_cluster_features_extended(
 
 @numbafy(
     cast_args=["data", "coord_label"],
-    list_args=["clusts"],
+    list_args=["clusts", "snap_clusts"],
     keep_torch=True,
     ref_arg="data",
 )
-def get_cluster_points_label(data, coord_label, clusts, random_order=True):
+def get_cluster_points_label(
+    data, coord_label, clusts, random_order=True, snap_clusts=None
+):
     """Gets label points for each cluster.
 
     Returns start point of primary shower fragment twice if shower, delta or
@@ -990,6 +1006,9 @@ def get_cluster_points_label(data, coord_label, clusts, random_order=True):
     random_order : bool, default True
         If `True`, randomize the order in which the start en end points of
         a track are stored in the output
+    snap_clusts : List[np.ndarray], optional
+        (C) List of cluster indexes used to snap the label points to visible
+        coordinates. If not provided, `clusts` is used.
 
     Returns
     -------
@@ -999,7 +1018,12 @@ def get_cluster_points_label(data, coord_label, clusts, random_order=True):
     if len(clusts) == 0:
         return np.empty((0, 6), dtype=data.dtype)
 
-    return _get_cluster_points_label(data, coord_label, clusts, random_order)
+    if snap_clusts is None:
+        snap_clusts = clusts
+
+    return _get_cluster_points_label(
+        data, coord_label, clusts, snap_clusts, random_order
+    )
 
 
 @nb.njit(cache=True)
@@ -1007,6 +1031,7 @@ def _get_cluster_points_label(
     data: nb.float64[:, :],
     coord_label: nb.float64[:, :],
     clusts: nb.types.List(nb.int64[:]),
+    snap_clusts: nb.types.List(nb.int64[:]),
     random_order: nb.boolean = True,
 ) -> nb.float64[:, :]:
 
@@ -1026,7 +1051,7 @@ def _get_cluster_points_label(
         points[i, 3:6] = end
 
     # Bring the start points to the closest point in the corresponding cluster
-    for i, c in enumerate(clusts):
+    for i, c in enumerate(snap_clusts):
         point_pair = np.empty((2, 3), dtype=data.dtype)
         point_pair[0] = points[i, :3]
         point_pair[1] = points[i, 3:6]

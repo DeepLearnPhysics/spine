@@ -2,7 +2,12 @@
 
 import numpy as np
 
-from spine.utils.gnn.cluster import cluster_dedx, get_cluster_features_base
+from spine.constants import PART_COL
+from spine.utils.gnn.cluster import (
+    cluster_dedx,
+    get_cluster_features_base,
+    get_cluster_points_label,
+)
 
 
 def test_cluster_dedx_accepts_mixed_coordinate_dtypes():
@@ -42,3 +47,31 @@ def test_cluster_features_base_accepts_indexed_float32_coordinates():
     assert feats.shape == (2, 16)
     np.testing.assert_allclose(feats[0, :3], [1.0 / 3.0, 0.0, 2.0])
     np.testing.assert_allclose(feats[1, :3], [1.0 / 3.0, 0.0, 5.0])
+
+
+def test_cluster_points_label_can_snap_to_separate_cluster():
+    data = np.zeros((3, PART_COL + 1), dtype=np.float32)
+    data[:, PART_COL] = 0
+    data[:, 1:4] = np.array(
+        [
+            [99.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [2.0, 0.0, 0.0],
+        ],
+        dtype=np.float32,
+    )
+    coord_label = np.array(
+        [[0.0, 100.0, 0.0, 0.0, 100.0, 0.0, 0.0, 0.0, 0.0]],
+        dtype=np.float32,
+    )
+
+    points = get_cluster_points_label(
+        data,
+        coord_label,
+        [np.array([0], dtype=np.int64)],
+        random_order=False,
+        snap_clusts=[np.array([1, 2], dtype=np.int64)],
+    )
+
+    np.testing.assert_allclose(points[0, :3], [2.0, 0.0, 0.0])
+    np.testing.assert_allclose(points[0, 3:], [2.0, 0.0, 0.0])

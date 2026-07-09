@@ -321,6 +321,29 @@ class TestConditionalUtilities:
 
         assert callable(simple_function)
 
+    def test_numbafy_allows_optional_none_list_args(self):
+        """Optional list arguments should not be typed when omitted."""
+        import numba as nb
+        import numpy as np
+
+        from spine.utils.jit import numbafy
+
+        @numbafy(list_args=["values"])
+        def maybe_sum(values=None):
+            if values is None:
+                return -1
+            return _sum_list(values)
+
+        @nb.njit
+        def _sum_list(values):
+            total = 0
+            for value in values:
+                total += value[0]
+            return total
+
+        assert maybe_sum() == -1
+        assert maybe_sum([np.array([2]), np.array([3])]) == 5
+
 
 class TestPerformanceRegression:
     """Test for performance regressions in conditional imports."""

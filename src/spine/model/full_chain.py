@@ -1274,7 +1274,10 @@ class FullChain(torch.nn.Module):
                     "Must provide either `ppn_points` or `coord_label` to add "
                     "points to the GrapPA input."
                 )
-                points = get_cluster_points_label_batch(data, coord_label, ref_clusts)
+                snap_clusts = clusts if ref_clusts is not clusts else None
+                points = get_cluster_points_label_batch(
+                    data, coord_label, ref_clusts, snap_clusts=snap_clusts
+                )
 
             grappa_input["points"] = points
 

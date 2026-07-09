@@ -61,6 +61,8 @@ def numbafy(cast_args=[], list_args=[], keep_torch=False, ref_arg=None):
                     f"Argument `{arg}` appears in `cast_args` but does "
                     "not appear in the function arguments."
                 )
+                if kwargs[arg] is None:
+                    continue
                 if not isinstance(kwargs[arg], np.ndarray):
                     if TORCH_AVAILABLE and isinstance(kwargs[arg], torch.Tensor):
                         kwargs[arg] = kwargs[arg].detach().cpu().numpy()
@@ -76,6 +78,8 @@ def numbafy(cast_args=[], list_args=[], keep_torch=False, ref_arg=None):
                     f"Argument `{arg}` appears in `list_args` but does "
                     "not appear in the function arguments."
                 )
+                if kwargs[arg] is None:
+                    continue
                 kwargs[arg] = nb.typed.List(kwargs[arg])
 
             # Get the output

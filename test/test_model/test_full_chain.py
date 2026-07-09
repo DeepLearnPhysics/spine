@@ -200,8 +200,8 @@ def test_prepare_grappa_input_uses_label_points_without_ppn(monkeypatch):
     label_points = TensorBatch(np.ones((2, 6), dtype=np.float32), counts=np.array([2]))
     calls = []
 
-    def fake_label_points(data_arg, coord_label_arg, clusts_arg):
-        calls.append((data_arg, coord_label_arg, clusts_arg))
+    def fake_label_points(data_arg, coord_label_arg, clusts_arg, **kwargs):
+        calls.append((data_arg, coord_label_arg, clusts_arg, kwargs))
         return label_points
 
     monkeypatch.setattr(
@@ -220,4 +220,6 @@ def test_prepare_grappa_input_uses_label_points_without_ppn(monkeypatch):
 
     assert grappa_input["points"] is label_points
     assert "coord_label" not in grappa_input
-    assert calls == [(data, coord_label, primaries)]
+    assert calls == [
+        (data, coord_label, primaries, {"snap_clusts": clusts}),
+    ]
