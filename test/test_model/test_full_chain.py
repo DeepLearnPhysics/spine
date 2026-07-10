@@ -5,6 +5,7 @@ import pytest
 import torch
 
 import spine.model.full_chain as full_chain_mod
+import spine.model.layer.gnn.encode.geometric as geometric_mod
 from spine.constants import (
     CLUST_COL,
     GHOST_SHP,
@@ -16,6 +17,7 @@ from spine.constants import (
 )
 from spine.data import IndexBatch, TensorBatch
 from spine.model.full_chain import FullChain, FullChainLoss
+from spine.model.layer.gnn.encode.geometric import ClustGeoNodeEncoder
 
 
 class RecordingLoss:
@@ -182,7 +184,9 @@ def test_prepare_grappa_input_uses_label_points_without_ppn(monkeypatch):
     full_chain = object.__new__(FullChain)
     full_chain.result = {}
 
-    model = SimpleNamespace(node_encoder=SimpleNamespace(add_points=True))
+    model = SimpleNamespace(
+        node_encoder=SimpleNamespace(add_points=True, random_order=False)
+    )
     data = TensorBatch(np.zeros((3, 4), dtype=np.float32), counts=np.array([3]))
     clust_label = TensorBatch(
         np.zeros((3, GROUP_COL + 1), dtype=np.float32), counts=np.array([3])
@@ -226,7 +230,40 @@ def test_prepare_grappa_input_uses_label_points_without_ppn(monkeypatch):
     assert grappa_input["points"] is label_points
     assert "coord_label" not in grappa_input
     assert calls == [
-        (clust_label, coord_label, primaries, {}),
+        (clust_label, coord_label, primaries, {"random_order": False}),
+    ]
+
+
+def test_geo_node_encoder_forwards_random_order(monkeypatch):
+    encoder = ClustGeoNodeEncoder(use_numpy=False, add_points=True, random_order=False)
+    data = TensorBatch(torch.zeros((1, 5), dtype=torch.float32), counts=np.array([1]))
+    clusts = IndexBatch(
+        [np.array([0], dtype=np.int64)],
+        spans=np.array([1]),
+        counts=np.array([1]),
+        single_counts=np.array([1]),
+    )
+    coord_label = TensorBatch(
+        torch.zeros((1, 9), dtype=torch.float32), counts=np.array([1])
+    )
+    label_points = TensorBatch(
+        torch.ones((1, 6), dtype=torch.float32), counts=np.array([1])
+    )
+    calls = []
+
+    def fake_label_points(data_arg, coord_label_arg, clusts_arg, **kwargs):
+        calls.append((data_arg, coord_label_arg, clusts_arg, kwargs))
+        return label_points
+
+    monkeypatch.setattr(
+        geometric_mod, "get_cluster_points_label_batch", fake_label_points
+    )
+
+    _, points = encoder(data, clusts, coord_label=coord_label)
+
+    assert points is label_points
+    assert calls == [
+        (data, coord_label, clusts, {"random_order": False}),
     ]
 
 
@@ -234,7 +271,9 @@ def test_prepare_grappa_input_requires_clust_label_for_label_points():
     full_chain = object.__new__(FullChain)
     full_chain.result = {}
 
-    model = SimpleNamespace(node_encoder=SimpleNamespace(add_points=True))
+    model = SimpleNamespace(
+        node_encoder=SimpleNamespace(add_points=True, random_order=True)
+    )
     data = TensorBatch(np.zeros((1, 4), dtype=np.float32), counts=np.array([1]))
     clusts = IndexBatch(
         [np.array([0], dtype=np.int64)],

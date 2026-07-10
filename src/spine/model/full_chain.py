@@ -1294,6 +1294,7 @@ class FullChain(torch.nn.Module):
                     clust_label,
                     coord_label,
                     ref_clusts,
+                    random_order=model.node_encoder.random_order,
                 )
 
             grappa_input["points"] = points

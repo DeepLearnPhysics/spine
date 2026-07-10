@@ -56,6 +56,7 @@ class ClustGeoNodeEncoder(torch.nn.Module):
         add_value=False,
         add_shape=False,
         add_points=False,
+        random_order=True,
         add_local_dirs=False,
         dir_max_dist=5.0,
         add_local_dedxs=False,
@@ -73,6 +74,9 @@ class ClustGeoNodeEncoder(torch.nn.Module):
             Add the particle semantic type
         add_points : bool, default False
             Add the start/end points of the particles
+        random_order : bool, default True
+            If `True`, randomize the order of the start/end points fetched
+            from labels
         add_local_dirs : bool, default False
             Add the local direction estimates at the start and end points
         dir_max_dist : float, default 5.
@@ -90,6 +94,7 @@ class ClustGeoNodeEncoder(torch.nn.Module):
         self.add_value = add_value
         self.add_shape = add_shape
         self.add_points = add_points
+        self.random_order = random_order
         self.add_local_dirs = add_local_dirs
         self.dir_max_dist = dir_max_dist
         self.add_local_dedxs = add_local_dedxs
@@ -175,7 +180,9 @@ class ClustGeoNodeEncoder(torch.nn.Module):
         # Add the points
         if self.add_points:
             if points is None:
-                points = get_cluster_points_label_batch(data, coord_label, clusts)
+                points = get_cluster_points_label_batch(
+                    data, coord_label, clusts, random_order=self.random_order
+                )
 
             feats = torch.cat((feats, points.tensor), dim=1)
 
