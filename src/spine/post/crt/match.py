@@ -142,7 +142,8 @@ class CRTMatcher:
         # Find matches, start by looping over CRT hits
         matches = []
         for hit in crthits:
-            # Fetch the normal to the CRT plane (self.geo.crt guaranteed non-None by __init__ assert)
+            # Fetch the normal to the CRT plane
+            # (self.geo.crt guaranteed non-None by __init__ assert)
             crt_plane = self.geo.crt.get_plane(hit.position, hit.plane)
             normal = crt_plane.normal
 

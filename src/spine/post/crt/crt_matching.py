@@ -68,14 +68,14 @@ class CRTMatchProcessor(PostBase):
         """
         # Fetch the CRT hits, nothing to do here if there are none
         crthits = data[self.crt_key]
-        if not len(crthits):
+        if len(crthits) == 0:
             return
 
         # Loop over the object types
         for k in self.particle_keys:
             # Fetch particle list, nothing to do here if there are none
             particles = data[k]
-            if not len(particles):
+            if len(particles) == 0:
                 continue
 
             # Make sure the particle coordinates are expressed in cm
