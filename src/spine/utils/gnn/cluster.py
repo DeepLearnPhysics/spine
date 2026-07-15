@@ -181,11 +181,10 @@ def get_cluster_points_label_batch(data, coord_label, clusts, random_order=True)
     coord_label : TensorBatch
         Batch of particle end points labels
     clusts : IndexBatch
-        (C) List of cluster indexes
+        (C) List of cluster indexes used to infer label identities
     random_order : bool, default True
         If `True`, randomize the order in which the start en end points of
         a track are stored in the output
-
     Returns
     -------
     np.ndarray
@@ -200,7 +199,10 @@ def get_cluster_points_label_batch(data, coord_label, clusts, random_order=True)
     for b in range(data.batch_size):
         lower, upper = clusts.edges[b], clusts.edges[b + 1]
         points[lower:upper] = get_cluster_points_label(
-            data[b], coord_label[b], clusts[b], random_order
+            data[b],
+            coord_label[b],
+            clusts[b],
+            random_order,
         )
 
     return TensorBatch(points, clusts.counts, coord_cols=points.shape[1])
@@ -990,7 +992,6 @@ def get_cluster_points_label(data, coord_label, clusts, random_order=True):
     random_order : bool, default True
         If `True`, randomize the order in which the start en end points of
         a track are stored in the output
-
     Returns
     -------
     np.ndarray
@@ -1013,12 +1014,24 @@ def _get_cluster_points_label(
     # Get start and end points (one and the same for all but track class)
     points = np.empty((len(clusts), 6), dtype=data.dtype)
     for i, c in enumerate(clusts):
-        # Use the first cluster in time
+        # Use the first constituent particle in time.
         part_ids = np.unique(data[c, PART_COL]).astype(np.int64)
-        min_id = part_ids[np.argmin(coord_label[part_ids, COORD_TIME_COL])]
-        min_label = coord_label[min_id]
-        start = min_label[COORD_START_COLS_LO:COORD_START_COLS_HI]
-        end = min_label[COORD_END_COLS_LO:COORD_END_COLS_HI]
+        label_id = -1
+        min_time = np.inf
+        for part_id in part_ids:
+            if part_id < 0 or part_id >= len(coord_label):
+                raise IndexError("Invalid label index for coord_label.")
+            time = coord_label[part_id, COORD_TIME_COL]
+            if time < min_time:
+                min_time = time
+                label_id = part_id
+
+        if label_id < 0 or label_id >= len(coord_label):
+            raise IndexError("Invalid label index for coord_label.")
+        label = coord_label[label_id]
+
+        start = label[COORD_START_COLS_LO:COORD_START_COLS_HI]
+        end = label[COORD_END_COLS_LO:COORD_END_COLS_HI]
         if random_order and np.random.choice(2):
             start, end = end, start
 

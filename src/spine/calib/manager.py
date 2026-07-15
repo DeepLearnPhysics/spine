@@ -42,6 +42,7 @@ class CalibrationManager:
         # Add the modules to a processor list in configuration order
         parsed = parse_module_config(cfg)
         names = [spec["name"] for spec in parsed.values()]
+        self.update_points = "field" in names
 
         # Make sure the essential calibration modules are present
         if not gain_applied and "recombination" in names and "gain" not in names:
@@ -83,7 +84,7 @@ class CalibrationManager:
         track: bool | None = None,
         meta: Meta | None = None,
         module_id: int | None = None,
-    ) -> NDArray[np.floating]:
+    ) -> tuple[NDArray[np.floating], NDArray[np.floating]]:
         """Main calibration driver.
 
         Parameters
@@ -111,9 +112,12 @@ class CalibrationManager:
         Returns
         -------
         np.ndarray
+            (N, 3) array of calibrated point coordinates
+        np.ndarray
             (N) array of calibrated depositions in ADC, e- or MeV
         """
         # If necessary, convert all points to detector coordinates
+        orig_points = points
         if meta is not None:
             points = meta.to_cm(points, center=True)
         if module_id is not None:
@@ -136,6 +140,7 @@ class CalibrationManager:
             tpc_indexes = self.geo.get_closest_tpc_indexes(points)
 
         # Loop over the TPCs, apply the relevant calibration corrections
+        new_points = np.copy(points) if self.update_points else orig_points
         new_values = np.copy(values)
         for t in range(self.geo.tpc.num_chambers):
             # Restrict to the TPC of interest
@@ -164,6 +169,14 @@ class CalibrationManager:
                 self.watch.stop(key)
 
             # Append
+            if self.update_points:
+                new_points[tpc_indexes[t]] = tpc_points
             new_values[tpc_indexes[t]] = tpc_values
 
-        return new_values
+        if self.update_points:
+            if module_id is not None:
+                new_points = self.geo.translate(new_points, module_id, 0)
+            if meta is not None:
+                new_points = meta.to_px(new_points, floor=True)
+
+        return new_points, new_values

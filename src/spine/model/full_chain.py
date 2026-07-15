@@ -13,7 +13,9 @@ from spine.constants import (
     COORD_COLS,
     DELTA_SHP,
     GHOST_SHP,
+    GROUP_COL,
     MICHL_SHP,
+    PRGRP_COL,
     SHAPE_COL,
     SHOWR_SHP,
     TRACK_SHP,
@@ -22,7 +24,11 @@ from spine.constants import (
 from spine.data import IndexBatch, RunInfo, TensorBatch
 from spine.utils.cluster.label import ClusterLabelAdapter
 from spine.utils.ghost import ChargeRescaler
-from spine.utils.gnn.cluster import form_clusters_batch, get_cluster_label_batch
+from spine.utils.gnn.cluster import (
+    form_clusters_batch,
+    get_cluster_label_batch,
+    get_cluster_points_label_batch,
+)
 from spine.utils.gnn.evaluation import primary_assignment_batch
 from spine.utils.logger import logger
 from spine.utils.ppn import ParticlePointPredictor
@@ -706,7 +712,9 @@ class FullChain(torch.nn.Module):
                 clust_label is not None
             ), "Must provide `clust_label` to use it for fragmentation."
             fragments = form_clusters_batch(clust_label.to_numpy(), column=CLUST_COL)
-            fragment_shapes = get_cluster_label_batch(clust_label, fragments)
+            fragment_shapes = get_cluster_label_batch(
+                clust_label, fragments, column=SHAPE_COL
+            )
 
         if fragments is not None:
             self.result["fragment_clusts"] = fragments
@@ -775,7 +783,8 @@ class FullChain(torch.nn.Module):
                     data,
                     fragments,
                     fragment_shapes,
-                    coord_label,
+                    clust_label=clust_label,
+                    coord_label=coord_label,
                     aggregate_shapes=True,
                     shape_use_primary=use_primary[name],
                     retain_primaries=use_primary[name],
@@ -796,11 +805,14 @@ class FullChain(torch.nn.Module):
 
             elif switch == "label":
                 # Use cluster labels to aggregate instances
+                assert (
+                    clust_label is not None
+                ), "Must provide `clust_label` to aggregate particles by label."
                 groups, group_shapes, group_primaries, shape_index = self.group_labels(
-                    shapes[name],
-                    data,
+                    clust_label,
                     fragments,
                     fragment_shapes,
+                    shapes=shapes[name],
                     aggregate_shapes=True,
                     shape_use_primary=use_primary[name],
                     retain_primaries=use_primary[name],
@@ -884,14 +896,18 @@ class FullChain(torch.nn.Module):
                 particles,
                 particle_shapes,
                 particle_primaries,
-                coord_label,
+                clust_label=clust_label,
+                coord_label=coord_label,
                 point_use_primary=True,
             )
 
         elif self.inter_aggregation == "label":
             # Use cluster labels to aggregate instances
+            assert (
+                clust_label is not None
+            ), "Must provide `clust_label` to aggregate interactions by label."
             interactions, _, _, _ = self.group_labels(
-                shapes[name], data, particles, particle_shapes
+                clust_label, particles, particle_shapes
             )
 
         # Store interaction objects
@@ -950,7 +966,7 @@ class FullChain(torch.nn.Module):
                 run_id = run_info[b // rep].run if run_info is not None else None
 
                 # Calibrate voxel values
-                values_b = self.calibrator(
+                voxels_b, values_b = self.calibrator(
                     voxels_b,
                     values_b,
                     sources_b,
@@ -959,6 +975,10 @@ class FullChain(torch.nn.Module):
                     module_id=b % rep,
                 )
 
+                if self.calibrator.update_points:
+                    data.tensor[lower:upper, COORD_COLS] = torch.tensor(
+                        voxels_b, dtype=data.dtype, device=data.device
+                    )
                 data.tensor[lower:upper, VALUE_COL] = torch.tensor(
                     values_b, dtype=data.dtype, device=data.device
                 )
@@ -984,6 +1004,7 @@ class FullChain(torch.nn.Module):
         clusts,
         clust_shapes,
         clust_primaries=None,
+        clust_label=None,
         coord_label=None,
         aggregate_shapes=False,
         shape_use_primary=False,
@@ -1006,6 +1027,9 @@ class FullChain(torch.nn.Module):
             Semantic type of each of the clusters
         clust_primaries : IndexBatch
             List of primary fragments associated with each input cluster
+        clust_label : TensorBatch, optional
+            Tensor used to fetch truth labels when building points from
+            `coord_label`. Defaults to `data`.
         coord_label : TensorBatch, optional
             (N, 1 + D + 6) Array of label particle end points
         aggregate_shapes : bool, default False
@@ -1040,6 +1064,7 @@ class FullChain(torch.nn.Module):
             clusts,
             clust_shapes,
             clust_primaries,
+            clust_label,
             coord_label,
             point_use_primary,
         )
@@ -1075,9 +1100,10 @@ class FullChain(torch.nn.Module):
 
     def group_labels(
         self,
-        data,
+        clust_label,
         clusts,
         clust_shapes,
+        shapes=None,
         aggregate_shapes=False,
         shape_use_primary=False,
         retain_primaries=False,
@@ -1086,12 +1112,14 @@ class FullChain(torch.nn.Module):
 
         Parameters
         ----------
-        data : TensorBatch
-            (N, 1 + D + N_f) tensor of voxel/value pairs
+        clust_label : TensorBatch
+            (N, 1 + D + N_c) Tensor of cluster labels
         clusts : IndexBatch
-            List of clusters to aggregate using GrapPA
+            List of clusters to aggregate using labels
         clust_shapes : TensorBatch
             Semantic type of each of the clusters
+        shapes : List[int], optional
+            List of semantic shapes to restrict to
         aggregate_shapes : bool, default False
             Combine shapes to give a shape to the aggregated object
         shape_use_primary : bool, default False
@@ -1111,16 +1139,18 @@ class FullChain(torch.nn.Module):
             List of indexes used to restrict the original cluster list
         """
         # Restrict the clusters to those in the input of the model
-        clusts, clust_shapes, shape_index = self.restrict_clusts(
-            clusts, clust_shapes, model.node_type
-        )
+        shape_index = False
+        if shapes is not None:
+            clusts, clust_shapes, shape_index = self.restrict_clusts(
+                clusts, clust_shapes, shapes
+            )
 
         # If requested, convert the node predictions to a primary mask
-        group_ids = get_cluster_label_batch(data, clusts, GROUP_COL)
+        group_ids = get_cluster_label_batch(clust_label, clusts, GROUP_COL)
         primary_mask = None
         if shape_use_primary:
-            primary_mask = get_cluster_label_batch(data, clusts, PRGRP_COL)
-            primary_mask = primary_mask.astype(bool)
+            primary_mask = get_cluster_label_batch(clust_label, clusts, PRGRP_COL)
+            primary_mask.data = primary_mask.tensor.astype(bool)
 
         # Build shower instances, get their semantic type
         return (
@@ -1186,6 +1216,7 @@ class FullChain(torch.nn.Module):
         clusts,
         clust_shapes,
         clust_primaries=None,
+        clust_label=None,
         coord_label=None,
         point_use_primaries=False,
     ):
@@ -1208,6 +1239,9 @@ class FullChain(torch.nn.Module):
             Semantic type of each of the clusters
         clust_primaries : IndexBatch, optional
             List of primary fragment within each cluster to aggregate
+        clust_label : TensorBatch, optional
+            Tensor used to fetch truth labels when building points from
+            `coord_label`. Defaults to `data`.
         coord_label : TensorBatch, optional
             (N, 1 + D + 6) Array of label particle end points
         point_use_primaries:
@@ -1231,8 +1265,6 @@ class FullChain(torch.nn.Module):
         grappa_input["data"] = data
         grappa_input["clusts"] = clusts
         grappa_input["shapes"] = clust_shapes
-        if coord_label is not None:
-            grappa_input["coord_label"] = coord_label
 
         # Get the particle end points, if requested
         if hasattr(model.node_encoder, "add_points") and model.node_encoder.add_points:
@@ -1245,11 +1277,30 @@ class FullChain(torch.nn.Module):
                 ref_clusts = clust_primaries
 
             # Get and store the points
-            points = self.point_predictor(
-                data, ref_clusts, clust_shapes, self.result["ppn_points"]
-            )
+            if "ppn_points" in self.result:
+                points = self.point_predictor(
+                    data, ref_clusts, clust_shapes, self.result["ppn_points"]
+                )
+            else:
+                assert coord_label is not None, (
+                    "Must provide either `ppn_points` or `coord_label` to add "
+                    "points to the GrapPA input."
+                )
+                assert clust_label is not None, (
+                    "Must provide `clust_label` with `coord_label` to add "
+                    "label points to the GrapPA input."
+                )
+                points = get_cluster_points_label_batch(
+                    clust_label,
+                    coord_label,
+                    ref_clusts,
+                    random_order=model.node_encoder.random_order,
+                )
 
             grappa_input["points"] = points
+
+        elif coord_label is not None:
+            grappa_input["coord_label"] = coord_label
 
         # Get the supplemental information, if requested
         if hasattr(model.node_encoder, "add_value") and (
@@ -1337,11 +1388,21 @@ class FullChain(torch.nn.Module):
 
                 # Extract the shape and primary ID for this group
                 if primary_mask is not None:
-                    primary_id = group_index[primary_mask_b[group_index]][0]
+                    primary_index = group_index[primary_mask_b[group_index]]
+                    primary_id = primary_index[0] if len(primary_index) else None
                     if aggregate_shapes:
-                        group_shapes.append(clust_shapes_b[primary_id])
+                        if primary_id is not None:
+                            group_shapes.append(clust_shapes_b[primary_id])
+                        else:
+                            shapes, shape_counts = np.unique(
+                                clust_shapes_b[group_index], return_counts=True
+                            )
+                            group_shapes.append(shapes[np.argmax(shape_counts)])
                     if retain_primaries:
-                        group_primaries.append(offset_b + clusts_b[primary_id])
+                        if primary_id is not None:
+                            group_primaries.append(offset_b + clusts_b[primary_id])
+                        else:
+                            group_primaries.append(groups[-1])
                         single_primary_counts.append(len(group_primaries[-1]))
 
                 elif aggregate_shapes:
