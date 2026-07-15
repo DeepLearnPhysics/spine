@@ -123,7 +123,7 @@ class SegmentAna(AnaBase):
                 # If there are ghost, must combine the predictions
                 full_seg_pred = np.full_like(seg_label, GHOST_SHP, dtype=np.int32)
                 deghost_mask = np.argmax(data["ghost"], axis=1) == 0
-                full_seg_pred[deghost_mask] = seg_pred[deghost_mask]
+                full_seg_pred[deghost_mask] = seg_pred
                 seg_pred = full_seg_pred
 
             if not self.summary:
@@ -133,7 +133,7 @@ class SegmentAna(AnaBase):
                     # If there are ghosts, interpret the non-ghost score
                     # as a shared score for all other classes.
                     full_seg_scores = np.zeros(
-                        (len(seg_scores), self.num_classes), dtype=seg_scores.dtype
+                        (len(seg_label), self.num_classes), dtype=seg_scores.dtype
                     )
                     ghost_scores = softmax(data["ghost"], axis=1)
                     full_seg_scores[:, :-1] = ghost_scores[:, 0, None] / (
@@ -141,7 +141,7 @@ class SegmentAna(AnaBase):
                     )
                     full_seg_scores[:, -1] = ghost_scores[:, 1]
 
-                    full_seg_scores[deghost_mask, :-1] = seg_scores[deghost_mask]
+                    full_seg_scores[deghost_mask, :-1] = seg_scores
                     seg_scores = full_seg_scores
 
         else:

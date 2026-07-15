@@ -4,31 +4,17 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from collections.abc import Mapping
-from typing import Any, Protocol
+from typing import Any
 
 from spine.utils.factory import parse_module_config
 from spine.utils.manager import ModuleManager
 from spine.utils.stopwatch import StopwatchManager
 
+from .base import AnaBase
 from .factories import ana_script_factory
 
 
-class AnaModule(Protocol):
-    """Analysis module interface used by :class:`AnaManager`."""
-
-    def __call__(
-        self, data: dict[str, Any], entry: int | None = None
-    ) -> dict[str, Any] | None:
-        """Process input data and return products to merge into it."""
-
-    def close_writers(self) -> None:
-        """Close all CSV writers owned by the module."""
-
-    def flush_writers(self) -> None:
-        """Flush all CSV writers owned by the module."""
-
-
-class AnaManager(ModuleManager[AnaModule]):
+class AnaManager(ModuleManager[AnaBase]):
     """Manager class to initialize and execute analysis scripts.
 
     Analysis scripts use the output of the reconstruction chain and the
@@ -114,7 +100,7 @@ class AnaManager(ModuleManager[AnaModule]):
 
         # Add the modules to a processor list in decreasing order of priority
         self.watch = StopwatchManager()
-        module_map: OrderedDict[str, AnaModule] = OrderedDict()
+        module_map: OrderedDict[str, AnaBase] = OrderedDict()
         parsed = parse_module_config(
             modules, sort_by_priority=True, priority_descending=True
         )

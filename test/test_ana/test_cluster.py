@@ -5,7 +5,12 @@ import pytest
 
 from spine.ana.metric.cluster import ClusterAna
 from spine.constants import CLUST_COL, GROUP_COL, SHAPE_COL
-from spine.data.out import RecoParticle, TruthParticle
+from spine.data.out import (
+    RecoInteraction,
+    RecoParticle,
+    TruthInteraction,
+    TruthParticle,
+)
 
 
 def _run_particle_cluster_ana(monkeypatch, truth_index_mode="index_adapt"):
@@ -145,3 +150,32 @@ def test_cluster_ana_standalone_mode(monkeypatch):
             },
         )
     ]
+
+
+def test_cluster_ana_does_not_produce_per_shape_interaction_metrics(monkeypatch):
+    rows = []
+    monkeypatch.setattr(ClusterAna, "initialize_writer", lambda self, name: None)
+    monkeypatch.setattr(
+        ClusterAna, "append", lambda self, name, **kwargs: rows.append(kwargs)
+    )
+    ana = ClusterAna(
+        obj_type="interaction",
+        use_objects=True,
+        per_shape=True,
+        metrics=("ari",),
+        truth_index_mode="index",
+    )
+
+    ana.process(
+        {
+            "points": np.zeros((2, 3), dtype=np.float32),
+            "truth_interactions": [
+                TruthInteraction(index=np.array([0, 1], dtype=np.int32))
+            ],
+            "reco_interactions": [
+                RecoInteraction(index=np.array([0, 1], dtype=np.int32))
+            ],
+        }
+    )
+
+    assert rows == [{"num_points": 2, "num_truth": 1, "num_reco": 1, "ari": 1.0}]

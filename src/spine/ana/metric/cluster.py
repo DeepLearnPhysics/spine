@@ -233,7 +233,8 @@ class ClusterAna(AnaBase):
             for metric, func in self.metrics.items():
                 valid_index = np.where((preds > -1) & (labels > -1))[0]
                 row_dict[metric] = func(labels[valid_index], preds[valid_index])
-                if self.per_shape and shapes is not None:
+                if self.per_shape and obj_type != "interaction":
+                    assert shapes is not None
                     for shape in range(LOWES_SHP):
                         shape_index = np.where((shapes == shape) & (labels > -1))[0]
                         row_dict[f"{metric}_{shape}"] = func(

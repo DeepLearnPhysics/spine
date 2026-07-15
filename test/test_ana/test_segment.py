@@ -60,7 +60,7 @@ def test_segment_ana_detailed_ghost_scores(monkeypatch):
     ana.process(
         {
             "seg_label": labels,
-            "segmentation": np.array([[3.0, 0.0, 0.0, 0.0, 0.0]] * 2),
+            "segmentation": np.array([[3.0, 0.0, 0.0, 0.0, 0.0]]),
             "ghost": np.array([[3.0, 0.0], [0.0, 3.0]]),
         }
     )

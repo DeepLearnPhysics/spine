@@ -57,6 +57,18 @@ class FakeCalibrationManager:
         return points, depositions + offset
 
 
+class FakePointCalibrationManager(FakeCalibrationManager):
+    def __init__(self, **cfg):
+        super().__init__(**cfg)
+        self.update_points = True
+
+    def __call__(self, points, depositions, sources=None, run_id=None, track=False):
+        _, calibrated_depositions = super().__call__(
+            points, depositions, sources, run_id, track
+        )
+        return points + np.array([2.0, 0.0, 0.0]), calibrated_depositions
+
+
 def test_calibration_processor_updates_particles_tensors_and_interactions(monkeypatch):
     monkeypatch.setattr(calo_mod, "CalibrationManager", FakeCalibrationManager)
     reco_particle = SimpleNamespace(
@@ -116,6 +128,38 @@ def test_calibration_processor_updates_particles_tensors_and_interactions(monkey
     assert calibrator.cfg == {"scale": 2.0}
     assert any(call["track"] for call in calibrator.calls)
     assert all(call["run_id"] == 7 for call in calibrator.calls)
+
+
+def test_calibration_processor_updates_truth_points_and_interactions(monkeypatch):
+    monkeypatch.setattr(calo_mod, "CalibrationManager", FakePointCalibrationManager)
+    particle = SimpleNamespace(
+        is_truth=True,
+        units="cm",
+        shape=0,
+        index=np.array([0], dtype=np.int64),
+        points=np.array([[1.0, 0.0, 0.0]], dtype=np.float32),
+        depositions_q=np.array([10.0], dtype=np.float32),
+        sources=np.array([[0, 0]], dtype=np.int64),
+    )
+    interaction = SimpleNamespace(
+        is_truth=True,
+        index=np.array([0, 1], dtype=np.int64),
+    )
+    data = {
+        "points_label": np.array([[1.0, 0.0, 0.0], [4.0, 0.0, 0.0]], dtype=np.float32),
+        "depositions_q_label": np.array([10.0, 20.0], dtype=np.float32),
+        "sources_label": np.array([[0, 0], [0, 0]], dtype=np.int64),
+        "truth_particles": [particle],
+        "truth_interactions": [interaction],
+    }
+    processor = CalibrationProcessor(run_mode="truth")
+
+    processor.process(data)
+
+    expected_points = np.array([[3.0, 0.0, 0.0], [6.0, 0.0, 0.0]], dtype=np.float32)
+    np.testing.assert_allclose(particle.points, expected_points[[0]])
+    np.testing.assert_allclose(interaction.points, expected_points)
+    np.testing.assert_allclose(data["points_label"], expected_points)
 
 
 def test_calibration_processor_skips_empty_particles(monkeypatch):

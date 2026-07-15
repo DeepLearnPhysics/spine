@@ -4,27 +4,17 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from collections.abc import Mapping, Sequence
-from typing import Any, Protocol
+from typing import Any
 
 from spine.utils.factory import parse_module_config
 from spine.utils.manager import ModuleManager
 from spine.utils.stopwatch import StopwatchManager
 
+from .base import PostBase
 from .factories import post_processor_factory
 
 
-class PostModule(Protocol):
-    """Post-processing module interface used by :class:`PostManager`."""
-
-    _upstream: Sequence[str]
-
-    def __call__(
-        self, data: dict[str, Any], entry: int | None = None
-    ) -> dict[str, Any] | None:
-        """Process input data and return products to merge into it."""
-
-
-class PostManager(ModuleManager[PostModule]):
+class PostManager(ModuleManager[PostBase]):
     """Manager in charge of handling post-processors.
 
     It loads all the post-processor objects once and feeds them data.
@@ -49,7 +39,7 @@ class PostManager(ModuleManager[PostModule]):
         """
         # Add the modules to a processor list in decreasing order of priority
         self.watch = StopwatchManager()
-        modules: OrderedDict[str, PostModule] = OrderedDict()
+        modules: OrderedDict[str, PostBase] = OrderedDict()
         parsed = parse_module_config(
             cfg, sort_by_priority=True, priority_descending=True
         )
