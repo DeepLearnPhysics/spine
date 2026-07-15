@@ -1,5 +1,10 @@
 """Module to evaluate diagnostic metrics on showers."""
 
+from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
+from typing import Any
+
 from spine.ana.base import AnaBase
 
 __all__ = ["ShowerStartDEdxAna"]
@@ -19,29 +24,35 @@ class ShowerStartDEdxAna(AnaBase):
 
     def __init__(
         self,
-        radius,
-        obj_type="particle",
-        run_mode="both",
-        truth_point_mode="points",
-        truth_dep_mode="depositions",
-        **kwargs,
-    ):
+        radius: float | Sequence[float],
+        obj_type: str | Sequence[str] | None = "particle",
+        run_mode: str = "both",
+        truth_point_mode: str = "points",
+        truth_dep_mode: str = "depositions",
+        **kwargs: Any,
+    ) -> None:
         """Initialize the analysis script.
 
         Parameters
         ----------
-        radius : Union[float, List[float]]
-            Radius around the start point for which evaluate dE/dx
+        radius : float or Sequence[float]
+            Radius around the start point within which to evaluate dE/dx
         **kwargs : dict, optional
             Additional arguments to pass to :class:`AnaBase`
         """
         # Initialize the parent class
-        super().__init__(obj_type, run_mode, truth_point_mode, truth_dep_mode, **kwargs)
+        super().__init__(
+            obj_type=obj_type,
+            run_mode=run_mode,
+            truth_point_mode=truth_point_mode,
+            truth_dep_mode=truth_dep_mode,
+            **kwargs,
+        )
 
         # Store parameters
         self.radius = radius
 
-    def process(self, data):
+    def process(self, data: Mapping[str, Any]) -> None:
         """Evaluate shower start dE/dx for one entry.
 
         Parameters

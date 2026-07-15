@@ -1,5 +1,10 @@
 """Particle identification modules."""
 
+from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
+from typing import Any
+
 import numpy as np
 
 from spine.constants import TRACK_SHP
@@ -19,13 +24,13 @@ class PIDTemplateProcessor(PostBase):
 
     def __init__(
         self,
-        fill_per_pid=False,
-        obj_type="particle",
-        run_mode="reco",
-        truth_point_mode="points",
-        truth_dep_mode="depositions",
-        **identifier,
-    ):
+        fill_per_pid: bool = False,
+        obj_type: str | Sequence[str] | None = "particle",
+        run_mode: str = "reco",
+        truth_point_mode: str = "points",
+        truth_dep_mode: str = "depositions",
+        **identifier: Any,
+    ) -> None:
         """Store the necessary attributes to do template-based PID prediction.
 
         Parameters
@@ -44,8 +49,8 @@ class PIDTemplateProcessor(PostBase):
         # Initialize the underlying template-fitter class
         self.identifier = TemplateParticleIdentifier(**identifier)
 
-    def process(self, data):
-        """Reconstruct the CSDA KE estimates for each particle in one entry.
+    def process(self, data: Mapping[str, Any]) -> None:
+        """Reconstruct template PID estimates for each particle in one entry.
 
         Parameters
         ----------

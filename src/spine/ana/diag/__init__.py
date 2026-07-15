@@ -1,10 +1,9 @@
-"""Diagnostic analaysis scripts.
+"""Diagnostic analysis scripts.
 
 This submodule is used to run basic diagnostics analyses, such as:
-- Track energy reconstruction
+- Graph optimal edge-length studies
 - Track completeness
 - Shower start dE/dx
-- ...
 """
 
 from .graph import *

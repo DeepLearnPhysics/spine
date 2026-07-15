@@ -1,7 +1,11 @@
 """Particle topology module."""
 
+from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
+from typing import Any
+
 import numpy as np
-from scipy.stats import pearsonr
 
 from spine.constants import ELEC_PID, PHOT_PID, SHOWR_SHP
 from spine.math.decomposition import PCA
@@ -31,12 +35,12 @@ class ParticleDEDXProcessor(PostBase):
 
     def __init__(
         self,
-        radius=3.0,
-        anchor=False,
-        mode="direction",
-        include_pids=(PHOT_PID, ELEC_PID),
-        include_secondary=False,
-    ):
+        radius: float = 3.0,
+        anchor: bool = False,
+        mode: str = "direction",
+        include_pids: Sequence[int] = (PHOT_PID, ELEC_PID),
+        include_secondary: bool = False,
+    ) -> None:
         """Store the particle start dE/dx reconstruction parameters.
 
         Parameters
@@ -48,7 +52,7 @@ class ParticleDEDXProcessor(PostBase):
             is irrelevant for reconstruction particles (always anchored)
         mode : str, default 'direction'
             Method to use for dE/dx calculation.
-        include_pids : list, default [0, 1]
+        include_pids : sequence[int], default [0, 1]
             Particle species to compute the start dE/dx for
         include_secondary : bool, default False
             If `True`, computes the start dE/dx for secondary particles
@@ -73,7 +77,7 @@ class ParticleDEDXProcessor(PostBase):
         if mode == "direction":
             self.update_upstream("direction")
 
-    def process(self, data):
+    def process(self, data: Mapping[str, Any]) -> None:
         """Compute the start dE/dx for all particles in one entry.
 
         Parameters
@@ -141,11 +145,11 @@ class ParticleStartStraightnessProcessor(PostBase):
 
     def __init__(
         self,
-        radius=3.0,
-        n_components=3,
-        include_pids=(PHOT_PID, ELEC_PID),
-        include_secondary=False,
-    ):
+        radius: float = 3.0,
+        n_components: int = 3,
+        include_pids: Sequence[int] = (PHOT_PID, ELEC_PID),
+        include_secondary: bool = False,
+    ) -> None:
         """Store the particle start straightness reconstruction parameters.
 
         Parameters
@@ -154,10 +158,10 @@ class ParticleStartStraightnessProcessor(PostBase):
             Radius around the start point to include in the straightness calculation.
         n_components : int, default 3
             Number of components to compute the PCA for
-        include_pids : list, default [0, 1]
-            Particle species to compute the start dE/dx for
+        include_pids : sequence[int], default [0, 1]
+            Particle species to compute the start straightness for
         include_secondary : bool, default False
-            If `True`, computes the start dE/dx for secondary particles
+            If `True`, computes the start straightness for secondary particles
         """
         # Initialize the parent class
         super().__init__("particle", "reco")
@@ -175,7 +179,7 @@ class ParticleStartStraightnessProcessor(PostBase):
         self.include_pids = include_pids
         self.include_secondary = include_secondary
 
-    def process(self, data):
+    def process(self, data: Mapping[str, Any]) -> None:
         """Compute the start straightness for all particles in one entry.
 
         Parameters
@@ -196,7 +200,7 @@ class ParticleStartStraightnessProcessor(PostBase):
             # Compute the particle start straightness
             part.start_straightness = self.get_start_straightness(part)
 
-    def get_start_straightness(self, particle):
+    def get_start_straightness(self, particle: Any) -> float:
         """Evaluates the straightness of the start of a particle by computing
         the PCA principal explained variance ratio.
 
@@ -245,12 +249,12 @@ class ParticleSpreadProcessor(PostBase):
 
     def __init__(
         self,
-        start_mode="vertex",
-        length_scale=14.0,
-        use_start_dir=False,
-        include_pids=(PHOT_PID, ELEC_PID),
-        include_secondary=False,
-    ):
+        start_mode: str = "vertex",
+        length_scale: float = 14.0,
+        use_start_dir: bool = False,
+        include_pids: Sequence[int] = (PHOT_PID, ELEC_PID),
+        include_secondary: bool = False,
+    ) -> None:
         """Store the particle spread reconstruction parameters.
 
         Parameters
@@ -263,10 +267,10 @@ class ParticleSpreadProcessor(PostBase):
         use_start_dir : bool, default False
             If `True`, use the direction estimate of the particle to compute
             the axial spread. If `False`, the direction is estimated using PCA
-        include_pids : list, default [0, 1]
-            Particle species to compute the start dE/dx for
+        include_pids : sequence[int], default [0, 1]
+            Particle species to compute the spread for
         include_secondary : bool, default False
-            If `True`, computes the start dE/dx for secondary particles
+            If `True`, computes the spread for secondary particles
         """
         # Initialize the parent class
         super().__init__("interaction", "reco")
@@ -288,7 +292,7 @@ class ParticleSpreadProcessor(PostBase):
         if not use_start_dir:
             self.pca = PCA(n_components=3)
 
-    def process(self, data):
+    def process(self, data: Mapping[str, Any]) -> None:
         """Compute the shower spread for all particles in one entry.
 
         Parameters
@@ -320,7 +324,7 @@ class ParticleSpreadProcessor(PostBase):
                     part.points, part.start_dir, ref_point
                 )
 
-    def get_dir_spread(self, points, ref_point):
+    def get_dir_spread(self, points: np.ndarray, ref_point: np.ndarray) -> float:
         """Compute the directional spread of the particle by computing the mean
         direction and the weighted average cosine distance with respect to it.
 
@@ -355,7 +359,9 @@ class ParticleSpreadProcessor(PostBase):
 
         return spread
 
-    def get_axial_spread(self, points, start_dir, ref_point):
+    def get_axial_spread(
+        self, points: np.ndarray, start_dir: np.ndarray, ref_point: np.ndarray
+    ) -> float:
         """Compute the axial spread of a particle by evaluating the pearson R
         correlation coefficient between the distance of the particle points from
         the start point along the particle axis and the perpendicular distance
@@ -396,4 +402,10 @@ class ParticleSpreadProcessor(PostBase):
         )
         perps = np.linalg.norm(v, axis=1)
 
-        return pearsonr(dists, perps)[0]
+        dists_centered = dists - np.mean(dists)
+        perps_centered = perps - np.mean(perps)
+        denom = np.linalg.norm(dists_centered) * np.linalg.norm(perps_centered)
+        if denom == 0.0:
+            return np.nan
+
+        return float(np.dot(dists_centered, perps_centered) / denom)

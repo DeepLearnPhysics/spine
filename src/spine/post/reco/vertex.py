@@ -1,5 +1,10 @@
 """Interaction vertex reconstruction module."""
 
+from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
+from typing import Any
+
 import numpy as np
 
 from spine.constants import SHOWR_SHP, TRACK_SHP
@@ -23,21 +28,21 @@ class VertexProcessor(PostBase):
 
     def __init__(
         self,
-        include_shapes=(SHOWR_SHP, TRACK_SHP),
-        use_primaries=True,
-        update_orientations=False,
-        update_primaries=False,
-        anchor_vertex=True,
-        touching_threshold=2.0,
-        angle_threshold=0.3,
-        run_mode="both",
-        truth_point_mode="points",
-    ):
+        include_shapes: Sequence[int] = (SHOWR_SHP, TRACK_SHP),
+        use_primaries: bool = True,
+        update_orientations: bool = False,
+        update_primaries: bool = False,
+        anchor_vertex: bool = True,
+        touching_threshold: float = 2.0,
+        angle_threshold: float = 0.3,
+        run_mode: str = "both",
+        truth_point_mode: str = "points",
+    ) -> None:
         """Initialize the vertex finder properties.
 
         Parameters
         ----------
-        include_shapes : List[int], default [0, 1]
+        include_shapes : sequence[int], default [0, 1]
             List of semantic classes to consider for vertex reconstruction
         use_primaries : bool, default True
             If true, only considers primary particles to reconstruct the vertex
@@ -47,7 +52,7 @@ class VertexProcessor(PostBase):
             Use the reconstructed vertex to update primaries
         anchor_vertex : bool, default True
             If true, anchor the candidate vertex to particle objects,
-            with the expection of interactions only composed of showers
+            with the exception of interactions only composed of showers
         touching_threshold : float, default 2.0
             Maximum distance for two track points to be considered touching (cm)
         angle_threshold : float, default 0.3 radians
@@ -66,7 +71,7 @@ class VertexProcessor(PostBase):
         self.touching_threshold = touching_threshold
         self.angle_threshold = angle_threshold
 
-    def process(self, data):
+    def process(self, data: Mapping[str, Any]) -> None:
         """Reconstruct the vertex position for each interaction in one entry.
 
         Parameters
@@ -79,13 +84,12 @@ class VertexProcessor(PostBase):
             for inter in data[k]:
                 self.reconstruct_vertex_single(inter)
 
-    def reconstruct_vertex_single(self, inter):
-        """Post-processor which reconstructs one vertex for each interaction
-        in the provided list.
+    def reconstruct_vertex_single(self, inter: Any) -> None:
+        """Reconstruct one vertex for an interaction.
 
         Parameters
         ----------
-        inter : List[RecoInteraction, TruthInteraction]
+        inter : RecoInteraction or TruthInteraction
             Reconstructed/truth interaction object
         """
         # Selected the set of particles to use as a basis for vertex prediction

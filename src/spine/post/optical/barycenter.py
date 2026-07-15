@@ -1,8 +1,11 @@
 """Module that supports barycenter-based flash matching."""
 
-import numpy as np
+from __future__ import annotations
 
-from spine.math.distance import cdist
+from collections.abc import Sequence
+from typing import Any
+
+import numpy as np
 
 
 class BarycenterFlashMatcher:
@@ -15,28 +18,28 @@ class BarycenterFlashMatcher:
 
     def __init__(
         self,
-        match_method="threshold",
-        dimensions=(1, 2),
-        charge_weighted=False,
-        time_window=None,
-        first_flash_only=False,
-        min_inter_size=None,
-        min_flash_pe=None,
-        match_distance=None,
-    ):
-        """Initalize the barycenter flash matcher.
+        match_method: str = "threshold",
+        dimensions: Sequence[int] = (1, 2),
+        charge_weighted: bool = False,
+        time_window: Sequence[float] | None = None,
+        first_flash_only: bool = False,
+        min_inter_size: int | None = None,
+        min_flash_pe: float | None = None,
+        match_distance: float | None = None,
+    ) -> None:
+        """Initialize the barycenter flash matcher.
 
         Parameters
         ----------
-        match_method: str, default 'distance'
+        match_method : str, default 'threshold'
             Matching method (one of 'threshold' or 'best')
             - 'threshold': If the two barycenters are within some distance, match
             - 'best': For each flash, pick the best matched interaction
-        dimensions: Tuple[int], default (1, 2)
+        dimensions : Sequence[int], default (1, 2)
             Dimensions involved in the distance computation
         charge_weighted : bool, default False
             Use interaction pixel charge information to weight the centroid
-        time_window : List, optional
+        time_window : Sequence[float], optional
             List of [min, max] values of optical flash times to consider
         first_flash_only : bool, default False
             Only try to match the first flash in the time window
@@ -54,8 +57,8 @@ class BarycenterFlashMatcher:
                 f"{match_method}. Must be one of {self._match_methods}."
             )
 
-        if match_method == "threshold":
-            assert match_distance is not None, (
+        if match_method == "threshold" and match_distance is None:
+            raise ValueError(
                 "When using the `threshold` method, must specify the "
                 "`match_distance` parameter."
             )
@@ -70,21 +73,26 @@ class BarycenterFlashMatcher:
         self.min_flash_pe = min_flash_pe
         self.match_distance = match_distance
 
-    def get_matches(self, interactions, flashes):
+    def get_matches(
+        self, interactions: Sequence[Any], flashes: Sequence[Any]
+    ) -> list[tuple[Any, Any, float]]:
         """Makes [interaction, flash] pairs that have compatible barycenters.
 
         Parameters
         ----------
-        interactions : List[Union[RecoInteraction, TruthInteraction]]
+        interactions : Sequence[RecoInteraction | TruthInteraction]
             List of interactions
-        flashes : List[Flash]
+        flashes : Sequence[Flash]
             List of optical flashes
 
         Returns
         -------
-        List[[Interaction, larcv.Flash, float]]
+        list[tuple[Interaction, Flash, float]]
             List of [interaction, flash, distance] triplets
         """
+        interactions = list(interactions)
+        flashes = list(flashes)
+
         # Restrict the flashes to those that fit the selection criteria.
         # Skip if there are no valid flashes
         if self.time_window is not None:
@@ -114,9 +122,10 @@ class BarycenterFlashMatcher:
         # Get the flash centroids
         op_centroids = np.empty((len(flashes), len(self.dims)))
         op_widths = np.empty((len(flashes), len(self.dims)))
+        dims = list(self.dims)
         for i, f in enumerate(flashes):
-            op_centroids[i] = f.center[self.dims]
-            op_widths[i] = f.width[self.dims]
+            op_centroids[i] = f.center[dims]
+            op_widths[i] = f.width[dims]
 
         # Get interactions centroids
         int_centroids = np.empty((len(interactions), len(self.dims)))
@@ -126,19 +135,21 @@ class BarycenterFlashMatcher:
 
             else:
                 int_centroids[i] = np.sum(
-                    inter.depositions * inter.points[:, self.dims], axis=0
+                    inter.depositions[:, None] * inter.points[:, self.dims], axis=0
                 )
                 int_centroids[i] /= np.sum(inter.depositions)
 
         # Compute the flash to interaction distance matrix
-        dist_mat = cdist(op_centroids, int_centroids)
+        dist_mat = np.linalg.norm(
+            op_centroids[:, None, :] - int_centroids[None, :, :], axis=2
+        )
 
         # Produce matches
         matches = []
         if self.match_method == "best":
             # For each flash, select the best match, save attributes
             for i, f in enumerate(flashes):
-                best_match = np.argmin(dist_mat[i])
+                best_match = int(np.argmin(dist_mat[i]))
                 dist = dist_mat[i, best_match]
                 if self.match_distance is not None and dist > self.match_distance:
                     continue

@@ -1,6 +1,10 @@
 """Match objects and their label counterparts and vice versa."""
 
+from __future__ import annotations
+
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from typing import Any
 
 import numba as nb
 import numpy as np
@@ -23,21 +27,21 @@ class MatchProcessor(PostBase):
 
     def __init__(
         self,
-        fragment=None,
-        particle=None,
-        interaction=None,
-        truth_point_mode="points",
-        **kwargs,
-    ):
-        """Initializes the matching post-processor.
+        fragment: bool | Mapping[str, Any] | None = None,
+        particle: bool | Mapping[str, Any] | None = None,
+        interaction: bool | Mapping[str, Any] | None = None,
+        truth_point_mode: str = "points",
+        **kwargs: Any,
+    ) -> None:
+        """Initialize the matching post-processor.
 
         Parameters
         ----------
-        fragment: Union[bool, dict], optional
+        fragment : bool or dict, optional
             Matching flag or configuration for fragments
-        particle: Union[bool, dict], optional
+        particle : bool or dict, optional
             Matching flag or configuration for particles
-        interaction: Union[bool, dict], optional
+        interaction : bool or dict, optional
             Matching flag or configuration for interactions
         truth_point_mode : str, default 'points'
             Type of truth points to use to do the matching
@@ -73,10 +77,10 @@ class MatchProcessor(PostBase):
         ----------
         fn : function
             Function which computes overlaps between pairs of objects
-        match_mode : str, defualt 'both'
+        match_mode : str, default 'both'
             Matching mode. One of 'reco_to_truth', 'truth_to_reco' or 'both'
         overlap_mode : str, default 'iou'
-            Overlap estimatation method. One of 'count', 'iou', 'dice', 'chamfer'
+            Overlap estimation method. One of 'count', 'iou', 'dice', 'chamfer'
         min_overlap : float, default 0.
             Overlap value above which a pair is considered a match
         weight_overlap : bool, default False
@@ -91,7 +95,7 @@ class MatchProcessor(PostBase):
             back to recovering indexes from the coordinates and metadata
         """
 
-        fn: object = None
+        fn: Callable[..., np.ndarray] | None = None
         match_mode: str = "both"
         overlap_mode: str = "iou"
         min_overlap: float = 0.0
@@ -105,7 +109,7 @@ class MatchProcessor(PostBase):
         # Valid overlap modes
         _overlap_modes = ("count", "iou", "dice", "chamfer")
 
-        def __post_init__(self):
+        def __post_init__(self) -> None:
             """Check that the values provided are valid."""
             # Check match mode
             assert self.match_mode in self._match_modes, (
@@ -129,12 +133,12 @@ class MatchProcessor(PostBase):
             prefix = "overlap" if not self.weight_overlap else "overlap_weighted"
             self.fn = getattr(spine.utils.match, f"{prefix}_{self.overlap_mode}")
 
-    def process(self, data):
+    def process(self, data: Mapping[str, Any]) -> dict[str, Any]:
         """Match all the requested objects in one entry.
 
         Parameters
         ----------
-        data: dict
+        data : dict
             Dictionary of data products
         """
         # Loop over the matchers
@@ -170,14 +174,21 @@ class MatchProcessor(PostBase):
 
         return np.unique(index)
 
-    def process_single(self, reco_objs, truth_objs, matcher, name, meta=None):
+    def process_single(
+        self,
+        reco_objs: Sequence[Any],
+        truth_objs: Sequence[Any],
+        matcher: MatchProcessor.Matcher,
+        name: str,
+        meta: Any | None = None,
+    ) -> dict[str, Any]:
         """Match all the requested objects in a single category.
 
         Parameters
         ----------
-        reco_objs : List[object]
+        reco_objs : Sequence[object]
             List of reconstructed objects
-        truth_objs : List[object]
+        truth_objs : Sequence[object]
             List of truth objects
         matcher : MatchProcessor.Matcher
             Matching method and function
@@ -278,6 +289,7 @@ class MatchProcessor(PostBase):
 
         # Pass lists to the matching function to compute overlaps
         if len(reco_input) and len(truth_input):
+            assert matcher.fn is not None
             ovl_matrix = matcher.fn(reco_input, truth_input)
         else:
             ovl_matrix = np.empty((len(reco_input), len(truth_input)))
@@ -307,14 +319,19 @@ class MatchProcessor(PostBase):
         return result
 
     @staticmethod
-    def generate_matches(source_objs, target_objs, ovl_matrix, ovl_valid):
-        """Generate pairs for a srt of sources and targets.
+    def generate_matches(
+        source_objs: Sequence[Any],
+        target_objs: Sequence[Any],
+        ovl_matrix: np.ndarray,
+        ovl_valid: np.ndarray,
+    ) -> tuple[list[tuple[Any, Any | None]], list[float]]:
+        """Generate pairs for a set of sources and targets.
 
         Parameters
         ----------
-        source_objs : List[object]
+        source_objs : Sequence[object]
             (N) List of source objects
-        target_objs : List[object]
+        target_objs : Sequence[object]
             (M) List of truth objects
         ovl_matrix : np.ndarray
             (N, M) Matrix of overlap values
@@ -323,9 +340,9 @@ class MatchProcessor(PostBase):
 
         Returns
         -------
-        pairs : List[tuple]
+        pairs : list[tuple]
             (N) List of (source, target) matched pairs (best match only)
-        overlaps : List[float]
+        overlaps : list[float]
             (N) List of overlap between each source and the best matched target
         """
         # Build the matches based on the threshold

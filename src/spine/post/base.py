@@ -1,13 +1,17 @@
 """Contains base class of all post-processors."""
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
+from collections.abc import Mapping, MutableMapping, Sequence
+from typing import Any
 
 
 class PostBase(ABC):
     """Base class of all post-processors.
 
     This base class performs the following functions:
-      - Ensures that the necessary method exist
+      - Ensures that the necessary methods exist
       - Checks that the post-processor is provided the necessary information
         to do its job
       - Fetches the appropriate coordinate attributes
@@ -17,7 +21,7 @@ class PostBase(ABC):
     ----------
     name : str
         Name of the post-processor as defined in the configuration file
-    aliases : Tuple[str]
+    aliases : tuple[str, ...]
         Alternative acceptable names for a post-processor
     """
 
@@ -73,22 +77,22 @@ class PostBase(ABC):
 
     def __init__(
         self,
-        obj_type=None,
-        run_mode=None,
-        truth_point_mode=None,
-        truth_dep_mode=None,
-        pid_mode=None,
-        parent_path=None,
-    ):
+        obj_type: str | Sequence[str] | None = None,
+        run_mode: str | None = None,
+        truth_point_mode: str | None = None,
+        truth_dep_mode: str | None = None,
+        pid_mode: str | None = None,
+        parent_path: str | None = None,
+    ) -> None:
         """Initialize default post-processor object properties.
 
         Parameters
         ----------
-        obj_type : Union[str, List[str]]
+        obj_type : str or sequence[str], optional
             Name or list of names of the object types to process
         run_mode : str, optional
             If specified, tells whether the post-processor must run on
-            reconstructed ('reco'), true ('true') or both objects
+            reconstructed ('reco'), true ('truth') or both objects
             ('both' or 'all')
         truth_point_mode : str, optional
             If specified, tells which attribute of the :class:`TruthFragment`,
@@ -105,49 +109,59 @@ class PostBase(ABC):
         # If run mode is specified, process it
         if run_mode is not None:
             # Check that the run mode is recognized
-            assert run_mode in self._run_modes, (
-                f"`run_mode` not recognized: {run_mode}. Must be one of "
-                f"{self._run_modes}."
-            )
+            if run_mode not in self._run_modes:
+                raise ValueError(
+                    f"`run_mode` not recognized: {run_mode}. Must be one of "
+                    f"{self._run_modes}."
+                )
 
         # Check that all the object sources are recognized
         if obj_type is None:
-            obj_type = []
+            obj_types: list[str] = []
         elif isinstance(obj_type, str):
-            obj_type = [obj_type]
+            obj_types = [obj_type]
+        elif isinstance(obj_type, Sequence):
+            obj_types = list(obj_type)
+        else:
+            raise TypeError("`obj_type` must be a string or sequence of strings.")
 
-        for obj in obj_type:
-            assert obj in self._obj_types, (
-                f"Object type must be one of {self._obj_types}. Got "
-                f"`{obj}` instead."
-            )
+        for obj in obj_types:
+            if obj not in self._obj_types:
+                raise ValueError(
+                    f"Object type must be one of {self._obj_types}. Got "
+                    f"`{obj}` instead."
+                )
 
         # Make a list of object keys to process
-        self.fragment_keys = []
-        self.particle_keys = []
-        self.interaction_keys = []
+        self.obj_type = obj_types
+        self.fragment_keys: list[str] = []
+        self.particle_keys: list[str] = []
+        self.interaction_keys: list[str] = []
         for name in self._obj_types:
             # Initialize one list per object type
             setattr(self, f"{name}_keys", [])
 
             # Skip object types which are not requested
-            if name in obj_type:
+            if name in obj_types:
                 if run_mode != "truth":
                     getattr(self, f"{name}_keys").append(f"reco_{name}s")
                 if run_mode != "reco":
                     getattr(self, f"{name}_keys").append(f"truth_{name}s")
 
-        self.obj_keys = self.fragment_keys + self.particle_keys + self.interaction_keys
+        self.obj_keys: list[str] = (
+            self.fragment_keys + self.particle_keys + self.interaction_keys
+        )
 
         # Update underlying keys, if needed
         self.update_keys({k: True for k in self.obj_keys})
 
         # If a truth point mode is specified, store it
         if truth_point_mode is not None:
-            assert truth_point_mode in self.point_modes, (
-                "The `truth_point_mode` argument must be one of "
-                f"{self.point_modes.keys()}. Got `{truth_point_mode}` instead."
-            )
+            if truth_point_mode not in self.point_modes:
+                raise ValueError(
+                    "The `truth_point_mode` argument must be one of "
+                    f"{self.point_modes.keys()}. Got `{truth_point_mode}` instead."
+                )
             self.truth_point_mode = truth_point_mode
             self.truth_point_key = self.point_modes[self.truth_point_mode]
             self.truth_source_mode = truth_point_mode.replace("points", "sources")
@@ -156,84 +170,87 @@ class PostBase(ABC):
 
         # If a truth deposition mode is specified, store it
         if truth_dep_mode is not None:
-            assert truth_dep_mode in self.dep_modes, (
-                "The `truth_dep_mode` argument must be one of "
-                f"{self.dep_modes.keys()}. Got `{truth_dep_mode}` instead."
-            )
+            if truth_dep_mode not in self.dep_modes:
+                raise ValueError(
+                    "The `truth_dep_mode` argument must be one of "
+                    f"{self.dep_modes.keys()}. Got `{truth_dep_mode}` instead."
+                )
             if truth_point_mode is not None:
                 prefix = truth_point_mode.replace("points", "depositions")
-                assert truth_dep_mode.startswith(prefix), (
-                    f"Points mode {truth_point_mode} and deposition mode "
-                    f"{truth_dep_mode} are incompatible."
-                )
+                if not truth_dep_mode.startswith(prefix):
+                    raise ValueError(
+                        f"Points mode {truth_point_mode} and deposition mode "
+                        f"{truth_dep_mode} are incompatible."
+                    )
             self.truth_dep_mode = truth_dep_mode
             self.truth_dep_key = self.dep_modes[truth_dep_mode]
 
         # If a PID mode is specified, store it
         if pid_mode is not None:
-            assert pid_mode in self._pid_modes, (
-                f"The `pid_mode` argument must be one of {self._pid_modes}. "
-                f"Got {pid_mode} instead."
-            )
+            if pid_mode not in self._pid_modes:
+                raise ValueError(
+                    f"The `pid_mode` argument must be one of {self._pid_modes}. "
+                    f"Got {pid_mode} instead."
+                )
             self.pid_mode = pid_mode
 
         # Store the parent path
         self.parent_path = parent_path
 
     @property
-    def keys(self):
+    def keys(self) -> dict[str, bool]:
         """Dictionary of (key, necessity) pairs which determine which data keys
         are needed/optional for the post-processor to run.
 
         Returns
         -------
-        Dict[str, bool]
+        dict[str, bool]
             Dictionary of (key, necessity) pairs to be used
         """
         return dict(self._keys)
 
     @property
-    def point_modes(self):
-        """Dictionary which makes the correspondance between the name of a true
+    def point_modes(self) -> dict[str, str]:
+        """Dictionary which maps the name of a true
         object point attribute with the underlying point tensor it points to.
 
         Returns
         -------
-        Dict[str, str]
+        dict[str, str]
             Dictionary of (attribute, key) mapping for point coordinates
         """
         return dict(self._point_modes)
 
     @property
-    def source_modes(self):
-        """Dictionary which makes the correspondance between the name of a true
+    def source_modes(self) -> dict[str, str]:
+        """Dictionary which maps the name of a true
         object source attribute with the underlying source tensor it points to.
 
         Returns
         -------
-        Dict[str, str]
+        dict[str, str]
             Dictionary of (attribute, key) mapping for point sources
         """
         return dict(self._source_modes)
 
     @property
-    def dep_modes(self):
-        """Dictionary which makes the correspondance between the name of a true
+    def dep_modes(self) -> dict[str, str]:
+        """Dictionary which maps the name of a true
         object deposition attribute with the underlying deposition array it points to.
 
         Returns
         -------
-        Dict[str, str]
+        dict[str, str]
             Dictionary of (attribute, key) mapping for point depositions
         """
         return dict(self._dep_modes)
 
-    def update_keys(self, update_dict):
+    def update_keys(self, update_dict: Mapping[str, bool]) -> None:
         """Update the underlying set of keys and their necessity in place.
 
         Parameters
         ----------
-        update_dict : Dict[str, bool]
+        update_dict : Mapping[str, bool]
             Dictionary of (key, necessity) pairs to update the keys with
         """
         if len(update_dict) > 0:
@@ -241,7 +258,7 @@ class PostBase(ABC):
             keys.update(update_dict)
             self._keys = tuple(keys.items())
 
-    def update_upstream(self, key):
+    def update_upstream(self, key: str) -> None:
         """Update the underlying set of required upstream modules in place.
 
         Parameters
@@ -251,7 +268,9 @@ class PostBase(ABC):
         """
         self._upstream = (*self._upstream, key)
 
-    def __call__(self, data, entry=None):
+    def __call__(
+        self, data: Mapping[str, Any], entry: int | None = None
+    ) -> dict[str, Any] | None:
         """Calls the post processor on one entry.
 
         Parameters
@@ -270,10 +289,11 @@ class PostBase(ABC):
         data_filter = {}
         for key, req in self._keys:
             # If this key is needed, check that it exists
-            assert not req or key in data, (
-                f"Post-processor `{self.name}` is missing an essential "
-                f"input to be used: `{key}`."
-            )
+            if req and key not in data:
+                raise KeyError(
+                    f"Post-processor `{self.name}` is missing an essential "
+                    f"input to be used: `{key}`."
+                )
 
             # Append
             if key in data:
@@ -284,7 +304,7 @@ class PostBase(ABC):
         # Run the post-processor
         return self.process(data_filter)
 
-    def get_index(self, obj):
+    def get_index(self, obj: Any) -> Any:
         """Get a certain pre-defined index attribute of an object.
 
         The :class:`TruthFragment`, :class:`TruthParticle` and
@@ -293,7 +313,7 @@ class PostBase(ABC):
 
         Parameters
         ----------
-        obj : Union[FragmentBase, ParticleBase, InteractionBase]
+        obj : FragmentBase, ParticleBase or InteractionBase
             Fragment, Particle or Interaction object
 
         Results
@@ -306,7 +326,7 @@ class PostBase(ABC):
         else:
             return getattr(obj, self.truth_index_mode)
 
-    def get_points(self, obj):
+    def get_points(self, obj: Any) -> Any:
         """Get a certain pre-defined point attribute of an object.
 
         The :class:`TruthFragment`, :class:`TruthParticle` and
@@ -315,7 +335,7 @@ class PostBase(ABC):
 
         Parameters
         ----------
-        obj : Union[FragmentBase, ParticleBase, InteractionBase]
+        obj : FragmentBase, ParticleBase or InteractionBase
             Fragment, Particle or Interaction object
 
         Results
@@ -328,7 +348,7 @@ class PostBase(ABC):
         else:
             return getattr(obj, self.truth_point_mode)
 
-    def get_sources(self, obj):
+    def get_sources(self, obj: Any) -> Any:
         """Get a certain pre-defined sources attribute of an object.
 
         The :class:`TruthFragment`, :class:`TruthParticle` and
@@ -337,7 +357,7 @@ class PostBase(ABC):
 
         Parameters
         ----------
-        obj : Union[FragmentBase, ParticleBase, InteractionBase]
+        obj : FragmentBase, ParticleBase or InteractionBase
             Fragment, Particle or Interaction object
 
         Results
@@ -350,7 +370,7 @@ class PostBase(ABC):
         else:
             return getattr(obj, self.truth_source_mode)
 
-    def get_depositions(self, obj):
+    def get_depositions(self, obj: Any) -> Any:
         """Get a certain pre-defined deposition attribute of an object.
 
         The :class:`TruthFragment`, :class:`TruthParticle` and
@@ -359,7 +379,7 @@ class PostBase(ABC):
 
         Parameters
         ----------
-        obj : Union[FragmentBase, ParticleBase, InteractionBase]
+        obj : FragmentBase, ParticleBase or InteractionBase
             Fragment, Particle or Interaction object
 
         Results
@@ -372,7 +392,7 @@ class PostBase(ABC):
         else:
             return getattr(obj, self.truth_dep_mode)
 
-    def get_pid(self, obj):
+    def get_pid(self, obj: Any) -> Any:
         """Get a certain pre-defined PID prediction of an object.
 
         The :class:`TruthParticle` PID predictions are obtained using the
@@ -380,7 +400,7 @@ class PostBase(ABC):
 
         Parameters
         ----------
-        obj : Union[ParticleBase]
+        obj : ParticleBase
             Particle object
 
         Results
@@ -393,12 +413,12 @@ class PostBase(ABC):
         else:
             return obj.pid
 
-    def check_units(self, obj):
+    def check_units(self, obj: Any) -> None:
         """Check that the point coordinates of an object are as expected.
 
         Parameters
         ----------
-        obj : Union[FragmentBase, ParticleBase, InteractionBase]
+        obj : FragmentBase, ParticleBase or InteractionBase
             Particle or interaction object
 
         Results
@@ -413,7 +433,7 @@ class PostBase(ABC):
             )
 
     @abstractmethod
-    def process(self, data):
+    def process(self, data: MutableMapping[str, Any]) -> dict[str, Any] | None:
         """Place-holder method to be defined in each post-processor.
 
         Parameters

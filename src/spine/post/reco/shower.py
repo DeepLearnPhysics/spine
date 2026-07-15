@@ -1,5 +1,10 @@
 """Shower reconstruction module."""
 
+from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import Any
+
 import numpy as np
 
 from spine.constants import PION_PID, PROT_PID, SHOWR_SHP, TRACK_SHP
@@ -34,16 +39,16 @@ class ShowerParametricEnergyProcessor(PostBase):
 
     def __init__(
         self,
-        n_points=10000,
-        seed=12345,
-        sigma_floor=1.0,
-        energy_bounds=(1, 10000),
-        use_gp=False,
-        mode="module",
-        run_mode="reco",
-        truth_point_mode="points",
-        truth_dep_mode="depositions",
-    ):
+        n_points: int = 10000,
+        seed: int = 12345,
+        sigma_floor: float = 1.0,
+        energy_bounds: tuple[float, float] = (1.0, 10000.0),
+        use_gp: bool = False,
+        mode: str = "module",
+        run_mode: str = "reco",
+        truth_point_mode: str = "points",
+        truth_dep_mode: str = "depositions",
+    ) -> None:
         """Store the shower energy fitter parameters.
 
         Parameters
@@ -55,7 +60,7 @@ class ShowerParametricEnergyProcessor(PostBase):
             Random seed to use for sampling points in the shower model.
         sigma_floor : float, default 1.0
             Minimum value for the energy deposition uncertainty.
-        energy_bounds : Tuple[float, float], default=(1, 10000)
+        energy_bounds : tuple[float, float], default=(1, 10000)
             Lower and upper bounds on the fitted energy, in MeV.
         use_gp : bool, default False
             Whether to use the Grindhammer and Peters (2000) parametrization for the
@@ -87,7 +92,7 @@ class ShowerParametricEnergyProcessor(PostBase):
         else:
             self.boundaries = [tpc.boundaries for tpc in self.geo.tpc.chambers]
 
-        # Initialize the underlyign shower energy fitter
+        # Initialize the underlying shower energy fitter
         self.fitter = ShowerEnergyFitter(
             boundaries=self.boundaries,
             n_points=n_points,
@@ -100,7 +105,7 @@ class ShowerParametricEnergyProcessor(PostBase):
         # Store the energy bounds
         self.energy_bounds = energy_bounds
 
-    def process(self, data):
+    def process(self, data: Mapping[str, Any]) -> None:
         """Fit the energy of showers in one entry.
 
         Parameters
@@ -162,7 +167,9 @@ class ShowerConversionDistanceProcessor(PostBase):
     # List of recognized ways to compute the vertex-to-shower distance
     _modes = ("vertex_to_start", "vertex_to_points", "protons_to_points")
 
-    def __init__(self, mode="vertex_to_points", include_secondary=False):
+    def __init__(
+        self, mode: str = "vertex_to_points", include_secondary: bool = False
+    ) -> None:
         """Store the conversion distance reconstruction parameters.
 
         Parameters
@@ -176,7 +183,7 @@ class ShowerConversionDistanceProcessor(PostBase):
             - 'protons_to_points': Distance between any proton/pion point and
               any shower point.
         include_secondary : bool, default False
-            If `True`, computes the covnersion distance for secondary particles
+            If `True`, computes the conversion distance for secondary particles
         """
         # Initialize the parent class
         super().__init__("interaction", "reco")
@@ -195,7 +202,7 @@ class ShowerConversionDistanceProcessor(PostBase):
         if "vertex" in self.mode:
             self.update_upstream("vertex")
 
-    def process(self, data):
+    def process(self, data: Mapping[str, Any]) -> None:
         """Compute the conversion distance of showers in each interaction.
 
         Parameters
@@ -220,7 +227,7 @@ class ShowerConversionDistanceProcessor(PostBase):
                     dist = self.get_vertex_to_start(inter, part)
                 elif self.mode == "vertex_to_points":
                     dist = self.get_vertex_to_points(inter, part)
-                elif self.mode == "protons_to_start":
+                elif self.mode == "protons_to_points":
                     dist = self.get_protons_to_points(inter, part)
                 else:
                     raise ValueError(
@@ -231,7 +238,7 @@ class ShowerConversionDistanceProcessor(PostBase):
                 part.vertex_distance = dist
 
     @staticmethod
-    def get_vertex_to_start(inter, shower):
+    def get_vertex_to_start(inter: Any, shower: Any) -> float:
         """Helper function to compute the closest distance between the vertex
         and the predicted shower startpoint.
 
@@ -245,15 +252,15 @@ class ShowerConversionDistanceProcessor(PostBase):
         Returns
         -------
         float
-            Distance betweenthe vertex and the shower start point
+            Distance between the vertex and the shower start point
         """
         # Compute distance from the vertex to the shower start point
         dist = np.linalg.norm(inter.vertex - shower.start_point)
 
-        return dist
+        return float(dist)
 
     @staticmethod
-    def get_vertex_to_points(inter, shower):
+    def get_vertex_to_points(inter: Any, shower: Any) -> float:
         """Helper function to compute the closest distance between the vertex
         and all shower points.
 
@@ -272,10 +279,10 @@ class ShowerConversionDistanceProcessor(PostBase):
         # Compute distances from the vertex to all shower points, find minimum
         dists = cdist(inter.vertex.reshape(-1, 3), shower.points)
 
-        return dists.min()
+        return float(dists.min())
 
     @staticmethod
-    def get_protons_to_points(inter, shower):
+    def get_protons_to_points(inter: Any, shower: Any) -> float:
         """Helper function to compute the closest distance between any
         proton/pion point and any shower point.
 
@@ -305,14 +312,14 @@ class ShowerConversionDistanceProcessor(PostBase):
         proton_points = np.vstack(proton_points)
         dists = cdist(proton_points, shower.points)
 
-        return dists.min()
+        return float(dists.min())
 
 
 class ShowerStartMergeProcessor(PostBase):
     """Merge shower start if it was classified as track points.
 
     This post-processor is used to patch upstream semantic segmentation mistakes
-    where part of the shower trunk is assigned to track points and subsequantly
+    where part of the shower trunk is assigned to track points and subsequently
     classified as a separate particle.
     """
 
@@ -324,11 +331,11 @@ class ShowerStartMergeProcessor(PostBase):
 
     def __init__(
         self,
-        angle_threshold=0.175,
-        distance_threshold=1.0,
-        track_length_limit=50,
-        track_dedx_limit=None,
-    ):
+        angle_threshold: float = 0.175,
+        distance_threshold: float = 1.0,
+        track_length_limit: float = 50.0,
+        track_dedx_limit: float | None = None,
+    ) -> None:
         """Store the shower start merging parameters.
 
         Parameters
@@ -351,7 +358,7 @@ class ShowerStartMergeProcessor(PostBase):
         self.track_length_limit = track_length_limit
         self.track_dedx_limit = track_dedx_limit
 
-    def process(self, data):
+    def process(self, data: Mapping[str, Any]) -> dict[str, ObjectList]:
         """Merge split shower starts for all particles in one entry.
 
         Parameters
@@ -361,7 +368,7 @@ class ShowerStartMergeProcessor(PostBase):
 
         Returns
         -------
-        List[RecoParticle]
+        list[RecoParticle]
             Updated set of particles (interactions modified in place)
         """
         # Loop over the reco interactions
@@ -402,7 +409,7 @@ class ShowerStartMergeProcessor(PostBase):
 
         return {"reco_particles": particles}
 
-    def check_merge(self, shower, track):
+    def check_merge(self, shower: Any, track: Any) -> bool:
         """Check if a shower and a track can be merged.
 
         Parameters
@@ -455,7 +462,12 @@ class ShowerStartCorrectionProcessor(PostBase):
     # Set of post-processors which must be run before this one is
     _upstream = ("direction",)
 
-    def __init__(self, update_directions=True, radius=-1, optimize=True):
+    def __init__(
+        self,
+        update_directions: bool = True,
+        radius: float = -1.0,
+        optimize: bool = True,
+    ) -> None:
         """Store the shower start corrector parameters.
 
         Parameters
@@ -476,7 +488,7 @@ class ShowerStartCorrectionProcessor(PostBase):
         self.radius = radius
         self.optimize = optimize
 
-    def process(self, data):
+    def process(self, data: Mapping[str, Any]) -> None:
         """Update the shower start point using the closest point to the vertex.
 
         Parameters
@@ -508,7 +520,7 @@ class ShowerStartCorrectionProcessor(PostBase):
                 part.start_point = new_start
 
     @staticmethod
-    def correct_shower_start(inter, shower):
+    def correct_shower_start(inter: Any, shower: Any) -> np.ndarray:
         """Function to correct the shower start point by finding the closest
         point to any primary track in the image.
 
@@ -534,7 +546,7 @@ class ShowerStartCorrectionProcessor(PostBase):
         if len(track_points) == 0:
             return shower.start_point
 
-        # Update the shower start point by finding the consitituent point
+        # Update the shower start point by finding the constituent point
         # closest to any of the track points
         track_points = np.vstack(track_points)
         dists = np.min(cdist(shower.points, track_points), axis=1)

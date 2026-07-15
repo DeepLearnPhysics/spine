@@ -1,6 +1,8 @@
 """Post-processor in charge of finding matches between charge and light."""
 
 from collections import defaultdict
+from collections.abc import Mapping
+from typing import Any
 
 import numpy as np
 
@@ -32,20 +34,20 @@ class FlashMatchProcessor(PostBase):
 
     def __init__(
         self,
-        flash_key,
-        volume,
-        ref_volume_id=None,
-        method="likelihood",
-        time_contained=False,
-        max_cathode_offset=None,
-        run_mode="reco",
-        truth_point_mode="points",
-        truth_dep_mode="depositions",
-        parent_path=None,
-        merge=None,
-        update_flashes=False,
-        **kwargs,
-    ):
+        flash_key: str,
+        volume: str,
+        ref_volume_id: int | None = None,
+        method: str = "likelihood",
+        time_contained: bool = False,
+        max_cathode_offset: float | None = None,
+        run_mode: str = "reco",
+        truth_point_mode: str = "points",
+        truth_dep_mode: str = "depositions",
+        parent_path: str | None = None,
+        merge: Mapping[str, Any] | None = None,
+        update_flashes: bool = False,
+        **kwargs: Any,
+    ) -> None:
         """Initialize the flash matching algorithm.
 
         Parameters
@@ -86,14 +88,12 @@ class FlashMatchProcessor(PostBase):
         )
 
         # Make sure the flash data product is available, store
-        self.flash_key = flash_key
+        self.flash_key: str = flash_key
         self.update_keys({flash_key: True})
 
         # Get the volume within which each flash is confined
-        assert volume in (
-            "tpc",
-            "module",
-        ), "The `volume` must be one of 'tpc' or 'module'."
+        if volume not in ("tpc", "module"):
+            raise ValueError("The `volume` must be one of 'tpc' or 'module'.")
         self.volume = volume
         self.ref_volume_id = ref_volume_id
 
@@ -126,7 +126,7 @@ class FlashMatchProcessor(PostBase):
             self.merger = FlashMerger(**merge)
         self.update_flashes = update_flashes
 
-    def process(self, data):
+    def process(self, data: Mapping[str, Any]) -> dict[str, Any] | None:
         """Find [interaction, flash] pairs.
 
         Parameters
@@ -244,10 +244,14 @@ class FlashMatchProcessor(PostBase):
 
                     # Get the flash hypothesis (if the matcher produces one)
                     hypo_pe, score = -1.0, -1.0
-                    if hasattr(match, "hypothesis"):
-                        hypo_pe = float(np.sum(list(match.hypothesis)))
-                    if hasattr(match, "score"):
-                        score = float(match.score)
+                    if np.isscalar(match):
+                        score = float(np.asarray(match, dtype=np.float64).item())
+                    else:
+                        match_obj: Any = match
+                        if hasattr(match_obj, "hypothesis"):
+                            hypo_pe = float(np.sum(list(match_obj.hypothesis)))
+                        if hasattr(match_obj, "score"):
+                            score = float(match_obj.score)
 
                     # Update
                     if not inter.is_flash_matched:

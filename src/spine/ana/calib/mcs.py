@@ -5,7 +5,9 @@ of the tracks as a basis to correct the scattering angle spread in the MCS-based
 KE estimation used in SPINE.
 """
 
+from collections.abc import Mapping, Sequence
 from functools import partial
+from typing import Any
 
 import numpy as np
 
@@ -38,33 +40,33 @@ class MCSCalibAna(AnaBase):
 
     def __init__(
         self,
-        min_ke,
-        segment_length,
-        segment_method="bin_pca",
-        anchor_point=True,
-        angle_method="atan2",
-        time_window=None,
-        run_mode="truth",
-        truth_point_mode="points",
-        **kwargs,
-    ):
+        min_ke: float,
+        segment_length: float | Sequence[float],
+        segment_method: str = "bin_pca",
+        anchor_point: bool = True,
+        angle_method: str = "atan2",
+        time_window: Sequence[float] | None = None,
+        run_mode: str = "truth",
+        truth_point_mode: str = "points",
+        **kwargs: Any,
+    ) -> None:
         """Initialize the analysis script.
 
         Parameters
         ----------
         min_ke : float
             Kinetic energy (in MeV) above which a muon is included in the estimate
-        segment_length : Union[float, List[float]]
+        segment_length : float or Sequence[float]
             Segment length in the units that specify the coordinates. If array,
             will produce angular measurements for each segmentation length
         segment_method : str, default 'step_next'
             Method used to segment the track (one of 'step', 'step_next'
             or 'bin_pca')
         anchor_point : bool, default True
-            Weather or not to collapse end point onto the closest track point
+            Whether to collapse the end point onto the closest track point
         angle_method : str, default 'atan2'
             Angular reconstruction method
-        time_window : List[float], optional
+        time_window : Sequence[float], optional
             Time within which the particle must occur to be used for calibration.
             This is only used with true instances to remove out-of-time objects
         **kwargs : dict, optional
@@ -72,16 +74,22 @@ class MCSCalibAna(AnaBase):
         """
         # Initialize the parent class
         super().__init__(
-            "particle", run_mode, truth_point_mode=truth_point_mode, **kwargs
+            obj_type="particle",
+            run_mode=run_mode,
+            truth_point_mode=truth_point_mode,
+            **kwargs,
         )
 
         # Store the kinematic cut
         self.min_ke = min_ke
 
         # Store the segmentation parameters
-        self.segment_length = segment_length
-        if np.isscalar(segment_length):
-            self.segment_length = [segment_length]
+        if isinstance(segment_length, Sequence) and not isinstance(
+            segment_length, (str, bytes)
+        ):
+            self.segment_length = [float(length) for length in segment_length]
+        else:
+            self.segment_length = [float(segment_length)]
 
         # Partially initialize the segmentation algorithm
         self.get_track_segments = partial(
@@ -89,27 +97,33 @@ class MCSCalibAna(AnaBase):
         )
 
         # Store the angle computation parameters
-        assert angle_method in ANGLE_METHODS, (
-            f"Angular reconstruction method not recognized: {angle_method}. "
-            f"Must be one of {ANGLE_METHODS.keys()}"
-        )
+        if angle_method not in ANGLE_METHODS:
+            raise ValueError(
+                f"Angular reconstruction method not recognized: {angle_method}. "
+                f"Must be one of {ANGLE_METHODS.keys()}"
+            )
         self.angle_method = ANGLE_METHODS[angle_method]
 
         # Store the time window, if provided
-        assert (
-            time_window is None or run_mode == "truth"
-        ), "Cannot enforce time window containment on reconstructed objects."
-        assert time_window is None or (
-            not np.isscalar(time_window) and len(time_window) == 2
-        ), "If a time window is provided, it must be a list of two scalars."
-        self.time_window = time_window
+        normalized_time_window: tuple[float, float] | None = None
+        if time_window is not None:
+            if run_mode != "truth":
+                raise ValueError(
+                    "Cannot enforce time window containment on reconstructed objects."
+                )
+            if not isinstance(time_window, Sequence) or len(time_window) != 2:
+                raise ValueError(
+                    "If a time window is provided, it must be a list of two scalars."
+                )
+            normalized_time_window = (time_window[0], time_window[1])
+        self.time_window = normalized_time_window
 
         # Initialize the CSV writer(s) you want (one per segment length)
         for prefix in self.prefixes:
             for sl in self.segment_length:
                 self.initialize_writer(f"{prefix}_mcs_sl{sl}")
 
-    def process(self, data):
+    def process(self, data: Mapping[str, Any]) -> None:
         """Pass data products corresponding to one entry through the analysis.
 
         Parameters
@@ -125,7 +139,7 @@ class MCSCalibAna(AnaBase):
                 if part.pid != MUON_PID or part.ke < self.min_ke:
                     continue
 
-                # Enfore time, if requested
+                # Enforce time, if requested
                 if self.time_window is not None:
                     if part.t < self.time_window[0] or part.t > self.time_window[1]:
                         continue
@@ -145,7 +159,7 @@ class MCSCalibAna(AnaBase):
                     dirs = (dirs[:-1] + dirs[1:]) / 2
 
                     # Record the size of the smallest of the two segments
-                    counts = np.array([len(seg) for seg in segments])
+                    counts = np.asarray([len(seg) for seg in segments], dtype=np.int64)
                     min_counts = np.min(np.vstack((counts[:-1], counts[1:])), axis=0)
 
                     # Record the distance between two successive segment centers

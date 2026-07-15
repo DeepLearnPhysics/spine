@@ -1,4 +1,9 @@
-"""Analysis script used to evaluate the semantic segmentation accuracy."""
+"""Analysis script used to evaluate optical flash matching."""
+
+from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 from spine.ana.base import AnaBase
 from spine.data.out import RecoInteraction, TruthInteraction
@@ -7,9 +12,7 @@ __all__ = ["FlashMatchingAna"]
 
 
 class FlashMatchingAna(AnaBase):
-    """Class which computes and stores the necessary data to build a
-    semantic segmentation confusion matrix.
-    """
+    """Store reco/truth interaction rows for flash matching performance studies."""
 
     # Name of the analysis script (as specified in the configuration)
     name = "flash_match_eval"
@@ -25,22 +28,22 @@ class FlashMatchingAna(AnaBase):
 
     def __init__(
         self,
-        time_window=None,
-        neutrino_only=True,
-        max_num_flashes=1,
-        match_mode="both",
-        **kwargs,
-    ):
+        time_window: Sequence[float] | None = None,
+        neutrino_only: bool = True,
+        max_num_flashes: int = 1,
+        match_mode: str = "both",
+        **kwargs: Any,
+    ) -> None:
         """Initialize the analysis script.
 
         Parameters
         ----------
-        time_window : List[float], optional
+        time_window : Sequence[float], optional
             Time window (in ns) for which interactions must have matched flash
-        neutrino_only : bool, default False
+        neutrino_only : bool, default True
             If `True`, only check if neutrino in-time activity is matched for
             the efficiency measurement (as opposed to any in-time activity)
-        max_num_flashes : int
+        max_num_flashes : int, default 1
             Maximum number of flash matches to store
         match_mode : str, default 'both'
             If reconstructed and truth are available, specified which matching
@@ -49,10 +52,17 @@ class FlashMatchingAna(AnaBase):
             Additional arguments to pass to :class:`AnaBase`
         """
         # Initialize the parent class
-        super().__init__("interaction", "both", **kwargs)
+        super().__init__(obj_type="interaction", run_mode="both", **kwargs)
 
         # Store basic parameters
-        self.time_window = time_window
+        normalized_time_window: tuple[float, float] | None = None
+        if time_window is not None:
+            if not isinstance(time_window, Sequence) or len(time_window) != 2:
+                raise ValueError(
+                    "Time window must be specified as an array of two values."
+                )
+            normalized_time_window = (time_window[0], time_window[1])
+        self.time_window = normalized_time_window
         self.neutrino_only = neutrino_only
 
         # Store default objects as a dictionary
@@ -60,10 +70,11 @@ class FlashMatchingAna(AnaBase):
 
         # Store the matching mode
         self.match_mode = match_mode
-        assert match_mode in self._match_modes, (
-            f"Invalid matching mode: {self.match_mode}. Must be one "
-            f"of {self._match_modes}."
-        )
+        if match_mode not in self._match_modes:
+            raise ValueError(
+                f"Invalid matching mode: {self.match_mode}. Must be one "
+                f"of {self._match_modes}."
+            )
 
         # Make sure the matches are loaded, initialize the output files
         keys = {}
@@ -93,8 +104,14 @@ class FlashMatchingAna(AnaBase):
             k: max_num_flashes for k in ["flash_ids", "flash_times", "flash_scores"]
         }
 
-        self.reco_attrs = ("id", "size", "is_contained", "topology", *flash_attrs)
-        self.truth_attrs = (
+        self.reco_attrs: tuple[str, ...] = (
+            "id",
+            "size",
+            "is_contained",
+            "topology",
+            *flash_attrs,
+        )
+        self.truth_attrs: tuple[str, ...] = (
             "id",
             "size",
             "is_contained",
@@ -104,10 +121,10 @@ class FlashMatchingAna(AnaBase):
             *nu_attrs,
         )
 
-        self.reco_lengths = flash_lengths
-        self.truth_lengths = None
+        self.reco_lengths: dict[str, int] | None = flash_lengths
+        self.truth_lengths: dict[str, int] | None = None
 
-    def process(self, data):
+    def process(self, data: Mapping[str, Any]) -> None:
         """Store the flash matching metrics for one entry.
 
         Parameters

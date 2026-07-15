@@ -1,16 +1,20 @@
 """Manages the operation of analysis scripts."""
 
-from collections import OrderedDict, defaultdict
-from copy import deepcopy
+from __future__ import annotations
 
-import numpy as np
+from collections import OrderedDict
+from collections.abc import Mapping
+from typing import Any
 
+from spine.utils.factory import parse_module_config
+from spine.utils.manager import ModuleManager
 from spine.utils.stopwatch import StopwatchManager
 
+from .base import AnaBase
 from .factories import ana_script_factory
 
 
-class AnaManager:
+class AnaManager(ModuleManager[AnaBase]):
     """Manager class to initialize and execute analysis scripts.
 
     Analysis scripts use the output of the reconstruction chain and the
@@ -20,7 +24,12 @@ class AnaManager:
     CSV writers needed to store the output of the analysis scripts.
     """
 
-    def __init__(self, cfg, log_dir=None, prefix=None):
+    def __init__(
+        self,
+        cfg: Mapping[str, Any],
+        log_dir: str | None = None,
+        prefix: str | None = None,
+    ) -> None:
         """Initialize the analysis manager.
 
         Parameters
@@ -34,17 +43,38 @@ class AnaManager:
             all the output CSV files.
         """
         # Parse the analysis block configuration
-        self.parse_config(log_dir, prefix, **cfg)
+        config = dict(cfg)
+
+        overwrite = config.pop("overwrite", None)
+        if overwrite is not None and not isinstance(overwrite, bool):
+            raise TypeError("`overwrite` must be a boolean when provided.")
+
+        prefix_output = config.pop("prefix_output", False)
+        if not isinstance(prefix_output, bool):
+            raise TypeError("`prefix_output` must be a boolean.")
+
+        buffer_size = config.pop("buffer_size", 1)
+        if not isinstance(buffer_size, int):
+            raise TypeError("`buffer_size` must be an integer.")
+
+        self.parse_config(
+            log_dir,
+            prefix,
+            overwrite=overwrite,
+            prefix_output=prefix_output,
+            buffer_size=buffer_size,
+            **config,
+        )
 
     def parse_config(
         self,
-        log_dir,
-        prefix,
-        overwrite=None,
-        prefix_output=False,
-        buffer_size=1,
-        **modules,
-    ):
+        log_dir: str | None,
+        prefix: str | None,
+        overwrite: bool | None = None,
+        prefix_output: bool = False,
+        buffer_size: int = 1,
+        **modules: dict[str, Any] | None,
+    ) -> None:
         """Parse the analysis tool configuration.
 
         Parameters
@@ -64,82 +94,41 @@ class AnaManager:
         **modules : dict
             List of analysis script modules
         """
-        # Loop over the analyzer modules and get their priorities
-        modules = deepcopy(modules)
-        keys = np.array(list(modules.keys()))
-        priorities = -np.ones(len(keys), dtype=np.int32)
-        for i, k in enumerate(keys):
-            if "priority" in modules[k]:
-                priorities[i] = modules[k].pop("priority")
-
         # Only use the prefix if the output is to be prefixed
         if not prefix_output:
             prefix = None
 
         # Add the modules to a processor list in decreasing order of priority
         self.watch = StopwatchManager()
-        self.modules = OrderedDict()
-        keys = keys[np.argsort(-priorities)]
-        for k in keys:
+        module_map: OrderedDict[str, AnaBase] = OrderedDict()
+        parsed = parse_module_config(
+            modules, sort_by_priority=True, priority_descending=True
+        )
+        for key, spec in parsed.items():
             # Profile the module
-            self.watch.initialize(k)
+            self.watch.initialize(key)
 
             # Append
-            self.modules[k] = ana_script_factory(
-                k, modules[k], overwrite, log_dir, prefix, buffer_size
+            module_map[key] = ana_script_factory(
+                spec["name"],
+                spec["cfg"],
+                overwrite,
+                log_dir,
+                prefix,
+                buffer_size,
             )
+        self.modules = module_map
 
-    def __call__(self, data):
-        """Pass one batch of data through the analysis scripts
-
-        Parameters
-        ----------
-        data : dict
-            Dictionary of data products
-        """
-        # Reset active stopwatches
-        self.watch.reset_if_active()
-
-        # Loop over the analysis script modules
-        single_entry = np.isscalar(data["index"])
-        for key, module in self.modules.items():
-            # Run the analysis script on each entry
-            self.watch.start(key)
-            if single_entry:
-                num_entries = 1
-                result = module(data)
-
-            else:
-                num_entries = len(data["index"])
-                result = defaultdict(list)
-                for entry in range(num_entries):
-                    result_e = module(data, entry)
-                    if result_e is not None:
-                        for k, v in result_e.items():
-                            result[k].append(v)
-
-            self.watch.stop(key)
-
-            # Update the input dictionary
-            if result is not None:
-                for key, val in result.items():
-                    if not single_entry:
-                        assert len(val) == num_entries, (
-                            f"The number {key} ({len(val)}) does not match "
-                            f"the number of entries ({num_entries})."
-                        )
-                    data[key] = val
-
-    def close(self):
+    def close(self) -> None:
         """Close all analysis script writers and flush remaining data.
 
         This should be called when analysis is complete to ensure all
         CSV files are properly closed and data is written.
         """
-        for module in self.modules.values():
+        for module in getattr(self, "modules", {}).values():
             module.close_writers()
 
-    def flush(self):
+    def flush(self) -> None:
         """Flush all analysis script writer buffers.
 
         This forces any buffered data to be written to disk without
@@ -148,7 +137,7 @@ class AnaManager:
         for module in self.modules.values():
             module.flush_writers()
 
-    def __del__(self):
+    def __del__(self) -> None:
         """Destructor to ensure analysis writers are closed.
 
         Acts as a safety net in case close() is not called explicitly.

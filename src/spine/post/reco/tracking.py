@@ -1,5 +1,10 @@
 """Tracking reconstruction modules."""
 
+from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
+from typing import Any
+
 from spine.constants import KAON_PID, MUON_PID, PION_PID, PROT_PID, TRACK_SHP
 from spine.post.base import PostBase
 from spine.utils.energy_loss import csda_table_spline
@@ -21,15 +26,15 @@ class CSDAEnergyProcessor(PostBase):
 
     def __init__(
         self,
-        tracking_mode="step_next",
-        include_pids=(MUON_PID, PION_PID, PROT_PID, KAON_PID),
-        fill_per_pid=False,
-        obj_type="particle",
-        run_mode="both",
-        truth_point_mode="points",
-        pid_mode="pid",
-        **kwargs,
-    ):
+        tracking_mode: str = "step_next",
+        include_pids: Sequence[int] = (MUON_PID, PION_PID, PROT_PID, KAON_PID),
+        fill_per_pid: bool = False,
+        obj_type: str | Sequence[str] | None = "particle",
+        run_mode: str = "both",
+        truth_point_mode: str = "points",
+        pid_mode: str = "pid",
+        **kwargs: Any,
+    ) -> None:
         """Store the necessary attributes to do CSDA range-based estimation.
 
         Parameters
@@ -37,7 +42,7 @@ class CSDAEnergyProcessor(PostBase):
         tracking_mode : str, default 'step_next'
             Method used to compute the track length (one of 'displacement',
             'step', 'step_next', 'bin_pca' or 'spline')
-        include_pids : list, default [2, 3, 4, 5]
+        include_pids : sequence[int], default [2, 3, 4, 5]
             Particle species to compute the kinetic energy for
         fill_per_pid : bool, default False
             If `True`, compute the CSDA KE estimate under all PID assumptions
@@ -56,7 +61,7 @@ class CSDAEnergyProcessor(PostBase):
         self.tracking_mode = tracking_mode
         self.tracking_kwargs = kwargs
 
-    def process(self, data):
+    def process(self, data: Mapping[str, Any]) -> None:
         """Reconstruct the CSDA KE estimates for each particle in one entry.
 
         Parameters

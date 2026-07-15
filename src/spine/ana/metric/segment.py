@@ -1,5 +1,10 @@
 """Analysis script used to evaluate the semantic segmentation accuracy."""
 
+from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import Any
+
 import numpy as np
 from scipy.special import softmax
 
@@ -10,23 +15,21 @@ __all__ = ["SegmentAna"]
 
 
 class SegmentAna(AnaBase):
-    """Class which computes and stores the necessary data to build a
-    semantic segmentation confusion matrix.
-    """
+    """Compute semantic segmentation confusion summaries or per-pixel rows."""
 
     # Name of the analysis script (as specified in the configuration)
     name = "segment_eval"
 
     def __init__(
         self,
-        summary=True,
-        num_classes=GHOST_SHP,
-        ghost=False,
-        use_fragments=False,
-        use_particles=False,
-        label_key="seg_label",
-        **kwargs,
-    ):
+        summary: bool = True,
+        num_classes: int = GHOST_SHP,
+        ghost: bool = False,
+        use_fragments: bool = False,
+        use_particles: bool = False,
+        label_key: str = "seg_label",
+        **kwargs: Any,
+    ) -> None:
         """Initialize the analysis script.
 
         Parameters
@@ -36,7 +39,7 @@ class SegmentAna(AnaBase):
             `False`, store one row per pixel in the image (extremely memory
             intensive but gives details about pixel scores).
         num_classes : int, default 5
-            Number of pixel classses, excluding the ghost class
+            Number of pixel classes, excluding the ghost class
         ghost : bool, default False
             Evaluate deghosting performance
         use_fragments : bool, default False
@@ -66,22 +69,21 @@ class SegmentAna(AnaBase):
         self.use_fragments = use_fragments
         self.use_particles = use_particles
         self.label_key = label_key
+        self.object_collection: str | None = None
 
         # Basic logic checks
-        assert (
-            not use_fragments or not use_particles
-        ), "Cannot use both fragments and particles."
-        assert (
-            not (use_fragments or use_particles) or summary
-        ), "Cannot store detailed score information from fragments/particles."
-        assert (
-            not (use_fragments or use_particles) or not ghost
-        ), "Cannot produce ghost metrics from fragments/particles."
+        if use_fragments and use_particles:
+            raise ValueError("Cannot use both fragments and particles.")
+        if (use_fragments or use_particles) and not summary:
+            raise ValueError(
+                "Cannot store detailed score information from fragments/particles."
+            )
+        if (use_fragments or use_particles) and ghost:
+            raise ValueError("Cannot produce ghost metrics from fragments/particles.")
 
         # List the necessary data products
         keys = self.keys
         if not use_fragments and not use_particles:
-            self.obj_source = None
             keys[label_key] = True
             keys["segmentation"] = True
             if ghost:
@@ -90,9 +92,9 @@ class SegmentAna(AnaBase):
 
         else:
             keys["points"] = True
-            self.obj_type = "fragments" if use_fragments else "particles"
+            self.object_collection = "fragments" if use_fragments else "particles"
             for prefix in ["reco", "truth"]:
-                keys[f"{prefix}_{self.obj_type}"] = True
+                keys[f"{prefix}_{self.object_collection}"] = True
 
         self.keys = keys
 
@@ -102,7 +104,7 @@ class SegmentAna(AnaBase):
         else:
             self.initialize_writer("pixel")
 
-    def process(self, data):
+    def process(self, data: Mapping[str, Any]) -> None:
         """Store the semantic segmentation metrics for one entry.
 
         Parameters
@@ -131,36 +133,40 @@ class SegmentAna(AnaBase):
                     # If there are ghosts, interpret the non-ghost score
                     # as a shared score for all other classes.
                     full_seg_scores = np.zeros(
-                        (len(seg_scores), self.num_classes), dtype=np.int32
+                        (len(seg_label), self.num_classes), dtype=seg_scores.dtype
                     )
                     ghost_scores = softmax(data["ghost"], axis=1)
-                    full_seg_scores[:, :-1] = ghost_scores[:0] / (self.num_classes - 1)
+                    full_seg_scores[:, :-1] = ghost_scores[:, 0, None] / (
+                        self.num_classes - 1
+                    )
                     full_seg_scores[:, -1] = ghost_scores[:, 1]
 
                     full_seg_scores[deghost_mask, :-1] = seg_scores
                     seg_scores = full_seg_scores
 
         else:
+            if self.object_collection is None:
+                raise ValueError("Object collection mode was not initialized.")
             # Rebuild the labels/predictions from the fragment/particle objects
             seg_label = np.full(len(data["points"]), LOWES_SHP, dtype=np.int32)
-            for obj in data[f"truth_{self.obj_type}"]:
-                assert len(obj.index > 0), (
-                    "The `index` of true fragments is not filled, indicating "
-                    "that the original label tensor was modified. Cannot use "
-                    "modified fragments to rebuild semantic labels."
-                )
+            for obj in data[f"truth_{self.object_collection}"]:
+                if len(obj.index) == 0:
+                    raise ValueError(
+                        "The `index` of true fragments is not filled, indicating "
+                        "that the original label tensor was modified. Cannot use "
+                        "modified fragments to rebuild semantic labels."
+                    )
                 seg_label[obj.index] = obj.shape
 
             seg_pred = np.full_like(seg_label, LOWES_SHP)
-            for obj in data[f"reco_{self.obj_type}"]:
+            for obj in data[f"reco_{self.object_collection}"]:
                 seg_pred[obj.index] = obj.shape
 
         # Store the information
         if not self.summary:
             # Store one row per pixel in the image, including pixel scores
-            assert (
-                seg_scores is not None
-            ), "Segment scores not available for detailed storage."
+            if seg_scores is None:
+                raise ValueError("Segment scores not available for detailed storage.")
             for i, (seg_l, seg_p) in enumerate(zip(seg_label, seg_pred)):
                 row_dict = {"label": seg_l, "pred": seg_p}
                 for s in range(self.num_classes):

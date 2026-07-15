@@ -1,5 +1,10 @@
 """Track end point assignment module."""
 
+from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
+from typing import Any
+
 from spine.constants import TRACK_SHP
 from spine.post.base import PostBase
 from spine.utils.ppn import check_track_orientation_ppn
@@ -20,7 +25,12 @@ class TrackExtremaProcessor(PostBase):
     # Set of data keys needed for this post-processor to operate
     _keys = (("ppn_candidates", False),)
 
-    def __init__(self, method="local", obj_type="particle", **kwargs):
+    def __init__(
+        self,
+        method: str = "local",
+        obj_type: str | Sequence[str] | None = "particle",
+        **kwargs: Any,
+    ) -> None:
         """Initialize the track end point assignment parameters.
 
         Parameters
@@ -35,7 +45,7 @@ class TrackExtremaProcessor(PostBase):
             density variation to estimate the direction.
             - ppn: uses ppn candidate predictions (classify_endpoints) to
             assign start and endpoints.
-        kwargs : dict
+        **kwargs : dict
             Extra arguments to pass to the `check_track_orientation` or the
             `check_track_orientation_ppn' functions
         """
@@ -46,7 +56,7 @@ class TrackExtremaProcessor(PostBase):
         self.method = method
         self.kwargs = kwargs
 
-    def process(self, data):
+    def process(self, data: Mapping[str, Any]) -> None:
         """Assign track end points in one entry
 
         Parameters
@@ -69,10 +79,11 @@ class TrackExtremaProcessor(PostBase):
                     )
 
                 elif self.method == "ppn":
-                    assert "ppn_candidates" in data, (
-                        "Must run the `ppn` post-processor "
-                        "before using PPN predictions to assign extrema."
-                    )
+                    if "ppn_candidates" not in data:
+                        raise KeyError(
+                            "Must run the `ppn` post-processor "
+                            "before using PPN predictions to assign extrema."
+                        )
                     flip = not check_track_orientation_ppn(
                         part.start_point, part.end_point, data["ppn_candidates"]
                     )
