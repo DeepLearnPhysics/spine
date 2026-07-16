@@ -92,6 +92,13 @@ class TestExtractMetadata:
         assert metadata[META_KIND] == "mod"
         assert metadata[META_STRICT] == "warn"
 
+    def test_extract_metadata_defaults_for_fragment(self):
+        """Test fragment configs are accepted and use strict error handling."""
+        metadata = extract_metadata({"__meta__": {META_KIND: "fragment"}})
+
+        assert metadata[META_KIND] == "fragment"
+        assert metadata[META_STRICT] == "error"
+
     def test_extract_metadata_warns_and_normalizes_invalid_values(self):
         """Test invalid metadata values warn and fall back to defaults."""
         config = {

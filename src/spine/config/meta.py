@@ -141,7 +141,7 @@ def extract_metadata(
     # Validate strict mode
     strict = meta.get(META_STRICT)
     if strict is None:
-        # Default: warn for mods, error for bundles
+        # Default: warn for mods, error for bundles and fragments
         strict = "warn" if kind == "mod" else "error"
     elif strict not in VALID_STRICT_MODES:
         warnings.warn(

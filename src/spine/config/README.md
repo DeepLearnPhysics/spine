@@ -268,7 +268,7 @@ __meta__:
   tags: [production, latest]
   
   # Type and behavior
-  kind: "bundle"                 # "bundle" or "mod"
+  kind: "bundle"                 # "bundle", "mod", or "fragment"
   strict: "error"                # "error" or "warn"
   list_append: "unique"          # "unique" or "append"
   
@@ -308,7 +308,7 @@ Versions must be **exactly 6 digits** in `YYMMDD` format:
 | `name` | string | Config/modifier name |
 | `description` | string | Human-readable description |
 | `tags` | list[str] | Categorization tags |
-| `kind` | string | `"bundle"` or `"mod"` |
+| `kind` | string | `"bundle"`, `"mod"`, or `"fragment"` |
 | `strict` | string | `"error"` or `"warn"` |
 | `list_append` | string | `"append"` or `"unique"` |
 | `compatible_with` | dict | Version requirements |
@@ -376,6 +376,29 @@ override:
 - Meant to be included: `include: my_mod.yaml`
 - Default `strict: "warn"` (allow optional modifications)
 - Contains overrides or specialized settings
+
+### Fragments (`kind: "fragment"`)
+
+Reusable, intentionally unversioned configuration pieces designed to be included
+by versioned components:
+
+```yaml
+# io_common.yaml
+__meta__:
+  kind: "fragment"
+
+io:
+  loader:
+    batch_size: 4
+    num_workers: 8
+```
+
+**Characteristics:**
+- Partial configuration shared by one or more versioned components
+- May be included without triggering a missing metadata warning
+- Does not contribute its own version to component compatibility tracking
+- Propagates component versions from any nested includes
+- Default `strict: "error"`
 
 ### Strict Mode
 
@@ -761,10 +784,12 @@ from spine.config import (
 2. **Use appropriate `kind`:**
    - `"bundle"` for complete configs
    - `"mod"` for modifiers
+   - `"fragment"` for reusable, intentionally unversioned pieces
 
 3. **Set `strict` based on `kind`:**
    - `"error"` for bundles (catch problems early)
    - `"warn"` for mods (allow flexibility)
+   - `"error"` for fragments (catch invalid shared configuration)
 
 4. **Use compatibility constraints:**
    ```yaml
@@ -815,6 +840,13 @@ UserWarning: Included file 'base.yaml' has no __meta__ block.
 __meta__:
   version: "260107"
   description: "What this config does"
+```
+
+For an intentionally unversioned shared fragment, declare it explicitly:
+
+```yaml
+__meta__:
+  kind: fragment
 ```
 
 ### Compatibility Error

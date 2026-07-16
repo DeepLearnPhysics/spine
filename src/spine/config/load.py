@@ -12,7 +12,14 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
 
-from .api import META_DESCRIPTION, META_KEY, META_LIST_APPEND, META_STRICT, META_VERSION
+from .api import (
+    META_DESCRIPTION,
+    META_KEY,
+    META_KIND,
+    META_LIST_APPEND,
+    META_STRICT,
+    META_VERSION,
+)
 from .errors import ConfigCycleError, ConfigIncludeError
 from .loader import ConfigLoader, resolve_config_path
 from .meta import check_compatibility, extract_metadata
@@ -156,9 +163,13 @@ def _load_config_recursive(
             download=download,
         )
 
-        # Warn if included file has no metadata (but keep the metadata that was extracted)
-        if not included_meta.get(META_VERSION) and not included_meta.get(
-            META_DESCRIPTION
+        # Fragments are intentionally unversioned, reusable configuration pieces.
+        # Other included configuration types should carry identifying metadata.
+        included_kind = included_meta.get(META_KIND)
+        if (
+            included_kind != "fragment"
+            and not included_meta.get(META_VERSION)
+            and not included_meta.get(META_DESCRIPTION)
         ):
             # File likely has no __meta__ block (only defaults)
             file_name = os.path.basename(include_path)
@@ -180,7 +191,7 @@ def _load_config_recursive(
             if "components" not in metadata:
                 metadata["components"] = {}
             metadata["components"].update(included_meta["components"])
-        elif META_VERSION in included_meta:
+        elif included_kind != "fragment" and META_VERSION in included_meta:
             # If included file has version but no components, infer component name from file path
             # e.g., base/base_240719.yaml -> component "base" with version "240719"
             # This allows configs without explicit components to still participate in version checking

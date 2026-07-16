@@ -15,16 +15,16 @@ META_DATE = "date"
 META_DESCRIPTION = "description"
 META_COMPATIBLE_WITH = "compatible_with"
 META_TAGS = "tags"
-META_KIND = "kind"  # "bundle" or "mod"
+META_KIND = "kind"  # "bundle", "mod", or "fragment"
 META_STRICT = "strict"  # "warn" or "error"
 META_LIST_APPEND = "list_append"  # "append" or "unique"
 
 # Default values
 DEFAULT_KIND = "bundle"
-DEFAULT_STRICT = "warn"  # warn for mods, error for bundles (see loader)
+DEFAULT_STRICT = "warn"  # warn for mods, error for bundles/fragments (see loader)
 DEFAULT_LIST_APPEND = "append"  # current behavior
 
 # Valid values
-VALID_KINDS = {"bundle", "mod"}
+VALID_KINDS = {"bundle", "fragment", "mod"}
 VALID_STRICT_MODES = {"warn", "error"}
 VALID_LIST_APPEND_MODES = {"append", "unique"}

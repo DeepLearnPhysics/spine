@@ -1,6 +1,7 @@
 """Tests for the config loader functionality."""
 
 import os
+import warnings
 
 import pytest
 
@@ -68,6 +69,58 @@ base:
 
         # Override should work
         assert cfg["base"]["iterations"] == 200
+
+    def test_fragment_include_does_not_warn(self, tmp_path):
+        """Test explicitly declared fragments can be included without metadata warnings."""
+        fragment = tmp_path / "io_common.yaml"
+        fragment.write_text("""
+__meta__:
+  kind: fragment
+
+io:
+  loader:
+    batch_size: 4
+""")
+
+        main = tmp_path / "main.yaml"
+        main.write_text("include: io_common.yaml\n")
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            cfg = load_config_file(str(main))
+
+        assert cfg == {"io": {"loader": {"batch_size": 4}}}
+        assert not any("io_common.yaml" in str(item.message) for item in caught)
+
+    def test_unmarked_include_still_warns(self, tmp_path):
+        """Test metadata-less includes still produce the existing warning."""
+        fragment = tmp_path / "io_common.yaml"
+        fragment.write_text("io:\n  loader:\n    batch_size: 4\n")
+
+        main = tmp_path / "main.yaml"
+        main.write_text("include: io_common.yaml\n")
+
+        with pytest.warns(UserWarning, match="io_common.yaml.*no __meta__ block"):
+            load_config_file(str(main))
+
+    def test_fragment_can_be_loaded_directly(self, tmp_path):
+        """Test fragments remain valid inputs to the public file loader."""
+        fragment = tmp_path / "io_common.yaml"
+        fragment.write_text("""
+__meta__:
+  kind: fragment
+
+io:
+  loader:
+    batch_size: 4
+""")
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            cfg = load_config_file(str(fragment))
+
+        assert cfg == {"io": {"loader": {"batch_size": 4}}}
+        assert not caught
 
     def test_multiple_includes(self, tmp_path):
         """Test including multiple YAML files."""

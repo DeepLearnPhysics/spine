@@ -112,28 +112,64 @@ include:
         assert cfg["base"]["value"] == 1
         assert cfg["model"]["name"] == "ok"
 
-        def test_load_config_recursive_accumulates_explicit_component_metadata(
-            self, tmp_path
-        ):
-            """Test included metadata components are merged into parent metadata."""
-            component = tmp_path / "component.yaml"
-            component.write_text("""
+    def test_load_config_recursive_accumulates_explicit_component_metadata(
+        self, tmp_path
+    ):
+        """Test included metadata components are merged into parent metadata."""
+        component = tmp_path / "component.yaml"
+        component.write_text("""
 __meta__:
-    components:
-        base: "240719"
+  components:
+    base: "240719"
 
 base:
-    value: 1
+  value: 1
 """)
 
-            main = tmp_path / "main.yaml"
-            main.write_text("include: component.yaml\n")
+        main = tmp_path / "main.yaml"
+        main.write_text("include: component.yaml\n")
 
-            _config, _overrides, _removals, metadata = _load_config_recursive(
-                cfg_path=str(main)
-            )
+        _config, _overrides, _removals, metadata = _load_config_recursive(
+            cfg_path=str(main)
+        )
 
-            assert metadata["components"] == {"base": "240719"}
+        assert metadata["components"] == {"base": "240719"}
+
+    def test_fragment_propagates_nested_components_without_own_version(self, tmp_path):
+        """Test fragments forward nested components but are not components themselves."""
+        base_dir = tmp_path / "base"
+        base_dir.mkdir()
+        base = base_dir / "base_240719.yaml"
+        base.write_text("""
+__meta__:
+  version: "240719"
+
+base:
+  value: 1
+""")
+
+        fragment_dir = tmp_path / "io"
+        fragment_dir.mkdir()
+        fragment = fragment_dir / "io_common.yaml"
+        fragment.write_text("""
+__meta__:
+  kind: fragment
+  version: "240101"
+
+include: ../base/base_240719.yaml
+
+io:
+  value: 2
+""")
+
+        main = tmp_path / "main.yaml"
+        main.write_text("include: io/io_common.yaml\n")
+
+        _config, _overrides, _removals, metadata = _load_config_recursive(
+            cfg_path=str(main)
+        )
+
+        assert metadata["components"] == {"base": "240719"}
 
     def test_load_config_recursive_merges_included_component_metadata_via_patch(
         self, tmp_path, monkeypatch
