@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.15.1] - 2026-07-17
+
+### Fixed
+- **Drawer hovertext ordering**: Preserve the caller-provided attribute order when building reconstructed and truth object hovertext instead of iterating attributes in hash-dependent set order.
+
 ## [0.15.0] - 2026-07-17
 
 ### Added
