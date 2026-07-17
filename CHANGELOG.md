@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.15.0] - 2026-07-17
+
+### Added
+- **Shared module manager**: Add a reusable `ModuleManager` for running ordered analysis and post-processing modules on individual entries and batches.
+- **Repeated module instances**: Allow analysis and post-processing modules to be configured more than once through explicit `name` fields, with deterministic priority ordering and validation of malformed module blocks.
+- **Configuration fragments**: Add `kind: fragment` for reusable, intentionally unversioned configuration pieces. Fragments can be included without missing-metadata warnings, do not register their own component version, and still propagate versions from nested components.
+- **Analysis and post-processing coverage**: Add comprehensive unit coverage for managers, factories, metrics, diagnostics, reconstruction modules, optical and CRT matching, triggers, truth utilities, and CSV output.
+
+### Changed
+- **Analysis and post-processing infrastructure**: Refactor `AnaManager` and `PostManager` around the shared manager implementation, type them directly against their module base classes, and modernize module interfaces and documentation throughout both packages.
+- **Configuration validation**: Preserve caller-provided module configurations and replace configuration-related assertions with explicit `ValueError`, `TypeError`, and `KeyError` exceptions.
+- **GrapPA label points**: Make label-point ordering configurable and improve label-based full-chain aggregation, identity, group assignment, fragmentation, and truth-point selection.
+
+### Fixed
+- **Segmentation and truth propagation**: Correctly expand deghosted segmentation outputs to the original point set and propagate field-corrected coordinates through truth particles, interactions, and reference tensors.
+- **Analysis diagnostics**: Avoid meaningless interaction shape metrics, correct mixed-shape graph indexing and distance lookup, fix detailed ghost scores, and make CSV attribute ordering deterministic.
+- **Optical and CRT matching**: Correct charge-weighted barycenters, optical-coordinate indexing, flash-match score storage, and CRT matching behavior and validation.
+- **Reconstruction edge cases**: Enable proton-to-point shower conversion distances and safely handle interactions without nonempty particles during calorimetric direction reconstruction.
+- **Optional ROOT checks**: Avoid importing ROOT merely to probe optional dependency availability.
+
 ## [0.14.2] - 2026-06-30
 
 ### Fixed
