@@ -27,7 +27,7 @@ def build_object_colors(
     *,
     data: dict[str, Any],
     obj_name: str,
-    attrs: set[str],
+    attrs: list[str],
     color_attr: str | None,
     split_traces: bool,
     geo: Geometry | None,
@@ -45,7 +45,7 @@ def build_object_colors(
         point, deposition, or source arrays.
     obj_name : str
         Name of the object collection to visualize.
-    attrs : Set[str]
+    attrs : List[str]
         Object attributes requested for hovertext generation.
     color_attr : str, optional
         Attribute used to define the marker or cluster colors.

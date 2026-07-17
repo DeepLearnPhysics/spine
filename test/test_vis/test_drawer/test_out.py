@@ -55,6 +55,31 @@ def test_drawer_accepts_skipped_hover_attr():
     assert figure is not None
 
 
+def test_drawer_preserves_hover_attr_order():
+    """Drawer hovertext should follow the caller's requested attribute order."""
+    particle = RecoParticle(
+        id=7,
+        index=np.array([0], dtype=np.int32),
+        shape=TRACK_SHP,
+        pid=2,
+        is_primary=True,
+    )
+    data = {
+        "points": np.zeros((1, 3), dtype=np.float32),
+        "reco_particles": [particle],
+    }
+
+    figure = Drawer(data, draw_mode="reco").get(
+        "particles",
+        attr=["pid", "id", "is_primary", "shape"],
+    )
+    hovertext = figure.data[0].text[0]
+
+    assert hovertext.index("<br>Pid:") < hovertext.index("<br>Id:")
+    assert hovertext.index("<br>Id:") < hovertext.index("<br>Is primary:")
+    assert hovertext.index("<br>Is primary:") < hovertext.index("<br>Shape:")
+
+
 def test_drawer_draws_reco_particles_with_auxiliary_traces():
     """Drawer should combine object, raw, endpoint, and direction traces."""
     particle = RecoParticle(

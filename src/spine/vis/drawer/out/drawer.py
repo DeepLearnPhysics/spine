@@ -270,18 +270,19 @@ class Drawer:
         # because truth and reconstruction objects expose slightly different
         # attribute sets.
         req_attrs = [attr] if isinstance(attr, str) else attr
-        req_attrs = set(req_attrs) if req_attrs is not None else set()
+        req_attrs = list(dict.fromkeys(req_attrs)) if req_attrs is not None else []
+        req_attr_set = set(req_attrs)
         found_attrs = set()
-        attrs = {prefix: set() for prefix in self.prefixes}
+        attrs = {prefix: [] for prefix in self.prefixes}
         for prefix in self.prefixes:
             class_name = f"{prefix.capitalize()}{obj_type[:-1].capitalize()}"
             class_obj = getattr(spine.data.out, class_name)()
             valid_attrs = set(class_obj.attr_names())
-            attrs[prefix] = req_attrs.intersection(valid_attrs)
+            attrs[prefix] = [attr for attr in req_attrs if attr in valid_attrs]
             found_attrs.update(attrs[prefix])
 
-        if req_attrs != found_attrs:
-            missing_attrs = req_attrs.difference(found_attrs)
+        if req_attr_set != found_attrs:
+            missing_attrs = req_attr_set.difference(found_attrs)
             raise ValueError(
                 "The following requested attributes are not available for "
                 f"any of the drawn objects: {missing_attrs}."
@@ -446,7 +447,7 @@ class Drawer:
     def _object_traces(
         self,
         obj_name: str,
-        attr: set[str],
+        attr: list[str],
         color_attr: str | None,
         split_traces: bool,
     ) -> list:
@@ -456,7 +457,7 @@ class Drawer:
         ----------
         obj_name : str
             Name of the object collection to visualize.
-        attr : Set[str]
+        attr : List[str]
             Object attributes requested for hovertext generation.
         color_attr : str, optional
             Attribute used to define the marker or cluster colors.
