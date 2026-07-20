@@ -90,8 +90,10 @@ def test_reader_base_source_provenance_local_and_remote(tmp_path):
 def test_reader_base_process_file_paths_errors(tmp_path):
     """ReaderBase should reject invalid file path inputs."""
     reader = DummyReader()
-    with pytest.raises(ValueError, match="either `file_keys` or `file_list`"):
+    with pytest.raises(ValueError, match="one of `file_keys` or `file_list`"):
         reader.process_file_paths()
+    with pytest.raises(ValueError, match="both `file_keys` and `file_list`"):
+        reader.process_file_paths(file_keys="input.h5", file_list="inputs.txt")
     with pytest.raises(ValueError, match="larger than 0"):
         reader.process_file_paths(file_keys=[], limit_num_files=0)
     with pytest.raises(FileNotFoundError, match="valid path to a text file"):

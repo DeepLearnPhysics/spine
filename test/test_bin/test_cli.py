@@ -23,7 +23,7 @@ def test_main_updates_reader_config_and_runs(monkeypatch, tmp_path, capsys):
         "load_config_file",
         lambda cfg_path: {
             "base": {"train": {}},
-            "io": {"reader": {}, "writer": {}},
+            "io": {"reader": {"file_list": "stale.txt"}, "writer": {}},
             "model": {},
         },
     )
@@ -63,6 +63,7 @@ def test_main_updates_reader_config_and_runs(monkeypatch, tmp_path, capsys):
     assert cfg["base"]["world_size"] == 4
     assert cfg["base"]["train"]["weight_prefix"] == "weights"
     assert cfg["io"]["reader"]["file_keys"] == ["a.root"]
+    assert cfg["io"]["reader"]["file_list"] is None
     assert cfg["io"]["reader"]["n_entry"] == 12
     assert cfg["io"]["reader"]["n_skip"] == 3
     assert cfg["io"]["reader"]["entry_list"] == "entries.txt"
@@ -87,7 +88,7 @@ def test_main_updates_loader_dataset(monkeypatch, tmp_path):
         cli_module,
         "load_config_file",
         lambda cfg_path: {
-            "io": {"loader": {"dataset": {}}},
+            "io": {"loader": {"dataset": {"file_keys": ["stale.root"]}}},
             "model": {},
         },
     )
@@ -110,6 +111,7 @@ def test_main_updates_loader_dataset(monkeypatch, tmp_path):
     )
 
     assert captured["cfg"]["base"]["parent_path"] == str(tmp_path)
+    assert captured["cfg"]["io"]["loader"]["dataset"]["file_keys"] is None
     assert captured["cfg"]["io"]["loader"]["dataset"]["file_list"] == "sources.txt"
 
 

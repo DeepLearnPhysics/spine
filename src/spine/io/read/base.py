@@ -196,9 +196,13 @@ class ReaderBase(ABC):
             Maximum number of loaded file names to be printed
         """
         # Some basic checks
-        if not ((file_keys is not None) ^ (file_list is not None)):
+        if file_keys is None and file_list is None:
             raise ValueError(
-                "Must provide either `file_keys` or `file_list` to process files."
+                "Must provide one of `file_keys` or `file_list` to process files."
+            )
+        if file_keys is not None and file_list is not None:
+            raise ValueError(
+                "Cannot provide both `file_keys` and `file_list`; provide only one."
             )
         if limit_num_files is not None and limit_num_files <= 0:
             raise ValueError(

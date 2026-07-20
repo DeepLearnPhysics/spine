@@ -106,8 +106,11 @@ def main(
         "entry_list": entry_list,
         "skip_entry_list": skip_entry_list,
     }
+    source_override = source is not None or source_list is not None
     for io_key, io_value in io_mapping.items():
-        if io_value is not None:
+        if io_value is not None or (
+            source_override and io_key in ("file_keys", "file_list")
+        ):
             if "reader" in cfg["io"] and cfg["io"]["reader"] is not None:
                 cfg["io"]["reader"][io_key] = io_value
             elif "loader" in cfg["io"] and cfg["io"]["loader"] is not None:
