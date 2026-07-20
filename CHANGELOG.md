@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.15.3] - 2026-07-20
+
+### Added
+- **CLI output options**: Add dedicated `--output-dir` and `--output-suffix` options alongside `--output`, and warn when output options are supplied without a configured `io.writer` block.
+
 ## [0.15.2] - 2026-07-20
 
 ### Fixed
