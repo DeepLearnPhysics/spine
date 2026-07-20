@@ -5,6 +5,7 @@ import argparse
 import os
 import pathlib
 import sys
+from warnings import warn
 
 from spine.banner import ascii_logo
 from spine.config import load_config_file
@@ -28,6 +29,8 @@ def main(
     source: list[str] | None,
     source_list: str | None,
     output: str | None,
+    output_dir: str | None,
+    output_suffix: str | None,
     n: int | None,
     nskip: int | None,
     entry_list: str | None,
@@ -54,6 +57,10 @@ def main(
         Path to a text file containing a list of data file paths
     output : str, optional
         Path to the output file
+    output_dir : str, optional
+        Path to the output directory
+    output_suffix : str, optional
+        Suffix to append to generated output file names
     n : int, optional
         Number of iterations to run
     nskip : int, optional
@@ -121,9 +128,20 @@ def main(
             else:
                 raise KeyError("Must specify `loader` or `reader` in the `io` block.")
 
-    # Override the output path if provided
-    if output is not None and "writer" in cfg["io"]:
-        cfg["io"]["writer"]["file_name"] = output
+    # Override the output configuration if provided
+    writer = cfg["io"].get("writer")
+    if writer is not None:
+        if output is not None:
+            writer["file_name"] = output
+        if output_dir is not None:
+            writer["directory"] = output_dir
+        if output_suffix is not None:
+            writer["suffix"] = output_suffix
+    elif output is not None or output_dir is not None or output_suffix is not None:
+        warn(
+            "No `io.writer` is configured; output options are ignored.",
+            stacklevel=2,
+        )
 
     # Override logging and weight storage paths if provided
     if log_dir is not None:
@@ -228,8 +246,12 @@ For ML training/inference functionality, ensure PyTorch is installed:
         help="Path to a text file containing a list of data file paths",
     )
 
-    # Add output argument
+    # Add output arguments
     parser.add_argument("-o", "--output", help="Path to the output file")
+    parser.add_argument("--output-dir", help="Path to the output directory")
+    parser.add_argument(
+        "--output-suffix", help="Suffix to append to generated output file names"
+    )
 
     # Add entry and skip arguments
     parser.add_argument(
@@ -302,6 +324,8 @@ For ML training/inference functionality, ensure PyTorch is installed:
         source=args.source,
         source_list=args.source_list,
         output=args.output,
+        output_dir=args.output_dir,
+        output_suffix=args.output_suffix,
         n=args.iterations,
         nskip=args.nskip,
         entry_list=args.entry_list,

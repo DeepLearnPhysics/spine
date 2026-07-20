@@ -45,6 +45,8 @@ def test_main_updates_reader_config_and_runs(monkeypatch, tmp_path, capsys):
         source=["a.root"],
         source_list=None,
         output="output.h5",
+        output_dir="outputs",
+        output_suffix="processed",
         n=12,
         nskip=3,
         entry_list="entries.txt",
@@ -69,6 +71,8 @@ def test_main_updates_reader_config_and_runs(monkeypatch, tmp_path, capsys):
     assert cfg["io"]["reader"]["entry_list"] == "entries.txt"
     assert cfg["io"]["reader"]["skip_entry_list"] == "skip.txt"
     assert cfg["io"]["writer"]["file_name"] == "output.h5"
+    assert cfg["io"]["writer"]["directory"] == "outputs"
+    assert cfg["io"]["writer"]["suffix"] == "processed"
     assert cfg["model"]["weight_path"] == "weights.ckpt"
     assert cfg["model"]["weight_list"] == "weights.txt"
     assert cfg["override"] == ("io.batch_size", 8)
@@ -99,6 +103,8 @@ def test_main_updates_loader_dataset(monkeypatch, tmp_path):
         source=None,
         source_list="sources.txt",
         output=None,
+        output_dir=None,
+        output_suffix=None,
         n=None,
         nskip=None,
         entry_list=None,
@@ -115,6 +121,42 @@ def test_main_updates_loader_dataset(monkeypatch, tmp_path):
     assert captured["cfg"]["io"]["loader"]["dataset"]["file_list"] == "sources.txt"
 
 
+def test_main_warns_when_output_options_have_no_writer(monkeypatch, tmp_path):
+    """Output options should warn and be ignored when no writer is configured."""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("io: {}\n", encoding="utf-8")
+    captured = {}
+
+    monkeypatch.setattr(cli_module, "resolve_config_path", lambda cfg, current_dir: cfg)
+    monkeypatch.setattr(
+        cli_module,
+        "load_config_file",
+        lambda cfg_path: {"io": {"reader": {}}, "model": {}},
+    )
+    monkeypatch.setattr("spine.main.run", lambda cfg: captured.setdefault("cfg", cfg))
+
+    with pytest.warns(UserWarning, match="output options are ignored"):
+        cli_module.main(
+            config=str(config_path),
+            source=None,
+            source_list=None,
+            output="output.h5",
+            output_dir="outputs",
+            output_suffix="processed",
+            n=None,
+            nskip=None,
+            entry_list=None,
+            skip_entry_list=None,
+            log_dir=None,
+            weight_prefix=None,
+            weight_path=None,
+            weight_list=None,
+            config_overrides=None,
+        )
+
+    assert "writer" not in captured["cfg"]["io"]
+
+
 def test_main_validation_errors(monkeypatch, tmp_path):
     """Main should reject malformed and incomplete runtime configuration."""
     config_path = tmp_path / "config.yaml"
@@ -129,6 +171,8 @@ def test_main_validation_errors(monkeypatch, tmp_path):
             source=None,
             source_list=None,
             output=None,
+            output_dir=None,
+            output_suffix=None,
             n=None,
             nskip=None,
             entry_list=None,
@@ -151,6 +195,8 @@ def test_main_validation_errors(monkeypatch, tmp_path):
             source=["a.root"],
             source_list=None,
             output=None,
+            output_dir=None,
+            output_suffix=None,
             n=None,
             nskip=None,
             entry_list=None,
@@ -173,6 +219,8 @@ def test_main_validation_errors(monkeypatch, tmp_path):
             source=["a.root"],
             source_list=None,
             output=None,
+            output_dir=None,
+            output_suffix=None,
             n=None,
             nskip=None,
             entry_list=None,
@@ -195,6 +243,8 @@ def test_main_validation_errors(monkeypatch, tmp_path):
             source=None,
             source_list=None,
             output=None,
+            output_dir=None,
+            output_suffix=None,
             n=None,
             nskip=None,
             entry_list=None,
@@ -218,6 +268,8 @@ def test_main_validation_errors(monkeypatch, tmp_path):
             source=None,
             source_list=None,
             output=None,
+            output_dir=None,
+            output_suffix=None,
             n=None,
             nskip=None,
             entry_list=None,
@@ -252,6 +304,8 @@ def test_cli_entry_point_paths(monkeypatch):
                 source=["input.root"],
                 source_list=None,
                 output="out.h5",
+                output_dir="outputs",
+                output_suffix="processed",
                 iterations=2,
                 nskip=1,
                 entry_list="entries.txt",
@@ -299,6 +353,8 @@ def test_cli_entry_point_paths(monkeypatch):
     assert len(main_calls) == 1
     assert main_calls[0]["config"] == "config.yaml"
     assert main_calls[0]["source"] == ["input.root"]
+    assert main_calls[0]["output_dir"] == "outputs"
+    assert main_calls[0]["output_suffix"] == "processed"
 
 
 def test_get_version_show_info_and_dependency_checks(monkeypatch, capsys):
