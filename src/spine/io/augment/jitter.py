@@ -103,10 +103,6 @@ class JitterAugment(AugmentBase):
             Updated data dictionary and unchanged metadata
         """
         # Generate offsets and deduplication index once, shared across all keys.
-        # All coordinate-carrying keys must stay row-aligned after jitter so that
-        # label tensors remain correctly paired with data tensors.  Independent
-        # offsets per key would break that alignment and also produce different
-        # collision patterns, so we compute them from the first valid key.
         offsets = None
         keep_idx = None  # None = no collisions, all rows kept
 
