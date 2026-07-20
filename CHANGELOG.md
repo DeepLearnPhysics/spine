@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.15.2] - 2026-07-20
+
+### Fixed
+- **CLI input source overrides**: Clear the configured `file_list` when `--source` is provided and clear `file_keys` when `--source-list` is provided, preventing mutually exclusive reader inputs from being passed together and improving the related validation errors.
+
 ## [0.15.1] - 2026-07-17
 
 ### Fixed
