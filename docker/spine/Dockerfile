@@ -4,7 +4,7 @@
 # Size: ~8-10GB
 #
 # Features:
-# - GPU Support: V100, A100, H100/H200, RTX 20xx/30xx/40xx (compute 7.0-9.0)
+# - GPU Support: P100, V100, A100, H100/H200, RTX 20xx/30xx/40xx (compute 6.0-9.0)
 # - XRootD client with token authentication for dCache streaming
 # - PyTorch 2.5.1, MinkowskiEngine, torch-geometric
 # - OpT0Finder flash matching for SBND/ICARUS
@@ -90,11 +90,11 @@ RUN pip install --no-cache-dir \
 # Apply the upstream CUDA 12.x build fix from MinkowskiEngine PR #607 on top.
 # During docker build, torch.cuda.is_available() is typically false, so force
 # a CUDA build explicitly.
-# V100 (7.0), A100 (8.0), H100/H200 (9.0), RTX 20xx (7.5), RTX 30xx (8.6), RTX 40xx (8.9)
+# P100 (6.0), V100 (7.0), A100 (8.0), H100/H200 (9.0), RTX 20xx (7.5), RTX 30xx (8.6), RTX 40xx (8.9)
 ARG ME_COMMIT=02fc608bea4c0549b0a7b00ca1bf15dee4a0b228
 ARG ME_CUDA12_PR=607
 ARG ME_MAX_JOBS=2
-ARG TORCH_CUDA_ARCH_LIST="7.0 7.5 8.0 8.6 8.9 9.0"
+ARG TORCH_CUDA_ARCH_LIST="6.0 7.0 7.5 8.0 8.6 8.9 9.0"
 ENV TORCH_CUDA_ARCH_LIST=${TORCH_CUDA_ARCH_LIST}
 RUN git clone https://github.com/NVIDIA/MinkowskiEngine.git /tmp/MinkowskiEngine && \
     cd /tmp/MinkowskiEngine && \

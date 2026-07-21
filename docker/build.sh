@@ -25,7 +25,7 @@ IMAGE_NAME="spine"
 PUSH_FLAG="${1:-}"
 
 echo -e "${GREEN}Building SPINE container version: ${VERSION}${NC}"
-echo -e "${YELLOW}GPU support: V100, A100, H100/H200, RTX 20xx/30xx/40xx${NC}"
+echo -e "${YELLOW}GPU support: P100, V100, A100, H100/H200, RTX 20xx/30xx/40xx${NC}"
 
 # Determine tags
 LOCAL_TAG="${IMAGE_NAME}:latest"

@@ -21,14 +21,14 @@ The recommended way to run SPINE is to use the image published for each SPINE re
   - Basic terminal editors (`vim`, `nano`) for quick in-container inspection/debugging
   - SPINE with all dependencies
 - **GPU Support**: Built for NVIDIA datacenter and workstation GPUs:
-  - **Cluster / datacenter**: **V100** (7.0), **A100** (8.0), **H100/H200** (9.0)
+  - **Cluster / datacenter**: **P100** (6.0), **V100** (7.0), **A100** (8.0), **H100/H200** (9.0)
   - **Consumer / workstation**: **RTX 20xx** (7.5), **RTX 30xx** (8.6), **RTX 40xx** (8.9)
 - **Use Cases**:
   - Full ML training and inference
   - Processing ROOT/LArCV2 detector data  
   - Streaming data from dCache via XRootD (with token authentication)
   - GPU-accelerated reconstruction
-- **Requirements**: NVIDIA GPU with CUDA 12.1+ support (compute capability ≥7.0)
+- **Requirements**: NVIDIA GPU with CUDA 12.1 driver compatibility (compute capability ≥6.0)
 
 ## Quick Start
 
@@ -338,7 +338,7 @@ docker build --build-arg ME_COMMIT=02fc608bea4c0549b0a7b00ca1bf15dee4a0b228 \
   -f spine/Dockerfile ..
 
 # Customize GPU architectures (for specific hardware)
-# Default: "7.0 7.5 8.0 8.6 8.9 9.0" (V100, A100, H100/H200, RTX 30xx/40xx)
+# Default: "6.0 7.0 7.5 8.0 8.6 8.9 9.0" (P100, V100, A100, H100/H200, RTX 20xx/30xx/40xx)
 docker build --build-arg LARCV2_VERSION=2.3.3 \
   --build-arg TORCH_CUDA_ARCH_LIST="8.0 9.0" \
   --platform linux/amd64 \
@@ -365,6 +365,7 @@ The container is built with support for multiple NVIDIA GPU architectures. The `
 
 | Architecture | Compute | GPUs |
 |--------------|---------|------|
+| `6.0` | sm_60 | P100 |
 | `7.0` | sm_70 | V100 |
 | `7.5` | sm_75 | T4, Quadro RTX 4000/5000/6000/8000 |
 | `8.0` | sm_80 | A10, A30, A100 |
@@ -372,7 +373,7 @@ The container is built with support for multiple NVIDIA GPU architectures. The `
 | `8.9` | sm_89 | L4, L40, RTX 4000 (Ada) |
 | `9.0` | sm_90 | H100, H200 |
 
-**Default**: All architectures are included (`7.0 7.5 8.0 8.6 8.9 9.0`) for maximum compatibility.
+**Default**: All architectures are included (`6.0 7.0 7.5 8.0 8.6 8.9 9.0`) for maximum compatibility. CUDA 12.x is the final toolkit family that supports Pascal GPUs such as the P100.
 
 To build for specific GPUs only (faster builds, smaller binaries):
 ```bash
@@ -439,7 +440,7 @@ apptainer exec --nv docker://nvidia/cuda:12.1.0-base-ubuntu22.04 nvidia-smi
 
 **Docker:**
 ```bash
-# Verify your GPU is supported (compute capability ≥7.0)
+# Verify your GPU is supported (compute capability ≥6.0)
 docker run --rm --gpus all ghcr.io/deeplearnphysics/spine:latest python -c "
 import torch
 print(f'PyTorch CUDA available: {torch.cuda.is_available()}')
@@ -447,7 +448,7 @@ if torch.cuda.is_available():
     props = torch.cuda.get_device_properties(0)
     print(f'GPU: {props.name}')
     print(f'Compute Capability: {props.major}.{props.minor}')
-    print(f'Supported: {props.major >= 7}')
+    print(f'Supported: {props.major >= 6}')
 "
 ```
 
@@ -461,12 +462,12 @@ if torch.cuda.is_available():
     props = torch.cuda.get_device_properties(0)
     print(f'GPU: {props.name}')
     print(f'Compute Capability: {props.major}.{props.minor}')
-    print(f'Supported: {props.major >= 7}')
+    print(f'Supported: {props.major >= 6}')
 "
 ```
 
 Supported GPUs include:
-- **Datacenter**: V100, T4, A10, A30, A100, L4, L40, H100, H200
+- **Datacenter**: P100, V100, T4, A10, A30, A100, L4, L40, H100, H200
 - **Workstation**: RTX 20xx, RTX 30xx, RTX 40xx, RTX A2000/A3000/A4000/A5000/A6000
 - **Cloud**: T4, A10G, A100, L4, H100
 

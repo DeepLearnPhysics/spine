@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.15.4] - 2026-07-21
+
+### Added
+- **NVIDIA P100 support**: Compile MinkowskiEngine for compute capability 6.0 and advertise Pascal P100 compatibility in the SPINE container and GPU diagnostics.
+
 ## [0.15.3] - 2026-07-20
 
 ### Added
