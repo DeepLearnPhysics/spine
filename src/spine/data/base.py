@@ -116,6 +116,15 @@ class DataBase:
         # Give each subclass its own independent cached attribute lists
         # This prevents inheritance from parent classes
         cls._attrs_cached = False
+        cls._fields = ()
+        cls._field_names = ()
+        cls._field_types = {}
+        cls._field_kinds = {}
+        cls._field_meta = {}
+        cls._prop_meta = {}
+        cls._metadata = {}
+        cls._array_specs = ()
+        cls._float_array_attrs = ()
         cls._fixed_length_attrs = ()
         cls._var_length_attrs = ()
         cls._pos_attrs = ()
@@ -143,23 +152,17 @@ class DataBase:
         # Ensure attribute lists are cached (happens once per class)
         type(self)._ensure_cached_attrs()
 
-        # Cast arrays to the correct type, check length
-        field_types = get_type_hints(type(self))
-        for field in fields(self):
-            value = getattr(self, field.name)
-            field_type = field_types.get(field.name, field.type)
-            meta = FieldMetadata(**field.metadata)
-            if self._annotation_matches(field_type, np.ndarray):
-                # Check that the length of the array matches the expected length
-                if meta.length is not None:
-                    if len(value) != meta.length:
-                        raise ValueError(
-                            f"The `{field.name}` attribute of `{self.__class__.__name__}` "
-                            f"objects must have length {meta.length}."
-                        )
+        # Cast arrays to the correct type and check their lengths. Field
+        # reflection and metadata validation are cached once per data class.
+        for name, length, dtype in type(self)._array_specs:
+            value = getattr(self, name)
+            if length is not None and len(value) != length:
+                raise ValueError(
+                    f"The `{name}` attribute of `{self.__class__.__name__}` "
+                    f"objects must have length {length}."
+                )
 
-                # Cast the array to the correct type
-                setattr(self, field.name, np.asarray(value, dtype=meta.dtype))
+            setattr(self, name, np.asarray(value, dtype=dtype))
 
     def __setstate__(self, state: dict[str, Any]) -> None:
         """Restore pickled instances and rebuild per-class cached metadata.
@@ -198,15 +201,15 @@ class DataBase:
             return False
 
         # Check that all base attributes are identical
-        field_types = get_type_hints(type(self))
-        for field in fields(self):
-            key = field.name
+        cls = type(self)
+        for key in cls._field_names:
             value = getattr(self, key)
             value_other = getattr(other, key)
-            field_type = field_types.get(field.name, field.type)
-            if field_type in (int, float, str, bool):
+            field_type = cls._field_types[key]
+            field_kind = cls._field_kinds[key]
+            if field_kind in (int, float, str, bool):
                 # For scalars, handle NaN specially for floats
-                if field_type == float:
+                if field_kind == float:
                     # Both NaN -> equal; otherwise use regular comparison
                     both_nan = np.isnan(value) and np.isnan(value_other)
                     if not both_nan and value_other != value:
@@ -216,12 +219,12 @@ class DataBase:
                     if value_other != value:
                         return False
 
-            elif self._annotation_matches(field_type, np.ndarray):
+            elif field_kind is np.ndarray:
                 # For numpy vectors, use array_equal with equal_nan=True
                 if not np.array_equal(value, value_other, equal_nan=True):
                     return False
 
-            elif self._annotation_matches(field_type, list):
+            elif field_kind is list:
                 # For object lists, compare the length and all elements individually
                 if len(value) != len(value_other) or any(
                     v1 != v2 for v1, v2 in zip(value, value_other)
@@ -246,9 +249,9 @@ class DataBase:
         interactive inspection readable for large event objects.
         """
         parts = []
-        for field in fields(self):
-            value = getattr(self, field.name)
-            parts.append(f"{field.name}={self._repr_value(value)}")
+        for name in type(self)._field_names:
+            value = getattr(self, name)
+            parts.append(f"{name}={self._repr_value(value)}")
 
         return f"{self.__class__.__name__}({', '.join(parts)})"
 
@@ -276,15 +279,10 @@ class DataBase:
                 "Precision must be one of: 2 (half), 4 (single), or 8 (double)."
             )
 
-        field_types = get_type_hints(type(self))
-        for field in fields(self):
-            field_type = field_types.get(field.name, field.type)
-            if self._annotation_matches(field_type, np.ndarray):
-                meta = FieldMetadata(**field.metadata)
-                if meta.dtype is not None and "float" in str(meta.dtype):
-                    val = getattr(self, field.name)
-                    dtype = f"{val.dtype.str[:-1]}{precision}"
-                    setattr(self, field.name, val.astype(dtype))
+        for attr in type(self)._float_array_attrs:
+            val = getattr(self, attr)
+            dtype = f"{val.dtype.str[:-1]}{precision}"
+            setattr(self, attr, val.astype(dtype))
 
     def shift_indexes(self, shifts: int | dict[str, int]) -> None:
         """Apply offsets to index attributes in place.
@@ -328,10 +326,9 @@ class DataBase:
 
         # Store all fields
         return_dict = {}
-        for field in fields(self):
-            if field.name not in skip_attrs:
-                value = getattr(self, field.name)
-                return_dict[field.name] = value
+        for name in type(self)._field_names:
+            if name not in skip_attrs:
+                return_dict[name] = getattr(self, name)
 
         # Store computed properties explicitly marked for serialization. These
         # are not dataclass fields, so they are not included above.
@@ -369,7 +366,7 @@ class DataBase:
         """
         cls._ensure_cached_attrs()
 
-        attrs = [field.name for field in fields(cls)]
+        attrs = list(cls._field_names)
         if include_derived:
             attrs.extend(cls._derived_attrs)
 
@@ -590,6 +587,35 @@ class DataBase:
         # Get the list of fields defined on the class
         cls_fields = fields(cls)
         field_types = get_type_hints(cls)
+        field_meta = {f.name: FieldMetadata(**f.metadata) for f in cls_fields}
+
+        # Cache all immutable dataclass reflection products. These are used by
+        # instance construction, equality, representation and serialization.
+        cls._fields = cls_fields
+        cls._field_names = tuple(f.name for f in cls_fields)
+        cls._field_types = {f.name: field_types.get(f.name, f.type) for f in cls_fields}
+        cls._field_kinds = {}
+        for name, field_type in cls._field_types.items():
+            if field_type in (int, float, str, bool):
+                kind = field_type
+            elif cls._annotation_matches(field_type, np.ndarray):
+                kind = np.ndarray
+            elif cls._annotation_matches(field_type, list):
+                kind = list
+            else:
+                kind = None
+            cls._field_kinds[name] = kind
+        cls._field_meta = field_meta
+        cls._array_specs = tuple(
+            (f.name, field_meta[f.name].length, field_meta[f.name].dtype)
+            for f in cls_fields
+            if cls._annotation_matches(cls._field_types[f.name], np.ndarray)
+        )
+        cls._float_array_attrs = tuple(
+            name
+            for name, _, dtype in cls._array_specs
+            if dtype is not None and "float" in str(dtype)
+        )
 
         # Cache type-based attributes (only used to load from HDF5, not for general use)
         cls._str_attrs = tuple(
@@ -600,9 +626,10 @@ class DataBase:
         )
 
         # Get field and derived property metadata, combine them
-        field_meta = {f.name: FieldMetadata(**f.metadata) for f in cls_fields}
-        prop_meta = cls._get_stored_properties()
+        prop_meta = cls._get_stored_properties(field_meta)
         meta = {**field_meta, **prop_meta}
+        cls._prop_meta = prop_meta
+        cls._metadata = meta
 
         # Cache the list of derived properties to not load from file
         cls._derived_attrs = tuple(prop_meta.keys())
@@ -660,7 +687,9 @@ class DataBase:
         cls._attrs_cached = True
 
     @classmethod
-    def _get_stored_properties(cls) -> dict[str, FieldMetadata]:
+    def _get_stored_properties(
+        cls, field_meta: dict[str, FieldMetadata] | None = None
+    ) -> dict[str, FieldMetadata]:
         """Introspect the class to find all stored_property descriptors and
         any alias properties, and return a dictionary mapping their names to their
         FieldMetadata.
@@ -672,6 +701,9 @@ class DataBase:
         Dict[str, FieldMetadata]
             Dictionary mapping property names to their FieldMetadata
         """
+        if field_meta is None and cls._attrs_cached:
+            return dict(cls._prop_meta)
+
         result, aliases = {}, {}
 
         # Walk through MRO to get all stored properties and aliases from parent
@@ -701,7 +733,11 @@ class DataBase:
                             aliases[name] = target_name
 
         # Resolve aliases once all stored properties have been discovered.
-        field_meta = {f.name: FieldMetadata(**f.metadata) for f in fields(cls)}
+        if field_meta is None:
+            if cls._attrs_cached:
+                field_meta = cls._field_meta
+            else:
+                field_meta = {f.name: FieldMetadata(**f.metadata) for f in fields(cls)}
         for name, target_name in aliases.items():
             if target_name in result:
                 metadata = result[target_name]

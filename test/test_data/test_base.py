@@ -1,5 +1,6 @@
 """Tests for DataBase and PosDataBase classes."""
 
+import importlib
 from dataclasses import dataclass, field
 from enum import IntEnum
 
@@ -13,6 +14,8 @@ from spine.data.out.base import OutBase
 from spine.data.out.fragment import TruthFragment
 from spine.data.out.interaction import InteractionBase
 from spine.data.out.particle import RecoParticle, TruthParticle
+
+base_mod = importlib.import_module("spine.data.base")
 
 
 class SampleParticleType(IntEnum):
@@ -662,6 +665,38 @@ class TestDataBase:
         # Create second instance (should use cached values)
         obj2 = SimpleData()
         assert obj2._attrs_cached is True  # pylint: disable=protected-access
+
+    def test_cached_attrs_avoid_repeated_reflection(self, monkeypatch):
+        """Test instance operations reuse class-level reflection products."""
+
+        @dataclass(eq=False, repr=False)
+        class CachedData(DataBase):
+            value: int = 1
+            array: np.ndarray = field(
+                default_factory=lambda: np.array([1.0, 2.0], dtype=np.float32),
+                metadata=FieldMetadata(length=2, dtype=np.float32),
+            )
+
+        first = CachedData()
+
+        def fail_reflection(*args, **kwargs):
+            raise AssertionError("Dataclass reflection should have been cached")
+
+        monkeypatch.setattr(base_mod, "fields", fail_reflection)
+        monkeypatch.setattr(base_mod, "get_type_hints", fail_reflection)
+        monkeypatch.setattr(base_mod, "FieldMetadata", fail_reflection)
+
+        second = CachedData(array=[1.0, 2.0])
+        assert second == first
+        assert "array=array(shape=(2,), dtype=float32)" in repr(second)
+        assert np.array_equal(second.as_dict()["array"], first.array)
+        assert CachedData.attr_names() == ("value", "array")
+        assert (
+            CachedData._get_stored_properties() == {}
+        )  # pylint: disable=protected-access
+
+        second.set_precision(8)
+        assert second.array.dtype == np.float64
 
     def test_annotation_matches_union(self):
         """Test annotation matching through union type annotations."""
