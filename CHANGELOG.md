@@ -60,7 +60,7 @@
 ### Added
 - **Public calibration package**: Promote calibration utilities from `spine.utils.calib` to the top-level `spine.calib` package, with focused coverage for calibration constants, databases, factories, managers, gain, lifetime, transparency, recombination, and field corrections.
 - **SCE field-map calibration**: Add electric-field non-uniformity corrections through `FieldCalibrator` and `FieldMap`, including dense map interpolation, ROOT TH3 map loading, configurable out-of-bounds behavior, detector-volume transforms, and `bin/calib/sce_field_check.py` validation tooling.
-- **Gain calibration functions**: Add `gain_func` support to `GainCalibrator`, allowing NumExpr expressions such as `2.3 * exp(x) - 3` to transform charge arrays directly instead of applying only flat or database-backed gain constants.
+- **Response calibration functions**: Add `ResponseCalibrator` with configurable NumExpr expressions such as `2.3 * exp(x) - 3` to transform deposition values independently of flat or database-backed gain calibration.
 - **DUNE-VD geometry support**: Add DUNE-VD 10 kt geometry metadata and harden geometry parsing for nonterminal version tags in LArSoft/Flow geometry descriptions.
 - **Calorimetric interaction directions**: Add `CalorimetricDirectionProcessor` for charge-weighted interaction direction reconstruction, with separate storage for true and reconstructed interaction direction fields.
 - **Validation and metrics coverage**: Add configurable truth-index selection for cluster metrics, plus tests for calorimetric direction reconstruction, calibration modules, geometry parsing, LArCV helpers, and output validation scripts.
@@ -73,7 +73,7 @@
 ### Fixed
 - **MCS robustness**: Skip MCS kinetic-energy reconstruction for one-point tracks and prevent `bin_pca` segment PCA from running on one-point chunks, avoiding PCA assertion failures for degenerate track-like objects.
 - **Shared download caches**: Normalize downloaded cache artifacts to group-readable permissions, preserve atomic downloads, and raise clear permission errors when cache directories, lock files, temporary files, or existing cached downloads cannot be accessed.
-- **Field and calibration edge cases**: Add validation around field-map dimensions, bounds handling, calibration constant source selection, and gain function expression inputs so configuration mistakes fail early with actionable errors.
+- **Field and calibration edge cases**: Add validation around field-map dimensions, bounds handling, calibration constant source selection, and response function expression inputs so configuration mistakes fail early with actionable errors.
 
 ## [0.13.3] - 2026-06-03
 

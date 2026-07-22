@@ -66,10 +66,10 @@ class CalibrationManager:
             # Add necessary geometry information
             name = spec["name"]
             value = deepcopy(spec["cfg"])
-            if name != "recombination":
-                value["num_tpcs"] = self.geo.tpc.num_chambers
-            else:
+            if name == "recombination":
                 value["drift_dir"] = self.geo.tpc[0][0].drift_dir
+            elif name != "response":
+                value["num_tpcs"] = self.geo.tpc.num_chambers
 
             # Append
             self.modules[key] = calibrator_factory(name, value)
@@ -162,6 +162,8 @@ class CalibrationManager:
                     )
                 elif name == "gain":
                     tpc_values = module.process(tpc_values, t, run_id)
+                elif name == "response":
+                    tpc_values = module.process(tpc_values)
                 elif name == "recombination":
                     tpc_values = module.process(tpc_values, tpc_points, track)
                 else:

@@ -6,11 +6,11 @@ from typing import Any
 
 from spine.utils.factory import instantiate, module_dict
 
-from . import field, gain, lifetime, recombination, transparency
+from . import field, gain, lifetime, recombination, response, transparency
 
 # Build a dictionary of available calibration modules
 CALIB_DICT: dict[str, type] = {}
-for module in [gain, lifetime, transparency, recombination, field]:
+for module in [gain, lifetime, transparency, response, recombination, field]:
     CALIB_DICT.update(**module_dict(module))
 
 

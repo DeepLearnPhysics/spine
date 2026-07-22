@@ -6,6 +6,7 @@ from spine.calib.field import FieldMap
 from spine.calib.gain import GainCalibrator
 from spine.calib.manager import CalibrationManager
 from spine.calib.recombination import RecombinationCalibrator
+from spine.calib.response import ResponseCalibrator
 
 
 class FakeMeta:
@@ -57,6 +58,31 @@ def test_manager_applies_modules_in_config_order(monkeypatch, fake_geo):
     _, corrected = manager(points, values, sources=sources)
 
     assert np.allclose(corrected, [20.0, 30.0])
+
+
+def test_manager_applies_response_between_gain_and_recombination(monkeypatch, fake_geo):
+    monkeypatch.setattr(manager_mod.GeoManager, "get_instance", lambda: fake_geo)
+    manager = CalibrationManager(
+        gain={"gain": 2.0},
+        response={"response_func": "x + 1"},
+        recombination={"efield": 0.5},
+    )
+
+    assert list(manager.modules) == ["gain", "response", "recombination"]
+    assert isinstance(manager.modules["response"], ResponseCalibrator)
+
+
+def test_manager_applies_response_without_other_calibrators(monkeypatch, fake_geo):
+    monkeypatch.setattr(manager_mod.GeoManager, "get_instance", lambda: fake_geo)
+    manager = CalibrationManager(response={"response_func": "x**2 + 1"})
+
+    _, corrected = manager(
+        np.array([[1.0, 0.0, 0.0]]),
+        np.array([3.0]),
+        sources=np.array([[0, 0]]),
+    )
+
+    assert np.allclose(corrected, [10.0])
 
 
 def test_manager_can_infer_tpc_indexes_without_sources(monkeypatch, fake_geo):

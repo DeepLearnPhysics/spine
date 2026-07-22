@@ -8,7 +8,6 @@ import numpy as np
 from numpy.typing import NDArray
 
 from .constant import CalibrationConstant
-from .function import CalibrationFunction
 
 __all__ = ["GainCalibrator"]
 
@@ -30,7 +29,6 @@ class GainCalibrator:
         num_tpcs: int,
         gain: CalibValue | None = None,
         gain_db: CalibDatabaseSource | None = None,
-        gain_func: str | None = None,
     ) -> None:
         """Initialize the recombination model and its constants.
 
@@ -42,22 +40,13 @@ class GainCalibrator:
             Conversion factor from ADC to electrons (unique or per tpc)
         gain_db : str, optional
             Path to a SQLite db file which maps [run, cryo, tpc] sets
-        gain_func : str, optional
-            NumExpr function to apply to the charge values directly
         """
-        # Initialize the gain calibration constant or function.
-        provided = [gain is not None, gain_db is not None, gain_func is not None]
+        # Initialize the gain calibration constant
+        provided = [gain is not None, gain_db is not None]
         if sum(provided) != 1:
-            raise ValueError("Must provide exactly one of gain, gain_db or gain_func.")
+            raise ValueError("Must provide exactly one of gain or gain_db.")
 
-        self.gain: CalibrationConstant | None = None
-        self.gain_func: CalibrationFunction | None = None
-        if gain_func is not None:
-            self.gain_func = CalibrationFunction(gain_func)
-        else:
-            self.gain = CalibrationConstant(
-                num_tpcs=num_tpcs, value=gain, database=gain_db
-            )
+        self.gain = CalibrationConstant(num_tpcs=num_tpcs, value=gain, database=gain_db)
 
     def process(
         self, values: NDArray[np.floating], tpc_id: int, run_id: int | None = None
@@ -76,9 +65,5 @@ class GainCalibrator:
         np.ndarray
             (N) array of depositions in number of electrons
         """
-        # Apply the gain function or factor to all values in the current TPC.
-        if self.gain_func is not None:
-            return self.gain_func(values)
-
-        assert self.gain is not None
+        # Apply the gain factor to all values in the current TPC
         return values * self.gain.get(tpc_id, run_id)
