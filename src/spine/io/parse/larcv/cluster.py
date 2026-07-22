@@ -32,7 +32,7 @@ from spine.math.cluster import dbscan
 from spine.math.distance import METRICS
 from spine.utils.conditional import larcv
 from spine.utils.particles import process_particle_event
-from spine.utils.ppn import image_coordinates
+from spine.utils.ppn import image_coordinates_batch
 
 from ..base import ParserBase
 from ..clean_data import clean_sparse_data
@@ -119,31 +119,35 @@ class LArCVCluster2DParser(ParserBase):
         # Get the cluster from the appropriate projection
         cluster_event_p = cluster_event.cluster_pixel_2d(self.projection_id)
 
-        # Loop over clusters, store information
         meta = cluster_event_p.meta()
         num_clusters = cluster_event_p.size()
-        clusters_voxels, clusters_features = [], []
-        for i in range(num_clusters):
-            cluster = cluster_event_p.as_vector()[i]
-            num_points = cluster.as_vector().size()
+        clusters = list(cluster_event_p.as_vector())
+        cluster_sizes = np.fromiter(
+            (cluster.as_vector().size() for cluster in clusters),
+            dtype=np.int64,
+            count=num_clusters,
+        )
+        num_points_total = int(cluster_sizes.sum())
+        coord_dtype = self.itype if num_points_total else self.ftype
+        np_voxels = np.empty((num_points_total, 2), dtype=coord_dtype)
+        np_features = np.empty((num_points_total, 2), dtype=self.ftype)
+        np_features[:, 1] = np.repeat(
+            np.arange(num_clusters, dtype=self.ftype), cluster_sizes
+        )
+
+        # Loop over clusters to unpack their coordinates and values.
+        point_offset = 0
+        for cluster, num_points in zip(clusters, cluster_sizes):
             if num_points > 0:
                 x = np.empty(num_points, dtype=np.int32)
                 y = np.empty(num_points, dtype=np.int32)
                 value = np.empty(num_points, dtype=np.float32)
                 larcv.as_flat_arrays(cluster, meta, x, y, value)
-                pixels = np.stack([x, y], axis=1).astype(self.itype)
-                value = value.astype(self.ftype)
-                cluster_id = np.full(num_points, i, dtype=self.ftype)
-                clusters_voxels.append(pixels)
-                clusters_features.append(np.column_stack([value, cluster_id]))
-
-        # Concatenate clusters
-        if not clusters_voxels:
-            np_voxels = np.empty((0, 2), dtype=self.ftype)
-            np_features = np.empty((0, 2), dtype=self.ftype)
-        else:
-            np_voxels = np.concatenate(clusters_voxels, axis=0)
-            np_features = np.concatenate(clusters_features, axis=0)
+                point_end = point_offset + num_points
+                np_voxels[point_offset:point_end, 0] = x
+                np_voxels[point_offset:point_end, 1] = y
+                np_features[point_offset:point_end, 0] = value
+                point_offset = point_end
 
         # Evaluate shifts to apply to each index column
         index_shifts = np.max(np_features[:, -1], keepdims=True, initial=-1) + 1
@@ -373,9 +377,12 @@ class LArCVCluster3DParser(ParserBase):
             labels["pinter"] = inter_primaries
 
             # Store the vertex and momentum
-            anc_pos = np.empty((len(particles), 3), dtype=self.ftype)
-            for i, p in enumerate(particles):
-                anc_pos[i] = image_coordinates(meta, p.ancestor_position())
+            anc_pos = image_coordinates_batch(
+                meta,
+                particles,
+                dtype=self.ftype,
+                position_attr="ancestor_position",
+            )
             labels["vtx_x"] = anc_pos[:, 0]
             labels["vtx_y"] = anc_pos[:, 1]
             labels["vtx_z"] = anc_pos[:, 2]
@@ -405,12 +412,30 @@ class LArCVCluster3DParser(ParserBase):
             else:
                 num_neutrinos = np.max(nu_ids, initial=-1) + 1
 
-        # Loop over clusters, store information
-        clusters_voxels, clusters_features = [], []
+        # Allocate the output tensors once. Events may contain thousands of
+        # clusters, so building one array per feature per cluster and then
+        # concatenating them creates substantial Python and allocator overhead.
+        clusters = list(cluster_event.as_vector())
+        cluster_sizes = np.fromiter(
+            (cluster.as_vector().size() for cluster in clusters),
+            dtype=np.int64,
+            count=num_clusters,
+        )
+        num_points_total = int(cluster_sizes.sum())
+        np_voxels = np.empty((num_points_total, 3), dtype=self.itype)
+        np_features = np.empty((num_points_total, len(labels) + 1), dtype=self.ftype)
+
+        # Expand cluster-wise labels to voxel-wise labels in one operation.
+        cluster_labels = np.full((num_clusters, len(labels)), -1, dtype=self.ftype)
+        for col, label in enumerate(labels.values()):
+            label = np.asarray(label, dtype=self.ftype)
+            cluster_labels[: min(num_clusters, len(label)), col] = label[:num_clusters]
+        np_features[:, 1:] = np.repeat(cluster_labels, cluster_sizes, axis=0)
+
+        # Loop over clusters to unpack their coordinates and values.
         id_offset = 0
-        for i in range(num_clusters):
-            cluster = cluster_event.as_vector()[i]
-            num_points = cluster.as_vector().size()
+        point_offset = 0
+        for i, (cluster, num_points) in enumerate(zip(clusters, cluster_sizes)):
             if num_points > 0:
                 # Get the position and pixel value from EventSparseTensor3D
                 x = np.empty(num_points, dtype=np.int32)
@@ -418,15 +443,12 @@ class LArCVCluster3DParser(ParserBase):
                 z = np.empty(num_points, dtype=np.int32)
                 value = np.empty(num_points, dtype=np.float32)
                 larcv.as_flat_arrays(cluster, meta, x, y, z, value)
-                voxels = np.stack([x, y, z], axis=1).astype(self.itype)
-                value = value.astype(self.ftype)
-                clusters_voxels.append(voxels)
-
-                # Append the cluster-wise information
-                features = [value]
-                for l in labels.values():
-                    val = l[i] if i < num_particles else -1
-                    features.append(np.full(num_points, val, dtype=self.ftype))
+                point_end = point_offset + num_points
+                voxels = np_voxels[point_offset:point_end]
+                voxels[:, 0] = x
+                voxels[:, 1] = y
+                voxels[:, 2] = z
+                np_features[point_offset:point_end, 0] = value
 
                 # If requested, break cluster into detached pieces
                 if self.break_clusters:
@@ -436,18 +458,10 @@ class LArCVCluster3DParser(ParserBase):
                         min_samples=1,
                         metric_id=self.break_metric_id,
                     )
-                    features[1] = id_offset + frag_labels
+                    np_features[point_offset:point_end, 1] = id_offset + frag_labels
                     id_offset += np.max(frag_labels, initial=-1) + 1
 
-                clusters_features.append(np.column_stack(features))
-
-        # If there are no non-empty clusters, return. Concatenate otherwise
-        if not clusters_voxels:
-            np_voxels = np.empty((0, 3), dtype=self.itype)
-            np_features = np.empty((0, len(labels) + 1), dtype=self.ftype)
-        else:
-            np_voxels = np.concatenate(clusters_voxels, axis=0)
-            np_features = np.concatenate(clusters_features, axis=0)
+                point_offset = point_end
 
         # If requested, remove duplicate voxels (cluster overlaps) and
         # match the semantics to those of the provided reference

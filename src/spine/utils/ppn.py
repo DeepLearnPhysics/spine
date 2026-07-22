@@ -947,3 +947,60 @@ def image_coordinates(meta, point, dim=3):
         x = (x - meta.min_x()) / meta.size_voxel_x()
         y = (y - meta.min_y()) / meta.size_voxel_y()
         return [x, y]
+
+
+def image_coordinates_batch(meta, objects, dim=3, dtype=np.float32, position_attr=None):
+    """Convert a sequence of physical positions to image coordinates.
+
+    Unlike :func:`image_coordinates`, this function fetches the image origin
+    and voxel sizes only once. This matters for LArCV objects because each
+    metadata or point accessor crosses the Python/C++ boundary.
+
+    Parameters
+    ----------
+    meta : larcv.Voxel3DMeta or larcv.ImageMeta
+        Image metadata used for the coordinate conversion.
+    objects : iterable
+        Sequence of LArCV point objects, or objects which provide the position
+        accessor specified by ``position_attr``.
+    dim : int, default 3
+        Number of spatial dimensions.
+    dtype : numpy dtype, default numpy.float32
+        Output coordinate dtype.
+    position_attr : str, optional
+        Name of the position getter to call on each input object, e.g.
+        ``"ancestor_position"`` for a sequence of LArCV particles. Leaving
+        this unset treats each input object as a position directly.
+
+    Returns
+    -------
+    numpy.ndarray
+        ``(N, dim)`` array of coordinates in voxel units.
+    """
+    if not hasattr(objects, "__len__"):
+        objects = list(objects)
+    coords = np.empty((len(objects), dim), dtype=dtype)
+
+    min_x, min_y = meta.min_x(), meta.min_y()
+    size_x, size_y = meta.size_voxel_x(), meta.size_voxel_y()
+    if dim == 3:
+        min_z, size_z = meta.min_z(), meta.size_voxel_z()
+
+    if position_attr is not None and len(objects):
+        # Resolve bound C++ method dispatch once instead of using getattr for
+        # every particle. PyROOT exposes its methods on the proxy type.
+        position_getter = getattr(type(objects[0]), position_attr)
+        for i, obj in enumerate(objects):
+            point = position_getter(obj)
+            coords[i, 0] = (point.x() - min_x) / size_x
+            coords[i, 1] = (point.y() - min_y) / size_y
+            if dim == 3:
+                coords[i, 2] = (point.z() - min_z) / size_z
+    else:
+        for i, point in enumerate(objects):
+            coords[i, 0] = (point.x() - min_x) / size_x
+            coords[i, 1] = (point.y() - min_y) / size_y
+            if dim == 3:
+                coords[i, 2] = (point.z() - min_z) / size_z
+
+    return coords

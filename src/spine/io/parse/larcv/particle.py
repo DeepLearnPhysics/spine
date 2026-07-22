@@ -30,7 +30,11 @@ from spine.data import Meta, Neutrino, Particle
 from spine.utils.conditional import larcv
 from spine.utils.gnn.network import filter_invalid_nodes
 from spine.utils.particles import process_particles
-from spine.utils.ppn import get_ppn_labels, get_vertex_labels, image_coordinates
+from spine.utils.ppn import (
+    get_ppn_labels,
+    get_vertex_labels,
+    image_coordinates,
+)
 
 from ..base import ParserBase
 from ..data import ParserEdgeIndex, ParserObjectList, ParserTensor
@@ -511,15 +515,31 @@ class LArCVParticleCoordinateParser(ParserBase):
 
         # Scale particle coordinates to image size
         particle_v = particle_event.as_vector()
+        min_x, min_y, min_z = meta.min_x(), meta.min_y(), meta.min_z()
+        size_x = meta.size_voxel_x()
+        size_y = meta.size_voxel_y()
+        size_z = meta.size_voxel_z()
 
         # Make features
         coord_labels = np.empty((len(particle_v), 8), dtype=self.ftype)
         for i, p in enumerate(particle_v):
-            start_point = last_point = image_coordinates(meta, p.first_step())
-            if p.shape() == TRACK_SHP:  # End point only meaningful for tracks
-                last_point = image_coordinates(meta, p.last_step())
-            extra = [p.t(), p.shape()]
-            coord_labels[i] = np.concatenate((start_point, last_point, extra))
+            row = coord_labels[i]
+            start = p.first_step()
+            row[0] = (start.x() - min_x) / size_x
+            row[1] = (start.y() - min_y) / size_y
+            row[2] = (start.z() - min_z) / size_z
+
+            shape = p.shape()
+            if shape == TRACK_SHP:  # End point only meaningful for tracks
+                end = p.last_step()
+                row[3] = (end.x() - min_x) / size_x
+                row[4] = (end.y() - min_y) / size_y
+                row[5] = (end.z() - min_z) / size_z
+            else:
+                row[3:6] = row[:3]
+
+            row[6] = p.t()
+            row[7] = shape
 
         return ParserTensor(
             coords=coord_labels[:, :6],
