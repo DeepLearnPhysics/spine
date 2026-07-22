@@ -52,6 +52,7 @@ class HDF5Reader(ReaderBase):
         keep_open: bool = True,
         swmr: bool = False,
         ignore_incomplete: bool = False,
+        keys: list[str] | tuple[str, ...] | None = None,
     ) -> None:
         """Initalize the HDF5 file reader.
 
@@ -102,6 +103,9 @@ class HDF5Reader(ReaderBase):
             If `True`, allow opening files marked as incomplete. By default,
             files with an explicit `info.attrs["complete"] = False` marker are
             rejected.
+        keys : sequence[str], optional
+            Data products to load. If omitted, load every product. This is a
+            true reader-level projection and avoids reading unrequested data.
         """
         # Process the list of files
         self.process_file_paths(file_keys, file_list, limit_num_files, max_print_files)
@@ -110,6 +114,8 @@ class HDF5Reader(ReaderBase):
         self.ignore_incomplete = ignore_incomplete
         self._handle_pid: int | None = None
         self._file_handles: dict[int, h5py.File] = {}
+        self.requested_keys = set(keys) if keys is not None else None
+        self.file_format_versions: list[int] = []
 
         # If an entry list is requested based on run/subrun/event ID, create map
         if run_event_list is not None or skip_run_event_list is not None:
@@ -138,6 +144,14 @@ class HDF5Reader(ReaderBase):
                 assert isinstance(
                     events, h5py.Dataset
                 ), "'events' is not a dataset in the HDF5 file."
+                format_version = 1
+                if "info" in in_file:
+                    format_version = int(in_file["info"].attrs.get("format_version", 1))
+                if format_version not in (1, 2):
+                    raise ValueError(
+                        f"Unsupported HDF5 format version {format_version} in '{path}'."
+                    )
+                self.file_format_versions.append(format_version)
 
                 # If requested, register the (run, subrun, event) information
                 if create_run_map:
@@ -146,14 +160,24 @@ class HDF5Reader(ReaderBase):
                     ), f"Must provide {run_info_key} to create run map"
 
                     info = in_file[run_info_key]
-                    assert isinstance(
-                        info, h5py.Dataset
-                    ), f"{run_info_key} is not a dataset in the HDF5 file."
-                    assert all(
-                        k in info.dtype.names for k in ["run", "subrun", "event"]
-                    ), f"{run_info_key} dataset missing required fields."
+                    if format_version == 1:
+                        assert isinstance(
+                            info, h5py.Dataset
+                        ), f"{run_info_key} is not a dataset in the HDF5 file."
+                        assert all(
+                            k in info.dtype.names for k in ["run", "subrun", "event"]
+                        ), f"{run_info_key} dataset missing required fields."
+                        columns = (info["run"], info["subrun"], info["event"])
+                    else:
+                        assert isinstance(info, h5py.Group)
+                        fixed = info["fixed"]
+                        assert isinstance(fixed, h5py.Dataset)
+                        assert all(
+                            k in fixed.dtype.names for k in ["run", "subrun", "event"]
+                        ), f"{run_info_key} dataset missing required fields."
+                        columns = (fixed["run"], fixed["subrun"], fixed["event"])
 
-                    for r, s, e in zip(info["run"], info["subrun"], info["event"]):
+                    for r, s, e in zip(*columns):
                         run_info.append((r, s, e))
 
                 # Update the total number of entries
@@ -294,10 +318,11 @@ class HDF5Reader(ReaderBase):
         # Fetch the string-form configuration
         with h5py.File(self.file_paths[0], "r") as in_file:
             assert "info" in in_file, "HDF5 file missing 'info' group."
+            attrs = in_file["info"].attrs
             assert (
-                "version" in in_file["info"].attrs
-            ), "HDF5 file 'info' group missing 'version' attribute."
-            version = in_file["info"].attrs["version"]
+                "spine_version" in attrs or "version" in attrs
+            ), "HDF5 file 'info' group missing a SPINE version attribute."
+            version = attrs.get("spine_version", attrs.get("version"))
 
         assert isinstance(version, str), "'version' attribute is not a string."
         return version
@@ -333,13 +358,19 @@ class HDF5Reader(ReaderBase):
                 events, h5py.Dataset
             ), "'events' is not a dataset in the HDF5 file."
 
-            event = events[entry_idx]
-            names = getattr(getattr(event, "dtype", None), "names", None)
-            if names is not None:
-                for key in names:
-                    self.load_key(in_file, event, data, key)
+            if self.file_format_versions[file_idx] == 1:
+                event = events[entry_idx]
+                names = getattr(getattr(event, "dtype", None), "names", None)
+                if names is not None:
+                    for key in names:
+                        if self.should_load_key(key):
+                            self.load_key(in_file, event, data, key)
+                else:
+                    raise ValueError("Event entry does not have named fields.")
             else:
-                raise ValueError("Event entry does not have named fields.")
+                for key in in_file.keys():
+                    if key not in {"events", "info"} and self.should_load_key(key):
+                        self.load_key_v2(in_file, entry_idx, data, key)
         finally:
             if should_close:
                 in_file.close()
@@ -348,6 +379,145 @@ class HDF5Reader(ReaderBase):
         data["index"] = idx
 
         return data
+
+    def should_load_key(self, key: str) -> bool:
+        """Return whether a product belongs to the requested projection."""
+        return (
+            self.requested_keys is None
+            or key in self.requested_keys
+            or key
+            in {
+                "source_file_index",
+                "source_file_entry_index",
+            }
+        )
+
+    def load_key_v2(
+        self,
+        in_file: h5py.File,
+        entry_idx: int,
+        data: dict[str, Any],
+        key: str,
+    ) -> None:
+        """Load one product from an offset-based V2 group."""
+        group = in_file[key]
+        if not isinstance(group, h5py.Group) or "kind" not in group.attrs:
+            raise ValueError(f"V2 product '{key}' is not a recognized product group.")
+        kind = group.attrs["kind"]
+        if isinstance(kind, bytes):
+            kind = kind.decode()
+
+        if kind == "array":
+            values = group["values"]
+            offsets = group["event_offsets"]
+            start, stop = (int(v) for v in offsets[entry_idx : entry_idx + 2])
+            result = values[start:stop]
+            if group.attrs["scalar"]:
+                result = result[0]
+            data[key] = result
+            return
+
+        if kind == "string":
+            values = group["values"]
+            offsets = group["event_offsets"]
+            start, stop = (int(v) for v in offsets[entry_idx : entry_idx + 2])
+            data[key] = values[start:stop].tobytes().decode("utf-8")
+            return
+
+        if kind == "objects":
+            self.load_objects_v2(group, entry_idx, data, key)
+            return
+
+        if kind == "list":
+            values = group["values"]
+            element_offsets = group["element_offsets"]
+            event_offsets = group["event_offsets"]
+            first, last = (int(v) for v in event_offsets[entry_idx : entry_idx + 2])
+            bounds = element_offsets[first : last + 1]
+            result = np.empty(last - first, dtype=object)
+            base = int(bounds[0]) if len(bounds) else 0
+            terminal = int(bounds[-1]) if len(bounds) else base
+            event_values = values[base:terminal]
+            for i in range(last - first):
+                start = int(bounds[i]) - base
+                stop = int(bounds[i + 1]) - base
+                result[i] = event_values[start:stop]
+            data[key] = result
+            return
+
+        if kind == "multi_list":
+            result = []
+            for name in sorted(group.keys(), key=lambda item: int(item.split("_")[-1])):
+                element = group[name]
+                values = element["values"]
+                offsets = element["event_offsets"]
+                start, stop = (int(v) for v in offsets[entry_idx : entry_idx + 2])
+                result.append(values[start:stop])
+            data[key] = result
+            return
+
+        raise ValueError(f"Unrecognized V2 product kind '{kind}' for key '{key}'.")
+
+    def load_objects_v2(
+        self,
+        group: h5py.Group,
+        entry_idx: int,
+        data: dict[str, Any],
+        key: str,
+    ) -> None:
+        """Load an object collection from fixed rows and flat variable fields."""
+        fixed = group["fixed"]
+        event_offsets = group["event_offsets"]
+        variables = group["variables"]
+        assert isinstance(fixed, h5py.Dataset)
+        assert isinstance(event_offsets, h5py.Dataset)
+        assert isinstance(variables, h5py.Group)
+        first, last = (int(v) for v in event_offsets[entry_idx : entry_idx + 2])
+        rows = fixed[first:last]
+        class_name = group.attrs["class_name"]
+        if isinstance(class_name, bytes):
+            class_name = class_name.decode()
+        obj_class = self.resolve_object_class(class_name, rows)
+
+        variable_values: dict[str, list[Any]] = {}
+        for pool_name, pool in variables.items():
+            values = pool["values"]
+            pool_index = int(pool_name.split("_")[-1])
+            bounds = rows[f"_var_offsets_{pool_index}"]
+            is_string = pool.attrs["kind"] == "string"
+            fields = yaml.safe_load(pool.attrs["fields"])
+            base = int(bounds[0, 0]) if len(bounds) else 0
+            terminal = int(bounds[-1, -1]) if len(bounds) else base
+            event_values = values[base:terminal]
+            for j, name in enumerate(fields):
+                loaded = []
+                for i in range(last - first):
+                    start = int(bounds[i, j]) - base
+                    stop = int(bounds[i, j + 1]) - base
+                    value = event_values[start:stop]
+                    if is_string:
+                        value = value.tobytes().decode("utf-8")
+                    loaded.append(value)
+                variable_values[name] = loaded
+
+        names = rows.dtype.names or ()
+        result = []
+        for i, row in enumerate(rows):
+            obj_dict = {
+                name: row[name]
+                for name in names
+                if not name.startswith("_var_offsets_")
+            }
+            obj_dict.update(
+                {name: values[i] for name, values in variable_values.items()}
+            )
+            if self.build_classes:
+                result.append(obj_class.from_dict(obj_dict))
+            else:
+                result.append(obj_dict)
+        if group.attrs["scalar"]:
+            result = result[0]
+        data[key] = result
 
     @staticmethod
     def resolve_object_class(class_name: str, array: np.ndarray) -> type:

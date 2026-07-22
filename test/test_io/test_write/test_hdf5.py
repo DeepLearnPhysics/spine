@@ -5,6 +5,7 @@ import os
 import h5py
 import numpy as np
 import pytest
+import yaml
 
 from spine.data import (
     CRTHit,
@@ -1603,3 +1604,70 @@ def generate_object_list(cls, sizes):
         List of typed lists of objects
     """
     return [ObjectList([cls() for _ in range(s)], cls()) for s in sizes]
+
+
+def test_hdf5_writer_v2_uses_offsets_and_preserves_derived_fields(hdf5_output):
+    """V2 should flatten variable fields while retaining advertised summaries."""
+    particle = RecoParticle(
+        id=7,
+        index=np.asarray([2, 5, 9], dtype=np.int32),
+        match_ids=np.asarray([11], dtype=np.int32),
+        match_overlaps=np.asarray([0.75], dtype=np.float32),
+    )
+    data = {
+        "index": np.asarray([0]),
+        "particles": [ObjectList([particle], RecoParticle())],
+        "tensor": [np.arange(6, dtype=np.float32).reshape(3, 2)],
+        "label": ["event-zero"],
+    }
+
+    with HDF5Writer(hdf5_output, overwrite=True, format_version=2) as writer:
+        writer(data, cfg={"test": True})
+
+    with h5py.File(hdf5_output, "r") as out_file:
+        info = out_file["info"].attrs
+        assert info["format"] == "spine_hdf5"
+        assert info["format_version"] == 2
+        assert "spine_version" in info
+
+        particles = out_file["particles"]
+        assert particles.attrs["kind"] == "objects"
+        assert particles["event_offsets"][:].tolist() == [0, 1]
+        index_pool = next(
+            pool
+            for pool in particles["variables"].values()
+            if "index" in yaml.safe_load(pool.attrs["fields"])
+        )
+        fields = yaml.safe_load(index_pool.attrs["fields"])
+        index_column = fields.index("index")
+        pool_index = int(index_pool.name.split("_")[-1])
+        bounds = particles["fixed"][f"_var_offsets_{pool_index}"][
+            0, index_column : index_column + 2
+        ]
+        assert index_pool["values"][bounds[0] : bounds[1]].tolist() == [2, 5, 9]
+
+        # Derived properties remain directly available without SPINE classes.
+        assert particles["fixed"]["size"].tolist() == [3]
+        assert "num_fragments" in particles["fixed"].dtype.names
+
+        # No dataset in the V2 product tree uses an HDF5 VLEN dtype.
+        def assert_no_vlen(_, obj):
+            if isinstance(obj, h5py.Dataset):
+                if obj.dtype.names:
+                    for name in obj.dtype.names:
+                        assert h5py.check_dtype(vlen=obj.dtype[name]) is None
+                else:
+                    assert h5py.check_dtype(vlen=obj.dtype) is None
+
+        out_file.visititems(assert_no_vlen)
+
+
+def test_hdf5_writer_rejects_append_format_mismatch(hdf5_output):
+    """Appending must never silently mix physical HDF5 layouts."""
+    data = {"index": np.asarray([0]), "value": [np.asarray([1], dtype=np.int32)]}
+    HDF5Writer(hdf5_output, overwrite=True, format_version=1)(data, cfg={})
+
+    writer = HDF5Writer(hdf5_output, append=True, format_version=2)
+    with pytest.raises(ValueError, match="format version"):
+        writer(data, cfg={})
+    writer.close()

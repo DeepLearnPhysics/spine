@@ -47,6 +47,36 @@ File Writers
    write.CSVWriter
    write.StageHDF5Writer
 
+HDF5 format versions
+--------------------
+
+Flat SPINE HDF5 files are self-describing. The ``/info`` attributes separate
+the producing software release from the physical file layout:
+
+- ``spine_version`` identifies the SPINE release which produced the file.
+- ``format`` is ``spine_hdf5`` for flat event files.
+- ``format_version`` is ``1`` for the legacy region-reference/VLEN layout or
+  ``2`` for the offset-based layout.
+
+Files written before explicit layout versioning have no ``format_version`` and
+are treated as version 1. :class:`read.HDF5Reader` detects both layouts
+automatically. Select version 2 for new output explicitly during its rollout:
+
+.. code-block:: yaml
+
+   writer:
+     name: hdf5
+     format_version: 2
+
+Version 2 keeps derived scalar and fixed-width properties directly available
+in each product's ``fixed`` compound dataset. Variable-length properties use
+dtype-specific pools under ``variables``. Each pool declares its ordered field
+names in the ``fields`` attribute and has one flat ``values`` dataset. The
+corresponding integer offset row is stored directly in the object's ``fixed``
+record. Product ``event_offsets`` map event ``i`` to rows
+``event_offsets[i]:event_offsets[i + 1]`` without HDF5 region references.
+Appending data with a different format version is rejected.
+
 Datasets
 --------
 

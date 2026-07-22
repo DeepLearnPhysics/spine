@@ -8,9 +8,10 @@ import pytest
 from yaml.parser import ParserError
 
 import spine.data
+from spine.data import ObjectList, RecoParticle, RunInfo
 from spine.data.larcv.meta import ImageMeta2D, ImageMeta3D
 from spine.io.read import HDF5Reader, StageHDF5Reader
-from spine.io.write import StageHDF5Writer
+from spine.io.write import HDF5Writer, StageHDF5Writer
 
 
 def _read_hdf5_entry(path, queue):
@@ -257,6 +258,126 @@ def test_hdf5_reader_close_swallows_handle_close_errors():
 
     assert reader._file_handles == {}
     assert reader._handle_pid is None
+
+
+def test_hdf5_reader_v2_round_trip_and_projection(tmp_path):
+    """The public reader should auto-detect V2 and project products at I/O time."""
+    path = tmp_path / "v2.h5"
+    particle = RecoParticle(
+        id=4,
+        index=np.asarray([1, 3, 8], dtype=np.int32),
+        match_ids=np.asarray([12], dtype=np.int32),
+        match_overlaps=np.asarray([0.5], dtype=np.float32),
+    )
+    data = {
+        "index": np.asarray([0, 1]),
+        "run_info": [RunInfo(run=1, event=10), RunInfo(run=1, event=11)],
+        "particles": [
+            ObjectList([particle], RecoParticle()),
+            ObjectList([], RecoParticle()),
+        ],
+        "tensor": [
+            np.arange(6, dtype=np.float32).reshape(3, 2),
+            np.ones((1, 2), dtype=np.float32),
+        ],
+        "label": ["first", "second"],
+    }
+    with HDF5Writer(str(path), overwrite=True, format_version=2) as writer:
+        writer(data, cfg={"format": 2})
+
+    reader = HDF5Reader(str(path), create_run_map=True)
+    assert reader.file_format_versions == [2]
+    assert reader.run_map == {(1, -1, 10): 0, (1, -1, 11): 1}
+    first = reader.get(0)
+    second = reader.get(1)
+    assert first["label"] == "first"
+    assert first["particles"][0].size == 3
+    assert np.array_equal(first["particles"][0].index, [1, 3, 8])
+    assert second["particles"] == []
+    assert second["tensor"].shape == (1, 2)
+    reader.close()
+
+    projected = HDF5Reader(str(path), keys=["tensor"])
+    entry = projected.get(0)
+    assert "tensor" in entry
+    assert "particles" not in entry
+    assert "label" not in entry
+    projected.close()
+
+
+def test_hdf5_reader_v2_append_and_nested_lists(tmp_path):
+    """V2 offsets should remain valid across appends and both jagged layouts."""
+    path = tmp_path / "v2_append.h5"
+
+    def batch(base):
+        return {
+            "index": np.asarray([base, base + 1]),
+            "clusters": [
+                [np.asarray([1, 2]), np.asarray([3])],
+                [np.asarray([], dtype=np.int64)],
+            ],
+            "features": [
+                [
+                    np.ones((2, 2), dtype=np.float32),
+                    np.ones((3, 3), dtype=np.float32),
+                ],
+                [
+                    np.zeros((1, 2), dtype=np.float32),
+                    np.zeros((2, 3), dtype=np.float32),
+                ],
+            ],
+        }
+
+    with HDF5Writer(str(path), overwrite=True, format_version=2) as writer:
+        writer(batch(0), cfg={})
+    with HDF5Writer(str(path), append=True, format_version=2) as writer:
+        writer(batch(2), cfg={})
+
+    reader = HDF5Reader(str(path), build_classes=False)
+    assert len(reader) == 4
+    assert [array.tolist() for array in reader.get(0)["clusters"]] == [[1, 2], [3]]
+    assert [array.shape for array in reader.get(1)["features"]] == [(1, 2), (2, 3)]
+    assert [array.tolist() for array in reader.get(2)["clusters"]] == [[1, 2], [3]]
+    reader.close()
+
+
+def test_hdf5_reader_dispatches_mixed_v1_v2_files(tmp_path):
+    """One public reader should normalize legacy and offset files identically."""
+    paths = [tmp_path / "v1.h5", tmp_path / "v2.h5"]
+    data = {
+        "index": np.asarray([0]),
+        "value": [np.asarray([3, 4, 5], dtype=np.int32)],
+        "other": [np.asarray([9], dtype=np.int32)],
+    }
+    for version, path in enumerate(paths, start=1):
+        with HDF5Writer(str(path), overwrite=True, format_version=version) as writer:
+            writer(data, cfg={})
+    # Files predating explicit layout metadata are legacy V1 by definition.
+    with h5py.File(paths[0], "a") as legacy_file:
+        del legacy_file["info"].attrs["format_version"]
+
+    reader = HDF5Reader([str(path) for path in paths], keys=["value"])
+    assert reader.file_format_versions == [1, 2]
+    assert np.array_equal(reader.get(0)["value"], [3, 4, 5])
+    assert np.array_equal(reader.get(1)["value"], [3, 4, 5])
+    assert "other" not in reader.get(0)
+    assert "other" not in reader.get(1)
+    reader.close()
+
+
+def test_hdf5_reader_rejects_unknown_format_version(tmp_path):
+    """Unknown physical layouts should fail clearly instead of guessing."""
+    path = tmp_path / "future.h5"
+    with h5py.File(path, "w") as out_file:
+        info = out_file.create_group("info")
+        info.attrs["format_version"] = 99
+        info.attrs["version"] = "test"
+        info.attrs["cfg"] = "{}"
+        info.attrs["complete"] = True
+        out_file.create_dataset("events", data=np.empty(0, dtype=np.int64))
+
+    with pytest.raises(ValueError, match="Unsupported HDF5 format version 99"):
+        HDF5Reader(str(path))
 
 
 def test_stage_hdf5_reader_loads_one_stage(tmp_path):

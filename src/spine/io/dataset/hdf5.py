@@ -140,7 +140,10 @@ class HDF5Dataset(BaseDataset):
                 **kwargs,
             )
         else:
-            self.reader = HDF5Reader(**kwargs)
+            self.reader = HDF5Reader(
+                keys=tuple(self.keys) if self.keys is not None else None,
+                **kwargs,
+            )
 
         # Initialize the augmenter
         self.build_augmenter(augment)

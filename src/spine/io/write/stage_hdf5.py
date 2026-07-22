@@ -133,6 +133,7 @@ class StageHDF5Writer(HDF5Writer):
         self.lite = lite
         self.keep_open = keep_open
         self.flush_frequency = flush_frequency
+        self.format_version = self.legacy_format_version
         self.source_info: dict[str, Any] | None = None
 
         self.keys = set(keys) if keys is not None else None
@@ -261,7 +262,9 @@ class StageHDF5Writer(HDF5Writer):
             if "info" not in out_file:
                 out_file.create_group("info")
             out_file["info"].attrs["version"] = __version__
+            out_file["info"].attrs["spine_version"] = __version__
             out_file["info"].attrs["format"] = self.name
+            out_file["info"].attrs["format_version"] = self.format_version
 
             if "stages" not in out_file:
                 out_file.create_group("stages")
