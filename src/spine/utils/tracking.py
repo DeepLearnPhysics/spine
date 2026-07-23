@@ -346,19 +346,28 @@ def get_track_segments(
     segment_lengths : np.ndarray
        (S) Array of segment lengths
     """
+    # Normalize the optional endpoint once for all algorithm branches. Numba
+    # type-checks every branch and requires operands of operations such as
+    # `np.dot` to have identical dtypes, even when that branch is not selected
+    # by the runtime `method` value.
+    typed_point = np.empty(coordinates.shape[1], dtype=coordinates.dtype)
+    if point is not None:
+        typed_point[:] = point
+
     if method == "step" or method == "step_next":
         # Determine which point to start stepping from
+        start_point = np.empty(coordinates.shape[1], dtype=coordinates.dtype)
         if point is not None:
-            start_point = point
+            start_point[:] = typed_point
             if anchor_point:
                 start_id = np.argmin(
-                    sm.distance.cdist(np.atleast_2d(point), coordinates)
+                    sm.distance.cdist(np.atleast_2d(typed_point), coordinates)
                 )
-                start_point = coordinates[start_id]
+                start_point[:] = coordinates[start_id]
         else:
             # If not specified, pick a random end point of the track
             start_id = sm.distance.farthest_pair(coordinates)[0]
-            start_point = coordinates[start_id]
+            start_point[:] = coordinates[start_id]
 
         # Step through the track iteratively
         empty_list = nb.typed.List.empty_list
@@ -453,7 +462,7 @@ def get_track_segments(
         # is on and flip the principal axis coordinates, if needed
         pcoordinates = np.dot(coordinates, track_dir)
         if point is not None:
-            pstart = np.dot(point, track_dir)
+            pstart = np.dot(typed_point, track_dir)
             if np.abs(np.min(pcoordinates) - pstart) > np.abs(
                 np.max(pcoordinates) - pstart
             ):
