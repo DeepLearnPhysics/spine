@@ -102,18 +102,38 @@ class JitterAugment(AugmentBase):
         Tuple[Dict[str, Any], Meta]
             Updated data dictionary and unchanged metadata
         """
+        # Generate offsets and deduplication index once, shared across all keys.
+        offsets = None
+        keep_idx = None  # None = no collisions, all rows kept
+
         for key in keys:
             if isinstance(data[key], Meta):
                 continue
 
             coords = data[key].coords
-            offsets = self.generate_offsets(len(coords))
-            coords = coords + offsets
+
+            if offsets is None:
+                offsets = self.generate_offsets(len(coords))
+
+            coords = (coords + offsets).astype(data[key].coords.dtype)
 
             if self.clip:
                 coords = np.clip(coords, 0, meta.count - 1)
 
-            data[key].coords = coords.astype(data[key].coords.dtype)
+            # On the first data key, detect coordinate collisions caused by
+            # jitter.  ME will silently deduplicate them later, which breaks
+            # the TensorBatch count invariant.  Deduplicate here instead so
+            # all keys stay consistent.
+            if keep_idx is None:
+                _, unique_idx = np.unique(coords, axis=0, return_index=True)
+                if len(unique_idx) < len(coords):
+                    keep_idx = np.sort(unique_idx)
+
+            if keep_idx is not None:
+                coords = coords[keep_idx]
+                data[key].features = data[key].features[keep_idx]
+
+            data[key].coords = coords
             data[key].meta = meta
 
         return data, meta
