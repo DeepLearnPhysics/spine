@@ -126,10 +126,12 @@ class CalibrationManager:
         # Create a mask for each of the TPC volume in the detector
         if sources is not None:
             tpc_indexes = []
-            for module_id in range(self.geo.tpc.num_modules):
+            for source_module_id in range(self.geo.tpc.num_modules):
                 for tpc_id in range(self.geo.tpc.num_chambers_per_module):
                     # Get the set of points associated with this TPC
-                    tpc_index = self.geo.get_volume_index(sources, module_id, tpc_id)
+                    tpc_index = self.geo.get_volume_index(
+                        sources, source_module_id, tpc_id
+                    )
                     tpc_indexes.append(tpc_index)
 
         else:

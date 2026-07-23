@@ -1,6 +1,9 @@
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 
+import spine.calib.field as field_mod
 import spine.calib.manager as manager_mod
 from spine.calib.field import FieldMap
 from spine.calib.gain import GainCalibrator
@@ -206,6 +209,61 @@ def test_manager_can_return_field_corrected_points(monkeypatch, fake_geo):
 
     assert np.allclose(points, [[3.0, 0.0, 0.0]])
     assert np.allclose(values, [1.0])
+
+
+@pytest.mark.parametrize("module_id", [None, 0, 1])
+def test_manager_restores_input_module_after_field_correction(monkeypatch, module_id):
+    """Temporary module translations must be exactly undone before returning."""
+
+    class MultiModuleGeo:
+        def __init__(self):
+            modules = [
+                SimpleNamespace(
+                    center=np.array([0.0, 0.0, 0.0]),
+                    dimensions=np.array([2.0, 2.0, 2.0]),
+                    boundaries=np.array([[-1.0, 1.0], [-1.0, 1.0], [-1.0, 1.0]]),
+                ),
+                SimpleNamespace(
+                    center=np.array([100.0, 0.0, 0.0]),
+                    dimensions=np.array([2.0, 2.0, 2.0]),
+                    boundaries=np.array([[99.0, 101.0], [-1.0, 1.0], [-1.0, 1.0]]),
+                ),
+            ]
+            self.tpc = SimpleNamespace(
+                center=np.array([50.0, 0.0, 0.0]),
+                modules=modules,
+                num_modules=2,
+                num_chambers=2,
+                num_chambers_per_module=1,
+            )
+
+        @staticmethod
+        def get_volume_index(sources, module_id, tpc_id):
+            return np.where((sources[:, 0] == module_id) & (sources[:, 1] == tpc_id))[0]
+
+        @staticmethod
+        def translate(points, source_id, target_id):
+            return points + np.array([100.0 * (target_id - source_id), 0.0, 0.0])
+
+    geo = MultiModuleGeo()
+    monkeypatch.setattr(manager_mod.GeoManager, "get_instance", lambda: geo)
+    monkeypatch.setattr(field_mod.GeoManager, "get_instance", lambda: geo)
+    field_map = FieldMap(
+        np.zeros((1, 1, 1, 3), dtype=float),
+        [[-1.0, 1.0], [-1.0, 1.0], [-1.0, 1.0]],
+    )
+    manager = CalibrationManager(field={"field_map": field_map})
+
+    points = np.array([[0.0, 0.0, 0.0]])
+    source_module = 0 if module_id is None else module_id
+    corrected, _ = manager(
+        points,
+        np.array([1.0]),
+        sources=np.array([[source_module, 0]]),
+        module_id=module_id,
+    )
+
+    np.testing.assert_array_equal(corrected, points)
 
 
 def test_manager_returns_field_corrected_points_in_input_units(monkeypatch, fake_geo):
