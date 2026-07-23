@@ -188,6 +188,7 @@ class CalibrationProcessor(PostBase):
                 if self.calibrator.update_points:
                     if not part.is_truth:
                         part.points = cal_points
+                        self._update_reco_positions(part)
                     else:
                         setattr(part, self.truth_point_mode, cal_points)
                     data[points_key][part.index] = cal_points
@@ -225,5 +226,37 @@ class CalibrationProcessor(PostBase):
                     points = data[points_key][inter.index]
                     if not inter.is_truth:
                         inter.points = points
+                        self._update_reco_positions(inter)
                     else:
                         setattr(inter, self.truth_point_mode, points)
+
+    def _update_reco_positions(self, obj: Any) -> None:
+        """Apply field corrections to all auxiliary reconstructed positions."""
+        attrs, arrays = [], []
+        for attr in getattr(obj, "_pos_attrs", ()):
+            # The primary point cloud is corrected by the main calibration
+            # pass. All other declared positions must follow the same map.
+            if attr == "points" or not hasattr(obj, attr):
+                continue
+
+            values = np.asarray(getattr(obj, attr))
+            values_2d = values.reshape(-1, 3)
+            valid = np.all(np.isfinite(values_2d), axis=1)
+            if not np.any(valid):
+                continue
+
+            attrs.append((attr, values.shape, valid))
+            arrays.append(values_2d[valid])
+
+        if not arrays:
+            return
+
+        positions = np.concatenate(arrays)
+        corrected = self.calibrator.process_points(positions)
+        offset = 0
+        for attr, shape, valid in attrs:
+            count = np.count_nonzero(valid)
+            values = np.asarray(getattr(obj, attr)).reshape(-1, 3).copy()
+            values[valid] = corrected[offset : offset + count]
+            setattr(obj, attr, values.reshape(shape))
+            offset += count

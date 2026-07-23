@@ -211,6 +211,34 @@ def test_manager_can_return_field_corrected_points(monkeypatch, fake_geo):
     assert np.allclose(values, [1.0])
 
 
+def test_manager_can_field_correct_arbitrary_points(monkeypatch, fake_geo):
+    monkeypatch.setattr(manager_mod.GeoManager, "get_instance", lambda: fake_geo)
+    field_map = FieldMap(
+        np.full((1, 1, 1, 3), [2.0, 0.0, 0.0], dtype=float),
+        [[0.0, 10.0], [-1.0, 1.0], [-1.0, 1.0]],
+    )
+    manager = CalibrationManager(
+        field={"field_map": field_map},
+        gain={"gain": [2.0, 3.0]},
+    )
+    points = np.array([[1.0, 0.0, 0.0]], dtype=np.float32)
+
+    corrected = manager.process_points(points)
+
+    assert corrected.dtype == points.dtype
+    np.testing.assert_allclose(corrected, [[3.0, 0.0, 0.0]])
+
+
+def test_manager_skips_arbitrary_point_correction_without_field(monkeypatch, fake_geo):
+    monkeypatch.setattr(manager_mod.GeoManager, "get_instance", lambda: fake_geo)
+    manager = CalibrationManager(gain={"gain": [2.0, 3.0]})
+    points = np.array([[1.0, 0.0, 0.0]], dtype=np.float32)
+
+    corrected = manager.process_points(points)
+
+    assert corrected is points
+
+
 @pytest.mark.parametrize("module_id", [None, 0, 1])
 def test_manager_restores_input_module_after_field_correction(monkeypatch, module_id):
     """Temporary module translations must be exactly undone before returning."""
