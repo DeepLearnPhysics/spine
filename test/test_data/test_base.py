@@ -165,6 +165,20 @@ class TestDataBase:
         assert obj.value == 42
         assert obj.name == "hello"
 
+    def test_undeclared_attribute_assignment_rejected(self):
+        """Data objects must reject accidental runtime attributes."""
+        obj = SimpleData()
+
+        with pytest.raises(AttributeError, match="undeclared attribute `vale`"):
+            obj.vale = 42
+
+    def test_declared_attribute_assignment_allowed(self):
+        """Declared scalar fields remain mutable."""
+        obj = SimpleData()
+        obj.value = 42
+
+        assert obj.value == 42
+
     def test_equality_scalars(self):
         """Test equality comparison for scalar attributes."""
         obj1 = SimpleData(value=42, name="test")
@@ -296,10 +310,38 @@ class TestDataBase:
         obj = ArrayData(position=np.array([1, 2, 3]))  # int array
         assert obj.position.dtype == np.float32  # Should be cast to float32
 
+    def test_array_dtype_preserved_on_late_assignment(self):
+        """Late assignments must not silently change an array field's dtype."""
+        obj = ArrayData()
+        obj.position = np.array([4.0, 5.0, 6.0], dtype=np.float64)
+
+        assert obj.position.dtype == np.float32
+        np.testing.assert_array_equal(obj.position, [4.0, 5.0, 6.0])
+
+    def test_matching_late_assignment_is_zero_copy(self):
+        """Matching NumPy arrays should be attached without copying."""
+        obj = ArrayData()
+        replacement = np.array([4.0, 5.0, 6.0], dtype=np.float32)
+        obj.position = replacement
+
+        assert obj.position is replacement
+
+    def test_late_assignment_preserves_explicit_precision(self):
+        """set_precision changes the dtype contract for that object."""
+        obj = ArrayData()
+        obj.set_precision(8)
+        obj.position = np.array([4.0, 5.0, 6.0], dtype=np.float32)
+
+        assert obj.position.dtype == np.float64
+
     def test_array_length_validation(self):
         """Test that array length is validated in __post_init__."""
         with pytest.raises(ValueError, match="must have length 3"):
             ArrayData(position=np.array([1.0, 2.0], dtype=np.float32))  # Wrong length
+
+        obj = ArrayData()
+        with pytest.raises(ValueError, match="must have length 3"):
+            obj.position = np.array([1.0, 2.0], dtype=np.float32)
 
     def test_set_precision(self):
         """Test set_precision method."""

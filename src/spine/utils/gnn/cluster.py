@@ -1078,10 +1078,11 @@ def get_cluster_directions(data, starts, clusts, max_dist=-1.0, optimize=False):
     Returns
     -------
     torch.tensor:
-        (C, 3) Direction vector of each cluster
+        (C, 3) Direction vector of each cluster, with the same dtype as
+        ``starts``
     """
     if len(clusts) == 0:
-        return np.empty(starts.shape, dtype=data.dtype)
+        return np.empty(starts.shape, dtype=starts.dtype)
     if data.shape[1] > 3:
         data = data[:, COORD_COLS_LO:COORD_COLS_HI]
 
@@ -1097,7 +1098,7 @@ def _get_cluster_directions(
     optimize: nb.boolean = False,
 ) -> nb.float64[:, :]:
 
-    dirs = np.empty(starts.shape, voxels.dtype)
+    dirs = np.empty(starts.shape, starts.dtype)
     ids = np.arange(len(clusts)).astype(np.int64)
     for k in nb.prange(len(clusts)):
         dirs[k] = cluster_direction(
