@@ -6,6 +6,7 @@ import pytest
 from spine.constants import PART_COL
 from spine.utils.gnn.cluster import (
     cluster_dedx,
+    get_cluster_directions,
     get_cluster_features_base,
     get_cluster_points_label,
 )
@@ -23,6 +24,21 @@ def test_cluster_dedx_accepts_mixed_coordinate_dtypes():
     dedx = cluster_dedx(voxels, values, start, 5.0, True)
 
     assert dedx == np.float32(3.0)
+
+
+def test_cluster_directions_preserve_reference_point_dtype():
+    """Directions must match the start/end-point dtype, not the voxel dtype."""
+    voxels = np.array(
+        [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]],
+        dtype=np.float64,
+    )
+    starts = np.array([[0.0, 0.0, 0.0]], dtype=np.float32)
+    clusts = [np.array([0, 1], dtype=np.int64)]
+
+    directions = get_cluster_directions(voxels, starts, clusts)
+
+    assert directions.dtype == starts.dtype
+    np.testing.assert_allclose(directions, [[1.0, 0.0, 0.0]])
 
 
 def test_cluster_features_base_accepts_indexed_float32_coordinates():

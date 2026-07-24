@@ -76,6 +76,10 @@ class DataBase:
     # Euclidean axis labels
     _axes: ClassVar[tuple[str, str, str]] = ("x", "y", "z")
 
+    # Explicitly permitted runtime attributes which are not dataclass fields.
+    # Subclasses should extend this only for intentional per-instance caches.
+    _dynamic_attrs: ClassVar[frozenset[str]] = frozenset()
+
     # NOTE: Cached attribute lists are NOT declared here as ClassVar
     # to avoid sharing across inheritance hierarchy. Each subclass gets
     # its own independent copies via __init_subclass__.
@@ -118,12 +122,14 @@ class DataBase:
         cls._attrs_cached = False
         cls._fields = ()
         cls._field_names = ()
+        cls._field_name_set = frozenset()
         cls._field_types = {}
         cls._field_kinds = {}
         cls._field_meta = {}
         cls._prop_meta = {}
         cls._metadata = {}
         cls._array_specs = ()
+        cls._array_spec_map = {}
         cls._float_array_attrs = ()
         cls._fixed_length_attrs = ()
         cls._var_length_attrs = ()
@@ -162,7 +168,41 @@ class DataBase:
                     f"objects must have length {length}."
                 )
 
-            setattr(self, name, np.asarray(value, dtype=dtype))
+            object.__setattr__(self, name, np.asarray(value, dtype=dtype))
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        """Validate attributes and preserve array dtypes after initialization.
+
+        Dataclass construction is normalized in :meth:`__post_init__`. From
+        that point onward, an array field keeps its current dtype, including
+        precision changes made explicitly through :meth:`set_precision`.
+        ``np.asarray`` is zero-copy when the incoming array already has the
+        target dtype. Undeclared attributes are rejected unless a subclass
+        explicitly lists them in :attr:`_dynamic_attrs`.
+        """
+        cls = type(self)
+        if (
+            getattr(cls, "_attrs_cached", False)
+            and name not in cls._field_name_set
+            and name not in cls._dynamic_attrs
+        ):
+            raise AttributeError(
+                f"Cannot set undeclared attribute `{name}` on "
+                f"`{self.__class__.__name__}`."
+            )
+
+        spec = getattr(cls, "_array_spec_map", {}).get(name)
+        current = self.__dict__.get(name)
+        if spec is not None and isinstance(current, np.ndarray):
+            length, _ = spec
+            value = np.asarray(value, dtype=current.dtype)
+            if length is not None and len(value) != length:
+                raise ValueError(
+                    f"The `{name}` attribute of `{self.__class__.__name__}` "
+                    f"objects must have length {length}."
+                )
+
+        object.__setattr__(self, name, value)
 
     def __setstate__(self, state: dict[str, Any]) -> None:
         """Restore pickled instances and rebuild per-class cached metadata.
@@ -282,7 +322,7 @@ class DataBase:
         for attr in type(self)._float_array_attrs:
             val = getattr(self, attr)
             dtype = f"{val.dtype.str[:-1]}{precision}"
-            setattr(self, attr, val.astype(dtype))
+            object.__setattr__(self, attr, val.astype(dtype))
 
     def shift_indexes(self, shifts: int | dict[str, int]) -> None:
         """Apply offsets to index attributes in place.
@@ -593,6 +633,7 @@ class DataBase:
         # instance construction, equality, representation and serialization.
         cls._fields = cls_fields
         cls._field_names = tuple(f.name for f in cls_fields)
+        cls._field_name_set = frozenset(cls._field_names)
         cls._field_types = {f.name: field_types.get(f.name, f.type) for f in cls_fields}
         cls._field_kinds = {}
         for name, field_type in cls._field_types.items():
@@ -611,6 +652,9 @@ class DataBase:
             for f in cls_fields
             if cls._annotation_matches(cls._field_types[f.name], np.ndarray)
         )
+        cls._array_spec_map = {
+            name: (length, dtype) for name, length, dtype in cls._array_specs
+        }
         cls._float_array_attrs = tuple(
             name
             for name, _, dtype in cls._array_specs
@@ -734,10 +778,7 @@ class DataBase:
 
         # Resolve aliases once all stored properties have been discovered.
         if field_meta is None:
-            if cls._attrs_cached:
-                field_meta = cls._field_meta
-            else:
-                field_meta = {f.name: FieldMetadata(**f.metadata) for f in fields(cls)}
+            field_meta = {f.name: FieldMetadata(**f.metadata) for f in fields(cls)}
         for name, target_name in aliases.items():
             if target_name in result:
                 metadata = result[target_name]

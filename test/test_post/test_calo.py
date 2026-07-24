@@ -268,12 +268,16 @@ def test_calibration_processor_updates_field_corrected_points(monkeypatch, fake_
         points=points[[0]].copy(),
         depositions=depositions[[0]].copy(),
         sources=sources[[0]].copy(),
+        start_point=np.array([1.25, 0.0, 0.0]),
+        end_point=np.array([4.25, 0.0, 0.0]),
+        ppn_points=np.array([[2.25, 0.0, 0.0], [3.25, 0.0, 0.0]]),
     )
     interaction = RecoInteraction(
         index=np.array([0, 1], dtype=np.int32),
         points=points.copy(),
         depositions=depositions.copy(),
         sources=sources.copy(),
+        vertex=np.array([1.5, 0.0, 0.0]),
     )
     data = {
         "points": points.copy(),
@@ -288,4 +292,8 @@ def test_calibration_processor_updates_field_corrected_points(monkeypatch, fake_
     expected_points = points + np.array([2.0, 0.0, 0.0])
     assert np.allclose(data["points"], expected_points)
     assert np.allclose(particle.points, expected_points[[0]])
+    assert np.allclose(particle.start_point, [3.25, 0.0, 0.0])
+    assert np.allclose(particle.end_point, [6.25, 0.0, 0.0])
+    assert np.allclose(particle.ppn_points, [[4.25, 0.0, 0.0], [5.25, 0.0, 0.0]])
     assert np.allclose(interaction.points, expected_points)
+    assert np.allclose(interaction.vertex, [3.5, 0.0, 0.0])

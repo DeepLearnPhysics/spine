@@ -123,21 +123,8 @@ class CalibrationManager:
         if module_id is not None:
             points = self.geo.translate(points, 0, module_id)
 
-        # Create a mask for each of the TPC volume in the detector
-        if sources is not None:
-            tpc_indexes = []
-            for module_id in range(self.geo.tpc.num_modules):
-                for tpc_id in range(self.geo.tpc.num_chambers_per_module):
-                    # Get the set of points associated with this TPC
-                    tpc_index = self.geo.get_volume_index(sources, module_id, tpc_id)
-                    tpc_indexes.append(tpc_index)
-
-        else:
-            if points is None:
-                raise ValueError(
-                    "If sources are not given, must provide points instead."
-                )
-            tpc_indexes = self.geo.get_closest_tpc_indexes(points)
+        # Create a mask for each TPC volume in the detector
+        tpc_indexes = self._get_tpc_indexes(points, sources)
 
         # Loop over the TPCs, apply the relevant calibration corrections
         new_points = np.copy(points) if self.update_points else orig_points
@@ -182,3 +169,69 @@ class CalibrationManager:
                 new_points = meta.to_px(new_points, floor=True)
 
         return new_points, new_values
+
+    def process_points(
+        self,
+        points: NDArray[np.floating],
+    ) -> NDArray[np.floating]:
+        """Apply coordinate-changing calibration modules to arbitrary points.
+
+        This is intended for reconstructed position attributes such as particle
+        start/end points. It only runs modules which alter coordinates
+        (currently the field calibrator); charge-only calibrations are skipped.
+        Input points must be expressed in detector coordinates. Their geometric
+        location determines the applicable field map; source provenance is not
+        needed.
+
+        Parameters
+        ----------
+        points : np.ndarray
+            ``(N, 3)`` point coordinates in detector units.
+
+        Returns
+        -------
+        np.ndarray
+            Corrected point coordinates with the same dtype as ``points``.
+        """
+        if not self.update_points or len(points) == 0:
+            return points
+
+        tpc_indexes = self._get_tpc_indexes(points, None)
+        new_points = np.copy(points)
+        for t, tpc_index in enumerate(tpc_indexes):
+            if len(tpc_index) == 0:
+                continue
+
+            tpc_points = points[tpc_index]
+            for key, module in self.modules.items():
+                if self.module_names[key] != "field":
+                    continue
+
+                self.watch.start(key)
+                tpc_points = module.process(tpc_points, t)
+                self.watch.stop(key)
+
+            new_points[tpc_index] = tpc_points
+
+        return new_points
+
+    def _get_tpc_indexes(
+        self,
+        points: NDArray[np.floating],
+        sources: NDArray[np.integer] | None,
+    ) -> list[NDArray[np.integer]]:
+        """Build one point index for each TPC in the detector."""
+        if sources is None:
+            if points is None:
+                raise ValueError(
+                    "If sources are not given, must provide points instead."
+                )
+            return self.geo.get_closest_tpc_indexes(points)
+
+        tpc_indexes = []
+        for source_module_id in range(self.geo.tpc.num_modules):
+            for tpc_id in range(self.geo.tpc.num_chambers_per_module):
+                tpc_index = self.geo.get_volume_index(sources, source_module_id, tpc_id)
+                tpc_indexes.append(tpc_index)
+
+        return tpc_indexes

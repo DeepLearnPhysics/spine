@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.15.5] - 2026-07-23
+
+### Added
+- **Response calibration functions**: Add configurable NumExpr response transformations as a dedicated calibration stage, separate from detector gain calibration.
+
+### Changed
+- **Parsing and data-object performance**: Reduce allocations in LArCV cluster parsing and cache data-class reflection metadata used for field validation and serialization.
+- **Data-object type enforcement**: Preserve declared array dtypes on assignment and reject undeclared attributes, keeping reconstructed objects internally type-consistent.
+
+### Fixed
+- **Field-corrected reconstructed positions**: Restore temporary module translations before returning calibrated coordinates and propagate field corrections to every declared reconstructed positional attribute, including start, end, PPN, and vertex points.
+- **Mixed-precision reconstruction**: Keep coordinate, endpoint, and direction dtypes consistent so Numba tracking and vertexing kernels do not fail on mixed `float32`/`float64` inputs.
+
 ## [0.15.4] - 2026-07-21
 
 ### Added

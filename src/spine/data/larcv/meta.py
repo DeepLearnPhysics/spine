@@ -5,7 +5,7 @@ images or :class:`larcv.Voxel3DMeta` for 3D images.
 """
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 import numpy as np
 
@@ -36,6 +36,8 @@ class ImageMetaBase(DataBase):
     count : np.ndarray
         (2/3) Array of pixel count in each dimension
     """
+
+    _dynamic_attrs: ClassVar[frozenset[str]] = frozenset({"_index_multipliers"})
 
     if TYPE_CHECKING:  # pragma: no cover
         # Type hints for fields defined in subclasses (only for type checking)
