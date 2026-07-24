@@ -4,10 +4,12 @@ Utilities for checking SPINE processing outputs.
 
 ## Compare two HDF5 outputs
 
-`output_compare.py` compares two SPINE HDF5 files event by event. HDF5 region
-references are dereferenced before comparison, so differences in file layout or
-dataset order do not affect the result. Integer, boolean, and string values must
-match exactly; floating-point values use relative and absolute tolerances.
+`output_compare.py` compares two SPINE HDF5 files event by event. It supports
+both the legacy region-reference/VLEN layout (format version 1) and the
+offset-based layout (format version 2), including direct V1-to-V2 comparisons.
+Physical references, offsets, dataset order, and object-field pools are
+normalized before comparison. Integer, boolean, and string values must match
+exactly; floating-point values use relative and absolute tolerances.
 
 ```bash
 python3 bin/output/output_compare.py reference.h5 candidate.h5

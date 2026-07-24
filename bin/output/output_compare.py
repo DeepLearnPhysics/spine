@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Compare the event content of two SPINE HDF5 output files.
 
-The comparison is semantic rather than bytewise. Event region references are
-dereferenced, structured data products are compared field by field, and HDF5
-layout details such as dataset order and object addresses are ignored.
+The comparison is semantic rather than bytewise. Legacy region references and
+version-2 integer offsets are normalized, structured data products are compared
+field by field, and HDF5 layout details such as dataset order, object addresses,
+and variable-field pools are ignored.
 
 Integer, boolean, and string values must always agree exactly. Floating-point
 values are compared with configurable absolute and relative tolerances, unless
@@ -19,6 +20,7 @@ from typing import Any
 
 import h5py
 import numpy as np
+import yaml
 
 
 @dataclass
@@ -76,7 +78,90 @@ class ComparisonResult:
             self.differences.append(f"{path}: {message}")
 
 
-def load_event_value(in_file: h5py.File, event: np.void, key: str) -> Any:
+def get_format_version(in_file: h5py.File) -> int:
+    """Return the declared SPINE HDF5 layout version."""
+    version = 1
+    if "info" in in_file:
+        version = int(in_file["info"].attrs.get("format_version", 1))
+    if version not in (1, 2):
+        raise ValueError(f"Unsupported HDF5 format version {version}.")
+    return version
+
+
+def get_product_keys(in_file: h5py.File, format_version: int) -> set[str]:
+    """Return the event data products exposed by one SPINE HDF5 file."""
+    events = in_file["events"]
+    assert isinstance(events, h5py.Dataset)
+    if format_version == 1:
+        return set(events.dtype.names or ())
+    return set(in_file.keys()) - {"events", "info"}
+
+
+def _decode_attribute(value: Any) -> Any:
+    """Decode byte-valued HDF5 attributes."""
+    return value.decode() if isinstance(value, bytes) else value
+
+
+def load_objects_v2(group: h5py.Group, event_index: int) -> Any:
+    """Load V2 object rows into their logical V1 structured representation."""
+    fixed = group["fixed"]
+    event_offsets = group["event_offsets"]
+    variables = group["variables"]
+    assert isinstance(fixed, h5py.Dataset)
+    assert isinstance(event_offsets, h5py.Dataset)
+    assert isinstance(variables, h5py.Group)
+
+    first, last = (int(value) for value in event_offsets[event_index : event_index + 2])
+    rows = fixed[first:last]
+    fixed_names = [
+        name for name in rows.dtype.names or () if not name.startswith("_var_offsets_")
+    ]
+    dtype_specs: list[tuple[str, Any]] = [
+        (name, rows.dtype.fields[name][0]) for name in fixed_names
+    ]
+    pools = sorted(variables.items(), key=lambda item: int(item[0].split("_")[-1]))
+    for _, pool in pools:
+        fields = yaml.safe_load(pool.attrs["fields"])
+        kind = _decode_attribute(pool.attrs["kind"])
+        values = pool["values"]
+        dtype = (
+            h5py.string_dtype() if kind == "string" else h5py.vlen_dtype(values.dtype)
+        )
+        dtype_specs.extend((name, dtype) for name in fields)
+
+    result = np.empty(len(rows), dtype=np.dtype(dtype_specs))
+    for name in fixed_names:
+        result[name] = rows[name]
+
+    for pool_name, pool in pools:
+        fields = yaml.safe_load(pool.attrs["fields"])
+        kind = _decode_attribute(pool.attrs["kind"])
+        values = pool["values"]
+        pool_index = int(pool_name.split("_")[-1])
+        bounds = rows[f"_var_offsets_{pool_index}"]
+        base = int(bounds[0, 0]) if len(bounds) else 0
+        terminal = int(bounds[-1, -1]) if len(bounds) else base
+        event_values = values[base:terminal]
+        for field_index, name in enumerate(fields):
+            for row_index in range(len(rows)):
+                start = int(bounds[row_index, field_index]) - base
+                stop = int(bounds[row_index, field_index + 1]) - base
+                value = event_values[start:stop]
+                if kind == "string":
+                    value = value.tobytes().decode("utf-8")
+                result[name][row_index] = value
+
+    if bool(group.attrs["scalar"]):
+        return result[0]
+    return result
+
+
+def load_event_value(
+    in_file: h5py.File,
+    event_index: int,
+    key: str,
+    format_version: int,
+) -> Any:
     """Load one event-level value from a SPINE HDF5 file.
 
     This mirrors the dereferencing performed by
@@ -89,16 +174,77 @@ def load_event_value(in_file: h5py.File, event: np.void, key: str) -> Any:
     ----------
     in_file : h5py.File
         Open SPINE HDF5 file.
-    event : numpy.void
-        Structured row from the file's ``events`` dataset.
+    event_index : int
+        Event row index.
     key : str
         Event data-product name.
+    format_version : int
+        Physical SPINE HDF5 layout version.
 
     Returns
     -------
     Any
         Dereferenced event value.
     """
+    if format_version == 2:
+        group = in_file[key]
+        if not isinstance(group, h5py.Group) or "kind" not in group.attrs:
+            raise ValueError(f"V2 product '{key}' is not a recognized product group.")
+
+        kind = _decode_attribute(group.attrs["kind"])
+        if kind in {"array", "string"}:
+            values = group["values"]
+            offsets = group["event_offsets"]
+            start, stop = (
+                int(value) for value in offsets[event_index : event_index + 2]
+            )
+            value = values[start:stop]
+            if kind == "string":
+                return value.tobytes().decode("utf-8")
+            if bool(group.attrs["scalar"]):
+                value = value[0]
+            return value
+
+        if kind == "objects":
+            return load_objects_v2(group, event_index)
+
+        if kind == "list":
+            values = group["values"]
+            element_offsets = group["element_offsets"]
+            event_offsets = group["event_offsets"]
+            first, last = (
+                int(value) for value in event_offsets[event_index : event_index + 2]
+            )
+            bounds = element_offsets[first : last + 1]
+            result = np.empty(last - first, dtype=object)
+            base = int(bounds[0]) if len(bounds) else 0
+            terminal = int(bounds[-1]) if len(bounds) else base
+            event_values = values[base:terminal]
+            for index in range(last - first):
+                start = int(bounds[index]) - base
+                stop = int(bounds[index + 1]) - base
+                result[index] = event_values[start:stop]
+            return result
+
+        if kind == "multi_list":
+            result = []
+            elements = sorted(
+                group.items(), key=lambda item: int(item[0].split("_")[-1])
+            )
+            for _, element in elements:
+                values = element["values"]
+                offsets = element["event_offsets"]
+                start, stop = (
+                    int(value) for value in offsets[event_index : event_index + 2]
+                )
+                result.append(values[start:stop])
+            return result
+
+        raise ValueError(f"Unrecognized V2 product kind '{kind}' for key '{key}'.")
+
+    events = in_file["events"]
+    assert isinstance(events, h5py.Dataset)
+    event = events[event_index]
     region_ref = event[key]
     dataset = in_file[key]
 
@@ -216,6 +362,40 @@ def compare_values(
         If `True`, require bit-for-bit floating-point equality, with NaNs at
         matching positions treated as equal.
     """
+    reference_sequence = isinstance(reference, (list, tuple))
+    candidate_sequence = isinstance(candidate, (list, tuple))
+    if reference_sequence or candidate_sequence:
+        if not reference_sequence or not candidate_sequence:
+            result.add_difference(
+                path,
+                (
+                    "container type differs "
+                    f"({type(reference).__name__} != {type(candidate).__name__})"
+                ),
+            )
+            return
+        if len(reference) != len(candidate):
+            result.add_difference(
+                path, f"length differs ({len(reference)} != {len(candidate)})"
+            )
+            return
+        for index, (ref_value, candidate_value) in enumerate(zip(reference, candidate)):
+            compare_values(
+                ref_value,
+                candidate_value,
+                f"{path}[{index}]",
+                result,
+                rtol,
+                atol,
+                exact,
+            )
+        return
+
+    if isinstance(reference, (bytes, np.bytes_)):
+        reference = bytes(reference).decode("utf-8")
+    if isinstance(candidate, (bytes, np.bytes_)):
+        candidate = bytes(candidate).decode("utf-8")
+
     reference = np.asarray(reference)
     candidate = np.asarray(candidate)
 
@@ -228,7 +408,7 @@ def compare_values(
     ref_fields = reference.dtype.names
     candidate_fields = candidate.dtype.names
     if ref_fields is not None or candidate_fields is not None:
-        if ref_fields != candidate_fields:
+        if set(ref_fields or ()) != set(candidate_fields or ()):
             result.add_difference(
                 path, f"structured fields differ ({ref_fields} != {candidate_fields})"
             )
@@ -352,8 +532,15 @@ def compare_files(
             )
             return result
 
-        reference_keys = set(reference_events.dtype.names or ())
-        candidate_keys = set(candidate_events.dtype.names or ())
+        try:
+            reference_version = get_format_version(reference_file)
+            candidate_version = get_format_version(candidate_file)
+        except ValueError as error:
+            result.add_difference("format", str(error))
+            return result
+
+        reference_keys = get_product_keys(reference_file, reference_version)
+        candidate_keys = get_product_keys(candidate_file, candidate_version)
         requested_keys = set(keys) if keys is not None else reference_keys
         skipped_keys = set(skip_keys or ())
         selected_keys = requested_keys - skipped_keys
@@ -381,14 +568,16 @@ def compare_files(
         common_keys = sorted(selected_keys & reference_keys & candidate_keys)
         result.num_events = len(reference_events)
         result.num_products = len(reference_events) * len(common_keys)
-        for event_idx, (reference_event, candidate_event) in enumerate(
-            zip(reference_events, candidate_events)
-        ):
+        for event_idx in range(len(reference_events)):
             for key in common_keys:
                 path = f"event[{event_idx}].{key}"
                 try:
-                    reference = load_event_value(reference_file, reference_event, key)
-                    candidate = load_event_value(candidate_file, candidate_event, key)
+                    reference = load_event_value(
+                        reference_file, event_idx, key, reference_version
+                    )
+                    candidate = load_event_value(
+                        candidate_file, event_idx, key, candidate_version
+                    )
                     compare_values(
                         reference,
                         candidate,
