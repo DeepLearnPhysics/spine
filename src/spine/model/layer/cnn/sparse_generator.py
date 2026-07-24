@@ -1,7 +1,8 @@
-import MinkowskiEngine as ME
 import torch
 import torch.nn as nn
 from scipy.special import logit
+
+from spine.model import sparse
 
 from .act_norm import act_factory, norm_factory
 from .blocks import ConvolutionBlock, ResNetBlock
@@ -36,7 +37,7 @@ class SparseGenerator(torch.nn.Module):
         self.linear = nn.Sequential(
             norm_factory(self.norm, self.latent_size, **self.norm_args),
             act_factory(self.activation_name, **self.activation_args),
-            ME.MinkowskiConvolutionTranspose(
+            sparse.ConvolutionTranspose(
                 in_channels=self.latent_size,
                 out_channels=self.nPlanes[-1],
                 kernel_size=final_tensor_shape,
@@ -55,7 +56,7 @@ class SparseGenerator(torch.nn.Module):
             m.append(norm_factory(self.norm, self.nPlanes[i + 1], **self.norm_args))
             m.append(act_factory(self.activation_name, **self.activation_args))
             m.append(
-                ME.MinkowskiConvolutionTranspose(
+                sparse.ConvolutionTranspose(
                     in_channels=self.nPlanes[i + 1],
                     out_channels=self.nPlanes[i],
                     kernel_size=2,
@@ -84,14 +85,14 @@ class SparseGenerator(torch.nn.Module):
             m = nn.Sequential(*m)
             self.decoding_block.append(m)
             self.layer_cls.append(
-                ME.MinkowskiLinear(self.nPlanes[i], 1, bias=self.allow_bias)
+                sparse.Linear(self.nPlanes[i], 1, bias=self.allow_bias)
             )
         self.decoding_block = nn.Sequential(*self.decoding_block)
         self.decoding_conv = nn.Sequential(*self.decoding_conv)
         self.layer_cls = nn.Sequential(*self.layer_cls)
 
         # pruning
-        self.pruning = ME.MinkowskiPruning()
+        self.pruning = sparse.Pruning()
 
     def get_batch_indices(self, out):
         return out.coords_man.get_row_indices_per_batch(out.coords_key)
@@ -172,7 +173,7 @@ class SparseGeneratorSimple(torch.nn.Module):
         self.linear = nn.Sequential(
             norm_factory(self.norm, self.latent_size, **self.norm_args),
             act_factory(self.activation_name, **self.activation_args),
-            ME.MinkowskiConvolutionTranspose(
+            sparse.ConvolutionTranspose(
                 in_channels=self.latent_size,
                 out_channels=self.nPlanes[-1],
                 kernel_size=final_tensor_shape,
@@ -191,7 +192,7 @@ class SparseGeneratorSimple(torch.nn.Module):
             m.append(norm_factory(self.norm, self.nPlanes[i + 1], **self.norm_args))
             m.append(act_factory(self.activation_name, **self.activation_args))
             m.append(
-                ME.MinkowskiConvolutionTranspose(
+                sparse.ConvolutionTranspose(
                     in_channels=self.nPlanes[i + 1],
                     out_channels=self.nPlanes[i],
                     kernel_size=2,
@@ -220,14 +221,14 @@ class SparseGeneratorSimple(torch.nn.Module):
             m = nn.Sequential(*m)
             self.decoding_block.append(m)
             self.layer_cls.append(
-                ME.MinkowskiLinear(self.nPlanes[i], 1, bias=self.allow_bias)
+                sparse.Linear(self.nPlanes[i], 1, bias=self.allow_bias)
             )
         self.decoding_block = nn.Sequential(*self.decoding_block)
         self.decoding_conv = nn.Sequential(*self.decoding_conv)
         self.layer_cls = nn.Sequential(*self.layer_cls)
 
         # pruning
-        self.pruning = ME.MinkowskiPruning()
+        self.pruning = sparse.Pruning()
 
     def get_batch_indices(self, out):
         return out.coords_man.get_row_indices_per_batch(out.coords_key)

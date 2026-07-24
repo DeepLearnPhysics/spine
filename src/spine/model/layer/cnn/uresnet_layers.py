@@ -8,8 +8,9 @@ Contains the following components:
 
 from typing import List
 
-import MinkowskiEngine as ME
 import torch
+
+from spine.model import sparse
 
 from .act_norm import act_factory, norm_factory
 from .blocks import ASPP, CascadeDilationBlock, ResNetBlock
@@ -39,7 +40,7 @@ class UResNetEncoder(torch.nn.Module):
         setup_cnn_configuration(self, **cfg)
 
         # Initialize the input layer
-        self.input_layer = ME.MinkowskiConvolution(
+        self.input_layer = sparse.Convolution(
             in_channels=self.num_input,
             out_channels=self.num_filters,
             kernel_size=self.input_kernel,
@@ -71,7 +72,7 @@ class UResNetEncoder(torch.nn.Module):
                 m.append(norm_factory(self.norm_cfg, F))
                 m.append(act_factory(self.act_cfg))
                 m.append(
-                    ME.MinkowskiConvolution(
+                    sparse.Convolution(
                         in_channels=self.num_planes[i],
                         out_channels=self.num_planes[i + 1],
                         kernel_size=2,
@@ -90,15 +91,15 @@ class UResNetEncoder(torch.nn.Module):
 
         Parameters
         ----------
-        x : ME.SparseTensor
+        x : sparse.SparseTensor
             Input sparse tensor
 
         Returns
         -------
-        encoder_tensors : List[ME.SparseTensor]
+        encoder_tensors : List[sparse.SparseTensor]
             List of intermediate tensors (taken between encoding block and
             convolution) from the encoder half
-        final_tensor : ME.SparseTensor
+        final_tensor : sparse.SparseTensor
             Feature tensor at deepest layer
         """
         x = self.input_layer(x)
@@ -141,7 +142,7 @@ class UResNetDecoder(torch.nn.Module):
             m.append(norm_factory(self.norm_cfg, self.num_planes[i + 1]))
             m.append(act_factory(self.act_cfg))
             m.append(
-                ME.MinkowskiConvolutionTranspose(
+                sparse.ConvolutionTranspose(
                     in_channels=self.num_planes[i + 1],
                     out_channels=self.num_planes[i],
                     kernel_size=2,
@@ -174,14 +175,14 @@ class UResNetDecoder(torch.nn.Module):
 
         Parameters
         ----------
-        final : ME.SparseTensor
+        final : sparse.SparseTensor
             Output of the encoder
-        encoder_tensors : List[ME.SparseTensor]
+        encoder_tensors : List[sparse.SparseTensor]
             List of tensors from each depth of the encoder
 
         Returns
         -------
-        List[ME.SparseTensor]
+        List[sparse.SparseTensor]
             List of feature tensors in decoding path at each spatial resolution
         """
         decoder_tensors = []
@@ -189,7 +190,7 @@ class UResNetDecoder(torch.nn.Module):
         for i, layer in enumerate(self.decoding_conv):
             encoder_tensor = encoder_tensors[-i - 2]
             x = layer(x)
-            x = ME.cat(encoder_tensor, x)
+            x = sparse.cat(encoder_tensor, x)
             x = self.decoding_block[i](x)
             decoder_tensors.append(x)
 
@@ -220,28 +221,28 @@ class UResNet(torch.nn.Module):
         self.encoder = UResNetEncoder(cfg)
         self.decoder = UResNetDecoder(cfg)
 
-    def forward(self, input_data):
+    def forward(self, input_data, batch_size=None):
         """Pass a tensor through the UResNet backbone.
 
         Parameters
         ----------
-        x : ME.SparseTensor
+        x : sparse.SparseTensor
             Input sparse tensor
 
         Returns
         -------
-        encoder_tensors : List[ME.SparseTensor]
+        encoder_tensors : List[sparse.SparseTensor]
             List of intermediate tensors (taken between encoding block and
             convolution) from the encoder half
-        decoder_tensors : List[ME.SparseTensor]
+        decoder_tensors : List[sparse.SparseTensor]
             List of feature tensors in decoding path at each spatial resolution
-        final_tensor : ME.SparseTensor
+        final_tensor : sparse.SparseTensor
             Feature tensor at deepest layer
         """
         # Cast the input data to a sparse tensor
         coords = input_data[:, 0 : self.dim + 1].int()
         features = input_data[:, self.dim + 1 :]
-        x = ME.SparseTensor(features, coordinates=coords)
+        x = sparse.SparseTensor(features, coordinates=coords, batch_size=batch_size)
 
         # Pass it through the encoder
         encoder_output = self.encoder(x)

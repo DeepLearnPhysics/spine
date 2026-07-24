@@ -1,13 +1,13 @@
 from collections import defaultdict
 from pprint import pprint
 
-import MinkowskiEngine as ME
 import numpy as np
 import torch
 import torch.nn as nn
 from scipy.optimize import linear_sum_assignment
 
 from spine.constants import *
+from spine.model import sparse
 from spine.model.experimental.cluster.criterion import *
 from spine.model.experimental.cluster.transformer_spice import TransformerSPICE
 
@@ -84,9 +84,6 @@ class Mask3dLoss(nn.Module):
     ------
     To be completed.
 
-    See Also
-    --------
-    MinkGraphSPICE
     """
 
     def __init__(self, cfg, name="mask3d"):

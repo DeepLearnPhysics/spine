@@ -1,9 +1,8 @@
-import MinkowskiEngine as ME
-import MinkowskiEngine.MinkowskiOps as me
 import torch
 import torch.nn as nn
 
 from spine.constants import *
+from spine.model import sparse
 from spine.model.experimental.transformers.positional_encodings import (
     FourierEmbeddings,
     get_normalized_coordinates,
@@ -59,7 +58,7 @@ class QueryModule(nn.Module):
         """
         Inputs
         ------
-            x: Input ME.SparseTensor from UResNet output
+            x: Input sparse.SparseTensor from UResNet output
         """
 
         batch_size = len(x.decomposed_coordinates)
@@ -137,7 +136,7 @@ class TransformerSPICE(nn.Module):
         self.spatial_size = torch.Tensor(self.spatial_size).float().to(device)
 
         self.depth = self.model_config.get("depth", 5)
-        self.mask_head = ME.MinkowskiConvolution(
+        self.mask_head = sparse.Convolution(
             num_features,
             self.mask_dim,
             kernel_size=1,
@@ -145,7 +144,7 @@ class TransformerSPICE(nn.Module):
             bias=True,
             dimension=self.D,
         )
-        self.pooling = ME.MinkowskiAvgPooling(kernel_size=2, stride=2, dimension=3)
+        self.pooling = sparse.AvgPooling(kernel_size=2, stride=2, dimension=3)
         self.adc_to_mev = 1.0 / 350.0
 
         # Query Refinement Modules
@@ -190,7 +189,7 @@ class TransformerSPICE(nn.Module):
         Inputs
         ------
             - queries: [B, num_queries, query_dim] torch.Tensor
-            - mask_features: ME.SparseTensor from mask head output
+            - mask_features: sparse.SparseTensor from mask head output
         """
         query_feats = self.layernorm(queries)
         mask_embed = self.instance_to_mask(query_feats)
@@ -209,7 +208,7 @@ class TransformerSPICE(nn.Module):
 
         output_masks = torch.cat(output_masks, dim=0)
         output_coords = torch.cat(coords, dim=0)
-        output_mask = me.SparseTensor(
+        output_mask = sparse.SparseTensor(
             features=output_masks,
             coordinate_manager=mask_features.coordinate_manager,
             coordinate_map_key=mask_features.coordinate_map_key,
@@ -222,7 +221,7 @@ class TransformerSPICE(nn.Module):
                 attn_mask = output_mask
                 for _ in range(num_pooling_steps):
                     attn_mask = self.pooling(attn_mask.float())
-                attn_mask = me.SparseTensor(
+                attn_mask = sparse.SparseTensor(
                     features=(attn_mask.F.detach().sigmoid() < 0.5),
                     coordinate_manager=attn_mask.coordinate_manager,
                     coordinate_map_key=attn_mask.coordinate_map_key,
@@ -310,7 +309,7 @@ class TransformerSPICE(nn.Module):
         normed_coords = get_normalized_coordinates(coords, self.spatial_size)
         normed_feats = feats * self.adc_to_mev
         features = torch.cat([normed_coords, normed_feats], dim=1)
-        x = ME.SparseTensor(
+        x = sparse.SparseTensor(
             coordinates=point_cloud[:, :VALUE_COL].int(), features=features
         )
         encoderOutput = self.encoder(x)

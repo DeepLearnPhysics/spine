@@ -144,7 +144,7 @@ class DUQParticleClassifier(ImageClassifier):
     https://arxiv.org/pdf/2003.02037.pdf
     Joost van Amersfoort, Lewis Smith, Yee Whye Teh, Yarin Gal.
 
-    Pytorch Implementation for SparseConvNets with MinkowskiEngine backend.
+    PyTorch implementation for sparse convolutional networks.
     """
 
     MODULES = ["network_base", "particle_image_classifier", "mink_encoder"]

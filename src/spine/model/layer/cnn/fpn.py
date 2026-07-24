@@ -1,12 +1,11 @@
-import MinkowskiEngine as ME
-import MinkowskiFunctional as MF
 import numpy as np
 import torch
 import torch.nn as nn
 
+from spine.model import sparse
+
 from .blocks import *
 from .configuration import setup_cnn_configuration
-from .nonlinearities import MinkowskiLeakyReLU
 
 
 class FPN(torch.nn.Module):
@@ -45,7 +44,7 @@ class FPN(torch.nn.Module):
         self.input_kernel = model_cfg.get("input_kernel", 3)
 
         # Initialize Input Layer
-        self.input_layer = ME.MinkowskiConvolution(
+        self.input_layer = sparse.Convolution(
             in_channels=self.num_input,
             out_channels=self.num_filters,
             kernel_size=self.input_kernel,
@@ -64,10 +63,10 @@ class FPN(torch.nn.Module):
             self.encoding_block.append(m)
             m = []
             if i < self.depth - 1:
-                m.append(ME.MinkowskiBatchNorm(F))
-                m.append(MinkowskiLeakyReLU(negative_slope=self.leakiness))
+                m.append(sparse.BatchNorm(F))
+                m.append(sparse.LeakyReLU(negative_slope=self.leakiness))
                 m.append(
-                    ME.MinkowskiConvolution(
+                    sparse.Convolution(
                         in_channels=self.nPlanes[i],
                         out_channels=self.nPlanes[i + 1],
                         kernel_size=2,
@@ -83,7 +82,7 @@ class FPN(torch.nn.Module):
         # Lateral Connections
         self.lateral = []
         for i, F in enumerate(self.nPlanes[-2::-1]):
-            self.lateral.append(ME.MinkowskiLinear(F, F))
+            self.lateral.append(sparse.Linear(F, F))
         self.lateral = nn.Sequential(*self.lateral)
 
         # Initialize Decoder
@@ -91,10 +90,10 @@ class FPN(torch.nn.Module):
         self.decoding_conv = []
         for i in range(self.depth - 2, -1, -1):
             m = []
-            m.append(ME.MinkowskiBatchNorm(self.nPlanes[i + 1]))
-            m.append(MinkowskiLeakyReLU(negative_slope=self.leakiness))
+            m.append(sparse.BatchNorm(self.nPlanes[i + 1]))
+            m.append(sparse.LeakyReLU(negative_slope=self.leakiness))
             m.append(
-                ME.MinkowskiConvolutionTranspose(
+                sparse.ConvolutionTranspose(
                     in_channels=self.nPlanes[i + 1],
                     out_channels=self.nPlanes[i],
                     kernel_size=2,
@@ -130,7 +129,7 @@ class FPN(torch.nn.Module):
         Vanilla FPN Encoder.
 
         INPUTS:
-            - x (SparseTensor): MinkowskiEngine SparseTensor
+            - x (SparseTensor): SPINE sparse tensor
 
         RETURNS:
             - result (dict): dictionary of encoder output with
@@ -172,7 +171,7 @@ class FPN(torch.nn.Module):
         coords = input[:, 0 : self.D + 1].int()
         features = input[:, self.D + 1 :]
 
-        x = ME.SparseTensor(features, coords=coords)
+        x = sparse.SparseTensor(features, coords=coords)
         encoderOutput = self.encoder(x)
         encoderTensors = encoderOutput["encoderTensors"]
         finalTensor = encoderOutput["finalTensor"]

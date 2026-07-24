@@ -141,6 +141,35 @@ def test_unwrap_tensor_batch_list():
     np.testing.assert_array_equal(result["tensors"][0][1], np.array([[5, 6]]))
 
 
+def test_unwrap_tensor_batch_convertible_values():
+    """Portable model outputs unwrap directly and inside feature-map lists."""
+
+    class Convertible:
+        def __init__(self, values):
+            self.values = np.asarray(values)
+
+        def to_tensor_batch(self):
+            return TensorBatch(self.values, counts=[1, 1])
+
+    direct = Convertible([[1, 2], [3, 4]])
+    levels = [
+        Convertible([[5, 6], [7, 8]]),
+        Convertible([[9, 10], [11, 12]]),
+    ]
+
+    result = Unwrapper()(
+        {
+            "index": [0, 1],
+            "direct": direct,
+            "levels": levels,
+        }
+    )
+
+    np.testing.assert_array_equal(result["direct"][0], np.array([[1, 2]]))
+    np.testing.assert_array_equal(result["levels"][1][0], np.array([[7, 8]]))
+    np.testing.assert_array_equal(result["levels"][1][1], np.array([[11, 12]]))
+
+
 def test_unwrap_tensor_batch_multi_volume(monkeypatch):
     class MockTPC:
         num_modules = 2

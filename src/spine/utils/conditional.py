@@ -10,56 +10,16 @@ import importlib
 import importlib.util
 import os
 import sys
-from typing import TYPE_CHECKING, Any, Protocol, TypeGuard
+from typing import TYPE_CHECKING, Any
 
 __all__ = [
     "ROOT",
     "larcv",
     "torch",
-    "ME",
-    "MF",
     "ROOT_AVAILABLE",
     "LARCV_AVAILABLE",
     "TORCH_AVAILABLE",
-    "ME_AVAILABLE",
-    "SparseTensorLike",
 ]
-
-
-class SparseTensorLike(Protocol):
-    """Structural type for MinkowskiEngine sparse tensors.
-
-    MinkowskiEngine is an optional runtime dependency exposed through a lazy
-    proxy, so ``ME.SparseTensor`` cannot be used directly in type expressions.
-    This protocol captures the sparse tensor surface used by SPINE without
-    making static analysis depend on MinkowskiEngine stubs.
-    """
-
-    dtype: Any
-    device: Any
-    F: Any
-    C: Any
-    coordinate_map_key: Any
-    coordinate_manager: Any
-
-    def __len__(self) -> int: ...
-
-    def __getitem__(self, index: Any) -> Any: ...
-
-    def features_at(self, batch_id: int) -> Any: ...
-
-    def coordinates_at(self, batch_id: int) -> Any: ...
-
-
-def is_sparse_tensor_like(obj: object) -> TypeGuard[SparseTensorLike]:
-    """Check whether an object exposes the sparse tensor API SPINE uses."""
-    return (
-        hasattr(obj, "dtype")
-        and hasattr(obj, "F")
-        and hasattr(obj, "C")
-        and hasattr(obj, "coordinate_map_key")
-        and hasattr(obj, "coordinate_manager")
-    )
 
 
 class _MissingType:
@@ -159,22 +119,9 @@ class _MissingTorch(_LazyModule):
         return _MissingNamespace(self._error)
 
 
-class _MissingME(_LazyModule):
-    """MinkowskiEngine proxy with a SparseTensor placeholder when unavailable."""
-
-    SparseTensor = _MissingType
-
-    def __getattr__(self, name: str) -> Any:
-        if name and name[0].isupper():
-            return _MissingType
-        return _MissingNamespace(self._error)
-
-
 def _module_available(module_name: str) -> bool:
     if os.getenv("SPINE_DOC_BUILD") and module_name in {
         "torch",
-        "MinkowskiEngine",
-        "MinkowskiFunctional",
         "larcv",
         "ROOT",
     }:
@@ -216,11 +163,7 @@ def _module_available(module_name: str) -> bool:
 ROOT_AVAILABLE = _module_available("ROOT")
 LARCV_AVAILABLE = _module_available("larcv")
 TORCH_AVAILABLE = _module_available("torch")
-ME_AVAILABLE = _module_available("MinkowskiEngine")
-
 if TYPE_CHECKING:
-    import MinkowskiEngine as ME
-    import MinkowskiFunctional as MF
     import ROOT
     import torch
     from larcv import larcv
@@ -234,22 +177,3 @@ else:
         torch = _LazyModule("torch", "torch", "PyTorch is required.")
     else:
         torch = _MissingTorch("torch", "torch", "PyTorch is required.")
-
-    if ME_AVAILABLE:
-        ME = _LazyModule(
-            "MinkowskiEngine", "MinkowskiEngine", "MinkowskiEngine is required."
-        )
-        MF = _LazyModule(
-            "MinkowskiFunctional",
-            "MinkowskiFunctional",
-            "MinkowskiFunctional is required.",
-        )
-    else:
-        ME = _MissingME(
-            "MinkowskiEngine", "MinkowskiEngine", "MinkowskiEngine is required."
-        )
-        MF = _LazyModule(
-            "MinkowskiFunctional",
-            "MinkowskiFunctional",
-            "MinkowskiFunctional is required.",
-        )

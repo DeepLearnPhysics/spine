@@ -1,14 +1,15 @@
 from typing import Union
 
-import MinkowskiEngine as ME
 import numpy as np
 import torch
 import torch.nn as nn
 
+from spine.model import sparse
+
 from .act_norm import act_factory, norm_factory
 
 
-class ConvolutionBlock(ME.MinkowskiNetwork):
+class ConvolutionBlock(sparse.Network):
     """Convolution block which operates a sequence of
     two (convolution + nomalization + activation) steps.
     """
@@ -50,7 +51,7 @@ class ConvolutionBlock(ME.MinkowskiNetwork):
 
         assert dimension > 0
 
-        self.conv1 = ME.MinkowskiConvolution(
+        self.conv1 = sparse.Convolution(
             in_features,
             out_features,
             kernel_size=3,
@@ -62,7 +63,7 @@ class ConvolutionBlock(ME.MinkowskiNetwork):
         self.norm1 = norm_factory(normalization, out_features)
         self.act_fn1 = act_factory(activation)
 
-        self.conv2 = ME.MinkowskiConvolution(
+        self.conv2 = sparse.Convolution(
             out_features,
             out_features,
             kernel_size=3,
@@ -79,12 +80,12 @@ class ConvolutionBlock(ME.MinkowskiNetwork):
 
         Parameters
         ----------
-        x : ME.SparseTensor
+        x : sparse.SparseTensor
             Input sparse tensor
 
         Returns
         -------
-        ME.SparseTensor
+        sparse.SparseTensor
             Output sparse tensor
         """
         out = self.conv1(x)
@@ -98,7 +99,7 @@ class ConvolutionBlock(ME.MinkowskiNetwork):
         return out
 
 
-class DropoutBlock(ME.MinkowskiNetwork):
+class DropoutBlock(sparse.Network):
     """Convolution block which operates a sequence of
     two (convolution + dropout + nomalization + activation) steps.
     """
@@ -143,7 +144,7 @@ class DropoutBlock(ME.MinkowskiNetwork):
 
         assert dimension > 0
 
-        self.conv1 = ME.MinkowskiConvolution(
+        self.conv1 = sparse.Convolution(
             in_features,
             out_features,
             kernel_size=3,
@@ -152,11 +153,11 @@ class DropoutBlock(ME.MinkowskiNetwork):
             dimension=dimension,
             bias=bias,
         )
-        self.dropout1 = ME.MinkowskiDropout(p=p)
+        self.dropout1 = sparse.Dropout(p=p)
         self.norm1 = norm_factory(normalization, out_features)
         self.act_fn1 = act_factory(activation)
 
-        self.conv2 = ME.MinkowskiConvolution(
+        self.conv2 = sparse.Convolution(
             out_features,
             out_features,
             kernel_size=3,
@@ -165,7 +166,7 @@ class DropoutBlock(ME.MinkowskiNetwork):
             dimension=dimension,
             bias=bias,
         )
-        self.dropout2 = ME.MinkowskiDropout(p=p)
+        self.dropout2 = sparse.Dropout(p=p)
         self.norm2 = norm_factory(normalization, out_features)
         self.act_fn2 = act_factory(activation)
 
@@ -174,12 +175,12 @@ class DropoutBlock(ME.MinkowskiNetwork):
 
         Parameters
         ----------
-        x : ME.SparseTensor
+        x : sparse.SparseTensor
             Input sparse tensor
 
         Returns
         -------
-        ME.SparseTensor
+        sparse.SparseTensor
             Output sparse tensor
         """
         out = self.conv1(x)
@@ -195,7 +196,7 @@ class DropoutBlock(ME.MinkowskiNetwork):
         return out
 
 
-class ResNetBlock(ME.MinkowskiNetwork):
+class ResNetBlock(sparse.Network):
     """ResNet Block."""
 
     def __init__(
@@ -236,11 +237,11 @@ class ResNetBlock(ME.MinkowskiNetwork):
         assert dimension > 0
 
         if in_features != out_features:
-            self.residual = ME.MinkowskiLinear(in_features, out_features, bias=bias)
+            self.residual = sparse.Linear(in_features, out_features, bias=bias)
         else:
             self.residual = nn.Identity()
 
-        self.conv1 = ME.MinkowskiConvolution(
+        self.conv1 = sparse.Convolution(
             in_features,
             out_features,
             kernel_size=3,
@@ -252,7 +253,7 @@ class ResNetBlock(ME.MinkowskiNetwork):
         self.norm1 = norm_factory(normalization, in_features)
         self.act_fn1 = act_factory(activation)
 
-        self.conv2 = ME.MinkowskiConvolution(
+        self.conv2 = sparse.Convolution(
             out_features,
             out_features,
             kernel_size=3,
@@ -269,12 +270,12 @@ class ResNetBlock(ME.MinkowskiNetwork):
 
         Parameters
         ----------
-        x : ME.SparseTensor
+        x : sparse.SparseTensor
             Input sparse tensor
 
         Returns
         -------
-        ME.SparseTensor
+        sparse.SparseTensor
             Output sparse tensor
         """
         residual = self.residual(x)
@@ -287,7 +288,7 @@ class ResNetBlock(ME.MinkowskiNetwork):
         return out
 
 
-class AtrousIIBlock(ME.MinkowskiNetwork):
+class AtrousIIBlock(sparse.Network):
     """ResNet-type block with atrous convolutions.
 
     Developed for the ACNN paper: "ACNN: a Full Resolution DCNN for Medical
@@ -327,11 +328,11 @@ class AtrousIIBlock(ME.MinkowskiNetwork):
         self.D = dimension
 
         if in_features != out_features:
-            self.residual = ME.MinkowskiLinear(in_features, out_features)
+            self.residual = sparse.Linear(in_features, out_features)
         else:
             self.residual = nn.Identity()
 
-        self.conv1 = ME.MinkowskiConvolution(
+        self.conv1 = sparse.Convolution(
             in_features,
             out_features,
             kernel_size=3,
@@ -342,7 +343,7 @@ class AtrousIIBlock(ME.MinkowskiNetwork):
         self.norm1 = norm_factory(normalization, out_features)
         self.act_fn1 = act_factory(activation)
 
-        self.conv2 = ME.MinkowskiConvolution(
+        self.conv2 = sparse.Convolution(
             out_features,
             out_features,
             kernel_size=3,
@@ -358,12 +359,12 @@ class AtrousIIBlock(ME.MinkowskiNetwork):
 
         Parameters
         ----------
-        x : ME.SparseTensor
+        x : sparse.SparseTensor
             Input sparse tensor
 
         Returns
         -------
-        ME.SparseTensor
+        sparse.SparseTensor
             Output sparse tensor
         """
         residual = self.residual(x)
@@ -380,7 +381,7 @@ class AtrousIIBlock(ME.MinkowskiNetwork):
         return out
 
 
-class ResNeXtBlock(ME.MinkowskiNetwork):
+class ResNeXtBlock(sparse.Network):
     """ResNeXt-type block with atrous convolutions.
 
     Notes
@@ -471,11 +472,11 @@ class ResNeXtBlock(ME.MinkowskiNetwork):
         self.paths = []
         for i in range(cardinality):
             m = []
-            m.append(ME.MinkowskiLinear(in_features, num_input))
+            m.append(sparse.Linear(in_features, num_input))
             for j in range(depth):
                 in_C = num_input if j == 0 else num_output
                 m.append(
-                    ME.MinkowskiConvolution(
+                    sparse.Convolution(
                         in_channels=in_C,
                         out_channels=num_output,
                         kernel_size=self.kernels[i],
@@ -489,11 +490,11 @@ class ResNeXtBlock(ME.MinkowskiNetwork):
             m = nn.Sequential(*m)
             self.paths.append(m)
         self.paths = nn.Sequential(*self.paths)
-        self.linear = ME.MinkowskiLinear(out_features, out_features)
+        self.linear = sparse.Linear(out_features, out_features)
 
         # Skip Connection
         if in_features != out_features:
-            self.residual = ME.MinkowskiLinear(in_features, out_features)
+            self.residual = sparse.Linear(in_features, out_features)
         else:
             self.residual = nn.Identity()
 
@@ -502,26 +503,26 @@ class ResNeXtBlock(ME.MinkowskiNetwork):
 
         Parameters
         ----------
-        x : ME.SparseTensor
+        x : sparse.SparseTensor
             Input sparse tensor
 
         Returns
         -------
-        ME.SparseTensor
+        sparse.SparseTensor
             Output sparse tensor
         """
         residual = self.residual(x)
 
         cat = tuple([layer(x) for layer in self.paths])
 
-        out = ME.cat(cat)
+        out = sparse.cat(cat)
         out = self.linear(out)
         out += residual
 
         return out
 
 
-class SPP(ME.MinkowskiNetwork):
+class SPP(sparse.Network):
     """Spatial Pyramid Pooling.
 
     PSPNet (Pyramid Scene Parsing Network) uses vanilla SPPs, while
@@ -562,20 +563,20 @@ class SPP(ME.MinkowskiNetwork):
         super().__init__(dimension)
 
         if mode == "avg":
-            self.pool_fn = ME.MinkowskiAvgPooling
+            self.pool_fn = sparse.AvgPooling
         elif mode == "max":
-            self.pool_fn = ME.MinkowskiMaxPooling
+            self.pool_fn = sparse.MaxPooling
         elif mode == "sum":
-            self.pool_fn = ME.MinkowskiSumPooling
+            self.pool_fn = sparse.SumPooling
         else:
             raise ValueError("Invalid pooling mode, must be one of \
                 'sum', 'max' or 'average'")
 
-        self.unpool_fn = ME.MinkowskiPoolingTranspose
+        self.unpool_fn = sparse.PoolingTranspose
 
         # Include global pooling as first modules.
-        self.pool = [ME.MinkowskiGlobalPooling(dimension=dimension)]
-        self.unpool = [ME.MinkowskiBroadcast(dimension=dimension)]
+        self.pool = [sparse.GlobalPooling(dimension=dimension)]
+        self.unpool = [sparse.Broadcast(dimension=dimension)]
         multiplier = 1
 
         # Define subregion poolings
@@ -601,19 +602,19 @@ class SPP(ME.MinkowskiNetwork):
                 self.unpool.append(unpooling_layer)
         self.pool = nn.Sequential(*self.pool)
         self.unpool = nn.Sequential(*self.unpool)
-        self.linear = ME.MinkowskiLinear(in_features * multiplier, out_features)
+        self.linear = sparse.Linear(in_features * multiplier, out_features)
 
     def forward(self, input):
         """Pass a tensor through the SPP block.
 
         Parameters
         ----------
-        x : ME.SparseTensor
+        x : sparse.SparseTensor
             Input sparse tensor
 
         Returns
         -------
-        ME.SparseTensor
+        sparse.SparseTensor
             Output sparse tensor
         """
         cat = []
@@ -625,13 +626,13 @@ class SPP(ME.MinkowskiNetwork):
             else:
                 x = self.unpool[i](x)
             cat.append(x)
-        out = ME.cat(cat)
+        out = sparse.cat(cat)
         out = self.linear(out)
 
         return out
 
 
-class ASPP(ME.MinkowskiNetwork):
+class ASPP(sparse.Network):
     """Atrous Spatial Pyramid Pooling."""
 
     def __init__(
@@ -663,10 +664,10 @@ class ASPP(ME.MinkowskiNetwork):
         assert len(dilations) == width
 
         m = []
-        m.append(ME.MinkowskiLinear(in_features, out_features))
+        m.append(sparse.Linear(in_features, out_features))
         for d in dilations:
             m.append(
-                ME.MinkowskiConvolution(
+                sparse.Convolution(
                     in_features,
                     out_features,
                     kernel_size=3,
@@ -675,18 +676,18 @@ class ASPP(ME.MinkowskiNetwork):
                 )
             )
         self.net = nn.Sequential(*m)
-        self.pool = ME.MinkowskiGlobalPooling(dimension=self.D)
-        self.unpool = ME.MinkowskiBroadcast(dimension=self.D)
+        self.pool = sparse.GlobalPooling(dimension=self.D)
+        self.unpool = sparse.Broadcast(dimension=self.D)
         self.out = nn.Sequential(
-            ME.MinkowskiConvolution(
+            sparse.Convolution(
                 in_features * (2 + width),
                 out_features,
                 kernel_size=3,
                 dilation=1,
                 dimension=self.D,
             ),
-            ME.MinkowskiBatchNorm(out_features),
-            ME.MinkowskiReLU(),
+            sparse.BatchNorm(out_features),
+            sparse.ReLU(),
         )
 
     def forward(self, x):
@@ -694,12 +695,12 @@ class ASPP(ME.MinkowskiNetwork):
 
         Parameters
         ----------
-        x : ME.SparseTensor
+        x : sparse.SparseTensor
             Input sparse tensor
 
         Returns
         -------
-        ME.SparseTensor
+        sparse.SparseTensor
             Output sparse tensor
         """
         cat = []
@@ -709,11 +710,11 @@ class ASPP(ME.MinkowskiNetwork):
         x_global = self.pool(x)
         x_global = self.unpool(x, x_global)
         cat.append(x_global)
-        out = ME.cat(cat)
+        out = sparse.cat(cat)
         return self.out(out)
 
 
-class CascadeDilationBlock(ME.MinkowskiNetwork):
+class CascadeDilationBlock(sparse.Network):
     """Cascaded Atrous Convolution Block."""
 
     def __init__(
@@ -747,7 +748,7 @@ class CascadeDilationBlock(ME.MinkowskiNetwork):
 
         F = out_features
         m = []
-        self.input_layer = ME.MinkowskiLinear(in_features, F)
+        self.input_layer = sparse.Linear(in_features, F)
         for i in range(depth):
             m.append(ResNetBlock(F, F, dilation=dilations[i], activation=activation))
         self.net = nn.Sequential(*m)
@@ -757,12 +758,12 @@ class CascadeDilationBlock(ME.MinkowskiNetwork):
 
         Parameters
         ----------
-        x : ME.SparseTensor
+        x : sparse.SparseTensor
             Input sparse tensor
 
         Returns
         -------
-        ME.SparseTensor
+        sparse.SparseTensor
             Output sparse tensor
         """
         x = self.input_layer(x)
@@ -774,7 +775,7 @@ class CascadeDilationBlock(ME.MinkowskiNetwork):
         return sumTensor
 
 
-class MBConv(ME.MinkowskiNetwork):
+class MBConv(sparse.Network):
     """MBConv block."""
 
     def __init__(
@@ -825,7 +826,7 @@ class MBConv(ME.MinkowskiNetwork):
             self.m = nn.Sequential(
                 norm_factory(normalization, in_features),
                 act_factory(activation),
-                ME.MinkowskiConvolution(
+                sparse.Convolution(
                     in_features,
                     out_features,
                     kernel_size=3,
@@ -839,10 +840,10 @@ class MBConv(ME.MinkowskiNetwork):
             self.m = nn.Sequential(
                 norm_factory(normalization, in_features),
                 act_factory(activation),
-                ME.MinkowskiLinear(in_features, self.hidden_dim),
+                sparse.Linear(in_features, self.hidden_dim),
                 norm_factory(normalization, self.hidden_dim),
                 act_factory(activation),
-                ME.MinkowskiChannelwiseConvolution(
+                sparse.ChannelwiseConvolution(
                     self.hidden_dim,
                     kernel_size=kernel_size,
                     stride=stride,
@@ -852,7 +853,7 @@ class MBConv(ME.MinkowskiNetwork):
                 ),
                 norm_factory(normalization, self.hidden_dim),
                 act_factory(activation),
-                ME.MinkowskiLinear(self.hidden_dim, out_features),
+                sparse.Linear(self.hidden_dim, out_features),
             )
 
     def forward(self, x):
@@ -860,12 +861,12 @@ class MBConv(ME.MinkowskiNetwork):
 
         Parameters
         ----------
-        x : ME.SparseTensor
+        x : sparse.SparseTensor
             Input sparse tensor
 
         Returns
         -------
-        ME.SparseTensor
+        sparse.SparseTensor
             Output sparse tensor
         """
         out = self.m(x)
@@ -873,7 +874,7 @@ class MBConv(ME.MinkowskiNetwork):
         return out
 
 
-class MBResConv(ME.MinkowskiNetwork):
+class MBResConv(sparse.Network):
     """MBResConv block."""
 
     def __init__(
@@ -948,7 +949,7 @@ class MBResConv(ME.MinkowskiNetwork):
             self.connection = nn.Sequential(
                 norm_factory(normalization, in_features),
                 act_factory(activation),
-                ME.MinkowskiLinear(in_features, out_features),
+                sparse.Linear(in_features, out_features),
             )
 
     def forward(self, x):
@@ -956,12 +957,12 @@ class MBResConv(ME.MinkowskiNetwork):
 
         Parameters
         ----------
-        x : ME.SparseTensor
+        x : sparse.SparseTensor
             Input sparse tensor
 
         Returns
         -------
-        ME.SparseTensor
+        sparse.SparseTensor
             Output sparse tensor
         """
         x_add = self.connection(x)
@@ -972,7 +973,7 @@ class MBResConv(ME.MinkowskiNetwork):
         return out
 
 
-class SEBlock(ME.MinkowskiNetwork):
+class SEBlock(sparse.Network):
     """Squeeze and Excitation block."""
 
     def __init__(self, channels, ratio=8, dimension=3):
@@ -992,24 +993,24 @@ class SEBlock(ME.MinkowskiNetwork):
 
         assert channels // ratio > 0
         assert channels % ratio == 0
-        self.linear1 = ME.MinkowskiLinear(channels, channels // ratio)
-        self.relu = ME.MinkowskiReLU()
-        self.linear2 = ME.MinkowskiLinear(channels // ratio, channels)
-        self.sigmoid = ME.MinkowskiSigmoid()
-        self.pool = ME.MinkowskiGlobalPooling()
-        self.bcst = ME.MinkowskiBroadcastMultiplication()
+        self.linear1 = sparse.Linear(channels, channels // ratio)
+        self.relu = sparse.ReLU()
+        self.linear2 = sparse.Linear(channels // ratio, channels)
+        self.sigmoid = sparse.Sigmoid()
+        self.pool = sparse.GlobalPooling()
+        self.bcst = sparse.BroadcastMultiplication()
 
     def forward(self, x):
         """Pass a tensor through the SE block.
 
         Parameters
         ----------
-        x : ME.SparseTensor
+        x : sparse.SparseTensor
             Input sparse tensor
 
         Returns
         -------
-        ME.SparseTensor
+        sparse.SparseTensor
             Output sparse tensor
         """
         g = self.pool(x)
@@ -1022,7 +1023,7 @@ class SEBlock(ME.MinkowskiNetwork):
         return x
 
 
-class SEResNetBlock(ME.MinkowskiNetwork):
+class SEResNetBlock(sparse.Network):
     """Squeeze and Excitation ResNet block."""
 
     def __init__(
@@ -1063,11 +1064,11 @@ class SEResNetBlock(ME.MinkowskiNetwork):
         assert dimension > 0
 
         if in_features != out_features:
-            self.residual = ME.MinkowskiLinear(in_features, out_features)
+            self.residual = sparse.Linear(in_features, out_features)
         else:
             self.residual = nn.Identity()
 
-        self.conv1 = ME.MinkowskiConvolution(
+        self.conv1 = sparse.Convolution(
             in_features,
             out_features,
             kernel_size=3,
@@ -1078,7 +1079,7 @@ class SEResNetBlock(ME.MinkowskiNetwork):
         self.norm1 = norm_factory(normalization, out_features)
         self.act_fn1 = act_factory(activation)
 
-        self.conv2 = ME.MinkowskiConvolution(
+        self.conv2 = sparse.Convolution(
             out_features,
             out_features,
             kernel_size=3,
@@ -1096,12 +1097,12 @@ class SEResNetBlock(ME.MinkowskiNetwork):
 
         Parameters
         ----------
-        x : ME.SparseTensor
+        x : sparse.SparseTensor
             Input sparse tensor
 
         Returns
         -------
-        ME.SparseTensor
+        sparse.SparseTensor
             Output sparse tensor
         """
         residual = self.residual(x)
@@ -1178,7 +1179,7 @@ class MBResConvSE(MBResConv):
             self.connection = nn.Sequential(
                 norm_factory(normalization, in_features),
                 act_factory(activation),
-                ME.MinkowskiLinear(in_features, out_features),
+                sparse.Linear(in_features, out_features),
             )
 
         self.se = SEBlock(out_features, ratio=se_ratio)
@@ -1188,12 +1189,12 @@ class MBResConvSE(MBResConv):
 
         Parameters
         ----------
-        x : ME.SparseTensor
+        x : sparse.SparseTensor
             Input sparse tensor
 
         Returns
         -------
-        ME.SparseTensor
+        sparse.SparseTensor
             Output sparse tensor
         """
         res = super().forward(x)

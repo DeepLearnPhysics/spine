@@ -2,13 +2,13 @@
 
 from collections import defaultdict
 
-import MinkowskiEngine as ME
 import numpy as np
 import torch
 import torch.nn as nn
 
 from spine.constants import BATCH_COL, COORD_COLS, GHOST_SHP, VALUE_COL
 from spine.data import TensorBatch
+from spine.model import sparse
 from spine.utils.logger import logger
 from spine.utils.torch.scripts import cdist_fast
 
@@ -65,14 +65,12 @@ class UResNetSegmentation(nn.Module):
             act_factory(self.backbone.act_cfg),
         ]
         self.output = nn.Sequential(*self.output)
-        self.linear_segmentation = ME.MinkowskiLinear(
-            self.num_filters, self.num_classes
-        )
+        self.linear_segmentation = sparse.Linear(self.num_filters, self.num_classes)
 
         # If needed, activate the ghost classification layer
         if self.ghost:
             logger.debug("Ghost Masking is enabled for UResNet Segmentation")
-            self.linear_ghost = ME.MinkowskiLinear(self.num_filters, 2)
+            self.linear_ghost = sparse.Linear(self.num_filters, 2)
 
     def process_model_config(self, num_classes, ghost=False, **backbone):
         """Initialize the underlying UResNet model.
@@ -116,7 +114,7 @@ class UResNetSegmentation(nn.Module):
         input_tensor = data.tensor[:, :num_cols]
 
         # Pass the data through the UResNet backbone
-        result_backbone = self.backbone(input_tensor)
+        result_backbone = self.backbone(input_tensor, batch_size=data.batch_size)
 
         # Pass the output features through the output layer
         feats = result_backbone["decoder_tensors"][-1]
@@ -124,20 +122,11 @@ class UResNetSegmentation(nn.Module):
         seg = self.linear_segmentation(feats)
 
         # Store the output as tensor batches
-        segmentation = TensorBatch(seg.F, data.counts)
+        segmentation = TensorBatch(seg.aligned_features(), data.counts)
 
-        batch_size = data.batch_size
-        final_tensor = TensorBatch(
-            result_backbone["final_tensor"], batch_size=batch_size, is_sparse=True
-        )
-        encoder_tensors = [
-            TensorBatch(t, batch_size=batch_size, is_sparse=True)
-            for t in result_backbone["encoder_tensors"]
-        ]
-        decoder_tensors = [
-            TensorBatch(t, batch_size=batch_size, is_sparse=True)
-            for t in result_backbone["decoder_tensors"]
-        ]
+        final_tensor = result_backbone["final_tensor"]
+        encoder_tensors = result_backbone["encoder_tensors"]
+        decoder_tensors = result_backbone["decoder_tensors"]
 
         result = {
             "segmentation": segmentation,
@@ -150,8 +139,8 @@ class UResNetSegmentation(nn.Module):
         if self.ghost:
             ghost = self.linear_ghost(feats)
 
-            result["ghost"] = TensorBatch(ghost.F, data.counts)
-            result["ghost_tensor"] = TensorBatch(ghost, data.counts, is_sparse=True)
+            result["ghost"] = TensorBatch(ghost.aligned_features(), data.counts)
+            result["ghost_tensor"] = ghost
 
         return result
 

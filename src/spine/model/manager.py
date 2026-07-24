@@ -8,7 +8,7 @@ from typing import Any
 
 import numpy as np
 
-from spine.data import EdgeIndexBatch, IndexBatch, TensorBatch
+from spine.data import EdgeIndexBatch, IndexBatch, TensorBatch, TensorBatchConvertible
 from spine.utils.conditional import TORCH_AVAILABLE, torch
 from spine.utils.logger import logger
 from spine.utils.stopwatch import StopwatchManager
@@ -593,6 +593,9 @@ class ModelManager:
         """
         # Loop over the key, value pairs in the result dictionary
         for key, value in result.items():
+            if isinstance(value, TensorBatchConvertible):
+                value = value.to_tensor_batch()
+
             # Cast to numpy or python scalars
             if np.isscalar(value):
                 # Scalar
@@ -609,10 +612,17 @@ class ModelManager:
             elif (
                 isinstance(value, list)
                 and len(value)
-                and isinstance(value[0], TensorBatch)
+                and isinstance(value[0], (TensorBatch, TensorBatchConvertible))
             ):
                 # List of tensor batches
-                result[key] = [v.to_numpy() for v in value]
+                result[key] = [
+                    (
+                        v.to_tensor_batch().to_numpy()
+                        if isinstance(v, TensorBatchConvertible)
+                        else v.to_numpy()
+                    )
+                    for v in value
+                ]
 
             else:
                 dtype = type(value)
