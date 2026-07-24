@@ -396,6 +396,11 @@ def test_get_version_show_info_and_dependency_checks(monkeypatch, capsys):
         return original_import(name, globals, locals, fromlist, level)
 
     monkeypatch.setattr(builtins, "__import__", fake_missing_dep_import)
+    monkeypatch.setattr(
+        cli_module,
+        "package_version",
+        lambda name: (_ for _ in ()).throw(cli_module.PackageNotFoundError(name)),
+    )
     deps = cli_module.check_dependencies()
     assert deps["torch"] is None
     assert deps["minkowski"] is None
@@ -423,6 +428,11 @@ def test_get_version_and_dependency_checks_success(monkeypatch):
         return original_import(name, globals, locals, fromlist, level)
 
     monkeypatch.setattr(builtins, "__import__", fake_dep_import)
+    monkeypatch.setattr(
+        cli_module,
+        "package_version",
+        lambda name: {"MinkowskiEngine": "0.5.4"}[name],
+    )
 
     assert cli_module.get_version() == __version__
     deps = cli_module.check_dependencies()

@@ -1,7 +1,4 @@
-"""Functions which initialize activation and normalization layers
-used by CNNs. These factories build activations and normalizations layers
-are based on the MinkowskiEngine package.
-"""
+"""Factories for backend-neutral sparse activations and normalizations."""
 
 from copy import deepcopy
 
@@ -12,23 +9,23 @@ __all__ = ["act_factory", "norm_factory"]
 
 def act_dict():
     """Dictionary of valid activation functions."""
-    import MinkowskiEngine as ME
-    import MinkowskiEngine.MinkowskiNonlinearity as MENL
     from torch.nn import Identity
+
+    from spine.model import sparse
 
     from . import nonlinearities
 
     activations = {
         "none": Identity,
-        "relu": ME.MinkowskiReLU,
-        "prelu": ME.MinkowskiPReLU,
-        "selu": ME.MinkowskiSELU,
-        "celu": ME.MinkowskiCELU,
-        "tanh": ME.MinkowskiTanh,
-        "sigmoid": ME.MinkowskiSigmoid,
-        "lrelu": MENL.MinkowskiLeakyReLU,
-        "elu": MENL.MinkowskiELU,
-        "mish": nonlinearities.MinkowskiMish,
+        "relu": sparse.ReLU,
+        "prelu": sparse.PReLU,
+        "selu": sparse.SELU,
+        "celu": sparse.CELU,
+        "tanh": sparse.Tanh,
+        "sigmoid": sparse.Sigmoid,
+        "lrelu": sparse.LeakyReLU,
+        "elu": sparse.ELU,
+        "mish": nonlinearities.Mish,
     }
 
     return activations
@@ -36,16 +33,17 @@ def act_dict():
 
 def norm_dict():
     """Dictionary of valid normalization functions."""
-    import MinkowskiEngine as ME
     from torch.nn import Identity
+
+    from spine.model import sparse
 
     from . import normalizations
 
     norm_layers = {
         "none": Identity,
-        "batch_norm": ME.MinkowskiBatchNorm,
-        "instance_norm": ME.MinkowskiInstanceNorm,
-        "pixel_norm": normalizations.MinkowskiPixelNorm,
+        "batch_norm": sparse.BatchNorm,
+        "instance_norm": sparse.InstanceNorm,
+        "pixel_norm": normalizations.PixelNorm,
     }
 
     return norm_layers

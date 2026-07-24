@@ -1,6 +1,5 @@
 """Supervi dense clustering model and its loss."""
 
-import MinkowskiEngine as ME
 import numpy as np
 import torch
 
@@ -14,6 +13,7 @@ from spine.constants import (
 )
 from spine.constants.factory import enum_factory
 from spine.data import IndexBatch, TensorBatch
+from spine.model import sparse
 from spine.utils.cluster.graph import ClusterGraphConstructor
 
 from .layer.cluster import kernel_factory, loss_factory

@@ -1,9 +1,8 @@
-import MinkowskiEngine as ME
-import MinkowskiFunctional as MF
 import numpy as np
 import torch
 import torch.nn as nn
 
+from spine.model import sparse
 from spine.model.layer.cnn.act_norm import act_factory
 from spine.model.layer.cnn.blocks import ResNetBlock
 from spine.model.layer.cnn.configuration import setup_cnn_configuration
@@ -23,7 +22,7 @@ class Attention(nn.Module):
         features = x.F
         features = features * scores
         coords = x.C
-        output = ME.SparseTensor(coordinates=coords, feats=features)
+        output = sparse.SparseTensor(coordinates=coords, feats=features)
         return output
 
 
@@ -31,9 +30,9 @@ class ExpandAs(nn.Module):
     """
     Given a sparse tensor with one dimensional features, expand the
     feature map to given shape and return a newly constructed
-    ME.SparseTensor.
+    sparse.SparseTensor.
 
-        - x (ME.SparseTensor): with x.F.shape[1] == 1
+        - x (sparse.SparseTensor): with x.F.shape[1] == 1
         - shape (tuple)
     """
 
@@ -43,7 +42,7 @@ class ExpandAs(nn.Module):
     def forward(self, x, shape):
         device = x.F.device
         features = x.F.expand(*shape)
-        output = ME.SparseTensor(
+        output = sparse.SparseTensor(
             feats=features, coords_key=x.coords_key, coords_manager=x.coords_man
         )
         return output
@@ -73,13 +72,13 @@ class SPICE(torch.nn.Module):
         self.sigmoid = nn.Sigmoid()
 
         self.outputEmbeddings = nn.Sequential(
-            ME.MinkowskiBatchNorm(self.num_filters, **self.norm_args),
-            ME.MinkowskiLinear(self.num_filters, self.D + self.sigmaDim, bias=False),
+            sparse.BatchNorm(self.num_filters, **self.norm_args),
+            sparse.Linear(self.num_filters, self.D + self.sigmaDim, bias=False),
         )
 
         self.outputSeediness = nn.Sequential(
-            ME.MinkowskiBatchNorm(self.num_filters, **self.norm_args),
-            ME.MinkowskiLinear(self.num_filters, self.seedDim, bias=False),
+            sparse.BatchNorm(self.num_filters, **self.norm_args),
+            sparse.Linear(self.num_filters, self.seedDim, bias=False),
         )
 
         if self.seed_freeze:
@@ -115,7 +114,7 @@ class SPICE(torch.nn.Module):
         if self.coordConv:
             features = torch.cat([normalized_coords, features], dim=1)
 
-        x = ME.SparseTensor(features, coordinates=coords)
+        x = sparse.SparseTensor(features, coordinates=coords)
 
         encoderOutput = self.encoder(x)
         encoderTensors = encoderOutput["encoderTensors"]

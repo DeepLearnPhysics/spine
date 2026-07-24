@@ -4,7 +4,7 @@ This module contains reusable utility functions organized into several categorie
 
 Core utilities:
 
-- ``conditional`` for optional imports such as ROOT, LArCV, MinkowskiEngine, and PyTorch.
+- ``conditional`` for optional imports such as ROOT, LArCV, and PyTorch.
 - ``factory`` and ``logger`` for application infrastructure.
 - ``globals`` for deprecated shared-constant compatibility.
 

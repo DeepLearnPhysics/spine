@@ -1,10 +1,9 @@
 from collections import defaultdict
 
-import MinkowskiEngine as ME
-import MinkowskiFunctional as MF
 import torch
 import torch.nn as nn
 
+from spine.model import sparse
 from spine.model.layer.cnn.act_norm import act_factory, norm_factory
 from spine.model.layer.cnn.blocks import DropoutBlock, ResNetBlock
 from spine.model.layer.cnn.configuration import setup_cnn_configuration
@@ -50,7 +49,7 @@ class MCDropoutEncoder(torch.nn.Module):
         # Initialize Input Layer
         if self.coordConv:
             self.input_layer = nn.Sequential(
-                ME.MinkowskiConvolution(
+                sparse.Convolution(
                     in_channels=self.num_input + self.D,
                     out_channels=self.num_filters,
                     kernel_size=self.input_kernel,
@@ -60,7 +59,7 @@ class MCDropoutEncoder(torch.nn.Module):
             )
         else:
             self.input_layer = nn.Sequential(
-                ME.MinkowskiConvolution(
+                sparse.Convolution(
                     in_channels=self.num_input,
                     out_channels=self.num_filters,
                     kernel_size=self.input_kernel,
@@ -109,7 +108,7 @@ class MCDropoutEncoder(torch.nn.Module):
                 m.append(norm_factory(self.norm, F, **self.norm_args))
                 m.append(act_factory(self.activation_name, **self.activation_args))
                 m.append(
-                    ME.MinkowskiConvolution(
+                    sparse.Convolution(
                         in_channels=self.nPlanes[i],
                         out_channels=self.nPlanes[i + 1],
                         kernel_size=2,
@@ -119,7 +118,7 @@ class MCDropoutEncoder(torch.nn.Module):
                     )
                 )
                 if i in self.dropout_layer_index:
-                    m.append(ME.MinkowskiDropout(p=self.dropout_p))
+                    m.append(sparse.Dropout(p=self.dropout_p))
                 else:
                     pass
             m = nn.Sequential(*m)
@@ -128,23 +127,23 @@ class MCDropoutEncoder(torch.nn.Module):
         self.encoding_block = nn.Sequential(*self.encoding_block)
 
         if self.pool_mode == "global_average":
-            self.pool = ME.MinkowskiGlobalPooling()
+            self.pool = sparse.GlobalPooling()
         elif self.pool_mode == "conv":
             self.pool = nn.Sequential(
-                ME.MinkowskiConvolution(
+                sparse.Convolution(
                     in_channels=self.nPlanes[-1],
                     out_channels=self.nPlanes[-1],
                     kernel_size=final_tensor_shape,
                     stride=final_tensor_shape,
                     dimension=self.D,
                 ),
-                ME.MinkowskiDropout(p=self.dropout_p),
-                ME.MinkowskiGlobalPooling(),
+                sparse.Dropout(p=self.dropout_p),
+                sparse.GlobalPooling(),
             )
         elif self.pool_mode == "max":
             self.pool = nn.Sequential(
-                ME.MinkowskiMaxPooling(final_tensor_shape, stride=final_tensor_shape),
-                ME.MinkowskiGlobalPooling(),
+                sparse.MaxPooling(final_tensor_shape, stride=final_tensor_shape),
+                sparse.GlobalPooling(),
             )
         elif self.pool_mode == "no_pooling":
             self.pool = nn.Identity()
@@ -153,8 +152,8 @@ class MCDropoutEncoder(torch.nn.Module):
 
         if self.add_classifier:
             self.linear1 = nn.Sequential(
-                ME.MinkowskiReLU(),
-                ME.MinkowskiLinear(self.nPlanes[-1], self.latent_size),
+                sparse.ReLU(),
+                sparse.Linear(self.nPlanes[-1], self.latent_size),
             )
         else:
             self.linear1 = nn.Identity()
@@ -164,7 +163,7 @@ class MCDropoutEncoder(torch.nn.Module):
         Vanilla UResNet Encoder.
 
         INPUTS:
-            - x (SparseTensor): MinkowskiEngine SparseTensor
+            - x (SparseTensor): SPINE sparse tensor
 
         RETURNS:
             - result (dict): dictionary of encoder output with
@@ -185,7 +184,7 @@ class MCDropoutEncoder(torch.nn.Module):
 
     def forward(self, input_tensor):
 
-        x = ME.SparseTensor(
+        x = sparse.SparseTensor(
             coordinates=input_tensor[:, :4].int(),
             features=input_tensor[:, -1].view(-1, 1).float(),
         )

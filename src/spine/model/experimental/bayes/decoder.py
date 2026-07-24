@@ -1,7 +1,7 @@
-import MinkowskiEngine as ME
 import torch
 import torch.nn as nn
 
+from spine.model import sparse
 from spine.model.layer.cnn.act_norm import act_factory, norm_factory
 from spine.model.layer.cnn.blocks import DropoutBlock, ResNetBlock
 from spine.model.layer.cnn.configuration import setup_cnn_configuration
@@ -53,7 +53,7 @@ class MCDropoutDecoder(torch.nn.Module):
             m.append(norm_factory(self.norm, self.nPlanes[i + 1], **self.norm_args))
             m.append(act_factory(self.activation_name, **self.activation_args))
             m.append(
-                ME.MinkowskiConvolutionTranspose(
+                sparse.ConvolutionTranspose(
                     in_channels=self.nPlanes[i + 1],
                     out_channels=self.nPlanes[i],
                     kernel_size=2,
@@ -62,7 +62,7 @@ class MCDropoutDecoder(torch.nn.Module):
                 )
             )
             if i in self.dropout_layer_index:
-                m.append(ME.MinkowskiDropout(p=self.dropout_p))
+                m.append(sparse.Dropout(p=self.dropout_p))
             m = nn.Sequential(*m)
             self.decoding_conv.append(m)
             m = []
@@ -113,7 +113,7 @@ class MCDropoutDecoder(torch.nn.Module):
         for i, layer in enumerate(self.decoding_conv):
             eTensor = encoderTensors[-i - 2]
             x = layer(x)
-            x = ME.cat(eTensor, x)
+            x = sparse.cat(eTensor, x)
             x = self.decoding_block[i](x)
             decoderTensors.append(x)
         return decoderTensors

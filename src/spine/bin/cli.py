@@ -5,6 +5,8 @@ import argparse
 import os
 import pathlib
 import sys
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as package_version
 from warnings import warn
 
 from spine.banner import ascii_logo
@@ -424,10 +426,8 @@ def check_dependencies():
 
     # Check ML dependencies
     try:
-        import MinkowskiEngine
-
-        deps["minkowski"] = MinkowskiEngine.__version__
-    except ImportError:
+        deps["minkowski"] = package_version("MinkowskiEngine")
+    except PackageNotFoundError:
         deps["minkowski"] = None
 
     return deps

@@ -1,8 +1,8 @@
-import MinkowskiEngine as ME
-import MinkowskiFunctional as MF
 import numpy as np
 import torch
 import torch.nn as nn
+
+from spine.model import sparse
 
 from .act_norm import act_factory
 from .blocks import *
@@ -34,7 +34,7 @@ class SENet(torch.nn.Module):
         activation_args = self.activation_args
 
         # Initialize Input Layer
-        self.input_layer = ME.MinkowskiConvolution(
+        self.input_layer = sparse.Convolution(
             self.num_input,
             self.num_filters,
             kernel_size=self.input_kernel,
@@ -64,10 +64,10 @@ class SENet(torch.nn.Module):
             self.encoding_block.append(m)
             m = []
             if i < self.depth - 1:
-                m.append(ME.MinkowskiBatchNorm(F))
+                m.append(sparse.BatchNorm(F))
                 m.append(act_factory(activation, **activation_args))
                 m.append(
-                    ME.MinkowskiConvolution(
+                    sparse.Convolution(
                         in_channels=self.nPlanes[i],
                         out_channels=self.nPlanes[i + 1],
                         kernel_size=2,
@@ -85,10 +85,10 @@ class SENet(torch.nn.Module):
         self.decoding_conv = []
         for i in range(self.depth - 2, -1, -1):
             m = []
-            m.append(ME.MinkowskiBatchNorm(self.nPlanes[i + 1]))
+            m.append(sparse.BatchNorm(self.nPlanes[i + 1]))
             m.append(act_factory(activation, **activation_args))
             m.append(
-                ME.MinkowskiConvolutionTranspose(
+                sparse.ConvolutionTranspose(
                     in_channels=self.nPlanes[i + 1],
                     out_channels=self.nPlanes[i],
                     kernel_size=2,
@@ -124,7 +124,7 @@ class SENet(torch.nn.Module):
         UResNeXt Encoder.
 
         INPUTS:
-            - x (SparseTensor): MinkowskiEngine SparseTensor
+            - x (SparseTensor): SPINE sparse tensor
 
         RETURNS:
             - result (dict): dictionary of encoder output with
@@ -158,7 +158,7 @@ class SENet(torch.nn.Module):
         for i, layer in enumerate(self.decoding_conv):
             eTensor = encoderTensors[-i - 2]
             x = layer(x)
-            x = ME.cat((eTensor, x))
+            x = sparse.cat((eTensor, x))
             x = self.decoding_block[i](x)
             decoderTensors.append(x)
         return decoderTensors
@@ -167,7 +167,7 @@ class SENet(torch.nn.Module):
         coords = input[:, 0 : self.D + 1].int()
         features = input[:, self.D + 1 :]
 
-        x = ME.SparseTensor(features, coordinates=coords)
+        x = sparse.SparseTensor(features, coordinates=coords)
         encoderOutput = self.encoder(x)
         encoderTensors = encoderOutput["encoderTensors"]
         finalTensor = encoderOutput["finalTensor"]

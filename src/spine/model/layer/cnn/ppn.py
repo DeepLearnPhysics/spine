@@ -1,7 +1,5 @@
 from collections import Counter
 
-import MinkowskiEngine as ME
-import MinkowskiFunctional as MF
 import numpy as np
 import torch
 import torch.nn as nn
@@ -21,6 +19,7 @@ from spine.constants import (
     VALUE_COL,
 )
 from spine.data import TensorBatch
+from spine.model import sparse
 from spine.utils.logger import logger
 from spine.utils.torch.scripts import cdist_fast
 from spine.utils.weighting import get_class_weights
@@ -185,10 +184,10 @@ class PPN(torch.nn.Module):
         self.ppn_masks = nn.ModuleList()
         for i in range(self.depth - 2, -1, -1):
             m = []
-            m.append(ME.MinkowskiBatchNorm(self.num_planes[i + 1]))
+            m.append(sparse.BatchNorm(self.num_planes[i + 1]))
             m.append(act_factory(self.act_cfg))
             m.append(
-                ME.MinkowskiConvolutionTranspose(
+                sparse.ConvolutionTranspose(
                     in_channels=self.num_planes[i + 1],
                     out_channels=self.num_planes[i],
                     kernel_size=2,
@@ -211,7 +210,7 @@ class PPN(torch.nn.Module):
                 )
             m = nn.Sequential(*m)
             self.decoding_block.append(m)
-            self.ppn_masks.append(ME.MinkowskiLinear(self.num_planes[i], 2))
+            self.ppn_masks.append(sparse.Linear(self.num_planes[i], 2))
 
         self.decoding_block = nn.Sequential(*self.decoding_block)
         self.decoding_conv = nn.Sequential(*self.decoding_conv)
@@ -226,21 +225,21 @@ class PPN(torch.nn.Module):
         )
 
         # Final linear layer for positional regression (dimension size)
-        self.ppn_pixel_pos = ME.MinkowskiLinear(num_output, self.dim)
+        self.ppn_pixel_pos = sparse.Linear(num_output, self.dim)
 
         # Final convolution layer for type classification
-        self.ppn_type = ME.MinkowskiLinear(num_output, self.num_classes)
+        self.ppn_type = sparse.Linear(num_output, self.num_classes)
 
         # Final convolution layer for endpoint prediction
         if self.classify_endpoints:
-            self.ppn_endpoint = ME.MinkowskiLinear(num_output, 2)
+            self.ppn_endpoint = sparse.Linear(num_output, 2)
 
         # Ghost point removal tools
         if self.ghost:
-            logger.debug("Ghost Masking is enabled for MinkPPN.")
+            logger.debug("Ghost masking is enabled for PPN.")
             self.masker = AttentionMask()
             self.merge_concat = MergeConcat()
-            self.ghost_mask = MinkGhostMask(self.dim)
+            self.ghost_mask = GhostMask(self.dim)
 
     def forward(self, final_tensor, decoder_tensors, ghost=None, seg_label=None):
         """Compute the PPN loss for a batch of data.
@@ -280,7 +279,7 @@ class PPN(torch.nn.Module):
                     )
 
                     labels = seg_label.tensor
-                    assert labels.shape[0] == decoder_tensors[-1].tensor.shape[0], (
+                    assert labels.shape[0] == decoder_tensors[-1].reference_size, (
                         "The label tensor length must match that "
                         "of the last UResNet layer"
                     )
@@ -289,29 +288,29 @@ class PPN(torch.nn.Module):
                     ghost_mask_tensor = labels[:, SHAPE_COL] < GHOST_SHP
                 else:
                     # If using predictions, convert the ghost scores to a mask
-                    ghost_coords = ghost.tensor.C
+                    ghost_coords = ghost.C
                     ghost_mask_tensor = 1.0 - torch.argmax(
-                        ghost.tensor.F, dim=1, keepdim=True
+                        ghost.aligned_features(), dim=1, keepdim=True
                     )
 
-                ghost_mask = ME.SparseTensor(
+                ghost_mask = sparse.SparseTensor(
                     ghost_mask_tensor, coordinates=ghost_coords
                 )
 
             # Downsample stride 1 ghost mask to all intermediate decoder layers
             for t in decoder_tensors[::-1]:
-                scaled_ghost_mask = self.ghost_mask(ghost_mask, t.tensor)
-                nonghost_tensor = self.masker(t.tensor, scaled_ghost_mask)
+                scaled_ghost_mask = self.ghost_mask(ghost_mask, t)
+                nonghost_tensor = self.masker(t, scaled_ghost_mask)
                 decoder_feature_maps.append(nonghost_tensor)
 
             decoder_feature_maps = decoder_feature_maps[::-1]
 
         else:
-            decoder_feature_maps = [t.tensor for t in decoder_tensors]
+            decoder_feature_maps = list(decoder_tensors)
 
         # Loop over the PPN decoding path
         ppn_masks, ppn_layers, ppn_coords = [], [], []
-        x = final_tensor.tensor
+        x = final_tensor
         for i, layer in enumerate(self.decoding_conv):
             # Pass the previous features through the decoding convolution
             x = layer(x)
@@ -321,12 +320,12 @@ class PPN(torch.nn.Module):
             if self.ghost:
                 x = self.merge_concat(decoder_tensor, x)
             else:
-                x = ME.cat(decoder_tensor, x)
+                x = sparse.cat(decoder_tensor, x)
 
             # Apply the decoding block, linear layer and sigmoid function
             x = self.decoding_block[i](x)
             scores = self.ppn_masks[i](x)
-            softmax = MF.softmax(scores, dim=1)
+            softmax = sparse.softmax(scores, dim=1)
             mask = softmax.F[:, 1:] > self.mask_score_threshold
 
             # Store the coordinates, raw score logits and score mask
@@ -349,7 +348,7 @@ class PPN(torch.nn.Module):
             x = x * s_expanded.detach()
 
         # Output set of coordinates (should match the last decoder tensor)
-        assert x.C.shape[0] == decoder_tensors[-1].tensor.shape[0], (
+        assert x.C.shape[0] == decoder_tensors[-1].shape[0], (
             "The output of the last PPN layer should be consistent "
             "with the length of the last UResNet decoder layer"
         )
@@ -366,20 +365,31 @@ class PPN(torch.nn.Module):
             ppn_endpoint = self.ppn_endpoint(x)
 
         # X, Y, Z, logits, and prob score
-        ppn_points = TensorBatch(
-            torch.cat([pixel_pos.F, ppn_type.F, ppn_layers[-1].tensor], dim=1),
-            final_counts,
+        point_features = x.replace_features(
+            torch.cat([pixel_pos.F, ppn_type.F, ppn_layers[-1].tensor], dim=1)
+        )
+        ppn_points_unique = point_features.to_tensor_batch(
+            include_coordinates=False,
+        )
+        ppn_points = point_features.to_tensor_batch(
+            include_coordinates=False, restore=True
         )
 
         result = {
             "ppn_points": ppn_points,
+            "ppn_points_unique": ppn_points_unique,
             "ppn_masks": ppn_masks,
             "ppn_layers": ppn_layers,
             "ppn_coords": ppn_coords,
             "ppn_output_coords": ppn_output_coords,
         }
         if self.classify_endpoints:
-            result["ppn_classify_endpoints"] = TensorBatch(ppn_endpoint.F, final_counts)
+            result["ppn_classify_endpoints_unique"] = ppn_endpoint.to_tensor_batch(
+                include_coordinates=False,
+            )
+            result["ppn_classify_endpoints"] = ppn_endpoint.to_tensor_batch(
+                include_coordinates=False, restore=True
+            )
 
         return result
 
@@ -595,6 +605,8 @@ class PPNLoss(torch.nn.modules.loss._Loss):
         ppn_coords,
         ppn_output_coords,
         ppn_classify_endpoints=None,
+        ppn_points_unique=None,
+        ppn_classify_endpoints_unique=None,
         clust_label=None,
         **kwargs,
     ):
@@ -616,6 +628,12 @@ class PPNLoss(torch.nn.modules.loss._Loss):
             Set of coordinates at the very last layer of the PPN
         ppn_classify_endpoins : TensorBatch, optional
             Set of logits associated with end point classification
+        ppn_points_unique : TensorBatch, optional
+            PPN predictions on unique sparse sites. When provided, these are
+            used for voxel-wise losses while ``ppn_points`` remains aligned
+            with the original input rows for downstream consumers.
+        ppn_classify_endpoints_unique : TensorBatch, optional
+            Endpoint logits on unique sparse sites.
         clust_label : TensorBatch, optional
             (N, 1 + D + N_c) Tensor of cluster labels
             - N_c is is the number of cluster labels
@@ -630,6 +648,12 @@ class PPNLoss(torch.nn.modules.loss._Loss):
         # Initialize the basics
         num_layers = len(ppn_layers)
         batch_size = ppn_label.batch_size
+        loss_points = ppn_points if ppn_points_unique is None else ppn_points_unique
+        loss_endpoints = (
+            ppn_classify_endpoints
+            if ppn_classify_endpoints_unique is None
+            else ppn_classify_endpoints_unique
+        )
 
         # If requested, narrow down the list of label points
         if self.point_classes is not None:
@@ -692,8 +716,8 @@ class PPNLoss(torch.nn.modules.loss._Loss):
         positives = torch.cat(positive_list, dim=0).long()
 
         # Downsample the final mask to each PPN layer, apply mask loss
-        downsample = ME.MinkowskiMaxPooling(2, 2, dimension=3)  # TODO
-        mask_tensor = ME.SparseTensor(
+        downsample = sparse.MaxPooling(2, 2, dimension=3)  # TODO
+        mask_tensor = sparse.SparseTensor(
             positives[:, None].float(), coordinates=coords_final.tensor[:, :VALUE_COL]
         )
 
@@ -750,9 +774,9 @@ class PPNLoss(torch.nn.modules.loss._Loss):
             closests = closests[pos_mask]
 
             anchors = coords_final.tensor[:, COORD_COLS] + 0.5
-            pixel_pos = ppn_points.tensor[:, PPN_ROFF_COLS] + anchors
-            pixel_scores = ppn_points.tensor[:, PPN_RPOS_COLS]
-            pixel_logits = ppn_points.tensor[:, PPN_RTYPE_COLS]
+            pixel_pos = loss_points.tensor[:, PPN_ROFF_COLS] + anchors
+            pixel_scores = loss_points.tensor[:, PPN_RPOS_COLS]
+            pixel_logits = loss_points.tensor[:, PPN_RTYPE_COLS]
 
             pixel_pos = pixel_pos[pos_mask]
             pixel_scores = pixel_scores[pos_mask]
@@ -792,9 +816,9 @@ class PPNLoss(torch.nn.modules.loss._Loss):
             # If the upstream models produced endpoint predictions, apply loss.
             # Narrow the problem down to predictions closest to track points
             track_index = torch.where(closest_type_labels == TRACK_SHP)[0]
-            if ppn_classify_endpoints and len(track_index):
+            if loss_endpoints is not None and len(track_index):
                 # Get the end point predictions
-                end_logits = ppn_classify_endpoints.tensor[pos_mask]
+                end_logits = loss_endpoints.tensor[pos_mask]
                 end_logits = end_logits[track_index]
 
                 # Compute the end point classification loss
@@ -858,7 +882,7 @@ class ExpandAs(nn.Module):
 
     Given a sparse tensor with one dimensional features, expand the
     feature map to a given shape and return a newly constructed
-    ME.SparseTensor. This is used to expand a score array and apply
+    sparse.SparseTensor. This is used to expand a score array and apply
     it to the entire feature tensor of the the input.
     """
 
@@ -893,11 +917,7 @@ class ExpandAs(nn.Module):
         else:
             features = features.expand(*shape)
 
-        return ME.SparseTensor(
-            features=features,
-            coordinate_map_key=x.coordinate_map_key,
-            coordinate_manager=x.coordinate_manager,
-        )
+        return x.replace_features(features)
 
 
 class AttentionMask(torch.nn.Module):
@@ -917,7 +937,7 @@ class AttentionMask(torch.nn.Module):
         super().__init__()
 
         # Pruning layer
-        self.prune = ME.MinkowskiPruning()
+        self.prune = sparse.Pruning()
 
         # Store parameters
         self.score_threshold = score_threshold
@@ -927,29 +947,31 @@ class AttentionMask(torch.nn.Module):
 
         Parameters
         ----------
-        x : ME.SparseTensor
+        x : sparse.SparseTensor
             Input sparse tensor
-        mask : ME.SparseTensor
+        mask : sparse.SparseTensor
             Mask to apply
         """
         assert x.tensor_stride == mask.tensor_stride
 
         device = x.F.device
         # Create a mask sparse tensor in x-coordinates
-        x0 = ME.SparseTensor(
+        x0 = sparse.SparseTensor(
             coordinates=x.C,
             features=torch.zeros(x.F.shape[0], mask.F.shape[1]).to(device),
             coordinate_manager=x.coordinate_manager,
             tensor_stride=x.tensor_stride,
+            source=x,
         )
 
         mask_in_xcoords = x0 + mask
 
-        x_expanded = ME.SparseTensor(
+        x_expanded = sparse.SparseTensor(
             coordinates=mask_in_xcoords.C,
             features=torch.zeros(mask_in_xcoords.F.shape[0], x.F.shape[1]).to(device),
             coordinate_manager=x.coordinate_manager,
             tensor_stride=x.tensor_stride,
+            source=x,
         )
 
         x_expanded = x_expanded + x
@@ -967,25 +989,26 @@ class MergeConcat(torch.nn.Module):
 
         Parameters
         ----------
-        x : ME.SparseTensor
+        x : sparse.SparseTensor
             Input sparse tensor
-        other : ME.SparseTensor
+        other : sparse.SparseTensor
             Other sparse tensor to merge
 
         Returns
         -------
-        ME.SparseTensor
+        sparse.SparseTensor
             Concatenated sparse tensor
         """
         assert x.tensor_stride == other.tensor_stride
         device = x.F.device
 
         # Create a placeholder tensor with x.C coordinates
-        x0 = ME.SparseTensor(
+        x0 = sparse.SparseTensor(
             coordinates=x.C,
             features=torch.zeros(x.F.shape[0], other.F.shape[1]).to(device),
             coordinate_manager=x.coordinate_manager,
             tensor_stride=x.tensor_stride,
+            source=x,
         )
 
         # Set placeholder values with other.F features by performing
@@ -993,21 +1016,22 @@ class MergeConcat(torch.nn.Module):
         x1 = x0 + other
 
         # Same procedure, but with other
-        x_expanded = ME.SparseTensor(
+        x_expanded = sparse.SparseTensor(
             coordinates=x1.C,
             features=torch.zeros(x1.F.shape[0], x.F.shape[1]).to(device),
             coordinate_manager=x.coordinate_manager,
             tensor_stride=x.tensor_stride,
+            source=x,
         )
 
         x2 = x_expanded + x
 
         # Now x and other share the same coordinates and shape
-        concated = ME.cat(x1, x2)
+        concated = sparse.cat(x1, x2)
         return concated
 
 
-class MinkGhostMask(torch.nn.Module):
+class GhostMask(torch.nn.Module):
     """Ghost mask downsampler.
 
     Downsamples the ghost mask and prunes a tensor with current
@@ -1020,7 +1044,7 @@ class MinkGhostMask(torch.nn.Module):
         super().__init__()
 
         # Initialize the downsampler
-        self.downsample = ME.MinkowskiMaxPooling(2, 2, dimension=3)
+        self.downsample = sparse.MaxPooling(2, 2, dimension=3)
 
         # Set the layer in evaluation mode (no gradients)
         self.eval()
@@ -1030,16 +1054,16 @@ class MinkGhostMask(torch.nn.Module):
 
         Parameters
         ----------
-        ghost_mask : ME.SparseTensor
+        ghost_mask : sparse.SparseTensor
             Current resolution ghost mask
-        premask_tensor : ME.SparseTensor
+        premask_tensor : sparse.SparseTensor
             Current resolution feature map to be pruned
 
         Returns
         -------
-        downsampled_mask : ME.SparseTensor)
+        downsampled_mask : sparse.SparseTensor)
             2x2 downsampled ghost mask
-        downsampled_tensor : ME.SparseTensor
+        downsampled_tensor : sparse.SparseTensor
             2x2 downsampled feature map
         """
         # assert ghost_mask.shape[0] == premask_tensor.shape[0]
