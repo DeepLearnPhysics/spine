@@ -16,6 +16,7 @@ def test_duplicate_coordinates_restore_original_rows():
     tensor = sparse.SparseTensor(features, coordinates, batch_size=3)
 
     assert len(tensor) == 2
+    assert tensor.reference_size == 3
     assert tensor.counts.tolist() == [1, 1, 0]
     expected = torch.tensor([[4.0], [4.0], [5.0]])
     assert torch.equal(tensor.aligned_features(), expected)
@@ -73,6 +74,24 @@ def test_sparse_export_is_portable_tensor_batch():
         exported.tensor,
         torch.tensor([[0.0, 1.0, 2.0, 3.0, 1.0], [2.0, 4.0, 5.0, 6.0, 2.0]]),
     )
+
+
+def test_unique_coordinates_preserve_native_order_without_provenance():
+    """Unique inputs remain ordered and avoid duplicate-restoration metadata."""
+    coordinates = torch.tensor(
+        [[1, 4, 2], [0, 9, 1], [1, 0, 7], [0, 3, 5]],
+        dtype=torch.int32,
+    )
+    features = torch.tensor([[10.0], [20.0], [30.0], [40.0]])
+
+    tensor = sparse.SparseTensor(features, coordinates, batch_size=2)
+
+    assert torch.equal(tensor.C, coordinates)
+    assert torch.equal(tensor.F, features)
+    assert tensor._reference_coordinates is None
+    assert tensor.aligned_features().data_ptr() == tensor.F.data_ptr()
+    assert tensor.unique_index.tolist() == [0, 1, 2, 3]
+    assert tensor.inverse_mapping.tolist() == [0, 1, 2, 3]
 
 
 def test_tensor_feature_operations_preserve_coordinates():
@@ -147,6 +166,14 @@ def test_coordinate_map_construction_and_source_propagation():
     )
     assert torch.equal(explicit.C, source.C)
 
+    empty = sparse.SparseTensor(
+        torch.empty((0, 1)),
+        coordinate_map_key=source.coordinate_map_key,
+        coordinate_manager=source.coordinate_manager,
+    )
+    assert empty.shape == (0, 1)
+    assert empty.backend_tensor is None
+
 
 def test_backend_wrapping_without_a_source_infers_metadata():
     """A bare native result lazily exposes backend metadata and delegation."""
@@ -182,8 +209,11 @@ def test_backend_wrapping_without_a_source_infers_metadata():
 def test_empty_feature_replacement_and_alignment():
     """Empty tensors replace features and restore referenced rows safely."""
     source = sparse.SparseTensor(
-        torch.tensor([[1.0], [2.0]]),
-        torch.tensor([[0, 0, 0], [1, 1, 0]], dtype=torch.int32),
+        torch.tensor([[1.0], [2.0], [3.0]]),
+        torch.tensor(
+            [[0, 0, 0], [0, 0, 0], [1, 1, 0]],
+            dtype=torch.int32,
+        ),
         batch_size=2,
     )
     empty = sparse.SparseTensor.empty_like(source, tensor_stride=2)
@@ -191,13 +221,13 @@ def test_empty_feature_replacement_and_alignment():
 
     assert replaced.shape == (0, 3)
     assert replaced.tensor_stride == (2, 2)
-    assert replaced.aligned_features().shape == (2, 3)
+    assert replaced.aligned_features().shape == (3, 3)
     assert replaced.coordinate_map_key is None
     assert replaced.coordinate_manager is None
 
     restored = replaced.to_tensor_batch(restore=True)
-    assert restored.counts.tolist() == [1, 1]
-    assert restored.shape == (2, 6)
+    assert restored.counts.tolist() == [2, 1]
+    assert restored.shape == (3, 6)
 
 
 def test_tensor_arithmetic_covers_tensor_and_scalar_operands():

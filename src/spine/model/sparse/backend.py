@@ -128,6 +128,16 @@ def coordinate_manager(tensor: Any) -> Any:
     return adapter().coordinate_manager(tensor)
 
 
+def unique_index(tensor: Any) -> Any:
+    """Return input-row indices retained by backend quantization."""
+    return adapter().unique_index(tensor)
+
+
+def inverse_mapping(tensor: Any) -> Any:
+    """Map original input rows to backend sparse sites."""
+    return adapter().inverse_mapping(tensor)
+
+
 def features_at_coordinates(tensor: Any, queries: Any) -> Any:
     """Query native sparse features at continuous coordinates."""
     return adapter().features_at_coordinates(tensor, queries)

@@ -38,84 +38,6 @@ def _normalize_stride(
     return tuple(int(value) for value in stride)
 
 
-def _coalesce(
-    coordinates: torch.Tensor,
-    features: torch.Tensor,
-    reduction: str,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Coalesce duplicate coordinates and retain row provenance.
-
-    Parameters
-    ----------
-    coordinates : torch.Tensor
-        ``(N, D + 1)`` integer coordinate matrix. The first column contains
-        batch indices.
-    features : torch.Tensor
-        ``(N, C)`` feature matrix aligned with ``coordinates``.
-    reduction : {"sum", "mean", "first"}
-        Rule used to combine features at identical coordinates.
-
-    Returns
-    -------
-    unique_coordinates : torch.Tensor
-        Coordinate matrix containing one row per active sparse site.
-    unique_features : torch.Tensor
-        Reduced feature matrix aligned with ``unique_coordinates``.
-    unique_index : torch.Tensor
-        Original row index of the first occurrence of each unique coordinate.
-    inverse_index : torch.Tensor
-        Unique-coordinate index associated with every original row.
-
-    Raises
-    ------
-    ValueError
-        If ``reduction`` is not a supported reduction rule.
-    """
-    unique, inverse = torch.unique(coordinates, dim=0, return_inverse=True)
-    if len(unique) == len(coordinates):
-        index = torch.arange(len(coordinates), device=coordinates.device)
-        return coordinates, features, index, index
-
-    if reduction not in {"mean", "sum", "first"}:
-        raise ValueError(
-            f"Unknown duplicate reduction `{reduction}`. "
-            "Choose from 'mean', 'sum' or 'first'."
-        )
-
-    num_unique = len(unique)
-    if reduction in {"mean", "sum"}:
-        reduced = features.new_zeros((num_unique, features.shape[1]))
-        reduced.index_add_(0, inverse, features)
-        if reduction == "mean":
-            counts = features.new_zeros(num_unique)
-            counts.index_add_(0, inverse, features.new_ones(len(features)))
-            reduced = reduced / counts[:, None]
-    else:
-        row_ids = torch.arange(
-            len(coordinates), device=coordinates.device, dtype=torch.long
-        )
-        first = torch.full(
-            (num_unique,),
-            len(coordinates),
-            device=coordinates.device,
-            dtype=torch.long,
-        )
-        first.scatter_reduce_(0, inverse, row_ids, reduce="amin", include_self=True)
-        reduced = features[first]
-
-    row_ids = torch.arange(
-        len(coordinates), device=coordinates.device, dtype=torch.long
-    )
-    first = torch.full(
-        (num_unique,),
-        len(coordinates),
-        device=coordinates.device,
-        dtype=torch.long,
-    )
-    first.scatter_reduce_(0, inverse, row_ids, reduce="amin", include_self=True)
-    return unique, reduced, first, inverse
-
-
 class SparseTensor:
     """Sparse model-runtime tensor.
 
@@ -152,8 +74,7 @@ class SparseTensor:
         Number of batch entries. This must be supplied to preserve trailing
         empty entries that cannot be inferred from coordinates.
     duplicate_reduction : {"sum", "mean", "first"}, default "sum"
-        Reduction applied to features with identical coordinates before the
-        backend tensor is constructed.
+        Reduction the backend applies to features with identical coordinates.
     source : SparseTensor, optional
         Tensor whose input-row provenance should be propagated.
     **kwargs : Any
@@ -161,12 +82,13 @@ class SparseTensor:
 
     Notes
     -----
-    Sparse backends require one feature vector per active coordinate. SPINE
-    therefore coalesces duplicate coordinates but retains their original row
-    mapping. Calling :meth:`aligned_features` or setting ``restore=True`` in
+    Sparse backends require one feature vector per active coordinate. The
+    selected backend therefore coalesces duplicate coordinates while SPINE
+    retains original-row provenance only when quantization reduces the input
+    length. Calling :meth:`aligned_features` or setting ``restore=True`` in
     :meth:`to_tensor_batch` repeats processed voxel features in the original
     input order. It does not recover distinctions discarded by the duplicate
-    reduction.
+    reduction. Unique inputs stay on the backend's native fast path.
 
     Examples
     --------
@@ -228,26 +150,21 @@ class SparseTensor:
                 raise ValueError(
                     "Sparse coordinates and features must have equal length."
                 )
+            if duplicate_reduction not in {"mean", "sum", "first"}:
+                raise ValueError(
+                    f"Unknown duplicate reduction `{duplicate_reduction}`. "
+                    "Choose from 'mean', 'sum' or 'first'."
+                )
 
             dimension = coordinates.shape[1] - 1
             self._tensor_stride = _normalize_stride(tensor_stride, dimension)
-            self._reference_coordinates = coordinates
             if batch_size is None:
                 batch_size = (
                     int(coordinates[:, 0].max().item()) + 1 if len(coordinates) else 0
                 )
             self._batch_size = batch_size
-            self._reference_counts = self._counts_from_coordinates(
-                coordinates, batch_size
-            )
-
-            unique_coords, unique_feats, unique_index, inverse_index = _coalesce(
-                coordinates, features, duplicate_reduction
-            )
-            self._unique_index = unique_index
-            self._inverse_index = inverse_index
-            self._coordinates = unique_coords
-            self._features = unique_feats
+            self._coordinates = coordinates
+            self._features = features
         else:
             if coordinate_map_key is None or coordinate_manager is None:
                 raise ValueError(
@@ -260,13 +177,6 @@ class SparseTensor:
                 coordinate_map_key.get_tensor_stride(), dimension
             )
 
-        if source is not None:
-            self._batch_size = source.batch_size
-            self._reference_coordinates = source._reference_coordinates
-            self._reference_counts = source._reference_counts
-            self._unique_index = source._unique_index
-            self._inverse_index = source._inverse_index
-
         if len(self._features):
             if coordinates is not None:
                 self._backend_tensor = backend.create_tensor(
@@ -274,8 +184,18 @@ class SparseTensor:
                     coordinates=self._coordinates,
                     tensor_stride=self._tensor_stride,
                     coordinate_manager=coordinate_manager,
+                    duplicate_reduction=duplicate_reduction,
                     **kwargs,
                 )
+                self._features = backend.features(self._backend_tensor)
+                self._coordinates = backend.coordinates(self._backend_tensor)
+                self._unique_index = backend.unique_index(self._backend_tensor)
+                self._inverse_index = backend.inverse_mapping(self._backend_tensor)
+                if len(self._features) != len(features):
+                    self._reference_coordinates = coordinates
+                    self._reference_counts = self._counts_from_coordinates(
+                        coordinates, self._batch_size
+                    )
             else:
                 self._backend_tensor = backend.create_tensor(
                     features=self._features,
@@ -283,6 +203,17 @@ class SparseTensor:
                     coordinate_manager=coordinate_manager,
                     **kwargs,
                 )
+        elif coordinates is not None:
+            identity = torch.arange(0, device=features.device)
+            self._unique_index = identity
+            self._inverse_index = identity
+
+        if source is not None:
+            self._batch_size = source.batch_size
+            self._reference_coordinates = source._reference_coordinates
+            self._reference_counts = source._reference_counts
+            self._unique_index = source._unique_index
+            self._inverse_index = source._inverse_index
 
     @classmethod
     def from_backend(

@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import torch
 
 from spine.model import sparse
 from spine.model.sparse import backend
@@ -70,6 +71,16 @@ def test_minkowski_adapter_rejects_an_unknown_operation():
     """The selected adapter reports unsupported semantic operations."""
     with pytest.raises(ValueError, match="does not implement"):
         backend.adapter().module("UnknownOperation")
+
+
+def test_minkowski_adapter_rejects_an_unknown_reduction():
+    """The backend validates semantic duplicate-reduction names."""
+    with pytest.raises(ValueError, match="Unknown duplicate reduction"):
+        backend.adapter().create_tensor(
+            features=torch.tensor([[1.0]]),
+            coordinates=torch.tensor([[0, 0]], dtype=torch.int32),
+            duplicate_reduction="maximum",
+        )
 
 
 def test_minkowski_adapter_reports_a_missing_engine(monkeypatch):

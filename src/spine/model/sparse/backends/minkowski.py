@@ -48,6 +48,12 @@ _MODULES = {
     "BroadcastMultiplication": engine.MinkowskiBroadcastMultiplication,
 }
 
+_DUPLICATE_REDUCTIONS = {
+    "sum": engine.SparseTensorQuantizationMode.UNWEIGHTED_SUM,
+    "mean": engine.SparseTensorQuantizationMode.UNWEIGHTED_AVERAGE,
+    "first": engine.SparseTensorQuantizationMode.RANDOM_SUBSAMPLE,
+}
+
 
 def module(operation: str) -> type:
     """Resolve a semantic SPINE operation to its native module class.
@@ -75,8 +81,35 @@ def module(operation: str) -> type:
         ) from exc
 
 
-def create_tensor(**kwargs: Any) -> Any:
-    """Create a native MinkowskiEngine sparse tensor."""
+def create_tensor(duplicate_reduction: str | None = None, **kwargs: Any) -> Any:
+    """Create a native MinkowskiEngine sparse tensor.
+
+    Parameters
+    ----------
+    duplicate_reduction : {"sum", "mean", "first"}, optional
+        Backend quantization mode used when explicit coordinates contain
+        duplicates. Coordinate-map reuse does not require quantization.
+    **kwargs : Any
+        Arguments forwarded to ``MinkowskiEngine.SparseTensor``.
+
+    Returns
+    -------
+    MinkowskiEngine.SparseTensor
+        Native sparse tensor.
+
+    Raises
+    ------
+    ValueError
+        If the duplicate reduction is not supported.
+    """
+    if duplicate_reduction is not None:
+        try:
+            kwargs["quantization_mode"] = _DUPLICATE_REDUCTIONS[duplicate_reduction]
+        except KeyError as exc:
+            raise ValueError(
+                f"Unknown duplicate reduction `{duplicate_reduction}`. "
+                "Choose from 'mean', 'sum' or 'first'."
+            ) from exc
     return engine.SparseTensor(**kwargs)
 
 
@@ -108,6 +141,16 @@ def coordinate_map_key(tensor: Any) -> Any:
 def coordinate_manager(tensor: Any) -> Any:
     """Return a native tensor's coordinate manager."""
     return tensor.coordinate_manager
+
+
+def unique_index(tensor: Any) -> Any:
+    """Return indices retained during native coordinate quantization."""
+    return tensor.unique_index
+
+
+def inverse_mapping(tensor: Any) -> Any:
+    """Map native constructor input rows to quantized sparse sites."""
+    return tensor.inverse_mapping
 
 
 def features_at_coordinates(tensor: Any, queries: Any) -> Any:
