@@ -4,21 +4,26 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, TypeAlias
+from typing import TYPE_CHECKING, Any, Protocol, TypeAlias, runtime_checkable
 
 import numpy as np
 
-from spine.utils.conditional import SparseTensorLike, is_sparse_tensor_like, torch
+from spine.utils.conditional import torch
 from spine.utils.docstring import merge_ancestor_docstrings
 
 if TYPE_CHECKING:  # pragma: no cover
     ArrayLike: TypeAlias = np.ndarray | torch.Tensor
-    BatchData: TypeAlias = (
-        ArrayLike | SparseTensorLike | list[np.ndarray] | list[torch.Tensor]
-    )
+    BatchData: TypeAlias = ArrayLike | list[np.ndarray] | list[torch.Tensor]
 else:
     ArrayLike: TypeAlias = Any
     BatchData: TypeAlias = Any
+
+
+@runtime_checkable
+class TensorBatchConvertible(Protocol):
+    """Model-runtime object with a portable tensor-batch representation."""
+
+    def to_tensor_batch(self) -> Any: ...
 
 
 @dataclass(eq=False)
@@ -59,24 +64,21 @@ class BatchBase:
 
     def __init__(
         self,
-        data: ArrayLike | SparseTensorLike,
-        is_sparse: bool = False,
+        data: ArrayLike,
         is_list: bool = False,
     ) -> None:
         """Shared initializations across all types of batched data.
 
         Parameters
         ----------
-        data : Union[np.ndarray, torch.Tensor, ME.SparseTensor]
+        data : Union[np.ndarray, torch.Tensor]
             Batched data
-        is_sparse : bool, default False
-            If initializing from an ME sparse data, flip to True
         is_list : bool, default False
             Whether the underlying data is a list of tensors
         """
         # Store the datatype
-        self.is_numpy = not is_sparse and not isinstance(data, torch.Tensor)
-        self.is_sparse = is_sparse
+        self.is_numpy = not isinstance(data, torch.Tensor)
+        self.is_sparse = False
         self.is_list = is_list
 
         # Store the datatype
@@ -86,13 +88,6 @@ class BatchBase:
         self.device = None
         if isinstance(data, torch.Tensor):
             self.device = data.device
-        elif is_sparse:
-            if not is_sparse_tensor_like(data):
-                raise TypeError(
-                    "Sparse batch data must provide the MinkowskiEngine "
-                    "SparseTensor interface."
-                )
-            self.device = data.F.device
 
     def __len__(self) -> int:
         """Returns the number of entries that make up the batch."""

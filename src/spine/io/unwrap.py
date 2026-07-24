@@ -5,7 +5,14 @@ from typing import Any
 import numpy as np
 
 from spine.constants import BATCH_COL
-from spine.data import EdgeIndexBatch, IndexBatch, Meta, ObjectList, TensorBatch
+from spine.data import (
+    EdgeIndexBatch,
+    IndexBatch,
+    Meta,
+    ObjectList,
+    TensorBatch,
+    TensorBatchConvertible,
+)
 from spine.geo import GeoManager
 
 __all__ = ["Unwrapper"]
@@ -101,6 +108,15 @@ class Unwrapper:
             If the input is empty, the batch size is unset, or the type is
             unsupported.
         """
+        if isinstance(data, TensorBatchConvertible):
+            data = data.to_tensor_batch()
+        elif (
+            isinstance(data, list)
+            and len(data)
+            and isinstance(data[0], TensorBatchConvertible)
+        ):
+            data = [value.to_tensor_batch() for value in data]
+
         if isinstance(data, (list, tuple)) and len(data) == 0:
             raise ValueError(f"Batched data for {key} is an empty list, cannot unwrap.")
         if self.batch_size is None:

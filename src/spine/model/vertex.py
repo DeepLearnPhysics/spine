@@ -1,14 +1,13 @@
 import time
 from collections import defaultdict
 
-import MinkowskiEngine as ME
-import MinkowskiFunctional as MF
 import numpy as np
 import torch
 import torch.nn as nn
 from torch_geometric.data import Batch, Data
 
 from spine.constants import BATCH_COL, INTER_COL, NU_COL, VTX_COLS
+from spine.model import sparse
 from spine.model.experimental.layer.pointnet import PointNetEncoder
 from spine.model.layer.cnn.vertex_ppn import VertexPPN, VertexPPNLoss
 from spine.model.uresnet import SegmentationLoss, UResNetSegmentation
@@ -29,7 +28,7 @@ class VertexPPNChain(nn.Module):
         self.vertex_ppn = VertexPPN(cfg)
         self.num_classes = self.backbone.num_classes
         self.num_filters = self.backbone.F
-        self.segmentation = ME.MinkowskiLinear(self.num_filters, self.num_classes)
+        self.segmentation = sparse.Linear(self.num_filters, self.num_classes)
 
     def forward(self, input):
 

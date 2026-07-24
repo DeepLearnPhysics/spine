@@ -1,11 +1,11 @@
 """Feature embedding for pixel supervised connected-component clustering."""
 
-import MinkowskiEngine as ME
 import torch
 import torch.nn as nn
 
 from spine.constants import COORD_COLS, VALUE_COL
 from spine.data import TensorBatch
+from spine.model import sparse
 from spine.model.layer.cnn.uresnet_layers import UResNet
 
 __all__ = ["GraphSPICEEmbedder"]
@@ -148,8 +148,8 @@ class GraphSPICEEmbedder(nn.Module):
 
         # Pass it through the backbone UResNet, extract output features
         backbone_data = torch.cat((coords, features), dim=1)
-        result_backbone = self.backbone(backbone_data)
-        output_features = result_backbone["decoder_tensors"][-1].F
+        result_backbone = self.backbone(backbone_data, batch_size=data.batch_size)
+        output_features = result_backbone["decoder_tensors"][-1].aligned_features()
 
         # Convert the output to tensor batches
         coords = TensorBatch(coords, data.counts, coord_cols=COORD_COLS)

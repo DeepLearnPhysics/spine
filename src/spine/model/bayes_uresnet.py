@@ -1,9 +1,10 @@
 from collections import defaultdict
 
-import MinkowskiEngine as ME
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+from spine.model import sparse
 
 from .experimental.bayes.decoder import MCDropoutDecoder
 from .experimental.bayes.encoder import MCDropoutEncoder
@@ -58,13 +59,11 @@ class BayesianUResNet(torch.nn.Module):
 
         if "edl" in self.model_config.get("loss_fn", "cross_entropy"):
             self.classifier = nn.Sequential(
-                ME.MinkowskiLinear(self.encoder.num_filters, self.num_classes),
-                ME.MinkowskiSoftplus(),
+                sparse.Linear(self.encoder.num_filters, self.num_classes),
+                sparse.Softplus(),
             )
         else:
-            self.classifier = ME.MinkowskiLinear(
-                self.encoder.num_filters, self.num_classes
-            )
+            self.classifier = sparse.Linear(self.encoder.num_filters, self.num_classes)
 
     def mc_forward(self, input, num_samples=None):
         """
@@ -89,7 +88,7 @@ class BayesianUResNet(torch.nn.Module):
 
             device = x.device
 
-            x_sparse = ME.SparseTensor(
+            x_sparse = sparse.SparseTensor(
                 coordinates=x[:, :4].int(), features=x[:, -1].view(-1, 1)
             )
 
@@ -120,7 +119,7 @@ class BayesianUResNet(torch.nn.Module):
         """
         out = defaultdict(list)
         for igpu, x in enumerate(input):
-            x = ME.SparseTensor(
+            x = sparse.SparseTensor(
                 coordinates=x[:, :4].int(), features=x[:, -1].view(-1, 1)
             )
             res_encoder = self.encoder.encoder(x)
@@ -148,7 +147,7 @@ class BayesianUResNet(torch.nn.Module):
         """
         out = defaultdict(list)
         for igpu, x in enumerate(input):
-            x = ME.SparseTensor(
+            x = sparse.SparseTensor(
                 coordinates=x[:, :4].int(), features=x[:, -1].view(-1, 1)
             )
             res_encoder = self.encoder.encoder(x)

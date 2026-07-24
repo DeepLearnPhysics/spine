@@ -1,8 +1,8 @@
-import MinkowskiEngine as ME
-import MinkowskiFunctional as MF
 import numpy as np
 import torch
 import torch.nn as nn
+
+from spine.model import sparse
 
 from .act_norm import act_factory
 from .blocks import MBConv, MBResConv, MBResConvSE, SEBlock
@@ -44,7 +44,7 @@ class MobileNetV3(torch.nn.Module):
         self.input_kernel = model_cfg.get("input_kernel", 3)
 
         # Initialize Input Layer
-        self.input_layer = ME.MinkowskiConvolution(
+        self.input_layer = sparse.Convolution(
             in_channels=self.num_input,
             out_channels=self.num_filters,
             kernel_size=self.input_kernel,
@@ -71,10 +71,10 @@ class MobileNetV3(torch.nn.Module):
             self.encoding_block.append(m)
             m = []
             if i < self.depth - 1:
-                m.append(ME.MinkowskiBatchNorm(F))
+                m.append(sparse.BatchNorm(F))
                 m.append(act_factory(self.activation_name, **self.activation_args))
                 m.append(
-                    ME.MinkowskiConvolution(
+                    sparse.Convolution(
                         in_channels=self.nPlanes[i],
                         out_channels=self.nPlanes[i + 1],
                         kernel_size=2,
@@ -92,10 +92,10 @@ class MobileNetV3(torch.nn.Module):
         self.decoding_conv = []
         for i in range(self.depth - 2, -1, -1):
             m = []
-            m.append(ME.MinkowskiBatchNorm(self.nPlanes[i + 1]))
+            m.append(sparse.BatchNorm(self.nPlanes[i + 1]))
             m.append(act_factory(self.activation_name, **self.activation_args))
             m.append(
-                ME.MinkowskiConvolutionTranspose(
+                sparse.ConvolutionTranspose(
                     in_channels=self.nPlanes[i + 1],
                     out_channels=self.nPlanes[i],
                     kernel_size=2,
@@ -126,7 +126,7 @@ class MobileNetV3(torch.nn.Module):
         Vanilla UResNet Encoder.
 
         INPUTS:
-            - x (SparseTensor): MinkowskiEngine SparseTensor
+            - x (SparseTensor): SPINE sparse tensor
 
         RETURNS:
             - result (dict): dictionary of encoder output with
@@ -160,7 +160,7 @@ class MobileNetV3(torch.nn.Module):
             eTensor = encoderTensors[-i - 2]
             x = layer(x)
             # print(x, eTensor)
-            x = ME.cat(eTensor, x)
+            x = sparse.cat(eTensor, x)
             x = self.decoding_block[i](x)
             decoderTensors.append(x)
         return decoderTensors
@@ -169,7 +169,7 @@ class MobileNetV3(torch.nn.Module):
         coordinates = input[:, 0 : self.D + 1].int()
         features = input[:, self.D + 1 :]
 
-        x = ME.SparseTensor(features, coordinates=coordinates)
+        x = sparse.SparseTensor(features, coordinates=coordinates)
         encoderOutput = self.encoder(x)
         encoderTensors = encoderOutput["encoderTensors"]
         finalTensor = encoderOutput["finalTensor"]
@@ -218,7 +218,7 @@ class MB3Encoder(torch.nn.Module):
         self.input_kernel = model_cfg.get("input_kernel", 3)
 
         # Initialize Input Layer
-        self.input_layer = ME.MinkowskiConvolution(
+        self.input_layer = sparse.Convolution(
             in_channels=self.num_input,
             out_channels=self.num_filters,
             kernel_size=self.input_kernel,
@@ -245,10 +245,10 @@ class MB3Encoder(torch.nn.Module):
             self.encoding_block.append(m)
             m = []
             if i < self.depth - 1:
-                m.append(ME.MinkowskiBatchNorm(F))
+                m.append(sparse.BatchNorm(F))
                 m.append(act_factory(self.activation_name, **self.activation_args))
                 m.append(
-                    ME.MinkowskiConvolution(
+                    sparse.Convolution(
                         in_channels=self.nPlanes[i],
                         out_channels=self.nPlanes[i + 1],
                         kernel_size=2,
@@ -266,7 +266,7 @@ class MB3Encoder(torch.nn.Module):
         Vanilla UResNet Encoder.
 
         INPUTS:
-            - x (SparseTensor): MinkowskiEngine SparseTensor
+            - x (SparseTensor): SPINE sparse tensor
 
         RETURNS:
             - result (dict): dictionary of encoder output with
@@ -289,7 +289,7 @@ class MB3Encoder(torch.nn.Module):
         coordinates = input[:, 0 : self.D + 1].int()
         features = input[:, self.D + 1 :]
 
-        x = ME.SparseTensor(features, coordinates=coordinates)
+        x = sparse.SparseTensor(features, coordinates=coordinates)
         encoderOutput = self.encoder(x)
         encoderTensors = encoderOutput["encoderTensors"]
         finalTensor = encoderOutput["finalTensor"]

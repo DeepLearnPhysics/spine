@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from spine.data.batch.base import BatchBase
-from spine.utils.conditional import ME, ME_AVAILABLE, TORCH_AVAILABLE, torch
+from spine.utils.conditional import TORCH_AVAILABLE, torch
 
 
 # Create a concrete implementation for testing the abstract BatchBase class
@@ -26,7 +26,9 @@ class ConcreteBatch(BatchBase):
         else:
             init_data = data
 
-        super().__init__(init_data, is_sparse=is_sparse, is_list=is_list)
+        if is_sparse:
+            raise TypeError("BatchBase no longer stores sparse model tensors.")
+        super().__init__(init_data, is_list=is_list)
         self.data = data
         self.counts = counts
         self.edges = edges
@@ -104,17 +106,6 @@ class TestBatchBaseInitialization:
         )
 
         assert batch_float.dtype == np.float64
-
-    def test_sparse_flag_requires_sparse_interface(self):
-        """Sparse initialization should reject non-sparse data."""
-        with pytest.raises(TypeError, match="Sparse batch data"):
-            ConcreteBatch(
-                data=np.array([1, 2, 3]),
-                counts=np.array([3]),
-                edges=np.array([0, 3]),
-                batch_size=1,
-                is_sparse=True,
-            )
 
 
 class TestBatchBaseLength:
@@ -720,25 +711,3 @@ class TestBatchBaseWithTorch:
 
         arange = batch._arange(5)
         assert torch.equal(arange, torch.arange(5))
-
-
-@pytest.mark.skipif(not ME_AVAILABLE, reason="ME not available")
-class TestBatchBaseWithME:
-    """Test BatchBase with MinkowskiEngine sparse tensors."""
-
-    def test_me_initialization(self):
-        """Test BatchBase detects ME sparse tensors correctly."""
-        coords = torch.tensor([[0, 0, 0], [1, 1, 1], [2, 2, 2]])
-        features = torch.tensor([[1], [2], [3]])
-        data = ME.SparseTensor(features=features, coordinates=coords)
-        batch = ConcreteBatch(
-            data=data,
-            counts=torch.tensor([3]),
-            edges=torch.tensor([0, 3]),
-            batch_size=1,
-            is_sparse=True,
-        )
-
-        assert batch.is_numpy is False
-        assert batch.is_sparse is True
-        assert batch.device == data.device

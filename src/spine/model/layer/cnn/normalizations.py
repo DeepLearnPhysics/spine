@@ -1,10 +1,9 @@
 """Custom normalization layers."""
 
-import MinkowskiEngine as ME
 import torch
 
 
-class MinkowskiPixelNorm(torch.nn.Module):
+class PixelNorm(torch.nn.Module):
     """Pixel Normalization Layer for Sparse Tensors.
 
     PixelNorm layers were used in NVIDIA's ProGAN.
@@ -24,7 +23,7 @@ class MinkowskiPixelNorm(torch.nn.Module):
             Ensures non-divergent output features
         """
         # Initialize the parent class
-        super(MinkowskiPixelNorm, self).__init__()
+        super().__init__()
 
         # Store the parameters
         self.eps = eps
@@ -34,12 +33,12 @@ class MinkowskiPixelNorm(torch.nn.Module):
 
         Parameters
         ----------
-        input_data : ME.SparseTensor
+        input_data : sparse.SparseTensor
             Sparse input tensor
 
         Return
         ------
-        ME.SparseTensor
+        sparse.SparseTensor
             Sparse output tensor
         """
         features = input_data.F
@@ -47,11 +46,7 @@ class MinkowskiPixelNorm(torch.nn.Module):
         norm = torch.sum(torch.pow(features, 2), dim=1, keepdim=True)
         out = features / (norm + self.eps).sqrt()
 
-        return ME.SparseTensor(
-            out,
-            coordinate_manager=input_data.coordinate_manager,
-            coordinate_map_key=input_data.coordinate_map_key,
-        )
+        return input_data.replace_features(out)
 
     def __repr__(self):
         """Representation of the noamlization layer.
@@ -62,7 +57,7 @@ class MinkowskiPixelNorm(torch.nn.Module):
         return self.__class__.__name__ + suffix
 
 
-class MinkowskiAdaIN(torch.nn.Module):
+class AdaIN(torch.nn.Module):
     """Adaptive Instance Normalization Layer.
 
     Many parts of the code is borrowed from pytorch original
@@ -80,7 +75,7 @@ class MinkowskiAdaIN(torch.nn.Module):
             Ensures non-divergent output features
         """
         # Initialize the parent class
-        super(MinkowskiAdaIN, self).__init__()
+        super().__init__()
 
         # Store parameters
         self.in_channels = in_channels
@@ -131,18 +126,16 @@ class MinkowskiAdaIN(torch.nn.Module):
 
         Parameters
         ----------
-        input_data : ME.SparseTensor
+        input_data : sparse.SparseTensor
             Sparse input tensor
 
         Return
         ------
-        ME.SparseTensor
+        sparse.SparseTensor
             Sparse output tensor
         """
         f = x.F
         norm = (f - f.mean(dim=0)) / (f.var(dim=0) + self.eps).sqrt()
         out = self.weight * norm + self.bias
 
-        return ME.SparseTensor(
-            out, coords_key=input_data.coords_key, coords_manager=input_data.coords_man
-        )
+        return x.replace_features(out)

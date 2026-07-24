@@ -1,6 +1,7 @@
-import MinkowskiEngine as ME
 import torch
 import torch.nn as nn
+
+from spine.model import sparse
 
 
 class ImageClassificationWrapper(nn.Module):

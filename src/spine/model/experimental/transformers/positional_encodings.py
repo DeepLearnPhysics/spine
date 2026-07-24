@@ -1,7 +1,8 @@
-import MinkowskiEngine as ME
 import numpy as np
 import torch
 import torch.nn as nn
+
+from spine.model import sparse
 
 """Adapted from https://github.com/JonasSchult/Mask3D with modification."""
 

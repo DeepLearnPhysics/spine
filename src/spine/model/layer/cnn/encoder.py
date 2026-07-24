@@ -1,9 +1,9 @@
 """Defines CNN encoder backbones for image feature extraction."""
 
-import MinkowskiEngine as ME
 import torch
 
 from spine.constants import COORD_COLS, VALUE_COL
+from spine.model import sparse
 
 from .uresnet_layers import UResNetEncoder
 
@@ -45,27 +45,27 @@ class SparseResidualEncoder(UResNetEncoder):
 
         if pool_mode == "avg":
             # Average pooling
-            self.pool = ME.MinkowskiGlobalAvgPooling()
+            self.pool = sparse.GlobalAvgPooling()
 
         if pool_mode == "sum":
             # Sum pooling
-            self.pool = ME.MinkowskiGlobalSumPooling()
+            self.pool = sparse.GlobalSumPooling()
 
         elif pool_mode == "max":
             # Max pooling
-            self.pool = ME.MinkowskiGlobalMaxPooling()
+            self.pool = sparse.GlobalMaxPooling()
 
         elif pool_mode == "conv":
             # Strided convolution
             self.pool = torch.nn.Sequential(
-                ME.MinkowskiConvolution(
+                sparse.Convolution(
                     in_channels=self.num_planes[-1],
                     out_channels=self.num_planes[-1],
                     kernel_size=final_tensor_shape,
                     stride=final_tensor_shape,
                     dimension=self.dim,
                 ),
-                ME.MinkowskiGlobalPooling(),
+                sparse.GlobalPooling(),
             )
 
         else:
@@ -76,7 +76,7 @@ class SparseResidualEncoder(UResNetEncoder):
 
         # Initialize the final linear layer
         self.feature_size = feature_size
-        self.linear = ME.MinkowskiLinear(self.num_planes[-1], self.feature_size)
+        self.linear = sparse.Linear(self.num_planes[-1], self.feature_size)
 
     def forward(self, data):
         """Pass one batch of data through the CNN encoder.
@@ -101,7 +101,7 @@ class SparseResidualEncoder(UResNetEncoder):
             features = torch.cat([normalized_coords, features], dim=1)
 
         # Build a sparse tensor
-        x = ME.SparseTensor(coordinates=coords.int(), features=features)
+        x = sparse.SparseTensor(coordinates=coords.int(), features=features)
 
         # Pass through the CNN encoder
         output = super().forward(x)

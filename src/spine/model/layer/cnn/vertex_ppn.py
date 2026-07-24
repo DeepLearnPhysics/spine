@@ -1,9 +1,8 @@
-import MinkowskiEngine as ME
-import MinkowskiFunctional as MF
 import numpy as np
 import torch
 import torch.nn as nn
 
+from spine.model import sparse
 from spine.model.layer.cnn.blocks import ResNetBlock
 from spine.model.layer.cnn.configuration import setup_cnn_configuration
 from spine.model.layer.factories import loss_fn_factory
@@ -34,10 +33,10 @@ class VertexPPN(nn.Module):
         self.vertex_pred = nn.ModuleList()
         for i in range(self.depth - 2, -1, -1):
             m = []
-            m.append(ME.MinkowskiBatchNorm(self.nPlanes[i + 1]))
+            m.append(sparse.BatchNorm(self.nPlanes[i + 1]))
             m.append(act_factory(self.activation_name, **self.activation_args))
             m.append(
-                ME.MinkowskiConvolutionTranspose(
+                sparse.ConvolutionTranspose(
                     in_channels=self.nPlanes[i + 1],
                     out_channels=self.nPlanes[i],
                     kernel_size=2,
@@ -60,11 +59,11 @@ class VertexPPN(nn.Module):
                 )
             m = nn.Sequential(*m)
             self.decoding_block.append(m)
-            self.vertex_pred.append(ME.MinkowskiLinear(self.nPlanes[i], 1))
+            self.vertex_pred.append(sparse.Linear(self.nPlanes[i], 1))
         self.decoding_block = nn.Sequential(*self.decoding_block)
         self.decoding_conv = nn.Sequential(*self.decoding_conv)
 
-        self.sigmoid = ME.MinkowskiSigmoid()
+        self.sigmoid = sparse.Sigmoid()
         self.expand_as = ExpandAs()
 
         self.final_block = ResNetBlock(
@@ -75,10 +74,10 @@ class VertexPPN(nn.Module):
             activation_args=self.activation_args,
         )
 
-        self.vertex_regression = ME.MinkowskiConvolution(
+        self.vertex_regression = sparse.Convolution(
             self.nPlanes[0], self.D, kernel_size=3, stride=1, dimension=self.D
         )
-        self.vertexness_score = ME.MinkowskiConvolution(
+        self.vertexness_score = sparse.Convolution(
             self.nPlanes[0], 2, kernel_size=3, stride=1, dimension=self.D
         )
 
@@ -107,7 +106,7 @@ class VertexPPN(nn.Module):
 
             decTensor = decoder_feature_maps[i]
             x = layer(x)
-            x = ME.cat(decTensor, x)
+            x = sparse.cat(decTensor, x)
             x = self.decoding_block[i](x)
             scores = self.vertex_pred[i](x)
             tmp.append(scores.F)
