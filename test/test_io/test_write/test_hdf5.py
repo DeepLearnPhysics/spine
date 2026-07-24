@@ -5,6 +5,7 @@ import os
 import h5py
 import numpy as np
 import pytest
+import yaml
 
 from spine.data import (
     CRTHit,
@@ -737,7 +738,7 @@ def test_stage_hdf5_writer_ensure_source_group_existing_matches_and_mismatches(
     """Existing source groups should validate cache-file provenance."""
     path = tmp_path / "cache.h5"
     writer = StageHDF5Writer(str(path), overwrite=True)
-    writer._ensure_file(str(path))
+    writer._ensure_stage_file(str(path))
     handle, should_close = writer._open_handle(str(path))
     try:
         batch = {
@@ -1603,3 +1604,196 @@ def generate_object_list(cls, sizes):
         List of typed lists of objects
     """
     return [ObjectList([cls() for _ in range(s)], cls()) for s in sizes]
+
+
+def test_hdf5_writer_v2_uses_offsets_and_preserves_derived_fields(hdf5_output):
+    """V2 should flatten variable fields while retaining advertised summaries."""
+    particle = RecoParticle(
+        id=7,
+        index=np.asarray([2, 5, 9], dtype=np.int32),
+        match_ids=np.asarray([11], dtype=np.int32),
+        match_overlaps=np.asarray([0.75], dtype=np.float32),
+    )
+    data = {
+        "index": np.asarray([0]),
+        "particles": [ObjectList([particle], RecoParticle())],
+        "tensor": [np.arange(6, dtype=np.float32).reshape(3, 2)],
+        "label": ["event-zero"],
+    }
+
+    with HDF5Writer(hdf5_output, overwrite=True, format_version=2) as writer:
+        writer(data, cfg={"test": True})
+
+    with h5py.File(hdf5_output, "r") as out_file:
+        info = out_file["info"].attrs
+        assert info["format"] == "spine_hdf5"
+        assert info["format_version"] == 2
+        assert "spine_version" in info
+
+        particles = out_file["particles"]
+        assert particles.attrs["kind"] == "objects"
+        assert particles["event_offsets"][:].tolist() == [0, 1]
+        index_pool = next(
+            pool
+            for pool in particles["variables"].values()
+            if "index" in yaml.safe_load(pool.attrs["fields"])
+        )
+        fields = yaml.safe_load(index_pool.attrs["fields"])
+        index_column = fields.index("index")
+        pool_index = int(index_pool.name.split("_")[-1])
+        bounds = particles["fixed"][f"_var_offsets_{pool_index}"][
+            0, index_column : index_column + 2
+        ]
+        assert index_pool["values"][bounds[0] : bounds[1]].tolist() == [2, 5, 9]
+
+        # Derived properties remain directly available without SPINE classes.
+        assert particles["fixed"]["size"].tolist() == [3]
+        assert "num_fragments" in particles["fixed"].dtype.names
+
+        # No dataset in the V2 product tree uses an HDF5 VLEN dtype.
+        def assert_no_vlen(_, obj):
+            if isinstance(obj, h5py.Dataset):
+                if obj.dtype.names:
+                    for name in obj.dtype.names:
+                        assert h5py.check_dtype(vlen=obj.dtype[name]) is None
+                else:
+                    assert h5py.check_dtype(vlen=obj.dtype) is None
+
+        out_file.visititems(assert_no_vlen)
+
+
+def test_hdf5_writer_rejects_append_format_mismatch(hdf5_output):
+    """Appending must never silently mix physical HDF5 layouts."""
+    data = {"index": np.asarray([0]), "value": [np.asarray([1], dtype=np.int32)]}
+    HDF5Writer(hdf5_output, overwrite=True, format_version=1)(data, cfg={})
+
+    writer = HDF5Writer(hdf5_output, append=True, format_version=2)
+    with pytest.raises(ValueError, match="format version"):
+        writer(data, cfg={})
+    writer.close()
+
+
+def test_hdf5_writer_rejects_unknown_format_version(hdf5_output):
+    """Writers should reject physical layouts they do not implement."""
+    with pytest.raises(ValueError, match="Unsupported HDF5 format version"):
+        HDF5Writer(hdf5_output, format_version=99)
+
+
+def test_hdf5_writer_rejects_append_without_info_group(hdf5_output):
+    """Append validation should reject files without format metadata."""
+    writer = HDF5Writer(hdf5_output, append=True, format_version=2)
+    with h5py.File(hdf5_output, "w") as out_file:
+        out_file.create_dataset("events", data=np.asarray([], dtype=np.int64))
+        with pytest.raises(ValueError, match="missing info group"):
+            writer._validate_append_format(out_file, hdf5_output)
+
+
+def test_hdf5_writer_v2_split_uses_collective_append(tmp_path):
+    """Split V2 outputs should use the batch-oriented append path."""
+    path = str(tmp_path / "split.h5")
+    data = {
+        "index": np.asarray([0, 1]),
+        "file_index": np.asarray([0, 1]),
+        "value": [
+            np.asarray([1], dtype=np.int32),
+            np.asarray([2], dtype=np.int32),
+        ],
+    }
+    with HDF5Writer(
+        path,
+        prefix=["first", "second"],
+        split=True,
+        overwrite=True,
+        format_version=2,
+    ) as writer:
+        writer(data, cfg={})
+
+    for file_id in range(2):
+        with h5py.File(tmp_path / f"split_{file_id}.h5", "r") as out_file:
+            assert len(out_file["events"]) == 1
+
+
+def test_hdf5_writer_v2_single_entry_wrapper_and_scalar(hdf5_output):
+    """The single-entry compatibility wrapper should accept scalar products."""
+    data = {"index": np.asarray([0]), "scalar": 5}
+    writer = HDF5Writer(
+        hdf5_output,
+        overwrite=True,
+        keep_open=False,
+        format_version=2,
+    )
+    writer.create(data, cfg={})
+    writer._ensure_file(0)
+
+    with h5py.File(hdf5_output, "a") as out_file:
+        writer.append_entry(out_file, data, 0)
+
+    with h5py.File(hdf5_output, "r") as out_file:
+        assert out_file["scalar"]["values"][:].tolist() == [5]
+        assert len(out_file["events"]) == 1
+
+
+def _make_v2_variable_object_group(out_file, fields):
+    """Create the minimal V2 object group needed by pool validation tests."""
+    objects = out_file.create_group("objects")
+    objects.create_dataset(
+        "fixed",
+        (0,),
+        maxshape=(None,),
+        dtype=np.dtype([("_var_offsets_0", np.int64, (2,))]),
+    )
+    objects.create_dataset(
+        "event_offsets",
+        data=np.asarray([0], dtype=np.int64),
+        maxshape=(None,),
+    )
+    pool = objects.create_group("variables").create_group("pool_0")
+    pool.attrs["kind"] = "array"
+    pool.attrs["fields"] = fields
+    pool.create_dataset(
+        "values",
+        (0,),
+        maxshape=(None,),
+        dtype=np.float32,
+    )
+    return objects
+
+
+def test_hdf5_writer_v2_decodes_byte_pool_fields_and_empty_lengths(
+    hdf5_output,
+):
+    """Byte-valued field metadata and empty appends should be harmless."""
+    with h5py.File(hdf5_output, "w") as out_file:
+        objects = _make_v2_variable_object_group(out_file, np.bytes_(b"- field\n"))
+        HDF5Writer.store_object_batches_v2(objects, [], lite=False)
+        assert objects["event_offsets"][:].tolist() == [0]
+
+
+@pytest.mark.parametrize(
+    ("fields", "message"),
+    [
+        (np.void(b"- field\n"), "must be a string"),
+        ("field", "list of strings"),
+    ],
+)
+def test_hdf5_writer_v2_rejects_bad_pool_field_metadata(hdf5_output, fields, message):
+    """Object pool field metadata must be a serialized string list."""
+    with h5py.File(hdf5_output, "w") as out_file:
+        objects = _make_v2_variable_object_group(out_file, fields)
+        with pytest.raises(TypeError, match=message):
+            HDF5Writer.store_object_batches_v2(objects, [], lite=False)
+
+
+def test_hdf5_writer_v2_rejects_multidimensional_variable_fields(
+    hdf5_output,
+):
+    """Variable object fields must remain one-dimensional."""
+
+    class BadObject:
+        def as_dict(self, lite):
+            return {"field": np.ones((2, 2), dtype=np.float32)}
+
+    with h5py.File(hdf5_output, "w") as out_file:
+        objects = _make_v2_variable_object_group(out_file, yaml.safe_dump(["field"]))
+        with pytest.raises(ValueError, match="must be one-dimensional"):
+            HDF5Writer.store_object_batches_v2(objects, [[BadObject()]], lite=False)

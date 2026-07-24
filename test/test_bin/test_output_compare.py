@@ -9,6 +9,9 @@ from pathlib import Path
 import h5py
 import numpy as np
 
+from spine.data import ObjectList, RecoParticle
+from spine.io.write import HDF5Writer
+
 
 def load_output_compare_module():
     """Import ``bin/output/output_compare.py`` as a test module."""
@@ -65,6 +68,44 @@ def make_output_file(
             events[idx] = event[0]
 
 
+def make_versioned_output(path: Path, format_version: int) -> None:
+    """Write representative semantic content in either physical layout."""
+    particle = RecoParticle(
+        id=4,
+        index=np.asarray([1, 3, 8], dtype=np.int32),
+        match_ids=np.asarray([12], dtype=np.int32),
+        match_overlaps=np.asarray([0.5], dtype=np.float32),
+    )
+    data = {
+        "index": np.asarray([0, 1]),
+        "label": ["first", "second"],
+        "particles": [
+            ObjectList([particle], RecoParticle()),
+            ObjectList([], RecoParticle()),
+        ],
+        "tensor": [
+            np.arange(6, dtype=np.float32).reshape(3, 2),
+            np.ones((1, 2), dtype=np.float32),
+        ],
+        "clusters": [
+            [np.asarray([1, 2]), np.asarray([3])],
+            [np.asarray([], dtype=np.int64)],
+        ],
+        "features": [
+            [
+                np.ones((2, 2), dtype=np.float32),
+                np.ones((3, 3), dtype=np.float32),
+            ],
+            [
+                np.zeros((1, 2), dtype=np.float32),
+                np.zeros((2, 3), dtype=np.float32),
+            ],
+        ],
+    }
+    with HDF5Writer(str(path), overwrite=True, format_version=format_version) as writer:
+        writer(data, cfg={})
+
+
 def test_compare_files_exact_match(tmp_path):
     """Identical semantic content should pass exact comparison."""
     module = load_output_compare_module()
@@ -83,6 +124,38 @@ def test_compare_files_exact_match(tmp_path):
     assert result.num_events == 2
     assert result.num_products == 2
     assert result.num_values == 2
+
+
+def test_compare_files_v1_v2_semantic_match(tmp_path):
+    """Physical V1 and V2 layouts should compare by reconstructed content."""
+    module = load_output_compare_module()
+    reference = tmp_path / "v1.h5"
+    candidate = tmp_path / "v2.h5"
+    make_versioned_output(reference, 1)
+    make_versioned_output(candidate, 2)
+
+    result = module.compare_files(reference, candidate, exact=True)
+
+    assert result.agrees, result.differences
+    assert result.num_events == 2
+    assert result.num_products == 12
+    assert result.num_values > 0
+
+
+def test_compare_files_v2_reports_semantic_difference(tmp_path):
+    """V2 values should retain ordinary event/product mismatch paths."""
+    module = load_output_compare_module()
+    reference = tmp_path / "reference_v2.h5"
+    candidate = tmp_path / "candidate_v2.h5"
+    make_versioned_output(reference, 2)
+    make_versioned_output(candidate, 2)
+    with h5py.File(candidate, "a") as out_file:
+        out_file["tensor"]["values"][0, 0] += 1.0
+
+    result = module.compare_files(reference, candidate, exact=True)
+
+    assert not result.agrees
+    assert "event[0].tensor[0][0]" in result.differences[0]
 
 
 def test_compare_files_float_tolerance_and_exact(tmp_path):

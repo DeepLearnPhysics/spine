@@ -108,6 +108,14 @@ class StageHDF5Writer(HDF5Writer):
             `None`, only flush on explicit requests or close/finalize.
         overwrite : bool, default False
             If `True`, replace the entire cache file if it already exists.
+
+        Notes
+        -----
+        Stage-cache files have a different, multi-stage schema and are not the
+        flat event files targeted by HDF5 format V2. They deliberately retain
+        the legacy V1 product layout. Recording ``format_version=1`` makes that
+        choice explicit for inspection tools without implying that staged
+        caches can be switched to V2 through writer configuration.
         """
         self._handle_pid: int | None = None
         self._handles: dict[str, h5py.File] = {}
@@ -133,6 +141,10 @@ class StageHDF5Writer(HDF5Writer):
         self.lite = lite
         self.keep_open = keep_open
         self.flush_frequency = flush_frequency
+        # StageHDF5Writer reuses V1 serialization helpers but owns a distinct
+        # container schema. Pin the inherited version attribute explicitly so
+        # future changes to the flat-writer default cannot alter stage caches.
+        self.format_version = self.legacy_format_version
         self.source_info: dict[str, Any] | None = None
 
         self.keys = set(keys) if keys is not None else None
@@ -224,7 +236,7 @@ class StageHDF5Writer(HDF5Writer):
             Open HDF5 handle and a flag indicating whether the caller is
             responsible for closing it immediately.
         """
-        self._ensure_file(file_path)
+        self._ensure_stage_file(file_path)
         if not self.keep_open:
             return h5py.File(file_path, "a"), True
 
@@ -236,7 +248,7 @@ class StageHDF5Writer(HDF5Writer):
 
         return handle, False
 
-    def _ensure_file(self, file_path: str) -> None:
+    def _ensure_stage_file(self, file_path: str) -> None:
         """Initialize one output cache file structure on first use.
 
         The top-level administrative groups are created lazily because staged
@@ -261,7 +273,9 @@ class StageHDF5Writer(HDF5Writer):
             if "info" not in out_file:
                 out_file.create_group("info")
             out_file["info"].attrs["version"] = __version__
+            out_file["info"].attrs["spine_version"] = __version__
             out_file["info"].attrs["format"] = self.name
+            out_file["info"].attrs["format_version"] = self.format_version
 
             if "stages" not in out_file:
                 out_file.create_group("stages")
@@ -298,7 +312,7 @@ class StageHDF5Writer(HDF5Writer):
         for key in required:
             value = data[key]
             if np.isscalar(value):
-                values[key] = value.item() if hasattr(value, "item") else value
+                values[key] = value.item() if isinstance(value, np.generic) else value
                 continue
 
             array = np.asarray(value)
@@ -651,7 +665,10 @@ class StageHDF5Writer(HDF5Writer):
                     continue
 
                 stage_group = stages[stage]
-                stage_group["info"].attrs["complete"] = True
+                assert isinstance(stage_group, h5py.Group)
+                info = stage_group["info"]
+                assert isinstance(info, h5py.Group)
+                info.attrs["complete"] = True
                 out_file.flush()
                 self._completed_stages[file_path].add(stage)
             finally:
