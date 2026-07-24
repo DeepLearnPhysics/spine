@@ -15,11 +15,25 @@ __all__ = ["HDF5Writer"]
 
 
 class HDF5Writer:
-    """Writes data to an HDF5 file.
+    """Write reconstruction data using a versioned SPINE HDF5 layout.
 
     Builds an HDF5 file to store the input and/or the output of the
     reconstruction chain. It can also be used to append an existing HDF5 file
     with information coming out of the analysis tools.
+
+    The writer separates the SPINE software version from the physical storage
+    version. ``spine_version`` records the producing release, while
+    ``format_version`` selects one of two on-disk layouts:
+
+    - V1 stores event-level HDF5 region references and uses HDF5 VLEN dtypes
+      for variable object attributes.
+    - V2 replaces those references and VLEN fields with flat datasets and
+      integer offsets. It appends complete batches collectively to reduce
+      dataset-resize and small-write overhead.
+
+    V1 remains the default during the V2 rollout. Readers auto-detect both
+    layouts, but a writer must use one layout consistently for the lifetime of
+    a file.
 
     Typical configuration should look like:
 
@@ -37,6 +51,9 @@ class HDF5Writer:
     """
 
     name = "hdf5"
+    # `format_name` identifies this family of files. The integer version below
+    # identifies its physical schema and is intentionally independent of the
+    # package release in `spine.version.__version__`.
     format_name = "spine_hdf5"
     legacy_format_version = 1
     current_format_version = 2
@@ -106,7 +123,8 @@ class HDF5Writer:
             Physical HDF5 layout version. Version 1 is the legacy
             region-reference/VLEN layout. Version 2 stores event and object
             boundaries as integer offsets and variable object attributes in
-            flat datasets.
+            flat datasets. The choice is persisted in
+            ``info.attrs["format_version"]`` and cannot change when appending.
         """
         # Build the output file name(s) from the input prefix(es) if not provided
         self.file_names = self.get_file_names(
@@ -321,6 +339,8 @@ class HDF5Writer:
 
             try:
                 out_file.create_group("info")
+                # Keep the historical `version` attribute for old consumers,
+                # while giving software and physical layout explicit names.
                 out_file["info"].attrs["version"] = __version__
                 out_file["info"].attrs["spine_version"] = __version__
                 out_file["info"].attrs["format"] = self.format_name
@@ -343,7 +363,25 @@ class HDF5Writer:
         self._entries_since_flush_by_file_id[file_id] = 0
 
     def _validate_append_format(self, out_file: h5py.File, file_name: str) -> None:
-        """Ensure an existing output file uses the requested physical layout."""
+        """Ensure an existing output file uses the requested physical layout.
+
+        Mixing layouts in one file would invalidate all event-boundary
+        assumptions: V1 events contain region references, whereas V2 product
+        groups maintain independent offset arrays. Files without explicit
+        layout metadata predate V2 and are therefore treated as V1.
+
+        Parameters
+        ----------
+        out_file : h5py.File
+            Existing file opened for append.
+        file_name : str
+            File name included in validation errors.
+
+        Raises
+        ------
+        ValueError
+            If metadata is missing or the stored and requested versions differ.
+        """
         if "info" not in out_file:
             raise ValueError(f"Cannot append to '{file_name}': missing info group.")
         stored_version = int(
@@ -811,7 +849,7 @@ class HDF5Writer:
         return object_dtype
 
     def initialize_datasets(
-        self, out_file: h5py.File, type_dict: dict[str, DataFormat]
+        self, out_file: h5py.Group, type_dict: dict[str, DataFormat]
     ) -> None:
         """Create place hodlers for all the datasets to be filled.
 
@@ -875,24 +913,55 @@ class HDF5Writer:
         )
 
     def initialize_datasets_v2(
-        self, out_file: h5py.File, type_dict: dict[str, DataFormat]
+        self, out_file: h5py.Group, type_dict: dict[str, DataFormat]
     ) -> None:
-        """Create the offset-based version-2 dataset layout."""
+        """Create the offset-based version-2 dataset layout.
+
+        Every logical product is represented by a top-level group with a
+        ``kind`` attribute. The product kind determines which flat datasets
+        and offset levels are required:
+
+        - Arrays and strings have ``values`` and ``event_offsets``.
+        - Object collections have compound ``fixed`` rows, ``event_offsets``,
+          and one or more dtype-homogeneous variable pools.
+        - Lists of same-width arrays add ``element_offsets`` between the event
+          and value levels.
+        - Fixed-length lists of differently shaped arrays use one child group
+          per list position.
+
+        All offset datasets begin with zero. Appending ``N`` logical items adds
+        ``N`` terminal offsets, preserving the invariant
+        ``len(offsets) == num_items + 1``. Equal adjacent offsets represent an
+        empty item.
+
+        Parameters
+        ----------
+        out_file : h5py.File
+            Newly created output file.
+        type_dict : dict[str, DataFormat]
+            Logical product formats inferred from the first input batch.
+        """
         self.event_dtype = np.dtype(np.int64)
         for key, val in type_dict.items():
             group = out_file.create_group(key)
             group.attrs["scalar"] = val.scalar
 
             if val.class_name is not None:
+                # Fixed and derived attributes stay in a normal compound
+                # dataset. Only attributes represented as VLEN in the logical
+                # dtype are moved into flat pools.
                 group.attrs["kind"] = "objects"
                 group.attrs["class_name"] = val.class_name
                 assert isinstance(val.dtype, list)
                 fixed_dtype, variable_pools = self.split_object_dtype_v2(val.dtype)
-                fixed_dtype.extend(
+                storage_dtype: list[tuple[Any, ...]] = list(fixed_dtype)
+                storage_dtype.extend(
                     (f"_var_offsets_{i}", np.int64, len(fields) + 1)
                     for i, (_, _, fields) in enumerate(variable_pools)
                 )
-                group.create_dataset("fixed", (0,), maxshape=(None,), dtype=fixed_dtype)
+                group.create_dataset(
+                    "fixed", (0,), maxshape=(None,), dtype=storage_dtype
+                )
                 group.create_dataset(
                     "event_offsets",
                     data=np.zeros(1, dtype=np.int64),
@@ -900,6 +969,8 @@ class HDF5Writer:
                 )
                 variables = group.create_group("variables")
                 for i, (dtype, is_string, fields) in enumerate(variable_pools):
+                    # Pooling fields by dtype limits dataset count while
+                    # retaining one deterministic ordered field list.
                     pool = variables.create_group(f"pool_{i}")
                     pool.attrs["kind"] = "string" if is_string else "array"
                     pool.attrs["fields"] = yaml.safe_dump(fields)
@@ -909,6 +980,9 @@ class HDF5Writer:
                     )
 
             elif not isinstance(val.width, list):
+                # A simple product needs one event-to-value offset level.
+                # Strings are encoded explicitly so V2 contains no HDF5 VLEN
+                # datatype anywhere in its product tree.
                 dtype = np.dtype(val.dtype)
                 is_string = h5py.check_dtype(vlen=dtype) is str
                 group.attrs["kind"] = "string" if is_string else "array"
@@ -925,6 +999,8 @@ class HDF5Writer:
                 )
 
             elif val.merge:
+                # The event contains a variable number of arrays which share a
+                # width and can therefore occupy one values dataset.
                 group.attrs["kind"] = "list"
                 width = val.width[0]
                 shape = (0, width) if width else (0,)
@@ -944,6 +1020,8 @@ class HDF5Writer:
                 )
 
             else:
+                # Differently shaped list positions cannot share a rectangular
+                # values dataset. Each position gets an independent event span.
                 group.attrs["kind"] = "multi_list"
                 for i, width in enumerate(val.width):
                     element = group.create_group(f"element_{i}")
@@ -958,8 +1036,9 @@ class HDF5Writer:
                         maxshape=(None,),
                     )
 
-        # V2 retains an event axis for counting and future event-level metadata,
-        # but it contains no HDF5 references.
+        # V2 retains an event axis for counting, global indexing, completeness
+        # checks, and future event-level metadata. Product boundaries live in
+        # their own groups, so these rows contain no HDF5 references.
         out_file.create_dataset(
             "events", (0,), maxshape=(None,), dtype=self.event_dtype
         )
@@ -968,7 +1047,27 @@ class HDF5Writer:
     def split_object_dtype_v2(
         obj_dtype: list[tuple[str, type]],
     ) -> tuple[list[tuple[str, type]], list[tuple[np.dtype, bool, list[str]]]]:
-        """Separate fixed columns and pool VLEN columns by physical dtype."""
+        """Partition a logical object dtype into fixed columns and flat pools.
+
+        ``get_object_dtype`` expresses variable arrays and strings using HDF5
+        VLEN dtypes because that description is also consumed by V1. V2 uses
+        the VLEN base dtype only as schema information; no VLEN dtype is
+        created on disk. Variable fields with the same base dtype share one
+        values pool, while strings use a distinct ``uint8`` UTF-8 pool.
+
+        Parameters
+        ----------
+        obj_dtype : list[tuple[str, type]]
+            Ordered logical object-field specifications.
+
+        Returns
+        -------
+        fixed_dtype : list[tuple[str, type]]
+            Scalar and fixed-width compound-dataset fields.
+        variable_pools : list[tuple[np.dtype, bool, list[str]]]
+            One tuple per flat pool containing its value dtype, string flag,
+            and ordered logical field names.
+        """
         fixed_dtype = []
         pool_map: dict[tuple[str, bool], tuple[np.dtype, bool, list[str]]] = {}
         for spec in obj_dtype:
@@ -1015,7 +1114,9 @@ class HDF5Writer:
         if not self.ready:
             self.create(data, cfg, append=self.append)
 
-        # Append file(s)
+        # Append file(s). V1 preserves its entry-at-a-time path for backward
+        # compatibility. V2 handles the complete batch together so each flat
+        # values/offset dataset is resized at most once per product and batch.
         if not self.split or len(self.file_names) == 1:
             out_file, should_close = self._get_output_handle(0)
             try:
@@ -1056,7 +1157,7 @@ class HDF5Writer:
                 self._max_written_file_id = max_file_id
 
     def append_entry(
-        self, out_file: h5py.File, data: dict[str, Any], batch_id: int
+        self, out_file: h5py.Group, data: dict[str, Any], batch_id: int
     ) -> None:
         """Stores one entry.
 
@@ -1093,19 +1194,52 @@ class HDF5Writer:
         event_ds[event_id] = event
 
     def append_entry_v2(
-        self, out_file: h5py.File, data: dict[str, Any], batch_id: int
+        self, out_file: h5py.Group, data: dict[str, Any], batch_id: int
     ) -> None:
-        """Append one entry using flat values and integer offsets."""
+        """Append one entry through the collective V2 implementation.
+
+        This compatibility wrapper keeps :meth:`append_entry` useful to
+        callers which explicitly write individual entries. The physical write
+        path remains batch-oriented, with a one-element batch.
+
+        Parameters
+        ----------
+        out_file : h5py.File
+            Output file initialized with the V2 schema.
+        data : dict
+            Batched data-product dictionary.
+        batch_id : int
+            Index of the entry within ``data``.
+        """
         self.append_entries_v2(out_file, data, np.asarray([batch_id], dtype=np.int64))
 
     def append_entries_v2(
-        self, out_file: h5py.File, data: dict[str, Any], batch_ids: np.ndarray
+        self, out_file: h5py.Group, data: dict[str, Any], batch_ids: np.ndarray
     ) -> None:
-        """Append a batch while resizing each V2 dataset only once."""
+        """Append selected batch entries using collective V2 writes.
+
+        Products are committed first and the authoritative ``events`` axis is
+        extended last. During normal operation the writer's ``complete=False``
+        marker protects readers from observing a partially written batch. On
+        successful finalization every product has exactly one event boundary
+        per row in ``events``.
+
+        Parameters
+        ----------
+        out_file : h5py.File
+            Output file initialized with the V2 schema.
+        data : dict
+            Batched data-product dictionary.
+        batch_ids : np.ndarray
+            Ordered indexes of entries to append. Split output uses a subset of
+            the input batch here.
+        """
         assert self.keys is not None
         for key in self.keys:
             self.append_key_batch_v2(out_file, data, key, batch_ids)
 
+        # Rows carry their own monotonic IDs today. Their primary contract is
+        # the stable event count/axis; product lookup uses product offsets.
         events = out_file["events"]
         assert isinstance(events, h5py.Dataset)
         event_id = len(events)
@@ -1116,12 +1250,28 @@ class HDF5Writer:
 
     def append_key_batch_v2(
         self,
-        out_file: h5py.File,
+        out_file: h5py.Group,
         data: dict[str, Any],
         key: str,
         batch_ids: np.ndarray,
     ) -> None:
-        """Append multiple events for one V2 product in collective slices."""
+        """Append multiple events for one V2 product in collective slices.
+
+        The product group's ``kind`` is the only physical-layout dispatch.
+        Logical :class:`DataFormat` metadata is used to normalize scalar versus
+        collection inputs before they enter the common offset helpers.
+
+        Parameters
+        ----------
+        out_file : h5py.File
+            Output file containing the product group.
+        data : dict
+            Batched data-product dictionary.
+        key : str
+            Product to append.
+        batch_ids : np.ndarray
+            Ordered indexes of entries to append.
+        """
         assert self.type_dict is not None
         val = self.type_dict[key]
         group = out_file[key]
@@ -1129,6 +1279,8 @@ class HDF5Writer:
         kind = group.attrs["kind"]
 
         if kind == "objects":
+            # Normalize scalar object products to one-object collections so the
+            # storage helper only needs one representation.
             batches = []
             for batch_id in batch_ids:
                 obj = data[key] if np.isscalar(data[key]) else data[key][batch_id]
@@ -1137,6 +1289,7 @@ class HDF5Writer:
             return
 
         if kind in {"array", "string"}:
+            # Build one array per event, then concatenate and resize once.
             arrays = []
             for batch_id in batch_ids:
                 if np.isscalar(data[key]):
@@ -1153,16 +1306,22 @@ class HDF5Writer:
 
         array_lists = [data[key][batch_id] for batch_id in batch_ids]
         if kind == "list":
+            # Flatten event -> element -> value. The two offset levels preserve
+            # both collection boundaries without region references.
             arrays = [array for array_list in array_lists for array in array_list]
-            self.append_values_with_offsets_v2(
-                group["values"], group["element_offsets"], arrays
-            )
+            values = group["values"]
+            element_offsets = group["element_offsets"]
             event_offsets = group["event_offsets"]
+            assert isinstance(values, h5py.Dataset)
+            assert isinstance(element_offsets, h5py.Dataset)
+            assert isinstance(event_offsets, h5py.Dataset)
+            self.append_values_with_offsets_v2(values, element_offsets, arrays)
             counts = [len(array_list) for array_list in array_lists]
             self.append_lengths_v2(event_offsets, counts)
             return
 
         assert kind == "multi_list"
+        # Each list position owns a separate rectangular values dataset.
         for i, name in enumerate(
             sorted(group.keys(), key=lambda item: int(item.split("_")[-1]))
         ):
@@ -1174,7 +1333,21 @@ class HDF5Writer:
 
     @staticmethod
     def append_lengths_v2(offsets: h5py.Dataset, lengths: Any) -> None:
-        """Append terminal offsets derived from a sequence of lengths."""
+        """Extend a boundary array from a sequence of item lengths.
+
+        The existing final offset is the absolute base of the append. For
+        lengths ``[a, b]``, the method appends ``base + a`` and
+        ``base + a + b``. Zero lengths intentionally repeat the previous
+        boundary and represent empty items.
+
+        Parameters
+        ----------
+        offsets : h5py.Dataset
+            One-dimensional monotonic ``int64`` boundary dataset whose initial
+            value is zero.
+        lengths : array-like
+            Number of values contributed by each newly appended logical item.
+        """
         lengths = np.asarray(lengths, dtype=np.int64)
         if not len(lengths):
             return
@@ -1190,7 +1363,21 @@ class HDF5Writer:
         offsets: h5py.Dataset,
         arrays: list[np.ndarray],
     ) -> None:
-        """Append multiple variable arrays with one values resize and one offset resize."""
+        """Append variable arrays and their boundaries with collective resizes.
+
+        Arrays are concatenated in logical order. The values dataset and offset
+        dataset are each resized once, which is the central write-side
+        performance advantage over per-object region references/VLEN payloads.
+
+        Parameters
+        ----------
+        values : h5py.Dataset
+            Flat destination dataset.
+        offsets : h5py.Dataset
+            Boundary dataset corresponding to ``values``.
+        arrays : list[np.ndarray]
+            Ordered variable-length arrays to append.
+        """
         lengths = np.asarray([len(array) for array in arrays], dtype=np.int64)
         first = len(values)
         combined = np.concatenate(arrays) if arrays else np.empty(0, dtype=values.dtype)
@@ -1201,7 +1388,15 @@ class HDF5Writer:
 
     @classmethod
     def append_array_batch_v2(cls, group: h5py.Group, arrays: list[np.ndarray]) -> None:
-        """Append several event arrays while resizing values and offsets once."""
+        """Append one array per event to a simple V2 product group.
+
+        Parameters
+        ----------
+        group : h5py.Group
+            Group containing ``values`` and ``event_offsets``.
+        arrays : list[np.ndarray]
+            Ordered event payloads.
+        """
         values = group["values"]
         offsets = group["event_offsets"]
         assert isinstance(values, h5py.Dataset)
@@ -1212,7 +1407,29 @@ class HDF5Writer:
     def store_object_batches_v2(
         cls, group: h5py.Group, batches: list[Any], lite: bool
     ) -> None:
-        """Store several events of objects with collective dataset appends."""
+        """Store object batches in fixed rows and dtype-specific value pools.
+
+        Objects are flattened in event order. Each logical object contributes
+        one compound ``fixed`` row. For a variable pool containing ``F``
+        fields, the corresponding fixed-row helper column contains ``F + 1``
+        absolute offsets; adjacent boundaries delimit each field in the pool's
+        shared values dataset. The final ``event_offsets`` update maps events
+        back to their ranges of fixed rows.
+
+        Derived properties returned by ``obj.as_dict`` are stored alongside
+        ordinary fixed attributes. This is intentional: consumers which read
+        HDF5 directly, without SPINE classes, retain access to the advertised
+        object summaries.
+
+        Parameters
+        ----------
+        group : h5py.Group
+            V2 object product group.
+        batches : list
+            Ordered per-event object collections.
+        lite : bool
+            Passed to ``as_dict`` to omit configured heavy attributes.
+        """
         fixed = group["fixed"]
         event_offsets = group["event_offsets"]
         variables = group["variables"]
@@ -1220,8 +1437,10 @@ class HDF5Writer:
         assert isinstance(event_offsets, h5py.Dataset)
         assert isinstance(variables, h5py.Group)
 
+        # Flatten once so fixed columns and every variable pool share exactly
+        # the same object-row order.
         object_dicts = [obj.as_dict(lite) for batch in batches for obj in batch]
-        rows = np.empty(len(object_dicts), dtype=fixed.dtype)
+        rows: Any = np.empty(len(object_dicts), dtype=fixed.dtype)
         if object_dicts:
             for name in fixed.dtype.names or ():
                 if not name.startswith("_var_offsets_"):
@@ -1232,9 +1451,25 @@ class HDF5Writer:
             values = pool["values"]
             assert isinstance(values, h5py.Dataset)
             is_string = pool.attrs["kind"] == "string"
-            fields = yaml.safe_load(pool.attrs["fields"])
+            fields_attr = pool.attrs["fields"]
+            if isinstance(fields_attr, bytes):
+                fields_attr = fields_attr.decode()
+            if not isinstance(fields_attr, str):
+                raise TypeError(
+                    f"V2 variable pool '{pool_name}' fields must be a string."
+                )
+            fields = yaml.safe_load(fields_attr)
+            if not isinstance(fields, list) or not all(
+                isinstance(name, str) for name in fields
+            ):
+                raise TypeError(
+                    f"V2 variable pool '{pool_name}' fields must decode "
+                    "to a list of strings."
+                )
             chunks = []
             offset_rows = np.empty((len(object_dicts), len(fields) + 1), dtype=np.int64)
+            # Offsets are absolute in the full pool, not relative to this
+            # batch. This makes appends independent and permits direct slicing.
             cursor = len(values)
             for i, obj in enumerate(object_dicts):
                 offset_rows[i, 0] = cursor
@@ -1265,6 +1500,8 @@ class HDF5Writer:
                 pool_index = int(pool_name.split("_")[-1])
                 rows[f"_var_offsets_{pool_index}"] = offset_rows
 
+        # Commit fixed rows only after their variable offset columns have been
+        # populated. Event boundaries are appended last.
         first_object = len(fixed)
         fixed.resize(first_object + len(object_dicts), axis=0)
         if len(object_dicts):
@@ -1274,7 +1511,7 @@ class HDF5Writer:
 
     def append_key(
         self,
-        out_file: h5py.File,
+        out_file: h5py.Group,
         event: np.ndarray,
         data: dict[str, Any],
         key: str,
@@ -1336,7 +1573,7 @@ class HDF5Writer:
 
     @staticmethod
     def store(
-        out_file: h5py.File, event: np.ndarray, key: str, array: np.ndarray
+        out_file: h5py.Group, event: np.ndarray, key: str, array: np.ndarray
     ) -> None:
         """Stores an `ndarray` in the file and stores its mapping in the event
         dataset.
@@ -1369,7 +1606,7 @@ class HDF5Writer:
 
     @staticmethod
     def store_jagged(
-        out_file: h5py.File,
+        out_file: h5py.Group,
         event: np.ndarray,
         key: str,
         array_list: list[np.ndarray],
@@ -1431,7 +1668,10 @@ class HDF5Writer:
 
     @staticmethod
     def store_flat(
-        out_file: h5py.File, event: np.ndarray, key: str, array_list: list[np.ndarray]
+        out_file: h5py.Group,
+        event: np.ndarray,
+        key: str,
+        array_list: list[np.ndarray],
     ) -> None:
         """Stores a concatenated list of arrays in the file and stores its
         index mapping in the event dataset to break them.
@@ -1491,7 +1731,7 @@ class HDF5Writer:
 
     @staticmethod
     def store_objects(
-        out_file: h5py.File,
+        out_file: h5py.Group,
         event: np.ndarray,
         key: str,
         array: np.ndarray,

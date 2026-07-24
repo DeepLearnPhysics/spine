@@ -1,7 +1,7 @@
 """Contains a reader class dedicated to loading data from HDF5 files."""
 
 import os
-from dataclasses import fields
+from dataclasses import dataclass, fields
 from typing import Any
 from warnings import warn
 
@@ -19,15 +19,28 @@ __all__ = ["HDF5Reader"]
 
 
 class HDF5Reader(ReaderBase):
-    """Class which reads information stored in HDF5 files.
+    """Read event data from versioned SPINE HDF5 files.
 
     This class inherits from the :class:`ReaderBase` class. It provides
-    methods to load HDF5 files and extract their data products. The files
-    must be structured as follows:
+    methods to load HDF5 files and extract their data products. Two physical
+    layouts are supported:
 
-      - An `events` dataset with all the region references
-      - One dataset per data product corresponding to each region reference in
-        the `events` dataset
+    - Version 1 is the legacy layout. Each row of ``events`` is a compound
+      record of HDF5 region references into top-level product datasets.
+      Variable object attributes use HDF5 VLEN fields.
+    - Version 2 stores each product in a top-level group and uses monotonic
+      integer offset arrays to delimit events, objects, and variable fields.
+      Its ``events`` dataset is deliberately retained as the authoritative
+      event axis, but contains no product references.
+
+    The reader detects the layout independently for every input file. This
+    allows one logical dataset to span legacy and V2 files without exposing
+    layout differences to callers. Files which predate explicit
+    ``info.attrs["format_version"]`` metadata are interpreted as V1.
+
+    Product projection is performed before any product dataset is accessed.
+    This is particularly useful for V2 because product names live at the file
+    root rather than in the ``events`` compound dtype.
     """
 
     name: str = "hdf5"
@@ -105,7 +118,9 @@ class HDF5Reader(ReaderBase):
             rejected.
         keys : sequence[str], optional
             Data products to load. If omitted, load every product. This is a
-            true reader-level projection and avoids reading unrequested data.
+            true reader-level projection and avoids reading unrequested data
+            in either layout. Source-provenance products remain eligible so
+            reader-owned runtime indexes can be reconstructed.
         """
         # Process the list of files
         self.process_file_paths(file_keys, file_list, limit_num_files, max_print_files)
@@ -114,6 +129,26 @@ class HDF5Reader(ReaderBase):
         self.ignore_incomplete = ignore_incomplete
         self._handle_pid: int | None = None
         self._file_handles: dict[int, h5py.File] = {}
+
+        # V2 object schemas are immutable for the lifetime of a file. Cache
+        # their decoded attribute metadata so event reads do not repeatedly
+        # invoke YAML or rediscover logical fields from compound dtypes.
+        # Only plain Python values are cached; h5py objects remain tied to the
+        # process-local file-handle lifecycle above.
+        self._v2_object_schemas: dict[
+            tuple[str, str],
+            tuple[
+                str,
+                bool,
+                tuple[str, ...],
+                tuple[tuple[str, int, bool, tuple[str, ...]], ...],
+            ],
+        ] = {}
+        self._v2_object_handles: dict[
+            tuple[str, str],
+            tuple[h5py.Dataset, h5py.Dataset, tuple[h5py.Dataset, ...]],
+        ] = {}
+        self._v2_product_handles: dict[tuple[str, str], _V2ProductHandles] = {}
         self.requested_keys = set(keys) if keys is not None else None
         self.file_format_versions: list[int] = []
 
@@ -144,6 +179,8 @@ class HDF5Reader(ReaderBase):
                 assert isinstance(
                     events, h5py.Dataset
                 ), "'events' is not a dataset in the HDF5 file."
+                # Explicit layout metadata was introduced with V2. Its absence
+                # is therefore an unambiguous legacy-file marker, not an error.
                 format_version = 1
                 if "info" in in_file:
                     format_version = int(in_file["info"].attrs.get("format_version", 1))
@@ -161,6 +198,7 @@ class HDF5Reader(ReaderBase):
 
                     info = in_file[run_info_key]
                     if format_version == 1:
+                        # V1 object fields are columns of one compound dataset.
                         assert isinstance(
                             info, h5py.Dataset
                         ), f"{run_info_key} is not a dataset in the HDF5 file."
@@ -168,7 +206,10 @@ class HDF5Reader(ReaderBase):
                             k in info.dtype.names for k in ["run", "subrun", "event"]
                         ), f"{run_info_key} dataset missing required fields."
                         columns = (info["run"], info["subrun"], info["event"])
+
                     else:
+                        # In V2, derived and fixed-width fields remain directly
+                        # queryable in the product's compound `fixed` dataset.
                         assert isinstance(info, h5py.Group)
                         fixed = info["fixed"]
                         assert isinstance(fixed, h5py.Dataset)
@@ -230,6 +271,8 @@ class HDF5Reader(ReaderBase):
                 pass
 
         self._file_handles = {}
+        self._v2_object_handles = {}
+        self._v2_product_handles = {}
         self._handle_pid = None
 
     def __del__(self) -> None:
@@ -308,7 +351,12 @@ class HDF5Reader(ReaderBase):
         return cfg
 
     def process_version(self) -> str:
-        """Returns the SPINE release version used to produce the HDF5 file.
+        """Return the SPINE software release which produced the first file.
+
+        ``spine_version`` identifies software and must not be confused with
+        ``format_version``, which selects the physical HDF5 layout. The
+        historical ``version`` attribute remains as a fallback for files
+        written before these concepts were named separately.
 
         Returns
         -------
@@ -358,6 +406,9 @@ class HDF5Reader(ReaderBase):
                 events, h5py.Dataset
             ), "'events' is not a dataset in the HDF5 file."
 
+            # Dispatch on the physical layout of the file containing this
+            # entry. `file_format_versions` is parallel to `file_paths`, so a
+            # single reader can transparently span V1 and V2 files.
             if self.file_format_versions[file_idx] == 1:
                 event = events[entry_idx]
                 names = getattr(getattr(event, "dtype", None), "names", None)
@@ -368,6 +419,8 @@ class HDF5Reader(ReaderBase):
                 else:
                     raise ValueError("Event entry does not have named fields.")
             else:
+                # V2 product membership is represented by top-level groups,
+                # not fields in the events dtype.
                 for key in in_file.keys():
                     if key not in {"events", "info"} and self.should_load_key(key):
                         self.load_key_v2(in_file, entry_idx, data, key)
@@ -381,7 +434,23 @@ class HDF5Reader(ReaderBase):
         return data
 
     def should_load_key(self, key: str) -> bool:
-        """Return whether a product belongs to the requested projection."""
+        """Return whether a product belongs to the reader projection.
+
+        Source-provenance keys are always admitted when present. They are
+        administrative inputs used by :meth:`get_source_provenance`, rather
+        than ordinary user-requested products, and are required to preserve
+        source entry identity across an HDF5 round trip.
+
+        Parameters
+        ----------
+        key : str
+            Stored data-product name.
+
+        Returns
+        -------
+        bool
+            ``True`` when the product should be read from disk.
+        """
         return (
             self.requested_keys is None
             or key in self.requested_keys
@@ -399,42 +468,130 @@ class HDF5Reader(ReaderBase):
         data: dict[str, Any],
         key: str,
     ) -> None:
-        """Load one product from an offset-based V2 group."""
-        group = in_file[key]
-        if not isinstance(group, h5py.Group) or "kind" not in group.attrs:
-            raise ValueError(f"V2 product '{key}' is not a recognized product group.")
-        kind = group.attrs["kind"]
-        if isinstance(kind, bytes):
-            kind = kind.decode()
+        """Load one event product from an offset-based V2 group.
+
+        Every V2 product advertises a ``kind`` attribute which determines its
+        physical schema:
+
+        - ``array`` and ``string`` use ``values`` plus ``event_offsets``.
+        - ``objects`` use compound ``fixed`` rows, per-event object offsets,
+          and flat variable-field pools.
+        - ``list`` represents a variable number of same-width arrays. Its
+          ``event_offsets`` delimit elements and ``element_offsets`` delimit
+          values.
+        - ``multi_list`` represents a fixed number of differently shaped
+          arrays using one child group per list position.
+
+        Offset arrays follow the boundary convention that item ``i`` occupies
+        ``offsets[i]:offsets[i + 1]``. An offset dataset for ``N`` items
+        therefore contains ``N + 1`` entries. Empty items are represented by
+        equal adjacent offsets and require no special sentinel.
+
+        Parameters
+        ----------
+        in_file : h5py.File
+            Open file containing the product.
+        entry_idx : int
+            File-local event index.
+        data : dict
+            Event dictionary to update with the decoded value.
+        key : str
+            Top-level V2 product-group name.
+        """
+        cache_key = (os.fspath(in_file.filename), key)
+        product = self._v2_product_handles.get(cache_key) if self.keep_open else None
+        if product is None:
+            group = in_file[key]
+            if not isinstance(group, h5py.Group) or "kind" not in group.attrs:
+                raise ValueError(
+                    f"V2 product '{key}' is not a recognized product group."
+                )
+            kind = _decode_string_attribute(group.attrs["kind"], "kind")
+
+            # Resolve the physical datasets once for persistent readers. Name
+            # lookup and attribute decoding are surprisingly visible when
+            # repeated for every product of every event.
+            if kind in {"array", "string"}:
+                product = _V2ProductHandles(
+                    kind=kind,
+                    values=_require_dataset(group, "values"),
+                    event_offsets=_require_dataset(group, "event_offsets"),
+                    scalar=bool(group.attrs["scalar"]),
+                )
+            elif kind == "objects":
+                product = _V2ProductHandles(kind=kind, object_group=group)
+            elif kind == "list":
+                product = _V2ProductHandles(
+                    kind=kind,
+                    values=_require_dataset(group, "values"),
+                    element_offsets=_require_dataset(group, "element_offsets"),
+                    event_offsets=_require_dataset(group, "event_offsets"),
+                )
+            elif kind == "multi_list":
+                elements = []
+                for name in sorted(
+                    group.keys(), key=lambda item: int(item.split("_")[-1])
+                ):
+                    element = _require_group(group, name)
+                    elements.append(
+                        (
+                            _require_dataset(element, "values"),
+                            _require_dataset(element, "event_offsets"),
+                        )
+                    )
+                product = _V2ProductHandles(kind=kind, elements=tuple(elements))
+            else:
+                raise ValueError(
+                    f"Unrecognized V2 product kind '{kind}' for key '{key}'."
+                )
+
+            if self.keep_open:
+                self._v2_product_handles[cache_key] = product
+
+        kind = product.kind
 
         if kind == "array":
-            values = group["values"]
-            offsets = group["event_offsets"]
+            values = product.values
+            offsets = product.event_offsets
+            assert values is not None and offsets is not None
             start, stop = (int(v) for v in offsets[entry_idx : entry_idx + 2])
             result = values[start:stop]
-            if group.attrs["scalar"]:
+            if product.scalar:
                 result = result[0]
             data[key] = result
             return
 
         if kind == "string":
-            values = group["values"]
-            offsets = group["event_offsets"]
+            # Strings are explicit UTF-8 byte spans rather than HDF5 VLEN
+            # strings, so their physical representation is predictable.
+            values = product.values
+            offsets = product.event_offsets
+            assert values is not None and offsets is not None
             start, stop = (int(v) for v in offsets[entry_idx : entry_idx + 2])
             data[key] = values[start:stop].tobytes().decode("utf-8")
             return
 
         if kind == "objects":
-            self.load_objects_v2(group, entry_idx, data, key)
+            assert product.object_group is not None
+            self.load_objects_v2(product.object_group, entry_idx, data, key)
             return
 
         if kind == "list":
-            values = group["values"]
-            element_offsets = group["element_offsets"]
-            event_offsets = group["event_offsets"]
+            # First map the event to a range of logical elements, then map
+            # every element to its slice in the shared values dataset.
+            values = product.values
+            element_offsets = product.element_offsets
+            event_offsets = product.event_offsets
+            assert (
+                values is not None
+                and element_offsets is not None
+                and event_offsets is not None
+            )
             first, last = (int(v) for v in event_offsets[entry_idx : entry_idx + 2])
             bounds = element_offsets[first : last + 1]
             result = np.empty(last - first, dtype=object)
+            # Read the event's complete span once. The individual arrays below
+            # are inexpensive slices of this in-memory block.
             base = int(bounds[0]) if len(bounds) else 0
             terminal = int(bounds[-1]) if len(bounds) else base
             event_values = values[base:terminal]
@@ -447,16 +604,11 @@ class HDF5Reader(ReaderBase):
 
         if kind == "multi_list":
             result = []
-            for name in sorted(group.keys(), key=lambda item: int(item.split("_")[-1])):
-                element = group[name]
-                values = element["values"]
-                offsets = element["event_offsets"]
+            for values, offsets in product.elements:
                 start, stop = (int(v) for v in offsets[entry_idx : entry_idx + 2])
                 result.append(values[start:stop])
             data[key] = result
             return
-
-        raise ValueError(f"Unrecognized V2 product kind '{kind}' for key '{key}'.")
 
     def load_objects_v2(
         self,
@@ -465,27 +617,118 @@ class HDF5Reader(ReaderBase):
         data: dict[str, Any],
         key: str,
     ) -> None:
-        """Load an object collection from fixed rows and flat variable fields."""
-        fixed = group["fixed"]
-        event_offsets = group["event_offsets"]
-        variables = group["variables"]
-        assert isinstance(fixed, h5py.Dataset)
-        assert isinstance(event_offsets, h5py.Dataset)
-        assert isinstance(variables, h5py.Group)
+        """Load one V2 object collection and optionally rebuild its classes.
+
+        A V2 object product separates attributes by storage behavior:
+
+        - ``fixed`` contains one compound row per object. Scalar, enum,
+          fixed-width, and derived properties live here and can be consumed by
+          external HDF5 tools without importing SPINE.
+        - ``variables/pool_N/values`` concatenates variable-length fields which
+          share a physical dtype. Strings use UTF-8 byte pools.
+        - ``_var_offsets_N`` in each fixed row contains ``F + 1`` absolute
+          boundaries for the ``F`` fields listed in the pool's ``fields``
+          attribute.
+
+        Only the object and variable-value spans touched by this event are
+        read. Logical dictionaries are then passed to ``DataBase.from_dict``;
+        when ``build_classes=False`` those dictionaries are returned directly.
+
+        Parameters
+        ----------
+        group : h5py.Group
+            V2 object product group.
+        entry_idx : int
+            File-local event index.
+        data : dict
+            Event dictionary to update.
+        key : str
+            Name under which to store the reconstructed collection.
+        """
+        # Dataset dtypes and group attributes do not vary by event. In
+        # particular, parsing each pool's YAML-encoded field list here used to
+        # be a significant fraction of V2 read time. Cache only decoded Python
+        # metadata, rather than h5py handles, so keep_open=False and fork-safe
+        # handle reopening continue to work normally.
+        file_name = os.fspath(group.file.filename)
+        group_name = group.name
+        if group_name is None:
+            raise ValueError("V2 object group must have a file path.")
+        schema_key = (file_name, group_name)
+        schema = self._v2_object_schemas.get(schema_key)
+        if schema is None:
+            fixed = _require_dataset(group, "fixed")
+            variables = _require_group(group, "variables")
+            class_name = _decode_string_attribute(
+                group.attrs["class_name"], "class_name"
+            )
+            scalar = bool(group.attrs["scalar"])
+            fixed_names = tuple(
+                name
+                for name in fixed.dtype.names or ()
+                if not name.startswith("_var_offsets_")
+            )
+            decoded_pool_specs: list[tuple[str, int, bool, tuple[str, ...]]] = []
+            for pool_name, pool in sorted(
+                variables.items(),
+                key=lambda item: int(item[0].split("_")[-1]),
+            ):
+                if not isinstance(pool, h5py.Group):
+                    raise TypeError(f"V2 variable pool '{pool_name}' must be a group.")
+                pool_index = int(pool_name.split("_")[-1])
+                kind = _decode_string_attribute(pool.attrs["kind"], "kind")
+                fields_value = yaml.safe_load(
+                    _decode_string_attribute(pool.attrs["fields"], "fields")
+                )
+                if not isinstance(fields_value, list) or not all(
+                    isinstance(name, str) for name in fields_value
+                ):
+                    raise TypeError(
+                        f"V2 variable pool '{pool_name}' fields must be "
+                        "a list of strings."
+                    )
+                fields = tuple(fields_value)
+                decoded_pool_specs.append(
+                    (pool_name, pool_index, kind == "string", fields)
+                )
+            schema = (
+                class_name,
+                scalar,
+                fixed_names,
+                tuple(decoded_pool_specs),
+            )
+            self._v2_object_schemas[schema_key] = schema
+
+        class_name, scalar, fixed_names, pool_specs = schema
+
+        # Persistent readers can also retain direct dataset handles. This
+        # removes several group-name lookups per variable pool and event. The
+        # cache is cleared whenever the owning file handles are closed or a
+        # reader crosses a process boundary.
+        handles = self._v2_object_handles.get(schema_key) if self.keep_open else None
+        if handles is None:
+            fixed = _require_dataset(group, "fixed")
+            event_offsets = _require_dataset(group, "event_offsets")
+            pool_values = []
+            for pool_name, _, _, _ in pool_specs:
+                values = _require_dataset(group, f"variables/{pool_name}/values")
+                pool_values.append(values)
+            handles = (fixed, event_offsets, tuple(pool_values))
+            if self.keep_open:
+                self._v2_object_handles[schema_key] = handles
+
+        fixed, event_offsets, pool_values = handles
+
+        # Select only the compound object rows owned by this event.
         first, last = (int(v) for v in event_offsets[entry_idx : entry_idx + 2])
         rows = fixed[first:last]
-        class_name = group.attrs["class_name"]
-        if isinstance(class_name, bytes):
-            class_name = class_name.decode()
         obj_class = self.resolve_object_class(class_name, rows)
 
         variable_values: dict[str, list[Any]] = {}
-        for pool_name, pool in variables.items():
-            values = pool["values"]
-            pool_index = int(pool_name.split("_")[-1])
+        for values, (_, pool_index, is_string, fields) in zip(pool_values, pool_specs):
             bounds = rows[f"_var_offsets_{pool_index}"]
-            is_string = pool.attrs["kind"] == "string"
-            fields = yaml.safe_load(pool.attrs["fields"])
+            # Pool offsets are absolute across the file. Read the enclosing
+            # event span once and subtract `base` for local NumPy slicing.
             base = int(bounds[0, 0]) if len(bounds) else 0
             terminal = int(bounds[-1, -1]) if len(bounds) else base
             event_values = values[base:terminal]
@@ -500,14 +743,11 @@ class HDF5Reader(ReaderBase):
                     loaded.append(value)
                 variable_values[name] = loaded
 
-        names = rows.dtype.names or ()
+        # Offset helper columns are physical metadata and are intentionally
+        # excluded from the logical object dictionaries.
         result = []
         for i, row in enumerate(rows):
-            obj_dict = {
-                name: row[name]
-                for name in names
-                if not name.startswith("_var_offsets_")
-            }
+            obj_dict = {name: row[name] for name in fixed_names}
             obj_dict.update(
                 {name: values[i] for name, values in variable_values.items()}
             )
@@ -515,7 +755,7 @@ class HDF5Reader(ReaderBase):
                 result.append(obj_class.from_dict(obj_dict))
             else:
                 result.append(obj_dict)
-        if group.attrs["scalar"]:
+        if scalar:
             result = result[0]
         data[key] = result
 
@@ -665,6 +905,44 @@ class HDF5Reader(ReaderBase):
 
         else:
             raise ValueError(f"Dataset for key '{key}' is neither a group nor dataset.")
+
+
+@dataclass(frozen=True)
+class _V2ProductHandles:
+    """Resolved HDF5 objects needed to load one V2 product."""
+
+    kind: str
+    values: h5py.Dataset | None = None
+    event_offsets: h5py.Dataset | None = None
+    scalar: bool = False
+    object_group: h5py.Group | None = None
+    element_offsets: h5py.Dataset | None = None
+    elements: tuple[tuple[h5py.Dataset, h5py.Dataset], ...] = ()
+
+
+def _require_dataset(parent: h5py.File | h5py.Group, name: str) -> h5py.Dataset:
+    """Return a named child dataset or fail with a schema error."""
+    child = parent[name]
+    if not isinstance(child, h5py.Dataset):
+        raise TypeError(f"Expected '{child.name}' to be an HDF5 dataset.")
+    return child
+
+
+def _require_group(parent: h5py.File | h5py.Group, name: str) -> h5py.Group:
+    """Return a named child group or fail with a schema error."""
+    child = parent[name]
+    if not isinstance(child, h5py.Group):
+        raise TypeError(f"Expected '{child.name}' to be an HDF5 group.")
+    return child
+
+
+def _decode_string_attribute(value: Any, name: str) -> str:
+    """Normalize one required byte/string-valued HDF5 attribute."""
+    if isinstance(value, bytes):
+        value = value.decode()
+    if not isinstance(value, str):
+        raise TypeError(f"HDF5 attribute '{name}' must be a string.")
+    return value
 
 
 def _get_reader_pid() -> int:

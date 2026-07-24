@@ -11,6 +11,11 @@ import spine.data
 from spine.data import ObjectList, RecoParticle, RunInfo
 from spine.data.larcv.meta import ImageMeta2D, ImageMeta3D
 from spine.io.read import HDF5Reader, StageHDF5Reader
+from spine.io.read.hdf5 import (
+    _decode_string_attribute,
+    _require_dataset,
+    _require_group,
+)
 from spine.io.write import HDF5Writer, StageHDF5Writer
 
 
@@ -295,7 +300,22 @@ def test_hdf5_reader_v2_round_trip_and_projection(tmp_path):
     assert np.array_equal(first["particles"][0].index, [1, 3, 8])
     assert second["particles"] == []
     assert second["tensor"].shape == (1, 2)
+    assert reader._v2_object_schemas
+    assert reader._v2_object_handles
+    assert reader._v2_product_handles
     reader.close()
+    assert reader._v2_object_handles == {}
+    assert reader._v2_product_handles == {}
+
+    # Closing a persistent reader invalidates cached h5py objects. A later
+    # access must transparently rebuild those process-local handle caches.
+    assert reader.get(0)["particles"][0].size == 3
+    assert reader._v2_object_handles
+    reader.close()
+
+    raw_reader = HDF5Reader(str(path), keys=["particles"], build_classes=False)
+    assert isinstance(raw_reader.get(0)["particles"][0], dict)
+    raw_reader.close()
 
     projected = HDF5Reader(str(path), keys=["tensor"])
     entry = projected.get(0)
@@ -303,6 +323,98 @@ def test_hdf5_reader_v2_round_trip_and_projection(tmp_path):
     assert "particles" not in entry
     assert "label" not in entry
     projected.close()
+
+
+def test_hdf5_reader_v2_schema_helpers_reject_wrong_types(tmp_path):
+    """V2 schema helpers should validate child and attribute types."""
+    path = tmp_path / "bad_helpers.h5"
+    with h5py.File(path, "w") as out_file:
+        out_file.create_group("group")
+        out_file.create_dataset("dataset", data=np.asarray([1]))
+
+        with pytest.raises(TypeError, match="HDF5 dataset"):
+            _require_dataset(out_file, "group")
+        with pytest.raises(TypeError, match="HDF5 group"):
+            _require_group(out_file, "dataset")
+
+    assert _decode_string_attribute(b"value", "test") == "value"
+    with pytest.raises(TypeError, match="must be a string"):
+        _decode_string_attribute(3, "test")
+
+
+def test_hdf5_reader_v2_rejects_bad_product_groups(tmp_path):
+    """V2 dispatch should reject missing and unknown product kinds."""
+    path = tmp_path / "bad_products.h5"
+    reader = HDF5Reader.__new__(HDF5Reader)
+    reader.keep_open = False
+    reader._v2_product_handles = {}
+
+    with h5py.File(path, "w") as out_file:
+        out_file.create_dataset("not_group", data=np.asarray([1]))
+        unknown = out_file.create_group("unknown")
+        unknown.attrs["kind"] = "future"
+
+        with pytest.raises(ValueError, match="not a recognized product group"):
+            reader.load_key_v2(out_file, 0, {}, "not_group")
+        with pytest.raises(ValueError, match="Unrecognized V2 product kind"):
+            reader.load_key_v2(out_file, 0, {}, "unknown")
+
+
+def test_hdf5_reader_v2_rejects_anonymous_object_group(tmp_path):
+    """Object products must have a stable path for schema caching."""
+    path = tmp_path / "anonymous.h5"
+    reader = HDF5Reader.__new__(HDF5Reader)
+
+    with h5py.File(path, "w") as out_file:
+        anonymous = out_file.create_group(None)
+        with pytest.raises(ValueError, match="must have a file path"):
+            reader.load_objects_v2(anonymous, 0, {}, "objects")
+
+
+@pytest.mark.parametrize("bad_fields", ["index", "[index, 3]"])
+def test_hdf5_reader_v2_rejects_bad_variable_pool_fields(tmp_path, bad_fields):
+    """Variable-pool field metadata must decode to string lists."""
+    path = tmp_path / "bad_fields.h5"
+    reader = HDF5Reader.__new__(HDF5Reader)
+    reader._v2_object_schemas = {}
+
+    with h5py.File(path, "w") as out_file:
+        objects = out_file.create_group("objects")
+        objects.attrs["class_name"] = "RecoParticle"
+        objects.attrs["scalar"] = False
+        objects.create_dataset(
+            "fixed",
+            (0,),
+            dtype=np.dtype([("_var_offsets_0", np.int64, (2,))]),
+        )
+        objects.create_dataset("event_offsets", data=np.asarray([0]))
+        variables = objects.create_group("variables")
+        pool = variables.create_group("pool_0")
+        pool.attrs["kind"] = "array"
+        pool.attrs["fields"] = bad_fields
+        pool.create_dataset("values", data=np.asarray([], dtype=np.int64))
+
+        with pytest.raises(TypeError, match="list of strings"):
+            reader.load_objects_v2(objects, 0, {}, "objects")
+
+
+def test_hdf5_reader_v2_rejects_non_group_variable_pool(tmp_path):
+    """Every entry below the variables group must itself be a pool group."""
+    path = tmp_path / "bad_pool.h5"
+    reader = HDF5Reader.__new__(HDF5Reader)
+    reader._v2_object_schemas = {}
+
+    with h5py.File(path, "w") as out_file:
+        objects = out_file.create_group("objects")
+        objects.attrs["class_name"] = "RecoParticle"
+        objects.attrs["scalar"] = False
+        objects.create_dataset("fixed", (0,), dtype=np.dtype([("id", np.int64)]))
+        objects.create_dataset("event_offsets", data=np.asarray([0]))
+        variables = objects.create_group("variables")
+        variables.create_dataset("pool_0", data=np.asarray([], dtype=np.int64))
+
+        with pytest.raises(TypeError, match="must be a group"):
+            reader.load_objects_v2(objects, 0, {}, "objects")
 
 
 def test_hdf5_reader_v2_append_and_nested_lists(tmp_path):

@@ -102,6 +102,22 @@ def _decode_attribute(value: Any) -> Any:
     return value.decode() if isinstance(value, bytes) else value
 
 
+def _require_dataset(parent: h5py.File | h5py.Group, name: str) -> h5py.Dataset:
+    """Return a named child dataset or fail with a schema error."""
+    child = parent[name]
+    if not isinstance(child, h5py.Dataset):
+        raise TypeError(f"Expected '{child.name}' to be an HDF5 dataset.")
+    return child
+
+
+def _require_group(parent: h5py.File | h5py.Group, name: str) -> h5py.Group:
+    """Return a named child group or fail with a schema error."""
+    child = parent[name]
+    if not isinstance(child, h5py.Group):
+        raise TypeError(f"Expected '{child.name}' to be an HDF5 group.")
+    return child
+
+
 def load_objects_v2(group: h5py.Group, event_index: int) -> Any:
     """Load V2 object rows into their logical V1 structured representation."""
     fixed = group["fixed"]
@@ -193,8 +209,8 @@ def load_event_value(
 
         kind = _decode_attribute(group.attrs["kind"])
         if kind in {"array", "string"}:
-            values = group["values"]
-            offsets = group["event_offsets"]
+            values = _require_dataset(group, "values")
+            offsets = _require_dataset(group, "event_offsets")
             start, stop = (
                 int(value) for value in offsets[event_index : event_index + 2]
             )
@@ -209,9 +225,9 @@ def load_event_value(
             return load_objects_v2(group, event_index)
 
         if kind == "list":
-            values = group["values"]
-            element_offsets = group["element_offsets"]
-            event_offsets = group["event_offsets"]
+            values = _require_dataset(group, "values")
+            element_offsets = _require_dataset(group, "element_offsets")
+            event_offsets = _require_dataset(group, "event_offsets")
             first, last = (
                 int(value) for value in event_offsets[event_index : event_index + 2]
             )
@@ -231,9 +247,10 @@ def load_event_value(
             elements = sorted(
                 group.items(), key=lambda item: int(item[0].split("_")[-1])
             )
-            for _, element in elements:
-                values = element["values"]
-                offsets = element["event_offsets"]
+            for name, _ in elements:
+                element = _require_group(group, name)
+                values = _require_dataset(element, "values")
+                offsets = _require_dataset(element, "event_offsets")
                 start, stop = (
                     int(value) for value in offsets[event_index : event_index + 2]
                 )
@@ -257,10 +274,10 @@ def load_event_value(
         return value
 
     if isinstance(dataset, h5py.Group):
-        index = dataset["index"]
+        index = _require_dataset(dataset, "index")
         element_refs = index[region_ref].flatten()
         if index.ndim == 1:
-            elements = dataset["elements"]
+            elements = _require_dataset(dataset, "elements")
             values = np.empty(len(element_refs), dtype=object)
             for idx, reference in enumerate(element_refs):
                 value = elements[reference]
@@ -271,7 +288,7 @@ def load_event_value(
 
         values = []
         for idx, reference in enumerate(element_refs):
-            elements = dataset[f"element_{idx}"]
+            elements = _require_dataset(dataset, f"element_{idx}")
             value = elements[reference]
             if elements.ndim > 1:
                 value = value.reshape(-1, elements.shape[1])
@@ -523,8 +540,8 @@ def compare_files(
                 result.add_difference(label, "'events' is not a dataset")
                 return result
 
-        reference_events = reference_file["events"]
-        candidate_events = candidate_file["events"]
+        reference_events = _require_dataset(reference_file, "events")
+        candidate_events = _require_dataset(candidate_file, "events")
         if len(reference_events) != len(candidate_events):
             result.add_difference(
                 "events",

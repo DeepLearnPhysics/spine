@@ -140,6 +140,10 @@ class HDF5Dataset(BaseDataset):
                 **kwargs,
             )
         else:
+            # Push the dataset's product selection into the reader. This is a
+            # physical I/O projection, not merely a post-read dictionary
+            # filter: neither V1 references nor V2 product groups outside the
+            # requested schema are dereferenced/read.
             self.reader = HDF5Reader(
                 keys=tuple(self.keys) if self.keys is not None else None,
                 **kwargs,
