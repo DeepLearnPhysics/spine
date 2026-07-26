@@ -59,6 +59,7 @@ class HDF5Reader(ReaderBase):
         skip_run_event_list: list[list[int]] | None = None,
         create_run_map: bool = False,
         build_classes: bool = True,
+        fixed_only: bool = False,
         skip_unknown_attrs: bool = False,
         run_info_key: str = "run_info",
         allow_missing: bool = False,
@@ -96,6 +97,15 @@ class HDF5Reader(ReaderBase):
             For large files, this can be quite expensive (must load every entry).
         build_classes : bool, default True
             If the stored object is a class, build it back
+        fixed_only : bool, default False
+            If `True`, load only the fixed compound rows of V2 object
+            products and do not access their variable-value pools. This is
+            useful for high-level consumers which need scalar and fixed-width
+            attributes only. It is not supported for V1 files. When classes
+            are rebuilt, omitted variable attributes retain their class
+            defaults; derived properties which depend on them are therefore
+            not reliable. With `build_classes=False`, stored derived fields
+            remain available directly in the returned dictionaries.
         skip_unknown_attrs : bool, default False
             If `True`, allow a loaded object to have unrecognized attributes.
             This allows backward compatibility with old files, but use with
@@ -127,6 +137,7 @@ class HDF5Reader(ReaderBase):
         self.keep_open = keep_open
         self.swmr = swmr
         self.ignore_incomplete = ignore_incomplete
+        self.fixed_only = fixed_only
         self._handle_pid: int | None = None
         self._file_handles: dict[int, h5py.File] = {}
 
@@ -226,6 +237,14 @@ class HDF5Reader(ReaderBase):
                 file_index.append(i * np.ones(num_entries, dtype=np.int64))
                 self.file_offsets[i] = self.num_entries
                 self.num_entries += num_entries
+
+        if self.fixed_only and any(
+            version != 2 for version in self.file_format_versions
+        ):
+            raise ValueError(
+                "`fixed_only=True` is supported only for HDF5 format "
+                "version 2 files."
+            )
 
         # Dump the number of entries to load
         logger.info("Total number of entries in the file(s): %d\n", self.num_entries)
@@ -631,8 +650,13 @@ class HDF5Reader(ReaderBase):
           attribute.
 
         Only the object and variable-value spans touched by this event are
-        read. Logical dictionaries are then passed to ``DataBase.from_dict``;
-        when ``build_classes=False`` those dictionaries are returned directly.
+        read. When classes are requested, the dictionaries are passed to the
+        trusted V2 constructor. The physical schema was generated directly
+        from the SPINE data class, so repeating assignment validation, array
+        normalization, and semantic post-initialization would add substantial
+        CPU cost without protecting against user-provided input. V1 continues
+        to use the conservative public constructor. When
+        ``build_classes=False``, dictionaries are returned directly.
 
         Parameters
         ----------
@@ -658,7 +682,6 @@ class HDF5Reader(ReaderBase):
         schema = self._v2_object_schemas.get(schema_key)
         if schema is None:
             fixed = _require_dataset(group, "fixed")
-            variables = _require_group(group, "variables")
             class_name = _decode_string_attribute(
                 group.attrs["class_name"], "class_name"
             )
@@ -669,28 +692,32 @@ class HDF5Reader(ReaderBase):
                 if not name.startswith("_var_offsets_")
             )
             decoded_pool_specs: list[tuple[str, int, bool, tuple[str, ...]]] = []
-            for pool_name, pool in sorted(
-                variables.items(),
-                key=lambda item: int(item[0].split("_")[-1]),
-            ):
-                if not isinstance(pool, h5py.Group):
-                    raise TypeError(f"V2 variable pool '{pool_name}' must be a group.")
-                pool_index = int(pool_name.split("_")[-1])
-                kind = _decode_string_attribute(pool.attrs["kind"], "kind")
-                fields_value = yaml.safe_load(
-                    _decode_string_attribute(pool.attrs["fields"], "fields")
-                )
-                if not isinstance(fields_value, list) or not all(
-                    isinstance(name, str) for name in fields_value
+            if not self.fixed_only:
+                variables = _require_group(group, "variables")
+                for pool_name, pool in sorted(
+                    variables.items(),
+                    key=lambda item: int(item[0].split("_")[-1]),
                 ):
-                    raise TypeError(
-                        f"V2 variable pool '{pool_name}' fields must be "
-                        "a list of strings."
+                    if not isinstance(pool, h5py.Group):
+                        raise TypeError(
+                            f"V2 variable pool '{pool_name}' must be a group."
+                        )
+                    pool_index = int(pool_name.split("_")[-1])
+                    kind = _decode_string_attribute(pool.attrs["kind"], "kind")
+                    fields_value = yaml.safe_load(
+                        _decode_string_attribute(pool.attrs["fields"], "fields")
                     )
-                fields = tuple(fields_value)
-                decoded_pool_specs.append(
-                    (pool_name, pool_index, kind == "string", fields)
-                )
+                    if not isinstance(fields_value, list) or not all(
+                        isinstance(name, str) for name in fields_value
+                    ):
+                        raise TypeError(
+                            f"V2 variable pool '{pool_name}' fields must be "
+                            "a list of strings."
+                        )
+                    fields = tuple(fields_value)
+                    decoded_pool_specs.append(
+                        (pool_name, pool_index, kind == "string", fields)
+                    )
             schema = (
                 class_name,
                 scalar,
@@ -752,7 +779,7 @@ class HDF5Reader(ReaderBase):
                 {name: values[i] for name, values in variable_values.items()}
             )
             if self.build_classes:
-                result.append(obj_class.from_dict(obj_dict))
+                result.append(obj_class.from_dict_trusted(obj_dict))
             else:
                 result.append(obj_dict)
         if scalar:

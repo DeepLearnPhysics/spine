@@ -697,6 +697,59 @@ class TestDataBase:
         assert obj._value == 10  # pylint: disable=protected-access
         assert obj.energy == 20  # Computed, not loaded from dict
 
+    def test_from_dict_trusted_rebuilds_serialized_fields(self):
+        """Trusted reconstruction should preserve fields and storage casts."""
+
+        @dataclass(eq=False)
+        class TrustedData(DataBase):
+            name: str = "default"
+            flag_array: bool = False
+            flag_scalar: bool = False
+            values: np.ndarray = field(
+                default_factory=lambda: np.empty(0, dtype=np.int32),
+                metadata=FieldMetadata(dtype=np.int32),
+            )
+
+        obj = TrustedData.from_dict_trusted(
+            {
+                "name": b"loaded",
+                "flag_array": np.asarray([1], dtype=np.uint8),
+                "flag_scalar": np.uint8(1),
+                "values": np.asarray([3, 5], dtype=np.int32),
+                "derived": "ignored",
+            }
+        )
+
+        assert obj.name == "loaded"
+        assert obj.flag_array is True
+        assert obj.flag_scalar is True
+        assert np.array_equal(obj.values, [3, 5])
+        assert not hasattr(obj, "derived")
+
+    def test_from_dict_trusted_uses_isolated_defaults_and_hook(self):
+        """Trusted reconstruction should run factories and its minimal hook."""
+
+        @dataclass(eq=False)
+        class TrustedData(DataBase):
+            scalar: int = 4
+            values: np.ndarray = field(
+                default_factory=lambda: np.empty(0, dtype=np.int32),
+                metadata=FieldMetadata(dtype=np.int32),
+            )
+
+            def __post_init__(self):
+                raise AssertionError("Trusted input must bypass __post_init__")
+
+            def _post_deserialize(self):
+                object.__setattr__(self, "restored", True)
+
+        first = TrustedData.from_dict_trusted({})
+        second = TrustedData.from_dict_trusted({})
+
+        assert first.scalar == 4
+        assert first.restored
+        assert first.values is not second.values
+
     def test_cached_attrs_mechanism(self):
         """Test that attribute caching works correctly."""
 

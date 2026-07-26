@@ -277,6 +277,15 @@ def test_hdf5_reader_v2_round_trip_and_projection(tmp_path):
     data = {
         "index": np.asarray([0, 1]),
         "run_info": [RunInfo(run=1, event=10), RunInfo(run=1, event=11)],
+        "meta": [
+            ImageMeta3D(
+                lower=np.asarray([0.0, 0.0, 0.0], dtype=np.float32),
+                upper=np.asarray([4.0, 6.0, 8.0], dtype=np.float32),
+                size=np.asarray([1.0, 2.0, 2.0], dtype=np.float32),
+                count=np.asarray([4, 3, 4], dtype=np.int64),
+            ),
+            ImageMeta3D(),
+        ],
         "particles": [
             ObjectList([particle], RecoParticle()),
             ObjectList([], RecoParticle()),
@@ -298,6 +307,7 @@ def test_hdf5_reader_v2_round_trip_and_projection(tmp_path):
     assert first["label"] == "first"
     assert first["particles"][0].size == 3
     assert np.array_equal(first["particles"][0].index, [1, 3, 8])
+    assert np.array_equal(first["meta"].index_multipliers, [12, 4, 1])
     assert second["particles"] == []
     assert second["tensor"].shape == (1, 2)
     assert reader._v2_object_schemas
@@ -317,12 +327,80 @@ def test_hdf5_reader_v2_round_trip_and_projection(tmp_path):
     assert isinstance(raw_reader.get(0)["particles"][0], dict)
     raw_reader.close()
 
+    fixed_reader = HDF5Reader(
+        str(path),
+        keys=["particles"],
+        build_classes=False,
+        fixed_only=True,
+    )
+    fixed_particle = fixed_reader.get(0)["particles"][0]
+    assert fixed_particle["id"] == 4
+    assert fixed_particle["size"] == 3
+    assert "index" not in fixed_particle
+    assert "match_ids" not in fixed_particle
+    assert all(
+        not pool_values
+        for _, _, pool_values in fixed_reader._v2_object_handles.values()
+    )
+    fixed_reader.close()
+
+    fixed_class_reader = HDF5Reader(str(path), keys=["particles"], fixed_only=True)
+    fixed_class_particle = fixed_class_reader.get(0)["particles"][0]
+    assert fixed_class_particle.id == 4
+    assert len(fixed_class_particle.index) == 0
+    assert fixed_class_particle.size == 0
+    fixed_class_reader.close()
+
     projected = HDF5Reader(str(path), keys=["tensor"])
     entry = projected.get(0)
     assert "tensor" in entry
     assert "particles" not in entry
     assert "label" not in entry
     projected.close()
+
+
+def test_hdf5_reader_fixed_only_does_not_access_variable_group(tmp_path):
+    """Fixed-only object reads must not require the variable-pool hierarchy."""
+    path = tmp_path / "fixed_only.h5"
+    particle = RecoParticle(
+        id=9,
+        index=np.asarray([1, 2, 3], dtype=np.int32),
+    )
+    data = {
+        "index": np.asarray([0]),
+        "particles": [ObjectList([particle], RecoParticle())],
+    }
+    with HDF5Writer(str(path), overwrite=True, format_version=2) as writer:
+        writer(data, cfg={})
+
+    with h5py.File(path, "a") as out_file:
+        del out_file["particles"]["variables"]
+
+    reader = HDF5Reader(
+        str(path),
+        keys=["particles"],
+        build_classes=False,
+        fixed_only=True,
+    )
+    loaded = reader.get(0)["particles"][0]
+    assert loaded["id"] == 9
+    assert loaded["size"] == 3
+    assert "index" not in loaded
+    reader.close()
+
+
+def test_hdf5_reader_fixed_only_rejects_v1_and_mixed_files(tmp_path):
+    """Fixed-only loading must not silently degrade on legacy inputs."""
+    paths = [tmp_path / "v1.h5", tmp_path / "v2.h5"]
+    data = {"index": np.asarray([0]), "value": [np.asarray([1])]}
+    for version, path in enumerate(paths, start=1):
+        with HDF5Writer(str(path), overwrite=True, format_version=version) as writer:
+            writer(data, cfg={})
+
+    with pytest.raises(ValueError, match="only for HDF5 format version 2"):
+        HDF5Reader(str(paths[0]), fixed_only=True)
+    with pytest.raises(ValueError, match="only for HDF5 format version 2"):
+        HDF5Reader([str(path) for path in paths], fixed_only=True)
 
 
 def test_hdf5_reader_v2_schema_helpers_reject_wrong_types(tmp_path):
@@ -377,6 +455,7 @@ def test_hdf5_reader_v2_rejects_bad_variable_pool_fields(tmp_path, bad_fields):
     path = tmp_path / "bad_fields.h5"
     reader = HDF5Reader.__new__(HDF5Reader)
     reader._v2_object_schemas = {}
+    reader.fixed_only = False
 
     with h5py.File(path, "w") as out_file:
         objects = out_file.create_group("objects")
@@ -403,6 +482,7 @@ def test_hdf5_reader_v2_rejects_non_group_variable_pool(tmp_path):
     path = tmp_path / "bad_pool.h5"
     reader = HDF5Reader.__new__(HDF5Reader)
     reader._v2_object_schemas = {}
+    reader.fixed_only = False
 
     with h5py.File(path, "w") as out_file:
         objects = out_file.create_group("objects")

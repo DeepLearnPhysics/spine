@@ -77,6 +77,22 @@ record. Product ``event_offsets`` map event ``i`` to rows
 ``event_offsets[i]:event_offsets[i + 1]`` without HDF5 region references.
 Appending data with a different format version is rejected.
 
+For high-level workflows which need only scalar and fixed-width object
+attributes, the V2 reader can skip all variable-value pools:
+
+.. code-block:: yaml
+
+   dataset:
+     name: hdf5
+     fixed_only: true
+
+Full loading remains the default. ``fixed_only`` is intentionally restricted
+to format version 2 files and omits variable attributes such as indexes,
+matches, strings, and variable-width vectors. When classes are rebuilt, those
+attributes retain their class defaults, so derived properties which depend on
+them must not be used. Set ``build_classes: false`` to retain the stored
+derived fields directly in the returned object dictionaries.
+
 Datasets
 --------
 
