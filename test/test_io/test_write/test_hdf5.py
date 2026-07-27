@@ -1648,6 +1648,8 @@ def test_hdf5_writer_v2_uses_offsets_and_preserves_derived_fields(hdf5_output):
 
         # Derived properties remain directly available without SPINE classes.
         assert particles["fixed"]["size"].tolist() == [3]
+        assert particles["fixed"]["best_match_id"].tolist() == [11]
+        assert particles["fixed"]["best_match_overlap"].tolist() == [0.75]
         assert "num_fragments" in particles["fixed"].dtype.names
 
         # No dataset in the V2 product tree uses an HDF5 VLEN dtype.

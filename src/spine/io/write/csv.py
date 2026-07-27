@@ -1,6 +1,7 @@
 """Module to write log files to CSV."""
 
 import os
+from collections.abc import Iterable, Mapping
 from types import TracebackType
 from typing import Any
 
@@ -159,7 +160,12 @@ class CSVWriter:
         and the file exists, otherwise in write mode.
         """
         if self.file_handle is None:
-            mode = "a" if self.append_file and os.path.isfile(self.file_name) else "w"
+            mode = (
+                "a"
+                if (self.append_file or self.keys is not None)
+                and os.path.isfile(self.file_name)
+                else "w"
+            )
             if mode == "w":
                 dir_name = os.path.dirname(self.file_name)
                 if dir_name:
@@ -197,14 +203,16 @@ class CSVWriter:
         data : dict
             Dictionary containing the output of the reconstruction chain
         """
-        # Save the list of keys to store
-        self.keys = list(data.keys())
-
-        # Open the file handle if not already open
+        # Open before recording the initialized keys. This distinguishes a
+        # first write, which may overwrite, from reopening an existing writer,
+        # which must append without replacing its earlier rows.
         self.open()
 
         # File handle is guaranteed to be open here
         assert self.file_handle is not None
+
+        # Save the list of keys to store
+        self.keys = list(data.keys())
 
         # Create a header and write it to file
         header_str = ",".join(self.keys)
@@ -260,8 +268,36 @@ class CSVWriter:
         result_str = ",".join([str(data[k]) for k in self.keys])
         self.file_handle.write(result_str + "\n")
 
+    def append_columns(self, data: Mapping[str, Any]) -> None:
+        """Append equal-length columns without constructing row dictionaries.
+
+        Parameters
+        ----------
+        data : Mapping[str, Sequence]
+            Ordered output columns. Every column must have the same length.
+        """
+        keys = list(data)
+        if self.keys is None:
+            self.create({key: None for key in keys})
+        elif keys != self.keys:
+            raise AssertionError(
+                "Columnar CSV keys must match the initialized header. "
+                f"Expected {self.keys}, got {keys}."
+            )
+
+        lengths = {len(data[key]) for key in keys}
+        if len(lengths) > 1:
+            raise ValueError("All columnar CSV fields must have the same length.")
+        count = lengths.pop() if lengths else 0
+        if self.file_handle is None:
+            self.open()
+        assert self.file_handle is not None
+        self.file_handle.writelines(
+            ",".join(str(data[key][i]) for key in keys) + "\n" for i in range(count)
+        )
+
     @staticmethod
-    def array_diff(array_x: list[str], array_y: list[str]) -> set[str]:
+    def array_diff(array_x: Iterable[str], array_y: Iterable[str]) -> set[str]:
         """Compare the content of two arrays.
 
         This functions returns the elemnts of the first array that

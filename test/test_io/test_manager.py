@@ -78,6 +78,20 @@ class FakeReader:
         self.calls.append(("process_entry_list", args))
 
 
+class FakeColumnarReader(FakeReader):
+    """Reader-like object which exposes two projected chunks."""
+
+    columnar = True
+    num_chunks = 2
+
+    def configure_columnar(self, requests):
+        self.calls.append(("configure_columnar", requests))
+
+    def get_columnar(self, entry):
+        self.calls.append(("get_columnar", entry))
+        return {"index": [2 * entry, 2 * entry + 1]}
+
+
 class FakeLoader:
     """Loader-like object used by IOManager tests."""
 
@@ -221,6 +235,11 @@ def test_io_manager_validation(monkeypatch):
     with pytest.raises(RuntimeError, match="Reader configuration"):
         manager._initialize_reader(None)
 
+    manager.reader = FakeReader()
+    manager.columnar = False
+    with pytest.raises(RuntimeError, match="not configured"):
+        manager.configure_columnar({"value": (("id",), True)})
+
 
 def test_io_manager_prefix_variants(monkeypatch):
     """Prefix helper should cover single, duplicate, skipped and long names."""
@@ -323,6 +342,26 @@ def test_io_manager_resets_stale_watch_before_timed_operation(monkeypatch):
         ("start", "read"),
     ]
     assert manager.watch.calls[-1] == ("stop", "read")
+
+
+def test_io_manager_loads_and_configures_columnar_chunks(monkeypatch):
+    reader = FakeColumnarReader()
+    monkeypatch.setattr(manager_mod, "reader_factory", lambda cfg: reader)
+    manager = IOManager(reader={"name": "hdf5"}, iterations=-1)
+    requests = {"particles": (("id", "pid"), True)}
+
+    assert manager.columnar
+    assert manager.iter_per_epoch == 2
+    assert len(manager) == 2
+    manager.configure_columnar(requests)
+    assert manager.load(entry=1) == {"index": [2, 3]}
+    assert reader.calls == [
+        ("configure_columnar", requests),
+        ("get_columnar", 1),
+    ]
+
+    with pytest.raises(ValueError, match="chunk index"):
+        manager.load(run=1, subrun=2, event=3)
 
 
 def test_io_manager_iteration_unwrap_write_and_close(monkeypatch):

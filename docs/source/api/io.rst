@@ -93,6 +93,28 @@ attributes retain their class defaults, so derived properties which depend on
 them must not be used. Set ``build_classes: false`` to retain the stored
 derived fields directly in the returned object dictionaries.
 
+Analysis-only workflows may instead request projected multi-event chunks:
+
+.. code-block:: yaml
+
+   io:
+     reader:
+       name: hdf5
+       file_keys: output.h5
+       columnar: true
+       chunk_size: 1024
+
+Columnar mode is a reader-wide policy. The analysis manager supplies the union
+of fields requested by its scripts, and the reader returns flattened object
+columns with an ``event_offsets`` boundary vector for each product. Version 2
+uses its native offsets and fixed compound rows; version 1 projects the legacy
+compound dataset through event region references. Legacy files must already
+contain every requested scalar field, such as ``best_match_id``.
+
+The driver currently restricts columnar mode to analysis-only configurations:
+all configured scripts must implement ``process_columnar``, and model,
+construction, post-processing, and ordinary output-writer blocks are rejected.
+
 Datasets
 --------
 

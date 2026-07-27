@@ -19,6 +19,11 @@ class DummyAna(AnaBase):
         return {"updated": data["value"] + 1}
 
 
+class ColumnarDummyAna(DummyAna):
+    def process_columnar(self, data):
+        return {"updated": [value + 1 for value in data["value"]]}
+
+
 class DummyWriter:
     def __init__(self, file_name, append=False, overwrite=False, buffer_size=1):
         self.file_name = file_name
@@ -130,3 +135,39 @@ def test_ana_base_reports_missing_required_input():
 
     with pytest.raises(KeyError, match="missing an essential"):
         ana({"index": 0, "file_index": 0})
+
+
+def test_ana_base_dispatches_optional_columnar_hook():
+    ana = ColumnarDummyAna()
+    ana.update_keys({"value": True, "optional": False})
+    data = {
+        "index": [0, 1],
+        "file_index": [2, 2],
+        "value": [4, 8],
+        "unrequested": [10, 20],
+    }
+
+    assert ana.supports_columnar
+    assert ana.run_columnar(data) == {"updated": [5, 9]}
+
+
+def test_ana_base_rejects_unsupported_columnar_execution():
+    ana = DummyAna()
+
+    assert not ana.supports_columnar
+    with pytest.raises(NotImplementedError, match="does not implement"):
+        ana.run_columnar({"index": [0], "file_index": [0]})
+    with pytest.raises(NotImplementedError):
+        ana.process_columnar({})
+
+
+def test_ana_base_reports_missing_required_columnar_inputs():
+    """Columnar filtering should validate administrative and product inputs."""
+    ana = ColumnarDummyAna()
+    ana.update_keys({"value": True})
+
+    with pytest.raises(KeyError, match="`index`"):
+        ana.run_columnar({"file_index": [0], "value": [1]})
+
+    with pytest.raises(KeyError, match="`value`"):
+        ana.run_columnar({"index": [0], "file_index": [0]})

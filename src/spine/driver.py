@@ -575,17 +575,51 @@ class Driver:
         post-processors. When used after a model, the model output must be
         unwrapped first.
         """
+        # If analysis scripts are not requested, skip initialization. Columnar
+        # reader mode, however, requires at least one analysis script.
         self.ana = None
         if ana is None:
+            if getattr(self.io, "columnar", False):
+                raise ValueError(
+                    "Columnar reader mode requires at least one analysis script."
+                )
             return
 
+        # Check for incompatible modules when columnar reader mode is requested
+        if getattr(self.io, "columnar", False):
+            incompatible = []
+            if self.model is not None:
+                incompatible.append("model")
+            if self.builder is not None:
+                incompatible.append("build")
+            if self.post is not None:
+                incompatible.append("post")
+            if self.io.has_writer:
+                incompatible.append("writer")
+            if incompatible:
+                raise ValueError(
+                    "Columnar reader mode currently supports analysis-only "
+                    f"workflows; remove: {', '.join(incompatible)}."
+                )
+
+        # Check the information is unwrapped before running analysis scripts
         if self.model is not None and not self.unwrap:
             raise ValueError("Must unwrap the model output to run analysis scripts.")
 
+        # Initialize the analysis manager
         self.watch.initialize("ana")
+        columnar = getattr(self.io, "columnar", False)
         self.ana = AnaManager(
-            dict(ana), log_dir=self.log_dir, prefix=self.io.log_prefix
+            dict(ana),
+            log_dir=self.log_dir,
+            prefix=self.io.log_prefix,
+            columnar=columnar,
         )
+
+        # If columnar reader mode is requested, configure the I/O manager to request
+        # the necessary columns needed by the analysis scripts.
+        if columnar:
+            self.io.configure_columnar(self.ana.columnar_requests())
 
     def initialize_log(self) -> None:
         """Initialize CSV and optional TensorBoard logging backends."""
@@ -785,7 +819,10 @@ class Driver:
         # 6. Run scripts, if requested
         if self.ana is not None:
             self.watch.start("ana")
-            self.ana(data)
+            if getattr(self.io, "columnar", False):
+                self.ana.process_columnar(data)
+            else:
+                self.ana(data)
             self.watch.stop("ana")
             self.watch.update(self.ana.watch, "ana")
 

@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+import numpy as np
+
 from spine.ana.base import AnaBase
 from spine.data.out import (
     RecoFragment,
@@ -141,11 +143,11 @@ class SaveAna(AnaBase):
             for prefix in self.prefixes:
                 for obj_name in self.obj_type:
                     if prefix == "reco" and match_mode != "truth_to_reco":
-                        keys[f"{obj_name}_matches_r2t"] = True
-                        keys[f"{obj_name}_matches_r2t_overlap"] = True
+                        keys[f"{obj_name}_matches_r2t"] = False
+                        keys[f"{obj_name}_matches_r2t_overlap"] = False
                     if prefix == "truth" and match_mode != "reco_to_truth":
-                        keys[f"{obj_name}_matches_t2r"] = True
-                        keys[f"{obj_name}_matches_t2r_overlap"] = True
+                        keys[f"{obj_name}_matches_t2r"] = False
+                        keys[f"{obj_name}_matches_t2r_overlap"] = False
 
         self.update_keys(keys)
 
@@ -155,6 +157,155 @@ class SaveAna(AnaBase):
 
         if len(self.writers) == 0:
             raise ValueError("Must request to save something.")
+
+    def columnar_requests(
+        self,
+    ) -> dict[str, tuple[tuple[str, ...] | None, bool]]:
+        """Request fixed object columns needed by the columnar save path."""
+        requests: dict[str, tuple[tuple[str, ...] | None, bool]] = {
+            "run_info": (("run", "subrun", "event"), False)
+        }
+        other_prefix = {"reco": "truth", "truth": "reco"}
+        for key in self.obj_keys:
+            attrs = self.attrs[key]
+            if attrs is None:
+                raise ValueError(
+                    "Columnar save requires an explicit attribute list for " f"`{key}`."
+                )
+            default_obj = self.default_objs[key]
+            variable = set(attrs).intersection(default_obj._var_length_attrs)
+            if variable:
+                raise ValueError(
+                    "Columnar save currently supports fixed attributes only; "
+                    f"`{key}` requested variable fields {sorted(variable)}."
+                )
+
+            fields = set(attrs)
+            prefix, obj_type = key.split("_")
+            other = other_prefix[prefix]
+            if (
+                self.match_mode is not None
+                and self.match_mode != f"{other}_to_{prefix}"
+            ):
+                fields.update(("best_match_id", "best_match_overlap"))
+            requests[key] = (tuple(sorted(fields)), True)
+
+        return requests
+
+    @staticmethod
+    def _event_rows(offsets: np.ndarray) -> np.ndarray:
+        """Map each flattened object row to its chunk-local event."""
+        return np.repeat(
+            np.arange(len(offsets) - 1, dtype=np.int64),
+            np.diff(offsets),
+        )
+
+    @staticmethod
+    def _expand_columnar_attrs(
+        product: Mapping[str, Any],
+        attrs: Sequence[str],
+        default_obj: Any,
+    ) -> dict[str, np.ndarray]:
+        """Expand scalar and fixed-width columns using scalar_dict names."""
+        result = {}
+        for attr in attrs:
+            values = np.asarray(product[attr])
+            if values.ndim == 1:
+                result[attr] = values
+                continue
+
+            if values.ndim != 2:
+                raise ValueError(
+                    f"Columnar attribute `{attr}` must be scalar or fixed-width, "
+                    f"got shape {values.shape}."
+                )
+            labels = (
+                default_obj._axes
+                if attr in default_obj._pos_attrs + default_obj._vec_attrs
+                else tuple(str(i) for i in range(values.shape[1]))
+            )
+            for i, label in enumerate(labels):
+                result[f"{attr}_{label}"] = values[:, i]
+
+        return result
+
+    @staticmethod
+    def _repeat_event_column(values: Any, counts: np.ndarray) -> np.ndarray:
+        """Broadcast one event-level value onto every object row."""
+        return np.repeat(np.asarray(values), counts, axis=0)
+
+    def _columnar_base(
+        self,
+        data: Mapping[str, Any],
+        counts: np.ndarray,
+    ) -> dict[str, np.ndarray]:
+        """Build event metadata columns repeated for one object collection."""
+        result = {
+            "index": self._repeat_event_column(data["index"], counts),
+            "file_index": self._repeat_event_column(data["file_index"], counts),
+        }
+        if "file_entry_index" in data:
+            result["file_entry_index"] = self._repeat_event_column(
+                data["file_entry_index"], counts
+            )
+        if "run_info" in data:
+            run_info = data["run_info"]
+            # Match RunInfo.scalar_dict ordering rather than the compound
+            # dataset's field ordering, which HDF5 does not preserve.
+            for name in ("run", "subrun", "event"):
+                if name in run_info:
+                    result[name] = self._repeat_event_column(run_info[name], counts)
+        return result
+
+    def process_columnar(self, data: Mapping[str, Any]) -> None:
+        """Write projected object columns and best-match joins in bulk."""
+        other_prefix = {"reco": "truth", "truth": "reco"}
+        for key in self.obj_keys:
+            prefix, obj_type = key.split("_")
+            other = other_prefix[prefix]
+            attrs = self.attrs[key]
+            assert attrs is not None
+            product = data[key]
+            offsets = np.asarray(product["event_offsets"], dtype=np.int64)
+            counts = np.diff(offsets)
+            row_dict = self._columnar_base(data, counts)
+            source_columns = self._expand_columnar_attrs(
+                product, attrs, self.default_objs[key]
+            )
+
+            if self.match_mode is None or self.match_mode == f"{other}_to_{prefix}":
+                row_dict.update(source_columns)
+                self.writers[key].append_columns(row_dict)
+                continue
+
+            target_key = f"{other}_{obj_type}"
+            target = data[target_key]
+            target_offsets = np.asarray(target["event_offsets"], dtype=np.int64)
+            event_rows = self._event_rows(offsets)
+            match_ids = np.asarray(product["best_match_id"], dtype=np.int64)
+            target_counts = np.diff(target_offsets)
+            valid = (match_ids >= 0) & (match_ids < target_counts[event_rows])
+            target_rows = target_offsets[event_rows] + np.maximum(match_ids, 0)
+
+            attrs_other = self.attrs[target_key]
+            assert attrs_other is not None
+            target_columns = self._expand_columnar_attrs(
+                target, attrs_other, self.default_objs[target_key]
+            )
+            target_defaults = self.default_objs[target_key].scalar_dict(
+                attrs_other, self.lengths
+            )
+
+            row_dict.update(
+                {f"{prefix}_{name}": values for name, values in source_columns.items()}
+            )
+            for name, values in target_columns.items():
+                default = target_defaults[name]
+                joined = np.full(len(match_ids), default, dtype=values.dtype)
+                joined[valid] = values[target_rows[valid]]
+                row_dict[f"{other}_{name}"] = joined
+            row_dict["match_overlap"] = np.asarray(product["best_match_overlap"])
+            self.writers[key].append_columns(row_dict)
 
     def process(self, data: Mapping[str, Any]) -> None:
         """Store the information from one entry.
@@ -183,7 +334,21 @@ class SaveAna(AnaBase):
                 match_suffix = f"{prefix[0]}2{other[0]}"
                 match_key = f"{obj_type[:-1]}_matches_{match_suffix}"
                 attrs_other = self.attrs[f"{other}_{obj_type}"]
-                for idx, (obj_i, obj_j) in enumerate(data[match_key]):
+                if match_key in data:
+                    pairs = data[match_key]
+                    overlaps = data[f"{match_key}_overlap"]
+                else:
+                    targets = data[f"{other}_{obj_type}"]
+                    pairs, overlaps = [], []
+                    for source in data[key]:
+                        match_id = source.best_match_id
+                        target = (
+                            targets[match_id] if 0 <= match_id < len(targets) else None
+                        )
+                        pairs.append((source, target))
+                        overlaps.append(source.best_match_overlap)
+
+                for idx, (obj_i, obj_j) in enumerate(pairs):
                     src_dict = obj_i.scalar_dict(attrs, lengths)
                     if obj_j is not None:
                         tgt_dict = obj_j.scalar_dict(attrs_other, lengths)
@@ -193,7 +358,7 @@ class SaveAna(AnaBase):
 
                     src_dict = {f"{prefix}_{k}": v for k, v in src_dict.items()}
                     tgt_dict = {f"{other}_{k}": v for k, v in tgt_dict.items()}
-                    overlap = data[f"{match_key}_overlap"][idx]
+                    overlap = overlaps[idx]
 
                     row_dict = {**src_dict, **tgt_dict}
                     row_dict.update({"match_overlap": overlap})

@@ -179,6 +179,12 @@ class TestOutBase:
         assert len(obj.match_overlaps) == 3
         np.testing.assert_array_equal(obj.match_ids, [5, 7, 9])
         np.testing.assert_array_almost_equal(obj.match_overlaps, [0.95, 0.85, 0.75])
+        assert obj.best_match_id == 5
+        assert obj.best_match_overlap == np.float32(0.95)
+
+        obj.reset_match()
+        assert obj.best_match_id == -1
+        assert obj.best_match_overlap == -1.0
 
 
 class TestRecoBase:

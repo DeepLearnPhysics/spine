@@ -574,7 +574,9 @@ def test_driver_constructor_initializes_optional_managers(monkeypatch):
     monkeypatch.setattr(
         driver_mod,
         "AnaManager",
-        lambda ana, log_dir, prefix: calls.append(("ana", (ana, log_dir, prefix)))
+        lambda ana, log_dir, prefix, columnar=False: calls.append(
+            ("ana", (ana, log_dir, prefix, columnar))
+        )
         or "ana",
     )
 
@@ -692,6 +694,58 @@ def test_optional_initializers_accept_absent_configs():
 
     assert drv.model is None
     assert drv.ana is None
+
+
+def test_initialize_ana_columnar_guards_and_projection(monkeypatch):
+    """Columnar analysis should validate its pipeline and configure projection."""
+    drv = bare_driver()
+    drv.io = SimpleNamespace(
+        columnar=True,
+        has_writer=False,
+        log_prefix="input",
+    )
+    drv.model = None
+    drv.builder = None
+    drv.post = None
+    drv.unwrap = True
+    drv.log_dir = "logs"
+
+    with pytest.raises(ValueError, match="at least one analysis"):
+        drv.initialize_ana(None)
+
+    drv.model = object()
+    drv.builder = object()
+    drv.post = object()
+    drv.io.has_writer = True
+    with pytest.raises(ValueError, match="model, build, post, writer"):
+        drv.initialize_ana({"save": {}})
+
+    projection = {"particles": (("id", "pid"), True)}
+    configured = []
+
+    class FakeAnaManager:
+        watch = "ana-watch"
+
+        def __init__(self, cfg, log_dir, prefix, columnar):
+            assert cfg == {"save": {}}
+            assert log_dir == "logs"
+            assert prefix == "input"
+            assert columnar is True
+
+        def columnar_requests(self):
+            return projection
+
+    monkeypatch.setattr(driver_mod, "AnaManager", FakeAnaManager)
+    drv.model = None
+    drv.builder = None
+    drv.post = None
+    drv.io.has_writer = False
+    drv.io.configure_columnar = configured.append
+
+    drv.initialize_ana({"save": {}})
+
+    assert isinstance(drv.ana, FakeAnaManager)
+    assert configured == [projection]
 
 
 def test_initialize_io_validation_branches(monkeypatch):
@@ -812,6 +866,32 @@ def test_process_runs_pipeline_in_order():
     assert ("reset", None) in drv.watch.calls
     assert ("update", None) in drv.watch.calls
     assert drv.watch.calls[-1] == ("stop", "iteration")
+
+
+def test_process_dispatches_columnar_analysis():
+    """Columnar reader policy should select the analyzer's bulk hook."""
+    drv = bare_driver()
+    calls = []
+    drv.io = SimpleNamespace(
+        columnar=True,
+        load=lambda *args: {"index": [0, 1]},
+        unwrap=lambda data: data,
+        write=lambda data, cfg: calls.append("write"),
+        watch="io-watch",
+    )
+    drv.model = None
+    drv.builder = None
+    drv.post = None
+    drv.ana = SimpleNamespace(
+        process_columnar=lambda data: calls.append("columnar"),
+        watch="ana-watch",
+    )
+    drv.cfg = {"base": {}}
+
+    data = drv.process(entry=0)
+
+    assert data == {"index": [0, 1]}
+    assert calls == ["columnar", "write"]
 
 
 def test_run_loop_resets_loader_logs_and_closes():

@@ -44,6 +44,10 @@ class OutBase(PosDataBase):
         List of true object IDs this object is matched to
     match_overlaps : np.ndarray
         List of match overlaps (IoU) between the object and its matches
+    best_match_id : int
+        ID of the highest-overlap matched object, or -1 when unmatched
+    best_match_overlap : float
+        Overlap with the highest-overlap matched object, or -1 when unmatched
     is_cathode_crosser : bool
         True if the particle crossed a cathode, i.e. if it is made up
         of space points coming from > 1 TPC in one module
@@ -144,6 +148,18 @@ class OutBase(PosDataBase):
             Sum of all depositions that make up the object
         """
         return np.sum(self.depositions).item()
+
+    @property
+    @stored_property
+    def best_match_id(self) -> int:
+        """ID of the best matched object, or -1 when no match exists."""
+        return int(self.match_ids[0]) if len(self.match_ids) else -1
+
+    @property
+    @stored_property
+    def best_match_overlap(self) -> float:
+        """Overlap with the best matched object, or -1 when unmatched."""
+        return float(self.match_overlaps[0]) if len(self.match_overlaps) else -1.0
 
     @property
     @stored_property(dtype=np.int32)

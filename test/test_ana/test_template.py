@@ -36,3 +36,28 @@ def test_template_ana_process_writes_displacements(monkeypatch):
     ana.process({"prod": {"reco_particles": [FakeObject()]}})
 
     assert rows == [("template", {"disp_x": 3.0, "disp_y": 4.0, "disp_z": 5.0})]
+
+
+def test_template_ana_processes_projected_columns(monkeypatch):
+    monkeypatch.setattr(TemplateAna, "initialize_writer", lambda self, name: None)
+    ana = TemplateAna("a", "b")
+    starts = np.asarray([[1.0, 2.0, 3.0], [0.0, 1.0, 2.0]])
+    ends = np.asarray([[4.0, 6.0, 8.0], [3.0, 3.0, 3.0]])
+    offsets = np.asarray([0, 1, 2], dtype=np.int64)
+
+    result = ana.process_columnar(
+        {
+            "prod": {
+                "start_point": starts,
+                "end_point": ends,
+                "event_offsets": offsets,
+            }
+        }
+    )
+
+    assert ana.supports_columnar
+    assert np.array_equal(
+        result["displacements"]["values"],
+        np.asarray([[3.0, 4.0, 5.0], [3.0, 2.0, 1.0]]),
+    )
+    assert result["displacements"]["event_offsets"] is offsets

@@ -29,6 +29,7 @@ class AnaManager(ModuleManager[AnaBase]):
         cfg: Mapping[str, Any],
         log_dir: str | None = None,
         prefix: str | None = None,
+        columnar: bool = False,
     ) -> None:
         """Initialize the analysis manager.
 
@@ -41,7 +42,14 @@ class AnaManager(ModuleManager[AnaBase]):
         prefix : str, optional
             Input file prefix. If requested, it will be used to prefix
             all the output CSV files.
+        columnar : bool, default False
+            If `True`, require every configured analyzer to implement
+            :meth:`AnaBase.process_columnar`.
         """
+        if not isinstance(columnar, bool):
+            raise TypeError("`columnar` must be a boolean.")
+        self.columnar = columnar
+
         # Parse the analysis block configuration
         config = dict(cfg)
 
@@ -65,6 +73,19 @@ class AnaManager(ModuleManager[AnaBase]):
             buffer_size=buffer_size,
             **config,
         )
+
+        if self.columnar:
+            unsupported = [
+                key
+                for key, module in self.modules.items()
+                if not module.supports_columnar
+            ]
+            if unsupported:
+                raise ValueError(
+                    "Columnar analysis requires every analysis script to "
+                    "implement `process_columnar`. Unsupported modules: "
+                    f"{unsupported}."
+                )
 
     def parse_config(
         self,
@@ -136,6 +157,70 @@ class AnaManager(ModuleManager[AnaBase]):
         """
         for module in self.modules.values():
             module.flush_writers()
+
+    @property
+    def supports_columnar(self) -> bool:
+        """Whether every configured analyzer supports columnar execution."""
+        return all(module.supports_columnar for module in self.modules.values())
+
+    def columnar_requests(
+        self,
+    ) -> dict[str, tuple[tuple[str, ...] | None, bool]]:
+        """Merge product projections requested by all configured analyzers."""
+        requests: dict[str, tuple[set[str] | None, bool]] = {}
+        for module in self.modules.values():
+            for key, (fields, required) in module.columnar_requests().items():
+                incoming = None if fields is None else set(fields)
+                if key not in requests:
+                    requests[key] = (incoming, required)
+                    continue
+
+                current, current_required = requests[key]
+                merged = (
+                    None
+                    if current is None or incoming is None
+                    else current.union(incoming)
+                )
+                requests[key] = (merged, current_required or required)
+
+        return {
+            key: (
+                None if fields is None else tuple(sorted(fields)),
+                required,
+            )
+            for key, (fields, required) in requests.items()
+        }
+
+    def process_columnar(self, data: dict[str, Any]) -> None:
+        """Run configured analyzers once on a shared columnar product chunk.
+
+        Capability validation is performed during manager construction.
+        Returned mappings are merged in configuration order, matching the
+        dependency behavior of ordinary event processing.
+
+        Parameters
+        ----------
+        data : dict[str, Any]
+            Columnar products and event-boundary metadata. Updated in place
+            with products returned by analyzers.
+
+        Raises
+        ------
+        RuntimeError
+            If this manager was not configured for columnar execution.
+        """
+        if not self.columnar:
+            raise RuntimeError(
+                "This analysis manager was not configured for columnar execution."
+            )
+
+        self.watch.reset_if_active()
+        for module_key, module in self.modules.items():
+            self.watch.start(module_key)
+            result = module.run_columnar(data)
+            self.watch.stop(module_key)
+            if result is not None:
+                data.update(result)
 
     def __del__(self) -> None:
         """Destructor to ensure analysis writers are closed.

@@ -60,6 +60,8 @@ class HDF5Reader(ReaderBase):
         create_run_map: bool = False,
         build_classes: bool = True,
         fixed_only: bool = False,
+        columnar: bool = False,
+        chunk_size: int = 1024,
         skip_unknown_attrs: bool = False,
         run_info_key: str = "run_info",
         allow_missing: bool = False,
@@ -106,6 +108,13 @@ class HDF5Reader(ReaderBase):
             defaults; derived properties which depend on them are therefore
             not reliable. With `build_classes=False`, stored derived fields
             remain available directly in the returned dictionaries.
+        columnar : bool, default False
+            If `True`, expose projected object products in multi-event chunks
+            through :meth:`get_columnar`. Event/class loading remains the
+            default. Columnar projection is configured by the analysis manager
+            before processing begins.
+        chunk_size : int, default 1024
+            Maximum number of selected events in one columnar chunk.
         skip_unknown_attrs : bool, default False
             If `True`, allow a loaded object to have unrecognized attributes.
             This allows backward compatibility with old files, but use with
@@ -138,6 +147,11 @@ class HDF5Reader(ReaderBase):
         self.swmr = swmr
         self.ignore_incomplete = ignore_incomplete
         self.fixed_only = fixed_only
+        self.columnar = columnar
+        if chunk_size <= 0:
+            raise ValueError("`chunk_size` must be a positive integer.")
+        self.chunk_size = chunk_size
+        self._columnar_requests: dict[str, tuple[tuple[str, ...] | None, bool]] = {}
         self._handle_pid: int | None = None
         self._file_handles: dict[int, h5py.File] = {}
 
@@ -276,6 +290,227 @@ class HDF5Reader(ReaderBase):
 
         # Process the SPINE version used to produced the HDF5 file
         self.version = self.process_version()
+
+    @property
+    def num_chunks(self) -> int:
+        """Number of chunks exposed by the configured columnar reader."""
+        return (len(self) + self.chunk_size - 1) // self.chunk_size
+
+    def configure_columnar(
+        self,
+        requests: dict[str, tuple[tuple[str, ...] | None, bool]],
+    ) -> None:
+        """Install the analyzer-derived product projection."""
+        if not self.columnar:
+            raise RuntimeError("Cannot configure columnar projection in event mode.")
+        self._columnar_requests = dict(requests)
+
+    def get_columnar(self, idx: int) -> dict[str, Any]:
+        """Load one projected multi-event chunk without rebuilding classes."""
+        if not self.columnar:
+            raise RuntimeError("Columnar loading was not enabled for this reader.")
+        if idx < 0 or idx >= self.num_chunks:
+            raise IndexError(
+                f"Chunk {idx} out of bounds for columnar reader with "
+                f"{self.num_chunks} chunks."
+            )
+        if not self._columnar_requests:
+            raise RuntimeError("Columnar product projection was not configured.")
+
+        first = idx * self.chunk_size
+        last = min(first + self.chunk_size, len(self))
+        selected = self.entry_index[first:last]
+        file_indices = self.file_index[selected]
+        local_entries = selected - self.file_offsets[file_indices]
+        data: dict[str, Any] = {
+            "index": np.arange(first, last, dtype=np.int64),
+            "file_index": file_indices.astype(np.int64, copy=False),
+            "file_entry_index": local_entries.astype(np.int64, copy=False),
+        }
+
+        # Preserve selected event order while grouping adjacent entries from
+        # the same file into one physical access unit.
+        file_runs: list[tuple[int, np.ndarray]] = []
+        run_start = 0
+        for i in range(1, len(selected) + 1):
+            if i == len(selected) or file_indices[i] != file_indices[run_start]:
+                file_runs.append(
+                    (
+                        int(file_indices[run_start]),
+                        local_entries[run_start:i].astype(np.int64, copy=False),
+                    )
+                )
+                run_start = i
+
+        for key, (requested_fields, required) in self._columnar_requests.items():
+            pieces = []
+            missing = False
+            for file_idx, entries in file_runs:
+                in_file, should_close = self._open_file(file_idx)
+                try:
+                    if key not in in_file:
+                        missing = True
+                        continue
+                    version = self.file_format_versions[file_idx]
+                    if version == 1:
+                        piece = self._load_columnar_objects_v1(
+                            in_file, key, entries, requested_fields
+                        )
+                    else:
+                        piece = self._load_columnar_objects_v2(
+                            in_file, key, entries, requested_fields
+                        )
+                    pieces.append(piece)
+                finally:
+                    if should_close:
+                        in_file.close()
+
+            if missing:
+                if required:
+                    raise KeyError(
+                        f"Required columnar product `{key}` is missing from "
+                        "one or more input files."
+                    )
+                continue
+            if pieces:
+                data[key] = self._merge_columnar_products(pieces)
+
+        return data
+
+    @staticmethod
+    def _contiguous_runs(entries: np.ndarray) -> list[tuple[int, int]]:
+        """Convert ordered entry IDs into inclusive-exclusive runs."""
+        if not len(entries):
+            return []
+        runs = []
+        first = previous = int(entries[0])
+        for value_raw in entries[1:]:
+            value = int(value_raw)
+            if value != previous + 1:
+                runs.append((first, previous + 1))
+                first = value
+            previous = value
+        runs.append((first, previous + 1))
+        return runs
+
+    def _load_columnar_objects_v2(
+        self,
+        in_file: h5py.File,
+        key: str,
+        entries: np.ndarray,
+        requested_fields: tuple[str, ...] | None,
+    ) -> dict[str, Any]:
+        """Project fixed object columns and event boundaries from V2."""
+        group = _require_group(in_file, key)
+        kind = _decode_string_attribute(group.attrs["kind"], "kind")
+        if kind != "objects":
+            raise TypeError(
+                f"Columnar product `{key}` must be an object collection, got `{kind}`."
+            )
+        fixed = _require_dataset(group, "fixed")
+        offsets = _require_dataset(group, "event_offsets")
+        available = tuple(
+            name
+            for name in fixed.dtype.names or ()
+            if not name.startswith("_var_offsets_")
+        )
+        fields_to_read = available if requested_fields is None else requested_fields
+        missing = set(fields_to_read).difference(available)
+        if missing:
+            raise KeyError(
+                f"Columnar product `{key}` is missing fixed fields "
+                f"{sorted(missing)}."
+            )
+
+        rows = []
+        counts = []
+        for first, last in self._contiguous_runs(entries):
+            bounds = offsets[first : last + 1]
+            start, stop = int(bounds[0]), int(bounds[-1])
+            if fields_to_read:
+                rows.append(fixed.fields(fields_to_read)[start:stop])
+            counts.extend(np.diff(bounds).astype(np.int64, copy=False))
+        result = {}
+        if fields_to_read:
+            combined = (
+                np.concatenate(rows)
+                if rows
+                else np.empty(
+                    0,
+                    dtype=np.dtype(
+                        [(name, fixed.dtype[name]) for name in fields_to_read]
+                    ),
+                )
+            )
+            result.update({name: combined[name] for name in fields_to_read})
+        result["event_offsets"] = np.concatenate(
+            ([0], np.cumsum(counts, dtype=np.int64))
+        )
+        return result
+
+    def _load_columnar_objects_v1(
+        self,
+        in_file: h5py.File,
+        key: str,
+        entries: np.ndarray,
+        requested_fields: tuple[str, ...] | None,
+    ) -> dict[str, Any]:
+        """Project compound object fields through legacy event references."""
+        dataset = _require_dataset(in_file, key)
+        available = tuple(dataset.dtype.names or ())
+        fields_to_read = available if requested_fields is None else requested_fields
+        missing = set(fields_to_read).difference(available)
+        if missing:
+            raise KeyError(
+                f"Legacy columnar product `{key}` is missing fields "
+                f"{sorted(missing)}."
+            )
+        events = _require_dataset(in_file, "events")
+        rows = []
+        counts = []
+        for entry in entries:
+            event = events[int(entry)]
+            names = getattr(getattr(event, "dtype", None), "names", ())
+            if key not in names:
+                raise KeyError(f"Legacy event does not reference product `{key}`.")
+            if fields_to_read:
+                values = dataset.fields(fields_to_read)[event[key]]
+                rows.append(values)
+                counts.append(len(values))
+            else:
+                # V1 has no event-offset dataset, so obtaining the row count
+                # still requires resolving its legacy region reference.
+                counts.append(len(dataset[event[key]]))
+        result = {}
+        if fields_to_read:
+            combined = (
+                np.concatenate(rows)
+                if rows
+                else np.empty(
+                    0,
+                    dtype=np.dtype(
+                        [(name, dataset.dtype[name]) for name in fields_to_read]
+                    ),
+                )
+            )
+            result.update({name: combined[name] for name in fields_to_read})
+        result["event_offsets"] = np.concatenate(
+            ([0], np.cumsum(counts, dtype=np.int64))
+        )
+        return result
+
+    @staticmethod
+    def _merge_columnar_products(pieces: list[dict[str, Any]]) -> dict[str, Any]:
+        """Concatenate file-local columnar products into one chunk."""
+        names = tuple(name for name in pieces[0] if name != "event_offsets")
+        result = {
+            name: np.concatenate([piece[name] for piece in pieces]) for name in names
+        }
+        counts = np.concatenate([np.diff(piece["event_offsets"]) for piece in pieces])
+        result["event_offsets"] = np.concatenate(
+            ([0], np.cumsum(counts, dtype=np.int64))
+        )
+        return result
 
     def close(self) -> None:
         """Close any persistent HDF5 handles owned by this reader.

@@ -336,6 +336,8 @@ def test_hdf5_reader_v2_round_trip_and_projection(tmp_path):
     fixed_particle = fixed_reader.get(0)["particles"][0]
     assert fixed_particle["id"] == 4
     assert fixed_particle["size"] == 3
+    assert fixed_particle["best_match_id"] == 12
+    assert fixed_particle["best_match_overlap"] == pytest.approx(0.5)
     assert "index" not in fixed_particle
     assert "match_ids" not in fixed_particle
     assert all(
@@ -357,6 +359,188 @@ def test_hdf5_reader_v2_round_trip_and_projection(tmp_path):
     assert "particles" not in entry
     assert "label" not in entry
     projected.close()
+
+    columnar = HDF5Reader(
+        str(path),
+        columnar=True,
+        chunk_size=2,
+    )
+    columnar.configure_columnar(
+        {
+            "particles": (
+                ("best_match_id", "best_match_overlap", "id", "size"),
+                True,
+            )
+        }
+    )
+    chunk = columnar.get_columnar(0)
+    assert chunk["index"].tolist() == [0, 1]
+    assert chunk["particles"]["event_offsets"].tolist() == [0, 1, 1]
+    assert chunk["particles"]["id"].tolist() == [4]
+    assert chunk["particles"]["best_match_id"].tolist() == [12]
+    assert chunk["particles"]["best_match_overlap"].tolist() == [0.5]
+    columnar.close()
+
+
+def test_hdf5_reader_v1_columnar_projection(tmp_path):
+    """Legacy region references should support fixed-field projection."""
+    path = tmp_path / "v1_columnar.h5"
+    particle = RecoParticle(
+        id=3,
+        pid=2,
+        index=np.asarray([1, 2], dtype=np.int32),
+        match_ids=np.asarray([0], dtype=np.int32),
+        match_overlaps=np.asarray([0.75], dtype=np.float32),
+    )
+    data = {
+        "index": np.asarray([0]),
+        "particles": [ObjectList([particle], RecoParticle())],
+    }
+    with HDF5Writer(str(path), overwrite=True, format_version=1) as writer:
+        writer(data, cfg={})
+
+    reader = HDF5Reader(str(path), columnar=True)
+    reader.configure_columnar(
+        {
+            "particles": (
+                ("best_match_id", "best_match_overlap", "id", "pid", "size"),
+                True,
+            )
+        }
+    )
+    chunk = reader.get_columnar(0)
+
+    assert chunk["particles"]["event_offsets"].tolist() == [0, 1]
+    assert chunk["particles"]["id"].tolist() == [3]
+    assert chunk["particles"]["size"].tolist() == [2]
+    assert chunk["particles"]["best_match_id"].tolist() == [0]
+    reader.close()
+
+
+@pytest.mark.parametrize("format_version", [1, 2])
+def test_hdf5_reader_columnar_offsets_only(tmp_path, format_version):
+    """Empty field projections should return boundaries without compound I/O."""
+    path = tmp_path / f"offsets_only_v{format_version}.h5"
+    data = {
+        "index": np.asarray([0, 1]),
+        "particles": [
+            ObjectList([RecoParticle(id=3)], RecoParticle()),
+            ObjectList([], RecoParticle()),
+        ],
+    }
+    with HDF5Writer(str(path), overwrite=True, format_version=format_version) as writer:
+        writer(data, cfg={})
+
+    reader = HDF5Reader(str(path), columnar=True)
+    reader.configure_columnar({"particles": ((), True)})
+    product = reader.get_columnar(0)["particles"]
+
+    assert list(product) == ["event_offsets"]
+    assert product["event_offsets"].tolist() == [0, 1, 1]
+    reader.close()
+
+
+def test_hdf5_reader_validates_columnar_state_and_bounds(tmp_path):
+    """Columnar APIs should reject invalid mode, size, state and chunk IDs."""
+    path = tmp_path / "columnar_validation.h5"
+    data = {
+        "index": np.asarray([0]),
+        "particles": [ObjectList([], RecoParticle())],
+    }
+    with HDF5Writer(str(path), overwrite=True, format_version=2) as writer:
+        writer(data, cfg={})
+
+    with pytest.raises(ValueError, match="positive integer"):
+        HDF5Reader(str(path), columnar=True, chunk_size=0)
+
+    event_reader = HDF5Reader(str(path))
+    with pytest.raises(RuntimeError, match="event mode"):
+        event_reader.configure_columnar({"particles": (("id",), True)})
+    with pytest.raises(RuntimeError, match="not enabled"):
+        event_reader.get_columnar(0)
+    event_reader.close()
+
+    reader = HDF5Reader(str(path), columnar=True)
+    with pytest.raises(IndexError, match="out of bounds"):
+        reader.get_columnar(1)
+    with pytest.raises(RuntimeError, match="not configured"):
+        reader.get_columnar(0)
+    reader.close()
+
+
+def test_hdf5_reader_columnar_missing_products_and_fields(tmp_path):
+    """Columnar projections should distinguish optional and required data."""
+    path = tmp_path / "columnar_missing.h5"
+    data = {
+        "index": np.asarray([0]),
+        "particles": [
+            ObjectList([RecoParticle(id=3)], RecoParticle()),
+        ],
+        "tensor": [np.ones((1, 2), dtype=np.float32)],
+    }
+    with HDF5Writer(str(path), overwrite=True, format_version=2) as writer:
+        writer(data, cfg={})
+
+    optional = HDF5Reader(str(path), columnar=True, keep_open=False)
+    optional.configure_columnar({"absent": (("id",), False)})
+    assert "absent" not in optional.get_columnar(0)
+    optional.close()
+
+    required = HDF5Reader(str(path), columnar=True)
+    required.configure_columnar({"absent": (("id",), True)})
+    with pytest.raises(KeyError, match="Required columnar product"):
+        required.get_columnar(0)
+    required.close()
+
+    missing_field = HDF5Reader(str(path), columnar=True)
+    missing_field.configure_columnar({"particles": (("not_a_field",), True)})
+    with pytest.raises(KeyError, match="missing fixed fields"):
+        missing_field.get_columnar(0)
+    missing_field.close()
+
+    wrong_kind = HDF5Reader(str(path), columnar=True)
+    wrong_kind.configure_columnar({"tensor": (None, True)})
+    with pytest.raises(TypeError, match="object collection"):
+        wrong_kind.get_columnar(0)
+    wrong_kind.close()
+
+
+def test_hdf5_reader_columnar_run_splitting_and_legacy_errors(tmp_path):
+    """Run splitting and malformed legacy projections should be explicit."""
+    assert HDF5Reader._contiguous_runs(np.empty(0, dtype=np.int64)) == []
+    assert HDF5Reader._contiguous_runs(np.asarray([1, 2, 4, 7, 8])) == [
+        (1, 3),
+        (4, 5),
+        (7, 9),
+    ]
+
+    path = tmp_path / "legacy_errors.h5"
+    data = {
+        "index": np.asarray([0]),
+        "particles": [
+            ObjectList([RecoParticle(id=3)], RecoParticle()),
+        ],
+    }
+    with HDF5Writer(str(path), overwrite=True, format_version=1) as writer:
+        writer(data, cfg={})
+
+    missing_field = HDF5Reader(str(path), columnar=True)
+    missing_field.configure_columnar({"particles": (("not_a_field",), True)})
+    with pytest.raises(KeyError, match="Legacy columnar product"):
+        missing_field.get_columnar(0)
+    missing_field.close()
+
+    with h5py.File(path, "a") as out_file:
+        out_file.create_dataset(
+            "orphan",
+            data=np.asarray([(4,)], dtype=[("id", np.int64)]),
+        )
+
+    missing_reference = HDF5Reader(str(path), columnar=True)
+    missing_reference.configure_columnar({"orphan": (("id",), True)})
+    with pytest.raises(KeyError, match="does not reference"):
+        missing_reference.get_columnar(0)
+    missing_reference.close()
 
 
 def test_hdf5_reader_fixed_only_does_not_access_variable_group(tmp_path):
