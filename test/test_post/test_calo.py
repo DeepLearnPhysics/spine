@@ -187,6 +187,22 @@ def test_calibration_processor_skips_empty_particles(monkeypatch):
     assert len(cast(FakeCalibrationManager, processor.calibrator).calls) == 1
 
 
+def test_calibration_processor_skips_nonfinite_auxiliary_positions(monkeypatch):
+    """Auxiliary positions with no finite rows do not reach the calibrator."""
+    monkeypatch.setattr(calo_mod, "CalibrationManager", FakeCalibrationManager)
+    processor = CalibrationProcessor(run_mode="reco")
+    invalid_position = np.full(3, np.nan, dtype=np.float32)
+    particle = SimpleNamespace(
+        _pos_attrs=("points", "missing_position", "start_point"),
+        points=np.zeros((1, 3), dtype=np.float32),
+        start_point=invalid_position.copy(),
+    )
+
+    processor._update_reco_positions(particle)
+
+    np.testing.assert_array_equal(particle.start_point, invalid_position)
+
+
 class FakeTPC:
     def __init__(self, anode_pos, center):
         self.anode_pos = anode_pos
