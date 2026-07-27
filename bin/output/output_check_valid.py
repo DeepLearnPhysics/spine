@@ -14,11 +14,13 @@ If those markers are absent, the script falls back to the legacy heuristic of
 matching output file names and comparing input/output entry counts.
 """
 
+from __future__ import annotations
+
 import argparse
 import os
+from collections.abc import Sequence
 
 import h5py
-import numpy as np
 from tqdm import tqdm
 
 try:
@@ -29,7 +31,7 @@ except ImportError:  # pragma: no cover - exercised in test_bin without ROOT/LAr
     TFile = None
 
 
-def require_root_larcv():
+def require_root_larcv() -> None:
     """Require ROOT/LArCV support for ROOT-based validation paths.
 
     Raises
@@ -44,7 +46,7 @@ def require_root_larcv():
         )
 
 
-def get_num_entries(file_path, tree_name=None):
+def get_num_entries(file_path: str, tree_name: str | None = None) -> int:
     """Return the number of entries stored in one input or output file.
 
     Parameters
@@ -75,7 +77,7 @@ def get_num_entries(file_path, tree_name=None):
         return len(f["events"])
 
 
-def has_modern_hdf5_markers(out_file):
+def has_modern_hdf5_markers(out_file: h5py.File) -> bool:
     """Check whether an HDF5 output exposes modern completeness metadata.
 
     Parameters
@@ -94,7 +96,7 @@ def has_modern_hdf5_markers(out_file):
     return has_complete or has_source
 
 
-def check_hdf5_source_provenance(file_path, out_file):
+def check_hdf5_source_provenance(file_path: str, out_file: h5py.File) -> bool:
     """Validate top-level source provenance when the output stores it.
 
     Parameters
@@ -131,7 +133,7 @@ def check_hdf5_source_provenance(file_path, out_file):
     )
 
 
-def is_valid_modern_hdf5_output(file_path, out_path):
+def is_valid_modern_hdf5_output(file_path: str, out_path: str) -> bool | None:
     """Validate a modern HDF5 output using completeness and source metadata.
 
     Parameters
@@ -160,8 +162,15 @@ def is_valid_modern_hdf5_output(file_path, out_path):
 
 
 def main(
-    source, source_list, output, dest, suffix, event_list, tree_name, larcv_output
-):
+    source: Sequence[str] | None,
+    source_list: str | None,
+    output: str,
+    dest: str,
+    suffix: str,
+    event_list: str | None,
+    tree_name: str | None,
+    larcv_output: bool,
+) -> None:
     """Check the outputs of a SPINE processing campaign.
 
     The script loops over the requested input files, checks that an output file
@@ -185,9 +194,9 @@ def main(
 
     Parameters
     ----------
-    source : list[str]
+    source : sequence of str, optional
         List of paths to the input files
-    source_list : str
+    source_list : str, optional
         Path to a text file containing a list of data file paths
     output : str
         Path to the output text file with the list of problematic files
@@ -195,10 +204,10 @@ def main(
         Destination directory used by the original SPINE process
     suffix : str
         Suffix added to input file stems by the original SPINE process
-    event_list : str
+    event_list : str, optional
         Path to a file containing a list of events to process. If provided,
         only events appearing on this list are required in the output.
-    tree_name : str
+    tree_name : str, optional
         Name of the ROOT tree to use when counting entries. If not specified,
         the first tree found in each input ROOT file is used.
     larcv_output : bool
@@ -209,21 +218,25 @@ def main(
     if source_list is not None:
         with open(source_list, "r", encoding="utf-8") as f:
             source = f.read().splitlines()
+    if source is None:
+        raise ValueError("Either `source` or `source_list` must be provided.")
+    source = list(source)
 
     # Initialize the output text file
     out_file = open(output, "w", encoding="utf-8")
 
     # If it is provided, parse the list of (run, subrun, event) triplets
+    requested_events: set[tuple[int, int, int]] | None = None
     if event_list is not None:
         with open(event_list, "r", encoding="utf-8") as f:
             lines = f.read().splitlines()
-            line_list = [l.replace(",", " ").split() for l in lines]
-            event_list = [(int(r), int(s), int(e)) for r, s, e in line_list]
+            line_list = [line.replace(",", " ").split() for line in lines]
+            requested_events = {(int(r), int(s), int(e)) for r, s, e in line_list}
 
     # Loop over the list of files in the input
     print("\nChecking existence and completeness of output files.")
     miss_list, inc_list = [], []
-    for idx, file_path in enumerate(tqdm(source)):
+    for file_path in tqdm(source):
         # Find the base name of the input file (without extension)
         base = os.path.basename(file_path)
         stem, _ = os.path.splitext(base)
@@ -250,20 +263,11 @@ def main(
             if is_valid is True:
                 continue
 
-        # Legacy fallback: compare expected and actual entry counts. If ROOT,
-        # fetch the tree name first and optionally filter by event list.
+        # Legacy fallback: compare expected and actual entry counts.
         larcv_input = file_path.endswith(".root")
-        if larcv_input:
-            require_root_larcv()
-            f = TFile(file_path, "r")
-            if tree_name is None:
-                key = [key.GetName() for key in f.GetListOfKeys()][0]
-            else:
-                key = f"{tree_name}_tree"
-            key_b = key.replace("_tree", "_branch")
 
         # Dispatch depending if the event list is provided or not
-        if event_list is None:
+        if requested_events is None:
             # Count the number of entries in the input and legacy output.
             num_entries = get_num_entries(file_path, tree_name=tree_name)
             out_num_entries = get_num_entries(out_path, tree_name=tree_name)
@@ -275,14 +279,21 @@ def main(
 
         else:
             # Fetch the list of (run, subrun, event) triplets that should appear
-            check_list = []
+            check_list: list[tuple[int, int, int]] = []
             if larcv_input:
+                require_root_larcv()
+                f = TFile(file_path, "r")
+                if tree_name is None:
+                    key = [key.GetName() for key in f.GetListOfKeys()][0]
+                else:
+                    key = f"{tree_name}_tree"
+                key_b = key.replace("_tree", "_branch")
                 tree = getattr(f, key)
                 for i in range(tree.GetEntries()):
                     tree.GetEntry(i)
                     branch = getattr(tree, key_b)
                     run, subrun, event = branch.run(), branch.subrun(), branch.event()
-                    if (run, subrun, event) in event_list:
+                    if (run, subrun, event) in requested_events:
                         check_list.append((run, subrun, event))
                 f.Close()
             else:
@@ -307,8 +318,8 @@ def main(
     out_file.close()
 
 
-if __name__ == "__main__":
-    # Parse the command-line arguments
+def build_parser() -> argparse.ArgumentParser:
+    """Build the command-line argument parser."""
     parser = argparse.ArgumentParser(description="Check dataset validity")
 
     group = parser.add_mutually_exclusive_group(required=True)
@@ -359,9 +370,12 @@ if __name__ == "__main__":
         action="store_true",
     )
 
-    args = parser.parse_args()
+    return parser
 
-    # Execute the main function
+
+def cli() -> None:
+    """Run the command-line interface."""
+    args = build_parser().parse_args()
     main(
         args.source,
         args.source_list,
@@ -372,3 +386,7 @@ if __name__ == "__main__":
         args.tree_name,
         args.larcv_output,
     )
+
+
+if __name__ == "__main__":
+    cli()

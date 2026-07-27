@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+"""Run the SPINE configuration inspection command from a source checkout."""
+
+from __future__ import annotations
+
 import os
 import sys
 
@@ -10,5 +14,11 @@ if src_path not in sys.path:
 # Import and run the config CLI
 from spine.bin.config import cli
 
+
+def main() -> int:
+    """Execute the configuration CLI and return its process status."""
+    return cli()
+
+
 if __name__ == "__main__":
-    sys.exit(cli())
+    sys.exit(main())

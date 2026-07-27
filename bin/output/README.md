@@ -2,6 +2,27 @@
 
 Utilities for checking SPINE processing outputs.
 
+## Validate campaign outputs
+
+`output_check_valid.py` maps each source input to its expected SPINE output and
+writes missing or incomplete source paths to a text file suitable for
+resubmission:
+
+```bash
+python3 bin/output/output_check_valid.py \
+  --source-list inputs.txt \
+  --dest /path/to/outputs \
+  --suffix spine \
+  --output retry.txt
+```
+
+For modern HDF5 files it checks the writer's completion marker and source-file
+provenance. Older HDF5 files fall back to entry-count validation. Use
+`--larcv-output` when the campaign produced ROOT rather than HDF5, and
+`--tree-name` to select the reference LArCV tree. `--event-list` accepts
+whitespace- or comma-separated `(run, subrun, event)` triplets when only a
+subset was requested.
+
 ## Compare two HDF5 outputs
 
 `output_compare.py` compares two SPINE HDF5 files event by event. It supports

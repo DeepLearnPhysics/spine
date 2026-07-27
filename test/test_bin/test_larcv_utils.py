@@ -5,6 +5,8 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 
 def load_larcv_utils():
     """Import ``bin/larcv/utils.py`` as a test module."""
@@ -37,6 +39,31 @@ class FakeFile:
 
     def Get(self, name):
         return object()
+
+
+def test_resolve_sources_accepts_direct_paths_and_text_lists(tmp_path):
+    """Input paths should resolve consistently from either CLI representation."""
+    module = load_larcv_utils()
+
+    assert module.resolve_sources(("a.root", "b.root"), None) == [
+        "a.root",
+        "b.root",
+    ]
+
+    source_list = tmp_path / "files.txt"
+    source_list.write_text("c.root\nd.root\n", encoding="utf-8")
+    assert module.resolve_sources(None, str(source_list)) == [
+        "c.root",
+        "d.root",
+    ]
+
+
+def test_resolve_sources_rejects_missing_input():
+    """Direct Python calls should receive the same guard as the CLI."""
+    module = load_larcv_utils()
+
+    with pytest.raises(ValueError, match="source"):
+        module.resolve_sources(None, None)
 
 
 def test_tree_lookup_uses_larcv_tree_names_and_typed_attributes():

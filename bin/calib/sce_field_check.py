@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -146,7 +147,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def sample_points(
-    geo,
+    geo: Any,
     map_range: np.ndarray,
     num_points: int,
     mode: str,
@@ -179,7 +180,9 @@ def sample_points(
     return points
 
 
-def apply_field(calibrator: FieldCalibrator, geo, points: np.ndarray) -> np.ndarray:
+def apply_field(
+    calibrator: FieldCalibrator, geo: Any, points: np.ndarray
+) -> np.ndarray:
     """Apply a field calibrator to a mixed-TPC point cloud."""
     corrected = np.asarray(points, dtype=float).copy()
     tpc_ids = geo.get_closest_tpc(points)
@@ -192,7 +195,7 @@ def apply_field(calibrator: FieldCalibrator, geo, points: np.ndarray) -> np.ndar
     return corrected
 
 
-def sample_volumes(geo, map_range: np.ndarray, mode: str) -> list[np.ndarray]:
+def sample_volumes(geo: Any, map_range: np.ndarray, mode: str) -> list[np.ndarray]:
     """Build a list of box volumes to sample."""
     if mode == "map":
         return [np.asarray(map_range, dtype=float)]
@@ -222,7 +225,7 @@ def plot_component(
     map_file: Path,
     sample_volume: str,
     point_size: float,
-):
+) -> Any:
     """Draw one offset component in the three 2D coordinate projections."""
     import matplotlib.pyplot as plt
 

@@ -1,16 +1,24 @@
 #!/usr/bin/env python3
 """Finds duplicated files."""
 
+from __future__ import annotations
+
 import argparse
+from collections.abc import Sequence
 
 import numpy as np
 from larcv import larcv  # pylint: disable=W0611
 from ROOT import TFile  # pylint: disable=E0611
 from tqdm import tqdm
-from utils import get_branch_key, get_tree, get_tree_key
+from utils import get_branch_key, get_tree, get_tree_key, resolve_sources
 
 
-def main(source, source_list, output, tree_name):
+def main(
+    source: Sequence[str] | None,
+    source_list: str | None,
+    output: str,
+    tree_name: str | None,
+) -> None:
     """Loops over a list of files and identifies files which contain the same
     set of (run, subrun, event) triplets.
 
@@ -20,20 +28,17 @@ def main(source, source_list, output, tree_name):
 
     Parameters
     ----------
-    source : Union[str, List[str]]
+    source : sequence of str, optional
         Path or list of paths to the input files
-    source_list : str
+    source_list : str, optional
         Path to a text file containing a list of data file paths
     output : str
         Path to the output text file with the list of duplicates
-    tree_name : str
+    tree_name : str, optional
         Name of the tree to use as a reference to count the number of entries.
         If not specified, takes the first tree in the list.
     """
-    # If using source list, read it in
-    if source_list is not None:
-        with open(source_list, "r", encoding="utf-8") as f:
-            source = f.read().splitlines()
+    source = resolve_sources(source, source_list)
 
     # Initialize the output text file
     out_file = open(output, "w", encoding="utf-8")
@@ -58,6 +63,7 @@ def main(source, source_list, output, tree_name):
 
         # Set the values list
         values[idx] = [num_entries, run, subrun, event]
+        f.Close()
 
     # Loop over non-unique files
     print(f"\nChecking for duplicates among {len(source)} files:")
@@ -83,8 +89,8 @@ def main(source, source_list, output, tree_name):
     out_file.close()
 
 
-if __name__ == "__main__":
-    # Parse the command-line arguments
+def build_parser() -> argparse.ArgumentParser:
+    """Build the command-line argument parser."""
     parser = argparse.ArgumentParser(description="Count entries in dataset")
 
     group = parser.add_mutually_exclusive_group(required=True)
@@ -111,7 +117,14 @@ if __name__ == "__main__":
         "--tree-name", help="TTree name used to count the entries.", type=str
     )
 
-    args = parser.parse_args()
+    return parser
 
-    # Execute the main function
+
+def cli() -> None:
+    """Run the command-line interface."""
+    args = build_parser().parse_args()
     main(args.source, args.source_list, args.output, args.tree_name)
+
+
+if __name__ == "__main__":
+    cli()
