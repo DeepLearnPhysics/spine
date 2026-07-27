@@ -1,35 +1,41 @@
 #!/usr/bin/env python3
 """Counts the number of events in a LArCV dataset."""
 
+from __future__ import annotations
+
 import argparse
+from collections.abc import Sequence
 from pathlib import Path
 
 from larcv import larcv  # pylint: disable=W0611
 from ROOT import TFile  # pylint: disable=E0611
 from tqdm import tqdm
-from utils import get_tree
+from utils import get_tree, resolve_sources
 
 
-def main(source, source_list, tree_names, suffix=None, replace=False):
+def main(
+    source: Sequence[str] | None,
+    source_list: str | None,
+    tree_names: Sequence[str],
+    suffix: str = "counts",
+    replace: bool = False,
+) -> None:
     """Get the length of a LArCV datasets.
 
     Parameters
     ----------
-    source : Union[str, List[str]]
+    source : sequence of str, optional
         Path or list of paths to the input files
-    source_list : str
+    source_list : str, optional
         Path to a text file containing a list of data file paths
-    tree_names : List[str]
+    tree_names : sequence of str
         Names of the trees to measure each entry count from.
-    suffix : str, optional
+    suffix : str, default "counts"
         Suffix for the output file(s)
     replace : bool, default False
         If True, replace existing output files
     """
-    # If using source list, read it in
-    if source_list is not None:
-        with open(source_list, "r", encoding="utf-8") as f:
-            source = f.read().splitlines()
+    source = resolve_sources(source, source_list)
 
     # Initialize a header for the output files
     header = "entry," + ",".join([f"{name}_count" for name in tree_names]) + "\n"
@@ -84,8 +90,8 @@ def main(source, source_list, tree_names, suffix=None, replace=False):
         tqdm.write(f"- Processed {num_entries} entries for file: {file_path}")
 
 
-if __name__ == "__main__":
-    # Parse the command-line arguments
+def build_parser() -> argparse.ArgumentParser:
+    """Build the command-line argument parser."""
     parser = argparse.ArgumentParser(description="Measure LArCV tree sizes.")
 
     group = parser.add_mutually_exclusive_group(required=True)
@@ -121,7 +127,14 @@ if __name__ == "__main__":
         "--replace", help="Replace existing output files", action="store_true"
     )
 
-    args = parser.parse_args()
+    return parser
 
-    # Execute the main function
+
+def cli() -> None:
+    """Run the command-line interface."""
+    args = build_parser().parse_args()
     main(args.source, args.source_list, args.tree_names, args.suffix, args.replace)
+
+
+if __name__ == "__main__":
+    cli()

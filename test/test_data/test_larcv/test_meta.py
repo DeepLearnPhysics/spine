@@ -121,6 +121,20 @@ class TestMetaCreation:
         assert isinstance(meta.count, np.ndarray)
         assert meta.count.dtype == np.int64
 
+        # Trusted HDF5 reconstruction bypasses __post_init__, so the minimal
+        # deserialize hook must restore the omitted runtime cache.
+        _ = meta.index_multipliers
+        rebuilt = Meta.from_dict_trusted(
+            {
+                "lower": meta.lower,
+                "upper": meta.upper,
+                "size": meta.size,
+                "count": meta.count,
+            }
+        )
+        assert rebuilt._index_multipliers is None
+        assert np.array_equal(rebuilt.index_multipliers, [10000, 100, 1])
+
     def test_meta_edge_cases(self):
         """Test Meta edge cases and boundary conditions."""
         # Very small voxels

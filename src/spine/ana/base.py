@@ -378,6 +378,37 @@ class AnaBase(ABC):
             Update to the input dictionary
         """
         # Fetch the necessary information
+        data_filter = self._filter_data(data, entry)
+
+        # Fetch the base dictionary
+        self.base_dict = self.get_base_dict(data_filter)
+
+        # Run the analysis script
+        return self.process(data_filter)
+
+    def _filter_data(
+        self,
+        data: Mapping[str, Any],
+        entry: int | None = None,
+    ) -> dict[str, Any]:
+        """Select declared inputs and optionally isolate one batch entry.
+
+        The same key contract is shared by event and columnar processing.
+        Columnar callers omit ``entry`` so arrays, tables, and event-offset
+        vectors remain intact.
+
+        Parameters
+        ----------
+        data : Mapping[str, Any]
+            Available data products.
+        entry : int, optional
+            Batch entry to isolate for event processing.
+
+        Returns
+        -------
+        dict[str, Any]
+            Requested required and optional products which are available.
+        """
         data_filter = {}
         for key, req in self.keys.items():
             # If this key is needed, check that it exists
@@ -393,11 +424,85 @@ class AnaBase(ABC):
                 if entry is not None:
                     data_filter[key] = data[key][entry]
 
-        # Fetch the base dictionary
-        self.base_dict = self.get_base_dict(data_filter)
+        return data_filter
 
-        # Run the analysis script
-        return self.process(data_filter)
+    @property
+    def supports_columnar(self) -> bool:
+        """Whether this analyzer implements the optional columnar hook."""
+        return type(self).process_columnar is not AnaBase.process_columnar
+
+    def run_columnar(self, data: Mapping[str, Any]) -> Any:
+        """Run this analyzer once on a columnar product chunk.
+
+        Unlike :meth:`__call__`, this method does not construct a scalar
+        ``base_dict`` or iterate over events. A columnar implementation owns
+        its chunk-level output strategy and receives each declared product in
+        its original bulk representation.
+
+        Parameters
+        ----------
+        data : Mapping[str, Any]
+            Columnar products and their event-boundary metadata.
+
+        Returns
+        -------
+        Any
+            Optional products to merge into the shared columnar mapping.
+
+        Raises
+        ------
+        NotImplementedError
+            If the analyzer does not implement :meth:`process_columnar`.
+        """
+        if not self.supports_columnar:
+            raise NotImplementedError(
+                f"Analysis script `{self.name}` does not implement "
+                "`process_columnar`."
+            )
+
+        requests = self.columnar_requests()
+        data_filter = {}
+        administrative = {"index", "file_index", "file_entry_index"}
+        for key, required in self.keys.items():
+            if key in administrative:
+                if required and key not in data:
+                    raise KeyError(
+                        f"Analysis script `{self.name}` is missing an essential "
+                        f"columnar input: `{key}`."
+                    )
+                if key in data:
+                    data_filter[key] = data[key]
+        for key, (_, required) in requests.items():
+            if required and key not in data:
+                raise KeyError(
+                    f"Analysis script `{self.name}` is missing an essential "
+                    f"columnar input: `{key}`."
+                )
+            if key in data:
+                data_filter[key] = data[key]
+
+        return self.process_columnar(data_filter)
+
+    def columnar_requests(
+        self,
+    ) -> dict[str, tuple[tuple[str, ...] | None, bool]]:
+        """Describe products required by this analyzer's columnar hook.
+
+        ``None`` requests every directly projectable field for a product.
+        Subclasses should override this method when they can provide a narrower
+        field projection.
+
+        Returns
+        -------
+        dict
+            Product names mapped to ``(fields, required)`` tuples.
+        """
+        administrative = {"index", "file_index", "file_entry_index"}
+        return {
+            key: (None, required)
+            for key, required in self.keys.items()
+            if key not in administrative
+        }
 
     def get_index(self, obj: Any) -> Any:
         """Get a certain pre-defined index attribute of an object.
@@ -453,3 +558,19 @@ class AnaBase(ABC):
             Filtered data dictionary for one entry
         """
         raise NotImplementedError("Must define the `process` function")
+
+    def process_columnar(self, data: Mapping[str, Any]) -> Any:
+        """Optionally process one bulk columnar data chunk.
+
+        Subclasses opt into columnar execution by overriding this method.
+        Implementations should operate directly on projected columns and
+        event-offset vectors rather than rebuilding per-event data classes.
+        The event-oriented :meth:`process` method remains mandatory and is the
+        default execution path.
+
+        Parameters
+        ----------
+        data : Mapping[str, Any]
+            Filtered columnar products requested by :attr:`keys`.
+        """
+        raise NotImplementedError

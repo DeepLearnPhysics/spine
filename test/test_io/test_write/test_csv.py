@@ -112,3 +112,43 @@ def test_csv_writer_directory_relocates_output(tmp_path):
         "a",
         "1",
     ]
+
+
+def test_csv_writer_appends_columns(tmp_path):
+    """Columnar writes should share headers and avoid row dictionaries."""
+    path = tmp_path / "columns.csv"
+    writer = CSVWriter(path)
+    writer.append_columns({"a": [1, 2], "b": [3, 4]})
+    writer.append_columns({"a": [5], "b": [6]})
+    writer.close()
+
+    assert path.read_text(encoding="utf-8").splitlines() == [
+        "a,b",
+        "1,3",
+        "2,4",
+        "5,6",
+    ]
+
+
+def test_csv_writer_reopens_for_columnar_append(tmp_path):
+    """A closed initialized writer should reopen before writing more columns."""
+    path = tmp_path / "columns.csv"
+    writer = CSVWriter(path)
+    writer.append_columns({"a": [1]})
+    writer.close()
+    writer.append_columns({"a": [2]})
+    writer.close()
+
+    assert path.read_text(encoding="utf-8").splitlines() == ["a", "1", "2"]
+
+
+def test_csv_writer_validates_columnar_shape_and_header(tmp_path):
+    path = tmp_path / "columns.csv"
+    writer = CSVWriter(path)
+    with pytest.raises(ValueError, match="same length"):
+        writer.append_columns({"a": [1], "b": [2, 3]})
+
+    writer.append_columns({"a": [1], "b": [2]})
+    with pytest.raises(AssertionError, match="match"):
+        writer.append_columns({"b": [3], "a": [4]})
+    writer.close()

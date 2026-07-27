@@ -44,7 +44,7 @@ Note: Direction vectors (unit vectors) typically have no units metadata since
 they are unitless normalized directions.
 """
 
-from dataclasses import dataclass, fields, replace
+from dataclasses import MISSING, dataclass, fields, replace
 from enum import IntEnum
 from types import UnionType
 from typing import (
@@ -613,6 +613,61 @@ class DataBase:
                 if key not in cls._derived_attrs
             }
         )
+
+    @classmethod
+    def from_dict_trusted(cls, cls_dict: dict[str, Any]) -> "DataBase":
+        """Build an object from trusted, schema-controlled serialized data.
+
+        This constructor is reserved for readers whose physical schema was
+        derived from the data class itself. It reproduces dataclass field
+        population and default factories, but bypasses the generated
+        ``__init__``, validated ``__setattr__``, and semantic
+        ``__post_init__`` checks which ordinary user input requires.
+
+        Subclasses may initialize non-field runtime state in
+        :meth:`_post_deserialize`. Stored derived properties are ignored, as
+        they are in :meth:`from_dict`, and remain computed from the loaded
+        object state.
+
+        Parameters
+        ----------
+        cls_dict : dict
+            Trusted serialized attributes to load.
+
+        Returns
+        -------
+        DataBase
+            Reconstructed object.
+        """
+        cls._ensure_cached_attrs()
+        obj = cls.__new__(cls)
+        for cls_field in cls._fields:
+            name = cls_field.name
+            value: Any
+            if name in cls_dict:
+                value = cls_dict[name]
+                if name in cls._str_attrs and isinstance(value, bytes):
+                    value = value.decode()
+                if name in cls._bool_attrs:
+                    if isinstance(value, np.ndarray) and value.dtype == np.uint8:
+                        value = bool(value.item())
+                    elif isinstance(value, np.generic) and value.dtype == np.uint8:
+                        value = bool(value.item())
+
+            elif cls_field.default is not MISSING:
+                value = cls_field.default
+
+            else:
+                assert cls_field.default_factory is not MISSING
+                value = cls_field.default_factory()
+
+            object.__setattr__(obj, name, value)
+
+        obj._post_deserialize()
+        return obj
+
+    def _post_deserialize(self) -> None:
+        """Initialize runtime-only state after trusted deserialization."""
 
     @classmethod
     def _ensure_cached_attrs(cls) -> None:

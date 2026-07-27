@@ -82,6 +82,10 @@ class ImageMetaBase(DataBase):
                 "Upper must be equal to lower + size * count (within numerical precision)"
             )
 
+    def _post_deserialize(self) -> None:
+        """Restore runtime state omitted from trusted serialized fields."""
+        object.__setattr__(self, "_index_multipliers", None)
+
     @property
     def index_multipliers(self) -> np.ndarray:
         """Get the index multipliers for converting between pixel coordinates

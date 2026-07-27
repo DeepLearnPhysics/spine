@@ -24,7 +24,13 @@ __all__ = ["TemplateAna"]
 
 
 class TemplateAna(AnaBase):
-    """Template analysis script showing the expected AnaBase interface."""
+    """Template analysis script showing the expected AnaBase interface.
+
+    An analyzer which can consume projected product chunks may additionally
+    override ``process_columnar(data)``. The columnar method receives the same
+    declared keys without per-entry slicing; analyzers should only implement
+    it when they can preserve the semantics of their event path.
+    """
 
     # Name of the analysis script (as specified in the configuration)
     name = "template"
@@ -90,3 +96,38 @@ class TemplateAna(AnaBase):
 
                 # Write the row to file
                 self.append("template", **out)
+
+    def process_columnar(self, data: Mapping[str, Any]) -> Mapping[str, Any]:
+        """Process a projected product chunk without rebuilding event objects.
+
+        This example assumes ``prod`` is represented as a mapping containing
+        NumPy-like columns and an ``event_offsets`` boundary vector. A real
+        analyzer should request only the columns it needs from the columnar
+        reader, perform bulk operations where possible, and use the offsets
+        when event grouping matters.
+
+        Parameters
+        ----------
+        data : Mapping[str, Any]
+            Filtered bulk products requested by this analyzer.
+
+        Returns
+        -------
+        Mapping[str, Any]
+            Optional bulk columns made available to later analyzers.
+        """
+        product = data["prod"]
+        start_points = product["start_point"]
+        end_points = product["end_point"]
+        event_offsets = product["event_offsets"]
+
+        # Vectorized over every object in the chunk. No particle objects or
+        # per-event loop are constructed merely to subtract these columns.
+        displacements = end_points - start_points
+
+        return {
+            "displacements": {
+                "values": displacements,
+                "event_offsets": event_offsets,
+            }
+        }

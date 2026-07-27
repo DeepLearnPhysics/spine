@@ -47,6 +47,74 @@ File Writers
    write.CSVWriter
    write.StageHDF5Writer
 
+HDF5 format versions
+--------------------
+
+Flat SPINE HDF5 files are self-describing. The ``/info`` attributes separate
+the producing software release from the physical file layout:
+
+- ``spine_version`` identifies the SPINE release which produced the file.
+- ``format`` is ``spine_hdf5`` for flat event files.
+- ``format_version`` is ``1`` for the legacy region-reference/VLEN layout or
+  ``2`` for the offset-based layout.
+
+Files written before explicit layout versioning have no ``format_version`` and
+are treated as version 1. :class:`read.HDF5Reader` detects both layouts
+automatically. Select version 2 for new output explicitly during its rollout:
+
+.. code-block:: yaml
+
+   writer:
+     name: hdf5
+     format_version: 2
+
+Version 2 keeps derived scalar and fixed-width properties directly available
+in each product's ``fixed`` compound dataset. Variable-length properties use
+dtype-specific pools under ``variables``. Each pool declares its ordered field
+names in the ``fields`` attribute and has one flat ``values`` dataset. The
+corresponding integer offset row is stored directly in the object's ``fixed``
+record. Product ``event_offsets`` map event ``i`` to rows
+``event_offsets[i]:event_offsets[i + 1]`` without HDF5 region references.
+Appending data with a different format version is rejected.
+
+For high-level workflows which need only scalar and fixed-width object
+attributes, the V2 reader can skip all variable-value pools:
+
+.. code-block:: yaml
+
+   dataset:
+     name: hdf5
+     fixed_only: true
+
+Full loading remains the default. ``fixed_only`` is intentionally restricted
+to format version 2 files and omits variable attributes such as indexes,
+matches, strings, and variable-width vectors. When classes are rebuilt, those
+attributes retain their class defaults, so derived properties which depend on
+them must not be used. Set ``build_classes: false`` to retain the stored
+derived fields directly in the returned object dictionaries.
+
+Analysis-only workflows may instead request projected multi-event chunks:
+
+.. code-block:: yaml
+
+   io:
+     reader:
+       name: hdf5
+       file_keys: output.h5
+       columnar: true
+       chunk_size: 1024
+
+Columnar mode is a reader-wide policy. The analysis manager supplies the union
+of fields requested by its scripts, and the reader returns flattened object
+columns with an ``event_offsets`` boundary vector for each product. Version 2
+uses its native offsets and fixed compound rows; version 1 projects the legacy
+compound dataset through event region references. Legacy files must already
+contain every requested scalar field, such as ``best_match_id``.
+
+The driver currently restricts columnar mode to analysis-only configurations:
+all configured scripts must implement ``process_columnar``, and model,
+construction, post-processing, and ordinary output-writer blocks are rejected.
+
 Datasets
 --------
 

@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+"""Run the primary SPINE command-line interface from a source checkout."""
+
+from __future__ import annotations
+
 import os
 import sys
 
@@ -10,5 +14,11 @@ if src_path not in sys.path:
 # Import and run the CLI
 from spine.bin.cli import cli
 
-if __name__ == "__main__":
+
+def main() -> None:
+    """Execute the SPINE command-line interface."""
     cli()
+
+
+if __name__ == "__main__":
+    main()

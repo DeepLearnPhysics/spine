@@ -138,6 +138,7 @@ class IOManager:
         self.unwrapper = None
         self.reader = None
         self.writer = None
+        self.columnar = False
         self.iterations = iterations
         self.epochs = epochs
         self.distributed = distributed
@@ -247,7 +248,10 @@ class IOManager:
 
         self.watch.initialize("read")
         self.reader = reader_factory(reader)
-        self.iter_per_epoch = len(self.reader)
+        self.columnar = bool(getattr(self.reader, "columnar", False))
+        self.iter_per_epoch = (
+            self.reader.num_chunks if self.columnar else len(self.reader)
+        )
 
         # Post-processors already run on the input file, if available from the reader
         # metadata, are recorded here for use by the driver when determining which
@@ -320,7 +324,7 @@ class IOManager:
         """
         if self.reader is None:
             raise RuntimeError("Cannot determine length without an initialized reader.")
-        return len(self.reader)
+        return self.iter_per_epoch if self.columnar else len(self.reader)
 
     @property
     def has_loader(self) -> bool:
@@ -331,6 +335,15 @@ class IOManager:
     def has_writer(self) -> bool:
         """Whether this manager owns an output writer."""
         return self.writer is not None
+
+    def configure_columnar(
+        self,
+        requests: dict[str, tuple[tuple[str, ...] | None, bool]],
+    ) -> None:
+        """Pass an analyzer-derived projection to a columnar reader."""
+        if not self.columnar or self.reader is None:
+            raise RuntimeError("I/O is not configured for columnar reading.")
+        self.reader.configure_columnar(requests)
 
     def _name_max(self, path: str = ".") -> int:
         """Return the maximum filename component length for a path."""
@@ -473,7 +486,18 @@ class IOManager:
             raise RuntimeError("Cannot load data without an initialized reader.")
 
         self.watch.start("read")
-        if entry is not None:
+        if self.columnar:
+            if (
+                entry is None
+                or run is not None
+                or subrun is not None
+                or event is not None
+            ):
+                raise ValueError(
+                    "Columnar readers accept only a sequential chunk index."
+                )
+            data = self.reader.get_columnar(entry)
+        elif entry is not None:
             data = self.reader.get(entry)
         else:
             data = self.reader.get_run_event(run, subrun, event)

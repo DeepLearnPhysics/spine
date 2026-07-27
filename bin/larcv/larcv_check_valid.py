@@ -1,16 +1,23 @@
 #!/usr/bin/env python3
 """Mark all bad LArCV ROOT files before merging them with hadd."""
 
+from __future__ import annotations
+
 import argparse
+from collections.abc import Sequence
 
 import numpy as np
 from larcv import larcv  # pylint: disable=W0611
 from ROOT import TFile  # pylint: disable=E0611
 from tqdm import tqdm
-from utils import get_tree, list_tree_keys
+from utils import get_tree, list_tree_keys, resolve_sources
 
 
-def main(source, source_list, output):
+def main(
+    source: Sequence[str] | None,
+    source_list: str | None,
+    output: str,
+) -> None:
     """Checks the validity of a LArCV root file.
 
     This script loops over all TTrees in a given ROOT file and check that they
@@ -25,17 +32,14 @@ def main(source, source_list, output):
 
     Parameters
     ----------
-    source : List[str]
+    source : sequence of str, optional
         List of paths to the input files
-    source_list : str
+    source_list : str, optional
         Path to a text file containing a list of data file paths
     output : str
         Path to the output text file with the list of bad files
     """
-    # If using source list, read it in
-    if source_list is not None:
-        with open(source_list, "r", encoding="utf-8") as f:
-            source = f.read().splitlines()
+    source = resolve_sources(source, source_list)
 
     # Initialize the output text file
     out_file = open(output, "w", encoding="utf-8")
@@ -84,8 +88,8 @@ def main(source, source_list, output):
     out_file.close()
 
 
-if __name__ == "__main__":
-    # Parse the command-line arguments
+def build_parser() -> argparse.ArgumentParser:
+    """Build the command-line argument parser."""
     parser = argparse.ArgumentParser(description="Check dataset validity")
 
     group = parser.add_mutually_exclusive_group(required=True)
@@ -108,7 +112,14 @@ if __name__ == "__main__":
         required=True,
     )
 
-    args = parser.parse_args()
+    return parser
 
-    # Execute the main function
+
+def cli() -> None:
+    """Run the command-line interface."""
+    args = build_parser().parse_args()
     main(args.source, args.source_list, args.output)
+
+
+if __name__ == "__main__":
+    cli()

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import numpy as np
 import pytest
 
 from spine.ana.script.save import SaveAna
+from spine.data import RecoParticle
 
 
 class FakeObject:
@@ -16,6 +18,12 @@ class FakeObject:
 
 
 class FakeWriter:
+    def __init__(self):
+        self.columns = []
+
+    def append_columns(self, data):
+        self.columns.append(data)
+
     def close(self):
         pass
 
@@ -121,3 +129,73 @@ def test_save_ana_uses_default_object_for_missing_match(monkeypatch):
             {"reco_id": 1, "truth_id": -1, "match_overlap": 0.2},
         )
     ]
+
+
+def test_save_ana_columnar_joins_best_matches():
+    ana = SaveAna(
+        obj_type="particle",
+        particle=("id", "pid", "size"),
+        match_mode="reco_to_truth",
+    )
+    data = {
+        "index": np.asarray([0, 1]),
+        "file_index": np.asarray([0, 0]),
+        "file_entry_index": np.asarray([0, 1]),
+        "reco_particles": {
+            "id": np.asarray([0, 1, 0]),
+            "pid": np.asarray([2, 4, 3]),
+            "size": np.asarray([10, 20, 30]),
+            "best_match_id": np.asarray([0, -1, 0]),
+            "best_match_overlap": np.asarray([0.8, -1.0, 0.6]),
+            "event_offsets": np.asarray([0, 2, 3]),
+        },
+        "truth_particles": {
+            "id": np.asarray([0, 0]),
+            "pid": np.asarray([2, 3]),
+            "size": np.asarray([12, 28]),
+            "event_offsets": np.asarray([0, 1, 2]),
+        },
+    }
+
+    ana.process_columnar(data)
+
+    reco = ana.writers["reco_particles"].columns[0]
+    assert reco["index"].tolist() == [0, 0, 1]
+    assert reco["reco_id"].tolist() == [0, 1, 0]
+    assert reco["truth_pid"].tolist() == [2, -1, 3]
+    assert reco["truth_size"].tolist() == [12, 0, 28]
+    assert reco["match_overlap"].tolist() == [0.8, -1.0, 0.6]
+
+    truth = ana.writers["truth_particles"].columns[0]
+    assert truth["index"].tolist() == [0, 1]
+    assert truth["id"].tolist() == [0, 0]
+
+
+def test_save_ana_validates_columnar_attributes():
+    """Columnar save requires explicit, fixed-width object attributes."""
+    implicit = SaveAna(obj_type="particle", run_mode="reco", match_mode=None)
+    with pytest.raises(ValueError, match="explicit attribute"):
+        implicit.columnar_requests()
+
+    variable = SaveAna(
+        obj_type="particle",
+        particle=("index",),
+        run_mode="reco",
+        match_mode=None,
+    )
+    with pytest.raises(ValueError, match="variable fields"):
+        variable.columnar_requests()
+
+
+def test_save_ana_expands_fixed_width_columnar_attributes():
+    """Fixed vectors should expand into named scalar output columns."""
+    product = {"start_point": np.asarray([[1.0, 2.0, 3.0]], dtype=np.float32)}
+    columns = SaveAna._expand_columnar_attrs(product, ("start_point",), RecoParticle())
+    assert list(columns) == ["start_point_x", "start_point_y", "start_point_z"]
+
+    with pytest.raises(ValueError, match="scalar or fixed-width"):
+        SaveAna._expand_columnar_attrs(
+            {"start_point": np.zeros((1, 2, 3))},
+            ("start_point",),
+            RecoParticle(),
+        )

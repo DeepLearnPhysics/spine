@@ -1,15 +1,17 @@
-"""Script which injects a run number in every event of every tree in a file or
-a list of files.
-"""
+#!/usr/bin/env python3
+"""Inject run numbers into every event and product in LArCV ROOT files."""
+
+from __future__ import annotations
 
 import argparse
 import os
 import tempfile
+from collections.abc import Sequence
+from typing import Any
 
-import numpy as np
 from larcv import larcv  # pylint: disable=W0611
-from ROOT import TFile  # pylint: disable=E0611
 from tqdm import tqdm
+from utils import resolve_sources
 
 # LArCV IO Manager configuration string
 CFG = """
@@ -23,24 +25,30 @@ IOManager: {
 """
 
 
-def initialize_manager(file_path, dest, overwrite, suffix):
+def initialize_manager(
+    file_path: str,
+    dest: str | None,
+    overwrite: bool,
+    suffix: str | None,
+) -> tuple[Any, str]:
     """Initialize an IOManager object given a configuration.
 
     Parameters
     ----------
     file_path : str
         Path to the input file
-    dest : str
+    dest : str, optional
         Destination folder to write the output file to
     overwrite : bool
         If `True`, overwrite the original file
-    suffix : str
+    suffix : str, optional
         Suffix to append to the input file name to form the output file name
 
     Returns
     -------
-    larcv.IOManager
-        IOManager object
+    tuple[larcv.IOManager, str]
+        Initialized manager and its output path. The manager type is dynamic
+        because it is supplied by the LArCV Python bindings.
     """
     # If the destination is provided, direct the output file there
     out_path = file_path
@@ -81,7 +89,16 @@ def initialize_manager(file_path, dest, overwrite, suffix):
     return manager, out_path
 
 
-def main(source, source_list, dest, overwrite, run_number, run_list, offset, suffix):
+def main(
+    source: Sequence[str] | None,
+    source_list: str | None,
+    dest: str | None,
+    overwrite: bool,
+    run_number: int | None,
+    run_list: str | None,
+    offset: int | None,
+    suffix: str | None,
+) -> None:
     """Checks the output of the SPINE process.
 
     The script loops over the input files, fetch the list of keys in the file
@@ -94,30 +111,27 @@ def main(source, source_list, dest, overwrite, run_number, run_list, offset, suf
 
     Parameters
     ----------
-    source : List[str]
+    source : sequence of str, optional
         List of paths to the input files
-    source_list : str
+    source_list : str, optional
         Path to a text file containing a list of data file paths
-    dest : str
+    dest : str, optional
         Destination folder to write the files to
     overwrite : bool
         If `True`, overwrite the original files
-    run_number : int
+    run_number : int, optional
         Run number to inject in the input file list. If it is specied as -1,
         each file is assigned a unique run number
-    run_list : str
+    run_list : str, optional
         Path to a text file containing a list of run numbers to assign to each
         input file
-    offset : int
+    offset : int, optional
         Offset to add to the existing run number for each successive file
-    suffix : str
+    suffix : str, optional
         String to append to the end of the input file names to form the name
         of the output file with the updated run numbers
     """
-    # If using source list, read it in
-    if source_list is not None:
-        with open(source_list, "r", encoding="utf-8") as f:
-            source = f.read().splitlines()
+    source = resolve_sources(source, source_list)
 
     # If using run list, read it in
     run_numbers = None
@@ -157,6 +171,7 @@ def main(source, source_list, dest, overwrite, run_number, run_list, offset, suf
             elif run_numbers is not None:
                 io.set_id(run_numbers[idx], subrun, event)
             else:
+                assert offset is not None
                 io.set_id(run + offset, subrun, event)
 
             # Save
@@ -170,8 +185,8 @@ def main(source, source_list, dest, overwrite, run_number, run_list, offset, suf
             os.rename(out_path, file_path)
 
 
-if __name__ == "__main__":
-    # Parse the command-line arguments
+def build_parser() -> argparse.ArgumentParser:
+    """Build the command-line argument parser."""
     parser = argparse.ArgumentParser(description="Check dataset validity")
 
     group = parser.add_mutually_exclusive_group(required=True)
@@ -219,9 +234,12 @@ if __name__ == "__main__":
         "--suffix", help="Suffix to append to the input file names", type=str
     )
 
-    args = parser.parse_args()
+    return parser
 
-    # Execute the main function
+
+def cli() -> None:
+    """Run the command-line interface."""
+    args = build_parser().parse_args()
     main(
         args.source,
         args.source_list,
@@ -232,3 +250,7 @@ if __name__ == "__main__":
         args.offset,
         args.suffix,
     )
+
+
+if __name__ == "__main__":
+    cli()

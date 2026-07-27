@@ -1,22 +1,25 @@
 #!/usr/bin/env python3
-"""
-Parse LArND geometry HDF5 files and extract relevant detector information
-in YAML format to be used by SPINE.
+"""Convert a FLOW geometry HDF5 file to SPINE geometry YAML.
 
 Example usage:
-    python3 parse_larnd_geometry.py --source FSD_CosmicRun3.flow.0000000.FLOW.hdf5
-    --output larnd_geometry.yaml --opdet-thickness 1.0 --tag cr3
+    python3 bin/geo/parse_flow_geometry.py --source geometry.hdf5 \
+        --output geometry.yaml --opdet-thickness 1.0 --tag cr3
 """
+
+from __future__ import annotations
 
 import argparse
 import re
+from typing import Any
 
 import h5py
 import numpy as np
 import yaml
 
+GeometryData = dict[str, Any]
 
-def extract_version(tag, fallback=None):
+
+def extract_version(tag: str, fallback: Any = None) -> int | float | Any:
     """Extract a geometry version from a detector tag.
 
     Prefer explicit version tokens such as ``v3`` or ``_v3_``. Otherwise,
@@ -45,7 +48,7 @@ def extract_version(tag, fallback=None):
     raise ValueError("Could not extract version from tag")
 
 
-def extract_tpc_geometry(f):
+def extract_tpc_geometry(f: h5py.File) -> GeometryData:
     """
     Extract TPC geometry information from HDF5 file.
 
@@ -111,7 +114,11 @@ def extract_tpc_geometry(f):
     }
 
 
-def extract_optical_geometry(f, tpc_positions, opdet_thickness=None):
+def extract_optical_geometry(
+    f: h5py.File,
+    tpc_positions: list[list[float]],
+    opdet_thickness: float | None = None,
+) -> GeometryData | None:
     """
     Extract optical detector geometry information from HDF5 file.
 
@@ -242,7 +249,12 @@ def extract_optical_geometry(f, tpc_positions, opdet_thickness=None):
     }
 
 
-def main(source, tag, output=None, opdet_thickness=None):
+def main(
+    source: str,
+    tag: str,
+    output: str | None = None,
+    opdet_thickness: float | None = None,
+) -> None:
     """
     Main function for parsing LArND geometry HDF5 files.
 
@@ -376,7 +388,8 @@ def main(source, tag, output=None, opdet_thickness=None):
         print(f"\nYAML file written to: {output_path}")
 
 
-if __name__ == "__main__":
+def build_parser() -> argparse.ArgumentParser:
+    """Build the command-line argument parser."""
     parser = argparse.ArgumentParser(description="Parse LArND geometry HDF5 files")
 
     parser.add_argument(
@@ -409,11 +422,19 @@ if __name__ == "__main__":
         required=True,
     )
 
-    args = parser.parse_args()
+    return parser
 
+
+def cli() -> None:
+    """Run the command-line interface."""
+    args = build_parser().parse_args()
     main(
         source=args.source,
         tag=args.tag,
         output=args.output,
         opdet_thickness=args.opdet_thickness,
     )
+
+
+if __name__ == "__main__":
+    cli()

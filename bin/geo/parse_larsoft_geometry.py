@@ -10,16 +10,22 @@ First dump the geometry from LArSoft using:
 Then run this script on the dumped text file.
 """
 
+from __future__ import annotations
+
 import argparse
 import os
 import re
+from collections.abc import Sequence
+from typing import Any
 from warnings import warn
 
 import numpy as np
 import yaml
 
+GeometryData = dict[str, Any]
 
-def parse_vector(text):
+
+def parse_vector(text: str) -> list[float] | None:
     """Parse a vector from text like '(x,y,z)'.
 
     Parameters
@@ -38,7 +44,7 @@ def parse_vector(text):
     return None
 
 
-def extract_version(tag):
+def extract_version(tag: str) -> int:
     """Extract a geometry version from a detector tag.
 
     Prefer explicit version tokens such as ``v3`` or ``_v3_``. If no such
@@ -55,7 +61,12 @@ def extract_version(tag):
     raise ValueError("Could not extract version from tag")
 
 
-def parse_tpc_block(lines, start_idx, cathode_thickness=0.0, pixel_size=0.0):
+def parse_tpc_block(
+    lines: Sequence[str],
+    start_idx: int,
+    cathode_thickness: float = 0.0,
+    pixel_size: float = 0.0,
+) -> GeometryData:
     """Parse a single TPC block from the geometry file.
 
     Parameters
@@ -203,7 +214,7 @@ def parse_tpc_block(lines, start_idx, cathode_thickness=0.0, pixel_size=0.0):
     return tpc_info
 
 
-def parse_optical_block(lines, start_idx):
+def parse_optical_block(lines: Sequence[str], start_idx: int) -> GeometryData:
     """Parse a single optical block from the geometry file.
 
     Parameters
@@ -327,7 +338,7 @@ def parse_optical_block(lines, start_idx):
     return op_info
 
 
-def parse_crt_block(lines, start_idx):
+def parse_crt_block(lines: Sequence[str], start_idx: int) -> GeometryData:
     """Parse a single CRT block from the geometry file.
 
     Parameters
@@ -567,7 +578,9 @@ def parse_crt_block(lines, start_idx):
     }
 
 
-def group_tpcs_by_cathode(tpc_list):
+def group_tpcs_by_cathode(
+    tpc_list: Sequence[GeometryData],
+) -> list[list[GeometryData]]:
     """Group TPCs by shared cathode and drift direction.
 
     Parameters
@@ -614,7 +627,7 @@ def group_tpcs_by_cathode(tpc_list):
     return [tpc_groups[gid] for gid in sorted(tpc_groups.keys())]
 
 
-def combine_tpc_group(group_tpcs):
+def combine_tpc_group(group_tpcs: Sequence[GeometryData]) -> GeometryData:
     """Combine a group of TPCs into a single combined TPC.
 
     Parameters
@@ -666,7 +679,10 @@ def combine_tpc_group(group_tpcs):
     }
 
 
-def build_tpc_yaml(combined_tpcs, all_tpcs):
+def build_tpc_yaml(
+    combined_tpcs: Sequence[GeometryData],
+    all_tpcs: Sequence[GeometryData],
+) -> GeometryData:
     """Build YAML structure for TPC section.
 
     Parameters
@@ -736,7 +752,9 @@ def build_tpc_yaml(combined_tpcs, all_tpcs):
     return tpc_yaml
 
 
-def build_optical_yaml(op_info_list, tpc_yaml):
+def build_optical_yaml(
+    op_info_list: Sequence[GeometryData], tpc_yaml: GeometryData
+) -> GeometryData:
     """Build YAML structure for optical section.
 
     Parameters
@@ -803,7 +821,10 @@ def build_optical_yaml(op_info_list, tpc_yaml):
     return op_yaml
 
 
-def build_crt_yaml(crt_info_list, crt_mapping=None):
+def build_crt_yaml(
+    crt_info_list: Sequence[GeometryData],
+    crt_mapping: str | None = None,
+) -> GeometryData:
     """Build YAML structure for CRT section.
 
     Parameters
@@ -963,7 +984,13 @@ def build_crt_yaml(crt_info_list, crt_mapping=None):
     return crt_yaml
 
 
-def main(source, output=None, cathode_thickness=0.0, pixel_size=0.0, crt_mapping=None):
+def main(
+    source: str,
+    output: str | None = None,
+    cathode_thickness: float = 0.0,
+    pixel_size: float = 0.0,
+    crt_mapping: str | None = None,
+) -> None:
     """Main function for parsing LArSoft geometry files.
 
     Parameters
@@ -1082,7 +1109,8 @@ def main(source, output=None, cathode_thickness=0.0, pixel_size=0.0, crt_mapping
     print(f"\nYAML file written to: {output_path}")
 
 
-if __name__ == "__main__":
+def build_parser() -> argparse.ArgumentParser:
+    """Build the command-line argument parser."""
     parser = argparse.ArgumentParser(description="Parse dumped LArSoft geometry files")
 
     parser.add_argument(
@@ -1122,8 +1150,12 @@ if __name__ == "__main__":
         default=None,
     )
 
-    args = parser.parse_args()
+    return parser
 
+
+def cli() -> None:
+    """Run the command-line interface."""
+    args = build_parser().parse_args()
     main(
         source=args.source,
         output=args.output,
@@ -1131,3 +1163,7 @@ if __name__ == "__main__":
         pixel_size=args.pixel_size,
         crt_mapping=args.crt_mapping,
     )
+
+
+if __name__ == "__main__":
+    cli()
