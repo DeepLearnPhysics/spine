@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.16.0] - 2026-07-27
+
+### Added
+- **Versioned HDF5 V2 layout**: Add an opt-in offset-based HDF5 schema that stores event and object boundaries as integer ranges and variable-length object attributes in flat typed datasets, while retaining the legacy V1 writer and automatic V1/V2 reader compatibility.
+- **Columnar HDF5 analysis**: Add reader-controlled columnar loading, `process_columnar` analysis hooks, fixed-field-only reads, and stored scalar best-match identifiers so high-level exports can avoid rebuilding event objects and relationship arrays.
+- **HDF5 maintenance tools**: Add V1/V2-aware output comparison and structural V2 litification utilities, including configurable product selection and fixed-only object reduction without event deserialization.
+- **Backend-neutral sparse tensors**: Introduce a public sparse model abstraction and MinkowskiEngine adapter covering tensor construction, feature replacement, sparse modules, empty inputs, batching, and backend-independent model outputs.
+
+### Changed
+- **Sparse duplicate handling**: Coalesce duplicate coordinates through explicit `sum`, `mean`, or `first` policies while preserving source-row provenance, allowing UResNet, PPN, and GraphSPICE outputs to restore original input ordering and multiplicity.
+- **Selective HDF5 performance**: Reduce V2 read and object-construction overhead through pooled range reads, trusted stored-object reconstruction, selective variable-field loading, and direct fixed-dataset access.
+- **Analysis execution policy**: Let the HDF5 reader select event or columnar delivery while `AnaManager` validates module support and supplies each columnar analyzer's requested products and fields.
+- **Command-line utilities**: Expand typing, parser entry points, tests, and usage documentation across calibration, geometry, LArCV, and SPINE output scripts.
+
+### Fixed
+- **Sparse decoder cardinality**: Prevent backend coordinate deduplication from shrinking row-aligned segmentation and point-proposal outputs relative to their input tensors.
+- **Cross-product jitter alignment**: Apply one random displacement per unique event coordinate across products with different subsets, lengths, row orderings, and coordinate dtypes, while leaving collision reduction to downstream sparse consumers.
+
 ## [0.15.5] - 2026-07-23
 
 ### Added
