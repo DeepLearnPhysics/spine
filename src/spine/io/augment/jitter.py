@@ -86,6 +86,17 @@ class JitterAugment(AugmentBase):
     ) -> tuple[dict[str, Any], Meta]:
         """Apply per-voxel coordinate jitter.
 
+        A coordinate receives one event-level random offset, shared by every
+        product in which that coordinate appears. Products may contain
+        different coordinate subsets or row orderings; the inverse mapping
+        from the coordinate union restores each product independently.
+
+        Jitter can map distinct input coordinates onto the same output
+        coordinate, especially when clipping at image boundaries. Such
+        collisions are deliberately retained here. Downstream consumers own
+        the appropriate duplicate-reduction policy, and row-aligned sparse
+        outputs can restore the original multiplicity.
+
         Parameters
         ----------
         data : dict
@@ -102,19 +113,51 @@ class JitterAugment(AugmentBase):
         Tuple[Dict[str, Any], Meta]
             Updated data dictionary and unchanged metadata
         """
+        # Collect the coordinate arrays first. Sampling from their union makes
+        # jitter a consistent event-level transform rather than an independent
+        # random transform for each product.
+        coord_keys: list[str] = []
+        coord_arrays: list[np.ndarray] = []
         for key in keys:
             if isinstance(data[key], Meta):
                 continue
 
-            coords = data[key].coords
-            offsets = self.generate_offsets(len(coords))
-            coords = coords + offsets
+            coord_keys.append(key)
+            coord_arrays.append(data[key].coords)
 
-            if self.clip:
-                coords = np.clip(coords, 0, meta.count - 1)
+        if not coord_arrays:
+            return data, meta
 
-            data[key].coords = coords.astype(data[key].coords.dtype)
+        # np.unique returns the inverse row mapping needed to reconstruct every
+        # product after transforming each distinct coordinate exactly once.
+        all_coords = (
+            coord_arrays[0]
+            if len(coord_arrays) == 1
+            else np.concatenate(coord_arrays, axis=0)
+        )
+        unique_coords, inverse = np.unique(
+            all_coords,
+            axis=0,
+            return_inverse=True,
+        )
+        offsets = self.generate_offsets(len(unique_coords))
+        jittered_coords = unique_coords + offsets
+
+        if self.clip:
+            jittered_coords = np.clip(jittered_coords, 0, meta.count - 1)
+
+        # Restore each product's original ordering and multiplicity. Features
+        # are intentionally untouched, including for jitter-created collisions.
+        start = 0
+        for key, coords in zip(coord_keys, coord_arrays):
+            stop = start + len(coords)
+            product_inverse = inverse[start:stop]
+            data[key].coords = jittered_coords[product_inverse].astype(
+                coords.dtype,
+                copy=False,
+            )
             data[key].meta = meta
+            start = stop
 
         return data, meta
 
