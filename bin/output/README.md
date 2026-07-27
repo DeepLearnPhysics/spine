@@ -25,3 +25,31 @@ python3 bin/output/output_compare.py reference_cpu.h5 candidate_cpu.h5 --exact
 Individual products can be selected or omitted with `--keys` and
 `--skip-keys`, respectively. A mismatch returns exit status 1, which makes the
 script suitable for automated validation.
+
+## Create a lite V2 HDF5 output
+
+`output_litify.py` structurally reduces an offset-based format-V2 file without
+deserializing events or rebuilding SPINE objects. With no product selection it
+uses the standard production lite product list:
+
+```bash
+python3 bin/output/output_litify.py full.h5 lite.h5
+```
+
+Products can be supplied directly:
+
+```bash
+python3 bin/output/output_litify.py full.h5 lite.h5 \
+  --keys run_info meta reco_particles truth_particles
+```
+
+The script can also read either a small YAML file containing a top-level
+`keys` list or an existing SPINE configuration containing `io.writer.keys`:
+
+```bash
+python3 bin/output/output_litify.py full.h5 lite.h5 --config litify.yaml
+```
+
+Use `--mode fixed_only` to discard every variable-length object attribute.
+The default `lite` mode exactly follows each stored class's established
+`lite=True` policy and therefore retains small relationship arrays.
