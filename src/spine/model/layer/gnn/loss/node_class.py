@@ -1,11 +1,16 @@
 """Module that defines a generic node classification loss."""
 
+from __future__ import annotations
+
+from collections.abc import Sequence
+from typing import Any
 from warnings import warn
 
 import numpy as np
 import torch
 
 from spine.constants.factory import enum_factory
+from spine.data import IndexBatch, TensorBatch
 from spine.model.layer.factories import loss_fn_factory
 from spine.utils.gnn.cluster import (
     get_cluster_closest_label_batch,
@@ -46,14 +51,14 @@ class NodeClassLoss(torch.nn.Module):
 
     def __init__(
         self,
-        target,
-        loss="ce",
-        balance_loss=False,
-        weights=None,
-        use_closest=False,
-        secondary_label=-1,
-    ):
-        """Initialize the node classifcation loss function.
+        target: str,
+        loss: str | dict[str, Any] = "ce",
+        balance_loss: bool = False,
+        weights: Sequence[float] | None = None,
+        use_closest: bool = False,
+        secondary_label: int | Sequence[int] = -1,
+    ) -> None:
+        """Initialize the node classification loss function.
 
         Parameters
         ----------
@@ -86,14 +91,22 @@ class NodeClassLoss(torch.nn.Module):
         self.secondary_label = secondary_label
 
         # Sanity check
-        assert (
-            weights is None or not balance_loss
-        ), "Do not provide weights if they are to be computed on the fly."
+        if weights is not None and balance_loss:
+            raise ValueError(
+                "Do not provide weights if they are to be computed on the fly."
+            )
 
         # Set the loss
         self.loss_fn = loss_fn_factory(loss, functional=True)
 
-    def forward(self, clust_label, clusts, node_pred, coord_label=None, **kwargs):
+    def forward(
+        self,
+        clust_label: TensorBatch,
+        clusts: IndexBatch,
+        node_pred: TensorBatch,
+        coord_label: TensorBatch | None = None,
+        **kwargs: object,
+    ) -> dict[str, torch.Tensor | float | int]:
         """Applies the node classification loss to a batch of data.
 
         Parameters
@@ -126,19 +139,21 @@ class NodeClassLoss(torch.nn.Module):
         num_classes = node_pred.shape[1]
         if self.use_closest:
             # Make sure that the start point labeling is provided
-            assert coord_label is not None, (
-                "To use the node closest to the particle creation point "
-                "as the reference node, must provide `coord_label`."
-            )
+            if coord_label is None:
+                raise ValueError(
+                    "To use the node closest to the particle creation point "
+                    "as the reference node, must provide `coord_label`."
+                )
 
             # Convert the default labels into a list of one value per class
-            if np.isscalar(self.secondary_label):
+            if isinstance(self.secondary_label, int):
                 default = np.full(num_classes, self.secondary_label, dtype=int)
             else:
-                assert len(self.secondary_label) == num_classes, (
-                    "Must either provide a single default secondary label "
-                    "or exactly one per label class."
-                )
+                if len(self.secondary_label) != num_classes:
+                    raise ValueError(
+                        "Must either provide a single default secondary label "
+                        "or exactly one per label class."
+                    )
                 default = np.array(self.secondary_label, dtype=int)
 
             # Adjust the class labels
@@ -147,10 +162,11 @@ class NodeClassLoss(torch.nn.Module):
             )
 
         # Create a mask for valid nodes (-1 indicates an invalid class ID)
-        valid_mask = node_assn.tensor > -1
+        node_assn_array = node_assn.numpy_tensor()
+        valid_mask = node_assn_array > -1
 
         # Check that the labels and the output tensor size are compatible
-        class_mask = node_assn.tensor < num_classes
+        class_mask = node_assn_array < num_classes
         if np.any(~class_mask):
             warn(
                 "There are class labels with a value larger than the "
@@ -163,33 +179,47 @@ class NodeClassLoss(torch.nn.Module):
         # Apply the valid mask and convert the labels to a torch.Tensor
         valid_index = np.where(valid_mask)[0]
         node_assn = node_assn.to_tensor(dtype=torch.long, device=node_pred.device)
-        node_assn = node_assn.tensor[valid_index]
-        node_pred = node_pred.tensor[valid_index]
+        node_assn_tensor = node_assn.torch_tensor()[valid_index]
+        node_pred_tensor = node_pred.torch_tensor()[valid_index]
 
         # Compute the loss. Balance classes if requested
+        weights = self.weights
         if self.balance_loss:
-            self.weights = get_class_weights(node_assn, num_classes=num_classes)
+            weights = get_class_weights(node_assn_tensor, num_classes=num_classes)
+        elif weights is not None:
+            weights = torch.as_tensor(
+                weights,
+                dtype=node_pred_tensor.dtype,
+                device=node_pred_tensor.device,
+            )
 
-        loss = self.loss_fn(node_pred, node_assn, weight=self.weights, reduction="sum")
-        if len(valid_index):
+        loss = self.loss_fn(
+            node_pred_tensor,
+            node_assn_tensor,
+            weight=weights,
+            reduction="sum",
+        )
+        if len(valid_index) > 0:
             loss /= len(valid_index)
 
         # Compute accuracy of assignment (fraction of correctly assigned nodes)
         acc = 1.0
         acc_class = [1.0] * num_classes
-        if len(valid_index):
-            preds = torch.argmax(node_pred, dim=1)
-            acc = float(torch.sum(preds == node_assn))
+        if len(valid_index) > 0:
+            preds = torch.argmax(node_pred_tensor, dim=1)
+            acc = float(torch.sum(preds == node_assn_tensor))
             acc /= len(valid_index)
-            for c in range(num_classes):
-                index = torch.where(node_assn == c)[0]
-                if len(index):
-                    acc_class[c] = float(torch.sum(preds[index] == c)) / len(index)
+            for class_id in range(num_classes):
+                index = torch.where(node_assn_tensor == class_id)[0]
+                if len(index) > 0:
+                    acc_class[class_id] = float(
+                        torch.sum(preds[index] == class_id)
+                    ) / len(index)
 
         # Prepare and return result
         result = {"loss": loss, "accuracy": acc, "count": len(valid_index)}
 
-        for c in range(num_classes):
-            result[f"accuracy_class_{c}"] = acc_class[c]
+        for class_id in range(num_classes):
+            result[f"accuracy_class_{class_id}"] = acc_class[class_id]
 
         return result

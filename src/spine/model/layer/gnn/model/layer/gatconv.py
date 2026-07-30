@@ -1,6 +1,8 @@
 """Module which defines a graph node feature update based on GATConv."""
 
-from torch import nn
+from typing import Any
+
+import torch
 from torch_geometric.nn import GATConv
 
 from spine.model.layer.common.act_norm import act_factory, norm_factory
@@ -8,7 +10,7 @@ from spine.model.layer.common.act_norm import act_factory, norm_factory
 __all__ = ["GATConvNodeLayer"]
 
 
-class GATConvNodeLayer(nn.Module):
+class GATConvNodeLayer(torch.nn.Module):
     """GATConv module for extracting graph node features.
 
     This model simply takes a simple attention-based convolution of a node
@@ -23,14 +25,14 @@ class GATConvNodeLayer(nn.Module):
 
     def __init__(
         self,
-        node_in,
-        edge_in,
-        glob_in,
-        out_channels,
-        activation,
-        normalization,
-        **kwargs,
-    ):
+        node_in: int,
+        edge_in: int,
+        glob_in: int,
+        out_channels: int,
+        activation: str | dict[str, Any] = "relu",
+        normalization: str | dict[str, Any] = "batch_norm",
+        **kwargs: Any,
+    ) -> None:
         """Initialize the MLPs which are used to update the node features.
 
         Parameters
@@ -59,7 +61,12 @@ class GATConvNodeLayer(nn.Module):
         self.bn = norm_factory(normalization, out_channels)
         self.act = act_factory(activation)
 
-    def forward(self, node_feats, edge_index, *args):
+    def forward(
+        self,
+        node_feats: torch.Tensor,
+        edge_index: torch.Tensor,
+        *args: object,
+    ) -> torch.Tensor:
         """Pass a batch of node/edges through the edge update layer.
 
         Parameters

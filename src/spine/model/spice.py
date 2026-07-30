@@ -1,5 +1,8 @@
+from __future__ import annotations
+
+from typing import Any
+
 import torch
-import torch.nn as nn
 
 from spine.model.layer.cluster import loss_factory
 from spine.model.layer.cluster.embeddings import (
@@ -9,23 +12,20 @@ from spine.model.layer.cluster.embeddings import (
 
 class SPICE(SPICE_base):
 
-    MODULES = [
-        "network_base",
-        "uresnet_encoder",
-        "embedding_decoder",
-        "seediness_decoder",
-    ]
-
-    def __init__(self, cfg):
+    def __init__(self, cfg: dict[str, Any]) -> None:
         super(SPICE, self).__init__(cfg)
 
 
-class SPICELoss(nn.Module):
+class SPICELoss(torch.nn.Module):
     """
     Loss function for Proposal-Free Mask Generators.
     """
 
-    def __init__(self, cfg, name="spice_loss"):
+    def __init__(
+        self,
+        cfg: dict[str, Any],
+        name: str = "spice_loss",
+    ) -> None:
         super(SPICELoss, self).__init__()
 
         self.model_config = cfg.get("spice", {})
@@ -37,7 +37,7 @@ class SPICELoss(nn.Module):
         self.loss_func = self.loss_func(cfg)
         # print(self.loss_func)
 
-    def class_mask(self, cluster_label):
+    def class_mask(self, cluster_label: torch.Tensor) -> torch.Tensor:
         """
         Filter classes according to segmentation label.
         """
@@ -47,7 +47,11 @@ class SPICELoss(nn.Module):
 
         return mask
 
-    def forward(self, result, cluster_label):
+    def forward(
+        self,
+        result: dict[str, Any],
+        cluster_label: torch.Tensor,
+    ) -> dict[str, Any]:
         mask = self.class_mask(cluster_label[0])
         segment_label = [cluster_label[0][mask][:, [0, 1, 2, 3, -1]]]
         group_label = [cluster_label[0][mask][:, [0, 1, 2, 3, 5]]]

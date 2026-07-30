@@ -2,7 +2,7 @@
 
 import torch
 
-from spine.data import TensorBatch
+from spine.data import EdgeIndexBatch, IndexBatch, TensorBatch
 
 __all__ = [
     "EmptyClusterNodeEncoder",
@@ -17,7 +17,14 @@ class EmptyClusterNodeEncoder(torch.nn.Module):
     # Name of the node encoder (as specified in the configuration)
     name = "empty"
 
-    def forward(self, data, clusts, **kwargs):
+    feature_size = 0
+
+    def forward(
+        self,
+        data: TensorBatch,
+        clusts: IndexBatch,
+        **kwargs: object,
+    ) -> TensorBatch:
         """Generate empty node features for one batch of data.
 
         Parameters
@@ -27,7 +34,7 @@ class EmptyClusterNodeEncoder(torch.nn.Module):
         clusts : IndexBatch
             Indexes that make up each cluster
         **kwargs : dict, optional
-            Additional objects no used by this encoder
+            Additional objects not used by this encoder
 
         Returns
         -------
@@ -47,7 +54,15 @@ class EmptyClusterEdgeEncoder(torch.nn.Module):
     # Name of the edge encoder (as specified in the configuration)
     name = "empty"
 
-    def forward(self, data, clusts, edge_index, **kwargs):
+    feature_size = 0
+
+    def forward(
+        self,
+        data: TensorBatch,
+        clusts: IndexBatch,
+        edge_index: EdgeIndexBatch,
+        **kwargs: object,
+    ) -> TensorBatch:
         """Generate empty edge features for one batch of data.
 
         Parameters
@@ -59,7 +74,7 @@ class EmptyClusterEdgeEncoder(torch.nn.Module):
         edge_index : EdgeIndexBatch
             Incidence map between clusters
         **kwargs : dict, optional
-            Additional objects no used by this encoder
+            Additional objects not used by this encoder
 
         Returns
         -------
@@ -79,7 +94,14 @@ class EmptyClusterGlobalEncoder(torch.nn.Module):
     # Name of the global encoder (as specified in the configuration)
     name = "empty"
 
-    def forward(self, data, clusts, **kwargs):
+    feature_size = 0
+
+    def forward(
+        self,
+        data: TensorBatch,
+        clusts: IndexBatch,
+        **kwargs: object,
+    ) -> TensorBatch:
         """Generate empty global graph features for one batch of data.
 
         Parameters
@@ -89,7 +111,7 @@ class EmptyClusterGlobalEncoder(torch.nn.Module):
         clusts : IndexBatch
             Indexes that make up each cluster
         **kwargs : dict, optional
-            Additional objects no used by this encoder
+            Additional objects not used by this encoder
 
         Returns
         -------
@@ -98,4 +120,9 @@ class EmptyClusterGlobalEncoder(torch.nn.Module):
         """
         feats = torch.empty((data.batch_size, 0), dtype=data.dtype, device=data.device)
 
-        return TensorBatch(feats, torch.ones(data.batch_size, dtype=torch.long))
+        counts = torch.ones(
+            data.batch_size,
+            dtype=torch.long,
+            device=data.device,
+        )
+        return TensorBatch(feats, counts)

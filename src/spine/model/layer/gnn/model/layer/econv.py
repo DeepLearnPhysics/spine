@@ -1,14 +1,16 @@
 """Module which defines a graph node feature update based on EdgeConv."""
 
-from torch import nn
+from typing import Any
+
+import torch
 from torch_geometric.nn import EdgeConv
 
-from spine.model.layer.common.mlp import MLP
+from spine.model.layer.common.mlp import MLP, MLPConfig
 
 __all__ = ["EConvNodeLayer"]
 
 
-class EConvNodeLayer(nn.Module):
+class EConvNodeLayer(torch.nn.Module):
     """EdgeConv module for extracting graph node features.
 
     This model first aggregates the feature vector (N_c) of the node being
@@ -16,7 +18,7 @@ class EConvNodeLayer(nn.Module):
     of the node and those of other connected nodes to form a (2*N_c) feature
     vector. This feature vector is then passed through a multi-layer
     perceptron (MLP) and outputs a (C, N_o) vector, with N_o the width
-    of the unedrlying MLP (feature size of the hidden representation).
+    of the underlying MLP (feature size of the hidden representation).
 
     Source: https://arxiv.org/abs/1801.07829
     """
@@ -24,7 +26,15 @@ class EConvNodeLayer(nn.Module):
     # Name of the node layer (as specified in the configuration)
     name = "econv"
 
-    def __init__(self, node_in, edge_in, glob_in, mlp, aggr="max", **kwargs):
+    def __init__(
+        self,
+        node_in: int,
+        edge_in: int,
+        glob_in: int,
+        mlp: MLPConfig,
+        aggr: str = "max",
+        **kwargs: Any,
+    ) -> None:
         """Initialize the MLPs which are used to update the node features.
 
         Parameters
@@ -52,7 +62,12 @@ class EConvNodeLayer(nn.Module):
         # Initialize the layer
         self.edgeconv = EdgeConv(nn=mlp, aggr=aggr, **kwargs)
 
-    def forward(self, node_feats, edge_index, *args):
+    def forward(
+        self,
+        node_feats: torch.Tensor,
+        edge_index: torch.Tensor,
+        *args: object,
+    ) -> torch.Tensor:
         """Pass a batch of node/edges through the edge update layer.
 
         Parameters

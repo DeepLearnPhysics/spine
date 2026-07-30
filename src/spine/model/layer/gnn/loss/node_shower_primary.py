@@ -1,9 +1,14 @@
 """Module that defines an EM shower primary identification loss."""
 
+from __future__ import annotations
+
+from typing import Any
+
 import numpy as np
 import torch
 
-from spine.constants import COORD_START_COLS, GROUP_COL, PRGRP_COL
+from spine.constants import GROUP_COL, PRGRP_COL
+from spine.data import IndexBatch, TensorBatch
 from spine.model.layer.factories import loss_fn_factory
 from spine.utils.gnn.cluster import (
     get_cluster_closest_primary_label_batch,
@@ -43,13 +48,12 @@ class NodeShowerPrimaryLoss(torch.nn.Module):
 
     def __init__(
         self,
-        loss="ce",
-        balance_loss=False,
-        high_purity=False,
-        use_closest=False,
-        use_group_pred=False,
-        group_pred_alg="score",
-    ):
+        loss: str | dict[str, Any] = "ce",
+        balance_loss: bool = False,
+        high_purity: bool = False,
+        use_closest: bool = False,
+        use_group_pred: bool = False,
+    ) -> None:
         """Initialize the EM shower primary identification loss function.
 
         Parameters
@@ -66,8 +70,6 @@ class NodeShowerPrimaryLoss(torch.nn.Module):
             point of the shower as the primary (more robust to fragment breaks)
         use_group_pred : bool, default False
             Use predicted group to check for high purity
-        group_pred_alg : str, default 'score'
-            Method used to form a predicted group ('threshold' or 'score')
         """
         # Initialize the parent class
         super().__init__()
@@ -77,20 +79,19 @@ class NodeShowerPrimaryLoss(torch.nn.Module):
         self.high_purity = high_purity
         self.use_closest = use_closest
         self.use_group_pred = use_group_pred
-        self.group_pred_alg = group_pred_alg
 
         # Set the loss
         self.loss_fn = loss_fn_factory(loss, functional=True)
 
     def forward(
         self,
-        clust_label,
-        clusts,
-        node_pred,
-        coord_label=None,
-        group_pred=None,
-        **kwargs,
-    ):
+        clust_label: TensorBatch,
+        clusts: IndexBatch,
+        node_pred: TensorBatch,
+        coord_label: TensorBatch | None = None,
+        group_pred: TensorBatch | None = None,
+        **kwargs: object,
+    ) -> dict[str, torch.Tensor | float | int]:
         """Applies the shower primary loss to a batch of data.
 
         Parameters
@@ -119,16 +120,17 @@ class NodeShowerPrimaryLoss(torch.nn.Module):
         """
         # Create a mask for valid nodes (-1 indicates an invalid primary ID)
         primary_ids = get_cluster_label_batch(clust_label, clusts, column=PRGRP_COL)
-        valid_mask = primary_ids.tensor > -1
+        valid_mask = primary_ids.numpy_tensor() > -1
 
         # If requested, adjust the primary labeling of groups by picking the
         # fragment closest to the creation point of the shower
         if self.use_closest:
             # Make sure that the start point labeling is provided
-            assert coord_label is not None, (
-                "To use the shower fragment closest to the shower creation "
-                "point as the primary fragment, must provide `coord_label`."
-            )
+            if coord_label is None:
+                raise ValueError(
+                    "To use the shower fragment closest to the shower creation "
+                    "point as the primary fragment, must provide `coord_label`."
+                )
 
             # Adjust the primary labels
             primary_ids = get_cluster_closest_primary_label_batch(
@@ -139,9 +141,8 @@ class NodeShowerPrimaryLoss(torch.nn.Module):
         if self.high_purity:
             # Fetch the group IDs
             if self.use_group_pred:
-                assert (
-                    group_pred is not None
-                ), "If using group predictions, must provide them."
+                if group_pred is None:
+                    raise ValueError("If using group predictions, must provide them.")
                 group_ids = group_pred
             else:
                 group_ids = get_cluster_label_batch(
@@ -153,22 +154,29 @@ class NodeShowerPrimaryLoss(torch.nn.Module):
         # Apply the valid mask and convert the labels to a torch.Tensor
         valid_index = np.where(valid_mask)[0]
         node_assn = primary_ids.to_tensor(dtype=torch.long, device=node_pred.device)
-        node_assn = node_assn.tensor[valid_index]
-        node_pred = node_pred.tensor[valid_index]
+        node_assn_tensor = node_assn.torch_tensor()[valid_index]
+        node_pred_tensor = node_pred.torch_tensor()[valid_index]
 
         # Compute the loss. Balance classes if requested
         weights = None
         if self.balance_loss:
-            weights = get_class_weights(node_assn, num_classes=2)
+            weights = get_class_weights(node_assn_tensor, num_classes=2)
 
-        loss = self.loss_fn(node_pred, node_assn, weight=weights, reduction="sum")
-        if len(valid_index):
+        loss = self.loss_fn(
+            node_pred_tensor,
+            node_assn_tensor,
+            weight=weights,
+            reduction="sum",
+        )
+        if len(valid_index) > 0:
             loss /= len(valid_index)
 
         # Compute accuracy of assignment (fraction of correctly assigned nodes)
         acc = 1.0
-        if len(valid_index):
-            acc = float(torch.sum(torch.argmax(node_pred, dim=1) == node_assn))
+        if len(valid_index) > 0:
+            acc = float(
+                torch.sum(torch.argmax(node_pred_tensor, dim=1) == node_assn_tensor)
+            )
             acc /= len(valid_index)
 
         return {"accuracy": acc, "loss": loss, "count": len(valid_index)}

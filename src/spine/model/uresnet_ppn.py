@@ -1,9 +1,16 @@
 """Module that defines a model and a loss to jointly train the semantic
 segmentation task and the point proposal task."""
 
+from __future__ import annotations
+
+from typing import Any
+
 import torch
 
+from spine.data import TensorBatch
+
 from .layer.cnn.ppn import PPN, PPNLoss
+from .registry import ModelSpec
 from .uresnet import SegmentationLoss, UResNetSegmentation
 
 __all__ = ["UResNetPPN", "UResNetPPNLoss"]
@@ -29,9 +36,11 @@ class UResNetPPN(torch.nn.Module):
     :class:`UResNetSegmentation`, :class:`PPN`
     """
 
-    MODULES = ["uresnet", "ppn"]
-
-    def __init__(self, uresnet, ppn, uresnet_loss=None, ppn_loss=None):
+    def __init__(
+        self,
+        uresnet: dict[str, Any],
+        ppn: dict[str, Any],
+    ) -> None:
         """Initialize the UResNet+PPN model.
 
         Parameters
@@ -40,10 +49,6 @@ class UResNetPPN(torch.nn.Module):
             UResNet configuration dictionary
         ppn : dict
             PPN configuration dictionary
-        uresnet_loss : dict, optional
-            UResNet loss configuration
-        ppn_loss : dict, optional
-            PPN loss configuration
         """
         # Initialize the parent class
         super().__init__()
@@ -55,10 +60,13 @@ class UResNetPPN(torch.nn.Module):
         self.ppn = PPN(uresnet, ppn)
 
         # Check that the UResNet and PPN configurations are compatible
-        assert self.uresnet.ghost == self.ppn.ghost
+        if self.uresnet.ghost != self.ppn.ghost:
+            raise ValueError("Expected `self.uresnet.ghost == self.ppn.ghost`.")
         self.ghost = self.uresnet.ghost
 
-    def forward(self, data, seg_label=None):
+    def forward(
+        self, data: TensorBatch, seg_label: TensorBatch | None = None
+    ) -> dict[str, Any]:
         """Run a batch of data through the foward function.
 
         Parameters
@@ -80,10 +88,11 @@ class UResNetPPN(torch.nn.Module):
             # Deghost
             if self.ppn.use_true_ghost_mask:
                 # Use the true ghost labels
-                assert seg_label is not None, (
-                    "If `use_true_ghost_mask` is set to `True`, must "
-                    "provide the `seg_label` tensor."
-                )
+                if seg_label is None:
+                    raise ValueError(
+                        "If `use_true_ghost_mask` is set to `True`, must "
+                        "provide the `seg_label` tensor."
+                    )
                 result_ppn = self.ppn(
                     result["final_tensor"],
                     result["decoder_tensors"],
@@ -107,7 +116,7 @@ class UResNetPPN(torch.nn.Module):
 
 
 class UResNetPPNLoss(torch.nn.Module):
-    """Loss for amodel made of a UResNet backbone and PPN layers.
+    """Loss for a model made of a UResNet backbone and PPN layers.
 
     It includes a segmentation loss and a PPN loss.
 
@@ -131,7 +140,13 @@ class UResNetPPNLoss(torch.nn.Module):
     :class:`spine.model.layer.cnn.ppn.PPNLoss`
     """
 
-    def __init__(self, uresnet, ppn, ppn_loss, uresnet_loss=None):
+    def __init__(
+        self,
+        uresnet: dict[str, Any],
+        ppn: dict[str, Any],
+        uresnet_loss: dict[str, Any],
+        ppn_loss: dict[str, Any],
+    ) -> None:
         """Initialize the UResNet+PPN model loss.
 
         Parameters
@@ -139,23 +154,32 @@ class UResNetPPNLoss(torch.nn.Module):
         uresnet : dict
             UResNet configuration dictionary
         ppn : dict
-            PPN configuration dictionary
-        uresnet_loss : dict, optional
+            PPN model configuration supplied as part of the manager's shared
+            model/loss contract. The current loss infers optional heads from
+            the model outputs.
+        uresnet_loss : dict
             UResNet loss configuration
-        ppn_loss : dict, optional
+        ppn_loss : dict
             PPN loss configuration
         """
-        # Initialize the parent clas
+        # Initialize the parent class
         super().__init__()
 
         # Initialize the segmentation loss
         self.seg_loss = SegmentationLoss(uresnet, uresnet_loss)
 
         # Initialize the point proposal loss
-        self.ppn_loss = PPNLoss(uresnet, ppn, ppn_loss)
+        self.ppn_loss = PPNLoss(uresnet, ppn_loss)
 
-    def forward(self, seg_label, ppn_label, clust_label=None, weights=None, **result):
-        """Run a batch of data through the loss function.
+    def forward(
+        self,
+        seg_label: TensorBatch,
+        ppn_label: TensorBatch,
+        clust_label: TensorBatch | None = None,
+        weights: TensorBatch | None = None,
+        **result: Any,
+    ) -> dict[str, Any]:
+        """Compute the combined segmentation and point-proposal loss.
 
         Parameters
         ----------
@@ -173,7 +197,9 @@ class UResNetPPNLoss(torch.nn.Module):
 
         Returns
         -------
-        TODO
+        dict
+            Combined loss and accuracy together with prefixed segmentation
+            and point-proposal component metrics.
         """
         # Apply the segmentation loss
         result_seg = self.seg_loss(seg_label, weights=weights, **result)
@@ -191,3 +217,6 @@ class UResNetPPNLoss(torch.nn.Module):
         result.update({"ppn_" + k: v for k, v in result_ppn.items()})
 
         return result
+
+
+MODEL_SPEC = ModelSpec("uresnet_ppn", UResNetPPN, UResNetPPNLoss)

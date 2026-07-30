@@ -1,10 +1,15 @@
 """Module that defines an edge classification loss (ON vs OFF)."""
 
+from __future__ import annotations
+
+from typing import Any
+
 import numpy as np
 import torch
 
-from spine.constants import CLUST_COL, GROUP_COL, PART_COL, PRGRP_COL
+from spine.constants import GROUP_COL, PART_COL, PRGRP_COL
 from spine.constants.factory import enum_factory
+from spine.data import EdgeIndexBatch, IndexBatch, TensorBatch
 from spine.model.layer.factories import loss_fn_factory
 from spine.utils.gnn.cluster import get_cluster_label_batch
 from spine.utils.gnn.evaluation import (
@@ -43,8 +48,13 @@ class EdgeChannelLoss(torch.nn.Module):
     name = "channel"
 
     def __init__(
-        self, target, mode="group", loss="ce", balance_loss=False, high_purity=False
-    ):
+        self,
+        target: str,
+        mode: str = "group",
+        loss: str | dict[str, Any] = "ce",
+        balance_loss: bool = False,
+        high_purity: bool = False,
+    ) -> None:
         """Initialize the primary identification loss function.
 
         Parameters
@@ -82,8 +92,14 @@ class EdgeChannelLoss(torch.nn.Module):
         self.loss_fn = loss_fn_factory(loss, functional=True)
 
     def forward(
-        self, clust_label, clusts, edge_index, edge_pred, true_edge_index=None, **kwargs
-    ):
+        self,
+        clust_label: TensorBatch,
+        clusts: IndexBatch,
+        edge_index: EdgeIndexBatch,
+        edge_pred: TensorBatch,
+        true_edge_index: EdgeIndexBatch | None = None,
+        **kwargs: object,
+    ) -> dict[str, torch.Tensor | float | int]:
         """Applies the edge channel loss to a batch of data.
 
         Parameters
@@ -93,7 +109,7 @@ class EdgeChannelLoss(torch.nn.Module):
         clusts : IndexBatch
             (C) Index which maps each cluster to a list of voxel IDs
         edge_index : EdgeIndexBatch
-            (2, E) Sparse ncidence matrix between clusters
+            (2, E) Sparse incidence matrix between clusters
         edge_pred : TensorBatch
             (E, 2) Edge prediction logits (binary output)
         true_edge_index : EdgeIndexBatch
@@ -113,13 +129,18 @@ class EdgeChannelLoss(torch.nn.Module):
         # Start to build a mask of valid edges. Check that the group ID
         # of both clusters edge joins has a valid group ID
         group_ids = get_cluster_label_batch(clust_label, clusts, self.target)
-        valid_mask = np.all(group_ids.tensor[edge_index.index] > -1, axis=0)
+        valid_mask = np.all(
+            group_ids.numpy_tensor()[edge_index.index] > -1,
+            axis=0,
+        )
 
         # If requested, check that each group contains a single shower primary
         if self.high_purity:
-            assert self.target == GROUP_COL, (
-                "The `high_purity` flag is only valid when " "building shower groups."
-            )
+            if self.target != GROUP_COL:
+                raise ValueError(
+                    "The `high_purity` flag is only valid when "
+                    "building shower groups."
+                )
 
             part_ids = get_cluster_label_batch(clust_label, clusts, PART_COL)
             prim_ids = get_cluster_label_batch(clust_label, clusts, PRGRP_COL)
@@ -143,10 +164,11 @@ class EdgeChannelLoss(torch.nn.Module):
 
         elif self.mode == "particle_forest":
             # If an edge matches a parentage relation, mark it as on
-            assert true_edge_index is not None, (
-                "Must provide true `true_edge_index` object when using "
-                "the `particle_forest` truth mode"
-            )
+            if true_edge_index is None:
+                raise ValueError(
+                    "Must provide true `true_edge_index` object when using "
+                    "the `particle_forest` truth mode"
+                )
 
             part_ids = get_cluster_label_batch(clust_label, clusts, PART_COL)
             edge_assn = edge_assignment_from_graph_batch(
@@ -154,27 +176,34 @@ class EdgeChannelLoss(torch.nn.Module):
             )
 
         else:
-            raise ValueError("Loss mode not recognized:", self.mode)
+            raise ValueError(f"Loss mode not recognized: {self.mode}")
 
         # Apply the mask and convert the labels to a torch.Tensor
         valid_index = np.where(valid_mask)[0]
         edge_assn = edge_assn.to_tensor(dtype=torch.long, device=edge_pred.device)
-        edge_pred = edge_pred.tensor[valid_index]
-        edge_assn = edge_assn.tensor[valid_index]
+        edge_pred_tensor = edge_pred.torch_tensor()[valid_index]
+        edge_assn_tensor = edge_assn.torch_tensor()[valid_index]
 
         # Compute the loss. Balance classes if requested
         weights = None
         if self.balance_loss:
-            weights = get_class_weights(edge_assn, num_classes=2)
+            weights = get_class_weights(edge_assn_tensor, num_classes=2)
 
-        loss = self.loss_fn(edge_pred, edge_assn, weight=weights, reduction="sum")
-        if len(valid_index):
+        loss = self.loss_fn(
+            edge_pred_tensor,
+            edge_assn_tensor,
+            weight=weights,
+            reduction="sum",
+        )
+        if len(valid_index) > 0:
             loss /= len(valid_index)
 
         # Compute accuracy of assignment (fraction of correctly assigned edges)
         acc = 1.0
-        if len(valid_index):
-            acc = float(torch.sum(torch.argmax(edge_pred, dim=1) == edge_assn))
+        if len(valid_index) > 0:
+            acc = float(
+                torch.sum(torch.argmax(edge_pred_tensor, dim=1) == edge_assn_tensor)
+            )
             acc /= len(valid_index)
 
         return {"accuracy": acc, "loss": loss, "count": len(valid_index)}

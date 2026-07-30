@@ -34,12 +34,12 @@ Run a configuration with Docker:
 
    docker run --gpus all -v $(pwd):/workspace \
      ghcr.io/deeplearnphysics/spine:latest \
-       spine --config /workspace/config/train_uresnet.yaml --source /workspace/data.h5
+       spine --config /workspace/config/uresnet/uresnet_train.yaml --source /workspace/data.h5
 
    # Or use a pinned release
    docker run --gpus all -v $(pwd):/workspace \
      ghcr.io/deeplearnphysics/spine:<release> \
-       spine --config /workspace/config/train_uresnet.yaml --source /workspace/data.h5
+       spine --config /workspace/config/uresnet/uresnet_train.yaml --source /workspace/data.h5
 
 On Apple Silicon macOS systems, add ``--platform=linux/amd64`` to ``docker
 run`` when using the published SPINE image:
@@ -48,7 +48,7 @@ run`` when using the published SPINE image:
 
     docker run --platform=linux/amd64 --gpus all -v $(pwd):/workspace \
        ghcr.io/deeplearnphysics/spine:<release> \
-          spine --config /workspace/config/train_uresnet.yaml --source /workspace/data.h5
+          spine --config /workspace/config/uresnet/uresnet_train.yaml --source /workspace/data.h5
 
 For Jupyter notebook/lab use specifically, avoid the Docker Desktop
 combination of Apple Virtualization Framework **with** Rosetta enabled. Apple
@@ -62,11 +62,11 @@ Run the same configuration with Apptainer:
 
     # Latest published image
    apptainer exec --nv spine_latest.sif \
-       spine --config /workspace/config/train_uresnet.yaml --source /workspace/data.h5
+       spine --config /workspace/config/uresnet/uresnet_train.yaml --source /workspace/data.h5
 
    # Or use a pinned release
    apptainer exec --nv spine_<release>.sif \
-       spine --config /workspace/config/train_uresnet.yaml --source /workspace/data.h5
+       spine --config /workspace/config/uresnet/uresnet_train.yaml --source /workspace/data.h5
 
 Run SPINE From Python
 ---------------------
@@ -89,7 +89,7 @@ From that shell, you can open Python or Jupyter and use the same driver directly
    from spine.driver import Driver
    from spine.vis.out import Drawer
 
-   cfg = load_config_file("/workspace/config/train_uresnet.yaml")
+   cfg = load_config_file("/workspace/config/uresnet/uresnet_train.yaml")
 
    driver = Driver(cfg)
    data = driver.process(entry=0)

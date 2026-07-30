@@ -1,14 +1,13 @@
 """Edge kernel functions that produce edge weights from node features."""
 
 import torch
-import torch.nn as nn
 
 from spine.model.layer.common.mlp import MLP
 
 __all__ = ["DefaultKernel", "MixedKernel", "BilinearKernel", "MLPKernel"]
 
 
-class DefaultKernel(nn.Module):
+class DefaultKernel(torch.nn.Module):
     """Kernel producing edge score based on feature L2 similarity.
 
     This Kernel assumes that the upstream embedder produces a set of spatial
@@ -109,9 +108,10 @@ class DefaultKernel(nn.Module):
             (E, 3 + N_f + 2 + 1) Features of the target nodes
         """
         # Decompose the two feature sets into their consituents
-        assert (
-            x1.shape[1] == x2.shape[1] == 6 + self.num_features
-        ), "The combined feature vector is not of the expected shape."
+        if not x1.shape[1] == x2.shape[1] == 6 + self.num_features:
+            raise ValueError(
+                "The combined feature vector is not of the expected shape."
+            )
 
         nf = self.num_features
         splits = [3, nf + 3, nf + 5]
@@ -158,7 +158,7 @@ class MixedKernel(DefaultKernel):
         super().__init__(num_features, eps)
 
         # Initialize the cosine similarity layer
-        self.cos = nn.CosineSimilarity(dim=1)
+        self.cos = torch.nn.CosineSimilarity(dim=1)
 
     def compute_edge_weight_coord(
         self, coord1, coord2, tan1, tan2, coord_cov1, coord_cov2, tan_cov1, tan_cov2
@@ -234,9 +234,10 @@ class MixedKernel(DefaultKernel):
             (E, 3 + 3 + 3 + N_f + 2 + 3 + 1 + 1) Features of the targer nodes
         """
         # Decompose the two feature sets into their consituents
-        assert (
-            x1.shape[1] == x2.shape[1] == 16 + self.num_features
-        ), "The combined feature vector is not of the expected shape."
+        if not x1.shape[1] == x2.shape[1] == 16 + self.num_features:
+            raise ValueError(
+                "The combined feature vector is not of the expected shape."
+            )
 
         nf = self.num_features
         splits = [3, 6, 9, nf + 9, nf + 11, nf + 14, nf + 15]
@@ -266,7 +267,7 @@ class MixedKernel(DefaultKernel):
         return result
 
 
-class BilinearKernel(nn.Module):
+class BilinearKernel(torch.nn.Module):
     """Kernel producing edges scores based on a learnable bilinear layer."""
 
     name = "bilinear"
@@ -285,7 +286,7 @@ class BilinearKernel(nn.Module):
         super().__init__()
 
         # Initialize the bilinear layer
-        self.bilin = nn.Bilinear(num_features, num_features, 1, bias=bias)
+        self.bilin = torch.nn.Bilinear(num_features, num_features, 1, bias=bias)
 
         # Store parameter
         self.num_features = num_features
@@ -301,14 +302,13 @@ class BilinearKernel(nn.Module):
             (E, N_f) Features of the targer nodes
         """
         # Check on input size, pass through the bilinear layer
-        assert (
-            x1.shape[1] == x2.shape[1] == self.num_features
-        ), "The feature vector is not of the expected shape."
+        if not x1.shape[1] == x2.shape[1] == self.num_features:
+            raise ValueError("The feature vector is not of the expected shape.")
 
         return self.bilin(x1, x2)
 
 
-class MLPKernel(nn.Module):
+class MLPKernel(torch.nn.Module):
     """Kernel producing edges scores based on an MLP and a linear layer."""
 
     name = "mlp"
@@ -340,7 +340,7 @@ class MLPKernel(nn.Module):
         self.mlp = MLP(in_channels=num_features, **mlp)
 
         # Initialize the final linear layer
-        self.lin = nn.Linear(2 * self.mlp.feature_size, 1, bias=bias)
+        self.lin = torch.nn.Linear(2 * self.mlp.feature_size, 1, bias=bias)
 
     def forward(self, x1, x2):
         """Computes the kernel edge score of all node pairs in the graph.

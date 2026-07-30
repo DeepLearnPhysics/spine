@@ -1,10 +1,166 @@
 """Tests for backend-selected, empty-safe sparse modules."""
 
+import inspect
+
 import pytest
 import torch
 
 from spine.model import sparse
 from spine.model.sparse.modules import _scaled_stride, _stride_values
+
+
+@pytest.mark.parametrize(
+    ("module", "parameters"),
+    [
+        (sparse.Network, ["dimension"]),
+        (
+            sparse.Convolution,
+            [
+                "in_channels",
+                "out_channels",
+                "kernel_size",
+                "stride",
+                "dilation",
+                "bias",
+                "kernel_generator",
+                "expand_coordinates",
+                "convolution_mode",
+                "dimension",
+            ],
+        ),
+        (
+            sparse.ConvolutionTranspose,
+            [
+                "in_channels",
+                "out_channels",
+                "kernel_size",
+                "stride",
+                "dilation",
+                "bias",
+                "kernel_generator",
+                "expand_coordinates",
+                "convolution_mode",
+                "dimension",
+            ],
+        ),
+        (
+            sparse.ChannelwiseConvolution,
+            [
+                "in_channels",
+                "kernel_size",
+                "stride",
+                "dilation",
+                "bias",
+                "kernel_generator",
+                "dimension",
+            ],
+        ),
+        (sparse.Linear, ["in_features", "out_features", "bias"]),
+        (
+            sparse.BatchNorm,
+            [
+                "num_features",
+                "eps",
+                "momentum",
+                "affine",
+                "track_running_stats",
+            ],
+        ),
+        (sparse.InstanceNorm, ["num_features"]),
+        (sparse.Dropout, ["p", "inplace"]),
+        (sparse.ReLU, ["inplace"]),
+        (sparse.PReLU, ["num_parameters", "init"]),
+        (sparse.SELU, ["inplace"]),
+        (sparse.CELU, ["alpha", "inplace"]),
+        (sparse.LeakyReLU, ["negative_slope", "inplace"]),
+        (sparse.ELU, ["alpha", "inplace"]),
+        (sparse.Tanh, []),
+        (sparse.Sigmoid, []),
+        (sparse.Softplus, ["beta", "threshold"]),
+        (
+            sparse.MaxPooling,
+            [
+                "kernel_size",
+                "stride",
+                "dilation",
+                "kernel_generator",
+                "dimension",
+            ],
+        ),
+        (
+            sparse.AvgPooling,
+            [
+                "kernel_size",
+                "stride",
+                "dilation",
+                "kernel_generator",
+                "dimension",
+            ],
+        ),
+        (
+            sparse.SumPooling,
+            [
+                "kernel_size",
+                "stride",
+                "dilation",
+                "kernel_generator",
+                "dimension",
+            ],
+        ),
+        (
+            sparse.PoolingTranspose,
+            [
+                "kernel_size",
+                "stride",
+                "dilation",
+                "kernel_generator",
+                "expand_coordinates",
+                "dimension",
+            ],
+        ),
+        (sparse.GlobalPooling, ["mode"]),
+        (sparse.GlobalAvgPooling, ["mode"]),
+        (sparse.GlobalSumPooling, ["mode"]),
+        (sparse.GlobalMaxPooling, ["mode"]),
+        (sparse.Pruning, []),
+        (sparse.Broadcast, []),
+        (sparse.BroadcastMultiplication, []),
+    ],
+)
+def test_public_constructor_contract(module, parameters):
+    """Sparse frontend constructors expose stable ME-shaped signatures."""
+    signature = inspect.signature(module)
+
+    assert list(signature.parameters) == parameters
+    assert all(
+        parameter.kind
+        not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
+        for parameter in signature.parameters.values()
+    )
+
+
+def test_constructor_contract_rejects_stale_backend_arguments():
+    """Dimension-free operations reject legacy backend-specific arguments."""
+    with pytest.raises(TypeError):
+        sparse.GlobalPooling(dimension=3)
+
+    with pytest.raises(TypeError):
+        sparse.Broadcast(dimension=3)
+
+
+def test_network_exposes_spatial_dimension():
+    """Sparse network subclasses inherit a canonical dimension attribute."""
+
+    class ConcreteNetwork(sparse.Network):
+        """Minimal concrete network used to exercise the base contract."""
+
+        def forward(self, value):
+            """Return an input unchanged."""
+            return value
+
+    network = ConcreteNetwork(dimension=3)
+
+    assert network.dimension == 3
 
 
 def test_empty_convolution_and_transpose_are_safe():

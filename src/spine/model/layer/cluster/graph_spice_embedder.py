@@ -1,7 +1,10 @@
 """Feature embedding for pixel supervised connected-component clustering."""
 
+from __future__ import annotations
+
+from typing import Any
+
 import torch
-import torch.nn as nn
 
 from spine.constants import COORD_COLS, VALUE_COL
 from spine.data import TensorBatch
@@ -11,12 +14,14 @@ from spine.model.layer.cnn.uresnet_layers import UResNet
 __all__ = ["GraphSPICEEmbedder"]
 
 
-class GraphSPICEEmbedder(nn.Module):
+class GraphSPICEEmbedder(sparse.Network):
     """Model which produces embeddings of an input sparse point cloud."""
 
-    MODULES = ["uresnet"]
-
-    def __init__(self, uresnet, **base):
+    def __init__(
+        self,
+        uresnet: dict[str, Any],
+        **base: Any,
+    ) -> None:
         """Initialize the embedding model.
 
         Parameters
@@ -27,45 +32,50 @@ class GraphSPICEEmbedder(nn.Module):
             Basic parameters
         """
         # Initialize the parent class
-        super().__init__()
+        super().__init__(uresnet.get("data_dim", 3))
 
         # Initialize the uresnet backbone
         self.backbone = UResNet(uresnet)
         self.num_filters = self.backbone.num_filters
         self.spatial_size = self.backbone.spatial_size
-        assert (
-            self.spatial_size is not None
-        ), "Must provide a spatial size to compute normalized coordinates."
+        if self.spatial_size is None:
+            raise ValueError(
+                "Must provide a spatial size to compute normalized coordinates."
+            )
 
         # Process the rest of the configuration
         self.process_model_config(**base)
 
         # Define output layers, if there is a need for them
         if not self.use_raw_features:
-            self.out_spatial = nn.Sequential(
-                nn.Linear(self.num_filters, self.spatial_embedding_dim), nn.Tanh()
+            self.out_spatial = torch.nn.Sequential(
+                torch.nn.Linear(self.num_filters, self.spatial_embedding_dim),
+                torch.nn.Tanh(),
             )
-            self.out_feature = nn.Linear(self.num_filters, self.feature_embedding_dim)
-            self.out_cov = nn.Linear(self.num_filters, 2)
-            self.out_occupancy = nn.Linear(self.num_filters, 1)
+            self.out_feature = torch.nn.Linear(
+                self.num_filters, self.feature_embedding_dim
+            )
+            self.out_cov = torch.nn.Linear(self.num_filters, 2)
+            self.out_occupancy = torch.nn.Linear(self.num_filters, 1)
 
         if self.predict_semantics:
-            assert (
-                self.num_classes is not None
-            ), "Must specify the number of classes predicting semantics."
-            self.out_seg = nn.Linear(self.num_filters, self.num_classes)
+            if self.num_classes is None:
+                raise ValueError(
+                    "Must specify the number of classes predicting semantics."
+                )
+            self.out_seg = torch.nn.Linear(self.num_filters, self.num_classes)
 
     def process_model_config(
         self,
-        predict_semantics=False,
-        num_classes=None,
-        coord_conv=True,
-        covariance_mode="softplus",
-        occupancy_mode="softplus",
-        feature_embedding_dim=16,
-        spatial_embedding_dim=3,
-        use_raw_features=False,
-    ):
+        predict_semantics: bool = False,
+        num_classes: int | None = None,
+        coord_conv: bool = True,
+        covariance_mode: str = "softplus",
+        occupancy_mode: str = "softplus",
+        feature_embedding_dim: int = 16,
+        spatial_embedding_dim: int = 3,
+        use_raw_features: bool = False,
+    ) -> None:
         """Process the embedding parameters.
 
         Parameters
@@ -106,7 +116,7 @@ class GraphSPICEEmbedder(nn.Module):
         if self.covariance_mode == "exp":
             self.cov_func = torch.exp
         elif self.covariance_mode == "softplus":
-            self.cov_func = nn.Softplus()
+            self.cov_func = torch.nn.Softplus()
         else:
             raise ValueError(f"Covariance mode not recognized: {self.covariance_mode}")
 
@@ -114,11 +124,11 @@ class GraphSPICEEmbedder(nn.Module):
         if self.occupancy_mode == "exp":
             self.occ_func = torch.exp
         elif self.occupancy_mode == "softplus":
-            self.occ_func = nn.Softplus()
+            self.occ_func = torch.nn.Softplus()
         else:
             raise ValueError(f"Occupancy mode not recognized: {self.covariance_mode}")
 
-    def forward(self, data):
+    def forward(self, data: TensorBatch) -> dict[str, TensorBatch]:
         """Compute the embeddings for one batch of data.
 
         Inputs
@@ -186,7 +196,7 @@ class GraphSPICEEmbedder(nn.Module):
             feature_embeddings = TensorBatch(feature_embeddings, data.counts)
             covariance = TensorBatch(covariance, data.counts)
             occupancy = TensorBatch(occupancy, data.counts)
-            hypergraphneeded_features = TensorBatch(hypergraph_features, data.counts)
+            hypergraph_features = TensorBatch(hypergraph_features, data.counts)
 
             # Append results
             result.update(

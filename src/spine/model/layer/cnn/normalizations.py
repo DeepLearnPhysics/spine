@@ -1,141 +1,194 @@
-"""Custom normalization layers."""
+"""Custom normalization layers for sparse tensors."""
+
+from __future__ import annotations
 
 import torch
 
+from spine.model import sparse
+
 
 class PixelNorm(torch.nn.Module):
-    """Pixel Normalization Layer for Sparse Tensors.
+    r"""Normalize each sparse site's feature vector to unit length.
 
-    PixelNorm layers were used in NVIDIA's ProGAN.
+    For a feature vector :math:`x_i`, this layer returns
+    :math:`x_i / \sqrt{\sum_j x_{ij}^2 + \epsilon}`. It has no trainable
+    parameters and does not alter coordinates.
 
-    This layer normalizes the feature vector in each
-    pixel to unit length, and has no trainable weights.
-
-    Original paper: https://arxiv.org/pdf/1710.10196.pdf
+    References
+    ----------
+    .. [1] Karras et al., "Progressive Growing of GANs for Improved Quality,
+       Stability, and Variation," 2017. https://arxiv.org/abs/1710.10196
     """
 
-    def __init__(self, eps=1e-8):
+    def __init__(self, eps: float = 1e-8) -> None:
         """Initialize the normalization layer.
 
         Parameters
         ----------
         eps : float, default 1e-8
-            Ensures non-divergent output features
+            Positive numerical-stability term added to the squared norm.
+
+        Raises
+        ------
+        ValueError
+            If ``eps`` is not positive.
         """
-        # Initialize the parent class
         super().__init__()
 
-        # Store the parameters
+        if eps <= 0.0:
+            raise ValueError(f"`eps` must be positive, got {eps}.")
         self.eps = eps
 
-    def forward(self, input_data):
-        """Pass tensor through the layer.
+    def forward(self, input_data: sparse.SparseTensor) -> sparse.SparseTensor:
+        """Normalize each active site's feature vector.
 
         Parameters
         ----------
         input_data : sparse.SparseTensor
-            Sparse input tensor
+            Sparse tensor containing the feature vectors to normalize.
 
-        Return
-        ------
+        Returns
+        -------
         sparse.SparseTensor
-            Sparse output tensor
+            Tensor on the same coordinate map with normalized features.
         """
-        features = input_data.F
-        coords = input_data.C
+        features = input_data.features
         norm = torch.sum(torch.pow(features, 2), dim=1, keepdim=True)
         out = features / (norm + self.eps).sqrt()
 
         return input_data.replace_features(out)
 
-    def __repr__(self):
-        """Representation of the noamlization layer.
-
-        This includes the parameters of the layer.
-        """
-        suffix = f"({self.num_features}, eps={self.eps})"
-        return self.__class__.__name__ + suffix
+    def extra_repr(self) -> str:
+        """Return the layer parameters included in ``repr``."""
+        return f"eps={self.eps}"
 
 
 class AdaIN(torch.nn.Module):
-    """Adaptive Instance Normalization Layer.
+    """Apply adaptive instance normalization to sparse feature channels.
 
-    Many parts of the code is borrowed from pytorch original
-    `BatchNorm` implementation.
+    The feature matrix is normalized independently by channel over all active
+    sparse sites, then transformed with externally assignable scale and bias
+    vectors. The affine vectors are buffers rather than trainable parameters
+    because an external controller may replace them for each input.
 
-    Original paper: https://arxiv.org/pdf/1703.06868.pdf
+    References
+    ----------
+    .. [1] Huang and Belongie, "Arbitrary Style Transfer in Real-time with
+       Adaptive Instance Normalization," 2017.
+       https://arxiv.org/abs/1703.06868
     """
 
-    def __init__(self, in_channels, eps=1e-5):
+    def __init__(self, in_channels: int, eps: float = 1e-5) -> None:
         """Initialize the normalization layer.
 
         Parameters
         ----------
+        in_channels : int
+            Number of channels in the sparse feature matrix.
         eps : float, default 1e-5
-            Ensures non-divergent output features
+            Positive numerical-stability term added to the variance.
+
+        Raises
+        ------
+        ValueError
+            If ``in_channels`` or ``eps`` is not positive.
         """
-        # Initialize the parent class
         super().__init__()
 
-        # Store parameters
+        if in_channels < 1:
+            raise ValueError(f"`in_channels` must be positive, got {in_channels}.")
+        if eps <= 0.0:
+            raise ValueError(f"`eps` must be positive, got {eps}.")
         self.in_channels = in_channels
         self.eps = eps
 
-        # Initialize weights and biases
-        self._weight = torch.ones(in_channels)
-        self._bias = torch.zeros(in_channels)
+        # These values may be replaced by a controller before each forward
+        # pass, but registering their defaults keeps device moves and state
+        # serialization correct.
+        self.register_buffer("_weight", torch.ones(in_channels))
+        self.register_buffer("_bias", torch.zeros(in_channels))
 
     @property
-    def weight(self):
-        """Weight parameter of the AdaIN layer.
+    def weight(self) -> torch.Tensor:
+        """Return the channel-wise affine scale.
 
-        Note that in AdaptIS, the parameters to the AdaIN layer
-        are trainable outputs from the controller network.
+        Returns
+        -------
+        torch.Tensor
+            Scale vector with shape ``(in_channels,)``.
         """
         return self._weight
 
     @weight.setter
-    def weight(self, weight):
+    def weight(self, weight: torch.Tensor) -> None:
+        """Set the channel-wise affine scale.
+
+        Parameters
+        ----------
+        weight : torch.Tensor
+            Scale vector with shape ``(in_channels,)``.
+
+        Raises
+        ------
+        ValueError
+            If the scale has the wrong number of channels.
+        """
         if weight.shape[0] != self.in_channels:
             raise ValueError(
-                "Supplied weight vector feature dimension"
-                "does not match AdaIN layer definition."
+                "Supplied weight vector feature dimension does not match "
+                "the AdaIN layer definition."
             )
         self._weight = weight
 
     @property
-    def bias(self):
-        """Bias parameter of the AdaIN layer.
+    def bias(self) -> torch.Tensor:
+        """Return the channel-wise affine bias.
 
-        Note that in AdaptIS, the parameters to the AdaIN layer
-        are trainable outputs from the controller network.
+        Returns
+        -------
+        torch.Tensor
+            Bias vector with shape ``(in_channels,)``.
         """
         return self._bias
 
     @bias.setter
-    def bias(self, bias):
-        if bias.shape[0] != self.in_channels:
-            raise ValueError(
-                "Supplied bias vector feature dimension"
-                "does not match AdaIN layer definition."
-            )
-        self._bias = bias
-
-    def forward(self, x):
-        """Pass tensor through the layer.
+    def bias(self, bias: torch.Tensor) -> None:
+        """Set the channel-wise affine bias.
 
         Parameters
         ----------
-        input_data : sparse.SparseTensor
-            Sparse input tensor
+        bias : torch.Tensor
+            Bias vector with shape ``(in_channels,)``.
 
-        Return
+        Raises
         ------
-        sparse.SparseTensor
-            Sparse output tensor
+        ValueError
+            If the bias has the wrong number of channels.
         """
-        f = x.F
-        norm = (f - f.mean(dim=0)) / (f.var(dim=0) + self.eps).sqrt()
-        out = self.weight * norm + self.bias
+        if bias.shape[0] != self.in_channels:
+            raise ValueError(
+                "Supplied bias vector feature dimension does not match "
+                "the AdaIN layer definition."
+            )
+        self._bias = bias
+
+    def forward(self, x: sparse.SparseTensor) -> sparse.SparseTensor:
+        """Normalize and affinely transform sparse features.
+
+        Parameters
+        ----------
+        x : sparse.SparseTensor
+            Sparse input whose feature width equals ``in_channels``.
+
+        Returns
+        -------
+        sparse.SparseTensor
+            Tensor on the same coordinate map with normalized features.
+        """
+        features = x.features
+        normalized = (features - features.mean(dim=0)) / (
+            features.var(dim=0, unbiased=False) + self.eps
+        ).sqrt()
+        out = self.weight * normalized + self.bias
 
         return x.replace_features(out)

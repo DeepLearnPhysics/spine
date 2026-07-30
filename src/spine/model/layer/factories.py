@@ -1,9 +1,14 @@
 """Factories to build generic layers components."""
 
-from torch import nn
+from __future__ import annotations
 
-from spine.model.experimental.bayes.evidential import EDLRegressionLoss, EVDLoss
-from spine.utils.factory import instantiate, module_dict
+from collections.abc import Callable
+from typing import Any
+
+import torch
+
+from spine.model.layer.common.evidential import EDLRegressionLoss, EVDLoss
+from spine.utils.factory import Config, instantiate, module_dict
 
 from .cnn.encoder import SparseResidualEncoder
 from .common import final, losses, metric
@@ -11,7 +16,11 @@ from .common import final, losses, metric
 __all__ = ["loss_fn_factory", "metric_fn_fatory", "encoder_factory", "final_factory"]
 
 
-def loss_fn_factory(cfg, functional=False, **kwargs):
+def loss_fn_factory(
+    cfg: Config,
+    functional: bool = False,
+    **kwargs: Any,
+) -> torch.nn.Module | Callable[..., Any]:
     """Instantiates a loss function from a configuration dictionary.
 
     Parameters
@@ -29,37 +38,36 @@ def loss_fn_factory(cfg, functional=False, **kwargs):
         Instantiated loss function
     """
     loss_dict = {
-        "ce": nn.CrossEntropyLoss,
-        "bce": nn.BCELoss,
-        "bce_logits": nn.BCEWithLogitsLoss,
-        "mm": nn.MultiMarginLoss,
-        "huber": nn.HuberLoss,
-        "l1": nn.L1Loss,
-        "l2": nn.MSELoss,
-        "mse": nn.MSELoss,
-        "evd": EVDLoss,  # TODO move
-        "edl": EDLRegressionLoss,  # TODO move
+        "ce": torch.nn.CrossEntropyLoss,
+        "bce": torch.nn.BCELoss,
+        "bce_logits": torch.nn.BCEWithLogitsLoss,
+        "mm": torch.nn.MultiMarginLoss,
+        "huber": torch.nn.HuberLoss,
+        "l1": torch.nn.L1Loss,
+        "l2": torch.nn.MSELoss,
+        "mse": torch.nn.MSELoss,
+        "evd": EVDLoss,
+        "edl": EDLRegressionLoss,
         **module_dict(losses),
     }
 
     loss_dict_func = {
-        "ce": nn.functional.cross_entropy,
-        "bce": nn.functional.binary_cross_entropy,
-        "bce": nn.functional.binary_cross_entropy_with_logits,
-        "mm": nn.functional.multi_margin_loss,
-        "huber": nn.functional.huber_loss,
-        "l1": nn.functional.l1_loss,
-        "l2": nn.functional.mse_loss,
-        "mse": nn.functional.mse_loss,
+        "ce": torch.nn.functional.cross_entropy,
+        "bce": torch.nn.functional.binary_cross_entropy,
+        "bce": torch.nn.functional.binary_cross_entropy_with_logits,
+        "mm": torch.nn.functional.multi_margin_loss,
+        "huber": torch.nn.functional.huber_loss,
+        "l1": torch.nn.functional.l1_loss,
+        "l2": torch.nn.functional.mse_loss,
+        "mse": torch.nn.functional.mse_loss,
     }
 
     if not functional:
         return instantiate(loss_dict, cfg, **kwargs)
 
     else:
-        assert isinstance(cfg, str) or (
-            "name" in cfg and len(cfg) == 1
-        ), "For a functional, only provide the function name."
+        if not isinstance(cfg, str) and ("name" not in cfg or len(cfg) != 1):
+            raise ValueError("For a functional, only provide the function name.")
 
         name = cfg if isinstance(cfg, str) else cfg["name"]
         try:
@@ -71,7 +79,7 @@ def loss_fn_factory(cfg, functional=False, **kwargs):
             )
 
 
-def metric_fn_factory(cfg):
+def metric_fn_factory(cfg: Config) -> torch.nn.Module:
     """Instantiates a metric function from a configuration dictionary.
 
     Parameters
@@ -88,7 +96,7 @@ def metric_fn_factory(cfg):
     return instantiate(metric_layers, cfg)
 
 
-def encoder_factory(cfg):
+def encoder_factory(cfg: Config) -> torch.nn.Module:
     """Instantiates an image encoder from a configuration dictionary.
 
     Parameters
@@ -106,7 +114,7 @@ def encoder_factory(cfg):
     return instantiate(encoder_dict, cfg)
 
 
-def final_factory(in_channels, **cfg):
+def final_factory(in_channels: int, **cfg: Any) -> torch.nn.Module:
     """Instantiates a final layer from a configuration dictionary.
 
     Parameters

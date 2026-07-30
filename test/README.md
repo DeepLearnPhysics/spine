@@ -1,89 +1,48 @@
 ## Tests
-Current test coverage is sparse:
-- makes sure all models can be constructed (`test_models_basic.py`)
-- makes sure the forward can run for *some* models (only if `INPUT_SCHEMA` is specified, in `test_models_forward.py`)
-- makes sure the backward can run too, for *some* models (only if `INPUT_SCHEMA` is specified, in `test_models_full.py`)
-- some basic functions and some (not all) parsers are tested
 
-Contributions welcome to help extend the coverage.
+The default test suite covers dependency-light SPINE functionality. Tests that
+need the complete model runtime are marked `model` and run in CI inside the
+published SPINE image.
 
-### How to check that a container image works
-The script `test_image.py` uses the example config (with sequential batch sampling)
-to check that the loss value of the first iteration is close to what we expect.
-It also runs the backward pass and will fail if backward fails for some reason.
+### Model contracts
 
-If the file `config/chain/me_train_example.cfg` changes, this reference loss value may need to be
-adjusted accordingly.
+The maintained model configurations are listed in
+`test/test_model/cases.py`. Every registered model must have at least one
+checked-in configuration. Canonical standalone configurations live under a
+model-specific directory, with `<model>_train.yaml` and `<model>_test.yaml`
+representing training and inference respectively. UResNet is the initial
+prototype for this convention. Canonical training configurations express the
+run duration with `base.epochs` and checkpoint cadence with
+`base.train.save_epoch`, keeping both independent of dataset size.
 
-You can run the script either way:
-```
-$ python3 test/test_image.py
-$ pytest test/test_image.py
-```
+Model testing has three levels:
 
-### How to fix tests
-You made changes to a model and now the tests fail? Double check these elements:
+1. Configuration and registry checks run without PyTorch.
+2. Construction tests instantiate the network and loss for every maintained
+   configuration.
+3. Execution tests run one loader, forward, loss, backward, and optimizer
+   iteration for each standalone configuration.
 
-* At the very least, the model class should have a class attribute `MODULES`. It should be a list of the (default) names of the required configuration blocks (under `modules` in the config). If a block requires more sub-blocks, use a tuple to list the required names in the sub-block. Example:
+UResNet and the full reconstruction chain have deterministic LArCV regression
+tests. Each test runs the maintained inference configuration twice, checks
+same-machine repeatability, and compares compact output summaries with a
+checked-in reference.
 
-```
-MODULES = [('grappa', ['base', 'dbscan', 'node_encoder', 'edge_encoder', 'gnn_model']), 'grappa_loss']
-```
+Run the model contracts in a full SPINE environment with:
 
-for a model that requires a config of the form
-```
-model:
-  name: your_model_name
-  modules:
-    grappa:
-      base:
-        ...
-      dbscan:
-        ...
-      node_encoder:
-        ...
-      edge_encoder:
-        ...
-      gnn_model:
-        ...
-    grappa_loss:
-      ...
+```bash
+pytest --model-tests test/test_model
 ```
 
-* When requesting parameters from a config, always specify a default value with `get`:
+### External test data
 
-```python
-self.node_min_size = cfg.get('node_min_size', -1)
+The LArCV and HDF5 fixtures download the small files configured in
+`test/pytest.ini` once per test session.
+
+### Useful selections
+
+```bash
+pytest -m "not slow"
+pytest -m model
+pytest -m gpu
 ```
-That enables the tests to build your model with default config parameters, without you specifying (and keeping up to date) a full config file for each model.
-
-
-### Running the tests locally
-Run all tests with `pytest`.
-Run specific tests with `pytest test/test_parser.py` for example.
-
-### Image size
-To test against several image sizes you can use the `--N` command line option:
-```
-$ pytest --N 192 256
-```
-By default it will run with N = 192px.
-
-### Test data file
-There are 3 data files available to run the tests:
-
-* [192px](http://stanford.edu/~ldomine/small_192px.root)
-* [512px](http://stanford.edu/~ldomine/small_512px.root)
-* [768px](http://stanford.edu/~ldomine/small_768px.root)
-
-You can specify which one(s) to use in the `pytest.ini` file.
-
-*Note: Each of them contain 5 events. Set the batch size accordingly (<5).*
-
-### Exclude slow tests
-You can mark tests that will take some time to complete with the decorator
-`@pytest.mark.slow`.
-If you are in a hurry, use `-m "no slow"` to run the tests excluding slow tests.
-
-Currently only the full tests of the models are marked as slow. They involve
-running all models on a small data sample in LArCV format, including parsers.

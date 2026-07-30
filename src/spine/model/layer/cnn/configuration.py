@@ -1,70 +1,85 @@
-"""Function which sets up the necessary configuration for all CNNs."""
+"""Shared configuration parsing for sparse convolutional networks."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from spine.utils.factory import Config
 
 
 def setup_cnn_configuration(
-    self,
-    reps,
-    depth,
-    filters,
-    input_kernel=3,
-    data_dim=3,
-    num_input=1,
-    allow_bias=False,
-    activation="lrelu",
-    norm_layer="batch_norm",
-    spatial_size=None,
-):
-    """Base function for global network parameters (CNN-based models).
+    self: Any,
+    reps: int,
+    depth: int,
+    filters: int,
+    input_kernel: int = 3,
+    data_dim: int = 3,
+    num_input: int = 1,
+    allow_bias: bool = False,
+    activation: Config = "lrelu",
+    norm_layer: Config = "batch_norm",
+    spatial_size: int | None = None,
+) -> None:
+    """Store and validate parameters shared by CNN-based models.
 
-    This avoids repeating the same base configuration parsing everywhere.
-    For example, typical usage would be:
-
-    .. code-block:: python
-
-        class UResNetEncoder(torch.nn.Module):
-            def __init__(self, cfg):
-                super().__init__()
-                setup_cnn_configuration(self, **cfg)
+    The function stores canonical attribute names used by all CNN backbones:
+    ``num_filters``, ``num_planes``, ``dimension``, ``act_cfg`` and
+    ``norm_cfg``. It mutates ``self`` and returns nothing.
 
     Parameters
     ----------
     reps : int
-        Number of time convolutions are repeated at each depth
+        Number of residual or convolutional blocks at each depth.
     depth : int
-        Depth of the CNN (number of downsampling)
+        Number of feature resolutions in the encoder.
     filters : int
-        Number of input filters
+        Number of channels at the highest-resolution feature plane. Plane
+        widths increase linearly with depth.
     input_kernel : int, default 3
-        Input kernel size
+        Kernel size of the initial sparse convolution.
     data_dim : int, default 3
-        Dimension of the input image data
+        Number of spatial coordinate dimensions.
     num_input : int, default 1
-        Number of features in the input image
+        Number of input feature channels per active site.
     allow_bias : bool, default False
-        Whether to allow biases in the convolution and linear layers
-    activation : union[str, dict], default 'relu'
-        Activation function configuration
-    normalization : union[str, dict], default 'batch_norm'
-        Normalization function configuration
+        Whether convolutional and linear layers may include bias terms.
+    activation : str or mapping, default "lrelu"
+        Activation configuration accepted by :func:`act_factory`.
+    norm_layer : str or mapping, default "batch_norm"
+        Normalization configuration accepted by :func:`norm_factory`.
     spatial_size : int, optional
-        Size of the input image in number of voxels per data_dim. This is only
-        necessary when passing the normalized coordinates as features.
+        Input extent in voxels along each spatial axis. Required by operations
+        that derive a final pooling kernel or normalize coordinates.
+
+    Raises
+    ------
+    ValueError
+        If a size, count or dimensionality argument is not positive.
     """
-    # Store the base parameters
+    if reps < 1:
+        raise ValueError(f"`reps` must be positive, got {reps}.")
+    if depth < 1:
+        raise ValueError(f"`depth` must be positive, got {depth}.")
+    if filters < 1:
+        raise ValueError(f"`filters` must be positive, got {filters}.")
+    if input_kernel < 1:
+        raise ValueError(f"`input_kernel` must be positive, got {input_kernel}.")
+    if data_dim < 1:
+        raise ValueError(f"`data_dim` must be positive, got {data_dim}.")
+    if num_input < 1:
+        raise ValueError(f"`num_input` must be positive, got {num_input}.")
+    if spatial_size is not None and spatial_size < 1:
+        raise ValueError(f"`spatial_size` must be positive, got {spatial_size}.")
+
     self.reps = reps
     self.depth = depth
     self.num_filters = filters
     self.input_kernel = input_kernel
-    self.dim = data_dim
+    self.dimension = data_dim
     self.num_input = num_input
     self.allow_bias = allow_bias
     self.spatial_size = spatial_size
 
-    # Convert the depth to a number of filters per plane
-    self.num_planes = [i * self.num_filters for i in range(1, self.depth + 1)]
-
-    # Store activation function configuration
+    self.num_planes = [level * self.num_filters for level in range(1, self.depth + 1)]
     self.act_cfg = activation
-
-    # Store the normalization function configuration
     self.norm_cfg = norm_layer

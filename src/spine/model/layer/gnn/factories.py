@@ -1,8 +1,16 @@
 """Factories to build the GNN model components."""
 
-from spine.utils.factory import instantiate, module_dict
+from __future__ import annotations
+
+from collections.abc import Sequence
+from typing import cast
+
+import torch
+
+from spine.utils.factory import Config, instantiate, module_dict
 
 from . import encode, graph, loss, model
+from .graph.base import GraphBase
 
 __all__ = [
     "graph_factory",
@@ -16,7 +24,21 @@ __all__ = [
 ]
 
 
-def graph_factory(cfg, classes):
+class FeatureEncoder(torch.nn.Module):
+    """Base typing contract for graph feature encoders."""
+
+    feature_size: int
+
+
+class GNNModel(torch.nn.Module):
+    """Base typing contract for graph message-passing models."""
+
+    node_feature_size: int
+    edge_feature_size: int
+    global_feature_size: int
+
+
+def graph_factory(cfg: Config, classes: int | Sequence[int]) -> GraphBase:
     """Instantiates a graph constructor from a configuration dictionary.
 
     Parameters
@@ -28,14 +50,19 @@ def graph_factory(cfg, classes):
 
     Returns
     -------
-    object
+    GraphBase
         Instantiated graph constructor
     """
     graph_dict = module_dict(graph)
     return instantiate(graph_dict, cfg, classes=classes)
 
 
-def gnn_model_factory(cfg, node_pred, edge_pred, global_pred):
+def gnn_model_factory(
+    cfg: Config,
+    node_pred: bool,
+    edge_pred: bool,
+    global_pred: bool,
+) -> GNNModel:
     """Instantiates a GNN model from a configuration dictionary.
 
     Parameters
@@ -51,20 +78,23 @@ def gnn_model_factory(cfg, node_pred, edge_pred, global_pred):
 
     Returns
     -------
-    object
+    GNNModel
         Instantiated GNN model
     """
     gnn_model_dict = module_dict(model)
-    return instantiate(
-        gnn_model_dict,
-        cfg,
-        node_pred=node_pred,
-        edge_pred=edge_pred,
-        global_pred=global_pred,
+    return cast(
+        GNNModel,
+        instantiate(
+            gnn_model_dict,
+            cfg,
+            node_pred=node_pred,
+            edge_pred=edge_pred,
+            global_pred=global_pred,
+        ),
     )
 
 
-def node_encoder_factory(cfg):
+def node_encoder_factory(cfg: Config) -> FeatureEncoder:
     """Instantiates a node encoder from a configuration dictionary.
 
     Parameters
@@ -74,14 +104,14 @@ def node_encoder_factory(cfg):
 
     Returns
     -------
-    object
+    FeatureEncoder
         Instantiated node encoder
     """
     node_encoder_dict = module_dict(encode, pattern="Node")
-    return instantiate(node_encoder_dict, cfg)
+    return cast(FeatureEncoder, instantiate(node_encoder_dict, cfg))
 
 
-def edge_encoder_factory(cfg):
+def edge_encoder_factory(cfg: Config) -> FeatureEncoder:
     """Instantiates an edge encoder from a configuration dictionary.
 
     Parameters
@@ -91,14 +121,14 @@ def edge_encoder_factory(cfg):
 
     Returns
     -------
-    object
+    FeatureEncoder
         Instantiated edge encoder
     """
     edge_encoder_dict = module_dict(encode, pattern="Edge")
-    return instantiate(edge_encoder_dict, cfg)
+    return cast(FeatureEncoder, instantiate(edge_encoder_dict, cfg))
 
 
-def global_encoder_factory(cfg):
+def global_encoder_factory(cfg: Config) -> FeatureEncoder:
     """Instantiates a global graph encoder from a configuration dictionary.
 
     Parameters
@@ -108,14 +138,14 @@ def global_encoder_factory(cfg):
 
     Returns
     -------
-    object
+    FeatureEncoder
         Instantiated global graph encoder
     """
     global_encoder_dict = module_dict(encode, pattern="Global")
-    return instantiate(global_encoder_dict, cfg)
+    return cast(FeatureEncoder, instantiate(global_encoder_dict, cfg))
 
 
-def node_loss_factory(cfg):
+def node_loss_factory(cfg: Config) -> torch.nn.Module:
     """Instantiates a node loss from a configuration dictionary.
 
     Parameters
@@ -132,7 +162,7 @@ def node_loss_factory(cfg):
     return instantiate(node_loss_dict, cfg)
 
 
-def edge_loss_factory(cfg):
+def edge_loss_factory(cfg: Config) -> torch.nn.Module:
     """Instantiates an edge loss from a configuration dictionary.
 
     Parameters
@@ -149,7 +179,7 @@ def edge_loss_factory(cfg):
     return instantiate(edge_loss_dict, cfg)
 
 
-def global_loss_factory(cfg):
+def global_loss_factory(cfg: Config) -> torch.nn.Module:
     """Instantiates a global graph loss from a configuration dictionary.
 
     Parameters

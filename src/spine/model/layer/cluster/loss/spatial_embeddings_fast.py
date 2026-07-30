@@ -2,12 +2,11 @@ from collections import defaultdict
 from pprint import pprint
 
 import torch
-import torch.nn as nn
 
 from .misc import *
 
 
-class SPICELoss(nn.Module):
+class SPICELoss(torch.nn.Module):
     """
     Loss function for Sparse Spatial Embeddings Model, with fixed
     centroids and symmetric gaussian kernels.
@@ -26,7 +25,7 @@ class SPICELoss(nn.Module):
         self.batch_loc = self.loss_config.get("batch_loc", 0)
 
         if self.mask_loss_fn == "BCE":
-            self.mask_loss = nn.BCEWithLogitsLoss(reduction="none")
+            self.mask_loss = torch.nn.BCEWithLogitsLoss(reduction="none")
         elif self.mask_loss_fn == "lovasz_hinge":
             self.mask_loss = LovaszHingeLoss()
         elif self.mask_loss_fn == "focal":
@@ -171,7 +170,7 @@ class SPICELoss(nn.Module):
                     slabels_batch,
                     clabels_batch,
                 )
-                if len(acc_class.values()):
+                if len(acc_class.values()) > 0:
                     for key, val in loss_class.items():
                         loss[key].append(sum(val) / len(val))
                     for s, acc in acc_class.items():

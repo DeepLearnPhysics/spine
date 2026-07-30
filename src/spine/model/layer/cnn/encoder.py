@@ -1,5 +1,9 @@
 """Defines CNN encoder backbones for image feature extraction."""
 
+from __future__ import annotations
+
+from typing import Any
+
 import torch
 
 from spine.constants import COORD_COLS, VALUE_COL
@@ -11,10 +15,21 @@ __all__ = ["SparseResidualEncoder"]
 
 
 class SparseResidualEncoder(UResNetEncoder):
-    """Encoder for sparse tensor feature extraction."""
+    """Reduce a sparse image to one fixed-width feature vector per batch.
 
-    def __init__(self, coord_conv=False, pool_mode="avg", feature_size=512, **cfg):
-        """Initializes the sparse residual CNN encoder.
+    This class extends :class:`UResNetEncoder` with optional coordinate
+    features, global or convolutional pooling, and a final linear projection.
+    It is used by whole-image and graph-object feature encoders.
+    """
+
+    def __init__(
+        self,
+        coord_conv: bool = False,
+        pool_mode: str = "avg",
+        feature_size: int = 512,
+        **cfg: Any,
+    ) -> None:
+        """Initialize the pooled sparse residual encoder.
 
         Passes most of the configuration along to the underlying sparse
         residual CNN encoder defined in :class:`UResNetEncoder`.
@@ -22,32 +37,41 @@ class SparseResidualEncoder(UResNetEncoder):
         Parameters
         ----------
         coord_conv : bool, default False
-            Whether to include normalized coordinates in the input features
-        pool_mode : str, default 'avg'
-            Final pooling operation mode ('avg', 'max' or 'conv'
+            Whether to append normalized spatial coordinates to the scalar
+            input feature. If enabled, ``num_input`` in ``cfg`` must include
+            these additional channels.
+        pool_mode : {"avg", "sum", "max", "conv"}, default "avg"
+            Operation used to reduce the deepest sparse feature plane.
         feature_size : int, default 512
-            Number of features produced after the final pooling
+            Width of the returned feature vectors.
         **cfg : dict, optional
-            Configuration to pass along to the sparse residual encoder
+            Shared CNN configuration accepted by
+            :func:`setup_cnn_configuration`.
+
+        Raises
+        ------
+        ValueError
+            If ``spatial_size`` is missing or ``pool_mode`` is unknown.
         """
         # Initialize the parent class
         super().__init__(cfg)
 
         # Store attributes
         self.coord_conv = coord_conv
+        self.pool_mode = pool_mode
 
         # Initialize the final pooling layer
-        assert self.spatial_size is not None, (
-            "Must specify `spatial_size` to know how many pooling stages "
-            "are needed to get to a one dimensional vector."
-        )
+        if self.spatial_size is None:
+            raise ValueError(
+                "Must specify `spatial_size` to determine the final pooling size."
+            )
         final_tensor_shape = self.spatial_size // (2 ** (self.depth - 1))
 
         if pool_mode == "avg":
             # Average pooling
             self.pool = sparse.GlobalAvgPooling()
 
-        if pool_mode == "sum":
+        elif pool_mode == "sum":
             # Sum pooling
             self.pool = sparse.GlobalSumPooling()
 
@@ -63,7 +87,7 @@ class SparseResidualEncoder(UResNetEncoder):
                     out_channels=self.num_planes[-1],
                     kernel_size=final_tensor_shape,
                     stride=final_tensor_shape,
-                    dimension=self.dim,
+                    dimension=self.dimension,
                 ),
                 sparse.GlobalPooling(),
             )
@@ -78,26 +102,27 @@ class SparseResidualEncoder(UResNetEncoder):
         self.feature_size = feature_size
         self.linear = sparse.Linear(self.num_planes[-1], self.feature_size)
 
-    def forward(self, data):
-        """Pass one batch of data through the CNN encoder.
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Encode a coordinate-feature table into batch-level features.
 
         Parameters
         ----------
-        data : torch.Tensor
-             (N, 1 + D + N_f) Batch of data
+        x : torch.Tensor
+            ``(N, 1 + D + C)`` table containing batch IDs, coordinates and
+            input features.
 
         Returns
         -------
         torch.Tensor
-            (B) Batch of features, one per batch ID
+            ``(B, feature_size)`` matrix with one row per batch entry.
         """
         # Build an input feature tensor
-        coords = data[:, :VALUE_COL]
-        features = data[:, VALUE_COL].view(-1, 1)
+        coords = x[:, :VALUE_COL]
+        features = x[:, VALUE_COL].view(-1, 1)
 
         # If requested, append the normalized coordinates to the feature tensor
         if self.coord_conv:
-            normalized_coords = data[:, COORD_COLS] / self.spatial_size
+            normalized_coords = x[:, COORD_COLS] / self.spatial_size
             features = torch.cat([normalized_coords, features], dim=1)
 
         # Build a sparse tensor
@@ -108,9 +133,9 @@ class SparseResidualEncoder(UResNetEncoder):
         final_tensor = output["final_tensor"]
 
         # Pool the last layer
-        z = self.pool(final_tensor)
+        pooled = self.pool(final_tensor)
 
         # Put it through a linear layer
-        latent = self.linear(z)
+        latent = self.linear(pooled)
 
-        return latent.F
+        return latent.features

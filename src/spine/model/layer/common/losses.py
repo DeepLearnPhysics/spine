@@ -1,7 +1,10 @@
-"""Module with losses which are not generically provided by `PyTorch`."""
+"""Custom loss functions shared by multiple model families."""
+
+from __future__ import annotations
+
+from typing import Any, Literal, Mapping
 
 import torch
-from torch import nn
 
 from spine.utils.weighting import get_class_weights
 
@@ -15,16 +18,52 @@ __all__ = [
     "BinaryMincutLoss",
     "BinaryLogDiceCELoss",
     "BinaryLogDiceCEMincutLoss",
-    "FocalLoss",
+    "BinaryFocalLoss",
 ]
 
+Reduction = Literal["none", "mean", "sum"]
 
-class LogRMSE(nn.modules.loss._Loss):
-    """Applies RMSE loss to in the log space for regression tasks."""
+
+def _validate_reduction(reduction: str) -> Reduction:
+    """Validate and narrow a loss reduction name.
+
+    Parameters
+    ----------
+    reduction : str
+        Reduction requested by the caller.
+
+    Returns
+    -------
+    {"none", "mean", "sum"}
+        Validated reduction name.
+
+    Raises
+    ------
+    ValueError
+        If the reduction is not supported.
+    """
+    if reduction not in ("none", "mean", "sum"):
+        raise ValueError(
+            f"Reduction must be one of 'none', 'mean' or 'sum', got '{reduction}'."
+        )
+    return reduction
+
+
+def _reduce_loss(loss: torch.Tensor, reduction: Reduction) -> torch.Tensor:
+    """Apply a standard reduction to an element-wise loss tensor."""
+    if reduction == "mean":
+        return loss.mean()
+    if reduction == "sum":
+        return loss.sum()
+    return loss
+
+
+class LogRMSE(torch.nn.Module):
+    """Compute point-wise root squared error in logarithmic space."""
 
     name = "log_rmse"
 
-    def __init__(self, reduction="none", eps=1e-7):
+    def __init__(self, reduction: Reduction = "none", eps: float = 1e-7) -> None:
         """Initialize the loss function parameters.
 
         Parameters
@@ -35,18 +74,16 @@ class LogRMSE(nn.modules.loss._Loss):
             Offset to apply to the predictions/labels before passing them
             through the MSE loss function.
         """
-        # Initialize the parent class
         super().__init__()
 
-        # Store the attributes
-        self.reduction = reduction
+        if eps <= 0:
+            raise ValueError("`eps` must be strictly positive.")
+
+        self.reduction: Reduction = _validate_reduction(reduction)
         self.eps = eps
 
-        # Initialize the underlying MSE loss function
-        self.mseloss = nn.MSELoss(reduction="none")
-
-    def forward(self, inputs, targets):
-        """Pass predictions/labels through the loss function.
+    def forward(self, inputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        """Compute the logarithmic root squared error.
 
         Parameters
         ----------
@@ -60,31 +97,25 @@ class LogRMSE(nn.modules.loss._Loss):
         torch.Tensor
             Loss value or array of loss values (if no reduction)
         """
-        # Move the input/target to the log space
+        if torch.any(inputs + self.eps <= 0) or torch.any(targets + self.eps <= 0):
+            raise ValueError("LogRMSE inputs and targets must be greater than `-eps`.")
+
         x = torch.log(inputs + self.eps)
         y = torch.log(targets + self.eps)
-
-        # Compute the RMSE loss
-        out = self.mseloss(x, y)
-        out = torch.sqrt(out + self.eps)
-
-        # Return the appropriate reduction output
-        if self.reduction == "none":
-            return out
-        elif self.reduction == "mean":
-            return out.mean()
-        elif self.reduction == "sum":
-            return out.sum()
-        else:
-            raise ValueError("Reduction function not recognized:", self.reduction)
+        loss = torch.sqrt((x - y).square() + self.eps)
+        return _reduce_loss(loss, self.reduction)
 
 
-class BerHuLoss(nn.modules.loss._Loss):
-    """Applies the BerHu loss."""
+class BerHuLoss(torch.nn.Module):
+    """Compute the reverse Huber (BerHu) regression loss.
+
+    Residuals below a batch-dependent threshold use an L1 penalty, while
+    larger residuals use a smooth quadratic penalty.
+    """
 
     name = "berhu"
 
-    def __init__(self, threshold=0.2, reduction="none"):
+    def __init__(self, threshold: float = 0.2, reduction: Reduction = "none") -> None:
         """Initialize the loss function parameters.
 
         Parameters
@@ -94,15 +125,16 @@ class BerHuLoss(nn.modules.loss._Loss):
         reduction : str, default 'none'
             Reduction function to apply to the output
         """
-        # Initialize the parent class
         super().__init__()
 
-        # Store the attributes
-        self.threshold = threshold
-        self.reduction = reduction
+        if not 0 < threshold <= 1:
+            raise ValueError("`threshold` must lie in the interval (0, 1].")
 
-    def forward(self, inputs, targets):
-        """Pass predictions/labels through the loss function.
+        self.threshold = threshold
+        self.reduction: Reduction = _validate_reduction(reduction)
+
+    def forward(self, inputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        """Compute the BerHu loss.
 
         Parameters
         ----------
@@ -116,29 +148,20 @@ class BerHuLoss(nn.modules.loss._Loss):
         torch.Tensor
             Loss value or array of loss values (if no reduction)
         """
-        # Compute the L1 loss
         norm = torch.abs(inputs - targets)
 
-        # If the norm array is of length 0, nothing to do
-        if len(norm) == 0:
-            return norm.sum()
+        if norm.numel() == 0:
+            return _reduce_loss(norm, self.reduction)
 
-        # Apply different losses below and above the threshold
         c = norm.max() * self.threshold
+        if c == 0:
+            return _reduce_loss(norm, self.reduction)
+
         out = torch.where(norm <= c, norm, (norm**2 + c**2) / (2.0 * c))
-
-        # Return the appropriate reduction output
-        if self.reduction == "none":
-            return out
-        elif self.reduction == "mean":
-            return out.mean()
-        elif self.reduction == "sum":
-            return out.sum()
-        else:
-            raise ValueError("Reduction function not recognized:", self.reduction)
+        return _reduce_loss(out, self.reduction)
 
 
-class BinaryDiceLoss(nn.modules.loss._Loss):
+class BinaryDiceLoss(torch.nn.Module):
     """Applies the binary Dice Loss.
 
     The Dice loss is derived from the Dice Similarity Coefficient, also known
@@ -148,26 +171,34 @@ class BinaryDiceLoss(nn.modules.loss._Loss):
 
     name = "binary_dice"
 
-    def __init__(self, eps=1e-6, squared_pred=True, activation="sigmoid"):
+    def __init__(
+        self,
+        eps: float = 1e-6,
+        squared_pred: bool = True,
+        activation: str | Mapping[str, Any] = "sigmoid",
+    ) -> None:
         """Initialize the loss function parameters.
 
         Parameters
         ----------
         eps : float, default 1e-6
             Regularization constant for the ratio
+        squared_pred : bool, default True
+            Whether to square probabilities and targets in the denominator
+        activation : str or mapping, default 'sigmoid'
+            Activation configuration applied to the input logits
         """
-        # Initialize the parent class
         super().__init__()
 
-        # Store the loss parameters
+        if eps <= 0:
+            raise ValueError("`eps` must be strictly positive.")
+
         self.eps = eps
         self.squared_pred = squared_pred
-
-        # Intitialize the activation layer
         self.act = act_factory(activation)
 
-    def forward(self, logits, targets):
-        """Pass predictions/labels through the loss function.
+    def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        """Compute the binary Dice loss.
 
         Parameters
         ----------
@@ -181,10 +212,7 @@ class BinaryDiceLoss(nn.modules.loss._Loss):
         torch.Tensor
             Loss value
         """
-        # Compute probability measures using the activation function
         probas = self.act(logits)
-
-        # Compute the dice loss
         inter = (probas * targets).sum()
         if not self.squared_pred:
             den = probas.sum() + targets.sum()
@@ -203,8 +231,8 @@ class BinaryLogDiceLoss(BinaryDiceLoss):
 
     name = "binary_log_dice"
 
-    def forward(self, logits, targets):
-        """Pass predictions/labels through the loss function.
+    def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        """Compute the binary logarithmic Dice loss.
 
         Parameters
         ----------
@@ -223,31 +251,28 @@ class BinaryLogDiceLoss(BinaryDiceLoss):
         return -torch.log(1.0 - dice)
 
 
-class BinaryMincutLoss(nn.modules.loss._Loss):
-    """Applies the min-cut loss.
+class BinaryMincutLoss(torch.nn.Module):
+    """Compute a simple binary minimum-cut objective.
 
-    This is a very basic loss of 1. - interesection between the output
-    probabilities and the target domain.
+    The loss is one minus the summed overlap between predicted probabilities
+    and the target mask.
     """
 
     name = "binary_mincut"
 
-    def __init__(self, activation="sigmoid"):
+    def __init__(self, activation: str | Mapping[str, Any] = "sigmoid") -> None:
         """Initialize the loss function parameters.
 
         Parameters
         ----------
-        eps : float, default 1e-6
-            Regularization constant for the ratio
+        activation : str or mapping, default 'sigmoid'
+            Activation configuration applied to the input logits
         """
-        # Initialize the parent class
         super().__init__()
-
-        # Intitialize the activation layer
         self.act = act_factory(activation)
 
-    def forward(self, logits, targets):
-        """Pass predictions/labels through the loss function.
+    def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        """Compute the minimum-cut loss.
 
         Parameters
         ----------
@@ -261,14 +286,11 @@ class BinaryMincutLoss(nn.modules.loss._Loss):
         torch.Tensor
             Loss value
         """
-        # Compute probability measures using the activation function
         probas = self.act(logits)
-
-        # Compute the mincut loss
         return 1.0 - (probas * targets).sum()
 
 
-class BinaryLogDiceCELoss(nn.modules.loss._Loss):
+class BinaryLogDiceCELoss(torch.nn.Module):
     """Applies the binary log Dice loss and the cross-entropy loss.
 
     This class inherits from the :class:`BinaryLogDiceLoss` and adds
@@ -277,7 +299,14 @@ class BinaryLogDiceCELoss(nn.modules.loss._Loss):
 
     name = "binary_log_dice_ce"
 
-    def __init__(self, log_dice=None, bce=None, reduction="mean", w_dice=0.8, w_ce=0.2):
+    def __init__(
+        self,
+        log_dice: Mapping[str, Any] | None = None,
+        bce: Mapping[str, Any] | None = None,
+        reduction: Reduction = "mean",
+        w_dice: float = 0.8,
+        w_ce: float = 0.2,
+    ) -> None:
         """Initialize the loss function parameters.
 
         Parameters
@@ -287,29 +316,30 @@ class BinaryLogDiceCELoss(nn.modules.loss._Loss):
         bce : dict, optional
             Parameters to pass to the :class:`torch.nn.BCEWithLogitsLoss`
         reduction : str, default 'mean'
-            Reduction function to apply tot he BCE loss
+            Reduction function to apply to the BCE loss
         w_dice : float, default 0.8
-            Prefacor to be applied to the log Dice loss
+            Prefactor applied to the log Dice loss
         w_ce : float, default 0.2
             Prefactor to be applied to the binary cross-entropy loss
         """
-        # Initialize the parent class
         super().__init__()
 
-        # Initialize the binary log DICE loss
-        log_dice = (log_dice is not None) or {}
-        self.log_dice = BinaryLogDiceLoss(**log_dice)
+        log_dice_config = {} if log_dice is None else dict(log_dice)
+        self.log_dice = BinaryLogDiceLoss(**log_dice_config)
 
-        # Initiliaze the binary cross-entropy loss
-        bce = (bce is not None) or {}
-        self.bce = torch.nn.BCEWithLogitsLoss(**bce, reduction=reduction)
+        bce_config = {} if bce is None else dict(bce)
+        if "reduction" in bce_config:
+            raise ValueError(
+                "Specify BCE reduction through the top-level `reduction` argument."
+            )
+        self.reduction: Reduction = _validate_reduction(reduction)
+        self.bce = torch.nn.BCEWithLogitsLoss(**bce_config, reduction=self.reduction)
 
-        # Store the loss component weights
         self.w_dice = w_dice
         self.w_ce = w_ce
 
-    def forward(self, logits, targets):
-        """Pass predictions/labels through the loss function.
+    def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        """Compute the weighted logarithmic Dice and BCE loss.
 
         Parameters
         ----------
@@ -323,17 +353,12 @@ class BinaryLogDiceCELoss(nn.modules.loss._Loss):
         torch.Tensor
             Loss value
         """
-        # Compute the log dice loss
         log_dice = self.log_dice(logits, targets)
-
-        # Compute the mean binary cross-entropy loss
         bce = self.bce(logits, targets.float())
-
-        # Combine the losses
         return self.w_dice * log_dice + self.w_ce * bce
 
 
-class BinaryLogDiceCEMincutLoss(nn.modules.loss._Loss):
+class BinaryLogDiceCEMincutLoss(BinaryLogDiceCELoss):
     """Applies the binary log Dice loss, cross-entropy loss and mincut loss.
 
     This class inherits from the :class:`BinaryLogDiceCELoss` and adds
@@ -342,36 +367,39 @@ class BinaryLogDiceCEMincutLoss(nn.modules.loss._Loss):
 
     name = "binary_log_dice_ce_mincut"
 
-    def __init__(self, w_mincut=None, **kwargs):
+    def __init__(
+        self,
+        mincut: Mapping[str, Any] | None = None,
+        w_mincut: float = 1.0,
+        **kwargs: Any,
+    ) -> None:
         """Initialize the loss function parameters.
 
         Parameters
         ----------
-        w_mincut : float, default 1.0
-            Prefacor to be applied to the Mincut loss
         mincut : dict, optional
-            Parameters to pass to the :class:`Mincut`
+            Parameters to pass to :class:`BinaryMincutLoss`
+        w_mincut : float, default 1.0
+            Prefactor applied to the min-cut loss
         **kwargs : dict, optional
             Parameters to pass to the :class:`BinaryLogDiceCELoss`
         """
-        # Initialize the parent class
         super().__init__(**kwargs)
 
-        # Initiliaze the binary Mincut loss
-        mincut = (mincut is not None) or {}
-        self.mincut = MincutLoss(**mincut)
+        mincut_config = {} if mincut is None else dict(mincut)
+        self.mincut = BinaryMincutLoss(**mincut_config)
 
         # Check that the activation functions are consistent
-        assert self.log_dice.act == self.mincut.act, (
-            "The log Dice loss and Mincut loss must have the same "
-            "activation functions."
-        )
+        if type(self.log_dice.act) is not type(self.mincut.act):
+            raise ValueError(
+                "The log Dice loss and Mincut loss must have the same "
+                "activation functions."
+            )
 
-        # Store the loss component weights
         self.w_mincut = w_mincut
 
-    def forward(self, logits, targets):
-        """Pass predictions/labels through the loss function.
+    def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        """Compute the weighted Dice, BCE and minimum-cut loss.
 
         Parameters
         ----------
@@ -385,30 +413,29 @@ class BinaryLogDiceCEMincutLoss(nn.modules.loss._Loss):
         torch.Tensor
             Loss value
         """
-        # Compute the log dice loss
         log_dice = self.log_dice(logits, targets)
-
-        # Compute the mean binary cross-entropy loss
         bce = self.bce(logits, targets.float())
-
-        # Compute the mincut loss
         mincut = self.mincut(logits, targets)
-
-        # Combine the losses
         return self.w_dice * log_dice + self.w_ce * bce + self.w_mincut * mincut
 
 
-class BinaryFocalLoss(nn.modules.loss._Loss):
-    """Applies the focal loss.
+class BinaryFocalLoss(torch.nn.Module):
+    """Compute binary focal loss.
 
-    Original Paper: https://arxiv.org/abs/1708.02002
+    This implementation follows the focal-loss modulation proposed in
+    https://arxiv.org/abs/1708.02002.
     """
 
     name = "binary_focal"
 
     def __init__(
-        self, alpha=1, gamma=2, logits=False, balance_loss=False, reduction=True
-    ):
+        self,
+        alpha: float = 1.0,
+        gamma: float = 2.0,
+        logits: bool = False,
+        balance_loss: bool = False,
+        reduction: Reduction = "none",
+    ) -> None:
         """Initialize the loss function parameters.
 
         Parameters
@@ -424,23 +451,25 @@ class BinaryFocalLoss(nn.modules.loss._Loss):
         reduction : str, default 'none'
             Reduction function to apply to the output
         """
-        # Initialize the parent class
         super().__init__()
 
-        # Store the loss parameters
+        if alpha < 0:
+            raise ValueError("`alpha` must be nonnegative.")
+        if gamma < 0:
+            raise ValueError("`gamma` must be nonnegative.")
+
         self.alpha = alpha
         self.gamma = gamma
         self.balance_loss = balance_loss
-        self.reduction = reduction
+        self.reduction: Reduction = _validate_reduction(reduction)
 
-        # Initialize the BCE layer
         if logits:
-            self.bce = torch.nn.BCELoss(reduction="none")
-        else:
             self.bce = torch.nn.BCEWithLogitsLoss(reduction="none")
+        else:
+            self.bce = torch.nn.BCELoss(reduction="none")
 
-    def forward(self, inputs, targets):
-        """Pass predictions/labels through the loss function.
+    def forward(self, inputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        """Compute the binary focal loss.
 
         Parameters
         ----------
@@ -454,24 +483,13 @@ class BinaryFocalLoss(nn.modules.loss._Loss):
         torch.Tensor
             Loss value
         """
-        # Compute the BCE loss
         bce = self.bce(inputs, targets.float())
-
-        # Compute cross-entropy loss to softmax scores, compute focal lsos
         pt = torch.exp(-bce)
-        out = self.alpha * (1 - pt) ** self.gamma * BCE_loss
+        out = self.alpha * (1 - pt) ** self.gamma * bce
 
-        # If requested, balance classes
         if self.balance_loss:
             with torch.no_grad():
-                weights = get_class_weights(targets, 2, per_class=False)
+                weights = get_class_weights(targets.long(), 2, per_class=False)
+            out = out * weights
 
-        # Return the appropriate reduction output
-        if self.reduction == "none":
-            return out
-        elif self.reduction == "mean":
-            return out.mean()
-        elif self.reduction == "sum":
-            return out.sum()
-        else:
-            raise ValueError("Reduction function not recognized:", self.reduction)
+        return _reduce_loss(out, self.reduction)

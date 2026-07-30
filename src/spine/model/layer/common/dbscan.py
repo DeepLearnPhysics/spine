@@ -1,5 +1,10 @@
 """Module which does connected-components (dense) clustering using DBSCAN."""
 
+from __future__ import annotations
+
+from collections.abc import Sequence
+from typing import Any, TypeAlias, TypeVar, cast
+
 import numpy as np
 import torch
 
@@ -10,6 +15,7 @@ from spine.constants import (
     DELTA_SHP,
     MICHL_SHP,
     PPN_SHAPE_COL,
+    SHAPE_COL,
     SHOWR_SHP,
     TRACK_SHP,
 )
@@ -17,6 +23,9 @@ from spine.data import IndexBatch, TensorBatch
 from spine.math.cluster import DBSCAN as spine_dbscan
 from spine.utils.point_break_clustering import PointBreakClusterer
 from spine.utils.ppn import PPNPredictor
+
+T = TypeVar("T")
+PPNResult: TypeAlias = TensorBatch | IndexBatch | Sequence[TensorBatch]
 
 
 class DBSCAN(torch.nn.Module):
@@ -34,37 +43,37 @@ class DBSCAN(torch.nn.Module):
 
     def __init__(
         self,
-        eps=1.8,
-        min_samples=1,
-        min_size=3,
-        metric="euclidean",
-        shapes=[SHOWR_SHP, TRACK_SHP, MICHL_SHP, DELTA_SHP],
-        break_shapes=[TRACK_SHP],
-        break_mask_radius=5.0,
-        break_track_method="masked_dbscan",
-        use_label_break_points=False,
-        track_include_delta=False,
-        ppn_predictor={},
-    ):
+        eps: float | Sequence[float] = 1.8,
+        min_samples: int | Sequence[int] = 1,
+        min_size: int | Sequence[int] = 3,
+        metric: str | Sequence[str] = "euclidean",
+        shapes: Sequence[int] = (SHOWR_SHP, TRACK_SHP, MICHL_SHP, DELTA_SHP),
+        break_shapes: Sequence[int] = (TRACK_SHP,),
+        break_mask_radius: float | Sequence[float] = 5.0,
+        break_track_method: str = "masked_dbscan",
+        use_label_break_points: bool = False,
+        track_include_delta: bool = False,
+        ppn_predictor: dict[str, Any] | None = None,
+    ) -> None:
         """Initialize the DBSCAN clustering algorithm.
 
         Parameters
         ----------
-        eps : float, default 1.8
+        eps : float or sequence of float, default 1.8
             The maximum distance between two samples for one to be considered
             as in the neighborhood of the other.
-        min_samples : int, default 1
+        min_samples : int or sequence of int, default 1
             The number of samples (or total weight) in a neighborhood for a
             point to be considered as a core point.
-        min_size : int, default 3
+        min_size : int or sequence of int, default 3
             Minimum cluster size to stored in the final list of DBSCAN clusters
-        metric : str, default 'euclidean'
+        metric : str or sequence of str, default "euclidean"
             Metric used to compute the pair-wise distances between space points
-        shapes : List[int], default [0, 1, 2, 3]
+        shapes : sequence of int, default (0, 1, 2, 3)
             List of semantic classes to run DBSCAN on
-        break_shapes : List[int], default [1]
+        break_shapes : sequence of int, default (1,)
             List of semantic shapes for which to use PPN to break down
-        break_mask_radius : str, default 5.0
+        break_mask_radius : float or sequence of float, default 5.0
             If using particle points to break up instances further, specifies
             the radius around each particle point which gets masked
         break_track_method : str, default 'masked_dbscan'
@@ -74,56 +83,68 @@ class DBSCAN(torch.nn.Module):
         track_include_delta : bool, default False
             If `True`, include delta points along with track point when
             running DBSCAN on track points (limits artificial track breaks)
-        ppn_predictor : cfg, optional
+        ppn_predictor : dict, optional
             PPN post-processing configuration
+
+        Raises
+        ------
+        ValueError
+            If shape parameters are malformed, per-shape parameters have
+            inconsistent lengths, or point breaking lacks a PPN configuration.
         """
         # Initialize the parent class
         super().__init__()
 
         # Store the DBSCAN clustering parameters
-        self.eps = eps
-        self.min_samples = min_samples
-        self.min_size = min_size
-        self.metric = metric
-        self.shapes = shapes
-        self.break_shapes = break_shapes
-        self.break_mask_radius = break_mask_radius
+        if not isinstance(shapes, Sequence) or isinstance(shapes, (str, bytes)):
+            raise ValueError("Semantic classes should be provided as a sequence.")
+        if not isinstance(break_shapes, Sequence) or isinstance(
+            break_shapes, (str, bytes)
+        ):
+            raise ValueError(
+                "Semantic classes to break should be provided as a sequence."
+            )
+        self.shapes = list(shapes)
+        self.break_shapes = list(break_shapes)
+        self.eps = self._expand_parameter(eps, len(self.shapes), "eps")
+        self.min_samples = self._expand_parameter(
+            min_samples, len(self.shapes), "min_samples"
+        )
+        self.min_size = self._expand_parameter(min_size, len(self.shapes), "min_size")
+        self.metric = self._expand_parameter(metric, len(self.shapes), "metric")
+        self.break_mask_radius = self._expand_parameter(
+            break_mask_radius, len(self.shapes), "break_mask_radius"
+        )
         self.break_track_method = break_track_method
         self.track_include_delta = track_include_delta
 
-        # If the constants are provided as scalars, turn them into lists
-        assert not np.isscalar(shapes), "Semantic classes should be provided as a list."
-        for attr in ["eps", "min_samples", "min_size", "metric", "break_mask_radius"]:
-            if np.isscalar(getattr(self, attr)):
-                setattr(self, attr, len(shapes) * [getattr(self, attr)])
-            else:
-                assert len(getattr(self, attr)) == len(shapes), (
-                    f"The number of `{attr}` values does not match the "
-                    "number shapes to cluster."
-                )
-
         # Instantiate the PPN post-processor, if needed
         self.use_label_break_points = use_label_break_points
-        assert not np.isscalar(
-            break_shapes
-        ), "Semantic classes to break should be provided as a list."
-        if len(break_shapes) and not use_label_break_points:
-            assert ppn_predictor is not None, (
-                "If shapes are to be broken up using PPN points, "
-                "must provide a PPN predictor configuration."
-            )
+        self.ppn_predictor = None
+        if len(self.break_shapes) > 0 and not use_label_break_points:
+            if ppn_predictor is None:
+                raise ValueError(
+                    "If shapes are to be broken up using PPN points, "
+                    "must provide a PPN predictor configuration."
+                )
             self.ppn_predictor = PPNPredictor(**ppn_predictor)
 
         # Initialize one clustering algorithm per class
         self.clusterers = []
-        for k, c in enumerate(shapes):
-            if c not in break_shapes:
+        for k, c in enumerate(self.shapes):
+            if c not in self.break_shapes:
                 dbscan = spine_dbscan(
                     eps=self.eps[k],
                     min_samples=self.min_samples[k],
                     metric=self.metric[k],
                 )
-                clusterer = lambda x, _: dbscan.fit_predict(x)
+
+                def _clusterer(x, _, algorithm=dbscan):
+                    """Apply plain DBSCAN through the point-aware interface."""
+                    return algorithm.fit_predict(x)
+
+                clusterer = _clusterer
+
             else:
                 method = break_track_method
                 if c != TRACK_SHP:
@@ -138,7 +159,50 @@ class DBSCAN(torch.nn.Module):
 
             self.clusterers.append(clusterer)
 
-    def forward(self, data, seg_pred, coord_label=None, **ppn_result):
+    @staticmethod
+    def _expand_parameter(
+        value: T | Sequence[T],
+        size: int,
+        name: str,
+    ) -> list[T]:
+        """Normalize a scalar or per-shape clustering parameter.
+
+        Parameters
+        ----------
+        value : object or sequence
+            Scalar value shared by every shape or one value per shape.
+        size : int
+            Number of semantic shapes.
+        name : str
+            Parameter name used in validation errors.
+
+        Returns
+        -------
+        list
+            One parameter value per semantic shape.
+
+        Raises
+        ------
+        ValueError
+            If a sequence does not contain exactly ``size`` values.
+        """
+        if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+            return [cast(T, value)] * size
+        values = list(value)
+        if len(values) != size:
+            raise ValueError(
+                f"The number of `{name}` values does not match the number "
+                "of shapes to cluster."
+            )
+        return values
+
+    def forward(
+        self,
+        data: TensorBatch,
+        seg_pred: TensorBatch,
+        coord_label: TensorBatch | None = None,
+        **ppn_result: PPNResult,
+    ) -> tuple[IndexBatch, TensorBatch]:
         """Pass a batch of data through DBSCAN to form space clusters.
 
         Parameters
@@ -156,52 +220,76 @@ class DBSCAN(torch.nn.Module):
             Location of the true particle points
         **ppn_result : dict, optional
             Dictionary of outputs from the PPN model
+
+        Returns
+        -------
+        IndexBatch
+            Batched voxel indices for every reconstructed fragment.
+        TensorBatch
+            Semantic shape assigned to each fragment.
+
+        Raises
+        ------
+        TypeError
+            If the PPN predictor does not return a batched tensor.
+        ValueError
+            If requested point labels or PPN outputs are unavailable.
         """
         # If some shapes must be broken up at their points of interest,
         # fetch them from the relevant location.
         points, point_shapes = None, None
-        if len(self.break_shapes):
+        if len(self.break_shapes) > 0:
             if self.use_label_break_points:
-                assert coord_label is not None, (
-                    "If label points are to be used to break instance, "
-                    "must provide them."
-                )
-                points = torch.cat(
+                if coord_label is None:
+                    raise ValueError(
+                        "If label points are to be used to break instance, "
+                        "must provide them."
+                    )
+                coord_label_tensor = coord_label.torch_tensor()
+                points_tensor = torch.cat(
                     (
-                        coord_label.tensor[:, COORD_START_COLS],
-                        coord_label.tensor[:, COORD_END_COLS],
+                        coord_label_tensor[:, COORD_START_COLS],
+                        coord_label_tensor[:, COORD_END_COLS],
                     ),
                     dim=1,
                 ).reshape(-1, 3)
-                point_shapes = torch.repeat_interleave(
-                    coord_label.tensor[:, SHAPE_COL], 2
+                point_shapes_tensor = torch.repeat_interleave(
+                    coord_label_tensor[:, SHAPE_COL], 2
                 )
-                points = TensorBatch(points, 2 * coord_label.counts)
-                point_shapes = TensorBatch(point_shapes, 2 * coord_label.counts)
+                points = TensorBatch(points_tensor, 2 * coord_label.counts)
+                point_shapes = TensorBatch(point_shapes_tensor, 2 * coord_label.counts)
             else:
+                if self.ppn_predictor is None:  # pragma: no cover
+                    raise ValueError("PPN point breaking is not configured.")
                 ppn_points = self.ppn_predictor(**ppn_result)
+                if not isinstance(ppn_points, TensorBatch):
+                    raise TypeError("Expected the PPN predictor to return TensorBatch.")
+                ppn_points_tensor = ppn_points.torch_tensor()
                 points = TensorBatch(
-                    ppn_points.tensor[:, COORD_COLS], ppn_points.counts
+                    ppn_points_tensor[:, COORD_COLS], ppn_points.counts
                 )
                 point_shapes = TensorBatch(
-                    ppn_points.tensor[:, PPN_SHAPE_COL], ppn_points.counts
+                    ppn_points_tensor[:, PPN_SHAPE_COL], ppn_points.counts
                 )
 
         # Bring everything to numpy (DBSCAN cannot run on tensors)
         data_np = data.to_numpy()
         seg_pred_np = seg_pred.to_numpy()
-        if points is not None:
+        points_np = None
+        point_shapes_np = None
+        if points is not None and point_shapes is not None:
             points_np = points.to_numpy()
             point_shapes_np = point_shapes.to_numpy()
 
         # Loop over the entries in the batch
-        offsets = data.edges[:-1]
+        offsets = data_np.edges[:-1]
         clusts, shapes, counts, single_counts = [], [], [], []
         for b in range(data.batch_size):
             # Fetch the necessary data products, in numpy format
             voxels_b = data_np[b][:, COORD_COLS]
             seg_pred_b = seg_pred_np[b]
-            if points is not None:
+            points_b = np.empty((0, len(COORD_COLS)), dtype=voxels_b.dtype)
+            if points_np is not None and point_shapes_np is not None:
                 points_b = points_np[b]
                 point_shapes_b = point_shapes_np[b]
 
@@ -218,7 +306,7 @@ class DBSCAN(torch.nn.Module):
                     shape_mask |= seg_pred_b == DELTA_SHP
 
                 shape_index = np.where(shape_mask)[0]
-                if not len(shape_index):
+                if len(shape_index) == 0:
                     continue
 
                 # Run clustering
@@ -233,8 +321,8 @@ class DBSCAN(torch.nn.Module):
                 clusts_b_s = []
                 for c in np.unique(labels):
                     clust = np.where(labels == c)[0]
-                    if c > -1 and len(clust) > self.min_size[k]:
-                        clusts_b_s.append(int(offsets[b]) + clust)
+                    if c > -1 and len(clust) >= self.min_size[k]:
+                        clusts_b_s.append(int(offsets[b]) + shape_index[clust])
                         counts_b.append(len(clust))
 
                 clusts_b.extend(clusts_b_s)
@@ -250,8 +338,8 @@ class DBSCAN(torch.nn.Module):
         clusts_nb = np.empty(len(clusts), dtype=object)
         clusts_nb[:] = clusts
 
-        index = IndexBatch(clusts_nb, data.counts, counts, single_counts)
-        if len(shapes):
+        index = IndexBatch(clusts_nb, data_np.counts, counts, single_counts)
+        if len(shapes) > 0:
             shapes = TensorBatch(np.concatenate(shapes), counts)
         else:
             shapes = TensorBatch(np.empty(0, dtype=np.int64), counts)

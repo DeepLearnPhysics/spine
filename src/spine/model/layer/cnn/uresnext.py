@@ -1,183 +1,257 @@
-import numpy as np
+"""Sparse UResNeXt encoder-decoder backbone."""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from typing import Any
+
 import torch
-import torch.nn as nn
 
 from spine.model import sparse
 
-from .act_norm import act_factory
-from .blocks import *
+from .act_norm import act_factory, norm_factory
+from .blocks import ResNeXtBlock
 from .configuration import setup_cnn_configuration
+from .uresnet_layers import EncoderOutput, UResNetOutput
+
+__all__ = ["UResNeXt"]
 
 
-class UResNeXt(torch.nn.Module):
+class UResNeXt(sparse.Network):
+    """Sparse U-shaped backbone built from grouped ResNeXt paths.
+
+    This architecture follows the UResNet resolution schedule and skip
+    topology while replacing residual blocks with :class:`ResNeXtBlock`.
+    ``cardinality`` controls the number of parallel transformation paths.
     """
-    UNet Type encoder-decoder network, with atrous convolutions and
-    resnext-type blocks.
-    """
 
-    def __init__(self, cfg, name="uresnext"):
-        super(UResNeXt, self).__init__()
-        setup_cnn_configuration(self, cfg, name)
+    def __init__(
+        self,
+        cfg: dict[str, Any],
+        cardinality: int = 8,
+        dilations: Sequence[int] | None = None,
+    ) -> None:
+        """Initialize the UResNeXt backbone.
 
-        self.model_cfg = cfg["modules"][name]
+        Parameters
+        ----------
+        cfg : dict
+            Shared CNN configuration accepted by
+            :func:`setup_cnn_configuration`.
+        cardinality : int, default 8
+            Number of parallel paths in each ResNeXt block.
+        dilations : sequence of int, optional
+            Dilation rate for each cardinal path. Defaults to rates increasing
+            from one to four across the paths.
 
-        # Configurations
-        self.reps = self.model_cfg.get("reps", 2)
-        self.depth = self.model_cfg.get("depth", 5)
-        self.num_filters = self.model_cfg.get("num_filters", 32)
-        self.cardinality = self.model_cfg.get("cardinality", 8)
-        self.dilations = [1, 1, 1, 1, 2, 2, 4, 4]
-        assert self.num_filters % self.cardinality == 0
-        self.nPlanes = [i * self.num_filters for i in range(1, self.depth + 1)]
-        # self.nPlanes = [(2**i) * self.num_filters for i in range(self.depth)]
-        self.input_kernel = self.model_cfg.get("input_kernel", 3)
+        Raises
+        ------
+        ValueError
+            If ``cardinality`` is not positive, feature widths are not
+            divisible by it, or the dilation count does not match it.
+        """
+        super().__init__(cfg.get("data_dim", 3))
+        setup_cnn_configuration(self, **cfg)
 
-        activation = self.activation_name
-        activation_args = self.activation_args
+        if cardinality < 1:
+            raise ValueError(f"`cardinality` must be positive, got {cardinality}.")
+        if any(plane % cardinality for plane in self.num_planes):
+            raise ValueError(
+                "Every feature-plane width must be divisible by `cardinality`."
+            )
+        if dilations is None:
+            dilations = tuple(2 ** min(index // 2, 2) for index in range(cardinality))
+        if len(dilations) != cardinality:
+            raise ValueError("Expected `len(dilations) == cardinality`.")
 
-        # Initialize Input Layer
+        self.cardinality = cardinality
+        self.dilations = tuple(dilations)
         self.input_layer = sparse.Convolution(
-            self.num_input,
-            self.num_filters,
+            in_channels=self.num_input,
+            out_channels=self.num_filters,
             kernel_size=self.input_kernel,
             stride=1,
-            dimension=self.D,
+            dimension=self.dimension,
+            bias=self.allow_bias,
         )
 
-        # Initialize Encoder
-        print(self.nPlanes)
-        self.encoding_conv = []
-        self.encoding_block = []
-        for i, F in enumerate(self.nPlanes):
-            m = []
-            for _ in range(self.reps):
-                m.append(
-                    ResNeXtBlock(
-                        F,
-                        F,
-                        dimension=self.D,
-                        cardinality=self.cardinality,
-                        dilations=self.dilations,
-                        activation=self.activation_name,
-                        activation_args=self.activation_args,
-                    )
-                )
-            m = nn.Sequential(*m)
-            self.encoding_block.append(m)
-            m = []
-            if i < self.depth - 1:
-                m.append(sparse.BatchNorm(F))
-                m.append(act_factory(activation, **activation_args))
-                m.append(
-                    sparse.Convolution(
-                        in_channels=self.nPlanes[i],
-                        out_channels=self.nPlanes[i + 1],
-                        kernel_size=2,
-                        stride=2,
-                        dimension=self.D,
-                    )
-                )
-            m = nn.Sequential(*m)
-            self.encoding_conv.append(m)
-        self.encoding_conv = nn.Sequential(*self.encoding_conv)
-        self.encoding_block = nn.Sequential(*self.encoding_block)
-
-        # Initialize Decoder
-        self.decoding_block = []
-        self.decoding_conv = []
-        for i in range(self.depth - 2, -1, -1):
-            m = []
-            m.append(sparse.BatchNorm(self.nPlanes[i + 1]))
-            m.append(act_factory(activation, **activation_args))
-            m.append(
-                sparse.ConvolutionTranspose(
-                    in_channels=self.nPlanes[i + 1],
-                    out_channels=self.nPlanes[i],
-                    kernel_size=2,
-                    stride=2,
-                    dimension=self.D,
+        encoding_blocks = []
+        encoding_convolutions = []
+        for level, num_features in enumerate(self.num_planes):
+            encoding_blocks.append(
+                torch.nn.Sequential(
+                    *[
+                        self._make_block(num_features, num_features)
+                        for _ in range(self.reps)
+                    ]
                 )
             )
-            m = nn.Sequential(*m)
-            self.decoding_conv.append(m)
-            m = []
-            for j in range(self.reps):
-                m.append(
-                    ResNeXtBlock(
-                        self.nPlanes[i] * (2 if j == 0 else 1),
-                        self.nPlanes[i],
-                        dimension=self.D,
-                        cardinality=self.cardinality,
-                        dilations=self.dilations,
-                        activation=self.activation_name,
-                        activation_args=self.activation_args,
+            downsample = []
+            if level < self.depth - 1:
+                downsample = [
+                    norm_factory(self.norm_cfg, num_features),
+                    act_factory(self.act_cfg),
+                    sparse.Convolution(
+                        in_channels=self.num_planes[level],
+                        out_channels=self.num_planes[level + 1],
+                        kernel_size=2,
+                        stride=2,
+                        dimension=self.dimension,
+                        bias=self.allow_bias,
+                    ),
+                ]
+            encoding_convolutions.append(torch.nn.Sequential(*downsample))
+        self.encoding_block = torch.nn.Sequential(*encoding_blocks)
+        self.encoding_conv = torch.nn.Sequential(*encoding_convolutions)
+
+        decoding_blocks = []
+        decoding_convolutions = []
+        for level in range(self.depth - 2, -1, -1):
+            decoding_convolutions.append(
+                torch.nn.Sequential(
+                    norm_factory(self.norm_cfg, self.num_planes[level + 1]),
+                    act_factory(self.act_cfg),
+                    sparse.ConvolutionTranspose(
+                        in_channels=self.num_planes[level + 1],
+                        out_channels=self.num_planes[level],
+                        kernel_size=2,
+                        stride=2,
+                        dimension=self.dimension,
+                        bias=self.allow_bias,
+                    ),
+                )
+            )
+            blocks = []
+            for repetition in range(self.reps):
+                blocks.append(
+                    self._make_block(
+                        self.num_planes[level] * (2 if repetition == 0 else 1),
+                        self.num_planes[level],
                     )
                 )
-            m = nn.Sequential(*m)
-            self.decoding_block.append(m)
-        self.decoding_block = nn.Sequential(*self.decoding_block)
-        self.decoding_conv = nn.Sequential(*self.decoding_conv)
+            decoding_blocks.append(torch.nn.Sequential(*blocks))
+        self.decoding_block = torch.nn.Sequential(*decoding_blocks)
+        self.decoding_conv = torch.nn.Sequential(*decoding_convolutions)
 
-        # print('Total Number of Trainable Parameters = {}'.format(
-        #     sum(p.numel() for p in self.parameters() if p.requires_grad)))
+    def _make_block(
+        self,
+        in_features: int,
+        out_features: int,
+    ) -> torch.nn.Module:
+        """Build one configured ResNeXt block.
 
-    def encoder(self, x):
+        Parameters
+        ----------
+        in_features : int
+            Number of input feature channels.
+        out_features : int
+            Number of output feature channels.
+
+        Returns
+        -------
+        torch.nn.Module
+            Initialized grouped residual block.
         """
-        UResNeXt Encoder.
+        return ResNeXtBlock(
+            in_features,
+            out_features,
+            dimension=self.dimension,
+            cardinality=self.cardinality,
+            dilations=self.dilations,
+            activation=self.act_cfg,
+            normalization=self.norm_cfg,
+        )
 
-        INPUTS:
-            - x (SparseTensor): SPINE sparse tensor
+    def encode(self, x: sparse.SparseTensor) -> EncoderOutput:
+        """Encode an existing sparse tensor.
 
-        RETURNS:
-            - result (dict): dictionary of encoder output with
-            intermediate feature planes:
-              1) encoderTensors (list): list of intermediate SparseTensors
-              2) finalTensor (SparseTensor): feature tensor at
-              deepest layer.
+        Parameters
+        ----------
+        x : sparse.SparseTensor
+            Sparse input with ``num_input`` feature channels.
+
+        Returns
+        -------
+        EncoderOutput
+            Encoder feature planes and deepest representation.
         """
         x = self.input_layer(x)
-        encoderTensors = [x]
-        for i, layer in enumerate(self.encoding_block):
-            x = self.encoding_block[i](x)
-            encoderTensors.append(x)
-            x = self.encoding_conv[i](x)
+        encoder_tensors = [x]
+        for block, downsample in zip(
+            self.encoding_block, self.encoding_conv, strict=True
+        ):
+            x = block(x)
+            encoder_tensors.append(x)
+            x = downsample(x)
+        return {"encoder_tensors": encoder_tensors, "final_tensor": x}
 
-        result = {"encoderTensors": encoderTensors, "finalTensor": x}
-        return result
+    def decode(
+        self,
+        final: sparse.SparseTensor,
+        encoder_tensors: list[sparse.SparseTensor],
+    ) -> list[sparse.SparseTensor]:
+        """Decode a representation using concatenated encoder features.
 
-    def decoder(self, final, encoderTensors):
+        Parameters
+        ----------
+        final : sparse.SparseTensor
+            Deepest encoder representation.
+        encoder_tensors : list of sparse.SparseTensor
+            Encoder feature planes ordered from shallow to deep.
+
+        Returns
+        -------
+        list of sparse.SparseTensor
+            Decoder feature planes ordered from deep to shallow.
+
+        Raises
+        ------
+        ValueError
+            If the number of encoder tensors does not match ``depth + 1``.
         """
-        UResNeXt Decoder
+        expected = self.depth + 1
+        if len(encoder_tensors) != expected:
+            raise ValueError(
+                f"Expected {expected} encoder tensors, got " f"{len(encoder_tensors)}."
+            )
 
-        INPUTS:
-            - encoderTensors (list of SparseTensor): output of encoder.
-        RETURNS:
-            - decoderTensors (list of SparseTensor):
-            list of feature tensors in decoding path at each spatial resolution.
-        """
-        decoderTensors = []
+        decoder_tensors = []
         x = final
-        for i, layer in enumerate(self.decoding_conv):
-            eTensor = encoderTensors[-i - 2]
-            x = layer(x)
-            x = sparse.cat((eTensor, x))
-            x = self.decoding_block[i](x)
-            decoderTensors.append(x)
-        return decoderTensors
+        for index, (upsample, block) in enumerate(
+            zip(self.decoding_conv, self.decoding_block, strict=True)
+        ):
+            x = upsample(x)
+            x = sparse.cat(encoder_tensors[-index - 2], x)
+            x = block(x)
+            decoder_tensors.append(x)
+        return decoder_tensors
 
-    def forward(self, input):
-        coords = input[:, 0 : self.D + 1].int()
-        features = input[:, self.D + 1 :]
+    def forward(self, x: torch.Tensor) -> UResNetOutput:
+        """Run UResNeXt on a coordinate-feature table.
 
-        x = sparse.SparseTensor(features, coordinates=coords)
-        encoderOutput = self.encoder(x)
-        encoderTensors = encoderOutput["encoderTensors"]
-        finalTensor = encoderOutput["finalTensor"]
-        decoderTensors = self.decoder(finalTensor, encoderTensors)
+        Parameters
+        ----------
+        x : torch.Tensor
+            ``(N, 1 + D + C)`` table containing batch IDs, coordinates and
+            input features.
 
-        res = {
-            "encoderTensors": encoderTensors,
-            "decoderTensors": decoderTensors,
-            "finalTensor": finalTensor,
+        Returns
+        -------
+        UResNetOutput
+            Encoder, decoder and deepest sparse feature tensors.
+        """
+        coords = x[:, : self.dimension + 1].int()
+        features = x[:, self.dimension + 1 :]
+        sparse_input = sparse.SparseTensor(
+            coordinates=coords,
+            features=features,
+        )
+        encoded = self.encode(sparse_input)
+        decoder_tensors = self.decode(
+            encoded["final_tensor"], encoded["encoder_tensors"]
+        )
+        return {
+            "encoder_tensors": encoded["encoder_tensors"],
+            "decoder_tensors": decoder_tensors,
+            "final_tensor": encoded["final_tensor"],
         }
-        return res

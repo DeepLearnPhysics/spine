@@ -1,33 +1,40 @@
-"""Custom non-linear activation functions."""
+"""Custom nonlinear activation functions for sparse tensors."""
+
+from __future__ import annotations
 
 import torch
 
+from spine.model import sparse
+
 
 class Mish(torch.nn.Module):
-    """Mish non-linearity layer.
+    r"""Apply the smooth, non-monotonic Mish activation to sparse features.
 
-    Reference: https://arxiv.org/pdf/1908.08681.pdf
+    Mish is defined element-wise as
+    :math:`x \tanh(\operatorname{softplus}(x))`. Coordinates and sparse tensor
+    provenance are preserved; only the feature matrix is replaced.
+
+    References
+    ----------
+    .. [1] Misra, "Mish: A Self Regularized Non-Monotonic Activation
+       Function," 2019. https://arxiv.org/abs/1908.08681
     """
 
-    def __init__(self):
-        """Initialize the layer."""
-        super().__init__()
-
-    def forward(self, input_data):
-        """Pass tensor through the layer.
+    def forward(self, input_data: sparse.SparseTensor) -> sparse.SparseTensor:
+        """Apply Mish to every sparse feature.
 
         Parameters
         ----------
         input_data : sparse.SparseTensor
-            Sparse input tensor
+            Sparse tensor whose feature matrix is transformed.
 
-        Return
-        ------
+        Returns
+        -------
         sparse.SparseTensor
-            Sparse output tensor
+            Tensor on the same coordinate map with Mish-transformed features.
         """
-        out = torch.nn.functional.softplus(input_data.F)
-        out = torch.tanh(out)
-        out = out * input_data.F
+        out = input_data.features * torch.tanh(
+            torch.nn.functional.softplus(input_data.features)
+        )
 
         return input_data.replace_features(out)

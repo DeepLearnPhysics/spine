@@ -1,358 +1,248 @@
-import numpy as np
+"""Vertex proposal decoder built on sparse UResNet feature planes."""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from typing import Any, NoReturn, TypeAlias
+
 import torch
-import torch.nn as nn
 
+from spine.constants import COORD_COLS
+from spine.data import TensorBatch
 from spine.model import sparse
-from spine.model.layer.cnn.blocks import ResNetBlock
-from spine.model.layer.cnn.configuration import setup_cnn_configuration
-from spine.model.layer.factories import loss_fn_factory
-from spine.utils.gnn.cluster import form_clusters, get_cluster_label
 
-from .act_norm import act_factory
-from .ppn import *
+from .act_norm import act_factory, norm_factory
+from .blocks import ResNetBlock
+from .configuration import setup_cnn_configuration
+from .ppn import ExpandAs
+
+VertexPPNOutput: TypeAlias = dict[str, TensorBatch | list[TensorBatch]]
+
+__all__ = ["VertexPPN", "VertexPPNLoss", "VertexPPNOutput"]
 
 
-class VertexPPN(nn.Module):
+class VertexPPN(sparse.Network):
+    """Predict a vertex offset and vertex score at the input resolution.
 
-    def __init__(self, cfg, name="vertex_ppn"):
-        super(VertexPPN, self).__init__()
-        setup_cnn_configuration(self, cfg, name)
+    This decoder consumes the deepest UResNet tensor and its decoder feature
+    planes. Intermediate masks softly gate features in the same way as the
+    point-proposal network.
+    """
 
-        self.model_cfg = cfg.get(name, {})
-        # UResNet Configurations
-        self.reps = self.model_cfg.get("reps", 2)
-        self.depth = self.model_cfg.get("depth", 5)
-        self.num_filters = self.model_cfg.get("filters", 16)
-        self.nPlanes = [i * self.num_filters for i in range(1, self.depth + 1)]
-        self.vertex_score_threshold = self.model_cfg.get("score_threshold", 0.5)
-        self.input_kernel = self.model_cfg.get("input_kernel", 3)
+    def __init__(
+        self,
+        uresnet: dict[str, Any],
+        vertex_ppn: dict[str, Any] | None = None,
+    ) -> None:
+        """Initialize the vertex decoder.
 
-        # Initialize Decoder
-        self.decoding_block = []
-        self.decoding_conv = []
-        self.vertex_pred = nn.ModuleList()
-        for i in range(self.depth - 2, -1, -1):
-            m = []
-            m.append(sparse.BatchNorm(self.nPlanes[i + 1]))
-            m.append(act_factory(self.activation_name, **self.activation_args))
-            m.append(
-                sparse.ConvolutionTranspose(
-                    in_channels=self.nPlanes[i + 1],
-                    out_channels=self.nPlanes[i],
-                    kernel_size=2,
-                    stride=2,
-                    dimension=self.D,
+        Parameters
+        ----------
+        uresnet : dict
+            Shared configuration of the UResNet feature backbone.
+        vertex_ppn : dict, optional
+            Vertex-head configuration. ``score_threshold`` controls the
+            probability threshold retained for future hard masking modes.
+
+        Raises
+        ------
+        ValueError
+            If ``score_threshold`` is outside ``[0, 1]``.
+        """
+        super().__init__(uresnet.get("data_dim", 3))
+        setup_cnn_configuration(self, **uresnet)
+
+        config = {} if vertex_ppn is None else vertex_ppn
+        self.score_threshold = float(config.get("score_threshold", 0.5))
+        if not 0.0 <= self.score_threshold <= 1.0:
+            raise ValueError("`score_threshold` must be between zero and one.")
+
+        decoding_blocks = []
+        decoding_convolutions = []
+        self.vertex_pred = torch.nn.ModuleList()
+        for level in range(self.depth - 2, -1, -1):
+            decoding_convolutions.append(
+                torch.nn.Sequential(
+                    norm_factory(self.norm_cfg, self.num_planes[level + 1]),
+                    act_factory(self.act_cfg),
+                    sparse.ConvolutionTranspose(
+                        in_channels=self.num_planes[level + 1],
+                        out_channels=self.num_planes[level],
+                        kernel_size=2,
+                        stride=2,
+                        dimension=self.dimension,
+                        bias=self.allow_bias,
+                    ),
                 )
             )
-            m = nn.Sequential(*m)
-            self.decoding_conv.append(m)
-            m = []
-            for j in range(self.reps):
-                m.append(
+            blocks = []
+            for repetition in range(self.reps):
+                blocks.append(
                     ResNetBlock(
-                        self.nPlanes[i] * (2 if j == 0 else 1),
-                        self.nPlanes[i],
-                        dimension=self.D,
-                        activation=self.activation_name,
-                        activation_args=self.activation_args,
+                        self.num_planes[level] * (2 if repetition == 0 else 1),
+                        self.num_planes[level],
+                        dimension=self.dimension,
+                        activation=self.act_cfg,
+                        normalization=self.norm_cfg,
+                        bias=self.allow_bias,
                     )
                 )
-            m = nn.Sequential(*m)
-            self.decoding_block.append(m)
-            self.vertex_pred.append(sparse.Linear(self.nPlanes[i], 1))
-        self.decoding_block = nn.Sequential(*self.decoding_block)
-        self.decoding_conv = nn.Sequential(*self.decoding_conv)
+            decoding_blocks.append(torch.nn.Sequential(*blocks))
+            self.vertex_pred.append(sparse.Linear(self.num_planes[level], 2))
 
-        self.sigmoid = sparse.Sigmoid()
+        self.decoding_conv = torch.nn.Sequential(*decoding_convolutions)
+        self.decoding_block = torch.nn.Sequential(*decoding_blocks)
         self.expand_as = ExpandAs()
 
+        num_output = self.num_planes[0]
         self.final_block = ResNetBlock(
-            self.nPlanes[0],
-            self.nPlanes[0],
-            dimension=self.D,
-            activation=self.activation_name,
-            activation_args=self.activation_args,
+            num_output,
+            num_output,
+            dimension=self.dimension,
+            activation=self.act_cfg,
+            normalization=self.norm_cfg,
+            bias=self.allow_bias,
         )
-
         self.vertex_regression = sparse.Convolution(
-            self.nPlanes[0], self.D, kernel_size=3, stride=1, dimension=self.D
+            num_output,
+            self.dimension,
+            kernel_size=3,
+            stride=1,
+            dimension=self.dimension,
+            bias=self.allow_bias,
         )
         self.vertexness_score = sparse.Convolution(
-            self.nPlanes[0], 2, kernel_size=3, stride=1, dimension=self.D
+            num_output,
+            2,
+            kernel_size=3,
+            stride=1,
+            dimension=self.dimension,
+            bias=self.allow_bias,
         )
 
     def forward(
         self,
-        final,
-        decoderTensors,
-        input_sparse_tensor=None,
-        primary_labels=None,
-        segment_labels=None,
-    ):
-        vertex_layers, vertex_coords = [], []
-        tmp = []
-        segment_label_scales = []
-        primary_label_scales = []
-        device = final.device
+        final_tensor: sparse.SparseTensor,
+        decoder_tensors: Sequence[sparse.SparseTensor],
+    ) -> VertexPPNOutput:
+        """Predict vertex quantities from a UResNet feature pyramid.
 
-        # We need to make labels on-the-fly to include true points in the
-        # propagated masks during training
+        Parameters
+        ----------
+        final_tensor : sparse.SparseTensor
+            Deepest UResNet encoder representation.
+        decoder_tensors : sequence of sparse.SparseTensor
+            UResNet decoder feature planes ordered from deep to shallow.
 
-        decoder_feature_maps = decoderTensors
+        Returns
+        -------
+        VertexPPNOutput
+            Per-site vertex offsets and logits, intermediate score layers,
+            coordinates and row-aligned predictions.
 
-        x = final
+        Raises
+        ------
+        ValueError
+            If the decoder feature count does not match ``depth - 1``.
+        """
+        expected = self.depth - 1
+        if len(decoder_tensors) != expected:
+            raise ValueError(
+                f"Expected {expected} decoder tensors, got " f"{len(decoder_tensors)}."
+            )
 
-        for i, layer in enumerate(self.decoding_conv):
-
-            decTensor = decoder_feature_maps[i]
-            x = layer(x)
-            x = sparse.cat(decTensor, x)
-            x = self.decoding_block[i](x)
-            scores = self.vertex_pred[i](x)
-            tmp.append(scores.F)
-
-            vertex_coords.append(scores.C)
-            scores = self.sigmoid(scores)
-
-            s_expanded = self.expand_as(scores, x.F.shape)
-            x = x * s_expanded.detach()
-
-        device = x.F.device
-        vertex_output_coordinates = x.C
-        for p in tmp:
-            a = p.to(dtype=torch.float32, device=device)
-            vertex_layers.append(a)
+        vertex_layers = []
+        vertex_coords = []
+        x = final_tensor
+        modules = zip(
+            self.decoding_conv,
+            self.decoding_block,
+            self.vertex_pred,
+            strict=True,
+        )
+        for index, (upsample, block, predictor) in enumerate(modules):
+            x = upsample(x)
+            x = sparse.cat(decoder_tensors[index], x)
+            x = block(x)
+            scores = predictor(x)
+            probabilities = sparse.softmax(scores, dim=1)
+            counts = x.counts
+            vertex_layers.append(TensorBatch(scores.features, counts))
+            vertex_coords.append(
+                TensorBatch(
+                    scores.coordinates,
+                    counts,
+                    has_batch_col=True,
+                    coord_cols=COORD_COLS,
+                )
+            )
+            expanded = self.expand_as(
+                probabilities,
+                x.features.shape,
+                use_binary_mask=False,
+                score_threshold=self.score_threshold,
+            )
+            x = x * expanded.detach()
 
         x = self.final_block(x)
-        pixel_pred = self.vertex_regression(x)
-        vertex_final_score = self.vertexness_score(x)
+        offsets = self.vertex_regression(x)
+        scores = self.vertexness_score(x)
+        points = x.replace_features(
+            torch.cat((offsets.features, scores.features), dim=1)
+        )
 
-        # X, Y, Z, logits
-        points = torch.cat([pixel_pred.F, vertex_final_score.F], dim=1)
-
-        if primary_labels is not None:
-
-            primary_labels_curr = primary_labels
-            segment_labels_curr = segment_labels
-
-            for i, x in enumerate(reversed(decoderTensors[:3])):
-                print(i, x.tensor_stride, decoderTensors[::-1][i].tensor_stride)
-
-                primary_label_layer = torch.zeros(
-                    x.C.shape[0], dtype=torch.bool, device=x.F.device
-                )
-                segment_label_layer = torch.zeros(
-                    x.C.shape[0], dtype=torch.long, device=x.F.device
-                )
-
-                kernel_map = input_sparse_tensor.coordinate_manager.kernel_map(
-                    decoderTensors[::-1][i].tensor_stride, x.tensor_stride
-                )
-
-                for k, curr in kernel_map.items():
-                    primary_label_layer[curr[1].long()] = primary_labels_curr[
-                        curr[0].long()
-                    ].bool()
-                    segment_label_layer[curr[1].long()] = segment_labels_curr[
-                        curr[0].long()
-                    ].long()
-
-                primary_label_scales.append(primary_label_layer)
-                segment_label_scales.append(segment_label_layer)
-
-                primary_labels_curr = primary_label_layer
-                segment_labels_curr = segment_label_layer
-
-        res = {
-            "vertex_points": [points],
-            "vertex_layers": [vertex_layers],
-            "vertex_coords": [vertex_coords],
-            "vertex_output_coordinates": [vertex_output_coordinates],
+        return {
+            "vertex_points": points.to_tensor_batch(
+                include_coordinates=False,
+                restore=True,
+            ),
+            "vertex_points_unique": points.to_tensor_batch(
+                include_coordinates=False,
+            ),
+            "vertex_layers": vertex_layers,
+            "vertex_coords": vertex_coords,
+            "vertex_output_coordinates": TensorBatch(
+                x.coordinates,
+                x.counts,
+                has_batch_col=True,
+                coord_cols=COORD_COLS,
+            ),
         }
 
-        if primary_labels is not None:
-            res["primary_label_scales"] = [primary_label_scales[::-1]]
-            res["segment_label_scales"] = [segment_label_scales[::-1]]
 
-        return res
+class VertexPPNLoss(torch.nn.Module):
+    """Represent the currently unsupported vertex proposal loss.
 
-
-class VertexPPNLoss(torch.nn.modules.loss._Loss):
-    """
-    Loss function for PPN.
-
-    Output
-    ------
-    vertex_reg_loss : float
-        Distance loss
-    vertex_mask_loss : float
-        Binary voxel-wise prediction (is there an object of interest or not)
-    vertex_loss : float
-        Combined loss
-    vertex_accuracy : float
-        Combined accuracy
-
-    See Also
-    --------
-    PPN, spine.model.uresnet_ppn_chain
+    The historical implementation never completed its heatmap construction
+    and depended on removed backend-specific coordinate maps. A new loss must
+    define its accepted vertex-label schema before training can be supported.
     """
 
-    def __init__(self, cfg, name="ppn"):
-        super(VertexPPNLoss, self).__init__()
-        self.loss_config = cfg.get(name, {})
-        # pprint(self.loss_config)
-        self.mask_loss = self.loss_config.get("mask_loss", "bce")
-        self.lossfn = loss_fn_factory(self.mask_loss)
-        self.resolution = self.loss_config.get("ppn_resolution", 1.0)
-        self.regloss = torch.nn.MSELoss()
-        self.use_numpy = self.loss_config.get("use_numpy", False)
+    def __init__(self, **_: object) -> None:
+        """Initialize the unsupported loss component.
 
-    def get_vertices(self, kinematics_label):
+        Other Parameters
+        ----------------
+        **_ : object
+            Reserved configuration values, accepted so construction can fail
+            at the point where training is attempted.
+        """
+        super().__init__()
 
-        data = kinematics_label[0].cpu().numpy()
-        batch_ids = data[:, 0]
-        clusts = form_clusters(data, column=7)
-        inter_label = get_cluster_label(data, clusts, column=7)
-        batch_index = get_cluster_batch(data, clusts)
-        primary_labels = get_cluster_label(data, clusts, column=8)
-        vtx_x = get_cluster_label(data, clusts, column=10)
-        vtx_y = get_cluster_label(data, clusts, column=11)
-        vtx_z = get_cluster_label(data, clusts, column=12)
+    def forward(self, **_: object) -> NoReturn:
+        """Reject training until a vertex-label contract is implemented.
 
-        vertices_label = np.hstack(
-            [
-                batch_index.reshape(-1, 1),
-                vtx_x.reshape(-1, 1),
-                vtx_y.reshape(-1, 1),
-                vtx_z.reshape(-1, 1),
-                inter_label.reshape(-1, 1),
-                primary_labels.reshape(-1, 1),
-            ]
+        Other Parameters
+        ----------------
+        **_ : object
+            Model outputs and labels that would be consumed by a future loss.
+
+        Raises
+        ------
+        NotImplementedError
+            Always raised because no supported vertex target schema exists.
+        """
+        raise NotImplementedError(
+            "VertexPPNLoss is not implemented. Define a vertex-label schema "
+            "and heatmap target contract before enabling VertexPPN training."
         )
-
-        return [vertices_label]
-
-    def compute_heatmap(self, coords_batch, vertices_batch, primaries_batch):
-
-        heatmap = torch.zeros(
-            coords_batch.shape[0], dtype=torch.float32, device=coords_batch.device
-        )
-
-        primary_mask = primaries_batch == 1
-        heatmap[primary_mask] = 1.0
-
-        valid_coords = coords_batch[primary_mask]
-
-        print(heatmap, valid_coords.shape, vertices_batch.shape)
-        print(vertices_batch)
-        assert False
-        return 0
-
-    def forward(self, result, kinematics_label):
-
-        batch_ids = [result["vertex_coords"][0][-1][:, 0]]
-        num_batches = len(batch_ids[0].unique())
-        total_loss = 0
-        total_acc = 0
-        device = kinematics_label[0].device
-
-        res = {"vertex_reg_loss": 0.0, "vertex_mask_loss": 0.0}
-
-        particles_label = self.get_vertices(kinematics_label)
-
-        print("Particles Label = ", particles_label[0], type(particles_label))
-
-        # Semantic Segmentation Loss
-        for igpu in range(len(kinematics_label)):
-            particles = particles_label[igpu]
-            ppn_layers = result["vertex_layers"][igpu]
-            ppn_coords = result["vertex_coords"][igpu]
-            points = result["vertex_points"][igpu]
-            primary_label_scales = result["primary_label_scales"][igpu]
-            loss_gpu, acc_gpu = 0.0, 0.0
-            num_layers = len(ppn_layers)
-            for layer in range(len(ppn_layers)):
-                # print("Layer = ", layer)
-                ppn_score_layer = ppn_layers[layer]
-                coords_layer = ppn_coords[layer]
-                primaries_layer = primary_label_scales[layer]
-                loss_layer = 0.0
-                for b in batch_ids[igpu].int().unique():
-
-                    batch_index_layer = coords_layer[:, 0].int() == b
-                    batch_particle_index = batch_ids[igpu].int() == b
-                    print(particles, particles[:, 0], b)
-                    print("particles[:, 0] == b = ", particles[:, 0] == b.item())
-                    points_label_batch = particles[particles[:, 0] == b]
-                    vertices_batch = points_label_batch[:, 1:4]
-                    print("points_label_batch = ", points_label_batch)
-                    scores_event = ppn_score_layer[batch_index_layer].squeeze()
-                    coords_batch = coords_layer[batch_index_layer]
-                    primaries_batch = primaries_layer[batch_index_layer]
-
-                    heatmap = self.compute_heatmap(
-                        coords_batch, vertices_batch, primaries_batch
-                    )
-
-            #         d_true = pairwise_distances(
-            #             points_label,
-            #             points_event[:, 1:4].to(device))
-
-            #         d_positives = (d_true < self.resolution * \
-            #                        2**(len(ppn_layers) - layer)).any(dim=0)
-
-            #         num_positives = d_positives.sum()
-            #         num_negatives = d_positives.nelement() - num_positives
-
-            #         w = num_positives / \
-            #             (num_positives + num_negatives)
-
-            #         weight_ppn = torch.zeros(d_positives.shape[0]).to(device)
-            #         weight_ppn[d_positives] = 1 - w
-            #         weight_ppn[~d_positives] = w
-
-            #         loss_batch = self.lossfn(scores_event,
-            #                                  d_positives,
-            #                                  weight=weight_ppn,
-            #                                  reduction='mean')
-
-            #         loss_layer += loss_batch
-            #         if layer == len(ppn_layers)-1:
-
-            #             # Get Final Layers
-            #             anchors = coords_layer[batch_particle_index][:, 1:4].to(device) + 0.5
-            #             pixel_score = points[batch_particle_index][:, -1]
-            #             pixel_logits = points[batch_particle_index][:, 3:8]
-            #             pixel_pred = points[batch_particle_index][:, :3] + anchors
-
-            #             d = pairwise_distances(points_label, pixel_pred)
-            #             positives = (d < self.resolution).any(dim=0)
-            #             if (torch.sum(positives) < 1):
-            #                 continue
-            #             acc = (positives == (pixel_score > 0)).sum() / float(pixel_score.shape[0])
-            #             total_acc += acc
-
-            #             # Mask Loss
-            #             mask_loss_final = self.lossfn(pixel_score,
-            #                                           positives,
-            #                                           weight=weight_ppn,
-            #                                           reduction='mean')
-
-            #             distance_positives = d[:, positives]
-
-            #             # Distance Loss
-            #             d2, _ = torch.min(distance_positives, dim=0)
-            #             reg_loss = d2.mean()
-            #             res['vertex_reg_loss'] += float(reg_loss) / num_batches
-            #             res['vertex_mask_loss'] += float(mask_loss_final) / num_batches
-            #             total_loss += (reg_loss + mask_loss_final) / num_batches
-
-            #     loss_layer /= num_batches
-            #     loss_gpu += loss_layer
-            # loss_gpu /= len(ppn_layers)
-            # total_loss += loss_gpu
-
-        total_acc /= num_batches
-        res["vertex_loss"] = total_loss
-        res["vertex_accuracy"] = float(total_acc)
-        return res

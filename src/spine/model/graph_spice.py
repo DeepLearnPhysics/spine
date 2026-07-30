@@ -1,5 +1,10 @@
 """Supervi dense clustering model and its loss."""
 
+from __future__ import annotations
+
+from collections.abc import Sequence
+from typing import Any
+
 import numpy as np
 import torch
 
@@ -18,6 +23,7 @@ from spine.utils.cluster.graph import ClusterGraphConstructor
 
 from .layer.cluster import kernel_factory, loss_factory
 from .layer.cluster.graph_spice_embedder import GraphSPICEEmbedder
+from .registry import ModelSpec
 
 __all__ = ["GraphSPICE", "GraphSPICELoss"]
 
@@ -62,17 +68,13 @@ class GraphSPICE(torch.nn.Module):
     directory for detailed examples of working configurations.
     """
 
-    MODULES = ["constructor", "embedder", "kernel"]
-
-    def __init__(self, graph_spice, graph_spice_loss=None):
+    def __init__(self, graph_spice: dict[str, Any]) -> None:
         """Initialize the Graph-SPICE model.
 
         Parameters
         ----------
         graph_spice : dict
             Graph-SPICE configuration dictionary
-        graph_spice_loss : dict, optional
-            Graph-SPICE loss configuration dictionary
         """
         # Initialize the parent class
         super().__init__()
@@ -82,14 +84,19 @@ class GraphSPICE(torch.nn.Module):
 
     def process_model_config(
         self,
-        embedder,
-        kernel,
-        constructor,
-        shapes=[SHOWR_SHP, TRACK_SHP, MICHL_SHP, DELTA_SHP],
-        use_raw_features=False,
-        invert=True,
-        make_clusters=False,
-    ):
+        embedder: dict[str, Any],
+        kernel: dict[str, Any],
+        constructor: dict[str, Any],
+        shapes: Sequence[int | str] = (
+            SHOWR_SHP,
+            TRACK_SHP,
+            MICHL_SHP,
+            DELTA_SHP,
+        ),
+        use_raw_features: bool = False,
+        invert: bool = True,
+        make_clusters: bool = False,
+    ) -> None:
         """Initialize the underlying modules.
 
         Parameters
@@ -134,7 +141,12 @@ class GraphSPICE(torch.nn.Module):
         self.invert = invert
         self.make_clusters = make_clusters
 
-    def filter_class(self, data, seg_label, clust_label=None):
+    def filter_class(
+        self,
+        data: TensorBatch,
+        seg_label: TensorBatch,
+        clust_label: TensorBatch | None = None,
+    ) -> tuple[TensorBatch, TensorBatch, TensorBatch | None, IndexBatch]:
         """Filter the list of pixels to those in the list of requested shapes.
 
         Parameters
@@ -177,17 +189,19 @@ class GraphSPICE(torch.nn.Module):
         )
 
         # Restrict the label tensors
-        assert seg_label.shape[0] == mask.shape[0], (
-            "The segmentation label tensor is of the wrong shape: "
-            f"{seg_label.shape[0]} != {mask.shape[0]}"
-        )
+        if seg_label.shape[0] != mask.shape[0]:
+            raise ValueError(
+                "The segmentation label tensor is of the wrong shape: "
+                f"{seg_label.shape[0]} != {mask.shape[0]}"
+            )
         seg_label = TensorBatch(seg_label.tensor[index], data.counts)
 
         if clust_label is not None:
-            assert clust_label.shape[0] == mask.shape[0], (
-                "The cluster label tensor is of the wrong shape: "
-                f"{clust_label.shape[0]} != {mask.shape[0]}"
-            )
+            if clust_label.shape[0] != mask.shape[0]:
+                raise ValueError(
+                    "The cluster label tensor is of the wrong shape: "
+                    f"{clust_label.shape[0]} != {mask.shape[0]}"
+                )
             clust_label = TensorBatch(clust_label.tensor[index], data.counts)
 
         # Store the index as an IndexBatch
@@ -195,7 +209,12 @@ class GraphSPICE(torch.nn.Module):
 
         return data, seg_label, clust_label, index
 
-    def forward(self, data, seg_label, clust_label=None):
+    def forward(
+        self,
+        data: TensorBatch,
+        seg_label: TensorBatch,
+        clust_label: TensorBatch | None = None,
+    ) -> dict[str, Any]:
         """Run a batch of data through the forward function.
 
         Parameters
@@ -274,7 +293,11 @@ class GraphSPICELoss(torch.nn.Module):
     :class:`GraphSPICE`
     """
 
-    def __init__(self, graph_spice, graph_spice_loss=None):
+    def __init__(
+        self,
+        graph_spice: dict[str, Any],
+        graph_spice_loss: dict[str, Any] | None = None,
+    ) -> None:
         """Intialize the Graph-SPICE loss.
 
         Parameters
@@ -293,7 +316,9 @@ class GraphSPICELoss(torch.nn.Module):
         # Process the main mode configuration for its crucial elements
         self.process_model_config(**graph_spice)
 
-    def process_loss_config(self, evaluate_clustering_metrics=False, **loss):
+    def process_loss_config(
+        self, evaluate_clustering_metrics: bool = False, **loss: Any
+    ) -> None:
         """Process the loss configuration
 
         Parameters
@@ -312,11 +337,16 @@ class GraphSPICELoss(torch.nn.Module):
 
     def process_model_config(
         self,
-        constructor,
-        shapes=[SHOWR_SHP, TRACK_SHP, MICHL_SHP, DELTA_SHP],
-        invert=True,
-        **kwargs,
-    ):
+        constructor: dict[str, Any],
+        shapes: Sequence[int | str] = (
+            SHOWR_SHP,
+            TRACK_SHP,
+            MICHL_SHP,
+            DELTA_SHP,
+        ),
+        invert: bool = True,
+        **kwargs: Any,
+    ) -> None:
         """Process the model configuration
 
         Parameters
@@ -334,7 +364,12 @@ class GraphSPICELoss(torch.nn.Module):
                 **constructor, shapes=shapes, invert=invert
             )
 
-    def filter_class(self, seg_label, clust_label, filter_index):
+    def filter_class(
+        self,
+        seg_label: TensorBatch,
+        clust_label: TensorBatch,
+        filter_index: IndexBatch,
+    ) -> tuple[TensorBatch, TensorBatch]:
         """Filter the list of pixels to those in the list of requested shapes.
 
         Parameters
@@ -364,7 +399,13 @@ class GraphSPICELoss(torch.nn.Module):
 
         return seg_label, clust_label
 
-    def forward(self, seg_label, clust_label, filter_index, **output):
+    def forward(
+        self,
+        seg_label: TensorBatch,
+        clust_label: TensorBatch,
+        filter_index: IndexBatch,
+        **output: Any,
+    ) -> dict[str, Any]:
         """Run a batch of data through the loss function.
 
         Parameters
@@ -404,3 +445,6 @@ class GraphSPICELoss(torch.nn.Module):
             result.update(metrics)
 
         return result
+
+
+MODEL_SPEC = ModelSpec("graph_spice", GraphSPICE, GraphSPICELoss)

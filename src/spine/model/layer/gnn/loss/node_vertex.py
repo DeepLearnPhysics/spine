@@ -1,10 +1,15 @@
 """Module that defines a vertex identification loss using node predictions."""
 
+from __future__ import annotations
+
+from collections.abc import Sequence
+from typing import Any
+
 import numpy as np
 import torch
 
 from spine.constants import PRINT_COL, VTX_COLS
-from spine.data import Meta, TensorBatch
+from spine.data import IndexBatch, Meta, TensorBatch
 from spine.geo import GeoManager
 from spine.model.layer.factories import loss_fn_factory
 from spine.utils.gnn.cluster import get_cluster_label_batch
@@ -48,14 +53,14 @@ class NodeVertexLoss(torch.nn.Module):
 
     def __init__(
         self,
-        balance_primary_loss=False,
-        primary_loss="ce",
-        regression_loss="mse",
-        only_contained=True,
-        normalize_positions=False,
-        use_anchor_points=False,
-        return_vertex_labels=False,
-    ):
+        balance_primary_loss: bool = False,
+        primary_loss: str | dict[str, Any] = "ce",
+        regression_loss: str | dict[str, Any] = "mse",
+        only_contained: bool = True,
+        normalize_positions: bool = False,
+        use_anchor_points: bool = False,
+        return_vertex_labels: bool = False,
+    ) -> None:
         """Initialize the vertex regression loss function.
 
         Parameters
@@ -94,22 +99,23 @@ class NodeVertexLoss(torch.nn.Module):
         self.reg_loss_fn = loss_fn_factory(regression_loss, reduction="sum")
 
         # If containment is requested, intialize geometry
-        if self.only_contained:
-            self.geo = GeoManager.get_instance()
+        self.geo = GeoManager.get_instance() if self.only_contained else None
+        self.cont_def = None
+        if self.geo is not None:
             self.cont_def = self.geo.define_containment_volumes(
                 margin=0.0, mode="module"
             )
 
     def forward(
         self,
-        clust_label,
-        clusts,
-        node_pred,
-        meta=None,
-        start_points=None,
-        end_points=None,
-        **kwargs,
-    ):
+        clust_label: TensorBatch,
+        clusts: IndexBatch,
+        node_pred: TensorBatch,
+        meta: Sequence[Meta] | None = None,
+        start_points: TensorBatch | None = None,
+        end_points: TensorBatch | None = None,
+        **kwargs: object,
+    ) -> dict[str, torch.Tensor | TensorBatch | float | int]:
         """Applies the node type loss to a batch of data.
 
         Parameters
@@ -147,12 +153,17 @@ class NodeVertexLoss(torch.nn.Module):
             Value of the vertex regression accuracy
         """
         # Ensure that the predictions are of the expected shape, split them
-        assert node_pred.shape[1] == 5, (
-            "The output used for vertex prediction should contain 5 "
-            "features, 2 used for primary prediction and 3 for regression."
-        )
+        if node_pred.shape[1] != 5:
+            raise ValueError(
+                "The output used for vertex prediction should contain 5 "
+                "features, 2 used for primary prediction and 3 for regression."
+            )
 
-        primary_pred, vertex_pred = torch.tensor_split(node_pred.tensor, [2], dim=1)
+        primary_pred, vertex_pred = torch.tensor_split(
+            node_pred.torch_tensor(),
+            [2],
+            dim=1,
+        )
 
         primary_pred = TensorBatch(primary_pred, node_pred.counts)
         vertex_pred = TensorBatch(vertex_pred, node_pred.counts)
@@ -162,32 +173,39 @@ class NodeVertexLoss(torch.nn.Module):
 
         # If containment or normalization are requested, ensure meta is provided
         if self.only_contained or self.normalize_positions:
-            assert meta is not None, (
-                "Must provide `meta` to check containement or normalize "
-                "vertex positions."
-            )
+            if meta is None:
+                raise ValueError(
+                    "Must provide `meta` to check containment or normalize "
+                    "vertex positions."
+                )
 
-        # Get the interaction primary labels and the vertex position labels
-        # TODO: could modify `get_cluster_label_batch` to accept a column list
+        # Get interaction-primary and three-dimensional vertex labels.
         primary_ids = get_cluster_label_batch(clust_label, clusts, column=PRINT_COL)
 
         vertex_labels = np.empty((len(clusts.index_list), 3), dtype=primary_ids.dtype)
-        for i, col in enumerate(VTX_COLS):
-            vertex_labels[:, i] = get_cluster_label_batch(
-                clust_label, clusts, column=col
-            ).tensor
+        for dimension, column in enumerate(VTX_COLS):
+            vertex_labels[:, dimension] = get_cluster_label_batch(
+                clust_label,
+                clusts,
+                column=column,
+            ).numpy_tensor()
         vertex_labels = TensorBatch(vertex_labels, primary_ids.counts)
 
         # Create a mask for valid nodes (-1 indicates invalid labels,
         # 0 indicates a secondary)
-        valid_mask = primary_ids.tensor > 0
+        valid_mask = primary_ids.numpy_tensor() > 0
 
         # If requested, check that the vertexes are contained
         if self.only_contained:
+            if meta is None or self.geo is None or self.cont_def is None:
+                raise RuntimeError(
+                    "Containment checking requires geometry and metadata."
+                )
             contain_mask = np.empty(len(clusts.index_list), dtype=bool)
-            for b in range(vertex_labels.batch_size):
-                lower, upper = vertex_labels.edges[b], vertex_labels.edges[b + 1]
-                points = meta[b].to_cm(vertex_labels[b])
+            for batch_id in range(vertex_labels.batch_size):
+                lower = vertex_labels.edges[batch_id]
+                upper = vertex_labels.edges[batch_id + 1]
+                points = meta[batch_id].to_cm(vertex_labels[batch_id])
                 contain_mask[lower:upper] = self.geo.check_containment(
                     self.cont_def, points, summarize=False
                 )
@@ -195,30 +213,60 @@ class NodeVertexLoss(torch.nn.Module):
             valid_mask &= contain_mask
 
         # If requested, normalize the target positions to the detector size
+        position_scales = None
         if self.normalize_positions:
-            ranges = (meta[0].upper - meta[0].lower) / meta[0].size
+            if meta is None:
+                raise RuntimeError("Position normalization requires metadata.")
+            if len(meta) != vertex_labels.batch_size:
+                raise ValueError(
+                    "Expected one metadata entry per batch entry, but received "
+                    f"{len(meta)} metadata entries for a batch size of "
+                    f"{vertex_labels.batch_size}."
+                )
+
+            # Each entry may have a different image extent. Build one scale
+            # vector per node instead of assuming the first entry represents
+            # the entire batch.
+            position_scales = np.empty_like(vertex_labels.numpy_tensor())
+            for batch_id in range(vertex_labels.batch_size):
+                lower = vertex_labels.edges[batch_id]
+                upper = vertex_labels.edges[batch_id + 1]
+                position_scales[lower:upper] = meta[batch_id].count
+
             vertex_labels = TensorBatch(
-                vertex_labels.tensor / ranges, vertex_labels.counts
+                vertex_labels.numpy_tensor() / position_scales,
+                vertex_labels.counts,
             )
 
         # If requested, anchor predicted positions to the closest particle point
         if self.use_anchor_points:
-            # Check that we have particle end poins
-            assert (
-                start_points is not None and end_points is not None
-            ), "Must provided particle end poins to anchor predictions."
+            # Check that we have particle end points
+            if start_points is None or end_points is None:
+                raise ValueError(
+                    "Must provide particle end points to anchor predictions."
+                )
 
             # Get the particle end points, scale if necessary
-            points = torch.hstack((start_points.tensor, end_points.tensor)).view(
-                -1, 2, 3
-            )
+            points = torch.hstack(
+                (
+                    start_points.torch_tensor(),
+                    end_points.torch_tensor(),
+                )
+            ).view(-1, 2, 3)
             if self.normalize_positions:
-                ranges = (meta[0].upper - meta[0].lower) / meta[0].size
-                points = points / torch.tensor(ranges, device=points.device)
+                if position_scales is None:
+                    raise RuntimeError("Anchor normalization requires position scales.")
+                points = points / torch.as_tensor(
+                    position_scales,
+                    dtype=points.dtype,
+                    device=points.device,
+                ).view(-1, 1, 3)
 
             # Get the closest particle end point for each prediction
+            vertex_pred_tensor = vertex_pred.torch_tensor()
             dist_to_anchor = torch.norm(
-                vertex_pred.tensor.view(-1, 1, 3) - points, dim=2
+                vertex_pred_tensor.view(-1, 1, 3) - points,
+                dim=2,
             )
             min_index = torch.argmin(dist_to_anchor, dim=1)
             range_index = torch.arange(len(points), device=points.device).long()
@@ -226,24 +274,29 @@ class NodeVertexLoss(torch.nn.Module):
 
             # Update the predictions so that the offset w.r.t. to anchor
             # points is predicted instead of the raw position
-            vertex_pred = TensorBatch(anchors + vertex_pred.tensor, vertex_pred.counts)
+            vertex_pred = TensorBatch(
+                anchors + vertex_pred_tensor,
+                vertex_pred.counts,
+            )
 
         # Apply the valid mask and convert the labels to a torch.Tensor
         valid_index = np.where(valid_mask)[0]
         vertex_assn = vertex_labels.to_tensor(device=node_pred.device)
-        vertex_assn = vertex_assn.tensor[valid_index]
-        vertex_pred = vertex_pred.tensor[valid_index]
+        vertex_assn_tensor = vertex_assn.torch_tensor()[valid_index]
+        vertex_pred_tensor = vertex_pred.torch_tensor()[valid_index]
 
         # Compute the regression loss
-        reg_loss = self.reg_loss_fn(vertex_pred, vertex_assn)
-        if len(valid_index):
+        reg_loss = self.reg_loss_fn(vertex_pred_tensor, vertex_assn_tensor)
+        if len(valid_index) > 0:
             reg_loss /= len(valid_index)
 
-        # Compute accuracy of assignment (average distance)
-        # TODO: Come up with a better implementation (between 0 and 1?)
+        # Report mean Euclidean vertex error as the regression metric.
         reg_acc = 1.0
-        if len(valid_index):
-            dists = torch.norm(vertex_pred - vertex_assn)
+        if len(valid_index) > 0:
+            dists = torch.norm(
+                vertex_pred_tensor - vertex_assn_tensor,
+                dim=1,
+            )
             reg_acc = float(torch.mean(dists))
 
         # Build the result dictionary
@@ -253,7 +306,7 @@ class NodeVertexLoss(torch.nn.Module):
             "reg_accuracy": reg_acc,
             "reg_loss": reg_loss,
             "reg_count": len(valid_index),
-            **{f"primary_{k}": v for k, v in result_primary.items()},
+            **{f"primary_{key}": value for key, value in result_primary.items()},
         }
 
         if self.return_vertex_labels:

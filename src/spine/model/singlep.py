@@ -6,11 +6,13 @@ This module includes:
     - UQ implementations of the full image classification
 """
 
+from __future__ import annotations
+
 from collections import Counter, OrderedDict, defaultdict
+from typing import Any
 
 import numpy as np
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 from torch_geometric.data import Batch, Data
 
@@ -18,22 +20,23 @@ from spine.constants import PID_COL
 from spine.data import TensorBatch
 from spine.utils.gnn.cluster import form_clusters, get_cluster_label
 
-# from .experimental.layer.pointmlp import PointMLPEncoder
-from .experimental.bayes.encoder import MCDropoutEncoder
-from .experimental.bayes.evidential import EVDLoss
-from .experimental.layer.pointnet import PointNetEncoder
 from .image import ImageClassifier
 from .layer.cnn.act_norm import act_factory
 from .layer.cnn.configuration import setup_cnn_configuration
 from .layer.cnn.encoder import SparseResidualEncoder
+from .layer.cnn.mcdropout import MCDropoutEncoder
+from .layer.common.evidential import EVDLoss
 from .layer.factories import loss_fn_factory
+from .layer.pointcloud import PointNetEncoder
 
 
 class MultiParticleImageClassifier(ImageClassifier):
 
-    MODULES = ["particle_image_classifier", "network_base", "mink_encoder"]
-
-    def __init__(self, cfg, name="particle_image_classifier"):
+    def __init__(
+        self,
+        cfg: dict[str, Any],
+        name: str = "particle_image_classifier",
+    ) -> None:
         super(MultiParticleImageClassifier, self).__init__(cfg, name)
 
         model_cfg = cfg.get(name, {})
@@ -47,14 +50,18 @@ class MultiParticleImageClassifier(ImageClassifier):
 
         self.split_input_mode = model_cfg.get("split_input_as_tg_batch", False)
 
-    def split_input_as_tg_batch(self, point_cloud, clusts=None):
+    def split_input_as_tg_batch(
+        self,
+        point_cloud: Any,
+        clusts: Any | None = None,
+    ) -> Any:
         point_cloud_cpu = point_cloud.detach().cpu().numpy()
         batches, bcounts = np.unique(
             point_cloud_cpu[:, self.batch_col], return_counts=True
         )
         if clusts is None:
             clusts = form_clusters(point_cloud_cpu, column=self.split_col)
-        if not len(clusts):
+        if len(clusts) == 0:
             return Batch()
 
         if self.skip_invalid:
@@ -64,7 +71,7 @@ class MultiParticleImageClassifier(ImageClassifier):
             clusts = [
                 c for i, c in enumerate(clusts) if target_ids[i] != self.invalid_id
             ]
-            if not len(clusts):
+            if len(clusts) == 0:
                 return Batch()
 
         data_list = []
@@ -77,14 +84,14 @@ class MultiParticleImageClassifier(ImageClassifier):
         split_data = Batch.from_data_list(data_list)
         return split_data, clusts
 
-    def split_input(self, point_cloud, clusts=None):
+    def split_input(self, point_cloud: Any, clusts: Any | None = None) -> Any:
         point_cloud_cpu = point_cloud.detach().cpu().numpy()
         batches, bcounts = np.unique(
             point_cloud_cpu[:, self.batch_col], return_counts=True
         )
         if clusts is None:
             clusts = form_clusters(point_cloud_cpu, column=self.split_col)
-        if not len(clusts):
+        if len(clusts) == 0:
             return point_cloud, [np.array([]) for _ in batches], []
 
         if self.skip_invalid:
@@ -94,7 +101,7 @@ class MultiParticleImageClassifier(ImageClassifier):
             clusts = [
                 c for i, c in enumerate(clusts) if target_ids[i] != self.invalid_id
             ]
-            if not len(clusts):
+            if len(clusts) == 0:
                 return point_cloud, [np.array([]) for _ in batches], []
 
         split_point_cloud = point_cloud.clone()
@@ -111,7 +118,11 @@ class MultiParticleImageClassifier(ImageClassifier):
             cbids,
         )
 
-    def forward(self, input, clusts=None):
+    def forward(
+        self,
+        input: Any,
+        clusts: Any | None = None,
+    ) -> dict[str, Any]:
         res = {}
         (point_cloud,) = input
 
@@ -147,9 +158,11 @@ class DUQParticleClassifier(ImageClassifier):
     PyTorch implementation for sparse convolutional networks.
     """
 
-    MODULES = ["network_base", "particle_image_classifier", "mink_encoder"]
-
-    def __init__(self, cfg, name="duq_particle_classifier"):
+    def __init__(
+        self,
+        cfg: dict[str, Any],
+        name: str = "duq_particle_classifier",
+    ) -> None:
         super(DUQParticleClassifier, self).__init__(cfg, name=name)
         self.model_config = cfg.get(name, {})
         self.final_layer = None
@@ -159,11 +172,11 @@ class DUQParticleClassifier(ImageClassifier):
         self.embedding_dim = self.model_config.get("embedding_dim", 64)
         self.latent_size = self.model_config.get("latent_size", 256)
 
-        self.w = nn.Parameter(
+        self.w = torch.nn.Parameter(
             torch.zeros(self.embedding_dim, self.num_classes, self.latent_size)
         )
 
-        nn.init.kaiming_normal_(self.w, nonlinearity="relu")
+        torch.nn.init.kaiming_normal_(self.w, nonlinearity="relu")
 
         self.register_buffer("N", torch.ones(self.num_classes) * 20)
         self.register_buffer(
@@ -172,13 +185,13 @@ class DUQParticleClassifier(ImageClassifier):
 
         self.m = self.m * self.N.unsqueeze(0)
 
-    def embed(self, x):
+    def embed(self, x: Any) -> Any:
 
         feats = self.encoder(x)
         out = torch.einsum("ij,mnj->imn", feats, self.w)
         return out
 
-    def bilinear(self, z):
+    def bilinear(self, z: Any) -> Any:
         embeddings = self.m / self.N.unsqueeze(0)
 
         diff = z - embeddings.unsqueeze(0)
@@ -186,7 +199,7 @@ class DUQParticleClassifier(ImageClassifier):
 
         return y_pred
 
-    def forward(self, input):
+    def forward(self, input: Any) -> dict[str, Any]:
 
         (point_cloud,) = input
         if self.training:
@@ -209,7 +222,7 @@ class DUQParticleClassifier(ImageClassifier):
 
         return res
 
-    def update_buffers(self):
+    def update_buffers(self) -> None:
         with torch.no_grad():
             # normalizing value per class, assumes y is one_hot encoded
             self.N = torch.max(
@@ -223,18 +236,22 @@ class DUQParticleClassifier(ImageClassifier):
 
 class EvidentialParticleClassifier(ImageClassifier):
 
-    MODULES = ["network_base", "particle_image_classifier", "mink_encoder"]
-
-    def __init__(self, cfg, name="evidential_image_classifier"):
+    def __init__(
+        self,
+        cfg: dict[str, Any],
+        name: str = "evidential_image_classifier",
+    ) -> None:
         super(EvidentialParticleClassifier, self).__init__(cfg, name=name)
         self.final_layer_name = cfg.get(name, {}).get("final_layer_name", "relu")
         if self.final_layer_name == "relu":
-            self.final_layer = nn.Sequential(
-                nn.Linear(self.encoder.latent_size, self.num_classes), nn.ReLU()
+            self.final_layer = torch.nn.Sequential(
+                torch.nn.Linear(self.encoder.latent_size, self.num_classes),
+                torch.nn.ReLU(),
             )
         elif self.final_layer_name == "softplus":
-            self.final_layer = nn.Sequential(
-                nn.Linear(self.encoder.latent_size, self.num_classes), nn.Softplus()
+            self.final_layer = torch.nn.Sequential(
+                torch.nn.Linear(self.encoder.latent_size, self.num_classes),
+                torch.nn.Softplus(),
             )
         else:
             raise Exception(
@@ -242,28 +259,34 @@ class EvidentialParticleClassifier(ImageClassifier):
             )
         self.eps = cfg.get(name, {}).get("eps", 0.0)
 
-    def forward(self, input):
+    def forward(self, input: Any) -> dict[str, Any]:
         (point_cloud,) = input
         out = self.encoder(point_cloud)
         evidence = self.final_layer(out)
         # print("Evidence = ", evidence)
         concentration = evidence + 1.0
-        S = torch.sum(concentration, dim=1, keepdim=True)
-        uncertainty = self.num_classes / (S + self.eps)
+        total_concentration = torch.sum(
+            concentration,
+            dim=1,
+            keepdim=True,
+        )
+        uncertainty = self.num_classes / (total_concentration + self.eps)
         res = {
             "evidence": [evidence],
             "uncertainty": [uncertainty],
             "concentration": [concentration],
-            "expected_probability": [concentration / S],
+            "expected_probability": [concentration / total_concentration],
         }
         return res
 
 
 class BayesianParticleClassifier(torch.nn.Module):
 
-    MODULES = ["network_base", "mcdropout_encoder"]
-
-    def __init__(self, cfg, name="bayesian_particle_classifier"):
+    def __init__(
+        self,
+        cfg: dict[str, Any],
+        name: str = "bayesian_particle_classifier",
+    ) -> None:
         super(BayesianParticleClassifier, self).__init__()
         setup_cnn_configuration(self, cfg, "network_base")
 
@@ -274,37 +297,47 @@ class BayesianParticleClassifier(torch.nn.Module):
         self.mode = self.model_config.get("mode", "mc_dropout")
 
         if self.mode == "evidential":
-            self.logit_layer = nn.Sequential(
-                nn.Linear(self.encoder.latent_size, self.num_classes), nn.Softplus()
+            self.logit_layer = torch.nn.Sequential(
+                torch.nn.Linear(self.encoder.latent_size, self.num_classes),
+                torch.nn.Softplus(),
             )
         else:
-            self.logit_layer = nn.Sequential(
-                nn.ReLU(), nn.Linear(self.encoder.latent_size, self.num_classes)
+            self.logit_layer = torch.nn.Sequential(
+                torch.nn.ReLU(),
+                torch.nn.Linear(self.encoder.latent_size, self.num_classes),
             )
 
         self.num_samples = self.model_config.get("num_samples", 20)
         self.eps = self.model_config.get("eps", 0.0)
         print("Dropout network will run inference on {} mode".format(self.mode))
 
-    def evidential_forward(self, input):
+    def evidential_forward(self, input: Any) -> dict[str, Any]:
         (point_cloud,) = input
         out = self.encoder(point_cloud)
         out = self.logit_layer(out) + self.eps
 
         concentration = out + 1.0
-        S = torch.sum(concentration, dim=1, keepdim=True)
-        uncertainty = self.num_classes / (S + 0.000001)
+        total_concentration = torch.sum(
+            concentration,
+            dim=1,
+            keepdim=True,
+        )
+        uncertainty = self.num_classes / (total_concentration + 0.000001)
 
         res = {}
 
         res["evidence"] = [out]
         res["uncertainty"] = [uncertainty]
         res["concentration"] = [concentration]
-        res["expected_probability"] = [concentration / S]
+        res["expected_probability"] = [concentration / total_concentration]
 
         return res
 
-    def mc_forward(self, input, num_samples=None):
+    def mc_forward(
+        self,
+        input: Any,
+        num_samples: int | None = None,
+    ) -> dict[str, Any]:
 
         with torch.no_grad():
             if num_samples is None:
@@ -343,7 +376,11 @@ class BayesianParticleClassifier(torch.nn.Module):
             res = {"softmax": [softmax_probs], "logits": [logits], "mc_dist": [mc_dist]}
             return res
 
-    def standard_forward(self, input, verbose=False):
+    def standard_forward(
+        self,
+        input: Any,
+        verbose: bool = False,
+    ) -> dict[str, Any]:
         print("Forwarding using weight averaging (standard dropout) ...")
         (point_cloud,) = input
         out = self.encoder(point_cloud)
@@ -351,8 +388,8 @@ class BayesianParticleClassifier(torch.nn.Module):
         res = {"logits": [out]}
         return res
 
-    def forward(self, input):
-        if (not self.training) and (self.mode == "mc_dropout"):
+    def forward(self, input: Any) -> dict[str, Any]:
+        if not self.training and self.mode == "mc_dropout":
             return self.mc_forward(input)
         elif self.mode == "evidential":
             return self.evidential_forward(input)
@@ -360,9 +397,13 @@ class BayesianParticleClassifier(torch.nn.Module):
             return self.standard_forward(input)
 
 
-class MultiParticleTypeLoss(nn.Module):
+class MultiParticleTypeLoss(torch.nn.Module):
 
-    def __init__(self, cfg, name="particle_type_loss"):
+    def __init__(
+        self,
+        cfg: dict[str, Any],
+        name: str = "particle_type_loss",
+    ) -> None:
         super(MultiParticleTypeLoss, self).__init__()
 
         loss_cfg = cfg.get(name, {})
@@ -372,11 +413,11 @@ class MultiParticleTypeLoss(nn.Module):
         self.balance_classes = loss_cfg.get("balance_classes", False)
 
         reduction = "mean" if not self.balance_classes else "sum"
-        self.xentropy = nn.CrossEntropyLoss(ignore_index=-1, reduction=reduction)
+        self.xentropy = torch.nn.CrossEntropyLoss(ignore_index=-1, reduction=reduction)
 
         self.split_input_mode = loss_cfg.get("split_input_as_tg_batch", False)
 
-    def forward_tg(self, out, valid_labels):
+    def forward_tg(self, out: Any, valid_labels: Any) -> dict[str, Any]:
 
         logits = out["logits"][0]
         clusts = out["clusts"][0]
@@ -385,7 +426,7 @@ class MultiParticleTypeLoss(nn.Module):
 
         return [logits], [labels]
 
-    def forward(self, out, type_labels):
+    def forward(self, out: dict[str, Any], type_labels: Any) -> dict[str, Any]:
 
         valid_labels = type_labels[0][type_labels[0][:, 9] < self.num_classes]
 
@@ -402,10 +443,10 @@ class MultiParticleTypeLoss(nn.Module):
                     self.target_col,
                 )
                 for b in range(len(clusts))
-                if len(clusts[b])
+                if len(clusts[b]) > 0
             ]
 
-        if not len(labels):
+        if len(labels) == 0:
             res = {
                 "loss": torch.tensor(
                     0.0, requires_grad=True, device=valid_labels.device
@@ -453,18 +494,22 @@ class MultiParticleTypeLoss(nn.Module):
         return res
 
 
-class MultiLabelCrossEntropy(nn.Module):
+class MultiLabelCrossEntropy(torch.nn.Module):
 
-    def __init__(self, cfg, name="duq_particle_classifier"):
+    def __init__(
+        self,
+        cfg: dict[str, Any],
+        name: str = "duq_particle_classifier",
+    ) -> None:
         super(MultiLabelCrossEntropy, self).__init__()
-        self.xentropy = nn.BCELoss(reduction="none")
+        self.xentropy = torch.nn.BCELoss(reduction="none")
         self.num_classes = 5
         model_cfg = cfg.get(name, {})
         self.grad_w = model_cfg.get("grad_w", 0.0)
         self.grad_penalty = model_cfg.get("grad_penalty", True)
 
     @staticmethod
-    def calc_gradient_penalty(x, y_pred):
+    def calc_gradient_penalty(x: Any, y_pred: Any) -> Any:
         """
         Code From the DUQ main Github Repository:
         https://github.com/y0ast/deterministic-uncertainty-quantification
@@ -491,7 +536,7 @@ class MultiLabelCrossEntropy(nn.Module):
 
         return gradient_penalty
 
-    def forward(self, out, type_labels):
+    def forward(self, out: dict[str, Any], type_labels: Any) -> dict[str, Any]:
         probas = out["score"][0]
         device = probas.device
         labels_one_hot = torch.eye(self.num_classes)[type_labels[0][:, 0].long()].to(
@@ -529,17 +574,30 @@ class MultiLabelCrossEntropy(nn.Module):
         return res
 
 
-class EvidentialLearningLoss(nn.Module):
+class EvidentialLearningLoss(torch.nn.Module):
 
-    def __init__(self, cfg, name="evidential_learning_loss"):
+    def __init__(
+        self,
+        cfg: dict[str, Any],
+        name: str = "evidential_learning_loss",
+    ) -> None:
         super(EvidentialLearningLoss, self).__init__()
         self.loss_config = cfg.get(name, {})
         self.evd_loss_name = self.loss_config.get("evd_loss_name", "edl_sumsq")
         self.num_classes = self.loss_config.get("num_classes", 5)
         self.num_total_iter = self.loss_config.get("num_total_iter", 50000)
-        self.loss_fn = EVDLoss(self.evd_loss_name, "mean", T=self.num_total_iter)
+        self.loss_fn = EVDLoss(
+            self.evd_loss_name,
+            "mean",
+            annealing_steps=self.num_total_iter,
+        )
 
-    def forward(self, out, type_labels, iteration=0):
+    def forward(
+        self,
+        out: dict[str, Any],
+        type_labels: Any,
+        iteration: int = 0,
+    ) -> dict[str, Any]:
 
         alpha = out["concentration"][0]
         probs = out["expected_probability"][0]
@@ -549,7 +607,11 @@ class EvidentialLearningLoss(nn.Module):
 
         labels_onehot = torch.eye(self.num_classes, device=device)[labels]
 
-        loss_batch = self.loss_fn(alpha, labels_onehot, t=iteration)
+        loss_batch = self.loss_fn(
+            alpha,
+            labels_onehot,
+            iteration=iteration,
+        )
         loss = loss_batch.mean()
         pred = torch.argmax(probs, dim=1)
 

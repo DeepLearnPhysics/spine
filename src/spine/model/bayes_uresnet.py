@@ -1,17 +1,18 @@
+from __future__ import annotations
+
 from collections import defaultdict
+from typing import Any
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 
 from spine.model import sparse
 
-from .experimental.bayes.decoder import MCDropoutDecoder
-from .experimental.bayes.encoder import MCDropoutEncoder
-from .experimental.bayes.evidential import EVDLoss
 from .layer.cnn.act_norm import act_factory, norm_factory
 from .layer.cnn.configuration import setup_cnn_configuration
+from .layer.cnn.mcdropout import MCDropoutDecoder, MCDropoutEncoder
 from .layer.cnn.uresnet_layers import UResNet
+from .layer.common.evidential import EVDLoss
 
 
 class BayesianUResNet(torch.nn.Module):
@@ -42,9 +43,11 @@ class BayesianUResNet(torch.nn.Module):
 
     """
 
-    MODULES = []
-
-    def __init__(self, cfg, name="mcdropout_uresnet"):
+    def __init__(
+        self,
+        cfg: dict[str, Any],
+        name: str = "mcdropout_uresnet",
+    ) -> None:
         super(BayesianUResNet, self).__init__()
         setup_cnn_configuration(self, cfg, "network_base")
 
@@ -58,14 +61,18 @@ class BayesianUResNet(torch.nn.Module):
         self.mode = self.model_config.get("mode", "standard")
 
         if "edl" in self.model_config.get("loss_fn", "cross_entropy"):
-            self.classifier = nn.Sequential(
+            self.classifier = torch.nn.Sequential(
                 sparse.Linear(self.encoder.num_filters, self.num_classes),
                 sparse.Softplus(),
             )
         else:
             self.classifier = sparse.Linear(self.encoder.num_filters, self.num_classes)
 
-    def mc_forward(self, input, num_samples=None):
+    def mc_forward(
+        self,
+        input: Any,
+        num_samples: int | None = None,
+    ) -> dict[str, Any]:
         """
         Forwarding operation for MC Dropout segmentation network.
 
@@ -96,11 +103,12 @@ class BayesianUResNet(torch.nn.Module):
             logits = torch.zeros((num_voxels, self.num_classes)).to(device)
 
             for i in range(num_samples):
-                res_encoder = self.encoder.encoder(x_sparse)
-                decoderTensors = self.decoder(
-                    res_encoder["finalTensor"], res_encoder["encoderTensors"]
+                res_encoder = self.encoder.encode(x_sparse)
+                decoder_tensors = self.decoder(
+                    res_encoder["final_tensor"],
+                    res_encoder["encoder_tensors"],
                 )
-                feats = decoderTensors[-1]
+                feats = decoder_tensors[-1]
                 out = self.classifier(feats)
                 logits += out.F
                 pvec += F.softmax(out.F, dim=1)
@@ -113,7 +121,7 @@ class BayesianUResNet(torch.nn.Module):
 
         return res
 
-    def evidential_forward(self, input):
+    def evidential_forward(self, input: Any) -> dict[str, Any]:
         """
         Forwarding operation for evidential segmentation network.
         """
@@ -122,26 +130,30 @@ class BayesianUResNet(torch.nn.Module):
             x = sparse.SparseTensor(
                 coordinates=x[:, :4].int(), features=x[:, -1].view(-1, 1)
             )
-            res_encoder = self.encoder.encoder(x)
-            print([t.F.shape for t in res_encoder["encoderTensors"]])
-            decoderTensors = self.decoder(
-                res_encoder["finalTensor"], res_encoder["encoderTensors"]
+            res_encoder = self.encoder.encode(x)
+            decoder_tensors = self.decoder(
+                res_encoder["final_tensor"],
+                res_encoder["encoder_tensors"],
             )
-            feats = decoderTensors[-1]
+            feats = decoder_tensors[-1]
             # For evidential models, logits correspond to collected evidence.
             logits = self.classifier(feats)
             ev = logits.F
             concentration = ev + 1.0
-            S = torch.sum(concentration, dim=1, keepdim=True)
-            uncertainty = self.num_classes / (S + 0.000001)
+            total_concentration = torch.sum(
+                concentration,
+                dim=1,
+                keepdim=True,
+            )
+            uncertainty = self.num_classes / (total_concentration + 0.000001)
             out["segmentation"].append(ev)
             out["evidence"].append(ev)
             out["uncertainty"].append(uncertainty)
             out["concentration"].append(concentration)
-            out["expected_probability"].append(concentration / S)
+            out["expected_probability"].append(concentration / total_concentration)
         return out
 
-    def standard_forward(self, input):
+    def standard_forward(self, input: Any) -> dict[str, Any]:
         """
         Forwarding operation for standard dropout segmentation network.
         """
@@ -150,18 +162,18 @@ class BayesianUResNet(torch.nn.Module):
             x = sparse.SparseTensor(
                 coordinates=x[:, :4].int(), features=x[:, -1].view(-1, 1)
             )
-            res_encoder = self.encoder.encoder(x)
-            print([t.F.shape for t in res_encoder["encoderTensors"]])
-            decoderTensors = self.decoder(
-                res_encoder["finalTensor"], res_encoder["encoderTensors"]
+            res_encoder = self.encoder.encode(x)
+            decoder_tensors = self.decoder(
+                res_encoder["final_tensor"],
+                res_encoder["encoder_tensors"],
             )
-            feats = decoderTensors[-1]
+            feats = decoder_tensors[-1]
             # For evidential models, logits correspond to collected evidence.
             logits = self.classifier(feats)
             out["segmentation"].append(logits.F)
         return out
 
-    def forward(self, input):
+    def forward(self, input: Any) -> dict[str, Any]:
         """ """
 
         if self.mode == "mc_dropout":
@@ -184,9 +196,11 @@ class DUQUResNet(torch.nn.Module):
 
     """
 
-    MODULES = []
-
-    def __init__(self, cfg, name="duq_uresnet"):
+    def __init__(
+        self,
+        cfg: dict[str, Any],
+        name: str = "duq_uresnet",
+    ) -> None:
         super(DUQUResNet, self).__init__()
         setup_cnn_configuration(self, cfg, name)
         self.model_config = cfg.get(name, {})
@@ -201,11 +215,11 @@ class DUQUResNet(torch.nn.Module):
         self.embedding_dim = self.model_config.get("embedding_dim", 10)
         self.latent_size = self.model_config.get("latent_size", 32)
 
-        self.w = nn.Parameter(
+        self.w = torch.nn.Parameter(
             torch.zeros(self.embedding_dim, self.num_classes, self.latent_size)
         )
 
-        nn.init.kaiming_normal_(self.w, nonlinearity="relu")
+        torch.nn.init.kaiming_normal_(self.w, nonlinearity="relu")
 
         self.register_buffer("N", torch.ones(self.num_classes) * 20)
         self.register_buffer(
@@ -214,15 +228,14 @@ class DUQUResNet(torch.nn.Module):
 
         self.m = self.m * self.N.unsqueeze(0)
 
-    def embed(self, x):
+    def embed(self, x: Any) -> Any:
 
         res = self.net(x)
-        feats = res["decoderTensors"][-1]
-        print(feats.F)
+        feats = res["decoder_tensors"][-1]
         out = torch.einsum("ij,mnj->imn", feats.F, self.w)
         return out
 
-    def bilinear(self, z):
+    def bilinear(self, z: Any) -> Any:
         embeddings = self.m / self.N.unsqueeze(0)
 
         diff = z - embeddings.unsqueeze(0)
@@ -230,7 +243,7 @@ class DUQUResNet(torch.nn.Module):
 
         return y_pred
 
-    def forward(self, input):
+    def forward(self, input: Any) -> dict[str, Any]:
 
         (point_cloud,) = input
         if self.training:
@@ -253,7 +266,7 @@ class DUQUResNet(torch.nn.Module):
 
         return res
 
-    def update_buffers(self):
+    def update_buffers(self) -> None:
         with torch.no_grad():
             # normalizing value per class, assumes y is one_hot encoded
             self.N = torch.max(
@@ -265,9 +278,13 @@ class DUQUResNet(torch.nn.Module):
             self.m = self.gamma * self.m + (1 - self.gamma) * features_sum
 
 
-class SegmentationLoss(nn.Module):
+class SegmentationLoss(torch.nn.Module):
 
-    def __init__(self, cfg, name="mcdropout_uresnet"):
+    def __init__(
+        self,
+        cfg: dict[str, Any],
+        name: str = "mcdropout_uresnet",
+    ) -> None:
         super(SegmentationLoss, self).__init__()
         self.loss_config = cfg.get(name, {})
         self.loss_fn_name = self.loss_config.get("loss_fn", "edl_sumsq")
@@ -283,7 +300,13 @@ class SegmentationLoss(nn.Module):
         self.one_hot = self.loss_config.get("one_hot", False)
         self.num_classes = self.loss_config.get("num_classes", 5)
 
-    def forward(self, outputs, label, iteration=0, weight=None):
+    def forward(
+        self,
+        outputs: dict[str, Any],
+        label: Any,
+        iteration: int = 0,
+        weight: Any | None = None,
+    ) -> dict[str, Any]:
         """
         segmentation[0], label and weight are lists of size #gpus = batch_size.
         segmentation has as many elements as UResNet returns.
@@ -299,7 +322,8 @@ class SegmentationLoss(nn.Module):
         else:
             segmentation = logits
         device = segmentation[0].device
-        assert len(segmentation) == len(label)
+        if len(segmentation) != len(label):
+            raise ValueError("Expected `len(segmentation) == len(label)`.")
         # if weight is not None:
         #     assert len(data) == len(weight)
         batch_ids = [d[:, 0] for d in label]
@@ -316,7 +340,11 @@ class SegmentationLoss(nn.Module):
                 loss_label = event_label
                 if self.one_hot:
                     loss_label = torch.eye(self.num_classes, device=device)[event_label]
-                    loss_seg = self.loss_fn(event_segmentation, loss_label, t=iteration)
+                    loss_seg = self.loss_fn(
+                        event_segmentation,
+                        loss_label,
+                        iteration=iteration,
+                    )
                 else:
                     loss_seg = self.loss_fn(event_segmentation, loss_label)
                 if weight is not None:
@@ -336,17 +364,21 @@ class SegmentationLoss(nn.Module):
         return {"accuracy": total_acc / count, "loss": total_loss / count}
 
 
-class DUQSegmentationLoss(nn.Module):
+class DUQSegmentationLoss(torch.nn.Module):
 
-    def __init__(self, cfg, name="duq_uresnet"):
+    def __init__(
+        self,
+        cfg: dict[str, Any],
+        name: str = "duq_uresnet",
+    ) -> None:
         super(DUQSegmentationLoss, self).__init__()
-        self.xentropy = nn.BCELoss(reduction="none")
+        self.xentropy = torch.nn.BCELoss(reduction="none")
         self.num_classes = 5
         self.grad_w = cfg.get(name, {}).get("grad_w", 0.0)
         self.grad_penalty = cfg.get(name, {}).get("grad_penalty", True)
 
     @staticmethod
-    def calc_gradient_penalty(x, y_pred):
+    def calc_gradient_penalty(x: Any, y_pred: Any) -> Any:
         """
         Code From the DUQ main Github Repository:
         https://github.com/y0ast/deterministic-uncertainty-quantification
@@ -373,7 +405,7 @@ class DUQSegmentationLoss(nn.Module):
 
         return gradient_penalty
 
-    def forward(self, out, type_labels):
+    def forward(self, out: dict[str, Any], type_labels: Any) -> dict[str, Any]:
         # print(type_labels)
         probas = out["score"][0]
         device = probas.device
@@ -398,8 +430,6 @@ class DUQSegmentationLoss(nn.Module):
             "loss_grad_penalty": float(loss2),
             "accuracy": accuracy,
         }
-
-        print(res)
 
         acc_types = {}
         for c in labels.unique():

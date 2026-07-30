@@ -4,12 +4,16 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
 from spine.constants import BATCH_COL, COORD_COLS
-from spine.utils.conditional import torch
+
+if TYPE_CHECKING:
+    import torch
+else:
+    from spine.utils.conditional import torch
 
 from .base import ArrayLike, BatchBase
 
@@ -118,6 +122,30 @@ class TensorBatch(BatchBase):
         Union[np.ndarray, torch.Tensor]
             Underlying tensor of data
         """
+        return self.data
+
+    def numpy_tensor(self) -> np.ndarray:
+        """Return the underlying data narrowed to a NumPy array.
+
+        Raises
+        ------
+        TypeError
+            If this batch is backed by a PyTorch tensor.
+        """
+        if not isinstance(self.data, np.ndarray):
+            raise TypeError("TensorBatch is not backed by a numpy.ndarray.")
+        return self.data
+
+    def torch_tensor(self) -> torch.Tensor:
+        """Return the underlying data narrowed to a PyTorch tensor.
+
+        Raises
+        ------
+        TypeError
+            If this batch is backed by a NumPy array.
+        """
+        if not isinstance(self.data, torch.Tensor):
+            raise TypeError("TensorBatch is not backed by a torch.Tensor.")
         return self.data
 
     @property

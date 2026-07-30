@@ -7,11 +7,10 @@ It contains two classes of functions:
 
 import numba as nb
 import numpy as np
-from scipy.sparse import csr_array
 from scipy.sparse.csgraph import minimum_spanning_tree
 
 import spine.math as sm
-from spine.data import EdgeIndexBatch, IndexBatch, TensorBatch
+from spine.data import EdgeIndexBatch, TensorBatch
 from spine.utils.metrics import ami, ari, pur_eff, sbd
 
 int_array = nb.int64[:]
@@ -61,10 +60,10 @@ def edge_assignment_from_graph_batch(edge_index, true_edge_index, part_ids):
 
     # Loop over the list of entries in the batch
     edge_assn = np.zeros(edge_index.index.shape[1], dtype=np.int64)
-    for b in range(clust_label.batch_size):
+    for b in range(edge_index.batch_size):
         lower, upper = edge_index.edges[b], edge_index.edges[b + 1]
         edge_assn[lower:upper] = edge_assignment_from_graph(
-            edge_index_part[b], true_index[b]
+            edge_index_part[b], true_edge_index[b]
         )
 
     return TensorBatch(edge_assn, edge_index.counts)
@@ -92,7 +91,7 @@ def edge_assignment_forest_batch(edge_index, edge_pred, group_ids):
     # Loop over the list of entries in the batch
     edge_assn = np.empty(edge_index.index.shape[1], dtype=np.int64)
     valid_mask = np.empty(edge_index.index.shape[1], dtype=bool)
-    for b in range(clust_label.batch_size):
+    for b in range(edge_index.batch_size):
         # Get the list of labels and the list of nodes to apply the loss to
         lower, upper = edge_index.edges[b], edge_index.edges[b + 1]
         edge_assn_b, edge_valid_b = edge_assignment_forest(
@@ -100,11 +99,11 @@ def edge_assignment_forest_batch(edge_index, edge_pred, group_ids):
         )
 
         edge_assn[lower:upper] = edge_assn_b
-        edge_valid[lower:upper] = edge_valid_b
+        valid_mask[lower:upper] = edge_valid_b
 
     return (
         TensorBatch(edge_assn, counts=edge_index.counts),
-        TensorBatch(edge_valid, counts=edge_valid.counts),
+        TensorBatch(valid_mask, counts=edge_index.counts),
     )
 
 
@@ -373,25 +372,40 @@ def edge_assignment_forest(edge_index, edge_pred, group_ids):
     if not len(edge_index):
         return edge_assn, valid_mask
 
-    # Convert the sparse incidence matrix scores to a CSR matrix
-    n = len(group_ids)
+    # Convert logits to the cost of turning each edge off. The spanning tree
+    # minimizes that cost, selecting edges the network most strongly prefers
+    # to turn on.
+    num_nodes = len(group_ids)
     off_scores = sm.softmax(edge_pred, axis=1)[:, 0]
-    score_mat = csr_array((off_scores, edge_index.T), shape=(n, n))
-
-    # Build the MST graph to minimize off scores
-    mst_mat = minimum_spanning_tree(score_mat)
-    mst_index = np.vstack(np.where(mst_mat.toarray() > 0.0))
 
     # Loop over the groups, turn edges on if they appear in the MST
-    # TODO: understand the impact of having an undirected graph
-    compare_index = lambda x, y: (x.T == y[..., None]).all(axis=1).any(axis=1)
-    for g in np.unique(group_ids):
-        group_index == np.where(group_ids == g)[0]
-        edge_assn_g = compare_index(edge_index_b[group_index], tree_index)
-        edge_assn[group_index[edge_assn_g]] = True
-        edge_valid[group_index[~edge_assn_g]] = False
+    for group_id in np.unique(group_ids):
+        node_mask = group_ids == group_id
+        group_edge_mask = node_mask[edge_index[:, 0]] & node_mask[edge_index[:, 1]]
+        group_edge_indices = np.flatnonzero(group_edge_mask)
+        if len(group_edge_indices) == 0:
+            continue
 
-    return edge_assn, edge_valid
+        group_edges = edge_index[group_edge_indices]
+        score_matrix = np.zeros((num_nodes, num_nodes), dtype=off_scores.dtype)
+        score_matrix[group_edges[:, 0], group_edges[:, 1]] = off_scores[
+            group_edge_indices
+        ]
+        tree_matrix = minimum_spanning_tree(score_matrix)
+        tree_edges = np.column_stack(np.where(tree_matrix.toarray() > 0.0))
+
+        # Edges within a target group are supervised only when selected by
+        # the tree. For undirected graphs, label both stored orientations.
+        valid_mask[group_edge_indices] = False
+        for source, destination in tree_edges:
+            selected = (
+                (group_edges[:, 0] == source) & (group_edges[:, 1] == destination)
+            ) | ((group_edges[:, 0] == destination) & (group_edges[:, 1] == source))
+            selected_indices = group_edge_indices[selected]
+            edge_assn[selected_indices] = 1
+            valid_mask[selected_indices] = True
+
+    return edge_assn, valid_mask
 
 
 @nb.njit(cache=True)
@@ -814,10 +828,10 @@ def clustering_metrics(clusts, node_assn, node_pred):
     """
     pred_vox = cluster_to_voxel_label(clusts, node_pred)
     true_vox = cluster_to_voxel_label(clusts, node_assn)
-    ari_val = ari(truth_vox, pred_vox)
-    ami_val = ami(truth_vox, pred_vox)
-    sbd_val = sbd(truth_vox, pred_vox)
-    pur_val, eff_val = pur_eff(truth_vox, pred_vox)
+    ari_val = ari(true_vox, pred_vox)
+    ami_val = ami(true_vox, pred_vox)
+    sbd_val = sbd(true_vox, pred_vox)
+    pur_val, eff_val = pur_eff(true_vox, pred_vox)
 
     return ari_val, ami_val, sbd_val, pur_val, eff_val
 
@@ -834,7 +848,7 @@ def voxel_efficiency_bipartite(clusts, node_assn, node_pred, primaries):
         (C) True node groups labels
     node_pred : np.ndarray
         (C) Predicted node group labels
-    node_pred : np.ndarray
+    primaries : np.ndarray
         (P) List of primary IDs
 
     Returns
@@ -842,10 +856,12 @@ def voxel_efficiency_bipartite(clusts, node_assn, node_pred, primaries):
     float
         Fraction of correctly assigned secondary voxels
     """
-    others = [i for i in range(n) if i not in primaries]
+    others = [index for index in range(len(clusts)) if index not in primaries]
     tot_vox = np.sum([len(clusts[i]) for i in others])
     int_vox = np.sum([len(clusts[i]) for i in others if node_pred[i] == node_assn[i]])
 
+    if tot_vox == 0:
+        return 1.0
     return int_vox / tot_vox
 
 

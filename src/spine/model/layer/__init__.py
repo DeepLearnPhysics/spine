@@ -4,4 +4,5 @@
 * `cnn` reusable by CNN-based models
 * `cluster` reusable by CNN-based clustering models
 * `gnn` reusable by GNN-based models
+* `pointcloud` reusable by point-cloud models
 """

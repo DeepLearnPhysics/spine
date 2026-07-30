@@ -2,6 +2,8 @@
 
 import numpy as np
 
+from spine.data import IndexBatch, TensorBatch
+
 from .base import GraphBase
 
 __all__ = ["LoopGraph"]
@@ -19,15 +21,23 @@ class LoopGraph(GraphBase):
     # Name of the graph constructor (as specified in the configuration)
     name = "loop"
 
-    def generate(self, clusts, **kwargs):
+    def generate(
+        self,
+        *,
+        data: TensorBatch,
+        clusts: IndexBatch,
+        dist_mat: np.ndarray | None,
+    ) -> tuple[np.ndarray, np.ndarray]:
         """Generate a loop-graph on a set of N nodes.
 
         Parameters
         ----------
         clusts : IndexBatch
             (C) Cluster indexes
-        **kwargs : dict, optional
-            Unused graph generation arguments
+        data : TensorBatch
+            Batched voxel/value table, unused by this graph.
+        dist_mat : np.ndarray, optional
+            Pairwise distance matrix, unused by this graph.
 
         Returns
         -------

@@ -25,8 +25,8 @@ Usage Examples
 --------------
 Main CLI usage::
 
-    spine train --config config/train_uresnet.cfg --source data.h5
-    spine validate --config config/train_uresnet.cfg --weight-path weights.ckpt
+    spine train --config config/uresnet/uresnet_train.yaml --source data.h5
+    spine validate --config config/uresnet/uresnet_train.yaml --weight-path weights.ckpt
     spine analyze --config config/analysis.cfg --source data.h5 --output results.h5
 
 Utility script usage::

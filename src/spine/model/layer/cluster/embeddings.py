@@ -1,6 +1,5 @@
 import numpy as np
 import torch
-import torch.nn as nn
 
 from spine.model import sparse
 from spine.model.layer.cnn.act_norm import act_factory
@@ -9,7 +8,7 @@ from spine.model.layer.cnn.configuration import setup_cnn_configuration
 from spine.model.layer.cnn.uresnet_layers import UResNetDecoder, UResNetEncoder
 
 
-class Attention(nn.Module):
+class Attention(torch.nn.Module):
     """
     Sparse Attention Module where the feature map is multiplied
     by a soft masking score tensor (sigmoid activated)
@@ -26,7 +25,7 @@ class Attention(nn.Module):
         return output
 
 
-class ExpandAs(nn.Module):
+class ExpandAs(torch.nn.Module):
     """
     Given a sparse tensor with one dimensional features, expand the
     feature map to given shape and return a newly constructed
@@ -68,15 +67,15 @@ class SPICE(torch.nn.Module):
         self.seed_freeze = self.model_config.get("seed_freeze", False)
         self.coordConv = self.model_config.get("coordConv", True)
 
-        self.tanh = nn.Tanh()
-        self.sigmoid = nn.Sigmoid()
+        self.tanh = torch.nn.Tanh()
+        self.sigmoid = torch.nn.Sigmoid()
 
-        self.outputEmbeddings = nn.Sequential(
+        self.outputEmbeddings = torch.nn.Sequential(
             sparse.BatchNorm(self.num_filters, **self.norm_args),
-            sparse.Linear(self.num_filters, self.D + self.sigmaDim, bias=False),
+            sparse.Linear(self.num_filters, self.dimension + self.sigmaDim, bias=False),
         )
 
-        self.outputSeediness = nn.Sequential(
+        self.outputSeediness = torch.nn.Sequential(
             sparse.BatchNorm(self.num_filters, **self.norm_args),
             sparse.Linear(self.num_filters, self.seedDim, bias=False),
         )
@@ -104,11 +103,11 @@ class SPICE(torch.nn.Module):
         point_cloud, _ = self.filter_class(input)
         device = point_cloud.device
 
-        coords = point_cloud[:, 0 : self.D + 1].to(device).int()
-        features = point_cloud[:, self.D + 1 :].view(-1, 1)
+        coords = point_cloud[:, 0 : self.dimension + 1].to(device).int()
+        features = point_cloud[:, self.dimension + 1 :].view(-1, 1)
 
         normalized_coords = (
-            coords[:, 1 : self.D + 1] - float(self.spatial_size) / 2
+            coords[:, 1 : self.dimension + 1] - float(self.spatial_size) / 2
         ) / (float(self.spatial_size) / 2)
         normalized_coords = normalized_coords
         if self.coordConv:
@@ -124,13 +123,15 @@ class SPICE(torch.nn.Module):
 
         embeddings = self.outputEmbeddings(features_cluster[-1])
         embeddings_feats = embeddings.F
-        embeddings_feats[:, : self.D] = self.tanh(embeddings_feats[:, : self.D])
-        embeddings_feats[:, : self.D] += normalized_coords
+        embeddings_feats[:, : self.dimension] = self.tanh(
+            embeddings_feats[:, : self.dimension]
+        )
+        embeddings_feats[:, : self.dimension] += normalized_coords
         seediness = self.outputSeediness(features_seediness[-1])
 
         res = {
-            "embeddings": [embeddings_feats[:, : self.D]],
+            "embeddings": [embeddings_feats[:, : self.dimension]],
             "seediness": [self.sigmoid(seediness.F)],
-            "margins": [2 * self.sigmoid(embeddings_feats[:, self.D :])],
+            "margins": [2 * self.sigmoid(embeddings_feats[:, self.dimension :])],
         }
         return res

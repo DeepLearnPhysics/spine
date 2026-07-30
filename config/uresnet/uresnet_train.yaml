@@ -1,0 +1,63 @@
+# Canonical UResNet semantic-segmentation training configuration.
+#
+# Set io.loader.dataset.file_keys to the training data and adjust the output
+# paths for the target environment before launching a production job.
+
+base:
+  world_size: 1
+  epochs: 25.0
+  seed: 0
+  unwrap: false
+  log_dir: logs/uresnet/train
+  log_step: 1
+  train:
+    weight_prefix: weights/uresnet/snapshot
+    save_epoch: 1.0
+    optimizer:
+      name: Adam
+      lr: 0.001
+
+io:
+  loader:
+    batch_size: 256
+    shuffle: false
+    num_workers: 8
+    collate_fn: all
+    sampler:
+      name: random_sequence
+      seed: 0
+    dataset:
+      name: larcv
+      file_keys: null
+      schema:
+        data:
+          parser: sparse3d
+          sparse_event: sparse3d_pcluster
+        seg_label:
+          parser: sparse3d
+          sparse_event: sparse3d_pcluster_semantics
+
+model:
+  name: uresnet
+  weight_path: null
+  network_input:
+    data: data
+  loss_input:
+    seg_label: seg_label
+  modules:
+    uresnet:
+      num_input: 1
+      num_classes: 5
+      filters: 32
+      depth: 5
+      reps: 2
+      allow_bias: false
+      activation:
+        name: lrelu
+        negative_slope: 0.33
+      norm_layer:
+        name: batch_norm
+        eps: 0.0001
+        momentum: 0.01
+    uresnet_loss:
+      balance_loss: false

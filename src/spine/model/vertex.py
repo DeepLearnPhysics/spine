@@ -1,27 +1,27 @@
+from __future__ import annotations
+
 import time
 from collections import defaultdict
+from typing import Any
 
 import numpy as np
 import torch
-import torch.nn as nn
 from torch_geometric.data import Batch, Data
 
 from spine.constants import BATCH_COL, INTER_COL, NU_COL, VTX_COLS
 from spine.model import sparse
-from spine.model.experimental.layer.pointnet import PointNetEncoder
 from spine.model.layer.cnn.vertex_ppn import VertexPPN, VertexPPNLoss
+from spine.model.layer.pointcloud import PointNetEncoder
 from spine.model.uresnet import SegmentationLoss, UResNetSegmentation
 from spine.utils.gnn.cluster import form_clusters, get_cluster_label
 
 
-class VertexPPNChain(nn.Module):
+class VertexPPNChain(torch.nn.Module):
     """
     Experimental model for PPN-like vertex prediction
     """
 
-    MODULES = ["mink_uresnet", "mink_uresnet_ppn_chain", "mink_ppn"]
-
-    def __init__(self, cfg):
+    def __init__(self, cfg: dict[str, Any]) -> None:
         super(VertexPPNChain, self).__init__()
         self.model_config = cfg
         self.backbone = UResNetSegmentation(cfg)
@@ -30,11 +30,12 @@ class VertexPPNChain(nn.Module):
         self.num_filters = self.backbone.F
         self.segmentation = sparse.Linear(self.num_filters, self.num_classes)
 
-    def forward(self, input):
+    def forward(self, input: Any) -> dict[str, Any]:
 
         primary_labels = None
         if self.training:
-            assert len(input) == 2
+            if len(input) != 2:
+                raise ValueError("Expected `len(input) == 2`.")
             primary_labels = input[1][:, -2]
             segment_labels = input[1][:, -1]
 
@@ -59,19 +60,23 @@ class VertexPPNChain(nn.Module):
         return out
 
 
-class UResNetVertexLoss(nn.Module):
+class UResNetVertexLoss(torch.nn.Module):
     """
     See Also
     --------
     spine.model.uresnet.SegmentationLoss, spine.model.layer.common.ppn.PPNLonelyLoss
     """
 
-    def __init__(self, cfg):
+    def __init__(self, cfg: dict[str, Any]) -> None:
         super(UResNetVertexLoss, self).__init__()
         self.vertex_loss = VertexPPNLoss(cfg)
         self.segmentation_loss = SegmentationLoss(cfg)
 
-    def forward(self, outputs, kinematics_label):
+    def forward(
+        self,
+        outputs: dict[str, Any],
+        kinematics_label: Any,
+    ) -> dict[str, Any]:
 
         res_segmentation = self.segmentation_loss(outputs, kinematics_label)
 
@@ -85,22 +90,26 @@ class UResNetVertexLoss(nn.Module):
         return res
 
 
-class VertexPointNet(nn.Module):
+class VertexPointNet(torch.nn.Module):
 
-    def __init__(self, cfg, name="vertex_pointnet"):
+    def __init__(
+        self,
+        cfg: dict[str, Any],
+        name: str = "vertex_pointnet",
+    ) -> None:
         super(VertexPointNet, self).__init__()
         self.encoder = PointNetEncoder(cfg)
         self.D = cfg[name].get("D", 3)
-        self.final_layer = nn.Sequential(
-            nn.Linear(self.encoder.latent_size, self.D), nn.Softplus()
+        self.final_layer = torch.nn.Sequential(
+            torch.nn.Linear(self.encoder.latent_size, self.D), torch.nn.Softplus()
         )
 
-    def split_input(self, point_cloud, clusts=None):
+    def split_input(self, point_cloud: Any, clusts: Any | None = None) -> Any:
         point_cloud_cpu = point_cloud.detach().cpu().numpy()
         batches, bcounts = np.unique(point_cloud_cpu[:, BATCH_COL], return_counts=True)
         if clusts is None:
             clusts = form_clusters(point_cloud_cpu, column=INTER_COL)
-        if not len(clusts):
+        if len(clusts) == 0:
             return Batch()
 
         data_list = []
@@ -113,7 +122,11 @@ class VertexPointNet(nn.Module):
         split_data = Batch.from_data_list(data_list)
         return split_data, clusts
 
-    def forward(self, input, clusts=None):
+    def forward(
+        self,
+        input: Any,
+        clusts: Any | None = None,
+    ) -> dict[str, Any]:
         res = {}
         (point_cloud,) = input
         batch, clusts = self.split_input(point_cloud, clusts)
@@ -130,14 +143,22 @@ class VertexPointNet(nn.Module):
         return res
 
 
-class VertexPointNetLoss(nn.Module):
+class VertexPointNetLoss(torch.nn.Module):
 
-    def __init__(self, cfg, name="vertex_pointnet_loss"):
+    def __init__(
+        self,
+        cfg: dict[str, Any],
+        name: str = "vertex_pointnet_loss",
+    ) -> None:
         super(VertexPointNetLoss, self).__init__()
         self.spatial_size = cfg[name].get("spatial_size", 6144)
-        self.loss_fn = nn.MSELoss(reduction="none")
+        self.loss_fn = torch.nn.MSELoss(reduction="none")
 
-    def forward(self, res, cluster_label):
+    def forward(
+        self,
+        res: dict[str, Any],
+        cluster_label: Any,
+    ) -> dict[str, Any]:
 
         clusts = res["clusts"][0]
         vertex_pred = res["vertex_pred"][0]

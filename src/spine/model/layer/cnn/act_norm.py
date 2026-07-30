@@ -1,22 +1,28 @@
 """Factories for backend-neutral sparse activations and normalizations."""
 
-from copy import deepcopy
+from __future__ import annotations
 
-from spine.utils.factory import instantiate
+import torch
+
+from spine.utils.factory import Config, Registry, instantiate
 
 __all__ = ["act_factory", "norm_factory"]
 
 
-def act_dict():
-    """Dictionary of valid activation functions."""
-    from torch.nn import Identity
+def act_dict() -> Registry:
+    """Build the registry of activation layers available to sparse CNNs.
 
+    Returns
+    -------
+    Registry
+        Mapping from configuration names to activation module classes.
+    """
     from spine.model import sparse
 
     from . import nonlinearities
 
     activations = {
-        "none": Identity,
+        "none": torch.nn.Identity,
         "relu": sparse.ReLU,
         "prelu": sparse.PReLU,
         "selu": sparse.SELU,
@@ -31,16 +37,20 @@ def act_dict():
     return activations
 
 
-def norm_dict():
-    """Dictionary of valid normalization functions."""
-    from torch.nn import Identity
+def norm_dict() -> Registry:
+    """Build the registry of normalization layers available to sparse CNNs.
 
+    Returns
+    -------
+    Registry
+        Mapping from configuration names to normalization module classes.
+    """
     from spine.model import sparse
 
     from . import normalizations
 
     norm_layers = {
-        "none": Identity,
+        "none": torch.nn.Identity,
         "batch_norm": sparse.BatchNorm,
         "instance_norm": sparse.InstanceNorm,
         "pixel_norm": normalizations.PixelNorm,
@@ -49,35 +59,38 @@ def norm_dict():
     return norm_layers
 
 
-def act_factory(cfg):
-    """Instantiates an activation layer.
+def act_factory(cfg: Config) -> torch.nn.Module:
+    """Instantiate an activation layer from configuration.
 
     Parameters
     ----------
-    cfg : dict
-        Activation layer configuration
+    cfg : str or mapping
+        Activation name or configuration containing the layer name and its
+        constructor arguments.
 
-    Return
-    ------
-    object
-        Instantiated activation layer
+    Returns
+    -------
+    torch.nn.Module
+        Instantiated activation layer.
     """
     return instantiate(act_dict(), cfg)
 
 
-def norm_factory(cfg, num_features=None):
-    """Instantiates a normalization layer.
+def norm_factory(cfg: Config, num_features: int | None = None) -> torch.nn.Module:
+    """Instantiate a normalization layer from configuration.
 
     Parameters
     ----------
-    cfg : dict
-        Normalization layer configuration
-    num_features : int
-        Number of features to normalize
+    cfg : str or mapping
+        Normalization name or configuration containing the layer name and its
+        constructor arguments.
+    num_features : int, optional
+        Number of feature channels to normalize. Layers without channel-wise
+        parameters ignore this value.
 
-    Return
-    ------
-    object
-        Instantiated normalization layer
+    Returns
+    -------
+    torch.nn.Module
+        Instantiated normalization layer.
     """
     return instantiate(norm_dict(), cfg, num_features=num_features)

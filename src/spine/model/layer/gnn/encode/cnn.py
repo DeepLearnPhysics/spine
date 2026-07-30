@@ -1,9 +1,11 @@
 """Module which defines encoders using convolutional neural networks."""
 
+from typing import Any
+
 import torch
 
 from spine.constants import BATCH_COL
-from spine.data import IndexBatch, TensorBatch
+from spine.data import EdgeIndexBatch, IndexBatch, TensorBatch
 from spine.model.layer.cnn.encoder import SparseResidualEncoder
 
 __all__ = ["ClustCNNNodeEncoder", "ClustCNNEdgeEncoder", "ClustCNNGlobalEncoder"]
@@ -15,7 +17,7 @@ class ClustCNNNodeEncoder(torch.nn.Module):
     # Name of the node encoder (as specified in the configuration)
     name = "cnn"
 
-    def __init__(self, **cfg):
+    def __init__(self, **cfg: Any) -> None:
         """Initializes the CNN-based node encoder.
 
         Simply passes the configuration along to the underlying sparse residual
@@ -33,7 +35,12 @@ class ClustCNNNodeEncoder(torch.nn.Module):
         self.encoder = SparseResidualEncoder(**cfg)
         self.feature_size = self.encoder.feature_size
 
-    def forward(self, data, clusts, **kwargs):
+    def forward(
+        self,
+        data: TensorBatch,
+        clusts: IndexBatch,
+        **kwargs: object,
+    ) -> TensorBatch:
         """Generate CNN cluster node features for one batch of data.
 
         Parameters
@@ -43,7 +50,7 @@ class ClustCNNNodeEncoder(torch.nn.Module):
         clusts : IndexBatch
             Indexes that make up each cluster
         **kwargs : dict, optional
-            Additional objects no used by this encoder
+            Additional objects not used by this encoder
 
         Returns
         -------
@@ -52,8 +59,11 @@ class ClustCNNNodeEncoder(torch.nn.Module):
         """
         # Use cluster ID as a batch ID, pass through CNN
         full_index = clusts.full_index
-        cnn_data = data.tensor[full_index].clone()
-        cnn_data[:, BATCH_COL] = torch.tensor(clusts.index_ids, device=cnn_data.device)
+        cnn_data = data.torch_tensor()[full_index].clone()
+        cnn_data[:, BATCH_COL] = torch.as_tensor(
+            clusts.index_ids,
+            device=cnn_data.device,
+        )
 
         # Pass the batched input through the encoder
         feats = self.encoder(cnn_data)
@@ -64,14 +74,14 @@ class ClustCNNNodeEncoder(torch.nn.Module):
 class ClustCNNEdgeEncoder(torch.nn.Module):
     """Produces cluster edge features using a sparse residual CNN encoder.
 
-    Considers an edge as an image containing both ojbects connected by
+    Considers an edge as an image containing both objects connected by
     the edge in a single image.
     """
 
     # Name of the edge encoder (as specified in the configuration)
     name = "cnn"
 
-    def __init__(self, **cfg):
+    def __init__(self, **cfg: Any) -> None:
         """Initializes the CNN-based edge encoder.
 
         Simply passes the configuration along to the underlying sparse residual
@@ -89,7 +99,13 @@ class ClustCNNEdgeEncoder(torch.nn.Module):
         self.encoder = SparseResidualEncoder(**cfg)
         self.feature_size = self.encoder.feature_size
 
-    def forward(self, data, clusts, edge_index, **kwargs):
+    def forward(
+        self,
+        data: TensorBatch,
+        clusts: IndexBatch,
+        edge_index: EdgeIndexBatch,
+        **kwargs: object,
+    ) -> TensorBatch:
         """Generate CNN cluster edge features for one batch of data.
 
         Parameters
@@ -101,7 +117,7 @@ class ClustCNNEdgeEncoder(torch.nn.Module):
         edge_index : EdgeIndexBatch
             Incidence map between clusters
         **kwargs : dict, optional
-            Additional objects no used by this encoder
+            Additional objects not used by this encoder
 
         Returns
         -------
@@ -111,21 +127,25 @@ class ClustCNNEdgeEncoder(torch.nn.Module):
         # Use edge ID as a batch ID, pass through CNN. For undirected graph,
         # only do it on half of the edges to save time (same features).
         cnn_data = []
-        for i, e in enumerate(edge_index.directed_index_t):
-            ci, cj = clusts.data[e[0]], clusts.data[e[1]]
-            edge_data = torch.cat((data.tensor[ci], data.tensor[cj]))
-            edge_data[:, BATCH_COL] = i
+        data_tensor = data.torch_tensor()
+        for edge_id, edge in enumerate(edge_index.directed_index_t):
+            first_cluster = clusts.index_list[edge[0]]
+            second_cluster = clusts.index_list[edge[1]]
+            edge_data = torch.cat(
+                (data_tensor[first_cluster], data_tensor[second_cluster])
+            )
+            edge_data[:, BATCH_COL] = edge_id
             cnn_data.append(edge_data)
 
         # Pass through the network
-        if len(cnn_data):
+        if len(cnn_data) > 0:
             feats = self.encoder(torch.cat(cnn_data))
 
         else:
             feats = torch.empty(
                 (0, self.feature_size),
-                dtype=data.tensor.dtype,
-                device=data.tensor.device,
+                dtype=data_tensor.dtype,
+                device=data_tensor.device,
             )
 
         # If the graph is undirected, add reciprocal features
@@ -152,7 +172,7 @@ class ClustCNNGlobalEncoder(torch.nn.Module):
     # Name of the global encoder (as specified in the configuration)
     name = "cnn"
 
-    def __init__(self, **cfg):
+    def __init__(self, **cfg: Any) -> None:
         """Initializes the CNN-based global encoder.
 
         Simply passes the configuration along to the underlying sparse residual
@@ -170,7 +190,12 @@ class ClustCNNGlobalEncoder(torch.nn.Module):
         self.encoder = SparseResidualEncoder(**cfg)
         self.feature_size = self.encoder.feature_size
 
-    def forward(self, data, clusts, **kwargs):
+    def forward(
+        self,
+        data: TensorBatch,
+        clusts: IndexBatch,
+        **kwargs: object,
+    ) -> TensorBatch:
         """Generate CNN global graph features for one batch of data.
 
         Parameters
@@ -180,16 +205,16 @@ class ClustCNNGlobalEncoder(torch.nn.Module):
         clusts : IndexBatch
             Indexes that make up each cluster
         **kwargs : dict, optional
-            Additional objects no used by this encoder
+            Additional objects not used by this encoder
 
         Returns
         -------
         TensorBatch
-            (B, N_g) Set of N_g globale graph features per batch entry
+            (B, N_g) Set of N_g global graph features per batch entry
         """
         # Restrict the set of points to those in the graph clusters
         full_index = clusts.full_index
-        cnn_data = data.tensor[full_index]
+        cnn_data = data.torch_tensor()[full_index]
 
         # Pass the batched input through the encoder
         feats = self.encoder(cnn_data)

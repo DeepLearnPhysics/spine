@@ -284,7 +284,7 @@ def test_prepare_grappa_input_requires_clust_label_for_label_points():
     clust_shapes = TensorBatch(np.array([SHOWR_SHP]), counts=np.array([1]))
     coord_label = TensorBatch(np.zeros((1, 9), dtype=np.float32), counts=np.array([1]))
 
-    with pytest.raises(AssertionError, match="clust_label"):
+    with pytest.raises(ValueError, match="clust_label"):
         full_chain.prepare_grappa_input(
             model,
             data,

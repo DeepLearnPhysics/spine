@@ -44,12 +44,12 @@ Run a SPINE job with Docker:
    # Latest published image
    docker run --gpus all -v $(pwd):/workspace \
      ghcr.io/deeplearnphysics/spine:latest \
-       spine --config /workspace/config/train_uresnet.yaml --source /workspace/data.h5
+       spine --config /workspace/config/uresnet/uresnet_train.yaml --source /workspace/data.h5
 
    # Pinned release image
    docker run --gpus all -v $(pwd):/workspace \
      ghcr.io/deeplearnphysics/spine:<release> \
-       spine --config /workspace/config/train_uresnet.yaml --source /workspace/data.h5
+       spine --config /workspace/config/uresnet/uresnet_train.yaml --source /workspace/data.h5
 
 On Apple Silicon macOS systems, keep using the published SPINE image as
 ``linux/amd64`` by passing ``--platform=linux/amd64`` to ``docker run``:
@@ -58,7 +58,7 @@ On Apple Silicon macOS systems, keep using the published SPINE image as
 
     docker run --platform=linux/amd64 --gpus all -v $(pwd):/workspace \
        ghcr.io/deeplearnphysics/spine:<release> \
-          spine --config /workspace/config/train_uresnet.yaml --source /workspace/data.h5
+          spine --config /workspace/config/uresnet/uresnet_train.yaml --source /workspace/data.h5
 
 For Jupyter notebook/lab use specifically, avoid the Docker Desktop
 combination of Apple Virtualization Framework **with** Rosetta enabled. The
@@ -72,11 +72,11 @@ Run a SPINE job with Apptainer:
 
    # Latest published image
    apptainer exec --nv spine_latest.sif \
-       spine --config /workspace/config/train_uresnet.yaml --source /workspace/data.h5
+       spine --config /workspace/config/uresnet/uresnet_train.yaml --source /workspace/data.h5
 
    # Or run a pinned release image
    apptainer exec --nv spine_<release>.sif \
-       spine --config /workspace/config/train_uresnet.yaml --source /workspace/data.h5
+       spine --config /workspace/config/uresnet/uresnet_train.yaml --source /workspace/data.h5
 
 Local pip Installation
 ----------------------

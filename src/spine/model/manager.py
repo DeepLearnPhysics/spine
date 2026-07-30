@@ -1,5 +1,7 @@
 """Centralize all methods associated with a machine-learning model."""
 
+from __future__ import annotations
+
 import glob
 import os
 from collections.abc import Mapping
@@ -22,22 +24,22 @@ class ModelManager:
 
     def __init__(
         self,
-        name,
-        modules,
-        network_input,
-        loss_input=None,
-        weight_path=None,
-        weight_list=None,
+        name: str,
+        modules: Mapping[str, Any],
+        network_input: Mapping[str, str],
+        loss_input: Mapping[str, str] | None = None,
+        weight_path: str | None = None,
+        weight_list: str | None = None,
         train: Mapping[str, Any] | None = None,
-        to_numpy=False,
-        time_dependent_loss=False,
-        dtype="float32",
-        distributed=False,
-        rank=None,
-        detect_anomaly=False,
-        find_unused_parameters=False,
-        iter_per_epoch=None,
-    ):
+        to_numpy: bool = False,
+        time_dependent_loss: bool = False,
+        dtype: str = "float32",
+        distributed: bool = False,
+        rank: int | None = None,
+        detect_anomaly: bool = False,
+        find_unused_parameters: bool = False,
+        iter_per_epoch: int | None = None,
+    ) -> None:
         """Process the model configuration.
 
         Parameters
@@ -45,7 +47,8 @@ class ModelManager:
         name : str
             Name of the model as specified under spine.model.factories
         modules : dict
-            Dictionary of modules that make up the model
+            Dictionary of modules that make up the model. Top-level blocks
+            ending in ``_loss`` are passed only to the loss constructor.
         network_input : List[str]
             List of keys of parsed objects to input into the model forward
         loss_input : List[str], optional
@@ -80,11 +83,29 @@ class ModelManager:
                 "Install with: pip install spine[model]"
             )
 
+        if not isinstance(modules, Mapping):
+            raise TypeError(
+                "`modules` must be a mapping of model configuration blocks."
+            )
+        if not isinstance(network_input, Mapping):
+            raise TypeError(
+                "`network_input` must map model argument names to data product keys."
+            )
+        if loss_input is not None and not isinstance(loss_input, Mapping):
+            raise TypeError(
+                "`loss_input` must map loss argument names to data product keys."
+            )
+        if train is not None and not loss_input:
+            raise ValueError("Training requires a non-empty `loss_input` mapping.")
+
         # Save parameters
         self.train: bool = train is not None
         self.to_numpy = to_numpy
-        self.time_dependant = time_dependent_loss
-        self.dtype = getattr(torch, dtype)
+        self.time_dependent = time_dependent_loss
+        try:
+            self.dtype = getattr(torch, dtype)
+        except AttributeError as err:
+            raise ValueError(f"Unknown PyTorch dtype `{dtype}`.") from err
         self.distributed = distributed
         self.rank = rank  # Global rank (process ID in distributed group)
         self.main_process = rank is None or rank == 0
@@ -109,26 +130,32 @@ class ModelManager:
         if detect_anomaly:
             torch.autograd.set_detect_anomaly(True, check_nan=True)
 
-        # Deepcopy the model configuration, remove the weight loading/freezing
+        # Preserve the complete configuration for checkpoint loading/freezing,
+        # and pass a sanitized copy to the model implementations.
         self.model_name = name
         self.model_cfg = deepcopy(modules)
-        self.clean_config(modules)
+        model_modules = self.clean_config(modules)
+        network_modules = self.select_network_modules(model_modules)
 
         # Initialize the model network and loss functions
         net_cls, loss_cls = model_factory(name)
         try:
-            self.net = net_cls(**modules)
+            self.net = net_cls(**network_modules)
             self.net.to(device=self.device, dtype=self.dtype)
         except Exception as err:
             msg = f"Failed to instantiate {net_cls}"
             raise type(err)(f"{err}\n{msg}")
 
-        try:
-            self.loss_fn = loss_cls(**modules)
-            self.loss_fn.to(device=self.device, dtype=self.dtype)
-        except Exception as err:
-            msg = f"Failed to instantiate {loss_cls}"
-            raise type(err)(f"{err}\n{msg}")
+        self.loss_fn = None
+        if loss_input is not None:
+            if loss_cls is None:
+                raise ValueError(f"Model `{name}` does not define a loss.")
+            try:
+                self.loss_fn = loss_cls(**model_modules)
+                self.loss_fn.to(device=self.device, dtype=self.dtype)
+            except Exception as err:
+                msg = f"Failed to instantiate {loss_cls}"
+                raise type(err)(f"{err}\n{msg}")
 
         # If requested, initialize the training process
         if train is not None:
@@ -170,30 +197,20 @@ class ModelManager:
                 find_unused_parameters=find_unused_parameters,
             )
 
-        # Store the list of input keys to the forward/loss functions. These
-        # should be specified as a dictionary mapping the name of the argument
-        # in the forward/loss function to a data product name.
-        self.input_dict = network_input
-        self.loss_dict = loss_input
-        assert isinstance(network_input, dict), (
-            "Must specify `network_input` as a dictionary mapping model "
-            "input keys onto data loader product keys."
-        )
-        assert loss_input is None or isinstance(loss_input, dict), (
-            "Must specify `loss_input` as a dictionary mapping loss "
-            "input keys onto data loader product keys."
-        )
+        # Store independent copies of the input mappings.
+        self.input_dict = dict(network_input)
+        self.loss_dict = None if loss_input is None else dict(loss_input)
 
     def initialize_train(
         self,
-        optimizer,
-        weight_prefix="snapshot",
-        restore_optimizer=False,
-        save_step=None,
-        save_epoch=None,
-        lr_scheduler=None,
-        iter_per_epoch=None,
-    ):
+        optimizer: Mapping[str, Any],
+        weight_prefix: str = "snapshot",
+        restore_optimizer: bool = False,
+        save_step: int | None = None,
+        save_epoch: float | None = None,
+        lr_scheduler: Mapping[str, Any] | None = None,
+        iter_per_epoch: int | None = None,
+    ) -> None:
         """Initialize the training regimen.
 
         Parameters
@@ -243,7 +260,12 @@ class ModelManager:
         if lr_scheduler is not None:
             self.lr_scheduler = lr_sched_factory(lr_scheduler, self.optimizer)
 
-    def __call__(self, data, iteration=None, epoch=None):
+    def __call__(
+        self,
+        data: Mapping[str, Any],
+        iteration: int | None = None,
+        epoch: float | None = None,
+    ) -> dict[str, Any]:
         """Calls the forward (and backward) function on a batch of data.
 
         Parameters
@@ -275,9 +297,8 @@ class ModelManager:
 
         # If traning run the backward pass and update the weigths
         if self.train:
-            assert (
-                "loss" in result
-            ), "Every model must return a `loss` value to be trained."
+            if "loss" not in result:
+                raise RuntimeError("Every trainable model must return a `loss` value.")
             self.watch.start("backward")
             self.backward(result["loss"])
             self.watch.stop("backward")
@@ -285,9 +306,10 @@ class ModelManager:
         # If training and at an appropriate iteration, save model state
         if self.train:
             self.watch.start("save")
-            assert (
-                iteration is not None
-            ), "Must provide iteration information to save the model state."
+            if iteration is None:
+                raise ValueError(
+                    "Must provide iteration information when training a model."
+                )
             if self.save_step is not None and self.main_process:
                 if ((iteration + 1) % self.save_step) == 0:
                     self.save_state(iteration, epoch)
@@ -299,7 +321,8 @@ class ModelManager:
 
         return result
 
-    def clean_config(self, config):
+    @classmethod
+    def clean_config(cls, config: Any) -> Any:
         """Remove model loading/freezing keys from all level of a dictionary.
 
         This is used to remove the weight loading/freezing from the input
@@ -307,18 +330,42 @@ class ModelManager:
 
         Parameters
         ----------
-        config : dict
-            Dictionary to remove the keys from
+        config : Mapping
+            Dictionary to copy and sanitize
+
+        Returns
+        -------
+        object
+            Deep copy of the configuration without manager-only keys
         """
+        config = deepcopy(config)
         keys = ["model_name", "weight_path", "freeze_weights"]
         if isinstance(config, dict):
             for k in keys:
-                if k in config:
-                    del config[k]
-            for val in config.values():
-                self.clean_config(val)
+                config.pop(k, None)
+            for key, val in config.items():
+                config[key] = cls.clean_config(val)
+        elif isinstance(config, list):
+            config = [cls.clean_config(val) for val in config]
 
-    def freeze_weights(self):
+        return config
+
+    @staticmethod
+    def select_network_modules(config: Mapping[str, Any]) -> dict[str, Any]:
+        """Exclude top-level loss blocks from network configuration.
+
+        Loss constructors receive the complete module configuration because
+        they may depend on both model structure and loss-specific settings.
+        Network constructors receive only blocks that do not end in
+        ``"_loss"``.
+        """
+        return {
+            module_name: module_cfg
+            for module_name, module_cfg in config.items()
+            if not module_name.endswith("_loss")
+        }
+
+    def freeze_weights(self) -> None:
         """Freeze the weights of certain model components.
 
         Breadth-first search for `freeze_weights` parameters in the model
@@ -350,7 +397,10 @@ class ModelManager:
                             count += 1
 
                 # Throw if no weights were found to freeze
-                assert count, f"Could not find any weights to freeze for {module}"
+                if not count:
+                    raise ValueError(
+                        f"Could not find any weights to freeze for {module}"
+                    )
 
                 logger.info("Froze %d weights in module %s", count, module)
 
@@ -359,7 +409,7 @@ class ModelManager:
                 if isinstance(config[key], dict):
                     module_items.append((key, config[key]))
 
-    def load_weights(self, full_weight_path):
+    def load_weights(self, full_weight_path: str | None) -> None:
         """Load the weights of certain model components.
 
         Breadth-first search for `weight_path` parameters in the model
@@ -469,7 +519,9 @@ class ModelManager:
 
             logger.info("Done.")
 
-    def prepare_data(self, data):
+    def prepare_data(
+        self, data: Mapping[str, Any]
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
         """Fetches the necessary data products to form the input to the forward
         function and the input to the loss function.
 
@@ -492,10 +544,11 @@ class ModelManager:
             # Load the data products for the model forward
             input_dict = {}
             for param, name in self.input_dict.items():
-                assert name in data, (
-                    f"Must provide `{name}` in the dataloader schema to "
-                    "input into the model forward."
-                )
+                if name not in data:
+                    raise ValueError(
+                        f"Must provide `{name}` in the dataloader schema to "
+                        "input into the model forward."
+                    )
 
                 value = data[name]
                 if isinstance(value, TensorBatch):
@@ -506,10 +559,11 @@ class ModelManager:
             loss_dict = {}
             if self.loss_dict is not None:
                 for param, name in self.loss_dict.items():
-                    assert name in data, (
-                        f"Must provide `{name}` in the dataloader schema "
-                        "to input into the loss function."
-                    )
+                    if name not in data:
+                        raise ValueError(
+                            f"Must provide `{name}` in the dataloader schema "
+                            "to input into the loss function."
+                        )
 
                     value = data[name]
                     if isinstance(value, TensorBatch):
@@ -520,7 +574,9 @@ class ModelManager:
 
         return input_dict, loss_dict
 
-    def forward(self, data, iteration=None):
+    def forward(
+        self, data: Mapping[str, Any], iteration: int | None = None
+    ) -> dict[str, Any]:
         """Pass one minibatch of data through the network and the loss.
 
         Load one minibatch of data. pass it through the network forward
@@ -550,7 +606,7 @@ class ModelManager:
 
             # Compute the loss if one is specified, append results
             if self.loss_dict:
-                if not self.time_dependant:
+                if not self.time_dependent:
                     result.update(self.loss_fn(**loss_dict, **result))
                 else:
                     result.update(
@@ -559,7 +615,7 @@ class ModelManager:
 
         return result
 
-    def backward(self, loss):
+    def backward(self, loss: Any) -> None:
         """Run the backward step on the model.
 
         Parameters
@@ -583,7 +639,7 @@ class ModelManager:
             logger.info("Updating buffers")
             self.net.update_buffers()
 
-    def cast_to_numpy(self, result):
+    def cast_to_numpy(self, result: dict[str, Any]) -> None:
         """Casts the model output data products to numpy object in place.
 
         Parameters
@@ -611,7 +667,7 @@ class ModelManager:
 
             elif (
                 isinstance(value, list)
-                and len(value)
+                and len(value) > 0
                 and isinstance(value[0], (TensorBatch, TensorBatchConvertible))
             ):
                 # List of tensor batches
@@ -628,7 +684,7 @@ class ModelManager:
                 dtype = type(value)
                 raise ValueError(f"Cannot cast output {key} of type {dtype} to numpy.")
 
-    def save_state(self, iteration, epoch):
+    def save_state(self, iteration: int, epoch: float | None) -> None:
         """Save the model state.
 
         Save three things from the model:
@@ -643,7 +699,8 @@ class ModelManager:
             Iteration step index
         """
         # Make sure that the weight prefix is valid
-        assert self.weight_prefix, "Must provide a weight prefix to store them."
+        if not self.weight_prefix:
+            raise ValueError("Must provide a weight prefix to store model state.")
 
         filename = f"{self.weight_prefix}-{iteration:d}.ckpt"
         model = self.net if not self.distributed else self.net.module

@@ -1,16 +1,22 @@
 """Whole-image classification/regression tasks."""
 
+from __future__ import annotations
+
+from collections.abc import Sequence
+from typing import Any
+from warnings import warn
+
 import torch
-import torch.nn as nn
 
 from spine.data import TensorBatch
 
 from .layer.factories import encoder_factory, loss_fn_factory
+from .registry import ModelSpec
 
 __all__ = ["ImageClassifier", "ClusterImageClassifier", "ImageClassLoss"]
 
 
-class ImageClassifier(nn.Module):
+class ImageClassifier(torch.nn.Module):
     """Whole-image classification model.
 
     This model uses various encoder declinations to classifier an entire
@@ -27,17 +33,13 @@ class ImageClassifier(nn.Module):
               # Image classifier loss configuration
     """
 
-    MODULES = ["classifier", "classifier_loss"]
-
-    def __init__(self, classifier, classifier_loss=None):
+    def __init__(self, classifier: dict[str, Any]) -> None:
         """Initialize the particle image classifier.
 
         Parameters
         ----------
         classifier : dict
             Image classifier configuration
-        classifier_loss : dict, optional
-            Image classifier loss configuration
         """
         # Initialize the parent class
         super().__init__()
@@ -45,7 +47,7 @@ class ImageClassifier(nn.Module):
         # Initialize the model
         self.process_model_config(**classifier)
 
-    def process_model_config(self, num_classes, **encoder):
+    def process_model_config(self, num_classes: int, **encoder: Any) -> None:
         """Initialize the underlying encoder and the final layer.
 
         Parameters
@@ -70,9 +72,9 @@ class ImageClassifier(nn.Module):
         """
 
         # Initialize the final layer
-        self.final_layer = nn.Linear(self.encoder.feature_size, num_classes)
+        self.final_layer = torch.nn.Linear(self.encoder.feature_size, num_classes)
 
-    def forward(self, data):
+    def forward(self, data: TensorBatch) -> dict[str, TensorBatch]:
         """Run a batch of data through the forward function.
 
         Parameters
@@ -97,10 +99,12 @@ class ImageClassifier(nn.Module):
         return {"logits": logits}
 
 
-class ImageClassLoss(nn.Module):
+class ImageClassLoss(torch.nn.Module):
     """Image classication loss."""
 
-    def __init__(self, classifier, classifier_loss):
+    def __init__(
+        self, classifier: dict[str, Any], classifier_loss: dict[str, Any]
+    ) -> None:
         """Intialize the image classification loss.
 
         Parameters
@@ -119,7 +123,7 @@ class ImageClassLoss(nn.Module):
         # Initialize the loss function
         self.process_loss_config(**classifier_loss)
 
-    def process_model_config(self, num_classes, **encoder):
+    def process_model_config(self, num_classes: int, **encoder: Any) -> None:
         """Initialize the underlying encoder and the final layer.
 
         Parameters
@@ -131,7 +135,12 @@ class ImageClassLoss(nn.Module):
         """
         self.num_classes = num_classes
 
-    def process_loss_config(self, loss="ce", balance_loss=False, weights=None):
+    def process_loss_config(
+        self,
+        loss: str = "ce",
+        balance_loss: bool = False,
+        weights: Sequence[float] | None = None,
+    ) -> None:
         """Initialize the loss function
 
         Parameters
@@ -148,14 +157,17 @@ class ImageClassLoss(nn.Module):
         self.weights = weights
 
         # Sanity check
-        assert (
-            weights is None or not balance_loss
-        ), "Do not provide weights if they are to be computed on the fly."
+        if weights is not None and balance_loss:
+            raise ValueError(
+                "Do not provide weights if they are to be computed on the fly."
+            )
 
         # Set the loss
         self.loss_fn = loss_fn_factory(loss, functional=True)
 
-    def forward(self, labels, logits, **kwargs):
+    def forward(
+        self, labels: Sequence[int], logits: TensorBatch, **kwargs: Any
+    ) -> dict[str, Any]:
         """Applies the image classification loss to a batch of data.
 
         Parameters
@@ -201,19 +213,19 @@ class ImageClassLoss(nn.Module):
             self.weights = get_class_weights(labels, num_classes=num_classes)
 
         loss = self.loss_fn(logits, labels, weight=self.weights, reduction="sum")
-        if len(valid_index):
+        if len(valid_index) > 0:
             loss /= len(valid_index)
 
         # Compute accuracy of assignment (fraction of correctly assigned images)
         acc = 1.0
         acc_class = [1.0] * num_classes
-        if len(valid_index):
+        if len(valid_index) > 0:
             preds = torch.argmax(logits, dim=1)
             acc = float(torch.sum(preds == labels))
             acc /= len(valid_index)
             for c in range(num_classes):
                 index = torch.where(labels == c)[0]
-                if len(index):
+                if len(index) > 0:
                     acc_class[c] = float(torch.sum(preds[index] == c)) / len(index)
 
         # Prepare and return result
@@ -225,6 +237,9 @@ class ImageClassLoss(nn.Module):
         return result
 
 
-class ClusterImageClassifier(nn.Module):
+class ClusterImageClassifier(torch.nn.Module):
 
     pass
+
+
+MODEL_SPEC = ModelSpec("image_class", ImageClassifier, ImageClassLoss)

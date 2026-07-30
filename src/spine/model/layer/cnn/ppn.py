@@ -1,8 +1,10 @@
-from collections import Counter
+from __future__ import annotations
 
-import numpy as np
+from collections.abc import Sequence
+from dataclasses import dataclass
+from typing import Any, TypeAlias
+
 import torch
-import torch.nn as nn
 
 from spine.constants import (
     COORD_COLS,
@@ -12,7 +14,6 @@ from spine.constants import (
     PPN_LPART_COL,
     PPN_LTYPE_COL,
     PPN_ROFF_COLS,
-    PPN_RPOS_COLS,
     PPN_RTYPE_COLS,
     SHAPE_COL,
     TRACK_SHP,
@@ -25,270 +26,336 @@ from spine.utils.torch.scripts import cdist_fast
 from spine.utils.weighting import get_class_weights
 
 from .act_norm import act_factory
-from .blocks import ASPP, SPP, ResNetBlock
+from .blocks import ResNetBlock
 from .configuration import setup_cnn_configuration
 
-__all__ = ["PPN", "PPNLoss"]
+PPNOutput: TypeAlias = dict[str, TensorBatch | list[TensorBatch]]
+PPNLossOutput: TypeAlias = dict[
+    str,
+    torch.Tensor | float | list[TensorBatch],
+]
+
+__all__ = ["PPN", "PPNLoss", "PPNOutput", "PPNLossOutput"]
 
 
-class PPN(torch.nn.Module):
-    """Point Proposal Network (PPN).
+@dataclass(frozen=True)
+class _PPNConfig:
+    """Validated PPN head configuration."""
 
-    It requires a UResNet network as a backbone. Typical configuration:
+    mask_score_threshold: float
+    classify_endpoints: bool
+    propagate_all: bool
+    use_binary_mask: bool
+    use_true_ghost_mask: bool
 
-    .. code-block:: yaml
 
-        model:
-          name: uresnet_ppn_chain
-          modules:
-            uresnet:
-              # Your uresnet config here
-            ppn:
-              # Your ppn config here
+@dataclass(frozen=True)
+class _PPNModules:
+    """Modules constructed for a PPN head."""
 
-    Configuration
-    -------------
-    dimension: int, default 3
-    num_input: int, default 1
-    allow_bias: bool, default False
-    spatial_size: int, default 512
-    leakiness: float, default 0.33
-    activation: dict
-        For activation function, defaults to `{'name': 'lrelu', 'args': {}}`
-    norm_layer: dict
-        For normalization function, defaults to `{'name': 'batch_norm', 'args': {}}`
+    decoding_block: torch.nn.Sequential
+    decoding_conv: torch.nn.Sequential
+    ppn_masks: torch.nn.ModuleList
+    expand_as: ExpandAs
+    final_block: torch.nn.Module
+    ppn_pixel_pos: torch.nn.Module
+    ppn_type: torch.nn.Module
+    ppn_endpoint: torch.nn.Module | None
+    masker: torch.nn.Module | None
+    merge_concat: torch.nn.Module | None
+    ghost_mask: torch.nn.Module | None
 
-    depth: int, default 5
-        Depth of UResNet, also corresponds to how many times we down/upsample.
-    filters: int, default 16
-        Number of filters in the first convolution of UResNet.
-        Will increase linearly with depth.
-    reps: int, default 2
-        Convolution block repetition factor
-    input_kernel: int, default 3
-        Receptive field size for very first convolution after input layer.
-    num_classes: int, default 5
-    mask_score_threshold: float, default 0.5
-    classify_endpoints: bool, default False
-        Enable classification of points into start vs end points.
-    ppn_resolution: float, default 1.0
-    ghost: bool, default False
-    use_true_ghost_mask: bool, default False
-    mask_loss_name: str, default 'BCE'
-        Can be 'BCE' or 'LogDice'
 
-    Output
-    ------
-    ppn_points: torch.Tensor
-        Contains  X, Y, Z predictions, semantic class prediction logits, and prob score
-    ppn_masks: list of torch.Tensor
-        Binary masks at various spatial scales of PPN predictions (voxel-wise score > some threshold)
-    ppn_coords: list of torch.Tensor
-        List of XYZ coordinates at various spatial scales.
-    ppn_layers: list of torch.Tensor
-        List of score features at various spatial scales.
-    ppn_output_coords: torch.Tensor
-        XYZ coordinates tensor at the very last layer of PPN (initial spatial scale)
-    ppn_classify_endpoints: torch.Tensor
-        Logits for end/start point classification.
+@dataclass(frozen=True)
+class _PPNLossConfig:
+    """Validated PPN loss configuration."""
+
+    resolution: float
+    point_classes: tuple[int, ...] | None
+    balance_mask_loss: bool
+    mask_weighting_mode: str
+    balance_type_loss: bool
+    type_weighting_mode: str
+    reg_loss_weight: float
+    type_loss_weight: float
+    mask_loss_weight: float
+    endpoint_loss_weight: float
+    return_mask_labels: bool
+    restrict_to_clusters: bool
+
+
+class PPN(sparse.Network):
+    """Predict sparse points of interest from UResNet feature planes.
+
+    PPN follows the UResNet decoder resolution schedule. At each level it
+    predicts foreground logits and uses their probabilities to gate features
+    propagated to the next level. The final plane predicts a sub-voxel offset,
+    semantic point type, foreground logits, and optionally track endpoint
+    class. When ghost masking is enabled, decoder features are pruned before
+    they enter the proposal path.
+
+    Notes
+    -----
+    The returned ``ppn_points`` is restored to the original input row order;
+    ``ppn_points_unique`` contains one prediction per active sparse site.
 
     See Also
     --------
-    :class:`PPNLoss`, :class:`spine.model.uresnet_ppn_chain`
+    PPNLoss
+        Supervised objective for PPN outputs.
+    spine.model.uresnet_ppn.UResNetPPN
+        Task model that combines the UResNet segmentation backbone and PPN.
     """
 
-    def __init__(self, uresnet, ppn, uresnet_loss=None, ppn_loss=None):
-        """Initializes the standalone PPN network.
+    def __init__(
+        self,
+        uresnet: dict[str, Any],
+        ppn: dict[str, Any],
+    ) -> None:
+        """Initialize the point proposal decoder.
 
         Parameters
         ----------
         uresnet : dict
-            Dictionary of the backbone uresnet configuration
+            UResNet configuration. PPN consumes ``num_classes``, ``ghost`` and
+            the shared CNN parameters.
         ppn : dict
-            Model configuration
-        uresnet_loss : dict, optional
-            UResNet loss configuration
-        ppn_loss : dict, optional
-            PPN loss configuration
+            Proposal-head configuration.
         """
         # Initialize the parent class
-        super().__init__()
+        super().__init__(uresnet.get("data_dim", 3))
 
-        # Initialize the backbone configuration
-        self.process_backbone_config(**uresnet)
-
-        # Process the PPN specific parameters
-        self.process_model_config(**ppn)
-
-        # Inialize the PPN model
-        self.initialize_model()
-
-    def process_backbone_config(self, num_classes, ghost=False, **backbone):
-        """Initialize the underlying UResNet model configuration.
-
-        Parameters
-        ----------
-        num_classes : int
-            Number of classes to classify the voxels as
-        ghost : bool, default False
-            Whether to add a deghosting step in the classification model
-        **backbone : dict
-            UResNet backbone configuration
-        """
-        # Store the semantic segmentation configuration
-        self.num_classes = num_classes
-        self.ghost = ghost
-
-        # Initialize the UResNet backbone, store the relevant parameters
+        # Initialize the shared backbone configuration. Ghost handling belongs
+        # to the UResNet configuration so the PPN block cannot override it.
+        backbone = dict(uresnet)
+        try:
+            self.num_classes = int(backbone.pop("num_classes"))
+        except KeyError as err:
+            raise ValueError(
+                "The UResNet configuration must define `num_classes`."
+            ) from err
+        self.ghost = bool(backbone.pop("ghost", False))
         setup_cnn_configuration(self, **backbone)
 
-    def process_model_config(
-        self,
-        mask_score_threshold=0.5,
-        classify_endpoints=False,
-        propagate_all=False,
-        use_binary_mask=False,
-        ghost=False,
-        use_true_ghost_mask=False,
-    ):
-        """Process the PPN-specific parameters.
+        # Store the PPN-specific configuration.
+        config = self._parse_model_config(**ppn)
+        self.mask_score_threshold = config.mask_score_threshold
+        self.classify_endpoints = config.classify_endpoints
+        self.propagate_all = config.propagate_all
+        self.use_binary_mask = config.use_binary_mask
+        self.use_true_ghost_mask = config.use_true_ghost_mask
+        if self.use_true_ghost_mask and not self.ghost:
+            raise ValueError("`use_true_ghost_mask` requires UResNet `ghost: true`.")
+
+        # Construct and register the PPN modules.
+        modules = self._build_modules()
+        self.decoding_block = modules.decoding_block
+        self.decoding_conv = modules.decoding_conv
+        self.ppn_masks = modules.ppn_masks
+        self.expand_as = modules.expand_as
+        self.final_block = modules.final_block
+        self.ppn_pixel_pos = modules.ppn_pixel_pos
+        self.ppn_type = modules.ppn_type
+        self.ppn_endpoint = modules.ppn_endpoint
+        self.masker = modules.masker
+        self.merge_concat = modules.merge_concat
+        self.ghost_mask = modules.ghost_mask
+
+    @staticmethod
+    def _parse_model_config(
+        mask_score_threshold: float = 0.5,
+        classify_endpoints: bool = False,
+        propagate_all: bool = False,
+        use_binary_mask: bool = False,
+        use_true_ghost_mask: bool = False,
+    ) -> _PPNConfig:
+        """Validate and normalize the PPN-specific configuration.
 
         Parameters
         ----------
         mask_score_threshold : float, default 0.5
-            Predicted score above which a pixel is considered positive
+            Foreground probability above which a site is marked positive.
         classify_endpoints : bool, default False
-            Whether or not to predict which point is the start/end for a track
+            Predict start-versus-end logits for track points.
         propagate_all : bool, default False
-            If `True`, the mask will not be applied at every PPN layer
+            Replace foreground probabilities with ones so every feature is
+            propagated.
         use_binary_mask : bool, default False
-            If `True`, converts the features to a binary mask based on score
-        ghost : bool, default False
-            Whether or not the input contains ghosts
+            Threshold foreground probabilities before feature gating.
         use_true_ghost_mask : bool, default False
-            If `True`, ghost labels to deghost the tensor
-        """
-        # Register parameters
-        self.mask_score_threshold = mask_score_threshold
-        self.classify_endpoints = classify_endpoints
-        self.propagate_all = propagate_all
-        self.use_binary_mask = use_binary_mask
-        self.ghost = ghost
-        self.use_true_ghost_mask = use_true_ghost_mask
-
-    def initialize_model(self):
-        """Initializes the PPN-specific decoder."""
-        # Initialize the decoding blocks
-        self.decoding_block = []
-        self.decoding_conv = []
-        self.ppn_masks = nn.ModuleList()
-        for i in range(self.depth - 2, -1, -1):
-            m = []
-            m.append(sparse.BatchNorm(self.num_planes[i + 1]))
-            m.append(act_factory(self.act_cfg))
-            m.append(
-                sparse.ConvolutionTranspose(
-                    in_channels=self.num_planes[i + 1],
-                    out_channels=self.num_planes[i],
-                    kernel_size=2,
-                    stride=2,
-                    dimension=self.dim,
-                )
-            )
-            m = nn.Sequential(*m)
-            self.decoding_conv.append(m)
-
-            m = []
-            for j in range(self.reps):
-                m.append(
-                    ResNetBlock(
-                        self.num_planes[i] * (2 if j == 0 else 1),
-                        self.num_planes[i],
-                        dimension=self.dim,
-                        activation=self.act_cfg,
-                    )
-                )
-            m = nn.Sequential(*m)
-            self.decoding_block.append(m)
-            self.ppn_masks.append(sparse.Linear(self.num_planes[i], 2))
-
-        self.decoding_block = nn.Sequential(*self.decoding_block)
-        self.decoding_conv = nn.Sequential(*self.decoding_conv)
-
-        # Expands the scores to the appropriate feature shape
-        self.expand_as = ExpandAs()
-
-        # Final ResNet block at the original image size
-        num_output = self.num_planes[0]
-        self.final_block = ResNetBlock(
-            num_output, num_output, dimension=self.dim, activation=self.act_cfg
-        )
-
-        # Final linear layer for positional regression (dimension size)
-        self.ppn_pixel_pos = sparse.Linear(num_output, self.dim)
-
-        # Final convolution layer for type classification
-        self.ppn_type = sparse.Linear(num_output, self.num_classes)
-
-        # Final convolution layer for endpoint prediction
-        if self.classify_endpoints:
-            self.ppn_endpoint = sparse.Linear(num_output, 2)
-
-        # Ghost point removal tools
-        if self.ghost:
-            logger.debug("Ghost masking is enabled for PPN.")
-            self.masker = AttentionMask()
-            self.merge_concat = MergeConcat()
-            self.ghost_mask = GhostMask(self.dim)
-
-    def forward(self, final_tensor, decoder_tensors, ghost=None, seg_label=None):
-        """Compute the PPN loss for a batch of data.
-
-        The PPN loss comprises three components:
-        - Regression loss: position of the point of interest within a pixel
-        - Type: type of point of interest
-        - Mask: whether or not a pixel is within some distance of a point
-
-        Parameters
-        ----------
-        final_tensor : TensorBatch
-            Feature tensors at the deepest layer of the backbone UResNet
-        decoder_tensors : List[TensorBatch]
-            Feature tensors of each of the decoding blocks
-        ghost : TensorBatch, optional
-            Logits of the ghost predictions of the backbone UResNet
-        seg_label : TensorBatch, optional
-            Segmentation label tensor
+            Use segmentation labels rather than predicted ghost logits.
 
         Returns
         -------
-        dict
-             Dictionary of outputs
+        _PPNConfig
+            Normalized PPN configuration.
+
+        Raises
+        ------
+        ValueError
+            If ``mask_score_threshold`` is outside ``[0, 1]``.
+        """
+        if not 0.0 <= mask_score_threshold <= 1.0:
+            raise ValueError("`mask_score_threshold` must be between zero and one.")
+        return _PPNConfig(
+            mask_score_threshold=mask_score_threshold,
+            classify_endpoints=classify_endpoints,
+            propagate_all=propagate_all,
+            use_binary_mask=use_binary_mask,
+            use_true_ghost_mask=use_true_ghost_mask,
+        )
+
+    def _build_modules(self) -> _PPNModules:
+        """Construct the proposal decoder and its output heads."""
+        # Initialize the decoding blocks
+        decoding_block = []
+        decoding_conv = []
+        ppn_masks = torch.nn.ModuleList()
+        for level in range(self.depth - 2, -1, -1):
+            upsample_layers = [
+                sparse.BatchNorm(self.num_planes[level + 1]),
+                act_factory(self.act_cfg),
+                sparse.ConvolutionTranspose(
+                    in_channels=self.num_planes[level + 1],
+                    out_channels=self.num_planes[level],
+                    kernel_size=2,
+                    stride=2,
+                    dimension=self.dimension,
+                ),
+            ]
+            decoding_conv.append(torch.nn.Sequential(*upsample_layers))
+
+            decoding_blocks = []
+            for repetition in range(self.reps):
+                decoding_blocks.append(
+                    ResNetBlock(
+                        self.num_planes[level] * (2 if repetition == 0 else 1),
+                        self.num_planes[level],
+                        dimension=self.dimension,
+                        activation=self.act_cfg,
+                    )
+                )
+            decoding_block.append(torch.nn.Sequential(*decoding_blocks))
+            ppn_masks.append(sparse.Linear(self.num_planes[level], 2))
+
+        decoding_block_module = torch.nn.Sequential(*decoding_block)
+        decoding_conv_module = torch.nn.Sequential(*decoding_conv)
+
+        # Expands the scores to the appropriate feature shape
+        expand_as = ExpandAs()
+
+        # Final ResNet block at the original image size
+        num_output = self.num_planes[0]
+        final_block = ResNetBlock(
+            num_output, num_output, dimension=self.dimension, activation=self.act_cfg
+        )
+
+        # Final linear layer for positional regression (dimension size)
+        ppn_pixel_pos = sparse.Linear(num_output, self.dimension)
+
+        # Final convolution layer for type classification
+        ppn_type = sparse.Linear(num_output, self.num_classes)
+
+        # Final convolution layer for endpoint prediction
+        if self.classify_endpoints:
+            ppn_endpoint = sparse.Linear(num_output, 2)
+        else:
+            ppn_endpoint = None
+
+        # Ghost point removal tools
+        masker = None
+        merge_concat = None
+        ghost_mask = None
+        if self.ghost:
+            logger.debug("Ghost masking is enabled for PPN.")
+            masker = AttentionMask()
+            merge_concat = MergeConcat()
+            ghost_mask = GhostMask(self.dimension)
+
+        return _PPNModules(
+            decoding_block=decoding_block_module,
+            decoding_conv=decoding_conv_module,
+            ppn_masks=ppn_masks,
+            expand_as=expand_as,
+            final_block=final_block,
+            ppn_pixel_pos=ppn_pixel_pos,
+            ppn_type=ppn_type,
+            ppn_endpoint=ppn_endpoint,
+            masker=masker,
+            merge_concat=merge_concat,
+            ghost_mask=ghost_mask,
+        )
+
+    def forward(
+        self,
+        final_tensor: sparse.SparseTensor,
+        decoder_tensors: Sequence[sparse.SparseTensor],
+        ghost: sparse.SparseTensor | None = None,
+        seg_label: TensorBatch | None = None,
+    ) -> PPNOutput:
+        """Predict points of interest from UResNet feature tensors.
+
+        Parameters
+        ----------
+        final_tensor : sparse.SparseTensor
+            Deepest UResNet encoder representation.
+        decoder_tensors : sequence of sparse.SparseTensor
+            UResNet decoder feature planes ordered from deep to shallow.
+        ghost : sparse.SparseTensor, optional
+            Predicted ghost logits on the input coordinate map.
+        seg_label : TensorBatch, optional
+            Segmentation labels used when ``use_true_ghost_mask`` is enabled.
+
+        Returns
+        -------
+        PPNOutput
+            Point predictions, foreground masks, logits and coordinates at
+            each proposal resolution.
+
+        Raises
+        ------
+        ValueError
+            If required ghost inputs are missing, labels do not align with the
+            input reference, or final proposal coordinates do not align with
+            the highest-resolution decoder plane.
         """
         # Get the list of decoder feature maps
         decoder_feature_maps = []
         if self.ghost:
+            ghost_mask_layer = self.ghost_mask
+            masker = self.masker
+            if ghost_mask_layer is None or masker is None:
+                raise RuntimeError(
+                    "Ghost-enabled PPN is missing its ghost-processing modules."
+                )
+
             # If there are ghosts, must downsample the ghost label/prediction
             # and apply it to each decoder feature map
             with torch.no_grad():
                 if self.use_true_ghost_mask:
                     # If using the true ghost mask, use the label tensor
-                    assert seg_label is not None, (
-                        "If `use_true_ghost_mask` is set to `True`, must "
-                        "provide the `seg_label` tensor."
-                    )
+                    if seg_label is None:
+                        raise ValueError(
+                            "If `use_true_ghost_mask` is set to `True`, must "
+                            "provide the `seg_label` tensor."
+                        )
 
-                    labels = seg_label.tensor
-                    assert labels.shape[0] == decoder_tensors[-1].reference_size, (
-                        "The label tensor length must match that "
-                        "of the last UResNet layer"
-                    )
+                    labels = seg_label.torch_tensor()
+                    if labels.shape[0] != decoder_tensors[-1].reference_size:
+                        raise ValueError(
+                            "The label tensor length must match that "
+                            "of the last UResNet layer"
+                        )
 
                     ghost_coords = labels[:, :VALUE_COL]
                     ghost_mask_tensor = labels[:, SHAPE_COL] < GHOST_SHP
                 else:
                     # If using predictions, convert the ghost scores to a mask
-                    ghost_coords = ghost.C
+                    if ghost is None:
+                        raise ValueError(
+                            "Ghost masking requires ghost prediction logits."
+                        )
+                    ghost_coords = ghost.coordinates
                     ghost_mask_tensor = 1.0 - torch.argmax(
                         ghost.aligned_features(), dim=1, keepdim=True
                     )
@@ -298,9 +365,15 @@ class PPN(torch.nn.Module):
                 )
 
             # Downsample stride 1 ghost mask to all intermediate decoder layers
-            for t in decoder_tensors[::-1]:
-                scaled_ghost_mask = self.ghost_mask(ghost_mask, t)
-                nonghost_tensor = self.masker(t, scaled_ghost_mask)
+            for decoder_tensor in reversed(decoder_tensors):
+                scaled_ghost_mask = ghost_mask_layer(
+                    ghost_mask,
+                    decoder_tensor,
+                )
+                nonghost_tensor = masker(
+                    decoder_tensor,
+                    scaled_ghost_mask,
+                )
                 decoder_feature_maps.append(nonghost_tensor)
 
             decoder_feature_maps = decoder_feature_maps[::-1]
@@ -311,62 +384,78 @@ class PPN(torch.nn.Module):
         # Loop over the PPN decoding path
         ppn_masks, ppn_layers, ppn_coords = [], [], []
         x = final_tensor
-        for i, layer in enumerate(self.decoding_conv):
+        for level, layer in enumerate(self.decoding_conv):
             # Pass the previous features through the decoding convolution
             x = layer(x)
 
             # Merge with the UesNet decoding features
-            decoder_tensor = decoder_feature_maps[i]
+            decoder_tensor = decoder_feature_maps[level]
             if self.ghost:
+                if self.merge_concat is None:
+                    raise RuntimeError("Ghost-enabled PPN is missing its merge module.")
                 x = self.merge_concat(decoder_tensor, x)
             else:
                 x = sparse.cat(decoder_tensor, x)
 
             # Apply the decoding block, linear layer and sigmoid function
-            x = self.decoding_block[i](x)
-            scores = self.ppn_masks[i](x)
-            softmax = sparse.softmax(scores, dim=1)
-            mask = softmax.F[:, 1:] > self.mask_score_threshold
+            x = self.decoding_block[level](x)
+            scores = self.ppn_masks[level](x)
+            probabilities = sparse.softmax(scores, dim=1)
+            foreground_mask = probabilities.features[:, 1:] > self.mask_score_threshold
 
             # Store the coordinates, raw score logits and score mask
-            counts = decoder_tensors[i].counts
+            counts = decoder_tensors[level].counts
             ppn_coords.append(
-                TensorBatch(scores.C, counts, has_batch_col=True, coord_cols=COORD_COLS)
+                TensorBatch(
+                    scores.coordinates,
+                    counts,
+                    has_batch_col=True,
+                    coord_cols=COORD_COLS,
+                )
             )
-            ppn_layers.append(TensorBatch(scores.F, counts))
-            ppn_masks.append(TensorBatch(mask, counts))
+            ppn_layers.append(TensorBatch(scores.features, counts))
+            ppn_masks.append(TensorBatch(foreground_mask, counts))
 
             # Expand the score mask
-            s_expanded = self.expand_as(
-                softmax,
-                x.F.shape,
+            expanded_scores = self.expand_as(
+                probabilities,
+                x.features.shape,
                 propagate_all=self.propagate_all,
                 use_binary_mask=self.use_binary_mask,
             )
 
             # Scale the out of this layer using the score mask
-            x = x * s_expanded.detach()
+            x = x * expanded_scores.detach()
 
         # Output set of coordinates (should match the last decoder tensor)
-        assert x.C.shape[0] == decoder_tensors[-1].shape[0], (
-            "The output of the last PPN layer should be consistent "
-            "with the length of the last UResNet decoder layer"
-        )
+        if x.coordinates.shape[0] != decoder_tensors[-1].shape[0]:
+            raise ValueError(
+                "The output of the last PPN layer should be consistent "
+                "with the length of the last UResNet decoder layer"
+            )
         final_counts = decoder_tensors[-1].counts
         ppn_output_coords = TensorBatch(
-            x.C, final_counts, has_batch_col=True, coord_cols=COORD_COLS
+            x.coordinates, final_counts, has_batch_col=True, coord_cols=COORD_COLS
         )
 
         # Pass the final PPN tensor through the individual predictions, combine
         x = self.final_block(x)
         pixel_pos = self.ppn_pixel_pos(x)
         ppn_type = self.ppn_type(x)
-        if self.classify_endpoints:
+        ppn_endpoint = None
+        if self.ppn_endpoint is not None:
             ppn_endpoint = self.ppn_endpoint(x)
 
         # X, Y, Z, logits, and prob score
         point_features = x.replace_features(
-            torch.cat([pixel_pos.F, ppn_type.F, ppn_layers[-1].tensor], dim=1)
+            torch.cat(
+                [
+                    pixel_pos.features,
+                    ppn_type.features,
+                    ppn_layers[-1].torch_tensor(),
+                ],
+                dim=1,
+            )
         )
         ppn_points_unique = point_features.to_tensor_batch(
             include_coordinates=False,
@@ -375,7 +464,7 @@ class PPN(torch.nn.Module):
             include_coordinates=False, restore=True
         )
 
-        result = {
+        result: PPNOutput = {
             "ppn_points": ppn_points,
             "ppn_points_unique": ppn_points_unique,
             "ppn_masks": ppn_masks,
@@ -383,7 +472,7 @@ class PPN(torch.nn.Module):
             "ppn_coords": ppn_coords,
             "ppn_output_coords": ppn_output_coords,
         }
-        if self.classify_endpoints:
+        if ppn_endpoint is not None:
             result["ppn_classify_endpoints_unique"] = ppn_endpoint.to_tensor_batch(
                 include_coordinates=False,
             )
@@ -394,148 +483,147 @@ class PPN(torch.nn.Module):
         return result
 
 
-class PPNLoss(torch.nn.modules.loss._Loss):
-    """Loss function for PPN.
+class PPNLoss(torch.nn.Module):
+    """Compute foreground, position, type and endpoint objectives for PPN.
 
-    Output
-    ------
-    reg_loss : float
-        Distance loss
-    mask_loss : float
-        Binary voxel-wise prediction loss (is there an object of interest or not)
-    classify_endpoints_loss : float
-        Endpoint classification loss
-    type_loss : float
-        Semantic prediction loss
-    output_mask_accuracy: float
-        Binary voxel-wise prediction accuracy in the last layer
-    type_accuracy : float
-        Semantic prediction accuracy
-    classify_endpoints_accuracy : float
-        Endpoint classification accuracy
+    Foreground cross-entropy is evaluated at every proposal resolution.
+    Position and semantic type losses are evaluated at final-resolution sites
+    within ``resolution`` of a target point. Endpoint classification is
+    included when the model supplies endpoint logits.
 
     See Also
     --------
-    PPN, spine.model.uresnet_ppn_chain
+    PPN
+        Network that produces the predictions consumed by this loss.
     """
 
-    def __init__(self, uresnet, ppn, ppn_loss, uresnet_loss=None):
-        """Initializes the standalone PPN loss.
+    def __init__(
+        self,
+        uresnet: dict[str, Any],
+        ppn_loss: dict[str, Any],
+    ) -> None:
+        """Initialize the point proposal objective.
 
         Parameters
         ----------
         uresnet : dict
-            Dictionary of the backbone uresnet configuration
-        ppn : dict
-            Model configuration
-        uresnet_loss : dict, optional
-            UResNet loss configuration
-        ppn_loss : dict, optional
-            PPN loss configuration
+            UResNet configuration supplying ``depth`` and ``data_dim``.
+        ppn_loss : dict
+            PPN loss configuration.
         """
         # Initialize the parent class
         super().__init__()
 
-        # Initialize what we need from the backbone configuration
-        self.process_backbone_config(**uresnet)
+        # Store the backbone parameters required to construct proposal targets.
+        try:
+            self.depth = int(uresnet["depth"])
+        except KeyError as err:
+            raise ValueError("The UResNet configuration must define `depth`.") from err
+        self.dimension = int(uresnet.get("data_dim", 3))
 
-        # Initialize the loss configuration
-        self.process_loss_config(**ppn_loss)
+        # Store the normalized loss configuration.
+        config = self._parse_loss_config(**ppn_loss)
+        self.resolution = config.resolution
+        self.point_classes = config.point_classes
+        self.balance_mask_loss = config.balance_mask_loss
+        self.mask_weighting_mode = config.mask_weighting_mode
+        self.balance_type_loss = config.balance_type_loss
+        self.type_weighting_mode = config.type_weighting_mode
+        self.reg_loss_weight = config.reg_loss_weight
+        self.type_loss_weight = config.type_loss_weight
+        self.mask_loss_weight = config.mask_loss_weight
+        self.endpoint_loss_weight = config.endpoint_loss_weight
+        self.return_mask_labels = config.return_mask_labels
+        self.restrict_to_clusters = config.restrict_to_clusters
 
-    def process_backbone_config(self, depth, **kwargs):
-        """Process the parameters of the backbone model needed for in the loss.
-
-        Parameters
-        ----------
-        depth : int
-            Depth of the UResNet
-        **kwargs : dict, optional
-            Leftover model configuration (no need in the loss)
-        """
-        # Store the semantic segmentation configuration
-        self.depth = depth
-
-    def process_loss_config(
-        self,
-        mask_loss="CE",
-        resolution=5.0,
-        point_classes=None,
-        balance_mask_loss=True,
-        mask_weighting_mode="const",
-        balance_type_loss=True,
-        type_weighting_mode="const",
-        reg_loss_weight=1.0,
-        type_loss_weight=1.0,
-        mask_loss_weight=1.0,
-        endpoint_loss_weight=1.0,
-        return_mask_labels=False,
-        restrict_to_clusters=False,
-    ):
-        """Process the loss function parameters.
-
-        Parameters
-        ----------
-        resolution : float, default 5.
-            Distance from a label point in pixels within which a voxel is
-            considered positive (pixel of interest)
-        mask_loss : str, default 'CE'
-            Name of the loss function to use
-        point_classes : Union[int, list], optional
-            If provided, restricts the loss to points of (a) certain shape(s)
-        balance_mask_loss : bool, default True
-            Apply class-weights to the mask loss
-        mask_weighting_mode : str, default 'const'
-            Method for class-weighting the mask loss
-        balance_type_loss : bool, default True
-            Apply class-weights to the type loss
-        type_weighting_method : str, default 'const'
-            Method class-weighting the type loss
-        reg_loss_weight : float, default 1.
-            Relative weight to apply to the regression loss
-        type_loss_weight : float, default 1.
-            Relative weight to apply to the point type loss
-        mask_loss_weight : float, default 1.
-            Relative weight to apply to the mask loss
-        endpoint_loss_weight : float, default 1.
-            Relative weight to apply to the endpoint classification
-        return_mask_labels : bool, default False
-            If `True`, returns the masks used to compute the mask loss
-        restrict_to_clusters : bool, default False
-            If `True`, when computing the positive labels for PPN, it will only
-            look for points that are close to a given PPN label point with the
-            same particle id.
-        """
-        # Store the loss parameters
-        self.resolution = resolution
-        self.balance_mask_loss = balance_mask_loss
-        self.mask_weighting_mode = mask_weighting_mode
-        self.balance_type_loss = balance_type_loss
-        self.type_weighting_mode = type_weighting_mode
-        self.reg_loss_weight = reg_loss_weight
-        self.type_loss_weight = type_loss_weight
-        self.mask_loss_weight = mask_loss_weight
-        self.endpoint_loss_weight = endpoint_loss_weight
-        self.return_mask_labels = return_mask_labels
-        self.restrict_to_clusters = restrict_to_clusters
-        self.point_classes = point_classes
-        if point_classes is not None and isinstance(point_classes, int):
-            self.point_classes = [point_classes]
-
-        # Instantiate the regression loss function
+        # Instantiate the component loss functions.
         self.reg_loss_fn = torch.nn.MSELoss(reduction="mean")
-
-        # Instantiate the point type loss function
         self.type_loss_fn = torch.nn.functional.cross_entropy
-
-        # Instantiate the end point tyepe loss function
         self.end_loss_fn = torch.nn.functional.cross_entropy
+        self.mask_loss = "CE"
+        self.mask_loss_fn = torch.nn.functional.cross_entropy
 
-        # Instantiate the mask loss function
-        self.mask_loss = mask_loss
-        if mask_loss == "CE":
-            self.mask_loss_fn = torch.nn.functional.cross_entropy
+    @staticmethod
+    def _parse_loss_config(
+        mask_loss: str = "CE",
+        resolution: float = 5.0,
+        point_classes: int | Sequence[int] | None = None,
+        balance_mask_loss: bool = True,
+        mask_weighting_mode: str = "const",
+        balance_type_loss: bool = True,
+        type_weighting_mode: str = "const",
+        reg_loss_weight: float = 1.0,
+        type_loss_weight: float = 1.0,
+        mask_loss_weight: float = 1.0,
+        endpoint_loss_weight: float = 1.0,
+        return_mask_labels: bool = False,
+        restrict_to_clusters: bool = False,
+    ) -> _PPNLossConfig:
+        """Validate and normalize the loss function parameters.
+
+        Parameters
+        ----------
+        mask_loss : str, default "CE"
+            Foreground loss name. Currently only cross-entropy is supported.
+        resolution : float, default 5.0
+            Maximum voxel-space distance between a site and target point for
+            that site to be positive.
+        point_classes : int or sequence of int, optional
+            Restrict supervision to target points with these semantic classes.
+        balance_mask_loss : bool, default True
+            Apply class weights to foreground loss.
+        mask_weighting_mode : str, default "const"
+            Class-weighting strategy for foreground loss.
+        balance_type_loss : bool, default True
+            Apply class weights to semantic type loss.
+        type_weighting_mode : str, default "const"
+            Class-weighting strategy for semantic type loss.
+        reg_loss_weight : float, default 1.0
+            Relative weight of the position regression loss.
+        type_loss_weight : float, default 1.0
+            Relative weight of the semantic type loss.
+        mask_loss_weight : float, default 1.0
+            Relative weight of the foreground loss.
+        endpoint_loss_weight : float, default 1.0
+            Relative weight of endpoint classification loss.
+        return_mask_labels : bool, default False
+            Include generated foreground targets in the result.
+        restrict_to_clusters : bool, default False
+            Associate sites only with target points from the same particle.
+
+        Returns
+        -------
+        _PPNLossConfig
+            Normalized PPN loss configuration.
+
+        Raises
+        ------
+        ValueError
+            If ``mask_loss`` is unsupported.
+        """
+        if point_classes is None:
+            normalized_point_classes = None
+        elif isinstance(point_classes, int):
+            normalized_point_classes = (point_classes,)
         else:
+            normalized_point_classes = tuple(point_classes)
+
+        if mask_loss != "CE":
             raise ValueError(f"Mask loss name not recognized: {mask_loss}")
+        return _PPNLossConfig(
+            resolution=resolution,
+            point_classes=normalized_point_classes,
+            balance_mask_loss=balance_mask_loss,
+            mask_weighting_mode=mask_weighting_mode,
+            balance_type_loss=balance_type_loss,
+            type_weighting_mode=type_weighting_mode,
+            reg_loss_weight=reg_loss_weight,
+            type_loss_weight=type_loss_weight,
+            mask_loss_weight=mask_loss_weight,
+            endpoint_loss_weight=endpoint_loss_weight,
+            return_mask_labels=return_mask_labels,
+            restrict_to_clusters=restrict_to_clusters,
+        )
 
     @staticmethod
     def get_ppn_positives(
@@ -543,91 +631,102 @@ class PPNLoss(torch.nn.modules.loss._Loss):
         ppn_labels: torch.Tensor,
         resolution: float,
         offset: int,
-        labels: torch.Tensor = None,
-    ):
-        """Get ppn positive label mask.
+        labels: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Assign foreground sites to their closest valid PPN target.
 
-        If the voxel `labels` are provided, they are used to restrict the mask
+        If voxel ``labels`` are provided, they restrict the mask
         applied to voxels within some distance of label points associated with
         the correct particle instance, not any particle instance.
 
         Parameters
         ----------
         coords : torch.Tensor
-            (N, 3) 3D coordinates of the image voxels
-        ppn_label : torch.Tensor
-            (N, 1 + D + N_l) Tensor of PPN labels for the batch
+            ``(N, D)`` voxel coordinates.
+        ppn_labels : torch.Tensor
+            ``(P, 1 + D + L)`` point-label table.
         resolution : float
-            Distance from a label point in pixels within which a voxel is
-            considered positive (pixel of interest)
+            Maximum distance at which a site is foreground.
         offset : int
-            The index offset needed to transform within-batch index to
-            global (image) index.
+            Offset that converts within-entry target indices to indices in the
+            concatenated label tensor.
         labels : torch.Tensor, optional
-            (N) tensor of the particle id label for each voxel
+            ``(N,)`` particle ID for each voxel.
 
         Returns
         -------
-        positives : torch.Tensor
-            (N) tensor of the positive label mask
-        closests : torch.Tensor
-            (N) tensor of the closest label point index
+        tuple of torch.Tensor
+            Boolean foreground mask with shape ``(N,)`` and closest global
+            target index with shape ``(N,)``.
+
+        Raises
+        ------
+        RuntimeError
+            If pairwise distance computation does not return a matrix.
         """
         # Detach this process from the computation graph (mask not learnable)
         with torch.no_grad():
             # Compute the distance from the PPN labels to all the image points
-            dist_mat = cdist_fast(ppn_labels[:, COORD_COLS], coords)
+            distance_matrix = cdist_fast(
+                ppn_labels[:, COORD_COLS],
+                coords,
+            )
+            if distance_matrix is None:
+                raise RuntimeError("Failed to compute the PPN distance matrix.")
 
             # Mask out particle voxels for which the particle ID disagrees
             if labels is not None:
-                bad_mask = ppn_labels[:, [PPN_LPART_COL]] != labels
-                dist_mat[bad_mask] = torch.inf
+                invalid_particle_mask = ppn_labels[:, [PPN_LPART_COL]] != labels
+                distance_matrix[invalid_particle_mask] = torch.inf
 
             # Generate a positive mask for all particle voxels within some
             # distance of their label points
-            positives = (dist_mat < resolution).any(dim=0)
+            positives = (distance_matrix < resolution).any(dim=0)
 
             # Assign the closest label point to each postive particle voxel
-            pos_index = torch.where(positives)[0]
-            closests = torch.full(
+            positive_indices = torch.where(positives)[0]
+            closest_indices = torch.full(
                 (len(coords),), -1, dtype=torch.long, device=coords.device
             )
-            closests[pos_index] = offset + torch.argmin(dist_mat[:, pos_index], dim=0)
+            closest_indices[positive_indices] = offset + torch.argmin(
+                distance_matrix[:, positive_indices],
+                dim=0,
+            )
 
-            return positives, closests
+            return positives, closest_indices
 
     def forward(
         self,
-        ppn_label,
-        ppn_points,
-        ppn_masks,
-        ppn_layers,
-        ppn_coords,
-        ppn_output_coords,
-        ppn_classify_endpoints=None,
-        ppn_points_unique=None,
-        ppn_classify_endpoints_unique=None,
-        clust_label=None,
-        **kwargs,
-    ):
-        """Computes the three PPN losses.
+        ppn_label: TensorBatch,
+        ppn_points: TensorBatch,
+        ppn_masks: Sequence[TensorBatch],
+        ppn_layers: Sequence[TensorBatch],
+        ppn_coords: Sequence[TensorBatch],
+        ppn_output_coords: TensorBatch,
+        ppn_classify_endpoints: TensorBatch | None = None,
+        ppn_points_unique: TensorBatch | None = None,
+        ppn_classify_endpoints_unique: TensorBatch | None = None,
+        clust_label: TensorBatch | None = None,
+        **kwargs: object,
+    ) -> PPNLossOutput:
+        """Compute PPN losses and accuracy metrics.
 
         Parameters
         ----------
         ppn_label : TensorBatch
-            (N, 1 + D + N_l) Tensor of PPN labels for the batch
+            ``(P, 1 + D + L)`` point-label table.
         ppn_points : TensorBatch
-            Complete PPN predictions at the last layer
-        ppn_masks : List[TensorBatch]
-            Binary mask at each layer of the PPN
-        ppn_layers : List[TensorBatch]
-            Output logits at each layer of the PPN
-        ppn_coords : List[TensorBatch]
-            Set of coordinates at each layer of the PPN
+            Row-aligned final-resolution point predictions.
+        ppn_masks : sequence of TensorBatch
+            Predicted binary masks at each proposal resolution.
+        ppn_layers : sequence of TensorBatch
+            Foreground logits at each proposal resolution.
+        ppn_coords : sequence of TensorBatch
+            Batched coordinates at each proposal resolution.
         ppn_output_coords : TensorBatch
-            Set of coordinates at the very last layer of the PPN
-        ppn_classify_endpoins : TensorBatch, optional
-            Set of logits associated with end point classification
+            Coordinates at the final proposal resolution.
+        ppn_classify_endpoints : TensorBatch, optional
+            Row-aligned endpoint classification logits.
         ppn_points_unique : TensorBatch, optional
             PPN predictions on unique sparse sites. When provided, these are
             used for voxel-wise losses while ``ppn_points`` remains aligned
@@ -635,15 +734,16 @@ class PPNLoss(torch.nn.modules.loss._Loss):
         ppn_classify_endpoints_unique : TensorBatch, optional
             Endpoint logits on unique sparse sites.
         clust_label : TensorBatch, optional
-            (N, 1 + D + N_c) Tensor of cluster labels
-            - N_c is is the number of cluster labels
-        **kwargs : dict, optional
-            Other outputs of the upstream model which are not relevant here
+            ``(N, 1 + D + C)`` cluster-label table used to restrict particle
+            associations.
+        **kwargs : object
+            Other upstream outputs ignored by this loss.
 
         Returns
         -------
-        dict
-            Dictionary of accuracies and losses
+        PPNLossOutput
+            Combined loss, component losses, accuracies, per-layer foreground
+            metrics and optionally generated mask labels.
         """
         # Initialize the basics
         num_layers = len(ppn_layers)
@@ -657,32 +757,37 @@ class PPNLoss(torch.nn.modules.loss._Loss):
 
         # If requested, narrow down the list of label points
         if self.point_classes is not None:
-            assert len(
-                self.point_classes
-            ), "Should provide at least one class to include in the loss"
+            if len(self.point_classes) == 0:
+                raise ValueError(
+                    "Should provide at least one class to include in the loss"
+                )
             ppn_label_list = []
-            for b, label_tensor in enumerate(ppn_label.split()):
+            for label_tensor in ppn_label.split():
                 labels = label_tensor[:, PPN_LTYPE_COL]
                 mask = torch.zeros(len(labels), dtype=torch.bool, device=labels.device)
-                for c in self.point_classes:
-                    mask |= labels == c
+                for point_class in self.point_classes:
+                    mask |= labels == point_class
                 valid_index = torch.where(mask)[0]
-                ppn_label_list[b] = label_tensor[valid_index]
+                ppn_label_list.append(label_tensor[valid_index])
 
             ppn_label = TensorBatch.from_list(ppn_label_list)
 
         # Compute the label mask for the final PPN layer. Record which
         # label point is closest to each image voxel (defines label for it)
         coords_final = ppn_coords[-1]
+        coords_final_tensor = coords_final.torch_tensor()
+        ppn_label_tensor = ppn_label.torch_tensor()
         closest_list, positive_list = [], []
         part_labels = None
         offset = 0
-        for b in range(batch_size):
+        for batch_index in range(batch_size):
             # If there are no label points, there are no positive points
-            points_label = ppn_label[b]
-            if not len(points_label):
+            points_label = ppn_label[batch_index]
+            if len(points_label) == 0:
                 positive = torch.zeros(
-                    coords_final.counts[b], dtype=torch.bool, device=coords_final.device
+                    coords_final.counts[batch_index],
+                    dtype=torch.bool,
+                    device=coords_final.device,
                 )
                 closest = torch.empty_like(positive, dtype=torch.long)
                 positive_list.append(positive)
@@ -691,14 +796,15 @@ class PPNLoss(torch.nn.modules.loss._Loss):
 
             # If needed, find which particle instance voxels belong to
             if self.restrict_to_clusters:
-                assert clust_label is not None, (
-                    "When using 'restrict_to_clusters', must provide "
-                    "'clust_label' to the PPN loss."
-                )
-                part_labels = clust_label[b][:, PART_COL]
+                if clust_label is None:
+                    raise ValueError(
+                        "When using 'restrict_to_clusters', must provide "
+                        "'clust_label' to the PPN loss."
+                    )
+                part_labels = clust_label[batch_index][:, PART_COL]
 
             # Assign positive/negative labels to each voxel in the image
-            points_entry = coords_final[b][:, COORD_COLS] + 0.5
+            points_entry = coords_final[batch_index][:, COORD_COLS] + 0.5
             positive, closest = self.get_ppn_positives(
                 points_entry,
                 points_label,
@@ -712,25 +818,31 @@ class PPNLoss(torch.nn.modules.loss._Loss):
             closest_list.append(closest)
             offset += len(points_label)
 
-        closests = torch.cat(closest_list, dim=0)
+        closest_indices = torch.cat(closest_list, dim=0)
         positives = torch.cat(positive_list, dim=0).long()
 
         # Downsample the final mask to each PPN layer, apply mask loss
-        downsample = sparse.MaxPooling(2, 2, dimension=3)  # TODO
+        downsample = sparse.MaxPooling(2, 2, dimension=self.dimension)
         mask_tensor = sparse.SparseTensor(
-            positives[:, None].float(), coordinates=coords_final.tensor[:, :VALUE_COL]
+            positives[:, None].float(),
+            coordinates=coords_final_tensor[:, :VALUE_COL],
         )
 
-        dtype, device = ppn_label.tensor.dtype, ppn_label.tensor.device
+        dtype, device = ppn_label_tensor.dtype, ppn_label_tensor.device
         mask_losses = torch.zeros(num_layers, dtype=dtype, device=device)
-        mask_accs = torch.zeros(num_layers, dtype=dtype, device=device)
+        mask_accuracies = torch.zeros(
+            num_layers,
+            dtype=dtype,
+            device=device,
+        )
         mask_label_list = []
-        for i in range(0, num_layers):
+        for reverse_index in range(num_layers):
             # Narrow down outputs to this specific layer
-            layer = num_layers - 1 - i
-            coords_layer = ppn_coords[layer]
-            scores_layer = ppn_layers[layer]
-            mask_labels = mask_tensor.F.flatten().long()
+            layer_index = num_layers - 1 - reverse_index
+            coords_layer = ppn_coords[layer_index]
+            scores_layer = ppn_layers[layer_index]
+            scores_layer_tensor = scores_layer.torch_tensor()
+            mask_labels = mask_tensor.features.flatten().long()
 
             # If requested, store the label features in a list
             if self.return_mask_labels:
@@ -746,45 +858,55 @@ class PPNLoss(torch.nn.modules.loss._Loss):
                 )
 
             # Compute the mask loss for this layer, increment
-            mask_losses[layer] = self.mask_loss_fn(
-                scores_layer.tensor, mask_labels, weight=mask_weight, reduction="mean"
+            mask_losses[layer_index] = self.mask_loss_fn(
+                scores_layer_tensor,
+                mask_labels,
+                weight=mask_weight,
+                reduction="mean",
             )
 
             # Compute the mask accuracy for this layer/batch, increment
             with torch.no_grad():
-                num_points = len(scores_layer.tensor)
-                mask_pred = torch.argmax(scores_layer.tensor, dim=1)
-                mask_accs[layer] = (mask_pred == mask_labels).sum() / num_points
+                num_points = len(scores_layer_tensor)
+                mask_predictions = torch.argmax(
+                    scores_layer_tensor,
+                    dim=1,
+                )
+                if num_points > 0:
+                    mask_accuracies[layer_index] = (
+                        mask_predictions == mask_labels
+                    ).sum() / num_points
 
             # Update the mask label for the next iteration
-            if layer != 0:
+            if layer_index != 0:
                 mask_tensor = downsample(mask_tensor)
 
         # Apply the other losses to the last layer only
-        zero = torch.tensor(0.0, dtype=ppn_label.dtype, device=ppn_label.device)
-        one = torch.tensor(1.0, dtype=ppn_label.dtype, device=ppn_label.device)
+        zero = torch.tensor(0.0, dtype=dtype, device=device)
+        one = torch.tensor(1.0, dtype=dtype, device=device)
         type_loss, reg_loss, end_loss = zero, zero, zero
         type_acc, end_acc = one, one
         pos_mask = torch.where(positives)[0]
-        if len(pos_mask):
-            # Narrow the loss down to the true positive pixels
-            # TODO: should this be predicted positive pixels?
+        if len(pos_mask) > 0:
+            # Supervise the regression and classification heads at
+            # ground-truth-positive sites. Using thresholded predictions here
+            # would make their supervision depend on a non-differentiable mask
+            # decision and could starve these heads early in training.
 
             # Closest ppn point label (index) to given positive point
-            closests = closests[pos_mask]
+            closest_indices = closest_indices[pos_mask]
 
-            anchors = coords_final.tensor[:, COORD_COLS] + 0.5
-            pixel_pos = loss_points.tensor[:, PPN_ROFF_COLS] + anchors
-            pixel_scores = loss_points.tensor[:, PPN_RPOS_COLS]
-            pixel_logits = loss_points.tensor[:, PPN_RTYPE_COLS]
+            anchors = coords_final_tensor[:, COORD_COLS] + 0.5
+            loss_points_tensor = loss_points.torch_tensor()
+            pixel_pos = loss_points_tensor[:, PPN_ROFF_COLS] + anchors
+            pixel_logits = loss_points_tensor[:, PPN_RTYPE_COLS]
 
             pixel_pos = pixel_pos[pos_mask]
-            pixel_scores = pixel_scores[pos_mask]
             pixel_logits = pixel_logits[pos_mask]
 
-            ########## Type loss ##########
+            # Type loss
             # Compute type weights over the whole batch, if requested
-            type_labels = ppn_label.tensor[:, PPN_LTYPE_COL].long()
+            type_labels = ppn_label_tensor[:, PPN_LTYPE_COL].long()
             type_weight = None
             if self.balance_type_loss:
                 num_classes = pixel_logits.shape[1]
@@ -792,9 +914,10 @@ class PPNLoss(torch.nn.modules.loss._Loss):
                     type_labels, num_classes, self.type_weighting_mode
                 )
 
-            # Compute the type loss
-            # TODO: deal with having multiple valid labels (track/shower/etc.)
-            closest_type_labels = type_labels[closests]
+            # The closest target selected above defines both the regression
+            # target and its semantic type. This keeps the two heads aligned
+            # when several point labels fall within the positive radius.
+            closest_type_labels = type_labels[closest_indices]
             type_loss = self.type_loss_fn(
                 pixel_logits, closest_type_labels, weight=type_weight
             )
@@ -802,41 +925,46 @@ class PPNLoss(torch.nn.modules.loss._Loss):
             # Compute the type accuracy
             with torch.no_grad():
                 num_points = len(closest_type_labels)
-                type_pred = torch.argmax(pixel_logits, dim=1)
-                type_acc = (type_pred == closest_type_labels).sum() / num_points
+                type_predictions = torch.argmax(pixel_logits, dim=1)
+                type_acc = (type_predictions == closest_type_labels).sum() / num_points
 
-            ########## Regression loss ##########
+            # Regression loss
             # Compute the regression loss. The offset should point to
             # the closest label point from that voxel
-            point_labels = ppn_label.tensor[:, COORD_COLS]
-            closest_point_labels = point_labels[closests]
+            point_labels = ppn_label_tensor[:, COORD_COLS]
+            closest_point_labels = point_labels[closest_indices]
             reg_loss = self.reg_loss_fn(pixel_pos, closest_point_labels)
 
-            ########## End points loss ##########
+            # Endpoint loss
             # If the upstream models produced endpoint predictions, apply loss.
             # Narrow the problem down to predictions closest to track points
             track_index = torch.where(closest_type_labels == TRACK_SHP)[0]
-            if loss_endpoints is not None and len(track_index):
+            if loss_endpoints is not None and len(track_index) > 0:
                 # Get the end point predictions
-                end_logits = loss_endpoints.tensor[pos_mask]
+                end_logits = loss_endpoints.torch_tensor()[pos_mask]
                 end_logits = end_logits[track_index]
 
-                # Compute the end point classification loss
-                # TODO: deal with having multiple valid labels (start/end)
-                end_labels = ppn_label.tensor[:, PPN_LENDP_COL].long()
-                closest_end_labels = end_labels[closests]
+                # The endpoint class belongs to the same closest track target
+                # used by the regression and semantic-type objectives.
+                end_labels = ppn_label_tensor[:, PPN_LENDP_COL].long()
+                closest_end_labels = end_labels[closest_indices]
                 closest_end_labels = closest_end_labels[track_index]
                 end_loss = self.end_loss_fn(end_logits, closest_end_labels)
 
                 # Compute the end point classification accuracy
                 with torch.no_grad():
                     num_points = len(closest_end_labels)
-                    end_pred = torch.argmax(end_logits, dim=1)
-                    end_acc = (end_pred == closest_end_labels).sum() / num_points
+                    endpoint_predictions = torch.argmax(
+                        end_logits,
+                        dim=1,
+                    )
+                    end_acc = (
+                        endpoint_predictions == closest_end_labels
+                    ).sum() / num_points
 
         # Combine the losses and accuracies
         mask_loss = torch.mean(mask_losses)
-        mask_acc = torch.mean(mask_accs)
+        mask_acc = torch.mean(mask_accuracies)
 
         loss = (
             self.mask_loss_weight * mask_loss
@@ -845,12 +973,12 @@ class PPNLoss(torch.nn.modules.loss._Loss):
         )
         accuracy = (mask_acc + type_acc) / 2
 
-        if ppn_classify_endpoints is not None:
+        if loss_endpoints is not None:
             loss += self.endpoint_loss_weight * end_loss
-            accurary = accuracy * 2.0 + end_acc
+            accuracy = (mask_acc + type_acc + end_acc) / 3
 
         # Prepare the result dictionary
-        result = {
+        result: PPNLossOutput = {
             "loss": loss,
             "accuracy": accuracy.item(),
             "mask_loss": mask_loss.item(),
@@ -861,14 +989,14 @@ class PPNLoss(torch.nn.modules.loss._Loss):
         }
 
         # Add the endpoint metrics if present
-        if ppn_classify_endpoints is not None:
+        if loss_endpoints is not None:
             result["classify_endpoints_loss"] = end_loss.item()
             result["classify_endpoints_accuracy"] = end_acc.item()
 
         # Add the mask loss at each layer
         for layer in range(num_layers):
             result[f"mask_loss_layer_{layer}"] = mask_losses[layer]
-            result[f"mask_accuracy_layer_{layer}"] = mask_accs[layer]
+            result[f"mask_accuracy_layer_{layer}"] = mask_accuracies[layer]
 
         # If needed, return the mask labels
         if self.return_mask_labels:
@@ -877,39 +1005,54 @@ class PPNLoss(torch.nn.modules.loss._Loss):
         return result
 
 
-class ExpandAs(nn.Module):
-    """Expands a one dimensional feature tensor to a higher dimension.
+class ExpandAs(torch.nn.Module):
+    """Expand foreground scores across a sparse feature width.
 
-    Given a sparse tensor with one dimensional features, expand the
-    feature map to a given shape and return a newly constructed
-    sparse.SparseTensor. This is used to expand a score array and apply
-    it to the entire feature tensor of the the input.
+    The input must contain two class scores per active site. The foreground
+    score in column one is selected, optionally replaced or thresholded, and
+    expanded without copying across the requested feature dimension.
     """
 
     def forward(
-        self, x, shape, propagate_all=False, use_binary_mask=False, score_threshold=0.5
-    ):
-        """Expand a tensor to the appropriate shape
+        self,
+        x: sparse.SparseTensor,
+        shape: Sequence[int],
+        propagate_all: bool = False,
+        use_binary_mask: bool = False,
+        score_threshold: float = 0.5,
+    ) -> sparse.SparseTensor:
+        """Expand foreground scores to a target feature shape.
 
         Parameters
         ----------
-        x : torch.Tensor
-            (N, 2) Input tensor
-        shape : ntuple
-            (N, X) Shape to expand the mask to
+        x : sparse.SparseTensor
+            Sparse tensor with a ``(N, 2)`` score matrix.
+        shape : sequence of int
+            Target feature shape, typically ``(N, C)``.
         propagate_all : bool, default False
-            If `True`, sets all features to 1.
+            Replace every foreground score with one.
         use_binary_mask : bool, default False
-            If `True`, sets all features to either 0 or 1
-        scrore_threshold : float, default 0.5
-            If `use_binary_mask == True`, sets the threshold above which
-            the feature is 1.0 and below which it is 0.0
+            Convert foreground scores to a boolean mask before expansion.
+        score_threshold : float, default 0.5
+            Foreground threshold used when ``use_binary_mask`` is true.
+
+        Returns
+        -------
+        sparse.SparseTensor
+            Tensor on the same coordinate map with expanded foreground
+            features.
+
+        Raises
+        ------
+        ValueError
+            If the input does not contain exactly two score channels.
         """
         # If all features must be propagated, set all scores to 1.0
-        assert x.F.shape[1] == 2, "Expects a two-score tensor"
-        features = x.F[:, 1:]
+        if x.features.shape[1] != 2:
+            raise ValueError("Expects a two-score tensor")
+        features = x.features[:, 1:]
         if propagate_all:
-            features[...] = 1.0
+            features = torch.ones_like(features)
 
         # Expand the features to the right dimension
         if use_binary_mask:
@@ -921,17 +1064,25 @@ class ExpandAs(nn.Module):
 
 
 class AttentionMask(torch.nn.Module):
-    """Returns a masked tensor of x according to mask, where the number of
-    coordinates between x and mask differ.
+    """Align a sparse score mask to a feature tensor and prune rejected sites.
+
+    Sparse addition is used to form the union coordinate map before pruning,
+    allowing ``x`` and ``mask`` to contain different active coordinates at the
+    same tensor stride.
     """
 
-    def __init__(self, score_threshold=0.5):
-        """Initialize attention mask.
+    def __init__(self, score_threshold: float = 0.5) -> None:
+        """Initialize the attention mask.
 
         Parameters
         ----------
         score_threshold : float, default 0.5
-            Score above which a voxel is considered positive
+            Mask score above which a sparse site is retained.
+
+        Raises
+        ------
+        ValueError
+            If ``score_threshold`` is outside ``[0, 1]``.
         """
         # Initialize parent class
         super().__init__()
@@ -940,136 +1091,195 @@ class AttentionMask(torch.nn.Module):
         self.prune = sparse.Pruning()
 
         # Store parameters
+        if not 0.0 <= score_threshold <= 1.0:
+            raise ValueError("`score_threshold` must be between zero and one.")
         self.score_threshold = score_threshold
 
-    def forward(self, x, mask):
-        """Prune the input data.
+    def forward(
+        self,
+        x: sparse.SparseTensor,
+        mask: sparse.SparseTensor,
+    ) -> sparse.SparseTensor:
+        """Prune features using a possibly non-aligned sparse mask.
 
         Parameters
         ----------
         x : sparse.SparseTensor
-            Input sparse tensor
+            Sparse feature tensor to prune.
         mask : sparse.SparseTensor
-            Mask to apply
-        """
-        assert x.tensor_stride == mask.tensor_stride
-
-        device = x.F.device
-        # Create a mask sparse tensor in x-coordinates
-        x0 = sparse.SparseTensor(
-            coordinates=x.C,
-            features=torch.zeros(x.F.shape[0], mask.F.shape[1]).to(device),
-            coordinate_manager=x.coordinate_manager,
-            tensor_stride=x.tensor_stride,
-            source=x,
-        )
-
-        mask_in_xcoords = x0 + mask
-
-        x_expanded = sparse.SparseTensor(
-            coordinates=mask_in_xcoords.C,
-            features=torch.zeros(mask_in_xcoords.F.shape[0], x.F.shape[1]).to(device),
-            coordinate_manager=x.coordinate_manager,
-            tensor_stride=x.tensor_stride,
-            source=x,
-        )
-
-        x_expanded = x_expanded + x
-
-        target = mask_in_xcoords.F.int().bool().squeeze()
-        x_pruned = self.prune(x_expanded, target)
-        return x_pruned
-
-
-class MergeConcat(torch.nn.Module):
-    """Merge one sparse tensor with another."""
-
-    def forward(self, x, other):
-        """Merge two sparse tensors
-
-        Parameters
-        ----------
-        x : sparse.SparseTensor
-            Input sparse tensor
-        other : sparse.SparseTensor
-            Other sparse tensor to merge
+            Sparse scalar score mask at the same tensor stride.
 
         Returns
         -------
         sparse.SparseTensor
-            Concatenated sparse tensor
-        """
-        assert x.tensor_stride == other.tensor_stride
-        device = x.F.device
+            Feature tensor restricted to sites above ``score_threshold``.
 
-        # Create a placeholder tensor with x.C coordinates
-        x0 = sparse.SparseTensor(
-            coordinates=x.C,
-            features=torch.zeros(x.F.shape[0], other.F.shape[1]).to(device),
+        Raises
+        ------
+        ValueError
+            If the feature and mask tensor strides differ.
+        """
+        if x.tensor_stride != mask.tensor_stride:
+            raise ValueError("Expected `x.tensor_stride == mask.tensor_stride`.")
+
+        # Create a mask sparse tensor in x-coordinates
+        mask_placeholder = sparse.SparseTensor(
+            coordinates=x.coordinates,
+            features=x.features.new_zeros(
+                (x.features.shape[0], mask.features.shape[1])
+            ),
             coordinate_manager=x.coordinate_manager,
             tensor_stride=x.tensor_stride,
             source=x,
         )
 
-        # Set placeholder values with other.F features by performing
+        aligned_mask = mask_placeholder + mask
+
+        input_placeholder = sparse.SparseTensor(
+            coordinates=aligned_mask.coordinates,
+            features=x.features.new_zeros(
+                (aligned_mask.features.shape[0], x.features.shape[1])
+            ),
+            coordinate_manager=x.coordinate_manager,
+            tensor_stride=x.tensor_stride,
+            source=x,
+        )
+
+        aligned_input = input_placeholder + x
+
+        keep_mask = aligned_mask.features.squeeze(dim=1) > self.score_threshold
+        return self.prune(aligned_input, keep_mask)
+
+
+class MergeConcat(torch.nn.Module):
+    """Concatenate sparse tensors after aligning their coordinate unions."""
+
+    def forward(
+        self,
+        x: sparse.SparseTensor,
+        other: sparse.SparseTensor,
+    ) -> sparse.SparseTensor:
+        """Align and concatenate two sparse tensors.
+
+        Parameters
+        ----------
+        x : sparse.SparseTensor
+            First sparse feature tensor.
+        other : sparse.SparseTensor
+            Second sparse feature tensor at the same tensor stride.
+
+        Returns
+        -------
+        sparse.SparseTensor
+            Tensor defined on the coordinate union with concatenated features.
+
+        Raises
+        ------
+        ValueError
+            If the tensor strides differ.
+        """
+        if x.tensor_stride != other.tensor_stride:
+            raise ValueError("Expected `x.tensor_stride == other.tensor_stride`.")
+        # Create a placeholder tensor with x.coordinates coordinates
+        other_placeholder = sparse.SparseTensor(
+            coordinates=x.coordinates,
+            features=x.features.new_zeros(
+                (x.features.shape[0], other.features.shape[1])
+            ),
+            coordinate_manager=x.coordinate_manager,
+            tensor_stride=x.tensor_stride,
+            source=x,
+        )
+
+        # Set placeholder values with other.features features by performing
         # sparse tensor addition.
-        x1 = x0 + other
+        aligned_other = other_placeholder + other
 
         # Same procedure, but with other
-        x_expanded = sparse.SparseTensor(
-            coordinates=x1.C,
-            features=torch.zeros(x1.F.shape[0], x.F.shape[1]).to(device),
+        input_placeholder = sparse.SparseTensor(
+            coordinates=aligned_other.coordinates,
+            features=x.features.new_zeros(
+                (
+                    aligned_other.features.shape[0],
+                    x.features.shape[1],
+                )
+            ),
             coordinate_manager=x.coordinate_manager,
             tensor_stride=x.tensor_stride,
             source=x,
         )
 
-        x2 = x_expanded + x
+        aligned_input = input_placeholder + x
 
         # Now x and other share the same coordinates and shape
-        concated = sparse.cat(x1, x2)
-        return concated
+        concatenated = sparse.cat(aligned_other, aligned_input)
+        return concatenated
 
 
-class GhostMask(torch.nn.Module):
-    """Ghost mask downsampler.
+class GhostMask(sparse.Network):
+    """Downsample a ghost mask to match a sparse feature resolution.
 
-    Downsamples the ghost mask and prunes a tensor with current
-    ghost mask to obtain nonghost tensor and the new ghost mask.
+    Repeated stride-two max pooling preserves a site as non-ghost when any
+    contributing finer-resolution site is non-ghost.
     """
 
-    def __init__(self):
-        """Initialize the mask downsampler."""
+    def __init__(self, dimension: int = 3) -> None:
+        """Initialize the mask downsampler.
+
+        Parameters
+        ----------
+        dimension : int, default 3
+            Number of spatial dimensions.
+
+        Raises
+        ------
+        ValueError
+            If ``dimension`` is not positive.
+        """
         # Initialize parent class
-        super().__init__()
+        super().__init__(dimension)
 
         # Initialize the downsampler
-        self.downsample = sparse.MaxPooling(2, 2, dimension=3)
+        if dimension < 1:
+            raise ValueError(f"`dimension` must be positive, got {dimension}.")
+        self.downsample = sparse.MaxPooling(2, 2, dimension=dimension)
 
         # Set the layer in evaluation mode (no gradients)
         self.eval()
 
-    def forward(self, ghost_mask, premask_tensor):
-        """Applies mask and downsamples it for the next layer.
+    def forward(
+        self,
+        ghost_mask: sparse.SparseTensor,
+        premask_tensor: sparse.SparseTensor,
+    ) -> sparse.SparseTensor:
+        """Downsample a ghost mask to the target tensor stride.
 
         Parameters
         ----------
         ghost_mask : sparse.SparseTensor
-            Current resolution ghost mask
+            Mask defined at tensor stride one.
         premask_tensor : sparse.SparseTensor
-            Current resolution feature map to be pruned
+            Feature tensor whose stride determines the target resolution.
 
         Returns
         -------
-        downsampled_mask : sparse.SparseTensor)
-            2x2 downsampled ghost mask
-        downsampled_tensor : sparse.SparseTensor
-            2x2 downsampled feature map
+        sparse.SparseTensor
+            Ghost mask downsampled to ``premask_tensor.tensor_stride``.
+
+        Raises
+        ------
+        ValueError
+            If the target stride is not a positive power of two.
         """
-        # assert ghost_mask.shape[0] == premask_tensor.shape[0]
         with torch.no_grad():
             factor = premask_tensor.tensor_stride[0]
-            for i in range(np.log2(factor).astype(int)):
+            if factor < 1 or factor & (factor - 1):
+                raise ValueError(
+                    "Ghost-mask downsampling requires a positive power-of-two "
+                    f"tensor stride, got {factor}."
+                )
+            while factor > 1:
                 ghost_mask = self.downsample(ghost_mask)
+                factor //= 2
 
             return ghost_mask

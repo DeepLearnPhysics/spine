@@ -1,5 +1,4 @@
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 from torch_geometric.nn import fps, knn
 from torch_scatter import scatter_mean
@@ -26,10 +25,11 @@ def iou_batch(pred: torch.BoolTensor, labels: torch.BoolTensor, eps=0.0):
     return iou.mean()
 
 
-class LovaszHingeLoss(torch.nn.modules.loss._Loss):
+class LovaszHingeLoss(torch.nn.Module):
 
     def __init__(self, reduction="none"):
-        super(LovaszHingeLoss, self).__init__(reduction=reduction)
+        super().__init__()
+        self.reduction = reduction
 
     def forward(self, logits, targets):
         num_clusters = targets.shape[1]
@@ -38,11 +38,12 @@ class LovaszHingeLoss(torch.nn.modules.loss._Loss):
         )
 
 
-class LovaszSoftmaxWithLogitsLoss(torch.nn.modules.loss._Loss):
+class LovaszSoftmaxWithLogitsLoss(torch.nn.Module):
 
     def __init__(self, reduction="none"):
-        super(LovaszSoftmaxWithLogitsLoss, self).__init__(reduction=reduction)
-        self.softmax = nn.Softmax(dim=1)
+        super().__init__()
+        self.reduction = reduction
+        self.softmax = torch.nn.Softmax(dim=1)
 
     def forward(self, logits, targets):
         probs = self.softmax(logits)
@@ -81,7 +82,7 @@ def intra_cluster_loss(features, cluster_means, labels, margin=1.0):
     l = torch.clamp(torch.norm(x - mu, dim=-1) - margin, min=0) ** 2
     l = torch.gather(l, 1, labels.view(-1, 1)).squeeze()
 
-    if len(l.size()) and len(labels.size()):
+    if len(l.size()) > 0 and len(labels.size()) > 0:
         intra_loss = torch.mean(scatter_mean(l, labels))
         return intra_loss
     else:
@@ -138,7 +139,7 @@ def get_probs(embeddings, margins, labels, eps=1e-6):
     logits = torch.logit(p, eps=eps)
     eye = torch.eye(len(labels.unique()), dtype=torch.float32, device=device)
     targets = eye[labels]
-    loss_tensor = nn.BCEWithLogitsLoss(reduction="none")(logits, targets)
+    loss_tensor = torch.nn.BCEWithLogitsLoss(reduction="none")(logits, targets)
     loss = loss_tensor.mean(dim=0).mean()
     with torch.no_grad():
         acc = iou_batch(logits > 0, targets.bool())

@@ -1,13 +1,17 @@
 """Factories to build the CNN-based clustering model components."""
 
-from spine.utils.factory import instantiate, module_dict
+from __future__ import annotations
+
+import torch
+
+from spine.utils.factory import Config, Registry, instantiate, module_dict
 
 from . import kernel, loss
 
 __all__ = ["backbone_factory", "kernel_factory", "loss_factory"]
 
 
-def backbone_dict():
+def backbone_dict() -> Registry:
     """Returns dictionary of backbone classes using name keys.
 
     Returns
@@ -15,14 +19,15 @@ def backbone_dict():
     dict
         Dictionary of available backbones
     """
-    from spine.model.layer.cnn import fpn, uresnet
+    from spine.model.layer.cnn.fpn import FPN
+    from spine.model.layer.cnn.uresnet_layers import UResNet
 
-    models = {"uresnet": uresnet.UResNet, "fpn": fpn.FPN}
+    models = {"uresnet": UResNet, "fpn": FPN}
 
     return models
 
 
-def backbone_factory(name):
+def backbone_factory(cfg: Config) -> torch.nn.Module:
     """Instantiates a backbone model from a configuration dictionary.
 
     Parameters
@@ -35,11 +40,28 @@ def backbone_factory(name):
     object
         Instantiated backbone function
     """
-    backbone_dict = backbone_dict()
-    return instantiate(backbone_dict, cfg)
+    if isinstance(cfg, str):
+        raise ValueError(
+            "CNN backbones require a configuration block, not only a name."
+        )
+
+    config = dict(cfg)
+    try:
+        name = config.pop("name")
+    except KeyError as err:
+        raise ValueError("Backbone configuration requires a `name`.") from err
+
+    models = backbone_dict()
+    try:
+        model_type = models[name]
+    except KeyError as err:
+        raise ValueError(
+            f"Unknown backbone '{name}'. Available backbones: " f"{list(models)}."
+        ) from err
+    return model_type(config)
 
 
-def kernel_factory(cfg):
+def kernel_factory(cfg: Config) -> torch.nn.Module:
     """Instantiates an edge kernel from a configuration dictionary.
 
     Parameters
@@ -56,7 +78,7 @@ def kernel_factory(cfg):
     return instantiate(kernel_dict, cfg)
 
 
-def loss_factory(cfg):
+def loss_factory(cfg: Config) -> torch.nn.Module:
     """Instantiates a clustering loss from a configuration dictionary.
 
     Parameters

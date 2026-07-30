@@ -8,13 +8,17 @@ through message passing and edge classification, enabling particle instance
 segmentation and identification.
 """
 
+from __future__ import annotations
+
+from collections.abc import Callable, Sequence
+from typing import Any
+
 import numpy as np
 import torch
-from torch import nn
 
 from spine.constants import GROUP_COL, LOWES_SHP, SHAPE_COL, TRACK_SHP
 from spine.constants.factory import enum_factory
-from spine.data import TensorBatch
+from spine.data import EdgeIndexBatch, IndexBatch, TensorBatch
 from spine.utils.gnn.cluster import (
     form_clusters_batch,
     get_cluster_label_batch,
@@ -37,6 +41,7 @@ from .layer.gnn.factories import (
     node_encoder_factory,
     node_loss_factory,
 )
+from .registry import ModelSpec
 
 __all__ = ["GrapPA", "GrapPALoss"]
 
@@ -85,21 +90,13 @@ class GrapPA(torch.nn.Module):
     :class:`GrapPALoss`
     """
 
-    # TODO: update
-    MODULES = [
-        ("grappa", ["base", "dbscan", "node_encoder", "edge_encoder", "gnn_model"]),
-        "grappa_loss",
-    ]
-
-    def __init__(self, grappa, grappa_loss=None):
+    def __init__(self, grappa: dict[str, Any]) -> None:
         """Initialize the GrapPA model.
 
         Parameters
         ----------
         grappa : dict
             Model configuration
-        grappa_loss : dict, optional
-            Loss configuration
         """
         # Initialize the parent class
         super().__init__()
@@ -109,15 +106,15 @@ class GrapPA(torch.nn.Module):
 
     def process_model_config(
         self,
-        gnn_model,
-        nodes=None,
-        graph=None,
-        node_encoder=None,
-        edge_encoder=None,
-        global_encoder=None,
-        dbscan=None,
-        return_features=False,
-    ):
+        gnn_model: dict[str, Any],
+        nodes: dict[str, Any] | None = None,
+        graph: dict[str, Any] | None = None,
+        node_encoder: dict[str, Any] | None = None,
+        edge_encoder: dict[str, Any] | None = None,
+        global_encoder: dict[str, Any] | None = None,
+        dbscan: dict[str, Any] | None = None,
+        return_features: bool = False,
+    ) -> None:
         """Process the top-level configuration block.
 
         This dispatches each block to its own configuration processor.
@@ -187,13 +184,13 @@ class GrapPA(torch.nn.Module):
 
     def process_node_config(
         self,
-        source="cluster",
-        shapes=None,
-        min_size=-1,
-        make_groups=False,
-        grouping_method="score",
-        grouping_through_track=False,
-    ):
+        source: str | int = "cluster",
+        shapes: Sequence[int | str] | None = None,
+        min_size: int = -1,
+        make_groups: bool = False,
+        grouping_method: str = "score",
+        grouping_through_track: bool = False,
+    ) -> None:
         """Process the node parameters of the model.
 
         Parameters
@@ -230,8 +227,12 @@ class GrapPA(torch.nn.Module):
         self.grouping_through_track = grouping_through_track
 
     def process_gnn_config(
-        self, node_pred=None, edge_pred=None, global_pred=None, **gnn_model
-    ):
+        self,
+        node_pred: int | dict[str, Any] | None = None,
+        edge_pred: int | dict[str, Any] | None = None,
+        global_pred: int | dict[str, Any] | None = None,
+        **gnn_model: Any,
+    ) -> None:
         """Process the GNN backbone structure and the output layers.
 
         Parameters
@@ -261,7 +262,9 @@ class GrapPA(torch.nn.Module):
         self.process_final_config(edge_pred, "edge")
         self.process_final_config(global_pred, "global")
 
-    def process_final_config(self, final, prefix):
+    def process_final_config(
+        self, final: int | dict[str, Any] | None, prefix: str
+    ) -> None:
         """Process a final layer configuration.
 
         Parameters
@@ -301,7 +304,12 @@ class GrapPA(torch.nn.Module):
 
         setattr(self, f"{prefix}_pred_keys", out_keys)
 
-    def process_dbscan_config(self, shapes=None, min_size=None, **kwargs):
+    def process_dbscan_config(
+        self,
+        shapes: Sequence[int | str] | None = None,
+        min_size: int | Sequence[int] | None = None,
+        **kwargs: Any,
+    ) -> None:
         """Process the DBSCAN fragmenter configuration.
 
         Parameters
@@ -327,18 +335,18 @@ class GrapPA(torch.nn.Module):
 
     def forward(
         self,
-        data,
-        coord_label=None,
-        clusts=None,
-        edge_index=None,
-        node_features=None,
-        edge_features=None,
-        global_features=None,
-        shapes=None,
-        groups=None,
-        points=None,
-        extra=None,
-    ):
+        data: TensorBatch,
+        coord_label: TensorBatch | None = None,
+        clusts: IndexBatch | None = None,
+        edge_index: EdgeIndexBatch | None = None,
+        node_features: TensorBatch | None = None,
+        edge_features: TensorBatch | None = None,
+        global_features: TensorBatch | None = None,
+        shapes: TensorBatch | None = None,
+        groups: TensorBatch | None = None,
+        points: TensorBatch | None = None,
+        extra: TensorBatch | None = None,
+    ) -> dict[str, Any]:
         """Prepares particle clusters and feed them to the GNN model.
 
         Parameters
@@ -476,7 +484,9 @@ class GrapPA(torch.nn.Module):
 
         return result
 
-    def _make_clusters(self, data, coord_label=None):
+    def _make_clusters(
+        self, data: TensorBatch, coord_label: TensorBatch | None = None
+    ) -> IndexBatch:
         """Make the list of node clusters based on the label tensor and the requested class.
 
         Parameters
@@ -510,7 +520,12 @@ class GrapPA(torch.nn.Module):
 
         return clusts
 
-    def _get_shapes(self, data, clusts, shapes=None):
+    def _get_shapes(
+        self,
+        data: TensorBatch,
+        clusts: IndexBatch,
+        shapes: TensorBatch | None = None,
+    ) -> TensorBatch | None:
         """Return per-cluster semantic labels if the graph logic needs them.
 
         Parameters
@@ -546,7 +561,13 @@ class GrapPA(torch.nn.Module):
 
         return shapes
 
-    def _make_edge_index(self, data, clusts, shapes=None, groups=None):
+    def _make_edge_index(
+        self,
+        data: TensorBatch,
+        clusts: IndexBatch,
+        shapes: TensorBatch | None = None,
+        groups: TensorBatch | None = None,
+    ) -> tuple[EdgeIndexBatch, TensorBatch | None]:
         """Make the edge index based on the cluster indexes and the graph configuration.
 
         Parameters
@@ -588,7 +609,13 @@ class GrapPA(torch.nn.Module):
 
         return edge_index, closest_index
 
-    def _make_groups(self, result, clusts, edge_index, shapes=None):
+    def _make_groups(
+        self,
+        result: dict[str, Any],
+        clusts: IndexBatch,
+        edge_index: EdgeIndexBatch,
+        shapes: TensorBatch | None = None,
+    ) -> None:
         """Make node groups based on edge predictions.
 
         Parameters
@@ -649,7 +676,7 @@ class GrapPA(torch.nn.Module):
                 )
 
 
-class GrapPALoss(torch.nn.modules.loss._Loss):
+class GrapPALoss(torch.nn.Module):
     """Takes the output of the GrapPA and computes the total loss.
 
     For use in config:
@@ -678,7 +705,11 @@ class GrapPALoss(torch.nn.modules.loss._Loss):
     directory for detailed examples of working configurations.
     """
 
-    def __init__(self, grappa_loss, grappa=None):
+    def __init__(
+        self,
+        grappa_loss: dict[str, Any],
+        grappa: dict[str, Any] | None = None,
+    ) -> None:
         """Initialize the GrapPA loss function.
 
         Parameters
@@ -694,7 +725,12 @@ class GrapPALoss(torch.nn.modules.loss._Loss):
         # Process the loss configuration
         self.process_loss_config(**grappa_loss)
 
-    def process_loss_config(self, node_loss=None, edge_loss=None, global_loss=None):
+    def process_loss_config(
+        self,
+        node_loss: dict[str, Any] | None = None,
+        edge_loss: dict[str, Any] | None = None,
+        global_loss: dict[str, Any] | None = None,
+    ) -> None:
         """Process the loss configuration.
 
         Parameters
@@ -719,7 +755,12 @@ class GrapPALoss(torch.nn.modules.loss._Loss):
         self.process_single_loss_config("edge", edge_loss, edge_loss_factory)
         self.process_single_loss_config("global", global_loss, global_loss_factory)
 
-    def process_single_loss_config(self, prefix, loss, constructor):
+    def process_single_loss_config(
+        self,
+        prefix: str,
+        loss: dict[str, Any] | None,
+        constructor: Callable[[dict[str, Any]], Any],
+    ) -> None:
         """Process a loss configuration.
 
         Parameters
@@ -754,8 +795,13 @@ class GrapPALoss(torch.nn.modules.loss._Loss):
         setattr(self, f"{prefix}_loss_keys", loss_keys)
 
     def forward(
-        self, clust_label, coord_label=None, graph_label=None, iteration=None, **output
-    ):
+        self,
+        clust_label: TensorBatch,
+        coord_label: TensorBatch | None = None,
+        graph_label: EdgeIndexBatch | None = None,
+        iteration: int | None = None,
+        **output: Any,
+    ) -> dict[str, Any]:
         """Apply the node/edge/global losses to the logits from GrapPA.
 
         Parameters
@@ -815,3 +861,6 @@ class GrapPALoss(torch.nn.modules.loss._Loss):
         result["accuracy"] = np.sum(accuracy) / num_losses
 
         return result
+
+
+MODEL_SPEC = ModelSpec("grappa", GrapPA, GrapPALoss)

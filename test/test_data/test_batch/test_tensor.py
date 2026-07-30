@@ -100,6 +100,22 @@ class TestTensorBatchInitialization:
         assert len(batch) == 0
 
 
+class TestTensorBatchTypedAccessors:
+    """Test explicitly narrowed access to the underlying array."""
+
+    def test_numpy_tensor_returns_numpy_data(self):
+        data = np.array([[1, 2], [3, 4]])
+        batch = TensorBatch(data, counts=[2])
+
+        assert batch.numpy_tensor() is data
+
+    def test_torch_tensor_rejects_numpy_data(self):
+        batch = TensorBatch(np.array([[1, 2]]), counts=[1])
+
+        with pytest.raises(TypeError, match="not backed by a torch.Tensor"):
+            batch.torch_tensor()
+
+
 class TestTensorBatchIndexing:
     """Test TensorBatch __getitem__ method."""
 
@@ -581,6 +597,18 @@ class TestTensorBatchWithTorch:
         assert batch.is_numpy is False
         assert isinstance(batch.data, torch.Tensor)
         assert batch.batch_size == 1
+
+    def test_torch_tensor_returns_torch_data(self):
+        data = torch.tensor([[1, 2], [3, 4]])
+        batch = TensorBatch(data, counts=[2])
+
+        assert batch.torch_tensor() is data
+
+    def test_numpy_tensor_rejects_torch_data(self):
+        batch = TensorBatch(torch.tensor([[1, 2]]), counts=[1])
+
+        with pytest.raises(TypeError, match="not backed by a numpy.ndarray"):
+            batch.numpy_tensor()
 
     def test_torch_with_batch_col(self):
         """Test TensorBatch with torch tensor and batch column."""

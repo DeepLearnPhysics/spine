@@ -1,11 +1,14 @@
 """Module that defines a generic node classification loss."""
 
-from warnings import warn
+from __future__ import annotations
+
+from typing import Any
 
 import numpy as np
 import torch
 
 from spine.constants.factory import enum_factory
+from spine.data import IndexBatch, TensorBatch
 from spine.model.layer.factories import loss_fn_factory
 from spine.utils.gnn.cluster import get_cluster_label_batch
 
@@ -40,7 +43,11 @@ class NodeRegressionLoss(torch.nn.Module):
     # Alternative allowed names of the loss
     aliases = ("regression",)
 
-    def __init__(self, target, loss="mse"):
+    def __init__(
+        self,
+        target: str,
+        loss: str | dict[str, Any] = "mse",
+    ) -> None:
         """Initialize the node regression loss function.
 
         Parameters
@@ -59,7 +66,13 @@ class NodeRegressionLoss(torch.nn.Module):
         # Set the loss
         self.loss_fn = loss_fn_factory(loss, reduction="sum")
 
-    def forward(self, clust_label, clusts, node_pred, **kwargs):
+    def forward(
+        self,
+        clust_label: TensorBatch,
+        clusts: IndexBatch,
+        node_pred: TensorBatch,
+        **kwargs: object,
+    ) -> dict[str, torch.Tensor | float | int]:
         """Applies the node regression loss to a batch of data.
 
         Parameters
@@ -86,24 +99,27 @@ class NodeRegressionLoss(torch.nn.Module):
         node_assn = get_cluster_label_batch(clust_label, clusts, column=self.target)
 
         # Create a mask for valid nodes (-1 indicates an invalid label)
-        valid_mask = node_assn.tensor > -1
+        valid_mask = node_assn.numpy_tensor() > -1
 
         # Apply the valid mask and convert the labels to a torch.Tensor
         valid_index = np.where(valid_mask)[0]
         node_assn = node_assn.to_tensor(device=node_pred.device)
-        node_assn = node_assn.tensor[valid_index]
-        node_pred = node_pred.tensor[valid_index]
+        node_assn_tensor = node_assn.torch_tensor()[valid_index]
+        node_pred_tensor = node_pred.torch_tensor()[valid_index]
 
         # Compute the loss
-        loss = self.loss_fn(node_pred, node_assn)
-        if len(valid_index):
+        loss = self.loss_fn(node_pred_tensor, node_assn_tensor)
+        if len(valid_index) > 0:
             loss /= len(valid_index)
 
-        # Compute accuracy of assignment (average relative resolution)
-        # TODO: Come up with a better implementation (between 0 and 1?)
+        # Report the spread of the fractional residual as the regression
+        # metric. Clamp zero-valued targets to keep the metric finite.
         acc = 1.0
-        if len(valid_index):
-            rel_res = (node_pred.view(-1) - node_assn) / node_assn
-            acc = float(torch.std(rel_res))
+        if len(valid_index) > 0:
+            denominator = torch.clamp(torch.abs(node_assn_tensor), min=1e-12)
+            rel_res = (
+                node_pred_tensor.view_as(node_assn_tensor) - node_assn_tensor
+            ) / denominator
+            acc = float(torch.std(rel_res, correction=0))
 
         return {"accuracy": acc, "loss": loss, "count": len(valid_index)}

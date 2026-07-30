@@ -6,10 +6,12 @@ inside this directory.
 
 import os
 import urllib
+from pathlib import Path
 
 import pytest
 
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
+MODEL_TEST_DIR = Path(__file__).resolve().parent / "test_model"
 
 
 def pytest_addoption(parser):
@@ -25,6 +27,12 @@ def pytest_addoption(parser):
         default=[192],
         help="Image size (default: 192)",
     )
+    parser.addoption(
+        "--model-tests",
+        action="store_true",
+        default=False,
+        help="Collect tests that require the full model dependency stack.",
+    )
 
     # Adds an option to the pytest.ini file
     parser.addini(
@@ -35,6 +43,14 @@ def pytest_addoption(parser):
     )
 
 
+def pytest_ignore_collect(collection_path, config):
+    """Keep the full-dependency model suite opt-in."""
+    path = Path(collection_path).resolve()
+    if path == MODEL_TEST_DIR or MODEL_TEST_DIR in path.parents:
+        return not config.getoption("--model-tests")
+    return None
+
+
 def pytest_generate_tests(metafunc):
     """Appends general parameters to all tests."""
     # If a test requires the fixture N, use the command line option.
@@ -43,13 +59,21 @@ def pytest_generate_tests(metafunc):
 
     # If a test requires the fixture datafile use the command line option.
     if "larcv_datafile" in metafunc.fixturenames:
-        metafunc.parametrize("larcv_datafile", metafunc.config.getini("larcv_datafile"))
+        metafunc.parametrize(
+            "larcv_datafile",
+            metafunc.config.getini("larcv_datafile"),
+            scope="session",
+        )
     if "hdf5_datafile" in metafunc.fixturenames:
-        metafunc.parametrize("hdf5_datafile", metafunc.config.getini("hdf5_datafile"))
+        metafunc.parametrize(
+            "hdf5_datafile",
+            metafunc.config.getini("hdf5_datafile"),
+            scope="session",
+        )
 
 
-@pytest.fixture(name="larcv_data")
-def fixture_larcv_data(tmp_path, larcv_datafile):
+@pytest.fixture(name="larcv_data", scope="session")
+def fixture_larcv_data(tmp_path_factory, larcv_datafile):
     """Download a LArCV ROOT datafile here and cache it.
 
     Parameters
@@ -61,14 +85,14 @@ def fixture_larcv_data(tmp_path, larcv_datafile):
     """
     filename = "test"
     datafile_url = larcv_datafile
-    data_path = os.path.join(tmp_path, filename + ".root")
+    data_path = os.path.join(tmp_path_factory.mktemp("larcv_data"), filename + ".root")
     urllib.request.urlretrieve(datafile_url, data_path)
 
     return data_path
 
 
-@pytest.fixture(name="hdf5_data")
-def fixture_hdf5_data(tmp_path, hdf5_datafile):
+@pytest.fixture(name="hdf5_data", scope="session")
+def fixture_hdf5_data(tmp_path_factory, hdf5_datafile):
     """Download an HDF5 datafile here and cache it.
 
     Parameters
@@ -80,7 +104,7 @@ def fixture_hdf5_data(tmp_path, hdf5_datafile):
     """
     filename = "test"
     datafile_url = hdf5_datafile
-    data_path = os.path.join(tmp_path, filename + ".h5")
+    data_path = os.path.join(tmp_path_factory.mktemp("hdf5_data"), filename + ".h5")
     urllib.request.urlretrieve(datafile_url, data_path)
 
     return data_path

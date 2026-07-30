@@ -1,13 +1,12 @@
 from collections import defaultdict
 
 import torch
-import torch.nn as nn
 
 from .lovasz import StableBCELoss, iou_binary, lovasz_hinge_flat
 from .misc import *
 
 
-class MaskBCELoss(nn.Module):
+class MaskBCELoss(torch.nn.Module):
     """
     Loss function for Sparse Spatial Embeddings Model, with fixed
     centroids and symmetric gaussian kernels.

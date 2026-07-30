@@ -1,10 +1,16 @@
 """Delaunay graph constructor for GNNs."""
 
-import numba as nb
+from __future__ import annotations
+
+from collections.abc import Sequence
+from itertools import combinations
+from typing import Any
+
 import numpy as np
-from scipy.spatial import Delaunay
+from scipy.spatial import Delaunay, QhullError
 
 from spine.constants import COORD_COLS
+from spine.data import IndexBatch, TensorBatch
 
 from .base import GraphBase
 
@@ -12,96 +18,97 @@ __all__ = ["DelaunayGraph"]
 
 
 class DelaunayGraph(GraphBase):
-    """Generates graphs based on the Delaunay triangulation of the input
-    node locations.
+    """Connect clusters whose voxels share a Delaunay simplex.
 
-    Triangulates the input, converts the triangles into a list of valid edges.
-
-    See :class:`GraphBase` for attributes/methods shared
-    across all graph constructors.
+    A triangulation is constructed independently for each batch entry. Voxel
+    simplices are converted to unique cluster-pair edges; simplices containing
+    voxels from only one cluster do not produce graph edges. Degenerate point
+    clouds that Qhull cannot triangulate fall back to a complete graph over the
+    clusters in that entry.
     """
 
-    # Name of the graph constructor (as specified in the configuration)
     name = "delaunay"
 
-    def generate(self, data, clusts, **kwargs):
-        """Generates an incidence matrix that connects nodes
-        that share an edge in their corresponding Euclidean Delaunay graph.
+    def generate(
+        self,
+        *,
+        data: TensorBatch,
+        clusts: IndexBatch,
+        dist_mat: np.ndarray | None,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Generate batched Delaunay cluster graphs.
 
         Parameters
         ----------
         data : TensorBatch
-            (N, 1 + D + N_f) Tensor of voxel/value pairs
+            Batched voxel/value table.
         clusts : IndexBatch
-            (C) Cluster indexes
-        **kwargs : dict, optional
-            Unused graph generation arguments
+            Batched cluster index list.
+        dist_mat : np.ndarray, optional
+            Pairwise distance matrix, unused by this graph.
 
         Returns
         -------
-        np.ndarray
-            (2, E) Tensor of edges
+        tuple of np.ndarray
+            Edge index with shape ``(2, E)`` and per-entry edge counts.
         """
-        return self._generate(
-            data.tensor,
-            nb.typed.List(clusts.index_list),
-            clusts.batch_ids,
-            self.directed,
-        )
+        data_array = data.numpy_tensor()
+        batch_ids = np.asarray(clusts.batch_ids)
+        edge_blocks: list[np.ndarray] = []
+        edge_counts = np.zeros(clusts.batch_size, dtype=np.int64)
+
+        for batch_id in range(clusts.batch_size):
+            cluster_ids = np.flatnonzero(batch_ids == batch_id)
+            edges = self._generate_entry(
+                data_array,
+                clusts.index_list,
+                cluster_ids,
+            )
+            edge_blocks.append(edges)
+            edge_counts[batch_id] = edges.shape[1]
+
+        nonempty_blocks = [edges for edges in edge_blocks if edges.shape[1] > 0]
+        if nonempty_blocks:
+            edge_index = np.concatenate(nonempty_blocks, axis=1)
+        else:
+            edge_index = np.empty((2, 0), dtype=np.int64)
+
+        return edge_index, edge_counts
 
     @staticmethod
-    @nb.njit(cache=True)
-    def _generate(
-        data: nb.float64[:, :],
-        clusts: nb.types.List(nb.int64[:]),
-        batch_ids: nb.int64[:],
-        directed: bool = False,
-    ) -> nb.int64[:, :]:
-        # For each batch, find the list of edges, append it
-        edge_list, offset = [], 0
-        edge_counts = np.zeros(len(counts), dtype=counts.dtype)
-        for b in np.unique(batch_ids):
-            # Combine the cluster masks into one
-            clust_ids = np.where(batch_ids == b)[0]
-            limits = np.array([0] + [len(clusts[i]) for i in clust_ids])
-            limits = np.cumsum(limits)
-            mask = np.zeros(limits[-1], dtype=np.int64)
-            labels = np.zeros(limits[-1], dtype=np.int64)
-            for i in range(len(clust_ids)):
-                l, u = limits[i], limits[i + 1]
-                mask[l:u] = clusts[clust_ids[i]]
-                labels[l:u] = i
+    def _generate_entry(
+        data: np.ndarray,
+        clusters: Sequence[Any],
+        cluster_ids: np.ndarray,
+    ) -> np.ndarray:
+        """Generate Delaunay edges for one batch entry."""
+        if len(cluster_ids) < 2:
+            return np.empty((2, 0), dtype=np.int64)
 
-            # Run Delaunay triangulation in object mode because it relies on an
-            # external package. Only way to speed this up would be to implement
-            # Delaunay triangulation in Numba (tall order)
-            with nb.objmode(tri="int32[:,:]"):
-                # Run Delaunay triangulation in joggled mode, this
-                # guarantees simplical faces (no ambiguities)
-                tri = Delaunay(data[mask][:, COORD_COLS], qhull_options="QJ").simplices
+        voxel_indices = np.concatenate([clusters[index] for index in cluster_ids])
+        voxel_clusters = np.concatenate(
+            [
+                np.full(len(clusters[index]), index, dtype=np.int64)
+                for index in cluster_ids
+            ]
+        )
+        points = data[voxel_indices][:, COORD_COLS]
 
-            # Create an adjanceny matrix from the simplex list
-            adj_mat = np.zeros((len(clust_ids), len(clust_ids)), dtype=np.bool_)
-            for s in tri:
-                for i in s:
-                    for j in s:
-                        if labels[j] > labels[i]:
-                            adj_mat[labels[i], labels[j]] = True
+        try:
+            simplices = Delaunay(points, qhull_options="QJ").simplices
+        except QhullError:
+            return DelaunayGraph._complete_entry(cluster_ids)
 
-            # Convert the adjancency matrix to a list of edges, store
-            edges = np.where(adj_mat)
-            edges = np.vstack((clust_ids[edges[0]], clust_ids[edges[1]]))
+        edge_pairs: set[tuple[int, int]] = set()
+        for simplex in simplices:
+            simplex_clusters = np.unique(voxel_clusters[simplex])
+            edge_pairs.update(combinations(simplex_clusters.tolist(), 2))
 
-            edge_list.append(offset + edge_index.T)
-            edge_counts[b] = edge_index.shape[-1]
-            offset += c
+        if not edge_pairs:
+            return DelaunayGraph._complete_entry(cluster_ids)
+        return np.asarray(sorted(edge_pairs), dtype=np.int64).T
 
-        # Merge the blocks together
-        offset = 0
-        result = np.empty((2, num_edges), dtype=np.int64)
-        for edges in edge_list:
-            num_block = edges.shape[-1]
-            result[:, offset : offset + num_block] = edges
-            offset += num_block
-
-        return result
+    @staticmethod
+    def _complete_entry(cluster_ids: np.ndarray) -> np.ndarray:
+        """Return upper-triangular edges for one cluster collection."""
+        return np.asarray(list(combinations(cluster_ids.tolist(), 2)), dtype=np.int64).T

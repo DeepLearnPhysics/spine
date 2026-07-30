@@ -1,14 +1,16 @@
 """Module which defines a graph node feature update based on NNConv."""
 
-from torch import nn
+from typing import Any
+
+import torch
 from torch_geometric.nn import NNConv
 
-from spine.model.layer.common.mlp import MLP
+from spine.model.layer.common.mlp import MLP, MLPConfig
 
 __all__ = ["NNConvNodeLayer"]
 
 
-class NNConvNodeLayer(nn.Module):
+class NNConvNodeLayer(torch.nn.Module):
     """NNConv module for extracting graph node features.
 
     This model starts by passing the edge feature vectors (N_e) through a
@@ -26,8 +28,15 @@ class NNConvNodeLayer(nn.Module):
     name = "nnconv"
 
     def __init__(
-        self, node_in, edge_in, glob_in, out_channels, mlp, aggr="max", **kwargs
-    ):
+        self,
+        node_in: int,
+        edge_in: int,
+        glob_in: int,
+        out_channels: int,
+        mlp: MLPConfig,
+        aggr: str = "max",
+        **kwargs: Any,
+    ) -> None:
         """Initialize the MLPs which are used to update the node features.
 
         Parameters
@@ -52,14 +61,20 @@ class NNConvNodeLayer(nn.Module):
 
         # Initialize the underlying edge feature MLP
         mlp = MLP(edge_in, **mlp)
-        linear = nn.Linear(mlp.feature_size, node_in * out_channels)
-        edge_model = nn.Sequential(mlp, linear)
+        linear = torch.nn.Linear(mlp.feature_size, node_in * out_channels)
+        edge_model = torch.nn.Sequential(mlp, linear)
 
         # Initialize the layer
         self.feature_size = out_channels
         self.nnconv = NNConv(node_in, out_channels, nn=edge_model, aggr=aggr, **kwargs)
 
-    def forward(self, node_feats, edge_index, edge_feats, *args):
+    def forward(
+        self,
+        node_feats: torch.Tensor,
+        edge_index: torch.Tensor,
+        edge_feats: torch.Tensor,
+        *args: object,
+    ) -> torch.Tensor:
         """Pass a batch of node/edges through the edge update layer.
 
         Parameters

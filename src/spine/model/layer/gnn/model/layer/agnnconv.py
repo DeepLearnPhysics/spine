@@ -1,6 +1,8 @@
 """Module which defines a graph node feature update based on AGNNConv."""
 
-from torch import nn
+from typing import Any
+
+import torch
 from torch_geometric.nn import AGNNConv
 
 from spine.model.layer.common.act_norm import act_factory, norm_factory
@@ -8,7 +10,7 @@ from spine.model.layer.common.act_norm import act_factory, norm_factory
 __all__ = ["AGNNConvNodeLayer"]
 
 
-class AGNNConvNodeLayer(nn.Module):
+class AGNNConvNodeLayer(torch.nn.Module):
     """AGNNConv module for extracting graph node features.
 
     This model simply takes a simple attention-based convolution of a node
@@ -21,7 +23,15 @@ class AGNNConvNodeLayer(nn.Module):
     # Name of the node layer (as specified in the configuration)
     name = "agnnconv"
 
-    def __init__(self, node_in, edge_in, glob_in, activation, normalization, **kwargs):
+    def __init__(
+        self,
+        node_in: int,
+        edge_in: int,
+        glob_in: int,
+        activation: str | dict[str, Any] = "relu",
+        normalization: str | dict[str, Any] = "batch_norm",
+        **kwargs: Any,
+    ) -> None:
         """Initialize the MLPs which are used to update the node features.
 
         Parameters
@@ -48,7 +58,12 @@ class AGNNConvNodeLayer(nn.Module):
         self.bn = norm_factory(normalization, node_in)
         self.act = act_factory(activation)
 
-    def forward(self, node_feats, edge_index, *args):
+    def forward(
+        self,
+        node_feats: torch.Tensor,
+        edge_index: torch.Tensor,
+        *args: object,
+    ) -> torch.Tensor:
         """Pass a batch of node/edges through the edge update layer.
 
         Parameters

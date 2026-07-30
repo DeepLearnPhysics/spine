@@ -1,6 +1,9 @@
 """Module with the core full reconstruction chain."""
 
-from typing import List, Union
+from __future__ import annotations
+
+from collections.abc import Sequence
+from typing import Any
 
 import numpy as np
 import torch
@@ -36,6 +39,7 @@ from spine.utils.ppn import ParticlePointPredictor
 from .graph_spice import GraphSPICE, GraphSPICELoss
 from .grappa import GrapPA, GrapPALoss
 from .layer.common.dbscan import DBSCAN
+from .registry import ModelSpec
 from .uresnet import SegmentationLoss, UResNetSegmentation
 from .uresnet_ppn import UResNetPPN, UResNetPPNLoss
 
@@ -98,23 +102,6 @@ class FullChain(torch.nn.Module):
     also live under the `modules` section of the configuration.
     """
 
-    # TODO: update
-    MODULES = [
-        "grappa_shower",
-        "grappa_track",
-        "grappa_inter",
-        "grappa_shower_loss",
-        "grappa_track_loss",
-        "grappa_inter_loss",
-        "full_chain_loss",
-        "graph_spice",
-        "graph_spice_loss",
-        "fragment_clustering",
-        "chain",
-        "dbscan_frag",
-        ("uresnet_ppn", ["uresnet", "ppn"]),
-    ]
-
     # Valid chain stage modes
     _modes = (
         ("deghosting", ("uresnet",)),
@@ -144,28 +131,20 @@ class FullChain(torch.nn.Module):
 
     def __init__(
         self,
-        chain,
-        uresnet_deghost=None,
-        uresnet=None,
-        uresnet_ppn=None,
-        adapt_labels=None,
-        predict_points=None,
-        graph_spice=None,
-        dbscan=None,
-        grappa_shower=None,
-        grappa_track=None,
-        grappa_particle=None,
-        grappa_inter=None,
-        calibration=None,
-        uresnet_deghost_loss=None,
-        uresnet_loss=None,
-        uresnet_ppn_loss=None,
-        graph_spice_loss=None,
-        grappa_shower_loss=None,
-        grappa_track_loss=None,
-        grappa_particle_loss=None,
-        grappa_inter_loss=None,
-    ):
+        chain: dict[str, Any],
+        uresnet_deghost: dict[str, Any] | None = None,
+        uresnet: dict[str, Any] | None = None,
+        uresnet_ppn: dict[str, Any] | None = None,
+        adapt_labels: dict[str, Any] | None = None,
+        predict_points: dict[str, Any] | None = None,
+        graph_spice: dict[str, Any] | None = None,
+        dbscan: dict[str, Any] | None = None,
+        grappa_shower: dict[str, Any] | None = None,
+        grappa_track: dict[str, Any] | None = None,
+        grappa_particle: dict[str, Any] | None = None,
+        grappa_inter: dict[str, Any] | None = None,
+        calibration: dict[str, Any] | None = None,
+    ) -> None:
         """Initialize the full chain model.
 
         Parameters
@@ -203,10 +182,11 @@ class FullChain(torch.nn.Module):
 
         # Initialize the deghosting model
         if self.deghosting is not None and self.deghosting == "uresnet":
-            assert uresnet_deghost is not None, (
-                "If the deghosting is using UResNet, must provide the "
-                "`uresnet_deghost` configuration block."
-            )
+            if uresnet_deghost is None:
+                raise ValueError(
+                    "If the deghosting is using UResNet, must provide the "
+                    "`uresnet_deghost` configuration block."
+                )
             self.uresnet_deghost = UResNetSegmentation(uresnet_deghost)
 
         # Initialize the charge rescaling process (adapt to ghost predictions)
@@ -217,10 +197,11 @@ class FullChain(torch.nn.Module):
 
         # Initialize the semantic segmentation model (+ point proposal)
         if self.segmentation is not None and self.segmentation == "uresnet":
-            assert (uresnet is not None) ^ (uresnet_ppn is not None), (
-                "If the segmentation is using UResNet, must provide the "
-                "`uresnet` or `uresnet_ppn` configuration block."
-            )
+            if (uresnet is None) == (uresnet_ppn is None):
+                raise ValueError(
+                    "If the segmentation is using UResNet, must provide the "
+                    "`uresnet` or `uresnet_ppn` configuration block."
+                )
             if uresnet is not None:
                 self.uresnet = UResNetSegmentation(uresnet)
             else:
@@ -238,30 +219,34 @@ class FullChain(torch.nn.Module):
             "dbscan" in self.fragmentation or "graph_spice" in self.fragmentation
         ):
             if "dbscan" in self.fragmentation:
-                assert dbscan is not None, (
-                    "If the fragmentation is done using DBSCAN, must "
-                    "provide the `dbscan` configuration block."
-                )
+                if dbscan is None:
+                    raise ValueError(
+                        "If the fragmentation is done using DBSCAN, must "
+                        "provide the `dbscan` configuration block."
+                    )
                 self.dbscan = DBSCAN(**dbscan)
                 self.fragment_shapes.extend(self.dbscan.shapes)
             if "graph_spice" in self.fragmentation:
-                assert graph_spice is not None, (
-                    "If the fragmentation is done using Graph-SPICE, must "
-                    "provide the `graph_spice` configuration block."
-                )
+                if graph_spice is None:
+                    raise ValueError(
+                        "If the fragmentation is done using Graph-SPICE, must "
+                        "provide the `graph_spice` configuration block."
+                    )
                 self.graph_spice = GraphSPICE(graph_spice)
                 self.fragment_shapes.extend(self.graph_spice.shapes)
 
             # Check that there is no redundancy between the fragmenters
             uniques, counts = np.unique(self.fragment_shapes, return_counts=True)
-            assert np.all(uniques == np.arange(4)), (
-                "All four expected semantic classes should be fragmented "
-                "by either DBSCAN or Graph-SPICE."
-            )
-            assert np.all(counts) == 1, (
-                "Some of the shapes appear in both the DBSCAN and the "
-                "Graph-SPICE based fragmentation. Ambiguous."
-            )
+            if not np.all(uniques == np.arange(4)):
+                raise ValueError(
+                    "All four expected semantic classes should be fragmented "
+                    "by either DBSCAN or Graph-SPICE."
+                )
+            if not np.all(counts):
+                raise ValueError(
+                    "Some of the shapes appear in both the DBSCAN and the "
+                    "Graph-SPICE based fragmentation. Ambiguous."
+                )
 
         # Initialize the graph-based aggregator modules
         grappa_configs = {
@@ -273,14 +258,14 @@ class FullChain(torch.nn.Module):
         for stage, config in grappa_configs.items():
             if getattr(self, f"{stage}_aggregation") == "grappa":
                 name = f"grappa_{stage}"
-                assert config is not None, (
-                    f"If the {stage} aggregation is done using GrapPA, "
-                    f"must provide the {name} configuration block."
-                )
+                if config is None:
+                    raise ValueError(
+                        f"If the {stage} aggregation is done using GrapPA, "
+                        f"must provide the {name} configuration block."
+                    )
                 setattr(self, name, GrapPA(config))
-                assert (
-                    getattr(self, name).make_groups == True
-                ), "The aggregators should have `make_groups: true`"
+                if not getattr(self, name).make_groups:
+                    raise ValueError("The aggregators should have `make_groups: true`")
 
         # Initialize the standalone particle classifier
         # TODO (likely an image classifier)
@@ -291,20 +276,22 @@ class FullChain(torch.nn.Module):
         # Initialize the calibrator manager
         self.calibration_stage = None
         if self.calibration == "apply":
-            assert calibration is not None, (
-                "If the calibration is to be applied, must provide the "
-                "`calibration` configuration block."
-            )
-            assert "stage" in calibration, (
-                "If the calibration is to be applied, must provide the "
-                "`stage` to specify where to apply it."
-            )
+            if calibration is None:
+                raise ValueError(
+                    "If the calibration is to be applied, must provide the "
+                    "`calibration` configuration block."
+                )
+            if "stage" not in calibration:
+                raise ValueError(
+                    "If the calibration is to be applied, must provide the "
+                    "`stage` to specify where to apply it."
+                )
             self.calibration_stage = calibration.pop("stage")
             self.calibrator = CalibrationManager(**calibration)
             calibration["stage"] = self.calibration_stage
 
     @property
-    def modes(self):
+    def modes(self) -> dict[str, tuple[str, ...]]:
         """Dictionary of (stage, modes) pairs which determine which options
         are available to each of the the reconstruction stage.
 
@@ -317,16 +304,16 @@ class FullChain(torch.nn.Module):
 
     def forward(
         self,
-        data,
-        sources=None,
-        seg_label=None,
-        clust_label=None,
-        orig_index=None,
-        coord_label=None,
-        energy_label=None,
-        meta=None,
-        run_info=None,
-    ):
+        data: TensorBatch,
+        sources: TensorBatch | None = None,
+        seg_label: TensorBatch | None = None,
+        clust_label: TensorBatch | None = None,
+        orig_index: IndexBatch | None = None,
+        coord_label: TensorBatch | None = None,
+        energy_label: TensorBatch | None = None,
+        meta: Sequence[Any] | None = None,
+        run_info: Sequence[RunInfo] | None = None,
+    ) -> dict[str, Any]:
         """Run a batch of data through the full chain.
 
         Parameters
@@ -403,7 +390,13 @@ class FullChain(torch.nn.Module):
         # Return
         return self.result
 
-    def run_deghosting(self, data, sources=None, seg_label=None, clust_label=None):
+    def run_deghosting(
+        self,
+        data: TensorBatch,
+        sources: TensorBatch | None = None,
+        seg_label: TensorBatch | None = None,
+        clust_label: TensorBatch | None = None,
+    ) -> tuple[TensorBatch, TensorBatch | None]:
         """Run the deghosting algorithm.
 
         This removes points that are artifacts of the tomographic
@@ -506,16 +499,19 @@ class FullChain(torch.nn.Module):
 
         elif self.deghosting == "label":
             # Use ghost labels to remove ghost voxels from the input
-            assert seg_label is not None, "Must provide `seg_label` to deghost with it."
+            if seg_label is None:
+                raise ValueError("Must provide `seg_label` to deghost with it.")
             ghost_pred = (seg_label.tensor[:, SHAPE_COL] == GHOST_SHP).long()
             adapt_index = torch.nonzero(ghost_pred == 0, as_tuple=False).flatten()
             tensor_deghost = data.tensor[ghost_pred == 0]
 
             # Use the label rescaled charge, if requested
             if self.charge_rescaling is not None:
-                assert clust_label is not None, (
-                    "Must provide `clust_label` to fetch the true " "rescaled charge."
-                )
+                if clust_label is None:
+                    raise ValueError(
+                        "Must provide `clust_label` to fetch the true "
+                        "rescaled charge."
+                    )
                 tensor_deghost[:, VALUE_COL] = clust_label[:, VALUE_COL]
 
             # Store and return
@@ -554,8 +550,12 @@ class FullChain(torch.nn.Module):
             return data, sources_adapt
 
     def run_segmentation_ppn(
-        self, data, seg_label=None, clust_label=None, orig_index=None
-    ):
+        self,
+        data: TensorBatch,
+        seg_label: TensorBatch | None = None,
+        clust_label: TensorBatch | None = None,
+        orig_index: IndexBatch | None = None,
+    ) -> TensorBatch | None:
         """Run the semantic segmentation and the point proposal algorithms.
 
         This classifies each individual voxel in the image into different
@@ -638,14 +638,19 @@ class FullChain(torch.nn.Module):
 
         elif self.segmentation == "label":
             # Use the segmentation labels
-            assert seg_label is not None, "Must provide `seg_label` to segment with it."
+            if seg_label is None:
+                raise ValueError("Must provide `seg_label` to segment with it.")
             seg_pred = seg_label.tensor[:, SHAPE_COL]
 
             self.result["seg_pred"] = TensorBatch(seg_pred, data.counts)
 
         return clust_label
 
-    def run_fragmentation(self, data, clust_label=None):
+    def run_fragmentation(
+        self,
+        data: TensorBatch,
+        clust_label: TensorBatch | None = None,
+    ) -> None:
         """Run the fragmentation algorithm, i.e. the dense clustering step.
 
         This breaks down each topological class individually into a set of
@@ -708,9 +713,10 @@ class FullChain(torch.nn.Module):
                 fragment_shapes = fragment_shapes.merge(clust_shapes)
 
         if self.fragmentation == "label":
-            assert (
-                clust_label is not None
-            ), "Must provide `clust_label` to use it for fragmentation."
+            if clust_label is None:
+                raise ValueError(
+                    "Must provide `clust_label` to use it for fragmentation."
+                )
             fragments = form_clusters_batch(clust_label.to_numpy(), column=CLUST_COL)
             fragment_shapes = get_cluster_label_batch(
                 clust_label, fragments, column=SHAPE_COL
@@ -720,7 +726,12 @@ class FullChain(torch.nn.Module):
             self.result["fragment_clusts"] = fragments
             self.result["fragment_shapes"] = fragment_shapes
 
-    def run_part_aggregation(self, data, clust_label=None, coord_label=None):
+    def run_part_aggregation(
+        self,
+        data: TensorBatch,
+        clust_label: TensorBatch | None = None,
+        coord_label: TensorBatch | None = None,
+    ) -> None:
         """Run the particle aggreation step.
 
         This step gathers particle fragments into complete particle instances.
@@ -805,9 +816,10 @@ class FullChain(torch.nn.Module):
 
             elif switch == "label":
                 # Use cluster labels to aggregate instances
-                assert (
-                    clust_label is not None
-                ), "Must provide `clust_label` to aggregate particles by label."
+                if clust_label is None:
+                    raise ValueError(
+                        "Must provide `clust_label` to aggregate particles by label."
+                    )
                 groups, group_shapes, group_primaries, shape_index = self.group_labels(
                     clust_label,
                     fragments,
@@ -858,7 +870,12 @@ class FullChain(torch.nn.Module):
         self.result["particle_shapes"] = particle_shapes
         self.result["particle_primaries"] = particle_primaries
 
-    def run_inter_aggregation(self, data, clust_label=None, coord_label=None):
+    def run_inter_aggregation(
+        self,
+        data: TensorBatch,
+        clust_label: TensorBatch | None = None,
+        coord_label: TensorBatch | None = None,
+    ) -> None:
         """Run the interaction aggreation step.
 
         This step gathers particles into complete interaction instances.
@@ -903,9 +920,10 @@ class FullChain(torch.nn.Module):
 
         elif self.inter_aggregation == "label":
             # Use cluster labels to aggregate instances
-            assert (
-                clust_label is not None
-            ), "Must provide `clust_label` to aggregate interactions by label."
+            if clust_label is None:
+                raise ValueError(
+                    "Must provide `clust_label` to aggregate interactions by label."
+                )
             interactions, _, _, _ = self.group_labels(
                 clust_label, particles, particle_shapes
             )
@@ -915,8 +933,13 @@ class FullChain(torch.nn.Module):
             self.result["interaction_clusts"] = interactions
 
     def run_calibration(
-        self, data, sources=None, energy_label=None, meta=None, run_info=None
-    ):
+        self,
+        data: TensorBatch,
+        sources: TensorBatch | None = None,
+        energy_label: TensorBatch | None = None,
+        meta: Sequence[Any] | None = None,
+        run_info: Sequence[RunInfo] | None = None,
+    ) -> TensorBatch:
         """Run the calibration algorithm.
 
         This converts the raw charge values in ADC to energy depositions
@@ -944,10 +967,11 @@ class FullChain(torch.nn.Module):
         """
         if self.calibration == "apply":
             # Check that the metadata is provided
-            assert meta is not None, (
-                "Must provide the metadata to convert pixel coordinates "
-                "to detector coordinates and apply calibrations."
-            )
+            if meta is None:
+                raise ValueError(
+                    "Must provide the metadata to convert pixel coordinates "
+                    "to detector coordinates and apply calibrations."
+                )
 
             # Loop over entries in the batch (might have different meta/run IDs)
             data_np = data.to_numpy().tensor
@@ -987,9 +1011,10 @@ class FullChain(torch.nn.Module):
 
         elif self.calibration == "label":
             # Use energy labels to give values to each voxel
-            assert (
-                energy_label is not None
-            ), "Must provide `energy_label` to do label-based calibration."
+            if energy_label is None:
+                raise ValueError(
+                    "Must provide `energy_label` to do label-based calibration."
+                )
             data.tensor[:, VALUE_COL] = energy_label.tensor[:, VALUE_COL]
 
             self.result["data_adapt"] = data
@@ -998,19 +1023,24 @@ class FullChain(torch.nn.Module):
 
     def run_grappa(
         self,
-        prefix,
-        model,
-        data,
-        clusts,
-        clust_shapes,
-        clust_primaries=None,
-        clust_label=None,
-        coord_label=None,
-        aggregate_shapes=False,
-        shape_use_primary=False,
-        point_use_primary=False,
-        retain_primaries=False,
-    ):
+        prefix: str,
+        model: GrapPA,
+        data: TensorBatch,
+        clusts: IndexBatch,
+        clust_shapes: TensorBatch,
+        clust_primaries: IndexBatch | None = None,
+        clust_label: TensorBatch | None = None,
+        coord_label: TensorBatch | None = None,
+        aggregate_shapes: bool = False,
+        shape_use_primary: bool = False,
+        point_use_primary: bool = False,
+        retain_primaries: bool = False,
+    ) -> tuple[
+        IndexBatch,
+        TensorBatch | list[Any],
+        IndexBatch,
+        np.ndarray | bool,
+    ]:
         """Run the GNN-based particle aggregator.
 
         Parameters
@@ -1077,10 +1107,11 @@ class FullChain(torch.nn.Module):
         group_pred = res_grappa["group_pred"]
         primary_mask = None
         if shape_use_primary or retain_primaries:
-            assert "node_pred" in res_grappa, (
-                "Must provide node predictions to use primary shape "
-                "or preserve the list of primary clusters."
-            )
+            if "node_pred" not in res_grappa:
+                raise ValueError(
+                    "Must provide node predictions to use primary shape "
+                    "or preserve the list of primary clusters."
+                )
             node_pred = res_grappa["node_pred"].to_numpy()
             primary_mask = primary_assignment_batch(node_pred, group_pred)
 
@@ -1100,14 +1131,19 @@ class FullChain(torch.nn.Module):
 
     def group_labels(
         self,
-        clust_label,
-        clusts,
-        clust_shapes,
-        shapes=None,
-        aggregate_shapes=False,
-        shape_use_primary=False,
-        retain_primaries=False,
-    ):
+        clust_label: TensorBatch,
+        clusts: IndexBatch,
+        clust_shapes: TensorBatch,
+        shapes: Sequence[int] | None = None,
+        aggregate_shapes: bool = False,
+        shape_use_primary: bool = False,
+        retain_primaries: bool = False,
+    ) -> tuple[
+        IndexBatch,
+        TensorBatch | list[Any],
+        IndexBatch,
+        np.ndarray | bool,
+    ]:
         """Aggregate particles using labels.
 
         Parameters
@@ -1166,7 +1202,12 @@ class FullChain(torch.nn.Module):
             shape_index,
         )
 
-    def restrict_clusts(self, clusts, clust_shapes, shapes):
+    def restrict_clusts(
+        self,
+        clusts: IndexBatch,
+        clust_shapes: TensorBatch,
+        shapes: Sequence[int],
+    ) -> tuple[IndexBatch, TensorBatch, np.ndarray | bool]:
         """Restricts a cluster list against a list of shapes.
 
         Parameters
@@ -1211,15 +1252,15 @@ class FullChain(torch.nn.Module):
 
     def prepare_grappa_input(
         self,
-        model,
-        data,
-        clusts,
-        clust_shapes,
-        clust_primaries=None,
-        clust_label=None,
-        coord_label=None,
-        point_use_primaries=False,
-    ):
+        model: GrapPA,
+        data: TensorBatch,
+        clusts: IndexBatch,
+        clust_shapes: TensorBatch,
+        clust_primaries: IndexBatch | None = None,
+        clust_label: TensorBatch | None = None,
+        coord_label: TensorBatch | None = None,
+        point_use_primaries: bool = False,
+    ) -> dict[str, TensorBatch | IndexBatch]:
         """Prepares the input to a GrapPA model.
 
         It builds the following input to GrpPA:
@@ -1271,9 +1312,10 @@ class FullChain(torch.nn.Module):
             # Fetch the cluster list to use to get points
             ref_clusts = clusts
             if point_use_primaries:
-                assert (
-                    clust_primaries is not None
-                ), "If using primaries to get points, must provide them."
+                if clust_primaries is None:
+                    raise ValueError(
+                        "If using primaries to get points, must provide them."
+                    )
                 ref_clusts = clust_primaries
 
             # Get and store the points
@@ -1282,14 +1324,16 @@ class FullChain(torch.nn.Module):
                     data, ref_clusts, clust_shapes, self.result["ppn_points"]
                 )
             else:
-                assert coord_label is not None, (
-                    "Must provide either `ppn_points` or `coord_label` to add "
-                    "points to the GrapPA input."
-                )
-                assert clust_label is not None, (
-                    "Must provide `clust_label` with `coord_label` to add "
-                    "label points to the GrapPA input."
-                )
+                if coord_label is None:
+                    raise ValueError(
+                        "Must provide either `ppn_points` or `coord_label` to add "
+                        "points to the GrapPA input."
+                    )
+                if clust_label is None:
+                    raise ValueError(
+                        "Must provide `clust_label` with `coord_label` to add "
+                        "label points to the GrapPA input."
+                    )
                 points = get_cluster_points_label_batch(
                     clust_label,
                     coord_label,
@@ -1327,14 +1371,14 @@ class FullChain(torch.nn.Module):
 
     def build_groups(
         self,
-        clusts,
-        clust_shapes,
-        group_pred,
-        primary_mask=None,
-        aggregate_shapes=False,
-        shape_use_primary=False,
-        retain_primaries=False,
-    ):
+        clusts: IndexBatch,
+        clust_shapes: TensorBatch,
+        group_pred: TensorBatch,
+        primary_mask: TensorBatch | np.ndarray | None = None,
+        aggregate_shapes: bool = False,
+        shape_use_primary: bool = False,
+        retain_primaries: bool = False,
+    ) -> tuple[IndexBatch, TensorBatch | list[Any], IndexBatch]:
         """Use groups predictions from GrapPA to build superstructures.
 
         Parameters
@@ -1389,7 +1433,7 @@ class FullChain(torch.nn.Module):
                 # Extract the shape and primary ID for this group
                 if primary_mask is not None:
                     primary_index = group_index[primary_mask_b[group_index]]
-                    primary_id = primary_index[0] if len(primary_index) else None
+                    primary_id = primary_index[0] if len(primary_index) > 0 else None
                     if aggregate_shapes:
                         if primary_id is not None:
                             group_shapes.append(clust_shapes_b[primary_id])
@@ -1438,21 +1482,21 @@ class FullChainLoss(torch.nn.Module):
 
     def __init__(
         self,
-        chain,
-        uresnet_deghost=None,
-        uresnet_deghost_loss=None,
-        uresnet=None,
-        uresnet_loss=None,
-        uresnet_ppn=None,
-        uresnet_ppn_loss=None,
-        graph_spice=None,
-        graph_spice_loss=None,
-        grappa_shower_loss=None,
-        grappa_track_loss=None,
-        grappa_particle_loss=None,
-        grappa_inter_loss=None,
-        **kwargs,
-    ):
+        chain: dict[str, Any],
+        uresnet_deghost: dict[str, Any] | None = None,
+        uresnet_deghost_loss: dict[str, Any] | None = None,
+        uresnet: dict[str, Any] | None = None,
+        uresnet_loss: dict[str, Any] | None = None,
+        uresnet_ppn: dict[str, Any] | None = None,
+        uresnet_ppn_loss: dict[str, Any] | None = None,
+        graph_spice: dict[str, Any] | None = None,
+        graph_spice_loss: dict[str, Any] | None = None,
+        grappa_shower_loss: dict[str, Any] | None = None,
+        grappa_track_loss: dict[str, Any] | None = None,
+        grappa_particle_loss: dict[str, Any] | None = None,
+        grappa_inter_loss: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> None:
         """Initialize the full chain model.
 
         Parameters
@@ -1496,12 +1540,11 @@ class FullChainLoss(torch.nn.Module):
 
         # Initialize the segmentation/PPN losses
         if self.segmentation == "uresnet":
-            assert not (
-                (uresnet_loss is not None) and (uresnet_ppn_loss is not None)
-            ), (
-                "If the segmentation is using UResNet, can provide either "
-                "`uresnet_loss` or `uresnet_ppn_loss` configuration block."
-            )
+            if uresnet_loss is not None and uresnet_ppn_loss is not None:
+                raise ValueError(
+                    "If the segmentation is using UResNet, can provide either "
+                    "`uresnet_loss` or `uresnet_ppn_loss` configuration block."
+                )
             if uresnet_loss is not None:
                 self.uresnet_loss = SegmentationLoss(uresnet, uresnet_loss)
             elif uresnet_ppn_loss is not None:
@@ -1530,7 +1573,7 @@ class FullChainLoss(torch.nn.Module):
                 setattr(self, name, GrapPALoss(config))
 
     @property
-    def modes(self):
+    def modes(self) -> dict[str, tuple[str, ...]]:
         """Dictionary of (stage, modes) pairs which determine which options
         are available to each of the the reconstruction stage.
 
@@ -1543,10 +1586,10 @@ class FullChainLoss(torch.nn.Module):
 
     @staticmethod
     def restrict_segmentation_loss_input(
-        seg_label,
-        segmentation,
-        orig_index=None,
-    ):
+        seg_label: TensorBatch,
+        segmentation: TensorBatch | None,
+        orig_index: IndexBatch | None = None,
+    ) -> tuple[TensorBatch, TensorBatch | None]:
         """Align segmentation loss inputs to the deghosted voxel subset.
 
         Parameters
@@ -1583,19 +1626,19 @@ class FullChainLoss(torch.nn.Module):
 
     def forward(
         self,
-        seg_label=None,
-        ppn_label=None,
-        clust_label=None,
-        clust_label_adapt=None,
-        coord_label=None,
-        graph_label=None,
-        meta=None,
-        orig_index=None,
-        ghost=None,
-        segmentation=None,
-        seg_pred=None,
-        **output,
-    ):
+        seg_label: TensorBatch | None = None,
+        ppn_label: TensorBatch | None = None,
+        clust_label: TensorBatch | None = None,
+        clust_label_adapt: TensorBatch | None = None,
+        coord_label: TensorBatch | None = None,
+        graph_label: Any | None = None,
+        meta: Sequence[Any] | None = None,
+        orig_index: IndexBatch | None = None,
+        ghost: TensorBatch | None = None,
+        segmentation: TensorBatch | None = None,
+        seg_pred: TensorBatch | None = None,
+        **output: Any,
+    ) -> dict[str, Any]:
         """Run the full chain output through the full chain loss.
 
         Parameters
@@ -1724,7 +1767,11 @@ class FullChainLoss(torch.nn.Module):
 
         return self.result
 
-    def update_result(self, result, prefix=None):
+    def update_result(
+        self,
+        result: dict[str, Any],
+        prefix: str | None = None,
+    ) -> None:
         """Update loss and accuracy using the output of one of the module.
 
         Parameters
@@ -1750,7 +1797,11 @@ class FullChainLoss(torch.nn.Module):
             self.result.update({f"{prefix}_{k}": v for k, v in result.items()})
 
 
-def process_chain_config(self, dump_config=False, **parameters):
+def process_chain_config(
+    self: FullChain | FullChainLoss,
+    dump_config: bool = False,
+    **parameters: str | None,
+) -> None:
     """Process the full chain configuration and dump it.
 
     Parameters
@@ -1764,39 +1815,45 @@ def process_chain_config(self, dump_config=False, **parameters):
     # that the configuration is recognized.
     for module, valid_modes in self.modes.items():
         valid_modes = (None, "label", *valid_modes)
-        assert module in parameters, (
-            f"Must configure the {module} stage in the `chain` block. "
-            f"The {module} mode should be one of {valid_modes}."
-        )
-        assert parameters[module] in valid_modes, (
-            f"The {module} mode should be one of {valid_modes}. "
-            f"Received '{parameters[module]}' instead."
-        )
+        if module not in parameters:
+            raise ValueError(
+                f"Must configure the {module} stage in the `chain` block. "
+                f"The {module} mode should be one of {valid_modes}."
+            )
+        if parameters[module] not in valid_modes:
+            raise ValueError(
+                f"The {module} mode should be one of {valid_modes}. "
+                f"Received '{parameters[module]}' instead."
+            )
         setattr(self, module, parameters[module])
 
     # Do some logic checks on the chain parameters
-    assert (
-        not self.charge_rescaling or self.deghosting
-    ), "Charge rescaling cannot be done without deghosting."
-    assert self.charge_rescaling == self.deghosting or (
-        self.deghosting == "uresnet" and self.charge_rescaling != "label"
-    ), (
-        "Label-based charge rescaling can only be done in conjunction "
-        "with label-based deghosting."
-    )
-    assert not self.segmentation == "label" or self.deghosting in [None, "label"], (
-        "Can only use labels for segmentation if labels are also used for "
-        "remove ghost points."
-    )
-    assert (
-        not self.point_proposal == "ppn" or self.segmentation == "uresnet"
-    ), "For PPN to work, need the UResNet segmentation backbone."
-    assert (
-        not self.shower_primary == "gnn" or self.shower_aggregation == "gnn"
-    ), "To use GNN for shower primaries, must aggregate showers with it."
-    assert not self.particle_aggregation or (
-        not self.shower_aggregation and not self.track_aggregation
-    ), "Use particle aggregator or shower/track aggregators, not both."
+    if self.charge_rescaling and not self.deghosting:
+        raise ValueError("Charge rescaling cannot be done without deghosting.")
+    if self.charge_rescaling != self.deghosting and (
+        self.deghosting != "uresnet" or self.charge_rescaling == "label"
+    ):
+        raise ValueError(
+            "Label-based charge rescaling can only be done in conjunction "
+            "with label-based deghosting."
+        )
+    if self.segmentation == "label" and self.deghosting not in [None, "label"]:
+        raise ValueError(
+            "Can only use labels for segmentation if labels are also used for "
+            "remove ghost points."
+        )
+    if self.point_proposal == "ppn" and self.segmentation != "uresnet":
+        raise ValueError("For PPN to work, need the UResNet segmentation backbone.")
+    if self.shower_primary == "gnn" and self.shower_aggregation != "gnn":
+        raise ValueError(
+            "To use GNN for shower primaries, must aggregate showers with it."
+        )
+    if self.particle_aggregation and (
+        self.shower_aggregation or self.track_aggregation
+    ):
+        raise ValueError(
+            "Use particle aggregator or shower/track aggregators, not both."
+        )
 
     # Dump the chain configuration, if requested
     if dump_config:
@@ -1805,3 +1862,6 @@ def process_chain_config(self, dump_config=False, **parameters):
             v = v if v is not None else "null"
             logger.info(f"  {k:<27}: {v}")
         logger.info("")
+
+
+MODEL_SPEC = ModelSpec("full_chain", FullChain, FullChainLoss)

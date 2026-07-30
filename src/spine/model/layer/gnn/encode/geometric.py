@@ -1,8 +1,10 @@
+from __future__ import annotations
+
 import numpy as np
 import torch
 
 from spine.constants import COORD_COLS, SHAPE_COL, VALUE_COL
-from spine.data import TensorBatch
+from spine.data import EdgeIndexBatch, IndexBatch, TensorBatch
 from spine.utils.gnn.cluster import (
     get_cluster_dedxs_batch,
     get_cluster_directions_batch,
@@ -52,16 +54,16 @@ class ClustGeoNodeEncoder(torch.nn.Module):
 
     def __init__(
         self,
-        use_numpy=True,
-        add_value=False,
-        add_shape=False,
-        add_points=False,
-        random_order=True,
-        add_local_dirs=False,
-        dir_max_dist=5.0,
-        add_local_dedxs=False,
-        dedx_max_dist=5.0,
-    ):
+        use_numpy: bool = True,
+        add_value: bool = False,
+        add_shape: bool = False,
+        add_points: bool = False,
+        random_order: bool = True,
+        add_local_dirs: bool = False,
+        dir_max_dist: float | str = 5.0,
+        add_local_dedxs: bool = False,
+        dedx_max_dist: float = 5.0,
+    ) -> None:
         """Initializes the geometric-based node encoder.
 
         Parameters
@@ -84,39 +86,56 @@ class ClustGeoNodeEncoder(torch.nn.Module):
         add_local_dedxs : boo, default False
             Add the local dE/dx estimates at the start and end points
         dedx_max_dist : float, default 5.
-            Readius around the end points incldued to estimate the dE/dx
+            Radius around the end points included to estimate the dE/dx
         """
         # Initialize the parent class
         super().__init__()
 
-        # Store the paramters
+        # Store the parameters
         self.use_numpy = use_numpy
         self.add_value = add_value
         self.add_shape = add_shape
         self.add_points = add_points
         self.random_order = random_order
         self.add_local_dirs = add_local_dirs
-        self.dir_max_dist = dir_max_dist
         self.add_local_dedxs = add_local_dedxs
         self.dedx_max_dist = dedx_max_dist
+        self.feature_size = (
+            16
+            + 2 * int(add_value)
+            + int(add_shape)
+            + 6 * int(add_points)
+            + 6 * int(add_local_dirs)
+            + 2 * int(add_local_dedxs)
+        )
 
         # If the maximum distance is specified as `optimize`, optimize it
-        self.opt_dir_max_dist = False
-        if isinstance(self.dir_max_dist, str):
-            assert self.dir_max_dist == "optimize", (
-                "If specified as a string, `dir_max_dist` should "
-                "only take the value 'optimize'"
-            )
-            self.opt_dir_max_dist = True
+        self.opt_dir_max_dist = isinstance(dir_max_dist, str)
+        if isinstance(dir_max_dist, str):
+            if dir_max_dist != "optimize":
+                raise ValueError(
+                    "If specified as a string, `dir_max_dist` should "
+                    "only take the value 'optimize'"
+                )
+            self.dir_max_dist = -1.0
+        else:
+            self.dir_max_dist = dir_max_dist
 
         # Sanity check
-        assert self.add_points or (
-            not self.add_local_dirs and not self.add_local_dedxs
-        ), "If directions or dE/dx is requested, must also add points"
+        if not self.add_points and (self.add_local_dirs or self.add_local_dedxs):
+            raise ValueError(
+                "If directions or dE/dx is requested, must also add points"
+            )
 
     def forward(
-        self, data, clusts, coord_label=None, points=None, extra=None, **kwargs
-    ):
+        self,
+        data: TensorBatch,
+        clusts: IndexBatch,
+        coord_label: TensorBatch | None = None,
+        points: TensorBatch | None = None,
+        extra: TensorBatch | None = None,
+        **kwargs: object,
+    ) -> TensorBatch | tuple[TensorBatch, TensorBatch]:
         """Generate geometric cluster node features for one batch of data.
 
         Parameters
@@ -132,7 +151,7 @@ class ClustGeoNodeEncoder(torch.nn.Module):
         extra : TensorBatch
             (C, 1/2/3) Set of mean/rms values in the cluster and/or shape
         **kwargs : dict, optional
-            Additional objects no used by this encoder
+            Additional objects not used by this encoder
 
         Returns
         -------
@@ -141,26 +160,33 @@ class ClustGeoNodeEncoder(torch.nn.Module):
         """
         # If features are provided directly, must ensure that the corresponding
         # flags in the configuration are as expected.
-        assert (
-            points is None or self.add_points
-        ), "If end points are provided, `add_points` should be `True`."
-        assert extra is None or (self.add_value or self.add_shape), (
-            "If extra features are provided, either `add_value` or "
-            "`add_shape` should be `True`."
-        )
-        assert not self.add_points or (
-            (coord_label is not None) ^ (points is not None)
-        ), ("Must provide either `coord_label` or `points` to add points, " "not both.")
+        if points is not None and not self.add_points:
+            raise ValueError(
+                "If end points are provided, `add_points` should be `True`."
+            )
+        if extra is not None and not self.add_value and not self.add_shape:
+            raise ValueError(
+                "If extra features are provided, either `add_value` or "
+                "`add_shape` should be `True`."
+            )
+        if self.add_points and (coord_label is None) == (points is None):
+            raise ValueError(
+                "Must provide either `coord_label` or `points` to add points, "
+                "not both."
+            )
 
         # Update the flags depending what is provided
         add_value, add_shape = self.add_value, self.add_shape
         if extra is not None:
             if self.add_value and self.add_shape:
-                assert extra.shape[1] == 3
+                if extra.shape[1] != 3:
+                    raise ValueError("Expected `extra.shape[1] == 3`.")
             elif self.add_value and not self.add_shape:
-                assert extra.shape[1] == 2
+                if extra.shape[1] != 2:
+                    raise ValueError("Expected `extra.shape[1] == 2`.")
             elif not self.add_value and self.add_shape:
-                assert extra.shape[1] == 1
+                if extra.shape[1] != 1:
+                    raise ValueError("Expected `extra.shape[1] == 1`.")
             add_value, add_shape = False, False
 
         # Extract the base geometric features
@@ -168,51 +194,69 @@ class ClustGeoNodeEncoder(torch.nn.Module):
             # If numpy is to be used, pass it through the Numba function
             feats = get_cluster_features_batch(
                 data, clusts, add_value, add_shape
-            ).tensor
+            ).torch_tensor()
         else:
             # Otherwise, use the local torch method
-            feats = self.get_base_features(data, clusts, add_value, add_shape).tensor
+            feats = self.get_base_features(
+                data, clusts, add_value, add_shape
+            ).torch_tensor()
 
-        # Add the extra features if they were provided independantly
+        # Add the extra features if they were provided independently
         if extra is not None:
-            feats = torch.cat((feats, extra.tensor), dim=1)
+            feats = torch.cat((feats, extra.torch_tensor()), dim=1)
 
         # Add the points
         if self.add_points:
             if points is None:
+                if coord_label is None:
+                    raise RuntimeError("Point labels were validated but are missing.")
                 points = get_cluster_points_label_batch(
                     data, coord_label, clusts, random_order=self.random_order
                 )
 
-            feats = torch.cat((feats, points.tensor), dim=1)
+            feats = torch.cat((feats, points.torch_tensor()), dim=1)
 
         # Add the local directions
         if self.add_local_dirs:
-            for cols in np.arange(points.tensor.shape[1]).reshape(-1, 3):
-                starts = TensorBatch(points.tensor[:, cols], points.counts)
+            if points is None:
+                raise RuntimeError("Local directions require endpoint data.")
+            point_tensor = points.torch_tensor()
+            for cols in np.arange(point_tensor.shape[1]).reshape(-1, 3):
+                starts = TensorBatch(point_tensor[:, cols], points.counts)
                 dirs = get_cluster_directions_batch(
                     data, starts, clusts, self.dir_max_dist, self.opt_dir_max_dist
                 )
-                feats = torch.cat((feats, dirs.tensor), dim=1)
+                feats = torch.cat((feats, dirs.torch_tensor()), dim=1)
 
         # Add the local dE/dx information
         if self.add_local_dedxs:
-            for cols in np.arange(points.tensor.shape[1]).reshape(-1, 3):
-                starts = TensorBatch(points.tensor[:, cols], points.counts)
+            if points is None:
+                raise RuntimeError("Local dE/dx requires endpoint data.")
+            point_tensor = points.torch_tensor()
+            for cols in np.arange(point_tensor.shape[1]).reshape(-1, 3):
+                starts = TensorBatch(point_tensor[:, cols], points.counts)
                 dedxs = get_cluster_dedxs_batch(
                     data, starts, clusts, self.dedx_max_dist
                 )
-                feats = torch.cat((feats, dedxs.tensor[:, None]), dim=1)
+                feats = torch.cat((feats, dedxs.torch_tensor()[:, None]), dim=1)
 
         feats = TensorBatch(feats, clusts.counts)
 
         # Return
         if self.add_points:
+            if points is None:
+                raise RuntimeError("Endpoint data was not constructed.")
             return feats, points
 
         return feats
 
-    def get_base_features(self, data, clusts, add_value, add_shape):
+    def get_base_features(
+        self,
+        data: TensorBatch,
+        clusts: IndexBatch,
+        add_value: bool,
+        add_shape: bool,
+    ) -> TensorBatch:
         """Generate base geometric cluster node features for one batch of data.
 
         Parameters
@@ -227,80 +271,103 @@ class ClustGeoNodeEncoder(torch.nn.Module):
             Add the particle semantic type
         """
         # Get the value & semantic types
-        voxels = data.tensor[:, COORD_COLS]
-        values = data.tensor[:, VALUE_COL]
-        sem_types = data.tensor[:, SHAPE_COL] if add_shape else None
+        data_tensor = data.torch_tensor()
+        voxels = data_tensor[:, COORD_COLS]
+        values = data_tensor[:, VALUE_COL]
+        sem_types = data_tensor[:, SHAPE_COL] if add_shape else None
 
         # Below is a torch-based implementation of cluster_features
         feats = []
         dtype, device = voxels.dtype, voxels.device
         zeros = lambda x: torch.zeros(x, dtype=dtype, device=device)
         full = lambda x, y: torch.full(x, y, dtype=dtype, device=device)
-        for c in clusts.index_list:
+        for cluster in clusts.index_list:
             # Get list of voxels in the cluster
-            x = voxels[c]
-            size = full([1], len(c))
+            cluster_voxels = voxels[cluster]
+            size = full([1], len(cluster))
 
             # Give default values to size-1 clusters
-            if len(c) < 2:
-                feats_v = torch.cat((x.flatten(), zeros(12), size))
+            if len(cluster) < 2:
+                cluster_features = torch.cat(
+                    (cluster_voxels.flatten(), zeros(12), size)
+                )
                 if add_value:
-                    vals = zeros(2)
-                    vals[0] = values[c[0]]
-                    feats_v = torch.cat((feats_v, vals))
+                    value_features = zeros(2)
+                    value_features[0] = values[cluster[0]]
+                    cluster_features = torch.cat((cluster_features, value_features))
                 if add_shape and sem_types is not None:
-                    shape = full([1], sem_types[c[0]])
-                    feats_v = torch.cat((feats_v, shape))
+                    shape = full([1], sem_types[cluster[0]])
+                    cluster_features = torch.cat((cluster_features, shape))
 
-                feats.append(feats_v)
+                feats.append(cluster_features)
                 continue
 
             # Center data
-            center = x.mean(dim=0)
-            x = x - center
+            center = cluster_voxels.mean(dim=0)
+            centered_voxels = cluster_voxels - center
 
             # Get orientation matrix
-            A = x.t().mm(x)
+            orientation = centered_voxels.t().mm(centered_voxels)
 
             # Get eigenvectors, normalize orientation matrix and
             # eigenvalues to largest. This step assumes points are not
             # superimposed, i.e. that largest eigenvalue != 0
-            # w, v = torch.symeig(A, eigenvectors=True)
-            w, v = torch.linalg.eigh(A, UPLO="U")
-            dirwt = 1.0 - w[1] / w[2]
-            B = A / w[2]
+            eigenvalues, eigenvectors = torch.linalg.eigh(
+                orientation,
+                UPLO="U",
+            )
+            largest_eigenvalue = eigenvalues[2]
+            if largest_eigenvalue <= torch.finfo(eigenvalues.dtype).eps:
+                normalized_orientation = torch.zeros_like(orientation)
+                direction_weight = eigenvalues.new_zeros(())
+            else:
+                normalized_orientation = orientation / largest_eigenvalue
+                direction_weight = 1.0 - eigenvalues[1] / largest_eigenvalue
 
             # Get the principal direction
-            v0 = v[:, 2]
+            principal_direction = eigenvectors[:, 2]
 
             # Projection all points along the principal axis
-            x0 = x.mv(v0)
+            longitudinal_projection = centered_voxels.mv(principal_direction)
 
             # Evaluate the distance from the points to the principal axis
-            xp0 = x - torch.ger(x0, v0)
-            np0 = torch.norm(xp0, dim=1)
+            transverse_projection = centered_voxels - torch.outer(
+                longitudinal_projection,
+                principal_direction,
+            )
+            transverse_norm = torch.norm(transverse_projection, dim=1)
 
             # Flip the principal direction if it is not pointing
             # towards the maximum spread
-            sc = torch.dot(x0, np0)
-            if sc < 0:
-                v0 = -v0
+            orientation_score = torch.dot(
+                longitudinal_projection,
+                transverse_norm,
+            )
+            if orientation_score < 0:
+                principal_direction = -principal_direction
 
             # Weight direction
-            v0 = dirwt * v0
+            principal_direction = direction_weight * principal_direction
 
             # Append (center, B.flatten(), v0, size)
-            feats_v = torch.cat((center, B.flatten(), v0, size))
+            cluster_features = torch.cat(
+                (
+                    center,
+                    normalized_orientation.flatten(),
+                    principal_direction,
+                    size,
+                )
+            )
             if add_value:
-                vals = zeros(2)
-                vals[0] = values[c].mean()
-                vals[1] = values[c].std()
-                feats_v = torch.cat((feats_v, vals))
+                value_features = zeros(2)
+                value_features[0] = values[cluster].mean()
+                value_features[1] = values[cluster].std()
+                cluster_features = torch.cat((cluster_features, value_features))
             if add_shape and sem_types is not None:
-                shape = full([1], sem_types[c].mode())
-                feats_v = torch.cat((feats_v, shape))
+                shape = sem_types[cluster].mode().values.reshape(1).to(dtype=dtype)
+                cluster_features = torch.cat((cluster_features, shape))
 
-            feats.append(feats_v)
+            feats.append(cluster_features)
 
         # Return
         if len(feats) > 0:
@@ -326,7 +393,11 @@ class ClustGeoEdgeEncoder(torch.nn.Module):
     # Alternative allowed names of the edge encoder
     aliases = ("geo",)
 
-    def __init__(self, use_numpy=True, use_legacy_distance=False):
+    def __init__(
+        self,
+        use_numpy: bool = True,
+        use_legacy_distance: bool = False,
+    ) -> None:
         """Initializes the geometric-based node encoder.
 
         Parameters
@@ -340,11 +411,19 @@ class ClustGeoEdgeEncoder(torch.nn.Module):
         # Initialize the parent class
         super().__init__()
 
-        # Store the paramters
+        # Store the parameters
         self.use_numpy = use_numpy
         self.use_legacy_distance = use_legacy_distance
+        self.feature_size = 19
 
-    def forward(self, data, clusts, edge_index, closest_index=None, **kwargs):
+    def forward(
+        self,
+        data: TensorBatch,
+        clusts: IndexBatch,
+        edge_index: EdgeIndexBatch,
+        closest_index: np.ndarray | torch.Tensor | None = None,
+        **kwargs: object,
+    ) -> TensorBatch:
         """Generate geometric cluster edge features for one batch of data.
 
         Parameters
@@ -359,7 +438,7 @@ class ClustGeoEdgeEncoder(torch.nn.Module):
             (C, C) : Combined index of the closest pair of voxels per
             pair of clusters
         **kwargs : dict, optional
-            Additional objects no used by this encoder
+            Additional objects not used by this encoder
 
         Returns
         -------
@@ -375,7 +454,7 @@ class ClustGeoEdgeEncoder(torch.nn.Module):
                 edge_index,
                 closest_index=closest_index,
                 use_legacy_distance=self.use_legacy_distance,
-            ).tensor
+            ).torch_tensor()
         else:
             # Otherwise, use the local torch method
             feats = self.get_base_features(data, clusts, edge_index, closest_index)
@@ -401,7 +480,13 @@ class ClustGeoEdgeEncoder(torch.nn.Module):
 
         return TensorBatch(feats, edge_index.counts)
 
-    def get_base_features(self, data, clusts, edge_index, closest_index=None):
+    def get_base_features(
+        self,
+        data: TensorBatch,
+        clusts: IndexBatch,
+        edge_index: EdgeIndexBatch,
+        closest_index: np.ndarray | torch.Tensor | None = None,
+    ) -> torch.Tensor:
         """Generate base geometric cluster node features for one batch of data.
 
         Parameters
@@ -417,41 +502,57 @@ class ClustGeoEdgeEncoder(torch.nn.Module):
             pair of clusters
         """
         # Get the voxel set
-        voxels = data.tensor[:, COORD_COLS]
+        voxels = data.torch_tensor()[:, COORD_COLS]
 
         # Here is a torch-based implementation of cluster_edge_features
         feats = []
-        for e in edge_index.directed_index_t:
+        for edge in edge_index.directed_index_t:
 
             # Get the voxels in the clusters connected by the edge
-            x1 = voxels[clusts.index_list[e[0]]]
-            x2 = voxels[clusts.index_list[e[1]]]
+            first_voxels = voxels[clusts.index_list[edge[0]]]
+            second_voxels = voxels[clusts.index_list[edge[1]]]
 
             # Find the closest set point in each cluster
             if closest_index is None:
-                d12 = cdist_fast(x1, x2)
-                imin = torch.argmin(d12)
+                distance_matrix = cdist_fast(first_voxels, second_voxels)
+                if distance_matrix is None:
+                    raise RuntimeError("Failed to compute inter-cluster distances.")
+                closest_flat_index = torch.argmin(distance_matrix)
             else:
-                imin = closest_index[e[0], e[1]]
+                closest_flat_index = closest_index[edge[0], edge[1]]
 
-            i1, i2 = imin // len(x2), imin % len(x2)
-            v1 = x1[i1, :]  # closest point in c1
-            v2 = x2[i2, :]  # closest point in c2
+            first_index = closest_flat_index // len(second_voxels)
+            second_index = closest_flat_index % len(second_voxels)
+            first_point = first_voxels[first_index, :]
+            second_point = second_voxels[second_index, :]
 
             # Displacement
-            disp = v1 - v2
+            displacement = first_point - second_point
 
             # Distance
-            lend = torch.norm(disp)
-            if lend > 0:
-                disp = disp / lend
+            length = torch.norm(displacement)
+            if length > 0:
+                displacement = displacement / length
 
             # Outer product
-            outer = torch.ger(disp, disp).flatten()
+            outer_product = torch.outer(
+                displacement,
+                displacement,
+            ).flatten()
 
-            feats.append(torch.cat((v1, v2, disp, lend.reshape(1), outer)))
+            feats.append(
+                torch.cat(
+                    (
+                        first_point,
+                        second_point,
+                        displacement,
+                        length.reshape(1),
+                        outer_product,
+                    )
+                )
+            )
 
         if len(feats) > 0:
             return torch.stack(feats, dim=0)
         else:
-            return torch.zeros((0, 19))
+            return voxels.new_zeros((0, self.feature_size))

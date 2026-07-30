@@ -2,7 +2,6 @@ from collections import defaultdict
 
 import numpy as np
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 from torch_scatter import scatter_mean
 
@@ -14,7 +13,7 @@ from .misc import *
 __all__ = ["NodeEdgeLoss", "EdgeLoss"]
 
 
-class GraphSPICEEmbeddingLoss(nn.Module):
+class GraphSPICEEmbeddingLoss(torch.nn.Module):
     """
     Loss function for Sparse Spatial Embeddings Model, with fixed
     centroids and symmetric gaussian kernels.
@@ -44,19 +43,19 @@ class GraphSPICEEmbeddingLoss(nn.Module):
 
         self.kernel_lossfn_name = self.loss_config.get("kernel_lossfn", "BCE")
         if self.kernel_lossfn_name == "BCE":
-            self.kernel_lossfn = nn.BCEWithLogitsLoss(reduction="mean")
+            self.kernel_lossfn = torch.nn.BCEWithLogitsLoss(reduction="mean")
         elif self.kernel_lossfn_name == "lovasz_hinge":
             self.kernel_lossfn = LovaszHingeLoss(reduction="none")
         else:
-            self.kernel_lossfn = nn.BCEWithLogitsLoss(reduction="none")
+            self.kernel_lossfn = torch.nn.BCEWithLogitsLoss(reduction="none")
 
         self.seg_lossfn_name = self.loss_config.get("seg_lossfn", "CE")
         if self.seg_lossfn_name == "CE":
-            self.seg_loss_fn = nn.CrossEntropyLoss(reduction="mean")
+            self.seg_loss_fn = torch.nn.CrossEntropyLoss(reduction="mean")
         elif self.seg_lossfn_name == "lovasz_softmax":
             self.seg_loss_fn = LovaszSoftmaxWithLogitsLoss(reduction="mean")
         else:
-            self.seg_loss_fn = nn.CrossEntropyLoss(reduction="mean")
+            self.seg_loss_fn = torch.nn.CrossEntropyLoss(reduction="mean")
 
     def feature_embedding_loss(self, ft_emb, groups, ft_centroids):
         """
@@ -129,7 +128,7 @@ class GraphSPICEEmbeddingLoss(nn.Module):
         occ_loss = torch.abs(
             torch.gather(occ - occ_truth[None, :], 1, groups.view(-1, 1))
         )
-        if len(occ_loss.squeeze().size()) and len(groups.size()):
+        if len(occ_loss.squeeze().size()) > 0 and len(groups.size()) > 0:
             occ_loss = scatter_mean(occ_loss.squeeze(), groups)
             # occ_loss = occ_loss[occ_loss > 0]
             return occ_loss.mean()
@@ -285,7 +284,7 @@ class GraphSPICEEmbeddingLoss(nn.Module):
                     clabels_batch,
                 )
                 for key, val in loss_class.items():
-                    loss[key].append(sum(val) / len(val) if len(val) else 0.0)
+                    loss[key].append(sum(val) / len(val) if len(val) > 0 else 0.0)
                 for s, acc in acc_class.items():
                     accuracy[s].append(acc)
 
@@ -316,7 +315,7 @@ class GraphSPICEEmbeddingLoss(nn.Module):
         return res
 
 
-class NodeEdgeLoss(torch.nn.modules.loss._Loss):
+class NodeEdgeLoss(torch.nn.Module):
     """
     Combined Node + Edge Loss
     """
@@ -331,7 +330,7 @@ class NodeEdgeLoss(torch.nn.modules.loss._Loss):
         embedding_loss_weight=1.0,
         **kwargs,
     ):
-        super(NodeEdgeHybridLoss, self).__init__()
+        super().__init__()
 
         self.loss_fn = GraphSPICEEmbeddingLoss(kwargs)
         if edge_loss is None:
@@ -377,7 +376,7 @@ class NodeEdgeLoss(torch.nn.modules.loss._Loss):
         return res
 
 
-class EdgeLoss(torch.nn.modules.loss._Loss):
+class EdgeLoss(torch.nn.Module):
     """Loss applied to edge scores produced by a GraphSPICE.
 
     This loss simply treats the edge score as logit predictions and compares

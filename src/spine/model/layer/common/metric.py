@@ -1,5 +1,7 @@
 """Modules used to evaluate model performance."""
 
+from __future__ import annotations
+
 import torch
 
 __all__ = ["IoUScore"]
@@ -10,7 +12,7 @@ class IoUScore(torch.nn.Module):
 
     name = "iou"
 
-    def forward(self, y_true, y_pred):
+    def forward(self, y_true: torch.Tensor, y_pred: torch.Tensor) -> float:
         """Evaluate the IoU score for a batch of label and predictions.
 
         Parameters
@@ -25,12 +27,10 @@ class IoUScore(torch.nn.Module):
         float
             IoU score
         """
-        # Compute and return
         with torch.no_grad():
             union = (y_true.long() == 1) | (y_pred.long() == 1)
             if not union.any():
                 return 0.0
 
-            else:
-                intersection = (y_true.long() == 1) & (y_pred.long() == 1)
-                return float(intersection.sum() / union.sum())
+            intersection = (y_true.long() == 1) & (y_pred.long() == 1)
+            return float(intersection.sum() / union.sum())

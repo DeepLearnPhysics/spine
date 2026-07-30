@@ -1,6 +1,8 @@
 """Module that defines a generic node classification loss."""
 
-from warnings import warn
+from __future__ import annotations
+
+from typing import Any
 
 import numpy as np
 import torch
@@ -12,7 +14,7 @@ from spine.constants import (
     SHAPE_COL,
     TRACK_SHP,
 )
-from spine.data import IndexBatch
+from spine.data import IndexBatch, TensorBatch
 from spine.model.layer.factories import loss_fn_factory
 from spine.utils.gnn.cluster import get_cluster_label_batch
 
@@ -47,7 +49,7 @@ class NodeOrientLoss(torch.nn.Module):
     # Alternative allowed names of the loss
     aliases = ("orientation",)
 
-    def __init__(self, loss="ce"):
+    def __init__(self, loss: str | dict[str, Any] = "ce") -> None:
         """Initialize the node orientation loss function.
 
         Parameters
@@ -63,14 +65,14 @@ class NodeOrientLoss(torch.nn.Module):
 
     def forward(
         self,
-        clust_label,
-        coord_label,
-        clusts,
-        node_pred,
-        start_points,
-        end_points,
-        **kwargs,
-    ):
+        clust_label: TensorBatch,
+        coord_label: TensorBatch,
+        clusts: IndexBatch,
+        node_pred: TensorBatch,
+        start_points: TensorBatch,
+        end_points: TensorBatch,
+        **kwargs: object,
+    ) -> dict[str, torch.Tensor | float | int]:
         """Applies the node orientation loss to a batch of data.
 
         Parameters
@@ -102,28 +104,34 @@ class NodeOrientLoss(torch.nn.Module):
         """
         # Fetch the true particle associations and the shape
         part_ids = get_cluster_label_batch(clust_label, clusts, column=PART_COL)
-        global_part_ids = np.empty_like(part_ids.tensor, dtype=np.int64)
-        for b in range(part_ids.batch_size):
-            shift_part_ids = part_ids[b]
+        part_ids_array = part_ids.numpy_tensor()
+        global_part_ids = np.empty_like(part_ids_array, dtype=np.int64)
+        for batch_id in range(part_ids.batch_size):
+            shift_part_ids = part_ids[batch_id].copy()
             valid_index = np.where(shift_part_ids > -1)[0]
-            shift_part_ids[valid_index] += coord_label.edges[b].item()
-            lower, upper = part_ids.edges[b], part_ids.edges[b + 1]
+            shift_part_ids[valid_index] += int(coord_label.edges[batch_id])
+            lower = part_ids.edges[batch_id]
+            upper = part_ids.edges[batch_id + 1]
             global_part_ids[lower:upper] = shift_part_ids
 
         # Restrict the loss to matched track clusters
         shapes = get_cluster_label_batch(clust_label, clusts, column=SHAPE_COL)
-        valid_index = np.where((global_part_ids > -1) & (shapes.tensor == TRACK_SHP))[0]
+        valid_index = np.where(
+            (global_part_ids > -1) & (shapes.numpy_tensor() == TRACK_SHP)
+        )[0]
 
         # Fetch the true directions from the particle associations
         all_cols = np.concatenate((COORD_START_COLS, COORD_END_COLS))
         index = global_part_ids[valid_index]
-        true_starts, true_ends = coord_label.tensor[index][:, all_cols].split(3, dim=1)
+        true_starts, true_ends = coord_label.torch_tensor()[index][:, all_cols].split(
+            3, dim=1
+        )
         true_dirs = true_ends - true_starts
 
         # Restrict the start/end points, compute the vector
-        start_points = start_points.tensor[valid_index]
-        end_points = end_points.tensor[valid_index]
-        feat_dirs = end_points - start_points
+        start_tensor = start_points.torch_tensor()[valid_index]
+        end_tensor = end_points.torch_tensor()[valid_index]
+        feat_dirs = end_tensor - start_tensor
 
         # For each node, check whether the vector that joins the start to end
         # point node features are aligned with the ground truth
@@ -131,13 +139,15 @@ class NodeOrientLoss(torch.nn.Module):
         node_assn = (node_assn + 1) // 2
 
         # Compute the loss
-        node_pred = node_pred.tensor[valid_index]
-        loss = self.loss_fn(node_pred, node_assn, reduction="mean")
+        node_pred_tensor = node_pred.torch_tensor()[valid_index]
+        loss = self.loss_fn(node_pred_tensor, node_assn, reduction="sum")
+        if len(valid_index) > 0:
+            loss /= len(valid_index)
 
         # Compute accuracy of assignment (fraction of correctly assigned nodes)
         acc = 1.0
-        if len(valid_index):
-            acc = float(torch.sum(torch.argmax(node_pred, dim=1) == node_assn))
+        if len(valid_index) > 0:
+            acc = float(torch.sum(torch.argmax(node_pred_tensor, dim=1) == node_assn))
             acc /= len(valid_index)
 
         return {"accuracy": acc, "loss": loss, "count": len(valid_index)}
