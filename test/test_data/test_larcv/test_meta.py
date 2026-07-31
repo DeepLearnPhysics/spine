@@ -105,6 +105,28 @@ class TestMetaCreation:
                 ),  # Should be 50 to match upper/lower
             )
 
+    def test_meta_accepts_float32_cancellation_roundoff(self):
+        """Accept independently rounded LArCV bounds near zero."""
+        lower = np.array([-392.72614, -99.35605, -229.96048], dtype=np.float32)
+        upper = np.array([-162.32614, 131.04395, 0.4395157], dtype=np.float32)
+        size = np.full(3, 0.3, dtype=np.float32)
+        count = np.full(3, 768, dtype=np.int64)
+
+        meta = Meta(lower=lower, upper=upper, size=size, count=count)
+
+        np.testing.assert_array_equal(meta.upper, upper)
+
+    def test_meta_rejects_discrepancy_above_float32_tolerance(self):
+        """Reject upper bounds that differ by more than float32 roundoff."""
+        lower = np.array([-392.72614, -99.35605, -229.96048], dtype=np.float32)
+        size = np.full(3, 0.3, dtype=np.float32)
+        count = np.full(3, 768, dtype=np.int64)
+        upper = (lower + size * count).astype(np.float32)
+        upper[-1] += np.float32(1.0e-3)
+
+        with pytest.raises(ValueError, match="absolute tolerance"):
+            Meta(lower=lower, upper=upper, size=size, count=count)
+
     def test_meta_serialization(self):
         """Test Meta object serialization properties."""
         lower = np.array([0.0, 0.0, 0.0])
