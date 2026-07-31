@@ -87,6 +87,7 @@ class ClusterGraphConstructor:
         assert "name" in graph, "Must provide the graph constructor function name."
 
         name = graph.pop("name")
+        self.graph_fn: Callable[[torch.Tensor], torch.Tensor]
         if name == "knn":
             self.graph_fn = partial(knn_graph, **graph)
         elif name == "radius":
@@ -116,11 +117,6 @@ class ClusterGraphConstructor:
             (N, 1 + D + N_c) Tensor of cluster labels
             - N_c is is the number of cluster labels
         """
-        # If edge labeling is required, make sure clust_label is provided
-        assert (
-            not self.label_edges or clust_label is not None
-        ), "If edge labels are to be produced, must provide `clust_label`."
-
         # Loop over the unique batch indices, build a list of graphs for each
         graph = defaultdict(list)
         edge_offset = 0
@@ -207,7 +203,7 @@ class ClusterGraphConstructor:
             graph["node_clusts"].append(seg_index)
 
             # If there are no points, append empty, proceed
-            if not len(seg_index):
+            if len(seg_index) == 0:
                 graph["edge_clusts"].append(
                     torch.empty(0, dtype=torch.long, device=coords.device)
                 )
@@ -220,7 +216,7 @@ class ClusterGraphConstructor:
                 graph["edge_attr"].append(
                     torch.empty(0, dtype=features.dtype, device=features.device)
                 )
-                if self.label_edges:
+                if self.label_edges and clust_label is not None:
                     graph["edge_label"].append(
                         torch.empty(0, dtype=torch.long, device=coords.device)
                     )
@@ -248,7 +244,7 @@ class ClusterGraphConstructor:
             )
             graph["edge_attr"].append(edge_attr.flatten())
 
-            if self.label_edges:
+            if self.label_edges and clust_label is not None:
                 node_label = clust_label[seg_index, self.target_col]
                 edge_label = node_label[edge_index[0]] == node_label[edge_index[1]]
                 graph["edge_label"].append(edge_label.long())

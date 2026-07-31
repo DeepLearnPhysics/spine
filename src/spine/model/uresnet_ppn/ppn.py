@@ -135,6 +135,8 @@ class PPN(sparse.Network):
             ) from err
         self.ghost = bool(backbone.pop("ghost", False))
         setup_cnn_configuration(self, **backbone)
+        if self.depth < 2:
+            raise ValueError("PPN requires a UResNet depth of at least two.")
 
         # Store the PPN-specific configuration.
         config = self._parse_model_config(**ppn)
@@ -320,6 +322,7 @@ class PPN(sparse.Network):
         """
         # Get the list of decoder feature maps
         decoder_feature_maps = []
+        decoder_ghost_masks = []
         if self.ghost:
             ghost_mask_layer = self.ghost_mask
             masker = self.masker
@@ -356,11 +359,17 @@ class PPN(sparse.Network):
                         )
                     ghost_coords = ghost.coordinates
                     ghost_mask_tensor = 1.0 - torch.argmax(
-                        ghost.aligned_features(), dim=1, keepdim=True
+                        ghost.features, dim=1, keepdim=True
                     )
 
+                ghost_mask_tensor = ghost_mask_tensor.to(
+                    dtype=decoder_tensors[-1].features.dtype
+                )
                 ghost_mask = sparse.SparseTensor(
-                    ghost_mask_tensor, coordinates=ghost_coords
+                    ghost_mask_tensor,
+                    coordinates=ghost_coords,
+                    coordinate_manager=decoder_tensors[-1].coordinate_manager,
+                    batch_size=decoder_tensors[-1].batch_size,
                 )
 
             # Downsample stride 1 ghost mask to all intermediate decoder layers
@@ -374,11 +383,20 @@ class PPN(sparse.Network):
                     scaled_ghost_mask,
                 )
                 decoder_feature_maps.append(nonghost_tensor)
+                decoder_ghost_masks.append(scaled_ghost_mask)
 
             decoder_feature_maps = decoder_feature_maps[::-1]
+            decoder_ghost_masks = decoder_ghost_masks[::-1]
 
         else:
             decoder_feature_maps = list(decoder_tensors)
+
+        expected_layers = self.depth - 1
+        if len(decoder_feature_maps) != expected_layers:
+            raise ValueError(
+                f"Expected {expected_layers} decoder tensors, got "
+                f"{len(decoder_feature_maps)}."
+            )
 
         # Loop over the PPN decoding path
         ppn_masks, ppn_layers, ppn_coords = [], [], []
@@ -390,8 +408,9 @@ class PPN(sparse.Network):
             # Merge with the UesNet decoding features
             decoder_tensor = decoder_feature_maps[level]
             if self.ghost:
-                if self.merge_concat is None:
+                if self.merge_concat is None or self.masker is None:
                     raise RuntimeError("Ghost-enabled PPN is missing its merge module.")
+                x = self.masker(x, decoder_ghost_masks[level])
                 x = self.merge_concat(decoder_tensor, x)
             else:
                 x = sparse.cat(decoder_tensor, x)
@@ -403,7 +422,7 @@ class PPN(sparse.Network):
             foreground_mask = probabilities.features[:, 1:] > self.mask_score_threshold
 
             # Store the coordinates, raw score logits and score mask
-            counts = decoder_tensors[level].counts
+            counts = scores.counts
             ppn_coords.append(
                 TensorBatch(
                     scores.coordinates,
@@ -421,18 +440,24 @@ class PPN(sparse.Network):
                 x.features.shape,
                 propagate_all=self.propagate_all,
                 use_binary_mask=self.use_binary_mask,
+                score_threshold=self.mask_score_threshold,
             )
 
             # Scale the out of this layer using the score mask
             x = x * expanded_scores.detach()
 
         # Output set of coordinates (should match the last decoder tensor)
-        if x.coordinates.shape[0] != decoder_tensors[-1].shape[0]:
+        if x.coordinates.shape[0] != decoder_feature_maps[-1].shape[0]:
             raise ValueError(
                 "The output of the last PPN layer should be consistent "
                 "with the length of the last UResNet decoder layer"
             )
-        final_counts = decoder_tensors[-1].counts
+        if not torch.equal(x.coordinates, decoder_feature_maps[-1].coordinates):
+            raise ValueError(
+                "The final PPN coordinates must match the highest-resolution "
+                "decoder coordinates."
+            )
+        final_counts = x.counts
         ppn_output_coords = TensorBatch(
             x.coordinates, final_counts, has_batch_col=True, coord_cols=COORD_COLS
         )
@@ -518,6 +543,8 @@ class PPNLoss(torch.nn.Module):
             self.depth = int(uresnet["depth"])
         except KeyError as err:
             raise ValueError("The UResNet configuration must define `depth`.") from err
+        if self.depth < 2:
+            raise ValueError("PPN loss requires a UResNet depth of at least two.")
         self.dimension = int(uresnet.get("data_dim", 3))
 
         # Store the normalized loss configuration.
@@ -609,6 +636,17 @@ class PPNLoss(torch.nn.Module):
 
         if mask_loss != "CE":
             raise ValueError(f"Mask loss name not recognized: {mask_loss}")
+        if resolution <= 0.0:
+            raise ValueError(f"`resolution` must be positive, got {resolution}.")
+        loss_weights = {
+            "reg_loss_weight": reg_loss_weight,
+            "type_loss_weight": type_loss_weight,
+            "mask_loss_weight": mask_loss_weight,
+            "endpoint_loss_weight": endpoint_loss_weight,
+        }
+        for name, value in loss_weights.items():
+            if value < 0.0:
+                raise ValueError(f"`{name}` must be nonnegative, got {value}.")
         return _PPNLossConfig(
             resolution=resolution,
             point_classes=normalized_point_classes,
@@ -623,6 +661,92 @@ class PPNLoss(torch.nn.Module):
             return_mask_labels=return_mask_labels,
             restrict_to_clusters=restrict_to_clusters,
         )
+
+    @staticmethod
+    def align_coordinate_values(
+        source_coords: torch.Tensor,
+        source_values: torch.Tensor,
+        target_coords: torch.Tensor,
+        value_name: str,
+    ) -> torch.Tensor:
+        """Align coordinate-associated values to a target sparse row order.
+
+        The common case uses an exact coordinate-order match and returns
+        immediately. The fallback coalesces duplicate source coordinates,
+        checks that their values agree, and gathers them in target order.
+
+        Parameters
+        ----------
+        source_coords : torch.Tensor
+            ``(N, D + 1)`` source coordinates including the batch column.
+        source_values : torch.Tensor
+            ``(N, ...)`` values associated with the source coordinates.
+        target_coords : torch.Tensor
+            ``(M, D + 1)`` coordinates defining the desired row order.
+        value_name : str
+            Human-readable value name used in validation errors.
+
+        Returns
+        -------
+        torch.Tensor
+            ``(M, ...)`` values aligned to ``target_coords``.
+
+        Raises
+        ------
+        ValueError
+            If shapes are inconsistent, duplicate values conflict, or target
+            coordinates are absent from the source.
+        """
+        if len(source_coords) != len(source_values):
+            raise ValueError(
+                f"The {value_name} coordinates and values must have matching "
+                f"lengths, got {len(source_coords)} and {len(source_values)}."
+            )
+        if source_coords.shape[1] != target_coords.shape[1]:
+            raise ValueError(
+                f"The source and target coordinates for {value_name} must have "
+                "the same width."
+            )
+
+        target_coords = target_coords.to(
+            device=source_coords.device,
+            dtype=source_coords.dtype,
+        )
+        if len(source_coords) == len(target_coords) and torch.equal(
+            source_coords,
+            target_coords,
+        ):
+            return source_values
+
+        combined_coords = torch.cat((source_coords, target_coords), dim=0)
+        _, inverse = torch.unique(combined_coords, dim=0, return_inverse=True)
+        source_ids = inverse[: len(source_coords)]
+        target_ids = inverse[len(source_coords) :]
+        num_coords = int(inverse.max().item()) + 1 if len(inverse) > 0 else 0
+
+        representatives = source_values.new_empty(
+            (num_coords, *source_values.shape[1:])
+        )
+        representatives[source_ids] = source_values
+        if len(source_ids) > 0 and torch.any(
+            representatives[source_ids] != source_values
+        ):
+            raise ValueError(
+                f"Duplicate coordinates carry conflicting {value_name} values."
+            )
+
+        present = torch.zeros(
+            num_coords,
+            dtype=torch.bool,
+            device=source_coords.device,
+        )
+        present[source_ids] = True
+        if len(target_ids) > 0 and not bool(torch.all(present[target_ids])):
+            raise ValueError(
+                f"Target coordinates are missing from the {value_name} source."
+            )
+
+        return representatives[target_ids]
 
     @staticmethod
     def get_ppn_positives(
@@ -746,6 +870,22 @@ class PPNLoss(torch.nn.Module):
         """
         # Initialize the basics
         num_layers = len(ppn_layers)
+        expected_layers = self.depth - 1
+        layer_counts = {
+            "ppn_masks": len(ppn_masks),
+            "ppn_layers": num_layers,
+            "ppn_coords": len(ppn_coords),
+        }
+        invalid_counts = {
+            name: count
+            for name, count in layer_counts.items()
+            if count != expected_layers
+        }
+        if invalid_counts:
+            details = ", ".join(
+                f"{name}={count}" for name, count in invalid_counts.items()
+            )
+            raise ValueError(f"Expected {expected_layers} PPN layers, got {details}.")
         batch_size = ppn_label.batch_size
         loss_points = ppn_points if ppn_points_unique is None else ppn_points_unique
         loss_endpoints = (
@@ -775,9 +915,51 @@ class PPNLoss(torch.nn.Module):
         # label point is closest to each image voxel (defines label for it)
         coords_final = ppn_coords[-1]
         coords_final_tensor = coords_final.torch_tensor()
+        output_coords_tensor = ppn_output_coords.torch_tensor()
+        if not torch.equal(coords_final_tensor, output_coords_tensor):
+            raise ValueError(
+                "`ppn_output_coords` must match the final `ppn_coords` tensor."
+            )
+        if loss_points.shape[0] != coords_final.shape[0]:
+            raise ValueError(
+                "The PPN point predictions and final coordinates must have "
+                f"matching rows, got {loss_points.shape[0]} and "
+                f"{coords_final.shape[0]}."
+            )
+        if (
+            loss_endpoints is not None
+            and loss_endpoints.shape[0] != coords_final.shape[0]
+        ):
+            raise ValueError(
+                "The endpoint predictions and final coordinates must have "
+                f"matching rows, got {loss_endpoints.shape[0]} and "
+                f"{coords_final.shape[0]}."
+            )
         ppn_label_tensor = ppn_label.torch_tensor()
+
+        # Align particle IDs to the unique final-resolution sparse sites. This
+        # is a no-op for the usual one-row-per-coordinate input and resolves
+        # duplicate input rows when cluster-restricted supervision is enabled.
+        aligned_part_labels = None
+        if self.restrict_to_clusters:
+            if clust_label is None:
+                raise ValueError(
+                    "When using 'restrict_to_clusters', must provide "
+                    "'clust_label' to the PPN loss."
+                )
+            clust_label_tensor = clust_label.torch_tensor()
+            aligned_part_labels = self.align_coordinate_values(
+                clust_label_tensor[:, :VALUE_COL],
+                clust_label_tensor[:, PART_COL],
+                coords_final_tensor[:, :VALUE_COL],
+                "particle label",
+            )
+            aligned_part_labels = TensorBatch(
+                aligned_part_labels,
+                coords_final.counts,
+            )
+
         closest_list, positive_list = [], []
-        part_labels = None
         offset = 0
         for batch_index in range(batch_size):
             # If there are no label points, there are no positive points
@@ -794,13 +976,9 @@ class PPNLoss(torch.nn.Module):
                 continue
 
             # If needed, find which particle instance voxels belong to
-            if self.restrict_to_clusters:
-                if clust_label is None:
-                    raise ValueError(
-                        "When using 'restrict_to_clusters', must provide "
-                        "'clust_label' to the PPN loss."
-                    )
-                part_labels = clust_label[batch_index][:, PART_COL]
+            part_labels = None
+            if aligned_part_labels is not None:
+                part_labels = aligned_part_labels[batch_index]
 
             # Assign positive/negative labels to each voxel in the image
             points_entry = coords_final[batch_index][:, COORD_COLS] + 0.5
@@ -841,7 +1019,21 @@ class PPNLoss(torch.nn.Module):
             coords_layer = ppn_coords[layer_index]
             scores_layer = ppn_layers[layer_index]
             scores_layer_tensor = scores_layer.torch_tensor()
-            mask_labels = mask_tensor.features.flatten().long()
+            coords_layer_tensor = coords_layer.torch_tensor()
+            mask_features = self.align_coordinate_values(
+                mask_tensor.coordinates,
+                mask_tensor.features,
+                coords_layer_tensor[:, :VALUE_COL],
+                f"PPN mask at layer {layer_index}",
+            )
+            mask_labels = mask_features.flatten().long()
+
+            if ppn_masks[layer_index].shape[0] != scores_layer.shape[0]:
+                raise ValueError(
+                    f"PPN mask and score rows differ at layer {layer_index}: "
+                    f"{ppn_masks[layer_index].shape[0]} != "
+                    f"{scores_layer.shape[0]}."
+                )
 
             # If requested, store the label features in a list
             if self.return_mask_labels:
@@ -850,23 +1042,26 @@ class PPNLoss(torch.nn.Module):
                 )
 
             # Compute the mask weights over the whole batch, if requested
-            mask_weight = None
-            if self.balance_mask_loss:
-                mask_weight = get_class_weights(
-                    mask_labels, 2, self.mask_weighting_mode
-                )
+            num_points = len(scores_layer_tensor)
+            if num_points == 0:
+                mask_losses[layer_index] = scores_layer_tensor.sum() * 0.0
+            else:
+                mask_weight = None
+                if self.balance_mask_loss:
+                    mask_weight = get_class_weights(
+                        mask_labels, 2, self.mask_weighting_mode
+                    )
 
-            # Compute the mask loss for this layer, increment
-            mask_losses[layer_index] = self.mask_loss_fn(
-                scores_layer_tensor,
-                mask_labels,
-                weight=mask_weight,
-                reduction="mean",
-            )
+                # Compute the mask loss for this layer, increment
+                mask_losses[layer_index] = self.mask_loss_fn(
+                    scores_layer_tensor,
+                    mask_labels,
+                    weight=mask_weight,
+                    reduction="mean",
+                )
 
             # Compute the mask accuracy for this layer/batch, increment
             with torch.no_grad():
-                num_points = len(scores_layer_tensor)
                 mask_predictions = torch.argmax(
                     scores_layer_tensor,
                     dim=1,
@@ -1179,6 +1374,9 @@ class MergeConcat(torch.nn.Module):
         """
         if x.tensor_stride != other.tensor_stride:
             raise ValueError("Expected `x.tensor_stride == other.tensor_stride`.")
+        if torch.equal(x.coordinates, other.coordinates):
+            return x.replace_features(torch.cat((other.features, x.features), dim=1))
+
         # Create a placeholder tensor with x.coordinates coordinates
         other_placeholder = sparse.SparseTensor(
             coordinates=x.coordinates,
@@ -1210,9 +1408,15 @@ class MergeConcat(torch.nn.Module):
 
         aligned_input = input_placeholder + x
 
-        # Now x and other share the same coordinates and shape
-        concatenated = sparse.cat(aligned_other, aligned_input)
-        return concatenated
+        # Now x and other share the same coordinates and shape. Keep one
+        # coordinate-map key and concatenate only the aligned feature arrays;
+        # independently created union maps are not interchangeable in sparse
+        # backends such as MinkowskiEngine.
+        if not torch.equal(aligned_other.coordinates, aligned_input.coordinates):
+            raise RuntimeError("Failed to align sparse tensors for concatenation.")
+        return aligned_input.replace_features(
+            torch.cat((aligned_other.features, aligned_input.features), dim=1)
+        )
 
 
 class GhostMask(sparse.Network):

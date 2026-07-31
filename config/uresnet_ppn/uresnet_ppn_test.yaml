@@ -1,29 +1,24 @@
-# Base configuration
+# Canonical UResNet-PPN inference/evaluation configuration.
+#
+# Set io.loader.dataset.file_keys and model.weight_path for the target run.
+# With no checkpoint, the fixed seed provides deterministic initialization for
+# the CI regression test.
+
 base:
   world_size: 0
-  iterations: 10
+  iterations: 1
   seed: 0
   unwrap: false
-  log_dir: .
+  log_dir: logs/uresnet_ppn/test
   log_step: 1
   overwrite_log: true
-  train:
-    weight_prefix: snapshot
-    save_step: 10
-    optimizer:
-      name: Adam
-      lr: 0.001
 
-# IO configuration
 io:
   loader:
     batch_size: 2
     shuffle: false
     num_workers: 0
     collate_fn: all
-    sampler:
-      name: random_sequence
-      seed: 0
     dataset:
       name: larcv
       file_keys: null
@@ -38,19 +33,23 @@ io:
           parser: particle_points
           sparse_event: sparse3d_pcluster
           particle_event: particle_corrected
+        clust_label:
+          parser: cluster3d
+          cluster_event: cluster3d_pcluster
+          particle_event: particle_corrected
+          sparse_semantics_event: sparse3d_pcluster_semantics
+          add_particle_info: true
+          clean_data: true
 
-# Model configuration
 model:
   name: uresnet_ppn
   weight_path: null
-
   network_input:
     data: data
-
   loss_input:
     seg_label: seg_label
     ppn_label: ppn_label
-
+    clust_label: clust_label
   modules:
     uresnet:
       num_input: 1
@@ -66,13 +65,11 @@ model:
         name: batch_norm
         eps: 0.0001
         momentum: 0.01
-
     ppn:
-      classify_endpoints: true
-
+      classify_endpoints: false
     uresnet_loss:
       balance_loss: false
-
     ppn_loss:
       mask_loss: CE
       resolution: 5.0
+      restrict_to_clusters: true

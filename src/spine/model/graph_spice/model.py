@@ -7,7 +7,7 @@ from typing import Any, cast
 
 import torch
 
-from spine.constants import SHAPE_COL
+from spine.constants import CLUST_COL, SHAPE_COL
 from spine.constants.factory import enum_factory
 from spine.data import IndexBatch, TensorBatch
 from spine.utils.cluster.graph import ClusterGraphConstructor
@@ -336,6 +336,7 @@ class GraphSPICELoss(torch.nn.Module):
         self.evaluate_clustering_metrics: bool
         self.loss_fn: torch.nn.Module
         self.constructor: ClusterGraphConstructor | None = None
+        self.target_col: int
 
         # Process the loss configuration
         self.process_loss_config(**graph_spice_loss)
@@ -388,6 +389,7 @@ class GraphSPICELoss(torch.nn.Module):
             Other model parameters not needed by the loss
         """
         # Initialize the graph constructor (used to produce node assignments)
+        self.target_col = constructor.get("target_col", CLUST_COL)
         if self.evaluate_clustering_metrics:
             self.constructor = ClusterGraphConstructor(
                 **deepcopy(constructor), shapes=shapes, invert=invert
@@ -427,6 +429,84 @@ class GraphSPICELoss(torch.nn.Module):
 
         return seg_label, clust_label
 
+    def get_edge_labels(
+        self,
+        clust_label: TensorBatch,
+        edge_index: TensorBatch,
+        node_clusts: IndexBatch,
+        edge_clusts: IndexBatch,
+    ) -> TensorBatch:
+        """Build binary edge labels from the target node assignments.
+
+        Parameters
+        ----------
+        clust_label : TensorBatch
+            Cluster labels narrowed to the nodes used by Graph-SPICE.
+        edge_index : TensorBatch
+            ``(E, 2)`` local endpoint indexes for every semantic subgraph.
+        node_clusts : IndexBatch
+            Node indexes grouped by batch entry and semantic class.
+        edge_clusts : IndexBatch
+            Edge indexes grouped by batch entry and semantic class.
+
+        Returns
+        -------
+        TensorBatch
+            ``(E,)`` labels which are one when both endpoints have the same
+            target cluster ID.
+        """
+        if not node_clusts.is_list or not edge_clusts.is_list:
+            raise TypeError("Graph node and edge groups must be index lists.")
+        if len(node_clusts.index_list) != len(edge_clusts.index_list):
+            raise ValueError(
+                "Graph node and edge groups must contain the same number of "
+                "semantic subgraphs."
+            )
+
+        cluster_ids = clust_label.torch_tensor()[:, self.target_col]
+        edges = edge_index.torch_tensor().long()
+        labels = torch.empty(
+            edge_index.shape[0],
+            dtype=torch.long,
+            device=edges.device,
+        )
+        labeled = torch.zeros(
+            edge_index.shape[0],
+            dtype=torch.bool,
+            device=edges.device,
+        )
+
+        for node_index, edge_group in zip(
+            node_clusts.index_list,
+            edge_clusts.index_list,
+        ):
+            if not isinstance(node_index, torch.Tensor) or not isinstance(
+                edge_group, torch.Tensor
+            ):
+                raise TypeError("Graph index groups must be PyTorch tensors.")
+            if len(edge_group) == 0:
+                continue
+
+            node_index = cast(torch.Tensor, node_index).long()
+            edge_group = cast(torch.Tensor, edge_group).long()
+            local_edges = edges[edge_group]
+            if torch.any(local_edges < 0) or torch.any(local_edges >= len(node_index)):
+                raise IndexError(
+                    "Graph edge endpoints fall outside their semantic node group."
+                )
+
+            node_cluster_ids = cluster_ids[node_index]
+            labels[edge_group] = (
+                node_cluster_ids[local_edges[:, 0]]
+                == node_cluster_ids[local_edges[:, 1]]
+            ).long()
+            labeled[edge_group] = True
+
+        if not bool(torch.all(labeled)):
+            raise ValueError("Graph edge groups do not cover every edge.")
+
+        return TensorBatch(labels, edge_index.counts)
+
     def forward(
         self,
         seg_label: TensorBatch,
@@ -460,6 +540,17 @@ class GraphSPICELoss(torch.nn.Module):
             clust_label,
             filter_index,
         )
+
+        # New configurations keep truth labels out of the network. Derive the
+        # supervision targets here unless a legacy network invocation already
+        # produced them.
+        if "edge_label" not in output:
+            output["edge_label"] = self.get_edge_labels(
+                clust_label,
+                output["edge_index"],
+                output["node_clusts"],
+                output["edge_clusts"],
+            )
 
         # Pass the output through the loss function
         result = self.loss_fn(seg_label=seg_label, clust_label=clust_label, **output)

@@ -53,7 +53,10 @@ def test_supported_models_have_maintained_configs():
     assert configured_models == set(model_names())
 
 
-@pytest.mark.parametrize("case_name", ["uresnet", "spice", "graph_spice"])
+@pytest.mark.parametrize(
+    "case_name",
+    ["uresnet", "uresnet_ppn", "spice", "graph_spice"],
+)
 def test_prototype_training_schedule_is_epoch_based(case_name):
     """Prototype training duration and checkpoint cadence follow the dataset."""
 
@@ -65,6 +68,20 @@ def test_prototype_training_schedule_is_epoch_based(case_name):
     assert "iterations" not in base_cfg
     assert "save_epoch" in train_cfg
     assert "save_step" not in train_cfg
+
+
+@pytest.mark.parametrize("config_group", [MODEL_CONFIGS, INFERENCE_MODEL_CONFIGS])
+def test_graph_spice_keeps_cluster_truth_out_of_network_input(config_group):
+    """Canonical Graph-SPICE networks must not consume instance truth."""
+    cfg = load_config_file(str(config_group["graph_spice"]), download=False)
+    model_cfg = cfg["model"]
+
+    assert "clust_label" not in model_cfg["network_input"]
+    assert model_cfg["loss_input"]["clust_label"] == "clust_label"
+    assert not model_cfg["modules"]["graph_spice"]["constructor"].get(
+        "label_edges",
+        False,
+    )
 
 
 @pytest.mark.model

@@ -250,24 +250,25 @@ driver.run()
 
 Example configurations are available in the `config` folder:
 
-| Configuration name            | Model          |
-| ------------------------------|----------------|
-| `train_uresnet.yaml`          | UResNet alone  |
-| `train_uresnet_ppn.yaml`      | UResNet + PPN  |
-| `train_graph_spice.yaml`      | GraphSpice     |
+| Configuration name                              | Model          |
+| ------------------------------------------------|----------------|
+| `uresnet/uresnet_{train,test}.yaml`              | UResNet alone  |
+| `uresnet_ppn/uresnet_ppn_{train,test}.yaml`      | UResNet + PPN  |
+| `graph_spice/graph_spice_{train,test}.yaml`      | Graph-SPICE    |
 | `train_grappa_shower.yaml`    | GrapPA for shower fragments clustering |
 | `train_grappa_track.yaml`     | GrapPA for track fragments clustering |
 | `train_grappa_inter.yaml`     | GrapPA for interaction clustering |
 
-To switch from training to inference mode, set `trainval.train: False` in your configuration file.
+The maintained model directories provide separate training and inference/test
+configurations where both modes are supported.
 
 Key configuration parameters you may want to modify:
 * `batch_size` - batch size for training/inference
 * `weight_prefix` - directory to save model checkpoints
 * `log_dir` - directory to save training logs
 * `tensorboard` - optional TensorBoard scalar logging configuration
-* `iterations` - number of training iterations
-* `model_path` - path to checkpoint to load (optional)
+* `epochs` - number of training epochs
+* `weight_path` - path to checkpoint to load (optional)
 * `train` - training instruction block
 * `gpus` - GPU IDs to use (leave empty '' for CPU)
 

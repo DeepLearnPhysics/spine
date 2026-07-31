@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from typing import Any
 
 import numpy as np
 import pytest
@@ -88,6 +89,53 @@ def test_full_chain_loss_uses_orig_index_to_align_cached_segmentation_labels():
     assert segmentation_used.tensor.shape[0] == 2
     assert torch.equal(seg_label_used.tensor[:, SHAPE_COL], torch.tensor([0.0, 1.0]))
     assert torch.equal(segmentation_used.tensor, segmentation.tensor[:2])
+
+
+def test_full_chain_deghosts_only_row_aligned_ppn_outputs():
+    """Internal sparse PPN products are already pruned by their ghost mask."""
+    full_chain = object.__new__(FullChain)
+    full_chain.segmentation = "uresnet"
+    full_chain.result = {}
+    data = TensorBatch(
+        torch.tensor(
+            [
+                [0.0, 1.0, 1.0, 1.0, 1.0],
+                [0.0, 2.0, 2.0, 2.0, 1.0],
+                [0.0, 3.0, 3.0, 3.0, 1.0],
+            ]
+        ),
+        counts=[3],
+        has_batch_col=True,
+    )
+    ppn_coords = [TensorBatch(torch.tensor([[0.0, 1.0, 1.0, 1.0]]), counts=[1])]
+
+    def fake_uresnet_ppn(_data):
+        return {
+            "segmentation": TensorBatch(torch.zeros((3, 5)), counts=[3]),
+            "ghost": TensorBatch(
+                torch.tensor([[2.0, 0.0], [0.0, 2.0], [2.0, 0.0]]),
+                counts=[3],
+            ),
+            "ppn_points": TensorBatch(torch.arange(30).reshape(3, 10), counts=[3]),
+            "ppn_classify_endpoints": TensorBatch(
+                torch.arange(6).reshape(3, 2),
+                counts=[3],
+            ),
+            "ppn_coords": ppn_coords,
+        }
+
+    full_chain_any: Any = full_chain
+    full_chain_any.uresnet_ppn = fake_uresnet_ppn
+
+    full_chain.run_segmentation_ppn(data)
+
+    assert full_chain.result["ppn_points"].counts.tolist() == [2]
+    assert torch.equal(
+        full_chain.result["ppn_points"].torch_tensor(),
+        torch.cat((torch.arange(10)[None], torch.arange(20, 30)[None])),
+    )
+    assert full_chain.result["ppn_classify_endpoints"].counts.tolist() == [2]
+    assert full_chain.result["ppn_coords"] is ppn_coords
 
 
 def test_group_labels_accepts_shape_restriction_without_model():

@@ -13,7 +13,7 @@ MODEL_CONFIGS = {
     "image_class": CONFIG_DIR / "train_image_class.cfg",
     "spice": CONFIG_DIR / "spice" / "spice_train.yaml",
     "uresnet": CONFIG_DIR / "uresnet" / "uresnet_train.yaml",
-    "uresnet_ppn": CONFIG_DIR / "train_uresnet_ppn.cfg",
+    "uresnet_ppn": CONFIG_DIR / "uresnet_ppn" / "uresnet_ppn_train.yaml",
 }
 
 INFERENCE_MODEL_CONFIGS = {
@@ -21,6 +21,7 @@ INFERENCE_MODEL_CONFIGS = {
     "graph_spice": CONFIG_DIR / "graph_spice" / "graph_spice_test.yaml",
     "spice": CONFIG_DIR / "spice" / "spice_test.yaml",
     "uresnet": CONFIG_DIR / "uresnet" / "uresnet_test.yaml",
+    "uresnet_ppn": CONFIG_DIR / "uresnet_ppn" / "uresnet_ppn_test.yaml",
 }
 
 STANDALONE_MODEL_CONFIGS = {
@@ -34,7 +35,6 @@ EXPECTED_OUTPUTS = {
         "filter_index",
         "edge_index",
         "edge_attr",
-        "edge_label",
         "edge_prob",
     },
     "grappa_inter": {"clusts", "edge_index"},

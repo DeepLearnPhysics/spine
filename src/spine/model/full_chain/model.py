@@ -607,15 +607,13 @@ class FullChain(torch.nn.Module):
 
                 # If there are PPN outputs, deghost them
                 if "ppn_points" in res_seg:
-                    res_seg["ppn_points"] = res_seg["ppn_points"][adapt_index]
-                    for key in [
-                        "ppn_masks",
-                        "ppn_coords",
-                        "ppn_layers",
-                        "ppn_classify_endpoints",
-                    ]:
+                    for key in ["ppn_points", "ppn_classify_endpoints"]:
                         if key in res_seg:
-                            res_seg[key][-1] = res_seg[key][-1][adapt_index]
+                            value = res_seg[key]
+                            res_seg[key] = TensorBatch(
+                                value.torch_tensor()[adapt_index],
+                                data_adapt.counts,
+                            )
 
             # Update the result dictionary
             self.result.update(res_seg)
@@ -685,7 +683,7 @@ class FullChain(torch.nn.Module):
         if "graph_spice" in self.fragmentation:
             # Run Graph-SPICE
             seg_pred = TensorBatch(self.result["seg_pred"].tensor[:, None], data.counts)
-            res_gs = self.graph_spice(data, seg_pred, clust_label)
+            res_gs = self.graph_spice(data, seg_pred)
 
             # Update the global result with the graph_spice output
             self.result.update(

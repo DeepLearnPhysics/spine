@@ -68,7 +68,7 @@ def test_model_config_runs_one_iteration(case_name, larcv_data, tmp_path):
     not (TORCH_AVAILABLE and LARCV_AVAILABLE),
     reason="The full model runtime and LArCV are required.",
 )
-@pytest.mark.parametrize("case_name", ["graph_spice", "spice"])
+@pytest.mark.parametrize("case_name", ["graph_spice", "spice", "uresnet_ppn"])
 def test_standalone_inference_config_runs_one_iteration(
     case_name,
     larcv_data,

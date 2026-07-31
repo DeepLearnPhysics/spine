@@ -37,9 +37,11 @@ class PPNProcessor(PostBase):
     _keys = (
         ("segmentation", True),
         ("ppn_points", True),
+        ("ppn_points_unique", False),
         ("ppn_coords", True),
         ("ppn_masks", True),
         ("ppn_classify_endpoints", False),
+        ("ppn_classify_endpoints_unique", False),
     )
 
     def __init__(
@@ -84,6 +86,12 @@ class PPNProcessor(PostBase):
         # Get the PPN candidates
         # TODO: remove requirement to nest output
         data_nest = {k: [v] for k, v in data.items()}
+        if "ppn_points_unique" in data:
+            data_nest["ppn_points"] = [data["ppn_points_unique"]]
+        if "ppn_classify_endpoints_unique" in data:
+            data_nest["ppn_classify_endpoints"] = [
+                data["ppn_classify_endpoints_unique"]
+            ]
         ppn_pred = self.ppn_predictor(**data_nest)[0]
         result = {"ppn_pred": ppn_pred}
 

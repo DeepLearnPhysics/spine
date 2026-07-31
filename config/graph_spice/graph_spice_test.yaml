@@ -42,7 +42,6 @@ model:
   network_input:
     data: data
     seg_label: seg_label
-    clust_label: clust_label
   loss_input:
     seg_label: seg_label
     clust_label: clust_label
@@ -78,7 +77,6 @@ model:
       constructor:
         edge_threshold: 0.1
         min_size: 3
-        label_edges: true
         graph:
           name: radius
           r: 1.9
