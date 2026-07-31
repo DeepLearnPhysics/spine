@@ -8,11 +8,11 @@ import torch.nn.functional as F
 
 from spine.model import sparse
 
-from .layer.cnn.act_norm import act_factory, norm_factory
-from .layer.cnn.configuration import setup_cnn_configuration
-from .layer.cnn.mcdropout import MCDropoutDecoder, MCDropoutEncoder
-from .layer.cnn.uresnet_layers import UResNet
-from .layer.common.evidential import EVDLoss
+from .cnn.act_norm import act_factory, norm_factory
+from .cnn.configuration import setup_cnn_configuration
+from .cnn.mcdropout import MCDropoutDecoder, MCDropoutEncoder
+from .cnn.uresnet_layers import UResNet
+from .common.evidential import EVDLoss
 
 
 class BayesianUResNet(torch.nn.Module):

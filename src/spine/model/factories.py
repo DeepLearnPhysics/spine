@@ -14,6 +14,7 @@ _MODEL_MODULES: dict[str, str] = {
     "graph_spice": "spine.model.graph_spice",
     "grappa": "spine.model.grappa",
     "image_class": "spine.model.image",
+    "spice": "spine.model.spice",
     "uresnet": "spine.model.uresnet",
     "uresnet_ppn": "spine.model.uresnet_ppn",
 }

@@ -13,9 +13,9 @@ from spine.model import sparse
 from spine.utils.logger import logger
 from spine.utils.torch.scripts import cdist_fast
 
-from .layer.cnn.act_norm import act_factory, norm_factory
-from .layer.cnn.uresnet_layers import UResNet
-from .layer.factories import loss_fn_factory
+from .cnn.act_norm import act_factory, norm_factory
+from .cnn.uresnet_layers import UResNet
+from .common.factories import loss_fn_factory
 from .registry import ModelSpec
 
 __all__ = ["UResNetSegmentation", "SegmentationLoss"]

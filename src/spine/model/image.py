@@ -10,7 +10,8 @@ import torch
 
 from spine.data import TensorBatch
 
-from .layer.factories import encoder_factory, loss_fn_factory
+from .cnn.factories import encoder_factory
+from .common.factories import loss_fn_factory
 from .registry import ModelSpec
 
 __all__ = ["ImageClassifier", "ClusterImageClassifier", "ImageClassLoss"]

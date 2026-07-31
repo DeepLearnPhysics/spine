@@ -11,6 +11,7 @@ Supported model families:
 
 - ``UResNet`` for semantic segmentation.
 - ``PPN`` for endpoint proposals.
+- ``SPICE`` for spatial-embedding instance clustering.
 - ``GraphSPICE`` for point-cloud instance clustering.
 - ``GrapPA`` and related graph models for relational reconstruction.
 - Whole-image classification models.

@@ -9,7 +9,11 @@ from spine.config import load_config_file
 from spine.driver import Driver
 from spine.utils.conditional import LARCV_AVAILABLE, TORCH_AVAILABLE
 
-from .cases import EXPECTED_OUTPUTS, STANDALONE_MODEL_CONFIGS
+from .cases import (
+    EXPECTED_OUTPUTS,
+    INFERENCE_MODEL_CONFIGS,
+    STANDALONE_MODEL_CONFIGS,
+)
 
 
 def _as_float(value):
@@ -54,5 +58,31 @@ def test_model_config_runs_one_iteration(case_name, larcv_data, tmp_path):
     assert "loss" in result
     assert "accuracy" in result
     assert EXPECTED_OUTPUTS[case_name] <= result.keys()
+    assert math.isfinite(_as_float(result["loss"]))
+    assert math.isfinite(_as_float(result["accuracy"]))
+
+
+@pytest.mark.model
+@pytest.mark.slow
+@pytest.mark.skipif(
+    not (TORCH_AVAILABLE and LARCV_AVAILABLE),
+    reason="The full model runtime and LArCV are required.",
+)
+def test_spice_inference_config_runs_one_iteration(larcv_data, tmp_path):
+    """Exercise the canonical SPICE inference configuration."""
+    cfg = load_config_file(
+        str(INFERENCE_MODEL_CONFIGS["spice"]),
+        download=False,
+    )
+    cfg = deepcopy(cfg)
+    cfg["base"]["log_dir"] = str(tmp_path / "spice_inference")
+    cfg["io"]["loader"]["batch_size"] = 1
+    cfg["io"]["loader"]["num_workers"] = 0
+    cfg["io"]["loader"]["dataset"]["file_keys"] = larcv_data
+    cfg["model"]["weight_path"] = None
+
+    result = Driver(cfg).process(iteration=0)
+
+    assert EXPECTED_OUTPUTS["spice"] <= result.keys()
     assert math.isfinite(_as_float(result["loss"]))
     assert math.isfinite(_as_float(result["accuracy"]))

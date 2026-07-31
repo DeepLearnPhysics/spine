@@ -20,14 +20,14 @@ from spine.constants import PID_COL
 from spine.data import TensorBatch
 from spine.utils.gnn.cluster import form_clusters, get_cluster_label
 
+from .cnn.act_norm import act_factory
+from .cnn.configuration import setup_cnn_configuration
+from .cnn.encoder import SparseResidualEncoder
+from .cnn.mcdropout import MCDropoutEncoder
+from .common.evidential import EVDLoss
+from .common.factories import loss_fn_factory
 from .image import ImageClassifier
-from .layer.cnn.act_norm import act_factory
-from .layer.cnn.configuration import setup_cnn_configuration
-from .layer.cnn.encoder import SparseResidualEncoder
-from .layer.cnn.mcdropout import MCDropoutEncoder
-from .layer.common.evidential import EVDLoss
-from .layer.factories import loss_fn_factory
-from .layer.pointcloud import PointNetEncoder
+from .pointcloud import PointNetEncoder
 
 
 class MultiParticleImageClassifier(ImageClassifier):

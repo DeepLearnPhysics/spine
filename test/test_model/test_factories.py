@@ -10,6 +10,7 @@ def test_model_discovery_is_dependency_light():
         "graph_spice",
         "grappa",
         "image_class",
+        "spice",
         "uresnet",
         "uresnet_ppn",
     )

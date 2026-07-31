@@ -53,10 +53,11 @@ def test_supported_models_have_maintained_configs():
     assert configured_models == set(model_names())
 
 
-def test_uresnet_training_schedule_is_epoch_based():
-    """Canonical training duration and checkpoint cadence follow the dataset."""
+@pytest.mark.parametrize("case_name", ["uresnet", "spice"])
+def test_prototype_training_schedule_is_epoch_based(case_name):
+    """Prototype training duration and checkpoint cadence follow the dataset."""
 
-    cfg = load_config_file(str(MODEL_CONFIGS["uresnet"]), download=False)
+    cfg = load_config_file(str(MODEL_CONFIGS[case_name]), download=False)
     base_cfg = cfg["base"]
     train_cfg = base_cfg["train"]
 

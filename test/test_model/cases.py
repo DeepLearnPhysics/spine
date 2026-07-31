@@ -11,12 +11,14 @@ MODEL_CONFIGS = {
     "grappa_shower": CONFIG_DIR / "train_grappa_shower.yaml",
     "grappa_track": CONFIG_DIR / "train_grappa_track.cfg",
     "image_class": CONFIG_DIR / "train_image_class.cfg",
+    "spice": CONFIG_DIR / "spice" / "spice_train.yaml",
     "uresnet": CONFIG_DIR / "uresnet" / "uresnet_train.yaml",
     "uresnet_ppn": CONFIG_DIR / "train_uresnet_ppn.cfg",
 }
 
 INFERENCE_MODEL_CONFIGS = {
     "full_chain": CONFIG_DIR / "test_full_chain.yaml",
+    "spice": CONFIG_DIR / "spice" / "spice_test.yaml",
     "uresnet": CONFIG_DIR / "uresnet" / "uresnet_test.yaml",
 }
 
@@ -30,6 +32,7 @@ EXPECTED_OUTPUTS = {
     "grappa_shower": {"clusts", "edge_index"},
     "grappa_track": {"clusts", "edge_index"},
     "image_class": {"logits"},
+    "spice": {"embeddings", "margins", "seediness", "filter_index"},
     "uresnet": {"segmentation"},
     "uresnet_ppn": {"segmentation", "ppn_points"},
 }

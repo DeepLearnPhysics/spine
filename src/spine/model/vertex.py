@@ -10,9 +10,9 @@ from torch_geometric.data import Batch, Data
 
 from spine.constants import BATCH_COL, INTER_COL, NU_COL, VTX_COLS
 from spine.model import sparse
-from spine.model.layer.cnn.vertex_ppn import VertexPPN, VertexPPNLoss
-from spine.model.layer.pointcloud import PointNetEncoder
+from spine.model.pointcloud import PointNetEncoder
 from spine.model.uresnet import SegmentationLoss, UResNetSegmentation
+from spine.model.uresnet_ppn.vertex import VertexPPN, VertexPPNLoss
 from spine.utils.gnn.cluster import form_clusters, get_cluster_label
 
 
@@ -64,7 +64,7 @@ class UResNetVertexLoss(torch.nn.Module):
     """
     See Also
     --------
-    spine.model.uresnet.SegmentationLoss, spine.model.layer.common.ppn.PPNLonelyLoss
+    spine.model.uresnet.SegmentationLoss, spine.model.common.ppn.PPNLonelyLoss
     """
 
     def __init__(self, cfg: dict[str, Any]) -> None:
