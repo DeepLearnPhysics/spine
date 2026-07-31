@@ -2,18 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from typing import Any
+from copy import deepcopy
+from typing import Any, cast
 
 import torch
 
-from spine.constants import (
-    DELTA_SHP,
-    MICHL_SHP,
-    SHAPE_COL,
-    SHOWR_SHP,
-    TRACK_SHP,
-)
+from spine.constants import SHAPE_COL
 from spine.constants.factory import enum_factory
 from spine.data import IndexBatch, TensorBatch
 from spine.utils.cluster.graph import ClusterGraphConstructor
@@ -23,6 +17,8 @@ from .embedder import GraphSPICEEmbedder
 from .factories import kernel_factory, loss_factory
 
 __all__ = ["GraphSPICE", "GraphSPICELoss"]
+
+GraphSPICEOutput = dict[str, TensorBatch | IndexBatch]
 
 
 class GraphSPICE(torch.nn.Module):
@@ -76,6 +72,15 @@ class GraphSPICE(torch.nn.Module):
         # Initialize the parent class
         super().__init__()
 
+        # Declare attributes populated by the configuration helper.
+        self.embedder: GraphSPICEEmbedder
+        self.kernel_fn: torch.nn.Module
+        self.constructor: ClusterGraphConstructor
+        self.shapes: list[int]
+        self.use_raw_features: bool
+        self.invert: bool
+        self.make_clusters: bool
+
         # Initialize the model configuration
         self.process_model_config(**graph_spice)
 
@@ -84,11 +89,11 @@ class GraphSPICE(torch.nn.Module):
         embedder: dict[str, Any],
         kernel: dict[str, Any],
         constructor: dict[str, Any],
-        shapes: Sequence[int | str] = (
-            SHOWR_SHP,
-            TRACK_SHP,
-            MICHL_SHP,
-            DELTA_SHP,
+        shapes: list[str] | tuple[str, ...] = (
+            "shower",
+            "track",
+            "michel",
+            "delta",
         ),
         use_raw_features: bool = False,
         invert: bool = True,
@@ -104,12 +109,12 @@ class GraphSPICE(torch.nn.Module):
             Edge kernel configuration
         constructor : dict
             Edge index construction configuration
-        shapes : List[str]
+        shapes : sequence of str
             List of shape names to construct clusters for
-        use_raw_features : bool, default True
+        use_raw_features : bool, default False
             Use the list of embedder features as is, without the output layers
         invert : bool, default True
-            Invert the edge scores so that 0 is on an 1 is off
+            Invert the edge scores so that 0 is on and 1 is off
         make_clusters : bool, default False
             If `True`, builds a list of cluster indexes
         """
@@ -123,7 +128,7 @@ class GraphSPICE(torch.nn.Module):
 
         # Initialize the graph constructor
         self.constructor = ClusterGraphConstructor(
-            **constructor,
+            **deepcopy(constructor),
             kernel_fn=self.kernel_fn,
             shapes=shapes,
             invert=invert,
@@ -172,34 +177,44 @@ class GraphSPICE(torch.nn.Module):
         index : torch.Tensor
             (M) Index to narrow down the original tensor
         """
-        # Convert shapes to a torch tensor for easy comparison
-        shapes = torch.tensor(self.shapes, device=data.device)
+        # Validate that the input tensors describe the same voxels before using
+        # label-derived indexes to narrow the data tensor.
+        if data.shape[0] != seg_label.shape[0]:
+            raise ValueError(
+                "The data and segmentation label tensors must have matching "
+                f"row counts, got {data.shape[0]} and {seg_label.shape[0]}."
+            )
+        if clust_label is not None and data.shape[0] != clust_label.shape[0]:
+            raise ValueError(
+                "The data and cluster label tensors must have matching row counts, "
+                f"got {data.shape[0]} and {clust_label.shape[0]}."
+            )
+
+        # Convert shapes to a tensor for easy comparison.
+        data_tensor = data.torch_tensor()
+        seg_label_tensor = seg_label.torch_tensor()
+        shapes = torch.as_tensor(
+            self.shapes,
+            dtype=seg_label_tensor.dtype,
+            device=seg_label_tensor.device,
+        )
 
         # Create an index of the valid input rows
-        mask = (seg_label.tensor[:, SHAPE_COL] == shapes.view(-1, 1)).any(dim=0)
+        mask = (seg_label_tensor[:, SHAPE_COL] == shapes.view(-1, 1)).any(dim=0)
         index = torch.where(mask)[0]
 
         # Restrict the input
         spans = data.counts
         data = TensorBatch(
-            data.tensor[index], batch_size=data.batch_size, has_batch_col=True
+            data_tensor[index], batch_size=data.batch_size, has_batch_col=True
         )
 
         # Restrict the label tensors
-        if seg_label.shape[0] != mask.shape[0]:
-            raise ValueError(
-                "The segmentation label tensor is of the wrong shape: "
-                f"{seg_label.shape[0]} != {mask.shape[0]}"
-            )
-        seg_label = TensorBatch(seg_label.tensor[index], data.counts)
+        seg_label = TensorBatch(seg_label_tensor[index], data.counts)
 
         if clust_label is not None:
-            if clust_label.shape[0] != mask.shape[0]:
-                raise ValueError(
-                    "The cluster label tensor is of the wrong shape: "
-                    f"{clust_label.shape[0]} != {mask.shape[0]}"
-                )
-            clust_label = TensorBatch(clust_label.tensor[index], data.counts)
+            clust_label_tensor = clust_label.torch_tensor()
+            clust_label = TensorBatch(clust_label_tensor[index], data.counts)
 
         # Store the index as an IndexBatch
         index = IndexBatch(index, spans, data.counts)
@@ -211,7 +226,7 @@ class GraphSPICE(torch.nn.Module):
         data: TensorBatch,
         seg_label: TensorBatch,
         clust_label: TensorBatch | None = None,
-    ) -> dict[str, Any]:
+    ) -> GraphSPICEOutput:
         """Run a batch of data through the forward function.
 
         Parameters
@@ -240,20 +255,31 @@ class GraphSPICE(torch.nn.Module):
         )
 
         # Embed the input pixels into a feature space used for graph clustering
-        result = self.embedder(data)
+        embedder_result = self.embedder(data)
 
         # Store the index and the counts to not have to recompute them later
-        result["filter_index"] = index
+        result: GraphSPICEOutput = {**embedder_result, "filter_index": index}
 
         # Build the graph on the pixel set
-        coords = result["coordinates"]
+        coordinate_batch = embedder_result["coordinates"]
         if self.use_raw_features:
-            features = result["features"]
+            features = embedder_result["features"]
         else:
-            features = result["hypergraph_features"]
+            features = embedder_result["hypergraph_features"]
 
-        coords = TensorBatch(coords.data[:, coords.coord_cols], coords.counts)
-        graph = self.constructor(coords, features, seg_label, clust_label)
+        coord_cols = coordinate_batch.coord_cols
+        if coord_cols is None:
+            raise RuntimeError(
+                "GraphSPICE coordinates do not define coordinate columns."
+            )
+        coords = TensorBatch(
+            coordinate_batch.torch_tensor()[:, coord_cols],
+            coordinate_batch.counts,
+        )
+        graph = cast(
+            GraphSPICEOutput,
+            self.constructor(coords, features, seg_label, clust_label),
+        )
 
         # If requested, convert edge predictions to node predictions
         if self.make_clusters:
@@ -278,9 +304,8 @@ class GraphSPICELoss(torch.nn.Module):
           name: graph_spice
           modules:
             graph_spice_loss:
-              <Basic parameters>
-              edge_loss:
-                <Edge loss configuration block>
+              name: edge
+              loss: <Binary loss configuration>
 
     See configuration files prefixed with `graph_spice` under the `config`
     directory for detailed examples of working configurations.
@@ -293,9 +318,9 @@ class GraphSPICELoss(torch.nn.Module):
     def __init__(
         self,
         graph_spice: dict[str, Any],
-        graph_spice_loss: dict[str, Any] | None = None,
+        graph_spice_loss: dict[str, Any],
     ) -> None:
-        """Intialize the Graph-SPICE loss.
+        """Initialize the Graph-SPICE loss.
 
         Parameters
         ----------
@@ -307,6 +332,11 @@ class GraphSPICELoss(torch.nn.Module):
         # Initialize the parent class
         super().__init__()
 
+        # Declare attributes populated by the configuration helpers.
+        self.evaluate_clustering_metrics: bool
+        self.loss_fn: torch.nn.Module
+        self.constructor: ClusterGraphConstructor | None = None
+
         # Process the loss configuration
         self.process_loss_config(**graph_spice_loss)
 
@@ -316,15 +346,15 @@ class GraphSPICELoss(torch.nn.Module):
     def process_loss_config(
         self, evaluate_clustering_metrics: bool = False, **loss: Any
     ) -> None:
-        """Process the loss configuration
+        """Process the loss configuration.
 
         Parameters
         ----------
         evaluate_clustering_metrics : bool, default False
             If `True`, evaluates the clustering accuracy directly, rather than
-            simply reporting an edge assignment acurracy
-        **loss : dict
-            Loss configurationd dictionary
+            simply reporting an edge assignment accuracy
+        **loss : dict, optional
+            Loss configuration dictionary
         """
         # Store basic parameters
         self.evaluate_clustering_metrics = evaluate_clustering_metrics
@@ -335,34 +365,36 @@ class GraphSPICELoss(torch.nn.Module):
     def process_model_config(
         self,
         constructor: dict[str, Any],
-        shapes: Sequence[int | str] = (
-            SHOWR_SHP,
-            TRACK_SHP,
-            MICHL_SHP,
-            DELTA_SHP,
+        shapes: list[str] | tuple[str, ...] = (
+            "shower",
+            "track",
+            "michel",
+            "delta",
         ),
         invert: bool = True,
-        **kwargs: Any,
+        **_kwargs: Any,
     ) -> None:
-        """Process the model configuration
+        """Process the model configuration.
 
         Parameters
         ----------
-        constructor : dict, optional
+        constructor : dict
             Edge index construction configuration
-        shapes : List[int], default [0, 1, 2, 3]
-            List of semantic shapes to run DBSCAN on
+        shapes : sequence of str, default ("shower", "track", "michel", "delta")
+            Semantic shapes to cluster
         invert : bool, default True
-            Invert the edge scores so that 0 is on an 1 is off
+            Invert the edge scores so that 0 is on and 1 is off
+        **_kwargs : dict, optional
+            Other model parameters not needed by the loss
         """
         # Initialize the graph constructor (used to produce node assignments)
         if self.evaluate_clustering_metrics:
             self.constructor = ClusterGraphConstructor(
-                **constructor, shapes=shapes, invert=invert
+                **deepcopy(constructor), shapes=shapes, invert=invert
             )
 
+    @staticmethod
     def filter_class(
-        self,
         seg_label: TensorBatch,
         clust_label: TensorBatch,
         filter_index: IndexBatch,
@@ -374,25 +406,24 @@ class GraphSPICELoss(torch.nn.Module):
         seg_label : TensorBatch
             (N, 1 + D + 1) Tensor of segmentation labels
             - 1 is the segmentation label
-        clust_label : TensorBatch, optional
+        clust_label : TensorBatch
             (N, 1 + D + N_c) Tensor of cluster labels
             - N_c is is the number of cluster labels
         filter_index : IndexBatch
             (M) Index to narrow down the original tensor
 
-        Parameters
-        ----------
+        Returns
+        -------
         seg_label : TensorBatch
             (M, 1 + D + 1) restricted tensor of segmentation labels
         clust_label : TensorBatch
-            (M, 1 + D + N_c) Restricted tnesor of cluster labels
+            (M, 1 + D + N_c) Restricted tensor of cluster labels
         """
-        seg_label = TensorBatch(
-            seg_label.tensor[filter_index.index], filter_index.counts
-        )
-        clust_label = TensorBatch(
-            clust_label.tensor[filter_index.index], filter_index.counts
-        )
+        seg_label_tensor = seg_label.torch_tensor()
+        clust_label_tensor = clust_label.torch_tensor()
+        index = filter_index.index
+        seg_label = TensorBatch(seg_label_tensor[index], filter_index.counts)
+        clust_label = TensorBatch(clust_label_tensor[index], filter_index.counts)
 
         return seg_label, clust_label
 
@@ -410,8 +441,8 @@ class GraphSPICELoss(torch.nn.Module):
         seg_label : TensorBatch
             (N, 1 + D + 1) Tensor of segmentation labels
             - 1 is the segmentation label
-        clust_label : TensorBatch, optional
-            (N, 1 + D + N_c) Tensor of cluster labelresul
+        clust_label : TensorBatch
+            (N, 1 + D + N_c) Tensor of cluster labels
             - N_c is is the number of cluster labels
         filter_index : IndexBatch
             (M) Index to narrow down the original tensor
@@ -424,19 +455,27 @@ class GraphSPICELoss(torch.nn.Module):
             Dictionary of outputs
         """
         # Narrow down the labels to those corresponding to the relevant shapes
-        seg_label, clust_label = self.filter_class(seg_label, clust_label, filter_index)
+        seg_label, clust_label = self.filter_class(
+            seg_label,
+            clust_label,
+            filter_index,
+        )
 
         # Pass the output through the loss function
         result = self.loss_fn(seg_label=seg_label, clust_label=clust_label, **output)
 
         # If requested, compute clustering metrics
         if self.evaluate_clustering_metrics:
+            constructor = self.constructor
+            if constructor is None:  # pragma: no cover
+                raise RuntimeError("Clustering metrics require a graph constructor.")
+
             # Assign cluster IDs to each of the input points, if not yet done
             if "node_pred" not in output:
-                self.constructor.fit_predict(output)
+                constructor.fit_predict(output)
 
             # Evaluate clustering metrics
-            metrics = self.constructor.evaluate(output, mean=True)
+            metrics = constructor.evaluate(output, mean=True)
 
             # Append metrics to the result dictionary
             result.update(metrics)

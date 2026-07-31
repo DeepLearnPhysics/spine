@@ -46,7 +46,7 @@ model:
     clust_label: clust_label
   modules:
     spice:
-      skip_classes: [michel, delta, lowe]
+      skip_classes: [lowe]
       coord_conv: true
       margin_dim: 1
       seediness_dim: 1
@@ -57,7 +57,7 @@ model:
         input_kernel: 5
         depth: 5
         reps: 2
-        spatial_size: 6144
+        spatial_size: 768
         allow_bias: false
         activation:
           name: lrelu

@@ -1,0 +1,101 @@
+# Canonical Graph-SPICE supervised-clustering training configuration.
+#
+# Set io.loader.dataset.file_keys to the training data and adjust output paths
+# for the target environment before launching a production job.
+
+base:
+  world_size: 1
+  epochs: 25.0
+  seed: 0
+  unwrap: false
+  log_dir: logs/graph_spice/train
+  log_step: 1
+  train:
+    weight_prefix: weights/graph_spice/snapshot
+    save_epoch: 1.0
+    optimizer:
+      name: Adam
+      lr: 0.001
+
+io:
+  loader:
+    batch_size: 64
+    shuffle: false
+    num_workers: 8
+    collate_fn: all
+    sampler:
+      name: random_sequence
+      seed: 0
+    dataset:
+      name: larcv
+      file_keys: null
+      schema:
+        data:
+          parser: sparse3d
+          sparse_event: sparse3d_pcluster
+        seg_label:
+          parser: sparse3d
+          sparse_event: sparse3d_pcluster_semantics
+        clust_label:
+          parser: cluster3d
+          cluster_event: cluster3d_pcluster
+          particle_event: particle_pcluster
+          sparse_semantics_event: sparse3d_pcluster_semantics
+          add_particle_info: true
+          clean_data: true
+          break_clusters: true
+
+model:
+  name: graph_spice
+  weight_path: null
+  network_input:
+    data: data
+    seg_label: seg_label
+    clust_label: clust_label
+  loss_input:
+    seg_label: seg_label
+    clust_label: clust_label
+  modules:
+    graph_spice:
+      shapes: [shower, track, michel, delta]
+      use_raw_features: true
+      invert: true
+      make_clusters: false
+      embedder:
+        spatial_embedding_dim: 3
+        feature_embedding_dim: 16
+        occupancy_mode: softplus
+        covariance_mode: softplus
+        uresnet:
+          num_input: 4
+          filters: 32
+          input_kernel: 5
+          depth: 5
+          reps: 2
+          spatial_size: 768
+          allow_bias: false
+          activation:
+            name: lrelu
+            negative_slope: 0.33
+          norm_layer:
+            name: batch_norm
+            eps: 0.0001
+            momentum: 0.01
+      kernel:
+        name: bilinear
+        num_features: 32
+      constructor:
+        edge_threshold: 0.1
+        min_size: 3
+        label_edges: true
+        graph:
+          name: radius
+          r: 1.9
+        orphan:
+          mode: radius
+          radius: 1.9
+          iterate: true
+          assign_all: true
+    graph_spice_loss:
+      name: edge
+      loss: binary_log_dice_ce

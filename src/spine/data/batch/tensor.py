@@ -10,7 +10,7 @@ import numpy as np
 
 from spine.constants import BATCH_COL, COORD_COLS
 
-if TYPE_CHECKING:
+if TYPE_CHECKING:  # pragma: no cover
     import torch
 else:
     from spine.utils.conditional import torch

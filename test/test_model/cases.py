@@ -6,7 +6,7 @@ CONFIG_DIR = Path(__file__).resolve().parents[2] / "config"
 
 MODEL_CONFIGS = {
     "full_chain": CONFIG_DIR / "test_full_chain.yaml",
-    "graph_spice": CONFIG_DIR / "train_graph_spice.cfg",
+    "graph_spice": CONFIG_DIR / "graph_spice" / "graph_spice_train.yaml",
     "grappa_inter": CONFIG_DIR / "train_grappa_inter.cfg",
     "grappa_shower": CONFIG_DIR / "train_grappa_shower.yaml",
     "grappa_track": CONFIG_DIR / "train_grappa_track.cfg",
@@ -18,6 +18,7 @@ MODEL_CONFIGS = {
 
 INFERENCE_MODEL_CONFIGS = {
     "full_chain": CONFIG_DIR / "test_full_chain.yaml",
+    "graph_spice": CONFIG_DIR / "graph_spice" / "graph_spice_test.yaml",
     "spice": CONFIG_DIR / "spice" / "spice_test.yaml",
     "uresnet": CONFIG_DIR / "uresnet" / "uresnet_test.yaml",
 }
@@ -27,7 +28,15 @@ STANDALONE_MODEL_CONFIGS = {
 }
 
 EXPECTED_OUTPUTS = {
-    "graph_spice": {"filter_index"},
+    "graph_spice": {
+        "coordinates",
+        "features",
+        "filter_index",
+        "edge_index",
+        "edge_attr",
+        "edge_label",
+        "edge_prob",
+    },
     "grappa_inter": {"clusts", "edge_index"},
     "grappa_shower": {"clusts", "edge_index"},
     "grappa_track": {"clusts", "edge_index"},

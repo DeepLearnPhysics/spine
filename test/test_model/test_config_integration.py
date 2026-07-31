@@ -68,14 +68,19 @@ def test_model_config_runs_one_iteration(case_name, larcv_data, tmp_path):
     not (TORCH_AVAILABLE and LARCV_AVAILABLE),
     reason="The full model runtime and LArCV are required.",
 )
-def test_spice_inference_config_runs_one_iteration(larcv_data, tmp_path):
-    """Exercise the canonical SPICE inference configuration."""
+@pytest.mark.parametrize("case_name", ["graph_spice", "spice"])
+def test_standalone_inference_config_runs_one_iteration(
+    case_name,
+    larcv_data,
+    tmp_path,
+):
+    """Exercise a canonical standalone inference configuration."""
     cfg = load_config_file(
-        str(INFERENCE_MODEL_CONFIGS["spice"]),
+        str(INFERENCE_MODEL_CONFIGS[case_name]),
         download=False,
     )
     cfg = deepcopy(cfg)
-    cfg["base"]["log_dir"] = str(tmp_path / "spice_inference")
+    cfg["base"]["log_dir"] = str(tmp_path / f"{case_name}_inference")
     cfg["io"]["loader"]["batch_size"] = 1
     cfg["io"]["loader"]["num_workers"] = 0
     cfg["io"]["loader"]["dataset"]["file_keys"] = larcv_data
@@ -83,6 +88,6 @@ def test_spice_inference_config_runs_one_iteration(larcv_data, tmp_path):
 
     result = Driver(cfg).process(iteration=0)
 
-    assert EXPECTED_OUTPUTS["spice"] <= result.keys()
+    assert EXPECTED_OUTPUTS[case_name] <= result.keys()
     assert math.isfinite(_as_float(result["loss"]))
     assert math.isfinite(_as_float(result["accuracy"]))

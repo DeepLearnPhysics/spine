@@ -1,29 +1,22 @@
-# Base configuration
+# Canonical Graph-SPICE supervised-clustering inference configuration.
+#
+# Set io.loader.dataset.file_keys and model.weight_path for the target run.
+
 base:
   world_size: 0
-  iterations: 10
+  iterations: 1
   seed: 0
   unwrap: false
-  log_dir: .
+  log_dir: logs/graph_spice/test
   log_step: 1
   overwrite_log: true
-  train:
-    weight_prefix: snapshot
-    save_step: 10
-    optimizer:
-      name: Adam
-      lr: 0.001
 
-# IO configuration
 io:
   loader:
     batch_size: 2
     shuffle: false
     num_workers: 0
     collate_fn: all
-    sampler:
-      name: random_sequence
-      seed: 0
     dataset:
       name: larcv
       file_keys: null
@@ -43,11 +36,9 @@ io:
           clean_data: true
           break_clusters: true
 
-# Model configuration
 model:
   name: graph_spice
   weight_path: null
-
   network_input:
     data: data
     seg_label: seg_label
@@ -55,7 +46,6 @@ model:
   loss_input:
     seg_label: seg_label
     clust_label: clust_label
-
   modules:
     graph_spice:
       shapes: [shower, track, michel, delta]
@@ -68,12 +58,12 @@ model:
         occupancy_mode: softplus
         covariance_mode: softplus
         uresnet:
-          num_input: 4 # 1 feature + 3 normalized coords
+          num_input: 4
           filters: 32
           input_kernel: 5
           depth: 5
           reps: 2
-          spatial_size: 6144
+          spatial_size: 768
           allow_bias: false
           activation:
             name: lrelu
@@ -90,14 +80,13 @@ model:
         min_size: 3
         label_edges: true
         graph:
-          name: knn
-          k: 5
+          name: radius
+          r: 1.9
         orphan:
           mode: radius
           radius: 1.9
           iterate: true
           assign_all: true
-
     graph_spice_loss:
       name: edge
       loss: binary_log_dice_ce

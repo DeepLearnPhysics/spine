@@ -53,7 +53,7 @@ def test_supported_models_have_maintained_configs():
     assert configured_models == set(model_names())
 
 
-@pytest.mark.parametrize("case_name", ["uresnet", "spice"])
+@pytest.mark.parametrize("case_name", ["uresnet", "spice", "graph_spice"])
 def test_prototype_training_schedule_is_epoch_based(case_name):
     """Prototype training duration and checkpoint cadence follow the dataset."""
 
