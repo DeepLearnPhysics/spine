@@ -253,7 +253,8 @@ Example configurations are available in the `config` folder:
 | Configuration name                              | Model          |
 | ------------------------------------------------|----------------|
 | `uresnet/uresnet_{train,test}.yaml`              | UResNet alone  |
-| `uresnet_ppn/uresnet_ppn_{train,test}.yaml`      | UResNet + PPN  |
+| `uresnet/bayes/uresnet_bayes_{train,test}.yaml`  | Bayesian UResNet |
+| `uresnet/ppn/uresnet_ppn_{train,test}.yaml`      | UResNet + PPN  |
 | `graph_spice/graph_spice_{train,test}.yaml`      | Graph-SPICE    |
 | `grappa_shower/grappa_shower_{train,test}.yaml` | GrapPA for shower fragment clustering |
 | `grappa_track/grappa_track_{train,test}.yaml` | GrapPA for track fragment clustering |

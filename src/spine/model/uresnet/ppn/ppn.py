@@ -102,7 +102,7 @@ class PPN(sparse.Network):
     --------
     PPNLoss
         Supervised objective for PPN outputs.
-    spine.model.uresnet_ppn.UResNetPPN
+    spine.model.uresnet.ppn.UResNetPPN
         Task model that combines the UResNet segmentation backbone and PPN.
     """
 

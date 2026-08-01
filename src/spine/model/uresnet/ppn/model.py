@@ -9,8 +9,8 @@ import torch
 
 from spine.data import TensorBatch
 
-from ..registry import ModelSpec
-from ..uresnet import SegmentationLoss, UResNetSegmentation
+from ...registry import ModelSpec
+from ..model import SegmentationLoss, UResNetSegmentation
 from .ppn import PPN, PPNLoss
 
 __all__ = ["UResNetPPN", "UResNetPPNLoss"]
@@ -137,7 +137,7 @@ class UResNetPPNLoss(torch.nn.Module):
     See Also
     --------
     :class:`spine.model.uresnet.SegmentationLoss`,
-    :class:`spine.model.uresnet_ppn.ppn.PPNLoss`
+    :class:`spine.model.uresnet.ppn.ppn.PPNLoss`
     """
 
     def __init__(

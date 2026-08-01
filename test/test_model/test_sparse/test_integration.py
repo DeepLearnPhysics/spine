@@ -6,7 +6,7 @@ from spine.data import TensorBatch
 from spine.io.unwrap import Unwrapper
 from spine.model import sparse
 from spine.model.manager import ModelManager
-from spine.model.uresnet_ppn import UResNetPPN
+from spine.model.uresnet.ppn import UResNetPPN
 
 
 def test_sparse_output_is_unwrapped_and_cast_to_numpy():

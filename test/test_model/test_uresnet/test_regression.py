@@ -11,7 +11,7 @@ from spine.config import load_config_file
 from spine.driver import Driver
 from spine.utils.conditional import TORCH_AVAILABLE
 
-from .cases import INFERENCE_MODEL_CONFIGS
+from ..cases import INFERENCE_MODEL_CONFIGS
 
 URESNET_REFERENCE_ATOL = 1.0e-5
 URESNET_LOGIT_ATOL = 1.0e-3

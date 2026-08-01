@@ -71,6 +71,7 @@ def test_supported_models_have_maintained_configs():
     "case_name",
     [
         "uresnet",
+        "uresnet_bayes",
         "uresnet_ppn",
         "spice",
         "graph_spice",

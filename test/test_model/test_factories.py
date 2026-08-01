@@ -12,6 +12,7 @@ def test_model_discovery_is_dependency_light():
         "image_class",
         "spice",
         "uresnet",
+        "uresnet_bayes",
         "uresnet_ppn",
     )
 

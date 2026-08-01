@@ -76,6 +76,7 @@ def test_model_config_runs_one_iteration(case_name, larcv_data, tmp_path):
         "grappa_shower",
         "grappa_track",
         "spice",
+        "uresnet_bayes",
         "uresnet_ppn",
     ],
 )

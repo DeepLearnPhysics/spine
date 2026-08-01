@@ -19,13 +19,14 @@ The model package is built around configuration-driven instantiation through :cl
    manager
    factories
    uresnet
-   uresnet_ppn
+   uresnet.bayes
+   uresnet.ppn
    spice
    full_chain
    image
    singlep
-   vertex
    grappa
    graph_spice
-   bayes_uresnet
-   layer
+   cnn
+   common
+   sparse

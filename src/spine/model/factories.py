@@ -16,7 +16,8 @@ _MODEL_MODULES: dict[str, str] = {
     "image_class": "spine.model.image",
     "spice": "spine.model.spice",
     "uresnet": "spine.model.uresnet",
-    "uresnet_ppn": "spine.model.uresnet_ppn",
+    "uresnet_bayes": "spine.model.uresnet.bayes",
+    "uresnet_ppn": "spine.model.uresnet.ppn",
 }
 
 

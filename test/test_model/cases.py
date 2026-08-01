@@ -14,7 +14,8 @@ MODEL_CONFIGS = {
     "image_class": CONFIG_DIR / "train_image_class.cfg",
     "spice": CONFIG_DIR / "spice" / "spice_train.yaml",
     "uresnet": CONFIG_DIR / "uresnet" / "uresnet_train.yaml",
-    "uresnet_ppn": CONFIG_DIR / "uresnet_ppn" / "uresnet_ppn_train.yaml",
+    "uresnet_bayes": (CONFIG_DIR / "uresnet" / "bayes" / "uresnet_bayes_train.yaml"),
+    "uresnet_ppn": CONFIG_DIR / "uresnet" / "ppn" / "uresnet_ppn_train.yaml",
 }
 
 INFERENCE_MODEL_CONFIGS = {
@@ -25,7 +26,8 @@ INFERENCE_MODEL_CONFIGS = {
     "grappa_track": CONFIG_DIR / "grappa_track" / "grappa_track_test.yaml",
     "spice": CONFIG_DIR / "spice" / "spice_test.yaml",
     "uresnet": CONFIG_DIR / "uresnet" / "uresnet_test.yaml",
-    "uresnet_ppn": CONFIG_DIR / "uresnet_ppn" / "uresnet_ppn_test.yaml",
+    "uresnet_bayes": (CONFIG_DIR / "uresnet" / "bayes" / "uresnet_bayes_test.yaml"),
+    "uresnet_ppn": CONFIG_DIR / "uresnet" / "ppn" / "uresnet_ppn_test.yaml",
 }
 
 STANDALONE_MODEL_CONFIGS = {
@@ -47,5 +49,6 @@ EXPECTED_OUTPUTS = {
     "image_class": {"logits"},
     "spice": {"embeddings", "margins", "seediness", "filter_index"},
     "uresnet": {"segmentation"},
+    "uresnet_bayes": {"segmentation"},
     "uresnet_ppn": {"segmentation", "ppn_points"},
 }

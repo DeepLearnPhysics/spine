@@ -5,9 +5,9 @@ import torch
 
 from spine.constants import GHOST_SHP, PART_COL, PPN_LPART_COL, PPN_LTYPE_COL
 from spine.data import TensorBatch
-from spine.model.uresnet_ppn import UResNetPPN
-from spine.model.uresnet_ppn.ppn import PPN, ExpandAs, PPNLoss
-from spine.model.uresnet_ppn.vertex import VertexPPNLoss
+from spine.model.uresnet.ppn import UResNetPPN
+from spine.model.uresnet.ppn.ppn import PPN, ExpandAs, PPNLoss
+from spine.model.uresnet.ppn.vertex import VertexPPNLoss
 
 
 class FeatureTensor:

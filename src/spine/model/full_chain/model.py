@@ -41,7 +41,7 @@ from ..graph_spice import GraphSPICE, GraphSPICELoss
 from ..grappa import GrapPA, GrapPALoss
 from ..registry import ModelSpec
 from ..uresnet import SegmentationLoss, UResNetSegmentation
-from ..uresnet_ppn import UResNetPPN, UResNetPPNLoss
+from ..uresnet.ppn import UResNetPPN, UResNetPPNLoss
 
 # from spine.model.cnn.cnn_encoder import SparseResidualEncoder ??
 # TODO: replace this with MultiParticleImageClassifier
