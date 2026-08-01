@@ -15,7 +15,7 @@ base:
 
 io:
   loader:
-    batch_size: 2
+    minibatch_size: 2
     shuffle: false
     num_workers: 0
     collate_fn: all

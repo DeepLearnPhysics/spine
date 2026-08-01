@@ -33,6 +33,9 @@ class FeatureEncoder(torch.nn.Module):
 class GNNModel(torch.nn.Module):
     """Base typing contract for graph message-passing models."""
 
+    node_feats: int
+    edge_feats: int
+    global_feats: int
     node_feature_size: int
     edge_feature_size: int
     global_feature_size: int

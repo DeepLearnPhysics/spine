@@ -1,32 +1,24 @@
-# Base configuration
+# Canonical GrapPA track-fragment aggregation inference configuration.
+#
+# Set io.loader.dataset.file_keys and model.weight_path for the target run.
+# With no checkpoint, the fixed seed provides deterministic initialization for
+# CI execution checks.
+
 base:
   world_size: 0
-  iterations: 10
+  iterations: 1
   seed: 0
   unwrap: false
-  log_dir: .
+  log_dir: logs/grappa_track/test
   log_step: 1
   overwrite_log: true
-  train:
-    weight_prefix: snapshot
-    save_step: 10
-    optimizer:
-      name: Adam
-      lr: 0.001
-
-# IO configuration
-geo:
-  detector: icarus
 
 io:
   loader:
-    batch_size: 2
+    minibatch_size: 2
     shuffle: false
     num_workers: 0
     collate_fn: all
-    sampler:
-      name: random_sequence
-      seed: 0
     dataset:
       name: larcv
       file_keys: null
@@ -38,43 +30,35 @@ io:
           sparse_semantics_event: sparse3d_pcluster_semantics
           add_particle_info: true
           clean_data: true
+          break_clusters: true
         coord_label:
           parser: particle_coords
           particle_event: particle_corrected
           cluster_event: cluster3d_pcluster
-        meta:
-          parser: meta
-          sparse_event: sparse3d_pcluster
 
-# Model configuration
 model:
   name: grappa
   weight_path: null
-
   network_input:
     data: data
     coord_label: coord_label
   loss_input:
     clust_label: data
-    coord_label: coord_label
-    meta: meta
-
   modules:
     grappa:
       nodes:
-        source: group
-        shapes: [shower, track, michel, delta]
+        source: cluster
+        shapes: [track]
         min_size: -1
-        make_groups: true
       graph:
         name: complete
-        max_length: [500, 500, 0, 0, 25, 25, 25, 0, 0, 0]
+        max_length: 100
         dist_algorithm: recursive
       node_encoder:
         name: geo
         use_numpy: true
         add_value: true
-        add_shape: true
+        add_shape: false
         add_points: true
         add_local_dirs: true
         dir_max_dist: 5
@@ -85,14 +69,8 @@ model:
         use_numpy: true
       gnn_model:
         name: meta
-        node_feats: 33 # 16 (geo) + 3 (extra) + 6 (points) + 6 (directions) + 2 (local dedxs)
+        node_feats: 32 # 16 geo + 2 extra + 6 points + 6 directions + 2 local dE/dx
         edge_feats: 19
-        node_pred:
-          type: 5
-          primary: 2
-          orient: 2
-          momentum: 1
-          vertex: 5
         edge_pred: 2
         edge_layer:
           name: mlp
@@ -121,33 +99,7 @@ model:
               name: lrelu
               negative_slope: 0.1
             normalization: batch_norm
-
     grappa_loss:
-      node_loss:
-        type:
-          name: class
-          target: pid
-          loss: ce
-        primary:
-          name: class
-          target: inter_primary
-          loss: ce
-        orient:
-          name: orient
-          loss: ce
-        momentum:
-          name: reg
-          target: momentum
-          loss: berhu
-        vertex:
-          name: vertex
-          primary_loss: ce
-          balance_primary_loss: true
-          regression_loss: mse
-          only_contained: true
-          normalize_positions: true
-          use_anchor_points: true
-          return_vertex_labels: true
       edge_loss:
         name: channel
-        target: interaction
+        target: group

@@ -5,10 +5,11 @@ base:
 
 io:
   loader:
-    batch_size: 2
+    minibatch_size: 2
     shuffle: False
     num_workers: 4
     collate_fn: all
+    sampler: sequential
     dataset:
       name: larcv
       file_keys: null

@@ -535,22 +535,15 @@ def test_sampler_factory_rejects_missing_torch(monkeypatch):
         factories_module.sampler_factory({}, dataset=[], minibatch_size=1)
 
 
-@pytest.mark.parametrize("cfg_file", ["test_loader.cfg"])
 @pytest.mark.skipif(
     not TORCH_AVAILABLE, reason="PyTorch is required for loader factory tests."
 )
-def test_loader(cfg_file, larcv_data, quiet=True, csv=False):
+def test_loader(larcv_data, quiet=True, csv=False):
     """Tests the loading of data using a full IO configuration."""
     # Fetch the configuration
-    cfg_path = Path(cfg_file)
+    cfg_path = Path(__file__).resolve().parents[2] / "config" / "io" / "io_test.yaml"
     if not cfg_path.is_file():
-        for parent in Path(__file__).resolve().parents:
-            candidate = parent / "config" / cfg_file
-            if candidate.is_file():
-                cfg_path = candidate
-                break
-    if not cfg_path.is_file():
-        raise ValueError(f"Configuration file not found: {cfg_file}")
+        raise ValueError(f"Configuration file not found: {cfg_path}")
 
     # If requested, intialize a CSV output
     if csv:

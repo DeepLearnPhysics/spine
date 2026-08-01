@@ -1,26 +1,27 @@
-# Base configuration
+# Canonical GrapPA shower-fragment aggregation training configuration.
+#
+# Set io.loader.dataset.file_keys to the training data and adjust the output
+# paths for the target environment before launching a production job.
+
 base:
-  world_size: 0
-  #iterations: 10
-  epochs: 1.0
+  world_size: 1
+  epochs: 25.0
   seed: 0
-  unwrap: true
-  log_dir: .
+  unwrap: false
+  log_dir: logs/grappa_shower/train
   log_step: 1
-  overwrite_log: true
   train:
-    weight_prefix: snapshot
+    weight_prefix: weights/grappa_shower/snapshot
     save_epoch: 1.0
     optimizer:
       name: Adam
       lr: 0.001
 
-# IO configuration
 io:
   loader:
-    batch_size: 2
+    minibatch_size: 64
     shuffle: false
-    num_workers: 0
+    num_workers: 8
     collate_fn: all
     sampler:
       name: random_sequence
@@ -41,21 +42,10 @@ io:
           parser: particle_coords
           particle_event: particle_corrected
           cluster_event: cluster3d_pcluster
-  writer:
-    name: hdf5
-    file_name: grappa_shower_cache.hdf5
-    overwrite: true
-    keys:
-      - clusts
-      - edge_index
-      - node_features
-      - edge_features
 
-# Model configuration
 model:
   name: grappa
   weight_path: null
-  to_numpy: true
 
   network_input:
     data: data
@@ -65,7 +55,6 @@ model:
 
   modules:
     grappa:
-      return_features: true
       nodes:
         source: cluster
         shapes: [shower, michel, delta]

@@ -105,7 +105,7 @@ def test_uresnet_larcv_regression(larcv_data: str, tmp_path: Path) -> None:
     cfg = make_uresnet_config(larcv_data, tmp_path)
 
     assert cfg["base"]["iterations"] == 1
-    assert cfg["io"]["loader"]["batch_size"] == 2
+    assert cfg["io"]["loader"]["minibatch_size"] == 2
 
     output = run_uresnet(cfg)
     repeat_output = run_uresnet(cfg)

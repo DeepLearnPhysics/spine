@@ -255,15 +255,15 @@ Example configurations are available in the `config` folder:
 | `uresnet/uresnet_{train,test}.yaml`              | UResNet alone  |
 | `uresnet_ppn/uresnet_ppn_{train,test}.yaml`      | UResNet + PPN  |
 | `graph_spice/graph_spice_{train,test}.yaml`      | Graph-SPICE    |
-| `train_grappa_shower.yaml`    | GrapPA for shower fragments clustering |
-| `train_grappa_track.yaml`     | GrapPA for track fragments clustering |
-| `train_grappa_inter.yaml`     | GrapPA for interaction clustering |
+| `grappa_shower/grappa_shower_{train,test}.yaml` | GrapPA for shower fragment clustering |
+| `grappa_track/grappa_track_{train,test}.yaml` | GrapPA for track fragment clustering |
+| `grappa_inter/grappa_inter_{train,test}.yaml` | GrapPA for interaction clustering |
 
 The maintained model directories provide separate training and inference/test
 configurations where both modes are supported.
 
 Key configuration parameters you may want to modify:
-* `batch_size` - batch size for training/inference
+* `minibatch_size` - per-process batch size for training/inference
 * `weight_prefix` - directory to save model checkpoints
 * `log_dir` - directory to save training logs
 * `tensorboard` - optional TensorBoard scalar logging configuration

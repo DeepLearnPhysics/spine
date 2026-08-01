@@ -5,14 +5,12 @@ import inspect
 import re
 from pathlib import Path
 
-GNN_DIR = (
-    Path(__file__).resolve().parents[4] / "src" / "spine" / "model" / "layer" / "gnn"
-)
+GRAPPA_DIR = Path(__file__).resolve().parents[4] / "src" / "spine" / "model" / "grappa"
 
 
-def gnn_sources():
-    """Yield all maintained GNN source files."""
-    yield from sorted(GNN_DIR.rglob("*.py"))
+def grappa_sources():
+    """Yield all maintained GrapPA source files."""
+    yield from sorted(GRAPPA_DIR.rglob("*.py"))
 
 
 def public_definitions(tree):
@@ -38,7 +36,7 @@ def doc_sections(docstring):
 
 def test_gnn_code_uses_explicit_batch_representations():
     """Require explicit TensorBatch representation narrowing."""
-    for path in gnn_sources():
+    for path in grappa_sources():
         tree = ast.parse(path.read_text())
         ambiguous_attributes = []
         for node in ast.walk(tree):
@@ -61,7 +59,7 @@ def test_gnn_code_uses_explicit_batch_representations():
 
 def test_gnn_data_path_methods_do_not_use_any_annotations():
     """Keep tensor-carrying method interfaces statically meaningful."""
-    for path in gnn_sources():
+    for path in grappa_sources():
         tree = ast.parse(path.read_text())
         for node in ast.walk(tree):
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -92,7 +90,7 @@ def test_gnn_local_variables_use_clear_snake_case_names():
     """Reject mixed-case and unexplained single-letter local variables."""
     allowed_single_letters = {"_", "x", "u"}
 
-    for path in gnn_sources():
+    for path in grappa_sources():
         tree = ast.parse(path.read_text())
         for function in ast.walk(tree):
             if not isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -138,7 +136,7 @@ def test_gnn_public_interfaces_have_numpy_style_docstrings():
         "Examples",
     }
 
-    for path in gnn_sources():
+    for path in grappa_sources():
         tree = ast.parse(path.read_text())
         for node in public_definitions(tree):
             docstring = ast.get_docstring(node)
@@ -154,7 +152,7 @@ def test_gnn_public_interfaces_have_numpy_style_docstrings():
 
 def test_gnn_callable_parameters_are_documented():
     """Require public callable arguments in NumPy-style parameter sections."""
-    for path in gnn_sources():
+    for path in grappa_sources():
         tree = ast.parse(path.read_text())
         for node in public_definitions(tree):
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):

@@ -33,6 +33,8 @@ from spine.utils.gnn.evaluation import (
 
 from ..registry import ModelSpec
 from .factories import (
+    FeatureEncoder,
+    GNNModel,
     edge_encoder_factory,
     edge_loss_factory,
     global_encoder_factory,
@@ -42,6 +44,7 @@ from .factories import (
     node_encoder_factory,
     node_loss_factory,
 )
+from .graph.base import GraphBase
 
 __all__ = ["GrapPA", "GrapPALoss"]
 
@@ -53,7 +56,7 @@ class GrapPA(torch.nn.Module):
     to the underlying graph neural network (GNN).
 
     When trained standalone, this model must be provided with a cluster
-    label tensor, allowing it to build a set of intput clusters based on the
+    label tensor, allowing it to build a set of input clusters based on the
     label boundaries of the clusters and their semantic types.
 
     Typical configuration can look like this:
@@ -101,6 +104,27 @@ class GrapPA(torch.nn.Module):
         # Initialize the parent class
         super().__init__()
 
+        # Declare configuration-owned attributes up front. Besides making the
+        # runtime state explicit, this keeps static analyzers from treating
+        # assignments in the configuration helpers as ad hoc attributes.
+        self.out_types = ("node", "edge", "global")
+        self.gnn: GNNModel
+        self.node_source: int
+        self.node_type: list[int]
+        self.node_min_size: int
+        self.make_groups: bool
+        self.grouping_method: str
+        self.grouping_through_track: bool
+        self.graph_constructor: GraphBase | None = None
+        self.node_encoder: FeatureEncoder | None = None
+        self.edge_encoder: FeatureEncoder | None = None
+        self.global_encoder: FeatureEncoder | None = None
+        self.dbscan: DBSCAN | None = None
+        self.return_features = False
+        self.node_pred_keys: list[str] = []
+        self.edge_pred_keys: list[str] = []
+        self.global_pred_keys: list[str] = []
+
         # Process the model configuration
         self.process_model_config(**grappa)
 
@@ -138,9 +162,6 @@ class GrapPA(torch.nn.Module):
         return_features : bool, default False
             If `True`, the model will return the node/edge/global features
         """
-        # Store the output types of GNNs
-        self.out_types = ("node", "edge", "global")
-
         if nodes is None and (graph is not None or dbscan is not None):
             raise ValueError(
                 "Must provide a `nodes` configuration when using GrapPA to "
@@ -151,33 +172,37 @@ class GrapPA(torch.nn.Module):
         self.process_gnn_config(**gnn_model)
 
         # Process the node configuration
-        if nodes is not None:
-            self.process_node_config(**nodes)
+        self.process_node_config(**(nodes or {}))
 
         # Process the graph configuration
-        self.graph_constructor = None
         if graph is not None:
             self.graph_constructor = graph_factory(graph, self.node_type)
 
         # Process the encoder configurations
-        self.node_encoder = None
         if node_encoder is not None:
             self.node_encoder = node_encoder_factory(node_encoder)
 
         # Initialize edge encoder
-        self.edge_encoder = None
         if edge_encoder is not None:
             self.edge_encoder = edge_encoder_factory(edge_encoder)
 
         # Initialize the global encoder
-        self.global_encoder = None
         if global_encoder is not None:
             self.global_encoder = global_encoder_factory(global_encoder)
 
+        # Fail at construction time when a configured encoder cannot feed the
+        # corresponding GNN input, rather than surfacing a matrix-shape error
+        # in the first forward pass.
+        self._validate_encoder_size("node", self.node_encoder)
+        self._validate_encoder_size("edge", self.edge_encoder)
+        self._validate_encoder_size("global", self.global_encoder)
+
         # Process the dbscan fragmenter configuration, if provided
-        self.dbscan = None
         if dbscan is not None:
-            self.process_dbscan_config(dbscan)
+            self.process_dbscan_config(**dbscan)
+
+        if self.make_groups and not self.edge_pred_keys:
+            raise ValueError("Building groups requires an edge prediction head.")
 
         # Store whether to return the features
         self.return_features = return_features
@@ -197,9 +222,9 @@ class GrapPA(torch.nn.Module):
         ----------
         source : str, default 'cluster'
             Column name in the label tensor which contains the input cluster IDs
-        shapes : int, optional
-            Type of nodes to include in the input. If not specified, include
-            all types
+        shapes : sequence of int or str, optional
+            Semantic types to include as nodes. If omitted, include every
+            non-low-energy class.
         min_size : int, default -1
             Minimum number of voxels in a cluster to be included in the input
         make_groups : bool, default False
@@ -210,21 +235,66 @@ class GrapPA(torch.nn.Module):
             If `True`, shower objects can only be connected to one track object
         """
         # Parse the node source
-        self.node_source = enum_factory("cluster", source)
+        self.node_source = (
+            enum_factory("cluster", source) if isinstance(source, str) else int(source)
+        )
 
         # Interpret node type as list of shapes to cluster
         if shapes is None:
-            self.node_type = list(np.arange(LOWES_SHP))
+            self.node_type = list(range(LOWES_SHP))
         else:
-            if np.isscalar(shapes):
+            if isinstance(shapes, (str, bytes)) or np.isscalar(shapes):
                 raise ValueError("Semantic classes should be provided as a list.")
-            self.node_type = enum_factory("shape", shapes)
+            self.node_type = [
+                enum_factory("shape", shape) if isinstance(shape, str) else int(shape)
+                for shape in shapes
+            ]
+
+        if grouping_method not in ("score", "threshold"):
+            raise ValueError(
+                f"Grouping method not recognized: {grouping_method}. "
+                "Must be one of ('score', 'threshold')."
+            )
+        if grouping_through_track and grouping_method != "score":
+            raise ValueError(
+                "Track-restricted grouping is only supported by the "
+                "`score` grouping method."
+            )
 
         # Store the node parameters
         self.node_min_size = min_size
         self.make_groups = make_groups
         self.grouping_method = grouping_method
         self.grouping_through_track = grouping_through_track
+
+    def _validate_encoder_size(
+        self,
+        prefix: str,
+        encoder: FeatureEncoder | None,
+    ) -> None:
+        """Check that a configured encoder matches its GNN input width.
+
+        Parameters
+        ----------
+        prefix : str
+            Feature family, one of ``"node"``, ``"edge"`` or ``"global"``.
+        encoder : FeatureEncoder, optional
+            Configured encoder for that feature family.
+
+        Raises
+        ------
+        ValueError
+            If the encoder output width differs from the GNN input width.
+        """
+        if encoder is None:
+            return
+
+        expected_size = getattr(self.gnn, f"{prefix}_feats")
+        if encoder.feature_size != expected_size:
+            raise ValueError(
+                f"The {prefix} encoder produces {encoder.feature_size} features, "
+                f"but the GNN expects {expected_size}."
+            )
 
     def process_gnn_config(
         self,
@@ -246,8 +316,8 @@ class GrapPA(torch.nn.Module):
         global_pred : Union[int, dict], optional
             Number of global predictions. If there are multiple global predictions,
             provide a (key, value) pair for each type of prediction
-        **gnn_model, dict
-            Paramters to initialize the GNN backbone
+        **gnn_model : dict
+            Parameters used to initialize the GNN backbone.
         """
         # Initialize the GNN backbone
         self.gnn = gnn_model_factory(
@@ -257,7 +327,6 @@ class GrapPA(torch.nn.Module):
             global_pred is not None,
         )
 
-        # Initialize output layers based on the configuration
         self.process_final_config(node_pred, "node")
         self.process_final_config(edge_pred, "edge")
         self.process_final_config(global_pred, "global")
@@ -314,9 +383,9 @@ class GrapPA(torch.nn.Module):
 
         Parameters
         ----------
-        shapes : Union[int, list], optional
+        shapes : sequence of int or str, optional
             This should not be specified (fetched from the node configuration)
-        min_size : Union[int, list], optional
+        min_size : int or sequence of int, optional
             This should not be specified (fetched from the node configuration)
         **kwargs : dict, optional
             Rest of the DBSCAN configuration
@@ -347,7 +416,7 @@ class GrapPA(torch.nn.Module):
         points: TensorBatch | None = None,
         extra: TensorBatch | None = None,
     ) -> dict[str, Any]:
-        """Prepares particle clusters and feed them to the GNN model.
+        """Prepare particle clusters and feed them to the GNN model.
 
         Parameters
         ----------
@@ -365,7 +434,8 @@ class GrapPA(torch.nn.Module):
             (E, 2) Incidence matrix. If not provided, it will be built based on
             the cluster indexes and the graph configuration
         node_features : TensorBatch, optional
-            (C, N_c,f) Node features. If not provided, they will be built based on
+            (C, N_c,f) Node features. If omitted, build them with the configured
+            node encoder.
         edge_features : TensorBatch, optional
             (C, N_e,f) Edge features. If not provided, they will be built based on
             the cluster indexes and the edge encoder configuration
@@ -401,8 +471,7 @@ class GrapPA(torch.nn.Module):
         global_pred : TensorBatch
             (C, N_e) Global predictions (logits)
         """
-        # Initialize the result dictionary that will be returned at the end of the method
-        result = {}
+        result: dict[str, Any] = {}
 
         # Encode the node boundaries as clusters if they are not provided directly
         if clusts is None:
@@ -430,53 +499,108 @@ class GrapPA(torch.nn.Module):
                 raise ValueError(
                     "Must provide node_features or node encoder configuration to build them."
                 )
-            node_features = self.node_encoder(
+            encoded_nodes = self.node_encoder(
                 data, clusts, coord_label=coord_label, points=points, extra=extra
             )
 
-            if isinstance(node_features, tuple):
+            if isinstance(encoded_nodes, tuple):
                 # If the output of the node encoder is a tuple, separate points
-                node_features, points = node_features
-                start_points, end_points = points.tensor.split(3, dim=1)
+                if len(encoded_nodes) != 2:
+                    raise TypeError(
+                        "Node encoders must return TensorBatch or a pair of "
+                        "TensorBatch objects."
+                    )
+                node_features, encoded_points = encoded_nodes
+                if not isinstance(node_features, TensorBatch):
+                    raise TypeError("Node features must be returned as TensorBatch.")
+                if not isinstance(encoded_points, TensorBatch):
+                    raise TypeError("Node points must be returned as TensorBatch.")
+                point_tensor = encoded_points.torch_tensor()
+                if point_tensor.shape[1] != 6:
+                    raise ValueError(
+                        "Endpoint-producing node encoders must return six "
+                        "coordinates per cluster."
+                    )
+                start_points, end_points = point_tensor.split(3, dim=1)
 
                 result["start_points"] = TensorBatch(
-                    start_points, points.counts, coord_cols=np.array([0, 1, 2])
+                    start_points,
+                    encoded_points.counts,
+                    coord_cols=np.array([0, 1, 2]),
                 )
                 result["end_points"] = TensorBatch(
-                    end_points, points.counts, coord_cols=np.array([0, 1, 2])
+                    end_points,
+                    encoded_points.counts,
+                    coord_cols=np.array([0, 1, 2]),
                 )
+                points = encoded_points
+            else:
+                if not isinstance(encoded_nodes, TensorBatch):
+                    raise TypeError("Node encoders must return a TensorBatch.")
+                node_features = encoded_nodes
 
         if self.return_features:
             result["node_features"] = node_features
 
         # Fetch the edge features
         if edge_features is None and self.edge_encoder is not None:
-            edge_features = self.edge_encoder(
+            encoded_edges = self.edge_encoder(
                 data, clusts, edge_index, closest_index=closest_index
             )
+            if not isinstance(encoded_edges, TensorBatch):
+                raise TypeError("Edge encoders must return a TensorBatch.")
+            edge_features = encoded_edges
 
         if self.return_features and edge_features is not None:
             result["edge_features"] = edge_features
 
         # Fetch the global_features
         if global_features is None and self.global_encoder is not None:
-            global_features = self.global_encoder(data, clusts)
+            encoded_globals = self.global_encoder(data, clusts)
+            if not isinstance(encoded_globals, TensorBatch):
+                raise TypeError("Global encoders must return a TensorBatch.")
+            global_features = encoded_globals
 
         if global_features is not None and self.return_features:
             result["global_features"] = global_features
 
-        # Bring edge_index and batch_ids to device
-        # TODO: try to keep everything (apart from clusts?) on GPU?
-        index = torch.tensor(edge_index.index, device=data.tensor.device)
-        xbatch = torch.tensor(clusts.batch_ids, device=data.tensor.device)
+        # Bring graph indexes to the feature device. Graph construction remains
+        # CPU-based, while the message-passing network operates on Torch tensors.
+        data_tensor = data.torch_tensor()
+        index = torch.as_tensor(
+            edge_index.index,
+            dtype=torch.long,
+            device=data_tensor.device,
+        )
+        node_batch_ids = torch.as_tensor(
+            clusts.batch_ids,
+            dtype=torch.long,
+            device=data_tensor.device,
+        )
 
         # Pass through the model, update results
-        out = self.gnn(node_features, index, edge_features, global_features, xbatch)
+        out = self.gnn(
+            node_features,
+            index,
+            edge_features,
+            global_features,
+            node_batch_ids,
+        )
 
         # Loop over the necessary node/edge/global predictions, store output
-        for t in self.out_types:
-            for key in getattr(self, f"{t}_pred_keys"):
-                result[key] = getattr(self, key)(out[f"{t}_features"])
+        for output_type in self.out_types:
+            prediction_keys = getattr(self, f"{output_type}_pred_keys")
+            feature_key = f"{output_type}_features"
+            if prediction_keys and feature_key not in out:
+                raise RuntimeError(
+                    f"The GNN did not produce `{feature_key}` for its configured "
+                    "prediction head."
+                )
+            for key in prediction_keys:
+                prediction = getattr(self, key)(out[feature_key])
+                if not isinstance(prediction, TensorBatch):
+                    raise TypeError("GrapPA prediction heads must return TensorBatch.")
+                result[key] = prediction
 
         # If requested, build node groups from edge predictions
         if self.make_groups:
@@ -487,7 +611,7 @@ class GrapPA(torch.nn.Module):
     def _make_clusters(
         self, data: TensorBatch, coord_label: TensorBatch | None = None
     ) -> IndexBatch:
-        """Make the list of node clusters based on the label tensor and the requested class.
+        """Build node clusters from labels or configured DBSCAN fragmentation.
 
         Parameters
         ----------
@@ -507,7 +631,7 @@ class GrapPA(torch.nn.Module):
         """
         if self.dbscan is not None:
             # Use the DBSCAN fragmenter to build the clusters
-            seg_label = TensorBatch(data.tensor[:, SHAPE_COL], data.counts)
+            seg_label = TensorBatch(data.torch_tensor()[:, SHAPE_COL], data.counts)
             clusts, _ = self.dbscan(data, seg_label, coord_label)
         else:
             # Use the label tensor to build the clusters
@@ -546,9 +670,11 @@ class GrapPA(torch.nn.Module):
         if shapes is not None:
             return shapes
 
-        if self.graph_constructor is None or not hasattr(
-            self.graph_constructor.max_length, "__len__"
-        ):
+        class_dependent_edges = self.graph_constructor is not None and isinstance(
+            self.graph_constructor.max_length, np.ndarray
+        )
+        track_restricted_grouping = self.make_groups and self.grouping_through_track
+        if not class_dependent_edges and not track_restricted_grouping:
             return None
 
         data_np = data.to_numpy()
@@ -557,9 +683,8 @@ class GrapPA(torch.nn.Module):
         else:
             shapes = get_cluster_label_batch(data_np, clusts, SHAPE_COL)
 
-        shapes.data = shapes.data.astype(np.int64)
-
-        return shapes
+        shape_values = shapes.numpy_tensor().astype(np.int64, copy=False)
+        return TensorBatch(shape_values, shapes.counts)
 
     def _make_edge_index(
         self,
@@ -567,7 +692,7 @@ class GrapPA(torch.nn.Module):
         clusts: IndexBatch,
         shapes: TensorBatch | None = None,
         groups: TensorBatch | None = None,
-    ) -> tuple[EdgeIndexBatch, TensorBatch | None]:
+    ) -> tuple[EdgeIndexBatch, np.ndarray | None]:
         """Make the edge index based on the cluster indexes and the graph configuration.
 
         Parameters
@@ -590,8 +715,8 @@ class GrapPA(torch.nn.Module):
         -------
         edge_index : EdgeIndexBatch
             (E, 2) Incidence matrix
-        closest_index : TensorBatch
-            (E) List of closest voxel index for each edge
+        closest_index : np.ndarray
+            (C, C) Closest voxel-pair index for each pair of clusters.
         """
         # Check that the graph constructor is defined
         if self.graph_constructor is None:
@@ -601,10 +726,12 @@ class GrapPA(torch.nn.Module):
 
         # Bring data to numpy for the graph construction
         data_np = data.to_numpy()
+        shapes_np = None if shapes is None else shapes.to_numpy()
+        groups_np = None if groups is None else groups.to_numpy()
 
         # Initialize the input graph
         edge_index, _, closest_index = self.graph_constructor(
-            data_np, clusts, shapes, groups
+            data_np, clusts, shapes_np, groups_np
         )
 
         return edge_index, closest_index
@@ -621,10 +748,7 @@ class GrapPA(torch.nn.Module):
         Parameters
         ----------
         result : dict
-            Dictionary containing the output of the model, including edge predictions and
-            cluster indexes. The edge predictions should be stored under keys with the format
-            `edge{key}_pred`, where `key` is the name of the type of edge prediction (e.g. score or threshold).
-            The cluster indexes should be stored under the key `clusts`.
+            Model outputs containing the configured edge-prediction heads.
         clusts : IndexBatch
             (C) List of indexes corresponding to each cluster
         edge_index : EdgeIndexBatch
@@ -633,9 +757,7 @@ class GrapPA(torch.nn.Module):
             (C) List of cluster semantic class used to restrict track association
         """
         # Fetch the list of edge prediction keys
-        edge_pred_keys = [
-            key for key in result if key.startswith("edge") and key.endswith("pred")
-        ]
+        edge_pred_keys = [key for key in self.edge_pred_keys if key in result]
         if not edge_pred_keys:
             raise ValueError(
                 "Must provide edge predictions to build node groups. "
@@ -644,35 +766,41 @@ class GrapPA(torch.nn.Module):
             )
 
         # Loop over the edge predictions, build node groups based on each of them
+        edge_index_np = edge_index.to_numpy()
+        clusts_np = clusts.to_numpy()
         for key in edge_pred_keys:
             edge_pred = result[key].to_numpy()
             prefix = "group" + key.replace("edge", "").replace("_pred", "")
             if self.grouping_method == "threshold":
                 result[f"{prefix}_pred"] = node_assignment_batch(
-                    edge_index, edge_pred, clusts
+                    edge_index_np, edge_pred, clusts_np
                 )
 
             elif self.grouping_method == "score":
                 if not self.grouping_through_track:
                     result[f"{prefix}_pred"] = node_assignment_score_batch(
-                        edge_index, edge_pred, clusts
+                        edge_index_np, edge_pred, clusts_np
                     )
                 else:
                     if shapes is None:
                         raise ValueError(
                             "Must provide shapes to restrict track association."
                         )
+                    shapes_np = shapes.to_numpy()
                     track_node = TensorBatch(
-                        shapes.data == TRACK_SHP, counts=shapes.counts
+                        shapes_np.numpy_tensor() == TRACK_SHP,
+                        counts=shapes_np.counts,
                     )
                     result[f"{prefix}_pred"] = node_assignment_score_batch(
-                        edge_index, edge_pred, clusts, track_node
+                        edge_index_np,
+                        edge_pred,
+                        clusts_np,
+                        track_node,
                     )
 
             else:
-                raise ValueError(
-                    "Group prediction algorithm not recognized:",
-                    self.grouping_method,
+                raise RuntimeError(
+                    f"Unexpected grouping method: {self.grouping_method}."
                 )
 
 
@@ -697,9 +825,9 @@ class GrapPALoss(torch.nn.Module):
                 name: <name of the global loss>
                 <dictionary of arguments to pass to the loss>
 
-    Each of the specific loss blocks can also contain multiple losses by
+    Each specific loss block can also contain multiple losses by
     providing a name key in a loss block nested below it. Each loss name of a
-    specific type should be provided with a corresponding output from GRaPA.
+    specific type should be provided with a corresponding output from GrapPA.
 
     See configuration files prefixed with `grappa_` under the `config`
     directory for detailed examples of working configurations.
@@ -717,10 +845,17 @@ class GrapPALoss(torch.nn.Module):
         grappa_loss : dict
             Loss configuration
         grappa : dict, optional
-            Model configuration
+            Model configuration supplied through the manager's shared
+            model/loss contract. Individual objectives currently infer their
+            required heads from the model output.
         """
         # Initialize the parent class
         super().__init__()
+
+        self.out_types = ("node", "edge", "global")
+        self.node_loss_keys: list[str] = []
+        self.edge_loss_keys: list[str] = []
+        self.global_loss_keys: list[str] = []
 
         # Process the loss configuration
         self.process_loss_config(**grappa_loss)
@@ -743,7 +878,6 @@ class GrapPALoss(torch.nn.Module):
             Global loss configuration
         """
         # Check that there is at least one loss to apply
-        self.out_types = ("node", "edge", "global")
         if node_loss is None and edge_loss is None and global_loss is None:
             raise ValueError(
                 "Must provide at least one of `node_loss`, `edge_loss` or "
@@ -759,17 +893,17 @@ class GrapPALoss(torch.nn.Module):
         self,
         prefix: str,
         loss: dict[str, Any] | None,
-        constructor: Callable[[dict[str, Any]], Any],
+        constructor: Callable[[dict[str, Any]], torch.nn.Module],
     ) -> None:
         """Process a loss configuration.
 
         Parameters
         ----------
-        prefix : dict
+        prefix : str
             Name of the output type to apply the loss to
-        loss : Union[int, dict]
+        loss : dict, optional
             Loss configuration
-        constructor : object
+        constructor : callable
             Loss constructor function
         """
         # If the loss is not specified, nothing to do here
@@ -786,7 +920,7 @@ class GrapPALoss(torch.nn.Module):
             setattr(self, loss_key, constructor(loss))
 
         else:
-            # Otherwise, initialzie one loss per prediction type
+            # Otherwise, initialize one loss per prediction type
             for key, cfg in loss.items():
                 loss_key = f"{prefix}_{key}_loss"
                 loss_keys.append(loss_key)
@@ -815,7 +949,7 @@ class GrapPALoss(torch.nn.Module):
         coord_label : TensorBatch, optional
             (P, 1 + D + 8) Tensor of start/end point labels for each
             true particle in the image
-        graph_label : EdgeIndexTensor, optional
+        graph_label : EdgeIndexBatch, optional
             (2, E) Tensor of edges that correspond to physical
             connections between true particle in the image
         iteration : int, optional
@@ -824,31 +958,44 @@ class GrapPALoss(torch.nn.Module):
             Output of the GrapPA model
         """
         # Loop and apply the losses
-        result = {}
+        result: dict[str, Any] = {}
         num_losses = 0
-        loss, accuracy = 0.0, 0.0
+        total_loss: torch.Tensor | None = None
+        total_accuracy = 0.0
         for t in self.out_types:
             loss_keys = getattr(self, f"{t}_loss_keys")
             for key in loss_keys:
-                # If the number of loss keys is > 1 for this type of
-                # prediction, must rename the prediction appropriately
+                # Route each configured loss to the prediction head with the
+                # matching name. Single heads naturally map, e.g.
+                # ``edge_loss`` -> ``edge_pred``.
+                prediction_key = key.removesuffix("_loss") + "_pred"
+                if prediction_key not in output:
+                    raise KeyError(
+                        f"Loss `{key}` requires model output `{prediction_key}`."
+                    )
                 extra = {}
-                if len(loss_keys) > 1:
-                    extra[f"{t}_pred"] = output[key.replace("loss", "pred")]
+                generic_prediction_key = f"{t}_pred"
+                if prediction_key != generic_prediction_key:
+                    extra[generic_prediction_key] = output[prediction_key]
 
                 # Compute the loss
                 out = getattr(self, key)(
                     clust_label=clust_label,
                     coord_label=coord_label,
-                    graph_label=graph_label,
+                    true_edge_index=graph_label,
                     iteration=iteration,
                     **output,
                     **extra,
                 )
 
                 # Increment the loss and accuracy
-                loss += out["loss"]
-                accuracy += out["accuracy"]
+                loss_value = out["loss"]
+                if not isinstance(loss_value, torch.Tensor):
+                    raise TypeError(f"Loss `{key}` did not return a torch.Tensor.")
+                total_loss = (
+                    loss_value if total_loss is None else total_loss + loss_value
+                )
+                total_accuracy += float(out["accuracy"])
                 num_losses += 1
 
                 # Update the result dictionary
@@ -857,8 +1004,10 @@ class GrapPALoss(torch.nn.Module):
                     result[f"{prefix}_{k}"] = v
 
         # Append the total loss and total accuracy
-        result["loss"] = torch.sum(loss) / num_losses
-        result["accuracy"] = np.sum(accuracy) / num_losses
+        if total_loss is None or num_losses == 0:  # pragma: no cover
+            raise RuntimeError("No GrapPA losses were evaluated.")
+        result["loss"] = total_loss / num_losses
+        result["accuracy"] = total_accuracy / num_losses
 
         return result
 

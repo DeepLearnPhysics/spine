@@ -17,7 +17,7 @@ build:
   interactions: true
 io:
   loader:
-    batch_size: 2
+    minibatch_size: 2
     shuffle: false
     num_workers: 8
     collate_fn: all

@@ -43,7 +43,7 @@ def test_model_config_runs_one_iteration(case_name, larcv_data, tmp_path):
     cfg["base"].pop("epochs", None)
     cfg["base"]["iterations"] = 1
     cfg["base"]["log_dir"] = str(tmp_path / case_name)
-    cfg["io"]["loader"]["batch_size"] = 1
+    cfg["io"]["loader"]["minibatch_size"] = 1
     cfg["io"]["loader"]["num_workers"] = 0
     cfg["io"]["loader"]["dataset"]["file_keys"] = larcv_data
     cfg["model"]["weight_path"] = None
@@ -68,7 +68,17 @@ def test_model_config_runs_one_iteration(case_name, larcv_data, tmp_path):
     not (TORCH_AVAILABLE and LARCV_AVAILABLE),
     reason="The full model runtime and LArCV are required.",
 )
-@pytest.mark.parametrize("case_name", ["graph_spice", "spice", "uresnet_ppn"])
+@pytest.mark.parametrize(
+    "case_name",
+    [
+        "graph_spice",
+        "grappa_inter",
+        "grappa_shower",
+        "grappa_track",
+        "spice",
+        "uresnet_ppn",
+    ],
+)
 def test_standalone_inference_config_runs_one_iteration(
     case_name,
     larcv_data,
@@ -81,7 +91,7 @@ def test_standalone_inference_config_runs_one_iteration(
     )
     cfg = deepcopy(cfg)
     cfg["base"]["log_dir"] = str(tmp_path / f"{case_name}_inference")
-    cfg["io"]["loader"]["batch_size"] = 1
+    cfg["io"]["loader"]["minibatch_size"] = 1
     cfg["io"]["loader"]["num_workers"] = 0
     cfg["io"]["loader"]["dataset"]["file_keys"] = larcv_data
     cfg["model"]["weight_path"] = None

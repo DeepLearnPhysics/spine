@@ -3,13 +3,14 @@
 from pathlib import Path
 
 CONFIG_DIR = Path(__file__).resolve().parents[2] / "config"
+EXAMPLE_CONFIGS = sorted(CONFIG_DIR.rglob("*.cfg")) + sorted(CONFIG_DIR.rglob("*.yaml"))
 
 MODEL_CONFIGS = {
     "full_chain": CONFIG_DIR / "test_full_chain.yaml",
     "graph_spice": CONFIG_DIR / "graph_spice" / "graph_spice_train.yaml",
-    "grappa_inter": CONFIG_DIR / "train_grappa_inter.cfg",
-    "grappa_shower": CONFIG_DIR / "train_grappa_shower.yaml",
-    "grappa_track": CONFIG_DIR / "train_grappa_track.cfg",
+    "grappa_inter": CONFIG_DIR / "grappa_inter" / "grappa_inter_train.yaml",
+    "grappa_shower": CONFIG_DIR / "grappa_shower" / "grappa_shower_train.yaml",
+    "grappa_track": CONFIG_DIR / "grappa_track" / "grappa_track_train.yaml",
     "image_class": CONFIG_DIR / "train_image_class.cfg",
     "spice": CONFIG_DIR / "spice" / "spice_train.yaml",
     "uresnet": CONFIG_DIR / "uresnet" / "uresnet_train.yaml",
@@ -19,6 +20,9 @@ MODEL_CONFIGS = {
 INFERENCE_MODEL_CONFIGS = {
     "full_chain": CONFIG_DIR / "test_full_chain.yaml",
     "graph_spice": CONFIG_DIR / "graph_spice" / "graph_spice_test.yaml",
+    "grappa_inter": CONFIG_DIR / "grappa_inter" / "grappa_inter_test.yaml",
+    "grappa_shower": CONFIG_DIR / "grappa_shower" / "grappa_shower_test.yaml",
+    "grappa_track": CONFIG_DIR / "grappa_track" / "grappa_track_test.yaml",
     "spice": CONFIG_DIR / "spice" / "spice_test.yaml",
     "uresnet": CONFIG_DIR / "uresnet" / "uresnet_test.yaml",
     "uresnet_ppn": CONFIG_DIR / "uresnet_ppn" / "uresnet_ppn_test.yaml",

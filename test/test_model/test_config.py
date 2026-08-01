@@ -10,7 +10,21 @@ from spine.model.factories import model_names, model_spec
 from spine.model.manager import ModelManager
 from spine.utils.conditional import TORCH_AVAILABLE
 
-from .cases import INFERENCE_MODEL_CONFIGS, MODEL_CONFIGS
+from .cases import EXAMPLE_CONFIGS, INFERENCE_MODEL_CONFIGS, MODEL_CONFIGS
+
+
+@pytest.mark.parametrize(
+    "config_path",
+    EXAMPLE_CONFIGS,
+    ids=lambda path: str(path.relative_to(path.parents[1])),
+)
+def test_example_config_uses_per_process_minibatch_size(config_path):
+    """Keep example loader sizes independent of distributed world size."""
+    cfg = load_config_file(str(config_path), download=False)
+    loader_cfg = cfg["io"]["loader"]
+
+    assert "minibatch_size" in loader_cfg
+    assert "batch_size" not in loader_cfg
 
 
 @pytest.mark.parametrize("case_name", MODEL_CONFIGS)
@@ -55,7 +69,15 @@ def test_supported_models_have_maintained_configs():
 
 @pytest.mark.parametrize(
     "case_name",
-    ["uresnet", "uresnet_ppn", "spice", "graph_spice"],
+    [
+        "uresnet",
+        "uresnet_ppn",
+        "spice",
+        "graph_spice",
+        "grappa_inter",
+        "grappa_shower",
+        "grappa_track",
+    ],
 )
 def test_prototype_training_schedule_is_epoch_based(case_name):
     """Prototype training duration and checkpoint cadence follow the dataset."""
@@ -68,6 +90,42 @@ def test_prototype_training_schedule_is_epoch_based(case_name):
     assert "iterations" not in base_cfg
     assert "save_epoch" in train_cfg
     assert "save_step" not in train_cfg
+
+
+@pytest.mark.parametrize(
+    "case_name",
+    ["grappa_inter", "grappa_shower", "grappa_track"],
+)
+def test_grappa_train_and_test_config_contract(case_name):
+    """Keep canonical GrapPA models and requested minibatch sizes aligned."""
+    train_cfg = load_config_file(str(MODEL_CONFIGS[case_name]), download=False)
+    test_cfg = load_config_file(
+        str(INFERENCE_MODEL_CONFIGS[case_name]),
+        download=False,
+    )
+
+    assert train_cfg["io"]["loader"]["minibatch_size"] == 64
+    assert test_cfg["io"]["loader"]["minibatch_size"] == 2
+    assert train_cfg["model"] == test_cfg["model"]
+
+
+@pytest.mark.parametrize("config_group", [MODEL_CONFIGS, INFERENCE_MODEL_CONFIGS])
+def test_grappa_inter_parser_label_policy(config_group):
+    """Keep interaction-identification labels on the requested truth policy."""
+    cfg = load_config_file(str(config_group["grappa_inter"]), download=False)
+    parser_cfg = cfg["io"]["loader"]["dataset"]["schema"]["data"]
+
+    assert parser_cfg["type_include_secondary"] is False
+    assert parser_cfg["type_include_mpr"] is False
+    assert parser_cfg["primary_include_mpr"] is False
+
+
+def test_grappa_track_has_no_unsupervised_node_head():
+    """Do not construct trainable track outputs without a matching objective."""
+    cfg = load_config_file(str(MODEL_CONFIGS["grappa_track"]), download=False)
+    gnn_cfg = cfg["model"]["modules"]["grappa"]["gnn_model"]
+
+    assert "node_pred" not in gnn_cfg
 
 
 @pytest.mark.parametrize("config_group", [MODEL_CONFIGS, INFERENCE_MODEL_CONFIGS])
