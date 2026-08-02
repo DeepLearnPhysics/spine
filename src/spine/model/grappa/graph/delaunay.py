@@ -52,11 +52,13 @@ class DelaunayGraph(GraphBase):
         tuple of np.ndarray
             Edge index with shape ``(2, E)`` and per-entry edge counts.
         """
+        # Normalize the graph inputs and initialize per-event outputs
         data_array = data.numpy_tensor()
         batch_ids = np.asarray(clusts.batch_ids)
         edge_blocks: list[np.ndarray] = []
         edge_counts = np.zeros(clusts.batch_size, dtype=np.int64)
 
+        # Triangulate each batch entry independently
         for batch_id in range(clusts.batch_size):
             cluster_ids = np.flatnonzero(batch_ids == batch_id)
             edges = self._generate_entry(
@@ -67,6 +69,7 @@ class DelaunayGraph(GraphBase):
             edge_blocks.append(edges)
             edge_counts[batch_id] = edges.shape[1]
 
+        # Concatenate nonempty event graphs into one batched edge index
         nonempty_blocks = [edges for edges in edge_blocks if edges.shape[1] > 0]
         if nonempty_blocks:
             edge_index = np.concatenate(nonempty_blocks, axis=1)
@@ -82,9 +85,11 @@ class DelaunayGraph(GraphBase):
         cluster_ids: np.ndarray,
     ) -> np.ndarray:
         """Generate Delaunay edges for one batch entry."""
+        # Graphs with fewer than two nodes contain no edges
         if len(cluster_ids) < 2:
             return np.empty((2, 0), dtype=np.int64)
 
+        # Map each participating voxel back to its owning cluster
         voxel_indices = np.concatenate([clusters[index] for index in cluster_ids])
         voxel_clusters = np.concatenate(
             [
@@ -94,11 +99,13 @@ class DelaunayGraph(GraphBase):
         )
         points = data[voxel_indices][:, COORD_COLS]
 
+        # Triangulate the voxel cloud, falling back for degenerate geometry
         try:
             simplices = Delaunay(points, qhull_options="QJ").simplices
         except QhullError:
             return DelaunayGraph._complete_entry(cluster_ids)
 
+        # Convert voxel simplices to unique cluster-pair edges
         edge_pairs: set[tuple[int, int]] = set()
         for simplex in simplices:
             simplex_clusters = np.unique(voxel_clusters[simplex])

@@ -321,11 +321,12 @@ class LArCVCluster3DParser(ParserBase):
             coords : np.ndarray
                 (N, 3) array of [x, y, z] coordinates
             features : np.ndarray
-                (N, 2/14) array of features, minimally [voxel value, cluster ID].
+                (N, 2/17) array of features, minimally [voxel value, cluster ID].
                 If `add_particle_info` is `True`, the additonal columns are
                 [particle ID, group ID, interaction ID, neutrino ID, particle type,
                 group primary bool, interaction primary bool, vertex x, vertex y,
-                vertex z, momentum, semantic type]
+                vertex z, momentum, ancestor particle type, ancestor momentum,
+                semantic type]
             meta : Meta
                 Metadata of the parsed image
         """
@@ -387,6 +388,28 @@ class LArCVCluster3DParser(ParserBase):
             labels["vtx_y"] = anc_pos[:, 1]
             labels["vtx_z"] = anc_pos[:, 2]
             labels["p"] = [p.p() for p in particles]
+
+            # Propagate root-ancestor targets to every particle in its tree.
+            # Ancestor IDs are Geant track IDs, whereas particle IDs follow
+            # the LArCV index convention, so resolve them through track IDs.
+            track_id_to_index = {
+                int(p.track_id()): index for index, p in enumerate(particles)
+            }
+            ancestor_particle_indexes = np.asarray(
+                [track_id_to_index.get(int(track_id), -1) for track_id in ancestor_ids]
+            )
+            ancestor_pids = np.full(num_particles, -1, dtype=self.ftype)
+            ancestor_momenta = np.full(num_particles, -1.0, dtype=self.ftype)
+            valid_ancestors = ancestor_particle_indexes > -1
+            if np.any(valid_ancestors):
+                root_indexes = ancestor_particle_indexes[valid_ancestors]
+                ancestor_pids[valid_ancestors] = np.asarray(types)[root_indexes]
+                ancestor_momenta[valid_ancestors] = np.asarray(
+                    [particles[index].p() for index in root_indexes],
+                    dtype=self.ftype,
+                )
+            labels["ancst_type"] = ancestor_pids
+            labels["ancst_p"] = ancestor_momenta
 
             # Store the shape last (consistent with semantics tensor)
             labels["shape"] = [p.shape() for p in particles]
@@ -590,11 +613,12 @@ class LArCVCluster3DAggregateParser(LArCVCluster3DParser):
             coords : np.ndarray
                 (N, 3) array of [x, y, z] coordinates
             features : np.ndarray
-                (N, 2/14) array of features, minimally [voxel value, cluster ID].
+                (N, 2/17) array of features, minimally [voxel value, cluster ID].
                 If `add_particle_info` is `True`, the additonal columns are
                 [group ID, interaction ID, neutrino ID, particle type,
                 group primary bool, interaction primary bool, vertex x, vertex y,
-                vertex z, momentum, semantic type, particle ID]
+                vertex z, momentum, ancestor particle type, ancestor momentum,
+                semantic type, particle ID]
             meta : Meta
                 Metadata of the parsed image
         """
@@ -685,11 +709,12 @@ class LArCVCluster3DChargeRescaledParser(LArCVCluster3DParser):
             coords : np.ndarray
                 (N, 3) array of [x, y, z] coordinates
             features : np.ndarray
-                (N, 2/14) array of features, minimally [voxel value, cluster ID].
+                (N, 2/17) array of features, minimally [voxel value, cluster ID].
                 If `add_particle_info` is `True`, the additonal columns are
                 [group ID, interaction ID, neutrino ID, particle type,
                 group primary bool, interaction primary bool, vertex x, vertex y,
-                vertex z, momentum, semantic type, particle ID]
+                vertex z, momentum, ancestor particle type, ancestor momentum,
+                semantic type, particle ID]
             meta : Meta
                 Metadata of the parsed image
         """

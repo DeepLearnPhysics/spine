@@ -24,7 +24,6 @@ The model package is built around configuration-driven instantiation through :cl
    spice
    full_chain
    image
-   singlep
    grappa
    graph_spice
    cnn

@@ -63,8 +63,10 @@ class BayesianUResNet(torch.nn.Module):
             If the class count, mode, or number of stochastic samples is
             invalid.
         """
+        # Initialize the parent class
         super().__init__()
 
+        # Extract and validate the Bayesian prediction contract
         cfg = dict(uresnet_bayes)
         try:
             self.num_classes = int(cfg.pop("num_classes"))
@@ -87,6 +89,7 @@ class BayesianUResNet(torch.nn.Module):
         if self.num_samples < 1:
             raise ValueError("`num_samples` must be positive.")
 
+        # Initialize the dropout-enabled UResNet backbone
         dropout_p = float(cfg.pop("dropout_p", 0.5))
         dropout_layers = cfg.pop("dropout_layers", None)
         self.encoder = MCDropoutEncoder(
@@ -101,6 +104,7 @@ class BayesianUResNet(torch.nn.Module):
             dropout_layers=dropout_layers,
         )
 
+        # Build the segmentation projection for logits or positive evidence
         classifier: list[torch.nn.Module] = [
             sparse.Linear(self.encoder.num_filters, self.num_classes)
         ]
@@ -129,6 +133,7 @@ class BayesianUResNet(torch.nn.Module):
         BayesianBackboneOutput
             Encoder and decoder feature planes from this pass.
         """
+        # Convert the dense coordinate-feature table to a sparse input
         dimension = self.encoder.dimension
         coordinates = input_tensor[:, : dimension + 1].int()
         features = input_tensor[:, dimension + 1 :]
@@ -137,12 +142,16 @@ class BayesianUResNet(torch.nn.Module):
             features=features,
             batch_size=batch_size,
         )
+
+        # Run the encoder, decoder, and final prediction projection
         encoder_output = self.encoder.encode(sparse_input)
         decoder_tensors = self.decoder(
             encoder_output["final_tensor"],
             encoder_output["encoder_tensors"],
         )
         output = self.classifier(decoder_tensors[-1])
+
+        # Retain the feature pyramid for downstream model stages
         backbone_output: BayesianBackboneOutput = {
             "final_tensor": encoder_output["final_tensor"],
             "encoder_tensors": encoder_output["encoder_tensors"],
@@ -153,15 +162,18 @@ class BayesianUResNet(torch.nn.Module):
     @contextmanager
     def _stochastic_dropout(self) -> Iterator[None]:
         """Temporarily enable dropout without changing normalization layers."""
+        # Capture the original state of every sparse dropout layer
         dropout_modules = [
             module for module in self.modules() if isinstance(module, sparse.Dropout)
         ]
         training_states = [module.training for module in dropout_modules]
         try:
+            # Activate stochastic masks without putting the full model in training
             for module in dropout_modules:
                 module.train()
             yield
         finally:
+            # Restore caller-owned training states after stochastic inference
             for module, training in zip(dropout_modules, training_states, strict=True):
                 module.train(training)
 
@@ -189,10 +201,12 @@ class BayesianUResNet(torch.nn.Module):
             expected probability, and uncertainty. Single-pass modes expose
             the sparse UResNet feature planes.
         """
+        # Narrow the input table to the columns consumed by the backbone
         data_tensor = data.torch_tensor()
         num_columns = 1 + self.encoder.dimension + self.encoder.num_input
         input_tensor = data_tensor[:, :num_columns]
 
+        # Average repeated stochastic predictions in Monte Carlo mode
         if self.mode == "mc_dropout":
             logits_sum: torch.Tensor | None = None
             probability_sum: torch.Tensor | None = None
@@ -217,12 +231,15 @@ class BayesianUResNet(torch.nn.Module):
                 "softmax": TensorBatch(softmax, data.counts),
             }
 
+        # Run the standard single-pass prediction path
         output, backbone_output = self._forward_once(input_tensor, data.batch_size)
         prediction = output.aligned_features()
         result: dict[str, Any] = {
             "segmentation": TensorBatch(prediction, data.counts),
             **backbone_output,
         }
+
+        # Derive Dirichlet uncertainty products from positive evidence
         if self.mode == "evidential":
             concentration = prediction + 1.0
             total_concentration = concentration.sum(dim=1, keepdim=True)
@@ -271,7 +288,10 @@ class BayesianSegmentationLoss(torch.nn.Module):
         ValueError
             If the configured loss family is inconsistent with the model mode.
         """
+        # Initialize the parent class
         super().__init__()
+
+        # Extract the model properties that determine the objective family
         self.num_classes = int(uresnet_bayes["num_classes"])
         mode = uresnet_bayes.get("mode", "standard")
         self.mode = "evidential" if mode == "evd" else mode
@@ -281,6 +301,7 @@ class BayesianSegmentationLoss(torch.nn.Module):
         loss_name = cfg.pop("loss", default_loss)
         self.balance_loss = bool(cfg.pop("balance_loss", False))
 
+        # Initialize the evidential or conventional segmentation objective
         if self.mode == "evidential":
             if not loss_name.startswith("edl_"):
                 raise ValueError("Evidential mode requires an `edl_*` loss.")
@@ -330,6 +351,7 @@ class BayesianSegmentationLoss(torch.nn.Module):
             Scalar loss, global accuracy, classwise accuracies, and effective
             weights when weighting is active.
         """
+        # Validate and normalize semantic labels and predictions
         labels = seg_label.torch_tensor()[:, VALUE_COL].long()
         predictions = segmentation.torch_tensor()
         if len(labels) != len(predictions):
@@ -344,6 +366,7 @@ class BayesianSegmentationLoss(torch.nn.Module):
                 f"Segmentation labels must lie in [0, {self.num_classes})."
             )
 
+        # Validate optional externally supplied voxel weights
         effective_weights = weights.torch_tensor() if weights is not None else None
         if effective_weights is not None:
             effective_weights = effective_weights.flatten()
@@ -352,6 +375,7 @@ class BayesianSegmentationLoss(torch.nn.Module):
             if torch.any(effective_weights < 0).item():
                 raise ValueError("Segmentation weights must be nonnegative.")
 
+        # Derive and combine optional minibatch class-balancing weights
         counts = torch.bincount(labels, minlength=self.num_classes)
         if self.balance_loss:
             class_weights = torch.ones(
@@ -368,6 +392,7 @@ class BayesianSegmentationLoss(torch.nn.Module):
                 else effective_weights * balance_weights
             )
 
+        # Evaluate the mode-specific per-voxel objective
         if self.mode == "evidential":
             losses = self.loss_fn(predictions, labels, iteration=iteration)
         else:
@@ -375,6 +400,7 @@ class BayesianSegmentationLoss(torch.nn.Module):
         if losses.ndim > 1:
             losses = losses.reshape(len(labels), -1).mean(dim=1)
 
+        # Reduce the objective with the effective voxel weights
         if effective_weights is None:
             loss = losses.mean()
         else:
@@ -383,6 +409,7 @@ class BayesianSegmentationLoss(torch.nn.Module):
                 raise ValueError("The sum of segmentation weights must be positive.")
             loss = (losses * effective_weights).sum() / weight_sum
 
+        # Compute global and per-class segmentation accuracy
         with torch.no_grad():
             predictions_class = predictions.argmax(dim=1)
             accuracy = (predictions_class == labels).float().mean().item()
@@ -397,6 +424,7 @@ class BayesianSegmentationLoss(torch.nn.Module):
                         .item()
                     )
 
+        # Package scalar metrics and reusable effective weights
         result: dict[str, Any] = {"loss": loss, "accuracy": accuracy}
         for class_id, value in enumerate(class_accuracy):
             result[f"accuracy_class_{class_id}"] = value

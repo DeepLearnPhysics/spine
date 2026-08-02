@@ -3,6 +3,7 @@
 import numpy as np
 import pytest
 
+from spine.constants import ANCST_MOM_COL, ANCST_PID_COL, VALUE_COL
 from spine.data.larcv.meta import ImageMeta2D, ImageMeta3D
 from spine.io.parse.data import ParserTensor
 from spine.io.parse.larcv.cluster import *
@@ -90,7 +91,7 @@ def test_parse_cluster3d(
     # - The third has the metadata
     assert isinstance(result, ParserTensor)
     assert result.coords.shape[1] == 3
-    assert result.features.shape[1] == (15 if add_particle_info else 2)
+    assert result.features.shape[1] == (17 if add_particle_info else 2)
     assert isinstance(result.meta, ImageMeta3D)
 
 
@@ -145,7 +146,7 @@ def test_parse_cluster3d_rescale(
     # - The third has the metadata
     assert isinstance(result, ParserTensor)
     assert result.coords.shape[1] == 3
-    assert result.features.shape[1] == (15 if add_particle_info else 2)
+    assert result.features.shape[1] == (17 if add_particle_info else 2)
     assert isinstance(result.meta, ImageMeta3D)
 
 
@@ -200,7 +201,7 @@ def test_parse_cluster3d_aggregate(
     # - The third has the metadata
     assert isinstance(result, ParserTensor)
     assert result.coords.shape[1] == 3
-    assert result.features.shape[1] == (15 if add_particle_info else 2)
+    assert result.features.shape[1] == (17 if add_particle_info else 2)
     assert isinstance(result.meta, ImageMeta3D)
 
 
@@ -368,3 +369,33 @@ def test_cluster3d_add_particle_info_special_cases(cluster3d_event, particle_eve
     assert any(
         "You must set `clean_data` to `True`" in message for message in warning_messages
     )
+
+
+@pytest.mark.parametrize("cluster3d_event, particle_event", [(20, 20)], indirect=True)
+def test_cluster3d_propagates_ancestor_targets(cluster3d_event, particle_event):
+    """Every descendant voxel should carry its root PID and momentum."""
+    particles = list(particle_event.as_vector())
+    root = particles[0]
+    root.shape(1)
+    root.pdg_code(13)
+    root.momentum(3.0, 4.0, 0.0)
+    for particle in particles:
+        particle.ancestor_track_id(root.track_id())
+
+    parser = LArCVCluster3DParser(
+        dtype="float32",
+        cluster_event=cluster3d_event,
+        particle_event=particle_event,
+        add_particle_info=True,
+    )
+    result = parser.process(
+        cluster_event=cluster3d_event,
+        particle_event=particle_event,
+    )
+
+    valid = result.features[:, 1] >= 0
+    ancestor_pids = result.features[valid, ANCST_PID_COL - VALUE_COL]
+    ancestor_momenta = result.features[valid, ANCST_MOM_COL - VALUE_COL]
+    assert len(ancestor_pids) > 0
+    assert np.all(ancestor_pids == 2)
+    assert np.allclose(ancestor_momenta, 5.0)

@@ -56,10 +56,17 @@ def test_model_config_runs_one_iteration(case_name, larcv_data, tmp_path):
     result = Driver(cfg).process(iteration=0)
 
     assert "loss" in result
-    assert "accuracy" in result
     assert EXPECTED_OUTPUTS[case_name] <= result.keys()
     assert math.isfinite(_as_float(result["loss"]))
-    assert math.isfinite(_as_float(result["accuracy"]))
+    if case_name.startswith("image_energy"):
+        assert math.isfinite(_as_float(result["energy_mae"]))
+        assert math.isfinite(_as_float(result["energy_rmse"]))
+        if case_name.endswith("_ancestor"):
+            assert _as_float(result["energy_count"]) > 0
+    else:
+        assert math.isfinite(_as_float(result["accuracy"]))
+        if case_name.endswith("_ancestor"):
+            assert _as_float(result["pid_count"]) > 0
 
 
 @pytest.mark.model
@@ -75,6 +82,10 @@ def test_model_config_runs_one_iteration(case_name, larcv_data, tmp_path):
         "grappa_inter",
         "grappa_shower",
         "grappa_track",
+        "image_energy",
+        "image_energy_ancestor",
+        "image_pid",
+        "image_pid_ancestor",
         "spice",
         "uresnet_bayes",
         "uresnet_ppn",
@@ -101,4 +112,12 @@ def test_standalone_inference_config_runs_one_iteration(
 
     assert EXPECTED_OUTPUTS[case_name] <= result.keys()
     assert math.isfinite(_as_float(result["loss"]))
-    assert math.isfinite(_as_float(result["accuracy"]))
+    if case_name.startswith("image_energy"):
+        assert math.isfinite(_as_float(result["energy_mae"]))
+        assert math.isfinite(_as_float(result["energy_rmse"]))
+        if case_name.endswith("_ancestor"):
+            assert _as_float(result["energy_count"]) > 0
+    else:
+        assert math.isfinite(_as_float(result["accuracy"]))
+        if case_name.endswith("_ancestor"):
+            assert _as_float(result["pid_count"]) > 0

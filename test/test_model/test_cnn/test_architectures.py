@@ -3,6 +3,7 @@
 import pytest
 
 from spine.model import sparse
+from spine.model.cnn.encoder import SparseResidualEncoder
 from spine.model.cnn.fpn import FPN
 from spine.model.cnn.mcdropout import (
     MCDropoutDecoder,
@@ -75,3 +76,47 @@ def test_mc_dropout_encoder_decoder_share_contract(cnn_config, sparse_table):
 def test_mc_dropout_rejects_invalid_layer_index(cnn_config):
     with pytest.raises(ValueError, match="outside"):
         MCDropoutEncoder(cnn_config, dropout_layers=[cnn_config["depth"]])
+
+
+def test_sparse_residual_encoder_uses_all_configured_features(
+    cnn_config,
+    sparse_table,
+):
+    """The pooled encoder must not silently discard extra input channels."""
+    config = dict(cnn_config)
+    config["num_input"] = 2
+    table = sparse_table.new_empty((len(sparse_table), 6))
+    table[:, :5] = sparse_table
+    table[:, 5] = sparse_table[:, 4] * 2
+    encoder = SparseResidualEncoder(feature_size=8, **config)
+
+    output = encoder(table)
+
+    assert output.shape == (2, 8)
+
+
+def test_sparse_residual_encoder_sizes_coordinate_convolution(
+    cnn_config,
+    sparse_table,
+):
+    """Coordinate convolution should add its channels automatically."""
+    encoder = SparseResidualEncoder(
+        coord_conv=True,
+        feature_size=8,
+        **cnn_config,
+    )
+
+    output = encoder(sparse_table)
+
+    assert output.shape == (2, 8)
+
+
+def test_global_pooling_does_not_require_spatial_size(cnn_config, sparse_table):
+    """Global pooling should work without an irrelevant detector extent."""
+    config = dict(cnn_config)
+    config.pop("spatial_size")
+    encoder = SparseResidualEncoder(feature_size=8, **config)
+
+    output = encoder(sparse_table)
+
+    assert output.shape == (2, 8)

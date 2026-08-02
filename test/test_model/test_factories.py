@@ -9,7 +9,7 @@ def test_model_discovery_is_dependency_light():
         "full_chain",
         "graph_spice",
         "grappa",
-        "image_class",
+        "image",
         "spice",
         "uresnet",
         "uresnet_bayes",

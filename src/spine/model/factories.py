@@ -13,7 +13,7 @@ _MODEL_MODULES: dict[str, str] = {
     "full_chain": "spine.model.full_chain",
     "graph_spice": "spine.model.graph_spice",
     "grappa": "spine.model.grappa",
-    "image_class": "spine.model.image",
+    "image": "spine.model.image",
     "spice": "spine.model.spice",
     "uresnet": "spine.model.uresnet",
     "uresnet_bayes": "spine.model.uresnet.bayes",

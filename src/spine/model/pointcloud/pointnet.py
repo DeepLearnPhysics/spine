@@ -261,12 +261,12 @@ class PointNetEncoder(torch.nn.Module):
         self.latent_size = self.net.latent_size
         self.feature_size = self.latent_size
 
-    def forward(self, batch: Batch) -> torch.Tensor:
+    def forward(self, batch: Data | Batch) -> torch.Tensor:
         """Encode a PyTorch Geometric point-cloud batch.
 
         Parameters
         ----------
-        batch : torch_geometric.data.Batch
+        batch : torch_geometric.data.Data or Batch
             Batched point-cloud input.
 
         Returns

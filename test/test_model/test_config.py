@@ -73,6 +73,10 @@ def test_supported_models_have_maintained_configs():
         "uresnet",
         "uresnet_bayes",
         "uresnet_ppn",
+        "image_energy",
+        "image_energy_ancestor",
+        "image_pid",
+        "image_pid_ancestor",
         "spice",
         "graph_spice",
         "grappa_inter",
@@ -108,6 +112,46 @@ def test_grappa_train_and_test_config_contract(case_name):
     assert train_cfg["io"]["loader"]["minibatch_size"] == 64
     assert test_cfg["io"]["loader"]["minibatch_size"] == 2
     assert train_cfg["model"] == test_cfg["model"]
+
+
+@pytest.mark.parametrize(
+    "case_name",
+    [
+        "image_energy",
+        "image_energy_ancestor",
+        "image_pid",
+        "image_pid_ancestor",
+    ],
+)
+def test_image_train_and_test_config_contract(case_name):
+    """Keep canonical image tasks aligned across training and inference."""
+    train_cfg = load_config_file(str(MODEL_CONFIGS[case_name]), download=False)
+    test_cfg = load_config_file(
+        str(INFERENCE_MODEL_CONFIGS[case_name]),
+        download=False,
+    )
+
+    assert train_cfg["io"]["loader"]["minibatch_size"] == 64
+    assert test_cfg["io"]["loader"]["minibatch_size"] == 2
+    assert train_cfg["model"] == test_cfg["model"]
+
+
+@pytest.mark.parametrize(
+    "case_name",
+    ["image_energy_ancestor", "image_pid_ancestor"],
+)
+@pytest.mark.parametrize("config_group", [MODEL_CONFIGS, INFERENCE_MODEL_CONFIGS])
+def test_ancestor_image_config_contract(case_name, config_group):
+    """Keep tree construction and root-particle supervision explicit."""
+    cfg = load_config_file(str(config_group[case_name]), download=False)
+    model_cfg = cfg["model"]
+    image_cfg = model_cfg["modules"]["image"]
+    task_name = "energy" if case_name.startswith("image_energy") else "pid"
+    loss_cfg = model_cfg["modules"]["image_loss"][task_name]
+
+    assert model_cfg["network_input"]["object_data"] == "data"
+    assert image_cfg["objects"]["source"] == "ancestor"
+    assert loss_cfg["target_reduction"] == "ancestor"
 
 
 @pytest.mark.parametrize("config_group", [MODEL_CONFIGS, INFERENCE_MODEL_CONFIGS])

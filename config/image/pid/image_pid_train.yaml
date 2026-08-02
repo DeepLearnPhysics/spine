@@ -1,0 +1,70 @@
+# Canonical whole-image particle-identification training configuration.
+
+base:
+  world_size: 1
+  epochs: 25.0
+  seed: 0
+  unwrap: false
+  log_dir: logs/image/pid/train
+  log_step: 1
+  train:
+    weight_prefix: weights/image/pid/snapshot
+    save_epoch: 1.0
+    optimizer:
+      name: Adam
+      lr: 0.001
+
+io:
+  loader:
+    minibatch_size: 64
+    shuffle: false
+    num_workers: 8
+    collate_fn: all
+    sampler:
+      name: random_sequence
+      seed: 0
+    dataset:
+      name: larcv
+      file_keys: null
+      schema:
+        data:
+          parser: sparse3d
+          sparse_event: sparse3d_pcluster
+        labels:
+          parser: single_particle_pid
+          particle_event: particle_corrected
+
+model:
+  name: image
+  weight_path: null
+  network_input:
+    data: data
+  loss_input:
+    labels: labels
+  modules:
+    image:
+      objects:
+        source: image
+      encoder:
+        name: cnn
+        num_input: 1
+        spatial_size: 768
+        filters: 32
+        depth: 5
+        reps: 2
+        allow_bias: false
+        activation:
+          name: lrelu
+          negative_slope: 0.33
+        norm_layer:
+          name: batch_norm
+          eps: 0.0001
+          momentum: 0.01
+      heads:
+        pid: 5
+    image_loss:
+      pid:
+        name: class
+        label: labels
+        loss: ce
+        balance_loss: false

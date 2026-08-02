@@ -38,7 +38,10 @@ class SPICELoss(torch.nn.Module):
         spice_loss : dict, optional
             Loss configuration.
         """
+        # Initialize the parent class
         super().__init__()
+
+        # Process the model-dependent contract before the loss parameters
         self.process_model_config(**spice)
         self.process_loss_config(**({} if spice_loss is None else spice_loss))
 
@@ -99,6 +102,7 @@ class SPICELoss(torch.nn.Module):
         eps : float, default 1e-6
             Numerical stability constant.
         """
+        # Validate scalar loss parameters before constructing objectives
         weights = {
             "embedding_weight": embedding_weight,
             "seediness_weight": seediness_weight,
@@ -114,6 +118,7 @@ class SPICELoss(torch.nn.Module):
         if eps <= 0.0:
             raise ValueError("`eps` must be positive.")
 
+        # Initialize component objectives and store their relative weights
         self.mask_loss_fn = loss_fn_factory(mask_loss, reduction="none")
         self.seed_loss_fn = loss_fn_factory(seed_loss, reduction="mean")
         self.embedding_weight = embedding_weight
@@ -131,6 +136,7 @@ class SPICELoss(torch.nn.Module):
         num_clusters: int,
     ) -> torch.Tensor:
         """Compute one mean feature vector per contiguous cluster label."""
+        # Accumulate cluster sums and normalize by their voxel multiplicities
         sums = values.new_zeros((num_clusters, values.shape[1]))
         sums.index_add_(0, labels, values)
         counts = torch.bincount(labels, minlength=num_clusters).to(values.dtype)
@@ -146,6 +152,7 @@ class SPICELoss(torch.nn.Module):
         tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, float, int] | None
     ):
         """Compute SPICE terms for one batch entry and semantic class."""
+        # Remove invalid cluster assignments and undersized supervision sets
         valid = cluster_labels >= 0
         if int(valid.sum()) < self.min_voxels:
             return None
@@ -161,10 +168,12 @@ class SPICELoss(torch.nn.Module):
         )
         num_clusters = int(labels.max()) + 1
 
+        # Estimate one embedding centroid and Gaussian width per cluster
         centroids = self._cluster_means(embeddings, labels, num_clusters)
         cluster_margins = self._cluster_means(margins, labels, num_clusters)
         cluster_margins = torch.clamp(cluster_margins[:, 0], min=self.eps)
 
+        # Convert embedding distances into cluster-membership probabilities
         squared_distances = (
             (embeddings[:, None, :] - centroids[None, :, :]).square().sum(dim=2)
         )
@@ -182,6 +191,7 @@ class SPICELoss(torch.nn.Module):
             num_classes=num_clusters,
         ).to(embeddings.dtype)
 
+        # Supervise masks, seediness, and within-cluster margin consistency
         mask_loss = self.mask_loss_fn(logits, targets).mean()
         own_probabilities = probabilities.gather(1, labels[:, None]).flatten()
         seed_loss = self.seed_loss_fn(
@@ -192,6 +202,7 @@ class SPICELoss(torch.nn.Module):
             margins[:, 0] - cluster_margins[labels].detach()
         ).mean()
 
+        # Penalize distinct cluster centroids that violate the separation margin
         inter_loss = embeddings.sum() * 0.0
         if num_clusters > 1:
             centroid_distances = torch.pdist(centroids)
@@ -204,6 +215,7 @@ class SPICELoss(torch.nn.Module):
                 .mean()
             )
 
+        # Measure the mean mask intersection-over-union at the default threshold
         predictions = probabilities >= 0.5
         target_masks = targets.bool()
         intersection = (predictions & target_masks).sum(dim=0).float()
@@ -251,6 +263,7 @@ class SPICELoss(torch.nn.Module):
             Total loss, component losses, mean mask IoU, and supervised voxel
             count.
         """
+        # Validate and unwrap the filtered network products
         embedding_tensor = embeddings.torch_tensor()
         margin_tensor = margins.torch_tensor()
         seediness_tensor = seediness.torch_tensor()
@@ -262,9 +275,12 @@ class SPICELoss(torch.nn.Module):
         ):
             raise ValueError("Filtered SPICE outputs and index must have equal length.")
 
+        # Recover the corresponding truth rows from the original label batch
         label_tensor = clust_label.torch_tensor()[filter_index.index]
         terms = []
         supervised_voxels = 0
+
+        # Evaluate each event and semantic class as an independent mask problem
         for batch_id in range(embeddings.batch_size):
             lower = int(embeddings.edges[batch_id])
             upper = int(embeddings.edges[batch_id + 1])
@@ -287,6 +303,7 @@ class SPICELoss(torch.nn.Module):
                     terms.append(semantic_terms)
                     supervised_voxels += semantic_terms[5]
 
+        # Preserve a differentiable zero when no class can be supervised
         if not terms:
             zero = embedding_tensor.sum() * 0.0
             return {
@@ -299,10 +316,13 @@ class SPICELoss(torch.nn.Module):
                 "count": 0,
             }
 
+        # Average component terms across supervised semantic subsets
         mask_loss = torch.stack([term[0] for term in terms]).mean()
         seed_loss = torch.stack([term[1] for term in terms]).mean()
         smoothing_loss = torch.stack([term[2] for term in terms]).mean()
         inter_loss = torch.stack([term[3] for term in terms]).mean()
+
+        # Form the weighted objective and aggregate mask accuracy
         loss = (
             self.embedding_weight * mask_loss
             + self.seediness_weight * seed_loss

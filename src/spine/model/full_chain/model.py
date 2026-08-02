@@ -43,9 +43,8 @@ from ..registry import ModelSpec
 from ..uresnet import SegmentationLoss, UResNetSegmentation
 from ..uresnet.ppn import UResNetPPN, UResNetPPNLoss
 
-# from spine.model.cnn.cnn_encoder import SparseResidualEncoder ??
-# TODO: replace this with MultiParticleImageClassifier
-# TODO: raname it something more generic like ParticleClusterImageClassifier?
+# TODO: integrate the modular ImageModel when particle-identification stages
+# are decomposed during the full-chain refactor.
 
 
 class FullChain(torch.nn.Module):

@@ -66,8 +66,10 @@ class SPICEEmbedder(torch.nn.Module):
         ValueError
             If the UResNet input contract or an output dimension is invalid.
         """
+        # Initialize the parent class
         super().__init__()
 
+        # Validate and store the SPICE-specific configuration
         self.dimension = int(uresnet.get("data_dim", 3))
         spatial_size = uresnet.get("spatial_size")
         if spatial_size is None:
@@ -86,6 +88,7 @@ class SPICEEmbedder(torch.nn.Module):
         self.seed_freeze = seed_freeze
         self.skip_classes = self._parse_shapes(skip_classes)
 
+        # Check that the UResNet input width matches the frontend features
         expected_inputs = 1 + (self.dimension if coord_conv else 0)
         configured_inputs = int(uresnet.get("num_input", 1))
         if configured_inputs != expected_inputs:
@@ -95,11 +98,13 @@ class SPICEEmbedder(torch.nn.Module):
                 f"`num_input={expected_inputs}`, got {configured_inputs}."
             )
 
+        # Initialize the shared encoder and task-specific decoders
         self.encoder = UResNetEncoder(uresnet)
         self.embedding_decoder = UResNetDecoder(uresnet)
         self.seediness_decoder = UResNetDecoder(uresnet)
         num_filters = self.encoder.num_filters
 
+        # Initialize the embedding, margin, and seediness projections
         self.embedding_output = torch.nn.Sequential(
             norm_factory(self.encoder.norm_cfg, num_filters),
             sparse.Linear(
@@ -113,6 +118,7 @@ class SPICEEmbedder(torch.nn.Module):
             sparse.Linear(num_filters, self.seediness_dim, bias=False),
         )
 
+        # Optionally freeze the complete seediness branch
         if self.seed_freeze:
             for parameter in self.seediness_decoder.parameters():
                 parameter.requires_grad = False
@@ -122,6 +128,7 @@ class SPICEEmbedder(torch.nn.Module):
     @staticmethod
     def _parse_shapes(shapes: Sequence[int | str]) -> tuple[int, ...]:
         """Normalize semantic class identifiers to integer values."""
+        # Resolve named and integer shape identifiers to one representation
         parsed = []
         for shape in shapes:
             parsed.append(
@@ -148,6 +155,7 @@ class SPICEEmbedder(torch.nn.Module):
         tuple
             Filtered input data and an index back into the original batch.
         """
+        # Validate that data and labels describe the same voxel rows
         data_tensor = data.torch_tensor()
         label_tensor = seg_label.torch_tensor()
         if len(data_tensor) != len(label_tensor):
@@ -156,6 +164,7 @@ class SPICEEmbedder(torch.nn.Module):
                 f"{len(data_tensor)} and {len(label_tensor)}."
             )
 
+        # Build the semantic-class selection mask
         mask = torch.ones(len(label_tensor), dtype=torch.bool, device=data.device)
         if self.skip_classes:
             excluded = torch.tensor(
@@ -165,6 +174,7 @@ class SPICEEmbedder(torch.nn.Module):
             )
             mask = ~torch.isin(label_tensor[:, SHAPE_COL], excluded)
 
+        # Narrow the input while preserving event counts and source indexes
         index = torch.where(mask)[0]
         filtered_data = data_tensor[index]
         counts = torch.bincount(
@@ -200,9 +210,11 @@ class SPICEEmbedder(torch.nn.Module):
             Spatial embeddings, positive margins, seediness scores, and the
             index relating filtered voxels to the original input.
         """
+        # Remove semantic classes that SPICE does not cluster
         data, filter_index = self.filter_class(data, seg_label)
         data_tensor = data.torch_tensor()
 
+        # Split coordinates and charge, then build coordinate-convolution inputs
         coordinates = data_tensor[:, : self.dimension + 1]
         raw_features = data_tensor[:, self.dimension + 1 :]
         if raw_features.shape[1] < 1:
@@ -215,6 +227,7 @@ class SPICEEmbedder(torch.nn.Module):
         if self.coord_conv:
             features = torch.cat((normalized_coordinates, charge), dim=1)
 
+        # Encode the sparse image once for both prediction branches
         sparse_input = sparse.SparseTensor(
             features=features,
             coordinates=coordinates.int(),
@@ -224,6 +237,7 @@ class SPICEEmbedder(torch.nn.Module):
         encoder_tensors = encoder_output["encoder_tensors"]
         final_tensor = encoder_output["final_tensor"]
 
+        # Decode embedding and seediness features independently
         embedding_features = self.embedding_decoder(
             final_tensor,
             encoder_tensors,
@@ -236,11 +250,13 @@ class SPICEEmbedder(torch.nn.Module):
         embedding_output = self.embedding_output(embedding_features).aligned_features()
         seediness_output = self.seediness_output(seediness_features).aligned_features()
 
+        # Transform raw projections to their physical output domains
         spatial_offsets = torch.tanh(embedding_output[:, : self.dimension])
         embeddings = spatial_offsets + normalized_coordinates
         margins = 2.0 * torch.sigmoid(embedding_output[:, self.dimension :])
         seediness = torch.sigmoid(seediness_output)
 
+        # Restore the filtered event batching on every dense output
         return {
             "embeddings": TensorBatch(embeddings, data.counts),
             "margins": TensorBatch(margins, data.counts),

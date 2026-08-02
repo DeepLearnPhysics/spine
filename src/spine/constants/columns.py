@@ -67,6 +67,8 @@ __all__ = [
     "PRGRP_COL",
     "PRINT_COL",
     "MOM_COL",
+    "ANCST_PID_COL",
+    "ANCST_MOM_COL",
     "SHAPE_COL",
     "COORD_TIME_COL",
     "PPN_LTYPE_COL",
@@ -118,7 +120,9 @@ class ClusterLabelCol(IntEnum):
     VTX_Y = 15
     VTX_Z = 16
     MOMENTUM = 17
-    SHAPE = 18
+    ANCESTOR_PID = 18
+    ANCESTOR_MOMENTUM = 19
+    SHAPE = 20
 
 
 # Coordinate label tensor layout
@@ -276,6 +280,8 @@ PID_COL = int(ClusterLabelCol.PID)
 PRGRP_COL = int(ClusterLabelCol.GROUP_PRIMARY)
 PRINT_COL = int(ClusterLabelCol.INTER_PRIMARY)
 MOM_COL = int(ClusterLabelCol.MOMENTUM)
+ANCST_PID_COL = int(ClusterLabelCol.ANCESTOR_PID)
+ANCST_MOM_COL = int(ClusterLabelCol.ANCESTOR_MOMENTUM)
 
 SHAPE_COL: Final[int] = -1
 

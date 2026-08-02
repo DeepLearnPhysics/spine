@@ -255,6 +255,10 @@ Example configurations are available in the `config` folder:
 | `uresnet/uresnet_{train,test}.yaml`              | UResNet alone  |
 | `uresnet/bayes/uresnet_bayes_{train,test}.yaml`  | Bayesian UResNet |
 | `uresnet/ppn/uresnet_ppn_{train,test}.yaml`      | UResNet + PPN  |
+| `image/pid/image_pid_{train,test}.yaml`           | Image PID classification |
+| `image/energy/image_energy_{train,test}.yaml`     | Image energy regression |
+| `image/pid/image_pid_ancestor_{train,test}.yaml`  | Ancestor-tree PID classification |
+| `image/energy/image_energy_ancestor_{train,test}.yaml` | Ancestor-tree energy regression |
 | `graph_spice/graph_spice_{train,test}.yaml`      | Graph-SPICE    |
 | `grappa_shower/grappa_shower_{train,test}.yaml` | GrapPA for shower fragment clustering |
 | `grappa_track/grappa_track_{train,test}.yaml` | GrapPA for track fragment clustering |

@@ -52,8 +52,10 @@ class EdgeLoss(torch.nn.Module):
         metric : str or mapping, optional
             Additional binary metric configuration.
         """
+        # Initialize the parent class
         super().__init__()
 
+        # Validate and store edge-selection parameters
         if min_sample_edges < 1:
             raise ValueError("`min_sample_edges` must be positive.")
 
@@ -61,6 +63,8 @@ class EdgeLoss(torch.nn.Module):
         self.balance_loss = balance_loss
         self.equal_sampling = equal_sampling
         self.min_sample_edges = min_sample_edges
+
+        # Initialize the edge objective and optional assignment metric
         self.loss_fn = loss_fn_factory(loss, reduction="none")
         self.metric_fn = (
             None if metric is None else cast(BinaryMetric, metric_fn_factory(metric))
@@ -86,16 +90,20 @@ class EdgeLoss(torch.nn.Module):
             Sampled logits and corresponding labels. If either class is
             absent, the original tensors are returned unchanged.
         """
+        # Identify the available edges in each binary target class
         class_indices = [
             torch.where(edge_labels == class_id)[0] for class_id in range(2)
         ]
         if any(len(indices) == 0 for indices in class_indices):
             return edge_logits, edge_labels
 
+        # Choose one shared sample count, respecting the configured minimum
         sample_count = max(
             min(len(indices) for indices in class_indices),
             self.min_sample_edges,
         )
+
+        # Sample each class with replacement only when necessary
         sampled_indices = []
         for indices in class_indices:
             if sample_count <= len(indices):
@@ -142,6 +150,7 @@ class EdgeLoss(torch.nn.Module):
             Loss, binary accuracy, number of supervised edges, and the
             configured optional metric.
         """
+        # Validate and normalize edge logits and binary targets
         edge_logits = edge_attr.torch_tensor().flatten()
         edge_labels = edge_label.torch_tensor().flatten()
         if len(edge_logits) != len(edge_labels):
@@ -153,6 +162,7 @@ class EdgeLoss(torch.nn.Module):
             raise ValueError("Edge labels must be binary (0 or 1).")
         edge_labels = edge_labels.long()
 
+        # Apply optional equal-class sampling and target inversion
         if self.equal_sampling:
             edge_logits, edge_labels = self.sample_edges(
                 edge_logits,
@@ -165,8 +175,7 @@ class EdgeLoss(torch.nn.Module):
         edge_predictions = (edge_logits > 0.0).long()
         num_edges = len(edge_predictions)
 
-        # Preserve a differentiable zero for empty graphs instead of reducing
-        # an empty tensor to NaN.
+        # Reduce the objective, preserving a differentiable zero for empty graphs
         if num_edges == 0:
             loss = edge_logits.sum() * 0.0
         else:
@@ -180,6 +189,7 @@ class EdgeLoss(torch.nn.Module):
                 loss *= weights
             loss = loss.mean()
 
+        # Compute binary assignment accuracy and the optional metric
         accuracy = 1.0
         if num_edges > 0:
             accuracy = float((edge_predictions == edge_labels).sum() / num_edges)

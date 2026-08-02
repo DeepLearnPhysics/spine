@@ -42,6 +42,18 @@ def test_model_package_has_no_unowned_vertex_prototypes():
     assert not (MODEL_DIR / "vertex.py").exists()
 
 
+def test_image_tasks_share_one_owner_package():
+    """Image sampling and tasks must not reappear as top-level model modules."""
+    image_package = MODEL_DIR / "image"
+
+    assert image_package.is_dir()
+    assert (image_package / "model.py").is_file()
+    assert (image_package / "loss.py").is_file()
+    assert (image_package / "object.py").is_file()
+    assert not (MODEL_DIR / "image.py").exists()
+    assert not (MODEL_DIR / "singlep.py").exists()
+
+
 def test_shared_packages_do_not_depend_on_model_families():
     """Reusable infrastructure must remain independent of concrete models."""
     shared_packages = ("cnn", "common", "pointcloud", "sparse")

@@ -49,14 +49,17 @@ class VertexPPN(sparse.Network):
         ValueError
             If ``score_threshold`` is outside ``[0, 1]``.
         """
+        # Initialize the sparse-network base and shared CNN configuration
         super().__init__(uresnet.get("data_dim", 3))
         setup_cnn_configuration(self, **uresnet)
 
+        # Validate the vertex-specific masking configuration
         config = {} if vertex_ppn is None else vertex_ppn
         self.score_threshold = float(config.get("score_threshold", 0.5))
         if not 0.0 <= self.score_threshold <= 1.0:
             raise ValueError("`score_threshold` must be between zero and one.")
 
+        # Build the multiscale decoding, fusion, and score-prediction stages
         decoding_blocks = []
         decoding_convolutions = []
         self.vertex_pred = torch.nn.ModuleList()
@@ -90,10 +93,12 @@ class VertexPPN(sparse.Network):
             decoding_blocks.append(torch.nn.Sequential(*blocks))
             self.vertex_pred.append(sparse.Linear(self.num_planes[level], 2))
 
+        # Register the scale-wise decoder and soft-mask expansion modules
         self.decoding_conv = torch.nn.Sequential(*decoding_convolutions)
         self.decoding_block = torch.nn.Sequential(*decoding_blocks)
         self.expand_as = ExpandAs()
 
+        # Initialize the final full-resolution regression and score heads
         num_output = self.num_planes[0]
         self.final_block = ResNetBlock(
             num_output,
@@ -145,12 +150,14 @@ class VertexPPN(sparse.Network):
         ValueError
             If the decoder feature count does not match ``depth - 1``.
         """
+        # Validate the supplied UResNet feature pyramid
         expected = self.depth - 1
         if len(decoder_tensors) != expected:
             raise ValueError(
                 f"Expected {expected} decoder tensors, got " f"{len(decoder_tensors)}."
             )
 
+        # Decode every scale while collecting intermediate score products
         vertex_layers = []
         vertex_coords = []
         x = final_tensor
@@ -184,6 +191,7 @@ class VertexPPN(sparse.Network):
             )
             x = x * expanded.detach()
 
+        # Predict the final full-resolution vertex offsets and logits
         x = self.final_block(x)
         offsets = self.vertex_regression(x)
         scores = self.vertexness_score(x)
@@ -191,6 +199,7 @@ class VertexPPN(sparse.Network):
             torch.cat((offsets.features, scores.features), dim=1)
         )
 
+        # Return both input-aligned and unique sparse-site representations
         return {
             "vertex_points": points.to_tensor_batch(
                 include_coordinates=False,

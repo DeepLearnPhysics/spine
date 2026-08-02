@@ -37,11 +37,14 @@ class ClustGeoCNNMixNodeEncoder(torch.nn.Module):
         activation : str or dict, default "elu"
             Activation applied before the feature-mixing projection.
         """
+        # Initialize the parent class
         super().__init__()
 
+        # Initialize the complementary geometric and CNN encoders
         self.geo_encoder = ClustGeoNodeEncoder(**geo_encoder)
         self.cnn_encoder = ClustCNNNodeEncoder(**cnn_encoder)
 
+        # Initialize the projection that mixes their concatenated features
         self.feature_size = (
             self.geo_encoder.feature_size + self.cnn_encoder.feature_size
         )
@@ -75,11 +78,14 @@ class ClustGeoCNNMixNodeEncoder(torch.nn.Module):
         ValueError
             If the geometric encoder is configured to return auxiliary points.
         """
+        # Encode geometry first and reject its unsupported auxiliary output mode
         geometric_output = self.geo_encoder(data, clusts, **kwargs)
         if isinstance(geometric_output, tuple):
             raise ValueError(
                 "Mixed node encoding does not support returning auxiliary points."
             )
+
+        # Align the CNN and geometric representations on one tensor backend
         cnn_features = self.cnn_encoder(data, clusts, **kwargs).torch_tensor()
         geometric_features = geometric_output.to_tensor(
             dtype=cnn_features.dtype,
@@ -87,6 +93,7 @@ class ClustGeoCNNMixNodeEncoder(torch.nn.Module):
         ).torch_tensor()
         mixed_features = torch.cat((geometric_features, cnn_features), dim=1)
 
+        # Mix the concatenated features and restore cluster batching
         output = self.linear(self.act(mixed_features))
         return TensorBatch(output, clusts.counts)
 
@@ -113,11 +120,14 @@ class ClustGeoCNNMixEdgeEncoder(torch.nn.Module):
         activation : str or dict, default "elu"
             Activation applied before the feature-mixing projection.
         """
+        # Initialize the parent class
         super().__init__()
 
+        # Initialize the complementary geometric and CNN encoders
         self.geo_encoder = ClustGeoEdgeEncoder(**geo_encoder)
         self.cnn_encoder = ClustCNNEdgeEncoder(**cnn_encoder)
 
+        # Initialize the projection that mixes their concatenated features
         self.feature_size = (
             self.geo_encoder.feature_size + self.cnn_encoder.feature_size
         )
@@ -149,6 +159,7 @@ class ClustGeoCNNMixEdgeEncoder(torch.nn.Module):
         TensorBatch
             One mixed feature vector per edge.
         """
+        # Encode both views of each graph edge
         geometric_output = self.geo_encoder(
             data,
             clusts,
@@ -161,11 +172,14 @@ class ClustGeoCNNMixEdgeEncoder(torch.nn.Module):
             edge_index,
             **kwargs,
         ).torch_tensor()
+
+        # Align the representations on one tensor backend and concatenate them
         geometric_features = geometric_output.to_tensor(
             dtype=cnn_features.dtype,
             device=cnn_features.device,
         ).torch_tensor()
         mixed_features = torch.cat((geometric_features, cnn_features), dim=1)
 
+        # Mix the concatenated features and restore edge batching
         output = self.linear(self.act(mixed_features))
         return TensorBatch(output, edge_index.counts)

@@ -6,7 +6,6 @@ from typing import Any
 
 import torch
 
-from spine.constants import COORD_COLS, VALUE_COL
 from spine.model import sparse
 
 from .uresnet_layers import UResNetEncoder
@@ -37,9 +36,9 @@ class SparseResidualEncoder(UResNetEncoder):
         Parameters
         ----------
         coord_conv : bool, default False
-            Whether to append normalized spatial coordinates to the scalar
-            input feature. If enabled, ``num_input`` in ``cfg`` must include
-            these additional channels.
+            Whether to append normalized spatial coordinates to the configured
+            raw input features. Coordinate channels are added automatically and
+            should not be included in ``num_input``.
         pool_mode : {"avg", "sum", "max", "conv"}, default "avg"
             Operation used to reduce the deepest sparse feature plane.
         feature_size : int, default 512
@@ -53,19 +52,28 @@ class SparseResidualEncoder(UResNetEncoder):
         ValueError
             If ``spatial_size`` is missing or ``pool_mode`` is unknown.
         """
+        # Coordinate convolution adds spatial positions to the configured raw
+        # input features. Size the inherited input layer accordingly while
+        # retaining the source feature count for table slicing.
+        encoder_cfg = dict(cfg)
+        self.input_features = int(encoder_cfg.get("num_input", 1))
+        if coord_conv:
+            dimension = int(encoder_cfg.get("data_dim", 3))
+            encoder_cfg["num_input"] = self.input_features + dimension
+
         # Initialize the parent class
-        super().__init__(cfg)
+        super().__init__(encoder_cfg)
 
         # Store attributes
         self.coord_conv = coord_conv
         self.pool_mode = pool_mode
 
         # Initialize the final pooling layer
-        if self.spatial_size is None:
+        if self.spatial_size is None and (coord_conv or pool_mode == "conv"):
             raise ValueError(
-                "Must specify `spatial_size` to determine the final pooling size."
+                "`spatial_size` is required for coordinate convolution or "
+                "convolutional pooling."
             )
-        final_tensor_shape = self.spatial_size // (2 ** (self.depth - 1))
 
         if pool_mode == "avg":
             # Average pooling
@@ -81,6 +89,10 @@ class SparseResidualEncoder(UResNetEncoder):
 
         elif pool_mode == "conv":
             # Strided convolution
+            spatial_size = self.spatial_size
+            if spatial_size is None:  # Constructor validation narrows the type.
+                raise RuntimeError("Convolutional pooling requires `spatial_size`.")
+            final_tensor_shape = spatial_size // (2 ** (self.depth - 1))
             self.pool = torch.nn.Sequential(
                 sparse.Convolution(
                     in_channels=self.num_planes[-1],
@@ -116,13 +128,19 @@ class SparseResidualEncoder(UResNetEncoder):
         torch.Tensor
             ``(B, feature_size)`` matrix with one row per batch entry.
         """
-        # Build an input feature tensor
-        coords = x[:, :VALUE_COL]
-        features = x[:, VALUE_COL].view(-1, 1)
+        # Build coordinate and input feature tensors
+        coords = x[:, : self.dimension + 1]
+        features = x[
+            :,
+            self.dimension + 1 : self.dimension + 1 + self.input_features,
+        ]
 
         # If requested, append the normalized coordinates to the feature tensor
         if self.coord_conv:
-            normalized_coords = x[:, COORD_COLS] / self.spatial_size
+            spatial_size = self.spatial_size
+            if spatial_size is None:  # Constructor validation narrows the type.
+                raise RuntimeError("Coordinate convolution requires `spatial_size`.")
+            normalized_coords = x[:, 1 : self.dimension + 1] / spatial_size
             features = torch.cat([normalized_coords, features], dim=1)
 
         # Build a sparse tensor

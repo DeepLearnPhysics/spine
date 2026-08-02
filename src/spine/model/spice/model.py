@@ -22,6 +22,7 @@ class SPICE(SPICEEmbedder):
         spice : dict
             SPICE configuration containing the embedder parameters.
         """
+        # Forward the owned configuration block to the SPICE implementation
         super().__init__(**spice)
 
 
