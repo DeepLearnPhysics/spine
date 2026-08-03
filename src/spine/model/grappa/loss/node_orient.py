@@ -7,14 +7,8 @@ from typing import Any
 import numpy as np
 import torch
 
-from spine.constants import (
-    COORD_END_COLS,
-    COORD_START_COLS,
-    PART_COL,
-    SHAPE_COL,
-    TRACK_SHP,
-)
-from spine.data import IndexBatch, TensorBatch
+from spine.constants import TRACK_SHP
+from spine.data import ClusterLabelBatch, IndexBatch, TensorBatch
 from spine.model.common.factories import loss_fn_factory
 from spine.utils.gnn.cluster import get_cluster_label_batch
 
@@ -65,7 +59,7 @@ class NodeOrientLoss(torch.nn.Module):
 
     def forward(
         self,
-        clust_label: TensorBatch,
+        clust_label: ClusterLabelBatch,
         coord_label: TensorBatch,
         clusts: IndexBatch,
         node_pred: TensorBatch,
@@ -77,7 +71,7 @@ class NodeOrientLoss(torch.nn.Module):
 
         Parameters
         ----------
-        clust_label : TensorBatch
+        clust_label : ClusterLabelBatch
             (N, 1 + D + N_f) Tensor of cluster labels for the batch
         coord_label : TensorBatch, optional
             (P, 1 + D + 8) Tensor of start/end point labels for each
@@ -103,7 +97,7 @@ class NodeOrientLoss(torch.nn.Module):
             Number of nodes the loss was applied to
         """
         # Fetch the true particle associations and the shape
-        part_ids = get_cluster_label_batch(clust_label, clusts, column=PART_COL)
+        part_ids = get_cluster_label_batch(clust_label, clusts, column="particle")
         part_ids_array = part_ids.numpy_tensor()
         global_part_ids = np.empty_like(part_ids_array, dtype=np.int64)
         for batch_id in range(part_ids.batch_size):
@@ -115,17 +109,15 @@ class NodeOrientLoss(torch.nn.Module):
             global_part_ids[lower:upper] = shift_part_ids
 
         # Restrict the loss to matched track clusters
-        shapes = get_cluster_label_batch(clust_label, clusts, column=SHAPE_COL)
+        shapes = get_cluster_label_batch(clust_label, clusts, column="shape")
         valid_index = np.where(
             (global_part_ids > -1) & (shapes.numpy_tensor() == TRACK_SHP)
         )[0]
 
         # Fetch the true directions from the particle associations
-        all_cols = np.concatenate((COORD_START_COLS, COORD_END_COLS))
         index = global_part_ids[valid_index]
-        true_starts, true_ends = coord_label.torch_tensor()[index][:, all_cols].split(
-            3, dim=1
-        )
+        true_starts = coord_label.coordinates("start").torch_tensor()[index]
+        true_ends = coord_label.coordinates("end").torch_tensor()[index]
         true_dirs = true_ends - true_starts
 
         # Restrict the start/end points, compute the vector

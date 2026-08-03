@@ -7,7 +7,7 @@ from typing import Any
 
 import torch
 
-from spine.data.batch import TensorBatch
+from spine.data import TensorBatch
 
 from . import backend
 

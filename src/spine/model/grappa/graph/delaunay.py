@@ -9,8 +9,7 @@ from typing import Any
 import numpy as np
 from scipy.spatial import Delaunay, QhullError
 
-from spine.constants import COORD_COLS
-from spine.data import IndexBatch, TensorBatch
+from spine.data import ClusterLabelBatch, IndexBatch, TensorBatch
 
 from .base import GraphBase
 
@@ -32,7 +31,7 @@ class DelaunayGraph(GraphBase):
     def generate(
         self,
         *,
-        data: TensorBatch,
+        data: ClusterLabelBatch | TensorBatch,
         clusts: IndexBatch,
         dist_mat: np.ndarray | None,
     ) -> tuple[np.ndarray, np.ndarray]:
@@ -53,7 +52,7 @@ class DelaunayGraph(GraphBase):
             Edge index with shape ``(2, E)`` and per-entry edge counts.
         """
         # Normalize the graph inputs and initialize per-event outputs
-        data_array = data.numpy_tensor()
+        coordinates = data.coords.numpy_tensor()
         batch_ids = np.asarray(clusts.batch_ids)
         edge_blocks: list[np.ndarray] = []
         edge_counts = np.zeros(clusts.batch_size, dtype=np.int64)
@@ -62,7 +61,7 @@ class DelaunayGraph(GraphBase):
         for batch_id in range(clusts.batch_size):
             cluster_ids = np.flatnonzero(batch_ids == batch_id)
             edges = self._generate_entry(
-                data_array,
+                coordinates,
                 clusts.index_list,
                 cluster_ids,
             )
@@ -97,7 +96,7 @@ class DelaunayGraph(GraphBase):
                 for index in cluster_ids
             ]
         )
-        points = data[voxel_indices][:, COORD_COLS]
+        points = data[voxel_indices]
 
         # Triangulate the voxel cloud, falling back for degenerate geometry
         try:

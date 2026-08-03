@@ -5,6 +5,7 @@ import pytest
 
 from spine.constants import TRACK_SHP
 from spine.construct.particle import ParticleBuilder
+from spine.data import EdgeIndexData
 from spine.data.larcv.particle import Particle
 from spine.data.out import RecoFragment, RecoParticle, TruthFragment, TruthParticle
 
@@ -119,7 +120,9 @@ def test_build_truth_particles_from_groups(points, depositions):
             "label_g4_tensor": labels,
             "points_g4": points + 20,
             "depositions_g4": depositions + 20,
-            "graph_label": np.array([[0, 1], [0, 99]], dtype=np.int64),
+            "graph_label": EdgeIndexData(
+                np.array([[0, 0], [1, 99]], dtype=np.int64), span=100
+            ),
             "truth_fragments": fragments,
         }
     )

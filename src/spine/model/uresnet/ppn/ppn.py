@@ -7,24 +7,16 @@ from typing import Any, TypeAlias
 import torch
 
 from spine.constants import (
-    COORD_COLS,
     GHOST_SHP,
-    PART_COL,
-    PPN_LENDP_COL,
-    PPN_LPART_COL,
-    PPN_LTYPE_COL,
-    PPN_ROFF_COLS,
-    PPN_RTYPE_COLS,
-    SHAPE_COL,
     TRACK_SHP,
-    VALUE_COL,
 )
-from spine.data import TensorBatch
+from spine.data import ClusterLabelBatch, TensorBatch, TensorSchema
 from spine.model import sparse
 from spine.model.cnn.act_norm import act_factory
 from spine.model.cnn.blocks import ResNetBlock
 from spine.model.cnn.configuration import setup_cnn_configuration
 from spine.utils.logger import logger
+from spine.utils.ppn import ppn_raw_schema
 from spine.utils.torch.scripts import cdist_fast
 from spine.utils.weighting import get_class_weights
 
@@ -342,15 +334,15 @@ class PPN(sparse.Network):
                             "provide the `seg_label` tensor."
                         )
 
-                    labels = seg_label.torch_tensor()
+                    labels = seg_label.values.torch_tensor()
                     if labels.shape[0] != decoder_tensors[-1].reference_size:
                         raise ValueError(
                             "The label tensor length must match that "
                             "of the last UResNet layer"
                         )
 
-                    ghost_coords = labels[:, :VALUE_COL]
-                    ghost_mask_tensor = labels[:, SHAPE_COL] < GHOST_SHP
+                    ghost_coords = seg_label.batch_coordinates
+                    ghost_mask_tensor = labels < GHOST_SHP
                 else:
                     # If using predictions, convert the ghost scores to a mask
                     if ghost is None:
@@ -428,11 +420,33 @@ class PPN(sparse.Network):
                     scores.coordinates,
                     counts,
                     has_batch_col=True,
-                    coord_cols=COORD_COLS,
+                    coord_cols=tuple(range(1, self.dimension + 1)),
                 )
             )
-            ppn_layers.append(TensorBatch(scores.features, counts))
-            ppn_masks.append(TensorBatch(foreground_mask, counts))
+            ppn_layers.append(
+                TensorBatch(
+                    scores.features,
+                    counts,
+                    schema=TensorSchema(
+                        feature_fields={
+                            "mask_logits": tuple(range(scores.features.shape[1]))
+                        },
+                        feats_only=True,
+                    ),
+                )
+            )
+            ppn_masks.append(
+                TensorBatch(
+                    foreground_mask,
+                    counts,
+                    schema=TensorSchema(
+                        feature_fields={
+                            "foreground": tuple(range(foreground_mask.shape[1]))
+                        },
+                        feats_only=True,
+                    ),
+                )
+            )
 
             # Expand the score mask
             expanded_scores = self.expand_as(
@@ -459,7 +473,10 @@ class PPN(sparse.Network):
             )
         final_counts = x.counts
         ppn_output_coords = TensorBatch(
-            x.coordinates, final_counts, has_batch_col=True, coord_cols=COORD_COLS
+            x.coordinates,
+            final_counts,
+            has_batch_col=True,
+            coord_cols=tuple(range(1, self.dimension + 1)),
         )
 
         # Pass the final PPN tensor through the individual predictions, combine
@@ -487,6 +504,9 @@ class PPN(sparse.Network):
         ppn_points = point_features.to_tensor_batch(
             include_coordinates=False, restore=True
         )
+        raw_schema = ppn_raw_schema()
+        ppn_points_unique.schema = raw_schema
+        ppn_points.schema = raw_schema
 
         result: PPNOutput = {
             "ppn_points": ppn_points,
@@ -497,12 +517,19 @@ class PPN(sparse.Network):
             "ppn_output_coords": ppn_output_coords,
         }
         if ppn_endpoint is not None:
-            result["ppn_classify_endpoints_unique"] = ppn_endpoint.to_tensor_batch(
+            endpoint_schema = TensorSchema(
+                feature_fields={"endpoint_logits": (0, 1)}, feats_only=True
+            )
+            endpoint_unique = ppn_endpoint.to_tensor_batch(
                 include_coordinates=False,
             )
-            result["ppn_classify_endpoints"] = ppn_endpoint.to_tensor_batch(
+            endpoint = ppn_endpoint.to_tensor_batch(
                 include_coordinates=False, restore=True
             )
+            endpoint_unique.schema = endpoint_schema
+            endpoint.schema = endpoint_schema
+            result["ppn_classify_endpoints_unique"] = endpoint_unique
+            result["ppn_classify_endpoints"] = endpoint
 
         return result
 
@@ -751,10 +778,11 @@ class PPNLoss(torch.nn.Module):
     @staticmethod
     def get_ppn_positives(
         coords: torch.Tensor,
-        ppn_labels: torch.Tensor,
+        label_points: torch.Tensor,
         resolution: float,
         offset: int,
         labels: torch.Tensor | None = None,
+        label_particles: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Assign foreground sites to their closest valid PPN target.
 
@@ -766,8 +794,8 @@ class PPNLoss(torch.nn.Module):
         ----------
         coords : torch.Tensor
             ``(N, D)`` voxel coordinates.
-        ppn_labels : torch.Tensor
-            ``(P, 1 + D + L)`` point-label table.
+        label_points : torch.Tensor
+            ``(P, D)`` point coordinates.
         resolution : float
             Maximum distance at which a site is foreground.
         offset : int
@@ -775,6 +803,8 @@ class PPNLoss(torch.nn.Module):
             concatenated label tensor.
         labels : torch.Tensor, optional
             ``(N,)`` particle ID for each voxel.
+        label_particles : torch.Tensor, optional
+            ``(P,)`` particle ID associated with each label point.
 
         Returns
         -------
@@ -791,7 +821,7 @@ class PPNLoss(torch.nn.Module):
         with torch.no_grad():
             # Compute the distance from the PPN labels to all the image points
             distance_matrix = cdist_fast(
-                ppn_labels[:, COORD_COLS],
+                label_points,
                 coords,
             )
             if distance_matrix is None:
@@ -799,7 +829,11 @@ class PPNLoss(torch.nn.Module):
 
             # Mask out particle voxels for which the particle ID disagrees
             if labels is not None:
-                invalid_particle_mask = ppn_labels[:, [PPN_LPART_COL]] != labels
+                if label_particles is None:
+                    raise ValueError(
+                        "Point particle labels are required to restrict positives."
+                    )
+                invalid_particle_mask = label_particles[:, None] != labels
                 distance_matrix[invalid_particle_mask] = torch.inf
 
             # Generate a positive mask for all particle voxels within some
@@ -829,7 +863,7 @@ class PPNLoss(torch.nn.Module):
         ppn_classify_endpoints: TensorBatch | None = None,
         ppn_points_unique: TensorBatch | None = None,
         ppn_classify_endpoints_unique: TensorBatch | None = None,
-        clust_label: TensorBatch | None = None,
+        clust_label: ClusterLabelBatch | None = None,
         **kwargs: object,
     ) -> PPNLossOutput:
         """Compute PPN losses and accuracy metrics.
@@ -856,7 +890,7 @@ class PPNLoss(torch.nn.Module):
             with the original input rows for downstream consumers.
         ppn_classify_endpoints_unique : TensorBatch, optional
             Endpoint logits on unique sparse sites.
-        clust_label : TensorBatch, optional
+        clust_label : ClusterLabelBatch, optional
             ``(N, 1 + D + C)`` cluster-label table used to restrict particle
             associations.
         **kwargs : object
@@ -900,16 +934,11 @@ class PPNLoss(torch.nn.Module):
                 raise ValueError(
                     "Should provide at least one class to include in the loss"
                 )
-            ppn_label_list = []
-            for label_tensor in ppn_label.split():
-                labels = label_tensor[:, PPN_LTYPE_COL]
-                mask = torch.zeros(len(labels), dtype=torch.bool, device=labels.device)
-                for point_class in self.point_classes:
-                    mask |= labels == point_class
-                valid_index = torch.where(mask)[0]
-                ppn_label_list.append(label_tensor[valid_index])
-
-            ppn_label = TensorBatch.from_list(ppn_label_list)
+            labels = ppn_label.feature("shape").values.torch_tensor()
+            requested = torch.as_tensor(
+                self.point_classes, dtype=labels.dtype, device=labels.device
+            )
+            ppn_label = ppn_label.select(torch.isin(labels, requested))
 
         # Compute the label mask for the final PPN layer. Record which
         # label point is closest to each image voxel (defines label for it)
@@ -935,7 +964,7 @@ class PPNLoss(torch.nn.Module):
                 f"matching rows, got {loss_endpoints.shape[0]} and "
                 f"{coords_final.shape[0]}."
             )
-        ppn_label_tensor = ppn_label.torch_tensor()
+        ppn_label_points = ppn_label.coords.torch_tensor()
 
         # Align particle IDs to the unique final-resolution sparse sites. This
         # is a no-op for the usual one-row-per-coordinate input and resolves
@@ -947,11 +976,11 @@ class PPNLoss(torch.nn.Module):
                     "When using 'restrict_to_clusters', must provide "
                     "'clust_label' to the PPN loss."
                 )
-            clust_label_tensor = clust_label.torch_tensor()
+            particle_labels = clust_label.particle_ids.torch_tensor()
             aligned_part_labels = self.align_coordinate_values(
-                clust_label_tensor[:, :VALUE_COL],
-                clust_label_tensor[:, PART_COL],
-                coords_final_tensor[:, :VALUE_COL],
+                clust_label.data.batch_coordinates,
+                particle_labels,
+                coords_final.batch_coordinates,
                 "particle label",
             )
             aligned_part_labels = TensorBatch(
@@ -963,7 +992,7 @@ class PPNLoss(torch.nn.Module):
         offset = 0
         for batch_index in range(batch_size):
             # If there are no label points, there are no positive points
-            points_label = ppn_label[batch_index]
+            points_label = ppn_label.coords[batch_index]
             if len(points_label) == 0:
                 positive = torch.zeros(
                     coords_final.counts[batch_index],
@@ -981,13 +1010,17 @@ class PPNLoss(torch.nn.Module):
                 part_labels = aligned_part_labels[batch_index]
 
             # Assign positive/negative labels to each voxel in the image
-            points_entry = coords_final[batch_index][:, COORD_COLS] + 0.5
+            points_entry = coords_final.coords[batch_index] + 0.5
+            point_particles = None
+            if aligned_part_labels is not None:
+                point_particles = ppn_label.feature("particle").values[batch_index]
             positive, closest = self.get_ppn_positives(
                 points_entry,
                 points_label,
                 resolution=self.resolution,
                 offset=offset,
                 labels=part_labels,
+                label_particles=point_particles,
             )
 
             # Append
@@ -1002,10 +1035,10 @@ class PPNLoss(torch.nn.Module):
         downsample = sparse.MaxPooling(2, 2, dimension=self.dimension)
         mask_tensor = sparse.SparseTensor(
             positives[:, None].float(),
-            coordinates=coords_final_tensor[:, :VALUE_COL],
+            coordinates=coords_final.batch_coordinates,
         )
 
-        dtype, device = ppn_label_tensor.dtype, ppn_label_tensor.device
+        dtype, device = ppn_label_points.dtype, ppn_label_points.device
         mask_losses = torch.zeros(num_layers, dtype=dtype, device=device)
         mask_accuracies = torch.zeros(
             num_layers,
@@ -1019,11 +1052,10 @@ class PPNLoss(torch.nn.Module):
             coords_layer = ppn_coords[layer_index]
             scores_layer = ppn_layers[layer_index]
             scores_layer_tensor = scores_layer.torch_tensor()
-            coords_layer_tensor = coords_layer.torch_tensor()
             mask_features = self.align_coordinate_values(
                 mask_tensor.coordinates,
                 mask_tensor.features,
-                coords_layer_tensor[:, :VALUE_COL],
+                coords_layer.batch_coordinates,
                 f"PPN mask at layer {layer_index}",
             )
             mask_labels = mask_features.flatten().long()
@@ -1090,17 +1122,16 @@ class PPNLoss(torch.nn.Module):
             # Closest ppn point label (index) to given positive point
             closest_indices = closest_indices[pos_mask]
 
-            anchors = coords_final_tensor[:, COORD_COLS] + 0.5
-            loss_points_tensor = loss_points.torch_tensor()
-            pixel_pos = loss_points_tensor[:, PPN_ROFF_COLS] + anchors
-            pixel_logits = loss_points_tensor[:, PPN_RTYPE_COLS]
+            anchors = coords_final.coords.torch_tensor() + 0.5
+            pixel_pos = loss_points.feature("offsets").torch_tensor() + anchors
+            pixel_logits = loss_points.feature("type_logits").torch_tensor()
 
             pixel_pos = pixel_pos[pos_mask]
             pixel_logits = pixel_logits[pos_mask]
 
             # Type loss
             # Compute type weights over the whole batch, if requested
-            type_labels = ppn_label_tensor[:, PPN_LTYPE_COL].long()
+            type_labels = ppn_label.feature("shape").values.torch_tensor().long()
             type_weight = None
             if self.balance_type_loss:
                 num_classes = pixel_logits.shape[1]
@@ -1125,7 +1156,7 @@ class PPNLoss(torch.nn.Module):
             # Regression loss
             # Compute the regression loss. The offset should point to
             # the closest label point from that voxel
-            point_labels = ppn_label_tensor[:, COORD_COLS]
+            point_labels = ppn_label_points
             closest_point_labels = point_labels[closest_indices]
             reg_loss = self.reg_loss_fn(pixel_pos, closest_point_labels)
 
@@ -1135,12 +1166,14 @@ class PPNLoss(torch.nn.Module):
             track_index = torch.where(closest_type_labels == TRACK_SHP)[0]
             if loss_endpoints is not None and len(track_index) > 0:
                 # Get the end point predictions
-                end_logits = loss_endpoints.torch_tensor()[pos_mask]
+                end_logits = loss_endpoints.feature("endpoint_logits").torch_tensor()[
+                    pos_mask
+                ]
                 end_logits = end_logits[track_index]
 
                 # The endpoint class belongs to the same closest track target
                 # used by the regression and semantic-type objectives.
-                end_labels = ppn_label_tensor[:, PPN_LENDP_COL].long()
+                end_labels = ppn_label.feature("endpoint").values.torch_tensor().long()
                 closest_end_labels = end_labels[closest_indices]
                 closest_end_labels = closest_end_labels[track_index]
                 end_loss = self.end_loss_fn(end_logits, closest_end_labels)

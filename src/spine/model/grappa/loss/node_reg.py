@@ -7,8 +7,7 @@ from typing import Any
 import numpy as np
 import torch
 
-from spine.constants.factory import enum_factory
-from spine.data import IndexBatch, TensorBatch
+from spine.data import ClusterLabelBatch, IndexBatch, TensorBatch
 from spine.model.common.factories import loss_fn_factory
 from spine.utils.gnn.cluster import get_cluster_label_batch
 
@@ -61,14 +60,14 @@ class NodeRegressionLoss(torch.nn.Module):
         super().__init__()
 
         # Parse the regression target
-        self.target = enum_factory("cluster", target)
+        self.target = target
 
         # Set the loss
         self.loss_fn = loss_fn_factory(loss, reduction="sum")
 
     def forward(
         self,
-        clust_label: TensorBatch,
+        clust_label: ClusterLabelBatch,
         clusts: IndexBatch,
         node_pred: TensorBatch,
         **kwargs: object,
@@ -77,7 +76,7 @@ class NodeRegressionLoss(torch.nn.Module):
 
         Parameters
         ----------
-        clust_label : TensorBatch
+        clust_label : ClusterLabelBatch
             (N, 1 + D + N_f) Tensor of cluster labels for the batch
         clusts : IndexBatch
             (C) Index which maps each cluster to a list of voxel IDs

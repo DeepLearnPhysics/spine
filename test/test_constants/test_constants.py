@@ -139,7 +139,6 @@ def test_enum_factory_parses_scalar_and_sequence_values():
     assert enum_factory("shape", "shower") == int(ParticleShape.SHOWER)
     assert enum_factory("pid", "MUON") == int(ParticlePID.MUON)
     assert enum_factory("interaction_scheme", "genie") == int(NuInteractionScheme.GENIE)
-    assert enum_factory("cluster", "particle") == int(ClusterLabelCol.PARTICLE)
     assert enum_factory("pid", ["photon", "proton"]) == [
         int(ParticlePID.PHOTON),
         int(ParticlePID.PROTON),
@@ -150,6 +149,8 @@ def test_enum_factory_rejects_unknown_enum_group():
     """Enum factory should fail clearly on unsupported enum groups."""
     with pytest.raises(ValueError, match="Enumerated type not recognized"):
         enum_factory("not_a_real_group", "value")
+    with pytest.raises(ValueError, match="Enumerated type not recognized"):
+        enum_factory("cluster", "particle")
 
 
 def test_enum_factory_rejects_unknown_enum_member():

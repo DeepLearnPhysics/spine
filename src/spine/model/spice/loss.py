@@ -6,8 +6,7 @@ from typing import Any
 
 import torch
 
-from spine.constants import CLUST_COL, SHAPE_COL
-from spine.data import IndexBatch, TensorBatch
+from spine.data import ClusterLabelBatch, IndexBatch, TensorBatch
 from spine.model.common.factories import loss_fn_factory
 from spine.utils.factory import Config
 
@@ -233,7 +232,7 @@ class SPICELoss(torch.nn.Module):
 
     def forward(
         self,
-        clust_label: TensorBatch,
+        clust_label: ClusterLabelBatch,
         embeddings: TensorBatch,
         margins: TensorBatch,
         seediness: TensorBatch,
@@ -244,7 +243,7 @@ class SPICELoss(torch.nn.Module):
 
         Parameters
         ----------
-        clust_label : TensorBatch
+        clust_label : ClusterLabelBatch
             Original voxel-wise cluster labels.
         embeddings : TensorBatch
             ``(M, D)`` filtered spatial embeddings.
@@ -276,7 +275,8 @@ class SPICELoss(torch.nn.Module):
             raise ValueError("Filtered SPICE outputs and index must have equal length.")
 
         # Recover the corresponding truth rows from the original label batch
-        label_tensor = clust_label.torch_tensor()[filter_index.index]
+        shape_tensor = clust_label.shapes.torch_tensor()[filter_index.index]
+        cluster_tensor = clust_label.cluster_ids.torch_tensor()[filter_index.index]
         terms = []
         supervised_voxels = 0
 
@@ -287,9 +287,8 @@ class SPICELoss(torch.nn.Module):
             embeddings_b = embedding_tensor[lower:upper]
             margins_b = margin_tensor[lower:upper]
             seediness_b = seediness_tensor[lower:upper]
-            labels_b = label_tensor[lower:upper]
-            shapes_b = labels_b[:, SHAPE_COL].long()
-            clusters_b = labels_b[:, CLUST_COL].long()
+            shapes_b = shape_tensor[lower:upper].long()
+            clusters_b = cluster_tensor[lower:upper].long()
 
             for shape in torch.unique(shapes_b):
                 shape_mask = shapes_b == shape

@@ -1,9 +1,9 @@
-"""Comprehensive test suite for spine.data.batch.index module."""
+"""Tests for batched flat and jagged index products."""
 
 import numpy as np
 import pytest
 
-from spine.data.batch.index import IndexBatch
+from spine.data import IndexBatch
 from spine.utils.conditional import TORCH_AVAILABLE, torch
 
 
@@ -11,7 +11,7 @@ def _spans(offsets, last=0):
     """Convert cumulative offsets into constructor spans for tests."""
     spans = (
         offsets.clone()
-        if torch is not None and torch.is_tensor(offsets)
+        if TORCH_AVAILABLE and torch.is_tensor(offsets)
         else np.array(offsets, copy=True)
     )
     if len(spans) > 1:

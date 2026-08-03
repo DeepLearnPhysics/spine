@@ -1,4 +1,4 @@
-"""Module with a dataclass targeted at a batched edge index.
+"""Batched graph edge-index data products.
 
 An edge index is a sparse representation of a graph incidence matrix.
 """
@@ -9,6 +9,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from ..edge_index import EdgeIndexData
 from .base import ArrayLike, BatchBase
 
 __all__ = ["EdgeIndexBatch"]
@@ -16,7 +17,11 @@ __all__ = ["EdgeIndexBatch"]
 
 @dataclass(eq=False)
 class EdgeIndexBatch(BatchBase):
-    """Batched edge index with the necessary methods to slice it.
+    """Event-partitioned graph incidence matrices.
+
+    Node indexes are stored in a global batched namespace. Per-event node
+    ``spans`` determine the offsets removed by :meth:`event`, ``split`` and
+    event indexing.
 
     Attributes
     ----------
@@ -44,7 +49,7 @@ class EdgeIndexBatch(BatchBase):
         spans: Sequence[int] | ArrayLike,
         directed: bool,
     ) -> None:
-        """Initialize the attributes of the class.
+        """Initialize a directed or reciprocal-edge graph batch.
 
         If the edge index corresponds to an undirected graph, each edge
         should have its reciprocal edge immediately after, e.g.
@@ -68,7 +73,7 @@ class EdgeIndexBatch(BatchBase):
         # Initialize the base class
         super().__init__(data)
 
-        # Cast
+        # Normalize graph metadata to the underlying array backend
         counts = self._as_long(counts)
         spans = self._as_long(spans)
 
@@ -85,7 +90,7 @@ class EdgeIndexBatch(BatchBase):
                 "even number of edge"
             )
 
-        # Compute the offsets from the per-entry spans
+        # Convert per-event node spans into global node offsets
         offsets = self._zeros(len(spans), None if self.is_numpy else spans.device)
         offsets[1:] = self._cumsum(spans)[:-1]
 
@@ -116,10 +121,35 @@ class EdgeIndexBatch(BatchBase):
                 f"of ({self.batch_size})"
             )
 
-        # Return
+        # Slice the globally indexed event and restore its local node namespace
         lower, upper = self.edges[batch_id], self.edges[batch_id + 1]
         index = self.data[:, lower:upper] - self.offsets[batch_id]
+
+        # Event indexing retains the historical row-oriented representation
         return self._transpose(index)
+
+    def event(self, batch_id: int) -> EdgeIndexData:
+        """Return one event while preserving graph and span metadata.
+
+        Parameters
+        ----------
+        batch_id : int
+            Event position in the batch.
+
+        Returns
+        -------
+        EdgeIndexData
+            Event-local ``(2, E)`` incidence matrix.
+        """
+        # Recover the event-local incidence matrix and scalar parent span
+        index = self[batch_id]
+        span = self.spans[batch_id]
+
+        return EdgeIndexData(
+            self._transpose(index),
+            int(span.item() if hasattr(span, "item") else span),
+            self.directed,
+        )
 
     @property
     def index(self) -> ArrayLike:
@@ -219,6 +249,7 @@ class EdgeIndexBatch(BatchBase):
         List[Union[np.ndarray, torch.Tensor]]
             List of one index per entry in the batch
         """
+        # Split row-oriented edges before restoring event-local node indexes
         indexes = list(self._split(self._transpose(self.index), self.splits))
         for batch_id in range(self.batch_size):
             indexes[batch_id] = indexes[batch_id] - self.offsets[batch_id]
@@ -230,8 +261,8 @@ class EdgeIndexBatch(BatchBase):
 
         Returns
         -------
-        TensorBatch
-            New `TensorBatch` object with an underlying np.ndarray tensor.
+        EdgeIndexBatch
+            NumPy-backed edge-index batch.
         """
         # If the underlying data is of the right type, nothing to do
         if self.is_numpy:
@@ -255,8 +286,8 @@ class EdgeIndexBatch(BatchBase):
 
         Returns
         -------
-        TensorBatch
-            New `TensorBatch` object with an underlying np.ndarray tensor.
+        EdgeIndexBatch
+            PyTorch-backed edge-index batch.
         """
         # If the underlying data is of the right type, nothing to do
         if not self.is_numpy:

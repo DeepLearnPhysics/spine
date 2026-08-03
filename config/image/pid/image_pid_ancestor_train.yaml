@@ -34,10 +34,10 @@ io:
         data:
           parser: cluster3d
           cluster_event: cluster3d_pcluster
-          particle_event: particle_corrected
           sparse_semantics_event: sparse3d_pcluster_semantics
-          add_particle_info: true
           clean_data: true
+          particle_info:
+            particle_event: particle_corrected
 
 model:
   name: image

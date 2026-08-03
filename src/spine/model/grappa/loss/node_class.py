@@ -9,8 +9,7 @@ from warnings import warn
 import numpy as np
 import torch
 
-from spine.constants.factory import enum_factory
-from spine.data import IndexBatch, TensorBatch
+from spine.data import ClusterLabelBatch, IndexBatch, TensorBatch
 from spine.model.common.factories import loss_fn_factory
 from spine.utils.gnn.cluster import (
     get_cluster_closest_label_batch,
@@ -82,7 +81,7 @@ class NodeClassLoss(torch.nn.Module):
         super().__init__()
 
         # Parse the classification target
-        self.target = enum_factory("cluster", target)
+        self.target = target
 
         # Initialize basic parameters
         self.balance_loss = balance_loss
@@ -101,7 +100,7 @@ class NodeClassLoss(torch.nn.Module):
 
     def forward(
         self,
-        clust_label: TensorBatch,
+        clust_label: ClusterLabelBatch,
         clusts: IndexBatch,
         node_pred: TensorBatch,
         coord_label: TensorBatch | None = None,
@@ -111,7 +110,7 @@ class NodeClassLoss(torch.nn.Module):
 
         Parameters
         ----------
-        clust_label : TensorBatch
+        clust_label : ClusterLabelBatch
             (N, 1 + D + N_f) Tensor of cluster labels for the batch
         clusts : IndexBatch
             (C) Index which maps each cluster to a list of voxel IDs

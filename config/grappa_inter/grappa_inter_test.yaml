@@ -26,13 +26,13 @@ io:
         data:
           parser: cluster3d
           cluster_event: cluster3d_pcluster
-          particle_event: particle_corrected
           sparse_semantics_event: sparse3d_pcluster_semantics
-          add_particle_info: true
           clean_data: true
-          type_include_secondary: false
-          type_include_mpr: false
-          primary_include_mpr: false
+          particle_info:
+            particle_event: particle_corrected
+            type_include_secondary: false
+            type_include_mpr: false
+            primary_include_mpr: false
         coord_label:
           parser: particle_coords
           particle_event: particle_corrected

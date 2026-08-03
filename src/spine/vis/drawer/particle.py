@@ -7,8 +7,7 @@ from typing import Any
 import numpy as np
 import plotly.graph_objs as go
 
-from spine.constants import PART_COL
-from spine.data import Particle
+from spine.data import ClusterLabelData, Particle
 
 from ..layout import HIGH_CONTRAST_COLORS
 from ..trace.point import scatter_points
@@ -17,9 +16,9 @@ __all__ = ["scatter_particles"]
 
 
 def scatter_particles(
-    cluster_label: np.ndarray,
+    cluster_label: ClusterLabelData,
     particles: list[Particle],
-    part_col: int = PART_COL,
+    particle_field: str = "particle",
     markersize: float = 1,
     **kwargs: Any,
 ) -> list[go.Scatter3d]:
@@ -31,12 +30,12 @@ def scatter_particles(
 
     Parameters
     ----------
-    cluster_label : np.ndarray
-        (N, M) Tensor of pixel coordinates and their associated cluster ID
+    cluster_label : ClusterLabelData
+        Structured voxel associations and particle information.
     particles : List[Particle]
         (P) List of true particle objects
-    part_col : int
-        Index of the column in the label tensor that contains the particle ID
+    particle_field : str, default 'particle'
+        Named particle association used to color the voxel rows.
     **kwargs : dict, optional
         List of additional arguments to pass to plotly.graph_objs.Scatter3D that
         make up the output list
@@ -49,9 +48,10 @@ def scatter_particles(
     # Initialize one graph per particle
     traces = []
     colors = HIGH_CONTRAST_COLORS
+    particle_ids = cluster_label.voxel_field(particle_field)
     for i, p in enumerate(particles):
         # Get a mask that corresponds to the particle entry, skip if empty
-        index = np.where(cluster_label[:, part_col] == i)[0]
+        index = np.where(particle_ids == i)[0]
         if not index.shape[0]:
             continue
 
@@ -90,7 +90,7 @@ def scatter_particles(
 
         # Append a scatter plot trace
         trace = scatter_points(
-            cluster_label[index],
+            cluster_label.coords[index],
             color=str(colors[i % len(colors)]),
             hovertext=hovertext,
             markersize=markersize,

@@ -6,7 +6,7 @@ from typing import Any
 
 import torch
 
-from spine.data import EdgeIndexBatch, IndexBatch, TensorBatch
+from spine.data import ClusterLabelBatch, EdgeIndexBatch, IndexBatch, TensorBatch
 from spine.model.common.act_norm import act_factory
 
 from .cnn import ClustCNNEdgeEncoder, ClustCNNNodeEncoder
@@ -53,7 +53,7 @@ class ClustGeoCNNMixNodeEncoder(torch.nn.Module):
 
     def forward(
         self,
-        data: TensorBatch,
+        data: ClusterLabelBatch | TensorBatch,
         clusts: IndexBatch,
         **kwargs: object,
     ) -> TensorBatch:
@@ -86,7 +86,10 @@ class ClustGeoCNNMixNodeEncoder(torch.nn.Module):
             )
 
         # Align the CNN and geometric representations on one tensor backend
-        cnn_features = self.cnn_encoder(data, clusts, **kwargs).torch_tensor()
+        cnn_data = (
+            data.to_tensor_batch() if isinstance(data, ClusterLabelBatch) else data
+        )
+        cnn_features = self.cnn_encoder(cnn_data, clusts, **kwargs).torch_tensor()
         geometric_features = geometric_output.to_tensor(
             dtype=cnn_features.dtype,
             device=cnn_features.device,

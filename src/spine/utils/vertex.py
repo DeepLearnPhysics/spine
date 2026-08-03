@@ -2,7 +2,7 @@ import numba as nb
 import numpy as np
 
 import spine.math as sm
-from spine.constants import INTER_COL, PRINT_COL, TRACK_SHP, VTX_COLS
+from spine.constants import TRACK_SHP
 
 
 def get_vertex(

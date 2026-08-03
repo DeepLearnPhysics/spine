@@ -3,15 +3,23 @@
 import numpy as np
 import pytest
 
-from spine.data import EdgeIndexBatch, IndexBatch, Meta, TensorBatch
+from spine.data import (
+    ClusterLabelBatch,
+    ClusterLabelData,
+    EdgeIndexBatch,
+    EdgeIndexData,
+    IndexBatch,
+    IndexData,
+    IndexListData,
+    Meta,
+    ObjectListBatch,
+    ObjectListData,
+    TensorBatch,
+    TensorData,
+    TensorSchema,
+)
 from spine.geo import GeoManager
 from spine.io.collate import CollateAll
-from spine.io.parse.data import (
-    ParserEdgeIndex,
-    ParserIndex,
-    ParserIndexList,
-    ParserTensor,
-)
 
 
 def make_meta():
@@ -57,7 +65,7 @@ def fixture_batch_sparse(request):
                 count=np.asarray([100, 100, 100]),
             )
 
-            data[f"sparse_{name}"] = ParserTensor(
+            data[f"sparse_{name}"] = TensorData(
                 coords=coords, features=features, meta=meta
             )
 
@@ -93,7 +101,7 @@ def fixture_batch_edge_index(request):
 
             edge_index = np.random.randint(0, 10, size=(2, num_edges))
 
-            data[f"edge_index_{name}"] = ParserEdgeIndex(features=edge_index, span=10)
+            data[f"edge_index_{name}"] = EdgeIndexData(features=edge_index, span=10)
 
         # Append the batch list
         batch.append(data)
@@ -116,7 +124,7 @@ def test_collate_sparse(split, detector, batch_sparse):
 
     # Initialize the collation class
     collate_fn = CollateAll(
-        data_types={key: "tensor" for key in batch_sparse[0].keys()}, split=split
+        data_keys={key: "tensor" for key in batch_sparse[0].keys()}, split=split
     )
 
     # Pass the batch through the collate function
@@ -132,7 +140,7 @@ def test_collate_edge_index(batch_edge_index):
     """Tests the collation of edge indexes."""
     # Initialize the collation class
     collate_fn = CollateAll(
-        data_types={key: "tensor" for key in batch_edge_index[0].keys()}
+        data_keys={key: "tensor" for key in batch_edge_index[0].keys()}
     )
 
     # Pass the batch through the collate function
@@ -143,10 +151,140 @@ def test_collate_edge_index(batch_edge_index):
         assert len(result[k]) == len(batch_edge_index)
 
 
+def test_collate_cluster_labels_preserves_event_local_particle_tables():
+    """Cluster-label collation should keep associations local to each event."""
+    particle_a = {"particle": np.asarray([10]), "pid": np.asarray([2])}
+    particle_b = {
+        "particle": np.asarray([20, 21]),
+        "pid": np.asarray([3, 4]),
+    }
+    batch = [
+        {
+            "label": ClusterLabelData(
+                coords=np.asarray([[1, 2, 3]], dtype=np.int32),
+                features=np.asarray([[4.0, 7.0, 0.0]], dtype=np.float32),
+                particles=particle_a,
+            )
+        },
+        {
+            "label": ClusterLabelData(
+                coords=np.asarray([[4, 5, 6], [7, 8, 9]], dtype=np.int32),
+                features=np.asarray(
+                    [[5.0, 8.0, 0.0], [6.0, 9.0, 1.0]], dtype=np.float32
+                ),
+                particles=particle_b,
+            )
+        },
+    ]
+
+    result = CollateAll(data_keys={"label": "cluster_label"})(batch)["label"]
+
+    assert isinstance(result, ClusterLabelBatch)
+    assert result.counts.tolist() == [1, 2]
+    assert result.particle_field("pid").counts.tolist() == [1, 2]
+    np.testing.assert_array_equal(result.voxel_field("pid").data, [2, 3, 4])
+    np.testing.assert_array_equal(result[1].voxel_field("particle"), [20, 21])
+
+
+def test_collate_requires_data_keys():
+    """Collation should reject an unspecified dataset product contract."""
+    with pytest.raises(ValueError, match="data_keys"):
+        CollateAll(data_keys=None)
+
+
+def test_collate_object_list_products():
+    """Typed event object lists should retain their batch boundary."""
+    batch = [
+        {"objects": ObjectListData([1], 0)},
+        {"objects": ObjectListData([2, 3], 0)},
+    ]
+
+    result = CollateAll(data_keys=("objects",))(batch)["objects"]
+
+    assert isinstance(result, ObjectListBatch)
+    assert [list(entry) for entry in result] == [[1], [2, 3]]
+
+
+def test_collate_cluster_label_validation():
+    """Cluster-label collation should enforce event and particle schemas."""
+    label = ClusterLabelData(
+        coords=np.asarray([[0, 0, 0]]),
+        features=np.asarray([[1.0, 0.0, 0.0]]),
+        particles={"particle": np.asarray([0]), "pid": np.asarray([1])},
+    )
+    no_particles = ClusterLabelData(
+        coords=np.asarray([[1, 1, 1]]),
+        features=np.asarray([[1.0, 0.0]]),
+    )
+    other_fields = ClusterLabelData(
+        coords=np.asarray([[1, 1, 1]]),
+        features=np.asarray([[1.0, 0.0, 0.0]]),
+        particles={"particle": np.asarray([0]), "energy": np.asarray([2.0])},
+    )
+    collate = CollateAll(data_keys=("label",))
+
+    with pytest.raises(TypeError, match="ClusterLabelData"):
+        collate.stack_cluster_labels([{"label": label}, {"label": object()}], "label")
+
+    with pytest.raises(ValueError, match="Particle information"):
+        collate.stack_cluster_labels(
+            [{"label": label}, {"label": no_particles}], "label"
+        )
+
+    with pytest.raises(ValueError, match="fields must be consistent"):
+        collate.stack_cluster_labels(
+            [{"label": label}, {"label": other_fields}], "label"
+        )
+
+
+def test_collate_rejects_mismatched_tensor_schemas():
+    """Coordinate and feature-only products must agree on their schemas."""
+    coords = np.asarray([[0, 0, 0]])
+    features = np.asarray([[1.0]])
+    coord_batch = [
+        {
+            "value": TensorData(
+                coords=coords,
+                features=features,
+                schema=TensorSchema(feature_fields={"value": (0,)}),
+            )
+        },
+        {
+            "value": TensorData(
+                coords=coords,
+                features=features,
+                schema=TensorSchema(feature_fields={"other": (0,)}),
+            )
+        },
+    ]
+    collate = CollateAll(data_keys=("value",))
+    with pytest.raises(ValueError, match="schemas do not match"):
+        collate.stack_coord_tensors(coord_batch, "value")
+
+    feature_batch = [
+        {
+            "value": TensorData(
+                features=features,
+                feats_only=True,
+                schema=TensorSchema(feature_fields={"value": (0,)}, feats_only=True),
+            )
+        },
+        {
+            "value": TensorData(
+                features=features,
+                feats_only=True,
+                schema=TensorSchema(feature_fields={"other": (0,)}, feats_only=True),
+            )
+        },
+    ]
+    with pytest.raises(ValueError, match="schemas do not match"):
+        collate.stack_feat_tensors(feature_batch, "value")
+
+
 def test_collate_scalar():
     """Tests the collation of scalar values."""
     # Initialize the collation class
-    collate_fn = CollateAll(data_types={"scalar": "scalar"})
+    collate_fn = CollateAll(data_keys={"scalar": "scalar"})
 
     # Initialize a simple batch of scalars
     batch_scalar = [{"scalar": i} for i in range(4)]
@@ -165,7 +303,7 @@ def test_collate_scalar():
 def test_collate_list():
     """Tests the collation of simple lists."""
     # Initialize the collation class
-    collate_fn = CollateAll(data_types={"list": "list"})
+    collate_fn = CollateAll(data_keys={"list": "list"})
 
     # Initialize a simple batch of lists
     batch_list = [{"list": [i] * i} for i in range(4)]
@@ -181,14 +319,6 @@ def test_collate_list():
         assert data["list"] == result["list"][i]
 
 
-def test_collate_tensor_dispatch_errors():
-    """Tensor dispatch should reject unsupported payloads."""
-    collate_fn = CollateAll(data_types={"bad": "tensor"})
-
-    with pytest.raises(TypeError, match="Unsupported parser payload type"):
-        collate_fn([{"bad": object()}])
-
-
 def test_collate_coordinate_tensor_without_split():
     """Coordinate tensors should stack with batch ids and coordinates."""
     meta = Meta(
@@ -199,21 +329,21 @@ def test_collate_coordinate_tensor_without_split():
     )
     batch = [
         {
-            "voxels": ParserTensor(
+            "voxels": TensorData(
                 coords=np.asarray([[0, 0, 0], [1, 1, 1]], dtype=np.int64),
                 features=np.asarray([[1.0], [2.0]], dtype=np.float32),
                 meta=meta,
             )
         },
         {
-            "voxels": ParserTensor(
+            "voxels": TensorData(
                 coords=np.asarray([[2, 2, 2]], dtype=np.int64),
                 features=np.asarray([[3.0]], dtype=np.float32),
                 meta=meta,
             )
         },
     ]
-    result = CollateAll(data_types={"voxels": "tensor"})(batch)
+    result = CollateAll(data_keys={"voxels": "tensor"})(batch)
 
     tensor = result["voxels"]
     assert isinstance(tensor, TensorBatch)
@@ -223,18 +353,18 @@ def test_collate_coordinate_tensor_without_split():
 
 def test_collate_index_tensor_and_edge_tensor_offsets():
     """Index-like tensors should be offset and wrapped in the right batch type."""
-    collate_fn = CollateAll(data_types={"flat": "tensor", "edge": "tensor"})
+    collate_fn = CollateAll(data_keys={"flat": "tensor", "edge": "tensor"})
     batch = [
         {
-            "flat": ParserIndex(features=np.asarray([0, 1], dtype=np.int64), span=2),
-            "edge": ParserEdgeIndex(
+            "flat": IndexData(features=np.asarray([0, 1], dtype=np.int64), span=2),
+            "edge": EdgeIndexData(
                 features=np.asarray([[0, 1], [1, 0]], dtype=np.int64),
                 span=2,
             ),
         },
         {
-            "flat": ParserIndex(features=np.asarray([0], dtype=np.int64), span=1),
-            "edge": ParserEdgeIndex(
+            "flat": IndexData(features=np.asarray([0], dtype=np.int64), span=1),
+            "edge": EdgeIndexData(
                 features=np.asarray([[0], [0]], dtype=np.int64),
                 span=1,
             ),
@@ -253,7 +383,7 @@ def test_collate_index_tensor_and_edge_tensor_offsets():
 def test_collate_with_overlay():
     """CollateAll should apply overlay before batching."""
     collate_fn = CollateAll(
-        data_types={"run": "scalar"},
+        data_keys={"run": "scalar"},
         overlay={"multiplicity": 2},
         overlay_methods={"run": "match"},
     )
@@ -265,16 +395,16 @@ def test_collate_with_overlay():
 def test_collate_overlay_requires_overlay_methods():
     """CollateAll should require overlay methods when overlaying is enabled."""
     with pytest.raises(ValueError, match="overlay_methods"):
-        CollateAll(data_types={"run": "scalar"}, overlay={"multiplicity": 2})
+        CollateAll(data_keys={"run": "scalar"}, overlay={"multiplicity": 2})
 
 
 def test_collate_index_tensor_returns_index_batch():
     """One-dimensional index tensors should produce an IndexBatch."""
     batch = [
-        {"index_tensor": ParserIndex(features=np.asarray([0, 1]), span=2)},
-        {"index_tensor": ParserIndex(features=np.asarray([0, 2]), span=3)},
+        {"index_tensor": IndexData(features=np.asarray([0, 1]), span=2)},
+        {"index_tensor": IndexData(features=np.asarray([0, 2]), span=3)},
     ]
-    collate_fn = CollateAll(data_types={"index_tensor": "tensor"})
+    collate_fn = CollateAll(data_keys={"index_tensor": "tensor"})
 
     result = collate_fn(batch)
     assert isinstance(result["index_tensor"], IndexBatch)
@@ -283,10 +413,10 @@ def test_collate_index_tensor_returns_index_batch():
 def test_collate_edge_index_tensor_returns_edge_index_batch():
     """Two-dimensional index tensors should produce an EdgeIndexBatch."""
     batch = [
-        {"edge_tensor": ParserEdgeIndex(features=np.asarray([[0, 1], [1, 0]]), span=2)},
-        {"edge_tensor": ParserEdgeIndex(features=np.asarray([[0, 1], [1, 0]]), span=2)},
+        {"edge_tensor": EdgeIndexData(features=np.asarray([[0, 1], [1, 0]]), span=2)},
+        {"edge_tensor": EdgeIndexData(features=np.asarray([[0, 1], [1, 0]]), span=2)},
     ]
-    collate_fn = CollateAll(data_types={"edge_tensor": "tensor"})
+    collate_fn = CollateAll(data_keys={"edge_tensor": "tensor"})
 
     result = collate_fn(batch)
     assert isinstance(result["edge_tensor"], EdgeIndexBatch)
@@ -296,20 +426,20 @@ def test_collate_index_list_tensor_returns_index_batch():
     """List-backed index tensors should produce an IndexBatch with per-index sizes."""
     batch = [
         {
-            "index_tensor": ParserIndexList(
+            "index_tensor": IndexListData(
                 features=[np.asarray([0, 2]), np.asarray([1])],
                 span=3,
                 single_counts=np.asarray([2, 1]),
             )
         },
         {
-            "index_tensor": ParserIndexList(
+            "index_tensor": IndexListData(
                 features=[np.asarray([0, 1, 2])],
                 span=3,
             )
         },
     ]
-    collate_fn = CollateAll(data_types={"index_tensor": "tensor"})
+    collate_fn = CollateAll(data_keys={"index_tensor": "tensor"})
 
     result = collate_fn(batch)
     assert isinstance(result["index_tensor"], IndexBatch)
@@ -322,17 +452,17 @@ def test_collate_feature_tensors_without_coords():
     """Feature-only tensors should be collated with stack_feat_tensors."""
     batch = [
         {
-            "feat": ParserTensor(
+            "feat": TensorData(
                 features=np.asarray([[1.0], [2.0]], dtype=np.float32), feats_only=True
             )
         },
         {
-            "feat": ParserTensor(
+            "feat": TensorData(
                 features=np.asarray([[3.0]], dtype=np.float32), feats_only=True
             )
         },
     ]
-    collate_fn = CollateAll(data_types={"feat": "tensor"})
+    collate_fn = CollateAll(data_keys={"feat": "tensor"})
 
     result = collate_fn(batch)
     assert isinstance(result["feat"], TensorBatch)
@@ -352,16 +482,16 @@ def test_collate_split_feature_tensors_with_source(monkeypatch):
 
     batch = [
         {
-            "feat": ParserTensor(
+            "feat": TensorData(
                 features=np.asarray([[10.0], [20.0]], dtype=np.float32), feats_only=True
             ),
-            "source": ParserTensor(
+            "source": TensorData(
                 features=np.asarray([[0], [1]], dtype=np.int64), feats_only=True
             ),
         }
     ]
     collate_fn = CollateAll(
-        data_types={"feat": "tensor"},
+        data_keys={"feat": "tensor"},
         split=True,
         source={"feat": "source"},
     )
@@ -386,7 +516,7 @@ def test_collate_split_coordinate_tensor_multi_point(monkeypatch):
 
     monkeypatch.setattr("spine.io.collate.GeoManager.get_instance", lambda: DummyGeo())
 
-    tensor = ParserTensor(
+    tensor = TensorData(
         coords=np.asarray(
             [
                 [0, 0, 0, 1, 1, 1],
@@ -397,7 +527,7 @@ def test_collate_split_coordinate_tensor_multi_point(monkeypatch):
         features=np.asarray([[1.0], [2.0]], dtype=np.float32),
         meta=make_meta(),
     )
-    collate_fn = CollateAll(data_types={"voxels": "tensor"}, split=True)
+    collate_fn = CollateAll(data_keys={"voxels": "tensor"}, split=True)
 
     result = collate_fn([{"voxels": tensor}])
     assert isinstance(result["voxels"], TensorBatch)
@@ -422,12 +552,12 @@ def test_collate_split_coordinate_tensor_empty_modules(monkeypatch):
 
     monkeypatch.setattr("spine.io.collate.GeoManager.get_instance", lambda: DummyGeo())
 
-    tensor = ParserTensor(
+    tensor = TensorData(
         coords=np.asarray([[0, 0, 0]], dtype=np.float32),
         features=np.asarray([[1.0]], dtype=np.float32),
         meta=make_meta(),
     )
-    result = CollateAll(data_types={"voxels": "tensor"}, split=True)(
+    result = CollateAll(data_keys={"voxels": "tensor"}, split=True)(
         [{"voxels": tensor}]
     )
 
@@ -447,17 +577,17 @@ def test_collate_split_feature_tensors_without_source_mapping(monkeypatch):
 
     batch = [
         {
-            "feat": ParserTensor(
+            "feat": TensorData(
                 features=np.asarray([[1.0], [2.0]], dtype=np.float32), feats_only=True
             )
         },
         {
-            "feat": ParserTensor(
+            "feat": TensorData(
                 features=np.asarray([[3.0]], dtype=np.float32), feats_only=True
             )
         },
     ]
-    result = CollateAll(data_types={"feat": "tensor"}, split=True)(batch)
+    result = CollateAll(data_keys={"feat": "tensor"}, split=True)(batch)
 
     assert isinstance(result["feat"], TensorBatch)
     assert result["feat"].counts.tolist() == [2, 1]
@@ -467,19 +597,19 @@ def test_collate_index_list_without_single_counts():
     """Index-list collation should infer single counts when they are absent."""
     batch = [
         {
-            "index_tensor": ParserIndexList(
+            "index_tensor": IndexListData(
                 features=[np.asarray([0, 2]), np.asarray([1])],
                 span=3,
             )
         },
         {
-            "index_tensor": ParserIndexList(
+            "index_tensor": IndexListData(
                 features=[np.asarray([0, 1, 2])],
                 span=3,
             )
         },
     ]
-    result = CollateAll(data_types={"index_tensor": "tensor"})(batch)
+    result = CollateAll(data_keys={"index_tensor": "tensor"})(batch)
 
     assert isinstance(result["index_tensor"], IndexBatch)
     assert result["index_tensor"].counts.tolist() == [2, 1]

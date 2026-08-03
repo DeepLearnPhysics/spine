@@ -3,8 +3,13 @@
 import numpy as np
 import torch
 
-from spine.constants import PRINT_COL, VTX_COLS
-from spine.data import EdgeIndexBatch, IndexBatch, Meta, TensorBatch
+from spine.data import (
+    ClusterLabelBatch,
+    EdgeIndexBatch,
+    IndexBatch,
+    Meta,
+    TensorBatch,
+)
 from spine.model.grappa.loss import NodeVertexLoss
 from spine.utils.gnn.evaluation import edge_assignment_forest_batch
 
@@ -44,11 +49,31 @@ def test_forest_assignment_builds_valid_spanning_tree_labels():
 
 def test_vertex_loss_normalizes_each_batch_entry_with_its_own_meta():
     """Normalize vertex labels with the image dimensions of their entry."""
-    labels = np.zeros((2, max(VTX_COLS) + 1), dtype=np.float32)
-    labels[:, PRINT_COL] = 1
-    labels[0, VTX_COLS] = (50.0, 25.0, 10.0)
-    labels[1, VTX_COLS] = (100.0, 50.0, 20.0)
-    clust_label = TensorBatch(labels, counts=[1, 1])
+    data = TensorBatch(
+        np.array(
+            [
+                [0, 0, 0, 0, 1, 0, 0],
+                [1, 0, 0, 0, 1, 0, 0],
+            ],
+            dtype=np.float32,
+        ),
+        counts=[1, 1],
+        coord_cols=np.arange(1, 4),
+    )
+    particles = {
+        "interaction_primary": TensorBatch(np.ones(2, dtype=np.int64), counts=[1, 1]),
+        "vertex": TensorBatch(
+            np.array(
+                [
+                    [50.0, 25.0, 10.0],
+                    [100.0, 50.0, 20.0],
+                ],
+                dtype=np.float32,
+            ),
+            counts=[1, 1],
+        ),
+    }
+    clust_label = ClusterLabelBatch(data, particles)
     clusts = IndexBatch(
         [
             np.array([0], dtype=np.int64),

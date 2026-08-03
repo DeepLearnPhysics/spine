@@ -5,7 +5,7 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from spine.constants import GHOST_SHP, VALUE_COL
+from spine.constants import GHOST_SHP
 from spine.data import TensorBatch
 from spine.model.uresnet import SegmentationLoss
 
@@ -28,8 +28,7 @@ def make_loss(*, num_classes=2, ghost=False, balance_loss=False):
 
 def make_labels(values):
     """Build one batch of sparse labels with the requested class values."""
-    labels = torch.zeros((len(values), VALUE_COL + 1), dtype=torch.float32)
-    labels[:, VALUE_COL] = torch.tensor(values)
+    labels = torch.tensor(values, dtype=torch.float32)
     return TensorBatch(labels, counts=torch.tensor([len(values)]))
 
 
@@ -73,7 +72,7 @@ def test_segmentation_loss_rejects_class_equal_to_num_classes():
 def test_segmentation_loss_rejects_numpy_backed_inputs():
     loss_fn = make_loss()
     labels = TensorBatch(
-        np.zeros((1, VALUE_COL + 1), dtype=np.float32),
+        np.zeros(1, dtype=np.float32),
         counts=np.array([1]),
     )
     segmentation = make_logits([[3.0, 0.0]])

@@ -65,6 +65,8 @@ from .field import FieldMetadata
 if TYPE_CHECKING:  # pragma: no cover
     from spine.data.larcv.meta import Meta
 
+__all__ = ["DataBase", "PosDataBase"]
+
 
 @dataclass(eq=False, repr=False)
 class DataBase:
@@ -530,6 +532,18 @@ class DataBase:
             overlay operations.
         """
         return self._index_attrs
+
+    @property
+    def fixed_length_attrs(self) -> tuple[str, ...]:
+        """Return the tuple of fixed-length array attributes.
+
+        Returns
+        -------
+        tuple[str, ...]
+            Names of array attributes whose lengths are fixed by their field
+            metadata.
+        """
+        return self._fixed_length_attrs
 
     @property
     def enum_dicts(self) -> dict[str, dict[str, int]]:

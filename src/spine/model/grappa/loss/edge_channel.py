@@ -7,9 +7,7 @@ from typing import Any
 import numpy as np
 import torch
 
-from spine.constants import GROUP_COL, PART_COL, PRGRP_COL
-from spine.constants.factory import enum_factory
-from spine.data import EdgeIndexBatch, IndexBatch, TensorBatch
+from spine.data import ClusterLabelBatch, EdgeIndexBatch, IndexBatch, TensorBatch
 from spine.model.common.factories import loss_fn_factory
 from spine.utils.gnn.cluster import get_cluster_label_batch
 from spine.utils.gnn.evaluation import (
@@ -81,7 +79,7 @@ class EdgeChannelLoss(torch.nn.Module):
         super().__init__()
 
         # Parse the aggregation target
-        self.target = enum_factory("cluster", target)
+        self.target = target
 
         # Initialize basic parameters
         self.mode = mode
@@ -93,7 +91,7 @@ class EdgeChannelLoss(torch.nn.Module):
 
     def forward(
         self,
-        clust_label: TensorBatch,
+        clust_label: ClusterLabelBatch,
         clusts: IndexBatch,
         edge_index: EdgeIndexBatch,
         edge_pred: TensorBatch,
@@ -104,7 +102,7 @@ class EdgeChannelLoss(torch.nn.Module):
 
         Parameters
         ----------
-        clust_label : TensorBatch
+        clust_label : ClusterLabelBatch
             (N, 1 + D + N_f) Tensor of cluster labels for the batch
         clusts : IndexBatch
             (C) Index which maps each cluster to a list of voxel IDs
@@ -136,14 +134,14 @@ class EdgeChannelLoss(torch.nn.Module):
 
         # If requested, check that each group contains a single shower primary
         if self.high_purity:
-            if self.target != GROUP_COL:
+            if self.target != "group":
                 raise ValueError(
                     "The `high_purity` flag is only valid when "
                     "building shower groups."
                 )
 
-            part_ids = get_cluster_label_batch(clust_label, clusts, PART_COL)
-            prim_ids = get_cluster_label_batch(clust_label, clusts, PRGRP_COL)
+            part_ids = get_cluster_label_batch(clust_label, clusts, "particle")
+            prim_ids = get_cluster_label_batch(clust_label, clusts, "group_primary")
             valid_mask &= edge_purity_mask_batch(
                 edge_index, part_ids, group_ids, prim_ids
             )
@@ -170,7 +168,7 @@ class EdgeChannelLoss(torch.nn.Module):
                     "the `particle_forest` truth mode"
                 )
 
-            part_ids = get_cluster_label_batch(clust_label, clusts, PART_COL)
+            part_ids = get_cluster_label_batch(clust_label, clusts, "particle")
             edge_assn = edge_assignment_from_graph_batch(
                 edge_index, true_edge_index, part_ids
             )

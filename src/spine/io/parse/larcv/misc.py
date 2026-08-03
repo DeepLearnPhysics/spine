@@ -14,13 +14,12 @@ from typing import Any
 
 import numpy as np
 
-from spine.data import CRTHit, Flash, Meta, RunInfo, Trigger
+from spine.data import CRTHit, Flash, Meta, ObjectListData, RunInfo, Trigger
 from spine.geo import GeoManager
 from spine.utils.conditional import larcv
 from spine.utils.optical import FlashMerger
 
 from ..base import ParserBase
-from ..data import ParserObjectList
 
 __all__ = [
     "LArCVMetaParser",
@@ -54,10 +53,9 @@ class LArCVMetaParser(ParserBase):
     aliases = ("meta2d", "meta3d")
 
     # Type of object(s) returned by the parser
-    returns = "object"
 
     # Overlay strategy for the objects returned by the parser
-    overlay = "match"
+    overlay_method = "match"
 
     def __call__(self, trees: dict[str, Any]) -> Meta:
         """Parse one entry.
@@ -66,6 +64,11 @@ class LArCVMetaParser(ParserBase):
         ----------
         trees : dict
             Dictionary which maps each data product name to a LArCV object
+
+        Returns
+        -------
+        Meta
+            Spatial metadata for the parsed event.
         """
         return self.process(**self.get_input_data(trees))
 
@@ -137,10 +140,9 @@ class LArCVRunInfoParser(ParserBase):
     name = "run_info"
 
     # Type of object(s) returned by the parser
-    returns = "object"
 
     # Overlay strategy for the objects returned by the parser
-    overlay = "cat"
+    overlay_method = "cat"
 
     def __call__(self, trees: dict[str, Any]) -> RunInfo:
         """Parse one entry.
@@ -149,6 +151,11 @@ class LArCVRunInfoParser(ParserBase):
         ----------
         trees : dict
             Dictionary which maps each data product name to a LArCV object
+
+        Returns
+        -------
+        RunInfo
+            Run, subrun, and event identifiers.
         """
         return self.process(**self.get_input_data(trees))
 
@@ -203,7 +210,6 @@ class LArCVFlashParser(ParserBase):
     aliases = ("opflash",)
 
     # Type of object(s) returned by the parser
-    returns = "object_list"
 
     def __init__(self, merge: dict[str, Any] | None = None, **kwargs: Any) -> None:
         """Initialize the flash parser.
@@ -232,13 +238,18 @@ class LArCVFlashParser(ParserBase):
                 "Optical geometry not found, required to resize the flash objects."
             )
 
-    def __call__(self, trees: dict[str, Any]) -> ParserObjectList:
+    def __call__(self, trees: dict[str, Any]) -> ObjectListData:
         """Parse one entry.
 
         Parameters
         ----------
         trees : dict
             Dictionary which maps each data product name to a LArCV object
+
+        Returns
+        -------
+        ObjectListData
+            Optical flashes reconstructed for the event.
         """
         return self.process(**self.get_input_data(trees))
 
@@ -246,11 +257,11 @@ class LArCVFlashParser(ParserBase):
         self,
         flash_event: Any | None = None,
         flash_event_list: list[Any] | None = None,
-    ) -> ParserObjectList:
+    ) -> ObjectListData:
         """Fetches the list of optical flashes.
 
         Parameters
-        -------------
+        ----------
         flash_event : larcv.EventFlash, optional
             Optical flash event which contains a list of flash objects
         flash_event_list : List[larcv.EventFlash], optional
@@ -313,7 +324,7 @@ class LArCVFlashParser(ParserBase):
         if self.merger is not None:
             flashes, _ = self.merger(flashes)
 
-        return ParserObjectList(flashes, Flash())
+        return ObjectListData(flashes, Flash())
 
 
 class LArCVCRTHitParser(ParserBase):
@@ -330,19 +341,23 @@ class LArCVCRTHitParser(ParserBase):
     name = "crthit"
 
     # Type of object(s) returned by the parser
-    returns = "object_list"
 
-    def __call__(self, trees: dict[str, Any]) -> ParserObjectList:
+    def __call__(self, trees: dict[str, Any]) -> ObjectListData:
         """Parse one entry.
 
         Parameters
         ----------
         trees : dict
             Dictionary which maps each data product name to a LArCV object
+
+        Returns
+        -------
+        ObjectListData
+            CRT hits reconstructed for the event.
         """
         return self.process(**self.get_input_data(trees))
 
-    def process(self, crthit_event: Any) -> ParserObjectList:
+    def process(self, crthit_event: Any) -> ObjectListData:
         """Fetches the list of CRT hits.
 
         Parameters
@@ -358,7 +373,7 @@ class LArCVCRTHitParser(ParserBase):
         crthit_list = crthit_event.as_vector()
         crthits = [CRTHit.from_larcv(larcv.CRTHit(c)) for c in crthit_list]
 
-        return ParserObjectList(crthits, CRTHit())
+        return ObjectListData(crthits, CRTHit())
 
 
 class LArCVTriggerParser(ParserBase):
@@ -375,10 +390,9 @@ class LArCVTriggerParser(ParserBase):
     name = "trigger"
 
     # Type of object(s) returned by the parser
-    returns = "object"
 
     # Overlay strategy for the objects returned by the parser
-    overlay = "cat"
+    overlay_method = "cat"
 
     def __call__(self, trees: dict[str, Any]) -> Trigger:
         """Parse one entry.
@@ -387,6 +401,11 @@ class LArCVTriggerParser(ParserBase):
         ----------
         trees : dict
             Dictionary which maps each data product name to a LArCV object
+
+        Returns
+        -------
+        Trigger
+            Trigger information reconstructed for the event.
         """
         return self.process(**self.get_input_data(trees))
 

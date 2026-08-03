@@ -1,11 +1,11 @@
-"""Comprehensive test suite for spine.data.batch.base module."""
+"""Tests for the shared batch-product base classes."""
 
 from dataclasses import dataclass
 
 import numpy as np
 import pytest
 
-from spine.data.batch.base import BatchBase
+from spine.data import BatchBase
 from spine.utils.conditional import TORCH_AVAILABLE, torch
 
 

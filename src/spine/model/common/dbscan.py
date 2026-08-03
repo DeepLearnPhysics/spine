@@ -9,13 +9,8 @@ import numpy as np
 import torch
 
 from spine.constants import (
-    COORD_COLS,
-    COORD_END_COLS,
-    COORD_START_COLS,
     DELTA_SHP,
     MICHL_SHP,
-    PPN_SHAPE_COL,
-    SHAPE_COL,
     SHOWR_SHP,
     TRACK_SHP,
 )
@@ -245,32 +240,24 @@ class DBSCAN(torch.nn.Module):
                         "If label points are to be used to break instance, "
                         "must provide them."
                     )
-                coord_label_tensor = coord_label.torch_tensor()
                 points_tensor = torch.cat(
                     (
-                        coord_label_tensor[:, COORD_START_COLS],
-                        coord_label_tensor[:, COORD_END_COLS],
+                        coord_label.coordinates("start").torch_tensor(),
+                        coord_label.coordinates("end").torch_tensor(),
                     ),
                     dim=1,
                 ).reshape(-1, 3)
                 point_shapes_tensor = torch.repeat_interleave(
-                    coord_label_tensor[:, SHAPE_COL], 2
+                    coord_label.feature("shape").values.torch_tensor(), 2
                 )
                 points = TensorBatch(points_tensor, 2 * coord_label.counts)
                 point_shapes = TensorBatch(point_shapes_tensor, 2 * coord_label.counts)
             else:
                 if self.ppn_predictor is None:  # pragma: no cover
                     raise ValueError("PPN point breaking is not configured.")
-                ppn_points = self.ppn_predictor(**ppn_result)
-                if not isinstance(ppn_points, TensorBatch):
-                    raise TypeError("Expected the PPN predictor to return TensorBatch.")
-                ppn_points_tensor = ppn_points.torch_tensor()
-                points = TensorBatch(
-                    ppn_points_tensor[:, COORD_COLS], ppn_points.counts
-                )
-                point_shapes = TensorBatch(
-                    ppn_points_tensor[:, PPN_SHAPE_COL], ppn_points.counts
-                )
+                ppn_points = cast(TensorBatch, self.ppn_predictor(**ppn_result))
+                points = ppn_points.coords
+                point_shapes = ppn_points.feature("shape").values
 
         # Bring everything to numpy (DBSCAN cannot run on tensors)
         data_np = data.to_numpy()
@@ -286,9 +273,9 @@ class DBSCAN(torch.nn.Module):
         clusts, shapes, counts, single_counts = [], [], [], []
         for b in range(data.batch_size):
             # Fetch the necessary data products, in numpy format
-            voxels_b = data_np[b][:, COORD_COLS]
+            voxels_b = data_np.coords[b]
             seg_pred_b = seg_pred_np[b]
-            points_b = np.empty((0, len(COORD_COLS)), dtype=voxels_b.dtype)
+            points_b = np.empty((0, voxels_b.shape[1]), dtype=voxels_b.dtype)
             if points_np is not None and point_shapes_np is not None:
                 points_b = points_np[b]
                 point_shapes_b = point_shapes_np[b]

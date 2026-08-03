@@ -7,16 +7,8 @@ import torch
 
 import spine.model.full_chain.model as full_chain_mod
 import spine.model.grappa.encode.geometric as geometric_mod
-from spine.constants import (
-    CLUST_COL,
-    GHOST_SHP,
-    GROUP_COL,
-    PRGRP_COL,
-    SHAPE_COL,
-    SHOWR_SHP,
-    TRACK_SHP,
-)
-from spine.data import IndexBatch, TensorBatch
+from spine.constants import GHOST_SHP, SHOWR_SHP, TRACK_SHP
+from spine.data import ClusterLabelBatch, IndexBatch, TensorBatch
 from spine.model.full_chain import FullChain, FullChainLoss
 from spine.model.grappa.encode.geometric import ClustGeoNodeEncoder
 
@@ -55,10 +47,8 @@ def test_full_chain_loss_uses_orig_index_to_align_cached_segmentation_labels():
     recorder = RecordingLoss()
     loss.uresnet_loss = recorder
 
-    seg_label_tensor = torch.zeros((5, 2), dtype=torch.float32)
-    seg_label_tensor[:, 0] = 0
-    seg_label_tensor[:, SHAPE_COL] = torch.tensor([0, GHOST_SHP, 1, 2, GHOST_SHP])
-    seg_label = TensorBatch(seg_label_tensor, batch_size=1, has_batch_col=True)
+    seg_label_tensor = torch.tensor([0, GHOST_SHP, 1, 2, GHOST_SHP]).float()
+    seg_label = TensorBatch(seg_label_tensor, counts=[5])
 
     segmentation = TensorBatch(
         torch.tensor(
@@ -87,7 +77,7 @@ def test_full_chain_loss_uses_orig_index_to_align_cached_segmentation_labels():
     assert segmentation_used.counts.tolist() == [2]
     assert seg_label_used.tensor.shape[0] == 2
     assert segmentation_used.tensor.shape[0] == 2
-    assert torch.equal(seg_label_used.tensor[:, SHAPE_COL], torch.tensor([0.0, 1.0]))
+    assert torch.equal(seg_label_used.values.tensor, torch.tensor([0.0, 1.0]))
     assert torch.equal(segmentation_used.tensor, segmentation.tensor[:2])
 
 
@@ -142,10 +132,24 @@ def test_group_labels_accepts_shape_restriction_without_model():
     full_chain = object.__new__(FullChain)
     full_chain.fragment_shapes = [SHOWR_SHP, GHOST_SHP]
 
-    clust_label_array = np.zeros((3, PRGRP_COL + 1), dtype=np.float32)
-    clust_label_array[:, GROUP_COL] = np.array([7, 7, 9], dtype=np.float32)
-    clust_label_array[:, PRGRP_COL] = np.array([1, 1, 0], dtype=np.float32)
-    clust_label = TensorBatch(clust_label_array, counts=np.array([3]))
+    clust_label = ClusterLabelBatch(
+        TensorBatch(
+            np.array(
+                [
+                    [0, 0, 0, 0, 1, 0, 0],
+                    [0, 1, 0, 0, 1, 0, 0],
+                    [0, 2, 0, 0, 1, 1, 1],
+                ],
+                dtype=np.float32,
+            ),
+            counts=np.array([3]),
+            coord_cols=np.arange(1, 4),
+        ),
+        {
+            "group": TensorBatch(np.array([7, 9]), counts=np.array([2])),
+            "group_primary": TensorBatch(np.array([1, 0]), counts=np.array([2])),
+        },
+    )
 
     clusts = IndexBatch(
         [np.array([0, 1], dtype=np.int64), np.array([2], dtype=np.int64)],
@@ -177,12 +181,22 @@ def test_label_fragmentation_reads_shapes_from_shape_column():
     full_chain.result = {}
 
     data = TensorBatch(np.zeros((4, 1), dtype=np.float32), counts=np.array([4]))
-    clust_label_array = np.zeros((4, CLUST_COL + 2), dtype=np.float32)
-    clust_label_array[:, CLUST_COL] = np.array([10, 10, 20, 20], dtype=np.float32)
-    clust_label_array[:, SHAPE_COL] = np.array(
-        [SHOWR_SHP, SHOWR_SHP, TRACK_SHP, TRACK_SHP], dtype=np.float32
+    clust_label = ClusterLabelBatch(
+        TensorBatch(
+            np.array(
+                [
+                    [0, 0, 0, 0, 1, 10, 0],
+                    [0, 1, 0, 0, 1, 10, 0],
+                    [0, 2, 0, 0, 1, 20, 1],
+                    [0, 3, 0, 0, 1, 20, 1],
+                ],
+                dtype=np.float32,
+            ),
+            counts=np.array([4]),
+            coord_cols=np.arange(1, 4),
+        ),
+        {"shape": TensorBatch(np.array([SHOWR_SHP, TRACK_SHP]), counts=np.array([2]))},
     )
-    clust_label = TensorBatch(clust_label_array, counts=np.array([4]))
 
     full_chain.run_fragmentation(data, clust_label)
 
@@ -236,8 +250,8 @@ def test_prepare_grappa_input_uses_label_points_without_ppn(monkeypatch):
         node_encoder=SimpleNamespace(add_points=True, random_order=False)
     )
     data = TensorBatch(np.zeros((3, 4), dtype=np.float32), counts=np.array([3]))
-    clust_label = TensorBatch(
-        np.zeros((3, GROUP_COL + 1), dtype=np.float32), counts=np.array([3])
+    clust_label = ClusterLabelBatch(
+        TensorBatch(np.zeros((3, 6), dtype=np.float32), counts=np.array([3]))
     )
     clusts = IndexBatch(
         [np.array([0], dtype=np.int64), np.array([1, 2], dtype=np.int64)],
@@ -284,7 +298,9 @@ def test_prepare_grappa_input_uses_label_points_without_ppn(monkeypatch):
 
 def test_geo_node_encoder_forwards_random_order(monkeypatch):
     encoder = ClustGeoNodeEncoder(use_numpy=False, add_points=True, random_order=False)
-    data = TensorBatch(torch.zeros((1, 5), dtype=torch.float32), counts=np.array([1]))
+    data = ClusterLabelBatch(
+        TensorBatch(torch.zeros((1, 6), dtype=torch.float32), counts=np.array([1]))
+    )
     clusts = IndexBatch(
         [np.array([0], dtype=np.int64)],
         spans=np.array([1]),

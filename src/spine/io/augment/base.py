@@ -5,9 +5,8 @@ from typing import Any
 
 import numpy as np
 
-from spine.data import Meta
+from spine.data import Meta, TensorData
 from spine.geo import GeoManager
-from spine.io.parse.data import ParserTensor
 
 
 class AugmentBase(ABC):
@@ -94,12 +93,14 @@ class AugmentBase(ABC):
         if center is not None and use_geo_center:
             raise ValueError("Cannot provide both `center` and `use_geo_center`.")
 
+        # Prefer an explicitly configured center after validating its dimension
         if center is not None:
             center = np.asarray(center, dtype=np.float32)
             if center.shape != (3,):
                 raise ValueError("Transform center must be a 3D point in cm.")
             return center
 
+        # Otherwise resolve the requested detector or image-volume center
         if use_geo_center:
             return GeoManager.get_instance().tpc.center.astype(np.float32)
 
@@ -165,6 +166,7 @@ class AugmentBase(ABC):
         if value is None:
             return None
 
+        # Broadcast scalars while preserving explicit per-axis vectors
         if np.isscalar(value):
             scalar = float(np.asarray(value, dtype=np.float32).item())
             array = np.full(3, scalar, dtype=np.float32)
@@ -245,16 +247,17 @@ class AugmentBase(ABC):
             coordinates (cm). If no activity is available, the center falls
             back to the metadata center and the spread is ``None``.
         """
+        # Gather coordinates and optional feature weights from every product
         coords_list = []
         weights_list = []
         for key in keys:
             value = data.get(key)
-            if not isinstance(value, ParserTensor) or value.coords is None:
+            if not isinstance(value, TensorData) or value.coordinate_data is None:
                 continue
-            if len(value.coords) == 0:
+            if len(value.coordinate_data) == 0:
                 continue
 
-            coords_cm = meta.to_cm(value.coords, center=True)
+            coords_cm = meta.to_cm(value.coordinate_data, center=True)
             coords_list.append(coords_cm)
 
             if weighted:
@@ -266,16 +269,19 @@ class AugmentBase(ABC):
                     weights = np.abs(features[:, column])
                 weights_list.append(weights)
 
+        # Empty events fall back to the center of the current image volume
         if not coords_list:
             center = ((meta.lower + meta.upper) / 2.0).astype(np.float32)
             return center, None
 
+        # Unweighted statistics require no feature alignment
         coords = np.vstack(coords_list)
         if not weighted:
             center = np.mean(coords, axis=0)
             spread = np.std(coords, axis=0)
             return center.astype(np.float32), spread.astype(np.float32)
 
+        # Degenerate weights fall back to ordinary geometric statistics
         weights = np.concatenate(weights_list).astype(np.float64).reshape(-1)
         total_weight = np.sum(weights, dtype=np.float64, initial=0.0)
         if np.allclose(total_weight, 0.0):
@@ -283,17 +289,21 @@ class AugmentBase(ABC):
             spread = np.std(coords, axis=0)
             return center.astype(np.float32), spread.astype(np.float32)
 
+        # Compute weighted first and second central moments in double precision
         weighted_coords = coords * weights[:, None]
-        center = (
+        center = np.asarray(
             np.sum(weighted_coords, axis=0, dtype=np.float64, initial=0.0)
-            / total_weight
+            / total_weight,
+            dtype=np.float64,
         )
         weighted_variance = ((coords - center) ** 2) * weights[:, None]
-        variance = (
+        variance = np.asarray(
             np.sum(weighted_variance, axis=0, dtype=np.float64, initial=0.0)
-            / total_weight
+            / total_weight,
+            dtype=np.float64,
         )
         spread = np.sqrt(variance)
+
         return center.astype(np.float32), spread.astype(np.float32)
 
     @staticmethod
@@ -330,10 +340,12 @@ class AugmentBase(ABC):
         If an anchor is provided, sample the box center around it with a normal
         distribution and clamp to the valid range. Otherwise use a uniform draw.
         """
+        # Uniform sampling needs only the valid range of lower box corners
         max_lower = upper - dimensions
         if anchor is None:
             return lower + np.random.rand(3) * (max_lower - lower)
 
+        # Clamp an activity anchor to the valid range of box centers
         center_lower = lower + dimensions / 2.0
         center_upper = upper - dimensions / 2.0
         anchor = np.clip(anchor, center_lower, center_upper)
@@ -341,8 +353,10 @@ class AugmentBase(ABC):
         if spread is None:
             spread = 0.25 * (center_upper - center_lower)
 
+        # Sample around the anchor and enforce the allowed detector bounds
         sampled_center = np.random.normal(loc=anchor, scale=spread)
         sampled_center = np.clip(sampled_center, center_lower, center_upper)
+
         return sampled_center - dimensions / 2.0
 
     @staticmethod
@@ -373,6 +387,7 @@ class AugmentBase(ABC):
         Meta
             Grid-aligned metadata for the sampled box
         """
+        # Express the allowed box-start range in source-grid indexes
         count = np.asarray(count, dtype=meta.count.dtype)
         epsilon = 1.0e-6
 
@@ -388,13 +403,16 @@ class AugmentBase(ABC):
                 "The sampled box cannot fit within the allowed bounds on the source grid."
             )
 
+        # Snap the sampled proposal to the grid and clamp it to that range
         sampled_start = np.rint((sampled_lower - meta.lower) / meta.size).astype(
             meta.count.dtype
         )
         start = np.clip(sampled_start, start_min, start_max)
 
+        # Reconstruct physically consistent bounds from integer grid quantities
         lower = np.asarray(meta.lower + start * meta.size, dtype=meta.lower.dtype)
         upper = np.asarray(lower + count * meta.size, dtype=meta.upper.dtype)
+
         return Meta(
             lower=lower,
             upper=upper,
@@ -427,11 +445,15 @@ class AugmentBase(ABC):
         Meta
             Grid-aligned metadata for the transformed image volume
         """
+        # Normalize grid quantities before resolving the nearest source-grid start
         size = np.asarray(size, dtype=meta.size.dtype)
         count = np.asarray(count, dtype=meta.count.dtype)
         start = np.rint((lower - meta.lower) / size).astype(meta.count.dtype)
+
+        # Derive both bounds from the snapped start to avoid numerical drift
         snapped_lower = np.asarray(meta.lower + start * size, dtype=meta.lower.dtype)
         upper = np.asarray(snapped_lower + size * count, dtype=meta.upper.dtype)
+
         return Meta(
             lower=snapped_lower,
             upper=upper,

@@ -8,7 +8,7 @@ from typing import Any
 import numpy as np
 import torch
 
-from spine.data import IndexBatch, TensorBatch
+from spine.data import ClusterLabelBatch, IndexBatch, TensorBatch
 
 from ..common.factories import final_factory
 from ..registry import ModelSpec
@@ -135,9 +135,9 @@ class ImageModel(torch.nn.Module):
 
     def forward(
         self,
-        data: TensorBatch,
+        data: ClusterLabelBatch | TensorBatch,
         objects: IndexBatch | None = None,
-        object_data: TensorBatch | None = None,
+        object_data: ClusterLabelBatch | None = None,
     ) -> dict[str, Any]:
         """Encode image objects and evaluate every configured head.
 
@@ -158,8 +158,13 @@ class ImageModel(torch.nn.Module):
             head, and optionally the shared encoded ``features``.
         """
         # Construct samples and rebatch their voxels as independent images
-        objects = self.object_builder(data, objects, object_data)
-        objectized_data = self._objectize(data, objects)
+        voxel_data = (
+            data.to_tensor_batch() if isinstance(data, ClusterLabelBatch) else data
+        )
+        if object_data is None and isinstance(data, ClusterLabelBatch):
+            object_data = data
+        objects = self.object_builder(voxel_data, objects, object_data)
+        objectized_data = self._objectize(voxel_data, objects)
 
         # Encode every object once, sharing the representation across tasks
         num_objects = len(objects.index_list)
@@ -172,7 +177,7 @@ class ImageModel(torch.nn.Module):
                     f"({num_objects}, {self.encoder.feature_size})."
                 )
         else:
-            data_tensor = data.torch_tensor()
+            data_tensor = voxel_data.torch_tensor()
             encoded = data_tensor.new_empty((0, self.encoder.feature_size))
 
         # Preserve original event ownership on all feature and head outputs

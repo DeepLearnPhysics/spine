@@ -7,8 +7,7 @@ from typing import Any, NoReturn, TypeAlias
 
 import torch
 
-from spine.constants import COORD_COLS
-from spine.data import TensorBatch
+from spine.data import TensorBatch, TensorSchema
 from spine.model import sparse
 from spine.model.cnn.act_norm import act_factory, norm_factory
 from spine.model.cnn.blocks import ResNetBlock
@@ -180,7 +179,10 @@ class VertexPPN(sparse.Network):
                     scores.coordinates,
                     counts,
                     has_batch_col=True,
-                    coord_cols=COORD_COLS,
+                    coord_cols=tuple(range(1, self.dimension + 1)),
+                    schema=TensorSchema(
+                        coordinate_groups={"points": tuple(range(self.dimension))}
+                    ),
                 )
             )
             expanded = self.expand_as(
@@ -214,7 +216,10 @@ class VertexPPN(sparse.Network):
                 x.coordinates,
                 x.counts,
                 has_batch_col=True,
-                coord_cols=COORD_COLS,
+                coord_cols=tuple(range(1, self.dimension + 1)),
+                schema=TensorSchema(
+                    coordinate_groups={"points": tuple(range(self.dimension))}
+                ),
             ),
         }
 

@@ -11,14 +11,14 @@ segmentation and identification.
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import torch
 
-from spine.constants import GROUP_COL, LOWES_SHP, SHAPE_COL, TRACK_SHP
+from spine.constants import LOWES_SHP, TRACK_SHP
 from spine.constants.factory import enum_factory
-from spine.data import EdgeIndexBatch, IndexBatch, TensorBatch
+from spine.data import ClusterLabelBatch, EdgeIndexBatch, IndexBatch, TensorBatch
 from spine.model.common.dbscan import DBSCAN
 from spine.model.common.factories import final_factory
 from spine.utils.gnn.cluster import (
@@ -109,7 +109,7 @@ class GrapPA(torch.nn.Module):
         # assignments in the configuration helpers as ad hoc attributes.
         self.out_types = ("node", "edge", "global")
         self.gnn: GNNModel
-        self.node_source: int
+        self.node_source: str
         self.node_type: list[int]
         self.node_min_size: int
         self.make_groups: bool
@@ -209,7 +209,7 @@ class GrapPA(torch.nn.Module):
 
     def process_node_config(
         self,
-        source: str | int = "cluster",
+        source: str = "cluster",
         shapes: Sequence[int | str] | None = None,
         min_size: int = -1,
         make_groups: bool = False,
@@ -235,9 +235,12 @@ class GrapPA(torch.nn.Module):
             If `True`, shower objects can only be connected to one track object
         """
         # Parse the node source
-        self.node_source = (
-            enum_factory("cluster", source) if isinstance(source, str) else int(source)
-        )
+        source_aliases = {
+            "clust": "cluster",
+            "part": "particle",
+            "inter": "interaction",
+        }
+        self.node_source = source_aliases.get(source, source)
 
         # Interpret node type as list of shapes to cluster
         if shapes is None:
@@ -404,7 +407,7 @@ class GrapPA(torch.nn.Module):
 
     def forward(
         self,
-        data: TensorBatch,
+        data: ClusterLabelBatch | TensorBatch,
         coord_label: TensorBatch | None = None,
         clusts: IndexBatch | None = None,
         edge_index: EdgeIndexBatch | None = None,
@@ -472,9 +475,17 @@ class GrapPA(torch.nn.Module):
             (C, N_e) Global predictions (logits)
         """
         result: dict[str, Any] = {}
+        voxel_data = (
+            data.to_tensor_batch() if isinstance(data, ClusterLabelBatch) else data
+        )
 
         # Encode the node boundaries as clusters if they are not provided directly
         if clusts is None:
+            if not isinstance(data, ClusterLabelBatch):
+                raise TypeError(
+                    "Building clusters requires structured cluster labels. "
+                    "Tensor input must be paired with explicit `clusts`."
+                )
             clusts = self._make_clusters(data, coord_label=coord_label)
         result["clusts"] = clusts
 
@@ -510,11 +521,9 @@ class GrapPA(torch.nn.Module):
                         "Node encoders must return TensorBatch or a pair of "
                         "TensorBatch objects."
                     )
-                node_features, encoded_points = encoded_nodes
-                if not isinstance(node_features, TensorBatch):
-                    raise TypeError("Node features must be returned as TensorBatch.")
-                if not isinstance(encoded_points, TensorBatch):
-                    raise TypeError("Node points must be returned as TensorBatch.")
+                node_features, encoded_points = cast(
+                    tuple[TensorBatch, TensorBatch], encoded_nodes
+                )
                 point_tensor = encoded_points.torch_tensor()
                 if point_tensor.shape[1] != 6:
                     raise ValueError(
@@ -535,38 +544,33 @@ class GrapPA(torch.nn.Module):
                 )
                 points = encoded_points
             else:
-                if not isinstance(encoded_nodes, TensorBatch):
-                    raise TypeError("Node encoders must return a TensorBatch.")
-                node_features = encoded_nodes
+                node_features = cast(TensorBatch, encoded_nodes)
 
         if self.return_features:
             result["node_features"] = node_features
 
         # Fetch the edge features
         if edge_features is None and self.edge_encoder is not None:
-            encoded_edges = self.edge_encoder(
-                data, clusts, edge_index, closest_index=closest_index
+            edge_features = cast(
+                TensorBatch,
+                self.edge_encoder(
+                    voxel_data, clusts, edge_index, closest_index=closest_index
+                ),
             )
-            if not isinstance(encoded_edges, TensorBatch):
-                raise TypeError("Edge encoders must return a TensorBatch.")
-            edge_features = encoded_edges
 
         if self.return_features and edge_features is not None:
             result["edge_features"] = edge_features
 
         # Fetch the global_features
         if global_features is None and self.global_encoder is not None:
-            encoded_globals = self.global_encoder(data, clusts)
-            if not isinstance(encoded_globals, TensorBatch):
-                raise TypeError("Global encoders must return a TensorBatch.")
-            global_features = encoded_globals
+            global_features = cast(TensorBatch, self.global_encoder(voxel_data, clusts))
 
         if global_features is not None and self.return_features:
             result["global_features"] = global_features
 
         # Bring graph indexes to the feature device. Graph construction remains
         # CPU-based, while the message-passing network operates on Torch tensors.
-        data_tensor = data.torch_tensor()
+        data_tensor = voxel_data.torch_tensor()
         index = torch.as_tensor(
             edge_index.index,
             dtype=torch.long,
@@ -597,10 +601,7 @@ class GrapPA(torch.nn.Module):
                     "prediction head."
                 )
             for key in prediction_keys:
-                prediction = getattr(self, key)(out[feature_key])
-                if not isinstance(prediction, TensorBatch):
-                    raise TypeError("GrapPA prediction heads must return TensorBatch.")
-                result[key] = prediction
+                result[key] = cast(TensorBatch, getattr(self, key)(out[feature_key]))
 
         # If requested, build node groups from edge predictions
         if self.make_groups:
@@ -609,18 +610,16 @@ class GrapPA(torch.nn.Module):
         return result
 
     def _make_clusters(
-        self, data: TensorBatch, coord_label: TensorBatch | None = None
+        self,
+        data: ClusterLabelBatch,
+        coord_label: TensorBatch | None = None,
     ) -> IndexBatch:
         """Build node clusters from labels or configured DBSCAN fragmentation.
 
         Parameters
         ----------
-        data : TensorBatch
-            Tensor of voxel/value pairs with shape `(N, 1 + D + N_f)`, where
-            `N` is the total number of voxels, the leading column stores the
-            batch ID, `D` is the image dimensionality and `N_f` is the number
-            of features. The features must also contain the labels needed to
-            build clusters on the fly.
+        data : ClusterLabelBatch
+            Structured labels used to build clusters on the fly
         coord_label : TensorBatch, optional
             (P, 1 + 2*D + 2) Tensor of label points
 
@@ -631,8 +630,8 @@ class GrapPA(torch.nn.Module):
         """
         if self.dbscan is not None:
             # Use the DBSCAN fragmenter to build the clusters
-            seg_label = TensorBatch(data.torch_tensor()[:, SHAPE_COL], data.counts)
-            clusts, _ = self.dbscan(data, seg_label, coord_label)
+            seg_label = data.shapes
+            clusts, _ = self.dbscan(data.to_tensor_batch(), seg_label, coord_label)
         else:
             # Use the label tensor to build the clusters
             clusts = form_clusters_batch(
@@ -646,7 +645,7 @@ class GrapPA(torch.nn.Module):
 
     def _get_shapes(
         self,
-        data: TensorBatch,
+        data: ClusterLabelBatch | TensorBatch,
         clusts: IndexBatch,
         shapes: TensorBatch | None = None,
     ) -> TensorBatch | None:
@@ -677,18 +676,23 @@ class GrapPA(torch.nn.Module):
         if not class_dependent_edges and not track_restricted_grouping:
             return None
 
+        if not isinstance(data, ClusterLabelBatch):
+            raise TypeError(
+                "Deriving semantic node labels requires structured cluster labels "
+                "or an explicit `shapes` tensor."
+            )
         data_np = data.to_numpy()
-        if self.node_source == GROUP_COL:
-            shapes = get_cluster_primary_label_batch(data_np, clusts, SHAPE_COL)
+        if self.node_source == "group":
+            shapes = get_cluster_primary_label_batch(data_np, clusts, "shape")
         else:
-            shapes = get_cluster_label_batch(data_np, clusts, SHAPE_COL)
+            shapes = get_cluster_label_batch(data_np, clusts, "shape")
 
         shape_values = shapes.numpy_tensor().astype(np.int64, copy=False)
         return TensorBatch(shape_values, shapes.counts)
 
     def _make_edge_index(
         self,
-        data: TensorBatch,
+        data: ClusterLabelBatch | TensorBatch,
         clusts: IndexBatch,
         shapes: TensorBatch | None = None,
         groups: TensorBatch | None = None,
@@ -930,7 +934,7 @@ class GrapPALoss(torch.nn.Module):
 
     def forward(
         self,
-        clust_label: TensorBatch,
+        clust_label: ClusterLabelBatch,
         coord_label: TensorBatch | None = None,
         graph_label: EdgeIndexBatch | None = None,
         iteration: int | None = None,
@@ -940,7 +944,7 @@ class GrapPALoss(torch.nn.Module):
 
         Parameters
         ----------
-        clust_label : TensorBatch
+        clust_label : ClusterLabelBatch
             (N, 1 + D + N_f) Tensor of voxel/value pairs
             - N is the the total number of voxels in the image
             - 1 is the batch ID

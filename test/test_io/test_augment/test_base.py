@@ -5,7 +5,7 @@ from spine.io.augment.base import AugmentBase
 from .helpers import (
     BOX2,
     GeoManager,
-    ParserTensor,
+    TensorData,
     make_meta,
     np,
     pytest,
@@ -74,7 +74,7 @@ def test_resolve_activity_center_handles_zero_weight_sum():
     meta = make_meta(lower=(0.0, 0.0, 0.0), upper=(10.0, 10.0, 10.0))
     coords = np.asarray([[1, 1, 1], [7, 7, 7]], dtype=np.int64)
     features = np.zeros((2, 1), dtype=np.float32)
-    tensor = ParserTensor(coords=coords, features=features, meta=meta)
+    tensor = TensorData(coords=coords, features=features, meta=meta)
 
     center = DummyAugment.resolve_activity_center(
         {"voxels": tensor}, ["voxels"], meta, weighted=True, feature_index=0
@@ -85,13 +85,13 @@ def test_resolve_activity_center_handles_zero_weight_sum():
 
 def test_resolve_activity_center_skips_empty_tensors_and_supports_1d_weights():
     meta = make_meta(lower=(0.0, 0.0, 0.0), upper=(10.0, 10.0, 10.0))
-    empty = ParserTensor(
+    empty = TensorData(
         coords=np.empty((0, 3), dtype=np.int64),
         features=np.empty((0,), dtype=np.float32),
         meta=meta,
     )
     coords = np.asarray([[1, 1, 1], [8, 8, 8]], dtype=np.int64)
-    tensor = ParserTensor(
+    tensor = TensorData(
         coords=coords,
         features=np.asarray([1.0, 3.0], dtype=np.float32),
         meta=meta,
@@ -113,7 +113,7 @@ def test_resolve_activity_center_skips_empty_tensors_and_supports_1d_weights():
 def test_resolve_activity_stats_returns_activity_spread():
     meta = make_meta(lower=(0.0, 0.0, 0.0), upper=(10.0, 10.0, 10.0))
     coords = np.asarray([[1, 1, 1], [7, 7, 7], [7, 1, 1]], dtype=np.int64)
-    tensor = ParserTensor(
+    tensor = TensorData(
         coords=coords,
         features=np.asarray([[1.0], [2.0], [3.0]], dtype=np.float32),
         meta=meta,
@@ -132,7 +132,7 @@ def test_resolve_activity_stats_returns_weighted_activity_spread():
     meta = make_meta(lower=(0.0, 0.0, 0.0), upper=(10.0, 10.0, 10.0))
     coords = np.asarray([[1, 1, 1], [7, 7, 7], [7, 1, 1]], dtype=np.int64)
     weights = np.asarray([1.0, 2.0, 3.0], dtype=np.float32)
-    tensor = ParserTensor(
+    tensor = TensorData(
         coords=coords,
         features=weights,
         meta=meta,

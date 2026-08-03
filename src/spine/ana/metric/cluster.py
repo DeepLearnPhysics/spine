@@ -10,8 +10,7 @@ from numpy.typing import NDArray
 
 import spine.utils.metrics
 from spine.ana.base import AnaBase
-from spine.constants import CLUST_COL, GROUP_COL, INTER_COL, LOWES_SHP, SHAPE_COL
-from spine.constants.factory import enum_factory
+from spine.constants import LOWES_SHP
 
 __all__ = ["ClusterAna"]
 
@@ -29,9 +28,9 @@ class ClusterAna(AnaBase):
 
     # Label column to use for each clustering label_col
     _label_cols = (
-        ("fragment", CLUST_COL),
-        ("particle", GROUP_COL),
-        ("interaction", INTER_COL),
+        ("fragment", "cluster"),
+        ("particle", "group"),
+        ("interaction", "interaction"),
     )
 
     def __init__(
@@ -111,9 +110,7 @@ class ClusterAna(AnaBase):
         self.label_key = label_key
 
         # Parse the label_col column, if necessary
-        self.label_col: int | None = (
-            enum_factory("cluster", label_col) if label_col is not None else None
-        )
+        self.label_col = label_col
 
         # Convert metric strings to functions
         self.metrics: dict[str, Callable[..., float]] = {
@@ -151,13 +148,13 @@ class ClusterAna(AnaBase):
             self.initialize_writer(obj)
 
     @property
-    def label_cols(self) -> dict[str, int]:
+    def label_cols(self) -> dict[str, str]:
         """Dictionary of (key, column_id) pairs which determine which column
         in the label tensor corresponds to a specific clustering target.
 
         Returns
         -------
-        dict[str, int]
+        dict[str, str]
             Dictionary of (key, column_id) mapping from name to label column
         """
         return dict(self._label_cols)
@@ -178,13 +175,14 @@ class ClusterAna(AnaBase):
             if not self.use_objects:
                 # Fetch the right label column
                 label_col = self.label_col or self.label_cols[obj_type]
-                num_points = len(data[self.label_key])
-                labels = data[self.label_key][:, label_col].astype(
+                cluster_label = data[self.label_key]
+                num_points = len(cluster_label)
+                labels = cluster_label.voxel_field(label_col).astype(
                     np.int32,
                     copy=False,
                 )
-                if obj_type != "interaction":
-                    shapes = data[self.label_key][:, SHAPE_COL].astype(
+                if self.per_shape and obj_type != "interaction":
+                    shapes = cluster_label.shapes.astype(
                         np.int32,
                         copy=False,
                     )
@@ -201,7 +199,7 @@ class ClusterAna(AnaBase):
             # Build the cluster predictions for this object type
             preds = np.full(num_points, -1, dtype=np.int32)
             if self.per_object:
-                pred_shapes = np.full(num_points, -LOWES_SHP, dtype=np.int32)
+                pred_shapes = np.full(num_points, LOWES_SHP, dtype=np.int32)
                 shapes = pred_shapes
                 if not self.use_objects:
                     # Use clusters directly from the full chain output

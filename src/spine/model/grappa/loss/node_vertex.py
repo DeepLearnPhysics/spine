@@ -8,8 +8,7 @@ from typing import Any
 import numpy as np
 import torch
 
-from spine.constants import PRINT_COL, VTX_COLS
-from spine.data import IndexBatch, Meta, TensorBatch
+from spine.data import ClusterLabelBatch, IndexBatch, Meta, TensorBatch
 from spine.geo import GeoManager
 from spine.model.common.factories import loss_fn_factory
 from spine.utils.gnn.cluster import get_cluster_label_batch
@@ -108,7 +107,7 @@ class NodeVertexLoss(torch.nn.Module):
 
     def forward(
         self,
-        clust_label: TensorBatch,
+        clust_label: ClusterLabelBatch,
         clusts: IndexBatch,
         node_pred: TensorBatch,
         meta: Sequence[Meta] | None = None,
@@ -120,7 +119,7 @@ class NodeVertexLoss(torch.nn.Module):
 
         Parameters
         ----------
-        clust_label : TensorBatch
+        clust_label : ClusterLabelBatch
             (N, 1 + D + N_f) Tensor of cluster labels for the batch
         clusts : IndexBatch
             (C) Index which maps each cluster to a list of voxel IDs
@@ -180,16 +179,10 @@ class NodeVertexLoss(torch.nn.Module):
                 )
 
         # Get interaction-primary and three-dimensional vertex labels.
-        primary_ids = get_cluster_label_batch(clust_label, clusts, column=PRINT_COL)
-
-        vertex_labels = np.empty((len(clusts.index_list), 3), dtype=primary_ids.dtype)
-        for dimension, column in enumerate(VTX_COLS):
-            vertex_labels[:, dimension] = get_cluster_label_batch(
-                clust_label,
-                clusts,
-                column=column,
-            ).numpy_tensor()
-        vertex_labels = TensorBatch(vertex_labels, primary_ids.counts)
+        primary_ids = get_cluster_label_batch(
+            clust_label, clusts, column="interaction_primary"
+        )
+        vertex_labels = get_cluster_label_batch(clust_label, clusts, column="vertex")
 
         # Create a mask for valid nodes (-1 indicates invalid labels,
         # 0 indicates a secondary)

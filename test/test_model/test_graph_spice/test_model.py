@@ -6,8 +6,8 @@ from typing import Any, cast
 import pytest
 import torch
 
-from spine.constants import CLUST_COL, SHAPE_COL, SHOWR_SHP
-from spine.data import IndexBatch, TensorBatch
+from spine.constants import SHOWR_SHP
+from spine.data import ClusterLabelBatch, IndexBatch, TensorBatch
 from spine.model.graph_spice import EdgeLoss, GraphSPICE, GraphSPICELoss
 from spine.utils.cluster.graph import ClusterGraphConstructor
 
@@ -17,7 +17,7 @@ def test_graph_spice_rejects_misaligned_segmentation_labels():
     model = object.__new__(GraphSPICE)
     model.shapes = [0]
     data = TensorBatch(torch.zeros((2, 5)), counts=[2], has_batch_col=True)
-    seg_label = TensorBatch(torch.zeros((3, SHAPE_COL + 1)), counts=[3])
+    seg_label = TensorBatch(torch.zeros(3), counts=[3])
 
     with pytest.raises(ValueError, match="matching row counts"):
         model.filter_class(data, seg_label)
@@ -44,8 +44,8 @@ def test_graph_spice_loss_requires_loss_configuration():
         loss_cls({"constructor": {}})
 
 
-def test_loss_edge_labels_match_legacy_network_labels():
-    """Loss-side labeling must preserve the legacy network-side targets."""
+def test_loss_edge_labels_match_network_labels():
+    """Loss-side labeling must match optional network-side targets."""
     constructor_cfg = {
         "graph": {"name": "radius", "r": 1.9},
         "shapes": ["shower"],
@@ -68,11 +68,19 @@ def test_loss_edge_labels_match_legacy_network_labels():
     features = TensorBatch(torch.zeros((2, 2)), counts=[2])
     seg_tensor = torch.full((2, 1), SHOWR_SHP)
     seg_label = TensorBatch(seg_tensor, counts=[2])
-    clust_tensor = torch.zeros((2, CLUST_COL + 1))
-    clust_tensor[:, CLUST_COL] = 7
-    clust_label = TensorBatch(clust_tensor, counts=[2])
+    clust_tensor = torch.zeros((2, 6))
+    clust_tensor[:, 5] = 7
+    clust_label = ClusterLabelBatch(
+        TensorBatch(
+            clust_tensor,
+            counts=[2],
+            has_batch_col=True,
+            coord_cols=(1, 2, 3),
+        )
+    )
+    cluster_ids = clust_label.voxel_field("cluster")
 
-    legacy_graph = constructor(coords, features, seg_label, clust_label)
+    labeled_graph = constructor(coords, features, seg_label, cluster_ids)
     label_free_graph = constructor(coords, features, seg_label)
     loss = GraphSPICELoss(
         {"constructor": constructor_cfg},
@@ -89,8 +97,8 @@ def test_loss_edge_labels_match_legacy_network_labels():
     )
 
     assert "edge_label" not in label_free_graph
-    legacy_labels = cast(TensorBatch, legacy_graph["edge_label"])
+    network_labels = cast(TensorBatch, labeled_graph["edge_label"])
     assert torch.equal(
         derived_labels.torch_tensor(),
-        legacy_labels.torch_tensor(),
+        network_labels.torch_tensor(),
     )

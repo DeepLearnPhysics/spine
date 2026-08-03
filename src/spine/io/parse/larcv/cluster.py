@@ -9,25 +9,14 @@ Contains the following parsers:
 
 from __future__ import annotations
 
-from collections import OrderedDict
+from collections.abc import Mapping
 from typing import Any
 from warnings import warn
 
 import numpy as np
 
-from spine.constants import (
-    ANCST_COL,
-    CLUST_COL,
-    DELTA_SHP,
-    GROUP_COL,
-    INTER_COL,
-    NU_COL,
-    PART_COL,
-    SHAPE_COL,
-    SHAPE_PREC,
-    VALUE_COL,
-)
-from spine.data import Meta
+from spine.constants import DELTA_SHP, SHAPE_PREC
+from spine.data import ClusterLabelData, Meta, TensorData
 from spine.math.cluster import dbscan
 from spine.math.distance import METRICS
 from spine.utils.conditional import larcv
@@ -36,7 +25,6 @@ from spine.utils.ppn import image_coordinates_batch
 
 from ..base import ParserBase
 from ..clean_data import clean_sparse_data
-from ..data import ParserTensor
 from .sparse import (
     LArCVSparse3DAggregateParser,
     LArCVSparse3DChargeRescaledParser,
@@ -66,7 +54,6 @@ class LArCVCluster2DParser(ParserBase):
     name = "cluster2d"
 
     # Type of object(s) returned by the parser
-    returns = "tensor"
 
     def __init__(self, dtype: str, cluster_event: str, projection_id: int) -> None:
         """Initialize the parser.
@@ -81,24 +68,29 @@ class LArCVCluster2DParser(ParserBase):
         # Initialize the parent class
         super().__init__(dtype, cluster_event=cluster_event)
 
-        # Store the revelant attributes
+        # Store the relevant attributes
         self.projection_id = projection_id
 
         # Define the overlay strategy parameters
-        self.index_cols = np.array([CLUST_COL])
-        self.sum_cols = np.array([VALUE_COL])
+        self.index_cols = np.array([1], dtype=np.int64)
+        self.sum_cols = np.array([0], dtype=np.int64)
 
-    def __call__(self, trees: dict[str, Any]) -> ParserTensor:
+    def __call__(self, trees: dict[str, Any]) -> TensorData:
         """Parse one entry.
 
         Parameters
         ----------
         trees : dict
             Dictionary which maps each data product name to a LArCV object
+
+        Returns
+        -------
+        TensorData
+            Sparse tensor containing the parsed 2D cluster assignments.
         """
         return self.process(**self.get_input_data(trees))
 
-    def process(self, cluster_event: Any) -> ParserTensor:
+    def process(self, cluster_event: Any) -> TensorData:
         """Converts a 2D clusters tensor into a single tensor.
 
         Parameters
@@ -108,7 +100,7 @@ class LArCVCluster2DParser(ParserBase):
 
         Returns
         -------
-        ParserTensor
+        TensorData
             coords : np.ndarray
                 (N, 2) array of [x, y] coordinates
             features : np.ndarray
@@ -152,7 +144,7 @@ class LArCVCluster2DParser(ParserBase):
         # Evaluate shifts to apply to each index column
         index_shifts = np.max(np_features[:, -1], keepdims=True, initial=-1) + 1
 
-        return ParserTensor(
+        return TensorData(
             coords=np_voxels,
             features=np_features,
             meta=Meta.from_larcv(meta),
@@ -172,34 +164,34 @@ class LArCVCluster3DParser(ParserBase):
           cluster_label:
             parser: cluster3d
             cluster_event: cluster3d_pcluster
-            particle_event: particle_pcluster
-            particle_mpv_event: particle_mpv
-            neutrino_event: neutrino_mpv
             sparse_semantics_event: sparse3d_semantics
             sparse_value_event: sparse3d_pcluster
-            add_particle_info: true
             clean_data: true
-            type_include_mpr: false
-            type_include_secondary: false
-            primary_include_mpr: true
             break_clusters: false
+            particle_info:
+              particle_event: particle_pcluster
+              particle_mpv_event: particle_mpv
+              neutrino_event: neutrino_mpv
+              type_include_secondary: false
+              type_include_mpr: false
+              primary_include_mpr: true
     """
 
     # Name of the parser (as specified in the configuration)
     name = "cluster3d"
 
     # Type of object(s) returned by the parser
-    returns = "tensor"
 
     def __init__(
         self,
         dtype: str,
         particle_event: Any | None = None,
         add_particle_info: bool = False,
+        particle_info: Mapping[str, Any] | bool | None = None,
         clean_data: bool = False,
-        type_include_mpr: bool = True,
-        type_include_secondary: bool = True,
-        primary_include_mpr: bool = True,
+        type_include_mpr: bool | None = None,
+        type_include_secondary: bool | None = None,
+        primary_include_mpr: bool | None = None,
         break_clusters: bool = False,
         break_eps: float = 1.1,
         break_metric: str = "chebyshev",
@@ -211,18 +203,27 @@ class LArCVCluster3DParser(ParserBase):
         Parameters
         ----------
         particle_event : larcv.EventParticle, optional
-            List of true particle information. If prodided, allows to fetch
-            more information about each of the pixels in the image
+            Legacy top-level particle input. Prefer ``particle_info``.
         add_particle_info : bool, default False
-            If `True`, adds truth information from the true particle list
+            Legacy switch which enables the particle table. Prefer
+            ``particle_info``.
+        particle_info : mapping or bool, optional
+            Nested particle-input configuration. A mapping enables the named
+            particle table and may contain ``particle_event``,
+            ``particle_mpv_event``, ``neutrino_event``, ``type_include_mpr``,
+            ``type_include_secondary`` and ``primary_include_mpr``. ``None``
+            produces association-only cluster labels.
         clean_data : bool, default False
             If `True`, removes duplicate voxels
-        type_include_mpr : bool, default False
-            If `False`, sets all PID labels to -1 for MPR particles
-        type_include_secondary : bool, default False
-            If `False`, sets all PID labels to -1 for secondary particles
-        primary_include_mpr : bool, default False
-            If `False`, sets all primary labels to -1 for MPR particles
+        type_include_mpr : bool, optional
+            Legacy top-level form of ``particle_info.type_include_mpr``.
+            Defaults to `True`.
+        type_include_secondary : bool, optional
+            Legacy top-level form of ``particle_info.type_include_secondary``.
+            Defaults to `True`.
+        primary_include_mpr : bool, optional
+            Legacy top-level form of ``particle_info.primary_include_mpr``.
+            Defaults to `True`.
         break_clusters : bool, default False
             If `True`, runs DBSCAN on each cluster, assigns different cluster
             IDs to different fragments of the broken-down cluster
@@ -235,51 +236,94 @@ class LArCVCluster3DParser(ParserBase):
         **kwargs : dict, optional
             Data product arguments to be passed to the `process` function
         """
+        # Normalize the new nested particle configuration and legacy aliases
+        if isinstance(particle_info, Mapping):
+            particle_cfg = dict(particle_info)
+            if "particle_event" in particle_cfg:
+                if particle_event is not None:
+                    raise ValueError(
+                        "Particle input `particle_event` was specified twice."
+                    )
+                particle_event = particle_cfg.pop("particle_event")
+
+            # Particle and neutrino products are loaded by the parser base
+            for key in ("particle_mpv_event", "neutrino_event"):
+                if key not in particle_cfg:
+                    continue
+                if key in kwargs:
+                    raise ValueError(f"Particle input `{key}` was specified twice.")
+                kwargs[key] = particle_cfg.pop(key)
+
+            # Label-selection options belong to the particle-table configuration
+            particle_options = {
+                "type_include_mpr": type_include_mpr,
+                "type_include_secondary": type_include_secondary,
+                "primary_include_mpr": primary_include_mpr,
+            }
+            for key, legacy_value in particle_options.items():
+                if key not in particle_cfg:
+                    continue
+                if legacy_value is not None:
+                    raise ValueError(f"Particle option `{key}` was specified twice.")
+                particle_options[key] = particle_cfg.pop(key)
+            type_include_mpr = particle_options["type_include_mpr"]
+            type_include_secondary = particle_options["type_include_secondary"]
+            primary_include_mpr = particle_options["primary_include_mpr"]
+
+            if particle_cfg:
+                unknown = ", ".join(sorted(particle_cfg))
+                raise ValueError(f"Unknown particle information option(s): {unknown}.")
+            include_particle_info = True
+        elif particle_info is not None:
+            include_particle_info = bool(particle_info)
+        else:
+            include_particle_info = add_particle_info
+
         # Initialize the parent class
         super().__init__(dtype, particle_event=particle_event, **kwargs)
 
         # Store the revelant attributes
-        self.add_particle_info = add_particle_info
+        self.include_particle_info = include_particle_info
         self.clean_data = clean_data
-        self.type_include_mpr = type_include_mpr
-        self.type_include_secondary = type_include_secondary
-        self.primary_include_mpr = primary_include_mpr
+        self.type_include_mpr = True if type_include_mpr is None else type_include_mpr
+        self.type_include_secondary = (
+            True if type_include_secondary is None else type_include_secondary
+        )
+        self.primary_include_mpr = (
+            True if primary_include_mpr is None else primary_include_mpr
+        )
         self.shape_precedence = np.asarray(shape_precedence)
 
-        # Intialize DBSCAN if the clusters are to be broken up
+        # Initialize DBSCAN if the clusters are to be broken up
         self.break_clusters = break_clusters
         self.break_eps = break_eps
         self.break_metric_id = METRICS[break_metric]
 
-        # Intialize the sparse and particle parsers
+        # Initialize the sparse parser
         self.sparse_parser = LArCVSparse3DParser(dtype, sparse_event="dummy")
 
-        # If particle information is to be incldued, check that it is provided
-        if self.add_particle_info:
-            # Must provide particle event to build particle info
-            assert particle_event is not None, (
-                "If `add_particle_info` is `True`, must provide the "
-                "`particle_event` argument."
+        # If particle information is included, check that it is provided
+        if self.include_particle_info and particle_event is None:
+            raise ValueError(
+                "If particle information is requested, `particle_event` "
+                "must be provided."
             )
 
-        # Define the overlay strategy parameters
-        self.sum_cols = np.array([VALUE_COL])
-        if not self.add_particle_info:
-            self.index_cols = np.array([CLUST_COL])
-            self.prec_col = None
-        else:
-            self.index_cols = np.array(
-                [CLUST_COL, PART_COL, GROUP_COL, ANCST_COL, INTER_COL, NU_COL]
-            )
-            self.prec_col = SHAPE_COL
+        # Define duplicate reduction for the temporary compact feature table.
+        self.sum_cols = np.array([0], dtype=np.int64)
 
-    def __call__(self, trees: dict[str, Any]) -> ParserTensor:
+    def __call__(self, trees: dict[str, Any]) -> ClusterLabelData:
         """Parse one entry.
 
         Parameters
         ----------
         trees : dict
             Dictionary which maps each data product name to a LArCV object
+
+        Returns
+        -------
+        ClusterLabelData
+            Compact voxel associations and optional particle information.
         """
         return self.process(**self.get_input_data(trees))
 
@@ -291,20 +335,20 @@ class LArCVCluster3DParser(ParserBase):
         neutrino_event: Any | None = None,
         sparse_semantics_event: Any | None = None,
         sparse_value_event: Any | None = None,
-    ) -> ParserTensor:
-        """Parse a list of 3D clusters into a single tensor.
+    ) -> ClusterLabelData:
+        """Parse a list of 3D clusters into a structured cluster label.
 
         Parameters
         ----------
         cluster_event : larcv.EventClusterVoxel3D
             Event which contains the 3D clusters
         particle_event : larcv.EventParticle, optional
-            List of true particle information. If prodided, allows to fetch
-            more information about each of the pixels in the image
+            List of true particle information used to populate the particle
+            table.
         particle_mpv_event : larcv.EventParticle, optional
             List of true particle information for MPV particles only. If
             provided, it is used to determine which particles are MPV
-        particle_mpv_event: larcv.EventNeutrino, optional
+        neutrino_event : larcv.EventNeutrino, optional
             List of true neutrino information. If provided, it is used
             to determine which particles are MPV
         sparse_semantics_event : larcv.EventSparseTensor3D, optional
@@ -313,39 +357,37 @@ class LArCVCluster3DParser(ParserBase):
             which share voxels.
         sparse_value_event : larcv.EventSparseTensor3D, optional
             Value of each of the voxels in the image. If provided,
-            overrides the value provided byt eh list of 3D clusters itself
+            Overrides the value provided by the list of 3D clusters itself.
 
         Returns
         -------
-        ParserTensor
+        ClusterLabelData
             coords : np.ndarray
                 (N, 3) array of [x, y, z] coordinates
             features : np.ndarray
-                (N, 2/17) array of features, minimally [voxel value, cluster ID].
-                If `add_particle_info` is `True`, the additonal columns are
-                [particle ID, group ID, interaction ID, neutrino ID, particle type,
-                group primary bool, interaction primary bool, vertex x, vertex y,
-                vertex z, momentum, ancestor particle type, ancestor momentum,
-                semantic type]
+                (N, 2) array of [voxel value, cluster ID], with an optional
+                third particle-table index column.
+            particles : dict[str, np.ndarray], optional
+                Named particle-level arrays. These are omitted when
+                ``particle_info`` is ``None``.
             meta : Meta
                 Metadata of the parsed image
         """
         # Get the cluster-wise information first
         meta = cluster_event.meta()
         num_clusters = cluster_event.as_vector().size()
-        labels = OrderedDict()
-        labels["cluster"] = np.arange(num_clusters)
-        num_particles = num_clusters
-        num_neutrinos = 0
-        if self.add_particle_info:
+        particle_table = None
+        if self.include_particle_info:
             # Check that that particle objects are of the expected length
-            assert particle_event is not None  # Guaranteed by __init__
+            if particle_event is None:  # pragma: no cover - validated in __init__
+                raise RuntimeError("Particle input was not loaded.")
             num_particles = particle_event.size()
-            assert num_particles in (num_clusters, num_clusters - 1), (
-                f"The number of particles ({num_particles}) must be "
-                f"aligned with the number of clusters ({num_clusters}). "
-                f"There can me one more catch-all cluster at the end."
-            )
+            if num_particles not in (num_clusters, num_clusters - 1):
+                raise ValueError(
+                    f"The number of particles ({num_particles}) must be "
+                    f"aligned with the number of clusters ({num_clusters}). "
+                    "There can be one more catch-all cluster at the end."
+                )
 
             # Load up the particle list
             particles = list(particle_event.as_vector())
@@ -364,76 +406,51 @@ class LArCVCluster3DParser(ParserBase):
                 particle_event, particle_mpv_event, neutrino_event
             )
 
-            # Store the cluster ID information
-            labels["cluster"] = [p.id() for p in particles]
-            labels["part"] = [p.id() for p in particles]
-            labels["group"] = group_ids
-            labels["ancst"] = ancestor_ids
-            labels["inter"] = interaction_ids
-            labels["nu"] = nu_ids
+            # Resolve ancestor track IDs to local particle-table indexes.
+            track_id_to_index = {
+                int(p.track_id()): index for index, p in enumerate(particles)
+            }
+            ancestor_indexes = np.asarray(
+                [track_id_to_index.get(int(track_id), -1) for track_id in ancestor_ids],
+                dtype=np.int64,
+            )
 
-            # Store the type/primary status
-            labels["type"] = types
-            labels["pgroup"] = group_primaries
-            labels["pinter"] = inter_primaries
-
-            # Store the vertex and momentum
+            # Build a named particle table. Relationships are stored as local
+            # indexes, while physical attributes retain their natural dtype.
             anc_pos = image_coordinates_batch(
                 meta,
                 particles,
                 dtype=self.ftype,
                 position_attr="ancestor_position",
             )
-            labels["vtx_x"] = anc_pos[:, 0]
-            labels["vtx_y"] = anc_pos[:, 1]
-            labels["vtx_z"] = anc_pos[:, 2]
-            labels["p"] = [p.p() for p in particles]
-
-            # Propagate root-ancestor targets to every particle in its tree.
-            # Ancestor IDs are Geant track IDs, whereas particle IDs follow
-            # the LArCV index convention, so resolve them through track IDs.
-            track_id_to_index = {
-                int(p.track_id()): index for index, p in enumerate(particles)
+            particle_table = {
+                "particle": np.asarray([p.id() for p in particles], dtype=np.int64),
+                "group": np.asarray(group_ids, dtype=np.int64),
+                "ancestor": ancestor_indexes,
+                "interaction": np.asarray(interaction_ids, dtype=np.int64),
+                "nu": np.asarray(nu_ids, dtype=np.int64),
+                "pid": np.asarray(types, dtype=np.int64),
+                "group_primary": np.asarray(group_primaries, dtype=np.int64),
+                "interaction_primary": np.asarray(inter_primaries, dtype=np.int64),
+                "vertex": np.asarray(anc_pos, dtype=self.ftype),
+                "momentum": np.asarray([p.p() for p in particles], dtype=self.ftype),
+                "energy_init": np.asarray(
+                    [p.energy_init() for p in particles], dtype=self.ftype
+                ),
+                "shape": np.asarray([p.shape() for p in particles], dtype=np.int64),
             }
-            ancestor_particle_indexes = np.asarray(
-                [track_id_to_index.get(int(track_id), -1) for track_id in ancestor_ids]
-            )
-            ancestor_pids = np.full(num_particles, -1, dtype=self.ftype)
-            ancestor_momenta = np.full(num_particles, -1.0, dtype=self.ftype)
-            valid_ancestors = ancestor_particle_indexes > -1
-            if np.any(valid_ancestors):
-                root_indexes = ancestor_particle_indexes[valid_ancestors]
-                ancestor_pids[valid_ancestors] = np.asarray(types)[root_indexes]
-                ancestor_momenta[valid_ancestors] = np.asarray(
-                    [particles[index].p() for index in root_indexes],
-                    dtype=self.ftype,
-                )
-            labels["ancst_type"] = ancestor_pids
-            labels["ancst_p"] = ancestor_momenta
-
-            # Store the shape last (consistent with semantics tensor)
-            labels["shape"] = [p.shape() for p in particles]
 
             # If requested, give invalid labels to a subset of particles
             if not self.type_include_secondary:
-                secondary_mask = np.where(np.array(labels["pinter"]) < 1)[0]
-                labels["type"] = np.asarray(labels["type"])
-                labels["type"][secondary_mask] = -1
+                secondary_mask = np.where(particle_table["interaction_primary"] < 1)[0]
+                particle_table["pid"][secondary_mask] = -1
 
             if not self.type_include_mpr or not self.primary_include_mpr:
-                mpr_mask = np.where(np.array(labels["nu"]) < 0)[0]
+                mpr_mask = np.where(particle_table["nu"] < 0)[0]
                 if not self.type_include_mpr:
-                    labels["type"] = np.asarray(labels["type"])
-                    labels["type"][mpr_mask] = -1
+                    particle_table["pid"][mpr_mask] = -1
                 if not self.primary_include_mpr:
-                    labels["pinter"] = np.asarray(labels["pinter"])
-                    labels["pinter"][mpr_mask] = -1
-
-            # Count the number of neutrinos
-            if neutrino_event is not None:
-                num_neutrinos = len(neutrino_event.as_vector())
-            else:
-                num_neutrinos = np.max(nu_ids, initial=-1) + 1
+                    particle_table["interaction_primary"][mpr_mask] = -1
 
         # Allocate the output tensors once. Events may contain thousands of
         # clusters, so building one array per feature per cluster and then
@@ -446,19 +463,21 @@ class LArCVCluster3DParser(ParserBase):
         )
         num_points_total = int(cluster_sizes.sum())
         np_voxels = np.empty((num_points_total, 3), dtype=self.itype)
-        np_features = np.empty((num_points_total, len(labels) + 1), dtype=self.ftype)
-
-        # Expand cluster-wise labels to voxel-wise labels in one operation.
-        cluster_labels = np.full((num_clusters, len(labels)), -1, dtype=self.ftype)
-        for col, label in enumerate(labels.values()):
-            label = np.asarray(label, dtype=self.ftype)
-            cluster_labels[: min(num_clusters, len(label)), col] = label[:num_clusters]
-        np_features[:, 1:] = np.repeat(cluster_labels, cluster_sizes, axis=0)
+        num_features = 3 if particle_table is not None else 2
+        np_features = np.empty((num_points_total, num_features), dtype=self.ftype)
+        np_features[:, 1] = np.repeat(
+            np.arange(num_clusters, dtype=self.ftype), cluster_sizes
+        )
+        if particle_table is not None:
+            cluster_particles = np.full(num_clusters, -1, dtype=self.ftype)
+            particle_count = len(particle_table["particle"])
+            cluster_particles[:particle_count] = np.arange(particle_count)
+            np_features[:, 2] = np.repeat(cluster_particles, cluster_sizes)
 
         # Loop over clusters to unpack their coordinates and values.
         id_offset = 0
         point_offset = 0
-        for i, (cluster, num_points) in enumerate(zip(clusters, cluster_sizes)):
+        for cluster, num_points in zip(clusters, cluster_sizes):
             if num_points > 0:
                 # Get the position and pixel value from EventSparseTensor3D
                 x = np.empty(num_points, dtype=np.int32)
@@ -498,53 +517,44 @@ class LArCVCluster3DParser(ParserBase):
                 )
                 self.clean_data = True
 
-            # Extract voxels and features
-            assert self.add_particle_info, (
-                "Need to add particle info to fetch particle "
-                "semantics for each voxel."
-            )
-            assert (
-                sparse_semantics_event is not None
-            ), "Need to provide a semantics tensor to clean up output."
+            # Build a temporary semantic column solely for precedence-based
+            # overlap cleaning; it is not retained in the cluster-label product.
+            if sparse_semantics_event is None:
+                raise ValueError(
+                    "A semantics tensor is required to clean cluster labels."
+                )
             tensor_seg = self.sparse_parser.process(sparse_semantics_event)
-            np_voxels, np_features = clean_sparse_data(
+            semantic = np.full((len(np_features), 1), -1, dtype=self.ftype)
+            if particle_table is not None:
+                particle_index = np_features[:, 2].astype(np.int64)
+                valid = particle_index >= 0
+                semantic[valid, 0] = particle_table["shape"][particle_index[valid]]
+            clean_features = np.concatenate((np_features, semantic), axis=1)
+            np_voxels, clean_features = clean_sparse_data(
                 np_voxels,
-                np_features,
+                clean_features,
                 tensor_seg.coords,
                 precedence=self.shape_precedence,
-                sum_cols=self.sum_cols - VALUE_COL,
+                sum_cols=self.sum_cols,
             )
+            np_features = clean_features[:, :-1]
 
-            # Match the semantic column to the reference tensor
-            np_features[:, -1] = tensor_seg.features[:, -1]
-
-            # Set all cluster labels to -1 if semantic class is LE or ghost
+            # Invalidate associations for low-energy and ghost voxels.
             shape_mask = tensor_seg.features[:, -1] > DELTA_SHP
-            np_features[shape_mask, 1:-1] = -1
+            np_features[shape_mask, 1:] = -1
 
             # If a value tree is provided, override value colum
             if sparse_value_event:
                 tensor_val = self.sparse_parser.process(sparse_value_event)
                 np_features[:, 0] = tensor_val.features[:, 0]
 
-        # Evaluate shifts to apply to each index column
-        clust_shift = np.max(np_features[:, 1], initial=-1) + 1
-        if not self.add_particle_info:
-            index_shifts = np.array([clust_shift])
-        else:
-            cs, ps, ns = clust_shift, num_particles, num_neutrinos
-            index_shifts = np.array([cs, ps, ps, ps, ps, ns])
-
-        return ParserTensor(
+        return ClusterLabelData(
             coords=np_voxels,
             features=np_features,
+            particles=particle_table,
             meta=Meta.from_larcv(meta),
             remove_duplicates=True,
-            index_shifts=index_shifts,
-            index_cols=self.index_cols,
             sum_cols=self.sum_cols,
-            prec_col=self.prec_col,
-            precedence=self.shape_precedence,
         )
 
 
@@ -584,19 +594,24 @@ class LArCVCluster3DAggregateParser(LArCVCluster3DParser):
             dtype, sparse_event_list=sparse_value_event_list, aggr=value_aggr
         )
 
-    def __call__(self, trees: dict[str, Any]) -> ParserTensor:
+    def __call__(self, trees: dict[str, Any]) -> ClusterLabelData:
         """Parse one entry.
 
         Parameters
         ----------
         trees : dict
             Dictionary which maps each data product name to a LArCV object
+
+        Returns
+        -------
+        ClusterLabelData
+            Cluster labels with values aggregated from sparse inputs.
         """
         return self.process_aggr(**self.get_input_data(trees))
 
     def process_aggr(
         self, sparse_value_event_list: list[Any], **kwargs: Any
-    ) -> ParserTensor:
+    ) -> ClusterLabelData:
         """Parse a list of 3D clusters into a single tensor and fetch the
         value column by aggregating multiple tensor features.
 
@@ -609,16 +624,13 @@ class LArCVCluster3DAggregateParser(LArCVCluster3DParser):
 
         Returns
         -------
-        ParserTensor
+        ClusterLabelData
             coords : np.ndarray
                 (N, 3) array of [x, y, z] coordinates
             features : np.ndarray
-                (N, 2/17) array of features, minimally [voxel value, cluster ID].
-                If `add_particle_info` is `True`, the additonal columns are
-                [group ID, interaction ID, neutrino ID, particle type,
-                group primary bool, interaction primary bool, vertex x, vertex y,
-                vertex z, momentum, ancestor particle type, ancestor momentum,
-                semantic type, particle ID]
+                Compact [voxel value, cluster ID, particle index?] features.
+            particles : dict[str, np.ndarray], optional
+                Named particle-level arrays inherited from the base parser.
             meta : Meta
                 Metadata of the parsed image
         """
@@ -677,19 +689,24 @@ class LArCVCluster3DChargeRescaledParser(LArCVCluster3DParser):
             collection_id=collection_id,
         )
 
-    def __call__(self, trees: dict[str, Any]) -> ParserTensor:
+    def __call__(self, trees: dict[str, Any]) -> ClusterLabelData:
         """Parse one entry.
 
         Parameters
         ----------
         trees : dict
             Dictionary which maps each data product name to a LArCV object
+
+        Returns
+        -------
+        ClusterLabelData
+            Cluster labels with charge-rescaled voxel values.
         """
         return self.process_rescale(**self.get_input_data(trees))
 
     def process_rescale(
         self, sparse_value_event_list: list[Any], **kwargs: Any
-    ) -> ParserTensor:
+    ) -> ClusterLabelData:
         """Parse a list of 3D clusters into a single tensor and reset
         the value column by rescaling the charge coming from 3 wire planes.
 
@@ -705,16 +722,13 @@ class LArCVCluster3DChargeRescaledParser(LArCVCluster3DParser):
 
         Returns
         -------
-        ParserTensor
+        ClusterLabelData
             coords : np.ndarray
                 (N, 3) array of [x, y, z] coordinates
             features : np.ndarray
-                (N, 2/17) array of features, minimally [voxel value, cluster ID].
-                If `add_particle_info` is `True`, the additonal columns are
-                [group ID, interaction ID, neutrino ID, particle type,
-                group primary bool, interaction primary bool, vertex x, vertex y,
-                vertex z, momentum, ancestor particle type, ancestor momentum,
-                semantic type, particle ID]
+                Compact [voxel value, cluster ID, particle index?] features.
+            particles : dict[str, np.ndarray], optional
+                Named particle-level arrays inherited from the base parser.
             meta : Meta
                 Metadata of the parsed image
         """

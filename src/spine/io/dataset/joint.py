@@ -96,9 +96,7 @@ class JointDataset(BaseDataset):
 
         # The overlayer expects the same logical products on both sides. It uses
         # the primary metadata after compatibility is validated.
-        self.validate_metadata(
-            "data type", self.primary.data_types, self.secondary.data_types
-        )
+        self.validate_keys(self.primary.data_keys, self.secondary.data_keys)
         self.validate_metadata(
             "overlay", self.primary.overlay_methods, self.secondary.overlay_methods
         )
@@ -106,7 +104,7 @@ class JointDataset(BaseDataset):
         self.overlayer = Overlayer(
             multiplicity=2,
             mode="constant",
-            data_types=self.primary.data_types,
+            data_keys=self.primary.data_keys,
             methods=self.primary.overlay_methods,
         )
 
@@ -122,6 +120,23 @@ class JointDataset(BaseDataset):
 
         Already-instantiated datasets are returned unchanged. String configs
         cannot be merged with ``base`` because there is no mapping to update.
+
+        Parameters
+        ----------
+        base : mapping or str, optional
+            Shared source configuration.
+        source : mapping, str or BaseDataset
+            Source-specific overrides, configuration path, or dataset object.
+
+        Returns
+        -------
+        mapping, str or BaseDataset
+            Resolved source specification ready for instantiation.
+
+        Raises
+        ------
+        ValueError
+            If mapping overrides are combined with a non-mapping base.
         """
         if base is None or not isinstance(source, Mapping):
             return source
@@ -142,6 +157,18 @@ class JointDataset(BaseDataset):
 
         Source-specific options, including entry filters, must be present in
         the source config itself before this method is called.
+
+        Parameters
+        ----------
+        source : mapping, str or BaseDataset
+            Dataset configuration or an existing dataset instance.
+        dtype : str, optional
+            Floating-point dtype forwarded to the dataset factory.
+
+        Returns
+        -------
+        BaseDataset
+            Instantiated or pass-through source dataset.
         """
         if isinstance(source, (Mapping, str)):
             from ..factories import dataset_factory
@@ -168,6 +195,12 @@ class JointDataset(BaseDataset):
             overlay. A tuple ``(primary_idx, secondary_idx)`` overlays the two
             source samples. A tuple ``(primary_idx, None)`` returns the primary
             sample without touching the secondary source.
+
+        Returns
+        -------
+        dict
+            Primary sample, optionally overlaid with the selected secondary
+            event and then augmented.
         """
         primary_idx, secondary_idx = self.resolve_pair_index(idx)
         primary = self.primary[primary_idx]
@@ -181,7 +214,24 @@ class JointDataset(BaseDataset):
     def resolve_pair_index(
         self, idx: int | tuple[int, int | None]
     ) -> tuple[int, int | None]:
-        """Resolve the primary and optional secondary indexes for one sample."""
+        """Resolve the primary and optional secondary indexes for one sample.
+
+        Parameters
+        ----------
+        idx : int or tuple[int, int or None]
+            Scalar primary index or explicit primary/secondary pair.
+
+        Returns
+        -------
+        tuple[int, int or None]
+            Normalized primary index and validated optional secondary index.
+
+        Raises
+        ------
+        ValueError
+            If a tuple does not contain exactly two indexes or the secondary
+            index is outside the dataset.
+        """
         if isinstance(idx, tuple):
             if len(idx) != 2:
                 raise ValueError("JointDataset tuple indexes must have length 2.")
@@ -193,7 +243,23 @@ class JointDataset(BaseDataset):
         return idx, None
 
     def validate_secondary_index(self, secondary_idx: int) -> int:
-        """Validate one secondary index produced by a joint sampler."""
+        """Validate one secondary index produced by a joint sampler.
+
+        Parameters
+        ----------
+        secondary_idx : int
+            Candidate index into the secondary dataset.
+
+        Returns
+        -------
+        int
+            Validated secondary index.
+
+        Raises
+        ------
+        ValueError
+            If the index falls outside the secondary dataset.
+        """
         if secondary_idx < 0 or secondary_idx >= len(self.secondary):
             raise ValueError("Secondary index is outside of bounds.")
 
@@ -210,6 +276,20 @@ class JointDataset(BaseDataset):
         The current joint overlay implementation is schema-preserving: every
         product emitted by the primary must also be emitted by the secondary
         with the same collate type and overlay method.
+
+        Parameters
+        ----------
+        label : str
+            Metadata category used in error messages.
+        primary : mapping
+            Metadata exposed by the primary dataset.
+        secondary : mapping
+            Metadata exposed by the secondary dataset.
+
+        Raises
+        ------
+        ValueError
+            If either the keys or their configured values differ.
         """
         primary_keys = set(primary)
         secondary_keys = set(secondary)
@@ -229,10 +309,29 @@ class JointDataset(BaseDataset):
                     f"{primary[key]!r} vs {secondary[key]!r}."
                 )
 
-    @property
-    def data_types(self) -> dict[str, str]:
-        """Return the collate type for each joint output product."""
-        return dict(self.primary.data_types)
+    @staticmethod
+    def validate_keys(primary: tuple[str, ...], secondary: tuple[str, ...]) -> None:
+        """Ensure both sources expose the same product names.
+
+        Parameters
+        ----------
+        primary : tuple[str, ...]
+            Product names exposed by the primary dataset.
+        secondary : tuple[str, ...]
+            Product names exposed by the secondary dataset.
+
+        Raises
+        ------
+        ValueError
+            If the two product-name sets differ.
+        """
+        if set(primary) != set(secondary):
+            missing = sorted(set(primary) - set(secondary))
+            extra = sorted(set(secondary) - set(primary))
+            raise ValueError(
+                "JointDataset data keys must match between sources. "
+                f"Missing in secondary: {missing}. Extra in secondary: {extra}."
+            )
 
     @property
     def overlay_methods(self) -> dict[str, str | None]:
@@ -242,4 +341,4 @@ class JointDataset(BaseDataset):
     @property
     def data_keys(self) -> tuple[str, ...]:
         """Return the names of all products emitted by joint samples."""
-        return tuple(self.data_types.keys())
+        return tuple(self.primary.data_keys)

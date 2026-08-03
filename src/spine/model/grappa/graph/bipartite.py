@@ -5,9 +5,8 @@ from typing import Any
 import numba as nb
 import numpy as np
 
-from spine.constants import PRINT_COL
-from spine.data import IndexBatch, TensorBatch
-from spine.utils.gnn.cluster import get_cluster_label
+from spine.data import ClusterLabelBatch, IndexBatch
+from spine.utils.gnn.cluster import get_cluster_label_batch
 
 from .base import GraphBase
 
@@ -52,7 +51,7 @@ class BipartiteGraph(GraphBase):
     def generate(
         self,
         *,
-        data: TensorBatch,
+        data: ClusterLabelBatch,
         clusts: IndexBatch,
         dist_mat: np.ndarray | None,
     ) -> tuple[np.ndarray, np.ndarray]:
@@ -74,11 +73,13 @@ class BipartiteGraph(GraphBase):
             Edge index and per-entry edge counts.
         """
         # Get the primary status of each node
-        primaries = get_cluster_label(
-            data.numpy_tensor(),
-            clusts.index_list,
-            column=PRINT_COL,
-        ).astype(bool, copy=False)
+        if not isinstance(data, ClusterLabelBatch):
+            raise TypeError("Bipartite graphs require structured cluster labels.")
+        primaries = (
+            get_cluster_label_batch(data, clusts, "interaction_primary")
+            .numpy_tensor()
+            .astype(bool, copy=False)
+        )
 
         edge_index = self._generate(
             clusts.batch_ids, primaries, self.directed, self.directed_to

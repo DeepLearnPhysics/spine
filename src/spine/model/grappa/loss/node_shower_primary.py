@@ -7,8 +7,7 @@ from typing import Any
 import numpy as np
 import torch
 
-from spine.constants import GROUP_COL, PRGRP_COL
-from spine.data import IndexBatch, TensorBatch
+from spine.data import ClusterLabelBatch, IndexBatch, TensorBatch
 from spine.model.common.factories import loss_fn_factory
 from spine.utils.gnn.cluster import (
     get_cluster_closest_primary_label_batch,
@@ -85,7 +84,7 @@ class NodeShowerPrimaryLoss(torch.nn.Module):
 
     def forward(
         self,
-        clust_label: TensorBatch,
+        clust_label: ClusterLabelBatch,
         clusts: IndexBatch,
         node_pred: TensorBatch,
         coord_label: TensorBatch | None = None,
@@ -96,7 +95,7 @@ class NodeShowerPrimaryLoss(torch.nn.Module):
 
         Parameters
         ----------
-        clust_label : TensorBatch
+        clust_label : ClusterLabelBatch
             (N, 1 + D + N_f) Tensor of cluster labels for the batch
         clusts : IndexBatch
             (C) Index which maps each cluster to a list of voxel IDs
@@ -119,7 +118,9 @@ class NodeShowerPrimaryLoss(torch.nn.Module):
             Number of nodes the loss was applied to
         """
         # Create a mask for valid nodes (-1 indicates an invalid primary ID)
-        primary_ids = get_cluster_label_batch(clust_label, clusts, column=PRGRP_COL)
+        primary_ids = get_cluster_label_batch(
+            clust_label, clusts, column="group_primary"
+        )
         valid_mask = primary_ids.numpy_tensor() > -1
 
         # If requested, adjust the primary labeling of groups by picking the
@@ -145,9 +146,7 @@ class NodeShowerPrimaryLoss(torch.nn.Module):
                     raise ValueError("If using group predictions, must provide them.")
                 group_ids = group_pred
             else:
-                group_ids = get_cluster_label_batch(
-                    clust_label, clusts, column=GROUP_COL
-                )
+                group_ids = get_cluster_label_batch(clust_label, clusts, column="group")
 
             valid_mask &= node_purity_mask_batch(group_ids, primary_ids)
 

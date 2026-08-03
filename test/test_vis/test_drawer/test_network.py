@@ -4,6 +4,7 @@ import numpy as np
 import plotly.graph_objs as go
 import pytest
 
+from spine.data import TensorBatch, TensorData
 from spine.vis.drawer import network as network_module
 from spine.vis.drawer.network import network_schematic, network_topology
 
@@ -28,7 +29,7 @@ def test_network_helpers_build_topology_and_schematic():
 
     topology = network_topology(POINTS, CLUSTS, edges, mode="scatter")
     topology_extra_cols = network_topology(
-        np.hstack([np.zeros((len(POINTS), 1)), POINTS]),
+        TensorData(np.zeros((len(POINTS), 1)), coords=POINTS),
         CLUSTS,
         edges,
         mode="scatter",
@@ -75,6 +76,26 @@ def test_network_validation_rejects_ambiguous_color_and_labels():
         network_schematic(CLUSTS, edges, np.array([0]))
     with pytest.raises(ValueError, match="0 or 1"):
         network_schematic(CLUSTS, edges, np.array([0, 2]))
+
+
+def test_network_topology_accepts_batched_points_and_validates_coordinates():
+    """Network topology should consume typed batches and reject missing coordinates."""
+    edges = np.array([[0, 1]], dtype=np.int64)
+    point_batch = TensorBatch.from_data_list(
+        [TensorData(np.zeros(len(POINTS), dtype=np.float32), coords=POINTS)]
+    )
+
+    topology = network_topology(point_batch, CLUSTS, edges)
+
+    assert len(topology) == 2
+    with pytest.raises(ValueError, match="does not carry coordinates"):
+        network_topology(
+            TensorData(np.ones((len(POINTS), 1)), feats_only=True),
+            CLUSTS,
+            edges,
+        )
+    with pytest.raises(ValueError, match="coordinates only"):
+        network_topology(np.ones((len(POINTS), 4)), CLUSTS, edges)
 
 
 def test_network_topology_rejects_cone_traces_without_coordinates(monkeypatch):

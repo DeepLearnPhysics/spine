@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from spine.ana.metric.cluster import ClusterAna
-from spine.constants import CLUST_COL, GROUP_COL, SHAPE_COL
+from spine.data import ClusterLabelData
 from spine.data.out import (
     RecoInteraction,
     RecoParticle,
@@ -86,9 +86,18 @@ def test_cluster_ana_raw_per_object_mode(monkeypatch):
     monkeypatch.setattr(
         ClusterAna, "append", lambda self, name, **kwargs: rows.append((name, kwargs))
     )
-    labels = np.zeros((4, 10), dtype=np.float32)
-    labels[:, CLUST_COL] = [0, 0, 1, 1]
-    labels[:, SHAPE_COL] = [0, 0, 1, 1]
+    labels = ClusterLabelData(
+        np.asarray(
+            [
+                [0, 0, 0, 1, 0, 0],
+                [1, 0, 0, 1, 0, 0],
+                [2, 0, 0, 1, 1, 1],
+                [3, 0, 0, 1, 1, 1],
+            ],
+            dtype=np.float32,
+        ),
+        {"shape": np.asarray([0, 1])},
+    )
     ana = ClusterAna(
         obj_type="fragment",
         use_objects=False,
@@ -119,8 +128,18 @@ def test_cluster_ana_standalone_mode(monkeypatch):
     monkeypatch.setattr(
         ClusterAna, "append", lambda self, name, **kwargs: rows.append((name, kwargs))
     )
-    labels = np.zeros((4, 10), dtype=np.float32)
-    labels[:, GROUP_COL] = [0, 0, 1, 1]
+    labels = ClusterLabelData(
+        np.asarray(
+            [
+                [0, 0, 0, 1, 0, 0],
+                [1, 0, 0, 1, 0, 0],
+                [2, 0, 0, 1, 1, 1],
+                [3, 0, 0, 1, 1, 1],
+            ],
+            dtype=np.float32,
+        ),
+        {"group": np.asarray([0, 1])},
+    )
     ana = ClusterAna(
         per_object=False,
         per_shape=False,

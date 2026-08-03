@@ -45,6 +45,7 @@ class JitterAugment(AugmentBase):
         None
             This method does not return anything
         """
+        # Normalize scalar or per-axis jitter bounds
         if np.isscalar(max_offset):
             assert not isinstance(max_offset, complex)  # Type narrowing for mypy
             max_offset = np.full(3, int(max_offset), dtype=np.int64)
@@ -61,6 +62,7 @@ class JitterAugment(AugmentBase):
                 "('uniform', 'poisson')."
             )
 
+        # Normalize the Poisson scale independently of the selected distribution
         if np.isscalar(poisson_lambda):
             assert not isinstance(poisson_lambda, complex)  # Type narrowing for mypy
             poisson_lambda = np.full(3, float(poisson_lambda), dtype=np.float32)
@@ -72,6 +74,7 @@ class JitterAugment(AugmentBase):
         if np.any(poisson_lambda < 0.0):
             raise ValueError("Poisson means must be non-negative.")
 
+        # Store validated sampling and boundary behavior
         self.max_offset = max_offset
         self.distribution = distribution
         self.poisson_lambda = poisson_lambda
@@ -123,7 +126,7 @@ class JitterAugment(AugmentBase):
                 continue
 
             coord_keys.append(key)
-            coord_arrays.append(data[key].coords)
+            coord_arrays.append(data[key].coordinate_data)
 
         if not coord_arrays:
             return data, meta
@@ -152,7 +155,7 @@ class JitterAugment(AugmentBase):
         for key, coords in zip(coord_keys, coord_arrays):
             stop = start + len(coords)
             product_inverse = inverse[start:stop]
-            data[key].coords = jittered_coords[product_inverse].astype(
+            data[key].coordinate_data = jittered_coords[product_inverse].astype(
                 coords.dtype,
                 copy=False,
             )
@@ -194,11 +197,13 @@ class JitterAugment(AugmentBase):
         np.ndarray
             Integer per-voxel offsets of shape `(num_voxels, 3)`
         """
+        # Sample non-negative magnitudes and enforce the configured axis bounds
         magnitudes = np.random.poisson(
             self.poisson_lambda, size=(num_voxels, 3)
         ).astype(np.int64)
         magnitudes = np.minimum(magnitudes, self.max_offset)
 
+        # Draw independent signs to make the Poisson displacement symmetric
         signs = np.random.randint(0, 2, size=(num_voxels, 3), dtype=np.int64)
         signs = 2 * signs - 1
 

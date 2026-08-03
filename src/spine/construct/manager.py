@@ -8,7 +8,7 @@ from typing import Any, ClassVar
 
 import numpy as np
 
-from spine.constants import COORD_COLS, VALUE_COL
+from spine.data import ClusterLabelData, TensorData
 
 from .fragment import FragmentBuilder
 from .interaction import InteractionBuilder
@@ -210,47 +210,50 @@ class BuildManager:
         # Build aditional information
         update = {}
         if self.mode != "truth" or "label_adapt_tensor" in sources:
-            update["points"] = sources["data_tensor"][:, COORD_COLS]
-            update["depositions"] = sources["data_tensor"][:, VALUE_COL]
+            data_tensor: TensorData = sources["data_tensor"]
+            update["points"] = data_tensor.coordinates()
+            update["depositions"] = data_tensor.values
 
             if "sources" in sources:
-                update["sources"] = sources["sources"].astype(np.int32, copy=False)
+                source_tensor: TensorData = sources["sources"]
+                update["sources"] = source_tensor.features.astype(np.int32, copy=False)
 
             if "orig_index" in sources:
-                update["orig_index"] = sources["orig_index"].astype(
+                update["orig_index"] = sources["orig_index"].features.astype(
                     np.int32, copy=False
                 )
 
         if self.mode != "reco":
-            update["label_tensor"] = sources["label_tensor"]
-            update["points_label"] = sources["label_tensor"][:, COORD_COLS]
-            update["depositions_label"] = sources["label_tensor"][:, VALUE_COL]
+            label: ClusterLabelData = sources["label_tensor"]
+            update["label_tensor"] = label
+            update["points_label"] = label.coords
+            update["depositions_label"] = label.values
 
             if "depositions_q_label" in sources:
-                update["depositions_q_label"] = sources["depositions_q_label"][
-                    :, VALUE_COL
-                ]
+                depositions_q: TensorData = sources["depositions_q_label"]
+                update["depositions_q_label"] = depositions_q.values
 
             if "label_adapt_tensor" in sources:
-                update["label_adapt_tensor"] = sources["label_adapt_tensor"]
-                update["depositions_label_adapt"] = sources["label_adapt_tensor"][
-                    :, VALUE_COL
-                ]
+                adapted: ClusterLabelData = sources["label_adapt_tensor"]
+                update["label_adapt_tensor"] = adapted
+                update["depositions_label_adapt"] = adapted.values
 
             if "label_g4_tensor" in sources:
-                update["label_g4_tensor"] = sources["label_g4_tensor"]
-                update["points_g4"] = sources["label_g4_tensor"][:, COORD_COLS]
-                update["depositions_g4"] = sources["label_g4_tensor"][:, VALUE_COL]
+                label_g4: ClusterLabelData = sources["label_g4_tensor"]
+                update["label_g4_tensor"] = label_g4
+                update["points_g4"] = label_g4.coords
+                update["depositions_g4"] = label_g4.values
 
             if "sources_label" in sources:
-                update["sources_label"] = sources["sources_label"].astype(
+                source_label: TensorData = sources["sources_label"]
+                update["sources_label"] = source_label.features.astype(
                     np.int32, copy=False
                 )
 
             if "orig_index_label" in sources:
-                update["orig_index_label"] = sources["orig_index_label"].astype(
-                    np.int32, copy=False
-                )
+                update["orig_index_label"] = sources[
+                    "orig_index_label"
+                ].features.astype(np.int32, copy=False)
 
         # If provided, etch the point attributes to check their units
         for obj in ["fragment", "particle"]:

@@ -10,7 +10,13 @@ from typing import Any
 
 import numpy as np
 
-from spine.data import EdgeIndexBatch, IndexBatch, TensorBatch, TensorBatchConvertible
+from spine.data import (
+    ClusterLabelBatch,
+    EdgeIndexBatch,
+    IndexBatch,
+    TensorBatch,
+    TensorBatchConvertible,
+)
 from spine.utils.conditional import TORCH_AVAILABLE, torch
 from spine.utils.logger import logger
 from spine.utils.stopwatch import StopwatchManager
@@ -551,7 +557,7 @@ class ModelManager:
                     )
 
                 value = data[name]
-                if isinstance(value, TensorBatch):
+                if isinstance(value, (TensorBatch, ClusterLabelBatch)):
                     value = data[name].to_tensor(device=self.device, dtype=self.dtype)
                 input_dict[param] = value
 
@@ -566,7 +572,7 @@ class ModelManager:
                         )
 
                     value = data[name]
-                    if isinstance(value, TensorBatch):
+                    if isinstance(value, (TensorBatch, ClusterLabelBatch)):
                         value = data[name].to_tensor(
                             device=self.device, dtype=self.dtype
                         )
@@ -649,6 +655,9 @@ class ModelManager:
         """
         # Loop over the key, value pairs in the result dictionary
         for key, value in result.items():
+            if isinstance(value, ClusterLabelBatch):
+                result[key] = value.to_numpy()
+                continue
             if isinstance(value, TensorBatchConvertible):
                 value = value.to_tensor_batch()
 

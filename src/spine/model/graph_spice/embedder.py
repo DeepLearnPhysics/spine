@@ -7,7 +7,6 @@ from typing import Any
 
 import torch
 
-from spine.constants import COORD_COLS, VALUE_COL
 from spine.data import TensorBatch
 from spine.model import sparse
 from spine.model.cnn.uresnet_layers import UResNet
@@ -180,9 +179,8 @@ class GraphSPICEEmbedder(sparse.Network):
             Dictionary of outputs
         """
         # Build an input feature tensor
-        data_tensor = data.torch_tensor()
-        coordinates = data_tensor[:, :VALUE_COL]
-        input_features = data_tensor[:, VALUE_COL].view(-1, 1)
+        coordinates = data.batch_coordinates
+        input_features = data.values.torch_tensor().view(-1, 1)
 
         # If requested, append the normalized coordinates to the feature tensor
         half_size = self.spatial_size / 2
@@ -200,7 +198,8 @@ class GraphSPICEEmbedder(sparse.Network):
         coordinate_batch = TensorBatch(
             coordinates,
             data.counts,
-            coord_cols=COORD_COLS,
+            has_batch_col=True,
+            coord_cols=tuple(range(1, 1 + self.dimension)),
         )
         feature_batch = TensorBatch(output_features, data.counts)
 

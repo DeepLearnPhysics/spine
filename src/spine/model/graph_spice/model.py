@@ -7,9 +7,8 @@ from typing import Any, cast
 
 import torch
 
-from spine.constants import CLUST_COL, SHAPE_COL
 from spine.constants.factory import enum_factory
-from spine.data import IndexBatch, TensorBatch
+from spine.data import ClusterLabelBatch, IndexBatch, TensorBatch
 from spine.utils.cluster.graph import ClusterGraphConstructor
 
 from ..registry import ModelSpec
@@ -147,8 +146,8 @@ class GraphSPICE(torch.nn.Module):
         self,
         data: TensorBatch,
         seg_label: TensorBatch,
-        clust_label: TensorBatch | None = None,
-    ) -> tuple[TensorBatch, TensorBatch, TensorBatch | None, IndexBatch]:
+        clust_label: ClusterLabelBatch | None = None,
+    ) -> tuple[TensorBatch, TensorBatch, ClusterLabelBatch | None, IndexBatch]:
         """Filter the list of pixels to those in the list of requested shapes.
 
         Parameters
@@ -162,7 +161,7 @@ class GraphSPICE(torch.nn.Module):
         seg_label : TensorBatch
             (N, 1 + D + 1) Tensor of segmentation labels
             - 1 is the segmentation label
-        clust_label : TensorBatch, optional
+        clust_label : ClusterLabelBatch, optional
             (N, 1 + D + N_c) Tensor of cluster labels
             - N_c is is the number of cluster labels
 
@@ -172,7 +171,7 @@ class GraphSPICE(torch.nn.Module):
             (M, 1+ + D + Nf) restricted tensor of voxel/value pairs
         seg_label : TensorBatch
             (M, 1 + D + 1) restricted tensor of segmentation labels
-        clust_label : TensorBatch
+        clust_label : ClusterLabelBatch
             (M, 1 + D + N_c) Restricted tensor of cluster labels
         index : torch.Tensor
             (M) Index to narrow down the original tensor
@@ -191,8 +190,7 @@ class GraphSPICE(torch.nn.Module):
             )
 
         # Convert shapes to a tensor for easy comparison.
-        data_tensor = data.torch_tensor()
-        seg_label_tensor = seg_label.torch_tensor()
+        seg_label_tensor = seg_label.values.torch_tensor()
         shapes = torch.as_tensor(
             self.shapes,
             dtype=seg_label_tensor.dtype,
@@ -200,21 +198,18 @@ class GraphSPICE(torch.nn.Module):
         )
 
         # Create an index of the valid input rows
-        mask = (seg_label_tensor[:, SHAPE_COL] == shapes.view(-1, 1)).any(dim=0)
+        mask = (seg_label_tensor == shapes.view(-1, 1)).any(dim=0)
         index = torch.where(mask)[0]
 
         # Restrict the input
         spans = data.counts
-        data = TensorBatch(
-            data_tensor[index], batch_size=data.batch_size, has_batch_col=True
-        )
+        data = data.select(mask)
 
         # Restrict the label tensors
-        seg_label = TensorBatch(seg_label_tensor[index], data.counts)
+        seg_label = seg_label.select(mask)
 
         if clust_label is not None:
-            clust_label_tensor = clust_label.torch_tensor()
-            clust_label = TensorBatch(clust_label_tensor[index], data.counts)
+            clust_label = clust_label.select(index, data.counts)
 
         # Store the index as an IndexBatch
         index = IndexBatch(index, spans, data.counts)
@@ -225,7 +220,7 @@ class GraphSPICE(torch.nn.Module):
         self,
         data: TensorBatch,
         seg_label: TensorBatch,
-        clust_label: TensorBatch | None = None,
+        clust_label: ClusterLabelBatch | None = None,
     ) -> GraphSPICEOutput:
         """Run a batch of data through the forward function.
 
@@ -240,7 +235,7 @@ class GraphSPICE(torch.nn.Module):
         seg_label : TensorBatch
             (N, 1 + D + 1) Tensor of segmentation labels
             - 1 is the segmentation label
-        clust_label : TensorBatch, optional
+        clust_label : ClusterLabelBatch, optional
             (N, 1 + D + N_c) Tensor of cluster labels
             - N_c is is the number of cluster labels
 
@@ -276,9 +271,12 @@ class GraphSPICE(torch.nn.Module):
             coordinate_batch.torch_tensor()[:, coord_cols],
             coordinate_batch.counts,
         )
+        cluster_ids = None
+        if clust_label is not None:
+            cluster_ids = clust_label.voxel_field(self.constructor.target_col)
         graph = cast(
             GraphSPICEOutput,
-            self.constructor(coords, features, seg_label, clust_label),
+            self.constructor(coords, features, seg_label, cluster_ids),
         )
 
         # If requested, convert edge predictions to node predictions
@@ -336,7 +334,7 @@ class GraphSPICELoss(torch.nn.Module):
         self.evaluate_clustering_metrics: bool
         self.loss_fn: torch.nn.Module
         self.constructor: ClusterGraphConstructor | None = None
-        self.target_col: int
+        self.target_col: str
 
         # Process the loss configuration
         self.process_loss_config(**graph_spice_loss)
@@ -389,7 +387,7 @@ class GraphSPICELoss(torch.nn.Module):
             Other model parameters not needed by the loss
         """
         # Initialize the graph constructor (used to produce node assignments)
-        self.target_col = constructor.get("target_col", CLUST_COL)
+        self.target_col = constructor.get("target_col", "cluster")
         if self.evaluate_clustering_metrics:
             self.constructor = ClusterGraphConstructor(
                 **deepcopy(constructor), shapes=shapes, invert=invert
@@ -398,9 +396,9 @@ class GraphSPICELoss(torch.nn.Module):
     @staticmethod
     def filter_class(
         seg_label: TensorBatch,
-        clust_label: TensorBatch,
+        clust_label: ClusterLabelBatch,
         filter_index: IndexBatch,
-    ) -> tuple[TensorBatch, TensorBatch]:
+    ) -> tuple[TensorBatch, ClusterLabelBatch]:
         """Filter the list of pixels to those in the list of requested shapes.
 
         Parameters
@@ -408,7 +406,7 @@ class GraphSPICELoss(torch.nn.Module):
         seg_label : TensorBatch
             (N, 1 + D + 1) Tensor of segmentation labels
             - 1 is the segmentation label
-        clust_label : TensorBatch
+        clust_label : ClusterLabelBatch
             (N, 1 + D + N_c) Tensor of cluster labels
             - N_c is is the number of cluster labels
         filter_index : IndexBatch
@@ -418,20 +416,22 @@ class GraphSPICELoss(torch.nn.Module):
         -------
         seg_label : TensorBatch
             (M, 1 + D + 1) restricted tensor of segmentation labels
-        clust_label : TensorBatch
+        clust_label : ClusterLabelBatch
             (M, 1 + D + N_c) Restricted tensor of cluster labels
         """
-        seg_label_tensor = seg_label.torch_tensor()
-        clust_label_tensor = clust_label.torch_tensor()
         index = filter_index.index
-        seg_label = TensorBatch(seg_label_tensor[index], filter_index.counts)
-        clust_label = TensorBatch(clust_label_tensor[index], filter_index.counts)
+        mask = torch.zeros(
+            len(seg_label.tensor), dtype=torch.bool, device=seg_label.device
+        )
+        mask[index] = True
+        seg_label = seg_label.select(mask)
+        clust_label = clust_label.select(index, filter_index.counts)
 
         return seg_label, clust_label
 
     def get_edge_labels(
         self,
-        clust_label: TensorBatch,
+        clust_label: ClusterLabelBatch,
         edge_index: TensorBatch,
         node_clusts: IndexBatch,
         edge_clusts: IndexBatch,
@@ -440,7 +440,7 @@ class GraphSPICELoss(torch.nn.Module):
 
         Parameters
         ----------
-        clust_label : TensorBatch
+        clust_label : ClusterLabelBatch
             Cluster labels narrowed to the nodes used by Graph-SPICE.
         edge_index : TensorBatch
             ``(E, 2)`` local endpoint indexes for every semantic subgraph.
@@ -463,7 +463,7 @@ class GraphSPICELoss(torch.nn.Module):
                 "semantic subgraphs."
             )
 
-        cluster_ids = clust_label.torch_tensor()[:, self.target_col]
+        cluster_ids = clust_label.voxel_field(self.target_col).torch_tensor()
         edges = edge_index.torch_tensor().long()
         labels = torch.empty(
             edge_index.shape[0],
@@ -510,7 +510,7 @@ class GraphSPICELoss(torch.nn.Module):
     def forward(
         self,
         seg_label: TensorBatch,
-        clust_label: TensorBatch,
+        clust_label: ClusterLabelBatch,
         filter_index: IndexBatch,
         **output: Any,
     ) -> dict[str, Any]:
@@ -521,7 +521,7 @@ class GraphSPICELoss(torch.nn.Module):
         seg_label : TensorBatch
             (N, 1 + D + 1) Tensor of segmentation labels
             - 1 is the segmentation label
-        clust_label : TensorBatch
+        clust_label : ClusterLabelBatch
             (N, 1 + D + N_c) Tensor of cluster labels
             - N_c is is the number of cluster labels
         filter_index : IndexBatch

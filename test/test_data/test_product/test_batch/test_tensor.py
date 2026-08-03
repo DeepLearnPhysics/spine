@@ -1,11 +1,11 @@
-"""Comprehensive test suite for spine.data.batch.tensor module."""
+"""Tests for the self-describing tensor batch product."""
 
 from unittest.mock import Mock
 
 import numpy as np
 import pytest
 
-from spine.data.batch.tensor import TensorBatch
+from spine.data import TensorBatch, TensorSchema
 from spine.utils.conditional import TORCH_AVAILABLE, torch
 
 
@@ -114,6 +114,34 @@ class TestTensorBatchTypedAccessors:
 
         with pytest.raises(TypeError, match="not backed by a torch.Tensor"):
             batch.torch_tensor()
+
+    def test_event_preserves_one_dimensional_feature_product(self):
+        """A one-dimensional model output should unwrap without reshaping."""
+        batch = TensorBatch(np.asarray([1.0, 2.0, 3.0]), counts=[2, 1])
+
+        first = batch.event(0)
+        np.testing.assert_array_equal(first.values, [1.0, 2.0])
+        assert first.coords is None
+
+    def test_coordinate_data_allows_ambiguous_groups(self):
+        """Raw coordinate access should preserve every named group."""
+        data = np.asarray([[0, 1, 2, 3, 4, 5, 6, 7.0]])
+        batch = TensorBatch(
+            data,
+            counts=[1],
+            has_batch_col=True,
+            coord_cols=np.arange(1, 7),
+            schema=TensorSchema(
+                coordinate_groups={"start": (0, 1, 2), "end": (3, 4, 5)},
+                feature_fields={"shape": (0,)},
+            ),
+        )
+
+        with pytest.raises(ValueError, match="ambiguous"):
+            _ = batch.coords
+        np.testing.assert_array_equal(
+            batch.coordinate_data.tensor, [[1, 2, 3, 4, 5, 6]]
+        )
 
 
 class TestTensorBatchIndexing:
@@ -436,7 +464,7 @@ class TestTensorBatchUnitConversions:
             return_value=np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
         )  # type: ignore
 
-        batch = TensorBatch(data, counts=counts)
+        batch = TensorBatch(data, counts=counts, coord_cols=np.arange(1, 4))
         batch.to_cm(meta)
 
         # Verify to_cm was called
@@ -458,7 +486,7 @@ class TestTensorBatchUnitConversions:
             return_value=np.array([[10, 20, 30], [40, 50, 60]])
         )  # type: ignore
 
-        batch = TensorBatch(data, counts=counts)
+        batch = TensorBatch(data, counts=counts, coord_cols=np.arange(1, 4))
         batch.to_px(meta)
 
         # Verify to_px was called

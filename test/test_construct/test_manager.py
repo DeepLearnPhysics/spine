@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from spine.construct import BuildManager
+from spine.data import IndexData, TensorData
 from spine.data.larcv.particle import Particle
 from spine.data.out import RecoFragment, TruthFragment
 
@@ -200,10 +201,18 @@ def test_build_sources_converts_points_and_truth_objects(points, depositions, me
         "charge_label": make_sparse_tensor(points, depositions + 100),
         "clust_label_adapt": labels,
         "clust_label_g4": labels,
-        "sources": np.array([[0, 0], [0, 1], [1, 0], [1, 1]], dtype=np.int64),
-        "sources_label": np.array([[2, 0], [2, 1], [3, 0], [3, 1]], dtype=np.int64),
-        "orig_index": np.array([10, 11, 12, 13], dtype=np.int64),
-        "orig_index_label": np.array([20, 21, 22, 23], dtype=np.int64),
+        "sources": TensorData(
+            np.array([[0, 0], [0, 1], [1, 0], [1, 1]], dtype=np.int64),
+            feats_only=True,
+        ),
+        "sources_label": TensorData(
+            np.array([[2, 0], [2, 1], [3, 0], [3, 1]], dtype=np.int64),
+            feats_only=True,
+        ),
+        "orig_index": IndexData(np.array([10, 11, 12, 13], dtype=np.int64), span=4),
+        "orig_index_label": IndexData(
+            np.array([20, 21, 22, 23], dtype=np.int64), span=4
+        ),
         "meta": meta_cm,
         "particles": [particle],
         "fragment_start_points": np.array([[1, 1, 1]], dtype=np.float32),

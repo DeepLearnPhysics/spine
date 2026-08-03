@@ -4,7 +4,6 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from spine.constants import VALUE_COL
 from spine.data import TensorBatch
 from spine.model.uresnet.bayes import BayesianSegmentationLoss, BayesianUResNet
 
@@ -35,13 +34,17 @@ def input_batch():
         ],
         dtype=torch.float32,
     )
-    return TensorBatch(data, counts=torch.tensor([2, 2]))
+    return TensorBatch(
+        data,
+        counts=torch.tensor([2, 2]),
+        has_batch_col=True,
+        coord_cols=(1, 2, 3),
+    )
 
 
 def label_batch(values=(0, 1, 2, 1)):
     """Build semantic labels aligned with :func:`input_batch`."""
-    labels = torch.zeros((len(values), VALUE_COL + 1), dtype=torch.float32)
-    labels[:, VALUE_COL] = torch.tensor(values)
+    labels = torch.tensor(values, dtype=torch.float32)
     return TensorBatch(labels, counts=torch.tensor([2, 2]))
 
 

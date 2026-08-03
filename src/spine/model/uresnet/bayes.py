@@ -8,7 +8,6 @@ from typing import Any, Iterator, Literal
 import numpy as np
 import torch
 
-from spine.constants import VALUE_COL
 from spine.data import TensorBatch
 from spine.model import sparse
 
@@ -352,7 +351,7 @@ class BayesianSegmentationLoss(torch.nn.Module):
             weights when weighting is active.
         """
         # Validate and normalize semantic labels and predictions
-        labels = seg_label.torch_tensor()[:, VALUE_COL].long()
+        labels = seg_label.values.torch_tensor().long()
         predictions = segmentation.torch_tensor()
         if len(labels) != len(predictions):
             raise ValueError(

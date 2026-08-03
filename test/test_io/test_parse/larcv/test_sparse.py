@@ -6,9 +6,9 @@ import numpy as np
 import pytest
 
 import spine.io.parse.larcv.sparse as sparse_module
+from spine.data import TensorData
 from spine.data.larcv import Meta
 from spine.data.larcv.meta import ImageMeta2D, ImageMeta3D
-from spine.io.parse.data import ParserTensor
 from spine.io.parse.larcv.sparse import *
 from spine.utils.conditional import LARCV_AVAILABLE
 
@@ -28,7 +28,7 @@ def test_parse_sparse2d(sparse2d_event, projection_id):
     # - The first has both coordinates for each point
     # - The second has the feature tensor
     # - The third has the metadata
-    assert isinstance(result, ParserTensor)
+    assert isinstance(result, TensorData)
     assert result.coords.shape[1] == 2
     assert result.features.shape[1] == 1
     assert isinstance(result.meta, ImageMeta2D)
@@ -37,7 +37,7 @@ def test_parse_sparse2d(sparse2d_event, projection_id):
         dtype="float32", sparse_event="sparse", projection_id=projection_id
     )
     call_result = call_parser({"sparse": sparse2d_event})
-    assert isinstance(call_result, ParserTensor)
+    assert isinstance(call_result, TensorData)
 
 
 @pytest.mark.parametrize("projection_id", [0, 1, 2])
@@ -58,7 +58,7 @@ def test_parse_sparse2d_list(sparse2d_event_list, projection_id):
     # - The first has all 2 coordinates for each point
     # - The second has the feature tensor (one per input tensor)
     # - The third has the metadata
-    assert isinstance(result, ParserTensor)
+    assert isinstance(result, TensorData)
     assert result.coords.shape[1] == 2
     assert result.features.shape[1] == len(sparse2d_event_list)
     assert isinstance(result.meta, ImageMeta2D)
@@ -76,7 +76,7 @@ def test_parse_sparse3d(sparse3d_event):
     # - The first has all 3 coordinates for each point
     # - The second has the feature tensor
     # - The third has the metadata
-    assert isinstance(result, ParserTensor)
+    assert isinstance(result, TensorData)
     assert result.coords.shape[1] == 3
     assert result.features.shape[1] == 1
     assert isinstance(result.meta, ImageMeta3D)
@@ -101,7 +101,7 @@ def test_parse_sparse3d_list(sparse3d_event_list, num_features):
     # - The second has the feature tensor (one per input tensor)
     # - The third has the metadata
     div = len(sparse3d_event_list) / num_features if num_features else 1
-    assert isinstance(result, ParserTensor)
+    assert isinstance(result, TensorData)
     assert result.coords.shape[1] == 3
     assert result.features.shape[1] == len(sparse3d_event_list) / div
     assert isinstance(result.meta, ImageMeta3D)
@@ -119,7 +119,7 @@ def test_parse_sparse3d_ghost(sparse3d_seg_event):
     # - The first has all 3 coordinates for each point
     # - The second has the ghost labels
     # - The third has the metadata
-    assert isinstance(result, ParserTensor)
+    assert isinstance(result, TensorData)
     assert result.coords.shape[1] == 3
     assert result.features.shape[1] == 1
     assert isinstance(result.meta, ImageMeta3D)
@@ -152,7 +152,7 @@ def test_parse_spars3d_rescale(
     # - The first has all 3 coordinates for each point
     # - The second has the rescaled charge
     # - The third has the metadata
-    assert isinstance(result, ParserTensor)
+    assert isinstance(result, TensorData)
     assert result.coords.shape[1] == 3
     assert result.features.shape[1] == 1
     assert isinstance(result.meta, ImageMeta3D)
@@ -164,14 +164,14 @@ def test_sparse_parser_call_paths(
 ):
     """Wrapper calls should route named inputs through the sparse parsers."""
     sparse_parser = LArCVSparse3DParser(dtype="float32", sparse_event="sparse")
-    assert isinstance(sparse_parser({"sparse": sparse3d_event}), ParserTensor)
+    assert isinstance(sparse_parser({"sparse": sparse3d_event}), TensorData)
 
     aggr_parser = LArCVSparse3DAggregateParser(
         dtype="float32", sparse_event_list=["s0", "s1"], aggr="sum"
     )
     assert isinstance(
         aggr_parser({"s0": sparse3d_event_list[0], "s1": sparse3d_event_list[1]}),
-        ParserTensor,
+        TensorData,
     )
 
     rescale_parser = LArCVSparse3DChargeRescaledParser(
@@ -187,11 +187,11 @@ def test_sparse_parser_call_paths(
                 )
             }
         ),
-        ParserTensor,
+        TensorData,
     )
 
     ghost_parser = LArCVSparse3DGhostParser(dtype="float32", sparse_event="seg")
-    assert isinstance(ghost_parser({"seg": sparse3d_seg_event}), ParserTensor)
+    assert isinstance(ghost_parser({"seg": sparse3d_seg_event}), TensorData)
 
 
 @pytest.mark.parametrize("sparse3d_event_list", [2], indirect=True)
@@ -226,7 +226,7 @@ def test_sparse3d_parser_constructor_validation_and_options(
     )
     result = parser.process(sparse_event_list=sparse3d_event_list[:2])
 
-    assert isinstance(result, ParserTensor)
+    assert isinstance(result, TensorData)
     assert np.array_equal(parser.index_cols, np.asarray([0]))
     assert np.array_equal(parser.sum_cols, np.asarray([0]))
 
@@ -242,7 +242,7 @@ def test_sparse3d_parser_computes_nhits_and_validates_index(sparse3d_event_list)
         nhits_idx=1,
     )
     result = parser.process(sparse_event_list=sparse3d_event_list)
-    assert isinstance(result, ParserTensor)
+    assert isinstance(result, TensorData)
     assert result.features.shape[1] == 3
 
     parser = LArCVSparse3DParser(

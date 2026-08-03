@@ -13,8 +13,7 @@ GRAPH_BASE_PATH = (
     / "src"
     / "spine"
     / "model"
-    / "layer"
-    / "gnn"
+    / "grappa"
     / "graph"
     / "base.py"
 )

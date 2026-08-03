@@ -7,8 +7,7 @@ from warnings import warn
 
 import numpy as np
 
-from spine.constants import COORD_COLS
-from spine.data import EdgeIndexBatch, IndexBatch, TensorBatch
+from spine.data import ClusterLabelBatch, EdgeIndexBatch, IndexBatch, TensorBatch
 from spine.utils.gnn.network import inter_cluster_distance
 
 
@@ -117,7 +116,7 @@ class GraphBase:
 
     def __call__(
         self,
-        data: TensorBatch,
+        data: ClusterLabelBatch | TensorBatch,
         clusts: IndexBatch,
         classes: TensorBatch | None = None,
         groups: TensorBatch | None = None,
@@ -146,7 +145,7 @@ class GraphBase:
         dist_mat, closest_index = None, None
         if self.compute_dist:
             dist_mat, closest_index = inter_cluster_distance(
-                data.numpy_tensor()[:, COORD_COLS],
+                data.coords.numpy_tensor(),
                 clusts.index_list,
                 clusts.counts,
                 centroid=self.dist_centroid,

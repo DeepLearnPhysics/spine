@@ -7,7 +7,7 @@ from typing import Any
 
 import torch
 
-from spine.data import TensorBatch
+from spine.data import ClusterLabelBatch, TensorBatch
 
 from ...registry import ModelSpec
 from ..model import SegmentationLoss, UResNetSegmentation
@@ -175,7 +175,7 @@ class UResNetPPNLoss(torch.nn.Module):
         self,
         seg_label: TensorBatch,
         ppn_label: TensorBatch,
-        clust_label: TensorBatch | None = None,
+        clust_label: ClusterLabelBatch | None = None,
         weights: TensorBatch | None = None,
         **result: Any,
     ) -> dict[str, Any]:
@@ -187,7 +187,7 @@ class UResNetPPNLoss(torch.nn.Module):
             (N, 1 + D + 1) Tensor of segmentation labels for the batch
         ppn_label : TensorBatch
             (N, 1 + D + N_l) Tensor of PPN labels for the batch
-        clust_label : TensorBatch, optional
+        clust_label : ClusterLabelBatch, optional
             (N, 1 + D + N_c) Tensor of cluster labels
             - N_c is is the number of cluster labels
         weights : torch.Tensor, optional

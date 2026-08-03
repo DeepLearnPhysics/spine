@@ -159,10 +159,11 @@ def test_grappa_inter_parser_label_policy(config_group):
     """Keep interaction-identification labels on the requested truth policy."""
     cfg = load_config_file(str(config_group["grappa_inter"]), download=False)
     parser_cfg = cfg["io"]["loader"]["dataset"]["schema"]["data"]
+    particle_cfg = parser_cfg["particle_info"]
 
-    assert parser_cfg["type_include_secondary"] is False
-    assert parser_cfg["type_include_mpr"] is False
-    assert parser_cfg["primary_include_mpr"] is False
+    assert particle_cfg["type_include_secondary"] is False
+    assert particle_cfg["type_include_mpr"] is False
+    assert particle_cfg["primary_include_mpr"] is False
 
 
 def test_grappa_track_has_no_unsupervised_node_head():

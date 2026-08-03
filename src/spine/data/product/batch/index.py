@@ -1,4 +1,4 @@
-"""Module with a dataclass targeted at a batch index or list of indexes."""
+"""Batched flat and jagged index data products."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from warnings import warn
 
 import numpy as np
 
+from ..index import IndexData, IndexListData
 from .base import ArrayLike, BatchBase
 
 __all__ = ["IndexBatch"]
@@ -16,7 +17,11 @@ __all__ = ["IndexBatch"]
 
 @dataclass(eq=False)
 class IndexBatch(BatchBase):
-    """Batched index with the necessary methods to slice it.
+    """Event-partitioned flat index or jagged list of indexes.
+
+    Each event indexes its own parent namespace. ``spans`` define those
+    namespace sizes, and the batch stores globally offset indexes internally.
+    Event extraction and splitting subtract the corresponding offset.
 
     Attributes
     ----------
@@ -50,7 +55,7 @@ class IndexBatch(BatchBase):
         batch_size: int | None = None,
         default: ArrayLike | None = None,
     ) -> None:
-        """Initialize the attributes of the class.
+        """Initialize a flat or jagged index batch.
 
         Parameters
         ----------
@@ -72,7 +77,7 @@ class IndexBatch(BatchBase):
         default : Union[np.ndarray, torch.Tensor], optional
             Empty-index prototype used when initializing an empty index list
         """
-        # Check weather the input is a single index or a list
+        # Determine whether each batch element is an index or a list of indexes
         is_list = (
             isinstance(data, (list, tuple)) or getattr(data, "dtype", None) == object
         )
@@ -96,7 +101,7 @@ class IndexBatch(BatchBase):
 
         super().__init__(init_data, is_list=is_list)
 
-        # Get the counts if they are not provided for free
+        # Recover event counts from explicit membership when necessary
         if counts is None:
             if batch_ids is None or batch_size is None:
                 raise ValueError("Must provide `batch_size` alongside `batch_ids`.")
@@ -105,7 +110,7 @@ class IndexBatch(BatchBase):
         else:
             batch_size = len(counts)
 
-        # Get the number of index elements per entry in the batch
+        # Preserve the length of every member in a jagged index list
         if single_counts is None:
             if self.is_list:
                 raise ValueError(
@@ -118,7 +123,7 @@ class IndexBatch(BatchBase):
                     "There must be one single count per index in the list."
                 )
 
-        # Cast
+        # Normalize batch metadata to the underlying array backend
         counts = self._as_long(counts)
         single_counts = self._as_long(single_counts)
         spans = self._as_long(spans)
@@ -129,7 +134,7 @@ class IndexBatch(BatchBase):
         if len(counts) != len(spans):
             raise ValueError("The number of `spans` must match the number of `counts`.")
 
-        # Compute the offsets from the per-entry spans
+        # Convert parent spans into global namespace offsets
         offsets = self._zeros(len(spans), None if self.is_numpy else spans.device)
         offsets[1:] = self._cumsum(spans)[:-1]
 
@@ -160,16 +165,40 @@ class IndexBatch(BatchBase):
                 f"of ({self.batch_size})"
             )
 
-        # Return
+        # Locate the event range in the globally offset batch
         lower, upper = self.edges[batch_id], self.edges[batch_id + 1]
         if not self.is_list:
             return self._index_data[lower:upper] - self.offsets[batch_id]
 
-        else:
-            return [
-                index - self.offsets[batch_id]
-                for index in self._index_list[lower:upper]
-            ]
+        # Jagged members share the same event-level namespace offset
+        return [
+            index - self.offsets[batch_id] for index in self._index_list[lower:upper]
+        ]
+
+    def event(self, batch_id: int) -> IndexData | IndexListData:
+        """Return one event while preserving its parent span.
+
+        Parameters
+        ----------
+        batch_id : int
+            Event position in the batch.
+
+        Returns
+        -------
+        IndexData or IndexListData
+            Event-local indexes with no global batch offset.
+        """
+        # Recover the event-local values and scalar parent span
+        values = self[batch_id]
+        span_value = self.spans[batch_id]
+        span = int(span_value.item() if hasattr(span_value, "item") else span_value)
+
+        # Reconstruct the concrete event product matching the stored layout
+        if not self.is_list:
+            return IndexData(values, span)
+        counts = np.asarray([len(index) for index in values], dtype=np.int64)
+
+        return IndexListData(list(values), span, counts)
 
     @property
     def _index_data(self) -> ArrayLike:
@@ -226,9 +255,10 @@ class IndexBatch(BatchBase):
         """
         if not self.is_list:
             return self._index_data
-        else:
-            index_list = self._index_list
-            return self._cat(index_list) if len(index_list) else self._empty(0)
+
+        # Flatten jagged members without losing the active array backend
+        index_list = self._index_list
+        return self._cat(index_list) if len(index_list) else self._empty(0)
 
     @property
     def index_ids(self) -> ArrayLike:
@@ -255,13 +285,14 @@ class IndexBatch(BatchBase):
         """
         if not self.is_list:
             return self.counts
-        else:
-            full_counts = self._empty(self.batch_size)
-            for b in range(self.batch_size):
-                lower, upper = self.edges[b], self.edges[b + 1]
-                full_counts[b] = self._sum(self.single_counts[lower:upper])
 
-            return self._as_long(full_counts)
+        # Sum member lengths within each event to count flattened elements
+        full_counts = self._empty(self.batch_size)
+        for b in range(self.batch_size):
+            lower, upper = self.edges[b], self.edges[b + 1]
+            full_counts[b] = self._sum(self.single_counts[lower:upper])
+
+        return self._as_long(full_counts)
 
     @property
     def batch_ids(self) -> ArrayLike:
@@ -294,6 +325,7 @@ class IndexBatch(BatchBase):
             List of list of indexes per entry in the batch
         """
         if self.is_list:
+            # Restore jagged members and subtract their event namespace offset
             indexes = []
             for batch_id in range(self.batch_size):
                 lower, upper = self.edges[batch_id], self.edges[batch_id + 1]
@@ -303,6 +335,7 @@ class IndexBatch(BatchBase):
 
             return indexes
 
+        # Split the flat index first, then restore event-local namespaces
         indexes = list(self._split(self.data, self.splits))
         for batch_id in range(self.batch_size):
             indexes[batch_id] = indexes[batch_id] - self.offsets[batch_id]
@@ -347,6 +380,7 @@ class IndexBatch(BatchBase):
 
         counts = self.counts + index_batch.counts
 
+        # Reconstruct the same flat or jagged representation as the inputs
         if self.is_list:
             return IndexBatch(
                 indexes,
@@ -354,16 +388,16 @@ class IndexBatch(BatchBase):
                 counts,
                 single_counts,
             )
-        else:
-            return IndexBatch(self._cat(indexes), self.spans, counts)
+
+        return IndexBatch(self._cat(indexes), self.spans, counts)
 
     def to_numpy(self) -> "IndexBatch":
         """Cast underlying index to a `np.ndarray` and return a new instance.
 
         Returns
         -------
-        TensorBatch
-            New `TensorBatch` object with an underlying np.ndarray tensor.
+        IndexBatch
+            NumPy-backed index batch.
         """
         # If the underlying data is of the right type, nothing to do
         if self.is_numpy:
@@ -395,8 +429,8 @@ class IndexBatch(BatchBase):
 
         Returns
         -------
-        TensorBatch
-            New `TensorBatch` object with an underlying np.ndarray tensor.
+        IndexBatch
+            PyTorch-backed index batch.
         """
         # If the underlying data is of the right type, nothing to do
         if not self.is_numpy:

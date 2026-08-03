@@ -4,7 +4,6 @@ import numba as nb
 import numpy as np
 
 import spine.math as sm
-from spine.constants import COORD_COLS, COORD_COLS_HI, COORD_COLS_LO
 from spine.data import TensorBatch
 from spine.utils.jit import numbafy
 
@@ -43,7 +42,7 @@ def get_cluster_edge_features_batch(
     index = edge_index.index_t if directed else edge_index.directed_index_t
     counts = edge_index.counts if directed else edge_index.directed_counts
     feats = get_cluster_edge_features(
-        data.tensor,
+        data.coords.tensor,
         clusts.index_list,
         index,
         closest_index,
@@ -72,7 +71,7 @@ def get_voxel_edge_features_batch(data, edge_index, max_dist=5.0):
     directed = edge_index.directed
     index = edge_index.index_t if directed else edge_index.directed_index_t
     counts = edge_index.counts if directed else edge_index.directed_counts
-    feats = get_voxel_edge_features(data.tensor, index)
+    feats = get_voxel_edge_features(data.coords.tensor, index)
 
     return TensorBatch(feats, counts)
 
@@ -140,8 +139,8 @@ def _get_cluster_edge_features(
     for k in nb.prange(len(edge_index)):
         # Get the voxels in the clusters connected by the edge
         c1, c2 = edge_index[k]
-        x1 = data[clusts[c1]][:, COORD_COLS_LO:COORD_COLS_HI]
-        x2 = data[clusts[c2]][:, COORD_COLS_LO:COORD_COLS_HI]
+        x1 = data[clusts[c1]]
+        x2 = data[clusts[c2]]
 
         # Find the closest set point in each cluster
         if closest_index is not None:
@@ -182,17 +181,15 @@ def _get_cluster_edge_features_vec(
 
     # Get the closest points of approach IDs for each edge
     if closest_index is None:
-        lend, idxs1, idxs2 = _get_edge_distances(
-            data[:, COORD_COLS_LO:COORD_COLS_HI], clusts, edge_index, iterative
-        )
+        lend, idxs1, idxs2 = _get_edge_distances(data, clusts, edge_index, iterative)
     else:
         idxs1, idxs2 = closest_index[(edge_index[0], edge_index[1])]
 
     # Get the points that correspond to the first voxels
-    v1 = data[idxs1][:, COORD_COLS_LO:COORD_COLS_HI]
+    v1 = data[idxs1]
 
     # Get the points that correspond to the second voxels
-    v2 = data[idxs2][:, COORD_COLS_LO:COORD_COLS_HI]
+    v2 = data[idxs2]
 
     # Get the displacement
     disp = v1 - v2
@@ -252,8 +249,8 @@ def _get_voxel_edge_features(
     feats = np.empty((len(edge_index), 19), dtype=data.dtype)
     for k in nb.prange(len(edge_index)):
         # Get the voxel coordinates
-        xi = data[edge_index[k, 0], COORD_COLS_LO:COORD_COLS_HI]
-        xj = data[edge_index[k, 1], COORD_COLS_LO:COORD_COLS_HI]
+        xi = data[edge_index[k, 0]]
+        xj = data[edge_index[k, 1]]
 
         # Displacement
         disp = xj - xi

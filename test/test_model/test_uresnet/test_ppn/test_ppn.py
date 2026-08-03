@@ -3,11 +3,18 @@
 import pytest
 import torch
 
-from spine.constants import GHOST_SHP, PART_COL, PPN_LPART_COL, PPN_LTYPE_COL
-from spine.data import TensorBatch
+from spine.constants import GHOST_SHP
+from spine.data import ClusterLabelBatch, TensorBatch, TensorSchema
 from spine.model.uresnet.ppn import UResNetPPN
 from spine.model.uresnet.ppn.ppn import PPN, ExpandAs, PPNLoss
 from spine.model.uresnet.ppn.vertex import VertexPPNLoss
+from spine.utils.ppn import ppn_raw_schema
+
+POINT_SCHEMA = TensorSchema(coordinate_groups={"points": (0, 1, 2)})
+PPN_LABEL_SCHEMA = TensorSchema(
+    coordinate_groups={"point": (0, 1, 2)},
+    feature_fields={"shape": (0,), "particle": (1,), "endpoint": (2,)},
+)
 
 
 class FeatureTensor:
@@ -102,6 +109,8 @@ def test_ppn_forwards_configured_threshold_to_binary_gating(cnn_config):
     data = TensorBatch(
         torch.tensor([[0.0, 1.0, 1.0, 1.0, 2.0]]),
         counts=[1],
+        has_batch_col=True,
+        coord_cols=(1, 2, 3),
     )
 
     model(data)
@@ -149,11 +158,19 @@ def test_ppn_loss_handles_an_empty_batch(cnn_config):
         torch.empty((0, 4)),
         counts=counts,
         has_batch_col=True,
+        coord_cols=(1, 2, 3),
+        schema=POINT_SCHEMA,
     )
     scores = TensorBatch(torch.empty((0, 2)), counts=counts)
     masks = TensorBatch(torch.empty((0, 1), dtype=torch.bool), counts=counts)
-    points = TensorBatch(torch.empty((0, 10)), counts=counts)
-    labels = TensorBatch(torch.empty((0, PART_COL + 1)), counts=counts)
+    points = TensorBatch(torch.empty((0, 10)), counts=counts, schema=ppn_raw_schema())
+    labels = TensorBatch(
+        torch.empty((0, 7)),
+        counts=counts,
+        has_batch_col=True,
+        coord_cols=(1, 2, 3),
+        schema=PPN_LABEL_SCHEMA,
+    )
 
     result = loss(
         ppn_label=labels,
@@ -174,19 +191,36 @@ def test_cluster_restriction_aligns_duplicate_input_rows(cnn_config):
         torch.tensor([[0.0, 1.0, 1.0, 1.0]]),
         counts=[1],
         has_batch_col=True,
+        coord_cols=(1, 2, 3),
+        schema=POINT_SCHEMA,
     )
     scores = TensorBatch(torch.tensor([[0.0, 1.0]]), counts=[1])
     masks = TensorBatch(torch.tensor([[True]]), counts=[1])
-    points = TensorBatch(torch.zeros((1, 10)), counts=[1])
+    points = TensorBatch(torch.zeros((1, 10)), counts=[1], schema=ppn_raw_schema())
     ppn_tensor = torch.zeros((1, 7))
     ppn_tensor[0, 1:4] = 1.5
-    ppn_tensor[0, PPN_LTYPE_COL] = 0
-    ppn_tensor[0, PPN_LPART_COL] = 11
-    ppn_label = TensorBatch(ppn_tensor, counts=[1])
-    clust_tensor = torch.zeros((2, PART_COL + 1))
+    ppn_tensor[0, 4] = 0
+    ppn_tensor[0, 5] = 11
+    ppn_label = TensorBatch(
+        ppn_tensor,
+        counts=[1],
+        has_batch_col=True,
+        coord_cols=(1, 2, 3),
+        schema=PPN_LABEL_SCHEMA,
+    )
+    clust_tensor = torch.zeros((2, 7))
     clust_tensor[:, :4] = torch.tensor([0.0, 1.0, 1.0, 1.0])
-    clust_tensor[:, PART_COL] = 11
-    clust_label = TensorBatch(clust_tensor, counts=[2])
+    clust_tensor[:, 5] = 0
+    clust_tensor[:, 6] = 0
+    clust_label = ClusterLabelBatch(
+        TensorBatch(
+            clust_tensor,
+            counts=[2],
+            has_batch_col=True,
+            coord_cols=(1, 2, 3),
+        ),
+        {"particle": TensorBatch(torch.tensor([11]), counts=[1])},
+    )
 
     result = loss(
         ppn_label=ppn_label,
@@ -216,16 +250,10 @@ def test_true_ghost_mask_prunes_propagated_and_skip_features(cnn_config):
             ]
         ),
         counts=[2],
+        has_batch_col=True,
+        coord_cols=(1, 2, 3),
     )
-    seg_label = TensorBatch(
-        torch.tensor(
-            [
-                [0.0, 1.0, 1.0, 1.0, 0.0],
-                [0.0, 6.0, 6.0, 6.0, float(GHOST_SHP)],
-            ]
-        ),
-        counts=[2],
-    )
+    seg_label = TensorBatch(torch.tensor([0.0, float(GHOST_SHP)]), counts=[2])
 
     result = model(data, seg_label)
 

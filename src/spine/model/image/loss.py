@@ -8,16 +8,8 @@ from typing import Any, cast
 
 import torch
 
-from spine.constants import (
-    ANCST_COL,
-    ANCST_MOM_COL,
-    ANCST_PID_COL,
-    MOM_COL,
-    PID_COL,
-    PID_MASSES,
-)
-from spine.constants.factory import enum_factory
-from spine.data import IndexBatch, TensorBatch
+from spine.constants import PID_MASSES
+from spine.data import ClusterLabelBatch, IndexBatch, TensorBatch
 
 from ..common.factories import loss_fn_factory
 
@@ -39,7 +31,7 @@ class ImageTaskLoss(torch.nn.Module, ABC):
     @abstractmethod
     def forward(
         self,
-        labels: TensorBatch | Sequence[Any] | torch.Tensor,
+        labels: ClusterLabelBatch | TensorBatch | Sequence[Any] | torch.Tensor,
         objects: IndexBatch,
         prediction: TensorBatch,
     ) -> dict[str, Any]:
@@ -61,7 +53,7 @@ def _head_sizes(heads: Mapping[str, Any]) -> dict[str, int]:
 
 
 def _object_targets(
-    labels: TensorBatch | Sequence[Any] | torch.Tensor,
+    labels: ClusterLabelBatch | TensorBatch | Sequence[Any] | torch.Tensor,
     objects: IndexBatch,
     target: str | int | None,
     target_reduction: str,
@@ -77,93 +69,69 @@ def _object_targets(
     num_objects = len(objects.index_list)
 
     # Tensor batches may contain either direct object or voxel-level labels
-    if isinstance(labels, TensorBatch):
-        label_tensor = labels.torch_tensor()
+    if isinstance(labels, ClusterLabelBatch):
         if target is None:
-            if target_reduction != "mode":
+            raise ValueError("Structured cluster labels require a named target.")
+        kinetic_energy = target == "kinetic_energy"
+        if target_reduction == "ancestor":
+            if not kinetic_energy and target != "pid":
                 raise ValueError(
-                    "Direct image labels do not support `target_reduction`."
+                    "Ancestor target reduction currently supports only `pid` "
+                    "and `kinetic_energy`."
                 )
-            if len(label_tensor) != num_objects:
-                raise ValueError(
-                    "Direct TensorBatch labels must contain one row per image object."
-                )
-            targets = label_tensor
-        else:
-            # Resolve physical and column-backed target definitions
-            kinetic_energy = target == "kinetic_energy"
-            column = (
-                MOM_COL
-                if kinetic_energy
-                else (
-                    enum_factory("cluster", target)
-                    if isinstance(target, str)
-                    else target
-                )
+            pid_values = labels.ancestor_pids.torch_tensor()
+            target_values = (
+                labels.ancestor_momenta.torch_tensor() if kinetic_energy else pid_values
             )
-            if column < 0 or column >= label_tensor.shape[1]:
-                raise ValueError(f"Image target column {column} is out of bounds.")
+        else:
+            pid_values = labels.pids.torch_tensor()
+            target_values = (
+                labels.momenta.torch_tensor()
+                if kinetic_energy
+                else labels.voxel_field(target).torch_tensor()
+            )
 
-            # Reduce repeated voxel labels to one value for each object
-            values = []
-            for object_index in objects.to_numpy().index_list:
-                index = torch.as_tensor(
-                    object_index,
-                    dtype=torch.long,
-                    device=label_tensor.device,
-                )
-                object_rows = label_tensor[index]
-
-                # Validate ancestry and select the propagated root target
-                if target_reduction == "ancestor":
-                    ancestor_ids = torch.unique(object_rows[:, ANCST_COL])
-                    ancestor_ids = ancestor_ids[ancestor_ids >= 0]
-                    if len(ancestor_ids) != 1:
-                        raise ValueError(
-                            "Ancestor target reduction requires exactly one valid "
-                            "ancestor ID per object."
-                        )
-                    if not kinetic_energy and target not in {"pid", PID_COL}:
-                        raise ValueError(
-                            "Ancestor target reduction currently supports only "
-                            "`pid` and `kinetic_energy`."
-                        )
-                    target_column = ANCST_PID_COL
-                else:
-                    target_column = column
-
-                # Derive initial kinetic energy from momentum and rest mass
-                if kinetic_energy:
-                    pid_column = (
-                        ANCST_PID_COL if target_reduction == "ancestor" else PID_COL
-                    )
-                    momentum_column = (
-                        ANCST_MOM_COL if target_reduction == "ancestor" else MOM_COL
-                    )
-                    particle_ids = object_rows[:, pid_column].long()
-                    unique_pid = torch.unique(particle_ids)
-                    particle_id = (
-                        int(unique_pid[0].item()) if len(unique_pid) == 1 else -1
-                    )
-                    momenta = torch.unique(object_rows[:, momentum_column])
-                    if (
-                        particle_id not in PID_MASSES
-                        or len(momenta) != 1
-                        or not torch.isfinite(momenta[0]).item()
-                        or (momenta[0] < 0).item()
-                    ):
-                        values.append(label_tensor.new_tensor(-1.0))
-                        continue
-                    momentum = momenta[0]
-                    mass = PID_MASSES[particle_id]
-                    object_values = torch.sqrt(momentum.square() + mass**2) - mass
-                    object_values = object_values.view(1)
-                else:
-                    object_values = object_rows[:, target_column]
-
+        values = []
+        for object_index in objects.to_numpy().index_list:
+            index = torch.as_tensor(
+                object_index, dtype=torch.long, device=target_values.device
+            )
+            object_values = target_values[index]
+            object_pids = pid_values[index].long()
+            unique_pid = torch.unique(object_pids)
+            particle_id = int(unique_pid[0].item()) if len(unique_pid) == 1 else -1
+            unique_values = torch.unique(object_values)
+            if kinetic_energy:
+                if (
+                    particle_id not in PID_MASSES
+                    or len(unique_values) != 1
+                    or not torch.isfinite(unique_values[0]).item()
+                    or (unique_values[0] < 0).item()
+                ):
+                    values.append(target_values.new_tensor(-1.0))
+                    continue
+                momentum = unique_values[0]
+                mass = PID_MASSES[particle_id]
+                values.append(torch.sqrt(momentum.square() + mass**2) - mass)
+            else:
                 unique, counts = torch.unique(object_values, return_counts=True)
                 values.append(unique[counts.argmax()])
-            targets = torch.stack(values) if values else label_tensor.new_empty((0,))
+        targets = torch.stack(values) if values else target_values.new_empty((0,))
+
+    elif isinstance(labels, TensorBatch):
+        label_tensor = labels.torch_tensor()
+        if target is not None:
+            raise TypeError(
+                "Voxel-level particle targets require ClusterLabelBatch; "
+                "TensorBatch is reserved for direct object labels."
+            )
+        if target_reduction != "mode":
+            raise ValueError("Direct image labels do not support `target_reduction`.")
+        if len(label_tensor) != num_objects:
+            raise ValueError(
+                "Direct TensorBatch labels must contain one row per image object."
+            )
+        targets = label_tensor
 
     # Plain tensors and sequences already represent one target per object
     else:

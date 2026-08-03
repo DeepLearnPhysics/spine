@@ -5,7 +5,7 @@ from .helpers import (
     Any,
     CropAugment,
     GeoManager,
-    ParserTensor,
+    TensorData,
     make_meta,
     make_tensor,
     np,
@@ -39,7 +39,7 @@ def test_crop_augment_defaults_to_activity_spread(monkeypatch):
     """Activity-biased crops should use activity spread when none is given."""
     meta = make_meta(lower=(0.0, 0.0, 0.0), upper=(10.0, 10.0, 10.0))
     coords = np.asarray([[1, 1, 1], [7, 7, 7], [7, 1, 1]], dtype=np.int64)
-    tensor = ParserTensor(
+    tensor = TensorData(
         coords=coords,
         features=np.ones((3, 1), dtype=np.float32),
         meta=meta,
@@ -190,7 +190,7 @@ def test_crop_augment_can_drop_points_outside_active_volume():
     coords = np.rint(meta.to_px(np.vstack([inside_cm, outside_cm])) - 0.5).astype(
         np.int64
     )
-    tensor = ParserTensor(
+    tensor = TensorData(
         coords=coords.copy(),
         features=np.asarray([[1.0], [2.0]], dtype=np.float32),
         meta=meta,
@@ -226,7 +226,7 @@ def test_crop_active_volume_can_keep_meta_fixed():
     coords = np.rint(meta.to_px(np.vstack([inside_cm, outside_cm])) - 0.5).astype(
         np.int64
     )
-    tensor = ParserTensor(
+    tensor = TensorData(
         coords=coords.copy(),
         features=np.asarray([[1.0], [2.0]], dtype=np.float32),
         meta=meta,

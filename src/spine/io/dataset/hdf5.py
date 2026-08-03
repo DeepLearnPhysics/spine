@@ -43,7 +43,6 @@ class HDF5Dataset(BaseDataset):
         schema: Mapping[str, Mapping[str, Any]] | None = None,
         keys: Sequence[str] | None = None,
         skip_keys: Sequence[str] | None = None,
-        data_types: Mapping[str, str] | None = None,
         overlay_methods: Mapping[str, str] | None = None,
         augment: Mapping[str, Any] | None = None,
         **kwargs: Any,
@@ -66,8 +65,6 @@ class HDF5Dataset(BaseDataset):
             Explicit list of raw HDF5 products to keep
         skip_keys : sequence[str], optional
             Explicit list of raw HDF5 products to drop
-        data_types : mapping, optional
-            Explicit collate type overrides for raw-product mode
         overlay_methods : mapping, optional
             Explicit overlay-method overrides for raw-product mode
         augment : mapping, optional
@@ -91,7 +88,6 @@ class HDF5Dataset(BaseDataset):
         self.keys = set(keys) if keys is not None else None
         self.skip_keys = set(skip_keys) if skip_keys is not None else set()
         self.parsers = {}
-        self._data_types = dict(data_types) if data_types is not None else None
         self._overlay_methods = (
             dict(overlay_methods) if overlay_methods is not None else None
         )
@@ -173,6 +169,7 @@ class HDF5Dataset(BaseDataset):
         """
         result = self.reader[idx]
 
+        # Apply raw-product projection while retaining administrative metadata
         if self.keys is not None:
             keep = self.keys.union(self._index_keys).union(self._source_keys)
             result = {key: val for key, val in result.items() if key in keep}
@@ -183,6 +180,7 @@ class HDF5Dataset(BaseDataset):
         if not self.parsers:
             return self.apply_augmenter(result)
 
+        # Reconstruct configured logical products from the projected raw inputs
         parsed = self.metadata_dict(result)
         for name, parser in self.parsers.items():
             try:
@@ -192,29 +190,6 @@ class HDF5Dataset(BaseDataset):
                 raise err
 
         return self.apply_augmenter(parsed)
-
-    @property
-    def data_types(self) -> dict[str, str]:
-        """Return the collate type for each exposed HDF5 product.
-
-        Returns
-        -------
-        dict[str, str]
-            Mapping from dataset output key to collate type.
-        """
-        data_types = self.index_data_types()
-        if self.parsers:
-            for name, parser in self.parsers.items():
-                data_types[name] = parser.returns
-        elif self._data_types is not None:
-            data_types.update(self._data_types)
-        else:
-            sample = self[0] if len(self) else {}
-            for key in sample:
-                if key not in data_types:
-                    data_types[key] = "list"
-
-        return data_types
 
     @property
     def overlay_methods(self) -> dict[str, str]:
@@ -228,7 +203,7 @@ class HDF5Dataset(BaseDataset):
         overlay_methods = self.index_overlay_methods()
         if self.parsers:
             for name, parser in self.parsers.items():
-                overlay_methods[name] = parser.overlay
+                overlay_methods[name] = parser.overlay_method
         if self._overlay_methods is not None:
             overlay_methods.update(self._overlay_methods)
 
@@ -246,4 +221,10 @@ class HDF5Dataset(BaseDataset):
         if self.parsers:
             return (*self._index_keys, *self._source_keys, *self.parsers.keys())
 
-        return tuple(self.data_types.keys())
+        # Prefer configured projection order; otherwise discover it from a sample
+        if self.keys is not None:
+            selected = tuple(self.keys)
+            return (*self._index_keys, *self._source_keys, *selected)
+        sample = self[0] if len(self) else {}
+
+        return tuple(sample)

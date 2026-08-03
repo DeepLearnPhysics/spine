@@ -7,24 +7,17 @@ from typing import Any
 
 import numpy as np
 import torch
-import yaml
 from torch_scatter import scatter_mean, scatter_std
 
 from spine.calib import CalibrationManager
 from spine.constants import (
-    CLUST_COL,
-    COORD_COLS,
     DELTA_SHP,
     GHOST_SHP,
-    GROUP_COL,
     MICHL_SHP,
-    PRGRP_COL,
-    SHAPE_COL,
     SHOWR_SHP,
     TRACK_SHP,
-    VALUE_COL,
 )
-from spine.data import IndexBatch, RunInfo, TensorBatch
+from spine.data import ClusterLabelBatch, IndexBatch, RunInfo, TensorBatch
 from spine.model.common.dbscan import DBSCAN
 from spine.utils.cluster.label import ClusterLabelAdapter
 from spine.utils.ghost import ChargeRescaler
@@ -204,6 +197,8 @@ class FullChain(torch.nn.Module):
             if uresnet is not None:
                 self.uresnet = UResNetSegmentation(uresnet)
             else:
+                if uresnet_ppn is None:  # pragma: no cover - guarded above
+                    raise RuntimeError("UResNet-PPN configuration was not initialized.")
                 self.uresnet_ppn = UResNetPPN(**uresnet_ppn)
 
         # Initialize the relabeling process (adapt to the semantic predictions)
@@ -306,7 +301,7 @@ class FullChain(torch.nn.Module):
         data: TensorBatch,
         sources: TensorBatch | None = None,
         seg_label: TensorBatch | None = None,
-        clust_label: TensorBatch | None = None,
+        clust_label: ClusterLabelBatch | None = None,
         orig_index: IndexBatch | None = None,
         coord_label: TensorBatch | None = None,
         energy_label: TensorBatch | None = None,
@@ -328,7 +323,7 @@ class FullChain(torch.nn.Module):
         seg_label : TensorBatch, optional
             (N, 1 + D + 1) Tensor of segmentation labels
             - 1 is the segmentation label
-        clust_label : TensorBatch, optional
+        clust_label : ClusterLabelBatch, optional
             (N, 1 + D + N_c) Tensor of cluster labels
             - N_c is is the number of cluster labels
         orig_index : IndexBatch, optional
@@ -394,7 +389,7 @@ class FullChain(torch.nn.Module):
         data: TensorBatch,
         sources: TensorBatch | None = None,
         seg_label: TensorBatch | None = None,
-        clust_label: TensorBatch | None = None,
+        clust_label: ClusterLabelBatch | None = None,
     ) -> tuple[TensorBatch, TensorBatch | None]:
         """Run the deghosting algorithm.
 
@@ -411,7 +406,7 @@ class FullChain(torch.nn.Module):
             (N, 2) tensor of module/tpc pair for each voxel
         seg_label : TensorBatch, optional
             (N, 1 + D + 1) Tensor of segmentation labels
-        clust_label : TensorBatch, optional
+        clust_label : ClusterLabelBatch, optional
             (N, 1 + D + N_c) Tensor of cluster labels
 
         Returns
@@ -427,12 +422,7 @@ class FullChain(torch.nn.Module):
             ghost_tensor = res_deghost["segmentation"].tensor
             ghost_pred = torch.argmax(ghost_tensor, dim=1)
             adapt_index = torch.nonzero(ghost_pred == 0, as_tuple=False).flatten()
-            data_adapt = TensorBatch(
-                data.tensor[adapt_index],
-                batch_size=data.batch_size,
-                has_batch_col=True,
-                coord_cols=data.coord_cols,
-            )
+            data_adapt = data.select(ghost_pred == 0)
             orig_index_adapt = IndexBatch(
                 adapt_index,
                 spans=data.counts,
@@ -444,7 +434,8 @@ class FullChain(torch.nn.Module):
             if self.charge_rescaling is not None:
                 charges = self.charge_rescaler(data_adapt)
                 tensor_deghost = data_adapt.tensor[:, :-6]
-                tensor_deghost[:, VALUE_COL] = charges
+                value_col = data_adapt.feature_columns()[0]
+                tensor_deghost[:, value_col] = charges
                 data_adapt.data = tensor_deghost
 
             self.result["ghost"] = res_deghost["segmentation"]
@@ -454,14 +445,9 @@ class FullChain(torch.nn.Module):
 
             # If segementation labels are provided, store the original label index
             if seg_label is not None:
-                ghost_label = (seg_label.tensor[:, SHAPE_COL] == GHOST_SHP).long()
+                ghost_label = (seg_label.values.torch_tensor() == GHOST_SHP).long()
                 adapt_index = torch.nonzero(ghost_label == 0, as_tuple=False).flatten()
-                seg_label_adapt = TensorBatch(
-                    seg_label.tensor[adapt_index],
-                    batch_size=seg_label.batch_size,
-                    has_batch_col=True,
-                    coord_cols=seg_label.coord_cols,
-                )
+                seg_label_adapt = seg_label.select(ghost_label == 0)
                 orig_index_label = IndexBatch(
                     adapt_index,
                     spans=seg_label.counts,
@@ -481,7 +467,7 @@ class FullChain(torch.nn.Module):
 
                 # Store the sources of the true non-ghosts
                 if seg_label is not None:
-                    ghost_label = seg_label.tensor[:, SHAPE_COL] < GHOST_SHP
+                    ghost_label = seg_label.values.torch_tensor() < GHOST_SHP
                     if clust_label is not None:
                         counts = clust_label.counts
                     else:
@@ -500,7 +486,7 @@ class FullChain(torch.nn.Module):
             # Use ghost labels to remove ghost voxels from the input
             if seg_label is None:
                 raise ValueError("Must provide `seg_label` to deghost with it.")
-            ghost_pred = (seg_label.tensor[:, SHAPE_COL] == GHOST_SHP).long()
+            ghost_pred = (seg_label.values.torch_tensor() == GHOST_SHP).long()
             adapt_index = torch.nonzero(ghost_pred == 0, as_tuple=False).flatten()
             tensor_deghost = data.tensor[ghost_pred == 0]
 
@@ -511,12 +497,18 @@ class FullChain(torch.nn.Module):
                         "Must provide `clust_label` to fetch the true "
                         "rescaled charge."
                     )
-                tensor_deghost[:, VALUE_COL] = clust_label[:, VALUE_COL]
+                value_col = data.feature_columns()[0]
+                tensor_deghost[:, value_col] = clust_label.values.torch_tensor()
 
             # Store and return
             ghost_pred = TensorBatch(ghost_pred, data.counts)
             data_adapt = TensorBatch(
-                tensor_deghost, batch_size=data.batch_size, coord_cols=data.coord_cols
+                tensor_deghost,
+                batch_size=data.batch_size,
+                has_batch_col=data.has_batch_col,
+                coord_cols=data.coord_cols,
+                schema=data.schema,
+                meta=data.meta,
             )
             orig_index_adapt = IndexBatch(
                 adapt_index, spans=data.counts, counts=data_adapt.counts
@@ -552,9 +544,9 @@ class FullChain(torch.nn.Module):
         self,
         data: TensorBatch,
         seg_label: TensorBatch | None = None,
-        clust_label: TensorBatch | None = None,
+        clust_label: ClusterLabelBatch | None = None,
         orig_index: IndexBatch | None = None,
-    ) -> TensorBatch | None:
+    ) -> ClusterLabelBatch | None:
         """Run the semantic segmentation and the point proposal algorithms.
 
         This classifies each individual voxel in the image into different
@@ -567,7 +559,7 @@ class FullChain(torch.nn.Module):
             (N, 1 + D + N_f) tensor of voxel/value pairs
         seg_label : TensorBatch, optional
             (N, 1 + D + 1) Tensor of segmentation labels
-        clust_label : TensorBatch, optional
+        clust_label : ClusterLabelBatch, optional
             (N, 1 + D + N_c) Tensor of cluster labels
         orig_index : IndexBatch, optional
             (N_deghost) Index of the adapted voxels in the original input
@@ -587,12 +579,7 @@ class FullChain(torch.nn.Module):
                 ghost_tensor = res_seg["ghost"].tensor
                 ghost_pred = torch.argmax(ghost_tensor, dim=1)
                 adapt_index = torch.nonzero(ghost_pred == 0, as_tuple=False).flatten()
-                data_adapt = TensorBatch(
-                    data.tensor[adapt_index],
-                    batch_size=data.batch_size,
-                    has_batch_col=True,
-                    coord_cols=data.coord_cols,
-                )
+                data_adapt = data.select(adapt_index)
                 orig_index_adapt = IndexBatch(
                     adapt_index,
                     spans=data.counts,
@@ -637,7 +624,7 @@ class FullChain(torch.nn.Module):
             # Use the segmentation labels
             if seg_label is None:
                 raise ValueError("Must provide `seg_label` to segment with it.")
-            seg_pred = seg_label.tensor[:, SHAPE_COL]
+            seg_pred = seg_label.values.torch_tensor()
 
             self.result["seg_pred"] = TensorBatch(seg_pred, data.counts)
 
@@ -646,7 +633,7 @@ class FullChain(torch.nn.Module):
     def run_fragmentation(
         self,
         data: TensorBatch,
-        clust_label: TensorBatch | None = None,
+        clust_label: ClusterLabelBatch | None = None,
     ) -> None:
         """Run the fragmentation algorithm, i.e. the dense clustering step.
 
@@ -658,7 +645,7 @@ class FullChain(torch.nn.Module):
         ----------
         data : TensorBatch
             (N, 1 + D + N_f) tensor of voxel/value pairs
-        clust_label : TensorBatch, optional
+        clust_label : ClusterLabelBatch, optional
             (N, 1 + D + N_c) Tensor of cluster labels
         """
         # Nothing to do if there is no fragmentation requested
@@ -714,9 +701,9 @@ class FullChain(torch.nn.Module):
                 raise ValueError(
                     "Must provide `clust_label` to use it for fragmentation."
                 )
-            fragments = form_clusters_batch(clust_label.to_numpy(), column=CLUST_COL)
+            fragments = form_clusters_batch(clust_label.to_numpy(), column="cluster")
             fragment_shapes = get_cluster_label_batch(
-                clust_label, fragments, column=SHAPE_COL
+                clust_label, fragments, column="shape"
             )
 
         if fragments is not None:
@@ -726,7 +713,7 @@ class FullChain(torch.nn.Module):
     def run_part_aggregation(
         self,
         data: TensorBatch,
-        clust_label: TensorBatch | None = None,
+        clust_label: ClusterLabelBatch | None = None,
         coord_label: TensorBatch | None = None,
     ) -> None:
         """Run the particle aggreation step.
@@ -742,7 +729,7 @@ class FullChain(torch.nn.Module):
         ----------
         data : TensorBatch
             (N, 1 + D + N_f) tensor of voxel/value pairs
-        clust_label : TensorBatch, optional
+        clust_label : ClusterLabelBatch, optional
             (N, 1 + D + N_c) Tensor of cluster labels
         coord_label : TensorBatch, optional
             (N, 1 + D + 6) Array of label particle end points
@@ -870,7 +857,7 @@ class FullChain(torch.nn.Module):
     def run_inter_aggregation(
         self,
         data: TensorBatch,
-        clust_label: TensorBatch | None = None,
+        clust_label: ClusterLabelBatch | None = None,
         coord_label: TensorBatch | None = None,
     ) -> None:
         """Run the interaction aggreation step.
@@ -887,7 +874,7 @@ class FullChain(torch.nn.Module):
         ----------
         data : TensorBatch
             (N, 1 + D + N_f) tensor of voxel/value pairs
-        clust_label : TensorBatch, optional
+        clust_label : ClusterLabelBatch, optional
             (N, 1 + D + N_c) Tensor of cluster labels
         coord_label : TensorBatch, optional
             (N, 1 + D + 6) Array of label particle end points
@@ -971,15 +958,14 @@ class FullChain(torch.nn.Module):
                 )
 
             # Loop over entries in the batch (might have different meta/run IDs)
-            data_np = data.to_numpy().tensor
+            data_np = data.to_numpy()
             sources = sources.to_numpy().tensor if sources is not None else None
             rep = data.batch_size // len(meta)
             for b in range(data.batch_size):
                 # Fetch necessary information for this batch entry
                 lower, upper = data.edges[b], data.edges[b + 1]
-                data_b = data_np[lower:upper]
-                voxels_b = data_b[:, COORD_COLS]
-                values_b = data_b[:, VALUE_COL]
+                voxels_b = data_np.coords[b]
+                values_b = data_np.values[b]
                 sources_b = sources[lower:upper] if sources is not None else None
 
                 # Fetch meta/run information for this batch entry
@@ -997,10 +983,10 @@ class FullChain(torch.nn.Module):
                 )
 
                 if self.calibrator.update_points:
-                    data.tensor[lower:upper, COORD_COLS] = torch.tensor(
+                    data.tensor[lower:upper, data.coordinate_columns()] = torch.tensor(
                         voxels_b, dtype=data.dtype, device=data.device
                     )
-                data.tensor[lower:upper, VALUE_COL] = torch.tensor(
+                data.tensor[lower:upper, data.feature_columns()[0]] = torch.tensor(
                     values_b, dtype=data.dtype, device=data.device
                 )
 
@@ -1012,7 +998,7 @@ class FullChain(torch.nn.Module):
                 raise ValueError(
                     "Must provide `energy_label` to do label-based calibration."
                 )
-            data.tensor[:, VALUE_COL] = energy_label.tensor[:, VALUE_COL]
+            data.tensor[:, data.feature_columns()[0]] = energy_label.values.tensor
 
             self.result["data_adapt"] = data
 
@@ -1026,7 +1012,7 @@ class FullChain(torch.nn.Module):
         clusts: IndexBatch,
         clust_shapes: TensorBatch,
         clust_primaries: IndexBatch | None = None,
-        clust_label: TensorBatch | None = None,
+        clust_label: ClusterLabelBatch | None = None,
         coord_label: TensorBatch | None = None,
         aggregate_shapes: bool = False,
         shape_use_primary: bool = False,
@@ -1054,7 +1040,7 @@ class FullChain(torch.nn.Module):
             Semantic type of each of the clusters
         clust_primaries : IndexBatch
             List of primary fragments associated with each input cluster
-        clust_label : TensorBatch, optional
+        clust_label : ClusterLabelBatch, optional
             Tensor used to fetch truth labels when building points from
             `coord_label`. Defaults to `data`.
         coord_label : TensorBatch, optional
@@ -1128,7 +1114,7 @@ class FullChain(torch.nn.Module):
 
     def group_labels(
         self,
-        clust_label: TensorBatch,
+        clust_label: ClusterLabelBatch,
         clusts: IndexBatch,
         clust_shapes: TensorBatch,
         shapes: Sequence[int] | None = None,
@@ -1145,7 +1131,7 @@ class FullChain(torch.nn.Module):
 
         Parameters
         ----------
-        clust_label : TensorBatch
+        clust_label : ClusterLabelBatch
             (N, 1 + D + N_c) Tensor of cluster labels
         clusts : IndexBatch
             List of clusters to aggregate using labels
@@ -1179,10 +1165,10 @@ class FullChain(torch.nn.Module):
             )
 
         # If requested, convert the node predictions to a primary mask
-        group_ids = get_cluster_label_batch(clust_label, clusts, GROUP_COL)
+        group_ids = get_cluster_label_batch(clust_label, clusts, "group")
         primary_mask = None
         if shape_use_primary:
-            primary_mask = get_cluster_label_batch(clust_label, clusts, PRGRP_COL)
+            primary_mask = get_cluster_label_batch(clust_label, clusts, "group_primary")
             primary_mask.data = primary_mask.tensor.astype(bool)
 
         # Build shower instances, get their semantic type
@@ -1254,7 +1240,7 @@ class FullChain(torch.nn.Module):
         clusts: IndexBatch,
         clust_shapes: TensorBatch,
         clust_primaries: IndexBatch | None = None,
-        clust_label: TensorBatch | None = None,
+        clust_label: ClusterLabelBatch | None = None,
         coord_label: TensorBatch | None = None,
         point_use_primaries: bool = False,
     ) -> dict[str, TensorBatch | IndexBatch]:
@@ -1277,7 +1263,7 @@ class FullChain(torch.nn.Module):
             Semantic type of each of the clusters
         clust_primaries : IndexBatch, optional
             List of primary fragment within each cluster to aggregate
-        clust_label : TensorBatch, optional
+        clust_label : ClusterLabelBatch, optional
             Tensor used to fetch truth labels when building points from
             `coord_label`. Defaults to `data`.
         coord_label : TensorBatch, optional
@@ -1349,7 +1335,7 @@ class FullChain(torch.nn.Module):
         ):
             extra = []
             if model.node_encoder.add_value:
-                values = data.tensor[clusts.full_index, VALUE_COL]
+                values = data.values.tensor[clusts.full_index]
                 index_ids = torch.tensor(
                     clusts.index_ids, dtype=torch.long, device=data.device
                 )
@@ -1609,14 +1595,13 @@ class FullChainLoss(torch.nn.Module):
         if orig_index is None:
             return seg_label, segmentation
 
-        seg_label_t = seg_label.tensor[orig_index.full_index]
-
-        index = seg_label_t[:, SHAPE_COL] < GHOST_SHP
-        seg_label = TensorBatch(
-            seg_label_t[index],
-            batch_size=seg_label.batch_size,
-            has_batch_col=True,
+        selected = torch.zeros(
+            len(seg_label.tensor), dtype=torch.bool, device=seg_label.device
         )
+        selected[orig_index.full_index] = True
+        seg_label = seg_label.select(selected)
+        index = seg_label.values.torch_tensor() < GHOST_SHP
+        seg_label = seg_label.select(index)
         segmentation = TensorBatch(segmentation.tensor[index], seg_label.counts)
 
         return seg_label, segmentation
@@ -1625,8 +1610,8 @@ class FullChainLoss(torch.nn.Module):
         self,
         seg_label: TensorBatch | None = None,
         ppn_label: TensorBatch | None = None,
-        clust_label: TensorBatch | None = None,
-        clust_label_adapt: TensorBatch | None = None,
+        clust_label: ClusterLabelBatch | None = None,
+        clust_label_adapt: ClusterLabelBatch | None = None,
         coord_label: TensorBatch | None = None,
         graph_label: Any | None = None,
         meta: Sequence[Any] | None = None,
@@ -1645,12 +1630,11 @@ class FullChainLoss(torch.nn.Module):
             - 1 is the segmentation label
         ppn_label : TensorBatch, optional
             (N, 1 + D + N_l) Tensor of PPN labels
-        clust_label : TensorBatch, optional
+        clust_label : ClusterLabelBatch, optional
             (N, 1 + D + N_c) Tensor of cluster labels
             - N_c is is the number of cluster labels
-        clust_label_adapt : TensorBatch, optional
-            (N, 1 + D + N_c) Tensor of cluster labels adapted to seg predictions
-            - N_c is is the number of cluster labels
+        clust_label_adapt : ClusterLabelBatch, optional
+            Structured cluster labels adapted to the segmentation predictions
         coord_label : TensorBatch, optional
             (P, 1 + D + 8) Tensor of start/end point labels for each
             true particle in the image
@@ -1678,10 +1662,7 @@ class FullChainLoss(torch.nn.Module):
         # Apply the deghosting loss
         if self.deghosting == "uresnet" and hasattr(self, "deghost_loss"):
             # Convert segmentation labels to ghost labels
-            ghost_label_tensor = seg_label.tensor.clone()
-            ghost_label_tensor[:, SHAPE_COL] = (
-                seg_label.tensor[:, SHAPE_COL] == GHOST_SHP
-            )
+            ghost_label_tensor = (seg_label.values.torch_tensor() == GHOST_SHP).long()
             ghost_label = TensorBatch(ghost_label_tensor, seg_label.counts)
 
             # Store the loss dictionary

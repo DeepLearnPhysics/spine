@@ -7,7 +7,7 @@ from typing import Any
 import numpy as np
 import plotly.graph_objs as go
 
-from spine.constants import COORD_COLS
+from spine.data import TensorBatch, TensorData
 from spine.math.distance import closest_pair
 
 from ..trace.cluster import scatter_clusters
@@ -16,8 +16,22 @@ from ..trace.point import scatter_points_2d, scatter_points_3d
 __all__ = ["network_topology", "network_schematic"]
 
 
+def _coordinate_array(
+    points: np.ndarray | TensorData | TensorBatch,
+) -> np.ndarray:
+    """Normalize a self-describing or raw point product to NumPy coordinates."""
+    if isinstance(points, TensorData):
+        coordinates = points.coords
+        if coordinates is None:
+            raise ValueError("Network point data does not carry coordinates.")
+        return np.asarray(coordinates)
+    if isinstance(points, TensorBatch):
+        return points.to_numpy().coords.numpy_tensor()
+    return np.asarray(points)
+
+
 def network_topology(
-    points: np.ndarray,
+    points: np.ndarray | TensorData | TensorBatch,
     clusts: list[np.ndarray],
     edge_index: np.ndarray,
     clust_labels: np.ndarray | None = None,
@@ -33,8 +47,8 @@ def network_topology(
 
     Parameters
     ----------
-    points : np.ndarray
-        (N, 3) array of N points of (..., x, y, z,...) coordinate information
+    points : numpy.ndarray, TensorData or TensorBatch
+        Self-describing points or an ``(N, 3)`` coordinate array.
     clusts : List[np.ndarray]
         (C) List of cluster indexes
     edge_index : np.ndarray
@@ -61,9 +75,13 @@ def network_topology(
     List[Union[plotly.graph_objs.Scatter3d, plotly.graph_objs.Mesh3d]]
         Node and edge traces in the same list
     """
-    # Fetch the list of point coordinates
+    # Fetch the unambiguous point coordinates.
+    points = _coordinate_array(points)
     if points.shape[1] != 3:
-        points = points[:, COORD_COLS]
+        raise ValueError(
+            "Raw point arrays must contain coordinates only; pass a "
+            "TensorData/TensorBatch for self-describing packed products."
+        )
 
     # Check that color is not passed directly, ambiguous for a network
     if color is not None:

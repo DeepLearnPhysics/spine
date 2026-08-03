@@ -11,7 +11,6 @@ import numpy as np
 import torch
 from torch_cluster import knn_graph, radius_graph
 
-from spine.constants import CLUST_COL, SHAPE_COL
 from spine.constants.factory import enum_factory
 from spine.data import IndexBatch, ObjectList, TensorBatch
 from spine.utils.gnn.cluster import form_clusters
@@ -36,7 +35,7 @@ class ClusterGraphConstructor:
         min_size=0,
         invert=True,
         label_edges=False,
-        target_col=CLUST_COL,
+        target_col: str = "cluster",
         training=False,
         orphan=None,
     ):
@@ -60,7 +59,7 @@ class ClusterGraphConstructor:
             Invert the edge scores so that 0 is on an 1 is off
         label_edges : bool, default False
             If `True`, use cluster labels to label the edges as on or off
-        target_col : int, default CLUST_COL
+        target_col : str, default 'cluster'
             Index of the column which specifies the label cluster ID for each point
         training : bool, default False
             If `True`, this constructor is being used at train time
@@ -114,18 +113,18 @@ class ClusterGraphConstructor:
             (N, 1 + D + 1) Tensor of segmentation labels
             - 1 is the segmentation label
         clust_label : TensorBatch, optional
-            (N, 1 + D + N_c) Tensor of cluster labels
-            - N_c is is the number of cluster labels
+            (N) Target cluster index for each voxel.
         """
         # Loop over the unique batch indices, build a list of graphs for each
         graph = defaultdict(list)
         edge_offset = 0
         edge_counts, edge_offsets = [], []
+        shape_labels = seg_label.values
         for b in range(coords.batch_size):
             # Build graphs (one per semantic type)
             clust_label_b = clust_label[b] if clust_label is not None else None
             graphs_b, edge_count = self.build_graph(
-                coords[b], features[b], seg_label[b], clust_label_b
+                coords[b], features[b], shape_labels[b], clust_label_b
             )
 
             # Append the output
@@ -164,9 +163,7 @@ class ClusterGraphConstructor:
         # Add the input node information to the graph
         graph["node_coords"] = coords
         graph["node_features"] = features
-        graph["node_shapes"] = TensorBatch(
-            seg_label.tensor[:, SHAPE_COL], seg_label.counts
-        )
+        graph["node_shapes"] = shape_labels
 
         return graph
 
@@ -186,8 +183,7 @@ class ClusterGraphConstructor:
             (N, 1 + D + 1) Tensor of segmentation labels
             - 1 is the segmentation label
         clust_label : torch.Tensor, optional
-            (N, 1 + D + N_c) Tensor of cluster labels
-            - N_c is is the number of cluster labels
+            (N) Target cluster index for each voxel.
 
         Returns
         -------
@@ -199,7 +195,7 @@ class ClusterGraphConstructor:
         edge_count = 0
         for s in self.shapes:
             # Get the index of points which belong to this class
-            seg_index = torch.where(seg_label[:, SHAPE_COL] == s)[0]
+            seg_index = torch.where(seg_label == s)[0]
             graph["node_clusts"].append(seg_index)
 
             # If there are no points, append empty, proceed
@@ -245,7 +241,7 @@ class ClusterGraphConstructor:
             graph["edge_attr"].append(edge_attr.flatten())
 
             if self.label_edges and clust_label is not None:
-                node_label = clust_label[seg_index, self.target_col]
+                node_label = clust_label[seg_index]
                 edge_label = node_label[edge_index[0]] == node_label[edge_index[1]]
                 graph["edge_label"].append(edge_label.long())
 
@@ -309,9 +305,7 @@ class ClusterGraphConstructor:
                 for s, shape in enumerate(self.shapes):
                     # Get the list of clusters for this (entry, shape) pair
                     index_b_s = node_clusts[b][s]
-                    clusts_b_s, counts_b_s = form_clusters(
-                        node_pred[b][index_b_s, None], column=0
-                    )
+                    clusts_b_s, counts_b_s = form_clusters(node_pred[b][index_b_s])
 
                     # Offset the cluster indexes appropriately, append
                     for i, c in enumerate(clusts_b_s):

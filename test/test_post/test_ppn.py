@@ -5,8 +5,10 @@ from typing import cast
 
 import numpy as np
 
-from spine.constants import COORD_COLS, PPN_SHAPE_COL, TRACK_SHP
+from spine.constants import TRACK_SHP
+from spine.data import TensorData
 from spine.post.reco import ppn as ppn_mod
+from spine.utils.ppn import ppn_prediction_schema
 
 
 class FakePPNPredictor:
@@ -16,11 +18,14 @@ class FakePPNPredictor:
 
     def __call__(self, **data):
         self.data = data
-        prediction = np.zeros((2, PPN_SHAPE_COL + 1), dtype=np.float32)
-        prediction[0, COORD_COLS] = [0.0, 0.0, 0.0]
-        prediction[0, PPN_SHAPE_COL] = TRACK_SHP
-        prediction[1, COORD_COLS] = [10.0, 0.0, 0.0]
-        prediction[1, PPN_SHAPE_COL] = TRACK_SHP + 1
+        coords = np.asarray([[0.0, 0.0, 0.0], [10.0, 0.0, 0.0]])
+        features = np.zeros((2, 9), dtype=np.float32)
+        features[:, 8] = [TRACK_SHP, TRACK_SHP + 1]
+        prediction = TensorData(
+            coords=coords,
+            features=features,
+            schema=ppn_prediction_schema(),
+        )
         return [prediction]
 
 
@@ -37,7 +42,8 @@ def test_ppn_processor_builds_candidates(monkeypatch):
         }
     )
 
-    assert np.asarray(result["ppn_pred"]).shape == (2, PPN_SHAPE_COL + 1)
+    assert isinstance(result["ppn_pred"], TensorData)
+    assert result["ppn_pred"].shape == (2, 12)
     assert cast(FakePPNPredictor, processor.ppn_predictor).cfg == {"foo": "bar"}
 
 

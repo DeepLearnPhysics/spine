@@ -5,8 +5,7 @@ import itertools
 import pytest
 import torch
 
-from spine.constants import CLUST_COL, SHAPE_COL
-from spine.data import TensorBatch
+from spine.data import ClusterLabelBatch, TensorBatch
 from spine.model.spice import SPICEEmbedder, SPICELoss
 
 
@@ -37,24 +36,31 @@ def spice_batch():
         x, y, z = point
         data_rows.append((0, x, y, z, float(x + y + z + 1)))
 
-        label = [0.0] * 19
-        label[0:4] = (0, x, y, z)
-        label[CLUST_COL] = int(x >= 2)
-        label[SHAPE_COL] = 2 if z == 3 else 0
+        cluster_id = int(x >= 2)
+        shape = 2 if z == 3 else 0
+        particle_index = 2 * cluster_id + int(shape == 2)
+        label = [0, x, y, z, float(x + y + z + 1), cluster_id, particle_index]
         label_rows.append(label)
-        semantic_rows.append((0, x, y, z, label[SHAPE_COL]))
+        semantic_rows.append((0, x, y, z, shape))
 
     data_tensor = torch.tensor(data_rows, dtype=torch.float32)
     semantic_tensor = torch.tensor(semantic_rows, dtype=torch.float32)
     label_tensor = torch.tensor(label_rows, dtype=torch.float32)
     return (
-        TensorBatch(data_tensor, counts=[len(data_tensor)], has_batch_col=True),
         TensorBatch(
-            semantic_tensor,
-            counts=[len(semantic_tensor)],
+            data_tensor,
+            counts=[len(data_tensor)],
             has_batch_col=True,
+            coord_cols=(1, 2, 3),
         ),
-        TensorBatch(label_tensor, counts=[len(label_tensor)], has_batch_col=True),
+        TensorBatch(
+            semantic_tensor[:, -1],
+            counts=[len(semantic_tensor)],
+        ),
+        ClusterLabelBatch(
+            TensorBatch(label_tensor, counts=[len(label_tensor)], has_batch_col=True),
+            {"shape": TensorBatch(torch.tensor([0, 2, 0, 2]), counts=[4])},
+        ),
     )
 
 
@@ -100,18 +106,16 @@ def test_spice_preserves_batch_entries_with_no_retained_voxels():
     data, semantics, _ = spice_batch()
     second_data = data.torch_tensor().clone()
     second_data[:, 0] = 1
-    second_semantics = semantics.torch_tensor().clone()
-    second_semantics[:, 0] = 1
-    second_semantics[:, SHAPE_COL] = 2
+    second_semantics = torch.full_like(semantics.torch_tensor(), 2)
     data = TensorBatch(
         torch.cat((data.torch_tensor(), second_data)),
         counts=[64, 64],
         has_batch_col=True,
+        coord_cols=(1, 2, 3),
     )
     semantics = TensorBatch(
         torch.cat((semantics.torch_tensor(), second_semantics)),
         counts=[64, 64],
-        has_batch_col=True,
     )
 
     result = SPICEEmbedder(**spice_config())(data, semantics)

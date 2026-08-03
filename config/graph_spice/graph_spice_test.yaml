@@ -30,11 +30,11 @@ io:
         clust_label:
           parser: cluster3d
           cluster_event: cluster3d_pcluster
-          particle_event: particle_pcluster
           sparse_semantics_event: sparse3d_pcluster_semantics
-          add_particle_info: true
           clean_data: true
           break_clusters: true
+          particle_info:
+            particle_event: particle_pcluster
 
 model:
   name: graph_spice

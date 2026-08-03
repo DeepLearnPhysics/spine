@@ -7,9 +7,9 @@ import pytest
 
 from spine.constants import NuInteractionScheme
 from spine.constants.sentinels import INVAL_ID
+from spine.data import EdgeIndexData, TensorData
 from spine.data.larcv import Meta, Neutrino, Particle
 from spine.data.larcv.meta import ImageMeta3D
-from spine.io.parse.data import ParserEdgeIndex, ParserTensor
 from spine.io.parse.larcv.particle import *
 from spine.utils.conditional import LARCV_AVAILABLE, larcv
 
@@ -136,7 +136,7 @@ def test_parse_particle_points(particle_event, sparse3d_event, include_point_tag
     # - The second has the feature tensor with point type, particle index
     #   (and optionally a binary label of start/end status)
     # - The third has the metadata
-    assert isinstance(result, ParserTensor)
+    assert isinstance(result, TensorData)
     assert result.coords.shape[1] == 3
     assert result.features.shape[1] == 2 + int(include_point_tagging)
     assert isinstance(result.meta, ImageMeta3D)
@@ -159,13 +159,13 @@ def test_parse_particle_coordinates(particle_event, sparse3d_event):
     # - The first has all 6 (!) coordinates for each particle (start/end)
     # - The second has the feature tensor with particle time and shape
     # - The third has the metadata
-    assert isinstance(result, ParserTensor)
-    assert result.coords.shape[1] == 6
+    assert isinstance(result, TensorData)
+    assert result.coordinate_data.shape[1] == 6
     assert result.features.shape[1] == 2
     assert isinstance(result.meta, ImageMeta3D)
 
     # There should be exactly one row per particle in the input
-    assert result.coords.shape[0] == particle_event.size()
+    assert result.coordinate_data.shape[0] == particle_event.size()
 
 
 @pytest.mark.parametrize(
@@ -188,7 +188,7 @@ def test_parse_particle_graph(particle_event, cluster3d_event):
     # There should be 2 components of the output
     # - The first contains an (2, E) matrix with E the number of edges
     # - The second is a single number corresponding to the number of particles
-    assert isinstance(result, ParserEdgeIndex)
+    assert isinstance(result, EdgeIndexData)
     assert result.features.shape[0] == 2
     assert result.span == particle_event.size()
 
@@ -295,7 +295,7 @@ def test_particle_parser_call_paths(
     )
     assert isinstance(
         point_parser({"particle": particle_event, "sparse": sparse3d_event}),
-        ParserTensor,
+        TensorData,
     )
 
     coord_parser = LArCVParticleCoordinateParser(
@@ -303,7 +303,7 @@ def test_particle_parser_call_paths(
     )
     assert isinstance(
         coord_parser({"particle": particle_event, "sparse": sparse3d_event}),
-        ParserTensor,
+        TensorData,
     )
 
     pid_parser = LArCVSingleParticlePIDParser(
@@ -321,7 +321,7 @@ def test_particle_parser_call_paths(
     )
     assert isinstance(
         graph_parser({"particle": particle_event, "cluster": cluster3d_event}),
-        ParserEdgeIndex,
+        EdgeIndexData,
     )
 
 
@@ -464,7 +464,7 @@ def test_vertex_point_parser_process_and_call(
     )
     result = parser({"particle": particle_event, "sparse": sparse3d_event})
 
-    assert isinstance(result, ParserTensor)
+    assert isinstance(result, TensorData)
     assert np.array_equal(result.coords, labels[:, :3])
 
 
@@ -493,7 +493,7 @@ def test_particle_graph_skips_invalid_and_fragment_edges():
     parser = LArCVParticleGraphParser(dtype="float32", particle_event="particle")
     result = parser.process(particle_event=DummyEvent())
 
-    assert isinstance(result, ParserEdgeIndex)
+    assert isinstance(result, EdgeIndexData)
     assert result.features.size == 0
 
 

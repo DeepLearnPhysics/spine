@@ -7,7 +7,6 @@ from typing import Any, TypedDict
 
 import torch
 
-from spine.constants import SHAPE_COL
 from spine.constants.factory import enum_factory
 from spine.data import IndexBatch, TensorBatch
 from spine.model import sparse
@@ -157,7 +156,7 @@ class SPICEEmbedder(torch.nn.Module):
         """
         # Validate that data and labels describe the same voxel rows
         data_tensor = data.torch_tensor()
-        label_tensor = seg_label.torch_tensor()
+        label_tensor = seg_label.values.torch_tensor()
         if len(data_tensor) != len(label_tensor):
             raise ValueError(
                 "Input data and cluster labels must have the same length, got "
@@ -172,21 +171,12 @@ class SPICEEmbedder(torch.nn.Module):
                 dtype=label_tensor.dtype,
                 device=label_tensor.device,
             )
-            mask = ~torch.isin(label_tensor[:, SHAPE_COL], excluded)
+            mask = ~torch.isin(label_tensor, excluded)
 
         # Narrow the input while preserving event counts and source indexes
         index = torch.where(mask)[0]
-        filtered_data = data_tensor[index]
-        counts = torch.bincount(
-            filtered_data[:, 0].long(),
-            minlength=data.batch_size,
-        )
-        data_batch = TensorBatch(
-            filtered_data,
-            counts=counts,
-            has_batch_col=True,
-        )
-        filter_index = IndexBatch(index, spans=data.counts, counts=counts)
+        data_batch = data.select(mask)
+        filter_index = IndexBatch(index, spans=data.counts, counts=data_batch.counts)
         return data_batch, filter_index
 
     def forward(

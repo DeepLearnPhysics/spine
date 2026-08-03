@@ -6,7 +6,7 @@ import warnings
 import numpy as np
 import pytest
 
-from spine.data import IndexBatch, TensorBatch
+from spine.data import IndexBatch, TensorBatch, TensorData
 from spine.io import dataset as dataset_module
 from spine.io.collate import CollateAll
 from spine.io.dataset import *
@@ -15,7 +15,6 @@ from spine.io.dataset import hdf5 as hdf5_dataset_module
 from spine.io.dataset import joint as joint_dataset_module
 from spine.io.dataset import larcv as larcv_dataset_module
 from spine.io.dataset import mixed as mixed_dataset_module
-from spine.io.parse.data import ParserTensor
 from spine.io.write import HDF5Writer
 from spine.utils.conditional import ROOT, ROOT_AVAILABLE, TORCH_AVAILABLE
 
@@ -160,18 +159,42 @@ def test_hdf5_dataset_requires_dtype_with_schema(hdf5_data):
         )
 
 
-def test_hdf5_dataset_uses_explicit_metadata(hdf5_data):
-    """The HDF5 dataset should expose explicit collate metadata when provided."""
+def test_hdf5_dataset_uses_explicit_overlay_metadata(hdf5_data):
+    """The HDF5 dataset should expose selected keys and overlay metadata."""
     dataset = HDF5Dataset(
         file_keys=hdf5_data,
         build_classes=False,
         keys=["run_info"],
-        data_types={"run_info": "object"},
         overlay_methods={"run_info": "first"},
     )
 
-    assert dataset.data_types["run_info"] == "object"
+    assert "run_info" in dataset.data_keys
     assert dataset.overlay_methods["run_info"] == "first"
+
+
+def test_hdf5_dataset_discovers_unprojected_data_keys():
+    """Raw datasets should discover keys from a sample when unprojected."""
+
+    class DummyReader:
+        def __init__(self, samples):
+            self.samples = samples
+
+        def __len__(self):
+            return len(self.samples)
+
+        def __getitem__(self, idx):
+            return self.samples[idx]
+
+    dataset = HDF5Dataset.__new__(HDF5Dataset)
+    dataset.parsers = {}
+    dataset.keys = None
+    dataset.skip_keys = set()
+    dataset.augmenter = None
+    dataset.reader = DummyReader([{"index": 0, "value": np.asarray([1.0])}])
+    assert dataset.data_keys == ("index", "value")
+
+    dataset.reader = DummyReader([])
+    assert dataset.data_keys == ()
 
 
 def test_hdf5_dataset_rejects_missing_torch(monkeypatch, hdf5_data):
@@ -406,7 +429,7 @@ def test_mixed_dataset_uses_source_file_metadata_alignment(monkeypatch, tmp_path
             return {"index": idx, "file_index": 0, "file_entry_index": 0, "data": "x"}
 
         @property
-        def data_types(self):
+        def data_keys(self):
             return {
                 "index": "scalar",
                 "file_index": "scalar",
@@ -440,7 +463,7 @@ def test_mixed_dataset_uses_source_file_metadata_alignment(monkeypatch, tmp_path
             }
 
         @property
-        def data_types(self):
+        def data_keys(self):
             return {
                 "index": "scalar",
                 "file_index": "scalar",
@@ -500,7 +523,7 @@ def test_mixed_dataset_rejects_source_file_metadata_mismatch(monkeypatch, tmp_pa
             return {"index": idx, "file_index": 0, "file_entry_index": 0}
 
         @property
-        def data_types(self):
+        def data_keys(self):
             return {
                 "index": "scalar",
                 "file_index": "scalar",
@@ -531,7 +554,7 @@ def test_mixed_dataset_rejects_source_file_metadata_mismatch(monkeypatch, tmp_pa
             }
 
         @property
-        def data_types(self):
+        def data_keys(self):
             return {
                 "index": "scalar",
                 "file_index": "scalar",
@@ -655,10 +678,9 @@ def test_hdf5_dataset_with_schema_and_collate(tmp_path):
         "node_features",
         "edge_features",
     )
-    assert dataset.data_types["clusts"] == "tensor"
     assert dataset.overlay_methods["clusts"] is None
 
-    collate = CollateAll(dataset.data_types)
+    collate = CollateAll(dataset.data_keys)
     batch = collate([dataset[0], dataset[1]])
 
     assert isinstance(batch["clusts"], IndexBatch)
@@ -709,7 +731,7 @@ def test_hdf5_dataset_flat_index_schema_and_collate(tmp_path):
     np.testing.assert_array_equal(entry["orig_index"].features, np.asarray([0, 2, 4]))
     assert entry["orig_index"].span == 5
 
-    collate = CollateAll(dataset.data_types)
+    collate = CollateAll(dataset.data_keys)
     batch = collate([dataset[0], dataset[1]])
 
     assert isinstance(batch["orig_index"], IndexBatch)
@@ -770,8 +792,7 @@ def test_hdf5_dataset_schema_parser_failure(tmp_path):
 
     class BrokenParser:
         tree_keys = ["node_features"]
-        returns = "tensor"
-        overlay = None
+        overlay_method = None
 
         def __call__(self, _data):
             raise RuntimeError("boom")
@@ -788,9 +809,9 @@ def test_mixed_dataset_merges_aligned_sources(monkeypatch):
     """The mixed dataset should merge aligned LArCV and HDF5 samples."""
 
     class DummyDataset:
-        def __init__(self, samples, data_types, overlay_methods):
+        def __init__(self, samples, data_keys, overlay_methods):
             self.samples = samples
-            self._data_types = data_types
+            self._data_keys = data_keys
             self._overlay_methods = overlay_methods
             self.reader = object()
 
@@ -801,8 +822,8 @@ def test_mixed_dataset_merges_aligned_sources(monkeypatch):
             return dict(self.samples[idx])
 
         @property
-        def data_types(self):
-            return self._data_types
+        def data_keys(self):
+            return self._data_keys
 
         @property
         def overlay_methods(self):
@@ -891,7 +912,6 @@ def test_mixed_dataset_merges_aligned_sources(monkeypatch):
     assert entry["coord_label"] == "coords"
     assert entry["clusts"] == "cached-clusts"
     assert entry["node_features"] == "cached-node-features"
-    assert dataset.data_types["clusts"] == "tensor"
     assert dataset.overlay_methods["clusts"] is None
     assert set(dataset.data_keys) == {
         "index",
@@ -919,7 +939,7 @@ def test_mixed_dataset_rejects_alignment_mismatch(monkeypatch):
             return dict(self.samples[idx])
 
         @property
-        def data_types(self):
+        def data_keys(self):
             return {
                 "index": "scalar",
                 "file_index": "scalar",
@@ -974,7 +994,7 @@ def test_mixed_dataset_prefers_source_provenance(monkeypatch):
             return dict(self.samples[idx])
 
         @property
-        def data_types(self):
+        def data_keys(self):
             return {
                 "index": "scalar",
                 "file_index": "scalar",
@@ -1038,7 +1058,7 @@ def test_mixed_dataset_len_mismatch_raises(monkeypatch):
             return {"index": idx, "file_index": 0, "file_entry_index": idx}
 
         @property
-        def data_types(self):
+        def data_keys(self):
             return {
                 "index": "scalar",
                 "file_index": "scalar",
@@ -1083,7 +1103,7 @@ def test_mixed_dataset_len_delegates_to_primary(monkeypatch):
             return {"index": idx, "file_index": 0, "file_entry_index": idx}
 
         @property
-        def data_types(self):
+        def data_keys(self):
             return {
                 "index": "scalar",
                 "file_index": "scalar",
@@ -1129,7 +1149,7 @@ def test_mixed_dataset_forwards_shared_kwargs(monkeypatch):
             return {"index": idx, "file_index": 0, "file_entry_index": idx}
 
         @property
-        def data_types(self):
+        def data_keys(self):
             return {
                 "index": "scalar",
                 "file_index": "scalar",
@@ -1200,7 +1220,7 @@ def test_mixed_dataset_respects_explicit_hdf5_align_keys(monkeypatch):
             return dict(self.samples[idx])
 
         @property
-        def data_types(self):
+        def data_keys(self):
             return {
                 "index": "scalar",
                 "file_index": "scalar",
@@ -1248,10 +1268,10 @@ def test_mixed_dataset_key_collision_can_be_overwritten(monkeypatch):
     """Explicit overwrite should let cached values replace LArCV values."""
 
     class DummyDataset:
-        def __init__(self, samples, data_types=None, overlay_methods=None):
+        def __init__(self, samples, data_keys=None, overlay_methods=None):
             self.samples = samples
             self.reader = object()
-            self._data_types = data_types or {
+            self._data_keys = data_keys or {
                 "index": "scalar",
                 "file_index": "scalar",
                 "file_entry_index": "scalar",
@@ -1269,8 +1289,8 @@ def test_mixed_dataset_key_collision_can_be_overwritten(monkeypatch):
             return dict(self.samples[idx])
 
         @property
-        def data_types(self):
-            return self._data_types
+        def data_keys(self):
+            return self._data_keys
 
         @property
         def overlay_methods(self):
@@ -1320,7 +1340,7 @@ def test_mixed_dataset_key_collision_raises(monkeypatch):
             return dict(self.samples[idx])
 
         @property
-        def data_types(self):
+        def data_keys(self):
             return {
                 "index": "scalar",
                 "file_index": "scalar",
@@ -1360,83 +1380,13 @@ def test_mixed_dataset_key_collision_raises(monkeypatch):
         dataset[0]
 
 
-def test_mixed_dataset_data_type_collision_raises(monkeypatch):
-    """Mixed dataset should reject incompatible collate type metadata."""
-
-    class DummyDataset:
-        def __init__(self, data_types, overlay_methods):
-            self.reader = object()
-            self._data_types = data_types
-            self._overlay_methods = overlay_methods
-
-        def __len__(self):
-            return 1
-
-        def __getitem__(self, idx):
-            return {"index": 0, "file_index": 0, "file_entry_index": 0}
-
-        @property
-        def data_types(self):
-            return self._data_types
-
-        @property
-        def overlay_methods(self):
-            return self._overlay_methods
-
-    monkeypatch.setattr(
-        mixed_dataset_module,
-        "LArCVDataset",
-        lambda **kwargs: DummyDataset(
-            {
-                "index": "scalar",
-                "file_index": "scalar",
-                "file_entry_index": "scalar",
-                "shared": "tensor",
-            },
-            {
-                "index": "cat",
-                "file_index": "cat",
-                "file_entry_index": "cat",
-                "shared": None,
-            },
-        ),
-    )
-    monkeypatch.setattr(
-        mixed_dataset_module,
-        "HDF5Dataset",
-        lambda **kwargs: DummyDataset(
-            {
-                "index": "scalar",
-                "file_index": "scalar",
-                "file_entry_index": "scalar",
-                "shared": "object",
-            },
-            {
-                "index": "cat",
-                "file_index": "cat",
-                "file_entry_index": "cat",
-                "shared": None,
-            },
-        ),
-    )
-
-    dataset = MixedDataset(
-        larcv={"file_keys": "dummy.root", "schema": {}},
-        hdf5={"file_keys": "dummy.h5"},
-        dtype="float32",
-    )
-
-    with pytest.raises(ValueError, match="data type collision"):
-        _ = dataset.data_types
-
-
 def test_mixed_dataset_overlay_collision_raises(monkeypatch):
     """Mixed dataset should reject incompatible overlay metadata."""
 
     class DummyDataset:
-        def __init__(self, data_types, overlay_methods):
+        def __init__(self, data_keys, overlay_methods):
             self.reader = object()
-            self._data_types = data_types
+            self._data_keys = data_keys
             self._overlay_methods = overlay_methods
 
         def __len__(self):
@@ -1446,8 +1396,8 @@ def test_mixed_dataset_overlay_collision_raises(monkeypatch):
             return {"index": 0, "file_index": 0, "file_entry_index": 0}
 
         @property
-        def data_types(self):
-            return self._data_types
+        def data_keys(self):
+            return self._data_keys
 
         @property
         def overlay_methods(self):
@@ -1515,14 +1465,14 @@ def test_joint_dataset_overlays_primary_and_secondary_pair():
             sample = self.samples[idx]
             return {
                 "index": sample["index"],
-                "data": ParserTensor(
+                "data": TensorData(
                     features=np.asarray(sample["features"], dtype=np.float32),
                     feats_only=True,
                 ),
             }
 
         @property
-        def data_types(self):
+        def data_keys(self):
             return {"index": "scalar", "data": "tensor"}
 
         @property
@@ -1558,7 +1508,6 @@ def test_joint_dataset_overlays_primary_and_secondary_pair():
         second["data"].features, np.asarray([[3.0], [11.0], [12.0]], dtype=np.float32)
     )
     assert len(dataset) == 2
-    assert dataset.data_types == {"index": "scalar", "data": "tensor"}
     assert dataset.overlay_methods == {"index": "cat", "data": None}
     assert dataset.data_keys == ("index", "data")
 
@@ -1569,8 +1518,8 @@ def test_joint_dataset_rejects_incompatible_sources():
     class DummyDataset:
         overlay_methods = {"index": "cat"}
 
-        def __init__(self, data_types):
-            self.data_types = data_types
+        def __init__(self, data_keys):
+            self.data_keys = data_keys
 
         def __len__(self):
             return 1
@@ -1578,10 +1527,20 @@ def test_joint_dataset_rejects_incompatible_sources():
         def __getitem__(self, idx):
             return {"index": idx}
 
-    with pytest.raises(ValueError, match="data type keys must match"):
+    with pytest.raises(ValueError, match="data keys must match"):
         joint_dataset_module.JointDataset(
             primary=DummyDataset({"index": "scalar", "data": "tensor"}),
             secondary=DummyDataset({"index": "scalar"}),
+        )
+
+
+def test_joint_dataset_rejects_incompatible_metadata_keys():
+    """Metadata validation should report missing and extra secondary keys."""
+    with pytest.raises(ValueError, match="metadata keys must match"):
+        joint_dataset_module.JointDataset.validate_metadata(
+            "metadata",
+            {"index": "cat", "data": None},
+            {"index": "cat", "other": None},
         )
 
 
@@ -1589,7 +1548,7 @@ def test_joint_dataset_rejects_overlay_metadata_mismatch():
     """JointDataset should reject matching keys with conflicting metadata."""
 
     class DummyDataset:
-        data_types = {"index": "scalar"}
+        data_keys = {"index": "scalar"}
 
         def __init__(self, overlay_methods):
             self.overlay_methods = overlay_methods
@@ -1611,7 +1570,7 @@ def test_joint_dataset_rejects_empty_sources():
     """JointDataset should require both primary and secondary samples."""
 
     class DummyDataset:
-        data_types = {"index": "scalar"}
+        data_keys = {"index": "scalar"}
         overlay_methods = {"index": "cat"}
 
         def __init__(self, size):
@@ -1640,7 +1599,7 @@ def test_joint_dataset_accepts_explicit_pair_index():
     """Pair indexes should let an external sampler own secondary pairing."""
 
     class DummyDataset:
-        data_types = {"index": "scalar"}
+        data_keys = {"index": "scalar"}
         overlay_methods = {"index": "cat"}
 
         def __init__(self, indexes):
@@ -1666,7 +1625,7 @@ def test_joint_dataset_rejects_bad_pair_indexes():
     """JointDataset should validate tuple shape and secondary bounds."""
 
     class DummyDataset:
-        data_types = {"index": "scalar"}
+        data_keys = {"index": "scalar"}
         overlay_methods = {"index": "cat"}
 
         def __init__(self, indexes):
@@ -1694,7 +1653,7 @@ def test_joint_dataset_merges_shared_dataset_config(monkeypatch):
     """Shared dataset config should let source blocks override only paths."""
 
     class DummyDataset:
-        data_types = {"index": "scalar"}
+        data_keys = {"index": "scalar"}
         overlay_methods = {"index": "cat"}
 
         def __init__(self, index):
@@ -1766,7 +1725,7 @@ def test_joint_dataset_build_dataset_uses_factory(monkeypatch):
     """Mapping-based source configs should instantiate through dataset_factory."""
 
     class DummyDataset:
-        data_types = {"index": "scalar"}
+        data_keys = {"index": "scalar"}
         overlay_methods = {"index": "cat"}
 
         def __len__(self):
@@ -1802,8 +1761,7 @@ def test_larcv_dataset_uses_augmenter_and_length(monkeypatch):
 
     class DummyParser:
         tree_keys = ["tree_a"]
-        returns = "tensor"
-        overlay = "cat"
+        overlay_method = "cat"
 
         def __init__(self, dtype):
             self.dtype = dtype
@@ -1873,8 +1831,7 @@ def test_larcv_dataset_uses_explicit_overlay_methods(monkeypatch):
 
     class DummyParser:
         tree_keys = ["tree_a"]
-        returns = "object"
-        overlay = "cat"
+        overlay_method = "cat"
 
         def __init__(self, dtype):
             self.dtype = dtype
@@ -1900,8 +1857,7 @@ def test_larcv_dataset_parser_failure_logs_and_raises(monkeypatch):
 
     class DummyParser:
         tree_keys = ["tree_a"]
-        returns = "tensor"
-        overlay = "cat"
+        overlay_method = "cat"
 
         def __init__(self, dtype):
             self.dtype = dtype

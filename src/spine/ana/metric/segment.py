@@ -9,7 +9,7 @@ import numpy as np
 from scipy.special import softmax
 
 from spine.ana.base import AnaBase
-from spine.constants import GHOST_SHP, LOWES_SHP, SHAPE_COL
+from spine.constants import GHOST_SHP, LOWES_SHP
 
 __all__ = ["SegmentAna"]
 
@@ -116,7 +116,8 @@ class SegmentAna(AnaBase):
         seg_scores = None
         if not self.use_fragments and not self.use_particles:
             # Get the label/predictions from the raw reconstruction output
-            seg_label = data[self.label_key][:, SHAPE_COL].astype(np.int32)
+            label = data[self.label_key]
+            seg_label = label.values.astype(np.int32)
             seg_pred = np.argmax(data["segmentation"], axis=1).astype(np.int32)
             deghost_mask = None
             if self.ghost:

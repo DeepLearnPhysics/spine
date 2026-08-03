@@ -8,7 +8,6 @@ from typing import Any
 import numpy as np
 from scipy.spatial.distance import cdist
 
-from spine.constants import COORD_COLS, PPN_SHAPE_COL
 from spine.post.base import PostBase
 from spine.utils.ppn import PPNPredictor
 
@@ -97,14 +96,15 @@ class PPNProcessor(PostBase):
 
         # If requested, assign PPN candidates to particles
         if self.assign_to_particles:
-            ppn_points = ppn_pred[:, COORD_COLS]
+            ppn_points = ppn_pred.coords
+            ppn_shapes = ppn_pred.feature("shape").reshape(-1)
             for part in data["reco_particles"]:
                 # Get the valid list of candidates
                 valid_index = np.arange(len(ppn_pred))
                 if not self.restrict_shape:
                     candidates = ppn_points
                 else:
-                    valid_index = np.where(ppn_pred[:, PPN_SHAPE_COL] == part.shape)[0]
+                    valid_index = np.where(ppn_shapes == part.shape)[0]
                     candidates = ppn_points[valid_index]
 
                 # Restrict to points that are sufficiently close

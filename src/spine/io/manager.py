@@ -340,7 +340,19 @@ class IOManager:
         self,
         requests: dict[str, tuple[tuple[str, ...] | None, bool]],
     ) -> None:
-        """Pass an analyzer-derived projection to a columnar reader."""
+        """Pass an analyzer-derived projection to a columnar reader.
+
+        Parameters
+        ----------
+        requests : dict
+            Mapping from object-product names to requested fields and a flag
+            indicating whether event offsets should also be returned.
+
+        Raises
+        ------
+        RuntimeError
+            If this manager is not configured for columnar reading.
+        """
         if not self.columnar or self.reader is None:
             raise RuntimeError("I/O is not configured for columnar reading.")
         self.reader.configure_columnar(requests)

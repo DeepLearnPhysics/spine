@@ -9,8 +9,7 @@ class DummyParser(ParserBase):
     """Minimal parser used to test ParserBase."""
 
     name = "dummy"
-    returns = "scalar"
-    overlay = "first"
+    overlay_method = "first"
 
     def __call__(self, trees):
         data = self.get_input_data(trees)

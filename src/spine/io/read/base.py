@@ -103,7 +103,18 @@ class ReaderBase(ABC):
 
     @abstractmethod
     def get(self, idx: int) -> dict[str, Any]:
-        """Placeholder to be defined by the daughter class."""
+        """Load one entry from the concrete reader backend.
+
+        Parameters
+        ----------
+        idx : int
+            Reader entry index.
+
+        Returns
+        -------
+        dict
+            One entry-worth of decoded data products and metadata.
+        """
         raise NotImplementedError
 
     def get_run_event(self, run: int, subrun: int, event: int) -> dict[str, Any]:
@@ -441,6 +452,18 @@ class ReaderBase(ABC):
             Subrun number
         event : int
             Event number
+
+        Returns
+        -------
+        int
+            Reader index associated with the requested event identifier.
+
+        Raises
+        ------
+        ValueError
+            If the reader was initialized without a run map.
+        KeyError
+            If the requested event identifier is absent from the map.
         """
         # Get the appropriate entry index
         if self.run_map is None:

@@ -3,9 +3,8 @@
 import numpy as np
 import pytest
 
-from spine.constants import ANCST_MOM_COL, ANCST_PID_COL, VALUE_COL
+from spine.data import ClusterLabelData, TensorData
 from spine.data.larcv.meta import ImageMeta2D, ImageMeta3D
-from spine.io.parse.data import ParserTensor
 from spine.io.parse.larcv.cluster import *
 from spine.utils.conditional import LARCV_AVAILABLE, larcv
 
@@ -30,7 +29,7 @@ def test_parse_cluster2d(cluster2d_event, projection_id):
     # - The first has both coordinates for each point
     # - The second has the feature tensor (value + cluster ID)
     # - The third has the metadata
-    assert isinstance(result, ParserTensor)
+    assert isinstance(result, TensorData)
     assert result.coords.shape[1] == 2
     assert result.features.shape[1] == 2
     assert isinstance(result.meta, ImageMeta2D)
@@ -89,10 +88,159 @@ def test_parse_cluster3d(
     # - The first has all 3 coordinates for each point
     # - The second has the feature tensor (value + cluster ID)
     # - The third has the metadata
-    assert isinstance(result, ParserTensor)
+    assert isinstance(result, ClusterLabelData)
     assert result.coords.shape[1] == 3
-    assert result.features.shape[1] == (17 if add_particle_info else 2)
+    assert result.features.shape[1] == (3 if add_particle_info else 2)
+    assert (result.particles is not None) == add_particle_info
     assert isinstance(result.meta, ImageMeta3D)
+    if add_particle_info:
+        expected_shapes = np.asarray(
+            [particle.shape() for particle in particle_event.as_vector()]
+        )
+        np.testing.assert_array_equal(result.particles["shape"], expected_shapes)
+
+
+@pytest.mark.parametrize("cluster3d_event, particle_event", [(20, 20)], indirect=True)
+def test_parse_cluster3d_nested_particle_configuration(cluster3d_event, particle_event):
+    """The canonical nested configuration should build a particle table."""
+    parser = LArCVCluster3DParser(
+        dtype="float32",
+        cluster_event="cluster",
+        particle_info={
+            "particle_event": "particles",
+            "type_include_secondary": False,
+            "type_include_mpr": False,
+            "primary_include_mpr": False,
+        },
+    )
+
+    result = parser({"cluster": cluster3d_event, "particles": particle_event})
+
+    assert isinstance(result, ClusterLabelData)
+    assert result.features.shape[1] == 3
+    assert result.particles is not None
+    assert parser.type_include_secondary is False
+    assert parser.type_include_mpr is False
+    assert parser.primary_include_mpr is False
+
+
+@pytest.mark.parametrize("cluster3d_event", [20], indirect=True)
+def test_parse_cluster3d_without_particle_table(cluster3d_event):
+    """An explicit null particle configuration should retain compact labels."""
+    parser = LArCVCluster3DParser(
+        dtype="float32",
+        cluster_event="cluster",
+        particle_info=None,
+    )
+
+    result = parser({"cluster": cluster3d_event})
+
+    assert isinstance(result, ClusterLabelData)
+    assert result.features.shape[1] == 2
+    assert result.particles is None
+
+
+@pytest.mark.parametrize(
+    ("particle_info", "kwargs", "message"),
+    [
+        ({"particle_event": "nested"}, {"particle_event": "legacy"}, "specified twice"),
+        (
+            {"particle_mpv_event": "nested"},
+            {"particle_mpv_event": "legacy", "particle_event": "particle"},
+            "specified twice",
+        ),
+        (
+            {"neutrino_event": "nested"},
+            {"neutrino_event": "legacy", "particle_event": "particle"},
+            "specified twice",
+        ),
+        (
+            {"type_include_secondary": False},
+            {"type_include_secondary": True, "particle_event": "particle"},
+            "specified twice",
+        ),
+        (
+            {"unexpected": True},
+            {"particle_event": "particle"},
+            "Unknown particle information option",
+        ),
+    ],
+)
+def test_cluster3d_rejects_ambiguous_particle_configuration(
+    particle_info, kwargs, message
+):
+    """Nested particle configuration should reject duplicates and unknowns."""
+    with pytest.raises(ValueError, match=message):
+        LArCVCluster3DParser(
+            dtype="float32",
+            cluster_event="cluster",
+            particle_info=particle_info,
+            **kwargs,
+        )
+
+
+def test_cluster3d_accepts_legacy_boolean_particle_configuration():
+    """The legacy boolean particle-info switch should remain supported."""
+    parser = LArCVCluster3DParser(
+        dtype="float32",
+        cluster_event="cluster",
+        particle_event="particle",
+        particle_info=True,
+    )
+    assert parser.include_particle_info is True
+
+    with pytest.raises(ValueError, match="particle_event"):
+        LArCVCluster3DParser(
+            dtype="float32",
+            cluster_event="cluster",
+            particle_info=True,
+        )
+
+
+def test_cluster3d_registers_nested_optional_particle_inputs():
+    """Nested MPV and neutrino products should become parser inputs."""
+    parser = LArCVCluster3DParser(
+        dtype="float32",
+        cluster_event="cluster",
+        particle_info={
+            "particle_event": "particle",
+            "particle_mpv_event": "particle_mpv",
+            "neutrino_event": "neutrino",
+        },
+    )
+
+    assert parser.data_map["particle_mpv_event"] == "particle_mpv"
+    assert parser.data_map["neutrino_event"] == "neutrino"
+
+
+@pytest.mark.parametrize("cluster3d_event, particle_event", [(1, 20)], indirect=True)
+def test_cluster3d_rejects_misaligned_particle_count(cluster3d_event, particle_event):
+    """Particle and cluster collections must remain row-aligned."""
+    parser = LArCVCluster3DParser(
+        dtype="float32",
+        cluster_event="cluster",
+        particle_event="particle",
+        particle_info=True,
+    )
+    with pytest.raises(ValueError, match="aligned with the number of clusters"):
+        parser.process(cluster_event=cluster3d_event, particle_event=particle_event)
+
+
+@pytest.mark.parametrize("cluster3d_event", [20], indirect=True)
+def test_cluster3d_cleaning_requires_semantics(cluster3d_event):
+    """Value-based cleaning should require a semantic reference tensor."""
+    sparse_value = cluster3d_to_sparse3d(cluster3d_event)
+    parser = LArCVCluster3DParser(
+        dtype="float32",
+        cluster_event="cluster",
+        sparse_value_event="value",
+        clean_data=True,
+    )
+    with pytest.raises(ValueError, match="semantics tensor is required"):
+        parser.process(
+            cluster_event=cluster3d_event,
+            sparse_value_event=sparse_value,
+        )
 
 
 @pytest.mark.parametrize("cluster3d_event, particle_event", [(20, 20)], indirect=True)
@@ -144,9 +292,10 @@ def test_parse_cluster3d_rescale(
     # - The first has all 3 coordinates for each point
     # - The second has the feature tensor (value + cluster ID)
     # - The third has the metadata
-    assert isinstance(result, ParserTensor)
+    assert isinstance(result, ClusterLabelData)
     assert result.coords.shape[1] == 3
-    assert result.features.shape[1] == (17 if add_particle_info else 2)
+    assert result.features.shape[1] == (3 if add_particle_info else 2)
+    assert result.particles is not None
     assert isinstance(result.meta, ImageMeta3D)
 
 
@@ -199,9 +348,10 @@ def test_parse_cluster3d_aggregate(
     # - The first has all 3 coordinates for each point
     # - The second has the feature tensor (value + cluster ID)
     # - The third has the metadata
-    assert isinstance(result, ParserTensor)
+    assert isinstance(result, ClusterLabelData)
     assert result.coords.shape[1] == 3
-    assert result.features.shape[1] == (17 if add_particle_info else 2)
+    assert result.features.shape[1] == (3 if add_particle_info else 2)
+    assert result.particles is not None
     assert isinstance(result.meta, ImageMeta3D)
 
 
@@ -285,7 +435,7 @@ def test_cluster_parser_call_paths(
     cluster2d_parser = LArCVCluster2DParser(
         dtype="float32", cluster_event="cluster2d", projection_id=0
     )
-    assert isinstance(cluster2d_parser({"cluster2d": cluster2d_event}), ParserTensor)
+    assert isinstance(cluster2d_parser({"cluster2d": cluster2d_event}), TensorData)
 
     aggregate_parser = LArCVCluster3DAggregateParser(
         dtype="float32",
@@ -309,7 +459,7 @@ def test_cluster_parser_call_paths(
                 "semantics": sparse3d_seg_event,
             }
         ),
-        ParserTensor,
+        ClusterLabelData,
     )
 
     rescale_parser = LArCVCluster3DChargeRescaledParser(
@@ -332,7 +482,7 @@ def test_cluster_parser_call_paths(
                 **{f"value_{i}": sparse3d_rescale_list[i] for i in range(7)},
             }
         ),
-        ParserTensor,
+        ClusterLabelData,
     )
 
 
@@ -362,7 +512,7 @@ def test_cluster3d_add_particle_info_special_cases(cluster3d_event, particle_eve
             sparse_semantics_event=sparse3d_seg_event,
         )
 
-    assert isinstance(result, ParserTensor)
+    assert isinstance(result, ClusterLabelData)
     assert parser.clean_data is True
     warning_messages = [str(w.message) for w in caught]
     assert any("interaction multiplicity" in message for message in warning_messages)
@@ -372,8 +522,8 @@ def test_cluster3d_add_particle_info_special_cases(cluster3d_event, particle_eve
 
 
 @pytest.mark.parametrize("cluster3d_event, particle_event", [(20, 20)], indirect=True)
-def test_cluster3d_propagates_ancestor_targets(cluster3d_event, particle_event):
-    """Every descendant voxel should carry its root PID and momentum."""
+def test_cluster3d_resolves_ancestor_targets(cluster3d_event, particle_event):
+    """Ancestor PID and momentum should resolve through the particle table."""
     particles = list(particle_event.as_vector())
     root = particles[0]
     root.shape(1)
@@ -393,9 +543,11 @@ def test_cluster3d_propagates_ancestor_targets(cluster3d_event, particle_event):
         particle_event=particle_event,
     )
 
-    valid = result.features[:, 1] >= 0
-    ancestor_pids = result.features[valid, ANCST_PID_COL - VALUE_COL]
-    ancestor_momenta = result.features[valid, ANCST_MOM_COL - VALUE_COL]
+    data = np.concatenate((result.coords, result.features), axis=1)
+    labels = ClusterLabelData(data, result.particles, result.meta)
+    valid = labels.voxel_field("particle") >= 0
+    ancestor_pids = labels.voxel_field("ancestor_pid")[valid]
+    ancestor_momenta = labels.voxel_field("ancestor_momentum")[valid]
     assert len(ancestor_pids) > 0
     assert np.all(ancestor_pids == 2)
     assert np.allclose(ancestor_momenta, 5.0)

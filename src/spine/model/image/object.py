@@ -8,7 +8,7 @@ import numpy as np
 
 from spine.constants import LOWES_SHP
 from spine.constants.factory import enum_factory
-from spine.data import IndexBatch, TensorBatch
+from spine.data import ClusterLabelBatch, IndexBatch, TensorBatch
 from spine.utils.gnn.cluster import form_clusters_batch
 
 __all__ = ["ImageObjectBuilder"]
@@ -33,7 +33,7 @@ class ImageObjectBuilder:
 
         Parameters
         ----------
-        source : str or int, default "image"
+        source : str, default "image"
             ``"image"`` creates one sample per batch entry. ``"explicit"``
             requires indexes to be passed to :meth:`__call__`. Other strings
             select a cluster-label column such as ``cluster``, ``group`` or
@@ -53,16 +53,13 @@ class ImageObjectBuilder:
         if min_size < -1:
             raise ValueError(f"`min_size` must be at least -1, got {min_size}.")
 
-        # Resolve label-based sources while retaining direct source names
-        self.source_name = source
-        direct_source = isinstance(source, str) and source in {"image", "explicit"}
-        self.source: int | None
-        if direct_source:
-            self.source = None
-        elif isinstance(source, str):
-            self.source = enum_factory("cluster", source)
-        else:
-            self.source = int(source)
+        # Resolve label-based sources while retaining direct source names.
+        if not isinstance(source, str):
+            raise TypeError("Image-object `source` must be a named field.")
+        aliases = {"clust": "cluster", "part": "particle", "inter": "interaction"}
+        self.source_name = aliases.get(source, source)
+        direct_source = self.source_name in {"image", "explicit"}
+        self.source = None if direct_source else self.source_name
 
         # Normalize the optional semantic-shape selection
         if shapes is None:
@@ -77,7 +74,9 @@ class ImageObjectBuilder:
                 for shape in shapes
             ]
         if direct_source and self.shapes is not None:
-            raise ValueError(f"`source: {source}` samples cannot be filtered by shape.")
+            raise ValueError(
+                f"`source: {self.source_name}` samples cannot be filtered by shape."
+            )
 
         self.min_size = min_size
 
@@ -129,7 +128,7 @@ class ImageObjectBuilder:
         self,
         data: TensorBatch,
         objects: IndexBatch | None = None,
-        object_data: TensorBatch | None = None,
+        object_data: ClusterLabelBatch | None = None,
     ) -> IndexBatch:
         """Construct or validate image-object indexes.
 

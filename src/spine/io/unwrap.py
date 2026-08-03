@@ -4,14 +4,17 @@ from typing import Any
 
 import numpy as np
 
-from spine.constants import BATCH_COL
 from spine.data import (
+    ClusterLabelBatch,
     EdgeIndexBatch,
+    EdgeIndexData,
     IndexBatch,
+    IndexData,
+    IndexListData,
     Meta,
-    ObjectList,
     TensorBatch,
     TensorBatchConvertible,
+    TensorData,
 )
 from spine.geo import GeoManager
 
@@ -26,15 +29,15 @@ class Unwrapper:
     per-event format. This is essential for post-processing, visualization, and
     evaluation, as model operations typically concatenate or stack data for
     efficient computation. The unwrapper restores the original event-wise
-    structure, handling both single- and multi-volume (e.g., multi-TPC) data,
-    and exporting auxiliary metadata such as per-entry spans.
+    structure, handling both single- and multi-volume (e.g., multi-TPC) data.
 
     The main supported structures are `TensorBatch`, `IndexBatch`, and
-    `EdgeIndexBatch`. Index-like batches also export per-entry span metadata
-    under an additional `<name>_spans` key when it is not already present.
+    `EdgeIndexBatch`. Their output products are `TensorData`, `IndexData`,
+    `IndexListData`, and `EdgeIndexData`; index spans therefore remain attached
+    to the event product instead of appearing under parallel sidecar keys.
     """
 
-    def __init__(self, meta_key: str = "meta", remove_batch_col: bool = False):
+    def __init__(self, meta_key: str = "meta"):
         """Initialize the unwrapper.
 
         Parameters
@@ -42,15 +45,12 @@ class Unwrapper:
         meta_key : str, optional
             Key in the input dictionary containing per-event metadata. This is
             used by multi-volume tensor unwrapping to translate coordinates.
-        remove_batch_col : bool, optional
-            If `True`, remove the batch index column from unwrapped tensors
-            when it is present.
         """
+        # Capture optional geometry once, then derive the expected volume layout
         self.geo = GeoManager.get_instance_if_initialized()
 
         self.num_volumes = self.geo.tpc.num_modules if self.geo else 1
         self.meta_key = meta_key
-        self.remove_batch_col = remove_batch_col
         self.batch_size = None
 
     def __call__(self, data: dict[str, Any]) -> dict[str, Any]:
@@ -67,21 +67,18 @@ class Unwrapper:
         -------
         dict
             Dictionary with the same keys as input, but with each value unwrapped
-            into per-event entries. For index-like batches, an additional
-            `<name>_spans` key is added when absent.
+            into self-describing per-event entries.
         """
+        # Multi-volume coordinate translation requires event-aligned metadata
         meta = None
         if self.num_volumes > 1 and self.meta_key in data:
             meta = data[self.meta_key]
 
+        # Establish the logical event axis before dispatching individual products
         data_unwrapped = {}
         self.batch_size = len(data["index"])
         for key, value in data.items():
             data_unwrapped[key] = self._unwrap(key, value, meta)
-            if isinstance(value, (IndexBatch, EdgeIndexBatch)):
-                span_key = f"{key}_spans"
-                if span_key not in data:
-                    data_unwrapped[span_key] = self._unwrap_index_spans(value)
 
         return data_unwrapped
 
@@ -100,7 +97,7 @@ class Unwrapper:
         Returns
         -------
         Any
-            Unwrapped value, typically a list or ObjectList of per-event entries.
+            Unwrapped value, typically a list of per-event data products.
 
         Raises
         ------
@@ -108,6 +105,9 @@ class Unwrapper:
             If the input is empty, the batch size is unset, or the type is
             unsupported.
         """
+        # Structured products own their event extraction contract
+        if isinstance(data, ClusterLabelBatch):
+            return [data[batch_id] for batch_id in range(data.batch_size)]
         if isinstance(data, TensorBatchConvertible):
             data = data.to_tensor_batch()
         elif (
@@ -117,11 +117,13 @@ class Unwrapper:
         ):
             data = [value.to_tensor_batch() for value in data]
 
+        # Reject invalid containers before consulting their apparent dimensions
         if isinstance(data, (list, tuple)) and len(data) == 0:
             raise ValueError(f"Batched data for {key} is an empty list, cannot unwrap.")
         if self.batch_size is None:
             raise ValueError("Batch size should be set before unwrapping.")
 
+        # Scalars and ordinary event lists already use their final representation
         dim = len(getattr(data, "shape", (0,)))
         if (
             np.isscalar(data)
@@ -133,6 +135,7 @@ class Unwrapper:
         if isinstance(data, TensorBatch):
             return self._unwrap_tensor(data, meta)
 
+        # Parallel tensor outputs become one list of tensors per logical event
         if isinstance(data, list) and isinstance(data[0], TensorBatch):
             data_split = [self._unwrap_tensor(t, meta) for t in data]
             tensor_lists = []
@@ -148,7 +151,7 @@ class Unwrapper:
 
     def _unwrap_tensor(
         self, data: TensorBatch, meta: list[Meta] | None = None
-    ) -> list[Any]:
+    ) -> list[TensorData]:
         """Unwrap a tensor batch into per-event tensors.
 
         Handles both single-volume and multi-volume data. For multi-volume
@@ -164,10 +167,8 @@ class Unwrapper:
 
         Returns
         -------
-        list
-            Per-event tensors. Entries are usually `np.ndarray` objects, but
-            they may follow the backend used by the input `TensorBatch` in the
-            simple single-volume path.
+        list[TensorData]
+            Self-describing event tensors with batch columns removed.
 
         Raises
         ------
@@ -177,12 +178,9 @@ class Unwrapper:
             If multi-volume coordinate translation is requested on a
             non-numpy-backed tensor batch.
         """
+        # Single-volume batches already expose the desired event partition
         if self.num_volumes == 1 or data.batch_size == self.batch_size:
-            if not self.remove_batch_col or not data.has_batch_col:
-                return data.split()
-
-            data_nobc = TensorBatch(data.tensor[:, BATCH_COL + 1 :], data.counts)
-            return data_nobc.split()
+            return [data.event(batch_id) for batch_id in range(data.batch_size)]
 
         if self.geo is None:
             raise ValueError(
@@ -193,11 +191,13 @@ class Unwrapper:
                 "Metadata must be provided to unwrap tensors from multiple volumes."
             )
 
+        # Group physical volumes by logical event and identify coordinate triplets
         tensors = []
         batch_size = data.batch_size // self.num_volumes
         coord_groups = None
         if data.coord_cols is not None:
             coord_groups = np.asarray(data.coord_cols).reshape(-1, 3)
+
         for batch_id in range(batch_size):
             tensor_list = []
             for volume_id in range(self.num_volumes):
@@ -209,6 +209,7 @@ class Unwrapper:
                         "requires a numpy-backed TensorBatch."
                     )
 
+                # Translate secondary volumes into the reference module frame
                 if volume_id > 0 and coord_groups is not None:
                     for cols in coord_groups:
                         coord_cols = np.asarray(cols, dtype=np.int64)
@@ -219,23 +220,42 @@ class Unwrapper:
                             1.0 / meta[batch_id].size,
                         )
                         tensor[:, coord_cols] = translated_coords
-                if self.remove_batch_col and data.has_batch_col:
-                    tensor = tensor[:, BATCH_COL + 1 :]
-
                 tensor_list.append(tensor)
 
-            tensors.append(np.concatenate(tensor_list))
+            # Merge volumes and recover logical coordinate/feature matrices
+            packed = np.concatenate(tensor_list)
+            coord_cols = np.asarray(
+                () if data.coord_cols is None else data.coord_cols,
+                dtype=np.int64,
+            )
+            excluded = set(coord_cols.tolist())
+            if data.has_batch_col:
+                excluded.add(data.batch_col)
+            feature_cols = [
+                column for column in range(packed.shape[1]) if column not in excluded
+            ]
+            coords = None if len(coord_cols) == 0 else packed[:, coord_cols]
+            event_meta = None if data.meta is None else data.meta[batch_id]
+
+            # Rebuild one self-describing tensor for the logical event
+            tensors.append(
+                TensorData(
+                    packed[:, feature_cols],
+                    coords,
+                    meta=event_meta,
+                    schema=data.schema,
+                )
+            )
 
         return tensors
 
     def _unwrap_index(
         self, data: IndexBatch | EdgeIndexBatch
-    ) -> list[np.ndarray] | list[ObjectList]:
+    ) -> list[IndexData | IndexListData | EdgeIndexData]:
         """Unwrap an index-like batch into per-event indexes.
 
         For multi-volume data, offsets are adjusted to produce event-local
-        indexes. For `IndexBatch` objects with list structure, the result is
-        wrapped in `ObjectList` containers.
+        indexes.
 
         Parameters
         ----------
@@ -244,44 +264,46 @@ class Unwrapper:
 
         Returns
         -------
-        list[np.ndarray] or list[ObjectList]
-            Per-event index arrays or object lists, matching the input
-            structure.
+        list[IndexData or IndexListData or EdgeIndexData]
+            Self-describing event index products matching the input structure.
         """
+        # Single-volume index products already carry event-local namespaces
         if self.num_volumes == 1 or data.batch_size == self.batch_size:
-            indexes = data.split()
-        else:
-            batch_size = data.batch_size // self.num_volumes
-            indexes = []
-            for batch_id in range(batch_size):
-                index_list = []
-                for volume_id in range(self.num_volumes):
-                    idx = batch_id * self.num_volumes + volume_id
-                    offset = (
-                        data.offsets[idx] - data.offsets[batch_id * self.num_volumes]
-                    )
-                    index = data[idx]
-                    if isinstance(data, IndexBatch) and data.is_list:
-                        index_list.extend(offset + element for element in index)
-                    else:
-                        index_list.append(offset + index)
+            return [data.event(batch_id) for batch_id in range(data.batch_size)]
 
+        # Merge physical-volume namespaces into one namespace per logical event
+        batch_size = data.batch_size // self.num_volumes
+        indexes = []
+        for batch_id in range(batch_size):
+            index_list = []
+            for volume_id in range(self.num_volumes):
+                idx = batch_id * self.num_volumes + volume_id
+                offset = data.offsets[idx] - data.offsets[batch_id * self.num_volumes]
+                index = data[idx]
                 if isinstance(data, IndexBatch) and data.is_list:
-                    indexes.append(index_list)
+                    index_list.extend(offset + element for element in index)
                 else:
-                    indexes.append(np.concatenate(index_list))
+                    index_list.append(offset + index)
 
+            if isinstance(data, IndexBatch) and data.is_list:
+                indexes.append(index_list)
+            else:
+                indexes.append(np.concatenate(index_list))
+
+        # Restore the concrete event product and its combined parent span
         if isinstance(data, IndexBatch) and data.is_list:
-            shape = (0, data.shape[1]) if len(data.shape) == 2 else 0
-            default = np.empty(shape, dtype=np.int64)
-            indexes_obl = []
-            for index in indexes:
-                object_list: list[object] = [element for element in index]
-                indexes_obl.append(ObjectList(object_list, default=default))
+            return [
+                IndexListData(list(index), int(span))
+                for index, span in zip(indexes, self._unwrap_index_spans(data))
+            ]
 
-            return indexes_obl
-
-        return indexes
+        spans = self._unwrap_index_spans(data)
+        if isinstance(data, EdgeIndexBatch):
+            return [
+                EdgeIndexData(index.T, int(span), data.directed)
+                for index, span in zip(indexes, spans)
+            ]
+        return [IndexData(index, int(span)) for index, span in zip(indexes, spans)]
 
     def _unwrap_index_spans(self, data: IndexBatch | EdgeIndexBatch) -> list[int]:
         """Unwrap and export per-entry parent spans for index-like batches.
@@ -299,6 +321,7 @@ class Unwrapper:
         list[int]
             List of per-event parent spans, one per event in the batch.
         """
+        # Normalize backend metadata before grouping physical-volume spans
         spans = data.spans
         if not isinstance(spans, np.ndarray):
             spans = spans.detach().cpu().numpy()
@@ -306,6 +329,7 @@ class Unwrapper:
         if self.num_volumes == 1 or data.batch_size == self.batch_size:
             return [int(span) for span in spans]
 
+        # Each logical span is the sum of its constituent volume namespaces
         batch_size = data.batch_size // self.num_volumes
         unwrapped_spans = []
         for batch_id in range(batch_size):

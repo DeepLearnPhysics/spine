@@ -7,8 +7,7 @@ Core namespaces:
 
 - ``larcv`` for detector-level and generator-level input objects.
 - ``out`` for high-level reconstructed and truth objects.
-- ``batch`` for batched tensor, edge-index, and index containers.
-- ``list`` for generic list-backed containers.
+- ``product`` for self-describing event and batch products.
 
 Key features:
 
@@ -28,7 +27,7 @@ Example
   batch = TensorBatch(data_list, batch_size=32)
 """
 
-from .batch import *
+from .base import *
 from .larcv import *
-from .list import *
 from .out import *
+from .product import *

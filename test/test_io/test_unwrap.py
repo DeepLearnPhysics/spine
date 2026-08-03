@@ -3,9 +3,16 @@
 import numpy as np
 import pytest
 
-from spine.data import IndexBatch, TensorBatch
-from spine.data.batch.edge_index import EdgeIndexBatch
-from spine.data.list import ObjectList
+from spine.data import (
+    ClusterLabelBatch,
+    ClusterLabelData,
+    EdgeIndexBatch,
+    IndexBatch,
+    IndexData,
+    IndexListData,
+    TensorBatch,
+    TensorData,
+)
 from spine.io.unwrap import Unwrapper
 
 
@@ -57,12 +64,12 @@ def test_unwrap_multi_volume_index_list(monkeypatch):
     result = unwrapper._unwrap_index(index_batch)
 
     assert len(result) == 1
-    assert isinstance(result[0], ObjectList)
+    assert isinstance(result[0], IndexListData)
     assert len(result[0]) == 4
-    np.testing.assert_array_equal(result[0][0], np.array([0, 1]))
-    np.testing.assert_array_equal(result[0][1], np.array([2]))
-    np.testing.assert_array_equal(result[0][2], np.array([10]))
-    np.testing.assert_array_equal(result[0][3], np.array([11, 12]))
+    np.testing.assert_array_equal(result[0].features[0], np.array([0, 1]))
+    np.testing.assert_array_equal(result[0].features[1], np.array([2]))
+    np.testing.assert_array_equal(result[0].features[2], np.array([10]))
+    np.testing.assert_array_equal(result[0].features[3], np.array([11, 12]))
 
 
 def test_unwrap_exports_single_volume_index_spans():
@@ -75,8 +82,10 @@ def test_unwrap_exports_single_volume_index_spans():
 
     result = Unwrapper()({"index": [0], "orig_index": orig_index})
 
-    assert result["orig_index_spans"] == [5]
-    np.testing.assert_array_equal(result["orig_index"][0], np.asarray([0, 2, 4]))
+    assert result["orig_index"][0].span == 5
+    np.testing.assert_array_equal(
+        result["orig_index"][0].features, np.asarray([0, 2, 4])
+    )
 
 
 def test_unwrap_exports_multi_volume_index_spans(monkeypatch):
@@ -107,7 +116,7 @@ def test_unwrap_exports_multi_volume_index_spans(monkeypatch):
 
     result = Unwrapper()({"index": [0], "orig_index": orig_index})
 
-    assert result["orig_index_spans"] == [30]
+    assert result["orig_index"][0].span == 30
     assert len(result["orig_index"]) == 1
 
 
@@ -117,14 +126,73 @@ def test_unwrap_tensor_batch_single_volume():
     unwrapper = Unwrapper()
     result = unwrapper._unwrap_tensor(batch)
     assert isinstance(result, list)
+    assert isinstance(result[0], TensorData)
     assert np.allclose(result[0], tensor)
 
 
-def test_unwrap_tensor_batch_remove_batch_col():
+def test_unwrap_cluster_label_batch_uses_event_contract():
+    """Structured cluster-label batches should unwrap through event indexing."""
+    from spine.io.collate import CollateAll
+
+    entries = [
+        ClusterLabelData(
+            coords=np.asarray([[i, i, i]]),
+            features=np.asarray([[1.0, 0.0]]),
+        )
+        for i in range(2)
+    ]
+    batch = CollateAll(data_keys=("label",))([{"label": entry} for entry in entries])[
+        "label"
+    ]
+    assert isinstance(batch, ClusterLabelBatch)
+
+    unwrapper = Unwrapper()
+    unwrapper.batch_size = 2
+    result = unwrapper._unwrap("label", batch, None)
+
+    assert len(result) == 2
+    assert all(isinstance(entry, ClusterLabelData) for entry in result)
+    np.testing.assert_array_equal(result[1].coords, [[1, 1, 1]])
+
+
+def test_unwrap_flat_index_batch_returns_index_data():
+    """Flat index batches should restore the event-level index product."""
+    batch = IndexBatch(
+        np.asarray([0, 2, 4], dtype=np.int64),
+        spans=np.asarray([5]),
+        counts=np.asarray([3]),
+    )
+
+    result = Unwrapper()._unwrap_index(batch)
+
+    assert len(result) == 1
+    assert isinstance(result[0], IndexData)
+    assert result[0].span == 5
+
+
+def test_unwrap_multi_volume_flat_indexes_return_index_data():
+    """Flat multi-volume indexes should merge into one logical event product."""
+    batch = IndexBatch(
+        np.asarray([0, 2], dtype=np.int64),
+        spans=np.asarray([2, 3]),
+        counts=np.asarray([1, 1]),
+    )
+    unwrapper = Unwrapper()
+    unwrapper.batch_size = 1
+    unwrapper.num_volumes = 2
+
+    result = unwrapper._unwrap_index(batch)
+
+    assert len(result) == 1
+    assert isinstance(result[0], IndexData)
+    assert result[0].span == 5
+
+
+def test_unwrap_tensor_batch_event_excludes_batch_col():
     tensor = np.arange(12).reshape(2, 6)
     batch = TensorBatch(tensor, counts=[2])
     batch.has_batch_col = True
-    unwrapper = Unwrapper(remove_batch_col=True)
+    unwrapper = Unwrapper()
     result = unwrapper._unwrap_tensor(batch)
     assert all(r.shape[1] == 5 for r in result)
 
@@ -200,9 +268,7 @@ def test_unwrap_tensor_batch_multi_volume(monkeypatch):
     )
     meta = [type("Meta", (), {"size": 1})(), type("Meta", (), {"size": 1})()]
 
-    result = Unwrapper(remove_batch_col=True)(
-        {"index": [0, 1], "meta": meta, "points": batch}
-    )
+    result = Unwrapper()({"index": [0, 1], "meta": meta, "points": batch})
 
     assert len(result["points"]) == 2
     assert result["points"][0].shape == (2, 4)
@@ -241,12 +307,13 @@ def test_unwrap_tensor_batch_multi_volume_requires_numpy(monkeypatch):
 
 
 def test_unwrap_index_edgeindexbatch_single_volume():
-    edges = np.array([[0, 1], [1, 2]])
-    batch = EdgeIndexBatch(edges, counts=[2], spans=[2], directed=True)
+    edges = np.array([[0, 1, 2], [1, 2, 3]])
+    batch = EdgeIndexBatch(edges, counts=[3], spans=[4], directed=True)
     unwrapper = Unwrapper()
     result = unwrapper._unwrap_index(batch)
     assert isinstance(result, list)
-    assert np.allclose(result[0], edges)
+    np.testing.assert_array_equal(result[0].index, edges)
+    np.testing.assert_array_equal(result[0].index_t, edges.T)
 
 
 def test_unwrap_index_edgeindexbatch_multi_volume(monkeypatch):
@@ -273,8 +340,13 @@ def test_unwrap_index_edgeindexbatch_multi_volume(monkeypatch):
     result = Unwrapper()({"index": [0, 1], "edge_index": batch})
 
     assert len(result["edge_index"]) == 2
-    np.testing.assert_array_equal(result["edge_index"][0], np.array([[0, 1], [10, 11]]))
-    assert result["edge_index_spans"] == [30, 70]
+    np.testing.assert_array_equal(
+        result["edge_index"][0].index, np.array([[0, 10], [1, 11]])
+    )
+    np.testing.assert_array_equal(
+        result["edge_index"][0].index_t, np.array([[0, 1], [10, 11]])
+    )
+    assert [entry.span for entry in result["edge_index"]] == [30, 70]
 
 
 def test_unwrap_index_spans_edgeindexbatch():

@@ -3,8 +3,7 @@ from __future__ import annotations
 import numpy as np
 import torch
 
-from spine.constants import COORD_COLS, SHAPE_COL, VALUE_COL
-from spine.data import EdgeIndexBatch, IndexBatch, TensorBatch
+from spine.data import ClusterLabelBatch, EdgeIndexBatch, IndexBatch, TensorBatch
 from spine.utils.gnn.cluster import (
     get_cluster_dedxs_batch,
     get_cluster_directions_batch,
@@ -129,7 +128,7 @@ class ClustGeoNodeEncoder(torch.nn.Module):
 
     def forward(
         self,
-        data: TensorBatch,
+        data: ClusterLabelBatch | TensorBatch,
         clusts: IndexBatch,
         coord_label: TensorBatch | None = None,
         points: TensorBatch | None = None,
@@ -210,6 +209,11 @@ class ClustGeoNodeEncoder(torch.nn.Module):
             if points is None:
                 if coord_label is None:
                     raise RuntimeError("Point labels were validated but are missing.")
+                if not isinstance(data, ClusterLabelBatch):
+                    raise TypeError(
+                        "Deriving labeled cluster points requires structured "
+                        "cluster labels or an explicit `points` tensor."
+                    )
                 points = get_cluster_points_label_batch(
                     data, coord_label, clusts, random_order=self.random_order
                 )
@@ -252,7 +256,7 @@ class ClustGeoNodeEncoder(torch.nn.Module):
 
     def get_base_features(
         self,
-        data: TensorBatch,
+        data: ClusterLabelBatch | TensorBatch,
         clusts: IndexBatch,
         add_value: bool,
         add_shape: bool,
@@ -261,8 +265,8 @@ class ClustGeoNodeEncoder(torch.nn.Module):
 
         Parameters
         ----------
-        data : TensorBatch
-            (N, 1 + D + N_f) Batch of sparse tensors
+        data : ClusterLabelBatch or TensorBatch
+            Structured labels or a batch of sparse tensors
         clusts : IndexBatch
             (C) Indexes that make up each cluster
         add_value : bool, default False
@@ -271,10 +275,16 @@ class ClustGeoNodeEncoder(torch.nn.Module):
             Add the particle semantic type
         """
         # Get the value & semantic types
-        data_tensor = data.torch_tensor()
-        voxels = data_tensor[:, COORD_COLS]
-        values = data_tensor[:, VALUE_COL]
-        sem_types = data_tensor[:, SHAPE_COL] if add_shape else None
+        voxels = data.coords.torch_tensor()
+        values = data.values.torch_tensor()
+        sem_types = None
+        if add_shape:
+            if not isinstance(data, ClusterLabelBatch):
+                raise TypeError(
+                    "Semantic geometric features require structured cluster "
+                    "labels or an explicit `extra` feature tensor."
+                )
+            sem_types = data.shapes.torch_tensor()
 
         # Below is a torch-based implementation of cluster_features
         feats = []
@@ -502,7 +512,7 @@ class ClustGeoEdgeEncoder(torch.nn.Module):
             pair of clusters
         """
         # Get the voxel set
-        voxels = data.torch_tensor()[:, COORD_COLS]
+        voxels = data.coords.torch_tensor()
 
         # Here is a torch-based implementation of cluster_edge_features
         feats = []

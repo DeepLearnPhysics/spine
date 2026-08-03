@@ -6,10 +6,25 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from spine.constants import ANCST_COL, ANCST_MOM_COL, ANCST_PID_COL, PID_MASSES
-from spine.data import TensorBatch
+from spine.constants import PID_MASSES
+from spine.data import ClusterLabelBatch, TensorBatch
 from spine.model.image.loss import ImageLoss
 from spine.model.image.object import ImageObjectBuilder
+
+
+def _with_shared_first_ancestor(image_data):
+    """Point both particles in the first event at its first particle."""
+    particles = {
+        name: TensorBatch(field.torch_tensor().clone(), field.counts)
+        for name, field in image_data.particles.items()
+    }
+    particles["ancestor"].data[:2] = 0
+    data = TensorBatch(
+        image_data.torch_tensor().clone(),
+        image_data.counts,
+        has_batch_col=True,
+    )
+    return ClusterLabelBatch(data, particles)
 
 
 def test_classification_loss_reports_classwise_metrics(image_data):
@@ -88,11 +103,7 @@ def test_voxel_labels_are_reduced_over_cluster_objects(image_data):
 
 def test_ancestor_targets_use_root_particle_pid(image_data):
     """Ancestor PID must come from the root rather than the modal descendant."""
-    labels = image_data.torch_tensor().clone()
-    labels[:4, ANCST_COL] = 0
-    labels[:4, ANCST_PID_COL] = 2
-    labels[:4, ANCST_MOM_COL] = 200
-    ancestor_data = TensorBatch(labels, image_data.counts)
+    ancestor_data = _with_shared_first_ancestor(image_data)
     objects = ImageObjectBuilder(source="ancestor")(
         ancestor_data,
         object_data=ancestor_data,
@@ -121,11 +132,7 @@ def test_ancestor_targets_use_root_particle_pid(image_data):
 
 def test_ancestor_energy_is_derived_from_root_momentum(image_data):
     """Ancestor energy should be the root particle's initial kinetic energy."""
-    labels = image_data.torch_tensor().clone()
-    labels[:4, ANCST_COL] = 0
-    labels[:4, ANCST_PID_COL] = 2
-    labels[:4, ANCST_MOM_COL] = 200
-    ancestor_data = TensorBatch(labels, image_data.counts)
+    ancestor_data = _with_shared_first_ancestor(image_data)
     objects = ImageObjectBuilder(source="ancestor")(
         ancestor_data,
         object_data=ancestor_data,

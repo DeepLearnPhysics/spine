@@ -6,7 +6,7 @@ from typing import cast
 
 import torch
 
-from spine.data import TensorBatch
+from spine.data import ClusterLabelBatch, TensorBatch
 from spine.model.common.factories import loss_fn_factory, metric_fn_factory
 from spine.utils.factory import Config
 from spine.utils.weighting import get_class_weights
@@ -125,7 +125,7 @@ class EdgeLoss(torch.nn.Module):
 
     def forward(
         self,
-        clust_label: TensorBatch,
+        clust_label: ClusterLabelBatch,
         edge_attr: TensorBatch,
         edge_label: TensorBatch,
         **kwargs: object,
@@ -134,7 +134,7 @@ class EdgeLoss(torch.nn.Module):
 
         Parameters
         ----------
-        clust_label : TensorBatch
+        clust_label : ClusterLabelBatch
             Voxel cluster labels. Present for the shared loss interface and
             unused by this loss.
         edge_attr : TensorBatch

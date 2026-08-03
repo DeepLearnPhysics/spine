@@ -4,7 +4,6 @@ from typing import Any
 
 import torch
 
-from spine.constants import BATCH_COL
 from spine.data import EdgeIndexBatch, IndexBatch, TensorBatch
 from spine.model.cnn.encoder import SparseResidualEncoder
 
@@ -60,7 +59,7 @@ class ClustCNNNodeEncoder(torch.nn.Module):
         # Use cluster ID as a batch ID, pass through CNN
         full_index = clusts.full_index
         cnn_data = data.torch_tensor()[full_index].clone()
-        cnn_data[:, BATCH_COL] = torch.as_tensor(
+        cnn_data[:, data.batch_col] = torch.as_tensor(
             clusts.index_ids,
             device=cnn_data.device,
         )
@@ -134,7 +133,7 @@ class ClustCNNEdgeEncoder(torch.nn.Module):
             edge_data = torch.cat(
                 (data_tensor[first_cluster], data_tensor[second_cluster])
             )
-            edge_data[:, BATCH_COL] = edge_id
+            edge_data[:, data.batch_col] = edge_id
             cnn_data.append(edge_data)
 
         # Pass through the network

@@ -39,9 +39,7 @@ io:
         clust_label:
           parser: cluster3d
           cluster_event: cluster3d_pcluster
-          particle_event: particle_corrected
           sparse_semantics_event: sparse3d_pcluster_semantics
-          add_particle_info: true
           clean_data: true
           shape_precedence:
           - 2
@@ -50,6 +48,8 @@ io:
           - 3
           - 4
           - 6
+          particle_info:
+            particle_event: particle_corrected
         coord_label:
           parser: particle_coords
           particle_event: particle_corrected

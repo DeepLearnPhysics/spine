@@ -7,8 +7,8 @@ from typing import Any
 import numpy as np
 import torch
 
-from spine.constants import COORD_COLS, GHOST_SHP, VALUE_COL
-from spine.data import TensorBatch
+from spine.constants import GHOST_SHP
+from spine.data import TensorBatch, TensorSchema
 from spine.model import sparse
 from spine.utils.logger import logger
 from spine.utils.torch.scripts import cdist_fast
@@ -120,7 +120,14 @@ class UResNetSegmentation(torch.nn.Module):
         seg = self.linear_segmentation(feats)
 
         # Store the output as tensor batches
-        segmentation = TensorBatch(seg.aligned_features(), data.counts)
+        segmentation = TensorBatch(
+            seg.aligned_features(),
+            data.counts,
+            schema=TensorSchema(
+                feature_fields={"logits": tuple(range(self.num_classes))},
+                feats_only=True,
+            ),
+        )
 
         final_tensor = result_backbone["final_tensor"]
         encoder_tensors = result_backbone["encoder_tensors"]
@@ -137,7 +144,11 @@ class UResNetSegmentation(torch.nn.Module):
         if self.ghost:
             ghost = self.linear_ghost(feats)
 
-            result["ghost"] = TensorBatch(ghost.aligned_features(), data.counts)
+            result["ghost"] = TensorBatch(
+                ghost.aligned_features(),
+                data.counts,
+                schema=TensorSchema(feature_fields={"logits": (0, 1)}, feats_only=True),
+            )
             result["ghost_tensor"] = ghost
 
         return result
@@ -282,7 +293,7 @@ class SegmentationLoss(torch.nn.Module):
             Dictionary of accuracies and losses
         """
         # Get the underlying tensor in each TensorBatch
-        seg_label_t = seg_label.torch_tensor()
+        seg_label_t = seg_label.values.torch_tensor()
         segmentation_t = segmentation.torch_tensor()
         ghost_t = ghost.torch_tensor() if ghost is not None else None
         weights_t = weights.torch_tensor() if weights is not None else None
@@ -330,10 +341,10 @@ class SegmentationLoss(torch.nn.Module):
 
         # Check that the labels have sensible values
         if self.ghost_label > -1:
-            labels_t = (seg_label_t[:, VALUE_COL] == self.ghost_label).long()
+            labels_t = (seg_label_t == self.ghost_label).long()
 
         else:
-            labels_t = seg_label_t[:, VALUE_COL].long()
+            labels_t = seg_label_t.long()
 
         # If there is a dedicated ghost layer, apply the mask first
         ghost_metrics: tuple[torch.Tensor, float, np.ndarray] | None = None
@@ -433,8 +444,8 @@ class SegmentationLoss(torch.nn.Module):
         dists = torch.full_like(seg_label.tensor[:, 0], float("inf"))
         for b in range(seg_label.batch_size):
             # Fetch image voxel and point coordinates for this entry
-            voxels_b = seg_label[b][:, COORD_COLS]
-            points_b = point_label[b][:, COORD_COLS]
+            voxels_b = seg_label.coords[b]
+            points_b = point_label.coords[b]
             if len(points_b) == 0 or len(voxels_b) == 0:
                 continue
 

@@ -5,17 +5,19 @@ import multiprocessing
 import h5py
 import numpy as np
 import pytest
+import yaml
 from yaml.parser import ParserError
 
 import spine.data
 from spine.data import ObjectList, RecoParticle, RunInfo
 from spine.data.larcv.meta import ImageMeta2D, ImageMeta3D
 from spine.io.read import HDF5Reader, StageHDF5Reader
-from spine.io.read.hdf5 import (
-    _decode_string_attribute,
-    _require_dataset,
-    _require_group,
+from spine.io.read.hdf5.common import (
+    decode_string_attribute,
+    require_dataset,
+    require_group,
 )
+from spine.io.read.hdf5.product import _ProductHandles
 from spine.io.write import HDF5Writer, StageHDF5Writer
 
 
@@ -157,7 +159,7 @@ def test_hdf5_reader_reuses_open_handles(monkeypatch, hdf5_data):
         open_calls += 1
         return real_file(*args, **kwargs)
 
-    monkeypatch.setattr("spine.io.read.hdf5.h5py.File", counted_file)
+    monkeypatch.setattr("spine.io.read.hdf5.reader.h5py.File", counted_file)
     reader = HDF5Reader(hdf5_data, build_classes=False)
     init_calls = open_calls
 
@@ -179,8 +181,8 @@ def test_hdf5_reader_reopens_handles_after_pid_change(monkeypatch, hdf5_data):
         return real_file(*args, **kwargs)
 
     pids = iter([100, 200])
-    monkeypatch.setattr("spine.io.read.hdf5.h5py.File", counted_file)
-    monkeypatch.setattr("spine.io.read.hdf5._get_reader_pid", lambda: next(pids))
+    monkeypatch.setattr("spine.io.read.hdf5.reader.h5py.File", counted_file)
+    monkeypatch.setattr("spine.io.read.hdf5.reader._get_reader_pid", lambda: next(pids))
 
     reader = HDF5Reader(hdf5_data, build_classes=False)
     init_calls = open_calls
@@ -237,7 +239,7 @@ def test_hdf5_reader_keep_open_false_opens_per_get(monkeypatch, hdf5_data):
         open_calls += 1
         return real_file(*args, **kwargs)
 
-    monkeypatch.setattr("spine.io.read.hdf5.h5py.File", counted_file)
+    monkeypatch.setattr("spine.io.read.hdf5.reader.h5py.File", counted_file)
     reader = HDF5Reader(hdf5_data, build_classes=False, keep_open=False)
     init_calls = open_calls
 
@@ -310,17 +312,17 @@ def test_hdf5_reader_v2_round_trip_and_projection(tmp_path):
     assert np.array_equal(first["meta"].index_multipliers, [12, 4, 1])
     assert second["particles"] == []
     assert second["tensor"].shape == (1, 2)
-    assert reader._v2_object_schemas
-    assert reader._v2_object_handles
-    assert reader._v2_product_handles
+    assert reader._product_object_schemas
+    assert reader._product_object_handles
+    assert reader._product_handles
     reader.close()
-    assert reader._v2_object_handles == {}
-    assert reader._v2_product_handles == {}
+    assert reader._product_object_handles == {}
+    assert reader._product_handles == {}
 
     # Closing a persistent reader invalidates cached h5py objects. A later
     # access must transparently rebuild those process-local handle caches.
     assert reader.get(0)["particles"][0].size == 3
-    assert reader._v2_object_handles
+    assert reader._product_object_handles
     reader.close()
 
     raw_reader = HDF5Reader(str(path), keys=["particles"], build_classes=False)
@@ -342,7 +344,7 @@ def test_hdf5_reader_v2_round_trip_and_projection(tmp_path):
     assert "match_ids" not in fixed_particle
     assert all(
         not pool_values
-        for _, _, pool_values in fixed_reader._v2_object_handles.values()
+        for _, _, pool_values in fixed_reader._product_object_handles.values()
     )
     fixed_reader.close()
 
@@ -526,7 +528,7 @@ def test_hdf5_reader_columnar_run_splitting_and_legacy_errors(tmp_path):
 
     missing_field = HDF5Reader(str(path), columnar=True)
     missing_field.configure_columnar({"particles": (("not_a_field",), True)})
-    with pytest.raises(KeyError, match="Legacy columnar product"):
+    with pytest.raises(KeyError, match="Region-reference product"):
         missing_field.get_columnar(0)
     missing_field.close()
 
@@ -558,7 +560,7 @@ def test_hdf5_reader_fixed_only_does_not_access_variable_group(tmp_path):
         writer(data, cfg={})
 
     with h5py.File(path, "a") as out_file:
-        del out_file["particles"]["variables"]
+        del out_file["products"]["particles"]["variables"]
 
     reader = HDF5Reader(
         str(path),
@@ -595,13 +597,13 @@ def test_hdf5_reader_v2_schema_helpers_reject_wrong_types(tmp_path):
         out_file.create_dataset("dataset", data=np.asarray([1]))
 
         with pytest.raises(TypeError, match="HDF5 dataset"):
-            _require_dataset(out_file, "group")
+            require_dataset(out_file, "group")
         with pytest.raises(TypeError, match="HDF5 group"):
-            _require_group(out_file, "dataset")
+            require_group(out_file, "dataset")
 
-    assert _decode_string_attribute(b"value", "test") == "value"
+    assert decode_string_attribute(b"value", "test") == "value"
     with pytest.raises(TypeError, match="must be a string"):
-        _decode_string_attribute(3, "test")
+        decode_string_attribute(3, "test")
 
 
 def test_hdf5_reader_v2_rejects_bad_product_groups(tmp_path):
@@ -609,7 +611,7 @@ def test_hdf5_reader_v2_rejects_bad_product_groups(tmp_path):
     path = tmp_path / "bad_products.h5"
     reader = HDF5Reader.__new__(HDF5Reader)
     reader.keep_open = False
-    reader._v2_product_handles = {}
+    reader._product_handles = {}
 
     with h5py.File(path, "w") as out_file:
         out_file.create_dataset("not_group", data=np.asarray([1]))
@@ -617,9 +619,136 @@ def test_hdf5_reader_v2_rejects_bad_product_groups(tmp_path):
         unknown.attrs["kind"] = "future"
 
         with pytest.raises(ValueError, match="not a recognized product group"):
-            reader.load_key_v2(out_file, 0, {}, "not_group")
-        with pytest.raises(ValueError, match="Unrecognized V2 product kind"):
-            reader.load_key_v2(out_file, 0, {}, "unknown")
+            reader.load_product(out_file, 0, {}, "not_group")
+        with pytest.raises(ValueError, match="Unrecognized product kind"):
+            reader.load_product(out_file, 0, {}, "unknown")
+
+
+def test_hdf5_reader_v2_skips_non_group_reconstruction_products(tmp_path):
+    """Product reconstruction should ignore physical datasets without metadata."""
+    path = tmp_path / "physical_product.h5"
+    reader = HDF5Reader.__new__(HDF5Reader)
+
+    with h5py.File(path, "w") as out_file:
+        products = out_file.create_group("products")
+        products.create_dataset("physical", data=np.asarray([1]))
+        data = {"physical": np.asarray([1])}
+
+        reader.reconstruct_products(products, 0, data)
+
+    np.testing.assert_array_equal(data["physical"], [1])
+
+
+def test_hdf5_reader_v2_rejects_unlinked_product_group(tmp_path):
+    """Product loading requires a stable HDF5 path for handle caching."""
+    path = tmp_path / "unlinked_product.h5"
+    reader = HDF5Reader.__new__(HDF5Reader)
+    reader.keep_open = False
+    reader._product_handles = {}
+
+    with h5py.File(path, "w") as out_file:
+        group = out_file.create_group("product")
+        group.attrs["kind"] = "array"
+        del out_file["product"]
+
+        class UnlinkedContainer:
+            """Expose an unlinked group through the minimal container interface."""
+
+            file = out_file
+
+            def __getitem__(self, key):
+                return group
+
+        with pytest.raises(ValueError, match="must have an HDF5 path"):
+            reader.load_product(UnlinkedContainer(), 0, {}, "product")
+
+
+@pytest.mark.parametrize("kind", ["array", "objects", "list"])
+def test_hdf5_reader_v2_rejects_incomplete_cached_handles(tmp_path, kind):
+    """Cached product descriptors must contain every handle their kind needs."""
+    path = tmp_path / f"incomplete_{kind}.h5"
+    reader = HDF5Reader.__new__(HDF5Reader)
+    reader.keep_open = True
+
+    with h5py.File(path, "w") as out_file:
+        group = out_file.create_group("product")
+        group.attrs["kind"] = kind
+        cache_key = (str(path), group.name)
+        reader._product_handles = {cache_key: _ProductHandles(kind=kind)}
+
+        with pytest.raises(RuntimeError, match="missing|required|Incomplete"):
+            reader.load_product(out_file, 0, {}, "product")
+
+
+def test_hdf5_reader_reconstructs_empty_cluster_particle_table(tmp_path, monkeypatch):
+    """V2 reconstruction should retain fields for empty typed particle tables."""
+    path = tmp_path / "products.h5"
+    reader = HDF5Reader.__new__(HDF5Reader)
+    particles = spine.data.ObjectList([], spine.data.ParticleLabel())
+
+    with h5py.File(path, "w") as out_file:
+        products = out_file.create_group("products")
+        group = products.create_group("label")
+        group.attrs["product_metadata"] = yaml.safe_dump(
+            {
+                "product_type": "cluster_label",
+                "has_particles": True,
+                "has_meta": False,
+            }
+        )
+        monkeypatch.setattr(
+            reader,
+            "_load_product_child",
+            lambda owner, name, entry_idx: particles,
+        )
+        data = {"label": np.empty((0, 6), dtype=np.float32)}
+
+        reader.reconstruct_products(products, 0, data)
+
+    assert isinstance(data["label"], spine.data.ClusterLabelData)
+    assert set(data["label"].particles) == set(spine.data.ParticleLabel().as_dict())
+
+
+def test_hdf5_reader_reconstruct_product_validation(tmp_path, monkeypatch):
+    """V2 reconstruction should reject unknown and untyped empty products."""
+    path = tmp_path / "products.h5"
+    reader = HDF5Reader.__new__(HDF5Reader)
+
+    with h5py.File(path, "w") as out_file:
+        products = out_file.create_group("products")
+        objects = products.create_group("objects")
+        objects.attrs["product_metadata"] = yaml.safe_dump(
+            {"product_type": "object_list", "index_shift_fields": None}
+        )
+        monkeypatch.setattr(
+            reader,
+            "_load_product_child",
+            lambda owner, name, entry_idx: np.asarray([2]),
+        )
+        with pytest.raises(ValueError, match="without a stored default class"):
+            reader.reconstruct_products(products, 0, {"objects": []})
+
+        data = {"objects": [spine.data.Particle(id=3)]}
+        reader.reconstruct_products(products, 0, data)
+        assert isinstance(data["objects"], spine.data.ObjectListData)
+        assert isinstance(data["objects"].default, spine.data.Particle)
+        assert data["objects"].index_shifts == 2
+
+        unknown = products.create_group("unknown")
+        unknown.attrs["product_metadata"] = yaml.safe_dump({"product_type": "future"})
+        with pytest.raises(ValueError, match="Unknown product type"):
+            reader.reconstruct_products(products, 0, {"unknown": np.asarray([1])})
+
+
+def test_hdf5_reader_requires_owned_product_children(tmp_path):
+    """Owned V2 auxiliary payloads should fail clearly when absent."""
+    path = tmp_path / "missing_child.h5"
+    reader = HDF5Reader.__new__(HDF5Reader)
+
+    with h5py.File(path, "w") as out_file:
+        group = out_file.create_group("tensor")
+        with pytest.raises(KeyError, match="missing child"):
+            reader._load_product_child(group, "meta", 0)
 
 
 def test_hdf5_reader_v2_rejects_anonymous_object_group(tmp_path):
@@ -629,8 +758,8 @@ def test_hdf5_reader_v2_rejects_anonymous_object_group(tmp_path):
 
     with h5py.File(path, "w") as out_file:
         anonymous = out_file.create_group(None)
-        with pytest.raises(ValueError, match="must have a file path"):
-            reader.load_objects_v2(anonymous, 0, {}, "objects")
+        with pytest.raises(ValueError, match="must have an HDF5 path"):
+            reader.load_product_objects(anonymous, 0, {}, "objects")
 
 
 @pytest.mark.parametrize("bad_fields", ["index", "[index, 3]"])
@@ -638,7 +767,7 @@ def test_hdf5_reader_v2_rejects_bad_variable_pool_fields(tmp_path, bad_fields):
     """Variable-pool field metadata must decode to string lists."""
     path = tmp_path / "bad_fields.h5"
     reader = HDF5Reader.__new__(HDF5Reader)
-    reader._v2_object_schemas = {}
+    reader._product_object_schemas = {}
     reader.fixed_only = False
 
     with h5py.File(path, "w") as out_file:
@@ -658,14 +787,14 @@ def test_hdf5_reader_v2_rejects_bad_variable_pool_fields(tmp_path, bad_fields):
         pool.create_dataset("values", data=np.asarray([], dtype=np.int64))
 
         with pytest.raises(TypeError, match="list of strings"):
-            reader.load_objects_v2(objects, 0, {}, "objects")
+            reader.load_product_objects(objects, 0, {}, "objects")
 
 
 def test_hdf5_reader_v2_rejects_non_group_variable_pool(tmp_path):
     """Every entry below the variables group must itself be a pool group."""
     path = tmp_path / "bad_pool.h5"
     reader = HDF5Reader.__new__(HDF5Reader)
-    reader._v2_object_schemas = {}
+    reader._product_object_schemas = {}
     reader.fixed_only = False
 
     with h5py.File(path, "w") as out_file:
@@ -678,7 +807,7 @@ def test_hdf5_reader_v2_rejects_non_group_variable_pool(tmp_path):
         variables.create_dataset("pool_0", data=np.asarray([], dtype=np.int64))
 
         with pytest.raises(TypeError, match="must be a group"):
-            reader.load_objects_v2(objects, 0, {}, "objects")
+            reader.load_product_objects(objects, 0, {}, "objects")
 
 
 def test_hdf5_reader_v2_append_and_nested_lists(tmp_path):
@@ -995,6 +1124,42 @@ def test_stage_hdf5_reader_read_source_info_decodes_bytes(tmp_path):
     assert info["source_file_name"] == "source.root"
 
 
+def test_stage_hdf5_reader_rejects_invalid_source_attributes(tmp_path):
+    """Source provenance attributes must retain their scalar storage types."""
+    path = tmp_path / "stage_cache.h5"
+    with h5py.File(path, "w") as out_file:
+        source = out_file.create_group("source")
+        source.attrs["file_name"] = 3
+        source.attrs["file_size"] = 10
+        source.attrs["file_mtime_ns"] = 20
+
+    with h5py.File(path, "r") as in_file:
+        with pytest.raises(TypeError, match="file_name.*string"):
+            StageHDF5Reader.read_source_info(in_file)
+
+    with h5py.File(path, "a") as out_file:
+        source = out_file["source"]
+        del source.attrs["file_name"]
+        del source.attrs["file_size"]
+        source.attrs["file_name"] = "source.root"
+        source.attrs["file_size"] = 1.5
+
+    with h5py.File(path, "r") as in_file:
+        with pytest.raises(TypeError, match="file_size.*scalar integer"):
+            StageHDF5Reader.read_source_info(in_file)
+
+
+def test_stage_hdf5_reader_rejects_non_string_stage_names():
+    """The stage-name narrower should reject malformed HDF5 iteration keys."""
+
+    class InvalidStages:
+        def __iter__(self):
+            return iter([None])
+
+    with pytest.raises(TypeError, match="stage names must be strings"):
+        StageHDF5Reader.list_stage_names(InvalidStages())
+
+
 def test_stage_hdf5_reader_explicit_stage_map_missing_key(tmp_path):
     """Explicit stage maps should fail if the requested product is absent there."""
     path = tmp_path / "stage_cache.h5"
@@ -1130,8 +1295,16 @@ def test_stage_hdf5_reader_validate_stage_lengths_edges():
         )
 
 
-def test_stage_hdf5_reader_process_cfg_non_string_returns_none(tmp_path):
-    """Non-string stage cfg payloads should fail closed to None."""
+@pytest.mark.parametrize(
+    ("cfg", "message"),
+    [
+        (12, "attribute must be a string"),
+        ("12", "decode to a mapping"),
+        ("1: value", "keys must be strings"),
+    ],
+)
+def test_stage_hdf5_reader_process_cfg_rejects_invalid_payload(tmp_path, cfg, message):
+    """Malformed stage configuration payloads should fail explicitly."""
     path = tmp_path / "stage_cache.h5"
     with h5py.File(path, "w") as out_file:
         out_file.create_group("info").attrs["version"] = "test"
@@ -1139,13 +1312,13 @@ def test_stage_hdf5_reader_process_cfg_non_string_returns_none(tmp_path):
         stage = stages.create_group("deghosting")
         info = stage.create_group("info")
         info.attrs["complete"] = True
-        info.attrs["cfg"] = 12
+        info.attrs["cfg"] = cfg
         stage.create_dataset("dummy_data", data=np.asarray([[1.0, 2.0]]))
         ref_dtype = np.dtype([("dummy_data", h5py.regionref_dtype)])
         events = stage.create_dataset("events", shape=(1,), dtype=ref_dtype)
         events[0] = (stage["dummy_data"].regionref[:],)
 
-    with pytest.raises(AssertionError, match="attribute is not a string"):
+    with pytest.raises(TypeError, match=message):
         StageHDF5Reader("deghosting", str(path), build_classes=False)
 
 
@@ -1163,6 +1336,10 @@ def test_stage_hdf5_reader_process_cfg_parser_error_returns_none(monkeypatch, tm
         ref_dtype = np.dtype([("dummy_data", h5py.regionref_dtype)])
         events = stage.create_dataset("events", shape=(1,), dtype=ref_dtype)
         events[0] = (stage["dummy_data"].regionref[:],)
+
+    reader = StageHDF5Reader("deghosting", str(path), build_classes=False)
+    assert reader.cfg == {}
+    reader.close()
 
     monkeypatch.setattr(
         "spine.io.read.stage_hdf5.yaml.safe_load",
@@ -1280,7 +1457,7 @@ def test_resolve_explicit_meta_class_3d():
 def test_resolve_object_class_errors():
     """Legacy Meta resolution should reject malformed metadata."""
     bad = np.array([(1,)], dtype=[("x", np.int64)])
-    with pytest.raises(AssertionError, match="requires a structured dtype"):
+    with pytest.raises(TypeError, match="requires a structured dtype"):
         HDF5Reader.resolve_object_class("Meta", bad)
 
     bad_dim = np.array(
@@ -1300,7 +1477,7 @@ def test_resolve_legacy_meta_class_empty_array_defaults_3d():
 def test_process_cfg_parser_error_returns_none(monkeypatch, hdf5_data):
     """Malformed legacy configuration payloads should warn and return None."""
     monkeypatch.setattr(
-        "spine.io.read.hdf5.yaml.safe_load",
+        "spine.io.read.hdf5.reader.yaml.safe_load",
         lambda _: (_ for _ in ()).throw(ParserError(None, None, None, None)),
     )
 
@@ -1351,13 +1528,33 @@ def test_load_key_object_dataset_builds_and_filters_unknown_attrs(tmp_path):
         reader.skip_unknown_attrs = True
         reader.build_classes = True
         built = {}
-        reader.load_key(out_file, {"run_info": np.s_[0:1]}, built, "run_info")
+        reader.load_region_product(
+            out_file, {"run_info": np.s_[0:1]}, built, "run_info"
+        )
         assert built["run_info"].run == 1
 
         reader.build_classes = False
         raw = {}
-        reader.load_key(out_file, {"run_info": np.s_[0:1]}, raw, "run_info")
+        reader.load_region_product(out_file, {"run_info": np.s_[0:1]}, raw, "run_info")
         assert raw["run_info"] == {"run": 1, "subrun": 2, "event": 3}
+
+
+def test_load_key_rejects_non_string_object_class(tmp_path):
+    """Legacy object datasets require a string reconstruction class name."""
+    path = tmp_path / "bad_object_class.h5"
+    dtype = np.dtype([("id", np.int64)])
+
+    with h5py.File(path, "w") as out_file:
+        dataset = out_file.create_dataset(
+            "objects", data=np.asarray([(1,)], dtype=dtype)
+        )
+        dataset.attrs["class_name"] = 3
+        dataset.attrs["scalar"] = False
+        event = {"objects": dataset.regionref[0:1]}
+        reader = HDF5Reader.__new__(HDF5Reader)
+
+        with pytest.raises(TypeError, match="string 'class_name'"):
+            reader.load_region_product(out_file, event, {}, "objects")
 
 
 def test_load_key_group_paths(tmp_path):
@@ -1385,8 +1582,8 @@ def test_load_key_group_paths(tmp_path):
 
         reader = HDF5Reader.__new__(HDF5Reader)
         data = {}
-        reader.load_key(out_file, {"shared": np.s_[0:1]}, data, "shared")
-        reader.load_key(out_file, {"split": np.s_[0:1]}, data, "split")
+        reader.load_region_product(out_file, {"shared": np.s_[0:1]}, data, "shared")
+        reader.load_region_product(out_file, {"split": np.s_[0:1]}, data, "split")
 
         assert len(data["shared"]) == 1
         assert data["shared"][0].shape == (2, 2)
@@ -1402,5 +1599,7 @@ def test_load_key_rejects_unknown_storage_kind():
 
     reader = HDF5Reader.__new__(HDF5Reader)
     data = {}
-    with pytest.raises(ValueError, match="neither a group nor dataset"):
-        reader.load_key(DummyFile(bad=object()), {"bad": slice(None)}, data, "bad")
+    with pytest.raises(ValueError, match="neither an HDF5 group nor dataset"):
+        reader.load_region_product(
+            DummyFile(bad=object()), {"bad": slice(None)}, data, "bad"
+        )
