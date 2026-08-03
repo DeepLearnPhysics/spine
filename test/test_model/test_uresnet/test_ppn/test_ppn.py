@@ -151,6 +151,22 @@ def test_coordinate_alignment_rejects_conflicting_duplicates():
         )
 
 
+def test_coordinate_alignment_can_fill_missing_mask_sites():
+    """Generated coarse sparse sites without fine children are negatives."""
+    source_coords = torch.tensor([[0, 1, 1, 1]])
+    target_coords = torch.tensor([[0, 1, 1, 1], [0, 2, 2, 2]])
+
+    aligned = PPNLoss.align_coordinate_values(
+        source_coords,
+        torch.tensor([1.0]),
+        target_coords,
+        "PPN mask",
+        missing_value=0,
+    )
+
+    assert torch.equal(aligned, torch.tensor([1.0, 0.0]))
+
+
 def test_ppn_loss_handles_an_empty_batch(cnn_config):
     loss = PPNLoss(cnn_config, {})
     counts = [0, 0]

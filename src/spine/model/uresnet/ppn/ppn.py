@@ -695,6 +695,7 @@ class PPNLoss(torch.nn.Module):
         source_values: torch.Tensor,
         target_coords: torch.Tensor,
         value_name: str,
+        missing_value: float | int | None = None,
     ) -> torch.Tensor:
         """Align coordinate-associated values to a target sparse row order.
 
@@ -712,6 +713,9 @@ class PPNLoss(torch.nn.Module):
             ``(M, D + 1)`` coordinates defining the desired row order.
         value_name : str
             Human-readable value name used in validation errors.
+        missing_value : float or int, optional
+            Value assigned to target coordinates absent from the source. By
+            default, missing coordinates remain an error.
 
         Returns
         -------
@@ -754,6 +758,8 @@ class PPNLoss(torch.nn.Module):
         representatives = source_values.new_empty(
             (num_coords, *source_values.shape[1:])
         )
+        if missing_value is not None:
+            representatives.fill_(missing_value)
         representatives[source_ids] = source_values
         if len(source_ids) > 0 and torch.any(
             representatives[source_ids] != source_values
@@ -768,7 +774,11 @@ class PPNLoss(torch.nn.Module):
             device=source_coords.device,
         )
         present[source_ids] = True
-        if len(target_ids) > 0 and not bool(torch.all(present[target_ids])):
+        if (
+            missing_value is None
+            and len(target_ids) > 0
+            and not bool(torch.all(present[target_ids]))
+        ):
             raise ValueError(
                 f"Target coordinates are missing from the {value_name} source."
             )
@@ -1057,6 +1067,7 @@ class PPNLoss(torch.nn.Module):
                 mask_tensor.features,
                 coords_layer.batch_coordinates,
                 f"PPN mask at layer {layer_index}",
+                missing_value=0,
             )
             mask_labels = mask_features.flatten().long()
 
