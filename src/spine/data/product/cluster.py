@@ -77,6 +77,7 @@ def _field_name(name: str) -> str:
         "inter": "interaction",
         "type": "pid",
         "pgroup": "group_primary",
+        "inter_primary": "interaction_primary",
         "pinter": "interaction_primary",
         "p": "momentum",
     }

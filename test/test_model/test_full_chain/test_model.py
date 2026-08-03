@@ -1,358 +1,322 @@
-from types import SimpleNamespace
+"""Unit tests for the provider-driven full reconstruction chain."""
+
+from __future__ import annotations
+
 from typing import Any
 
 import numpy as np
 import pytest
 import torch
 
-import spine.model.full_chain.model as full_chain_mod
-import spine.model.grappa.encode.geometric as geometric_mod
 from spine.constants import GHOST_SHP, SHOWR_SHP, TRACK_SHP
 from spine.data import ClusterLabelBatch, IndexBatch, TensorBatch
-from spine.model.full_chain import FullChain, FullChainLoss
-from spine.model.grappa.encode.geometric import ClustGeoNodeEncoder
+from spine.model.full_chain import FullChain
+from spine.model.full_chain.config import build_chain_plan
+from spine.model.full_chain.ops import AggregationOperations
+from spine.model.full_chain.providers.aggregation import (
+    build_interaction_aggregation_loss,
+)
+from spine.model.full_chain.providers.fragmentation import FragmentationStage
+from spine.model.full_chain.providers.image import (
+    ParticleImageStage,
+    build_particle_image_stage,
+)
+from spine.model.full_chain.providers.segmentation import (
+    SegmentationLossStage,
+    SegmentationStage,
+)
+from spine.model.full_chain.registry import ProviderSpec, register_provider
+from spine.model.full_chain.stage import ChainStage
+from spine.model.full_chain.state import ChainState, StageResult
+from spine.utils.cluster.label import ClusterLabelAdapter
 
 
-class RecordingLoss:
-    def __init__(self):
-        self.calls = []
-
-    def __call__(self, **kwargs):
-        self.calls.append(kwargs)
-        return {
-            "loss": torch.tensor(0.0),
-            "accuracy": 1.0,
-        }
-
-
-def test_full_chain_loss_uses_orig_index_to_align_cached_segmentation_labels():
-    """Cached deghosted segmentation inputs should be aligned via orig_index."""
-    chain = {
-        "deghosting": None,
-        "charge_rescaling": None,
-        "segmentation": "uresnet",
-        "point_proposal": None,
-        "fragmentation": None,
-        "shower_aggregation": None,
-        "shower_primary": None,
-        "track_aggregation": None,
-        "particle_aggregation": None,
-        "inter_aggregation": None,
-        "particle_identification": None,
-        "primary_identification": None,
-        "orientation_identification": None,
-        "calibration": None,
-    }
-    loss = FullChainLoss(chain=chain)
-    recorder = RecordingLoss()
-    loss.uresnet_loss = recorder
-
-    seg_label_tensor = torch.tensor([0, GHOST_SHP, 1, 2, GHOST_SHP]).float()
-    seg_label = TensorBatch(seg_label_tensor, counts=[5])
-
-    segmentation = TensorBatch(
-        torch.tensor(
-            [
-                [2.0, 0.1, 0.0],
-                [0.1, 3.0, 0.0],
-                [0.2, 0.3, 4.0],
-            ],
-            dtype=torch.float32,
-        ),
-        counts=torch.tensor([3]),
-    )
-    orig_index = IndexBatch(
-        torch.tensor([0, 2, 4], dtype=torch.long),
-        spans=torch.tensor([0], dtype=torch.long),
-        counts=torch.tensor([3], dtype=torch.long),
-    )
-
-    loss(seg_label=seg_label, segmentation=segmentation, orig_index=orig_index)
-
-    assert len(recorder.calls) == 1
-    seg_label_used = recorder.calls[0]["seg_label"]
-    segmentation_used = recorder.calls[0]["segmentation"]
-
-    assert seg_label_used.counts.tolist() == [2]
-    assert segmentation_used.counts.tolist() == [2]
-    assert seg_label_used.tensor.shape[0] == 2
-    assert segmentation_used.tensor.shape[0] == 2
-    assert torch.equal(seg_label_used.values.tensor, torch.tensor([0.0, 1.0]))
-    assert torch.equal(segmentation_used.tensor, segmentation.tensor[:2])
-
-
-def test_full_chain_deghosts_only_row_aligned_ppn_outputs():
-    """Internal sparse PPN products are already pruned by their ghost mask."""
-    full_chain = object.__new__(FullChain)
-    full_chain.segmentation = "uresnet"
-    full_chain.result = {}
-    data = TensorBatch(
-        torch.tensor(
-            [
-                [0.0, 1.0, 1.0, 1.0, 1.0],
-                [0.0, 2.0, 2.0, 2.0, 1.0],
-                [0.0, 3.0, 3.0, 3.0, 1.0],
-            ]
-        ),
-        counts=[3],
+def make_data(size: int = 4) -> TensorBatch:
+    """Build one sparse tensor batch with canonical coordinates and values."""
+    rows = torch.zeros((size, 5), dtype=torch.float32)
+    rows[:, 1] = torch.arange(size)
+    rows[:, 4] = 1.0
+    return TensorBatch(
+        rows,
+        counts=[size],
         has_batch_col=True,
-    )
-    ppn_coords = [TensorBatch(torch.tensor([[0.0, 1.0, 1.0, 1.0]]), counts=[1])]
-
-    def fake_uresnet_ppn(_data):
-        return {
-            "segmentation": TensorBatch(torch.zeros((3, 5)), counts=[3]),
-            "ghost": TensorBatch(
-                torch.tensor([[2.0, 0.0], [0.0, 2.0], [2.0, 0.0]]),
-                counts=[3],
-            ),
-            "ppn_points": TensorBatch(torch.arange(30).reshape(3, 10), counts=[3]),
-            "ppn_classify_endpoints": TensorBatch(
-                torch.arange(6).reshape(3, 2),
-                counts=[3],
-            ),
-            "ppn_coords": ppn_coords,
-        }
-
-    full_chain_any: Any = full_chain
-    full_chain_any.uresnet_ppn = fake_uresnet_ppn
-
-    full_chain.run_segmentation_ppn(data)
-
-    assert full_chain.result["ppn_points"].counts.tolist() == [2]
-    assert torch.equal(
-        full_chain.result["ppn_points"].torch_tensor(),
-        torch.cat((torch.arange(10)[None], torch.arange(20, 30)[None])),
-    )
-    assert full_chain.result["ppn_classify_endpoints"].counts.tolist() == [2]
-    assert full_chain.result["ppn_coords"] is ppn_coords
-
-
-def test_group_labels_accepts_shape_restriction_without_model():
-    full_chain = object.__new__(FullChain)
-    full_chain.fragment_shapes = [SHOWR_SHP, GHOST_SHP]
-
-    clust_label = ClusterLabelBatch(
-        TensorBatch(
-            np.array(
-                [
-                    [0, 0, 0, 0, 1, 0, 0],
-                    [0, 1, 0, 0, 1, 0, 0],
-                    [0, 2, 0, 0, 1, 1, 1],
-                ],
-                dtype=np.float32,
-            ),
-            counts=np.array([3]),
-            coord_cols=np.arange(1, 4),
-        ),
-        {
-            "group": TensorBatch(np.array([7, 9]), counts=np.array([2])),
-            "group_primary": TensorBatch(np.array([1, 0]), counts=np.array([2])),
-        },
+        coord_cols=np.arange(1, 4),
     )
 
-    clusts = IndexBatch(
-        [np.array([0, 1], dtype=np.int64), np.array([2], dtype=np.int64)],
-        spans=np.array([3]),
-        counts=np.array([2]),
-        single_counts=np.array([2, 1]),
-    )
-    clust_shapes = TensorBatch(np.array([SHOWR_SHP, GHOST_SHP]), counts=np.array([2]))
 
-    groups, group_shapes, group_primaries, shape_index = full_chain.group_labels(
-        clust_label,
-        clusts,
-        clust_shapes,
-        shapes=[SHOWR_SHP],
-        aggregate_shapes=True,
-        shape_use_primary=True,
-    )
-
-    assert np.array_equal(shape_index, [0])
-    assert groups.counts.tolist() == [1]
-    assert np.array_equal(groups.index_list[0], [0, 1])
-    assert group_shapes.tensor.tolist() == [SHOWR_SHP]
-    assert group_primaries is groups
-
-
-def test_label_fragmentation_reads_shapes_from_shape_column():
-    full_chain = object.__new__(FullChain)
-    full_chain.fragmentation = "label"
-    full_chain.result = {}
-
-    data = TensorBatch(np.zeros((4, 1), dtype=np.float32), counts=np.array([4]))
-    clust_label = ClusterLabelBatch(
-        TensorBatch(
-            np.array(
-                [
-                    [0, 0, 0, 0, 1, 10, 0],
-                    [0, 1, 0, 0, 1, 10, 0],
-                    [0, 2, 0, 0, 1, 20, 1],
-                    [0, 3, 0, 0, 1, 20, 1],
-                ],
-                dtype=np.float32,
-            ),
-            counts=np.array([4]),
-            coord_cols=np.arange(1, 4),
-        ),
-        {"shape": TensorBatch(np.array([SHOWR_SHP, TRACK_SHP]), counts=np.array([2]))},
-    )
-
-    full_chain.run_fragmentation(data, clust_label)
-
-    fragments = full_chain.result["fragment_clusts"]
-    fragment_shapes = full_chain.result["fragment_shapes"]
-
-    assert fragments.counts.tolist() == [2]
-    assert [f.tolist() for f in fragments.index_list] == [[0, 1], [2, 3]]
-    assert fragment_shapes.tensor.tolist() == [SHOWR_SHP, TRACK_SHP]
-
-
-def test_build_groups_falls_back_when_primary_is_missing():
-    full_chain = object.__new__(FullChain)
-
-    clusts = IndexBatch(
+def make_cluster_label() -> ClusterLabelBatch:
+    """Build compact cluster labels for two particles in one event."""
+    rows = np.array(
         [
-            np.array([0], dtype=np.int64),
-            np.array([1], dtype=np.int64),
-            np.array([2], dtype=np.int64),
+            [0, 0, 0, 0, 1, 10, 0],
+            [0, 1, 0, 0, 1, 10, 0],
+            [0, 2, 0, 0, 1, 20, 1],
+            [0, 3, 0, 0, 1, 20, 1],
         ],
-        spans=np.array([3]),
-        counts=np.array([3]),
-        single_counts=np.array([1, 1, 1]),
+        dtype=np.float32,
     )
-    clust_shapes = TensorBatch(
-        np.array([SHOWR_SHP, SHOWR_SHP, TRACK_SHP]), counts=np.array([3])
+    data = TensorBatch(
+        rows,
+        counts=[4],
+        has_batch_col=True,
+        coord_cols=np.arange(1, 4),
     )
-    group_pred = TensorBatch(np.array([5, 5, 9]), counts=np.array([3]))
-    primary_mask = TensorBatch(np.array([False, False, True]), counts=np.array([3]))
+    particles = {
+        "shape": TensorBatch(np.array([SHOWR_SHP, TRACK_SHP]), counts=[2]),
+        "group": TensorBatch(np.array([7, 9]), counts=[2]),
+        "group_primary": TensorBatch(np.array([1, 0]), counts=[2]),
+    }
+    return ClusterLabelBatch(data, particles)
 
-    groups, group_shapes, group_primaries = full_chain.build_groups(
+
+def make_clusters() -> tuple[IndexBatch, TensorBatch]:
+    """Build two voxel clusters and their semantic shapes."""
+    clusts = IndexBatch(
+        [np.array([0, 1]), np.array([2, 3])],
+        spans=[4],
+        counts=[2],
+        single_counts=[2, 2],
+    )
+    shapes = TensorBatch(np.array([SHOWR_SHP, TRACK_SHP]), counts=[2])
+    return clusts, shapes
+
+
+def test_chain_state_enforces_declared_replacements() -> None:
+    """Canonical products cannot be silently overwritten by a provider."""
+    state = ChainState(data=object())
+    with pytest.raises(ValueError, match="without declaring"):
+        state.publish("bad", StageResult({"data": object()}))
+
+    replacement = object()
+    state.publish(
+        "good",
+        StageResult({"data": replacement}, {"data_adapt": replacement}),
+        frozenset({"data"}),
+    )
+    assert state.require("data") is replacement
+
+
+def test_native_plan_resolves_used_and_loss_blocks() -> None:
+    """Ordered configs resolve named model blocks without flattening them."""
+    chain = {
+        "stages": [
+            {
+                "name": "semantic",
+                "provider": "segmentation",
+                "uses": "backbone",
+                "loss": "objective",
+                "config": {"mode": "label"},
+            }
+        ]
+    }
+    plan = build_chain_plan(
+        chain,
+        {"backbone": {"depth": 5}, "objective": {"loss": "ce"}},
+    )
+    assert plan[0].config == {"backbone": {"depth": 5}, "mode": "label"}
+    assert plan[0].loss_config == {"loss": "ce"}
+
+
+def test_legacy_plan_translates_particle_image_tasks() -> None:
+    """Historical image task modes become an explicit image provider."""
+    plan = build_chain_plan(
+        {
+            "fragmentation": "label",
+            "particle_aggregation": "label",
+            "particle_identification": "image",
+        },
+        {"image_particle": {"encoder": {}, "heads": {"type": 5}}},
+    )
+    assert [stage.provider for stage in plan] == [
+        "fragmentation",
+        "particle_aggregation",
+        "particle_image",
+    ]
+
+
+def test_external_provider_can_supply_multiple_capabilities() -> None:
+    """A combined semantic/fragment provider needs no FullChain changes."""
+
+    class CombinedStage(ChainStage):
+        requires = frozenset({"data"})
+        provides = frozenset({"seg_pred", "fragment_clusts", "fragment_shapes"})
+
+        def forward(self, state: ChainState) -> StageResult:
+            state.require("data", self.name)
+            clusts = IndexBatch([np.arange(4)], [4], [1], [4])
+            products = {
+                "seg_pred": TensorBatch(torch.zeros(4, dtype=torch.long), [4]),
+                "fragment_clusts": clusts,
+                "fragment_shapes": TensorBatch(np.array([SHOWR_SHP]), [1]),
+            }
+            return StageResult(products, dict(products))
+
+    def build(name: str, _config: dict[str, Any], _owner: Any) -> ChainStage:
+        return CombinedStage(name)
+
+    provider_name = "test_combined_semantic_fragments"
+    register_provider(ProviderSpec(provider_name, build))
+    chain = FullChain(
+        chain={
+            "stages": [
+                {"name": "combined", "provider": provider_name},
+            ]
+        }
+    )
+    result = chain(make_data())
+    assert set(result) == {"seg_pred", "fragment_clusts", "fragment_shapes"}
+
+
+def test_segmentation_deghosts_only_row_aligned_ppn_outputs() -> None:
+    """Internal sparse PPN products retain their independently pruned rows."""
+
+    class Model:
+        def __call__(self, _data: TensorBatch) -> dict[str, Any]:
+            return {
+                "segmentation": TensorBatch(torch.zeros((3, 5)), [3]),
+                "ghost": TensorBatch(
+                    torch.tensor([[2.0, 0.0], [0.0, 2.0], [2.0, 0.0]]),
+                    [3],
+                ),
+                "ppn_points": TensorBatch(torch.arange(30).reshape(3, 10), [3]),
+                "ppn_coords": [TensorBatch(torch.zeros((1, 4)), [1])],
+            }
+
+    stage = SegmentationStage(
+        "semantic",
+        "uresnet",
+        Model(),  # type: ignore[arg-type]
+        ClusterLabelAdapter(),
+    )
+    state = ChainState(data=make_data(3))
+    result = stage(state)
+    assert result.outputs["ppn_points"].counts.tolist() == [2]
+    assert result.outputs["ppn_coords"][0].counts.tolist() == [1]
+
+
+def test_segmentation_loss_aligns_cached_deghosted_rows() -> None:
+    """Cached deghosting indexes align semantic labels and logits."""
+    seg_label = TensorBatch(
+        torch.tensor([0, GHOST_SHP, 1, 2, GHOST_SHP]).float(),
+        [5],
+    )
+    logits = TensorBatch(torch.zeros((3, 3)), [3])
+    orig_index = IndexBatch(torch.tensor([0, 2, 4]), spans=[5], counts=[3])
+    aligned_label, aligned_logits = SegmentationLossStage._align(
+        seg_label,
+        logits,
+        orig_index,
+    )
+    assert aligned_label.values.torch_tensor().tolist() == [0.0, 1.0]
+    assert aligned_logits.shape[0] == 2
+
+
+def test_label_fragmentation_uses_structured_shape_field() -> None:
+    """Truth fragmentation reads shape through ClusterLabelBatch aliases."""
+    stage = FragmentationStage("fragments", "label", None, None)
+    state = ChainState(
+        data=make_data(),
+        seg_pred=TensorBatch(torch.zeros(4, dtype=torch.long), [4]),
+        clust_label=make_cluster_label(),
+    )
+    result = stage(state)
+    assert [
+        index.tolist() for index in result.products["fragment_clusts"].index_list
+    ] == [
+        [0, 1],
+        [2, 3],
+    ]
+    assert result.products["fragment_shapes"].numpy_tensor().tolist() == [
+        SHOWR_SHP,
+        TRACK_SHP,
+    ]
+
+
+def test_group_builder_falls_back_when_primary_is_missing() -> None:
+    """Primary-aware grouping falls back to the full group when necessary."""
+    clusts, shapes = make_clusters()
+    assignments = TensorBatch(np.array([5, 5]), [2])
+    primary_mask = TensorBatch(np.array([False, False]), [2])
+    groups, group_shapes, primaries = AggregationOperations.build_groups(
         clusts,
-        clust_shapes,
-        group_pred,
-        primary_mask=primary_mask,
+        shapes,
+        assignments,
+        primary_mask,
         aggregate_shapes=True,
         shape_use_primary=True,
         retain_primaries=True,
     )
+    assert [group.tolist() for group in groups.index_list] == [[0, 1, 2, 3]]
+    assert group_shapes.numpy_tensor().tolist() == [SHOWR_SHP]
+    assert primaries.index_list[0].tolist() == [0, 1, 2, 3]
 
-    assert [g.tolist() for g in groups.index_list] == [[0, 1], [2]]
-    assert group_shapes.tensor.tolist() == [SHOWR_SHP, TRACK_SHP]
-    assert [p.tolist() for p in group_primaries.index_list] == [[0, 1], [2]]
 
+def test_particle_image_publishes_grappa_compatible_keys() -> None:
+    """Image task predictions satisfy existing particle-builder interfaces."""
 
-def test_prepare_grappa_input_uses_label_points_without_ppn(monkeypatch):
-    full_chain = object.__new__(FullChain)
-    full_chain.result = {}
+    class Model:
+        def __call__(self, data: TensorBatch, objects: IndexBatch) -> dict[str, Any]:
+            assert len(objects.index_list) == 2
+            return {
+                "type_pred": TensorBatch(torch.zeros((2, 5)), objects.counts),
+                "energy_pred": TensorBatch(torch.ones((2, 1)), objects.counts),
+            }
 
-    model = SimpleNamespace(
-        node_encoder=SimpleNamespace(add_points=True, random_order=False)
+    particles, _ = make_clusters()
+    stage = ParticleImageStage(
+        "particle_tasks",
+        Model(),  # type: ignore[arg-type]
+        {"type": "type", "energy": "energy"},
     )
-    data = TensorBatch(np.zeros((3, 4), dtype=np.float32), counts=np.array([3]))
-    clust_label = ClusterLabelBatch(
-        TensorBatch(np.zeros((3, 6), dtype=np.float32), counts=np.array([3]))
+    result = stage(ChainState(data=make_data(), particle_clusts=particles))
+    assert set(result.outputs) == {
+        "particle_node_type_pred",
+        "particle_node_energy_pred",
+    }
+    assert set(result.products) == {"particle_type_pred", "particle_energy_pred"}
+
+
+def test_particle_image_builder_accepts_native_module_name() -> None:
+    """Native `uses: image_particle` blocks build explicit object models."""
+    owner = torch.nn.Module()
+    stage = build_particle_image_stage(
+        "particle_tasks",
+        {
+            "image_particle": {
+                "objects": {"source": "explicit"},
+                "encoder": {
+                    "name": "cnn",
+                    "num_input": 1,
+                    "spatial_size": 768,
+                    "filters": 4,
+                    "depth": 2,
+                    "reps": 1,
+                },
+                "heads": {"pid": 5, "primary": 2},
+            }
+        },
+        owner,
     )
-    clusts = IndexBatch(
-        [np.array([0], dtype=np.int64), np.array([1, 2], dtype=np.int64)],
-        spans=np.array([3]),
-        counts=np.array([2]),
-        single_counts=np.array([1, 2]),
-    )
-    primaries = IndexBatch(
-        [np.array([1], dtype=np.int64), np.array([2], dtype=np.int64)],
-        spans=np.array([3]),
-        counts=np.array([2]),
-        single_counts=np.array([1, 1]),
-    )
-    clust_shapes = TensorBatch(np.array([SHOWR_SHP, SHOWR_SHP]), counts=np.array([2]))
-    coord_label = TensorBatch(np.zeros((2, 9), dtype=np.float32), counts=np.array([2]))
-    label_points = TensorBatch(np.ones((2, 6), dtype=np.float32), counts=np.array([2]))
-    calls = []
-
-    def fake_label_points(data_arg, coord_label_arg, clusts_arg, **kwargs):
-        calls.append((data_arg, coord_label_arg, clusts_arg, kwargs))
-        return label_points
-
-    monkeypatch.setattr(
-        full_chain_mod, "get_cluster_points_label_batch", fake_label_points
-    )
-
-    grappa_input = full_chain.prepare_grappa_input(
-        model,
-        data,
-        clusts,
-        clust_shapes,
-        clust_primaries=primaries,
-        clust_label=clust_label,
-        coord_label=coord_label,
-        point_use_primaries=True,
-    )
-
-    assert grappa_input["points"] is label_points
-    assert "coord_label" not in grappa_input
-    assert calls == [
-        (clust_label, coord_label, primaries, {"random_order": False}),
-    ]
+    assert stage.provides == {"particle_type_pred", "particle_primary_pred"}
+    assert owner.image_particle is stage.model
 
 
-def test_geo_node_encoder_forwards_random_order(monkeypatch):
-    encoder = ClustGeoNodeEncoder(use_numpy=False, add_points=True, random_order=False)
-    data = ClusterLabelBatch(
-        TensorBatch(torch.zeros((1, 6), dtype=torch.float32), counts=np.array([1]))
-    )
-    clusts = IndexBatch(
-        [np.array([0], dtype=np.int64)],
-        spans=np.array([1]),
-        counts=np.array([1]),
-        single_counts=np.array([1]),
-    )
-    coord_label = TensorBatch(
-        torch.zeros((1, 9), dtype=torch.float32), counts=np.array([1])
-    )
-    label_points = TensorBatch(
-        torch.ones((1, 6), dtype=torch.float32), counts=np.array([1])
-    )
-    calls = []
-
-    def fake_label_points(data_arg, coord_label_arg, clusts_arg, **kwargs):
-        calls.append((data_arg, coord_label_arg, clusts_arg, kwargs))
-        return label_points
-
-    monkeypatch.setattr(
-        geometric_mod, "get_cluster_points_label_batch", fake_label_points
-    )
-
-    _, points = encoder(data, clusts, coord_label=coord_label)
-
-    assert points is label_points
-    assert calls == [
-        (data, coord_label, clusts, {"random_order": False}),
-    ]
-
-
-def test_prepare_grappa_input_requires_clust_label_for_label_points():
-    full_chain = object.__new__(FullChain)
-    full_chain.result = {}
-
-    model = SimpleNamespace(
-        node_encoder=SimpleNamespace(add_points=True, random_order=True)
-    )
-    data = TensorBatch(np.zeros((1, 4), dtype=np.float32), counts=np.array([1]))
-    clusts = IndexBatch(
-        [np.array([0], dtype=np.int64)],
-        spans=np.array([1]),
-        counts=np.array([1]),
-        single_counts=np.array([1]),
-    )
-    clust_shapes = TensorBatch(np.array([SHOWR_SHP]), counts=np.array([1]))
-    coord_label = TensorBatch(np.zeros((1, 9), dtype=np.float32), counts=np.array([1]))
-
-    with pytest.raises(ValueError, match="clust_label"):
-        full_chain.prepare_grappa_input(
-            model,
-            data,
-            clusts,
-            clust_shapes,
-            coord_label=coord_label,
+def test_image_owned_task_rejects_duplicate_grappa_loss() -> None:
+    """Delegated image tasks cannot retain unreachable GrapPA objectives."""
+    with pytest.raises(ValueError, match="image-owned particle task.*type"):
+        build_interaction_aggregation_loss(
+            "interaction",
+            {
+                "task_modes": {"type": "image", "primary": "grappa"},
+                "loss": {
+                    "node_loss": {
+                        "type": {"name": "class", "target": "pid"},
+                        "primary": {
+                            "name": "class",
+                            "target": "interaction_primary",
+                        },
+                    }
+                },
+            },
+            torch.nn.Module(),
         )

@@ -6,7 +6,7 @@ CONFIG_DIR = Path(__file__).resolve().parents[2] / "config"
 EXAMPLE_CONFIGS = sorted(CONFIG_DIR.rglob("*.cfg")) + sorted(CONFIG_DIR.rglob("*.yaml"))
 
 MODEL_CONFIGS = {
-    "full_chain": CONFIG_DIR / "test_full_chain.yaml",
+    "full_chain": CONFIG_DIR / "full_chain" / "full_chain_train.yaml",
     "graph_spice": CONFIG_DIR / "graph_spice" / "graph_spice_train.yaml",
     "grappa_inter": CONFIG_DIR / "grappa_inter" / "grappa_inter_train.yaml",
     "grappa_shower": CONFIG_DIR / "grappa_shower" / "grappa_shower_train.yaml",
@@ -26,7 +26,7 @@ MODEL_CONFIGS = {
 }
 
 INFERENCE_MODEL_CONFIGS = {
-    "full_chain": CONFIG_DIR / "test_full_chain.yaml",
+    "full_chain": CONFIG_DIR / "full_chain" / "full_chain_test.yaml",
     "graph_spice": CONFIG_DIR / "graph_spice" / "graph_spice_test.yaml",
     "grappa_inter": CONFIG_DIR / "grappa_inter" / "grappa_inter_test.yaml",
     "grappa_shower": CONFIG_DIR / "grappa_shower" / "grappa_shower_test.yaml",
@@ -44,6 +44,8 @@ INFERENCE_MODEL_CONFIGS = {
     "uresnet_bayes": (CONFIG_DIR / "uresnet" / "bayes" / "uresnet_bayes_test.yaml"),
     "uresnet_ppn": CONFIG_DIR / "uresnet" / "ppn" / "uresnet_ppn_test.yaml",
 }
+
+FULL_CHAIN_REGRESSION_CONFIG = CONFIG_DIR / "full_chain" / "full_chain_regression.yaml"
 
 STANDALONE_MODEL_CONFIGS = {
     name: path for name, path in MODEL_CONFIGS.items() if name != "full_chain"

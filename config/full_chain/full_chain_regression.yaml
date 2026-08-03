@@ -1,3 +1,7 @@
+__meta__:
+  version: "260803"
+  description: Deterministic end-to-end full-chain regression configuration
+
 base:
   world_size: 0
   iterations: -1
@@ -96,20 +100,43 @@ model:
     coord_label: coord_label
   modules:
     chain:
-      deghosting: null
-      charge_rescaling: null
-      segmentation: uresnet
-      point_proposal: ppn
-      fragmentation: graph_spice
-      shower_aggregation: grappa
-      shower_primary: grappa
-      track_aggregation: grappa
-      particle_aggregation: null
-      inter_aggregation: grappa
-      particle_identification: grappa
-      primary_identification: grappa
-      orientation_identification: grappa
-      calibration: null
+      stages:
+      - name: segmentation
+        provider: segmentation
+        uses: uresnet_ppn
+        loss: uresnet_ppn_loss
+        config:
+          mode: uresnet
+          point_proposal: ppn
+      - name: fragmentation
+        provider: fragmentation
+        uses: graph_spice
+        loss: graph_spice_loss
+        config:
+          mode: graph_spice
+      - name: particle_aggregation
+        provider: particle_aggregation
+        uses:
+        - grappa_shower
+        - grappa_track
+        loss:
+          shower: grappa_shower_loss
+          track: grappa_track_loss
+        config:
+          shower_aggregation: grappa
+          shower_primary: grappa
+          track_aggregation: grappa
+          particle_aggregation: null
+      - name: interaction_aggregation
+        provider: interaction_aggregation
+        uses: grappa_inter
+        loss: grappa_inter_loss
+        config:
+          mode: grappa
+          task_modes:
+            type: grappa
+            primary: grappa
+            orient: grappa
     uresnet_ppn:
       uresnet:
         num_input: 1

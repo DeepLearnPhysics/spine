@@ -13,7 +13,7 @@ from spine.config import load_config_file
 from spine.driver import Driver
 from spine.utils.conditional import TORCH_AVAILABLE
 
-from ..cases import INFERENCE_MODEL_CONFIGS
+from ..cases import FULL_CHAIN_REGRESSION_CONFIG
 
 FULL_CHAIN_REFERENCE = (
     (4.591630458831787, 0.9793203217195066),
@@ -82,8 +82,7 @@ def make_full_chain_config(larcv_data: str, tmp_path: Path) -> dict:
     dict
         Full-chain driver configuration
     """
-    cfg_path = INFERENCE_MODEL_CONFIGS["full_chain"]
-    cfg = load_config_file(str(cfg_path))
+    cfg = load_config_file(str(FULL_CHAIN_REGRESSION_CONFIG))
 
     cfg["base"]["iterations"] = len(FULL_CHAIN_REFERENCE)
     cfg["base"]["seed"] = 0

@@ -70,6 +70,7 @@ def test_supported_models_have_maintained_configs():
 @pytest.mark.parametrize(
     "case_name",
     [
+        "full_chain",
         "uresnet",
         "uresnet_bayes",
         "uresnet_ppn",
@@ -112,6 +113,21 @@ def test_grappa_train_and_test_config_contract(case_name):
     assert train_cfg["io"]["loader"]["minibatch_size"] == 64
     assert test_cfg["io"]["loader"]["minibatch_size"] == 2
     assert train_cfg["model"] == test_cfg["model"]
+
+
+def test_full_chain_train_and_test_config_contract():
+    """Keep canonical full-chain model definitions aligned and model-only."""
+    train_cfg = load_config_file(str(MODEL_CONFIGS["full_chain"]), download=False)
+    test_cfg = load_config_file(
+        str(INFERENCE_MODEL_CONFIGS["full_chain"]),
+        download=False,
+    )
+
+    assert set(train_cfg) == {"base", "io", "model"}
+    assert set(test_cfg) == {"base", "io", "model"}
+    assert train_cfg["model"] == test_cfg["model"]
+    assert train_cfg["io"]["loader"]["minibatch_size"] == 2
+    assert test_cfg["io"]["loader"]["minibatch_size"] == 2
 
 
 @pytest.mark.parametrize(

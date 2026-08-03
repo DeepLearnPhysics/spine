@@ -45,6 +45,7 @@ def test_cluster_label_expands_named_particle_fields():
     np.testing.assert_array_equal(labels.voxel_field("cluster"), [7, 8, -1])
     np.testing.assert_array_equal(labels.voxel_field("particle"), [10, 11, -1])
     np.testing.assert_array_equal(labels.voxel_field("pid"), [2, 3, -1])
+    np.testing.assert_array_equal(labels.voxel_field("inter_primary"), [1, 0, -1])
     np.testing.assert_array_equal(labels.voxel_field("ancestor_pid"), [2, 2, -1])
     np.testing.assert_allclose(
         labels.voxel_field("ancestor_momentum"), [200.0, 200.0, -1.0]

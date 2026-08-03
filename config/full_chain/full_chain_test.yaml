@@ -1,0 +1,35 @@
+# Canonical end-to-end full-chain inference/evaluation configuration.
+#
+# Set file_keys and weight_path for the target run. Reconstruction builders,
+# post-processors, and output writers are intentionally excluded so this file
+# exercises the model and its objectives in isolation.
+
+include: full_chain_regression.yaml
+
+remove:
+- build
+- post
+- io.writer
+- io.loader.dataset.schema.particles
+- io.loader.dataset.schema.meta
+- io.loader.dataset.schema.run_info
+
+base:
+  world_size: 0
+  iterations: 1
+  unwrap: false
+  log_dir: logs/full_chain/test
+  prefix_log: true
+  split_output: false
+
+io:
+  loader:
+    minibatch_size: 2
+    shuffle: false
+    num_workers: 0
+    dataset:
+      file_keys: null
+
+model:
+  to_numpy: false
+  weight_path: null

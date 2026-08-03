@@ -341,7 +341,9 @@ class PPN(sparse.Network):
                             "of the last UResNet layer"
                         )
 
-                    ghost_coords = seg_label.batch_coordinates
+                    # Truth labels are feature-only but are contractually row
+                    # aligned with the final UResNet plane checked above.
+                    ghost_coords = decoder_tensors[-1].coordinates
                     ghost_mask_tensor = labels < GHOST_SHP
                 else:
                     # If using predictions, convert the ghost scores to a mask
