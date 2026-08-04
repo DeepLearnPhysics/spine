@@ -166,6 +166,13 @@ def test_parse_particle_coordinates(particle_event, sparse3d_event):
 
     # There should be exactly one row per particle in the input
     assert result.coordinate_data.shape[0] == particle_event.size()
+    assert np.array_equal(
+        result.features[:, 0],
+        np.asarray(
+            [particle.first_step().t() for particle in particle_event.as_vector()],
+            dtype=result.features.dtype,
+        ),
+    )
 
 
 @pytest.mark.parametrize(

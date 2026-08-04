@@ -689,6 +689,9 @@ class TestParticleFromLArCV:
                     def z(self):
                         return 502.0
 
+                    def t(self):
+                        return 102.0
+
                 return MockFirstStep()
 
             def last_step(self):
@@ -701,6 +704,9 @@ class TestParticleFromLArCV:
 
                     def z(self):
                         return 698.0
+
+                    def t(self):
+                        return 118.0
 
                 return MockLastStep()
 
@@ -756,6 +762,8 @@ class TestParticleFromLArCV:
         assert particle.ancestor_creation_process == "generator"
         assert particle.t == 100.0
         assert particle.end_t == 120.0
+        assert particle.first_step_t == 102.0
+        assert particle.last_step_t == 118.0
         assert particle.parent_t == 95.0
         assert particle.ancestor_t == 90.0
 
@@ -849,6 +857,8 @@ class TestParticleFromLArCV:
         assert particle.creation_process == "conv"
         assert particle.t == 200.0
         assert particle.end_t == 220.0
+        assert particle.first_step_t == 201.0
+        assert particle.last_step_t == 219.0
 
         np.testing.assert_array_almost_equal(particle.position, [120.0, 60.0, 550.0])
         np.testing.assert_array_almost_equal(
@@ -1003,6 +1013,9 @@ class TestParticleFromLArCV:
                     def z(self):
                         return 502.0
 
+                    def t(self):
+                        return 102.0
+
                 return MockFirstStep()
 
             def last_step(self):
@@ -1015,6 +1028,9 @@ class TestParticleFromLArCV:
 
                     def z(self):
                         return 698.0
+
+                    def t(self):
+                        return 118.0
 
                 return MockLastStep()
 

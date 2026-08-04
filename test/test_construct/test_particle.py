@@ -138,8 +138,8 @@ def test_build_truth_particles_from_groups(points, depositions):
     np.testing.assert_array_equal(result[1].sources_adapt, [[3, 0], [3, 1]])
 
 
-def test_build_truth_particles_use_earliest_group_fragment(points, depositions):
-    """Truth groups should use their earliest fragment regardless of shape."""
+def test_build_truth_particles_use_first_step_group_fragment(points, depositions):
+    """Truth groups should use the fragment with the earliest first step."""
     builder = ParticleBuilder(mode="truth", units="px")
     labels = make_label_tensor(
         points, depositions, [0, 0, 0, -1], group_ids=[0, 0, 0, -1]
@@ -149,7 +149,8 @@ def test_build_truth_particles_use_earliest_group_fragment(points, depositions):
             id=0,
             group_id=0,
             shape=0,
-            t=2.0,
+            t=0.0,
+            first_step_t=2.0,
             first_step=np.array([2, 0, 0], dtype=np.float32),
             energy_deposit=1.0,
         ),
@@ -157,7 +158,8 @@ def test_build_truth_particles_use_earliest_group_fragment(points, depositions):
             id=1,
             group_id=0,
             shape=LOWES_SHP,
-            t=0.0,
+            t=2.0,
+            first_step_t=0.0,
             first_step=np.array([0, 0, 0], dtype=np.float32),
             energy_deposit=10.0,
         ),
@@ -166,6 +168,7 @@ def test_build_truth_particles_use_earliest_group_fragment(points, depositions):
             group_id=0,
             shape=0,
             t=1.0,
+            first_step_t=1.0,
             first_step=np.array([1, 0, 0], dtype=np.float32),
             energy_deposit=2.5,
         ),
