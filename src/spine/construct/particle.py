@@ -310,16 +310,19 @@ class ParticleBuilder(BuilderBase):
             particle.parent_id = i
             particle.children_id = np.empty(0, dtype=particle.orig_children_id.dtype)
 
-            # Update the deposited energy attribute by summing that of all
-            # particles in the group (LArCV definition != SPINE definition)
+            # Sum energy deposits and use the earliest fragment in the group.
+            group_index = np.where(group_ids == group_id)[0]
             particle.energy_deposit = 0.0
-            for j in np.where(group_ids == group_id)[0]:
+            for j in group_index:
                 particle.energy_deposit += particles[j].energy_deposit
 
             # Update the attributes shared between reconstructed and true
             particle.length = particle.distance_travel
             particle.is_primary = bool(particle.interaction_primary > 0)
-            particle.start_point = particle.first_step
+            first_fragment_id = group_index[
+                np.argmin([particles[j].t for j in group_index])
+            ]
+            particle.start_point = particles[first_fragment_id].first_step
             if particle.shape == TRACK_SHP:
                 particle.end_point = particle.last_step
 
