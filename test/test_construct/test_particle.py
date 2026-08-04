@@ -175,6 +175,7 @@ def test_build_truth_particles_use_earliest_group_fragment(points, depositions):
         depositions_label=depositions,
     )
 
+    assert result[0].shape == LOWES_SHP
     np.testing.assert_array_equal(result[0].start_point, [0, 0, 0])
     assert result[0].energy_deposit == 13.5
 
