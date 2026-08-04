@@ -31,7 +31,7 @@ checked-in reference.
 Run the model contracts in a full SPINE environment with:
 
 ```bash
-pytest --model-tests test/test_model
+pytest test/test_model
 ```
 
 ### External test data

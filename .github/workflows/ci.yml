@@ -205,7 +205,7 @@ jobs:
               fi
             done
             test_paths+=("test/test_model/test_sparse")
-            NUMBA_DISABLE_JIT=1 PYTHONPATH="/tmp/spine-sitecustomize:${PYTHONPATH:-}" pytest --model-tests "${test_paths[@]}" \
+            NUMBA_DISABLE_JIT=1 PYTHONPATH="/tmp/spine-sitecustomize:${PYTHONPATH:-}" pytest "${test_paths[@]}" \
               -v \
               --cov=spine \
               --cov-report=xml:coverage.xml \
@@ -243,7 +243,7 @@ jobs:
           "${MODEL_IMAGE}" \
           bash -lc '
             python -m pip install --root-user-action=ignore -e . pytest
-            pytest --model-tests test/test_model -v
+            pytest test/test_model -v
           '
 
   test-multiple-environments:
