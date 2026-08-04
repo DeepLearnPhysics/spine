@@ -75,6 +75,17 @@ def test_dbscan_expands_scalar_shape_parameters():
     assert clusterer.min_size == [3, 3]
     assert clusterer.metric == ["euclidean", "euclidean"]
 
+    clusterer = DBSCAN(
+        eps=(1.0, 2.0),
+        min_samples=(1, 2),
+        min_size=(3, 4),
+        metric=("euclidean", "chebyshev"),
+        shapes=(SHOWR_SHP, TRACK_SHP),
+        break_shapes=(),
+    )
+    assert clusterer.eps == [1.0, 2.0]
+    assert clusterer.metric == ["euclidean", "chebyshev"]
+
 
 def test_dbscan_rejects_inconsistent_shape_parameters():
     """Per-shape settings must match the configured number of shapes."""
@@ -135,6 +146,30 @@ def test_dbscan_label_points_break_tracks_and_remove_delta_voxels():
     assert seen["points"].shape == (2, 3)
     assert clusters.index_list[0].tolist() == [0, 2]
     assert shapes.numpy_tensor().tolist() == [TRACK_SHP]
+
+
+def test_dbscan_label_breaking_requires_coordinate_labels():
+    """Truth-driven point breaking fails clearly without point labels."""
+    data, segmentation = make_data([TRACK_SHP])
+    clusterer = DBSCAN(
+        shapes=(TRACK_SHP,),
+        break_shapes=(TRACK_SHP,),
+        use_label_break_points=True,
+    )
+
+    with pytest.raises(ValueError, match="must provide them"):
+        clusterer(data, segmentation)
+
+
+def test_dbscan_nontrack_break_shape_uses_masked_method():
+    """Non-track point splitting always uses the masked DBSCAN strategy."""
+    clusterer = DBSCAN(
+        shapes=(SHOWR_SHP,),
+        break_shapes=(SHOWR_SHP,),
+        ppn_predictor={},
+    )
+
+    assert clusterer.clusterers[0].method == "masked_dbscan"
 
 
 def test_dbscan_uses_predicted_points_and_filters_delta_points():

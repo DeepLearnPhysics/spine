@@ -90,7 +90,7 @@ class SparseResidualEncoder(UResNetEncoder):
         elif pool_mode == "conv":
             # Strided convolution
             spatial_size = self.spatial_size
-            if spatial_size is None:  # Constructor validation narrows the type.
+            if spatial_size is None:  # pragma: no cover - validated in __init__
                 raise RuntimeError("Convolutional pooling requires `spatial_size`.")
             final_tensor_shape = spatial_size // (2 ** (self.depth - 1))
             self.pool = torch.nn.Sequential(
@@ -137,7 +137,7 @@ class SparseResidualEncoder(UResNetEncoder):
         # If requested, append the normalized coordinates to the feature tensor
         if self.coord_conv:
             spatial_size = self.spatial_size
-            if spatial_size is None:  # Constructor validation narrows the type.
+            if spatial_size is None:  # pragma: no cover - validated in __init__
                 raise RuntimeError("Coordinate convolution requires `spatial_size`.")
             normalized_coords = x[:, 1 : self.dimension + 1] / spatial_size
             features = torch.cat([normalized_coords, features], dim=1)

@@ -74,7 +74,7 @@ class AggregationOperations:
             return clusts, shapes, None
 
         shape_index = np.flatnonzero(mask)
-        cluster_list = np.asarray(clusts.index_list, dtype=object)[shape_index]
+        cluster_list = [clusts.index_list[index] for index in shape_index]
         restricted = IndexBatch(
             cluster_list,
             spans=clusts.spans,

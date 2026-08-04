@@ -60,7 +60,7 @@ class UResNetPPN(torch.nn.Module):
         self.ppn = PPN(uresnet, ppn)
 
         # Check that the UResNet and PPN configurations are compatible
-        if self.uresnet.ghost != self.ppn.ghost:
+        if self.uresnet.ghost != self.ppn.ghost:  # pragma: no cover - shared config
             raise ValueError("Expected `self.uresnet.ghost == self.ppn.ghost`.")
         self.ghost = self.uresnet.ghost
 

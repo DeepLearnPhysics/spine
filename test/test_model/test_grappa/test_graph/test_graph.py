@@ -200,3 +200,38 @@ def test_delaunay_falls_back_for_degenerate_triangulation(monkeypatch):
     )
     edges = DelaunayGraph._generate_entry(points, clusters, cluster_ids)
     assert edges.tolist() == [[0], [1]]
+
+    monkeypatch.setattr(
+        module,
+        "Delaunay",
+        lambda *_args, **_kwargs: SimpleNamespace(simplices=np.array([[0, 2]])),
+    )
+    edges = DelaunayGraph._generate_entry(points, clusters, cluster_ids)
+    assert edges.tolist() == [[0], [1]]
+
+
+def test_graph_count_helpers_handle_empty_edges() -> None:
+    """Empty graph collections retain one zero count per batch entry."""
+    counts = CompleteGraph.edge_counts(
+        np.empty((2, 0), dtype=np.int64),
+        np.array([0, 1], dtype=np.int64),
+        2,
+    )
+    assert counts.tolist() == [0, 0]
+
+
+def test_delaunay_generate_handles_only_singleton_graphs(graph_data) -> None:
+    """A batch containing only singleton graphs produces a typed empty index."""
+    from spine.data import IndexBatch
+
+    clusters = IndexBatch(
+        [np.array([0]), np.array([2])],
+        spans=[2, 1],
+        counts=[1, 1],
+        single_counts=[1, 1],
+    )
+    edges, counts = DelaunayGraph().generate(
+        data=graph_data, clusts=clusters, dist_mat=None
+    )
+    assert edges.shape == (2, 0)
+    assert counts.tolist() == [0, 0]

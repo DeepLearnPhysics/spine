@@ -15,7 +15,13 @@ from spine.model.full_chain import FullChain, FullChainLoss, process_chain_confi
 from spine.model.full_chain.config import build_chain_plan
 from spine.model.full_chain.ops import AggregationOperations
 from spine.model.full_chain.providers.aggregation import (
+    GrapPALossStage,
+    InteractionAggregationStage,
+    ParticleAggregationStage,
     build_interaction_aggregation_loss,
+    build_interaction_aggregation_stage,
+    build_particle_aggregation_loss,
+    build_particle_aggregation_stage,
 )
 from spine.model.full_chain.providers.fragmentation import (
     FragmentationStage,
@@ -170,6 +176,22 @@ def test_provider_registry_rejects_duplicates_and_resolves_import_paths() -> Non
         provider_spec("pytest:mark")
     with pytest.raises(ValueError, match="Unknown full-chain provider"):
         provider_spec("missing_provider")
+
+
+def test_provider_registry_lazily_imports_builtin(monkeypatch) -> None:
+    """A missing builtin registration triggers its provider-module import."""
+    import spine.model.full_chain.registry as registry
+
+    saved = registry._PROVIDERS.pop("segmentation")
+
+    def fake_import(_module):
+        registry._PROVIDERS["segmentation"] = saved
+
+    monkeypatch.setattr(registry, "import_module", fake_import)
+    try:
+        assert provider_spec("segmentation") is saved
+    finally:
+        registry._PROVIDERS["segmentation"] = saved
 
 
 def test_native_plan_resolves_used_and_loss_blocks() -> None:
@@ -442,6 +464,13 @@ def test_segmentation_stages_validate_modes_and_required_inputs() -> None:
     label_stage = SegmentationStage("semantic", "label", None, adapter)
     with pytest.raises(ValueError, match="requires `seg_label`"):
         label_stage(ChainState(data=make_data()))
+    label_result = label_stage(
+        ChainState(
+            data=make_data(),
+            seg_label=TensorBatch(torch.tensor([0, 1, 1, 0]), [4]),
+        )
+    )
+    assert label_result.products["seg_pred"].counts.tolist() == [4]
 
     learned_stage = SegmentationStage("semantic", "uresnet", None, adapter)
     with pytest.raises(RuntimeError, match="not initialized"):
@@ -511,6 +540,38 @@ def test_segmentation_loss_builder_validates_configuration() -> None:
         build_segmentation_loss("semantic", {"loss": {}, "uresnet_ppn": []}, owner)
     with pytest.raises(ValueError, match="requires a `uresnet`"):
         build_segmentation_loss("semantic", {"loss": {}}, owner)
+
+
+def test_segmentation_builders_register_standalone_modules(monkeypatch) -> None:
+    """Valid standalone segmentation blocks are attached to their owners."""
+
+    class FakeModel(torch.nn.Module):
+        def __init__(self, _config):
+            super().__init__()
+
+    class FakeLoss(torch.nn.Module):
+        def __init__(self, _model, _loss):
+            super().__init__()
+
+    monkeypatch.setattr(
+        "spine.model.full_chain.providers.segmentation.UResNetSegmentation",
+        FakeModel,
+    )
+    monkeypatch.setattr(
+        "spine.model.full_chain.providers.segmentation.SegmentationLoss", FakeLoss
+    )
+    model_owner = torch.nn.Module()
+    stage = build_segmentation_stage(
+        "semantic", {"mode": "uresnet", "uresnet": {}}, model_owner
+    )
+    loss_owner = torch.nn.Module()
+    loss_stage = build_segmentation_loss(
+        "semantic", {"uresnet": {}, "loss": {}}, loss_owner
+    )
+
+    assert model_owner.uresnet is stage.model
+    assert loss_stage is not None
+    assert loss_owner.uresnet_loss is loss_stage.loss
 
 
 def test_label_fragmentation_uses_structured_shape_field() -> None:
@@ -599,6 +660,56 @@ def test_fragmentation_loss_builder_validates_blocks() -> None:
         )
 
 
+def test_dbscan_fragmentation_executes_and_builds(monkeypatch) -> None:
+    """DBSCAN outputs merge into the canonical empty fragment collection."""
+
+    class FakeDBSCAN(torch.nn.Module):
+        shapes = [0, 1, 2, 3]
+
+        def __init__(self, **_config):
+            super().__init__()
+
+        def forward(self, data, seg_pred, coord_label=None, **outputs):
+            assert outputs == {"ppn_points": "points"}
+            clusts, shapes = make_clusters()
+            return clusts, shapes
+
+    monkeypatch.setattr(
+        "spine.model.full_chain.providers.fragmentation.DBSCAN", FakeDBSCAN
+    )
+    owner = torch.nn.Module()
+    stage = build_fragmentation_stage(
+        "fragments", {"mode": "dbscan", "dbscan": {}}, owner
+    )
+    state = ChainState(
+        data=make_data(),
+        seg_pred=TensorBatch(torch.zeros(4, dtype=torch.long), [4]),
+    )
+    state.outputs["ppn_points"] = "points"
+    result = stage(state)
+
+    assert owner.dbscan is stage.dbscan
+    assert len(result.products["fragment_clusts"].index_list) == 2
+
+
+def test_fragmentation_builder_rejects_incomplete_shape_ownership(monkeypatch) -> None:
+    """Configured fragmenters must collectively cover each supported shape."""
+
+    class PartialDBSCAN(torch.nn.Module):
+        shapes = [0]
+
+        def __init__(self, **_config):
+            super().__init__()
+
+    monkeypatch.setattr(
+        "spine.model.full_chain.providers.fragmentation.DBSCAN", PartialDBSCAN
+    )
+    with pytest.raises(ValueError, match="collectively own"):
+        build_fragmentation_stage(
+            "fragments", {"mode": "dbscan", "dbscan": {}}, torch.nn.Module()
+        )
+
+
 def test_group_builder_falls_back_when_primary_is_missing() -> None:
     """Primary-aware grouping falls back to the full group when necessary."""
     clusts, shapes = make_clusters()
@@ -616,6 +727,29 @@ def test_group_builder_falls_back_when_primary_is_missing() -> None:
     assert [group.tolist() for group in groups.index_list] == [[0, 1, 2, 3]]
     assert group_shapes.numpy_tensor().tolist() == [SHOWR_SHP]
     assert primaries.index_list[0].tolist() == [0, 1, 2, 3]
+
+
+def test_grappa_builder_validates_and_registers_group_model(monkeypatch) -> None:
+    """Aggregation's native-model helper owns only group-producing GrapPAs."""
+    from spine.model.full_chain.providers.aggregation import _build_grappa
+
+    with pytest.raises(ValueError, match="requires a `particle_grappa` block"):
+        _build_grappa("particle_grappa", None, torch.nn.Module())
+
+    class FakeGrapPA(torch.nn.Module):
+        def __init__(self, config):
+            super().__init__()
+            self.make_groups = config["make_groups"]
+
+    monkeypatch.setattr(
+        "spine.model.full_chain.providers.aggregation.GrapPA", FakeGrapPA
+    )
+    with pytest.raises(ValueError, match="make_groups: true"):
+        _build_grappa("particle_grappa", {"make_groups": False}, torch.nn.Module())
+
+    owner = torch.nn.Module()
+    model = _build_grappa("particle_grappa", {"make_groups": True}, owner)
+    assert owner.particle_grappa is model
 
 
 def test_group_builder_uses_primary_shape_and_voxels() -> None:
@@ -693,6 +827,55 @@ def test_aggregation_input_preparation_covers_optional_features() -> None:
     assert result["points"] is expected_points
 
 
+def test_aggregation_input_derives_truth_points(monkeypatch) -> None:
+    """A truth-only GrapPA path derives endpoints from the two label products."""
+    operations = AggregationOperations()
+    clusts, shapes = make_clusters()
+    expected = TensorBatch(torch.zeros((2, 6)), [2])
+    monkeypatch.setattr(
+        "spine.model.full_chain.ops.get_cluster_points_label_batch",
+        lambda *_args, **_kwargs: expected,
+    )
+    encoder = SimpleNamespace(
+        add_points=True,
+        add_value=False,
+        add_shape=False,
+        random_order=True,
+    )
+    result = operations.prepare_grappa_input(
+        SimpleNamespace(node_encoder=encoder),
+        {},
+        make_data(),
+        clusts,
+        shapes,
+        clust_label=make_cluster_label(),
+        coord_label=TensorBatch(torch.zeros((2, 6)), [2]),
+    )
+    assert result["points"] is expected
+
+
+def test_grappa_execution_requires_logits_for_primary_grouping() -> None:
+    """Primary-aware group building requires a node-classification head."""
+    operations = AggregationOperations()
+    operations.prepare_grappa_input = lambda *_args, **_kwargs: {}
+    clusts, shapes = make_clusters()
+
+    class Model:
+        def __call__(self, **_inputs):
+            return {"group_pred": TensorBatch(np.array([0, 0]), [2])}
+
+    with pytest.raises(ValueError, match="requires `node_pred`"):
+        operations.run_grappa(
+            Model(),
+            {},
+            make_data(),
+            clusts,
+            shapes,
+            [SHOWR_SHP, TRACK_SHP],
+            shape_use_primary=True,
+        )
+
+
 def test_truth_grouping_restricts_shapes_and_retains_primaries() -> None:
     """Truth aggregation shares semantic restriction and primary logic."""
     clusts, shapes = make_clusters()
@@ -709,6 +892,227 @@ def test_truth_grouping_restricts_shapes_and_retains_primaries() -> None:
     assert groups.index_list[0].tolist() == [0, 1]
     assert group_shapes.numpy_tensor().tolist() == [SHOWR_SHP]
     assert primaries.index_list[0].tolist() == [0, 1]
+
+
+def test_particle_aggregation_skip_and_label_paths() -> None:
+    """Particle aggregation promotes fragments or groups them from truth."""
+    data = make_data()
+    clusts, shapes = make_clusters()
+    operations = AggregationOperations()
+    state = ChainState(data=data, fragment_clusts=clusts, fragment_shapes=shapes)
+    stage = ParticleAggregationStage(
+        "particles",
+        {"shower": "skip", "track": "skip", "particle": None},
+        {},
+        operations,
+    )
+
+    result = stage(state)
+
+    assert len(result.products["particle_clusts"].index_list) == 2
+    assert result.products["particle_shapes"].numpy_tensor().tolist() == [
+        SHOWR_SHP,
+        TRACK_SHP,
+    ]
+
+    label_stage = ParticleAggregationStage(
+        "particles",
+        {"shower": None, "track": None, "particle": "label"},
+        {},
+        operations,
+    )
+    with pytest.raises(ValueError, match="requires `clust_label`"):
+        label_stage(state)
+
+    label_state = ChainState(
+        data=data,
+        fragment_clusts=clusts,
+        fragment_shapes=shapes,
+        clust_label=make_cluster_label(),
+    )
+    assert len(label_stage(label_state).products["particle_clusts"].index_list) == 2
+
+    disabled = ParticleAggregationStage(
+        "particles",
+        {"shower": None, "track": None, "particle": None},
+        {},
+        operations,
+    )
+    with pytest.raises(RuntimeError, match="disabled"):
+        disabled._run_path("particle", [SHOWR_SHP], False, state)
+
+
+def test_particle_aggregation_merges_grappa_diagnostics() -> None:
+    """Separate learned paths restore fragment-aligned native diagnostics."""
+    data = make_data()
+    clusts, shapes = make_clusters()
+
+    class Operations:
+        def run_grappa(self, *args, **kwargs):
+            selected, selected_shapes, selected_index = (
+                AggregationOperations.restrict_clusters(
+                    clusts,
+                    shapes,
+                    [SHOWR_SHP],
+                )
+            )
+            native = {
+                "start_points": TensorBatch(torch.ones((1, 3)), [1]),
+                "end_points": TensorBatch(torch.ones((1, 3)), [1]),
+                "node_pred": TensorBatch(torch.ones((1, 2)), [1]),
+                "group_pred": TensorBatch(np.zeros(1, dtype=np.int64), [1]),
+            }
+            return selected, selected_shapes, selected, selected_index, native
+
+    stage = ParticleAggregationStage(
+        "particles",
+        {"shower": "grappa", "track": None, "particle": None},
+        {"shower": object()},
+        Operations(),
+    )
+    result = stage(
+        ChainState(data=data, fragment_clusts=clusts, fragment_shapes=shapes)
+    )
+
+    assert result.outputs["fragment_start_points"].shape == (2, 3)
+    assert result.outputs["fragment_group_pred"].numpy_tensor().tolist() == [1, 0]
+
+
+def test_interaction_aggregation_modes_and_task_ownership() -> None:
+    """Interaction grouping validates context and suppresses image-owned heads."""
+    with pytest.raises(ValueError, match="mode must be"):
+        InteractionAggregationStage("inter", "skip", None, AggregationOperations())
+
+    data = make_data()
+    clusts, shapes = make_clusters()
+    state = ChainState(
+        data=data,
+        particle_clusts=clusts,
+        particle_shapes=shapes,
+        particle_primaries=clusts,
+    )
+    label_stage = InteractionAggregationStage(
+        "inter", "label", None, AggregationOperations()
+    )
+    with pytest.raises(ValueError, match="requires `clust_label`"):
+        label_stage(state)
+
+    label_state = ChainState(
+        data=data,
+        particle_clusts=clusts,
+        particle_shapes=shapes,
+        particle_primaries=clusts,
+        clust_label=make_cluster_label(),
+    )
+    assert len(label_stage(label_state).products["interaction_clusts"].index_list) == 2
+
+    no_model = InteractionAggregationStage(
+        "inter", "grappa", None, AggregationOperations()
+    )
+    with pytest.raises(RuntimeError, match="not initialized"):
+        no_model(state)
+
+    class Model:
+        node_type = [SHOWR_SHP, TRACK_SHP]
+
+    class Operations:
+        def run_grappa(self, *args, **kwargs):
+            native = {
+                "clusts": clusts,
+                "node_type_pred": TensorBatch(torch.zeros((2, 2)), [2]),
+                "node_primary_pred": TensorBatch(torch.zeros((2, 2)), [2]),
+                "edge_pred": TensorBatch(torch.zeros((1, 2)), [1]),
+            }
+            return clusts, shapes, clusts, None, native
+
+    stage = InteractionAggregationStage(
+        "inter",
+        "grappa",
+        Model(),
+        Operations(),
+        {"type": "image"},
+    )
+    result = stage(state)
+    assert "particle_node_type_pred" not in result.outputs
+    assert "particle_node_primary_pred" in result.outputs
+    assert "particle_edge_pred" in result.outputs
+
+
+def test_grappa_loss_stage_restores_native_namespace() -> None:
+    """The full-chain loss adapter strips its public aggregation prefix."""
+    seen = {}
+
+    class Loss:
+        def __call__(self, **kwargs):
+            seen.update(kwargs)
+            return {"loss": torch.tensor(0.0)}
+
+    stage = GrapPALossStage("loss", "fragment_", Loss())
+    with pytest.raises(ValueError, match="requires `clust_label`"):
+        stage({})
+
+    label = make_cluster_label()
+    result = stage(
+        {
+            "clust_label": label,
+            "fragment_node_pred": object(),
+            "unrelated": object(),
+        }
+    )
+    assert result["loss"] == 0.0
+    assert seen["clust_label"] is label
+    assert "node_pred" in seen
+    assert "unrelated" not in seen
+
+
+def test_aggregation_builders_validate_modes_and_loss_mappings(monkeypatch) -> None:
+    """Aggregation builders reject contradictory and malformed configurations."""
+    owner = torch.nn.Module()
+    with pytest.raises(ValueError, match="Unknown shower"):
+        build_particle_aggregation_stage(
+            "particles", {"shower_aggregation": "mystery"}, owner
+        )
+    with pytest.raises(ValueError, match="requires GrapPA shower"):
+        build_particle_aggregation_stage(
+            "particles",
+            {"shower_aggregation": "skip", "shower_primary": "grappa"},
+            owner,
+        )
+    with pytest.raises(ValueError, match="not both"):
+        build_particle_aggregation_stage(
+            "particles",
+            {"particle_aggregation": "skip", "track_aggregation": "skip"},
+            owner,
+        )
+    with pytest.raises(ValueError, match="string `mode`"):
+        build_interaction_aggregation_stage("inter", {}, owner)
+    with pytest.raises(TypeError, match="task_modes"):
+        build_interaction_aggregation_stage(
+            "inter", {"mode": "label", "task_modes": []}, owner
+        )
+
+    with pytest.raises(TypeError, match="configuration must be a mapping"):
+        build_particle_aggregation_loss("loss", {"loss": [{}]}, owner)
+    assert build_particle_aggregation_loss("loss", {}, owner) is None
+    assert (
+        build_particle_aggregation_loss("loss", {"loss": {"shower": None}}, owner)
+        is None
+    )
+    with pytest.raises(TypeError, match="must be a mapping"):
+        build_particle_aggregation_loss("loss", {"loss": {"shower": []}}, owner)
+
+    assert build_interaction_aggregation_loss("loss", {}, owner) is None
+    with pytest.raises(TypeError, match="must be a mapping"):
+        build_interaction_aggregation_loss("loss", {"loss": []}, owner)
+    with pytest.raises(ValueError, match="ambiguous"):
+        build_interaction_aggregation_loss(
+            "loss",
+            {
+                "task_modes": {"type": "image"},
+                "loss": {"node_loss": {"name": "class", "target": "pid"}},
+            },
+            owner,
+        )
 
 
 def test_full_chain_loss_aggregates_and_validates_stage_results() -> None:
@@ -914,6 +1318,16 @@ def test_particle_image_builder_validates_provider_contract(config, error, messa
         build_particle_image_stage("particle_tasks", config, torch.nn.Module())
 
 
+def test_image_head_name_helper_rejects_malformed_heads() -> None:
+    """The canonical task mapper validates direct callers as well as builders."""
+    from spine.model.full_chain.providers.image import _head_names
+
+    with pytest.raises(ValueError, match="must be a mapping"):
+        _head_names({"heads": []})
+    with pytest.raises(ValueError, match="nonempty strings"):
+        _head_names({"heads": {1: 2}})
+
+
 def test_particle_image_builder_validates_legacy_task_ownership() -> None:
     """Every legacy task delegated to images needs a corresponding head."""
     with pytest.raises(ValueError, match="missing heads: primary"):
@@ -946,6 +1360,33 @@ def test_particle_image_loss_builder_handles_optional_and_invalid_loss() -> None
             {"loss": [], "image": {}},
             torch.nn.Module(),
         )
+
+
+def test_particle_image_loss_builder_constructs_native_loss() -> None:
+    """A valid image task configuration registers its native objective."""
+    owner = torch.nn.Module()
+    image = {
+        "objects": {"source": "explicit"},
+        "encoder": {
+            "name": "cnn",
+            "num_input": 1,
+            "spatial_size": 4,
+            "filters": 2,
+            "depth": 1,
+            "reps": 1,
+        },
+        "heads": {"pid": 5},
+    }
+    stage = build_particle_image_loss(
+        "particle_tasks",
+        {
+            "image": image,
+            "loss": {"pid": {"name": "classification"}},
+        },
+        owner,
+    )
+    assert stage is not None
+    assert owner.image_particle_loss is stage.loss
 
 
 def test_image_owned_task_rejects_duplicate_grappa_loss() -> None:

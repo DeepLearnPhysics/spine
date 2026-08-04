@@ -204,7 +204,7 @@ class MLPNodeLayer(torch.nn.Module):
         # features associated with certain edges
         if self.attention:
             # Make sure that the gate layer is initialized
-            if self.gate is None:
+            if self.gate is None:  # pragma: no cover - constructed with attention
                 raise RuntimeError("Attention is enabled without a gate layer.")
 
             # Compute a softmax score for nodes that share a sink

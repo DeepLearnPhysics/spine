@@ -43,7 +43,7 @@ class GraphSPICEEmbedder(sparse.Network):
             raise ValueError(
                 "Must provide a spatial size to compute normalized coordinates."
             )
-        if spatial_size <= 0:
+        if spatial_size <= 0:  # pragma: no cover - UResNet rejects this first
             raise ValueError("`spatial_size` must be positive.")
         self.spatial_size = spatial_size
 

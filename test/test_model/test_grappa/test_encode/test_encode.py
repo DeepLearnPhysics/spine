@@ -75,6 +75,55 @@ def test_mixed_node_encoder_combines_numpy_and_torch_features(
     assert not output.is_numpy
 
 
+def test_mixed_node_encoder_rejects_auxiliary_points(graph_data, graph_clusters):
+    """Mixed encoding cannot propagate the geometric encoder's tuple output."""
+    encoder = ClustGeoCNNMixNodeEncoder(
+        geo_encoder={},
+        cnn_encoder=CNN_CONFIG,
+    )
+
+    class AuxiliaryEncoder(torch.nn.Module):
+        def forward(self, *_args, **_kwargs):
+            return object(), object()
+
+    encoder.geo_encoder = AuxiliaryEncoder()
+    with pytest.raises(ValueError, match="auxiliary points"):
+        encoder(graph_data.to_tensor(), graph_clusters)
+
+
+def test_geometric_encoder_requires_structured_labels_for_derived_points(
+    graph_data, graph_clusters
+):
+    """Endpoint derivation from coordinate labels requires particle mappings."""
+    encoder = ClustGeoNodeEncoder(add_points=True)
+    coord_label = TensorBatch(torch.zeros((3, 6)), graph_clusters.counts)
+    with pytest.raises(TypeError, match="structured cluster labels"):
+        encoder(graph_data.to_tensor(), graph_clusters, coord_label=coord_label)
+
+
+def test_geometric_encoder_orients_principal_axis(
+    monkeypatch, graph_data, graph_clusters
+):
+    """A negative spread score flips the otherwise sign-ambiguous PCA axis."""
+    import spine.model.grappa.encode.geometric as geometric
+
+    original_dot = geometric.torch.dot
+    calls = []
+
+    def negative_orientation(left, right):
+        calls.append((left, right))
+        return left.new_tensor(-1.0)
+
+    monkeypatch.setattr(geometric.torch, "dot", negative_orientation)
+    features = ClustGeoNodeEncoder(use_numpy=False).get_base_features(
+        graph_data.to_tensor(), graph_clusters, False, False
+    )
+    monkeypatch.setattr(geometric.torch, "dot", original_dot)
+
+    assert features.shape == (3, 16)
+    assert calls
+
+
 def test_empty_encoders_preserve_graph_batching(graph_data, graph_clusters):
     """Empty encoders emit zero-width features with canonical item counts."""
     data = graph_data.to_tensor()
@@ -278,6 +327,7 @@ def test_torch_geometric_node_encoder_covers_scalar_and_empty_clusters(
     graph_clusters,
 ):
     """Torch geometry includes deposition statistics, shape and empty output."""
+    graph_labels = graph_labels.to_tensor()
     encoder = ClustGeoNodeEncoder(
         use_numpy=False,
         add_value=True,

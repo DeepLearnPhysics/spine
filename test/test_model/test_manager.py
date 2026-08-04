@@ -488,6 +488,45 @@ def test_manager_wraps_network_and_loss_construction_errors(monkeypatch):
         )
 
 
+def test_manager_configures_ranked_device_anomaly_and_ddp(monkeypatch):
+    """Ranked managers use the selected CUDA device and optional runtime hooks."""
+    calls = {}
+
+    class Network(torch.nn.Module):
+        def to(self, **kwargs):
+            calls["to"] = kwargs
+            return self
+
+    monkeypatch.setattr(
+        "spine.model.manager.model_factory", lambda _name: (Network, None)
+    )
+    monkeypatch.setattr(torch.cuda, "current_device", lambda: 2)
+    monkeypatch.setattr(
+        torch.autograd,
+        "set_detect_anomaly",
+        lambda enabled, check_nan: calls.update(anomaly=(enabled, check_nan)),
+    )
+
+    def wrap(module, **kwargs):
+        calls["ddp"] = kwargs
+        return module
+
+    monkeypatch.setattr(torch.nn.parallel, "DistributedDataParallel", wrap)
+    manager = ModelManager(
+        name="test",
+        modules={},
+        network_input={},
+        rank=1,
+        distributed=True,
+        detect_anomaly=True,
+    )
+
+    assert manager.device == "cuda:2"
+    assert calls["to"]["device"] == "cuda:2"
+    assert calls["anomaly"] == (True, True)
+    assert calls["ddp"]["device_ids"] == [2]
+
+
 def test_manager_weight_path_selection_and_validation(monkeypatch, tmp_path):
     """Global paths, lists, and wildcard ensembles are mutually consistent."""
 
@@ -593,4 +632,118 @@ def test_module_weight_path_must_exist(tmp_path):
         net=torch.nn.Linear(1, 1),
     )
     with pytest.raises(ValueError, match="Weight file not found for module"):
+        manager.load_weights(None)
+
+
+def test_load_weights_supports_legacy_torch_and_restores_optimizer(
+    monkeypatch, tmp_path
+):
+    """Checkpoint loading retries old Torch APIs and restores training state."""
+    path = tmp_path / "main.ckpt"
+    path.touch()
+    net = torch.nn.Linear(1, 1)
+    checkpoint = {
+        "state_dict": net.state_dict(),
+        "optimizer": {"state": "restored"},
+        "global_step": 6,
+    }
+    calls = []
+
+    def load(_file, **kwargs):
+        calls.append(kwargs)
+        if "weights_only" in kwargs:
+            raise TypeError("unexpected keyword argument 'weights_only'")
+        return checkpoint
+
+    optimizer = SimpleNamespace(
+        load_state_dict=lambda state: calls.append({"optimizer": state})
+    )
+    manager = make_bare_manager(
+        model_name="test",
+        model_cfg={
+            "test": {
+                "weight_path": str(path),
+                "model_name": "test",
+            }
+        },
+        net=net,
+        train=True,
+        restore_optimizer=True,
+        optimizer=optimizer,
+    )
+    monkeypatch.setattr(torch, "load", load)
+    manager.load_weights(None)
+
+    assert len(calls) == 3
+    assert calls[-1] == {"optimizer": checkpoint["optimizer"]}
+    assert manager.start_iteration == 7
+
+
+def test_load_weights_does_not_hide_unrelated_type_errors(monkeypatch, tmp_path):
+    """The compatibility retry catches only unsupported `weights_only` APIs."""
+    path = tmp_path / "bad-api.ckpt"
+    path.touch()
+    manager = make_bare_manager(
+        model_name="test",
+        model_cfg={"test": {"weight_path": str(path)}},
+        net=torch.nn.Linear(1, 1),
+    )
+    monkeypatch.setattr(
+        torch,
+        "load",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(TypeError("bad file object")),
+    )
+    with pytest.raises(TypeError, match="bad file object"):
+        manager.load_weights(None)
+
+
+def test_load_weights_translates_nested_module_names(tmp_path) -> None:
+    """Nested checkpoints remap their historical module prefix."""
+
+    class Network(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.encoder = torch.nn.Linear(1, 1)
+
+    path = tmp_path / "encoder.ckpt"
+    net = Network()
+    torch.save(
+        {
+            "state_dict": {
+                "old.weight": net.encoder.weight.detach().clone(),
+                "old.bias": net.encoder.bias.detach().clone(),
+            },
+            "global_step": 0,
+        },
+        path,
+    )
+    manager = make_bare_manager(
+        model_name="test",
+        model_cfg={
+            "encoder": {
+                "weight_path": str(path),
+                "model_name": "old",
+            }
+        },
+        net=net,
+    )
+    manager.load_weights(None)
+    assert manager.start_iteration == 0
+
+
+def test_load_weights_reports_missing_main_and_nested_parameters(tmp_path) -> None:
+    """Incomplete checkpoints identify both direct and remapped missing keys."""
+    path = tmp_path / "bad.ckpt"
+    torch.save({"state_dict": {}, "global_step": 0}, path)
+    net = torch.nn.Sequential(torch.nn.Linear(1, 1))
+    manager = make_bare_manager(
+        model_name="test",
+        model_cfg={"test": {"weight_path": str(path)}},
+        net=net,
+    )
+    with pytest.raises(ValueError, match="all necessary parameters"):
+        manager.load_weights(None)
+
+    manager.model_cfg = {"0": {"weight_path": str(path), "model_name": "old"}}
+    with pytest.raises(ValueError, match="all necessary parameters"):
         manager.load_weights(None)

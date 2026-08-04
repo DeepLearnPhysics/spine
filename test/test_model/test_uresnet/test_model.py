@@ -103,6 +103,28 @@ def test_point_weights_are_tensors_and_do_not_mutate_input_weights():
     assert torch.equal(input_weights.tensor, torch.tensor([2.0, 2.0]))
     assert torch.equal(result["weights"].tensor, torch.tensor([6.0, 8.0]))
 
+    result = loss_fn(
+        labels,
+        segmentation,
+        point_label=labels,
+    )
+    assert torch.equal(result["weights"].tensor, torch.tensor([3.0, 4.0]))
+
+
+def test_ghost_loss_filters_point_weights():
+    """Ghost masking narrows point-derived weights to non-ghost voxels."""
+    loss_fn = make_loss(ghost=True)
+    loss_fn.upweight_points = True
+    loss_fn.get_distance_weights = lambda *_: torch.tensor([2.0, 3.0])
+    labels = make_labels([0, GHOST_SHP])
+    segmentation = make_logits([[2.0, 0.0], [0.0, 2.0]])
+    ghost = make_logits([[2.0, 0.0], [0.0, 2.0]])
+
+    result = loss_fn(labels, segmentation, ghost=ghost, point_label=labels)
+
+    assert result["weights"].shape == (1,)
+    assert result["weights"].torch_tensor().item() == 2.0
+
 
 def test_empty_segmentation_loss_remains_differentiable():
     loss_fn = make_loss()

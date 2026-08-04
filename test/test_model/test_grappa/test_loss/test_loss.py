@@ -446,6 +446,20 @@ def test_node_class_closest_label_contract(
     assert result["count"] == 3
     np.testing.assert_array_equal(captured[0], [-1, -1])
 
+    list_default_loss = NodeClassLoss(
+        target="shape",
+        use_closest=True,
+        secondary_label=[0, 1],
+    )
+    result = list_default_loss(
+        graph_labels,
+        graph_clusters,
+        prediction,
+        coord_label=coord_label,
+    )
+    assert result["count"] == 3
+    np.testing.assert_array_equal(captured[-1], [0, 1])
+
 
 def test_shower_primary_options(graph_labels, graph_clusters, monkeypatch):
     """Shower-primary supervision supports closest and purity selections."""

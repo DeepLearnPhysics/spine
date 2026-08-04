@@ -289,7 +289,7 @@ class MCDropoutEncoder(sparse.Network):
         features = x[:, self.dimension + 1 :]
         if self.coord_conv:
             spatial_size = self.spatial_size
-            if spatial_size is None:  # Constructor validation narrows at runtime.
+            if spatial_size is None:  # pragma: no cover - validated in __init__
                 raise RuntimeError("`coord_conv` requires `spatial_size`.")
             normalized = coords[:, 1:] / spatial_size
             features = torch.cat((normalized, features), dim=1)

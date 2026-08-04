@@ -318,7 +318,9 @@ class PPN(sparse.Network):
         if self.ghost:
             ghost_mask_layer = self.ghost_mask
             masker = self.masker
-            if ghost_mask_layer is None or masker is None:
+            if (  # pragma: no cover - both modules are constructed with ghost mode
+                ghost_mask_layer is None or masker is None
+            ):
                 raise RuntimeError(
                     "Ghost-enabled PPN is missing its ghost-processing modules."
                 )
@@ -402,7 +404,9 @@ class PPN(sparse.Network):
             # Merge with the UesNet decoding features
             decoder_tensor = decoder_feature_maps[level]
             if self.ghost:
-                if self.merge_concat is None or self.masker is None:
+                if (  # pragma: no cover - both modules are constructed with ghost mode
+                    self.merge_concat is None or self.masker is None
+                ):
                     raise RuntimeError("Ghost-enabled PPN is missing its merge module.")
                 x = self.masker(x, decoder_ghost_masks[level])
                 x = self.merge_concat(decoder_tensor, x)
@@ -463,12 +467,16 @@ class PPN(sparse.Network):
             x = x * expanded_scores.detach()
 
         # Output set of coordinates (should match the last decoder tensor)
-        if x.coordinates.shape[0] != decoder_feature_maps[-1].shape[0]:
+        if (  # pragma: no cover - decoder construction preserves its site count
+            x.coordinates.shape[0] != decoder_feature_maps[-1].shape[0]
+        ):
             raise ValueError(
                 "The output of the last PPN layer should be consistent "
                 "with the length of the last UResNet decoder layer"
             )
-        if not torch.equal(x.coordinates, decoder_feature_maps[-1].coordinates):
+        if not torch.equal(  # pragma: no cover - decoder maps share coordinates
+            x.coordinates, decoder_feature_maps[-1].coordinates
+        ):
             raise ValueError(
                 "The final PPN coordinates must match the highest-resolution "
                 "decoder coordinates."
@@ -1438,30 +1446,12 @@ class MergeConcat(torch.nn.Module):
         # sparse tensor addition.
         aligned_other = other_placeholder + other
 
-        # Same procedure, but with other
-        input_placeholder = sparse.SparseTensor(
-            coordinates=aligned_other.coordinates,
-            features=x.features.new_zeros(
-                (
-                    aligned_other.features.shape[0],
-                    x.features.shape[1],
-                )
-            ),
-            coordinate_manager=x.coordinate_manager,
-            tensor_stride=x.tensor_stride,
-            source=x,
-        )
-
-        aligned_input = input_placeholder + x
-
-        # Now x and other share the same coordinates and shape. Keep one
-        # coordinate-map key and concatenate only the aligned feature arrays;
-        # independently created union maps are not interchangeable in sparse
-        # backends such as MinkowskiEngine.
-        if not torch.equal(aligned_other.coordinates, aligned_input.coordinates):
-            raise RuntimeError("Failed to align sparse tensors for concatenation.")
-        return aligned_input.replace_features(
-            torch.cat((aligned_other.features, aligned_input.features), dim=1)
+        # Sparse union operations may order the same coordinates differently
+        # depending on operand order. Query the input explicitly in the union
+        # order before concatenating features on a single coordinate map.
+        aligned_input_features = x.features_at_coordinates(aligned_other.coordinates)
+        return aligned_other.replace_features(
+            torch.cat((aligned_other.features, aligned_input_features), dim=1)
         )
 
 

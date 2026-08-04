@@ -207,7 +207,7 @@ class ClustGeoNodeEncoder(torch.nn.Module):
         # Add the points
         if self.add_points:
             if points is None:
-                if coord_label is None:
+                if coord_label is None:  # pragma: no cover - validated above
                     raise RuntimeError("Point labels were validated but are missing.")
                 if not isinstance(data, ClusterLabelBatch):
                     raise TypeError(
@@ -222,7 +222,7 @@ class ClustGeoNodeEncoder(torch.nn.Module):
 
         # Add the local directions
         if self.add_local_dirs:
-            if points is None:
+            if points is None:  # pragma: no cover - constructed above
                 raise RuntimeError("Local directions require endpoint data.")
             point_tensor = points.torch_tensor()
             for cols in np.arange(point_tensor.shape[1]).reshape(-1, 3):
@@ -234,7 +234,7 @@ class ClustGeoNodeEncoder(torch.nn.Module):
 
         # Add the local dE/dx information
         if self.add_local_dedxs:
-            if points is None:
+            if points is None:  # pragma: no cover - constructed above
                 raise RuntimeError("Local dE/dx requires endpoint data.")
             point_tensor = points.torch_tensor()
             for cols in np.arange(point_tensor.shape[1]).reshape(-1, 3):
@@ -248,7 +248,7 @@ class ClustGeoNodeEncoder(torch.nn.Module):
 
         # Return
         if self.add_points:
-            if points is None:
+            if points is None:  # pragma: no cover - constructed above
                 raise RuntimeError("Endpoint data was not constructed.")
             return feats, points
 

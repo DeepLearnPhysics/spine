@@ -84,6 +84,13 @@ def test_ppn_requires_multiple_resolution_levels(cnn_config):
         PPNLoss(config, {})
 
 
+def test_ppn_validates_decoder_feature_count(cnn_config):
+    """The proposal decoder requires one UResNet feature map per level."""
+    model = PPN({**cnn_config, "num_classes": 5}, {})
+    with pytest.raises(ValueError, match="decoder tensors"):
+        model(object(), [])
+
+
 @pytest.mark.parametrize(
     ("loss_config", "message"),
     [
@@ -287,6 +294,53 @@ def test_true_ghost_mask_prunes_propagated_and_skip_features(cnn_config):
     assert torch.equal(final_coords[0, 1:], torch.tensor([1, 1, 1]))
 
 
+def test_ghost_ppn_validates_and_uses_ghost_inputs(cnn_config):
+    """Ghost PPN requires its selected mask source and supports predictions."""
+    data = TensorBatch(
+        torch.tensor([[0.0, 1.0, 1.0, 1.0, 2.0]]),
+        counts=[1],
+        has_batch_col=True,
+        coord_cols=(1, 2, 3),
+    )
+    truth_model = UResNetPPN(
+        {**cnn_config, "num_classes": 5, "ghost": True},
+        {"use_true_ghost_mask": True},
+    )
+    truth_model.eval()
+    with pytest.raises(ValueError, match="provide the `seg_label`"):
+        truth_model(data)
+
+    backbone_result = truth_model.uresnet(data)
+    with pytest.raises(ValueError, match="provide the `seg_label`"):
+        truth_model.ppn(
+            backbone_result["final_tensor"],
+            backbone_result["decoder_tensors"],
+            backbone_result["ghost_tensor"],
+        )
+    with pytest.raises(ValueError, match="label tensor length"):
+        truth_model.ppn(
+            backbone_result["final_tensor"],
+            backbone_result["decoder_tensors"],
+            backbone_result["ghost_tensor"],
+            TensorBatch(torch.zeros(2), counts=[2]),
+        )
+
+    predicted_model = UResNetPPN(
+        {**cnn_config, "num_classes": 5, "ghost": True},
+        {},
+    )
+    predicted_model.eval()
+    result = predicted_model(data)
+    assert result["ppn_points"].shape[1] == 10
+
+    backbone_result = predicted_model.uresnet(data)
+    with pytest.raises(ValueError, match="ghost prediction logits"):
+        predicted_model.ppn(
+            backbone_result["final_tensor"],
+            backbone_result["decoder_tensors"],
+        )
+
+
 def test_vertex_loss_reports_unsupported_label_contract():
     loss = VertexPPNLoss()
 
@@ -454,6 +508,12 @@ def test_ppn_loss_supervises_endpoint_and_returns_masks(cnn_config):
     assert len(result["mask_labels"]) == 1
 
 
+def test_ppn_loss_filters_requested_point_classes(cnn_config):
+    """A nonempty point-class filter retains matching proposal labels."""
+    result = PPNLoss(cnn_config, {"point_classes": [1]})(**_positive_ppn_loss_inputs())
+    assert torch.isfinite(result["loss"])
+
+
 def test_ppn_loss_validates_output_alignment(cnn_config):
     """PPN loss refuses incomplete pyramids and row-misaligned heads."""
     inputs = _positive_ppn_loss_inputs()
@@ -558,3 +618,25 @@ def test_sparse_ppn_helpers_validate_and_transform():
     )
     with pytest.raises(ValueError, match="power-of-two"):
         GhostMask()(first, target)
+
+
+def test_sparse_ppn_helpers_union_coordinates_and_downsample_masks():
+    """Sparse merge and mask helpers execute their nontrivial resolution paths."""
+    first_coords = torch.tensor([[0, 0, 0, 0]], dtype=torch.int32)
+    other_coords = torch.tensor([[0, 1, 0, 0]], dtype=torch.int32)
+    first = sparse.SparseTensor(torch.ones((1, 1)), coordinates=first_coords)
+    other = sparse.SparseTensor(
+        torch.full((1, 1), 2.0),
+        coordinates=other_coords,
+        coordinate_manager=first.coordinate_manager,
+    )
+    merged = MergeConcat()(first, other)
+    assert merged.features.shape == (2, 2)
+
+    ghost_coords = torch.tensor([[0, 0, 0, 0], [0, 1, 0, 0]], dtype=torch.int32)
+    ghost = sparse.SparseTensor(torch.tensor([[0.0], [1.0]]), coordinates=ghost_coords)
+    target = sparse.SparseTensor(
+        torch.ones((1, 1)), coordinates=first_coords, tensor_stride=2
+    )
+    downsampled = GhostMask()(ghost, target)
+    assert downsampled.tensor_stride[0] == 2

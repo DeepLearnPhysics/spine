@@ -508,6 +508,23 @@ class SparseTensor:
         queries = reference.to(device=self.C.device, dtype=self.F.dtype)
         return backend.features_at_coordinates(self.backend_tensor, queries)
 
+    def features_at_coordinates(self, coordinates: torch.Tensor) -> torch.Tensor:
+        """Query features at batched coordinates in the requested row order.
+
+        Parameters
+        ----------
+        coordinates : torch.Tensor
+            ``(N, D + 1)`` batch-and-spatial coordinate matrix. Coordinates
+            absent from this sparse tensor receive zero features.
+
+        Returns
+        -------
+        torch.Tensor
+            ``(N, C)`` feature matrix aligned with ``coordinates``.
+        """
+        queries = coordinates.to(device=self.C.device, dtype=self.F.dtype)
+        return backend.features_at_coordinates(self.backend_tensor, queries)
+
     def to_tensor_batch(
         self, *, include_coordinates: bool = True, restore: bool = False
     ) -> TensorBatch:

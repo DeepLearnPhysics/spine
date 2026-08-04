@@ -3,6 +3,7 @@
 import pytest
 
 from spine.model import sparse
+from spine.model.cnn.blocks import SEResNetBlock
 from spine.model.cnn.encoder import SparseResidualEncoder
 from spine.model.cnn.factories import encoder_factory
 from spine.model.cnn.fpn import FPN
@@ -185,6 +186,38 @@ def test_mc_dropout_components_validate_configuration(cnn_config):
         MCDropoutEncoder(cnn_config, pool_mode="median")
     with pytest.raises(ValueError, match="encoder_filters"):
         MCDropoutDecoder(cnn_config, encoder_filters=0)
+
+    config = dict(cnn_config)
+    config.pop("spatial_size")
+    with pytest.raises(ValueError, match="coord_conv.*spatial_size"):
+        MCDropoutEncoder(config, coord_conv=True)
+    with pytest.raises(ValueError, match="pool_mode: conv"):
+        MCDropoutEncoder(config, pool_mode="conv")
+
+    config = {**cnn_config, "spatial_size": 1, "depth": 3}
+    with pytest.raises(ValueError, match="too small"):
+        MCDropoutEncoder(config, pool_mode="conv")
+
+
+def test_mc_dropout_coordinate_convolution(cnn_config, sparse_table):
+    """Monte Carlo encoders append normalized coordinates when requested."""
+    encoder = MCDropoutEncoder(cnn_config, coord_conv=True, feature_size=8)
+
+    assert encoder(sparse_table).shape == (2, 8)
+
+
+def test_se_residual_block_projects_strided_identity():
+    """A strided squeeze-excitation block projects the residual branch."""
+    block = SEResNetBlock(
+        4,
+        8,
+        se_ratio=2,
+        stride=2,
+        dimension=3,
+        normalization="none",
+    )
+
+    assert isinstance(block.residual, sparse.Convolution)
 
 
 def test_mc_dropout_decoder_validates_feature_pyramid(cnn_config, sparse_table):
