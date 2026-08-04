@@ -54,3 +54,19 @@ def test_cluster_factories_reject_unsupported_components(factory, name):
     """Factories must not expose unmaintained implementation details."""
     with pytest.raises(ValueError, match=name):
         factory(name)
+
+
+@pytest.mark.parametrize(
+    ("config", "message"),
+    [
+        ("uresnet", "configuration block"),
+        ({}, "requires a `name`"),
+        ({"name": "transformer"}, "Unknown backbone"),
+    ],
+)
+def test_backbone_factory_validates_named_configuration(config, message):
+    """Backbones require a complete, registered CNN configuration block."""
+    from spine.model.graph_spice import backbone_factory
+
+    with pytest.raises(ValueError, match=message):
+        backbone_factory(config)

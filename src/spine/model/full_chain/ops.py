@@ -283,7 +283,7 @@ class AggregationOperations:
                 primary_id = None
                 if primary_b is not None:
                     candidates = members[np.asarray(primary_b[members], dtype=bool)]
-                    if len(candidates):
+                    if len(candidates) > 0:
                         primary_id = int(candidates[0])
 
                 # Determine the semantic identity of the merged object.

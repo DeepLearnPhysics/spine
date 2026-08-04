@@ -3,6 +3,12 @@
 import torch
 
 from spine.data import TensorBatch
+from spine.model.grappa.message_passing.layers import (
+    AGNNConvNodeLayer,
+    EConvNodeLayer,
+    GATConvNodeLayer,
+    NNConvNodeLayer,
+)
 from spine.model.grappa.message_passing.layers.mlp import MLPNodeLayer
 from spine.model.grappa.message_passing.meta import MetaLayerGNN
 
@@ -72,3 +78,53 @@ def test_meta_layer_runs_node_and_edge_updates():
 
     assert output["node_features"].shape == (3, 4)
     assert output["edge_features"].shape == (3, 4)
+
+
+def test_torch_geometric_node_layers_share_the_node_update_contract():
+    """All maintained PyG adapters accept the canonical graph tensors."""
+    nodes = torch.randn(3, 3)
+    edge_index = torch.tensor([[0, 1, 2], [1, 2, 0]])
+    edge_features = torch.randn(3, 2)
+    layers = [
+        (
+            AGNNConvNodeLayer(
+                node_in=3,
+                edge_in=2,
+                glob_in=0,
+                normalization="none",
+            ),
+            3,
+        ),
+        (
+            GATConvNodeLayer(
+                node_in=3,
+                edge_in=2,
+                glob_in=0,
+                out_channels=4,
+                normalization="none",
+            ),
+            4,
+        ),
+        (
+            EConvNodeLayer(
+                node_in=3,
+                edge_in=2,
+                glob_in=0,
+                mlp=MLP_CONFIG,
+            ),
+            4,
+        ),
+    ]
+
+    for layer, width in layers:
+        output = layer(nodes, edge_index, edge_features)
+        assert output.shape == (3, width)
+
+    nnconv = NNConvNodeLayer(
+        node_in=3,
+        edge_in=2,
+        glob_in=0,
+        out_channels=4,
+        mlp=MLP_CONFIG,
+    )
+    assert nnconv(nodes, edge_index, edge_features).shape == (3, 4)

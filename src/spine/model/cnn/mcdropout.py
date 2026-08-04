@@ -235,7 +235,6 @@ class MCDropoutEncoder(sparse.Network):
                     bias=self.allow_bias,
                 ),
                 sparse.Dropout(p=self.dropout_p),
-                sparse.GlobalPooling(),
             )
         raise ValueError(
             f"Unknown pooling mode '{pool_mode}'. Expected 'avg', 'sum', "

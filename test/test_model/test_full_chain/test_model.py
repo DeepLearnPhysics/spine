@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
@@ -10,25 +11,53 @@ import torch
 
 from spine.constants import GHOST_SHP, SHOWR_SHP, TRACK_SHP
 from spine.data import ClusterLabelBatch, IndexBatch, TensorBatch
-from spine.model.full_chain import FullChain
+from spine.model.full_chain import FullChain, FullChainLoss, process_chain_config
 from spine.model.full_chain.config import build_chain_plan
 from spine.model.full_chain.ops import AggregationOperations
 from spine.model.full_chain.providers.aggregation import (
     build_interaction_aggregation_loss,
 )
-from spine.model.full_chain.providers.fragmentation import FragmentationStage
+from spine.model.full_chain.providers.fragmentation import (
+    FragmentationStage,
+    GraphSPICELossStage,
+    build_fragmentation_loss,
+    build_fragmentation_stage,
+)
 from spine.model.full_chain.providers.image import (
+    ParticleImageLossStage,
     ParticleImageStage,
+    build_particle_image_loss,
     build_particle_image_stage,
 )
 from spine.model.full_chain.providers.segmentation import (
     SegmentationLossStage,
     SegmentationStage,
+    build_segmentation_loss,
+    build_segmentation_stage,
 )
-from spine.model.full_chain.registry import ProviderSpec, register_provider
+from spine.model.full_chain.registry import (
+    ProviderSpec,
+    provider_spec,
+    register_provider,
+)
 from spine.model.full_chain.stage import ChainStage
 from spine.model.full_chain.state import ChainState, StageResult
 from spine.utils.cluster.label import ClusterLabelAdapter
+
+
+class ExternalStage(ChainStage):
+    """Minimal external provider used to exercise import-path discovery."""
+
+    def forward(self, state: ChainState) -> StageResult:
+        return StageResult()
+
+
+def _build_external(name, _config, _owner):
+    """Build the import-path test provider."""
+    return ExternalStage(name)
+
+
+EXTERNAL_SPEC = ProviderSpec("test_external_import_provider", _build_external)
 
 
 def make_data(size: int = 4) -> TensorBatch:
@@ -96,6 +125,53 @@ def test_chain_state_enforces_declared_replacements() -> None:
     assert state.require("data") is replacement
 
 
+def test_chain_state_optional_required_and_output_contracts() -> None:
+    """State access reports context and public outputs remain append-only."""
+    state = ChainState(data=1, optional=None)
+    assert "data" in state
+    assert "optional" not in state
+    assert state.get("missing", 3) == 3
+    with pytest.raises(KeyError, match="for stage `consumer`"):
+        state.require("missing", "consumer")
+
+    state.publish("first", StageResult(outputs={"score": 1}))
+    with pytest.raises(ValueError, match="duplicate public output.*score"):
+        state.publish("second", StageResult(outputs={"score": 2}))
+
+
+def test_stage_validation_reports_missing_inputs_and_collisions() -> None:
+    """Provider contracts reject missing dependencies and undeclared writes."""
+
+    class TestStage(ExternalStage):
+        requires = frozenset({"input"})
+        provides = frozenset({"output"})
+
+    stage = TestStage("test")
+    with pytest.raises(ValueError, match="unavailable products: input"):
+        stage.validate(set())
+    with pytest.raises(ValueError, match="replace undeclared products: output"):
+        stage.validate({"input", "output"})
+    assert stage.validate({"input"}) == {"input", "output"}
+    with pytest.raises(KeyError, match="for stage `test`"):
+        stage(ChainState())
+
+
+def test_provider_registry_rejects_duplicates_and_resolves_import_paths() -> None:
+    """Provider discovery supports extensions without allowing collisions."""
+    first = ProviderSpec("test_duplicate_provider", _build_external)
+    assert register_provider(first) is first
+    assert register_provider(first) is first
+    with pytest.raises(ValueError, match="already registered"):
+        register_provider(ProviderSpec("test_duplicate_provider", _build_external))
+
+    imported = provider_spec(f"{__name__}:EXTERNAL_SPEC")
+    assert imported is EXTERNAL_SPEC
+    with pytest.raises(TypeError, match="not a ProviderSpec"):
+        provider_spec("pytest:mark")
+    with pytest.raises(ValueError, match="Unknown full-chain provider"):
+        provider_spec("missing_provider")
+
+
 def test_native_plan_resolves_used_and_loss_blocks() -> None:
     """Ordered configs resolve named model blocks without flattening them."""
     chain = {
@@ -117,6 +193,122 @@ def test_native_plan_resolves_used_and_loss_blocks() -> None:
     assert plan[0].loss_config == {"loss": "ce"}
 
 
+@pytest.mark.parametrize(
+    ("stages", "error", "message"),
+    [
+        (None, ValueError, "nonempty list"),
+        (["bad"], TypeError, "must be a mapping"),
+        ([{"name": "stage"}], ValueError, "requires `name` and `provider`"),
+        ([{"name": "", "provider": "test"}], ValueError, "stage names"),
+        ([{"name": "stage", "provider": None}], ValueError, "provider names"),
+        (
+            [
+                {"name": "stage", "provider": "test"},
+                {"name": "stage", "provider": "test"},
+            ],
+            ValueError,
+            "Duplicate",
+        ),
+        (
+            [{"name": "stage", "provider": "test", "config": []}],
+            TypeError,
+            "config.*mapping",
+        ),
+        (
+            [{"name": "stage", "provider": "test", "uses": [1]}],
+            TypeError,
+            "uses.*block names",
+        ),
+        (
+            [{"name": "stage", "provider": "test", "loss": []}],
+            TypeError,
+            "loss must",
+        ),
+    ],
+)
+def test_native_plan_rejects_malformed_stage_descriptors(stages, error, message):
+    """The ordered schema rejects malformed descriptors at its boundary."""
+    with pytest.raises(error, match=message):
+        build_chain_plan({"stages": stages}, {})
+
+
+def test_native_plan_validates_model_and_loss_references() -> None:
+    """Referenced blocks must exist when required and must be mappings."""
+    descriptor = {"name": "stage", "provider": "test", "uses": "model"}
+    with pytest.raises(ValueError, match="missing block `model`"):
+        build_chain_plan({"stages": [descriptor]}, {})
+
+    descriptor = {"name": "stage", "provider": "test", "loss": "objective"}
+    with pytest.raises(ValueError, match="missing loss `objective`"):
+        build_chain_plan({"stages": [descriptor]}, {}, require_losses=True)
+    assert build_chain_plan({"stages": [descriptor]}, {})[0].loss_config is None
+    with pytest.raises(TypeError, match="Loss block `objective`"):
+        build_chain_plan({"stages": [descriptor]}, {"objective": []})
+
+    descriptor["loss"] = {"node": "objective"}
+    with pytest.raises(TypeError, match="must map names"):
+        build_chain_plan(
+            {"stages": [descriptor | {"loss": {1: "objective"}}]},
+            {"objective": {}},
+        )
+    with pytest.raises(ValueError, match="missing loss `objective`"):
+        build_chain_plan({"stages": [descriptor]}, {}, require_losses=True)
+    with pytest.raises(TypeError, match="Loss block `objective`"):
+        build_chain_plan({"stages": [descriptor]}, {"objective": []})
+    assert build_chain_plan({"stages": [descriptor]}, {})[0].loss_config is None
+
+
+def test_chain_plan_rejects_invalid_top_level_schemas() -> None:
+    """Native and legacy top-level configuration contracts are unambiguous."""
+    with pytest.raises(TypeError, match="must be a mapping"):
+        build_chain_plan([], {})
+    with pytest.raises(ValueError, match="unknown keys: segmentation"):
+        build_chain_plan({"stages": [], "segmentation": "label"}, {})
+    with pytest.raises(ValueError, match="at least one stage"):
+        build_chain_plan({}, {})
+
+
+@pytest.mark.parametrize(
+    ("calibration", "message"),
+    [
+        (None, "requires a `calibration` configuration block"),
+        ({}, "requires `stage`"),
+        ({"stage": "missing"}, "target stage `missing` is not enabled"),
+    ],
+)
+def test_legacy_calibration_validates_placement(calibration, message) -> None:
+    """The unordered legacy schema needs a valid calibration insertion target."""
+    modules = {} if calibration is None else {"calibration": calibration}
+    with pytest.raises(ValueError, match=message):
+        build_chain_plan(
+            {"segmentation": "label", "calibration": "label"},
+            modules,
+        )
+
+
+def test_legacy_calibration_resolves_alias_and_precedes_target() -> None:
+    """Historical task aliases place calibration immediately before its stage."""
+    plan = build_chain_plan(
+        {
+            "fragmentation": "label",
+            "particle_aggregation": "label",
+            "particle_identification": "image",
+            "calibration": "label",
+        },
+        {
+            "image_particle": {"encoder": {}, "heads": {"pid": 5}},
+            "calibration": {"stage": "particle_identification", "gain": 2},
+        },
+    )
+    assert [stage.name for stage in plan] == [
+        "fragmentation",
+        "particle_aggregation",
+        "calibration_before_particle_image",
+        "particle_image",
+    ]
+    assert plan[2].config == {"mode": "label", "calibration": {"gain": 2}}
+
+
 def test_legacy_plan_translates_particle_image_tasks() -> None:
     """Historical image task modes become an explicit image provider."""
     plan = build_chain_plan(
@@ -132,6 +324,36 @@ def test_legacy_plan_translates_particle_image_tasks() -> None:
         "particle_aggregation",
         "particle_image",
     ]
+
+
+def test_legacy_plan_translates_voxel_and_interaction_stages() -> None:
+    """Legacy preprocessing, semantics, and interaction modes retain order."""
+    plan = build_chain_plan(
+        {
+            "deghosting": "label",
+            "charge_rescaling": "label",
+            "segmentation": "label",
+            "point_proposal": "label",
+            "inter_aggregation": "label",
+        },
+        {
+            "uresnet_deghost_loss": {"balance_loss": False},
+            "uresnet_loss": {"balance_loss": False},
+            "grappa_inter_loss": {"edge_loss": {}},
+        },
+    )
+    assert [stage.provider for stage in plan] == [
+        "deghost",
+        "segmentation",
+        "interaction_aggregation",
+    ]
+    assert plan[0].config["charge_rescaling"] == "label"
+    assert plan[1].config["point_proposal"] == "label"
+    assert plan[2].config["task_modes"] == {
+        "type": None,
+        "primary": None,
+        "orient": None,
+    }
 
 
 def test_external_provider_can_supply_multiple_capabilities() -> None:
@@ -211,6 +433,86 @@ def test_segmentation_loss_aligns_cached_deghosted_rows() -> None:
     assert aligned_logits.shape[0] == 2
 
 
+def test_segmentation_stages_validate_modes_and_required_inputs() -> None:
+    """Semantic adapters reject unknown modes and unavailable implementations."""
+    adapter = ClusterLabelAdapter()
+    with pytest.raises(ValueError, match="mode must"):
+        SegmentationStage("semantic", "bad", None, adapter)
+
+    label_stage = SegmentationStage("semantic", "label", None, adapter)
+    with pytest.raises(ValueError, match="requires `seg_label`"):
+        label_stage(ChainState(data=make_data()))
+
+    learned_stage = SegmentationStage("semantic", "uresnet", None, adapter)
+    with pytest.raises(RuntimeError, match="not initialized"):
+        learned_stage(ChainState(data=make_data()))
+
+
+def test_segmentation_loss_stage_validates_and_routes_inputs() -> None:
+    """Semantic loss routing requires truth/logits and prefers adapted labels."""
+
+    class Loss:
+        def __call__(self, **inputs):
+            return inputs
+
+    stage = SegmentationLossStage("semantic", Loss())
+    with pytest.raises(ValueError, match="requires labels and logits"):
+        stage({})
+
+    labels = make_data(2)
+    logits = TensorBatch(torch.zeros((2, 3)), [2])
+    adapted = object()
+    result = stage(
+        {
+            "seg_label": labels,
+            "segmentation": logits,
+            "clust_label": object(),
+            "clust_label_adapt": adapted,
+        }
+    )
+    assert result["seg_label"] is labels
+    assert result["segmentation"] is logits
+    assert result["clust_label"] is adapted
+
+
+@pytest.mark.parametrize(
+    ("config", "error", "message"),
+    [
+        ({}, ValueError, "string `mode`"),
+        ({"mode": "uresnet"}, ValueError, "exactly one"),
+        (
+            {"mode": "uresnet", "uresnet": {}, "uresnet_ppn": {}},
+            ValueError,
+            "exactly one",
+        ),
+        (
+            {"mode": "uresnet", "uresnet": {}, "point_proposal": "ppn"},
+            ValueError,
+            "requires `uresnet_ppn`",
+        ),
+        ({"mode": "uresnet", "uresnet": []}, TypeError, "must be a mapping"),
+        ({"mode": "uresnet", "uresnet_ppn": []}, TypeError, "must be a mapping"),
+        ({"mode": "label", "adapt_labels": "bad"}, TypeError, "must be a mapping"),
+    ],
+)
+def test_segmentation_builder_validates_configuration(config, error, message):
+    """Semantic model selection is unambiguous at the provider boundary."""
+    with pytest.raises(error, match=message):
+        build_segmentation_stage("semantic", config, torch.nn.Module())
+
+
+def test_segmentation_loss_builder_validates_configuration() -> None:
+    """Semantic objectives require matching model and mapping loss blocks."""
+    owner = torch.nn.Module()
+    assert build_segmentation_loss("semantic", {}, owner) is None
+    with pytest.raises(TypeError, match="loss configuration"):
+        build_segmentation_loss("semantic", {"loss": []}, owner)
+    with pytest.raises(TypeError, match="uresnet_ppn.*mapping"):
+        build_segmentation_loss("semantic", {"loss": {}, "uresnet_ppn": []}, owner)
+    with pytest.raises(ValueError, match="requires a `uresnet`"):
+        build_segmentation_loss("semantic", {"loss": {}}, owner)
+
+
 def test_label_fragmentation_uses_structured_shape_field() -> None:
     """Truth fragmentation reads shape through ClusterLabelBatch aliases."""
     stage = FragmentationStage("fragments", "label", None, None)
@@ -232,6 +534,71 @@ def test_label_fragmentation_uses_structured_shape_field() -> None:
     ]
 
 
+def test_fragmentation_stage_validates_mode_and_label_truth() -> None:
+    """Fragmentation rejects unknown implementations and absent label truth."""
+    with pytest.raises(ValueError, match="Unknown fragmentation mode"):
+        FragmentationStage("fragments", "bad", None, None)
+    stage = FragmentationStage("fragments", "label", None, None)
+    with pytest.raises(ValueError, match="requires `clust_label`"):
+        stage(
+            ChainState(
+                data=make_data(),
+                seg_pred=TensorBatch(torch.zeros(4, dtype=torch.long), [4]),
+            )
+        )
+
+
+def test_graph_spice_loss_adapter_validates_and_denamespaces() -> None:
+    """The fragment loss adapter requires truth/semantics and strips prefixes."""
+
+    class Loss:
+        def __call__(self, **inputs):
+            return inputs
+
+    stage = GraphSPICELossStage("fragments", Loss())
+    with pytest.raises(ValueError, match="requires `clust_label`"):
+        stage({})
+    with pytest.raises(ValueError, match="requires `seg_pred`"):
+        stage({"clust_label": make_cluster_label()})
+
+    result = stage(
+        {
+            "clust_label": make_cluster_label(),
+            "seg_pred": TensorBatch(torch.tensor([0, 0, 1, 1]), [4]),
+            "graph_spice_edge_attr": "edges",
+        }
+    )
+    assert result["edge_attr"] == "edges"
+    assert result["seg_label"].shape == (4, 1)
+
+
+@pytest.mark.parametrize(
+    ("config", "message"),
+    [
+        ({}, "string `mode`"),
+        ({"mode": "dbscan"}, "requires a `dbscan` block"),
+        ({"mode": "graph_spice"}, "requires a `graph_spice` block"),
+    ],
+)
+def test_fragmentation_builder_validates_required_blocks(config, message):
+    """Selected fragment implementations require their native configurations."""
+    with pytest.raises(ValueError, match=message):
+        build_fragmentation_stage("fragments", config, torch.nn.Module())
+
+
+def test_fragmentation_loss_builder_validates_blocks() -> None:
+    """Graph-SPICE supervision is optional but mapping-typed when enabled."""
+    owner = torch.nn.Module()
+    assert build_fragmentation_loss("fragments", {}, owner) is None
+    assert build_fragmentation_loss("fragments", {"graph_spice": {}}, owner) is None
+    with pytest.raises(TypeError, match="must be mappings"):
+        build_fragmentation_loss(
+            "fragments",
+            {"graph_spice": [], "loss": {}},
+            owner,
+        )
+
+
 def test_group_builder_falls_back_when_primary_is_missing() -> None:
     """Primary-aware grouping falls back to the full group when necessary."""
     clusts, shapes = make_clusters()
@@ -249,6 +616,152 @@ def test_group_builder_falls_back_when_primary_is_missing() -> None:
     assert [group.tolist() for group in groups.index_list] == [[0, 1, 2, 3]]
     assert group_shapes.numpy_tensor().tolist() == [SHOWR_SHP]
     assert primaries.index_list[0].tolist() == [0, 1, 2, 3]
+
+
+def test_group_builder_uses_primary_shape_and_voxels() -> None:
+    """Primary-aware grouping selects the marked node's identity and indexes."""
+    clusts, shapes = make_clusters()
+    assignments = TensorBatch(np.array([5, 5]), [2])
+    primary_mask = TensorBatch(np.array([False, True]), [2])
+
+    groups, group_shapes, primaries = AggregationOperations.build_groups(
+        clusts,
+        shapes,
+        assignments,
+        primary_mask,
+        aggregate_shapes=True,
+        shape_use_primary=True,
+        retain_primaries=True,
+    )
+
+    assert groups.index_list[0].tolist() == [0, 1, 2, 3]
+    assert group_shapes.numpy_tensor().tolist() == [TRACK_SHP]
+    assert primaries.index_list[0].tolist() == [2, 3]
+
+
+def test_aggregation_input_preparation_covers_optional_features() -> None:
+    """GrapPA adapters build point, charge, shape, and truth-coordinate inputs."""
+    operations = AggregationOperations()
+    data = make_data()
+    clusts, shapes = make_clusters()
+
+    encoder = SimpleNamespace(
+        add_points=False,
+        add_value=True,
+        add_shape=True,
+    )
+    coord_label = TensorBatch(torch.zeros((2, 6)), [2])
+    result = operations.prepare_grappa_input(
+        SimpleNamespace(node_encoder=encoder),
+        {},
+        data,
+        clusts,
+        shapes,
+        coord_label=coord_label,
+    )
+    assert result["coord_label"] is coord_label
+    assert result["extra"].shape == (2, 3)
+
+    encoder.add_points = True
+    with pytest.raises(ValueError, match="require `primaries`"):
+        operations.prepare_grappa_input(
+            SimpleNamespace(node_encoder=encoder),
+            {},
+            data,
+            clusts,
+            shapes,
+            point_use_primaries=True,
+        )
+    with pytest.raises(ValueError, match="require `ppn_points`"):
+        operations.prepare_grappa_input(
+            SimpleNamespace(node_encoder=encoder),
+            {},
+            data,
+            clusts,
+            shapes,
+        )
+
+    expected_points = TensorBatch(torch.zeros((2, 6)), [2])
+    operations.point_predictor = lambda *_args: expected_points
+    result = operations.prepare_grappa_input(
+        SimpleNamespace(node_encoder=encoder),
+        {"ppn_points": object()},
+        data,
+        clusts,
+        shapes,
+    )
+    assert result["points"] is expected_points
+
+
+def test_truth_grouping_restricts_shapes_and_retains_primaries() -> None:
+    """Truth aggregation shares semantic restriction and primary logic."""
+    clusts, shapes = make_clusters()
+    groups, group_shapes, primaries, selected = AggregationOperations.group_labels(
+        make_cluster_label(),
+        clusts,
+        shapes,
+        accepted_shapes=[SHOWR_SHP],
+        aggregate_shapes=True,
+        shape_use_primary=True,
+        retain_primaries=True,
+    )
+    assert selected.tolist() == [0]
+    assert groups.index_list[0].tolist() == [0, 1]
+    assert group_shapes.numpy_tensor().tolist() == [SHOWR_SHP]
+    assert primaries.index_list[0].tolist() == [0, 1]
+
+
+def test_full_chain_loss_aggregates_and_validates_stage_results() -> None:
+    """Chain-wide summaries weight accuracy and namespace diagnostics."""
+
+    class LossStage:
+        def __init__(self, name, result):
+            self.name = name
+            self.result = result
+
+        def __call__(self, _data):
+            return self.result
+
+    loss = object.__new__(FullChainLoss)
+    torch.nn.Module.__init__(loss)
+    loss.stages = [
+        LossStage("first", {"loss": torch.tensor(2.0), "accuracy": 0.5}),
+        LossStage(
+            "second",
+            {
+                "loss": torch.tensor(3.0),
+                "accuracy": 1.0,
+                "num_losses": 2,
+                "detail": 7,
+            },
+        ),
+    ]
+    result = loss()
+    torch.testing.assert_close(result["loss"], torch.tensor(5.0))
+    assert result["accuracy"] == pytest.approx(5 / 6)
+    assert result["num_losses"] == 3
+    assert result["second_detail"] == 7
+
+    loss.stages = [LossStage("empty", {"loss": 0.0, "num_losses": 0})]
+    with pytest.raises(ValueError, match="reported no objectives"):
+        loss()
+
+
+def test_full_chain_loss_skips_provider_without_objective() -> None:
+    """Inference-only providers contribute no loss stage."""
+    name = "test_no_loss_provider"
+    register_provider(ProviderSpec(name, _build_external))
+    loss = FullChainLoss(chain={"stages": [{"name": "external", "provider": name}]})
+    assert loss.stages == []
+    assert loss() == {"loss": 0.0, "accuracy": 1.0, "num_losses": 0}
+
+
+def test_legacy_process_chain_config_sets_owner_attributes() -> None:
+    """The compatibility helper returns a plan and mirrors legacy modes."""
+    owner = SimpleNamespace()
+    plan = process_chain_config(owner, segmentation="label", dump_config=True)
+    assert owner.segmentation == "label"
+    assert plan[0].provider == "segmentation"
 
 
 def test_particle_image_publishes_grappa_compatible_keys() -> None:
@@ -276,6 +789,60 @@ def test_particle_image_publishes_grappa_compatible_keys() -> None:
     assert set(result.products) == {"particle_type_pred", "particle_energy_pred"}
 
 
+def test_particle_image_publishes_optional_shared_features() -> None:
+    """Shared image features remain diagnostic outputs, not chain products."""
+
+    class Model:
+        def __call__(self, _data, objects):
+            return {
+                "pid_pred": TensorBatch(torch.zeros((2, 5)), objects.counts),
+                "features": TensorBatch(torch.ones((2, 3)), objects.counts),
+            }
+
+    particles, _ = make_clusters()
+    result = ParticleImageStage(
+        "particle_tasks",
+        Model(),  # type: ignore[arg-type]
+        {"pid": "type"},
+    )(ChainState(data=make_data(), particle_clusts=particles))
+    assert result.outputs["particle_image_features"].shape == (2, 3)
+    assert "particle_image_features" not in result.products
+
+
+def test_particle_image_loss_restores_native_prediction_names() -> None:
+    """The loss adapter reverses canonical task aliases before evaluation."""
+
+    class Loss:
+        def __init__(self):
+            self.data = None
+
+        def __call__(self, objects, **data):
+            self.data = (objects, data)
+            return {"loss": torch.tensor(0.0)}
+
+    particles, _ = make_clusters()
+    prediction = TensorBatch(torch.zeros((2, 5)), particles.counts)
+    loss = Loss()
+    stage = ParticleImageLossStage(
+        "particle_tasks",
+        loss,  # type: ignore[arg-type]
+        {"pid": "type"},
+    )
+    result = stage(
+        {
+            "particle_clusts": particles,
+            "particle_node_type_pred": prediction,
+        }
+    )
+    assert result["loss"].item() == 0.0
+    assert loss.data[1]["pid_pred"] is prediction
+
+    with pytest.raises(ValueError, match="requires `particle_clusts`"):
+        stage({})
+    with pytest.raises(ValueError, match="requires `particle_node_type_pred`"):
+        stage({"particle_clusts": particles})
+
+
 def test_particle_image_builder_accepts_native_module_name() -> None:
     """Native `uses: image_particle` blocks build explicit object models."""
     owner = torch.nn.Module()
@@ -299,6 +866,86 @@ def test_particle_image_builder_accepts_native_module_name() -> None:
     )
     assert stage.provides == {"particle_type_pred", "particle_primary_pred"}
     assert owner.image_particle is stage.model
+
+
+@pytest.mark.parametrize(
+    ("config", "error", "message"),
+    [
+        ({}, ValueError, "require.*`image` block"),
+        ({"image": {"objects": []}}, TypeError, "objects.*mapping"),
+        (
+            {
+                "image": {
+                    "objects": {"source": "cluster"},
+                    "encoder": {},
+                    "heads": {"pid": 5},
+                }
+            },
+            ValueError,
+            "source: explicit",
+        ),
+        (
+            {"image": {"encoder": {}, "heads": []}},
+            ValueError,
+            "heads.*mapping",
+        ),
+        (
+            {
+                "image": {
+                    "encoder": {
+                        "name": "cnn",
+                        "num_input": 1,
+                        "spatial_size": 4,
+                        "filters": 2,
+                        "depth": 1,
+                        "reps": 1,
+                    },
+                    "heads": {"": 2},
+                }
+            },
+            ValueError,
+            "nonempty strings",
+        ),
+    ],
+)
+def test_particle_image_builder_validates_provider_contract(config, error, message):
+    """Particle-image providers enforce explicit objects and named heads."""
+    with pytest.raises(error, match=message):
+        build_particle_image_stage("particle_tasks", config, torch.nn.Module())
+
+
+def test_particle_image_builder_validates_legacy_task_ownership() -> None:
+    """Every legacy task delegated to images needs a corresponding head."""
+    with pytest.raises(ValueError, match="missing heads: primary"):
+        build_particle_image_stage(
+            "particle_tasks",
+            {
+                "image": {
+                    "encoder": {
+                        "name": "cnn",
+                        "num_input": 1,
+                        "spatial_size": 4,
+                        "filters": 2,
+                        "depth": 1,
+                        "reps": 1,
+                    },
+                    "heads": {"pid": 5},
+                },
+                "primary_identification": "image",
+            },
+            torch.nn.Module(),
+        )
+
+
+def test_particle_image_loss_builder_handles_optional_and_invalid_loss() -> None:
+    """Particle-image supervision is optional but must be a task mapping."""
+    assert build_particle_image_loss("particle_tasks", {}, torch.nn.Module()) is None
+    with pytest.raises(TypeError, match="loss configuration must be a mapping"):
+        build_particle_image_loss(
+            "particle_tasks",
+            {"loss": [], "image": {}},
+            torch.nn.Module(),
+        )
 
 
 def test_image_owned_task_rejects_duplicate_grappa_loss() -> None:

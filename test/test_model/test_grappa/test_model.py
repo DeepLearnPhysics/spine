@@ -3,6 +3,7 @@
 from copy import deepcopy
 from pathlib import Path
 
+import numpy as np
 import pytest
 import torch
 
@@ -106,7 +107,12 @@ def test_grappa_loss_routes_graph_truth_to_edge_objective():
         directed=True,
     )
     clust_label = ClusterLabelBatch(
-        TensorBatch(torch.empty((0, 7)), counts=[0]),
+        TensorBatch(
+            torch.empty((0, 7)),
+            counts=[0],
+            has_batch_col=True,
+            coord_cols=np.arange(1, 4),
+        ),
         {"group": TensorBatch(torch.empty(0, dtype=torch.long), counts=[0])},
     )
     edge_pred = TensorBatch(torch.empty((0, 2)), counts=[0])

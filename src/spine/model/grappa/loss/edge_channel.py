@@ -86,6 +86,11 @@ class EdgeChannelLoss(torch.nn.Module):
         self.balance_loss = balance_loss
         self.high_purity = high_purity
 
+        if self.high_purity and self.target != "group":
+            raise ValueError(
+                "The `high_purity` flag is only valid when building shower groups."
+            )
+
         # Set the loss
         self.loss_fn = loss_fn_factory(loss, functional=True)
 
@@ -134,12 +139,6 @@ class EdgeChannelLoss(torch.nn.Module):
 
         # If requested, check that each group contains a single shower primary
         if self.high_purity:
-            if self.target != "group":
-                raise ValueError(
-                    "The `high_purity` flag is only valid when "
-                    "building shower groups."
-                )
-
             part_ids = get_cluster_label_batch(clust_label, clusts, "particle")
             prim_ids = get_cluster_label_batch(clust_label, clusts, "group_primary")
             valid_mask &= edge_purity_mask_batch(
@@ -158,7 +157,7 @@ class EdgeChannelLoss(torch.nn.Module):
             edge_assn, valid_mask_mst = edge_assignment_forest_batch(
                 edge_index, edge_pred.to_numpy(), group_ids
             )
-            valid_mask &= valid_mask_mst
+            valid_mask &= valid_mask_mst.numpy_tensor()
 
         elif self.mode == "particle_forest":
             # If an edge matches a parentage relation, mark it as on

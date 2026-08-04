@@ -6,12 +6,10 @@ inside this directory.
 
 import os
 import urllib
-from pathlib import Path
 
 import pytest
 
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
-MODEL_TEST_DIR = Path(__file__).resolve().parent / "test_model"
 
 
 def pytest_addoption(parser):
@@ -27,13 +25,6 @@ def pytest_addoption(parser):
         default=[192],
         help="Image size (default: 192)",
     )
-    parser.addoption(
-        "--model-tests",
-        action="store_true",
-        default=False,
-        help="Collect tests that require the full model dependency stack.",
-    )
-
     # Adds an option to the pytest.ini file
     parser.addini(
         "larcv_datafile", "URL to small LArCV data file for testing.", type="linelist"
@@ -41,14 +32,6 @@ def pytest_addoption(parser):
     parser.addini(
         "hdf5_datafile", "URL to small HDF5 file for testing.", type="linelist"
     )
-
-
-def pytest_ignore_collect(collection_path, config):
-    """Keep the full-dependency model suite opt-in."""
-    path = Path(collection_path).resolve()
-    if path == MODEL_TEST_DIR or MODEL_TEST_DIR in path.parents:
-        return not config.getoption("--model-tests")
-    return None
 
 
 def pytest_generate_tests(metafunc):

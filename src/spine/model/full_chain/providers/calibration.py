@@ -172,8 +172,10 @@ def build_calibration_stage(
     mode = config.get("mode")
     if not isinstance(mode, str):
         raise ValueError("Calibration requires a string `mode`.")
-    calibration = config.get("calibration") or {}
-    if not isinstance(calibration, dict):
+    calibration = config.get("calibration")
+    if calibration is None:
+        calibration = {}
+    elif not isinstance(calibration, dict):
         raise TypeError("Calibration configuration must be a mapping.")
     manager = CalibrationManager(**calibration) if mode == "apply" else None
     return CalibrationStage(name, mode, manager)

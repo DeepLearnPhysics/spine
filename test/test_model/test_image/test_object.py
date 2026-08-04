@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from spine.data import IndexBatch
+from spine.data import IndexBatch, TensorBatch
 from spine.model.image.object import ImageObjectBuilder
 
 
@@ -76,3 +76,71 @@ def test_explicit_objects_cannot_cross_event_boundaries(image_data):
 
     with pytest.raises(IndexError, match="owning batch entry"):
         ImageObjectBuilder()(image_data, objects=objects)
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "error", "message"),
+    [
+        ({"min_size": -2}, ValueError, "at least -1"),
+        ({"source": 3}, TypeError, "named field"),
+        ({"shapes": "track"}, ValueError, "sequence"),
+        ({"shapes": 1}, ValueError, "sequence"),
+    ],
+)
+def test_object_builder_validates_configuration(kwargs, error, message):
+    """Malformed source and selection policies fail during construction."""
+    with pytest.raises(error, match=message):
+        ImageObjectBuilder(**kwargs)
+
+
+def test_labeled_sources_require_aligned_truth(image_data):
+    """Truth-derived objects require voxel-aligned structured labels."""
+    builder = ImageObjectBuilder(source="cluster")
+    with pytest.raises(ValueError, match="requires `object_data`"):
+        builder(image_data.data)
+
+    shorter = TensorBatch(
+        image_data.data.tensor[:-1],
+        counts=[4, 2],
+        has_batch_col=True,
+        coord_cols=np.arange(1, 4),
+    )
+    with pytest.raises(ValueError, match="voxel-aligned"):
+        builder(shorter, object_data=image_data)
+
+
+def test_explicit_object_metadata_is_fully_validated(image_data):
+    """Object indexes must be lists with matching batch ownership metadata."""
+    flat = IndexBatch(np.array([0, 1]), spans=[2], counts=[2])
+    with pytest.raises(TypeError, match="index lists"):
+        ImageObjectBuilder()(image_data.data, objects=flat)
+
+    wrong_batch = IndexBatch([np.array([0])], spans=[7], counts=[1], single_counts=[1])
+    with pytest.raises(ValueError, match="batch sizes"):
+        ImageObjectBuilder()(image_data.data, objects=wrong_batch)
+
+    wrong_spans = IndexBatch(
+        [np.array([0]), np.array([4])],
+        spans=[3, 4],
+        counts=[1, 1],
+        single_counts=[1, 1],
+    )
+    with pytest.raises(ValueError, match="spans"):
+        ImageObjectBuilder()(image_data.data, objects=wrong_spans)
+
+    empty = IndexBatch(
+        [np.array([], dtype=np.int64), np.array([4])],
+        spans=[4, 3],
+        counts=[1, 1],
+        single_counts=[0, 1],
+    )
+    with pytest.raises(ValueError, match="empty indexes"):
+        ImageObjectBuilder()(image_data.data, objects=empty)
+
+
+def test_labeled_source_narrowing_guard(image_data):
+    """A corrupted labeled-source policy fails before cluster construction."""
+    builder = ImageObjectBuilder(source="cluster")
+    builder.source = None
+    with pytest.raises(RuntimeError, match="not initialized"):
+        builder(image_data.data, object_data=image_data)

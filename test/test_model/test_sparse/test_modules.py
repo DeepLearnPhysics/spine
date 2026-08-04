@@ -8,6 +8,8 @@ import torch
 from spine.model import sparse
 from spine.model.sparse.modules import _scaled_stride, _stride_values
 
+ME = pytest.importorskip("MinkowskiEngine")
+
 
 @pytest.mark.parametrize(
     ("module", "parameters"),
@@ -146,6 +148,43 @@ def test_constructor_contract_rejects_stale_backend_arguments():
 
     with pytest.raises(TypeError):
         sparse.Broadcast(dimension=3)
+
+
+def test_optional_sparse_constructor_branches_initialize_at_runtime():
+    """Optional backend modes and less common pointwise layers initialize."""
+    convolution_mode = (
+        inspect.signature(ME.MinkowskiConvolution)
+        .parameters["convolution_mode"]
+        .default
+    )
+    assert sparse.Convolution(
+        1,
+        1,
+        kernel_size=1,
+        convolution_mode=convolution_mode,
+        dimension=2,
+    )
+    assert sparse.ConvolutionTranspose(
+        1,
+        1,
+        kernel_size=1,
+        convolution_mode=convolution_mode,
+        dimension=2,
+    )
+
+    modules = (
+        sparse.InstanceNorm(2),
+        sparse.PReLU(2),
+        sparse.SELU(),
+        sparse.CELU(),
+        sparse.ELU(),
+        sparse.Tanh(),
+    )
+    assert all(module is not None for module in modules)
+    pooling_mode = (
+        inspect.signature(ME.MinkowskiGlobalPooling).parameters["mode"].default
+    )
+    assert sparse.GlobalPooling(mode=pooling_mode)
 
 
 def test_network_exposes_spatial_dimension():

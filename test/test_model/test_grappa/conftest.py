@@ -52,7 +52,22 @@ def graph_labels(graph_data):
         "shape": TensorBatch(
             np.array([0, 1, 1], dtype=np.int64),
             counts=np.array([2, 1], dtype=np.int64),
-        )
+        ),
+        "interaction_primary": TensorBatch(
+            np.array([1, 0, 1], dtype=np.int64),
+            counts=np.array([2, 1], dtype=np.int64),
+        ),
+        "energy": TensorBatch(
+            np.array([2.0, -1.0, 4.0], dtype=np.float32),
+            counts=np.array([2, 1], dtype=np.int64),
+        ),
+        "vertex": TensorBatch(
+            np.array(
+                [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]],
+                dtype=np.float32,
+            ),
+            counts=np.array([2, 1], dtype=np.int64),
+        ),
     }
     return ClusterLabelBatch(data, particles)
 

@@ -6,6 +6,7 @@ import torch
 
 from spine.data import TensorBatch
 from spine.model.common.evidential import EvidentialModel
+from spine.model.common.factories import final_factory, metric_fn_factory
 from spine.model.common.final import FinalEvidential, FinalLinear, FinalMLP
 from spine.model.common.mlp import MLP
 
@@ -29,6 +30,13 @@ def test_mlp_validates_widths_and_projects_features():
             activation="relu",
             normalization="none",
         )
+    for kwargs in (
+        {"in_channels": 0, "depth": 1, "width": 2},
+        {"in_channels": 2, "depth": 0, "width": 2},
+        {"in_channels": 2, "depth": 1, "width": 0},
+    ):
+        with pytest.raises(ValueError, match="positive"):
+            MLP(**kwargs, activation="relu", normalization="none")
 
 
 @pytest.mark.parametrize(
@@ -84,3 +92,30 @@ def test_evidential_model_constructs_valid_distribution_parameters():
 
     with pytest.raises(ValueError, match="exactly four"):
         FinalEvidential(3, 2, mlp=config)
+
+
+def test_positive_and_evidential_final_heads_preserve_batching():
+    """Specialized final heads return constrained batched predictions."""
+    features = TensorBatch(torch.randn(5, 3), counts=torch.tensor([2, 3]))
+    mlp = {
+        "depth": 1,
+        "width": 5,
+        "activation": "relu",
+        "normalization": "none",
+    }
+
+    positive = FinalMLP(3, 2, positive_out=True, **mlp)(features)
+    evidential = FinalEvidential(3, 4, mlp=mlp)(features)
+
+    assert torch.all(positive.torch_tensor() > 0)
+    assert evidential.shape == (5, 4)
+    assert torch.equal(evidential.counts, features.counts)
+
+
+def test_common_output_factories_resolve_public_components():
+    """Prediction-head and metric factories instantiate named components."""
+    head = final_factory(3, name="linear", out_channels=2)
+    metric = metric_fn_factory("iou")
+
+    assert isinstance(head, FinalLinear)
+    assert isinstance(metric, torch.nn.Module)

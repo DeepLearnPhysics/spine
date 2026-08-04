@@ -106,6 +106,19 @@ class NodeRegressionLoss(torch.nn.Module):
         node_assn_tensor = node_assn.torch_tensor()[valid_index]
         node_pred_tensor = node_pred.torch_tensor()[valid_index]
 
+        # Scalar labels are stored as ``(N,)`` while model predictions use
+        # ``(N, 1)``. Align equivalent shapes explicitly so that PyTorch does
+        # not broadcast the two node axes into an ``(N, N)`` loss matrix.
+        if node_assn_tensor.shape != node_pred_tensor.shape:
+            if node_assn_tensor.numel() != node_pred_tensor.numel():
+                raise ValueError(
+                    "Node regression labels and predictions contain "
+                    "incompatible numbers of values: "
+                    f"{tuple(node_assn_tensor.shape)} and "
+                    f"{tuple(node_pred_tensor.shape)}."
+                )
+            node_assn_tensor = node_assn_tensor.view_as(node_pred_tensor)
+
         # Compute the loss
         loss = self.loss_fn(node_pred_tensor, node_assn_tensor)
         if len(valid_index) > 0:

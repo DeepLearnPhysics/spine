@@ -62,3 +62,18 @@ def test_learned_kernels_return_one_logit_per_edge(kernel_type):
     logits = kernel(first, second)
 
     assert logits.shape == (5, 1)
+
+
+@pytest.mark.parametrize(
+    "factory",
+    [
+        lambda: DefaultKernel(num_features=0),
+        lambda: DefaultKernel(num_features=1, eps=0.0),
+        lambda: BilinearKernel(num_features=0),
+        lambda: MLPKernel(num_features=0),
+    ],
+)
+def test_kernels_validate_numerical_configuration(factory):
+    """Embedding dimensions and stability constants must be positive."""
+    with pytest.raises(ValueError, match="positive"):
+        factory()

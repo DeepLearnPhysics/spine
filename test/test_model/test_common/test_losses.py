@@ -5,6 +5,7 @@ import torch
 
 from spine.model.common.losses import (
     BerHuLoss,
+    BinaryDiceLoss,
     BinaryFocalLoss,
     BinaryLogDiceCELoss,
     BinaryLogDiceCEMincutLoss,
@@ -80,6 +81,53 @@ def test_berhu_handles_perfect_predictions():
 
     assert result == 0
     assert torch.isfinite(result)
+
+
+def test_berhu_handles_empty_inputs_and_quadratic_branch():
+    """BerHu supports empty batches and large-residual quadratic penalties."""
+    empty = BerHuLoss(reduction="sum")(torch.empty(0), torch.empty(0))
+    values = BerHuLoss(threshold=0.5)(
+        torch.tensor([0.0, 4.0]),
+        torch.tensor([0.0, 0.0]),
+    )
+
+    assert empty == 0
+    assert values[1] > 4.0
+
+
+def test_dice_supports_unsquared_denominator():
+    """The alternate Dice denominator remains finite for binary targets."""
+    result = BinaryDiceLoss(squared_pred=False)(
+        torch.tensor([-1.0, 1.0]),
+        torch.tensor([0.0, 1.0]),
+    )
+    assert result.ndim == 0
+    assert torch.isfinite(result)
+
+
+@pytest.mark.parametrize(
+    "loss_factory",
+    [
+        lambda: LogRMSE(eps=0.0),
+        lambda: BerHuLoss(threshold=0.0),
+        lambda: BerHuLoss(threshold=1.1),
+        lambda: BinaryDiceLoss(eps=0.0),
+        lambda: BinaryFocalLoss(alpha=-1.0),
+        lambda: BinaryFocalLoss(gamma=-1.0),
+        lambda: BinaryLogDiceCELoss(bce={"reduction": "sum"}),
+        lambda: BinaryLogDiceCEMincutLoss(mincut={"activation": "tanh"}),
+    ],
+)
+def test_losses_reject_invalid_numerical_configuration(loss_factory):
+    """Invalid thresholds, constants, and component contracts fail early."""
+    with pytest.raises(ValueError):
+        loss_factory()
+
+
+def test_log_rmse_rejects_invalid_logarithm_domain():
+    """Logarithmic regression reports nonpositive shifted inputs clearly."""
+    with pytest.raises(ValueError, match="greater than"):
+        LogRMSE()(torch.tensor([-1.0]), torch.tensor([1.0]))
 
 
 @pytest.mark.parametrize(

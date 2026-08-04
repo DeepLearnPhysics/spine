@@ -8,7 +8,11 @@ torch = pytest.importorskip("torch")
 
 from spine.constants import PID_MASSES
 from spine.data import ClusterLabelBatch, TensorBatch
-from spine.model.image.loss import ImageLoss
+from spine.model.image.loss import (
+    ImageClassificationLoss,
+    ImageLoss,
+    ImageRegressionLoss,
+)
 from spine.model.image.object import ImageObjectBuilder
 
 
@@ -168,3 +172,199 @@ def test_ancestor_energy_is_derived_from_root_momentum(image_data):
     assert result["energy_count"] == 3
     assert result["energy_mae"] == pytest.approx(expected_mae)
     assert torch.isfinite(result["loss"])
+
+
+def test_invalid_ancestor_energy_is_ignored(image_data):
+    """Unknown PID or unphysical momentum excludes an energy target."""
+    ancestor_data = _with_shared_first_ancestor(image_data)
+    ancestor_data.particles["pid"].data[0] = 999
+    ancestor_data.particles["momentum"].data[1] = -1.0
+    objects = ImageObjectBuilder(source="ancestor")(
+        ancestor_data,
+        object_data=ancestor_data,
+    )
+    predictions = TensorBatch(
+        torch.zeros((len(objects.index_list), 1)),
+        counts=objects.counts,
+    )
+
+    result = ImageRegressionLoss(
+        1,
+        target="kinetic_energy",
+        target_reduction="ancestor",
+    )(ancestor_data, objects, predictions)
+
+    assert result["count"] < len(objects.index_list)
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"out_channels": 1}, "at least two classes"),
+        (
+            {"out_channels": 2, "balance_loss": True, "class_weights": [1, 1]},
+            "Cannot combine",
+        ),
+        ({"out_channels": 2, "class_weights": [1]}, "one weight per"),
+        ({"out_channels": 2, "target_reduction": "bad"}, "mode.*ancestor"),
+    ],
+)
+def test_classification_loss_validates_configuration(kwargs, message):
+    """Classification topology, weighting, and reduction are checked early."""
+    with pytest.raises(ValueError, match=message):
+        ImageClassificationLoss(**kwargs)
+
+
+@pytest.mark.parametrize(
+    ("labels", "kwargs", "message"),
+    [
+        ("text", {}, "numeric values"),
+        ([0], {}, "one value per image object"),
+        (
+            None,
+            {"target": "pid"},
+            "Voxel-level particle targets require ClusterLabelBatch",
+        ),
+        (
+            None,
+            {"target_reduction": "ancestor"},
+            "Direct image labels do not support",
+        ),
+    ],
+)
+def test_classification_loss_validates_direct_targets(
+    image_data,
+    labels,
+    kwargs,
+    message,
+):
+    """Direct targets must be numeric, scalar, aligned, and unreduced."""
+    objects = ImageObjectBuilder()(image_data)
+    prediction = TensorBatch(torch.zeros((2, 3)), counts=[1, 1])
+    if labels is None:
+        labels = TensorBatch(torch.tensor([0, 1]), counts=[1, 1])
+    with pytest.raises((TypeError, ValueError), match=message):
+        ImageClassificationLoss(3, **kwargs)(labels, objects, prediction)
+
+
+def test_structured_and_batched_targets_validate_required_shape(image_data):
+    """Structured targets require names and direct batches match objects."""
+    objects = ImageObjectBuilder()(image_data)
+    prediction = TensorBatch(torch.zeros((2, 3)), counts=[1, 1])
+
+    with pytest.raises(ValueError, match="named target"):
+        ImageClassificationLoss(3)(image_data, objects, prediction)
+    with pytest.raises(ValueError, match="one row per image object"):
+        ImageClassificationLoss(3)(
+            TensorBatch(torch.tensor([0]), counts=[1]),
+            objects,
+            prediction,
+        )
+
+    column_targets = TensorBatch(torch.tensor([[0], [1]]), counts=[1, 1])
+    result = ImageClassificationLoss(3)(column_targets, objects, prediction)
+    assert result["count"] == 2
+
+
+def test_classification_loss_covers_weighting_ignored_and_invalid_targets(image_data):
+    """Classification handles dynamic/fixed weights and empty supervision."""
+    objects = ImageObjectBuilder()(image_data)
+    logits = TensorBatch(torch.tensor([[2.0, 0.0], [0.0, 2.0]]), counts=[1, 1])
+
+    balanced = ImageClassificationLoss(2, balance_loss=True)([0, 1], objects, logits)
+    fixed = ImageClassificationLoss(2, class_weights=[1.0, 2.0])(
+        [0, 1], objects, logits
+    )
+    ignored = ImageClassificationLoss(2)([-1, -1], objects, logits)
+    assert balanced["accuracy"] == 1.0
+    assert fixed["accuracy"] == 1.0
+    assert ignored["count"] == 0
+    assert ignored["accuracy_class_0"] == 1.0
+
+    vector_labels = TensorBatch(torch.zeros((2, 2)), counts=[1, 1])
+    with pytest.raises(ValueError, match="scalar class IDs"):
+        ImageClassificationLoss(2)(vector_labels, objects, logits)
+    with pytest.raises(ValueError, match="must lie"):
+        ImageClassificationLoss(2)([0, 2], objects, logits)
+
+
+def test_ancestor_reduction_rejects_unsupported_target(image_data):
+    """Ancestor reduction is limited to fields with defined root semantics."""
+    objects = ImageObjectBuilder(source="ancestor")(
+        image_data,
+        object_data=image_data,
+    )
+    logits = TensorBatch(torch.zeros((4, 2)), counts=objects.counts)
+    with pytest.raises(ValueError, match="supports only `pid` and `kinetic_energy`"):
+        ImageClassificationLoss(
+            2,
+            target="shape",
+            target_reduction="ancestor",
+        )(image_data, objects, logits)
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"out_channels": 0}, "must be positive"),
+        ({"out_channels": 1, "target_reduction": "bad"}, "mode.*ancestor"),
+    ],
+)
+def test_regression_loss_validates_configuration(kwargs, message):
+    """Regression output width and target reduction are constrained."""
+    with pytest.raises(ValueError, match=message):
+        ImageRegressionLoss(**kwargs)
+
+
+def test_regression_loss_handles_shape_mismatch_and_empty_supervision(image_data):
+    """Regression validates vector width and returns stable empty metrics."""
+    objects = ImageObjectBuilder()(image_data)
+    vector_prediction = TensorBatch(torch.zeros((2, 2)), counts=[1, 1])
+    with pytest.raises(ValueError, match="shapes do not match"):
+        ImageRegressionLoss(2)([1.0, 2.0], objects, vector_prediction)
+
+    prediction = TensorBatch(torch.zeros((2, 1)), counts=[1, 1])
+    result = ImageRegressionLoss(1)([-1.0, float("nan")], objects, prediction)
+    assert result["bias"] == 0.0
+    assert result["mae"] == 0.0
+    assert result["rmse"] == 0.0
+    assert result["count"] == 0
+    assert result["loss"].item() == 0.0
+
+
+@pytest.mark.parametrize(
+    ("image", "loss", "message"),
+    [
+        ({}, {}, "requires model `heads`"),
+        ({"heads": {"pid": []}}, {"pid": {}}, "determine output width"),
+        ({"heads": {"pid": 2}}, {}, "exactly match"),
+        ({"heads": {"pid": 2}}, {"pid": {}}, "requires `name`"),
+        (
+            {"heads": {"pid": 2}},
+            {"pid": {"name": "class", "weight": 0}},
+            "weights must be positive",
+        ),
+        (
+            {"heads": {"pid": 2}},
+            {"pid": {"name": "unknown"}},
+            "Unknown image task",
+        ),
+    ],
+)
+def test_image_loss_validates_task_configuration(image, loss, message):
+    """Loss tasks must map one-to-one onto valid model heads."""
+    with pytest.raises(ValueError, match=message):
+        ImageLoss(image, loss)
+
+
+def test_image_loss_requires_prediction_and_label_inputs(image_data):
+    """The orchestrator identifies missing model outputs and targets by name."""
+    objects = ImageObjectBuilder()(image_data)
+    loss = ImageLoss(
+        {"heads": {"pid": {"out_channels": 2}}},
+        {"pid": {"name": "class", "label": "labels"}},
+    )
+    with pytest.raises(ValueError, match="missing `pid_pred`"):
+        loss(objects, labels=[0, 1])
+    with pytest.raises(ValueError, match="missing `labels`"):
+        loss(objects, pid_pred=TensorBatch(torch.zeros((2, 2)), counts=[1, 1]))

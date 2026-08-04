@@ -144,7 +144,13 @@ def _image_config(config: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(image, dict):
         raise ValueError("Particle-image tasks require an `image` block.")
     result = dict(image)
-    objects = dict(result.get("objects") or {})
+    object_config = result.get("objects")
+    if object_config is None:
+        objects = {}
+    elif isinstance(object_config, dict):
+        objects = dict(object_config)
+    else:
+        raise TypeError("Particle-image `objects` configuration must be a mapping.")
     source = objects.setdefault("source", "explicit")
     if source != "explicit":
         raise ValueError("Full-chain particle images require `source: explicit`.")

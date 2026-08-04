@@ -53,17 +53,12 @@ def edge_assignment_from_graph_batch(edge_index, true_edge_index, part_ids):
     TensorBatch
         (E) Array specifying on/off edges
     """
-    # Convert the cluster IDs in the original edge index to particle IDs
-    edge_index_part = TensorBatch(
-        part_ids.tensor[edge_index.index].T, edge_index.counts
-    )
-
-    # Loop over the list of entries in the batch
+    # Compare each event-local cluster graph with its particle-level truth graph
     edge_assn = np.zeros(edge_index.index.shape[1], dtype=np.int64)
     for b in range(edge_index.batch_size):
         lower, upper = edge_index.edges[b], edge_index.edges[b + 1]
         edge_assn[lower:upper] = edge_assignment_from_graph(
-            edge_index_part[b], true_edge_index[b]
+            edge_index[b], true_edge_index[b], part_ids[b]
         )
 
     return TensorBatch(edge_assn, edge_index.counts)

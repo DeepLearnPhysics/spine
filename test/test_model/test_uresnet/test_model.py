@@ -114,3 +114,111 @@ def test_empty_segmentation_loss_remains_differentiable():
     assert isinstance(loss, torch.Tensor)
     assert accuracy == 1.0
     loss.backward()
+
+
+def test_segmentation_loss_validates_configuration_and_input_lengths():
+    """Incompatible ghost modes and row counts fail with useful errors."""
+    with pytest.raises(ValueError, match="Cannot classify ghost exclusively"):
+        SegmentationLoss(
+            {"num_classes": 2, "ghost": True},
+            {"ghost_label": GHOST_SHP},
+        )
+
+    labels = make_labels([0, 1])
+    with pytest.raises(ValueError, match="segmentation.*length"):
+        make_loss()(labels, make_logits([[1.0, 0.0]]))
+    with pytest.raises(ValueError, match="ghost.*length"):
+        make_loss(ghost=True)(
+            labels,
+            make_logits([[1.0, 0.0], [0.0, 1.0]]),
+            ghost=make_logits([[1.0, 0.0]]),
+        )
+    with pytest.raises(ValueError, match="not compatible"):
+        make_loss(ghost=True)(
+            labels,
+            make_logits([[1.0, 0.0], [0.0, 1.0]]),
+            ghost=make_logits([[1.0, 0.0], [1.0, 0.0]]),
+            weights=make_labels([1.0, 1.0]),
+        )
+    with pytest.raises(ValueError, match="weights.*length"):
+        make_loss()(
+            labels,
+            make_logits([[1.0, 0.0], [0.0, 1.0]]),
+            weights=make_labels([1.0]),
+        )
+
+
+def test_segmentation_loss_requires_points_and_positive_weights():
+    """Optional point weighting requires its labels and positive total mass."""
+    labels = make_labels([0, 1])
+    logits = make_logits([[1.0, 0.0], [0.0, 1.0]])
+    loss_fn = make_loss()
+    loss_fn.upweight_points = True
+    with pytest.raises(ValueError, match="provide a list"):
+        loss_fn(labels, logits)
+
+    with pytest.raises(ValueError, match="must be positive"):
+        make_loss().get_loss_accuracy(
+            logits.torch_tensor(),
+            labels.torch_tensor().long(),
+            torch.zeros(2),
+        )
+
+
+def test_distance_weights_use_each_batch_entry_and_validate_batch_size():
+    """Point-proximity weighting respects event boundaries and empty entries."""
+    label_table = torch.tensor(
+        [
+            [0, 0, 0, 0, 0],
+            [0, 10, 0, 0, 1],
+            [1, 0, 0, 0, 0],
+        ],
+        dtype=torch.float32,
+    )
+    point_table = torch.tensor(
+        [[0, 0, 0, 0, 1]],
+        dtype=torch.float32,
+    )
+    labels = TensorBatch(
+        label_table,
+        counts=torch.tensor([2, 1]),
+        has_batch_col=True,
+        coord_cols=np.arange(1, 4),
+    )
+    points = TensorBatch(
+        point_table,
+        counts=torch.tensor([1, 0]),
+        has_batch_col=True,
+        coord_cols=np.arange(1, 4),
+    )
+    loss_fn = make_loss()
+    loss_fn.upweight_radius = 5.0
+
+    weights = loss_fn.get_distance_weights(labels, points)
+
+    assert weights.shape == (3,)
+    assert weights[0] > weights[1]
+    assert weights[1] == weights[2]
+
+    one_entry = TensorBatch(
+        point_table,
+        counts=torch.tensor([1]),
+        has_batch_col=True,
+        coord_cols=np.arange(1, 4),
+    )
+    with pytest.raises(ValueError, match="batch sizes must match"):
+        loss_fn.get_distance_weights(labels, one_entry)
+
+
+def test_ghost_label_binary_mode_and_balanced_explicit_weights():
+    """Legacy binary ghost labeling and balanced weights remain executable."""
+    loss_fn = make_loss(num_classes=2, balance_loss=True)
+    loss_fn.ghost_label = GHOST_SHP
+    labels = make_labels([0, GHOST_SHP])
+    logits = make_logits([[2.0, 0.0], [0.0, 2.0]])
+    weights = make_labels([1.0, 2.0])
+
+    result = loss_fn(labels, logits, weights=weights)
+
+    assert torch.isfinite(result["loss"])
+    assert result["weights"].shape == (2,)

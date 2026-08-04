@@ -5,9 +5,18 @@ import torch
 
 from spine.constants import GHOST_SHP
 from spine.data import ClusterLabelBatch, TensorBatch, TensorSchema
+from spine.model import sparse
+from spine.model.cnn.uresnet_layers import UResNet
 from spine.model.uresnet.ppn import UResNetPPN
-from spine.model.uresnet.ppn.ppn import PPN, ExpandAs, PPNLoss
-from spine.model.uresnet.ppn.vertex import VertexPPNLoss
+from spine.model.uresnet.ppn.ppn import (
+    PPN,
+    AttentionMask,
+    ExpandAs,
+    GhostMask,
+    MergeConcat,
+    PPNLoss,
+)
+from spine.model.uresnet.ppn.vertex import VertexPPN, VertexPPNLoss
 from spine.utils.ppn import ppn_raw_schema
 
 POINT_SCHEMA = TensorSchema(coordinate_groups={"points": (0, 1, 2)})
@@ -283,3 +292,269 @@ def test_vertex_loss_reports_unsupported_label_contract():
 
     with pytest.raises(NotImplementedError, match="vertex-label schema"):
         loss()
+
+
+def test_vertex_ppn_decodes_uresnet_feature_pyramid(cnn_config):
+    """Vertex prediction consumes the maintained UResNet pyramid contract."""
+    rows = []
+    for x in range(2):
+        for y in range(2):
+            for z in range(2):
+                rows.append([0.0, x, y, z, x + y + z + 1.0])
+    table = torch.tensor(rows, dtype=torch.float32)
+    backbone = UResNet(cnn_config)
+    vertex = VertexPPN(cnn_config, {"score_threshold": 0.7})
+
+    features = backbone(table)
+    result = vertex(features["final_tensor"], features["decoder_tensors"])
+
+    assert result["vertex_points"].shape == (len(table), 5)
+    assert result["vertex_points_unique"].shape[1] == 5
+    assert len(result["vertex_layers"]) == cnn_config["depth"] - 1
+    assert len(result["vertex_coords"]) == cnn_config["depth"] - 1
+    assert result["vertex_output_coordinates"].has_batch_col
+
+
+def test_vertex_ppn_validates_threshold_and_feature_pyramid(cnn_config):
+    """Vertex configuration and decoder depth fail before ambiguous execution."""
+    with pytest.raises(ValueError, match="between zero and one"):
+        VertexPPN(cnn_config, {"score_threshold": 1.1})
+
+    vertex = VertexPPN(cnn_config)
+    with pytest.raises(ValueError, match="decoder tensors"):
+        vertex(object(), [])
+
+
+def test_ppn_validates_required_and_optional_configuration(cnn_config):
+    """PPN reports malformed model and loss configuration immediately."""
+    with pytest.raises(ValueError, match="num_classes"):
+        PPN(cnn_config, {})
+    with pytest.raises(ValueError, match="between zero and one"):
+        PPN({**cnn_config, "num_classes": 5}, {"mask_score_threshold": 1.1})
+    with pytest.raises(ValueError, match="define `depth`"):
+        PPNLoss({}, {})
+    with pytest.raises(ValueError, match="not recognized"):
+        PPNLoss(cnn_config, {"mask_loss": "dice"})
+
+    loss = PPNLoss(cnn_config, {"point_classes": [1, 2]})
+    assert loss.point_classes == (1, 2)
+
+
+def test_coordinate_alignment_validates_shapes_and_missing_sites():
+    """Coordinate alignment rejects inconsistent source and target tables."""
+    coords = torch.tensor([[0, 1, 1, 1]])
+    with pytest.raises(ValueError, match="matching lengths"):
+        PPNLoss.align_coordinate_values(
+            coords,
+            torch.tensor([1, 2]),
+            coords,
+            "label",
+        )
+    with pytest.raises(ValueError, match="same width"):
+        PPNLoss.align_coordinate_values(
+            coords,
+            torch.tensor([1]),
+            torch.tensor([[0, 1, 1]]),
+            "label",
+        )
+    with pytest.raises(ValueError, match="missing"):
+        PPNLoss.align_coordinate_values(
+            coords,
+            torch.tensor([1]),
+            torch.tensor([[0, 2, 2, 2]]),
+            "label",
+        )
+
+
+def test_get_ppn_positives_validates_restricted_inputs(monkeypatch):
+    """Positive construction requires distances and particle point labels."""
+    coords = torch.zeros((1, 3))
+    points = torch.zeros((1, 3))
+    monkeypatch.setattr(
+        "spine.model.uresnet.ppn.ppn.cdist_fast",
+        lambda *args: None,
+    )
+    with pytest.raises(RuntimeError, match="distance matrix"):
+        PPNLoss.get_ppn_positives(coords, points, 1.0, 0)
+
+    monkeypatch.setattr(
+        "spine.model.uresnet.ppn.ppn.cdist_fast",
+        lambda *args: torch.zeros((1, 1)),
+    )
+    with pytest.raises(ValueError, match="particle labels"):
+        PPNLoss.get_ppn_positives(
+            coords,
+            points,
+            1.0,
+            0,
+            labels=torch.zeros(1),
+        )
+
+
+def _positive_ppn_loss_inputs():
+    """Build a one-site, one-track target PPN loss input."""
+    coords = TensorBatch(
+        torch.tensor([[0, 0, 0, 0]]),
+        counts=[1],
+        has_batch_col=True,
+        coord_cols=(1, 2, 3),
+        schema=POINT_SCHEMA,
+    )
+    scores = TensorBatch(torch.tensor([[0.0, 2.0]]), counts=[1])
+    masks = TensorBatch(torch.tensor([[True]]), counts=[1])
+
+    point_features = torch.zeros((1, 10))
+    point_features[0, 4] = 3.0
+    points = TensorBatch(point_features, counts=[1], schema=ppn_raw_schema())
+
+    label = TensorBatch(
+        torch.tensor([[0.0, 0.5, 0.5, 0.5, 1.0, 7.0, 1.0]]),
+        counts=[1],
+        has_batch_col=True,
+        coord_cols=(1, 2, 3),
+        schema=PPN_LABEL_SCHEMA,
+    )
+    endpoint_schema = TensorSchema(
+        feature_fields={"endpoint_logits": (0, 1)},
+        feats_only=True,
+    )
+    endpoints = TensorBatch(
+        torch.tensor([[0.0, 2.0]]),
+        counts=[1],
+        schema=endpoint_schema,
+    )
+
+    return {
+        "ppn_label": label,
+        "ppn_points": points,
+        "ppn_points_unique": points,
+        "ppn_masks": [masks],
+        "ppn_layers": [scores],
+        "ppn_coords": [coords],
+        "ppn_output_coords": coords,
+        "ppn_classify_endpoints": endpoints,
+        "ppn_classify_endpoints_unique": endpoints,
+    }
+
+
+def test_ppn_loss_supervises_endpoint_and_returns_masks(cnn_config):
+    """A positive track site trains all PPN heads and exposes mask labels."""
+    result = PPNLoss(
+        cnn_config,
+        {
+            "balance_mask_loss": False,
+            "balance_type_loss": False,
+            "return_mask_labels": True,
+        },
+    )(**_positive_ppn_loss_inputs())
+
+    assert torch.isfinite(result["loss"])
+    assert result["type_accuracy"] == 1.0
+    assert result["classify_endpoints_accuracy"] == 1.0
+    assert len(result["mask_labels"]) == 1
+
+
+def test_ppn_loss_validates_output_alignment(cnn_config):
+    """PPN loss refuses incomplete pyramids and row-misaligned heads."""
+    inputs = _positive_ppn_loss_inputs()
+    loss = PPNLoss(cnn_config, {})
+
+    with pytest.raises(ValueError, match="Expected 1 PPN layers"):
+        loss(**{**inputs, "ppn_masks": []})
+
+    empty_class_loss = PPNLoss(cnn_config, {"point_classes": []})
+    with pytest.raises(ValueError, match="at least one class"):
+        empty_class_loss(**inputs)
+
+    other_coords = TensorBatch(
+        torch.tensor([[0, 1, 1, 1]]),
+        counts=[1],
+        has_batch_col=True,
+        coord_cols=(1, 2, 3),
+        schema=POINT_SCHEMA,
+    )
+    with pytest.raises(ValueError, match="must match"):
+        loss(**{**inputs, "ppn_output_coords": other_coords})
+
+    extra_points = TensorBatch(
+        torch.zeros((2, 10)),
+        counts=[2],
+        schema=ppn_raw_schema(),
+    )
+    with pytest.raises(ValueError, match="point predictions"):
+        loss(**{**inputs, "ppn_points_unique": extra_points})
+
+    extra_endpoints = TensorBatch(torch.zeros((2, 2)), counts=[2])
+    with pytest.raises(ValueError, match="endpoint predictions"):
+        loss(
+            **{
+                **inputs,
+                "ppn_classify_endpoints_unique": extra_endpoints,
+            }
+        )
+
+    with pytest.raises(ValueError, match="clust_label"):
+        PPNLoss(cnn_config, {"restrict_to_clusters": True})(**inputs)
+
+    extra_masks = TensorBatch(torch.ones((2, 1), dtype=torch.bool), counts=[2])
+    with pytest.raises(ValueError, match="mask and score rows"):
+        loss(**{**inputs, "ppn_masks": [extra_masks]})
+
+
+def test_ppn_endpoint_head_runs_with_backbone(cnn_config):
+    """Endpoint-enabled PPN returns aligned original and unique logits."""
+    model = UResNetPPN(
+        {**cnn_config, "num_classes": 5},
+        {"classify_endpoints": True},
+    )
+    model.eval()
+    data = TensorBatch(
+        torch.tensor([[0.0, 1.0, 1.0, 1.0, 2.0]]),
+        counts=[1],
+        has_batch_col=True,
+        coord_cols=(1, 2, 3),
+    )
+
+    result = model(data)
+
+    assert result["ppn_classify_endpoints"].shape == (1, 2)
+    assert result["ppn_classify_endpoints_unique"].shape == (1, 2)
+
+
+def test_sparse_ppn_helpers_validate_and_transform():
+    """Mask helpers validate channels, thresholds, dimensions and strides."""
+    feature = FeatureTensor(torch.ones((1, 3)))
+    with pytest.raises(ValueError, match="two-score"):
+        ExpandAs()(feature, (1, 3))
+    with pytest.raises(ValueError, match="between zero and one"):
+        AttentionMask(1.1)
+    with pytest.raises(ValueError, match="positive"):
+        GhostMask(0)
+
+    expanded = ExpandAs()(
+        FeatureTensor(torch.tensor([[0.9, 0.1]])),
+        (1, 2),
+        use_binary_mask=True,
+        score_threshold=0.5,
+    )
+    assert not torch.any(expanded.features)
+
+    coords = torch.tensor([[0, 0, 0, 0]], dtype=torch.int32)
+    first = sparse.SparseTensor(torch.ones((1, 1)), coordinates=coords)
+    second = sparse.SparseTensor(
+        torch.ones((1, 1)),
+        coordinates=coords,
+        tensor_stride=2,
+    )
+    with pytest.raises(ValueError, match="tensor_stride"):
+        AttentionMask()(first, second)
+    with pytest.raises(ValueError, match="tensor_stride"):
+        MergeConcat()(first, second)
+
+    target = sparse.SparseTensor(
+        torch.ones((1, 1)),
+        coordinates=coords,
+        tensor_stride=3,
+    )
+    with pytest.raises(ValueError, match="power-of-two"):
+        GhostMask()(first, target)

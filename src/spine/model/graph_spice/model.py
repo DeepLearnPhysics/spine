@@ -183,10 +183,10 @@ class GraphSPICE(torch.nn.Module):
                 "The data and segmentation label tensors must have matching "
                 f"row counts, got {data.shape[0]} and {seg_label.shape[0]}."
             )
-        if clust_label is not None and data.shape[0] != clust_label.shape[0]:
+        if clust_label is not None and data.shape[0] != clust_label.data.shape[0]:
             raise ValueError(
                 "The data and cluster label tensors must have matching row counts, "
-                f"got {data.shape[0]} and {clust_label.shape[0]}."
+                f"got {data.shape[0]} and {clust_label.data.shape[0]}."
             )
 
         # Convert shapes to a tensor for easy comparison.

@@ -71,3 +71,43 @@ def test_edge_loss_rejects_nonbinary_labels():
 
     with pytest.raises(ValueError, match="must be binary"):
         loss_fn(cluster_labels, edge_logits, edge_labels)
+
+
+def test_edge_loss_validates_sampling_minimum():
+    """Equal-sampling configuration requires a positive class sample count."""
+    with pytest.raises(ValueError, match="positive"):
+        EdgeLoss(min_sample_edges=0)
+
+
+def test_edge_sampling_handles_missing_class_and_without_replacement():
+    """Sampling preserves single-class graphs and subsamples balanced graphs."""
+    loss_fn = EdgeLoss(min_sample_edges=1, metric=None)
+    logits = torch.arange(4, dtype=torch.float32)
+    single = torch.zeros(4, dtype=torch.long)
+    sampled_logits, sampled_labels = loss_fn.sample_edges(logits, single)
+    assert sampled_logits is logits
+    assert sampled_labels is single
+
+    balanced = torch.tensor([0, 0, 1, 1])
+    sampled_logits, sampled_labels = loss_fn.sample_edges(logits, balanced)
+    assert len(sampled_logits) == 4
+    assert torch.bincount(sampled_labels).tolist() == [2, 2]
+
+
+def test_edge_loss_balances_and_inverts_nonempty_graph():
+    """Weight balancing, target inversion, and IoU run together."""
+    loss_fn = EdgeLoss(
+        loss="bce_logits",
+        invert=True,
+        balance_loss=True,
+    )
+    logits = TensorBatch(torch.tensor([2.0, -2.0, -1.0]), counts=[3])
+    labels = TensorBatch(torch.tensor([0, 1, 1]), counts=[3])
+    cluster_labels = TensorBatch(torch.empty((0, 1)), counts=[0])
+
+    result = loss_fn(cluster_labels, logits, labels)
+
+    assert result["count"] == 3
+    assert result["accuracy"] == 1.0
+    assert result["iou"] == 1.0
+    assert torch.isfinite(result["loss"])

@@ -78,6 +78,8 @@ def _new_chain_plan(
             ) from err
         if not isinstance(name, str) or not name:
             raise ValueError("Full-chain stage names must be nonempty strings.")
+        if not isinstance(provider, str) or not provider:
+            raise ValueError("Full-chain provider names must be nonempty strings.")
         if name in names:
             raise ValueError(f"Duplicate full-chain stage name `{name}`.")
         names.add(name)
@@ -134,7 +136,10 @@ def _new_chain_plan(
                         f"Stage `{name}` references missing loss `{block_name}`."
                     )
                 if block_name in modules:
-                    loss_config[key] = modules[block_name]
+                    candidate = modules[block_name]
+                    if not isinstance(candidate, dict):
+                        raise TypeError(f"Loss block `{block_name}` must be a mapping.")
+                    loss_config[key] = candidate
             if not loss_config:
                 loss_config = None
 

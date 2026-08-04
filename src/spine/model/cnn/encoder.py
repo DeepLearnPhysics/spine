@@ -101,7 +101,6 @@ class SparseResidualEncoder(UResNetEncoder):
                     stride=final_tensor_shape,
                     dimension=self.dimension,
                 ),
-                sparse.GlobalPooling(),
             )
 
         else:

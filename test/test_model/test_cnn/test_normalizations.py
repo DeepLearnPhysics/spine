@@ -43,6 +43,30 @@ def test_adain_rejects_mismatched_controller_parameters():
 
     with pytest.raises(ValueError, match="feature dimension"):
         layer.weight = torch.ones(3)
+    with pytest.raises(ValueError, match="feature dimension"):
+        layer.bias = torch.ones(3)
+
+
+def test_custom_normalizations_validate_dimensions():
+    """Invalid channel counts and stability constants fail explicitly."""
+    with pytest.raises(ValueError, match="positive"):
+        PixelNorm(eps=0.0)
+    with pytest.raises(ValueError, match="positive"):
+        AdaIN(0)
+    with pytest.raises(ValueError, match="positive"):
+        AdaIN(2, eps=0.0)
+
+
+def test_adain_applies_external_affine_parameters():
+    """Controller-provided scale and bias transform normalized features."""
+    layer = AdaIN(2)
+    layer.weight = torch.tensor([2.0, 3.0])
+    layer.bias = torch.tensor([1.0, -1.0])
+    tensor = FeatureTensor(torch.tensor([[1.0, 2.0], [3.0, 6.0]]))
+
+    output = layer(tensor)
+
+    torch.testing.assert_close(output.features.mean(dim=0), layer.bias)
 
 
 def test_mish_matches_dense_reference():

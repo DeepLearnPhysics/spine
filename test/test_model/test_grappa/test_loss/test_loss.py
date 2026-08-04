@@ -1,6 +1,7 @@
 """Focused tests for GNN loss-label construction."""
 
 import numpy as np
+import pytest
 import torch
 
 from spine.data import (
@@ -10,7 +11,13 @@ from spine.data import (
     Meta,
     TensorBatch,
 )
-from spine.model.grappa.loss import NodeVertexLoss
+from spine.model.grappa.loss import (
+    EdgeChannelLoss,
+    NodeClassLoss,
+    NodeRegressionLoss,
+    NodeShowerPrimaryLoss,
+    NodeVertexLoss,
+)
 from spine.utils.gnn.evaluation import edge_assignment_forest_batch
 
 
@@ -58,6 +65,7 @@ def test_vertex_loss_normalizes_each_batch_entry_with_its_own_meta():
             dtype=np.float32,
         ),
         counts=[1, 1],
+        has_batch_col=True,
         coord_cols=np.arange(1, 4),
     )
     particles = {
@@ -119,3 +127,487 @@ def test_vertex_loss_normalizes_each_batch_entry_with_its_own_meta():
         result["labels"].numpy_tensor(),
         np.full((2, 3), 0.5),
     )
+
+
+def test_node_regression_loss_masks_invalid_targets(graph_labels, graph_clusters):
+    """Regression ignores unavailable labels and reports relative spread."""
+    prediction = TensorBatch(
+        torch.tensor([[1.0], [20.0], [6.0]]),
+        graph_clusters.counts,
+    )
+
+    result = NodeRegressionLoss(target="energy")(
+        graph_labels,
+        graph_clusters,
+        prediction,
+    )
+
+    assert result["count"] == 2
+    torch.testing.assert_close(result["loss"], torch.tensor(2.5))
+    assert result["accuracy"] == pytest.approx(0.5)
+
+    incompatible = TensorBatch(torch.zeros((3, 2)), graph_clusters.counts)
+    with pytest.raises(ValueError, match="incompatible numbers"):
+        NodeRegressionLoss(target="energy")(
+            graph_labels,
+            graph_clusters,
+            incompatible,
+        )
+
+
+def test_node_regression_loss_handles_no_valid_targets(graph_labels, graph_clusters):
+    """An entirely unavailable regression target yields a neutral result."""
+    graph_labels.particles["energy"].data.fill(-1.0)
+    prediction = TensorBatch(torch.zeros((3, 1)), graph_clusters.counts)
+
+    result = NodeRegressionLoss(target="energy")(
+        graph_labels,
+        graph_clusters,
+        prediction,
+    )
+
+    assert result["count"] == 0
+    assert result["accuracy"] == 1.0
+    torch.testing.assert_close(result["loss"], torch.tensor(0.0))
+
+
+def test_vertex_loss_validates_inputs(graph_labels, graph_clusters):
+    """Vertex regression rejects malformed outputs and missing context."""
+    bad_prediction = TensorBatch(torch.zeros((3, 4)), graph_clusters.counts)
+    with pytest.raises(ValueError, match="contain 5 features"):
+        NodeVertexLoss(only_contained=False)(
+            graph_labels,
+            graph_clusters,
+            bad_prediction,
+        )
+
+    prediction = TensorBatch(torch.zeros((3, 5)), graph_clusters.counts)
+    with pytest.raises(ValueError, match="provide `meta`"):
+        NodeVertexLoss(only_contained=False, normalize_positions=True)(
+            graph_labels,
+            graph_clusters,
+            prediction,
+        )
+    with pytest.raises(ValueError, match="particle end points"):
+        NodeVertexLoss(only_contained=False, use_anchor_points=True)(
+            graph_labels,
+            graph_clusters,
+            prediction,
+        )
+
+
+def test_vertex_loss_anchors_offsets_to_particle_endpoints(
+    graph_labels,
+    graph_clusters,
+):
+    """Anchor mode interprets the regressed values as endpoint offsets."""
+    logits = torch.tensor(
+        [
+            [0.0, 1.0, 0.5, 0.0, 0.0],
+            [1.0, 0.0, 9.0, 9.0, 9.0],
+            [0.0, 1.0, 0.0, 0.5, 0.0],
+        ]
+    )
+    prediction = TensorBatch(logits, graph_clusters.counts)
+    starts = TensorBatch(
+        torch.tensor([[0.5, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 7.5, 9.0]]),
+        graph_clusters.counts,
+    )
+    ends = TensorBatch(
+        torch.tensor([[20.0, 20.0, 20.0], [8.0, 8.0, 8.0], [30.0, 30.0, 30.0]]),
+        graph_clusters.counts,
+    )
+
+    result = NodeVertexLoss(only_contained=False, use_anchor_points=True)(
+        graph_labels,
+        graph_clusters,
+        prediction,
+        start_points=starts,
+        end_points=ends,
+    )
+
+    assert result["reg_count"] == 2
+    torch.testing.assert_close(result["reg_loss"], torch.tensor(0.0))
+    assert result["reg_accuracy"] == 0.0
+
+
+def test_vertex_loss_validates_metadata_count(graph_labels, graph_clusters):
+    """Position normalization requires metadata for every batch entry."""
+    prediction = TensorBatch(torch.zeros((3, 5)), graph_clusters.counts)
+    meta = [
+        Meta(
+            lower=np.zeros(3),
+            upper=np.ones(3),
+            size=np.ones(3),
+            count=np.ones(3, dtype=np.int64),
+        )
+    ]
+
+    with pytest.raises(ValueError, match="one metadata entry"):
+        NodeVertexLoss(only_contained=False, normalize_positions=True)(
+            graph_labels,
+            graph_clusters,
+            prediction,
+            meta=meta,
+        )
+
+
+def _edge_inputs():
+    """Build a minimal two-entry graph and aligned edge logits."""
+    edge_index = EdgeIndexBatch(
+        np.array([[0, 1], [1, 0]], dtype=np.int64),
+        counts=[2, 0],
+        spans=[2, 1],
+        directed=True,
+    )
+    edge_pred = TensorBatch(
+        torch.tensor([[0.0, 2.0], [2.0, 0.0]]),
+        counts=[2, 0],
+    )
+
+    return edge_index, edge_pred
+
+
+def _add_particle_fields(graph_labels, **fields):
+    """Attach particle fields shared by the focused GNN loss tests."""
+    for name, values in fields.items():
+        graph_labels.particles[name] = TensorBatch(
+            np.asarray(values),
+            counts=[2, 1],
+        )
+
+
+def test_edge_channel_group_and_empty_losses(graph_labels, graph_clusters):
+    """Edge classification handles weighted, invalid and empty selections."""
+    _add_particle_fields(graph_labels, group=[0, 0, 1])
+    edge_index, edge_pred = _edge_inputs()
+
+    result = EdgeChannelLoss(target="group", balance_loss=True)(
+        graph_labels,
+        graph_clusters,
+        edge_index,
+        edge_pred,
+    )
+    assert result["count"] == 2
+    assert result["accuracy"] == pytest.approx(0.5)
+
+    graph_labels.particles["group"].data.fill(-1)
+    result = EdgeChannelLoss(target="group")(
+        graph_labels,
+        graph_clusters,
+        edge_index,
+        edge_pred,
+    )
+    assert result["count"] == 0
+    assert result["accuracy"] == 1.0
+    torch.testing.assert_close(result["loss"], torch.tensor(0.0))
+
+
+def test_edge_channel_truth_modes(graph_labels, graph_clusters):
+    """Forest modes construct graph-derived targets and validate inputs."""
+    _add_particle_fields(graph_labels, group=[0, 0, 1], particle=[0, 1, 0])
+    edge_index, edge_pred = _edge_inputs()
+
+    result = EdgeChannelLoss(target="group", mode="forest")(
+        graph_labels,
+        graph_clusters,
+        edge_index,
+        edge_pred,
+    )
+    assert result["count"] == 2
+
+    particle_loss = EdgeChannelLoss(target="group", mode="particle_forest")
+    with pytest.raises(ValueError, match="true_edge_index"):
+        particle_loss(graph_labels, graph_clusters, edge_index, edge_pred)
+
+    true_edge_index = EdgeIndexBatch(
+        np.array([[0], [1]], dtype=np.int64),
+        counts=[1, 0],
+        spans=[2, 1],
+        directed=True,
+    )
+    result = particle_loss(
+        graph_labels,
+        graph_clusters,
+        edge_index,
+        edge_pred,
+        true_edge_index=true_edge_index,
+    )
+    assert result["count"] == 2
+
+    with pytest.raises(ValueError, match="not recognized"):
+        EdgeChannelLoss(target="group", mode="mystery")(
+            graph_labels,
+            graph_clusters,
+            edge_index,
+            edge_pred,
+        )
+
+
+def test_edge_channel_high_purity(graph_labels, graph_clusters, monkeypatch):
+    """High-purity edge supervision is restricted to shower groups."""
+    _add_particle_fields(
+        graph_labels,
+        group=[0, 0, 1],
+        particle=[0, 1, 0],
+        group_primary=[1, 0, 1],
+    )
+    edge_index, edge_pred = _edge_inputs()
+
+    with pytest.raises(ValueError, match="only valid"):
+        EdgeChannelLoss(target="interaction", high_purity=True)
+
+    monkeypatch.setattr(
+        "spine.model.grappa.loss.edge_channel.edge_purity_mask_batch",
+        lambda *args: np.array([True, False]),
+    )
+    result = EdgeChannelLoss(target="group", high_purity=True)(
+        graph_labels,
+        graph_clusters,
+        edge_index,
+        edge_pred,
+    )
+    assert result["count"] == 1
+
+
+def test_node_class_weights_masks_and_metrics(graph_labels, graph_clusters):
+    """Classification applies fixed and balanced weights to valid classes."""
+    with pytest.raises(ValueError, match="computed on the fly"):
+        NodeClassLoss(target="shape", weights=[1.0, 2.0], balance_loss=True)
+
+    prediction = TensorBatch(
+        torch.tensor([[2.0, 0.0], [2.0, 0.0], [0.0, 2.0]]),
+        graph_clusters.counts,
+    )
+    result = NodeClassLoss(target="shape", weights=[1.0, 2.0])(
+        graph_labels,
+        graph_clusters,
+        prediction,
+    )
+    assert result["count"] == 3
+    assert result["accuracy"] == pytest.approx(2 / 3)
+    assert result["accuracy_class_0"] == 1.0
+    assert result["accuracy_class_1"] == pytest.approx(0.5)
+
+    result = NodeClassLoss(target="shape", balance_loss=True)(
+        graph_labels,
+        graph_clusters,
+        prediction,
+    )
+    assert torch.isfinite(result["loss"])
+
+    graph_labels.particles["shape"].data[:] = [-1, 4, -1]
+    with pytest.warns(RuntimeWarning, match="larger"):
+        result = NodeClassLoss(target="shape")(
+            graph_labels,
+            graph_clusters,
+            prediction,
+        )
+    assert result["count"] == 0
+    assert result["accuracy"] == 1.0
+    assert result["accuracy_class_0"] == 1.0
+
+
+def test_node_class_closest_label_contract(
+    graph_labels,
+    graph_clusters,
+    monkeypatch,
+):
+    """Closest-fragment relabeling validates and normalizes its fallback."""
+    prediction = TensorBatch(torch.zeros((3, 2)), graph_clusters.counts)
+    loss = NodeClassLoss(target="shape", use_closest=True)
+    with pytest.raises(ValueError, match="coord_label"):
+        loss(graph_labels, graph_clusters, prediction)
+
+    coord_label = TensorBatch(np.zeros((3, 1)), graph_clusters.counts)
+    with pytest.raises(ValueError, match="exactly one"):
+        NodeClassLoss(
+            target="shape",
+            use_closest=True,
+            secondary_label=[0],
+        )(graph_labels, graph_clusters, prediction, coord_label=coord_label)
+
+    captured = []
+
+    def closest(*args):
+        captured.append(args[-1])
+        return TensorBatch(np.array([0, 1, 1]), graph_clusters.counts)
+
+    monkeypatch.setattr(
+        "spine.model.grappa.loss.node_class.get_cluster_closest_label_batch",
+        closest,
+    )
+    result = loss(
+        graph_labels,
+        graph_clusters,
+        prediction,
+        coord_label=coord_label,
+    )
+    assert result["count"] == 3
+    np.testing.assert_array_equal(captured[0], [-1, -1])
+
+
+def test_shower_primary_options(graph_labels, graph_clusters, monkeypatch):
+    """Shower-primary supervision supports closest and purity selections."""
+    _add_particle_fields(
+        graph_labels,
+        group=[0, 0, 1],
+        group_primary=[1, 0, 1],
+    )
+    prediction = TensorBatch(
+        torch.tensor([[0.0, 2.0], [2.0, 0.0], [0.0, 2.0]]),
+        graph_clusters.counts,
+    )
+    closest_loss = NodeShowerPrimaryLoss(use_closest=True)
+    with pytest.raises(ValueError, match="coord_label"):
+        closest_loss(graph_labels, graph_clusters, prediction)
+
+    monkeypatch.setattr(
+        "spine.model.grappa.loss.node_shower_primary."
+        "get_cluster_closest_primary_label_batch",
+        lambda *args: TensorBatch(np.array([1, 0, 1]), graph_clusters.counts),
+    )
+    coord_label = TensorBatch(np.zeros((3, 1)), graph_clusters.counts)
+    assert (
+        closest_loss(
+            graph_labels,
+            graph_clusters,
+            prediction,
+            coord_label=coord_label,
+        )["accuracy"]
+        == 1.0
+    )
+
+    with pytest.raises(ValueError, match="group predictions"):
+        NodeShowerPrimaryLoss(high_purity=True, use_group_pred=True)(
+            graph_labels,
+            graph_clusters,
+            prediction,
+        )
+
+    monkeypatch.setattr(
+        "spine.model.grappa.loss.node_shower_primary.node_purity_mask_batch",
+        lambda *args: np.array([True, False, True]),
+    )
+    result = NodeShowerPrimaryLoss(
+        balance_loss=True,
+        high_purity=True,
+        use_group_pred=True,
+    )(
+        graph_labels,
+        graph_clusters,
+        prediction,
+        group_pred=TensorBatch(np.array([0, 0, 1]), graph_clusters.counts),
+    )
+    assert result["count"] == 2
+    assert result["accuracy"] == 1.0
+
+    graph_labels.particles["group_primary"].data.fill(-1)
+    result = NodeShowerPrimaryLoss()(graph_labels, graph_clusters, prediction)
+    assert result["count"] == 0
+    assert result["accuracy"] == 1.0
+
+
+def test_shower_primary_truth_group_purity(
+    graph_labels,
+    graph_clusters,
+    monkeypatch,
+):
+    """High-purity selection can use truth group assignments."""
+    _add_particle_fields(
+        graph_labels,
+        group=[0, 0, 1],
+        group_primary=[1, 0, 1],
+    )
+    monkeypatch.setattr(
+        "spine.model.grappa.loss.node_shower_primary.node_purity_mask_batch",
+        lambda *args: np.ones(3, dtype=bool),
+    )
+    prediction = TensorBatch(torch.zeros((3, 2)), graph_clusters.counts)
+
+    result = NodeShowerPrimaryLoss(high_purity=True)(
+        graph_labels,
+        graph_clusters,
+        prediction,
+    )
+
+    assert result["count"] == 3
+
+
+def test_vertex_loss_checks_containment_per_event(
+    graph_labels,
+    graph_clusters,
+    monkeypatch,
+):
+    """Containment uses physical positions and masks nodes outside geometry."""
+
+    class Geometry:
+        def define_containment_volumes(self, margin, mode):
+            assert margin == 0.0
+            assert mode == "module"
+            return "volumes"
+
+        def check_containment(self, definition, points, summarize):
+            assert definition == "volumes"
+            assert not summarize
+            return np.ones(len(points), dtype=bool)
+
+    monkeypatch.setattr(
+        "spine.model.grappa.loss.node_vertex.GeoManager.get_instance",
+        lambda: Geometry(),
+    )
+    prediction = TensorBatch(torch.zeros((3, 5)), graph_clusters.counts)
+    meta = [
+        Meta(
+            lower=np.zeros(3),
+            upper=np.full(3, 20.0),
+            size=np.ones(3),
+            count=np.full(3, 20, dtype=np.int64),
+        ),
+        Meta(
+            lower=np.zeros(3),
+            upper=np.full(3, 20.0),
+            size=np.ones(3),
+            count=np.full(3, 20, dtype=np.int64),
+        ),
+    ]
+
+    result = NodeVertexLoss()(graph_labels, graph_clusters, prediction, meta=meta)
+
+    assert result["reg_count"] == 2
+
+
+def test_vertex_loss_normalizes_anchor_points(graph_labels, graph_clusters):
+    """Normalized anchor offsets use the scale of each batch entry."""
+    prediction = TensorBatch(torch.zeros((3, 5)), graph_clusters.counts)
+    starts = TensorBatch(torch.zeros((3, 3)), graph_clusters.counts)
+    ends = TensorBatch(torch.ones((3, 3)), graph_clusters.counts)
+    meta = [
+        Meta(
+            lower=np.zeros(3),
+            upper=np.full(3, 10.0),
+            size=np.ones(3),
+            count=np.full(3, 10, dtype=np.int64),
+        ),
+        Meta(
+            lower=np.zeros(3),
+            upper=np.full(3, 20.0),
+            size=np.ones(3),
+            count=np.full(3, 20, dtype=np.int64),
+        ),
+    ]
+
+    result = NodeVertexLoss(
+        only_contained=False,
+        normalize_positions=True,
+        use_anchor_points=True,
+    )(
+        graph_labels,
+        graph_clusters,
+        prediction,
+        meta=meta,
+        start_points=starts,
+        end_points=ends,
+    )
+
+    assert torch.isfinite(result["loss"])
