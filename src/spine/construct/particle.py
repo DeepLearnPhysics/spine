@@ -300,6 +300,13 @@ class ParticleBuilder(BuilderBase):
             if particle.id != group_id:
                 raise ValueError("The ordering of the true particles is wrong.")
 
+            # Identify the first fragment in the group, which will be used to set the
+            # start point and the shape of the particle
+            group_index = np.where(group_ids == group_id)[0]
+            first_fragment_id = group_index[
+                np.argmin([particles[j].t for j in group_index])
+            ]
+
             # Override the index of the particle and its group, but preserve it
             particle.orig_id = group_id
             particle.orig_group_id = group_id
@@ -312,16 +319,18 @@ class ParticleBuilder(BuilderBase):
             particle.parent_id = i
             particle.children_id = np.empty(0, dtype=particle.orig_children_id.dtype)
 
-            # Update the deposited energy attribute by summing that of all
-            # particles in the group (LArCV definition != SPINE definition)
+            # Override the shape of the particle with that of the earliest fragment in the group
+            particle.shape = particles[first_fragment_id].shape
+
+            # Sum energy deposits and use the earliest fragment in the group.
             particle.energy_deposit = 0.0
-            for j in np.where(group_ids == group_id)[0]:
+            for j in group_index:
                 particle.energy_deposit += particles[j].energy_deposit
 
             # Update the attributes shared between reconstructed and true
             particle.length = particle.distance_travel
             particle.is_primary = bool(particle.interaction_primary > 0)
-            particle.start_point = particle.first_step
+            particle.start_point = particles[first_fragment_id].first_step
             if particle.shape == TRACK_SHP:
                 particle.end_point = particle.last_step
 

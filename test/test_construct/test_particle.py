@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from spine.constants import TRACK_SHP
+from spine.constants import LOWES_SHP, TRACK_SHP
 from spine.construct.particle import ParticleBuilder
 from spine.data import EdgeIndexData
 from spine.data.larcv.particle import Particle
@@ -136,6 +136,51 @@ def test_build_truth_particles_from_groups(points, depositions):
     np.testing.assert_array_equal(result[0].points_adapt, points[[0, 1]] + 10)
     np.testing.assert_array_equal(result[1].points_g4, points[[2, 3]] + 20)
     np.testing.assert_array_equal(result[1].sources_adapt, [[3, 0], [3, 1]])
+
+
+def test_build_truth_particles_use_earliest_group_fragment(points, depositions):
+    """Truth groups should use their earliest fragment regardless of shape."""
+    builder = ParticleBuilder(mode="truth", units="px")
+    labels = make_label_tensor(
+        points, depositions, [0, 0, 0, -1], group_ids=[0, 0, 0, -1]
+    )
+    particles = [
+        Particle(
+            id=0,
+            group_id=0,
+            shape=0,
+            t=2.0,
+            first_step=np.array([2, 0, 0], dtype=np.float32),
+            energy_deposit=1.0,
+        ),
+        Particle(
+            id=1,
+            group_id=0,
+            shape=LOWES_SHP,
+            t=0.0,
+            first_step=np.array([0, 0, 0], dtype=np.float32),
+            energy_deposit=10.0,
+        ),
+        Particle(
+            id=2,
+            group_id=0,
+            shape=0,
+            t=1.0,
+            first_step=np.array([1, 0, 0], dtype=np.float32),
+            energy_deposit=2.5,
+        ),
+    ]
+
+    result = builder._build_truth(
+        particles=particles,
+        label_tensor=labels,
+        points_label=points,
+        depositions_label=depositions,
+    )
+
+    assert result[0].shape == LOWES_SHP
+    np.testing.assert_array_equal(result[0].start_point, [0, 0, 0])
+    assert result[0].energy_deposit == 13.5
 
 
 def test_build_truth_particles_reject_invalid_group_ids(points, depositions):

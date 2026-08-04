@@ -12,13 +12,18 @@ from spine.constants import (
     INVAL_ID,
     INVAL_IDX,
     INVAL_TID,
+    LOWES_SHP,
     MICHL_SHP,
     PDG_TO_PID,
 )
 
 
 def process_particles(
-    particles, particle_event, particle_mpv_event=None, neutrino_event=None
+    particles,
+    particle_event,
+    particle_mpv_event=None,
+    neutrino_event=None,
+    label_le=False,
 ):
     """Process Particle object list to add/correct attributes in place.
 
@@ -49,6 +54,8 @@ def process_particles(
         (M) List of true MPV particle instances
     neutrino_event : larcv.EventNeutrino, optional
         (N) List of true neutrino instances
+    label_le : bool, default False
+        If `True`, allows low-energy fragments to be group primaries
     """
     # If the list is empty, there is nothing to do
     if len(particles) == 0:
@@ -64,7 +71,9 @@ def process_particles(
         group_primary_ids,
         inter_primary_ids,
         pids,
-    ) = process_particle_event(particle_event, particle_mpv_event, neutrino_event)
+    ) = process_particle_event(
+        particle_event, particle_mpv_event, neutrino_event, label_le
+    )
 
     # Update the particles objects in place
     for i, p in enumerate(particles):
@@ -80,7 +89,7 @@ def process_particles(
 
 
 def process_particle_event(
-    particle_event, particle_mpv_event=None, neutrino_event=None
+    particle_event, particle_mpv_event=None, neutrino_event=None, label_le=False
 ):
     """Corrects/fetches attributes for a larcv.EventParticle object.
 
@@ -109,6 +118,8 @@ def process_particle_event(
         (M) List of true MPV particle instances
     neutrino_event : larcv.EventNeutrino, optional
         (N) List of true neutrino instances
+    label_le : bool, default False
+        If `True`, allows low-energy fragments to be group primaries
 
     Returns
     -------
@@ -166,7 +177,7 @@ def process_particle_event(
     nu_ids = get_nu_ids(particles, group_ids, interaction_ids, particles_mpv, neutrinos)
 
     # Get the group primary status of each particle
-    group_primary_ids = get_group_primary_ids(particles, valid_mask)
+    group_primary_ids = get_group_primary_ids(particles, valid_mask, label_le)
 
     # Get the interaction primary status of each particle
     inter_primary_ids = get_inter_primary_ids(particles, valid_mask)
@@ -395,7 +406,7 @@ def get_nu_ids(
     return nu_ids
 
 
-def get_group_primary_ids(particles, valid_mask=None):
+def get_group_primary_ids(particles, valid_mask=None, label_le=False):
     """Gets the group primary status of particle fragments.
 
     This could be handled somewhere else (e.g. Supera).
@@ -406,6 +417,8 @@ def get_group_primary_ids(particles, valid_mask=None):
         (P) List of true particle instances
     valid_mask : np.ndarray, optional
         (P) Particle label validity mask
+    label_le : bool, default False
+        If `True`, allows low-energy fragments to be group primaries
 
     Results
     -------
@@ -442,12 +455,15 @@ def get_group_primary_ids(particles, valid_mask=None):
             primary_ids[group_id] = 1
             continue
 
-        # If a particle group's parent fragment is the first in time,
-        # it is a valid primary. TODO: use first step time.
-        clust_times = np.array([particles[i].t() for i in group_index])
-        min_id = np.argmin(clust_times)
-        if group_index[min_id] == group_id:
-            primary_ids[group_id] = 1
+        # Select the earliest eligible fragment in the group.
+        eligible_index = group_index
+        if not label_le:
+            eligible_index = group_index[
+                np.array([particles[i].shape() < LOWES_SHP for i in group_index])
+            ]
+        if len(eligible_index):
+            clust_times = np.array([particles[i].t() for i in eligible_index])
+            primary_ids[eligible_index[np.argmin(clust_times)]] = 1
 
     return primary_ids
 

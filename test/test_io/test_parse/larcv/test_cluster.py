@@ -3,6 +3,7 @@
 import numpy as np
 import pytest
 
+from spine.constants import LOWES_SHP, PART_COL, VALUE_COL
 from spine.data import ClusterLabelData, TensorData
 from spine.data.larcv.meta import ImageMeta2D, ImageMeta3D
 from spine.io.parse.larcv.cluster import *
@@ -157,6 +158,11 @@ def test_parse_cluster3d_without_particle_table(cluster3d_event):
         (
             {"type_include_secondary": False},
             {"type_include_secondary": True, "particle_event": "particle"},
+            "specified twice",
+        ),
+        (
+            {"label_le": False},
+            {"label_le": True, "particle_event": "particle"},
             "specified twice",
         ),
         (
@@ -355,7 +361,9 @@ def test_parse_cluster3d_aggregate(
     assert isinstance(result.meta, ImageMeta3D)
 
 
-def cluster3d_to_sparse3d(cluster3d_event, segmentation=False, ghost=True):
+def cluster3d_to_sparse3d(
+    cluster3d_event, segmentation=False, ghost=True, segmentation_value=None
+):
     """Merge all clusters in a cluster3d object into a single sparse object.
 
     Parameters
@@ -391,6 +399,8 @@ def cluster3d_to_sparse3d(cluster3d_event, segmentation=False, ghost=True):
             voxels.append(np.vstack((x, y, z)).T)
             if not segmentation:
                 values.append(value)
+            elif segmentation_value is not None:
+                values.append(np.full(num_points, segmentation_value, dtype=np.float32))
             else:
                 values.append(
                     np.random.randint(0, 5 + int(ghost), size=num_points).astype(
@@ -412,6 +422,77 @@ def cluster3d_to_sparse3d(cluster3d_event, segmentation=False, ghost=True):
     event.set(voxel_set, meta)
 
     return event
+
+
+@pytest.mark.parametrize("cluster3d_event, particle_event", [(20, 20)], indirect=True)
+def test_cluster3d_clean_data_requires_semantics(cluster3d_event, particle_event):
+    """Cleaning cluster labels should require a semantic reference tensor."""
+    parser = LArCVCluster3DParser(
+        dtype="float32",
+        cluster_event=cluster3d_event,
+        particle_event=particle_event,
+        clean_data=True,
+        add_particle_info=True,
+    )
+
+    with pytest.raises(ValueError, match="semantics tensor"):
+        parser.process(cluster_event=cluster3d_event, particle_event=particle_event)
+
+
+@pytest.mark.parametrize("cluster3d_event, particle_event", [(20, 20)], indirect=True)
+def test_cluster3d_label_le_controls_raw_cluster_labels(
+    cluster3d_event, particle_event
+):
+    """Low-energy clusters should only retain labels when explicitly enabled."""
+    for particle in particle_event.as_vector():
+        particle.shape(LOWES_SHP)
+
+    results = []
+    for label_le in (False, True):
+        parser = LArCVCluster3DParser(
+            dtype="float32",
+            cluster_event=cluster3d_event,
+            particle_event=particle_event,
+            particle_info={"label_le": label_le},
+        )
+        results.append(
+            parser.process(cluster_event=cluster3d_event, particle_event=particle_event)
+        )
+
+    part_col = PART_COL - VALUE_COL
+    assert np.all(results[0].features[:, part_col] == -1)
+    assert np.any(results[1].features[:, part_col] > -1)
+
+
+@pytest.mark.parametrize("cluster3d_event, particle_event", [(20, 20)], indirect=True)
+def test_cluster3d_label_le_controls_cleaned_labels(cluster3d_event, particle_event):
+    """Semantic LE voxels should only retain labels when explicitly enabled."""
+    for particle in particle_event.as_vector():
+        particle.shape(0)
+    semantics = cluster3d_to_sparse3d(
+        cluster3d_event, segmentation=True, ghost=False, segmentation_value=LOWES_SHP
+    )
+    results = []
+    for label_le in (False, True):
+        parser = LArCVCluster3DParser(
+            dtype="float32",
+            cluster_event=cluster3d_event,
+            particle_event=particle_event,
+            sparse_semantics_event=semantics,
+            clean_data=True,
+            particle_info={"label_le": label_le},
+        )
+        results.append(
+            parser.process(
+                cluster_event=cluster3d_event,
+                particle_event=particle_event,
+                sparse_semantics_event=semantics,
+            )
+        )
+
+    part_col = PART_COL - VALUE_COL
+    assert np.all(results[0].features[:, part_col] == -1)
+    assert np.any(results[1].features[:, part_col] > -1)
 
 
 @pytest.mark.parametrize(
