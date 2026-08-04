@@ -302,6 +302,8 @@ class LArCVCluster3DParser(ParserBase):
             True if primary_include_mpr is None else primary_include_mpr
         )
         self.shape_precedence = np.asarray(shape_precedence)
+        if -1 not in self.shape_precedence:
+            self.shape_precedence = np.append(self.shape_precedence, -1)
 
         # Initialize DBSCAN if the clusters are to be broken up
         self.break_clusters = break_clusters

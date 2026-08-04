@@ -240,7 +240,7 @@ def test_cluster3d_cleaning_requires_semantics(cluster3d_event):
         dtype="float32",
         cluster_event="cluster",
         sparse_value_event="value",
-        clean_data=True,
+        clean_data=False,
     )
     with pytest.raises(ValueError, match="semantics tensor is required"):
         parser.process(
@@ -427,16 +427,22 @@ def cluster3d_to_sparse3d(
 @pytest.mark.parametrize("cluster3d_event, particle_event", [(20, 20)], indirect=True)
 def test_cluster3d_clean_data_requires_semantics(cluster3d_event, particle_event):
     """Cleaning cluster labels should require a semantic reference tensor."""
+    sparse_value = cluster3d_to_sparse3d(cluster3d_event)
     parser = LArCVCluster3DParser(
         dtype="float32",
         cluster_event=cluster3d_event,
         particle_event=particle_event,
+        sparse_value_event="value",
         clean_data=True,
         add_particle_info=True,
     )
 
     with pytest.raises(ValueError, match="semantics tensor"):
-        parser.process(cluster_event=cluster3d_event, particle_event=particle_event)
+        parser.process(
+            cluster_event=cluster3d_event,
+            particle_event=particle_event,
+            sparse_value_event=sparse_value,
+        )
 
 
 @pytest.mark.parametrize("cluster3d_event, particle_event", [(20, 20)], indirect=True)
@@ -491,7 +497,9 @@ def test_cluster3d_label_le_controls_cleaned_labels(cluster3d_event, particle_ev
         )
 
     part_col = PART_COL - VALUE_COL
+    assert np.all(results[0].features[:, 1] == -1)
     assert np.all(results[0].features[:, part_col] == -1)
+    assert np.any(results[1].features[:, 1] > -1)
     assert np.any(results[1].features[:, part_col] > -1)
 
 
