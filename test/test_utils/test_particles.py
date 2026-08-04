@@ -23,6 +23,16 @@ class DummyParticle:
     def t(self):
         return self._time
 
+    def first_step(self):
+        class Step:
+            def __init__(self, time):
+                self._time = time
+
+            def t(self):
+                return self._time
+
+        return Step(self._time)
+
 
 def test_group_primary_ids_respect_label_le():
     """Low-energy fragments should be primary only when labels are retained."""
