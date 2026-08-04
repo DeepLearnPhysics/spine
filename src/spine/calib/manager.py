@@ -39,8 +39,10 @@ class CalibrationManager:
         # Fetch the geometry instance
         self.geo = GeoManager.get_instance()
 
-        # Add the modules to a processor list in configuration order
-        parsed = parse_module_config(cfg)
+        # Add the modules to a processor list in decreasing order of priority
+        parsed = parse_module_config(
+            cfg, sort_by_priority=True, priority_descending=True
+        )
         names = [spec["name"] for spec in parsed.values()]
         self.update_points = "field" in names
 

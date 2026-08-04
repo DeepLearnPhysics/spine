@@ -63,6 +63,17 @@ def test_manager_applies_modules_in_config_order(monkeypatch, fake_geo):
     assert np.allclose(corrected, [20.0, 30.0])
 
 
+def test_manager_sorts_modules_by_descending_priority(monkeypatch, fake_geo):
+    monkeypatch.setattr(manager_mod.GeoManager, "get_instance", lambda: fake_geo)
+    manager = CalibrationManager(
+        response={"response_func": "x + 1"},
+        gain={"gain": 2.0, "priority": 10},
+        recombination={"efield": 0.5, "priority": 5},
+    )
+
+    assert list(manager.modules) == ["gain", "recombination", "response"]
+
+
 def test_manager_applies_response_between_gain_and_recombination(monkeypatch, fake_geo):
     monkeypatch.setattr(manager_mod.GeoManager, "get_instance", lambda: fake_geo)
     manager = CalibrationManager(
