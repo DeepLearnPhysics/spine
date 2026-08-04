@@ -462,7 +462,9 @@ def get_group_primary_ids(particles, valid_mask=None, label_le=False):
                 np.array([particles[i].shape() < LOWES_SHP for i in group_index])
             ]
         if len(eligible_index):
-            clust_times = np.array([particles[i].t() for i in eligible_index])
+            clust_times = np.array(
+                [particles[i].first_step().t() for i in eligible_index]
+            )
             primary_ids[eligible_index[np.argmin(clust_times)]] = 1
 
     return primary_ids

@@ -546,7 +546,7 @@ class LArCVParticleCoordinateParser(ParserBase):
             else:
                 row[3:6] = row[:3]
 
-            row[6] = p.t()
+            row[6] = start.t()
             row[7] = shape
 
         return ParserTensor(

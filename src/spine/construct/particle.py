@@ -302,7 +302,7 @@ class ParticleBuilder(BuilderBase):
             # start point and the shape of the particle
             group_index = np.where(group_ids == group_id)[0]
             first_fragment_id = group_index[
-                np.argmin([particles[j].t for j in group_index])
+                np.argmin([particles[j].first_step_t for j in group_index])
             ]
 
             # Override the index of the particle and its group, but preserve it

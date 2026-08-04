@@ -76,6 +76,10 @@ class Particle(PosDataBase):
         Particle creation time (ns)
     end_t : float
         Particle death time (ns)
+    first_step_t : float
+        Time of the first energy deposition of the particle (ns)
+    last_step_t : float
+        Time of the last energy deposition of the particle (ns)
     parent_t : float
         Particle creation time of the parent particle (ns)
     ancestor_t : float
@@ -132,6 +136,8 @@ class Particle(PosDataBase):
 
     t: float = field(default=np.nan, metadata=FieldMetadata(units="ns"))
     end_t: float = field(default=np.nan, metadata=FieldMetadata(units="ns"))
+    first_step_t: float = field(default=np.nan, metadata=FieldMetadata(units="ns"))
+    last_step_t: float = field(default=np.nan, metadata=FieldMetadata(units="ns"))
     parent_t: float = field(default=np.nan, metadata=FieldMetadata(units="ns"))
     ancestor_t: float = field(default=np.nan, metadata=FieldMetadata(units="ns"))
     energy_init: float = field(default=np.nan, metadata=FieldMetadata(units="MeV"))
@@ -275,6 +281,8 @@ class Particle(PosDataBase):
             obj_dict[key] = getattr(particle, key)()
 
         obj_dict["end_t"] = particle.end_position().t()
+        obj_dict["first_step_t"] = particle.first_step().t()
+        obj_dict["last_step_t"] = particle.last_step().t()
 
         # Load the positional attribute
         axes = ("x", "y", "z")
