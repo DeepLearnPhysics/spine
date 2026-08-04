@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.16.1] - 2026-08-04
+
+### Changed
+- **Calibration module priorities**: Apply calibration modules in descending configured priority order.
+
+### Fixed
+- **Truth fragment selection**: Build truth particles from the first visible fragment using its first energy-deposition time and shape, rather than particle creation time or the group representative.
+- **Low-energy particle labels**: Consistently exclude low-energy clusters from particle associations unless explicitly enabled, while preserving valid duplicate-voxel precedence handling.
+- **Particle step timing**: Preserve first- and last-step timestamps in canonical particle objects and use first-step time for particle-coordinate labels and group-primary selection.
+
 ## [0.16.0] - 2026-07-27
 
 ### Added
