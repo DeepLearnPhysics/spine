@@ -18,9 +18,9 @@ import numpy as np
 from spine.constants import (
     ANCST_COL,
     CLUST_COL,
-    DELTA_SHP,
     GROUP_COL,
     INTER_COL,
+    LOWES_SHP,
     NU_COL,
     PART_COL,
     SHAPE_COL,
@@ -179,6 +179,7 @@ class LArCVCluster3DParser(ParserBase):
             sparse_value_event: sparse3d_pcluster
             add_particle_info: true
             clean_data: true
+            label_le: false
             type_include_mpr: false
             type_include_secondary: false
             primary_include_mpr: true
@@ -197,6 +198,7 @@ class LArCVCluster3DParser(ParserBase):
         particle_event: Any | None = None,
         add_particle_info: bool = False,
         clean_data: bool = False,
+        label_le: bool = False,
         type_include_mpr: bool = True,
         type_include_secondary: bool = True,
         primary_include_mpr: bool = True,
@@ -217,6 +219,8 @@ class LArCVCluster3DParser(ParserBase):
             If `True`, adds truth information from the true particle list
         clean_data : bool, default False
             If `True`, removes duplicate voxels
+        label_le : bool, default False
+            If `True`, retains labels for low-energy particle clusters
         type_include_mpr : bool, default False
             If `False`, sets all PID labels to -1 for MPR particles
         type_include_secondary : bool, default False
@@ -241,6 +245,7 @@ class LArCVCluster3DParser(ParserBase):
         # Store the revelant attributes
         self.add_particle_info = add_particle_info
         self.clean_data = clean_data
+        self.label_le = label_le
         self.type_include_mpr = type_include_mpr
         self.type_include_secondary = type_include_secondary
         self.primary_include_mpr = primary_include_mpr
@@ -329,6 +334,12 @@ class LArCVCluster3DParser(ParserBase):
             meta : Meta
                 Metadata of the parsed image
         """
+        # Check that the semantics tensor is provided if `clean_data` is True
+        if self.clean_data and sparse_semantics_event is None:
+            raise ValueError(
+                "A semantics tensor must be provided when `clean_data` is True."
+            )
+
         # Get the cluster-wise information first
         meta = cluster_event.meta()
         num_clusters = cluster_event.as_vector().size()
@@ -360,7 +371,10 @@ class LArCVCluster3DParser(ParserBase):
                 inter_primaries,
                 types,
             ) = process_particle_event(
-                particle_event, particle_mpv_event, neutrino_event
+                particle_event,
+                particle_mpv_event,
+                neutrino_event,
+                label_le=self.label_le,
             )
 
             # Store the cluster ID information
@@ -461,6 +475,13 @@ class LArCVCluster3DParser(ParserBase):
                     np_features[point_offset:point_end, 1] = id_offset + frag_labels
                     id_offset += np.max(frag_labels, initial=-1) + 1
 
+                if (
+                    self.add_particle_info
+                    and i < num_particles
+                    and labels["shape"][i] >= LOWES_SHP + self.label_le
+                ):
+                    np_features[point_offset:point_end, 1:-1] = -1
+
                 point_offset = point_end
 
         # If requested, remove duplicate voxels (cluster overlaps) and
@@ -495,12 +516,12 @@ class LArCVCluster3DParser(ParserBase):
             # Match the semantic column to the reference tensor
             np_features[:, -1] = tensor_seg.features[:, -1]
 
-            # Set all cluster labels to -1 if semantic class is LE or ghost
-            shape_mask = tensor_seg.features[:, -1] > DELTA_SHP
+            # Set all cluster labels to -1 if the semantic class is not retained.
+            shape_mask = tensor_seg.features[:, -1] >= LOWES_SHP + self.label_le
             np_features[shape_mask, 1:-1] = -1
 
             # If a value tree is provided, override value colum
-            if sparse_value_event:
+            if sparse_value_event is not None:
                 tensor_val = self.sparse_parser.process(sparse_value_event)
                 np_features[:, 0] = tensor_val.features[:, 0]
 

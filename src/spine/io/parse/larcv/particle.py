@@ -78,6 +78,7 @@ class LArCVParticleParser(ParserBase):
         post_process: bool = True,
         skip_empty: bool = False,
         asis: bool = False,
+        label_le: bool = False,
         **kwargs: Any,
     ) -> None:
         """Initialize the parser.
@@ -96,6 +97,8 @@ class LArCVParticleParser(ParserBase):
             object in place of empty particles, to preserve list size and typing.
         asis : bool, default False
             Load the objects as larcv objects, do not build local data class
+        label_le : bool, default False
+            If `True`, allows low-energy fragments to be group primaries
         **kwargs : dict, optional
             Data product arguments to be passed to the `process` function
         """
@@ -107,6 +110,7 @@ class LArCVParticleParser(ParserBase):
         self.post_process = post_process
         self.skip_empty = skip_empty
         self.asis = asis
+        self.label_le = label_le
 
     def __call__(self, trees: dict[str, Any]) -> ParserObjectList:
         """Parse one entry.
@@ -173,7 +177,11 @@ class LArCVParticleParser(ParserBase):
         # If requested, post-process the particle list
         if self.post_process:
             process_particles(
-                particles, particle_event, particle_mpv_event, neutrino_event
+                particles,
+                particle_event,
+                particle_mpv_event,
+                neutrino_event,
+                self.label_le,
             )
 
         # If requested, convert the point positions to pixel coordinates
