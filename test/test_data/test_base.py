@@ -373,6 +373,15 @@ class TestDataBase:
         assert obj.id == 105
         assert obj.parent_id == 110
 
+    def test_shift_indexes_numpy_scalar(self):
+        """Test shift_indexes with a NumPy integer scalar."""
+        obj = IndexData(id=np.int64(5), parent_id=np.int32(10))
+
+        obj.shift_indexes(100)
+
+        assert obj.id == 105
+        assert obj.parent_id == 110
+
     def test_shift_indexes_invalid_not_shifted(self):
         """Test that invalid indexes (-1) are not shifted."""
         obj = IndexData(id=-1, parent_id=10)
@@ -399,6 +408,13 @@ class TestDataBase:
         assert obj.id == 105
         assert obj.parent_id == 210
         assert np.array_equal(obj.cluster_ids, np.array([1000, 1001, 1002]))
+
+    def test_shift_indexes_invalid_type(self):
+        """Test that unsupported index types raise an informative error."""
+        obj = IndexData(id="5")
+
+        with pytest.raises(TypeError, match="id.*integer or NumPy array.*str"):
+            obj.shift_indexes(100)
 
     def test_as_dict(self):
         """Test as_dict method."""
