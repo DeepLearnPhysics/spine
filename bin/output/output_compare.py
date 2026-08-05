@@ -94,7 +94,8 @@ def get_product_keys(in_file: h5py.File, format_version: int) -> set[str]:
     assert isinstance(events, h5py.Dataset)
     if format_version == 1:
         return set(events.dtype.names or ())
-    return set(in_file.keys()) - {"events", "info"}
+    products = _require_group(in_file, "products")
+    return set(products.keys())
 
 
 def _decode_attribute(value: Any) -> Any:
@@ -203,7 +204,8 @@ def load_event_value(
         Dereferenced event value.
     """
     if format_version == 2:
-        group = in_file[key]
+        products = _require_group(in_file, "products")
+        group = products[key]
         if not isinstance(group, h5py.Group) or "kind" not in group.attrs:
             raise ValueError(f"V2 product '{key}' is not a recognized product group.")
 

@@ -150,7 +150,7 @@ def test_compare_files_v2_reports_semantic_difference(tmp_path):
     make_versioned_output(reference, 2)
     make_versioned_output(candidate, 2)
     with h5py.File(candidate, "a") as out_file:
-        out_file["tensor"]["values"][0, 0] += 1.0
+        out_file["products"]["tensor"]["values"][0, 0] += 1.0
 
     result = module.compare_files(reference, candidate, exact=True)
 

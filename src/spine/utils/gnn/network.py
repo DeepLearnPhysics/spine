@@ -98,7 +98,8 @@ def get_cluster_edge_features(
     Parameters
     ----------
     data : Union[np.ndarray, torch.Tensor]
-        (N, 1 + D + N_f) Batched sparse tensors
+        Either an ``(N, 3)`` spatial-coordinate array or a legacy
+        ``(N, 1 + D + N_f)`` sparse table with batch ID in the first column
     clusts : List[np.ndarray]
         (C) List of arrays of voxels IDs in each cluster
     edge_index : Union[np.ndarray, torch.Tensor]
@@ -118,8 +119,16 @@ def get_cluster_edge_features(
     if not len(clusts):
         return np.empty((0, 19), dtype=data.dtype)  # Cannot type empty list
 
+    # Typed batch callers provide spatial coordinates directly. Preserve the
+    # historical raw-array interface by stripping its batch/features columns.
+    coordinates = data if data.shape[1] == 3 else data[:, 1:4]
     return _get_cluster_edge_features(
-        data, clusts, edge_index, closest_index, iterative, use_legacy_distance
+        coordinates,
+        clusts,
+        edge_index,
+        closest_index,
+        iterative,
+        use_legacy_distance,
     )
     # return _get_cluster_edge_features_vec(
     #         data, clusts, edge_index, closest_index, iterative)
