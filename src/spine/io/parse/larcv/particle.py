@@ -30,7 +30,11 @@ from spine.constants.factory import enum_factory
 from spine.data import Meta, Neutrino, Particle
 from spine.utils.conditional import larcv
 from spine.utils.gnn.network import filter_invalid_nodes
-from spine.utils.particles import get_interaction_ids, process_particles
+from spine.utils.particles import (
+    get_interaction_ids,
+    get_invalid_index,
+    process_particles,
+)
 from spine.utils.ppn import (
     get_ppn_labels,
     get_vertex_labels,
@@ -215,9 +219,7 @@ class LArCVParticleParser(ParserBase):
             interaction_ids = np.asarray(
                 [part.interaction_id for part in particles], dtype=int
             )
-            interaction_ids[
-                (interaction_ids == INVAL_ID) | (interaction_ids == INVAL_IDX)
-            ] = -1
+            interaction_ids[interaction_ids == get_invalid_index(interaction_ids)] = -1
         interaction_span = np.max(interaction_ids, initial=-1) + 1
 
         index_shifts = {}

@@ -3,7 +3,11 @@
 import numpy as np
 
 from spine.constants import INVAL_ID, INVAL_IDX, LOWES_SHP
-from spine.utils.particles import get_group_primary_ids, get_interaction_ids
+from spine.utils.particles import (
+    get_group_primary_ids,
+    get_interaction_ids,
+    get_invalid_index,
+)
 
 
 class DummyParticle:
@@ -50,8 +54,8 @@ def test_group_primary_ids_respect_label_le():
     )
 
 
-def test_interaction_ids_normalize_larcv_sentinels():
-    """Invalid LArCV interaction IDs should map to the local -1 sentinel."""
+def test_interaction_ids_normalize_event_sentinel():
+    """Interaction IDs should use the sentinel convention of their event."""
 
     class InteractionParticle:
         def __init__(self, interaction_id):
@@ -60,12 +64,14 @@ def test_interaction_ids_normalize_larcv_sentinels():
         def interaction_id(self):
             return self._interaction_id
 
-    interaction_ids = get_interaction_ids(
-        [
-            InteractionParticle(0),
-            InteractionParticle(INVAL_IDX),
-            InteractionParticle(INVAL_ID),
-        ]
+    old_ids = get_interaction_ids(
+        [InteractionParticle(0), InteractionParticle(INVAL_IDX)]
+    )
+    new_ids = get_interaction_ids(
+        [InteractionParticle(INVAL_IDX), InteractionParticle(INVAL_ID)]
     )
 
-    np.testing.assert_array_equal(interaction_ids, [0, -1, -1])
+    assert get_invalid_index(np.array([0, INVAL_IDX])) == INVAL_IDX
+    assert get_invalid_index(np.array([INVAL_IDX, INVAL_ID])) == INVAL_ID
+    np.testing.assert_array_equal(old_ids, [0, -1])
+    np.testing.assert_array_equal(new_ids, [INVAL_IDX, -1])
