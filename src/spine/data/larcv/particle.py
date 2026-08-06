@@ -204,7 +204,13 @@ class Particle(PosDataBase):
     @property
     @stored_alias("t")
     def time(self) -> float:
-        """Particle creation time in nanoseconds."""
+        """Particle creation time in nanoseconds.
+
+        Returns
+        -------
+        float
+            Particle creation time in nanoseconds
+        """
         return self.t
 
     @property

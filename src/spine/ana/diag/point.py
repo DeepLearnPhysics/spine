@@ -1,164 +1,143 @@
-"""Module to evaluate diagnostic metrics on points."""
+"""Diagnostic analysis of reconstructed space-point completeness."""
+
+from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 import numpy as np
 from scipy.spatial import cKDTree
 
 from spine.ana.base import AnaBase
-from spine.constants import TRACK_SHP
-from spine.math.distance import cdist
 
-__all__ = ["PointMetricsAna"]
+__all__ = ["PointCompletenessAna"]
 
 
-class PointMetricsAna(AnaBase):
-    """This analysis script evaluates the purity and efficiency of spacepoints.
-    Compare the truth points (sed) to the reconstructed points (cluster3d)."""
+class PointCompletenessAna(AnaBase):
+    """Measure space-point coverage relative to Geant4 energy depositions.
+
+    For each truth object, this diagnostic compares a selected detector-level
+    point representation against the corresponding Geant4 deposition points.
+    Purity is the fraction of selected points close to a Geant4 point, while
+    efficiency is the fraction of Geant4 points close to a selected point.
+    """
 
     # Name of the analysis script (as specified in the configuration)
-    name = "point_metrics"
+    name = "point_completeness"
+
+    # Preserve the name proposed in the original contribution
+    aliases = ("point_metrics",)
 
     def __init__(
-        self, time_window=None, run_mode="both", truth_point_mode="points", **kwargs
-    ):
-        """Initialize the analysis script.
+        self,
+        obj_type: str | Sequence[str] = "particle",
+        truth_point_mode: str = "points",
+        time_window: Sequence[float] | None = None,
+        match_distance: float | None = None,
+        **kwargs: Any,
+    ) -> None:
+        """Initialize the point-completeness diagnostic.
 
         Parameters
         ----------
-        time_window : List[float]
-            Time window within which to include particle (only works for `truth`)
-        run_mode : str
-            Mode to run the analysis in, either 'both', 'reco', or 'truth'
-        truth_point_mode : str
-            Mode to run the truth points in, either 'points' or 'clusters'
+        obj_type : str or Sequence[str], default 'particle'
+            Truth object type or types to evaluate
+        truth_point_mode : str, default 'points'
+            Detector-level truth point representation to compare to Geant4
+        time_window : Sequence[float], optional
+            Inclusive truth-object time window in nanoseconds
+        match_distance : float, optional
+            Maximum nearest-neighbor distance in centimeters. If omitted, use
+            the diagonal length of one image voxel.
         **kwargs : dict, optional
             Additional arguments to pass to :class:`AnaBase`
         """
-        # Initialize the parent class
-        super().__init__("particle", run_mode, truth_point_mode, **kwargs)
+        # This comparison is defined on truth-associated detector points
+        super().__init__(
+            obj_type=obj_type,
+            run_mode="truth",
+            truth_point_mode=truth_point_mode,
+            **kwargs,
+        )
 
-        # Store the time window
-        self.time_window = time_window
-        assert (
-            time_window is None or len(time_window) == 2
-        ), "Time window must be specified as an array of two values."
-        assert (
-            time_window is None or run_mode == "truth"
-        ), "Time of reconstructed particle is unknown."
+        # Validate and store the optional time window
+        normalized_time_window: tuple[float, float] | None = None
+        if time_window is not None:
+            if not isinstance(time_window, Sequence) or len(time_window) != 2:
+                raise ValueError(
+                    "Time window must be specified as an array of two values."
+                )
+            if time_window[0] > time_window[1]:
+                raise ValueError(
+                    "Time window lower bound must not exceed its upper bound."
+                )
+            normalized_time_window = (time_window[0], time_window[1])
+        self.time_window = normalized_time_window
 
-        # Make sure the metadata is provided (rasterization needed)
-        self.update_keys({"meta": True})
+        # Validate and store the distance threshold
+        if match_distance is not None:
+            if not np.isfinite(match_distance) or match_distance <= 0.0:
+                raise ValueError("Match distance must be finite and positive.")
+        self.match_distance = match_distance
 
-        # Initialize the CSV writer(s) you want
-        for prefix in self.prefixes:
-            self.initialize_writer(prefix)
+        # Geant4 points provide the reference; metadata provides the default
+        # distance scale and ensures that coordinate units are explicit.
+        self.update_keys({"points_g4": True, "meta": True})
 
-    def process(self, data):
-        """Evaluate track completeness for tracks in one entry.
+        # Initialize one output file per requested truth object type
+        for obj in self.obj_type:
+            self.initialize_writer(obj)
 
-        Parameters
-        ----------
-        data : dict
-            Dictionary of data products
-        """
+    def process(self, data: Mapping[str, Any]) -> None:
+        """Evaluate point completeness for all requested truth objects."""
+        match_distance = self.match_distance
+        if match_distance is None:
+            match_distance = float(np.linalg.norm(data["meta"].size))
+            if not np.isfinite(match_distance) or match_distance <= 0.0:
+                raise ValueError("Image metadata must define positive voxel sizes.")
 
-        # Fetch the pixel size in this image (assume cubic cells)
-        pixel_size = data["meta"].size[0]
-
-        # Loop over the types of particle data products
-        for key in self.obj_keys:
-            # Fetch the prefix ('reco' or 'truth')
-            prefix = key.split("_")[0]
-
-            # Loop over particle objects to collect all points
-            for part in data[key]:
-                # If needed, check on the particle time
+        for obj_type in self.obj_type:
+            for obj in data[f"truth_{obj_type}s"]:
                 if self.time_window is not None:
-                    if part.t < self.time_window[0] or part.t > self.time_window[1]:
+                    lower, upper = self.time_window
+                    if not lower <= obj.time <= upper:
                         continue
 
-                # Fetch the particle point coordinates
-                points = self.get_points(part)
-                sed_points = part.points_g4
-
-                if len(points) == 0 or len(sed_points) == 0:
-                    continue
-
-                # Get the purity and efficiency
-                # distance = 3*pixel_size, so we can match by the corner of the voxel
-                purity, efficiency = self.reco_and_true_matching(
-                    points, sed_points, distance=3 * pixel_size
-                )
-
-                # Initialize the particle dictionary
-                comp_dict = {"particle_id": part.id}
-                comp_dict["purity"] = purity
-                comp_dict["efficiency"] = efficiency
-                comp_dict["num_points"] = len(points)
-                comp_dict["num_sed_points"] = len(sed_points)
-                comp_dict["shape"] = part.shape
-
-                # Add length for tracks
-                if part.shape == TRACK_SHP:
-                    start = points[np.argmin(cdist([part.start_point], points))]
-                    end = points[np.argmin(cdist([part.end_point], points))]
-                    vec = end - start
-                    length = np.linalg.norm(vec)
-                    if length and length > 0:
-                        vec /= length
-                    comp_dict["length"] = length
-                    comp_dict.update(
-                        {"dir_x": vec[0], "dir_y": vec[1], "dir_z": vec[2]}
-                    )
-
-                # Append the dictionary to the CSV log
-                self.append(prefix, **comp_dict)
+                points = self.get_points(obj)
+                points_g4 = obj.points_g4
+                row = {
+                    "id": obj.id,
+                    "shape": getattr(obj, "shape", -1),
+                    "num_points": len(points),
+                    "num_points_g4": len(points_g4),
+                    "purity": self.match_fraction(
+                        points,
+                        points_g4,
+                        match_distance,
+                    ),
+                    "efficiency": self.match_fraction(
+                        points_g4,
+                        points,
+                        match_distance,
+                    ),
+                }
+                self.append(obj_type, **row)
 
     @staticmethod
-    def reco_and_true_matching(reco_noghost, true, distance=3):
+    def match_fraction(
+        source: np.ndarray,
+        target: np.ndarray,
+        distance: float,
+    ) -> float:
+        """Return the fraction of source points close to any target point.
+
+        The fraction is undefined when there are no source points and is zero
+        when source points exist but no target points are available.
         """
-        Calculates purtiy and efficiency by matching true voxel locations to reco voxel locations
-        and vise-versa
+        if len(source) == 0:
+            return np.nan
+        if len(target) == 0:
+            return 0.0
 
-
-        reco_noghost = xyz coords for nonghost
-        true         = xyz for true parts
-        distance     = threshold distance between voxels. Use 3 by default since this is a matching by the corner of the voxel.
-                       Scale by pixel size if in cm
-
-        eff                 = true tagged voxel count / true voxel count
-        pur                 = reco tagged voxel count / reco voxels (noghost)
-        reco_tagged         = reco voxels that were matched to a true voxel (true->reco)
-        true_tagged         = true voxels that were matched to a reco voxel (reco->true)
-        reco_reverse_tagged = reco voxels that were matched to a true voxel (reco->true)
-        """
-        small = 1e-5  # offset for float precision
-        tree = cKDTree(true)  # Get tree to perform query
-        # Return closest distance to each reco point, and indices of that voxel in the truth array
-        distances, _ = tree.query(reco_noghost, k=1)
-        reco_indices = []
-        for i, d in enumerate(distances):  # distances from nearest true voxel
-            d -= small
-            if d <= distance:  # Ignore elements that don't satisfy distance threshold
-                reco_indices.append(i)
-        if len(reco_indices) > 0:
-            reco_tagged = reco_noghost[np.unique(reco_indices)]
-            pur = len(reco_tagged) / len(reco_noghost)
-        else:
-            pur = 0
-
-        # Do it again for efficiency
-        tree = cKDTree(reco_noghost)  # Get tree to perform query
-        # Return closest distance to each reco voxel, and indices of that voxel in the truth array
-        distances, _ = tree.query(true, k=1)  # Distance from reco to true voxels
-        true_indices = []
-        for i, d in enumerate(distances):
-            d -= small
-            if d <= distance:  # Ignore elements that don't satisfy the criteria
-                true_indices.append(i)
-        if len(true_indices) > 0:
-            true_tagged = true[np.unique(true_indices)]
-            eff = len(true_tagged) / len(true)
-        else:
-            eff = 0
-
-        return pur, eff
+        distances, _ = cKDTree(target).query(source, k=1)
+        return float(np.mean(distances <= distance))
