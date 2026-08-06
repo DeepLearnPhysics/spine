@@ -428,6 +428,33 @@ class TestTruthInteraction:
         assert obj.pdg_code == 12
         assert obj.energy_init == 1.0
 
+    def test_truthinteraction_time_prefers_neutrino(self):
+        """Truth interaction time should prefer its neutrino time."""
+        from spine.data.out import TruthInteraction, TruthParticle
+
+        obj = TruthInteraction(
+            t=12.0,
+            particles=[TruthParticle(t=3.0), TruthParticle(t=7.0)],
+        )
+
+        assert obj.time == 12.0
+        assert obj.value_with_units("time") == (12.0, "ns")
+
+    def test_truthinteraction_time_falls_back_to_earliest_particle(self):
+        """Truth interaction time should fall back to constituent particles."""
+        from spine.data.out import TruthInteraction, TruthParticle
+
+        obj = TruthInteraction(
+            particles=[
+                TruthParticle(t=np.nan),
+                TruthParticle(t=7.0),
+                TruthParticle(t=-2.0, is_valid=False),
+            ]
+        )
+
+        assert obj.time == -2.0
+        assert np.isnan(TruthInteraction().time)
+
     def test_truthinteraction_dir_and_reco_dir(self):
         """TruthInteraction dir should be true direction and reco_dir settable."""
         from spine.data.out.interaction import TruthInteraction

@@ -6,8 +6,10 @@ import pytest
 from spine.ana.metric.cluster import ClusterAna
 from spine.constants import CLUST_COL, GROUP_COL, SHAPE_COL
 from spine.data.out import (
+    RecoFragment,
     RecoInteraction,
     RecoParticle,
+    TruthFragment,
     TruthInteraction,
     TruthParticle,
 )
@@ -79,6 +81,12 @@ def test_cluster_ana_validates_configuration(monkeypatch):
     with pytest.raises(ValueError, match="cannot.*use objects"):
         ClusterAna(per_object=False, label_col="group", use_objects=True)
 
+    with pytest.raises(ValueError, match="two values"):
+        ClusterAna(obj_type="particle", time_window=(0.0, 1.0, 2.0))
+
+    with pytest.raises(ValueError, match="lower bound"):
+        ClusterAna(obj_type="particle", time_window=(1.0, 0.0))
+
 
 def test_cluster_ana_raw_per_object_mode(monkeypatch):
     rows = []
@@ -111,6 +119,49 @@ def test_cluster_ana_raw_per_object_mode(monkeypatch):
     assert rows[0][1]["ari"] == 1.0
     assert rows[0][1]["ari_0"] == 1.0
     assert rows[0][1]["ari_1"] == 1.0
+
+
+def test_cluster_ana_time_filters_raw_per_object_labels(monkeypatch):
+    rows = []
+    monkeypatch.setattr(ClusterAna, "initialize_writer", lambda self, name: None)
+    monkeypatch.setattr(
+        ClusterAna, "append", lambda self, name, **kwargs: rows.append(kwargs)
+    )
+    labels = np.zeros((4, 10), dtype=np.float32)
+    labels[:, GROUP_COL] = [0, 0, 1, 1]
+    labels_before = labels.copy()
+    ana = ClusterAna(
+        obj_type="particle",
+        use_objects=False,
+        per_shape=False,
+        metrics=("ari",),
+        time_window=(0.0, 10.0),
+    )
+
+    assert ana.keys["truth_particles"] is True
+    ana.process(
+        {
+            "clust_label_adapt": labels,
+            "truth_particles": [
+                TruthParticle(
+                    t=5.0,
+                    index_adapt=np.array([0, 1], dtype=np.int32),
+                ),
+                TruthParticle(
+                    t=20.0,
+                    index_adapt=np.array([2, 3], dtype=np.int32),
+                ),
+            ],
+            "particle_clusts": [
+                np.array([0, 1], dtype=np.int32),
+                np.array([2, 3], dtype=np.int32),
+            ],
+            "particle_shapes": [0, 1],
+        }
+    )
+
+    assert rows == [{"num_points": 4, "num_truth": 1, "num_reco": 2, "ari": 1.0}]
+    np.testing.assert_array_equal(labels, labels_before)
 
 
 def test_cluster_ana_standalone_mode(monkeypatch):
@@ -152,6 +203,47 @@ def test_cluster_ana_standalone_mode(monkeypatch):
     ]
 
 
+def test_cluster_ana_time_filters_standalone_labels(monkeypatch):
+    rows = []
+    monkeypatch.setattr(ClusterAna, "initialize_writer", lambda self, name: None)
+    monkeypatch.setattr(
+        ClusterAna, "append", lambda self, name, **kwargs: rows.append(kwargs)
+    )
+    labels = np.zeros((4, 10), dtype=np.float32)
+    labels[:, GROUP_COL] = [0, 0, 1, 1]
+    ana = ClusterAna(
+        per_object=False,
+        per_shape=False,
+        label_col="group",
+        metrics=("ari",),
+        time_window=(0.0, 10.0),
+    )
+
+    assert ana.keys["truth_particles"] is True
+    ana.process(
+        {
+            "clust_label_adapt": labels,
+            "truth_particles": [
+                TruthParticle(
+                    t=5.0,
+                    index_adapt=np.array([0, 1], dtype=np.int32),
+                ),
+                TruthParticle(
+                    t=20.0,
+                    index_adapt=np.array([2, 3], dtype=np.int32),
+                ),
+            ],
+            "clusts": [
+                np.array([0, 1], dtype=np.int32),
+                np.array([2, 3], dtype=np.int32),
+            ],
+            "group_pred": [0, 1],
+        }
+    )
+
+    assert rows == [{"num_points": 4, "num_truth": 1, "num_reco": 2, "ari": 1.0}]
+
+
 def test_cluster_ana_does_not_produce_per_shape_interaction_metrics(monkeypatch):
     rows = []
     monkeypatch.setattr(ClusterAna, "initialize_writer", lambda self, name: None)
@@ -179,3 +271,49 @@ def test_cluster_ana_does_not_produce_per_shape_interaction_metrics(monkeypatch)
     )
 
     assert rows == [{"num_points": 2, "num_truth": 1, "num_reco": 1, "ari": 1.0}]
+
+
+@pytest.mark.parametrize("obj_type", ("fragment", "particle", "interaction"))
+def test_cluster_ana_time_filters_truth_objects(monkeypatch, obj_type):
+    rows = []
+    monkeypatch.setattr(ClusterAna, "initialize_writer", lambda self, name: None)
+    monkeypatch.setattr(
+        ClusterAna, "append", lambda self, name, **kwargs: rows.append(kwargs)
+    )
+    ana = ClusterAna(
+        obj_type=obj_type,
+        use_objects=True,
+        per_shape=False,
+        metrics=("ari",),
+        truth_index_mode="index",
+        time_window=(0.0, 10.0),
+    )
+
+    truth_type = {
+        "fragment": TruthFragment,
+        "particle": TruthParticle,
+        "interaction": TruthInteraction,
+    }[obj_type]
+    reco_type = {
+        "fragment": RecoFragment,
+        "particle": RecoParticle,
+        "interaction": RecoInteraction,
+    }[obj_type]
+    truth_objects = [
+        truth_type(index=np.array([0, 1], dtype=np.int32), t=5.0),
+        truth_type(index=np.array([2, 3], dtype=np.int32), t=20.0),
+    ]
+    reco_objects = [
+        reco_type(index=np.array([0, 1], dtype=np.int32)),
+        reco_type(index=np.array([2, 3], dtype=np.int32)),
+    ]
+
+    ana.process(
+        {
+            "points": np.zeros((4, 3), dtype=np.float32),
+            f"truth_{obj_type}s": truth_objects,
+            f"reco_{obj_type}s": reco_objects,
+        }
+    )
+
+    assert rows == [{"num_points": 4, "num_truth": 1, "num_reco": 2, "ari": 1.0}]

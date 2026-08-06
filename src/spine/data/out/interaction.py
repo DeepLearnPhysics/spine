@@ -418,6 +418,9 @@ class TruthInteraction(Neutrino, InteractionBase, TruthBase):
         (3) Coordinates of the reconstructed interaction vertex
     reco_dir : np.ndarray
         (3) Reconstructed direction of the interaction
+    time : float
+        Interaction time (ns), taken from the attached neutrino when available
+        or from the earliest constituent particle otherwise
     """
 
     # Scalar attributes
@@ -453,6 +456,25 @@ class TruthInteraction(Neutrino, InteractionBase, TruthBase):
             Basic information about the interaction properties
         """
         return "Truth" + super().__str__()
+
+    @property
+    @stored_property(units="ns")
+    def time(self) -> float:
+        """Interaction time in nanoseconds.
+
+        The neutrino interaction time is authoritative when it is available.
+        Otherwise, use the earliest finite constituent-particle time.
+
+        Returns
+        -------
+        float
+            Interaction time, or ``NaN`` if no valid time is available
+        """
+        if np.isfinite(self.t):
+            return float(self.t)
+
+        times = [part.time for part in self.particles if np.isfinite(part.time)]
+        return float(min(times)) if len(times) else np.nan
 
     def attach_neutrino(self, neutrino) -> None:
         """Attach neutrino generator information to this interaction.

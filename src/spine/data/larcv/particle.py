@@ -10,7 +10,7 @@ import numpy as np
 
 from spine.constants import ParticlePID, ParticleShape
 from spine.data.base import PosDataBase
-from spine.data.decorator import stored_property
+from spine.data.decorator import stored_alias, stored_property
 from spine.data.field import FieldMetadata
 
 __all__ = ["Particle"]
@@ -108,6 +108,8 @@ class Particle(PosDataBase):
         Rest mass of the particle in MeV/c^2
     units : str
         Units in which the position attributes are expressed
+    time : float
+        Particle creation time (ns), as an alias of :attr:`t`
     """
 
     # Index attributes
@@ -198,6 +200,12 @@ class Particle(PosDataBase):
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
         metadata=FieldMetadata(length=3, dtype=np.float32, vector=True, units="MeV/c"),
     )
+
+    @property
+    @stored_alias("t")
+    def time(self) -> float:
+        """Particle creation time in nanoseconds."""
+        return self.t
 
     @property
     @stored_property(units="MeV/c")
