@@ -25,6 +25,7 @@ from spine.constants import (
     PART_COL,
     SHAPE_COL,
     SHAPE_PREC,
+    UNKWN_SHP,
     VALUE_COL,
 )
 from spine.data import Meta
@@ -405,6 +406,11 @@ class LArCVCluster3DParser(ParserBase):
 
             # Store the shape last (consistent with semantics tensor)
             labels["shape"] = [p.shape() for p in particles]
+            if num_clusters > num_particles:
+                # LArCV may append a catch-all cluster for depositions which
+                # are not associated with a particle. Give it a valid semantic
+                # class while leaving its particle-related labels invalid.
+                labels["shape"].append(UNKWN_SHP)
 
             # If requested, give invalid labels to a subset of particles
             if not self.type_include_secondary:

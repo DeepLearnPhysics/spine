@@ -3,7 +3,14 @@
 import numpy as np
 import pytest
 
-from spine.constants import INTER_COL, LOWES_SHP, PART_COL, VALUE_COL
+from spine.constants import (
+    CLUST_COL,
+    INTER_COL,
+    LOWES_SHP,
+    PART_COL,
+    UNKWN_SHP,
+    VALUE_COL,
+)
 from spine.data.larcv.meta import ImageMeta2D, ImageMeta3D
 from spine.io.parse.data import ParserTensor
 from spine.io.parse.larcv.cluster import *
@@ -102,6 +109,26 @@ def test_parse_cluster3d(
         np.testing.assert_array_equal(
             interaction_shift, np.max(interaction_ids, initial=-1) + 1
         )
+
+
+@pytest.mark.parametrize("cluster3d_event, particle_event", [(2, 1)], indirect=True)
+def test_parse_cluster3d_catch_all_shape(cluster3d_event, particle_event):
+    """The extra catch-all cluster should use the valid unknown shape class."""
+    particle_event.as_vector()[0].shape(1)
+    parser = LArCVCluster3DParser(
+        dtype="float32",
+        cluster_event=cluster3d_event,
+        particle_event=particle_event,
+        add_particle_info=True,
+    )
+
+    result = parser.process(
+        cluster_event=cluster3d_event, particle_event=particle_event
+    )
+
+    catch_all = result.features[:, CLUST_COL - VALUE_COL] == -1
+    assert np.any(catch_all)
+    assert np.all(result.features[catch_all, -1] == UNKWN_SHP)
 
 
 @pytest.mark.parametrize("cluster3d_event, particle_event", [(20, 20)], indirect=True)
