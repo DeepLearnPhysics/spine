@@ -59,6 +59,8 @@ class PointCompletenessAna(AnaBase):
             truth_point_mode=truth_point_mode,
             **kwargs,
         )
+        assert self.obj_type is not None
+        self.object_types = tuple(self.obj_type)
 
         # Validate and store the optional time window
         normalized_time_window: tuple[float, float] | None = None
@@ -85,7 +87,7 @@ class PointCompletenessAna(AnaBase):
         self.update_keys({"points_g4": True, "meta": True})
 
         # Initialize one output file per requested truth object type
-        for obj in self.obj_type:
+        for obj in self.object_types:
             self.initialize_writer(obj)
 
     def process(self, data: Mapping[str, Any]) -> None:
@@ -96,7 +98,7 @@ class PointCompletenessAna(AnaBase):
             if not np.isfinite(match_distance) or match_distance <= 0.0:
                 raise ValueError("Image metadata must define positive voxel sizes.")
 
-        for obj_type in self.obj_type:
+        for obj_type in self.object_types:
             for obj in data[f"truth_{obj_type}s"]:
                 if self.time_window is not None:
                     lower, upper = self.time_window
