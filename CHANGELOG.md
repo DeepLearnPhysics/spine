@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.16.2] - 2026-08-06
+
+### Added
+- **Position-selected field maps**: Load suffixed field-map variants and select them by coordinate boundaries, including support for the SBND east/west dual map and matching calibration diagnostic plots.
+
+### Fixed
+- **LArCV index compatibility**: Infer the invalid particle-index sentinel per event, preserve valid historical index values, and handle NumPy integer index attributes during overlays.
+- **Interaction overlay shifts**: Derive interaction spans consistently across cluster, particle, and neutrino products so overlaid interaction IDs remain aligned.
+- **Catch-all cluster semantics**: Label unmatched LArCV `cluster3d` depositions with the valid unknown semantic shape instead of the generic `-1` sentinel.
+
 ## [0.16.1] - 2026-08-04
 
 ### Changed
