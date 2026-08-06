@@ -222,7 +222,7 @@ def get_valid_mask(particles):
     # If the interaction IDs are set in the particle tree, simply use that
     interaction_ids = np.array([p.interaction_id() for p in particles], dtype=int)
     if np.any((interaction_ids != INVAL_ID) & (interaction_ids != INVAL_IDX)):
-        return interaction_ids != INVAL_ID
+        return (interaction_ids != INVAL_ID) & (interaction_ids != INVAL_IDX)
 
     # Otherwise, check that the ancestor track ID and creation process are valid
     mask = np.array([p.ancestor_track_id() != INVAL_TID for p in particles])
@@ -564,7 +564,7 @@ def get_particle_ids(particles, valid_mask=None):
 
         # If the particle type exists in the predefined list, assign
         t = particles[group_id].pdg_code()
-        if t in PDG_TO_PID.keys():
+        if t in PDG_TO_PID:
             particle_ids[i] = PDG_TO_PID[t]
 
     return particle_ids

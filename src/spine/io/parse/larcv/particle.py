@@ -18,6 +18,7 @@ import numpy as np
 
 from spine.constants import (
     INVAL_ID,
+    INVAL_IDX,
     PDG_TO_PID,
     PID_MASSES,
     PPN_LPART_COL,
@@ -29,7 +30,7 @@ from spine.constants.factory import enum_factory
 from spine.data import Meta, Neutrino, Particle
 from spine.utils.conditional import larcv
 from spine.utils.gnn.network import filter_invalid_nodes
-from spine.utils.particles import process_particles
+from spine.utils.particles import get_interaction_ids, process_particles
 from spine.utils.ppn import (
     get_ppn_labels,
     get_vertex_labels,
@@ -208,10 +209,25 @@ class LArCVParticleParser(ParserBase):
         else:
             nu_ids = np.array([part.nu_id for part in particles], dtype=int)
             num_neutrinos = np.max(nu_ids, initial=-1) + 1
+        if self.post_process:
+            interaction_ids = get_interaction_ids(particle_list)
+        else:
+            interaction_ids = np.asarray(
+                [part.interaction_id for part in particles], dtype=int
+            )
+            interaction_ids[
+                (interaction_ids == INVAL_ID) | (interaction_ids == INVAL_IDX)
+            ] = -1
+        interaction_span = np.max(interaction_ids, initial=-1) + 1
 
         index_shifts = {}
         for attr in Particle().index_attrs:
-            index_shifts[attr] = num_particles if attr != "nu_id" else num_neutrinos
+            if attr == "nu_id":
+                index_shifts[attr] = num_neutrinos
+            elif attr == "interaction_id":
+                index_shifts[attr] = interaction_span
+            else:
+                index_shifts[attr] = num_particles
 
         # Return
         return ParserObjectList(particles, Particle(), index_shifts)
@@ -226,6 +242,7 @@ class LArCVNeutrinoParser(ParserBase):
           neutrinos:
             parser: neutrino
             neutrino_event: neutrino_mpv
+            particle_event: particle_pcluster
             cluster_event: cluster3d_pcluster
             pixel_coordinates: True
             asis: False
@@ -284,6 +301,7 @@ class LArCVNeutrinoParser(ParserBase):
     def process(
         self,
         neutrino_event: Any,
+        particle_event: Any | None = None,
         sparse_event: Any | None = None,
         cluster_event: Any | None = None,
     ) -> ParserObjectList:
@@ -293,6 +311,8 @@ class LArCVNeutrinoParser(ParserBase):
         ----------
         neutrino_event : larcv.EventNeutrino
             Neutrino event which contains the list of true neutrinos
+        particle_event : larcv.EventParticle, optional
+            Particle event used to determine the shared interaction ID span
         sparse_event : larcv.EventSparseTensor3D, optional
             Tensor which contains the metadata needed to convert the
             positions in voxel coordinates
@@ -321,6 +341,11 @@ class LArCVNeutrinoParser(ParserBase):
             for n in neutrino_list
         ]
 
+        # Register the interaction IDs of invalid neutrinos to -1
+        for neutrino in neutrinos:
+            if neutrino.interaction_id in (INVAL_ID, INVAL_IDX):
+                neutrino.interaction_id = -1
+
         # If requested, convert the point positions to pixel coordinates
         if self.pixel_coordinates:
             # Fetch the metadata
@@ -338,10 +363,16 @@ class LArCVNeutrinoParser(ParserBase):
                 n.to_px(meta)
 
         # Define the shifts to be applied to each index attribute
-        inter_ids = [n.interaction_id for n in neutrinos]
         num_neutrinos = len(neutrino_event.as_vector())
-        max_inter = np.max(inter_ids, initial=-1) + 1
-        index_shifts = {"id": num_neutrinos, "interaction_id": max_inter}
+        if particle_event is not None:
+            particle_inter_ids = get_interaction_ids(list(particle_event.as_vector()))
+            interaction_span = np.max(particle_inter_ids, initial=-1) + 1
+        else:
+            neutrino_inter_ids = np.asarray(
+                [neutrino.interaction_id for neutrino in neutrinos], dtype=int
+            )
+            interaction_span = np.max(neutrino_inter_ids, initial=-1) + 1
+        index_shifts = {"id": num_neutrinos, "interaction_id": interaction_span}
 
         return ParserObjectList(neutrinos, Neutrino(), index_shifts)
 

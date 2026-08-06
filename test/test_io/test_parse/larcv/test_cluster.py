@@ -3,11 +3,12 @@
 import numpy as np
 import pytest
 
-from spine.constants import LOWES_SHP, PART_COL, VALUE_COL
+from spine.constants import INTER_COL, LOWES_SHP, PART_COL, VALUE_COL
 from spine.data.larcv.meta import ImageMeta2D, ImageMeta3D
 from spine.io.parse.data import ParserTensor
 from spine.io.parse.larcv.cluster import *
 from spine.utils.conditional import LARCV_AVAILABLE, larcv
+from spine.utils.particles import process_particle_event
 
 pytestmark = pytest.mark.skipif(
     not LARCV_AVAILABLE, reason="LArCV is required to generate parser fixtures."
@@ -93,6 +94,14 @@ def test_parse_cluster3d(
     assert result.coords.shape[1] == 3
     assert result.features.shape[1] == (15 if add_particle_info else 2)
     assert isinstance(result.meta, ImageMeta3D)
+    if add_particle_info:
+        interaction_ids = process_particle_event(
+            particle_event, neutrino_event=neutrino_event
+        )[3]
+        interaction_shift = result.index_shifts[result.index_cols == INTER_COL]
+        np.testing.assert_array_equal(
+            interaction_shift, np.max(interaction_ids, initial=-1) + 1
+        )
 
 
 @pytest.mark.parametrize("cluster3d_event, particle_event", [(20, 20)], indirect=True)

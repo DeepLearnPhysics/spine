@@ -2,8 +2,8 @@
 
 import numpy as np
 
-from spine.constants import LOWES_SHP
-from spine.utils.particles import get_group_primary_ids
+from spine.constants import INVAL_ID, INVAL_IDX, LOWES_SHP
+from spine.utils.particles import get_group_primary_ids, get_interaction_ids
 
 
 class DummyParticle:
@@ -48,3 +48,24 @@ def test_group_primary_ids_respect_label_le():
     np.testing.assert_array_equal(
         get_group_primary_ids(particles, valid_mask, label_le=True), [1, 0]
     )
+
+
+def test_interaction_ids_normalize_larcv_sentinels():
+    """Invalid LArCV interaction IDs should map to the local -1 sentinel."""
+
+    class InteractionParticle:
+        def __init__(self, interaction_id):
+            self._interaction_id = interaction_id
+
+        def interaction_id(self):
+            return self._interaction_id
+
+    interaction_ids = get_interaction_ids(
+        [
+            InteractionParticle(0),
+            InteractionParticle(INVAL_IDX),
+            InteractionParticle(INVAL_ID),
+        ]
+    )
+
+    np.testing.assert_array_equal(interaction_ids, [0, -1, -1])

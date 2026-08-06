@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from spine.constants import NuInteractionScheme
-from spine.constants.sentinels import INVAL_ID
+from spine.constants.sentinels import INVAL_ID, INVAL_IDX
 from spine.data.larcv import Meta, Neutrino, Particle
 from spine.data.larcv.meta import ImageMeta3D
 from spine.io.parse.data import ParserEdgeIndex, ParserTensor
@@ -114,6 +114,67 @@ def test_parse_neutrinos_interaction_scheme_override(neutrino_event, sparse3d_ev
 
     for neutrino in result:
         assert neutrino.interaction_scheme == int(NuInteractionScheme.GENIE)
+
+
+def test_parse_neutrinos_normalizes_and_shares_interaction_span(monkeypatch):
+    """Neutrinos should use valid shared particle interaction IDs for overlays."""
+
+    class DummyNeutrinoEvent:
+        def as_vector(self):
+            return [object(), object()]
+
+    class DummyParticleEvent:
+        def as_vector(self):
+            return []
+
+    neutrinos = iter(
+        [Neutrino(id=0, interaction_id=INVAL_IDX), Neutrino(id=1, interaction_id=1)]
+    )
+    monkeypatch.setattr(
+        Neutrino,
+        "from_larcv",
+        classmethod(lambda cls, neutrino, interaction_scheme: next(neutrinos)),
+    )
+    monkeypatch.setattr(
+        "spine.io.parse.larcv.particle.get_interaction_ids",
+        lambda particles: np.array([0, 4]),
+    )
+    parser = LArCVNeutrinoParser(
+        dtype="float32", neutrino_event="neutrino", pixel_coordinates=False
+    )
+
+    standalone = parser.process(neutrino_event=DummyNeutrinoEvent())
+
+    assert [neutrino.interaction_id for neutrino in standalone] == [-1, 1]
+    assert standalone.index_shifts == {"id": 2, "interaction_id": 2}
+
+    neutrinos = iter(
+        [Neutrino(id=0, interaction_id=INVAL_ID), Neutrino(id=1, interaction_id=1)]
+    )
+    shared = parser.process(
+        neutrino_event=DummyNeutrinoEvent(), particle_event=DummyParticleEvent()
+    )
+
+    assert [neutrino.interaction_id for neutrino in shared] == [-1, 1]
+    assert shared.index_shifts == {"id": 2, "interaction_id": 5}
+
+    particle_parser = LArCVParticleParser(
+        dtype="float32",
+        particle_event="particle",
+        pixel_coordinates=False,
+        post_process=False,
+    )
+    monkeypatch.setattr(
+        Particle,
+        "from_larcv",
+        classmethod(lambda cls, particle: Particle(id=0, interaction_id=4)),
+    )
+    particles = particle_parser.process(
+        particle_event=DummyNeutrinoEvent(),
+    )
+
+    assert particles.index_shifts["interaction_id"] == 5
+    assert particles.index_shifts["id"] == 2
 
 
 @pytest.mark.parametrize("include_point_tagging", [True, False])

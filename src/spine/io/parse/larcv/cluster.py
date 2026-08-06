@@ -347,6 +347,7 @@ class LArCVCluster3DParser(ParserBase):
         labels["cluster"] = np.arange(num_clusters)
         num_particles = num_clusters
         num_neutrinos = 0
+        interaction_ids = np.empty(0, dtype=int)
         if self.add_particle_info:
             # Check that that particle objects are of the expected length
             assert particle_event is not None  # Guaranteed by __init__
@@ -530,8 +531,9 @@ class LArCVCluster3DParser(ParserBase):
         if not self.add_particle_info:
             index_shifts = np.array([clust_shift])
         else:
+            interaction_span = np.max(interaction_ids, initial=-1) + 1
             cs, ps, ns = clust_shift, num_particles, num_neutrinos
-            index_shifts = np.array([cs, ps, ps, ps, ps, ns])
+            index_shifts = np.array([cs, ps, ps, ps, interaction_span, ns])
 
         return ParserTensor(
             coords=np_voxels,
