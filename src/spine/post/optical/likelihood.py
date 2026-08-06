@@ -76,8 +76,11 @@ class LikelihoodFlashMatcher:
 
         # Initialize flash matching attributes
         self.matches = None
+        self.match_candidates = None
         self.qcluster_v = None
         self.flash_v = None
+        self.interactions = None
+        self.flashes = None
 
     def initialize_backend(
         self, cfg: str, detector: str | None, parent_path: str | None
@@ -110,9 +113,7 @@ class LikelihoodFlashMatcher:
 
         # Add the OpT0Finder library to the dynamic link loader
         lib_path = os.path.join(basedir, "build/lib")
-        os.environ["LD_LIBRARY_PATH"] = "{}:{}".format(
-            lib_path, os.environ["LD_LIBRARY_PATH"]
-        )
+        os.environ["LD_LIBRARY_PATH"] = f"{lib_path}:{os.environ['LD_LIBRARY_PATH']}"
 
         # Add the OpT0Finder data directory if it is not yet set
         if "FMATCH_DATADIR" not in os.environ:
@@ -227,15 +228,25 @@ class LikelihoodFlashMatcher:
         list[tuple[Interaction, Flash, flashmatch::FlashMatch_t]]
             Set of interaction/flash matches with their matching characteristics
         """
+        # Reset the flash matching attributes
+        self.matches = None
+        self.match_candidates = None
+        self.qcluster_v = None
+        self.flash_v = None
+        self.interactions = None
+        self.flashes = None
+
         # If there is no interaction or no flash, nothing to do
-        if not len(interactions) or not len(flashes):
+        if len(interactions) == 0 or len(flashes) == 0:
             return []
+
+        self.interactions = interactions
 
         # Build a list of QCluster_t (OpT0Finder interaction representation)
         self.qcluster_v = self.make_qcluster_list(interactions)
 
         # Build a list of Flash_t (OpT0Finder optical flash representation)
-        self.flash_v, flashes = self.make_flash_list(flashes)
+        self.flash_v, self.flashes = self.make_flash_list(flashes)
 
         # Running flash matching and caching the results
         self.matches = self.run_flash_matching()
@@ -245,8 +256,51 @@ class LikelihoodFlashMatcher:
         for m in self.matches:
             tpc_id = self.qcluster_v[m.tpc_id].idx
             flash_id = self.flash_v[m.flash_id].idx
-            result.append((interactions[tpc_id], flashes[flash_id], m))
+            result.append((interactions[tpc_id], self.flashes[flash_id], m))
 
+        return result
+
+    def get_match_candidates(self) -> list[tuple[Any, Any, Any]]:
+        """Return every positive-scoring interaction/flash candidate.
+
+        This requires ``StoreFullResult: true`` in the OpT0Finder
+        ``FlashMatchManager`` configuration and must be called after
+        :meth:`get_matches`.
+
+        Returns
+        -------
+        list[tuple[Interaction, Flash, flashmatch::FlashMatch_t]]
+            All positive-scoring interaction/flash candidates.
+        """
+        if (
+            self.qcluster_v is None
+            or self.flash_v is None
+            or self.interactions is None
+            or self.flashes is None
+        ):
+            raise ValueError("Must run flash matching before fetching candidates.")
+
+        full_results = self.mgr.FullResultTPCFlash()
+        if len(self.qcluster_v) and len(self.flash_v) and len(full_results) == 0:
+            raise ValueError(
+                "Full flash-match results are unavailable. Set "
+                "`StoreFullResult: true` in the OpT0Finder "
+                "`FlashMatchManager` configuration."
+            )
+
+        result = []
+        for matches in full_results:
+            for match in matches:
+                score = float(match.score)
+                if not np.isfinite(score) or score <= 0:
+                    continue
+                tpc_id = self.qcluster_v[match.tpc_id].idx
+                flash_id = self.flash_v[match.flash_id].idx
+                result.append(
+                    (self.interactions[tpc_id], self.flashes[flash_id], match)
+                )
+
+        self.match_candidates = result
         return result
 
     def make_qcluster_list(self, interactions: list[Any]) -> list[Any]:

@@ -26,11 +26,11 @@ class FakePoint:
 
 
 class FakeMatch:
-    def __init__(self, tpc_id=0, flash_id: int | None = 0):
+    def __init__(self, tpc_id=0, flash_id: int | None = 0, score=0.5):
         self.tpc_id = tpc_id
         self.flash_id = flash_id
         self.tpc_point = FakePoint()
-        self.score = 0.5
+        self.score = score
         self.hypothesis = [1.0, 2.0]
 
 
@@ -58,6 +58,7 @@ class FakeManager:
         self.objects = []
         self.config = None
         self.reset = False
+        self.full_results = []
 
     def Configure(self, cfg):
         self.config = cfg
@@ -71,6 +72,9 @@ class FakeManager:
 
     def Match(self):
         return [FakeMatch()]
+
+    def FullResultTPCFlash(self):
+        return self.full_results
 
 
 class FakeLightPath:
@@ -381,9 +385,49 @@ def test_likelihood_flash_matcher_runs_and_fetches_results(monkeypatch, tmp_path
     assert matcher.get_t0(0) == 4.0
 
 
+def test_likelihood_flash_matcher_fetches_all_candidates(monkeypatch, tmp_path):
+    matcher, fake = make_matcher(monkeypatch, tmp_path)
+    interactions = [
+        SimpleNamespace(
+            points=np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]]),
+            depositions=np.array([1.0, 2.0]),
+        )
+    ]
+    flashes = [
+        SimpleNamespace(time=float(i), pe_per_ch=np.array([1.0, 2.0])) for i in range(3)
+    ]
+    fake.manager.full_results = [
+        [FakeMatch(0, 0, 0.8), FakeMatch(0, 1, 0.6), FakeMatch(0, 0, 0.0)]
+    ]
+
+    matcher.get_matches(interactions, flashes)
+    candidates = matcher.get_match_candidates()
+
+    assert [candidate[1] for candidate in candidates] == flashes[:2]
+    assert [candidate[2].score for candidate in candidates] == [0.8, 0.6]
+    assert matcher.match_candidates == candidates
+
+
+def test_likelihood_flash_matcher_requires_full_results(monkeypatch, tmp_path):
+    matcher, _ = make_matcher(monkeypatch, tmp_path)
+    interactions = [
+        SimpleNamespace(
+            points=np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]]),
+            depositions=np.array([1.0, 2.0]),
+        )
+    ]
+    flashes = [SimpleNamespace(time=0.0, pe_per_ch=np.array([1.0, 2.0]))]
+
+    matcher.get_matches(interactions, flashes)
+    with pytest.raises(ValueError, match="StoreFullResult"):
+        matcher.get_match_candidates()
+
+
 def test_likelihood_flash_matcher_getter_errors(monkeypatch, tmp_path):
     matcher, _ = make_matcher(monkeypatch, tmp_path)
 
+    with pytest.raises(ValueError, match="run flash matching"):
+        matcher.get_match_candidates()
     assert matcher.get_matches([], []) == []
 
     with pytest.raises(ValueError, match="qcluster_v"):

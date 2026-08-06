@@ -402,6 +402,60 @@ def test_flash_match_processor_stores_each_match_specific_hypothesis():
     np.testing.assert_allclose(hypotheses[1].pe_per_ch, [2.0, 3.0])
 
 
+def test_flash_match_processor_stores_all_scored_hypotheses():
+    """Full OpT0Finder results retain alternatives to the selected match."""
+
+    class FullLikelihoodMatcher(FakeLikelihoodMatcher):
+        def get_matches(self, interactions, flashes):
+            self.calls.append((interactions, flashes))
+            if not interactions or not flashes:
+                return []
+            return [
+                (
+                    interactions[0],
+                    flashes[0],
+                    SimpleNamespace(hypothesis=[4.0, 5.0], score=0.8),
+                )
+            ]
+
+        def get_match_candidates(self):
+            interactions, flashes = self.calls[-1]
+            candidates = [
+                (
+                    interactions[0],
+                    flash,
+                    SimpleNamespace(
+                        hypothesis=[flash.id, flash.id + 1.0],
+                        score=score,
+                    ),
+                )
+                for flash, score in zip(flashes, (0.8, 0.6))
+            ]
+            candidates.append((interactions[0], flashes[0], SimpleNamespace(score=0.4)))
+            return candidates
+
+    processor = FlashMatchProcessor(
+        flash_key="flashes",
+        volume="module",
+        method="likelihood",
+        store_all_hypotheses=True,
+    )
+    matcher = FullLikelihoodMatcher("demo")
+    processor.matcher = cast(Any, matcher)
+    inter = make_interaction()
+    flashes = [make_flash(id=4), make_flash(id=5)]
+
+    result = processor.process({"flashes": flashes, "reco_interactions": [inter]})
+
+    assert result is not None
+    hypotheses = result["flash_hypotheses"]
+    assert len(hypotheses) == 2
+    assert [hypothesis.flash_ids.tolist() for hypothesis in hypotheses] == [[4], [5]]
+    assert [hypothesis.score for hypothesis in hypotheses] == [0.8, 0.6]
+    assert inter.flash_ids.tolist() == [4]
+    assert inter.flash_hypothesis_ids.tolist() == [0, 1]
+
+
 def test_flash_match_processor_rejects_hypotheses_for_barycenter():
     """Only likelihood matching has a light-model prediction backend."""
     with pytest.raises(ValueError, match="likelihood"):

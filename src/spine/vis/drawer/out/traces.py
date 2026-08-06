@@ -458,7 +458,12 @@ def get_flash_hypothesis_pe(
 
     hypothesis_ids = []
     for inter in data[obj_name]:
-        hypothesis_ids.extend(getattr(inter, "flash_hypothesis_ids", []))
+        for hypothesis_id in getattr(inter, "flash_hypothesis_ids", []):
+            hypothesis = data[hypothesis_key][hypothesis_id]
+            if not hypothesis.is_matched or np.all(
+                np.isin(hypothesis.flash_ids, inter.flash_ids)
+            ):
+                hypothesis_ids.append(hypothesis_id)
     hypotheses = [data[hypothesis_key][hypo_id] for hypo_id in hypothesis_ids]
     return _aggregate_optical_pe(hypotheses, geo)
 

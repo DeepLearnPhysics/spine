@@ -48,6 +48,7 @@ class FlashMatchProcessor(PostBase):
         merge: Mapping[str, Any] | None = None,
         update_flashes: bool = False,
         store_hypotheses: bool = False,
+        store_all_hypotheses: bool = False,
         hypothesis_key: str = "flash_hypotheses",
         **kwargs: Any,
     ) -> None:
@@ -81,6 +82,11 @@ class FlashMatchProcessor(PostBase):
         store_hypotheses : bool, default False
             If ``True``, store the predicted per-channel optical response for
             every eligible interaction and optical volume
+        store_all_hypotheses : bool, default False
+            If ``True``, store the match-specific prediction and score for
+            every positive-scoring interaction/flash candidate. This implies
+            ``store_hypotheses`` and requires ``StoreFullResult: true`` in the
+            OpT0Finder ``FlashMatchManager`` configuration
         hypothesis_key : str, default 'flash_hypotheses'
             Event-data key under which optical hypotheses are stored
         **kwargs : dict
@@ -118,9 +124,10 @@ class FlashMatchProcessor(PostBase):
 
         # Initialize the flash matching algorithm
         self.method = method
-        self.store_hypotheses = store_hypotheses
+        self.store_all_hypotheses = store_all_hypotheses
+        self.store_hypotheses = store_hypotheses or store_all_hypotheses
         self.hypothesis_key = hypothesis_key
-        if store_hypotheses and method != "likelihood":
+        if self.store_hypotheses and method != "likelihood":
             raise ValueError(
                 "Optical hypotheses can only be stored with likelihood matching."
             )
@@ -194,7 +201,7 @@ class FlashMatchProcessor(PostBase):
         for k in self.interaction_keys:
             # Fetch interactions, nothing to do if there are not any
             interactions = data[k]
-            if not len(interactions):
+            if len(interactions) == 0:
                 continue
 
             # Make sure the interaction coordinates are expressed in cm
@@ -285,15 +292,67 @@ class FlashMatchProcessor(PostBase):
                         volume_hypotheses[inter.id] = hypothesis
                         hypothesis_ids[inter.id].append(hypothesis.id)
 
+                    # By default, retain only accepted match predictions. If
+                    # requested, replace these with every scored candidate.
+                    hypothesis_matches = matches
+                    if self.store_all_hypotheses and interactions_v and flashes_v:
+                        hypothesis_matches = matcher.get_match_candidates()
+
+                    num_hypothesis_matches = defaultdict(int)
+                    for inter_v, flash, match in hypothesis_matches:
+                        match_obj: Any = match
+                        if not hasattr(match_obj, "hypothesis"):
+                            continue
+
+                        inter = interactions[inter_v.id]
+                        match_pe = np.asarray(
+                            list(match_obj.hypothesis), dtype=np.float32
+                        )
+                        score = (
+                            float(match_obj.score)
+                            if hasattr(match_obj, "score")
+                            else -1.0
+                        )
+                        if self.merger is not None and not self.update_flashes:
+                            matched_flash_ids = np.asarray(
+                                [
+                                    data[self.flash_key][i].id
+                                    for i in orig_ids[flash.id]
+                                ],
+                                dtype=np.int32,
+                            )
+                        else:
+                            matched_flash_ids = np.asarray([flash.id], dtype=np.int32)
+
+                        if (
+                            num_hypothesis_matches[inter.id] == 0
+                            and inter.id in volume_hypotheses
+                        ):
+                            hypothesis = volume_hypotheses[inter.id]
+                            hypothesis.pe_per_ch = match_pe
+                            hypothesis.flash_ids = matched_flash_ids
+                            hypothesis.score = score
+                        else:
+                            hypothesis = FlashHypothesis(
+                                id=len(hypotheses),
+                                interaction_id=inter.id,
+                                volume_id=int(volume_id),
+                                is_truth=bool(inter.is_truth),
+                                pe_per_ch=match_pe,
+                                flash_ids=matched_flash_ids,
+                                score=score,
+                            )
+                            hypotheses.append(hypothesis)
+                            hypothesis_ids[inter.id].append(hypothesis.id)
+                        num_hypothesis_matches[inter.id] += 1
+
                 # Store flash information
-                num_hypothesis_matches = defaultdict(int)
                 for inter_v, flash, match in matches:
                     # Get the interaction that matches the cropped version
                     inter = interactions[inter_v.id]
 
                     # Get the flash hypothesis (if the matcher produces one)
                     hypo_pe, score = -1.0, -1.0
-                    match_pe = None
                     if np.isscalar(match):
                         score = float(np.asarray(match, dtype=np.float64).item())
                     else:
@@ -305,47 +364,6 @@ class FlashMatchProcessor(PostBase):
                             hypo_pe = float(np.sum(match_pe))
                         if hasattr(match_obj, "score"):
                             score = float(match_obj.score)
-
-                    # Retain the match-specific per-channel prediction. The
-                    # first match replaces the standalone prediction; further
-                    # matches receive their own hypothesis record.
-                    if self.store_hypotheses and not np.isscalar(match):
-                        match_obj = match
-                        if match_pe is not None:
-                            if self.merger is not None and not self.update_flashes:
-                                matched_flash_ids = np.asarray(
-                                    [
-                                        data[self.flash_key][i].id
-                                        for i in orig_ids[flash.id]
-                                    ],
-                                    dtype=np.int32,
-                                )
-                            else:
-                                matched_flash_ids = np.asarray(
-                                    [flash.id], dtype=np.int32
-                                )
-
-                            if (
-                                num_hypothesis_matches[inter.id] == 0
-                                and inter.id in volume_hypotheses
-                            ):
-                                hypothesis = volume_hypotheses[inter.id]
-                                hypothesis.pe_per_ch = match_pe
-                                hypothesis.flash_ids = matched_flash_ids
-                                hypothesis.score = score
-                            else:
-                                hypothesis = FlashHypothesis(
-                                    id=len(hypotheses),
-                                    interaction_id=inter.id,
-                                    volume_id=int(volume_id),
-                                    is_truth=bool(inter.is_truth),
-                                    pe_per_ch=match_pe,
-                                    flash_ids=matched_flash_ids,
-                                    score=score,
-                                )
-                                hypotheses.append(hypothesis)
-                                hypothesis_ids[inter.id].append(hypothesis.id)
-                            num_hypothesis_matches[inter.id] += 1
 
                     # Update
                     if not inter.is_flash_matched:

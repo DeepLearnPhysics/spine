@@ -945,6 +945,31 @@ def test_optical_trace_helper_edge_cases():
             {}, "reco_interactions", "flash_hypotheses", geo
         )
 
+    selected_data = {
+        "reco_interactions": [
+            SimpleNamespace(
+                flash_ids=np.array([4], dtype=np.int32),
+                flash_hypothesis_ids=np.array([0, 1], dtype=np.int32),
+            )
+        ],
+        "flash_hypotheses": [
+            FlashHypothesis(
+                flash_ids=np.array([4], dtype=np.int32),
+                pe_per_ch=np.array([3.0, 4.0], dtype=np.float32),
+            ),
+            FlashHypothesis(
+                flash_ids=np.array([5], dtype=np.int32),
+                pe_per_ch=np.array([30.0, 40.0], dtype=np.float32),
+            ),
+        ],
+    }
+    np.testing.assert_allclose(
+        out_traces.get_flash_hypothesis_pe(
+            selected_data, "reco_interactions", "flash_hypotheses", geo
+        ),
+        [3.0, 4.0],
+    )
+
     pe = np.array([0.0, 4.0], dtype=np.float32)
     np.testing.assert_allclose(
         out_traces._optical_size_scale(pe, True, None, 1.0), [0.25, 1.0]
