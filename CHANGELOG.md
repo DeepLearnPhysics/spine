@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.16.3] - 2026-08-06
+
+### Added
+- **Truth-object timing and filtering**: Expose particle creation time through a consistent derived attribute, derive truth-interaction time from neutrino information or the earliest constituent particle, and support inclusive truth-time windows in cluster metrics.
+- **Point-completeness diagnostics**: Compare detector-level truth-associated points with Geant4 depositions using configurable spatial and time windows, reporting bidirectional purity and efficiency for fragments, particles, or interactions.
+- **Stored optical hypotheses**: Persist per-channel likelihood predictions for eligible interactions, associate them with observed flashes, serialize them through HDF5, and overlay measured and predicted light in the event display with optional shared PE-based sizing.
+- **Full flash-match candidates**: Optionally retain every positive-scoring OpT0Finder interaction/flash hypothesis and score while preserving the selected match for standard analysis and visualization.
+
+### Changed
+- **Flash-matching analysis outputs**: Support configurable matching directions, unmatched interaction counterparts, flash multiplicities, overlap scores, and additional reconstructed or truth attributes in the optical metric analyzer.
+
+### Fixed
+- **Point diagnostic robustness**: Handle empty and degenerate point collections safely in point- and track-completeness studies while preserving configurable truth point representations.
+- **Invalid MCS fits**: Return `NaN` when kinetic-energy optimization fails or saturates a fit boundary, expose configurable fit limits, and provide an explicit legacy option to retain invalid optimizer values.
+
 ## [0.16.2] - 2026-08-06
 
 ### Added
