@@ -32,6 +32,8 @@ class FlashMatchingAna(AnaBase):
         neutrino_only: bool = True,
         max_num_flashes: int = 1,
         match_mode: str = "both",
+        extra_reco_attrs: Sequence[str] | None = None,
+        extra_truth_attrs: Sequence[str] | None = None,
         **kwargs: Any,
     ) -> None:
         """Initialize the analysis script.
@@ -48,6 +50,10 @@ class FlashMatchingAna(AnaBase):
         match_mode : str, default 'both'
             If reconstructed and truth are available, specified which matching
             direction(s) should be saved to the log file.
+        extra_reco_attrs : Sequence[str], optional
+            Additional reconstructed interaction attributes to store
+        extra_truth_attrs : Sequence[str], optional
+            Additional truth interaction attributes to store
         **kwargs : dict, optional
             Additional arguments to pass to :class:`AnaBase`
         """
@@ -95,30 +101,51 @@ class FlashMatchingAna(AnaBase):
         flash_attrs = (
             "is_flash_matched",
             "flash_ids",
+            "flash_volume_ids",
             "flash_times",
             "flash_scores",
             "flash_total_pe",
             "flash_hypo_pe",
         )
         flash_lengths = {
-            k: max_num_flashes for k in ["flash_ids", "flash_times", "flash_scores"]
+            k: max_num_flashes
+            for k in (
+                "flash_ids",
+                "flash_volume_ids",
+                "flash_times",
+                "flash_scores",
+            )
         }
 
-        self.reco_attrs: tuple[str, ...] = (
-            "id",
-            "size",
-            "is_contained",
-            "topology",
-            *flash_attrs,
+        # Normalize additional attributes while preserving their requested order
+        extra_reco_attrs = tuple(dict.fromkeys(extra_reco_attrs or ()))
+        extra_truth_attrs = tuple(dict.fromkeys(extra_truth_attrs or ()))
+
+        self.reco_attrs: tuple[str, ...] = tuple(
+            dict.fromkeys(
+                (
+                    "id",
+                    "size",
+                    "is_contained",
+                    "topology",
+                    *flash_attrs,
+                    *extra_reco_attrs,
+                )
+            )
         )
-        self.truth_attrs: tuple[str, ...] = (
-            "id",
-            "size",
-            "is_contained",
-            "nu_id",
-            "t",
-            "topology",
-            *nu_attrs,
+        self.truth_attrs: tuple[str, ...] = tuple(
+            dict.fromkeys(
+                (
+                    "id",
+                    "size",
+                    "is_contained",
+                    "nu_id",
+                    "t",
+                    "topology",
+                    *nu_attrs,
+                    *extra_truth_attrs,
+                )
+            )
         )
 
         self.reco_lengths: dict[str, int] | None = flash_lengths
