@@ -14,6 +14,9 @@ def test_mcs_validates_configuration():
     with pytest.raises(ValueError, match="Angular reconstruction"):
         MCSEnergyProcessor(angle_method="bad")
 
+    with pytest.raises(ValueError, match="fit bounds"):
+        MCSEnergyProcessor(lower_bound=100.0, upper_bound=10.0)
+
 
 def test_mcs_skips_one_point_track():
     processor = MCSEnergyProcessor(run_mode="reco")
@@ -30,6 +33,8 @@ def test_mcs_skips_one_point_track():
 
 
 def test_mcs_assigns_energy_and_pid_hypotheses(monkeypatch):
+    fit_kwargs = None
+
     monkeypatch.setattr(
         mcs_mod,
         "get_track_segments",
@@ -40,9 +45,20 @@ def test_mcs_assigns_energy_and_pid_hypotheses(monkeypatch):
         ),
     )
     monkeypatch.setattr(mcs_mod, "mcs_angles", lambda dirs, method: np.asarray([0.1]))
-    monkeypatch.setattr(mcs_mod, "mcs_fit", lambda *args, **kwargs: 42.0)
+
+    def fit(*args, **kwargs):
+        nonlocal fit_kwargs
+        fit_kwargs = kwargs
+        return 42.0
+
+    monkeypatch.setattr(mcs_mod, "mcs_fit", fit)
     processor = MCSEnergyProcessor(
-        run_mode="reco", include_pids=(MUON_PID,), fill_per_pid=True
+        run_mode="reco",
+        include_pids=(MUON_PID,),
+        fill_per_pid=True,
+        lower_bound=20.0,
+        upper_bound=5000.0,
+        return_invalid=True,
     )
     particle = RecoParticle(
         shape=TRACK_SHP,
@@ -55,6 +71,10 @@ def test_mcs_assigns_energy_and_pid_hypotheses(monkeypatch):
 
     assert particle.mcs_ke == 42.0
     assert particle.mcs_ke_per_pid[MUON_PID] > 0.0
+    assert fit_kwargs is not None
+    assert fit_kwargs["lower_bound"] == 20.0
+    assert fit_kwargs["upper_bound"] == 5000.0
+    assert fit_kwargs["return_invalid"] is True
 
 
 def test_mcs_skips_unwanted_contained_and_angleless_tracks(monkeypatch):
