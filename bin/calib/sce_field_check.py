@@ -37,9 +37,14 @@ def main() -> None:
     calibrator = FieldCalibrator(
         map_file=map_file,
         map_prefix=args.map_prefix,
+        map_suffix=args.map_suffix,
+        map_suffixes=args.map_suffixes,
+        map_selection_axis=args.map_selection_axis,
+        map_selection_boundaries=args.map_selection_boundaries,
         scale=args.scale,
         bounds=args.bounds,
     )
+    map_selection = describe_map_selection(args)
 
     points = sample_points(
         geo,
@@ -57,6 +62,7 @@ def main() -> None:
             component_name=f"d{name}",
             detector=geo.name,
             map_file=map_file,
+            map_selection=map_selection,
             sample_volume=args.sample_volume,
             point_size=args.point_size,
         )
@@ -91,6 +97,39 @@ def parse_args() -> argparse.Namespace:
         help=(
             "TH3 component prefix. The script reads {prefix}_X/Y/Z. "
             "Use TrueBkwd_Displacement for backward maps."
+        ),
+    )
+    suffix_group = parser.add_mutually_exclusive_group()
+    suffix_group.add_argument(
+        "--map-suffix",
+        default="",
+        help=(
+            "Suffix after each component name for one map used everywhere, "
+            "for example _E."
+        ),
+    )
+    suffix_group.add_argument(
+        "--map-suffixes",
+        nargs="+",
+        help=(
+            "Ordered component suffixes for position-selected maps, for example "
+            "_E _W."
+        ),
+    )
+    parser.add_argument(
+        "--map-selection-axis",
+        type=int,
+        choices=(0, 1, 2),
+        default=0,
+        help="Coordinate axis used to select among --map-suffixes.",
+    )
+    parser.add_argument(
+        "--map-selection-boundaries",
+        type=float,
+        nargs="+",
+        help=(
+            "Ordered position boundaries separating --map-suffixes. Boundary "
+            "points select the suffix on their right."
         ),
     )
     parser.add_argument(
@@ -144,6 +183,18 @@ def parse_args() -> argparse.Namespace:
         help="Directory where dx/dy/dz PNG files are written.",
     )
     return parser.parse_args()
+
+
+def describe_map_selection(args: argparse.Namespace) -> str:
+    """Build a concise plot label for the configured map selection."""
+    if args.map_suffixes:
+        suffixes = ", ".join(args.map_suffixes)
+        boundaries = ", ".join(str(value) for value in args.map_selection_boundaries)
+        axis = AXES[args.map_selection_axis]
+        return f"suffixes [{suffixes}] split on {axis} at [{boundaries}] cm"
+    if args.map_suffix:
+        return f"suffix {args.map_suffix} everywhere"
+    return "unsuffixed map"
 
 
 def sample_points(
@@ -223,6 +274,7 @@ def plot_component(
     component_name: str,
     detector: str,
     map_file: Path,
+    map_selection: str,
     sample_volume: str,
     point_size: float,
 ) -> Any:
@@ -255,7 +307,8 @@ def plot_component(
         ax.set_title(f"{AXES[xaxis]}-{AXES[yaxis]}")
 
     fig.suptitle(
-        f"{detector} {component_name} offset [cm] | {sample_volume} | {map_file.name}"
+        f"{detector} {component_name} offset [cm] | {sample_volume} | "
+        f"{map_selection} | {map_file.name}"
     )
     assert scatter is not None
     colorbar = fig.colorbar(scatter, ax=axes, shrink=0.9)

@@ -24,3 +24,18 @@ with `--num-points`, `--point-size`, and `--dpi`.
 
 The script requires the optional ROOT and Matplotlib dependencies used by the
 field-map reader and plotting backend.
+
+Position-dependent maps can be selected with ordered suffixes and boundaries.
+For example, this uses ``_E`` for x below zero and ``_W`` at or above zero:
+
+```bash
+python3 bin/calib/sce_field_check.py \
+  --detector sbnd \
+  --map-file /path/to/SCEoffsets_SBND_E500_dualmap_voxelTH3.root \
+  --map-prefix TrueFwd_Displacement \
+  --map-suffixes _E _W \
+  --map-selection-axis 0 \
+  --map-selection-boundaries 0
+```
+
+Use ``--map-suffix _E`` instead to apply the `_E` map everywhere.
