@@ -69,6 +69,22 @@ traces = vis.scatter_points_3d(points, color=values)
 drawer = vis.GeoDrawer()
 ```
 
+Stored optical hypotheses can be overlaid with measured flashes in an output
+event display:
+
+```python
+figure = vis.Drawer(data, draw_mode="reco", geo=geometry).get(
+    "interactions",
+    draw_flashes=True,
+    draw_flash_hypotheses=True,
+    optical_size_by_pe=False,
+)
+```
+
+The default uses fixed detector sizes and distinct colorscales. Setting
+`optical_size_by_pe=True` scales both measured and predicted optical responses
+with one shared PE normalization.
+
 or, when you want to import from the implementation layer directly:
 
 ```python

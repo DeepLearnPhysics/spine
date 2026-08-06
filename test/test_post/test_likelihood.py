@@ -86,6 +86,17 @@ class FakeLightPath:
         return {"args": args}
 
 
+class FakeHypothesisAlgorithm:
+    def __init__(self):
+        self.config = None
+
+    def Configure(self, cfg):
+        self.config = cfg
+
+    def GetEstimate(self, qcluster):
+        return SimpleNamespace(pe_v=[qcluster.idx + 1.0, qcluster.idx + 2.0])
+
+
 class FakeFactory:
     def __init__(self, light_path):
         self.light_path = light_path
@@ -104,7 +115,12 @@ class FakeFactoryGetter:
 
 class FakeCfgGetter:
     def __getitem__(self, key):
-        return lambda name: {"key": key, "name": name}
+        def get(name):
+            if name == "FlashMatchManager":
+                return SimpleNamespace(dump=lambda: 'HypothesisAlgo: "ToyHypothesis"')
+            return {"key": key, "name": name}
+
+        return get
 
 
 class FakeCfg:
@@ -124,6 +140,8 @@ class FakeFlashMatch:
         self.light_path = FakeLightPath()
         self.DetectorSpecs = FakeDetectorSpecs
         self.CustomAlgoFactory = FakeFactoryGetter(self.light_path)
+        self.hypothesis = FakeHypothesisAlgorithm()
+        self.FlashHypothesisFactory = FakeFactoryGetter(self.hypothesis)
         self.manager = FakeManager()
         self.created_cfg = None
 
@@ -281,6 +299,58 @@ def test_likelihood_flash_matcher_legacy_qcluster(monkeypatch, tmp_path):
     matcher.make_qcluster_list(interactions)
 
     assert len(fake.light_path.calls[0]) == 2
+
+
+def test_likelihood_flash_matcher_generates_hypotheses(monkeypatch, tmp_path):
+    """Standalone predictions cover valid interactions without measured flashes."""
+    matcher, fake = make_matcher(monkeypatch, tmp_path)
+    interactions = [
+        SimpleNamespace(
+            points=np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]], dtype=np.float32),
+            depositions=np.array([1.0, 2.0], dtype=np.float32),
+        ),
+        SimpleNamespace(
+            points=np.array([[0.0, 0.0, 0.0]], dtype=np.float32),
+            depositions=np.array([1.0], dtype=np.float32),
+        ),
+    ]
+
+    predictions = matcher.get_hypotheses(interactions)
+
+    assert len(predictions) == 1
+    assert predictions[0][0] is interactions[0]
+    np.testing.assert_allclose(predictions[0][1], [1.0, 2.0])
+    assert fake.hypothesis.config == {
+        "key": "flashmatch::FMParams",
+        "name": "ToyHypothesis",
+    }
+    assert matcher.get_hypotheses([]) == []
+    matcher.initialize_hypothesis()
+
+
+def test_likelihood_flash_matcher_hypothesis_initialization_errors(
+    monkeypatch, tmp_path
+):
+    """Hypothesis configuration failures produce actionable errors."""
+    matcher, _ = make_matcher(monkeypatch, tmp_path)
+
+    class MissingAlgoGetter:
+        def __getitem__(self, key):
+            return lambda name: SimpleNamespace(dump=lambda: "No algorithm here")
+
+    matcher.fm_cfg = SimpleNamespace(get=MissingAlgoGetter())
+    with pytest.raises(ValueError, match="hypothesis_algorithm"):
+        matcher.initialize_hypothesis()
+
+    interactions = [
+        SimpleNamespace(
+            points=np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]], dtype=np.float32),
+            depositions=np.array([1.0, 2.0], dtype=np.float32),
+        )
+    ]
+    monkeypatch.setattr(matcher, "initialize_hypothesis", lambda: None)
+    with pytest.raises(RuntimeError, match="initialize"):
+        matcher.get_hypotheses(interactions)
 
 
 def test_likelihood_flash_matcher_runs_and_fetches_results(monkeypatch, tmp_path):

@@ -7,4 +7,5 @@ interactions, and fragments.
 
 from .fragment import *
 from .interaction import *
+from .optical import *
 from .particle import *

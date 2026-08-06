@@ -17,6 +17,9 @@ __all__ = [
     "build_direction_trace",
     "build_end_point_trace",
     "build_flash_trace",
+    "build_flash_hypothesis_trace",
+    "get_flash_pe",
+    "get_flash_hypothesis_pe",
     "build_point_trace",
     "build_raw_trace",
     "build_start_point_trace",
@@ -394,6 +397,88 @@ def build_direction_trace(
     return traces
 
 
+def _aggregate_optical_pe(objects: list[Any], geo: Any) -> np.ndarray:
+    """Aggregate per-channel optical responses onto physical detectors."""
+    if geo is None or geo.optical is None:
+        raise RuntimeError("This geometry does not have optical detectors to draw.")
+
+    pe = np.zeros(geo.optical.num_detectors, dtype=np.float32)
+    for obj in objects:
+        pe_per_ch = np.asarray(obj.pe_per_ch, dtype=np.float32)
+        if geo.optical.global_index:
+            index = np.arange(geo.optical.num_detectors)
+            det_ids = geo.optical.det_ids
+        else:
+            index = geo.optical.volume_index(obj.volume_id)
+            det_ids = geo.optical.volumes[obj.volume_id].det_ids
+
+        if det_ids is not None:
+            pe_per_ch = np.bincount(
+                det_ids,
+                weights=pe_per_ch,
+                minlength=len(index),
+            )
+        if len(pe_per_ch) != len(index):
+            raise ValueError(
+                "Optical response length does not match the detector geometry "
+                f"for volume {obj.volume_id}."
+            )
+        pe[index] += pe_per_ch
+
+    return pe
+
+
+def get_flash_pe(
+    data: dict[str, Any], obj_name: str, matched_only: bool, geo: Any
+) -> np.ndarray:
+    """Return observed PE accumulated over the requested flashes."""
+    if "flashes" not in data:
+        raise ValueError("Must provide the `flashes` objects to draw them.")
+
+    if matched_only:
+        flash_ids = []
+        for inter in data[obj_name]:
+            if inter.is_flash_matched:
+                flash_ids.extend(inter.flash_ids)
+    else:
+        flash_ids = np.arange(len(data["flashes"]))
+
+    flashes = [data["flashes"][flash_id] for flash_id in flash_ids]
+    return _aggregate_optical_pe(flashes, geo)
+
+
+def get_flash_hypothesis_pe(
+    data: dict[str, Any], obj_name: str, hypothesis_key: str, geo: Any
+) -> np.ndarray:
+    """Return predicted PE accumulated over hypotheses for selected interactions."""
+    if hypothesis_key not in data:
+        raise ValueError(
+            f"Must provide the `{hypothesis_key}` objects to draw hypotheses."
+        )
+
+    hypothesis_ids = []
+    for inter in data[obj_name]:
+        hypothesis_ids.extend(getattr(inter, "flash_hypothesis_ids", []))
+    hypotheses = [data[hypothesis_key][hypo_id] for hypo_id in hypothesis_ids]
+    return _aggregate_optical_pe(hypotheses, geo)
+
+
+def _optical_size_scale(
+    pe: np.ndarray, size_by_pe: bool, pe_max: float | None, base_scale: float
+) -> float | np.ndarray:
+    """Build bounded detector size scales from PE values."""
+    if not size_by_pe:
+        return base_scale
+
+    if pe_max is None:
+        pe_max = float(np.max(pe, initial=0.0))
+    if pe_max <= 0.0:
+        return np.full(len(pe), base_scale, dtype=np.float32)
+
+    normalized = np.sqrt(np.clip(pe / pe_max, 0.0, 1.0))
+    return base_scale * (0.25 + 0.75 * normalized)
+
+
 def build_flash_trace(
     *,
     data: dict[str, Any],
@@ -402,6 +487,9 @@ def build_flash_trace(
     geo: Any | None,
     geo_drawer: Any | None,
     meta: Any | None,
+    size_by_pe: bool = False,
+    pe_max: float | None = None,
+    pe_per_detector: np.ndarray | None = None,
     **kwargs: Any,
 ) -> list:
     """Draw cumulative optical flash charge on detector elements.
@@ -435,38 +523,57 @@ def build_flash_trace(
         )
     if geo is None or geo.optical is None:
         raise RuntimeError("This geometry does not have optical detectors to draw.")
-    if "flashes" not in data:
-        raise ValueError("Must provide the `flashes` objects to draw them.")
-
     name = " ".join(obj_name.split("_")).capitalize()[:-1] + " flashes"
-
-    if matched_only:
-        flash_ids = []
-        for inter in data[obj_name]:
-            if inter.is_flash_matched:
-                flash_ids.extend(inter.flash_ids)
-    else:
-        flash_ids = np.arange(len(data["flashes"]))
-
-    # Aggregate PE counts across all selected flashes so the detector overlay
-    # uses one consistent colorscale.
-    color = np.zeros(geo.optical.num_detectors)
-    op_det_ids = geo.optical.det_ids
-    for flash_id in flash_ids:
-        flash = data["flashes"][flash_id]
-        pe_per_ch = flash.pe_per_ch
-        if not geo.optical.global_index:
-            op_det_ids = geo.optical.volumes[flash.volume_id].det_ids
-        if op_det_ids is not None:
-            pe_per_ch = np.bincount(op_det_ids, weights=pe_per_ch)
-        index = geo.optical.volume_index(flash.volume_id)
-        color[index] += pe_per_ch
+    if pe_per_detector is None:
+        pe_per_detector = get_flash_pe(data, obj_name, matched_only, geo)
+    size_scale = _optical_size_scale(
+        pe_per_detector, size_by_pe, pe_max, base_scale=1.0
+    )
 
     return geo_drawer.optical_traces(
         meta=meta,
-        color=color,
+        color=pe_per_detector,
+        size_scale=size_scale,
         zero_supress=True,
         colorscale="Inferno",
+        name=name,
+        **kwargs,
+    )
+
+
+def build_flash_hypothesis_trace(
+    *,
+    data: dict[str, Any],
+    obj_name: str,
+    hypothesis_key: str,
+    geo: Any | None,
+    geo_drawer: Any | None,
+    meta: Any | None,
+    size_by_pe: bool = False,
+    pe_max: float | None = None,
+    pe_per_detector: np.ndarray | None = None,
+    **kwargs: Any,
+) -> list:
+    """Draw predicted optical charge for the selected interactions."""
+    if geo_drawer is None:
+        raise RuntimeError(
+            "Cannot draw optical detectors without geometry information."
+        )
+    if geo is None or geo.optical is None:
+        raise RuntimeError("This geometry does not have optical detectors to draw.")
+
+    if pe_per_detector is None:
+        pe_per_detector = get_flash_hypothesis_pe(data, obj_name, hypothesis_key, geo)
+    size_scale = _optical_size_scale(
+        pe_per_detector, size_by_pe, pe_max, base_scale=0.65
+    )
+    name = " ".join(obj_name.split("_")).capitalize()[:-1] + " hypotheses"
+    return geo_drawer.optical_traces(
+        meta=meta,
+        color=pe_per_detector,
+        size_scale=size_scale,
+        zero_supress=True,
+        colorscale="Viridis",
         name=name,
         **kwargs,
     )

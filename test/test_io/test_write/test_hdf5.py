@@ -10,6 +10,7 @@ import yaml
 from spine.data import (
     CRTHit,
     Flash,
+    FlashHypothesis,
     Meta,
     Neutrino,
     ObjectList,
@@ -114,6 +115,7 @@ def test_hdf5_writer(hdf5_output, tensor_list, index_list, edge_index_list):
         "dummy_particles": generate_object_list(Particle, sizes),
         "dummy_neutrinos": generate_object_list(Neutrino, sizes),
         "dummy_flashes": generate_object_list(Flash, sizes),
+        "dummy_flash_hypotheses": generate_object_list(FlashHypothesis, sizes),
         "dummy_crthits": generate_object_list(CRTHit, sizes),
         "dummy_tensor": tensor_list,
         "dummy_clusts": index_list,

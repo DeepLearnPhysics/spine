@@ -17,6 +17,7 @@ class FakeTPC:
 class FakeGeo:
     name = "demo"
     tpc = FakeTPC()
+    optical = SimpleNamespace(num_volumes=2)
 
     def get_volume_index(self, sources, *volume_ids):
         sources = np.asarray(sources)
@@ -55,6 +56,11 @@ class FakeBarycenterMatcher:
 class FakeLikelihoodMatcher(FakeBarycenterMatcher):
     def __init__(self, detector, parent_path=None, **kwargs):
         super().__init__(detector=detector, parent_path=parent_path, **kwargs)
+
+    def get_hypotheses(self, interactions):
+        return [
+            (inter, np.array([2.0, 3.0], dtype=np.float32)) for inter in interactions
+        ]
 
 
 class FakeMerger:
@@ -103,6 +109,7 @@ def make_interaction(
         inter.flash_volume_ids = np.empty(0, dtype=np.int32)
         inter.flash_times = np.empty(0, dtype=np.float32)
         inter.flash_scores = np.empty(0, dtype=np.float32)
+        inter.flash_hypothesis_ids = np.empty(0, dtype=np.int32)
 
     inter.reset_flash_match = reset_flash_match
     return inter
@@ -278,3 +285,129 @@ def test_flash_match_processor_returns_updated_flashes_when_requested():
     assert result is not None
     assert len(result["flashes"]) == 1
     assert inter.flash_ids.tolist() == [0]
+
+
+def test_flash_match_processor_stores_unmatched_hypotheses_without_flashes():
+    """Likelihood predictions do not require an observed flash."""
+    processor = FlashMatchProcessor(
+        flash_key="flashes",
+        volume="module",
+        method="likelihood",
+        store_hypotheses=True,
+    )
+    inter = make_interaction()
+
+    result = processor.process({"flashes": [], "reco_interactions": [inter]})
+
+    assert result is not None
+    hypotheses = result["flash_hypotheses"]
+    assert len(hypotheses) == 1
+    assert hypotheses[0].interaction_id == inter.id
+    assert hypotheses[0].volume_id == 0
+    assert hypotheses[0].is_matched is False
+    assert inter.flash_hypothesis_ids.tolist() == [0]
+
+
+def test_flash_match_processor_requires_optical_geometry_for_hypotheses():
+    """Hypothesis production requires a configured optical detector."""
+    processor = FlashMatchProcessor(
+        flash_key="flashes",
+        volume="module",
+        method="likelihood",
+        store_hypotheses=True,
+    )
+    processor.geo.optical = None
+
+    with pytest.raises(RuntimeError, match="optical geometry"):
+        processor.process({"flashes": [], "reco_interactions": [make_interaction()]})
+
+
+def test_flash_match_processor_stores_match_specific_hypothesis():
+    """A fitted prediction retains its observed-flash association."""
+    processor = FlashMatchProcessor(
+        flash_key="flashes",
+        volume="module",
+        method="likelihood",
+        store_hypotheses=True,
+    )
+    inter = make_interaction()
+    flash = make_flash(id=4, volume_id=0, time=10.0)
+
+    result = processor.process({"flashes": [flash], "reco_interactions": [inter]})
+
+    assert result is not None
+    hypothesis = result["flash_hypotheses"][0]
+    np.testing.assert_allclose(hypothesis.pe_per_ch, [1.0, 2.0])
+    assert hypothesis.flash_ids.tolist() == [4]
+    assert hypothesis.score == pytest.approx(0.75)
+
+
+def test_flash_match_processor_hypothesis_tracks_merged_flash_ids():
+    """A prediction matched to a merged flash references every source flash."""
+    processor = FlashMatchProcessor(
+        flash_key="flashes",
+        volume="module",
+        method="likelihood",
+        store_hypotheses=True,
+        merge={"window": 1.0},
+    )
+    inter = make_interaction()
+    flashes = [
+        make_flash(id=0, volume_id=0, time=1.0),
+        make_flash(id=1, volume_id=0, time=2.0),
+    ]
+
+    result = processor.process({"flashes": flashes, "reco_interactions": [inter]})
+
+    assert result is not None
+    hypothesis = result["flash_hypotheses"][0]
+    assert hypothesis.flash_ids.tolist() == [0, 1]
+
+
+def test_flash_match_processor_stores_each_match_specific_hypothesis():
+    """Additional matches receive distinct prediction records."""
+
+    class MultiLikelihoodMatcher(FakeLikelihoodMatcher):
+        def get_matches(self, interactions, flashes):
+            return [
+                (
+                    interactions[0],
+                    flash,
+                    SimpleNamespace(
+                        hypothesis=[flash.id + 1.0, flash.id + 2.0],
+                        score=0.5 + flash.id,
+                    ),
+                )
+                for flash in flashes
+            ]
+
+    processor = FlashMatchProcessor(
+        flash_key="flashes",
+        volume="module",
+        method="likelihood",
+        store_hypotheses=True,
+    )
+    processor.matcher = cast(Any, MultiLikelihoodMatcher("demo"))
+    inter = make_interaction()
+    flashes = [make_flash(id=0), make_flash(id=1)]
+
+    result = processor.process({"flashes": flashes, "reco_interactions": [inter]})
+
+    assert result is not None
+    hypotheses = result["flash_hypotheses"]
+    assert len(hypotheses) == 2
+    assert inter.flash_hypothesis_ids.tolist() == [0, 1]
+    assert hypotheses[0].flash_ids.tolist() == [0]
+    assert hypotheses[1].flash_ids.tolist() == [1]
+    np.testing.assert_allclose(hypotheses[1].pe_per_ch, [2.0, 3.0])
+
+
+def test_flash_match_processor_rejects_hypotheses_for_barycenter():
+    """Only likelihood matching has a light-model prediction backend."""
+    with pytest.raises(ValueError, match="likelihood"):
+        FlashMatchProcessor(
+            flash_key="flashes",
+            volume="module",
+            method="barycenter",
+            store_hypotheses=True,
+        )

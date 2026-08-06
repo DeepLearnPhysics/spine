@@ -15,6 +15,7 @@ from .utils import (
     IntensityInput,
     is_scalar_sequence,
     require_matching_length,
+    select_numeric_or_sequence,
     select_scalar_or_sequence,
 )
 
@@ -31,6 +32,7 @@ def ellipsoid_trace(
     intensity: IntensityInput = None,
     hovertext: HoverTextInput = None,
     showscale: bool = False,
+    size_scale: float = 1.0,
     **kwargs: Any,
 ) -> go.Mesh3d:
     """Converts a cloud of points or a covariance matrix into a 3D ellipsoid.
@@ -64,6 +66,8 @@ def ellipsoid_trace(
         per-vertex sequence of labels.
     showscale : bool, default False
         If True, show the colorscale of the :class:`plotly.graph_objs.Mesh3d`
+    size_scale : float, default 1.
+        Multiplicative scale applied to each ellipsoid axis
     **kwargs : dict, optional
         Additional parameters to pass to the underlying
         :class:`plotly.graph_objs.Mesh3d` object
@@ -110,7 +114,7 @@ def ellipsoid_trace(
             raise ValueError("The `contour` parameter should be a probability.")
         radius = np.sqrt(2 * gammaincinv(1.5, contour))
 
-    ell_points = centroid + radius * np.dot(unit_points, rotmat)
+    ell_points = centroid + size_scale * radius * np.dot(unit_points, rotmat)
 
     # Convert the color provided to a set of intensities, if needed
     if color is not None and not isinstance(color, str):
@@ -154,6 +158,7 @@ def ellipsoid_traces(
     legendgroup: str | None = None,
     showlegend: bool = True,
     name: str | None = None,
+    size_scale: float | np.ndarray = 1.0,
     **kwargs: Any,
 ) -> list[go.Mesh3d]:
     """Function which produces a list of plotly traces of ellipsoids given a
@@ -183,6 +188,8 @@ def ellipsoid_traces(
         Whether to show legends on not
     name : str, optional
         Name of the trace(s)
+    size_scale : float or np.ndarray, default 1.
+        Shared scale or one multiplicative scale per ellipsoid
     **kwargs : dict, optional
         List of additional arguments to pass to the underlying list of
         :class:`plotly.graph_objs.Mesh3D`
@@ -202,6 +209,11 @@ def ellipsoid_traces(
         hovertext,
         len(centroids),
         "Specify one hovertext for all ellipsoids, or one hovertext per ellipsoid.",
+    )
+    require_matching_length(
+        size_scale,
+        len(centroids),
+        "Specify one size scale for all ellipsoids, or one per ellipsoid.",
     )
 
     # If one color is provided per ellipsoid, give an associated hovertext
@@ -228,6 +240,7 @@ def ellipsoid_traces(
         # Fetch the right color/hovertext combination
         col = select_scalar_or_sequence(color, i)
         hov = select_scalar_or_sequence(hovertext, i)
+        scale_i = float(select_numeric_or_sequence(size_scale, i))
 
         # If the legend is shared, only draw the legend of the first trace
         if shared_legend:
@@ -241,6 +254,7 @@ def ellipsoid_traces(
             ellipsoid_trace(
                 centroid=centroid,
                 covmat=covmat,
+                size_scale=scale_i,
                 color=col,
                 hovertext=hov,
                 cmin=cmin,

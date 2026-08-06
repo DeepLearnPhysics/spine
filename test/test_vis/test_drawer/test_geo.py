@@ -172,6 +172,21 @@ def test_geo_drawer_mixed_optical_shapes_and_legends(multi_shape_geo):
     assert {trace.type for trace in volume_traces} == {"mesh3d"}
 
 
+def test_geo_drawer_scales_all_optical_shapes_without_mutating_geometry(
+    multi_shape_geo,
+):
+    """Per-detector scaling supports boxes, ellipsoids, and disks safely."""
+    positions = multi_shape_geo.optical.positions.copy()
+
+    traces = GeoDrawer(multi_shape_geo).optical_traces(
+        color=np.array([1.0, 2.0, 3.0]),
+        size_scale=np.array([0.5, 1.0, 1.5]),
+    )
+
+    assert len(traces) == 3
+    np.testing.assert_allclose(multi_shape_geo.optical.positions, positions)
+
+
 def test_geo_drawer_mixed_optical_rejects_unknown_shape(multi_shape_geo):
     """Unknown optical detector shapes should be rejected explicitly."""
     multi_shape_geo.optical.volumes[0].shape[0] = "bad"

@@ -9,6 +9,7 @@ import pytest
 from spine.constants import TRACK_SHP
 from spine.data.larcv import CRTHit, Flash
 from spine.data.out import (
+    FlashHypothesis,
     RecoInteraction,
     RecoParticle,
     TruthInteraction,
@@ -846,3 +847,170 @@ def test_drawer_draws_unmatched_flashes_and_crt_empty_plane_errors():
             geo_drawer=drawer.geo_drawer,
             meta=drawer.meta,
         )
+
+
+def test_drawer_overlays_flash_hypotheses_with_shared_size_control():
+    """Measured and predicted PE can be drawn together and size-scaled jointly."""
+    geo = Geometry(
+        name="demo",
+        tag="v1",
+        version=1,
+        tpc={
+            "dimensions": [10.0, 20.0, 30.0],
+            "positions": [[-6.0, 0.0, 0.0], [6.0, 0.0, 0.0]],
+            "module_ids": [0, 0],
+        },
+        optical={
+            "volume": "module",
+            "shape": "box",
+            "dimensions": [2.0, 2.0, 2.0],
+            "positions": [[0.0, 15.0, 0.0]],
+            "det_ids": [0, 0],
+        },
+    )
+    interaction = RecoInteraction(
+        id=0,
+        index=np.array([0], dtype=np.int32),
+        is_flash_matched=True,
+        flash_ids=np.array([0], dtype=np.int32),
+        flash_hypothesis_ids=np.array([0], dtype=np.int32),
+    )
+    data = {
+        "points": np.array([[0.0, 0.0, 0.0]], dtype=np.float32),
+        "reco_interactions": [interaction],
+        "flashes": [Flash(id=0, volume_id=0, pe_per_ch=np.array([1.0, 2.0]))],
+        "flash_hypotheses": [
+            FlashHypothesis(
+                id=0,
+                interaction_id=0,
+                volume_id=0,
+                pe_per_ch=np.array([2.0, 2.0]),
+            )
+        ],
+    }
+
+    figure = Drawer(data, draw_mode="reco", geo=geo).get(
+        "interactions",
+        draw_flashes=True,
+        draw_flash_hypotheses=True,
+        optical_size_by_pe=True,
+    )
+
+    names = [trace.name or "" for trace in figure.data]
+    assert any("flashes" in name for name in names)
+    assert any("hypotheses" in name for name in names)
+
+
+def test_drawer_requires_requested_flash_hypotheses():
+    """Hypothesis drawing fails clearly when the data product is absent."""
+    interaction = RecoInteraction(id=0, index=np.array([0], dtype=np.int32))
+    drawer = Drawer(
+        {
+            "points": np.array([[0.0, 0.0, 0.0]], dtype=np.float32),
+            "reco_interactions": [interaction],
+        },
+        draw_mode="reco",
+    )
+
+    with pytest.raises(ValueError, match="flash_hypotheses"):
+        drawer.get("interactions", draw_flash_hypotheses=True)
+
+
+def test_optical_trace_helper_edge_cases():
+    """Optical aggregation, normalization, and validation branches are covered."""
+    with pytest.raises(RuntimeError, match="optical"):
+        out_traces._aggregate_optical_pe([], None)
+
+    optical = SimpleNamespace(
+        num_detectors=2,
+        global_index=True,
+        det_ids=np.array([0, 1], dtype=np.int32),
+    )
+    geo = SimpleNamespace(optical=optical)
+    response = SimpleNamespace(
+        volume_id=0,
+        pe_per_ch=np.array([1.0, 2.0], dtype=np.float32),
+    )
+    np.testing.assert_allclose(
+        out_traces._aggregate_optical_pe([response], geo), [1.0, 2.0]
+    )
+
+    optical.det_ids = None
+    response.pe_per_ch = np.array([1.0], dtype=np.float32)
+    with pytest.raises(ValueError, match="length"):
+        out_traces._aggregate_optical_pe([response], geo)
+
+    with pytest.raises(ValueError, match="flash_hypotheses"):
+        out_traces.get_flash_hypothesis_pe(
+            {}, "reco_interactions", "flash_hypotheses", geo
+        )
+
+    pe = np.array([0.0, 4.0], dtype=np.float32)
+    np.testing.assert_allclose(
+        out_traces._optical_size_scale(pe, True, None, 1.0), [0.25, 1.0]
+    )
+    np.testing.assert_allclose(
+        out_traces._optical_size_scale(np.zeros(2), True, 0.0, 0.65),
+        [0.65, 0.65],
+    )
+
+
+def test_build_flash_hypothesis_trace_validation_and_default_aggregation():
+    """Hypothesis traces validate geometry and aggregate PE when not precomputed."""
+    data = {
+        "reco_interactions": [
+            SimpleNamespace(flash_hypothesis_ids=np.array([0], dtype=np.int32))
+        ],
+        "flash_hypotheses": [
+            FlashHypothesis(
+                id=0,
+                interaction_id=0,
+                volume_id=0,
+                pe_per_ch=np.array([3.0, 4.0], dtype=np.float32),
+            )
+        ],
+    }
+    optical = SimpleNamespace(
+        num_detectors=2,
+        global_index=True,
+        det_ids=np.array([0, 1], dtype=np.int32),
+    )
+    geo = SimpleNamespace(optical=optical)
+
+    with pytest.raises(RuntimeError, match="geometry"):
+        out_traces.build_flash_hypothesis_trace(
+            data=data,
+            obj_name="reco_interactions",
+            hypothesis_key="flash_hypotheses",
+            geo=geo,
+            geo_drawer=None,
+            meta=None,
+        )
+    with pytest.raises(RuntimeError, match="optical"):
+        out_traces.build_flash_hypothesis_trace(
+            data=data,
+            obj_name="reco_interactions",
+            hypothesis_key="flash_hypotheses",
+            geo=SimpleNamespace(optical=None),
+            geo_drawer=SimpleNamespace(),
+            meta=None,
+        )
+
+    captured = {}
+
+    class FakeGeoDrawer:
+        def optical_traces(self, **kwargs):
+            captured.update(kwargs)
+            return ["trace"]
+
+    traces = out_traces.build_flash_hypothesis_trace(
+        data=data,
+        obj_name="reco_interactions",
+        hypothesis_key="flash_hypotheses",
+        geo=geo,
+        geo_drawer=FakeGeoDrawer(),
+        meta=None,
+    )
+
+    assert traces == ["trace"]
+    np.testing.assert_allclose(captured["color"], [3.0, 4.0])

@@ -35,6 +35,7 @@ class TestInteractionBase:
         assert len(obj.flash_volume_ids) == 0
         assert len(obj.flash_times) == 0
         assert len(obj.flash_scores) == 0
+        assert len(obj.flash_hypothesis_ids) == 0
 
     def test_interactionbase_with_data(self):
         """Test InteractionBase with complete data."""
@@ -68,6 +69,7 @@ class TestInteractionBase:
             flash_volume_ids=np.array([0], dtype=np.int32),
             flash_times=np.array([100.5], dtype=np.float32),
             flash_scores=np.array([0.95], dtype=np.float32),
+            flash_hypothesis_ids=np.array([2], dtype=np.int32),
         )
 
         # Verify initial state
@@ -85,6 +87,7 @@ class TestInteractionBase:
         assert len(obj.flash_volume_ids) == 0
         assert len(obj.flash_times) == 0
         assert len(obj.flash_scores) == 0
+        assert len(obj.flash_hypothesis_ids) == 0
 
     def test_interactionbase_reset_flash_match_idempotent(self):
         """Test reset_flash_match on an object without an existing match."""
@@ -101,10 +104,12 @@ class TestInteractionBase:
         assert obj.flash_volume_ids.dtype == np.int32
         assert obj.flash_times.dtype == np.float32
         assert obj.flash_scores.dtype == np.float32
+        assert obj.flash_hypothesis_ids.dtype == np.int32
         assert len(obj.flash_ids) == 0
         assert len(obj.flash_volume_ids) == 0
         assert len(obj.flash_times) == 0
         assert len(obj.flash_scores) == 0
+        assert len(obj.flash_hypothesis_ids) == 0
 
     def test_interactionbase_str_representation(self):
         """Test InteractionBase string representation."""
