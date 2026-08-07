@@ -114,6 +114,7 @@ class CalibrationStage(ChainStage):
             # Calibrators operate event by event in NumPy and may update both
             # spatial coordinates and charge values.
             data_np = data.to_numpy()
+            values_np = data_np.feature(0)
             for batch_id in range(data.batch_size):
                 lower, upper = data.edges[batch_id : batch_id + 2]
                 source_rows = (
@@ -123,7 +124,7 @@ class CalibrationStage(ChainStage):
                 run_id = None if run_info is None else run_info[meta_index].run
                 points, values = self.calibrator(
                     data_np.coords[batch_id],
-                    data_np.values[batch_id],
+                    values_np[batch_id],
                     source_rows,
                     run_id,
                     meta=meta[meta_index],

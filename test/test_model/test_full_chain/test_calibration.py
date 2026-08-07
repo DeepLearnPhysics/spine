@@ -88,6 +88,40 @@ def test_applied_calibration_routes_event_context_and_updates_points() -> None:
     assert all(call[3]["meta"] is meta[0] for call in calibrator.calls)
 
 
+def test_applied_calibration_selects_value_from_multiple_features() -> None:
+    """Applied calibration changes charge without touching auxiliary features."""
+
+    class Calibrator:
+        update_points = False
+
+        def __init__(self):
+            self.values = []
+
+        def __call__(self, points, values, sources, run_id, **kwargs):
+            self.values.append(values.copy())
+            return points, values * 2.0
+
+    base = make_data()
+    auxiliary = torch.tensor([[10.0, 100.0], [20.0, 200.0]])
+    data = TensorBatch(
+        torch.cat((base.tensor, auxiliary), dim=1),
+        counts=base.counts,
+        has_batch_col=True,
+        coord_cols=base.coord_cols,
+    )
+    calibrator = Calibrator()
+
+    result = CalibrationStage("calibration", "apply", calibrator)(
+        ChainState(data=data, meta=[object()])
+    )
+
+    adapted = result.products["data"]
+    assert calibrator.values[0].tolist() == [1.0, 2.0]
+    assert adapted.feature(0).torch_tensor().tolist() == [2.0, 4.0]
+    assert adapted.feature(1).torch_tensor().tolist() == [10.0, 20.0]
+    assert adapted.feature(2).torch_tensor().tolist() == [100.0, 200.0]
+
+
 @pytest.mark.parametrize("meta", [None, []])
 def test_applied_calibration_requires_metadata(meta) -> None:
     """Detector calibration cannot run without image metadata."""
