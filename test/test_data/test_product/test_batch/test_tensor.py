@@ -712,6 +712,24 @@ class TestTensorBatchWithTorch:
 
         assert torch.equal(batch_ids, torch.tensor([0, 0, 1]))
 
+    @pytest.mark.skipif(
+        not TORCH_AVAILABLE or not torch.cuda.is_available(),
+        reason="CUDA not available",
+    )
+    def test_torch_batch_ids_with_cpu_counts_and_cuda_data(self):
+        """Batch IDs should follow CUDA data while structural counts stay on CPU."""
+        data = torch.tensor([[1, 2], [3, 4], [5, 6]], device="cuda")
+        batch = TensorBatch(data, counts=[2, 1])
+
+        assert batch.counts.device.type == "cpu"
+        assert batch.batch_ids.device == data.device
+        assert torch.equal(batch.batch_ids.cpu(), torch.tensor([0, 0, 1]))
+
+        selected = batch.select(torch.tensor([True, False, True], device="cuda"))
+        assert selected.data.device == data.device
+        assert selected.counts.device.type == "cpu"
+        assert torch.equal(selected.counts, torch.tensor([1, 1]))
+
     def test_to_tensor_idempotent(self):
         """Test to_tensor on already torch data is idempotent."""
         data = torch.tensor([[1, 2], [3, 4]])

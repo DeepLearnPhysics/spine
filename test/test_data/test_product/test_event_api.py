@@ -156,8 +156,17 @@ def test_cluster_label_construction_and_validation():
         ClusterLabelData(np.zeros((1, 4)))
     with pytest.raises(ValueError, match="must be omitted"):
         ClusterLabelData(np.zeros((1, 6)))
+    with pytest.raises(ValueError, match="precedence requires particle information"):
+        ClusterLabelData(np.zeros((1, 5)), precedence=np.asarray([1, 0]))
     with pytest.raises(ValueError, match="requires a particle-index"):
         ClusterLabelData(np.zeros((1, 5)), _particle_fields())
+
+    missing_shapes = _particle_fields()
+    missing_shapes.pop("shape")
+    with pytest.raises(ValueError, match="requires a particle `shape` field"):
+        ClusterLabelData(
+            np.zeros((1, 6)), missing_shapes, precedence=np.asarray([1, 0])
+        )
 
     inconsistent = _particle_fields()
     inconsistent["pid"] = np.asarray([2])

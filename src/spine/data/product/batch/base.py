@@ -292,7 +292,12 @@ class BatchBase:
         if self.is_numpy:
             return np.repeat(*x)
         else:
-            return torch.repeat_interleave(*x)
+            values, repeats, *args = x
+            if isinstance(repeats, torch.Tensor):
+                # Batch boundaries stay on CPU, but repeated IDs must share
+                # the device of the values (and ultimately the model data).
+                repeats = repeats.to(values.device)
+            return torch.repeat_interleave(values, repeats, *args)
 
     def _to_numpy(self, x: torch.Tensor) -> np.ndarray:
         """Detach a PyTorch tensor, move it to CPU and expose NumPy storage."""
