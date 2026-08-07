@@ -257,6 +257,29 @@ def test_geometric_node_encoder_accepts_aligned_extra_features(
         )
 
 
+def test_geometric_node_encoder_uses_primary_input_feature(
+    graph_data,
+    graph_clusters,
+):
+    """Geometric charge summaries should accept multi-feature point data."""
+    data = graph_data.to_tensor()
+    rows = torch.cat((data.data, torch.full((len(data.data), 2), 1000.0)), dim=1)
+    multifeature = TensorBatch(
+        rows,
+        data.counts,
+        has_batch_col=data.has_batch_col,
+        coord_cols=data.coord_cols,
+    )
+
+    features = ClustGeoNodeEncoder(use_numpy=False, add_value=True)(
+        multifeature,
+        graph_clusters,
+    )
+
+    assert features.shape == (3, 18)
+    assert torch.isfinite(features.data).all()
+
+
 def test_geometric_node_encoder_adds_points_directions_and_dedx(
     graph_data,
     graph_clusters,

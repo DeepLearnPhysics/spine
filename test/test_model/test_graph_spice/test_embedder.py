@@ -54,6 +54,29 @@ def test_embedder_hypergraph_uses_published_spatial_embeddings():
     torch.testing.assert_close(hypergraph_features[:, :3], spatial_embeddings)
 
 
+def test_embedder_uses_primary_feature_from_multifeature_input():
+    """Auxiliary point features should not make the charge input ambiguous."""
+    embedder = GraphSPICEEmbedder(
+        small_uresnet_config(),
+        feature_embedding_dim=2,
+        spatial_embedding_dim=3,
+        use_raw_features=False,
+    )
+    data = point_cloud_batch()
+    rows = torch.cat((data.data, torch.full((len(data.data), 2), 1000.0)), dim=1)
+    multifeature = TensorBatch(
+        rows,
+        data.counts,
+        has_batch_col=data.has_batch_col,
+        coord_cols=data.coord_cols,
+    )
+
+    result = embedder(multifeature)
+
+    assert result["features"].shape[0] == len(data.data)
+    assert result["hypergraph_features"].shape == (len(data.data), 8)
+
+
 def test_embedder_rejects_incompatible_spatial_dimension():
     """Spatial offsets must have the same dimension as input coordinates."""
     with pytest.raises(ValueError, match="must match the input dimension"):

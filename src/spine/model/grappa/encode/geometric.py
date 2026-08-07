@@ -276,7 +276,12 @@ class ClustGeoNodeEncoder(torch.nn.Module):
         """
         # Get the value & semantic types
         voxels = data.coords.torch_tensor()
-        values = data.values.torch_tensor()
+        # Structured labels expose one canonical value, while reconstruction
+        # tensors may carry multiple features alongside their primary charge.
+        value_data = (
+            data.values if isinstance(data, ClusterLabelBatch) else data.feature(0)
+        )
+        values = value_data.torch_tensor()
         sem_types = None
         if add_shape:
             if not isinstance(data, ClusterLabelBatch):

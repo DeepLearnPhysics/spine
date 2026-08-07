@@ -839,6 +839,12 @@ def test_aggregation_input_preparation_covers_optional_features() -> None:
     """GrapPA adapters build point, charge, shape, and truth-coordinate inputs."""
     operations = AggregationOperations()
     data = make_data()
+    data = TensorBatch(
+        torch.cat((data.data, torch.full((len(data.data), 1), 1000.0)), dim=1),
+        data.counts,
+        has_batch_col=data.has_batch_col,
+        coord_cols=data.coord_cols,
+    )
     clusts, shapes = make_clusters()
 
     encoder = SimpleNamespace(
@@ -857,6 +863,7 @@ def test_aggregation_input_preparation_covers_optional_features() -> None:
     )
     assert result["coord_label"] is coord_label
     assert result["extra"].shape == (2, 3)
+    assert result["extra"].data[:, 0].tolist() == [1.0, 1.0]
 
     encoder.add_points = True
     with pytest.raises(ValueError, match="require `primaries`"):
