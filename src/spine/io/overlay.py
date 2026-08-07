@@ -255,6 +255,7 @@ class Overlayer:
         if has_precedence:
             # Expand the carried precedence field only for duplicate selection.
             shapes = np.concatenate(shape_list, axis=0).reshape(-1, 1)
+            shapes = shapes.astype(features.dtype, copy=False)
             features = np.concatenate((features, shapes), axis=1)
             prec_col = features.shape[1] - 1
         coords, features, selection = clean_sparse_data(

@@ -306,6 +306,9 @@ def test_overlayer_cluster_labels_apply_carried_shape_precedence():
     result = overlay(batch)[0]["label"]
 
     assert len(result) == 1
+    assert result.data.dtype == np.float32
+    assert result.coords.dtype == np.float32
+    assert result.values.dtype == np.float32
     np.testing.assert_array_equal(result.voxel_field("value"), [2.0])
     np.testing.assert_array_equal(result.voxel_field("cluster"), [1.0])
     np.testing.assert_array_equal(result.voxel_field("particle_index"), [1.0])
