@@ -116,6 +116,18 @@ class TestMetaCreation:
 
         np.testing.assert_array_equal(meta.upper, upper)
 
+    def test_meta_accepts_float32_roundoff_at_large_coordinates(self):
+        """Retain main's relative tolerance away from zero."""
+        lower = np.zeros(3, dtype=np.float32)
+        size = np.full(3, 10.0, dtype=np.float32)
+        count = np.full(3, 1000, dtype=np.int64)
+        expected_upper = np.full(3, 10000.0, dtype=np.float32)
+        upper = np.nextafter(expected_upper, np.float32(np.inf))
+
+        meta = Meta(lower=lower, upper=upper, size=size, count=count)
+
+        np.testing.assert_array_equal(meta.upper, upper)
+
     def test_meta_rejects_discrepancy_above_float32_tolerance(self):
         """Reject upper bounds that differ by more than float32 roundoff."""
         lower = np.array([-392.72614, -99.35605, -229.96048], dtype=np.float32)
