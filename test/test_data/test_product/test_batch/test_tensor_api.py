@@ -51,8 +51,7 @@ def test_tensor_batch_named_column_and_value_access():
         batch.coordinate_columns("missing")
     with pytest.raises(KeyError, match="Unknown feature field"):
         batch.feature_columns("missing")
-    with pytest.raises(ValueError, match="exactly one feature column"):
-        _ = batch.values
+    np.testing.assert_allclose(batch.values.data, [0.1, 0.4, 0.7])
 
 
 def test_tensor_batch_coordinate_and_batch_column_errors():
@@ -103,6 +102,10 @@ def test_tensor_batch_one_dimensional_feature_access():
     )
     with pytest.raises(IndexError, match="only contain column 0"):
         malformed.feature("bad")
+
+    empty = TensorBatch(np.empty((2, 0)), counts=[2])
+    with pytest.raises(ValueError, match="at least one feature column"):
+        _ = empty.values
 
 
 def test_tensor_batch_event_mask_selection_and_split():

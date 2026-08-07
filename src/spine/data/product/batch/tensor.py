@@ -326,15 +326,15 @@ class TensorBatch(BatchBase):
 
     @property
     def values(self) -> "TensorBatch":
-        """Return the sole scalar feature, rejecting ambiguous products."""
+        """Return the primary feature as a one-dimensional batch."""
         features = self.features
         if features.data.ndim == 1:
             return features
-        if features.data.ndim != 2 or features.data.shape[1] != 1:
-            raise ValueError(
-                "`values` requires exactly one feature column; use `features` "
-                "or `feature(...)` for multi-feature products."
-            )
+        if features.data.ndim != 2 or features.data.shape[1] == 0:
+            raise ValueError("`values` requires at least one feature column.")
+
+        # Keep the primary charge/value convention independent of any
+        # auxiliary point features carried beside it.
         return TensorBatch(features.data[:, 0], self.counts, schema=TensorSchema())
 
     def event(self, batch_id: int) -> TensorData:

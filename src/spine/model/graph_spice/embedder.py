@@ -180,10 +180,11 @@ class GraphSPICEEmbedder(sparse.Network):
         """
         # Build an input feature tensor
         coordinates = data.batch_coordinates
+
         # Graph-SPICE historically consumes the primary charge/value channel
         # (VALUE_COL), even when the shared point tensor carries auxiliary
         # features for other models.
-        input_features = data.feature(0).torch_tensor().view(-1, 1)
+        input_features = data.values.torch_tensor().view(-1, 1)
 
         # If requested, append the normalized coordinates to the feature tensor
         half_size = self.spatial_size / 2

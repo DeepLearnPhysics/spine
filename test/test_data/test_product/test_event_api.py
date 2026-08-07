@@ -71,7 +71,7 @@ def test_tensor_data_schema_metadata_and_named_access():
 
 
 def test_tensor_data_mutation_numpy_protocol_and_errors():
-    """Compatibility access should remain explicit and fail on ambiguity."""
+    """Compatibility access should expose the primary feature."""
     tensor = TensorData(np.asarray([[1.0], [2.0]]), feats_only=True)
     assert tensor.coords is None
     np.testing.assert_array_equal(tensor.values, [1.0, 2.0])
@@ -89,8 +89,10 @@ def test_tensor_data_mutation_numpy_protocol_and_errors():
         tensor.coordinates("missing")
     with pytest.raises(KeyError, match="Unknown feature field"):
         tensor.feature("missing")
-    with pytest.raises(ValueError, match="exactly one feature column"):
-        _ = TensorData(np.ones((2, 2))).values
+    multifeature = TensorData(np.asarray([[1.0, 10.0], [2.0, 20.0]]))
+    np.testing.assert_array_equal(multifeature.values, [1.0, 2.0])
+    with pytest.raises(ValueError, match="at least one feature column"):
+        _ = TensorData(np.empty((2, 0)), feats_only=True).values
     with pytest.raises(ValueError, match="no coordinates"):
         TensorData(np.ones((2, 1)), feats_only=True).coordinates()
 

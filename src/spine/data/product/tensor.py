@@ -334,23 +334,21 @@ class TensorData(DataProduct):
 
     @property
     def values(self) -> ArrayLike:
-        """Return an unambiguous scalar feature as a one-dimensional array.
+        """Return the primary feature as a one-dimensional array.
 
         Raises
         ------
         ValueError
-            If the product contains zero or multiple feature columns.
+            If the product contains no feature columns.
         """
         if self.features.ndim == 1:
             return self.features
 
-        # Two-dimensional products must contain exactly one scalar field
-        if self.features.ndim != 2 or self.features.shape[1] != 1:
-            raise ValueError(
-                "`values` requires exactly one feature column; use `features` "
-                "or `feature(...)` for multi-feature products."
-            )
+        if self.features.ndim != 2 or self.features.shape[1] == 0:
+            raise ValueError("`values` requires at least one feature column.")
 
+        # Feature zero is the conventional charge/value input. Auxiliary
+        # features remain available through `features` and `feature(...)`.
         return self.features[:, 0]
 
     @property

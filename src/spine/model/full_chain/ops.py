@@ -183,7 +183,7 @@ class AggregationOperations:
 
             # Charge summaries use the cluster-to-voxel membership map.
             if add_value:
-                values = data.feature(0).torch_tensor()[clusts.full_index]
+                values = data.values.torch_tensor()[clusts.full_index]
                 index_ids = torch.as_tensor(
                     clusts.index_ids,
                     dtype=torch.long,

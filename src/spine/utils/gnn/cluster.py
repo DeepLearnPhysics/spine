@@ -419,8 +419,11 @@ def get_cluster_features_batch(
             "an explicit `extra` feature tensor."
         )
 
+    values = None
+    if add_value:
+        values = data.values.tensor
+
     if isinstance(data, ClusterLabelBatch):
-        values = data.values.tensor if add_value else None
         feats = get_cluster_features(data.coords.tensor, clusts.index_list, values)
         if add_shape:
             shapes = get_cluster_label_batch(data, clusts, "shape").data
@@ -435,7 +438,6 @@ def get_cluster_features_batch(
                 shapes = np.asarray(shapes, dtype=feats.dtype)
                 feats = np.concatenate((feats, shapes[:, None]), axis=1)
     else:
-        values = data.values.tensor if add_value else None
         feats = get_cluster_features(data.coords.tensor, clusts.index_list, values)
 
     return TensorBatch(feats, clusts.counts)

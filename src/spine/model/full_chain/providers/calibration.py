@@ -109,7 +109,8 @@ class CalibrationStage(ChainStage):
             if energy_label is None:
                 raise ValueError("Label calibration requires `energy_label`.")
             energy_label = point_data.align(energy_label)
-            data.torch_tensor()[:, value_column] = energy_label.values.torch_tensor()
+            energy_values = energy_label.values.torch_tensor()
+            data.torch_tensor()[:, value_column] = energy_values
         else:
             # Applied calibration requires event metadata and may additionally
             # use detector sources and time-dependent run information.
@@ -128,7 +129,7 @@ class CalibrationStage(ChainStage):
             # Calibrators operate event by event in NumPy and may update both
             # spatial coordinates and charge values.
             data_np = data.to_numpy()
-            values_np = data_np.feature(0)
+            values_np = data_np.values
             for batch_id in range(data.batch_size):
                 lower, upper = data.edges[batch_id : batch_id + 2]
                 source_rows = (
