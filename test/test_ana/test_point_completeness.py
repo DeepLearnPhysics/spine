@@ -92,6 +92,18 @@ def test_point_completeness_uses_voxel_diagonal(monkeypatch):
     assert rows[0]["efficiency"] == 1.0
 
 
+def test_point_completeness_rejects_invalid_voxel_diagonal():
+    """Metadata-derived matching requires finite, positive voxel sizes."""
+
+    class InvalidMeta:
+        size = np.zeros(3)
+
+    ana = PointCompletenessAna()
+
+    with pytest.raises(ValueError, match="positive voxel sizes"):
+        ana.process({"meta": InvalidMeta(), "truth_particles": []})
+
+
 def test_point_completeness_records_empty_point_sets(monkeypatch):
     rows = []
     monkeypatch.setattr(

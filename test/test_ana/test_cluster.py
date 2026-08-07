@@ -87,6 +87,13 @@ def test_cluster_ana_validates_configuration(monkeypatch):
     with pytest.raises(ValueError, match="lower bound"):
         ClusterAna(obj_type="particle", time_window=(1.0, 0.0))
 
+    with pytest.raises(ValueError, match="standalone mode"):
+        ClusterAna(
+            per_object=False,
+            label_col="unsupported",
+            time_window=(0.0, 1.0),
+        )
+
 
 def test_cluster_ana_raw_per_object_mode(monkeypatch):
     rows = []

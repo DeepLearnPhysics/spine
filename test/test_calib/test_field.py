@@ -177,6 +177,9 @@ def test_field_calibrator_requires_tpc_id(field_geo):
     with pytest.raises(TypeError, match="tpc_id"):
         calibrator.process(np.asarray([[1.0, 0.0, 0.0]]))
 
+    with pytest.raises(ValueError, match=r"\(N, 3\)"):
+        calibrator.process(np.asarray([1.0, 0.0, 0.0]), tpc_id=0)
+
 
 def test_field_calibrator_rejects_map_that_overlaps_no_module(field_geo):
     field_map = FieldMap(
@@ -311,6 +314,7 @@ def test_field_calibrator_selects_suffixed_maps_by_position(monkeypatch, field_g
     [
         ({"map_suffix": 1}, "must be a string"),
         ({"map_suffixes": "_E"}, "sequence of suffix strings"),
+        ({"map_suffix": "_E"}, "can only be used with map_file"),
         (
             {
                 "map_suffix": "_E",
@@ -320,6 +324,10 @@ def test_field_calibrator_selects_suffixed_maps_by_position(monkeypatch, field_g
             "mutually exclusive",
         ),
         ({"map_suffixes": ["_E", "_W"]}, "must be provided"),
+        (
+            {"map_suffixes": ["_E"], "map_selection_boundaries": []},
+            "at least two strings",
+        ),
         (
             {
                 "map_suffixes": ["_E", "_W"],
@@ -334,6 +342,13 @@ def test_field_calibrator_selects_suffixed_maps_by_position(monkeypatch, field_g
                 "map_selection_boundaries": [0.0],
             },
             "one fewer",
+        ),
+        (
+            {
+                "map_suffixes": ["_E", "_W", "_C"],
+                "map_selection_boundaries": [1.0, 0.0],
+            },
+            "finite and strictly increasing",
         ),
         ({"map_selection_boundaries": [0.0]}, "requires map_suffixes"),
     ],
