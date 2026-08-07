@@ -276,6 +276,35 @@ def test_unwrap_tensor_batch_multi_volume(monkeypatch):
     np.testing.assert_array_equal(result["points"][0][1], np.array([11, 11, 11, 2]))
 
 
+def test_unwrap_scalar_tensor_batch_multi_volume(monkeypatch):
+    """Multi-volume scalar outputs preserve one-dimensional event features."""
+
+    class MockTPC:
+        num_modules = 2
+
+    class MockGeo:
+        tpc = MockTPC()
+
+    monkeypatch.setattr(
+        "spine.io.unwrap.GeoManager.get_instance_if_initialized", lambda: MockGeo()
+    )
+    scores = TensorBatch(
+        np.asarray([1.0, 2.0, 3.0, 4.0], dtype=np.float32),
+        counts=[1, 1, 1, 1],
+    )
+    meta = [object(), object()]
+
+    result = Unwrapper()({"index": [0, 1], "meta": meta, "scores": scores})
+
+    assert all(isinstance(event, TensorData) for event in result["scores"])
+    np.testing.assert_array_equal(result["scores"][0].features, [1.0, 2.0])
+    np.testing.assert_array_equal(result["scores"][1].features, [3.0, 4.0])
+
+    scores.coord_cols = np.asarray([0])
+    with pytest.raises(ValueError, match="cannot carry coordinates"):
+        Unwrapper()({"index": [0, 1], "meta": meta, "scores": scores})
+
+
 def test_unwrap_tensor_batch_multi_volume_requires_numpy(monkeypatch):
     """Multi-volume coordinate translation requires numpy-backed tensor entries."""
 

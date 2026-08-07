@@ -194,6 +194,10 @@ class Unwrapper:
         # Group physical volumes by logical event and identify coordinate triplets
         tensors = []
         batch_size = data.batch_size // self.num_volumes
+        if data.data.ndim == 1 and data.coord_cols is not None:
+            raise ValueError(
+                "One-dimensional tensor products cannot carry coordinates."
+            )
         coord_groups = None
         if data.coord_cols is not None:
             coord_groups = np.asarray(data.coord_cols).reshape(-1, 3)
@@ -224,6 +228,15 @@ class Unwrapper:
 
             # Merge volumes and recover logical coordinate/feature matrices
             packed = np.concatenate(tensor_list)
+            event_meta = None if data.meta is None else data.meta[batch_id]
+
+            # Scalar feature batches remain one-dimensional after volumes are
+            # merged. Preserve that event representation just as `event()`
+            # does in the single-volume path.
+            if packed.ndim == 1:
+                tensors.append(TensorData(packed, meta=event_meta, schema=data.schema))
+                continue
+
             coord_cols = np.asarray(
                 () if data.coord_cols is None else data.coord_cols,
                 dtype=np.int64,
@@ -235,7 +248,6 @@ class Unwrapper:
                 column for column in range(packed.shape[1]) if column not in excluded
             ]
             coords = None if len(coord_cols) == 0 else packed[:, coord_cols]
-            event_meta = None if data.meta is None else data.meta[batch_id]
 
             # Rebuild one self-describing tensor for the logical event
             tensors.append(
