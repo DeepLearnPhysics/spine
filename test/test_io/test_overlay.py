@@ -3,6 +3,7 @@
 import numpy as np
 import pytest
 
+from spine.constants import SHAPE_PREC
 from spine.data import (
     ClusterLabelData,
     EdgeIndexData,
@@ -35,7 +36,9 @@ def make_tensor(coords, feats, **kwargs):
     )
 
 
-def make_cluster_label(coord, *, particles=True, meta=None):
+def make_cluster_label(
+    coord, *, particles=True, shape=0, precedence=SHAPE_PREC, meta=None
+):
     """Build one compact cluster-label product for overlay tests."""
     particle_table = None
     features = [[1.0, 0.0]]
@@ -47,12 +50,16 @@ def make_cluster_label(coord, *, particles=True, meta=None):
             "ancestor": np.asarray([0], dtype=np.int64),
             "interaction": np.asarray([0], dtype=np.int64),
             "nu": np.asarray([0], dtype=np.int64),
+            "shape": np.asarray([shape], dtype=np.int64),
         }
     return ClusterLabelData(
         coords=np.asarray([coord], dtype=np.int64),
         features=np.asarray(features, dtype=np.float32),
         particles=particle_table,
         meta=make_meta() if meta is None else meta,
+        precedence=(
+            np.asarray(precedence) if particles and precedence is not None else None
+        ),
     )
 
 
@@ -271,6 +278,38 @@ def test_overlayer_cluster_labels_without_particles():
 
     assert result.particles is None
     np.testing.assert_array_equal(result.voxel_field("cluster"), [0, 1])
+
+
+def test_overlayer_cluster_labels_do_not_treat_particle_indexes_as_shapes():
+    """Duplicate cleanup must not apply semantic precedence to particle indexes."""
+    batch = [{"label": make_cluster_label([0, 0, 0])} for _ in range(8)]
+    overlay = Overlayer(
+        data_keys=("label",), methods={"label": "cat"}, multiplicity=len(batch)
+    )
+
+    result = overlay(batch)[0]["label"]
+
+    assert len(result) == 1
+    np.testing.assert_array_equal(result.voxel_field("value"), [8.0])
+    np.testing.assert_array_equal(result.voxel_field("cluster"), [7.0])
+    np.testing.assert_array_equal(result.voxel_field("particle_index"), [7.0])
+
+
+def test_overlayer_cluster_labels_apply_carried_shape_precedence():
+    """The product's shape precedence should select among duplicate voxels."""
+    batch = [
+        {"label": make_cluster_label([0, 0, 0], shape=1, precedence=[0, 1])},
+        {"label": make_cluster_label([0, 0, 0], shape=0, precedence=[0, 1])},
+    ]
+    overlay = Overlayer(data_keys=("label",), methods={"label": "cat"}, multiplicity=2)
+
+    result = overlay(batch)[0]["label"]
+
+    assert len(result) == 1
+    np.testing.assert_array_equal(result.voxel_field("value"), [2.0])
+    np.testing.assert_array_equal(result.voxel_field("cluster"), [1.0])
+    np.testing.assert_array_equal(result.voxel_field("particle_index"), [1.0])
+    np.testing.assert_array_equal(result.voxel_field("shape"), [0])
 
 
 def test_overlayer_cluster_label_validation():

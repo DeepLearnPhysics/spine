@@ -189,10 +189,16 @@ class Overlayer:
             raise ValueError(
                 "Particle information must be consistent across an overlay."
             )
+        precedence = reference.precedence
+        if any(
+            not np.array_equal(entry.precedence, precedence) for entry in entries[1:]
+        ):
+            raise ValueError("Shape precedence must be consistent across an overlay.")
 
         # Track independent namespaces while concatenating source events
         coords_list = []
         feature_list = []
+        shape_list = []
         particle_tables = []
         cluster_offset = 0
         particle_table_offset = 0
@@ -200,6 +206,7 @@ class Overlayer:
         group_offset = 0
         interaction_offset = 0
         neutrino_offset = 0
+        has_precedence = precedence is not None
         for entry in entries:
             # Cluster IDs index voxel-level instances
             features = entry.features.copy()
@@ -208,6 +215,9 @@ class Overlayer:
             cluster_offset += int(np.max(entry.features[:, 1], initial=-1)) + 1
 
             if has_particles:
+                if has_precedence:
+                    shape_list.append(entry.shapes)
+
                 # Associations and ancestors index rows in the particle table
                 valid_particle = features[:, 2] >= 0
                 features[valid_particle, 2] += particle_table_offset
@@ -241,12 +251,22 @@ class Overlayer:
         # Merge overlapping voxels only after all index spaces are disjoint
         coords = np.concatenate(coords_list, axis=0)
         features = np.concatenate(feature_list, axis=0)
+        prec_col = None
+        if has_precedence:
+            # Expand the carried precedence field only for duplicate selection.
+            shapes = np.concatenate(shape_list, axis=0).reshape(-1, 1)
+            features = np.concatenate((features, shapes), axis=1)
+            prec_col = features.shape[1] - 1
         coords, features, selection = clean_sparse_data(
             coords,
             features,
             sum_cols=np.asarray([0], dtype=np.int64),
+            prec_col=prec_col,
+            precedence=precedence,
             return_index=True,
         )
+        if has_precedence:
+            features = features[:, :-1]
         self._row_selections[key] = (selection, sum(len(x) for x in feature_list))
 
         # Reassemble the particle side of the structured product
@@ -262,6 +282,7 @@ class Overlayer:
             particles=particles,
             meta=reference.meta,
             sum_cols=reference.sum_cols,
+            precedence=precedence,
         )
 
     def get_overlay_order(

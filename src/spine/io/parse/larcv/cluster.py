@@ -582,6 +582,7 @@ class LArCVCluster3DParser(ParserBase):
             meta=Meta.from_larcv(meta),
             remove_duplicates=True,
             sum_cols=self.sum_cols,
+            precedence=self.shape_precedence if particle_table is not None else None,
         )
 
 

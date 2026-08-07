@@ -206,6 +206,8 @@ class ClusterLabelData(_ClusterLabelFieldAccessor, DataProduct):
         Whether overlapping voxel rows should be merged during collation.
     sum_cols : numpy.ndarray, optional
         Compact feature columns summed during duplicate merging.
+    precedence : numpy.ndarray, optional
+        Ordering applied to particle shapes when resolving duplicate voxels.
     """
 
     data: Any
@@ -213,6 +215,7 @@ class ClusterLabelData(_ClusterLabelFieldAccessor, DataProduct):
     meta: Any | None = None
     remove_duplicates: bool = True
     sum_cols: np.ndarray | None = None
+    precedence: np.ndarray | None = None
 
     product_type = "cluster_label"
 
@@ -232,6 +235,7 @@ class ClusterLabelData(_ClusterLabelFieldAccessor, DataProduct):
         features: Any | None = None,
         remove_duplicates: bool = True,
         sum_cols: np.ndarray | None = None,
+        precedence: np.ndarray | None = None,
     ) -> None:
         """Initialize compact labels from packed or split event arrays.
 
@@ -251,6 +255,8 @@ class ClusterLabelData(_ClusterLabelFieldAccessor, DataProduct):
             Whether collation should merge duplicate coordinates.
         sum_cols : numpy.ndarray, optional
             Compact feature columns summed during duplicate merging.
+        precedence : numpy.ndarray, optional
+            Ordering applied to particle shapes when resolving duplicate voxels.
 
         Raises
         ------
@@ -275,6 +281,7 @@ class ClusterLabelData(_ClusterLabelFieldAccessor, DataProduct):
         self.meta = meta
         self.remove_duplicates = remove_duplicates
         self.sum_cols = sum_cols
+        self.precedence = None if precedence is None else np.asarray(precedence)
         self.__post_init__()
 
     @property
@@ -332,6 +339,8 @@ class ClusterLabelData(_ClusterLabelFieldAccessor, DataProduct):
 
         # Association-free products must omit the otherwise meaningless index
         if self.particles is None:
+            if self.precedence is not None:
+                raise ValueError("Shape precedence requires particle information.")
             if self.data.shape[1] != 5:
                 raise ValueError(
                     "Particle indexes must be omitted when particle information "
@@ -342,6 +351,8 @@ class ClusterLabelData(_ClusterLabelFieldAccessor, DataProduct):
         # Particle-backed labels require one event-local association per voxel
         if self.data.shape[1] != 6:
             raise ValueError("Particle information requires a particle-index column.")
+        if self.precedence is not None and "shape" not in self.particles:
+            raise ValueError("Shape precedence requires a particle `shape` field.")
         lengths = {len(value) for value in self.particles.values()}
         if len(lengths) > 1:
             raise ValueError("All particle fields must have the same length.")
