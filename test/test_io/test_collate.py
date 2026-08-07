@@ -180,6 +180,9 @@ def test_collate_cluster_labels_preserves_event_local_particle_tables():
     result = CollateAll(data_keys={"label": "cluster_label"})(batch)["label"]
 
     assert isinstance(result, ClusterLabelBatch)
+    assert result.dtype == np.float32
+    assert result.coords.dtype == np.float32
+    assert result.values.dtype == np.float32
     assert result.counts.tolist() == [1, 2]
     assert result.particle_field("pid").counts.tolist() == [1, 2]
     np.testing.assert_array_equal(result.voxel_field("pid").data, [2, 3, 4])

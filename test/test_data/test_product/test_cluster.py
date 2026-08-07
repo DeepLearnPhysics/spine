@@ -99,6 +99,18 @@ def test_cluster_label_without_particle_information_is_explicit():
         labels.voxel_field("pid")
 
 
+def test_cluster_label_packing_preserves_feature_dtype():
+    """Integer coordinates must not promote floating-point labels to float64."""
+    labels = ClusterLabelData(
+        coords=np.asarray([[1, 2, 3]], dtype=np.int32),
+        features=np.asarray([[4.0, 5.0]], dtype=np.float32),
+    )
+
+    assert labels.data.dtype == np.float32
+    assert labels.coords.dtype == np.float32
+    assert labels.values.dtype == np.float32
+
+
 def test_cluster_label_batch_round_trip_and_selection():
     """Device conversion, event slicing, and row selection preserve tables."""
     torch = pytest.importorskip("torch")

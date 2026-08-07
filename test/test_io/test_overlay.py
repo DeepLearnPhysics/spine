@@ -348,6 +348,20 @@ def test_overlayer_cluster_label_validation():
             [0, 1],
         )
 
+    with pytest.raises(ValueError, match="Shape precedence"):
+        overlay.stack_cluster_labels(
+            [
+                {"label": label},
+                {
+                    "label": make_cluster_label(
+                        [1, 1, 1], precedence=tuple(reversed(SHAPE_PREC))
+                    )
+                },
+            ],
+            "label",
+            [0, 1],
+        )
+
 
 def test_overlayer_singleton_overlay_passthrough():
     """Single-entry overlays should be returned unchanged."""

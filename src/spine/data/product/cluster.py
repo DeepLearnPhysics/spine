@@ -271,9 +271,11 @@ class ClusterLabelData(_ClusterLabelFieldAccessor, DataProduct):
             if coords is None or features is None:
                 raise ValueError("Must provide either `data` or both split arrays.")
             if isinstance(coords, torch.Tensor):
-                data = torch.cat((coords, features), dim=1)
+                data = torch.cat((coords.to(dtype=features.dtype), features), dim=1)
             else:
-                data = np.concatenate((coords, features), axis=1)
+                data = np.concatenate((coords, features), axis=1).astype(
+                    features.dtype, copy=False
+                )
 
         # Store compact voxel rows alongside the optional normalized table
         self.data = data
