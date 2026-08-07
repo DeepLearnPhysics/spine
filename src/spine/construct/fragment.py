@@ -111,6 +111,10 @@ class FragmentBuilder(BuilderBase):
         List[RecoFragment]
             List of constructed reconstructed fragment instances
         """
+        # Reconstructed objects always expose charge. In an uncalibrated chain
+        # it is identical to the preferred deposition representation.
+        charge = depositions if depositions_q is None else depositions_q
+
         # Convert the logits to softmax scores and the scores to a prediction
         primary_info: tuple[np.ndarray, np.ndarray] | None = None
         if fragment_node_pred is not None:
@@ -128,11 +132,7 @@ class FragmentBuilder(BuilderBase):
                 index=index,
                 points=points[index],
                 depositions=depositions[index],
-                depositions_q=(
-                    depositions[index]
-                    if depositions_q is None
-                    else depositions_q[index]
-                ),
+                depositions_q=charge[index],
             )
 
             # Add optional arguments
@@ -387,6 +387,8 @@ class FragmentBuilder(BuilderBase):
                     )
                 fragment.points = points[fragment.index]
                 fragment.depositions = depositions[fragment.index]
+                # Older files may not contain a separate charge array. Restore
+                # the pre-refactor behavior by falling back to depositions.
                 charge = depositions if depositions_q is None else depositions_q
                 fragment.depositions_q = charge[fragment.index]
                 if sources is not None:

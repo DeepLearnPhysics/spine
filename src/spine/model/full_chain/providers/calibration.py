@@ -59,7 +59,7 @@ class CalibrationStage(ChainStage):
         Parameters
         ----------
         data : TensorBatch
-            Source voxel tensor.
+            Source point tensor in input charge units.
 
         Returns
         -------
@@ -76,19 +76,30 @@ class CalibrationStage(ChainStage):
         )
 
     def forward(self, state: ChainState) -> StageResult:
-        """Apply calibration to a copy of the canonical voxel tensor.
+        """Apply calibration to a copy of the canonical charge tensor.
 
         Parameters
         ----------
         state : ChainState
-            State containing voxel data and optional calibration inputs.
+            State containing aligned point data and optional calibration inputs.
 
         Returns
         -------
         StageResult
-            Replacement aligned voxel bundle containing calibrated data.
+            Replacement aligned point family containing calibrated data while
+            retaining the original charge representation.
+
+        Raises
+        ------
+        ValueError
+            If required labels or metadata are missing or cannot be aligned.
+        RuntimeError
+            If applied calibration was configured without a calibrator.
         """
         point_data = state.require("point_data", self.name)
+
+        # Always calibrate from the preserved charge view. This keeps repeated
+        # stage ordering deterministic and avoids modifying driver-owned data.
         data: TensorBatch = self._copy(point_data.data_q)
         value_column = int(data.feature_columns()[0])
 

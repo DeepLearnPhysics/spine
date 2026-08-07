@@ -134,6 +134,10 @@ class ParticleBuilder(BuilderBase):
         List[RecoParticle]
             List of constructed reconstructed particle instances
         """
+        # Reconstructed objects always expose charge. In an uncalibrated chain
+        # it is identical to the preferred deposition representation.
+        charge = depositions if depositions_q is None else depositions_q
+
         # Convert the logits to softmax scores and the scores to a prediction
         pid_scores = softmax(particle_node_type_pred, axis=1)
         primary_scores = softmax(particle_node_primary_pred, axis=1)
@@ -160,11 +164,7 @@ class ParticleBuilder(BuilderBase):
                 index=index,
                 points=points[index],
                 depositions=depositions[index],
-                depositions_q=(
-                    depositions[index]
-                    if depositions_q is None
-                    else depositions_q[index]
-                ),
+                depositions_q=charge[index],
                 pid=pid_pred[i],
                 primary_scores=primary_scores[i],
                 is_primary=bool(primary_pred[i]),
@@ -478,6 +478,8 @@ class ParticleBuilder(BuilderBase):
                     )
                 particle.points = points[particle.index]
                 particle.depositions = depositions[particle.index]
+                # Older files may not contain a separate charge array. Restore
+                # the pre-refactor behavior by falling back to depositions.
                 charge = depositions if depositions_q is None else depositions_q
                 particle.depositions_q = charge[particle.index]
                 if sources is not None:

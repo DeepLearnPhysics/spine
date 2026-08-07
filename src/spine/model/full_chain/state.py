@@ -36,6 +36,11 @@ class ChainState:
     Stages may only replace products declared through their ``replaces``
     contract, preventing accidental overwrites from silently changing the
     remainder of the reconstruction chain.
+
+    Point-level tensors are exchanged by native providers through the
+    canonical ``point_data`` product. Flat ``data``, ``sources``, and
+    ``orig_index`` aliases remain synchronized for external providers that
+    still consume the historical interface.
     """
 
     def __init__(self, **products: Any) -> None:
@@ -45,6 +50,12 @@ class ChainState:
         ----------
         **products : object
             Canonical driver inputs. Null optional products are omitted.
+
+        Notes
+        -----
+        If a tensor-valued ``data`` product is supplied without an explicit
+        ``point_data`` product, an aligned :class:`PointBatch` is initialized
+        automatically from ``data`` and any source/index products.
         """
         self.products = {
             key: value for key, value in products.items() if value is not None
@@ -131,6 +142,9 @@ class ChainState:
 
         Raises
         ------
+        TypeError
+            If a stage publishes a non-:class:`PointBatch` value under the
+            canonical ``point_data`` key.
         ValueError
             If a stage replaces an undeclared product or duplicates a public
             output name.

@@ -197,6 +197,12 @@ class BuildManager:
             Dictionary of input data and model outputs
         entry : int, optional
             Entry number
+
+        Returns
+        -------
+        dict
+            Long-form coordinate, deposition, source, and truth arrays used by
+            the configured representation builders.
         """
         # Fetch the orginal sources
         sources = {}
@@ -211,6 +217,10 @@ class BuildManager:
         # Build aditional information
         update = {}
         if self.mode != "truth" or "label_adapt_tensor" in sources:
+            # Geometry and preferred depositions follow the calibrated view,
+            # while charge follows the adapted/input view. If either optional
+            # view is absent, source resolution has already selected its
+            # documented fallback.
             data_tensor: TensorData = sources["data_tensor"]
             data_q_tensor: TensorData = sources.get("data_q_tensor", data_tensor)
             update["points"] = data_tensor.coordinates()
@@ -289,7 +299,24 @@ class BuildManager:
 
     @staticmethod
     def _primary_feature(tensor: TensorData) -> np.ndarray:
-        """Returns the first feature column of a sparse tensor."""
+        """Return the first logical feature of a point tensor.
+
+        Parameters
+        ----------
+        tensor : TensorData
+            Point data whose packed layout may contain multiple features.
+
+        Returns
+        -------
+        np.ndarray
+            One scalar value per point row.
+
+        Notes
+        -----
+        Reconstruction depositions conventionally use feature zero. Accessing
+        ``features`` explicitly also supports multi-feature inputs, for which
+        the stricter ``values`` convenience property is intentionally invalid.
+        """
         features = tensor.features
         return features if features.ndim == 1 else features[:, 0]
 

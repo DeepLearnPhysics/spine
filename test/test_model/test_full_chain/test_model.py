@@ -11,7 +11,12 @@ import torch
 
 from spine.constants import GHOST_SHP, SHOWR_SHP, TRACK_SHP
 from spine.data import ClusterLabelBatch, IndexBatch, TensorBatch
-from spine.model.full_chain import FullChain, FullChainLoss, process_chain_config
+from spine.model.full_chain import (
+    FullChain,
+    FullChainLoss,
+    PointBatch,
+    process_chain_config,
+)
 from spine.model.full_chain.config import build_chain_plan
 from spine.model.full_chain.ops import AggregationOperations
 from spine.model.full_chain.providers.aggregation import (
@@ -143,6 +148,31 @@ def test_chain_state_optional_required_and_output_contracts() -> None:
     state.publish("first", StageResult(outputs={"score": 1}))
     with pytest.raises(ValueError, match="duplicate public output.*score"):
         state.publish("second", StageResult(outputs={"score": 2}))
+
+
+def test_chain_state_validates_point_data_and_removes_stale_aliases() -> None:
+    """Point-family publication should validate type and synchronize aliases."""
+    invalid = ChainState()
+    with pytest.raises(TypeError, match="must be PointBatch"):
+        invalid.publish("bad", StageResult({"point_data": object()}))
+
+    data = make_data()
+    sources = TensorBatch(torch.arange(8).reshape(4, 2), counts=[4])
+    orig_index = IndexBatch(np.arange(4), spans=[4], counts=[4])
+    state = ChainState(data=data, sources=sources, orig_index=orig_index)
+
+    # Publishing a family without optional aligned products must also remove
+    # their historical flat aliases, rather than leaving stale row domains.
+    replacement = PointBatch.from_input(data)
+    state.publish(
+        "replace",
+        StageResult({"point_data": replacement}),
+        frozenset({"point_data"}),
+    )
+
+    assert state.require("data") is data
+    assert "sources" not in state
+    assert "orig_index" not in state
 
 
 def test_stage_validation_reports_missing_inputs_and_collisions() -> None:

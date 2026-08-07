@@ -19,8 +19,10 @@ from ..state import ChainState, StageResult
 class DeghostStage(ChainStage):
     """Remove predicted or truth-labeled ghost voxels from canonical data.
 
-    The stage selects the aligned voxel bundle once, applying the same mask to
+    The stage selects the aligned point family once, applying the same mask to
     active data, input charge, calibrated data, sources, and original indexes.
+    Consequently deghosting may run before or after calibration without losing
+    either representation or changing their row correspondence.
     """
 
     requires = frozenset({"point_data"})
@@ -64,18 +66,25 @@ class DeghostStage(ChainStage):
         )
 
     def forward(self, state: ChainState) -> StageResult:
-        """Deghost the current voxel tensor and aligned source information.
+        """Deghost the current point tensor and aligned auxiliary products.
 
         Parameters
         ----------
         state : ChainState
-            State containing voxel data and optional truth/source products.
+            State containing point data and optional truth/source products.
 
         Returns
         -------
         StageResult
-            Adapted data, original-row indexes, ghost predictions, and any
-            aligned source products.
+            Adapted point family, ghost predictions, and independently aligned
+            truth products used by reconstruction and losses.
+
+        Raises
+        ------
+        ValueError
+            If a configured label-driven operation is missing its truth input.
+        RuntimeError
+            If learned deghosting was configured without a model.
         """
         point_data = state.require("point_data", self.name)
         data: TensorBatch = point_data.data

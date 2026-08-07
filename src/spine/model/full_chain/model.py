@@ -131,8 +131,9 @@ class FullChain(torch.nn.Module):
             result = stage(state)
             state.publish(stage.name, result, stage.replaces)
 
-        # Export each aligned representation once after every row-changing
-        # stage has had a chance to apply its selection to the full bundle.
+        # Delay public aliases until every row-changing stage has run. This
+        # guarantees data_adapt, data_calib, sources, and orig_index all expose
+        # the final common row domain, independent of configured stage order.
         point_outputs = state.require("point_data").public_outputs()
         if point_outputs:
             state.publish(
