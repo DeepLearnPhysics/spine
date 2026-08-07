@@ -35,6 +35,7 @@ class TestInteractionBase:
         assert len(obj.flash_volume_ids) == 0
         assert len(obj.flash_times) == 0
         assert len(obj.flash_scores) == 0
+        assert len(obj.flash_hypothesis_ids) == 0
 
     def test_interactionbase_with_data(self):
         """Test InteractionBase with complete data."""
@@ -68,6 +69,7 @@ class TestInteractionBase:
             flash_volume_ids=np.array([0], dtype=np.int32),
             flash_times=np.array([100.5], dtype=np.float32),
             flash_scores=np.array([0.95], dtype=np.float32),
+            flash_hypothesis_ids=np.array([2], dtype=np.int32),
         )
 
         # Verify initial state
@@ -85,6 +87,7 @@ class TestInteractionBase:
         assert len(obj.flash_volume_ids) == 0
         assert len(obj.flash_times) == 0
         assert len(obj.flash_scores) == 0
+        assert len(obj.flash_hypothesis_ids) == 0
 
     def test_interactionbase_reset_flash_match_idempotent(self):
         """Test reset_flash_match on an object without an existing match."""
@@ -101,10 +104,12 @@ class TestInteractionBase:
         assert obj.flash_volume_ids.dtype == np.int32
         assert obj.flash_times.dtype == np.float32
         assert obj.flash_scores.dtype == np.float32
+        assert obj.flash_hypothesis_ids.dtype == np.int32
         assert len(obj.flash_ids) == 0
         assert len(obj.flash_volume_ids) == 0
         assert len(obj.flash_times) == 0
         assert len(obj.flash_scores) == 0
+        assert len(obj.flash_hypothesis_ids) == 0
 
     def test_interactionbase_str_representation(self):
         """Test InteractionBase string representation."""
@@ -427,6 +432,33 @@ class TestTruthInteraction:
 
         assert obj.pdg_code == 12
         assert obj.energy_init == 1.0
+
+    def test_truthinteraction_time_prefers_neutrino(self):
+        """Truth interaction time should prefer its neutrino time."""
+        from spine.data.out import TruthInteraction, TruthParticle
+
+        obj = TruthInteraction(
+            t=12.0,
+            particles=[TruthParticle(t=3.0), TruthParticle(t=7.0)],
+        )
+
+        assert obj.time == 12.0
+        assert obj.value_with_units("time") == (12.0, "ns")
+
+    def test_truthinteraction_time_falls_back_to_earliest_particle(self):
+        """Truth interaction time should fall back to constituent particles."""
+        from spine.data.out import TruthInteraction, TruthParticle
+
+        obj = TruthInteraction(
+            particles=[
+                TruthParticle(t=np.nan),
+                TruthParticle(t=7.0),
+                TruthParticle(t=-2.0, is_valid=False),
+            ]
+        )
+
+        assert obj.time == -2.0
+        assert np.isnan(TruthInteraction().time)
 
     def test_truthinteraction_dir_and_reco_dir(self):
         """TruthInteraction dir should be true direction and reco_dir settable."""

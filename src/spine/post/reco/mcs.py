@@ -42,6 +42,9 @@ class MCSEnergyProcessor(PostBase):
         res_mixture: bool = False,
         res_weight_ratio: float = 0.5,
         res_scale_ratio: float = 2.25,
+        lower_bound: float = 10.0,
+        upper_bound: float = 100000.0,
+        return_invalid: bool = False,
         include_pids: Sequence[int] = (MUON_PID, PION_PID, PROT_PID, KAON_PID),
         fill_per_pid: bool = False,
         only_uncontained: bool = False,
@@ -71,6 +74,13 @@ class MCSEnergyProcessor(PostBase):
             When using a Rayleigh mixture, defines the weight ratio between components
         res_scale_ratio : float, default 2.25
             When using a Rayleigh mixture, defines the scale ratio between components
+        lower_bound : float, default 10.0
+            Minimum allowed kinetic energy in MeV
+        upper_bound : float, default 100000.0
+            Maximum allowed kinetic energy in MeV
+        return_invalid : bool, default False
+            If `True`, retain the optimizer value when the fit fails or
+            saturates either bound. This reproduces the legacy behavior
         include_pids : sequence[int], default [2, 3, 4, 5]
             Particle species to compute the kinetic energy for
         fill_per_pid : bool, default False
@@ -111,6 +121,19 @@ class MCSEnergyProcessor(PostBase):
         self.res_mixture = res_mixture
         self.res_weight_ratio = res_weight_ratio
         self.res_scale_ratio = res_scale_ratio
+        self.lower_bound = lower_bound
+        self.upper_bound = upper_bound
+        self.return_invalid = return_invalid
+
+        if (
+            not np.isfinite(lower_bound)
+            or not np.isfinite(upper_bound)
+            or lower_bound < 0.0
+            or lower_bound >= upper_bound
+        ):
+            raise ValueError(
+                "MCS fit bounds must be finite and satisfy 0 <= min < max."
+            )
 
     def process(self, data: Mapping[str, Any]) -> None:
         """Reconstruct the MCS KE estimates for each particle in one entry.
@@ -160,12 +183,15 @@ class MCSEnergyProcessor(PostBase):
                     theta,
                     mass,
                     self.segment_length,
-                    1,
-                    self.res_a,
-                    self.res_b,
-                    self.res_mixture,
-                    self.res_weight_ratio,
-                    self.res_scale_ratio,
+                    z=1,
+                    res_a=self.res_a,
+                    res_b=self.res_b,
+                    res_mixture=self.res_mixture,
+                    res_weight_ratio=self.res_weight_ratio,
+                    res_scale_ratio=self.res_scale_ratio,
+                    lower_bound=self.lower_bound,
+                    upper_bound=self.upper_bound,
+                    return_invalid=self.return_invalid,
                 )
 
                 # If requested, convert the KE to other PID hypotheses

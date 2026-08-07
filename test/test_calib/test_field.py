@@ -254,6 +254,100 @@ def test_field_calibrator_loads_map_file(monkeypatch):
     assert calls == [("fake.root", "TrueBkwd_Displacement", "zero")]
 
 
+def test_field_calibrator_loads_single_suffixed_map(monkeypatch, field_geo):
+    field_map = FieldMap(
+        np.ones((1, 1, 1, 3)),
+        [[-2.0, 2.0], [-1.0, 1.0], [-1.0, 1.0]],
+    )
+    calls = []
+
+    def fake_from_root(map_file, map_prefix, bounds="zero", map_suffix=""):
+        calls.append((map_file, map_prefix, bounds, map_suffix))
+        return field_map
+
+    monkeypatch.setattr(FieldMap, "from_root", fake_from_root)
+    calibrator = FieldCalibrator(map_file="dual.root", map_suffix="_E")
+
+    assert calibrator.field_map is field_map
+    assert calls == [("dual.root", "TrueFwd_Displacement", "zero", "_E")]
+
+
+def test_field_calibrator_selects_suffixed_maps_by_position(monkeypatch, field_geo):
+    east_map = FieldMap(
+        np.full((1, 1, 1, 3), [10.0, 0.0, 0.0]),
+        [[-2.0, 2.0], [-1.0, 1.0], [-1.0, 1.0]],
+    )
+    west_map = FieldMap(
+        np.full((1, 1, 1, 3), [20.0, 0.0, 0.0]),
+        [[-2.0, 2.0], [-1.0, 1.0], [-1.0, 1.0]],
+    )
+    calls = []
+
+    def fake_from_root(map_file, map_prefix, map_suffix="", bounds="zero"):
+        calls.append((map_file, map_prefix, map_suffix, bounds))
+        return {"_E": east_map, "_W": west_map}[map_suffix]
+
+    monkeypatch.setattr(FieldMap, "from_root", fake_from_root)
+    calibrator = FieldCalibrator(
+        map_file="dual.root",
+        map_suffixes=["_E", "_W"],
+        map_selection_axis=0,
+        map_selection_boundaries=[0.0],
+    )
+
+    points = np.asarray([[-1.0, 0.0, 0.0], [0.0, 0.0, 0.0], [1.0, 0.0, 0.0]])
+    assert np.allclose(
+        calibrator.process(points, tpc_id=0),
+        [[9.0, 0.0, 0.0], [20.0, 0.0, 0.0], [21.0, 0.0, 0.0]],
+    )
+    assert calls == [
+        ("dual.root", "TrueFwd_Displacement", "_E", "zero"),
+        ("dual.root", "TrueFwd_Displacement", "_W", "zero"),
+    ]
+
+
+@pytest.mark.parametrize(
+    "kwargs, match",
+    [
+        ({"map_suffix": 1}, "must be a string"),
+        ({"map_suffixes": "_E"}, "sequence of suffix strings"),
+        (
+            {
+                "map_suffix": "_E",
+                "map_suffixes": ["_E", "_W"],
+                "map_selection_boundaries": [0.0],
+            },
+            "mutually exclusive",
+        ),
+        ({"map_suffixes": ["_E", "_W"]}, "must be provided"),
+        (
+            {
+                "map_suffixes": ["_E", "_W"],
+                "map_selection_boundaries": [0.0],
+                "map_selection_axis": 3,
+            },
+            "must be 0, 1 or 2",
+        ),
+        (
+            {
+                "map_suffixes": ["_E", "_W", "_C"],
+                "map_selection_boundaries": [0.0],
+            },
+            "one fewer",
+        ),
+        ({"map_selection_boundaries": [0.0]}, "requires map_suffixes"),
+    ],
+)
+def test_field_calibrator_validates_map_selection(field_geo, kwargs, match):
+    field_map = FieldMap(
+        np.ones((1, 1, 1, 3)),
+        [[-2.0, 2.0], [-1.0, 1.0], [-1.0, 1.0]],
+    )
+
+    with pytest.raises(ValueError, match=match):
+        FieldCalibrator(field_map=field_map, **kwargs)
+
+
 def test_field_map_loads_root_th3_components(monkeypatch):
     fake_root = FakeROOT()
     monkeypatch.setattr(field_module, "ROOT_AVAILABLE", True)
@@ -266,6 +360,20 @@ def test_field_map_loads_root_th3_components(monkeypatch):
     assert np.allclose(field_map.range, [[0.0, 2.0], [-1.0, 1.0], [10.0, 14.0]])
     assert np.all(field_map.bins == [2, 1, 2])
     assert np.allclose(field_map.values[1, 0, 1], [104.0, 204.0, 304.0])
+
+
+def test_field_map_loads_suffixed_root_th3_components(monkeypatch):
+    fake_root = FakeROOT()
+    for component, axis in enumerate(("X", "Y", "Z")):
+        fake_root.file.hists[f"TrueFwd_Displacement_{axis}_E"] = FakeTH3(
+            390.0 + 100.0 * component
+        )
+    monkeypatch.setattr(field_module, "ROOT_AVAILABLE", True)
+    monkeypatch.setattr(field_module, "ROOT", fake_root)
+
+    field_map = FieldMap.from_root("fake.root", map_suffix="_E")
+
+    assert np.allclose(field_map.values[1, 0, 1], [404.0, 504.0, 604.0])
 
 
 def test_field_map_rejects_bad_root_file(monkeypatch):

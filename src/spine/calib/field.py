@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, TypeAlias, cast
 
@@ -69,6 +70,7 @@ class FieldMap:
         map_file: str | Path,
         map_prefix: str = "TrueFwd_Displacement",
         bounds: str = "zero",
+        map_suffix: str = "",
     ) -> "FieldMap":
         """Load a vector displacement map from TH3 objects in a ROOT file.
 
@@ -78,9 +80,12 @@ class FieldMap:
             ROOT file with one TH3 object per displacement component.
         map_prefix : str, default 'TrueFwd_Displacement'
             Prefix used to build the histogram names
-            ``{map_prefix}_X``, ``{map_prefix}_Y`` and ``{map_prefix}_Z``.
+            ``{map_prefix}_X{map_suffix}``, ``{map_prefix}_Y{map_suffix}``
+            and ``{map_prefix}_Z{map_suffix}``.
         bounds : str, default 'zero'
             Out-of-bounds behavior passed to :class:`FieldMap`.
+        map_suffix : str, default ''
+            Optional suffix appended after each displacement component.
 
         Returns
         -------
@@ -97,7 +102,7 @@ class FieldMap:
         try:
             hists = []
             for axis in ("X", "Y", "Z"):
-                hist_name = f"{map_prefix}_{axis}"
+                hist_name = f"{map_prefix}_{axis}{map_suffix}"
                 hist = root_file.Get(hist_name)
                 if not hist:
                     raise KeyError(
@@ -220,6 +225,10 @@ class FieldCalibrator:
         scale: float = 1.0,
         bounds: str = "zero",
         num_tpcs: int | None = None,
+        map_suffix: str = "",
+        map_suffixes: Sequence[str] | None = None,
+        map_selection_axis: int = 0,
+        map_selection_boundaries: Sequence[float] | None = None,
     ) -> None:
         """Initialize the field calibrator.
 
@@ -239,18 +248,74 @@ class FieldCalibrator:
             ROOT.
         num_tpcs : int, optional
             Accepted for compatibility with :class:`CalibrationManager`.
+        map_suffix : str, default ''
+            ROOT histogram suffix for a single map applied at every position.
+            Mutually exclusive with ``map_suffixes``.
+        map_suffixes : sequence[str], optional
+            Ordered ROOT histogram suffixes for position-dependent maps. When
+            provided, one map is loaded per suffix and selected using
+            ``map_selection_axis`` and ``map_selection_boundaries``. For
+            example, ``['_E', '_W']`` with boundary ``[0.]`` uses ``_E`` below
+            zero and ``_W`` at or above zero.
+        map_selection_axis : int, default 0
+            Coordinate axis used to select a position-dependent map.
+        map_selection_boundaries : sequence[float], optional
+            Ordered boundaries separating the map-selection regions. Must
+            contain exactly one fewer entry than ``map_suffixes``. Boundary
+            points are assigned to the region on their right.
         """
         if (map_file is None) == (field_map is None):
             raise ValueError("Must provide exactly one of map_file or field_map.")
 
+        if not isinstance(map_suffix, str):
+            raise ValueError("map_suffix must be a string.")
+        if isinstance(map_suffixes, str):
+            raise ValueError("map_suffixes must be a sequence of suffix strings.")
+        suffixes = None if map_suffixes is None else tuple(map_suffixes)
+        if map_suffix and suffixes is not None:
+            raise ValueError("map_suffix and map_suffixes are mutually exclusive.")
+        boundaries = self._validate_map_selection(
+            suffixes, map_selection_axis, map_selection_boundaries
+        )
+
         if field_map is None:
             assert map_file is not None  # for type checker
-            field_map = FieldMap.from_root(map_file, map_prefix, bounds=bounds)
+            if suffixes is None:
+                if map_suffix:
+                    field_maps = [
+                        FieldMap.from_root(
+                            map_file,
+                            map_prefix,
+                            bounds=bounds,
+                            map_suffix=map_suffix,
+                        )
+                    ]
+                else:
+                    field_maps = [
+                        FieldMap.from_root(map_file, map_prefix, bounds=bounds)
+                    ]
+            else:
+                field_maps = [
+                    FieldMap.from_root(
+                        map_file, map_prefix, map_suffix=suffix, bounds=bounds
+                    )
+                    for suffix in suffixes
+                ]
+        else:
+            if map_suffix or suffixes is not None:
+                raise ValueError(
+                    "map_suffix and map_suffixes can only be used with map_file."
+                )
+            field_maps = [field_map]
 
-        self.field_map = field_map
+        self.field_maps = field_maps
+        self.field_map = field_maps[0]
+        self.map_selection_axis = map_selection_axis
+        self.map_selection_boundaries = boundaries
         self.scale = scale
         self.geo = GeoManager.get_instance()
-        self.module_maps = self._build_module_maps()
+        self._module_maps = [self._build_module_maps(item) for item in field_maps]
+        self.module_maps = self._module_maps[0]
 
     def process(
         self,
@@ -271,17 +336,73 @@ class FieldCalibrator:
         np.ndarray
             ``(N, 3)`` array of displaced point coordinates.
         """
+        points = np.asarray(points, dtype=float)
+        if points.ndim != 2 or points.shape[1] != 3:
+            raise ValueError("Must provide an (N, 3) point array.")
+
         module_id = tpc_id // self.geo.tpc.num_chambers_per_module
-        displacements = self.module_maps[module_id].query(points)
+        if len(self.field_maps) == 1:
+            displacements = self.module_maps[module_id].query(points)
+        else:
+            variant_ids = np.searchsorted(
+                self.map_selection_boundaries,
+                points[:, self.map_selection_axis],
+                side="right",
+            )
+            displacements = np.empty_like(points)
+            for variant_id, module_maps in enumerate(self._module_maps):
+                mask = variant_ids == variant_id
+                if np.any(mask):
+                    displacements[mask] = module_maps[module_id].query(points[mask])
+
         return points + self.scale * displacements
 
-    def _build_module_maps(self) -> list[FieldMap]:
+    @staticmethod
+    def _validate_map_selection(
+        suffixes: tuple[str, ...] | None,
+        axis: int,
+        boundaries: Sequence[float] | None,
+    ) -> FloatArray:
+        """Validate and normalize position-dependent map selection options."""
+        if axis not in (0, 1, 2):
+            raise ValueError("map_selection_axis must be 0, 1 or 2.")
+
+        if suffixes is None:
+            if boundaries is not None:
+                raise ValueError(
+                    "map_selection_boundaries requires map_suffixes to be provided."
+                )
+            return np.empty(0, dtype=float)
+
+        if len(suffixes) < 2 or any(not isinstance(suffix, str) for suffix in suffixes):
+            raise ValueError("map_suffixes must contain at least two strings.")
+        if boundaries is None:
+            raise ValueError(
+                "map_selection_boundaries must be provided with map_suffixes."
+            )
+
+        boundaries_array = np.asarray(boundaries, dtype=float)
+        if boundaries_array.ndim != 1 or len(boundaries_array) != len(suffixes) - 1:
+            raise ValueError(
+                "map_selection_boundaries must contain one fewer entry than "
+                "map_suffixes."
+            )
+        if not np.all(np.isfinite(boundaries_array)) or np.any(
+            np.diff(boundaries_array) <= 0.0
+        ):
+            raise ValueError(
+                "map_selection_boundaries must be finite and strictly increasing."
+            )
+
+        return boundaries_array
+
+    def _build_module_maps(self, field_map: FieldMap) -> list[FieldMap]:
         """Build one field map in detector coordinates for each module."""
         maps: list[FieldMap | None] = [None] * self.geo.tpc.num_modules
         covered_ids = []
         for module_id, module in enumerate(self.geo.tpc.modules):
-            if self._volume_overlaps(module.boundaries, self.field_map.range):
-                maps[module_id] = self.field_map
+            if self._volume_overlaps(module.boundaries, field_map.range):
+                maps[module_id] = field_map
                 covered_ids.append(module_id)
 
         if not covered_ids:
@@ -294,7 +415,7 @@ class FieldCalibrator:
             source_id = self._get_source_module_id(module_id, covered_ids)
             source = self.geo.tpc.modules[source_id]
             maps[module_id] = self._transform_field_map(
-                self.field_map, source, module, self.geo
+                field_map, source, module, self.geo
             )
 
         return cast(list[FieldMap], maps)

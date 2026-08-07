@@ -226,6 +226,7 @@ class GeoDrawer:
         cmax: float | None = None,
         zero_supress: bool = False,
         volume_id: int | None = None,
+        size_scale: float | np.ndarray = 1.0,
         **kwargs: Any,
     ) -> list[go.Scatter3d | go.Mesh3d]:
         """Function which produces a list of traces which represent the optical
@@ -256,6 +257,8 @@ class GeoDrawer:
         volume_id : int, optional
             Specifies which optical volume to represent. If not specified, all
             the optical volumes are drawn
+        size_scale : float or np.ndarray, default 1.
+            Shared optical-detector size scale or one scale per detector
         **kwargs : dict, optional
             List of additional arguments to pass to
             spine.vis.trace.ellipsoid.ellipsoid_traces or
@@ -273,12 +276,24 @@ class GeoDrawer:
         # Fetch the optical element positions and sizes
         if volume_id is None:
             positions = self.geo.optical.positions
+            shape_ids = self.geo.optical.shape_ids
         else:
-            positions = self.geo.optical.volumes[volume_id].positions
+            volume = self.geo.optical.volumes[volume_id]
+            positions = volume.positions
+            shape_ids = volume.shape_ids
         half_sizes = self.geo.optical.sizes / 2
 
-        # If there is more than one detector shape, fetch shape IDs
-        shape_ids = self.geo.optical.shape_ids
+        require_matching_length(
+            size_scale,
+            len(positions),
+            "Must provide one size scale for each optical detector.",
+        )
+        scales_array = np.asarray(size_scale, dtype=np.float32)
+        scales = (
+            np.full(len(positions), scales_array.item(), dtype=np.float32)
+            if scales_array.ndim == 0
+            else scales_array
+        )
 
         # Convert the positions to pixel coordinates, if needed
         if not self.detector_coords:
@@ -339,6 +354,7 @@ class GeoDrawer:
                 pos = positions
                 col = color_by_detector
                 ht = hovertext_by_detector
+                scale = scales
             else:
                 index = np.where(np.asarray(shape_ids) == i)[0]
                 pos = positions[index]
@@ -347,6 +363,7 @@ class GeoDrawer:
                 else:
                     col = color_by_detector
                 ht = [hovertext_by_detector[j] for j in index]
+                scale = scales[index]
 
             # If zero-supression is requested, only draw the optical detectors
             # which record a non-zero signal
@@ -356,12 +373,14 @@ class GeoDrawer:
                 pos = pos[index]
                 col = col_array[index]
                 ht = [ht[i] for i in index]
+                scale = scale[index]
 
             # Dispatch the drawing based on the type of optical detector
             hd = half_sizes[i]
             if shape == "box":
                 # Convert the positions/sizes to box lower/upper bounds
-                lower, upper = pos - hd, pos + hd
+                scaled_hd = scale[:, None] * hd
+                lower, upper = pos - scaled_hd, pos + scaled_hd
 
                 # Build boxes
                 traces += box_traces(
@@ -392,6 +411,7 @@ class GeoDrawer:
                     cmin=cmin,
                     cmax=cmax,
                     hovertext=ht,
+                    size_scale=scale,
                     legendgroup=legendgroup,
                     **kwargs,
                 )
@@ -400,8 +420,8 @@ class GeoDrawer:
                 # Build disks as very flat cylinders
                 axis = np.zeros(3, dtype=hd.dtype)
                 axis[np.argmin(hd)] = 1.0
-                length = 2.0 * hd[np.argmin(hd)]
-                diameter = 2.0 * hd[np.argmax(hd)]
+                length = scale * 2.0 * hd[np.argmin(hd)]
+                diameter = scale * 2.0 * hd[np.argmax(hd)]
 
                 # Build disks
                 traces += cylinder_traces(

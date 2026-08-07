@@ -198,6 +198,16 @@ def process_particle_event(
     )
 
 
+def get_invalid_index(indexes):
+    """Infer the LArCV invalid index sentinel used by one event.
+
+    LArCV historically used :data:`INVAL_IDX` and now uses the larger
+    :data:`INVAL_ID`. A value above :data:`INVAL_IDX` identifies the newer
+    convention, allowing a valid historical ``INVAL_IDX`` value to be kept.
+    """
+    return INVAL_ID if np.max(indexes, initial=-1) > INVAL_IDX else INVAL_IDX
+
+
 def get_valid_mask(particles):
     """Gets a mask corresponding to particles with valid labels.
 
@@ -221,8 +231,9 @@ def get_valid_mask(particles):
 
     # If the interaction IDs are set in the particle tree, simply use that
     interaction_ids = np.array([p.interaction_id() for p in particles], dtype=int)
-    if np.any((interaction_ids != INVAL_ID) & (interaction_ids != INVAL_IDX)):
-        return interaction_ids != INVAL_ID
+    invalid_index = get_invalid_index(interaction_ids)
+    if np.any(interaction_ids != invalid_index):
+        return interaction_ids != invalid_index
 
     # Otherwise, check that the ancestor track ID and creation process are valid
     mask = np.array([p.ancestor_track_id() != INVAL_TID for p in particles])
@@ -263,7 +274,8 @@ def get_interaction_ids(particles, valid_mask=None):
 
     # If the interaction IDs are set in the particle tree, simply use that
     interaction_ids = np.array([p.interaction_id() for p in particles], dtype=int)
-    if np.any((interaction_ids != INVAL_ID) & (interaction_ids != INVAL_IDX)):
+    invalid_index = get_invalid_index(interaction_ids)
+    if np.any(interaction_ids != invalid_index):
         interaction_ids[~valid_mask] = -1
         return interaction_ids
 
@@ -564,7 +576,7 @@ def get_particle_ids(particles, valid_mask=None):
 
         # If the particle type exists in the predefined list, assign
         t = particles[group_id].pdg_code()
-        if t in PDG_TO_PID.keys():
+        if t in PDG_TO_PID:
             particle_ids[i] = PDG_TO_PID[t]
 
     return particle_ids

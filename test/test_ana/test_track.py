@@ -133,3 +133,28 @@ def test_track_completeness_rejects_non_cubic_pixels(monkeypatch):
 
     with pytest.raises(ValueError, match="Non-cubic"):
         ana.process({"meta": BadMeta(), "reco_particles": []})
+
+
+def test_track_completeness_skips_empty_or_zero_length_tracks(monkeypatch):
+    rows = []
+    monkeypatch.setattr(
+        TrackCompletenessAna,
+        "append",
+        lambda self, name, **kwargs: rows.append(kwargs),
+    )
+    empty = FakeParticle()
+    empty.points = np.empty((0, 3))
+    zero_length = FakeParticle()
+    zero_length.points = np.zeros((2, 3))
+    zero_length.start_point = np.zeros(3)
+    zero_length.end_point = np.zeros(3)
+    ana = TrackCompletenessAna(run_mode="reco", length_threshold=None)
+
+    ana.process(
+        {
+            "meta": FakeMeta(),
+            "reco_particles": [empty, zero_length],
+        }
+    )
+
+    assert rows == []

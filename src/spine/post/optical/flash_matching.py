@@ -2,10 +2,11 @@
 
 from collections import defaultdict
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
+from spine.data import FlashHypothesis
 from spine.data.out.base import OutBase
 from spine.geo import GeoManager
 from spine.post.base import PostBase
@@ -46,6 +47,9 @@ class FlashMatchProcessor(PostBase):
         parent_path: str | None = None,
         merge: Mapping[str, Any] | None = None,
         update_flashes: bool = False,
+        store_hypotheses: bool = False,
+        store_all_hypotheses: bool = False,
+        hypothesis_key: str = "flash_hypotheses",
         **kwargs: Any,
     ) -> None:
         """Initialize the flash matching algorithm.
@@ -75,6 +79,16 @@ class FlashMatchProcessor(PostBase):
         update_flashes : bool, default False
             If `True` and merging flashes, replaces the original list of
             flashes in place with the list of merged flashes
+        store_hypotheses : bool, default False
+            If ``True``, store the predicted per-channel optical response for
+            every eligible interaction and optical volume
+        store_all_hypotheses : bool, default False
+            If ``True``, store the match-specific prediction and score for
+            every positive-scoring interaction/flash candidate. This implies
+            ``store_hypotheses`` and requires ``StoreFullResult: true`` in the
+            OpT0Finder ``FlashMatchManager`` configuration
+        hypothesis_key : str, default 'flash_hypotheses'
+            Event-data key under which optical hypotheses are stored
         **kwargs : dict
             Keyword arguments to pass to specific flash matching algorithms
         """
@@ -109,6 +123,15 @@ class FlashMatchProcessor(PostBase):
         self.geo = GeoManager.get_instance()
 
         # Initialize the flash matching algorithm
+        self.method = method
+        self.store_all_hypotheses = store_all_hypotheses
+        self.store_hypotheses = store_hypotheses or store_all_hypotheses
+        self.hypothesis_key = hypothesis_key
+        if self.store_hypotheses and method != "likelihood":
+            raise ValueError(
+                "Optical hypotheses can only be stored with likelihood matching."
+            )
+
         if method == "barycenter":
             self.matcher = BarycenterFlashMatcher(**kwargs)
 
@@ -152,6 +175,8 @@ class FlashMatchProcessor(PostBase):
                Total number of PEs associated with the matched flash(es)
         - interaction.flash_hypo_pe: float, optional
                Total number of PEss associated with the hypothesis flash
+        - interaction.flash_hypothesis_ids: np.ndarray, optional
+               IDs of stored per-channel optical hypotheses
         """
         # Fetch the optical flashes
         flashes = data[self.flash_key]
@@ -162,11 +187,21 @@ class FlashMatchProcessor(PostBase):
             flashes, orig_ids = self.merger(flashes)
 
         # Loop over the optical volumes, run flash matching
-        volume_ids = np.asarray([f.volume_id for f in flashes])
+        volume_ids = np.asarray([f.volume_id for f in flashes], dtype=np.int32)
+        if self.store_hypotheses:
+            if self.geo.optical is None:
+                raise RuntimeError(
+                    "Cannot produce optical hypotheses without optical geometry."
+                )
+            volume_ids = np.union1d(
+                volume_ids, np.arange(self.geo.optical.num_volumes, dtype=np.int32)
+            )
+
+        hypotheses: list[FlashHypothesis] = []
         for k in self.interaction_keys:
             # Fetch interactions, nothing to do if there are not any
             interactions = data[k]
-            if not len(interactions):
+            if len(interactions) == 0:
                 continue
 
             # Make sure the interaction coordinates are expressed in cm
@@ -181,6 +216,7 @@ class FlashMatchProcessor(PostBase):
             flash_volume_ids = defaultdict(list)
             flash_times = defaultdict(list)
             flash_scores = defaultdict(list)
+            hypothesis_ids = defaultdict(list)
             for volume_id in np.unique(volume_ids):
                 # Get the list of flashes associated with this optical volume
                 flashes_v = []
@@ -237,6 +273,79 @@ class FlashMatchProcessor(PostBase):
                 # Run flash matching
                 matches = self.matcher.get_matches(interactions_v, flashes_v)
 
+                # Produce one standalone hypothesis per eligible interaction.
+                # Match-specific predictions replace these below when available.
+                volume_hypotheses = {}
+                if self.store_hypotheses:
+                    matcher = cast(LikelihoodFlashMatcher, self.matcher)
+                    predictions = matcher.get_hypotheses(interactions_v)
+                    for inter_v, pe_per_ch in predictions:
+                        inter = interactions[inter_v.id]
+                        hypothesis = FlashHypothesis(
+                            id=len(hypotheses),
+                            interaction_id=inter.id,
+                            volume_id=int(volume_id),
+                            is_truth=bool(inter.is_truth),
+                            pe_per_ch=pe_per_ch,
+                        )
+                        hypotheses.append(hypothesis)
+                        volume_hypotheses[inter.id] = hypothesis
+                        hypothesis_ids[inter.id].append(hypothesis.id)
+
+                    # By default, retain only accepted match predictions. If
+                    # requested, replace these with every scored candidate.
+                    hypothesis_matches = matches
+                    if self.store_all_hypotheses and interactions_v and flashes_v:
+                        hypothesis_matches = matcher.get_match_candidates()
+
+                    num_hypothesis_matches = defaultdict(int)
+                    for inter_v, flash, match in hypothesis_matches:
+                        match_obj: Any = match
+                        if not hasattr(match_obj, "hypothesis"):
+                            continue
+
+                        inter = interactions[inter_v.id]
+                        match_pe = np.asarray(
+                            list(match_obj.hypothesis), dtype=np.float32
+                        )
+                        score = (
+                            float(match_obj.score)
+                            if hasattr(match_obj, "score")
+                            else -1.0
+                        )
+                        if self.merger is not None and not self.update_flashes:
+                            matched_flash_ids = np.asarray(
+                                [
+                                    data[self.flash_key][i].id
+                                    for i in orig_ids[flash.id]
+                                ],
+                                dtype=np.int32,
+                            )
+                        else:
+                            matched_flash_ids = np.asarray([flash.id], dtype=np.int32)
+
+                        if (
+                            num_hypothesis_matches[inter.id] == 0
+                            and inter.id in volume_hypotheses
+                        ):
+                            hypothesis = volume_hypotheses[inter.id]
+                            hypothesis.pe_per_ch = match_pe
+                            hypothesis.flash_ids = matched_flash_ids
+                            hypothesis.score = score
+                        else:
+                            hypothesis = FlashHypothesis(
+                                id=len(hypotheses),
+                                interaction_id=inter.id,
+                                volume_id=int(volume_id),
+                                is_truth=bool(inter.is_truth),
+                                pe_per_ch=match_pe,
+                                flash_ids=matched_flash_ids,
+                                score=score,
+                            )
+                            hypotheses.append(hypothesis)
+                            hypothesis_ids[inter.id].append(hypothesis.id)
+                        num_hypothesis_matches[inter.id] += 1
+
                 # Store flash information
                 for inter_v, flash, match in matches:
                     # Get the interaction that matches the cropped version
@@ -249,7 +358,10 @@ class FlashMatchProcessor(PostBase):
                     else:
                         match_obj: Any = match
                         if hasattr(match_obj, "hypothesis"):
-                            hypo_pe = float(np.sum(list(match_obj.hypothesis)))
+                            match_pe = np.asarray(
+                                list(match_obj.hypothesis), dtype=np.float32
+                            )
+                            hypo_pe = float(np.sum(match_pe))
                         if hasattr(match_obj, "score"):
                             score = float(match_obj.score)
 
@@ -290,6 +402,15 @@ class FlashMatchProcessor(PostBase):
                     flash_scores[inter_id], dtype=np.float32
                 )
 
-        # Return an updated flash list, if requested
+            for inter_id in hypothesis_ids:
+                interactions[inter_id].flash_hypothesis_ids = np.asarray(
+                    hypothesis_ids[inter_id], dtype=np.int32
+                )
+
+        # Return generated products, if requested
+        result = {}
         if self.update_flashes:
-            return {self.flash_key: flashes}
+            result[self.flash_key] = flashes
+        if self.store_hypotheses:
+            result[self.hypothesis_key] = hypotheses
+        return result or None

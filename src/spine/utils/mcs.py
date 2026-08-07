@@ -22,6 +22,7 @@ def mcs_fit(
     res_scale_ratio=2.25,
     lower_bound=10.0,
     upper_bound=100000.0,
+    return_invalid=False,
 ):
     """Finds the kinetic energy which best fits a set of scattering angles
     measured between successive segments along a particle track.
@@ -51,7 +52,24 @@ def mcs_fit(
         Minimum allowed kinetic energy in MeV
     upper_bound : float, default 100000.
         Maximum allowed kinetic energy in MeV
+    return_invalid : bool, default False
+        If `True`, return the optimizer value even when the fit fails or
+        saturates either fit bound. This reproduces the legacy behavior
+
+    Returns
+    -------
+    float
+        Best-fit kinetic energy in MeV, or ``NaN`` when the fit is invalid
+        unless ``return_invalid`` is enabled
     """
+    if (
+        not np.isfinite(lower_bound)
+        or not np.isfinite(upper_bound)
+        or lower_bound < 0.0
+        or lower_bound >= upper_bound
+    ):
+        raise ValueError("MCS fit bounds must be finite and satisfy 0 <= min < max.")
+
     # Optimize the initial kinetic energy given a set of angles
     fit_min = scipy.optimize.minimize_scalar(
         mcs_nll_lar,
@@ -69,7 +87,20 @@ def mcs_fit(
         bounds=[lower_bound, upper_bound],
     )
 
-    return fit_min.x
+    # A solution on either bound is not a finite MCS measurement. In
+    # particular, an upper-bound solution occurs when the observed angles are
+    # below the angular resolution floor and the likelihood never turns over.
+    value = float(fit_min.x)
+    invalid = (
+        not fit_min.success
+        or not np.isfinite(value)
+        or np.isclose(value, lower_bound, rtol=1.0e-5, atol=1.0e-8)
+        or np.isclose(value, upper_bound, rtol=1.0e-5, atol=1.0e-8)
+    )
+    if invalid and not return_invalid:
+        return np.nan
+
+    return value
 
 
 @nb.njit(cache=True)

@@ -480,6 +480,8 @@ class Overlayer:
         shifts = None
         if len(ref_list.default.index_attrs) > 0:
             shifts = ref_list.index_shifts
+            if isinstance(shifts, dict):
+                shifts = dict(shifts)
             for idx in index[1:]:
                 # Shift indexes in the objects
                 obj_list = batch[idx][key]

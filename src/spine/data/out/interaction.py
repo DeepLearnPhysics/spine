@@ -57,6 +57,8 @@ class InteractionBase(OutBase):
         Total number of photoelectrons associated with the flash
     flash_hypo_pe : float
         Total number of photoelectrons expected to be produced by the interaction
+    flash_hypothesis_ids : np.ndarray
+        (H) Indices of optical hypotheses associated with the interaction
     is_crt_matched : bool
         True if any particle in the interaction was matched to a CRT hit
     crt_ids : np.ndarray
@@ -115,6 +117,10 @@ class InteractionBase(OutBase):
         default_factory=lambda: np.empty(0, dtype=np.float32),
         metadata=FieldMetadata(dtype=np.float32),
     )
+    flash_hypothesis_ids: np.ndarray = field(
+        default_factory=lambda: np.empty(0, dtype=np.int32),
+        metadata=FieldMetadata(dtype=np.int32),
+    )
 
     def __str__(self) -> str:
         """Human-readable string representation of the interaction object.
@@ -146,6 +152,7 @@ class InteractionBase(OutBase):
         self.flash_volume_ids = np.empty(0, dtype=np.int32)
         self.flash_times = np.empty(0, dtype=np.float32)
         self.flash_scores = np.empty(0, dtype=np.float32)
+        self.flash_hypothesis_ids = np.empty(0, dtype=np.int32)
 
     def set_particles(self, particles: list[ParticleBase]) -> None:
         """Attach constituent particles and rebuild aggregate attributes.
@@ -432,6 +439,9 @@ class TruthInteraction(Neutrino, InteractionBase, TruthBase):
         (3) Coordinates of the reconstructed interaction vertex
     reco_dir : np.ndarray
         (3) Reconstructed direction of the interaction
+    time : float
+        Interaction time (ns), taken from the attached neutrino when available
+        or from the earliest constituent particle otherwise
     """
 
     # Scalar attributes
@@ -467,6 +477,25 @@ class TruthInteraction(Neutrino, InteractionBase, TruthBase):
             Basic information about the interaction properties
         """
         return "Truth" + super().__str__()
+
+    @property
+    @stored_property(units="ns")
+    def time(self) -> float:
+        """Interaction time in nanoseconds.
+
+        The neutrino interaction time is authoritative when it is available.
+        Otherwise, use the earliest finite constituent-particle time.
+
+        Returns
+        -------
+        float
+            Interaction time, or ``NaN`` if no valid time is available
+        """
+        if np.isfinite(self.t):
+            return float(self.t)
+
+        times = [part.time for part in self.particles if np.isfinite(part.time)]
+        return float(min(times)) if len(times) else np.nan
 
     def attach_neutrino(self, neutrino) -> None:
         """Attach neutrino generator information to this interaction.

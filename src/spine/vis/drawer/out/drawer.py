@@ -19,10 +19,13 @@ from .traces import (
     build_crt_trace,
     build_direction_trace,
     build_end_point_trace,
+    build_flash_hypothesis_trace,
     build_flash_trace,
     build_raw_trace,
     build_start_point_trace,
     build_vertex_trace,
+    get_flash_hypothesis_pe,
+    get_flash_pe,
 )
 
 __all__ = ["Drawer"]
@@ -214,7 +217,10 @@ class Drawer:
         draw_directions: bool = False,
         draw_vertices: bool = False,
         draw_flashes: bool = False,
+        draw_flash_hypotheses: bool = False,
         matched_flash_only: bool = True,
+        optical_size_by_pe: bool = False,
+        flash_hypothesis_key: str = "flash_hypotheses",
         draw_crthits: bool = False,
         matched_crthit_only: bool = True,
         synchronize: bool = False,
@@ -242,8 +248,16 @@ class Drawer:
             If ``True``, draw interaction vertices.
         draw_flashes : bool, default False
             If ``True``, draw optical flashes.
+        draw_flash_hypotheses : bool, default False
+            If ``True``, draw stored optical predictions for the selected
+            interactions.
         matched_flash_only : bool, default True
             If ``True``, only draw flashes matched to the selected interactions.
+        optical_size_by_pe : bool, default False
+            If ``True``, scale both measured-flash and hypothesis detector
+            glyphs by PE using one shared normalization.
+        flash_hypothesis_key : str, default 'flash_hypotheses'
+            Event-data key containing optical hypothesis objects.
         draw_crthits : bool, default False
             If ``True``, draw CRT hits and hit planes.
         matched_crthit_only : bool, default True
@@ -362,25 +376,72 @@ class Drawer:
                 )
 
         # Draw flashes as a separate trace, if requested
-        show_optical = False
-        if draw_flashes:
-            if "flashes" not in self.data:
-                raise ValueError("Must provide the `flashes` objects to draw them.")
-            show_optical = True
+        show_optical = draw_flashes or draw_flash_hypotheses
+        if draw_flashes and "flashes" not in self.data:
+            raise ValueError("Must provide the `flashes` objects to draw them.")
+        if draw_flash_hypotheses and flash_hypothesis_key not in self.data:
+            raise ValueError(
+                f"Must provide the `{flash_hypothesis_key}` objects to draw "
+                "hypotheses."
+            )
+
+        if show_optical:
             for prefix in self.prefixes:
                 obj_name = f"{prefix}_interactions"
                 if obj_name not in self.data:
                     raise ValueError(
-                        "Must provide interactions to draw matched flashes."
+                        "Must provide interactions to draw matched flashes or "
+                        "optical hypotheses."
                     )
-                traces[prefix] += build_flash_trace(
-                    data=self.data,
-                    obj_name=obj_name,
-                    matched_only=matched_flash_only,
-                    geo=self.geo,
-                    geo_drawer=self.geo_drawer,
-                    meta=self.meta,
+
+                flash_pe = None
+                if draw_flashes:
+                    flash_pe = get_flash_pe(
+                        self.data, obj_name, matched_flash_only, self.geo
+                    )
+                hypothesis_pe = None
+                if draw_flash_hypotheses:
+                    hypothesis_pe = get_flash_hypothesis_pe(
+                        self.data, obj_name, flash_hypothesis_key, self.geo
+                    )
+
+                pe_arrays = [pe for pe in (flash_pe, hypothesis_pe) if pe is not None]
+                pe_max = max(
+                    (float(np.max(pe, initial=0.0)) for pe in pe_arrays),
+                    default=0.0,
                 )
+                cmax = pe_max if pe_max > 0.0 else 1.0
+
+                if draw_flashes:
+                    traces[prefix] += build_flash_trace(
+                        data=self.data,
+                        obj_name=obj_name,
+                        matched_only=matched_flash_only,
+                        geo=self.geo,
+                        geo_drawer=self.geo_drawer,
+                        meta=self.meta,
+                        size_by_pe=optical_size_by_pe,
+                        pe_max=pe_max,
+                        pe_per_detector=flash_pe,
+                        cmin=0.0,
+                        cmax=cmax,
+                        opacity=0.55 if draw_flash_hypotheses else 1.0,
+                    )
+                if draw_flash_hypotheses:
+                    traces[prefix] += build_flash_hypothesis_trace(
+                        data=self.data,
+                        obj_name=obj_name,
+                        hypothesis_key=flash_hypothesis_key,
+                        geo=self.geo,
+                        geo_drawer=self.geo_drawer,
+                        meta=self.meta,
+                        size_by_pe=optical_size_by_pe,
+                        pe_max=pe_max,
+                        pe_per_detector=hypothesis_pe,
+                        cmin=0.0,
+                        cmax=cmax,
+                        opacity=0.8,
+                    )
 
         # Draw CRT hits as a separate trace, if requested
         show_crt = False

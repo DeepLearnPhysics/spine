@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sys
 from importlib import import_module
 from typing import Any
@@ -31,6 +32,7 @@ class LikelihoodFlashMatcher:
         alpha: float | str = 0.21,
         recombination_mip: float | str = 0.65,
         legacy: bool = False,
+        hypothesis_algorithm: str | None = None,
     ) -> None:
         """Initialize the likelihood-based flash matching algorithm.
 
@@ -50,6 +52,10 @@ class LikelihoodFlashMatcher:
             Recombination factor for MIP-like particles in LAr
         legacy : bool, default False
             Use the legacy OpT0Finder function(s). TODO: remove when dropping legacy
+        hypothesis_algorithm : str, optional
+            Name of the OpT0Finder flash hypothesis algorithm. If omitted, it
+            is read from the ``FlashMatchManager`` configuration when optical
+            hypotheses are first requested.
         """
         # Initialize the flash manager (OpT0Finder wrapper)
         self.initialize_backend(cfg, detector, parent_path)
@@ -65,11 +71,16 @@ class LikelihoodFlashMatcher:
         if isinstance(self.recombination_mip, str):
             self.recombination_mip = ne.evaluate(self.recombination_mip)
         self.legacy = legacy
+        self.hypothesis_algorithm_name = hypothesis_algorithm
+        self.hypothesis: Any | None = None
 
         # Initialize flash matching attributes
         self.matches = None
+        self.match_candidates = None
         self.qcluster_v = None
         self.flash_v = None
+        self.interactions = None
+        self.flashes = None
 
     def initialize_backend(
         self, cfg: str, detector: str | None, parent_path: str | None
@@ -102,9 +113,7 @@ class LikelihoodFlashMatcher:
 
         # Add the OpT0Finder library to the dynamic link loader
         lib_path = os.path.join(basedir, "build/lib")
-        os.environ["LD_LIBRARY_PATH"] = "{}:{}".format(
-            lib_path, os.environ["LD_LIBRARY_PATH"]
-        )
+        os.environ["LD_LIBRARY_PATH"] = f"{lib_path}:{os.environ['LD_LIBRARY_PATH']}"
 
         # Add the OpT0Finder data directory if it is not yet set
         if "FMATCH_DATADIR" not in os.environ:
@@ -131,6 +140,7 @@ class LikelihoodFlashMatcher:
             raise FileNotFoundError(f"Cannot find flash-matcher config: {cfg}")
 
         fm_cfg = flashmatch.CreateFMParamsFromFile(cfg)
+        self.fm_cfg = fm_cfg
 
         # Initialize The OpT0Finder flash match manager
         self.mgr = flashmatch.FlashMatchManager()
@@ -141,6 +151,65 @@ class LikelihoodFlashMatcher:
             "LightPath", "ToyMCLightPath"
         )
         self.light_path.Configure(fm_cfg.get["flashmatch::FMParams"]("LightPath"))
+
+    def initialize_hypothesis(self) -> None:
+        """Initialize the configured OpT0Finder hypothesis algorithm lazily."""
+        if self.hypothesis is not None:
+            return
+
+        flashmatch = get_flashmatch()
+        algo_name = self.hypothesis_algorithm_name
+        if algo_name is None:
+            manager_cfg = self.fm_cfg.get["flashmatch::FMParams"]("FlashMatchManager")
+            match = re.search(
+                r'HypothesisAlgo\s*:\s*"?([^"\s]+)"?', str(manager_cfg.dump())
+            )
+            if match is None:
+                raise ValueError(
+                    "Could not identify `HypothesisAlgo` in the "
+                    "FlashMatchManager configuration. Provide "
+                    "`hypothesis_algorithm` explicitly."
+                )
+            algo_name = match.group(1)
+
+        hypothesis = flashmatch.FlashHypothesisFactory.get().create(
+            algo_name, algo_name
+        )
+        algo_cfg = self.fm_cfg.get["flashmatch::FMParams"](algo_name)
+        hypothesis.Configure(algo_cfg)
+        self.hypothesis = hypothesis
+
+    def get_hypotheses(self, interactions: list[Any]) -> list[tuple[Any, np.ndarray]]:
+        """Predict the per-channel optical response of each valid interaction.
+
+        Predictions are produced independently of measured flashes. Interactions
+        with fewer than two positive depositions are omitted, consistently with
+        likelihood matching.
+
+        Parameters
+        ----------
+        interactions : list[Interaction | TruthInteraction]
+            Interactions for which to predict the optical response.
+
+        Returns
+        -------
+        list[tuple[Interaction, np.ndarray]]
+            Interaction and predicted PE-per-channel pairs.
+        """
+        if not interactions:
+            return []
+
+        self.initialize_hypothesis()
+        if self.hypothesis is None:
+            raise RuntimeError("Failed to initialize the hypothesis algorithm.")
+        qcluster_v = self.make_qcluster_list(interactions)
+        result = []
+        for qcluster in qcluster_v:
+            estimate = self.hypothesis.GetEstimate(qcluster)
+            pe_per_ch = np.asarray(list(estimate.pe_v), dtype=np.float32)
+            result.append((interactions[qcluster.idx], pe_per_ch))
+
+        return result
 
     def get_matches(
         self, interactions: list[Any], flashes: list[Any]
@@ -159,15 +228,25 @@ class LikelihoodFlashMatcher:
         list[tuple[Interaction, Flash, flashmatch::FlashMatch_t]]
             Set of interaction/flash matches with their matching characteristics
         """
+        # Reset the flash matching attributes
+        self.matches = None
+        self.match_candidates = None
+        self.qcluster_v = None
+        self.flash_v = None
+        self.interactions = None
+        self.flashes = None
+
         # If there is no interaction or no flash, nothing to do
-        if not len(interactions) or not len(flashes):
+        if len(interactions) == 0 or len(flashes) == 0:
             return []
+
+        self.interactions = interactions
 
         # Build a list of QCluster_t (OpT0Finder interaction representation)
         self.qcluster_v = self.make_qcluster_list(interactions)
 
         # Build a list of Flash_t (OpT0Finder optical flash representation)
-        self.flash_v, flashes = self.make_flash_list(flashes)
+        self.flash_v, self.flashes = self.make_flash_list(flashes)
 
         # Running flash matching and caching the results
         self.matches = self.run_flash_matching()
@@ -177,8 +256,51 @@ class LikelihoodFlashMatcher:
         for m in self.matches:
             tpc_id = self.qcluster_v[m.tpc_id].idx
             flash_id = self.flash_v[m.flash_id].idx
-            result.append((interactions[tpc_id], flashes[flash_id], m))
+            result.append((interactions[tpc_id], self.flashes[flash_id], m))
 
+        return result
+
+    def get_match_candidates(self) -> list[tuple[Any, Any, Any]]:
+        """Return every positive-scoring interaction/flash candidate.
+
+        This requires ``StoreFullResult: true`` in the OpT0Finder
+        ``FlashMatchManager`` configuration and must be called after
+        :meth:`get_matches`.
+
+        Returns
+        -------
+        list[tuple[Interaction, Flash, flashmatch::FlashMatch_t]]
+            All positive-scoring interaction/flash candidates.
+        """
+        if (
+            self.qcluster_v is None
+            or self.flash_v is None
+            or self.interactions is None
+            or self.flashes is None
+        ):
+            raise ValueError("Must run flash matching before fetching candidates.")
+
+        full_results = self.mgr.FullResultTPCFlash()
+        if len(self.qcluster_v) and len(self.flash_v) and len(full_results) == 0:
+            raise ValueError(
+                "Full flash-match results are unavailable. Set "
+                "`StoreFullResult: true` in the OpT0Finder "
+                "`FlashMatchManager` configuration."
+            )
+
+        result = []
+        for matches in full_results:
+            for match in matches:
+                score = float(match.score)
+                if not np.isfinite(score) or score <= 0:
+                    continue
+                tpc_id = self.qcluster_v[match.tpc_id].idx
+                flash_id = self.flash_v[match.flash_id].idx
+                result.append(
+                    (self.interactions[tpc_id], self.flashes[flash_id], match)
+                )
+
+        self.match_candidates = result
         return result
 
     def make_qcluster_list(self, interactions: list[Any]) -> list[Any]:

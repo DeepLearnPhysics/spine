@@ -26,10 +26,14 @@ class FakeInteraction:
         self.energy_init = 10.0
         self.is_flash_matched = is_flash_matched
         self.flash_ids = np.array([4], dtype=np.int32)
+        self.flash_volume_ids = np.array([0], dtype=np.int32)
         self.flash_times = np.array([1.0], dtype=np.float32)
         self.flash_scores = np.array([0.5], dtype=np.float32)
         self.flash_total_pe = 20.0
         self.flash_hypo_pe = 18.0
+        self.is_fiducial = True
+        self.vertex = np.array([1.0, 2.0, 3.0], dtype=np.float32)
+        self.particle_counts = np.array([0, 1, 0, 0, 0], dtype=np.int32)
 
     def scalar_dict(self, attrs, lengths=None):
         return {attr: getattr(self, attr) for attr in attrs}
@@ -46,6 +50,20 @@ def test_flash_matching_ana_validates_configuration():
 
     with pytest.raises(ValueError, match="two values"):
         FlashMatchingAna(time_window=(0.0, 1.0, 2.0))
+
+
+def test_flash_matching_ana_configures_output_attributes():
+    ana = FlashMatchingAna(
+        max_num_flashes=2,
+        extra_reco_attrs=("is_fiducial", "vertex", "is_fiducial"),
+        extra_truth_attrs=("particle_counts",),
+    )
+
+    assert "flash_volume_ids" in ana.reco_attrs
+    assert ana.reco_lengths["flash_volume_ids"] == 2
+    assert ana.reco_attrs.count("is_fiducial") == 1
+    assert ana.reco_attrs[-2:] == ("is_fiducial", "vertex")
+    assert ana.truth_attrs[-1] == "particle_counts"
 
 
 def test_flash_matching_ana_process_writes_both_directions(monkeypatch):

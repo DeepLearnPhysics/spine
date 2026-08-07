@@ -118,6 +118,8 @@ class TrackCompletenessAna(AnaBase):
 
                 # Fetch the particle point coordinates
                 points = self.get_points(part)
+                if len(points) == 0:
+                    continue
 
                 # Find start/end points, collapse onto track cluster
                 start = points[np.argmin(cdist(part.start_point[None, :], points))]
@@ -126,8 +128,9 @@ class TrackCompletenessAna(AnaBase):
                 # Add the direction of the track
                 vec = end - start
                 length = np.linalg.norm(vec)
-                if length:
-                    vec /= length
+                if not np.isfinite(length) or length <= 0.0:
+                    continue
+                vec /= length
 
                 # If needed, check on the particle length
                 if self.length_threshold is not None:

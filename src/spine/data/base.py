@@ -341,10 +341,16 @@ class DataBase:
         for attr in self._index_attrs:
             value = getattr(self, attr)
             shift = shifts if not isinstance(shifts, dict) else shifts[attr]
-            if isinstance(value, int) and value > -1:
-                setattr(self, attr, value + shift)
+            if isinstance(value, (int, np.integer)):
+                if value > -1:
+                    setattr(self, attr, value + shift)
             elif isinstance(value, np.ndarray):
                 setattr(self, attr, value + shift)
+            else:
+                raise TypeError(
+                    f"Index attribute `{attr}` of `{type(self).__name__}` must "
+                    f"be an integer or NumPy array, got `{type(value).__name__}`."
+                )
 
     def as_dict(
         self, lite: bool = False, include_derived: bool = True

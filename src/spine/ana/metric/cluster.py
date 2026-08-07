@@ -43,6 +43,7 @@ class ClusterAna(AnaBase):
         label_key: str = "clust_label_adapt",
         label_col: str | None = None,
         truth_index_mode: str = "index_adapt",
+        time_window: Sequence[float] | None = None,
         **kwargs: Any,
     ) -> None:
         """Initialize the analysis script.
@@ -70,6 +71,9 @@ class ClusterAna(AnaBase):
         truth_index_mode : str, default 'index_adapt'
             Name of the truth object index attribute to use when rebuilding
             truth labels from objects
+        time_window : Sequence[float], optional
+            Truth-object time window in nanoseconds. Truth objects outside the
+            inclusive window are excluded from the clustering evaluation.
         **kwargs : dict, optional
             Additional arguments to pass to :class:`AnaBase`
         """
@@ -89,6 +93,17 @@ class ClusterAna(AnaBase):
                 "If evaluating clustering standalone (not per object), cannot "
                 "use objects to evaluate it."
             )
+        normalized_time_window: tuple[float, float] | None = None
+        if time_window is not None:
+            if not isinstance(time_window, Sequence) or len(time_window) != 2:
+                raise ValueError(
+                    "Time window must be specified as an array of two values."
+                )
+            if time_window[0] > time_window[1]:
+                raise ValueError(
+                    "Time window lower bound must not exceed its upper bound."
+                )
+            normalized_time_window = (time_window[0], time_window[1])
         standalone_label_col = label_col if not per_object else None
 
         # Initialize the parent class
@@ -108,9 +123,23 @@ class ClusterAna(AnaBase):
         self.per_object = per_object
         self.per_shape = per_shape
         self.label_key = label_key
+        self.time_window = normalized_time_window
 
         # Parse the label_col column, if necessary
         self.label_col = label_col
+
+        # Identify the truth object type used to time-mask standalone labels
+        self.time_obj_type: str | None = None
+        if self.time_window is not None and not self.per_object:
+            for name, column in self._label_cols:
+                if self.label_col == column:
+                    self.time_obj_type = name
+                    break
+            if self.time_obj_type is None:
+                raise ValueError(
+                    "Time filtering in standalone mode requires a fragment, "
+                    "particle or interaction clustering label column."
+                )
 
         # Convert metric strings to functions
         self.metrics: dict[str, Callable[..., float]] = {
@@ -122,6 +151,12 @@ class ClusterAna(AnaBase):
         if not use_objects:
             for key in self.obj_keys:
                 del keys[key]
+
+        # Time filtering always requires the corresponding truth objects
+        if self.time_window is not None:
+            time_obj_types = self.obj_type if self.per_object else [self.time_obj_type]
+            for obj in time_obj_types:
+                keys[f"truth_{obj}s"] = True
 
         # List other necessary data products
         if self.per_object:
@@ -195,6 +230,22 @@ class ClusterAna(AnaBase):
                 num_truth = len(data[f"truth_{obj_type}s"])
                 for i, obj in enumerate(data[f"truth_{obj_type}s"]):
                     labels[self.get_index(obj)] = i
+
+            # Restrict the truth evaluation domain to the requested time window
+            if self.time_window is not None:
+                time_obj_type = obj_type if self.per_object else self.time_obj_type
+                assert time_obj_type is not None
+                truth_objects = data[f"truth_{time_obj_type}s"]
+                valid_mask = np.zeros(num_points, dtype=bool)
+                lower, upper = self.time_window
+                for obj in truth_objects:
+                    if lower <= obj.time <= upper:
+                        valid_mask[self.get_index(obj)] = True
+
+                # Raw labels may be a view into the input label tensor
+                labels = labels.copy()
+                labels[~valid_mask] = -1
+                num_truth = len(np.unique(labels[labels > -1]))
 
             # Build the cluster predictions for this object type
             preds = np.full(num_points, -1, dtype=np.int32)

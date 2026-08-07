@@ -66,6 +66,8 @@ class TestParticleCreation:
         assert np.allclose(particle.momentum, [50.0, 30.0, 40.0])
         assert np.allclose(particle.end_momentum, [45.0, 25.0, 35.0])
         assert particle.t == 100.0
+        assert particle.time == particle.t
+        assert particle.value_with_units("time") == (100.0, "ns")
         assert particle.end_t == 200.0
 
     def test_particle_genealogy_properties(self):

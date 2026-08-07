@@ -75,6 +75,19 @@ Interactions represent complete neutrino interactions with all associated partic
    out.RecoInteraction
    out.TruthInteraction
 
+Optical Prediction Objects
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Optical hypotheses store the predicted per-channel photoelectron response for
+an interaction in one optical volume. They remain distinct from measured
+``larcv.Flash`` objects and may optionally reference the observed flashes used
+by likelihood matching.
+
+.. autosummary::
+   :toctree: generated
+
+   out.FlashHypothesis
+
 Batch Data Structures
 ---------------------
 
